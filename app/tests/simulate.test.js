@@ -1161,6 +1161,14 @@ test('gate:simulation:igs-ui-inline-modes-keep-original-floating-geometry', asyn
     vn.destroy();
 });
 
+test('gate:simulation:igs-ui-embedded-toolbar-floats-top-right-as-bare-icons', () => {
+    const css = getOriginalReaderStyleText();
+    assert.match(css, /\.igs-mode-embedded #igs-toolbar-layer\{inset:14px 14px auto auto;width:auto;height:auto;transform:none;\}/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar\{[^}]*position:static[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none[^}]*backdrop-filter:none/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn\{[^}]*width:32px[^}]*height:32px[^}]*border:0[^}]*background:transparent[^}]*color:rgba\(255,255,255,\.62\)/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn:hover\{[^}]*background:transparent[^}]*border-color:transparent[^}]*color:rgba\(255,255,255,\.9\)/);
+});
+
 test('gate:simulation:igs-ui-embedded-mounts-beside-latest-message-and-restores-source', async () => {
     const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
     const globalObject = document.defaultView;
@@ -1194,6 +1202,7 @@ test('gate:simulation:igs-ui-embedded-mounts-beside-latest-message-and-restores-
     assert.equal(mesText.style.display, 'none');
     assert.equal(mesText.getAttribute('aria-hidden'), 'true');
     assert.ok(host.contains(overlay));
+    assert.equal(overlay.querySelector('#igs-ctrl-bar').style.transformOrigin, 'right top');
     assert.match(overlay.className, /igs-mode-embedded/);
 
     const sendResult = await opened.reader.controller.submit('继续');

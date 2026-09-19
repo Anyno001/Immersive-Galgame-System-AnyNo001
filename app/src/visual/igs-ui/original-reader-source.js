@@ -135,7 +135,10 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-embedded-host[data-igs-embedded-loading="1"]{display:flex;align-items:center;justify-content:center;}
 #igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;}
 .igs-mode-embedded .igs-dialog{left:12px;right:12px;bottom:14px;width:auto;transform:none;display:flex;flex-direction:column;max-height:min(46%,220px);overflow:visible;padding:16px 18px 14px;}
-.igs-mode-embedded #igs-toolbar-layer{left:12px;right:12px;bottom:14px;width:auto;transform:none;}
+.igs-mode-embedded #igs-toolbar-layer{inset:14px 14px auto auto;width:auto;height:auto;transform:none;}
+.igs-mode-embedded .igs-ctrl-bar{position:static;top:auto;right:auto;gap:4px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
+.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn{width:32px;height:32px;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.62);}
+.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.9);}
 .igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}
 .igs-embedded-host{aspect-ratio:16 / 9;max-height:720px;}
 .igs-embedded-loading{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:100%;color:rgba(255,255,255,.72);font-size:13px;letter-spacing:.08em;}

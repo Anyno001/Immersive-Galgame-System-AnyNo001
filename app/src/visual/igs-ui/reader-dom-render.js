@@ -401,7 +401,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             toolbar.style.transformOrigin = '';
         } else {
             toolbar.style.transform = `scale(${Number(readerSettings.toolbarScale || 100) / 100})`;
-            toolbar.style.transformOrigin = 'right bottom';
+            toolbar.style.transformOrigin = snapshot.mode === 'embedded' ? 'right top' : 'right bottom';
         }
         // The shared glass material is applied through CSS variables on the overlay.
         toolbar.style.background = '';
