@@ -64,7 +64,7 @@ export function resolveSceneStateAtIndex(directives, segmentIndex) {
 }
 
 export function lookupSceneAssetUrls(sceneState, sceneAssets) {
-    if (!sceneAssets || !sceneState) return { backgroundUrl: null, spriteUrl: null, spriteSlot: '' };
+    if (!sceneAssets || !sceneState) return { backgroundUrl: null, spriteUrl: null, spriteSlot: '', spriteCharacter: '' };
 
     const scenes = sceneAssets.scenes || {};
     const backgroundUrl = lookupSceneUrl(scenes, sceneState.scene, sceneState.time, sceneState.weather, sceneAssets);
@@ -72,17 +72,30 @@ export function lookupSceneAssetUrls(sceneState, sceneAssets) {
     let spriteUrl = null;
     let spriteSlot = '';
     const characters = sceneAssets.characters || {};
-    if (sceneState.character && characters[sceneState.character]) {
-        const hit = lookupAssetValue(characters[sceneState.character], sceneState.mood, sceneAssets.moodGroups);
+    const spriteCharacter = resolveCharacterKey(characters, sceneAssets.characterAliases, sceneState.character);
+    if (spriteCharacter) {
+        const hit = lookupAssetValue(characters[spriteCharacter], sceneState.mood, sceneAssets.moodGroups);
         spriteUrl = hit.url;
         spriteSlot = hit.slot;
     }
 
-    return { backgroundUrl, spriteUrl, spriteSlot };
+    return { backgroundUrl, spriteUrl, spriteSlot, spriteCharacter: spriteCharacter || '' };
 }
 
-// 场景名词库是内嵌式：scenes[名].words 是归属该场景的标签词。
-// AI 写的细分场景名先精确命中 key，再找哪个场景的 words 包含它（组归约）。
+function resolveCharacterKey(characters, characterAliases, characterName) {
+    const target = String(characterName || '').trim();
+    if (!target || !characters || typeof characters !== 'object') return null;
+    if (characters[target] != null) return target;
+    const aliases = characterAliases && typeof characterAliases === 'object' ? characterAliases : {};
+    for (const key of Object.keys(characters)) {
+        const values = Array.isArray(aliases[key]) ? aliases[key] : [];
+        if (values.some((value) => String(value || '').trim() === target)) return key;
+    }
+    return null;
+}
+
+// 场景别名沿用 scenes[名].words 存储；先精确命中主名称，再按别名归约。
+// 角色别名则由 characterAliases 映射到原角色，避免复制整套立绘槽。
 function resolveSceneKey(scenes, sceneName) {
     const target = String(sceneName || '').trim();
     if (!target) return null;

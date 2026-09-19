@@ -1441,12 +1441,11 @@ export function createIgsReaderHost(options = {}) {
                 spriteChar = sceneStateForBg.character;
                 spriteMood = sceneStateForBg.mood || '';
             }
-            if (!slotBoundUrl && sceneAssets && sceneAssets.enabled && spriteChar
-                && sceneAssets.characters && sceneAssets.characters[spriteChar]) {
+            if (!slotBoundUrl && sceneAssets && sceneAssets.enabled && spriteChar) {
                 const spriteUrls = lookupSceneAssetUrls({ character: spriteChar, mood: spriteMood }, sceneAssets);
                 spriteImage = spriteUrls.spriteUrl || null;
                 if (spriteImage) {
-                    spriteCharacter = spriteChar;
+                    spriteCharacter = spriteUrls.spriteCharacter || spriteChar;
                     // Position keys follow the resolved image slot (exact mood / group /
                     // 默认), not the raw mood word, so every mood that maps to the same
                     // sprite image shares one position across pages.
@@ -1661,6 +1660,7 @@ export function createIgsReaderHost(options = {}) {
                 weatherGroups: sceneAssets.weatherGroups || [],
             });
             const charsHtml = renderCharacterAssetList(sceneAssets.characters || {}, {
+                aliases: sceneAssets.characterAliases || {},
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
             });
@@ -1675,7 +1675,7 @@ export function createIgsReaderHost(options = {}) {
           <div class="igs-source-filter-title">背景场景</div>
           <button class="igs-btn-mgr-icon" data-action="scene-add-bg" type="button" title="添加背景图">+</button>
         </div>
-        <div class="igs-source-filter-note">场景名 → 背景图 URL。名为「默认」的条目在无匹配时兜底。子层级（时间→天气）优先级依次升高。</div>
+        <div class="igs-source-filter-note">场景名及其别名共用同一套背景；名为「默认」的条目在无匹配时兜底。子层级（时间→天气）优先级依次升高。</div>
         ${scenesHtml}
       </div>`;
             const charactersPane = `<div class="igs-source-filter">
@@ -1683,7 +1683,7 @@ export function createIgsReaderHost(options = {}) {
           <div class="igs-source-filter-title">角色立绘</div>
           <button class="igs-btn-mgr-icon" data-action="scene-add-char" type="button" title="添加角色">+</button>
         </div>
-        <div class="igs-source-filter-note">角色名 → 情绪 → 立绘 URL。展开情绪槽可预览立绘并编辑该情绪组的词（词库全局共享）。</div>
+        <div class="igs-source-filter-note">角色名及其别名共用同一套情绪立绘与位置；展开情绪槽可预览立绘并编辑情绪词库。</div>
         <div class="igs-settings-row">${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置（各情绪共用一套位置）')}</div>
         ${charsHtml}
         <div class="igs-settings-row"><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认词库</button></div>
@@ -1719,6 +1719,10 @@ export function createIgsReaderHost(options = {}) {
         // 对话主题已取消预设选择，恒为自定义：自定义项始终可编辑（仅受场景素材开关 themeDisabled 控制）。
         const themeCustom = true;
         const displayTheme = classicDialog ? classicVnTheme : vnTheme;
+        const dialogHeightItems = [['null', '自适应'], [160, '160px'], [200, '200px'], [250, '250px'], [300, '300px'], [400, '400px'], [500, '500px'], [600, '600px']];
+        if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
+            dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（保留）`]);
+        }
         const readerSubTabs = READER_SUBTAB_DEFS.map(([id, label]) => (
             `<button type="button" class="igs-reader-subtab${readerSubTab === id ? ' is-active' : ''}" data-reader-subtab="${id}" role="tab" aria-selected="${readerSubTab === id ? 'true' : 'false'}">${label}</button>`
         )).join('');
@@ -1728,7 +1732,7 @@ export function createIgsReaderHost(options = {}) {
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`])), '按阅读器可用宽度自动计算；手机端保持 100%。') : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
             dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog), classicDialog ? '西欧古典请在「主题」页按比例调整；原像素值会保留。' : ''),
-            dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, [['null', '自适应'], [10, '10px'], [20, '20px'], [40, '40px'], [60, '60px'], [90, '90px'], [130, '130px'], [160, '160px'], [200, '200px'], [250, '250px'], [300, '300px'], [400, '400px'], [500, '500px'], [600, '600px']], classicDialog), classicDialog ? `当前风格使用固定 ${CLASSIC_DIALOG_HEIGHT}px；原设置值会保留。` : ''),
+            dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, dialogHeightItems, classicDialog), classicDialog ? `当前风格使用固定 ${CLASSIC_DIALOG_HEIGHT}px；原设置值会保留。` : '浮窗最低 160px，正文过长时在框内滚动。'),
             glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`])), classicDialog ? '不影响素材对话框，仍作用于工具栏、选项和数据库。' : ''),
             imageCountField: field('readerSettings.imageCountOverride', '检测图像数量', selectInput('readerSettings.imageCountOverride', reader.imageCountOverride === null ? 'null' : reader.imageCountOverride, [['null', '自动']].concat(Array.from({ length: 20 }, (_, index) => [index + 1, `${index + 1}张`])))),
             inputScaleField: field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
@@ -2318,6 +2322,22 @@ export function createIgsReaderHost(options = {}) {
         if (!normalized.characters || typeof normalized.characters !== 'object' || Array.isArray(normalized.characters)) {
             normalized.characters = {};
         }
+        const rawCharacterAliases = normalized.characterAliases && typeof normalized.characterAliases === 'object' && !Array.isArray(normalized.characterAliases)
+            ? normalized.characterAliases
+            : {};
+        normalized.characterAliases = {};
+        const claimedCharacterNames = new Set(Object.keys(normalized.characters));
+        for (const characterName of Object.keys(normalized.characters)) {
+            const aliases = Array.isArray(rawCharacterAliases[characterName]) ? rawCharacterAliases[characterName] : [];
+            const nextAliases = [];
+            for (const aliasValue of aliases) {
+                const alias = String(aliasValue || '').trim();
+                if (!alias || claimedCharacterNames.has(alias)) continue;
+                claimedCharacterNames.add(alias);
+                nextAliases.push(alias);
+            }
+            normalized.characterAliases[characterName] = nextAliases;
+        }
         normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
         // init group arrays
         if (!Array.isArray(normalized.timeGroups)) normalized.timeGroups = [];
@@ -2406,6 +2426,9 @@ export function createIgsReaderHost(options = {}) {
         normalized.optionFontSize = clampNumber(normalizeFiniteNumber(normalized.optionFontSize, base.optionFontSize), 10, 30);
         normalized.dialogWidth = normalizeNullableNumber(normalized.dialogWidth);
         normalized.dialogHeight = normalizeNullableNumber(normalized.dialogHeight);
+        if (normalized.dialogHeight != null && normalized.dialogSkin !== DIALOG_SKIN_WESTERN_CLASSIC) {
+            normalized.dialogHeight = clampNumber(normalized.dialogHeight, 160, 600);
+        }
         normalized.glassOpacity = normalizeOpacity(normalized.glassOpacity, base.glassOpacity);
         normalized.glassBackdropFilter = normalizeBoolean(normalized.glassBackdropFilter, base.glassBackdropFilter);
         normalized.toolbarScale = normalizeFiniteNumber(normalized.toolbarScale, base.toolbarScale);

@@ -497,9 +497,11 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'scene-add-char') {
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         settingsState.draft.bridge.sceneAssets.characters = settingsState.draft.bridge.sceneAssets.characters || {};
+        settingsState.draft.bridge.sceneAssets.characterAliases = settingsState.draft.bridge.sceneAssets.characterAliases || {};
         const existingKeys = Object.keys(settingsState.draft.bridge.sceneAssets.characters);
         const newName = '角色' + (existingKeys.length + 1);
         settingsState.draft.bridge.sceneAssets.characters[newName] = { '默认': '' };
+        settingsState.draft.bridge.sceneAssets.characterAliases[newName] = [];
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -509,9 +511,49 @@ export async function handleSettingsAction(action, ctx) {
         const name = decodeSeg(normalizedAction.slice('scene-remove-char:'.length));
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         settingsState.draft.bridge.sceneAssets.characters = settingsState.draft.bridge.sceneAssets.characters || {};
+        settingsState.draft.bridge.sceneAssets.characterAliases = settingsState.draft.bridge.sceneAssets.characterAliases || {};
         delete settingsState.draft.bridge.sceneAssets.characters[name];
+        delete settingsState.draft.bridge.sceneAssets.characterAliases[name];
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('scene-add-char-alias:')) {
+        const charName = decodeSeg(normalizedAction.slice('scene-add-char-alias:'.length));
+        const globalObj = options.global || globalThis;
+        const alias = (globalObj.prompt && globalObj.prompt(`为角色「${charName}」添加别名：`, '') || '').trim();
+        if (!alias) return rerenderSettings();
+        const sceneAssets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const characters = sceneAssets.characters || {};
+        const aliases = ensureCharacterAliases(settingsState);
+        if (Object.prototype.hasOwnProperty.call(characters, alias)) {
+            if (globalObj.alert) globalObj.alert(`「${alias}」已是角色主名称`);
+            return rerenderSettings();
+        }
+        const duplicateOwner = Object.keys(aliases).find((name) => Array.isArray(aliases[name]) && aliases[name].includes(alias));
+        if (duplicateOwner) {
+            if (globalObj.alert) globalObj.alert(`别名「${alias}」已属于角色「${duplicateOwner}」`);
+            return rerenderSettings();
+        }
+        if (!Object.prototype.hasOwnProperty.call(characters, charName)) return rerenderSettings();
+        aliases[charName].push(alias);
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('scene-remove-char-alias:')) {
+        const rest = normalizedAction.slice('scene-remove-char-alias:'.length);
+        const colonIdx = rest.indexOf(':');
+        if (colonIdx > 0) {
+            const charName = decodeSeg(rest.slice(0, colonIdx));
+            const alias = decodeSeg(rest.slice(colonIdx + 1));
+            const aliases = ensureCharacterAliases(settingsState);
+            aliases[charName] = (aliases[charName] || []).filter((value) => value !== alias);
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+        }
         return rerenderSettings();
     }
 
@@ -583,9 +625,20 @@ export async function handleSettingsAction(action, ctx) {
         const globalObj = options.global || globalThis;
         const newName = (globalObj.prompt && globalObj.prompt(`重命名角色「${oldName}」为：`, oldName) || '').trim();
         if (newName && newName !== oldName) {
-            settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-            const chars = settingsState.draft.bridge.sceneAssets.characters || {};
-            settingsState.draft.bridge.sceneAssets.characters = reorderKey(chars, oldName, newName);
+            const sceneAssets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+            const chars = sceneAssets.characters || {};
+            const aliases = ensureCharacterAliases(settingsState);
+            if (Object.prototype.hasOwnProperty.call(chars, newName)) {
+                if (globalObj.alert) globalObj.alert(`角色「${newName}」已存在（同名）`);
+                return rerenderSettings();
+            }
+            const aliasOwner = Object.keys(aliases).find((name) => Array.isArray(aliases[name]) && aliases[name].includes(newName));
+            if (aliasOwner) {
+                if (globalObj.alert) globalObj.alert(`「${newName}」已是角色「${aliasOwner}」的别名`);
+                return rerenderSettings();
+            }
+            sceneAssets.characters = reorderKey(chars, oldName, newName);
+            sceneAssets.characterAliases = reorderKey(aliases, oldName, newName);
             renameSetPrefix(settingsState.asyncState.expandedSpriteSlots, `${oldName}\x00`, `${newName}\x00`);
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
@@ -785,6 +838,7 @@ export async function handleSettingsAction(action, ctx) {
         presets[name] = {
             scenes: cloneData(sa.scenes || {}),
             characters: cloneData(sa.characters || {}),
+            characterAliases: cloneData(sa.characterAliases || {}),
             moodGroups: cloneData(sa.moodGroups || []),
             timeGroups: cloneData(sa.timeGroups || []),
             weatherGroups: cloneData(sa.weatherGroups || []),
@@ -812,6 +866,7 @@ export async function handleSettingsAction(action, ctx) {
                 settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
                 settingsState.draft.bridge.sceneAssets.scenes = cloneData(preset.scenes || {});
                 settingsState.draft.bridge.sceneAssets.characters = cloneData(preset.characters || {});
+                settingsState.draft.bridge.sceneAssets.characterAliases = cloneData(preset.characterAliases || {});
                 settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(preset.moodGroups || []);
                 settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(preset.timeGroups || []);
                 settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(preset.weatherGroups || []);
@@ -859,6 +914,7 @@ export async function handleSettingsAction(action, ctx) {
         presets[name] = {
             scenes: fileResult.data.scenes || {},
             characters: fileResult.data.characters || {},
+            characterAliases: fileResult.data.characterAliases || {},
             moodGroups: fileResult.data.moodGroups || [],
             timeGroups: fileResult.data.timeGroups || [],
             weatherGroups: fileResult.data.weatherGroups || [],
@@ -869,6 +925,7 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         settingsState.draft.bridge.sceneAssets.scenes = cloneData(presets[name].scenes);
         settingsState.draft.bridge.sceneAssets.characters = cloneData(presets[name].characters);
+        settingsState.draft.bridge.sceneAssets.characterAliases = cloneData(presets[name].characterAliases || {});
         settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(presets[name].moodGroups);
         settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(presets[name].timeGroups || []);
         settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(presets[name].weatherGroups || []);
@@ -888,7 +945,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!preset) return rerenderSettings();
         const doc = globalObj.document;
         if (!doc) return { ok: false, reason: 'no-document' };
-        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], spriteLayouts: preset.spriteLayouts || {} }, null, 2);
+        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], spriteLayouts: preset.spriteLayouts || {} }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = doc.createElement('a');
@@ -949,19 +1006,23 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction.startsWith('scene-add-bg-word:')) {
         const sceneName = decodeSeg(normalizedAction.slice('scene-add-bg-word:'.length));
         const globalObj = options.global || globalThis;
-        const word = (globalObj.prompt && globalObj.prompt(`向场景「${sceneName}」添加词：`, '') || '').trim();
-        if (word) {
+        const alias = (globalObj.prompt && globalObj.prompt(`为场景「${sceneName}」添加别名：`, '') || '').trim();
+        if (alias) {
             const scenes = (settingsState.draft.bridge.sceneAssets || {}).scenes || {};
-            const dup = findSceneWord(scenes, word);
+            if (Object.prototype.hasOwnProperty.call(scenes, alias)) {
+                if (globalObj.alert) globalObj.alert(`「${alias}」已是场景主名称`);
+                return rerenderSettings();
+            }
+            const dup = findSceneWord(scenes, alias);
             if (dup) {
                 const proceed = typeof globalObj.confirm === 'function'
-                    ? globalObj.confirm(`「${word}」已存在于${dup.label}的词库。是否删除重复词并加入场景「${sceneName}」的词库？`)
+                    ? globalObj.confirm(`别名「${alias}」已属于${dup.label}。是否移动到场景「${sceneName}」？`)
                     : true;
                 if (!proceed) return rerenderSettings();
                 removeSceneWordEntry(scenes, dup);
             }
             const s = scenes[sceneName];
-            if (s && typeof s === 'object') { if (!Array.isArray(s.words)) s.words = []; s.words.push(word); }
+            if (s && typeof s === 'object') { if (!Array.isArray(s.words)) s.words = []; s.words.push(alias); }
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
         }
@@ -976,8 +1037,6 @@ export async function handleSettingsAction(action, ctx) {
             const scenes = (settingsState.draft.bridge.sceneAssets || {}).scenes || {};
             const s = scenes[sceneName];
             if (s && Array.isArray(s.words)) {
-                const globalObj = options.global || globalThis;
-                if (s.words.length <= 1) { if (globalObj.alert) globalObj.alert('至少保留 1 个词'); return rerenderSettings(); }
                 s.words = s.words.filter((w) => w !== word);
             }
             const persisted = persistSettingsDraft();
@@ -1160,4 +1219,16 @@ function ensureMoodGroups(settingsState) {    settingsState.draft.bridge.sceneAs
         sa.moodGroups = normalizeMoodGroups(sa.moodGroups);
     }
     return sa.moodGroups;
+}
+
+function ensureCharacterAliases(settingsState) {
+    settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+    const sceneAssets = settingsState.draft.bridge.sceneAssets;
+    if (!sceneAssets.characterAliases || typeof sceneAssets.characterAliases !== 'object' || Array.isArray(sceneAssets.characterAliases)) {
+        sceneAssets.characterAliases = {};
+    }
+    for (const name of Object.keys(sceneAssets.characters || {})) {
+        if (!Array.isArray(sceneAssets.characterAliases[name])) sceneAssets.characterAliases[name] = [];
+    }
+    return sceneAssets.characterAliases;
 }

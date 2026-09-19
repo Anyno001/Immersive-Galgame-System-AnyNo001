@@ -385,6 +385,53 @@ test('gate:simulation:scene-assets-injects-prompt-and-renders-single-configured-
     assert.equal(Object.hasOwn(extensionPrompts, 'igs-scene-assets-format-rule'), false);
 });
 
+test('gate:simulation:scene-and-character-aliases-reuse-original-assets-and-layout', async () => {
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: {
+                enabled: true,
+                promptRule: '规则',
+                scenes: { '旧城': { url: 'https://example.com/old-city.png', words: ['古城'], times: {} } },
+                characters: { '爱丽丝': { '平和': 'https://example.com/alice.png' } },
+                characterAliases: { '爱丽丝': ['爱丽'] },
+            },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        spriteLayouts: { 'pc::爱丽丝::平和': { posX: 14, posY: 78, scale: 126 } },
+    }));
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 8,
+                text: [
+                    '<now_plot>',
+                    '<content>',
+                    '[igs-scene:古城|下午|晴天]',
+                    '[igs-char:爱丽|平和|我们该走了。]',
+                    '</content>',
+                    '</now_plot>',
+                ].join('\n'),
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const snapshot = opened.reader.snapshot;
+    assert.equal(snapshot.content.backgroundImage, 'https://example.com/old-city.png');
+    assert.equal(snapshot.content.spriteImage, 'https://example.com/alice.png');
+    assert.equal(snapshot.content.speaker, '爱丽');
+    assert.equal(snapshot.content.spriteCharacter, '爱丽丝');
+    const sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
+    assert.equal(sprite.style.backgroundPosition, '14% 78%');
+    assert.equal(sprite.style.backgroundSize, '126%');
+    vn.destroy();
+});
+
 test('gate:simulation:scene-assets-sprite-follows-bubble-speaker-across-mixed-segments', async () => {
     const timers = [];
     const storage = createMemoryStorage({
@@ -908,6 +955,37 @@ test('gate:simulation:reader-settings-shared-across-modes', async () => {
     vn.destroy();
 });
 
+test('gate:simulation:default-dialog-height-controls-floating-box', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '默认框高度测试。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    let dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
+    const controls = document.getElementById('igs-overlay').querySelector('.igs-controls');
+
+    settings.setValue('readerSettings.dialogHeight', 160);
+    assert.equal(dialog.style.height, '160px');
+    assert.equal(controls.style.display, '');
+    settings.setValue('readerSettings.dialogHeight', 300);
+    dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
+    assert.equal(dialog.style.height, '300px');
+    settings.setValue('readerSettings.dialogHeight', 600);
+    assert.equal(dialog.style.height, '464px');
+    settings.setValue('readerSettings.dialogHeight', 20);
+    assert.equal(dialog.style.height, '160px');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dialogHeight, 160);
+    assert.equal(controls.style.display, '');
+    vn.destroy();
+});
+
 test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async () => {
     const storage = createMemoryStorage();
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
@@ -1238,7 +1316,17 @@ test('gate:simulation:legacy-reader-settings-render-after-open', async () => {
 });
 
 test('gate:simulation:scene-sub-tab-switches-pane', async () => {
-    const storage = createMemoryStorage();
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: {
+                enabled: true,
+                promptRule: '规则',
+                scenes: { '旧城': { url: '', words: ['古城'], times: {} } },
+                characters: { '爱丽丝': { '默认': '' } },
+                characterAliases: { '爱丽丝': ['爱丽'] },
+            },
+        }),
+    });
     const vn = bootstrapIGS({
         global: { localStorage: storage },
         autoAttachMagicWand: false,
@@ -1260,10 +1348,15 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     const assetsView = settings.switchSceneSettingsSubTab('assets');
     assert.equal(assetsView.snapshot.sceneSettingsSubTab, 'assets');
     assert.match(assetsView.snapshot.html, /data-scene-settings-pane="assets"/);
-    const scenesView = settings.switchSceneSubTab('scenes');
+    settings.switchSceneSubTab('scenes');
+    const scenesView = await settings.invoke(`scene-toggle-bg:${encodeURIComponent('旧城')}`);
     assert.match(scenesView.snapshot.html, /背景场景/);
+    assert.match(scenesView.snapshot.html, /场景别名/);
+    assert.match(scenesView.snapshot.html, /古城/);
     const charsView = settings.switchSceneSubTab('characters');
     assert.match(charsView.snapshot.html, /统一角色立绘位置/);
+    assert.match(charsView.snapshot.html, /角色别名/);
+    assert.match(charsView.snapshot.html, /爱丽/);
 
     vn.destroy();
 });

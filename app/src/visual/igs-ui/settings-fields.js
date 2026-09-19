@@ -129,10 +129,10 @@ function renderSceneBgExpansion(sceneName, url, words) {
     const thumb = trimmedUrl
         ? `<img class="igs-sprite-thumb" src="${esc(trimmedUrl)}" loading="lazy" alt="" data-action="sprite-preview:${encSeg(trimmedUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">未配置</div>`;
-    const tags = words.map((w) =>
-        `<span class="igs-mood-word-tag">${esc(w)}<button type="button" class="igs-mood-word-del" data-action="scene-remove-bg-word:${encSeg(sceneName)}:${encSeg(w)}" title="删除词">×</button></span>`
+    const tags = words.map((alias) =>
+        `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="scene-remove-bg-word:${encSeg(sceneName)}:${encSeg(alias)}" title="删除别名">×</button></span>`
     ).join('');
-    const wHtml = `<div class="igs-sprite-words"><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无词</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-bg-word:${encSeg(sceneName)}" title="添加词">+</button></div></div>`;
+    const wHtml = `<div class="igs-sprite-words"><div class="igs-source-filter-note">场景别名</div><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无别名</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-bg-word:${encSeg(sceneName)}" title="添加别名">+</button></div></div>`;
     return `<div class="igs-sprite-slot-body">${thumb}${wHtml}</div>`;
 }
 
@@ -163,6 +163,8 @@ function renderSceneGroupExpansion(type, label, url, groups) {
 export function renderCharacterAssetList(characters, options = {}) {
     const moodGroups = Array.isArray(options.moodGroups) ? options.moodGroups : [];
     const expandedSlots = options.expandedSlots instanceof Set ? options.expandedSlots : new Set();
+    const aliasesByCharacter = options.aliases && typeof options.aliases === 'object' && !Array.isArray(options.aliases)
+        ? options.aliases : {};
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const chevronDown = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
@@ -170,6 +172,11 @@ export function renderCharacterAssetList(characters, options = {}) {
     const charEntries = Object.entries(characters || {});
     if (!charEntries.length) return '<div class="igs-scene-empty">暂无角色立绘配置</div>';
     return charEntries.map(([charName, moods]) => {
+        const aliases = Array.isArray(aliasesByCharacter[charName]) ? aliasesByCharacter[charName] : [];
+        const aliasTags = aliases.map((alias) => (
+            `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="scene-remove-char-alias:${encSeg(charName)}:${encSeg(alias)}" title="删除别名">×</button></span>`
+        )).join('');
+        const aliasesHtml = `<div class="igs-sprite-words"><div class="igs-source-filter-note">角色别名</div><div class="igs-mood-word-list">${aliasTags || '<div class="igs-scene-empty">暂无别名</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-char-alias:${encSeg(charName)}" title="添加别名">+</button></div></div>`;
         const moodEntries = Object.entries(moods || {});
         const moodRows = moodEntries.map(([mood, url]) => {
             const expanded = expandedSlots.has(charName + "\x00" + mood);
@@ -183,7 +190,7 @@ export function renderCharacterAssetList(characters, options = {}) {
             const expandedBody = expanded ? renderSpriteSlotExpansion(charName, mood, url, moodGroups, { pencil, trash }) : '';
             return `<div class="igs-sprite-slot">${collapsedRow}${expandedBody}</div>`;
         }).join('');
-        return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span><button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div><div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪</div>'}</div></div>`;
+        return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span><button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}<div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪</div>'}</div></div>`;
     }).join('');
 }
 

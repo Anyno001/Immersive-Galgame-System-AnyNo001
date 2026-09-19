@@ -788,7 +788,7 @@ test('gate:scene:scene-assets-resolves-by-exact-match-and-default-key-only', () 
         scenes: { 'B班教室': { url: 'https://example.com/classroom.png', times: {} } },
         characters: { '小林海斗': { '平静': 'https://example.com/kaito.png' } },
     });
-    assert.deepEqual(assets1, { backgroundUrl: 'https://example.com/classroom.png', spriteUrl: 'https://example.com/kaito.png', spriteSlot: '平静' });
+    assert.deepEqual(assets1, { backgroundUrl: 'https://example.com/classroom.png', spriteUrl: 'https://example.com/kaito.png', spriteSlot: '平静', spriteCharacter: '小林海斗' });
 
     // '默认' fallback when scene name doesn't match
     const assets2 = lookupSceneAssetUrls({
@@ -798,7 +798,7 @@ test('gate:scene:scene-assets-resolves-by-exact-match-and-default-key-only', () 
         scenes: { '默认': { url: 'https://example.com/default.png', times: {} } },
         characters: { '小林海斗': { '默认': 'https://example.com/kaito.png' } },
     });
-    assert.deepEqual(assets2, { backgroundUrl: 'https://example.com/default.png', spriteUrl: 'https://example.com/kaito.png', spriteSlot: '默认' });
+    assert.deepEqual(assets2, { backgroundUrl: 'https://example.com/default.png', spriteUrl: 'https://example.com/kaito.png', spriteSlot: '默认', spriteCharacter: '小林海斗' });
 
     // no scene fallback when only non-matching named key exists, but character still matches exactly
     const assets3 = lookupSceneAssetUrls({
@@ -808,7 +808,24 @@ test('gate:scene:scene-assets-resolves-by-exact-match-and-default-key-only', () 
         scenes: { '场景1': { url: 'https://example.com/classroom.png', times: {} } },
         characters: { '小林海斗': { '随和': 'https://example.com/kaito.png' } },
     });
-    assert.deepEqual(assets3, { backgroundUrl: null, spriteUrl: 'https://example.com/kaito.png', spriteSlot: '随和' });
+    assert.deepEqual(assets3, { backgroundUrl: null, spriteUrl: 'https://example.com/kaito.png', spriteSlot: '随和', spriteCharacter: '小林海斗' });
+});
+
+test('gate:scene:scene-and-character-aliases-reuse-original-assets', () => {
+    const resolved = lookupSceneAssetUrls({
+        scene: '古城', time: '', weather: '',
+        character: '爱丽', mood: '平和',
+    }, {
+        scenes: { '旧城': { url: 'https://example.com/old-city.png', words: ['古城'], times: {} } },
+        characters: { '爱丽丝': { '平和': 'https://example.com/alice.png' } },
+        characterAliases: { '爱丽丝': ['爱丽'] },
+    });
+    assert.deepEqual(resolved, {
+        backgroundUrl: 'https://example.com/old-city.png',
+        spriteUrl: 'https://example.com/alice.png',
+        spriteSlot: '平和',
+        spriteCharacter: '爱丽丝',
+    });
 });
 
 test('gate:scene:mood-groups-resolve-fine-word-to-group-label', () => {
@@ -982,6 +999,62 @@ test('gate:settings:theme-toggle-persists-through-settings-action', async () => 
     await handleSettingsAction('toggle-settings-theme', ctx);
     assert.equal(draft.bridge.settingsTheme, 'night');
     assert.equal(persistCount, 2);
+});
+
+test('gate:scene:asset-alias-actions-and-presets-reuse-existing-entries', async () => {
+    const storage = createMemoryStorage();
+    const prompts = ['爱丽', '古城', '艾莉西亚'];
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                scenes: { '旧城': { url: 'bg', words: [], times: {} } },
+                characters: { '爱丽丝': { '平和': 'sprite' } },
+                characterAliases: { '爱丽丝': [] },
+            },
+        },
+        readerSettings: {},
+    };
+    const asyncState = { scenePresetName: '别名预设', expandedSpriteSlots: new Set() };
+    let persistCount = 0;
+    let alerts = 0;
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState } },
+        options: {
+            global: {
+                localStorage: storage,
+                prompt: () => prompts.shift() || '',
+                confirm: () => true,
+                alert: () => { alerts += 1; },
+            },
+        },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+
+    await handleSettingsAction(`scene-add-char-alias:${encodeURIComponent('爱丽丝')}`, ctx);
+    await handleSettingsAction(`scene-add-bg-word:${encodeURIComponent('旧城')}`, ctx);
+    assert.deepEqual(draft.bridge.sceneAssets.characterAliases['爱丽丝'], ['爱丽']);
+    assert.deepEqual(draft.bridge.sceneAssets.scenes['旧城'].words, ['古城']);
+
+    await handleSettingsAction('scene-preset-save', ctx);
+    draft.bridge.sceneAssets.characterAliases['爱丽丝'] = [];
+    draft.bridge.sceneAssets.scenes['旧城'].words = [];
+    await handleSettingsAction(`scene-preset-apply:${encodeURIComponent('别名预设')}`, ctx);
+    assert.deepEqual(draft.bridge.sceneAssets.characterAliases['爱丽丝'], ['爱丽']);
+    assert.deepEqual(draft.bridge.sceneAssets.scenes['旧城'].words, ['古城']);
+
+    await handleSettingsAction(`scene-rename-char:${encodeURIComponent('爱丽丝')}`, ctx);
+    assert.deepEqual(draft.bridge.sceneAssets.characterAliases['艾莉西亚'], ['爱丽']);
+    assert.equal(draft.bridge.sceneAssets.characterAliases['爱丽丝'], undefined);
+    await handleSettingsAction(`scene-remove-char-alias:${encodeURIComponent('艾莉西亚')}:${encodeURIComponent('爱丽')}`, ctx);
+    await handleSettingsAction(`scene-remove-bg-word:${encodeURIComponent('旧城')}:${encodeURIComponent('古城')}`, ctx);
+    assert.deepEqual(draft.bridge.sceneAssets.characterAliases['艾莉西亚'], []);
+    assert.deepEqual(draft.bridge.sceneAssets.scenes['旧城'].words, []);
+    assert.equal(alerts, 0);
+    assert.ok(persistCount >= 6);
 });
 
 test('gate:scene:settings-action-mood-groups-toggle-and-reset', async () => {
@@ -1175,6 +1248,7 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
                     enabled: true,
                     scenes: {},
                     characters: { Kaito: { 喜悦: 'https://example.com/k.png' } },
+                    characterAliases: { Kaito: ['海斗'] },
                     moodGroups: [{ label: '喜悦', words: ['开心', '欣喜'] }],
                 },
             },
@@ -1193,6 +1267,8 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
     // 折叠态：不含缩略图
     const snap = controller.getSnapshot();
     assert.equal(/igs-sprite-thumb/.test(snap.html), false);
+    assert.match(snap.html, /角色别名/);
+    assert.match(snap.html, /海斗/);
 
     // 展开后：含缩略图和该情绪组的词
     const after = await controller.invoke(`scene-toggle-mood:${encodeURIComponent('Kaito')}:${encodeURIComponent('喜悦')}`);

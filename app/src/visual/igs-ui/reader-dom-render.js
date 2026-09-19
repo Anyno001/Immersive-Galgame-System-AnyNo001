@@ -399,18 +399,26 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             dialog.style.width = '';
         } else if (inlineMode) {
             if (readerSettings.dialogHeight == null) {
+                dialog.style.height = '';
                 dialog.style.minHeight = '';
                 dialog.style.maxHeight = '';
             } else {
-                // floating 气泡：用 min-height 把气泡撑到 dialogHeight（内容更多时自然增长），
-                // 再用 max-height clamp 到浮窗可用高度。不强制 height——固定 height 比内容还小时
-                // 会把输入框挤出气泡。这样既能调高对话框，输入框又始终留在气泡底部。
-                const maxBubble = Math.max(140, Math.floor((overlayHeight || 0) * 0.86) || readerSettings.dialogHeight);
-                const target = Math.min(readerSettings.dialogHeight, maxBubble);
-                dialog.style.minHeight = `${target}px`;
+                // floating 气泡：正文已固定 min-height:0 并在内部滚动，因此可以给气泡盒
+                // 明确目标高度。最低 160px 保留至少一行正文与输入区，最大值继续按
+                // 阅读器可用高度钳制，避免重新引入输入区溢出。
+                const viewportHeight = Number(win && win.visualViewport && win.visualViewport.height)
+                    || Number(win && win.innerHeight)
+                    || overlayHeight;
+                const designHeight = snapshot.mode === 'pc' ? 540 : 680;
+                const runtimeHeight = Math.min(designHeight, Math.max(180, viewportHeight - 32));
+                const maxBubble = Math.max(140, Math.floor(runtimeHeight * 0.86));
+                const target = Math.max(160, Math.min(readerSettings.dialogHeight, maxBubble));
+                dialog.style.height = `${target}px`;
+                dialog.style.minHeight = '';
                 dialog.style.maxHeight = `${maxBubble}px`;
             }
         } else {
+            dialog.style.height = '';
             dialog.style.minHeight = '';
             dialog.style.maxHeight = '';
         }
