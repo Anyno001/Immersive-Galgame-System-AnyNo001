@@ -139,6 +139,7 @@
     "flatShell": "border:0;border-radius:var(--igs-settings-radius-shell);box-shadow:none",
     "flatBackdrop": "backdrop-filter:none",
     "activeTab": ".igs-settings-tab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",
+    "mainTabsEqual": ".igs-settings-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px",
     "themeToggle": ".igs-settings-theme-toggle{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0",
     "sceneSettingsSubTabs": ".igs-scene-settings-subtabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))",
     "sceneSettingsSubTabActive": ".igs-scene-settings-subtab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",

@@ -1338,8 +1338,10 @@ test('gate:simulation:igs-ui-embedded-mounts-beside-latest-message-and-restores-
     assert.equal(opened.ok, true);
     assert.ok(host);
     assert.equal(host.parentNode, mesText.parentNode);
+    assert.equal(mesText.textContent, '艾莉：楼层正文。');
     assert.equal(mesText.style.display, 'none');
     assert.equal(mesText.getAttribute('aria-hidden'), 'true');
+    assert.equal(mesText.getAttribute('data-igs-embedded-hidden'), '1');
     assert.ok(host.contains(overlay));
     assert.equal(overlay.querySelector('#igs-ctrl-bar').style.transformOrigin, 'right top');
     assert.equal(overlay.querySelector('.igs-controls').style.display, 'none');
@@ -1434,7 +1436,9 @@ test('gate:simulation:igs-ui-embedded-stream-hides-new-floor-and-finishes-on-hos
     const streamHost = streamingElement.querySelector('[data-igs-embedded-host="1"]');
     assert.ok(streamHost);
     assert.equal(initialElement.querySelector('.mes_text').style.display, '');
+    assert.equal(initialElement.querySelector('.mes_text').textContent, '上一轮正文。');
     assert.equal(streamingText.style.display, 'none');
+    assert.equal(streamingText.textContent, '流式中的楼层字样。');
     assert.equal(streamHost.getAttribute('data-igs-embedded-loading'), '1');
     assert.ok(streamHost.querySelector('.igs-embedded-loading'));
 

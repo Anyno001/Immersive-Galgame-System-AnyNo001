@@ -5,6 +5,7 @@ export const EMBEDDED_HOST_ATTR = 'data-igs-embedded-host';
 export const EMBEDDED_HOST_SELECTOR = '[data-igs-embedded-host="1"]';
 export const EMBEDDED_TEXT_HIDDEN_ATTR = 'data-igs-embedded-hidden';
 const PREVIOUS_DISPLAY_ATTR = 'data-igs-embedded-prev-display';
+const PREVIOUS_DISPLAY_PRIORITY_ATTR = 'data-igs-embedded-prev-display-priority';
 const PREVIOUS_ARIA_ATTR = 'data-igs-embedded-prev-aria';
 const MISSING_VALUE = '__igs_missing__';
 
@@ -42,29 +43,55 @@ export function ensureEmbeddedHost(parent, doc, hostRef) {
 export function hideEmbeddedSourceText(mesText) {
     if (!mesText || typeof mesText.setAttribute !== 'function') return;
     if (typeof mesText.getAttribute === 'function' && mesText.getAttribute(EMBEDDED_TEXT_HIDDEN_ATTR) === '1') {
-        if (mesText.style) mesText.style.display = 'none';
+        setDisplayStyle(mesText.style, 'none', 'important');
         mesText.setAttribute('aria-hidden', 'true');
         return;
     }
-    const display = mesText.style ? String(mesText.style.display || '') : '';
+    const display = readDisplayValue(mesText.style);
+    const priority = readDisplayPriority(mesText.style);
     const aria = typeof mesText.getAttribute === 'function' ? mesText.getAttribute('aria-hidden') : null;
     mesText.setAttribute(EMBEDDED_TEXT_HIDDEN_ATTR, '1');
     mesText.setAttribute(PREVIOUS_DISPLAY_ATTR, display);
+    mesText.setAttribute(PREVIOUS_DISPLAY_PRIORITY_ATTR, priority);
     mesText.setAttribute(PREVIOUS_ARIA_ATTR, aria == null ? MISSING_VALUE : String(aria));
-    if (mesText.style) mesText.style.display = 'none';
+    setDisplayStyle(mesText.style, 'none', 'important');
     mesText.setAttribute('aria-hidden', 'true');
 }
 
 export function restoreEmbeddedSourceText(mesText) {
     if (!mesText || typeof mesText.removeAttribute !== 'function') return;
     const display = typeof mesText.getAttribute === 'function' ? mesText.getAttribute(PREVIOUS_DISPLAY_ATTR) : '';
+    const priority = typeof mesText.getAttribute === 'function' ? mesText.getAttribute(PREVIOUS_DISPLAY_PRIORITY_ATTR) : '';
     const aria = typeof mesText.getAttribute === 'function' ? mesText.getAttribute(PREVIOUS_ARIA_ATTR) : MISSING_VALUE;
-    if (mesText.style) mesText.style.display = display || '';
+    restoreDisplayStyle(mesText.style, display, priority);
     if (aria === MISSING_VALUE || aria == null) mesText.removeAttribute('aria-hidden');
     else mesText.setAttribute('aria-hidden', aria);
     mesText.removeAttribute(EMBEDDED_TEXT_HIDDEN_ATTR);
     mesText.removeAttribute(PREVIOUS_DISPLAY_ATTR);
+    mesText.removeAttribute(PREVIOUS_DISPLAY_PRIORITY_ATTR);
     mesText.removeAttribute(PREVIOUS_ARIA_ATTR);
+}
+
+function readDisplayValue(style) {
+    if (!style) return '';
+    if (typeof style.getPropertyValue === 'function') return String(style.getPropertyValue('display') || '');
+    return String(style.display || '');
+}
+
+function readDisplayPriority(style) {
+    return style && typeof style.getPropertyPriority === 'function' ? String(style.getPropertyPriority('display') || '') : '';
+}
+
+function setDisplayStyle(style, value, priority) {
+    if (!style) return;
+    if (typeof style.setProperty === 'function') style.setProperty('display', value, priority);
+    else style.display = value;
+}
+
+function restoreDisplayStyle(style, value, priority) {
+    if (!style) return;
+    if (!value && typeof style.removeProperty === 'function') style.removeProperty('display');
+    else setDisplayStyle(style, value || '', priority || '');
 }
 
 export function buildEmbeddedLoadingHtml() {
