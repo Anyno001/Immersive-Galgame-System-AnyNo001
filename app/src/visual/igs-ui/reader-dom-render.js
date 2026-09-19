@@ -301,12 +301,12 @@ export function applyToolbarState(root, current) {
 
     if (collapsible) {
         collapsible.style.display = (current.toolbarCollapsed && !dockTop) ? 'none' : 'flex';
-        collapsible.style.gap = '6px';
+        collapsible.style.gap = embeddedMode ? '2px' : '6px';
         collapsible.style.alignItems = 'center';
     }
     if (pinned) {
         pinned.style.display = 'flex';
-        pinned.style.gap = '6px';
+        pinned.style.gap = embeddedMode ? '2px' : '6px';
         pinned.style.alignItems = 'center';
     }
 
@@ -346,6 +346,11 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     applyTransparentGlassMaterial(root, readerSettings.glassOpacity, {
         backdropFilter: readerSettings.glassBackdropFilter,
     });
+    if (root && root.style && typeof root.style.setProperty === 'function') {
+        root.style.setProperty('--igs-empty-bg', readerSettings.emptyBackgroundColor);
+    }
+    const embeddedHost = embeddedMode && root && typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
+    if (embeddedHost && embeddedHost.style) embeddedHost.style.backgroundColor = readerSettings.emptyBackgroundColor;
 
     if (textEl) {
         textEl.style.fontSize = `${readerSettings.fontSize}px`;
@@ -428,7 +433,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
 
     if (bg) {
         bg.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'contain' : 'cover';
-        bg.style.backgroundColor = '#000';
+        bg.style.backgroundColor = readerSettings.emptyBackgroundColor;
         const brightness = Number(readerSettings.imgBrightness);
         bg.style.filter = `brightness(${(Number.isFinite(brightness) ? brightness : 88) / 100})`;
     }
@@ -473,10 +478,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
 
     if (bg && snapshot.content.backgroundImage) {
         bg.style.backgroundImage = `url("${snapshot.content.backgroundImage.replace(/"/g, '&quot;')}")`;
+        bg.setAttribute('data-igs-has-image', '1');
         removeImageLoadingSpinner(bg);
         removeImageEmptyPlaceholder(bg);
     } else if (bg) {
         bg.style.backgroundImage = '';
+        bg.removeAttribute('data-igs-has-image');
         const expectsImage = snapshot.content.imageExpectedCount > 0
             && snapshot.content.imageBoundCount < snapshot.content.imageExpectedCount;
         if (expectsImage && snapshot.content.imageLoading) {
@@ -592,8 +599,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     const controls = root.querySelector('.igs-controls');
     if (controls) {
-        // 输入区（含输入框、发送按钮、上方分割线）只在最后一页显示。
-        controls.style.display = isLastPage ? '' : 'none';
+        // 内嵌模式使用酒馆默认输入框；其它模式的 IGS 输入区只在最后一页显示。
+        controls.style.display = snapshot.mode === 'embedded' ? 'none' : (isLastPage ? '' : 'none');
     }
     if (dialog) {
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;

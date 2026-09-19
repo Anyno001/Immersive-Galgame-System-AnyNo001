@@ -27,12 +27,12 @@
   "styles": {
     "#igs-overlay": {
       "zIndex": "2147483000",
-      "background": "#000"
+      "background": "#16181a"
     },
     ".igs-dialog": {
       "width": "min(880px,calc(100vw - 32px))",
       "padding": "22px 26px 18px",
-      "borderRadius": "22px"
+      "borderRadius": "8px"
     },
     ".igs-input": {
       "height": "32px"

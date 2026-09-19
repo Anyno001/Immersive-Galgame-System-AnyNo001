@@ -541,15 +541,23 @@ test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
         const opened = vn.openSettings({ tab: 'reader', mode: 'mobile' });
         assert.equal(opened.controller.getSnapshot().draft.readerSettings.glassBackdropFilter, false);
         const updated = opened.controller.setValue('readerSettings.fontSize', 20);
+        const optionSize = opened.controller.setValue('readerSettings.optionFontSize', 18);
+        const emptyBg = opened.controller.setValue('readerSettings.emptyBackgroundColor', '#24272a');
         const toggled = opened.controller.toggle('readerSettings.glassBackdropFilter');
         const current = vn.getUnifiedSettings({ mode: 'mobile' });
         const savedStorage = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
 
         assert.equal(updated.ok, true);
+        assert.equal(optionSize.ok, true);
+        assert.equal(emptyBg.ok, true);
         assert.equal(toggled.ok, true);
         assert.equal(current.readerSettings.fontSize, 20);
+        assert.equal(current.readerSettings.optionFontSize, 18);
+        assert.equal(current.readerSettings.emptyBackgroundColor, '#24272a');
         assert.equal(current.readerSettings.glassBackdropFilter, true);
         assert.equal(savedStorage.fontSize, 20);
+        assert.equal(savedStorage.optionFontSize, 18);
+        assert.equal(savedStorage.emptyBackgroundColor, '#24272a');
         assert.equal(savedStorage.glassBackdropFilter, true);
     } finally {
         vn.destroy();
@@ -618,6 +626,8 @@ test('gate:simulation:igs-ui-background-click-does-not-page-dialog-click-still-p
 
 test('gate:simulation:igs-ui-option-bubble-trigger-excludes-dialog-toolbar-and-input', async () => {
     const document = createFakeDocument();
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ optionFontSize: 20 }));
     const latestMessage = {
         id: 45,
         text: '[角色: 艾莉]\n艾莉: 最后一段。',
@@ -625,6 +635,7 @@ test('gate:simulation:igs-ui-option-bubble-trigger-excludes-dialog-toolbar-and-i
     const vn = bootstrapIGS({
         global: {
             document,
+            localStorage: storage,
             AutoCardUpdaterAPI: {
                 exportTableAsJson() {
                     return {
@@ -677,6 +688,7 @@ test('gate:simulation:igs-ui-option-bubble-trigger-excludes-dialog-toolbar-and-i
 
     clickLayer.click();
     assert.equal(optionBubbles.hasAttribute('hidden'), false);
+    assert.equal(optionBubbles.style['--igs-option-font-size'], '20px');
     assert.equal(optionBubbles.querySelectorAll('.igs-option-bubble').length, 2);
     // 默认（未开启随文本）气泡宽度跟随对话框。
     assert.equal(optionBubbles.getAttribute('data-igs-width'), 'dialog');
@@ -1167,7 +1179,7 @@ test('gate:simulation:igs-ui-embedded-toolbar-floats-top-right-as-bare-icons', (
     assert.match(css, /\.igs-mode-embedded #igs-toolbar-layer\{inset:14px 14px auto auto;width:auto;height:auto;transform:none;\}/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar\{[^}]*position:static[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none[^}]*backdrop-filter:none/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn\{[^}]*width:32px[^}]*height:32px[^}]*border:0[^}]*background:transparent[^}]*color:rgba\(255,255,255,\.32\)/);
-    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:9px;height:9px;\}/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;\}/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn:hover\{[^}]*background:transparent[^}]*border-color:transparent[^}]*color:rgba\(255,255,255,\.52\)/);
     assert.match(css, /\.igs-mode-embedded #igs-option-bubbles\[data-igs-pos\]\{top:calc\(14px \+ var\(--igs-toolbar-h,32px\) \+ 8px\);bottom:calc\(14px \+ var\(--igs-dialog-h,220px\) \+ 10px\);max-height:none;overflow-y:auto;overscroll-behavior:contain;\}/);
 });
@@ -1208,7 +1220,7 @@ test('gate:simulation:igs-ui-embedded-keeps-compact-expanded-toolbar-when-top-do
     assert.equal(collapsible.style.display, 'flex');
     assert.equal(overlay.querySelector('#igs-btn-next').parentNode, collapsible);
     assert.equal(overlay.querySelector('#igs-btn-settings').parentNode, collapsible);
-    assert.match(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:9px;height:9px;\}/);
+    assert.match(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;\}/);
     vn.destroy();
 });
 
@@ -1246,6 +1258,7 @@ test('gate:simulation:igs-ui-embedded-mounts-beside-latest-message-and-restores-
     assert.equal(mesText.getAttribute('aria-hidden'), 'true');
     assert.ok(host.contains(overlay));
     assert.equal(overlay.querySelector('#igs-ctrl-bar').style.transformOrigin, 'right top');
+    assert.equal(overlay.querySelector('.igs-controls').style.display, 'none');
     assert.match(overlay.className, /igs-mode-embedded/);
 
     const sendResult = await opened.reader.controller.submit('继续');
@@ -2432,7 +2445,7 @@ test('gate:simulation:igs-ui-long-text-scrolls-not-overlaps-input', async () => 
     assert.match(styleText, /#igs-overlay\.igs-floating \.igs-controls\{flex-shrink:0;\}/);
     assert.match(styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*left:12px[^}]*right:12px[^}]*bottom:14px[^}]*width:auto[^}]*height:min\(220px,calc\(100% - 28px\)\)[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden/);
     assert.match(styleText, /\.igs-mode-embedded \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
-    assert.match(styleText, /\.igs-mode-embedded \.igs-controls\{flex:0 0 auto;\}/);
+    assert.match(styleText, /\.igs-mode-embedded \.igs-controls\{display:none;\}/);
 
     const settingsCss = getSettingsStyleText();
     assert.match(settingsCss, /#igs-unified-settings,#igs-unified-settings \*\{scrollbar-width:none;-ms-overflow-style:none\}/);

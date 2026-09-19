@@ -65,6 +65,8 @@
       "requiredPaths": [
         "readerMode",
         "readerSettings.fontSize",
+        "readerSettings.optionFontSize",
+        "readerSettings.emptyBackgroundColor",
         "readerSettings.dialogWidth",
         "readerSettings.dialogHeight",
         "readerSettings.glassOpacity",

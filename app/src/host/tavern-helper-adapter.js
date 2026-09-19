@@ -80,6 +80,17 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
             return removeMessageImagePlaceholders(scopedMessage);
         },
 
+        async setInputText(text) {
+            const helper = getTavernHelper(globalObject);
+            if (helper && typeof helper.setInputText === 'function') {
+                await helper.setInputText(String(text == null ? '' : text));
+                return { ok: true, reason: 'tavern-helper-fill' };
+            }
+            const domResult = setInputTextViaHostDom(globalObject, text);
+            if (domResult.ok) return { ok: true, reason: domResult.reason };
+            return { ok: false, reason: domResult.reason || 'missing-input-api' };
+        },
+
         async typeAndSend(text) {
             const helper = getTavernHelper(globalObject);
             if (helper && typeof helper.typeAndSend === 'function') {
@@ -99,27 +110,36 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
     };
 }
 
-function sendViaHostDom(globalObject, text) {
+function setInputTextViaHostDom(globalObject, text) {
     const value = String(text == null ? '' : text);
     for (const doc of getCandidateDocuments(globalObject)) {
         const textarea = safeQuery(doc, '#send_textarea');
-        const button = safeQuery(doc, '#send_but');
-        if (!textarea || !button) continue;
+        if (!textarea) continue;
         try {
             const setter = resolveNativeValueSetter(textarea, doc);
-            if (setter) {
-                setter.call(textarea, value);
-            } else {
-                textarea.value = value;
-            }
+            if (setter) setter.call(textarea, value);
+            else textarea.value = value;
             dispatchInputEvents(textarea, doc);
-            button.click();
-            return { ok: true, reason: 'host-dom-send' };
+            if (typeof textarea.focus === 'function') textarea.focus();
+            return { ok: true, reason: 'host-dom-fill', doc };
         } catch (error) {
-            return { ok: false, reason: 'host-dom-send-failed' };
+            return { ok: false, reason: 'host-dom-fill-failed' };
         }
     }
-    return { ok: false, reason: 'missing-host-dom-send' };
+    return { ok: false, reason: 'missing-host-input' };
+}
+
+function sendViaHostDom(globalObject, text) {
+    const filled = setInputTextViaHostDom(globalObject, text);
+    if (!filled.ok) return { ok: false, reason: 'missing-host-dom-send' };
+    const button = safeQuery(filled.doc, '#send_but');
+    if (!button || typeof button.click !== 'function') return { ok: false, reason: 'missing-host-dom-send' };
+    try {
+        button.click();
+        return { ok: true, reason: 'host-dom-send' };
+    } catch (error) {
+        return { ok: false, reason: 'host-dom-send-failed' };
+    }
 }
 
 function resolveNativeValueSetter(element, doc) {

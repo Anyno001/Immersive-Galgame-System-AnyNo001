@@ -1,5 +1,6 @@
 export const IGS_TRANSPARENT_GLASS_ALPHA = 0.62;
-export const IGS_TRANSPARENT_GLASS_BG = `rgba(20,20,22,${IGS_TRANSPARENT_GLASS_ALPHA})`;
+export const IGS_FROST_NIGHT_RGB = '31,34,37';
+export const IGS_TRANSPARENT_GLASS_BG = `rgba(${IGS_FROST_NIGHT_RGB},${IGS_TRANSPARENT_GLASS_ALPHA})`;
 export const IGS_TRANSPARENT_GLASS_BACKDROP_FILTER = 'none';
 export const IGS_FROSTED_GLASS_BACKDROP_FILTER = 'blur(32px) saturate(180%)';
 
@@ -10,7 +11,7 @@ export function normalizeGlassDensity(value, fallback = IGS_TRANSPARENT_GLASS_AL
 }
 
 export function createTransparentGlassBg(density) {
-    return `rgba(20,20,22,${normalizeGlassDensity(density)})`;
+    return `rgba(${IGS_FROST_NIGHT_RGB},${normalizeGlassDensity(density)})`;
 }
 
 export function resolveGlassBackdropFilter(value) {

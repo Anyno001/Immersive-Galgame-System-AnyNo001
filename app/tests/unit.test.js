@@ -1786,6 +1786,38 @@ test('gate:host:tavern-helper-adapter-falls-back-to-sillytavern-context-chat', a
     assert.equal(hidden.isHidden, true);
 });
 
+test('gate:host:tavern-helper-adapter-fills-host-input-without-sending', async () => {
+    const events = [];
+    let clicks = 0;
+    const textarea = {
+        tagName: 'TEXTAREA',
+        value: '',
+        focus() { this.focused = true; },
+        dispatchEvent(event) { events.push(event.type); return true; },
+    };
+    const doc = {
+        querySelector(selector) {
+            if (selector === '#send_textarea') return textarea;
+            if (selector === '#send_but') return { click() { clicks += 1; } };
+            return null;
+        },
+        querySelectorAll: () => [],
+    };
+    const adapter = createTavernHelperAdapter({
+        TavernHelper: { triggerSlash: () => {} },
+        document: doc,
+    });
+
+    const result = await adapter.setInputText('填入酒馆输入框');
+
+    assert.equal(result.ok, true);
+    assert.equal(result.reason, 'host-dom-fill');
+    assert.equal(textarea.value, '填入酒馆输入框');
+    assert.equal(textarea.focused, true);
+    assert.equal(clicks, 0);
+    assert.ok(events.includes('input'));
+});
+
 test('gate:host:tavern-helper-adapter-type-and-send-falls-back-to-host-dom', async () => {
     const events = [];
     let sentValue = null;

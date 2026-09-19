@@ -21,7 +21,7 @@ export function normalizeSettingsValue(path, value) {
     }
     if (path.startsWith('readerSettings.')) {
         if (value === 'null') return null;
-        if (/fontSize|dialogWidth|dialogHeight|toolbarScale|inputScale|imageCountOverride|imgBrightness/.test(path)) {
+        if (/fontSize|optionFontSize|dialogWidth|dialogHeight|toolbarScale|inputScale|imageCountOverride|imgBrightness/.test(path)) {
             return Number(value);
         }
         if (/glassOpacity/.test(path)) {

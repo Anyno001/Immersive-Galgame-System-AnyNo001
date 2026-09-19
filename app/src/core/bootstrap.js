@@ -23,7 +23,7 @@ import { createReaderImageService } from '../generated-images/reader-image-servi
 import { createPromptInjector } from '../host/prompt-injector.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.23.36';
+const IGS_VERSION = '0.23.37';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -85,6 +85,9 @@ export function bootstrapIGS(options = {}) {
         getUnifiedSettings: getUnifiedSettingsSnapshot,
         saveUnifiedSettings,
         typeAndSend,
+        setInputText(text) {
+            return typeof hostAdapter.setInputText === 'function' ? hostAdapter.setInputText(text) : { ok: false, reason: 'missing-input-api' };
+        },
         getAdjacentMessage: hasAdjacentMessageCapability() ? resolveAdjacentMessage : null,
         jumpToMessage: jumpToMessage,
         openViewerFromMessage(messageId, mode, openOptions = {}) {
