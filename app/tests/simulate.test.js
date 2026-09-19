@@ -1109,6 +1109,44 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     vn.destroy();
 });
 
+test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
+    const storage = createMemoryStorage();
+    const vn = bootstrapIGS({
+        global: { localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 2, text: '旁白。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.switchTab('reader');
+
+    const displayView = settings.switchReaderSubTab('display');
+    assert.equal(displayView.snapshot.readerSubTab, 'display');
+    assert.match(displayView.snapshot.html, /data-reader-pane="display"/);
+    assert.match(displayView.snapshot.html, /对话框宽度/);
+    assert.doesNotMatch(displayView.snapshot.html, /按钮管理/);
+
+    const optionsView = settings.switchReaderSubTab('options');
+    assert.match(optionsView.snapshot.html, /data-reader-pane="options"/);
+    assert.match(optionsView.snapshot.html, /选项字体大小/);
+    assert.match(optionsView.snapshot.html, /启用选项气泡/);
+
+    const toolbarView = settings.switchReaderSubTab('toolbar');
+    assert.match(toolbarView.snapshot.html, /data-reader-pane="toolbar"/);
+    assert.match(toolbarView.snapshot.html, /工具栏大小/);
+    assert.match(toolbarView.snapshot.html, /按钮管理/);
+
+    const themeView = settings.switchReaderSubTab('theme');
+    assert.match(themeView.snapshot.html, /data-reader-pane="theme"/);
+    assert.match(themeView.snapshot.html, /角色名/);
+    assert.match(themeView.snapshot.html, /分隔线/);
+
+    vn.destroy();
+});
+
 test('gate:simulation:igs-ui-one-line-or-paragraph-per-page', async () => {
     const messages = [
         {

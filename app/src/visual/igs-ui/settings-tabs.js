@@ -67,29 +67,52 @@ const IMAGE_TAB_TEMPLATE = `
 `.trim();
 
 const READER_TAB_TEMPLATE = `
-<div class="igs-settings-grid">
+<div class="igs-reader-settings">
+  <div class="igs-reader-subtabs" role="tablist" aria-label="阅读器设置分类">{{readerSubTabs}}</div>
+  <div class="igs-reader-subpane">{{readerSubPane}}</div>
+</div>
+`.trim();
+
+const READER_DISPLAY_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="display">
   {{fontSizeField}}
-  {{optionFontSizeField}}
   {{dialogWidthField}}
   {{dialogHeightField}}
   {{glassOpacityField}}
   {{imageCountField}}
   {{inputScaleField}}
-  {{toolbarScaleField}}
-  {{toolbarDockField}}
   {{imgModeField}}
   {{imgBrightnessField}}
-  <div class="igs-settings-section">{{readerToggles}}</div>
+  <div class="igs-settings-section igs-settings-full">{{readerToggles}}</div>
+</div>
+`.trim();
+
+const READER_OPTIONS_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="options">
   <div class="igs-source-filter igs-settings-full">
     <div>
       <div class="igs-source-filter-title">选项气泡</div>
       <div class="igs-source-filter-note">在最后一页点击对话框空白处显示选项（取自数据库「选项 / 选项表 / 行动选项 / 检定建议表」表的文本列），再点空白处隐藏。需安装数据库插件。</div>
     </div>
-    <div class="igs-settings-row">{{optionBubbleToggle}}</div>
-    <div class="igs-settings-row">{{optionBubbleWidthToggle}}</div>
+    <div class="igs-source-filter-grid">
+      {{optionFontSizeField}}
+      <div class="igs-settings-section">{{optionBubbleToggle}}{{optionBubbleWidthToggle}}</div>
+    </div>
     <div class="igs-settings-row">{{optionBubblePositionField}}{{optionBubbleActionField}}</div>
   </div>
+</div>
+`.trim();
+
+const READER_TOOLBAR_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="toolbar">
+  {{toolbarScaleField}}
+  {{toolbarDockField}}
   <div class="igs-settings-section igs-settings-full">{{pinnedButtonsField}}</div>
+</div>
+`.trim();
+
+const READER_THEME_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="theme">
   <div class="{{themeGroupClass}}">
     <div>
       <div class="igs-source-filter-title">对话主题</div>
@@ -148,6 +171,13 @@ const SCENE_TAB_TEMPLATE = `
 </div>
 `.trim();
 
+export const READER_SUBTAB_DEFS = Object.freeze([
+    ['display', '显示'],
+    ['options', '选项'],
+    ['toolbar', '工具栏'],
+    ['theme', '主题'],
+]);
+
 export const SETTINGS_TAB_DEFS = Object.freeze([
     ['basic', '基础'],
     ['regex', '正文替换'],
@@ -155,6 +185,25 @@ export const SETTINGS_TAB_DEFS = Object.freeze([
     ['scene', '场景'],
     ['reader', '阅读器'],
 ]);
+
+export function normalizeReaderSubTab(subTab) {
+    const normalized = String(subTab || 'display').trim();
+    return READER_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'display';
+}
+
+export function getReaderSubTabTemplate(subTab) {
+    switch (normalizeReaderSubTab(subTab)) {
+        case 'options':
+            return READER_OPTIONS_TEMPLATE;
+        case 'toolbar':
+            return READER_TOOLBAR_TEMPLATE;
+        case 'theme':
+            return READER_THEME_TEMPLATE;
+        case 'display':
+        default:
+            return READER_DISPLAY_TEMPLATE;
+    }
+}
 
 export function getSettingsTabTemplate(tab) {
     switch (tab) {

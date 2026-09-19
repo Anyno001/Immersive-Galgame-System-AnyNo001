@@ -16,7 +16,13 @@ import {
 } from './original-reader-source.js';
 import { getSettingsShellTemplate } from './settings-shell.js';
 import { getSettingsStyleText } from './settings-style.js';
-import { getSettingsTabTemplate, SETTINGS_TAB_DEFS } from './settings-tabs.js';
+import {
+    getReaderSubTabTemplate,
+    getSettingsTabTemplate,
+    normalizeReaderSubTab,
+    READER_SUBTAB_DEFS,
+    SETTINGS_TAB_DEFS,
+} from './settings-tabs.js';
 import { getReaderModeIcon } from './icons.js';
 import {
     DEFAULT_IMAGE_API,
@@ -627,6 +633,11 @@ export function createIgsReaderHost(options = {}) {
             switchTab(tab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.tab = normalizeSettingsTab(tab);
+                return rerenderSettings();
+            },
+            switchReaderSubTab(subTab) {
+                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+                state.activeSettings.asyncState.readerSubTab = normalizeReaderSubTab(subTab);
                 return rerenderSettings();
             },
             switchSceneSubTab(subTab) {
@@ -1502,6 +1513,7 @@ export function createIgsReaderHost(options = {}) {
     function buildSettingsSnapshot(settingsState) {
         const draft = normalizeUnifiedSettings(settingsState.draft);
         const tab = normalizeSettingsTab(settingsState.tab);
+        const readerSubTab = tab === 'reader' ? normalizeReaderSubTab(settingsState.asyncState.readerSubTab) : null;
         const body = renderSettingsBody(tab, draft, settingsState.asyncState);
         const tabsHtml = SETTINGS_TAB_DEFS.map(([id, label]) => {
             return `<button type="button" class="igs-settings-tab${tab === id ? ' is-active' : ''}" data-tab="${id}">${label}</button>`;
@@ -1509,6 +1521,7 @@ export function createIgsReaderHost(options = {}) {
 
         return {
             tab,
+            readerSubTab,
             selectors: Array.from(SETTINGS_PANEL_REQUIRED_SELECTORS),
             tabs: SETTINGS_TAB_DEFS.map(([id, label]) => ({
                 id,
@@ -1647,13 +1660,17 @@ export function createIgsReaderHost(options = {}) {
             });
         }
 
+        const readerSubTab = normalizeReaderSubTab(asyncState.readerSubTab);
         const sceneEnabled = !!(bridge.sceneAssets && bridge.sceneAssets.enabled);
         const themeDisabled = !sceneEnabled;
         const vnTheme = reader.vnTheme || {};
         // 对话主题已取消预设选择，恒为自定义：自定义项始终可编辑（仅受场景素材开关 themeDisabled 控制）。
         const themeCustom = true;
         const displayTheme = vnTheme;
-        return renderTemplate(getSettingsTabTemplate('reader'), {
+        const readerSubTabs = READER_SUBTAB_DEFS.map(([id, label]) => (
+            `<button type="button" class="igs-reader-subtab${readerSubTab === id ? ' is-active' : ''}" data-reader-subtab="${id}" role="tab" aria-selected="${readerSubTab === id ? 'true' : 'false'}">${label}</button>`
+        )).join('');
+        const readerValues = {
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
             dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']])),
@@ -1690,6 +1707,10 @@ export function createIgsReaderHost(options = {}) {
             narrationColorField: field('readerSettings.vnTheme.narrationColor', '颜色', colorInput('readerSettings.vnTheme.narrationColor', toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
             dividerColorField: field('readerSettings.vnTheme.dividerColor', '颜色', colorInput('readerSettings.vnTheme.dividerColor', toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || !themeCustom)),
             themeAdvancedClass: themeCustom ? '' : 'igs-settings-api-group is-disabled',
+        };
+        return renderTemplate(getSettingsTabTemplate('reader'), {
+            readerSubTabs,
+            readerSubPane: renderTemplate(getReaderSubTabTemplate(readerSubTab), readerValues),
         });
     }
 
@@ -1909,6 +1930,11 @@ export function createIgsReaderHost(options = {}) {
             const tab = event.target.closest('[data-tab]');
             if (tab) {
                 controller.switchTab(tab.getAttribute('data-tab'));
+                return;
+            }
+            const readerSubTab = event.target.closest('[data-reader-subtab]');
+            if(readerSubTab) {
+                controller.switchReaderSubTab(readerSubTab.getAttribute('data-reader-subtab'));
                 return;
             }
             const sceneSubTab = event.target.closest('[data-scene-subtab]');

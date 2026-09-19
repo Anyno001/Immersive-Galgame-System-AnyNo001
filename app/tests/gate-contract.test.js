@@ -21,7 +21,12 @@ import { createStageModel } from '../src/visual/stage-model.js';
 import { getOriginalReaderSource } from '../src/visual/igs-ui/original-reader-source.js';
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
-import { getSettingsTabTemplate, SETTINGS_TAB_DEFS } from '../src/visual/igs-ui/settings-tabs.js';
+import {
+    getReaderSubTabTemplate,
+    getSettingsTabTemplate,
+    READER_SUBTAB_DEFS,
+    SETTINGS_TAB_DEFS,
+} from '../src/visual/igs-ui/settings-tabs.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
 const projectRoot = path.resolve(appRoot, '..');
@@ -628,6 +633,8 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     const readerHostText = readText('src/visual/igs-ui/reader-host.js');
     const dbControllerText = readText('src/shujuku-panel/panel-controller.js');
     assert.doesNotMatch(rendererText, /emptyBackgroundColor/);
+    assert.match(readerHostText, /switchReaderSubTab\(subTab\)/);
+    assert.match(readerHostText, /data-reader-subtab/);
     assert.doesNotMatch(readerHostText, /emptyBackgroundColorField|optionBubbleFontSizeField|readerSettings\.emptyBackgroundColor/);
     assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock === 'top'/);
     assert.match(rendererText, /applyTransparentGlassMaterial\(root, readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings\.glassBackdropFilter,\s+\}\)/);
@@ -651,12 +658,27 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
         assert.ok(getSettingsTabTemplate(tab.id).length > 0);
     }
 
-    const readerTemplate = getSettingsTabTemplate('reader');
-    const fontSizeIndex = readerTemplate.indexOf('{{fontSizeField}}');
-    const optionFontSizeIndex = readerTemplate.indexOf('{{optionFontSizeField}}');
-    const dialogWidthIndex = readerTemplate.indexOf('{{dialogWidthField}}');
-    assert.ok(fontSizeIndex >= 0 && optionFontSizeIndex > fontSizeIndex && dialogWidthIndex > optionFontSizeIndex);
-    assert.doesNotMatch(readerTemplate, /emptyBackgroundColorField|optionBubbleFontSizeField/);
+    assert.match(getSettingsTabTemplate('reader'), /readerSubTabs/);
+    for (const subTab of fixture.readerSubTabs) {
+        const defined = READER_SUBTAB_DEFS.find(([id]) => id === subTab.id);
+        assert.ok(defined);
+        assert.equal(defined[1], subTab.label);
+        assert.ok(getReaderSubTabTemplate(subTab.id).length > 0);
+    }
+
+    const displayTemplate = getReaderSubTabTemplate('display');
+    const optionsTemplate = getReaderSubTabTemplate('options');
+    const toolbarTemplate = getReaderSubTabTemplate('toolbar');
+    const themeTemplate = getReaderSubTabTemplate('theme');
+    assert.match(displayTemplate, /fontSizeField/);
+    assert.match(displayTemplate, /dialogWidthField/);
+    assert.doesNotMatch(displayTemplate, /optionBubbleToggle|pinnedButtonsField|nameFontField/);
+    assert.match(optionsTemplate, /optionFontSizeField/);
+    assert.match(optionsTemplate, /optionBubbleToggle/);
+    assert.match(toolbarTemplate, /toolbarScaleField/);
+    assert.match(toolbarTemplate, /pinnedButtonsField/);
+    assert.match(themeTemplate, /nameFontField/);
+    assert.match(themeTemplate, /dividerColorField/);
 });
 
 test('gate:igs-ui:settings-style-keeps-original-geometry', () => {
@@ -691,6 +713,8 @@ test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
         'flatShell',
         'flatBackdrop',
         'activeTab',
+        'readerSubTabs',
+        'readerSubTabActive',
         'flatSegmentedIndicator',
     ]) {
         assert.match(styleText, new RegExp(escapeRegExp(checks[key])));
@@ -718,7 +742,8 @@ test('gate:igs-ui:settings-style-uses-soft-radius-tokens', () => {
 
 test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
     const source = getOriginalReaderStyleText();
-    assert.match(source, /\.igs-embedded-host\{[^}]*aspect-ratio:16 \/ 9/);
+    assert.match(source, /\.igs-embedded-host\{aspect-ratio:8 \/ 5;max-height:760px;\}/);
+    assert.match(source, /@media \(max-width:640px\)\{\.igs-embedded-host\{aspect-ratio:auto;height:min\(74dvh,680px\);\}\}/);
     assert.match(source, /#igs-overlay\.igs-mode-embedded\{[^}]*position:relative/);
     assert.match(source, /@media \(prefers-reduced-motion: reduce\)\{\.igs-embedded-loading-dot\{animation:none/);
 });

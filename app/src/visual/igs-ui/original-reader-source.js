@@ -149,14 +149,14 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-mode-embedded .igs-ctrl-bar .igs-icon-btn:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.52);}
 .igs-mode-embedded #igs-option-bubbles[data-igs-pos]{top:calc(14px + var(--igs-toolbar-h,32px) + 8px);bottom:calc(14px + var(--igs-dialog-h,220px) + 10px);max-height:none;overflow-y:auto;overscroll-behavior:contain;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}
-.igs-embedded-host{aspect-ratio:16 / 9;max-height:720px;}
+.igs-embedded-host{aspect-ratio:8 / 5;max-height:760px;}
 .igs-embedded-loading{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:100%;color:rgba(255,255,255,.72);font-size:13px;letter-spacing:.08em;}
 .igs-embedded-loading-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.35;animation:igs-embedded-pulse 1.1s ease-in-out infinite;}
 .igs-embedded-loading-dot:nth-child(2){animation-delay:.18s;}
 .igs-embedded-loading-dot:nth-child(3){animation-delay:.36s;}
 .igs-embedded-loading-text{margin-left:6px;color:rgba(255,255,255,.5);}
 @keyframes igs-embedded-pulse{0%,100%{opacity:.25}50%{opacity:.9}}
-@media (max-width:640px){.igs-embedded-host{aspect-ratio:auto;height:min(70dvh,640px);}}
+@media (max-width:640px){.igs-embedded-host{aspect-ratio:auto;height:min(74dvh,680px);}}
 @media (prefers-reduced-motion: reduce){.igs-embedded-loading-dot{animation:none;opacity:.6;}}
 `.trim();
 

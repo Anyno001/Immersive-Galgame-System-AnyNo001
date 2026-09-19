@@ -261,6 +261,7 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     body.className = 'igs-settings-body';
     if (typeof ctx.renderSettingsBody === 'function') {
         body.innerHTML = ctx.renderSettingsBody(snapshot.tab, snapshot.draft, {
+            readerSubTab: snapshot.readerSubTab,
             imageResult: snapshot.resultText && snapshot.resultText.image,
             imageModelsMessage: snapshot.resultText && snapshot.resultText.imageModels,
             virtualRegexPreview: snapshot.resultText && snapshot.resultText.virtualRegex,

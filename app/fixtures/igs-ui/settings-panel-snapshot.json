@@ -76,6 +76,24 @@
       ]
     }
   ],
+  "readerSubTabs": [
+    {
+      "id": "display",
+      "label": "显示"
+    },
+    {
+      "id": "options",
+      "label": "选项"
+    },
+    {
+      "id": "toolbar",
+      "label": "工具栏"
+    },
+    {
+      "id": "theme",
+      "label": "主题"
+    }
+  ],
   "styleChecks": {
     "viewportLeft": "left:var(--igs-settings-vleft)",
     "viewportTop": "top:var(--igs-settings-vtop)",
@@ -94,6 +112,8 @@
     "flatShell": "border:0;border-radius:var(--igs-settings-radius-shell);box-shadow:none",
     "flatBackdrop": "backdrop-filter:none",
     "activeTab": ".igs-settings-tab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",
+    "readerSubTabs": ".igs-reader-subtabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))",
+    "readerSubTabActive": ".igs-reader-subtab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",
     "flatSegmentedIndicator": ".igs-segmented-indicator{display:none",
     "mobileMedia": "@media (max-width:640px)"
   }
