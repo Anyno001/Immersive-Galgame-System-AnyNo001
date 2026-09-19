@@ -19,6 +19,8 @@ import { createReaderState } from '../src/visual/reader-state.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { createStageModel } from '../src/visual/stage-model.js';
 import { getOriginalReaderSource } from '../src/visual/igs-ui/original-reader-source.js';
+import { CLASSIC_DIALOG_ASSETS, CLASSIC_DIALOG_ASSET_META } from '../src/visual/igs-ui/classic-dialog-assets.js';
+import { CLASSIC_DIALOG_STYLE_TEXT } from '../src/visual/igs-ui/classic-dialog-skin.js';
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import {
@@ -695,6 +697,7 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     const toolbarTemplate = getReaderSubTabTemplate('toolbar');
     const themeTemplate = getReaderSubTabTemplate('theme');
     assert.match(displayTemplate, /fontSizeField/);
+    assert.match(displayTemplate, /dialogSkinField/);
     assert.match(displayTemplate, /dialogWidthField/);
     assert.doesNotMatch(displayTemplate, /optionBubbleToggle|pinnedButtonsField|nameFontField/);
     assert.match(optionsTemplate, /optionFontSizeField/);
@@ -788,6 +791,33 @@ test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
     assert.match(source, /@media \(max-width:640px\)\{\.igs-embedded-host\{aspect-ratio:auto;height:min\(74dvh,680px\);\}\}/);
     assert.match(source, /#igs-overlay\.igs-mode-embedded\{[^}]*position:relative/);
     assert.match(source, /@media \(prefers-reduced-motion: reduce\)\{\.igs-embedded-loading-dot\{animation:none/);
+});
+
+test('gate:igs-ui:classic-dialog-assets-and-style', () => {
+    const expected = {
+        dialogLeft: [110, 184],
+        dialogCenter: [744, 184],
+        dialogRight: [110, 184],
+        nameLeft: [65, 68],
+        nameCenter: [244, 68],
+        nameRight: [65, 68],
+    };
+    for (const [key, [width, height]] of Object.entries(expected)) {
+        const dataUrl = CLASSIC_DIALOG_ASSETS[key];
+        const meta = CLASSIC_DIALOG_ASSET_META[key];
+        assert.ok(dataUrl.startsWith('data:image/png;base64,'), key);
+        assert.deepEqual(meta, { width, height });
+        const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+        assert.deepEqual(Array.from(bytes.subarray(0, 8)), [137, 80, 78, 71, 13, 10, 26, 10]);
+        assert.equal(bytes.readUInt32BE(16), width);
+        assert.equal(bytes.readUInt32BE(20), height);
+    }
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="western-classic"/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:110px 184px,calc\(100% - 220px\) 184px,110px 184px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /width:187px;height:34px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data:image\/png;base64,/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /CLASSIC_DIALOG_ASSETS|iVBORw0KGgo/);
+    assert.doesNotMatch(CLASSIC_DIALOG_STYLE_TEXT, /\.igs-ctrl-bar|#igs-toolbar-layer/);
 });
 
 test('gate:api:public-api-exposes-text-preset-groups', () => {

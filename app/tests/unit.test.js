@@ -706,6 +706,20 @@ test('gate:igs-ui:resolve-active-theme-exposes-align-fields', () => {
     assert.equal(custom.narrationAlign, 'left');
 });
 
+test('gate:igs-ui:classic-dialog-active-theme-keeps-default-isolated', () => {
+    const theme = resolveActiveTheme({
+        readerSettings: {
+            dialogSkin: 'western-classic',
+            _vnTheme: { preset: 'custom', textColor: '#abcdef' },
+            classicVnTheme: { preset: 'custom', textColor: '#123456', nameColor: '#654321' },
+        },
+    });
+    assert.equal(theme.textColor, '#123456');
+    assert.equal(theme.nameColor, '#654321');
+    assert.equal(theme.narrationColor, '#e6dcc3');
+    assert.equal(theme.dividerSymbol, 'none');
+});
+
 test('gate:igs-ui:resolve-sprite-layout-keeps-mode-isolated', () => {
     const layouts = {
         'pc::小林海斗::平和': { posX: 70, posY: 30, scale: 180 },

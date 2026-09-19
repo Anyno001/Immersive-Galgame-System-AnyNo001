@@ -3,6 +3,7 @@ import { buildNarrativeSegments } from '../../scene/image-slots.js';
 import { SETTINGS_TAB_DEFS } from './settings-tabs.js';
 import { TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { esc, normalizeFiniteNumber } from './reader-value-utils.js';
+import { CLASSIC_DIALOG_THEME_DEFAULTS, isClassicDialogSkin } from './classic-dialog-skin.js';
 
 export function normalizeReaderMode(mode, bridge) {
     if (mode === 'default') return 'default';
@@ -124,28 +125,28 @@ export function resolveSpriteLayout(layouts, mode, character, mood) {
 }
 
 export function resolveActiveTheme(snapshot) {
-    const vnTheme = snapshot.readerSettings._vnTheme || {};
-    const presetName = vnTheme.preset || 'genshin';
-    const preset = VN_THEME_PRESETS[presetName] || VN_THEME_PRESETS.genshin;
-    if (presetName === 'custom') {
-        return {
-            nameAlign: vnTheme.nameAlign || preset.nameAlign,
-            textAlign: vnTheme.textAlign || preset.textAlign || 'left',
-            narrationAlign: vnTheme.narrationAlign || preset.narrationAlign || 'left',
-            thoughtAlign: vnTheme.thoughtAlign || preset.thoughtAlign || 'left',
-            dividerSymbol: vnTheme.dividerSymbol != null ? vnTheme.dividerSymbol : preset.dividerSymbol,
-            nameFont: vnTheme.nameFont || preset.nameFont,
-            textFont: vnTheme.textFont || preset.textFont,
-            thoughtFont: vnTheme.thoughtFont || preset.thoughtFont,
-            narrationFont: vnTheme.narrationFont || preset.narrationFont,
-            nameColor: vnTheme.nameColor || preset.nameColor,
-            textColor: vnTheme.textColor || preset.textColor,
-            thoughtColor: vnTheme.thoughtColor || preset.thoughtColor,
-            narrationColor: vnTheme.narrationColor || preset.narrationColor,
-            dividerColor: vnTheme.dividerColor || preset.dividerColor,
-        };
-    }
-    return { ...preset };
+    const readerSettings = snapshot.readerSettings || {};
+    const classic = isClassicDialogSkin(readerSettings);
+    const vnTheme = classic ? (readerSettings.classicVnTheme || {}) : (readerSettings._vnTheme || readerSettings.vnTheme || {});
+    const presetName = classic ? 'custom' : (vnTheme.preset || 'genshin');
+    const preset = classic ? CLASSIC_DIALOG_THEME_DEFAULTS : (VN_THEME_PRESETS[presetName] || VN_THEME_PRESETS.genshin);
+    if (!classic && presetName !== 'custom') return { ...preset };
+    return {
+        nameAlign: vnTheme.nameAlign || preset.nameAlign,
+        textAlign: vnTheme.textAlign || preset.textAlign || 'left',
+        narrationAlign: vnTheme.narrationAlign || preset.narrationAlign || 'left',
+        thoughtAlign: vnTheme.thoughtAlign || preset.thoughtAlign || 'left',
+        dividerSymbol: vnTheme.dividerSymbol != null ? vnTheme.dividerSymbol : preset.dividerSymbol,
+        nameFont: vnTheme.nameFont || preset.nameFont,
+        textFont: vnTheme.textFont || preset.textFont,
+        thoughtFont: vnTheme.thoughtFont || preset.thoughtFont,
+        narrationFont: vnTheme.narrationFont || preset.narrationFont,
+        nameColor: vnTheme.nameColor || preset.nameColor,
+        textColor: vnTheme.textColor || preset.textColor,
+        thoughtColor: vnTheme.thoughtColor || preset.thoughtColor,
+        narrationColor: vnTheme.narrationColor || preset.narrationColor,
+        dividerColor: vnTheme.dividerColor || preset.dividerColor,
+    };
 }
 
 export function renderDialogueHtml(text, theme, sceneAssetsEnabled) {

@@ -908,6 +908,121 @@ test('gate:simulation:reader-settings-shared-across-modes', async () => {
     vn.destroy();
 });
 
+test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        _v: '0.5.4',
+        dialogHeight: 300,
+        glassOpacity: 0.74,
+        toolbarScale: 80,
+        vnTheme: {
+            preset: 'custom',
+            narrationColor: '#abcdef',
+        },
+    }));
+    const document = createFakeDocument({ innerWidth: 880, innerHeight: 720 });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '古典对话框测试旁白。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    let dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), null);
+
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    let result = settings.setValue('readerSettings.dialogSkin', 'western-classic');
+    assert.equal(result.ok, true);
+    dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'western-classic');
+
+    settings.setValue('readerSettings.classicVnTheme.narrationColor', '#123456');
+    settings.setValue('readerSettings.fontSize', 22);
+    let active = vn.getState().igsUi.activeReader.snapshot;
+    let textEl = document.getElementById('igs-overlay').querySelector('#igs-text');
+    assert.equal(active.readerSettings.fontSize, 22);
+    assert.equal(active.readerSettings.dialogHeight, 300);
+    assert.equal(active.readerSettings.glassOpacity, 0.74);
+    assert.equal(active.readerSettings.toolbarScale, 80);
+    assert.equal(textEl.style.color, '#123456');
+
+    settings.setValue('readerSettings.dialogSkin', 'default');
+    dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), null);
+
+    settings.setValue('readerSettings.dialogSkin', 'western-classic');
+    const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+    assert.equal(saved.dialogSkin, 'western-classic');
+    assert.equal(saved.vnTheme.narrationColor, '#abcdef');
+    assert.equal(saved.classicVnTheme.narrationColor, '#123456');
+    assert.equal(saved.fontSize, 22);
+    vn.destroy();
+
+    const reopenedDocument = createFakeDocument({ innerWidth: 880, innerHeight: 720 });
+    const reopened = bootstrapIGS({
+        global: { document: reopenedDocument, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '古典对话框测试旁白。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    await reopened.openLatestAvailable('pc');
+    dialog = reopenedDocument.getElementById('igs-overlay').querySelector('#igs-dialog');
+    textEl = reopenedDocument.getElementById('igs-overlay').querySelector('#igs-text');
+    active = reopened.getState().igsUi.activeReader.snapshot;
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'western-classic');
+    assert.equal(textEl.style.color, '#123456');
+    assert.equal(active.readerSettings.fontSize, 22);
+    reopened.destroy();
+});
+
+test('gate:simulation:classic-dialog-nameplate-uses-existing-speaker', async () => {
+    const document = createFakeDocument({ innerWidth: 880, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: { enabled: true, promptRule: 'rule', scenes: {}, characters: {} },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        _v: '0.5.4',
+        dialogSkin: 'western-classic',
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 1,
+                text: [
+                    '<now_plot>',
+                    '<content>',
+                    '[igs-char:Hero|calm|Hello.]',
+                    '</content>',
+                    '</now_plot>',
+                ].join('\n'),
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const dialog = overlay.querySelector('#igs-dialog');
+    const speaker = overlay.querySelector('#igs-speaker');
+    const divider = overlay.querySelector('#igs-divider');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'western-classic');
+    assert.equal(speaker.textContent, 'Hero');
+    assert.equal(speaker.style.display, 'block');
+    assert.equal(speaker.style.color, '#312b1b');
+    assert.equal(divider.style.display, 'none');
+    vn.destroy();
+});
+
 test('gate:simulation:reader-settings-save-preserves-current-explicit-mode', async () => {
     const storage = createMemoryStorage();
     const vn = bootstrapIGS({
@@ -2784,6 +2899,9 @@ function createFakeElement(tagName, ownerDocument) {
     const style = {
         setProperty(name, value) {
             this[name] = String(value);
+        },
+        removeProperty(name) {
+            delete this[name];
         },
     };
     const element = {

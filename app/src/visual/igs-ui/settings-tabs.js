@@ -76,6 +76,7 @@ const READER_TAB_TEMPLATE = `
 const READER_DISPLAY_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="display">
   {{fontSizeField}}
+  {{dialogSkinField}}
   {{dialogWidthField}}
   {{dialogHeightField}}
   {{glassOpacityField}}
@@ -116,7 +117,7 @@ const READER_THEME_TEMPLATE = `
   <div class="{{themeGroupClass}}">
     <div>
       <div class="igs-source-filter-title">对话主题</div>
-      <div class="igs-source-filter-note">仅在启用场景素材模式时可用；按当前「应用到模式」分别保存。</div>
+      <div class="igs-source-filter-note">{{themeNote}}</div>
     </div>
     <div class="{{themeAdvancedClass}}" style="display:flex;flex-direction:column;gap:12px">
       <div class="igs-source-filter">

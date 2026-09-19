@@ -20,6 +20,7 @@ import {
     resolveSpriteLayout,
 } from './settings-normalize.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
+import { applyDialogSkinAssets, isClassicDialogSkin } from './classic-dialog-skin.js';
 
 export function createReaderButton(doc, id, title, html) {
     const button = doc.createElement('button');
@@ -358,6 +359,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     const bg = root.querySelector('#igs-bg');
     const bgBlur = root.querySelector('#igs-bg-blur');
     const readerSettings = snapshot.readerSettings || {};
+    const classicDialog = isClassicDialogSkin(readerSettings);
     const inlineMode = snapshot.mode === 'pc' || snapshot.mode === 'mobile';
     const embeddedMode = snapshot.mode === 'embedded';
     const win = getOwnerWindow(root);
@@ -381,7 +383,12 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     }
 
     if (dialog) {
-        if (embeddedMode) {
+        applyDialogSkinAssets(dialog, readerSettings);
+        dialog.style.height = '';
+        if (classicDialog) {
+            dialog.style.minHeight = '';
+            dialog.style.maxHeight = '';
+        } else if (embeddedMode) {
             dialog.style.minHeight = '';
             dialog.style.maxHeight = '';
             dialog.style.width = '';
@@ -403,14 +410,15 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             dialog.style.maxHeight = '';
         }
 
+        const minimumDialogWidth = classicDialog ? 280 : (inlineMode ? 180 : 260);
         if (embeddedMode || readerSettings.dialogWidth == null) {
             dialog.style.width = '';
         } else if (inlineMode) {
-            const clampedWidth = Math.max(180, Math.min(readerSettings.dialogWidth, Math.max(180, (overlayWidth || readerSettings.dialogWidth) - 24)));
+            const clampedWidth = Math.max(minimumDialogWidth, Math.min(readerSettings.dialogWidth, Math.max(minimumDialogWidth, (overlayWidth || readerSettings.dialogWidth) - 24)));
             dialog.style.width = `${clampedWidth}px`;
         } else {
             const viewportWidth = Number(win && win.innerWidth) || readerSettings.dialogWidth;
-            dialog.style.width = `${Math.max(260, Math.min(readerSettings.dialogWidth, Math.max(260, viewportWidth - 8)))}px`;
+            dialog.style.width = `${Math.max(minimumDialogWidth, Math.min(readerSettings.dialogWidth, Math.max(minimumDialogWidth, viewportWidth - 8)))}px`;
         }
         dialog.style.background = '';
     }
@@ -484,6 +492,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const input = root.querySelector('#igs-input');
     const send = root.querySelector('#igs-send-btn');
     const dialog = root.querySelector('#igs-dialog');
+    const classicDialog = isClassicDialogSkin(snapshot.readerSettings);
     const toolbar = root.querySelector('#igs-ctrl-bar');
     const clickLayer = root.querySelector('#igs-click-layer');
     const toast = root.querySelector('#igs-toast');
@@ -553,13 +562,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const segFont = isThought ? theme.thoughtFont : isNarration ? theme.narrationFont : theme.textFont;
         const segColor = isThought ? theme.thoughtColor : isNarration ? theme.narrationColor : theme.textColor;
         const segAlign = isThought ? theme.thoughtAlign : isNarration ? theme.narrationAlign : theme.textAlign;
-        applyAlignStyle(textEl, sceneAssetsEnabled ? segAlign : '');
-        if (sceneAssetsEnabled && segFont && segFont !== 'inherit') {
+        const themeEnabled = sceneAssetsEnabled || classicDialog;
+        applyAlignStyle(textEl, themeEnabled ? segAlign : '');
+        if (themeEnabled && segFont && segFont !== 'inherit') {
             textEl.style.fontFamily = segFont;
         } else {
             textEl.style.fontFamily = '';
         }
-        if (sceneAssetsEnabled && segColor) {
+        if (themeEnabled && segColor) {
             textEl.style.color = segColor;
         } else {
             textEl.style.color = '';
@@ -583,7 +593,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (dividerEl) {
         const theme = resolveActiveTheme(snapshot);
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
-        if (sceneAssetsEnabled && snapshot.content.speaker && theme.dividerSymbol !== 'none') {
+        if (!classicDialog && sceneAssetsEnabled && snapshot.content.speaker && theme.dividerSymbol !== 'none') {
             if (theme.dividerSymbol === 'gradient') {
                 dividerEl.textContent = '';
                 dividerEl.style.display = 'block';
@@ -617,6 +627,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         controls.style.display = snapshot.mode === 'embedded' ? 'none' : (isLastPage ? '' : 'none');
     }
     if (dialog) {
+        applyDialogSkinAssets(dialog, snapshot.readerSettings);
         dialog.style.paddingTop = '';
     }
     if (input) {

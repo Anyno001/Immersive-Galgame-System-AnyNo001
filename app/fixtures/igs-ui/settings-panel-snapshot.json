@@ -81,6 +81,7 @@
       "requiredPaths": [
         "readerMode",
         "readerSettings.fontSize",
+        "readerSettings.dialogSkin",
         "readerSettings.optionFontSize",
         "readerSettings.dialogWidth",
         "readerSettings.dialogHeight",

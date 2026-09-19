@@ -1,3 +1,5 @@
+import { CLASSIC_DIALOG_STYLE_TEXT } from './classic-dialog-skin.js';
+
 export const ORIGINAL_READER_ICONS = Object.freeze({
     db: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="display:block"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
     prev: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="15 18 9 12 15 6"/></svg>',
@@ -158,6 +160,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 @keyframes igs-embedded-pulse{0%,100%{opacity:.25}50%{opacity:.9}}
 @media (max-width:640px){.igs-embedded-host{aspect-ratio:auto;height:min(74dvh,680px);}}
 @media (prefers-reduced-motion: reduce){.igs-embedded-loading-dot{animation:none;opacity:.6;}}
+${CLASSIC_DIALOG_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `

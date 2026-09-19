@@ -124,6 +124,12 @@ import { handleSettingsAction as runSettingsAction } from './settings-actions.js
 import { loadScenePresets } from '../../scene/scene-preset-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
 import {
+    CLASSIC_DIALOG_HEIGHT,
+    CLASSIC_DIALOG_THEME_DEFAULTS,
+    DIALOG_SKIN_WESTERN_CLASSIC,
+    normalizeDialogSkin,
+} from './classic-dialog-skin.js';
+import {
     applyReaderSnapshotToDom,
     applyToolbarState,
     buildFallbackReaderOverlay,
@@ -803,19 +809,24 @@ export function createIgsReaderHost(options = {}) {
         }
 
         setPath(draft, path, normalizeSettingsValue(path, value));
-        if (path === 'readerSettings.vnTheme.preset' && value === 'custom') {
-            const prevName = (draft.readerSettings.vnTheme && draft.readerSettings.vnTheme._prevPreset) || 'genshin';
-            const source = VN_THEME_PRESETS[prevName] || VN_THEME_PRESETS.genshin;
+        const themeKey = path.startsWith('readerSettings.classicVnTheme.') ? 'classicVnTheme' : 'vnTheme';
+        const themeRoot = `readerSettings.${themeKey}`;
+        if (path === `${themeRoot}.preset` && value === 'custom') {
+            const currentTheme = draft.readerSettings[themeKey] || {};
+            const prevName = currentTheme._prevPreset || 'genshin';
+            const source = themeKey === 'classicVnTheme'
+                ? CLASSIC_DIALOG_THEME_DEFAULTS
+                : (VN_THEME_PRESETS[prevName] || VN_THEME_PRESETS.genshin);
             const fields = ['nameAlign', 'textAlign', 'narrationAlign', 'thoughtAlign', 'dividerSymbol', 'nameFont', 'textFont', 'thoughtFont', 'narrationFont', 'nameColor', 'textColor', 'thoughtColor', 'narrationColor', 'dividerColor'];
             for (const f of fields) {
-                setPath(draft, `readerSettings.vnTheme.${f}`, source[f]);
+                setPath(draft, `${themeRoot}.${f}`, source[f]);
             }
         }
-        if (path === 'readerSettings.vnTheme.preset' && value !== 'custom') {
-            setPath(draft, 'readerSettings.vnTheme._prevPreset', value);
+        if (path === `${themeRoot}.preset` && value !== 'custom') {
+            setPath(draft, `${themeRoot}._prevPreset`, value);
         }
-        if (path.startsWith('readerSettings.vnTheme.') && path !== 'readerSettings.vnTheme.preset' && path !== 'readerSettings.vnTheme._prevPreset') {
-            setPath(draft, 'readerSettings.vnTheme.preset', 'custom');
+        if (path.startsWith(`${themeRoot}.`) && path !== `${themeRoot}.preset` && path !== `${themeRoot}._prevPreset`) {
+            setPath(draft, `${themeRoot}.preset`, 'custom');
         }
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
@@ -1698,20 +1709,24 @@ export function createIgsReaderHost(options = {}) {
 
         const readerSubTab = normalizeReaderSubTab(asyncState.readerSubTab);
         const sceneEnabled = !!(bridge.sceneAssets && bridge.sceneAssets.enabled);
-        const themeDisabled = !sceneEnabled;
+        const classicDialog = reader.dialogSkin === DIALOG_SKIN_WESTERN_CLASSIC;
+        const themeDisabled = !sceneEnabled && !classicDialog;
+        const themePath = classicDialog ? 'readerSettings.classicVnTheme' : 'readerSettings.vnTheme';
         const vnTheme = reader.vnTheme || {};
+        const classicVnTheme = reader.classicVnTheme || CLASSIC_DIALOG_THEME_DEFAULTS;
         // 对话主题已取消预设选择，恒为自定义：自定义项始终可编辑（仅受场景素材开关 themeDisabled 控制）。
         const themeCustom = true;
-        const displayTheme = vnTheme;
+        const displayTheme = classicDialog ? classicVnTheme : vnTheme;
         const readerSubTabs = READER_SUBTAB_DEFS.map(([id, label]) => (
             `<button type="button" class="igs-reader-subtab${readerSubTab === id ? ' is-active' : ''}" data-reader-subtab="${id}" role="tab" aria-selected="${readerSubTab === id ? 'true' : 'false'}">${label}</button>`
         )).join('');
         const readerValues = {
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
+            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典']])),
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
             dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']])),
-            dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, [['null', '自适应'], [10, '10px'], [20, '20px'], [40, '40px'], [60, '60px'], [90, '90px'], [130, '130px'], [160, '160px'], [200, '200px'], [250, '250px'], [300, '300px'], [400, '400px'], [500, '500px'], [600, '600px']])),
-            glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`]))),
+            dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, [['null', '自适应'], [10, '10px'], [20, '20px'], [40, '40px'], [60, '60px'], [90, '90px'], [130, '130px'], [160, '160px'], [200, '200px'], [250, '250px'], [300, '300px'], [400, '400px'], [500, '500px'], [600, '600px']], classicDialog), classicDialog ? `当前风格使用固定 ${CLASSIC_DIALOG_HEIGHT}px；原设置值会保留。` : ''),
+            glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`])), classicDialog ? '不影响素材对话框，仍作用于工具栏、选项和数据库。' : ''),
             imageCountField: field('readerSettings.imageCountOverride', '检测图像数量', selectInput('readerSettings.imageCountOverride', reader.imageCountOverride === null ? 'null' : reader.imageCountOverride, [['null', '自动']].concat(Array.from({ length: 20 }, (_, index) => [index + 1, `${index + 1}张`])))),
             inputScaleField: field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
             toolbarScaleField: field('readerSettings.toolbarScale', '工具栏大小', selectInput('readerSettings.toolbarScale', reader.toolbarScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
@@ -1727,21 +1742,22 @@ export function createIgsReaderHost(options = {}) {
             optionBubbleWidthToggle: checkbox('bridge.optionBubble.widthFollowsText', Boolean(bridge.optionBubble && bridge.optionBubble.widthFollowsText), '气泡宽度随文本变化'),
             pinnedButtonsField: renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder),
             themeGroupClass: `igs-source-filter igs-settings-full${themeDisabled ? ' igs-settings-api-group is-disabled' : ''}`,
+            themeNote: classicDialog ? '当前编辑西欧古典风格的文字外观；默认风格配置会保留。' : '仅在启用场景素材模式时可用；默认风格配置独立保存。',
             themePresetField: '',
-            nameAlignField: field('readerSettings.vnTheme.nameAlign', '对齐', selectInput('readerSettings.vnTheme.nameAlign', displayTheme.nameAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
-            textAlignField: field('readerSettings.vnTheme.textAlign', '对齐', selectInput('readerSettings.vnTheme.textAlign', displayTheme.textAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
-            narrationAlignField: field('readerSettings.vnTheme.narrationAlign', '对齐', selectInput('readerSettings.vnTheme.narrationAlign', displayTheme.narrationAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
-            thoughtAlignField: field('readerSettings.vnTheme.thoughtAlign', '对齐', selectInput('readerSettings.vnTheme.thoughtAlign', displayTheme.thoughtAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
-            dividerField: field('readerSettings.vnTheme.dividerSymbol', '样式', selectInput('readerSettings.vnTheme.dividerSymbol', displayTheme.dividerSymbol || 'gradient', [['gradient', '渐变线'], ['none', '无']], themeDisabled || !themeCustom)),
-            nameFontField: field('readerSettings.vnTheme.nameFont', '字体', selectInput('readerSettings.vnTheme.nameFont', displayTheme.nameFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
-            textFontField: field('readerSettings.vnTheme.textFont', '字体', selectInput('readerSettings.vnTheme.textFont', displayTheme.textFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
-            thoughtFontField: field('readerSettings.vnTheme.thoughtFont', '字体', selectInput('readerSettings.vnTheme.thoughtFont', displayTheme.thoughtFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
-            nameColorField: field('readerSettings.vnTheme.nameColor', '颜色', colorInput('readerSettings.vnTheme.nameColor', toHex(displayTheme.nameColor || '#ffeeb8'), themeDisabled || !themeCustom)),
-            textColorField: field('readerSettings.vnTheme.textColor', '颜色', colorInput('readerSettings.vnTheme.textColor', toHex(displayTheme.textColor || '#f4f4f6'), themeDisabled || !themeCustom)),
-            thoughtColorField: field('readerSettings.vnTheme.thoughtColor', '颜色', colorInput('readerSettings.vnTheme.thoughtColor', toHex(displayTheme.thoughtColor || '#c8c8dc'), themeDisabled || !themeCustom)),
-            narrationFontField: field('readerSettings.vnTheme.narrationFont', '字体', selectInput('readerSettings.vnTheme.narrationFont', displayTheme.narrationFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
-            narrationColorField: field('readerSettings.vnTheme.narrationColor', '颜色', colorInput('readerSettings.vnTheme.narrationColor', toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
-            dividerColorField: field('readerSettings.vnTheme.dividerColor', '颜色', colorInput('readerSettings.vnTheme.dividerColor', toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || !themeCustom)),
+            nameAlignField: field(`${themePath}.nameAlign`, '对齐', selectInput(`${themePath}.nameAlign`, displayTheme.nameAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
+            textAlignField: field(`${themePath}.textAlign`, '对齐', selectInput(`${themePath}.textAlign`, displayTheme.textAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
+            narrationAlignField: field(`${themePath}.narrationAlign`, '对齐', selectInput(`${themePath}.narrationAlign`, displayTheme.narrationAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
+            thoughtAlignField: field(`${themePath}.thoughtAlign`, '对齐', selectInput(`${themePath}.thoughtAlign`, displayTheme.thoughtAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
+            dividerField: field(`${themePath}.dividerSymbol`, '样式', selectInput(`${themePath}.dividerSymbol`, displayTheme.dividerSymbol || 'none', [['gradient', '渐变线'], ['none', '无']], themeDisabled || classicDialog || !themeCustom), classicDialog ? '姓名牌风格不显示额外分隔线。' : ''),
+            nameFontField: field(`${themePath}.nameFont`, '字体', selectInput(`${themePath}.nameFont`, displayTheme.nameFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
+            textFontField: field(`${themePath}.textFont`, '字体', selectInput(`${themePath}.textFont`, displayTheme.textFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
+            thoughtFontField: field(`${themePath}.thoughtFont`, '字体', selectInput(`${themePath}.thoughtFont`, displayTheme.thoughtFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
+            nameColorField: field(`${themePath}.nameColor`, '颜色', colorInput(`${themePath}.nameColor`, toHex(displayTheme.nameColor || '#ffeeb8'), themeDisabled || !themeCustom)),
+            textColorField: field(`${themePath}.textColor`, '颜色', colorInput(`${themePath}.textColor`, toHex(displayTheme.textColor || '#f4f4f6'), themeDisabled || !themeCustom)),
+            thoughtColorField: field(`${themePath}.thoughtColor`, '颜色', colorInput(`${themePath}.thoughtColor`, toHex(displayTheme.thoughtColor || '#c8c8dc'), themeDisabled || !themeCustom)),
+            narrationFontField: field(`${themePath}.narrationFont`, '字体', selectInput(`${themePath}.narrationFont`, displayTheme.narrationFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
+            narrationColorField: field(`${themePath}.narrationColor`, '颜色', colorInput(`${themePath}.narrationColor`, toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
+            dividerColorField: field(`${themePath}.dividerColor`, '颜色', colorInput(`${themePath}.dividerColor`, toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || classicDialog || !themeCustom)),
             themeAdvancedClass: themeCustom ? '' : 'igs-settings-api-group is-disabled',
         };
         return renderTemplate(getSettingsTabTemplate('reader'), {
@@ -2328,18 +2344,18 @@ export function createIgsReaderHost(options = {}) {
         return normalized;
     }
 
-    function normalizeVnTheme(value) {
+    function normalizeVnTheme(value, fallback = VN_THEME_PRESETS.genshin) {
         const normalized = cloneData(value || {});
         // 对话主题已取消预设选择，恒为自定义；用 genshin 作为各字段的初值来源（fallback）。
         normalized.preset = 'custom';
-        const fallback = VN_THEME_PRESETS.genshin;
         const normalizeAlign = (value, def) => (value === 'left' || value === 'center' || value === 'indent') ? value : def;
         normalized.nameAlign = normalizeAlign(normalized.nameAlign, fallback.nameAlign);
         normalized.textAlign = normalizeAlign(normalized.textAlign, fallback.textAlign || 'left');
         normalized.narrationAlign = normalizeAlign(normalized.narrationAlign, fallback.narrationAlign || 'left');
         normalized.thoughtAlign = normalizeAlign(normalized.thoughtAlign, fallback.thoughtAlign || 'left');
         // 分割线只保留「渐变线(gradient)」与「无(none)」；旧符号样式一律归到渐变线。
-        normalized.dividerSymbol = normalized.dividerSymbol === 'none' ? 'none' : 'gradient';
+        const dividerSymbol = normalized.dividerSymbol == null ? fallback.dividerSymbol : normalized.dividerSymbol;
+        normalized.dividerSymbol = dividerSymbol === 'none' ? 'none' : 'gradient';
         normalized.nameFont = normalized.nameFont || fallback.nameFont;
         normalized.textFont = normalized.textFont || fallback.textFont;
         normalized.thoughtFont = normalized.thoughtFont || fallback.thoughtFont;
@@ -2359,6 +2375,7 @@ export function createIgsReaderHost(options = {}) {
             : {};
         const base = {
             _v: currentVersion,
+            dialogSkin: 'default',
             fontSize: 18,
             optionFontSize: 14,
             dialogWidth: null,
@@ -2379,6 +2396,7 @@ export function createIgsReaderHost(options = {}) {
         };
         const normalized = { ...base, ...src, _v: currentVersion };
         delete normalized.emptyBackgroundColor;
+        normalized.dialogSkin = normalizeDialogSkin(normalized.dialogSkin);
         normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
         normalized.optionFontSize = clampNumber(normalizeFiniteNumber(normalized.optionFontSize, base.optionFontSize), 10, 30);
         normalized.dialogWidth = normalizeNullableNumber(normalized.dialogWidth);
@@ -2403,6 +2421,7 @@ export function createIgsReaderHost(options = {}) {
             ? src.vnTheme
             : (legacyTheme && typeof legacyTheme === 'object' ? legacyTheme : null);
         normalized.vnTheme = normalizeVnTheme(rawTheme || {});
+        normalized.classicVnTheme = normalizeVnTheme(src.classicVnTheme || {}, CLASSIC_DIALOG_THEME_DEFAULTS);
         return normalized;
     }
 
