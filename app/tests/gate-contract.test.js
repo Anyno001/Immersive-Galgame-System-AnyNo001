@@ -613,10 +613,10 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.styleText, /#igs-overlay\.igs-floating \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating \.igs-controls\{flex-shrink:0;\}/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-progress\{display:none;\}/);
-    assert.match(source.styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*width:auto[^}]*height:min\(220px,calc\(100% - 28px\)\)[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden/);
+    assert.match(source.styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*width:auto[^}]*height:min\(220px,calc\(100% - 28px\)\)[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden[^}]*padding:20px 18px 14px/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-controls\{display:none;\}/);
-    assert.match(source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;\}/);
+    assert.match(source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;transform:scale\(1\.2\);transform-origin:center;\}/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn\{[^}]*color:rgba\(255,255,255,\.32\)/);
     assert.match(source.styleText, /\.igs-mode-embedded #igs-option-bubbles\[data-igs-pos\]\{[^}]*top:calc\(14px \+ var\(--igs-toolbar-h,32px\) \+ 8px\)[^}]*bottom:calc\(14px \+ var\(--igs-dialog-h,220px\) \+ 10px\)[^}]*overflow-y:auto/);
     assert.doesNotMatch(source.styleText, /transition:all/);

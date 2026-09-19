@@ -138,14 +138,14 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-embedded-host[data-igs-embedded-loading="1"]{display:flex;align-items:center;justify-content:center;}
 #igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;}
 .igs-mode-embedded .igs-progress{display:none;}
-.igs-mode-embedded .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;height:min(220px,calc(100% - 28px));min-height:min(112px,calc(100% - 28px));max-height:calc(100% - 28px);transform:none;display:flex;flex-direction:column;overflow:hidden;padding:16px 18px 14px;}
+.igs-mode-embedded .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;height:min(220px,calc(100% - 28px));min-height:min(112px,calc(100% - 28px));max-height:calc(100% - 28px);transform:none;display:flex;flex-direction:column;overflow:hidden;padding:20px 18px 14px;}
 .igs-mode-embedded .igs-text{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;}
 .igs-mode-embedded .igs-speaker,.igs-mode-embedded .igs-divider{flex-shrink:0;}
 .igs-mode-embedded .igs-controls{display:none;}
 .igs-mode-embedded #igs-toolbar-layer{inset:14px 14px auto auto;width:auto;height:auto;transform:none;}
-.igs-mode-embedded .igs-ctrl-bar{position:static;top:auto;right:auto;gap:2px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
+.igs-mode-embedded .igs-ctrl-bar{position:static;top:auto;right:auto;gap:1.5px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
 .igs-mode-embedded .igs-ctrl-bar .igs-icon-btn{width:32px;height:32px;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.32);}
-.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn svg{width:11px;height:11px;}
+.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn svg{width:11px;height:11px;transform:scale(1.2);transform-origin:center;}
 .igs-mode-embedded .igs-ctrl-bar .igs-icon-btn:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.52);}
 .igs-mode-embedded #igs-option-bubbles[data-igs-pos]{top:calc(14px + var(--igs-toolbar-h,32px) + 8px);bottom:calc(14px + var(--igs-dialog-h,220px) + 10px);max-height:none;overflow-y:auto;overscroll-behavior:contain;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}

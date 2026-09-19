@@ -1177,9 +1177,10 @@ test('gate:simulation:igs-ui-inline-modes-keep-original-floating-geometry', asyn
 test('gate:simulation:igs-ui-embedded-toolbar-floats-top-right-as-bare-icons', () => {
     const css = getOriginalReaderStyleText();
     assert.match(css, /\.igs-mode-embedded #igs-toolbar-layer\{inset:14px 14px auto auto;width:auto;height:auto;transform:none;\}/);
-    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar\{[^}]*position:static[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none[^}]*backdrop-filter:none/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar\{[^}]*position:static[^}]*gap:1\.5px[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none[^}]*backdrop-filter:none/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn\{[^}]*width:32px[^}]*height:32px[^}]*border:0[^}]*background:transparent[^}]*color:rgba\(255,255,255,\.32\)/);
-    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;\}/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;transform:scale\(1\.2\);transform-origin:center;\}/);
+    assert.match(css, /\.igs-mode-embedded \.igs-dialog\{[^}]*padding:20px 18px 14px;\}/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn:hover\{[^}]*background:transparent[^}]*border-color:transparent[^}]*color:rgba\(255,255,255,\.52\)/);
     assert.match(css, /\.igs-mode-embedded #igs-option-bubbles\[data-igs-pos\]\{top:calc\(14px \+ var\(--igs-toolbar-h,32px\) \+ 8px\);bottom:calc\(14px \+ var\(--igs-dialog-h,220px\) \+ 10px\);max-height:none;overflow-y:auto;overscroll-behavior:contain;\}/);
 });
@@ -1220,7 +1221,7 @@ test('gate:simulation:igs-ui-embedded-keeps-compact-expanded-toolbar-when-top-do
     assert.equal(collapsible.style.display, 'flex');
     assert.equal(overlay.querySelector('#igs-btn-next').parentNode, collapsible);
     assert.equal(overlay.querySelector('#igs-btn-settings').parentNode, collapsible);
-    assert.match(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;\}/);
+    assert.match(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;transform:scale\(1\.2\);transform-origin:center;\}/);
     vn.destroy();
 });
 
