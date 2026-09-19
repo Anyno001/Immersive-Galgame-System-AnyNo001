@@ -819,9 +819,11 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     }
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="western-classic"/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:110px 184px,calc\(100% - 220px\) 184px,110px 184px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /left:35px;top:-22px;width:min\(374px,calc\(100% - 70px\)\);height:68px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:65px 68px,calc\(100% - 130px\) 68px,65px 68px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-has-speaker="1"\]\{padding-top:58px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /left:35px;top:-22px;width:min\(300px,calc\(100% - 70px\)\);height:50px;line-height:49px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:40px 50px,calc\(100% - 80px\) 50px,40px 50px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /font-size:13px;font-weight:600;letter-spacing:\.5px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /-webkit-text-stroke:\.6px rgba\(255,255,255,\.78\)/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-has-speaker="1"\]\{padding-top:44px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /overflow:visible/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data:image\/png;base64,/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /CLASSIC_DIALOG_ASSETS|iVBORw0KGgo/);
