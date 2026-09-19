@@ -1,0 +1,81 @@
+{
+  "standard": {
+    "scene": {
+      "messageId": 7,
+      "speaker": "艾莉",
+      "emotion": "微笑",
+      "text": "艾莉: 我们从这里开始。",
+      "time": "夜晚",
+      "weather": "雨",
+      "location": "图书馆",
+      "background": {
+        "id": "bg.library.rain"
+      },
+      "character": {
+        "id": "char.eli.smile"
+      },
+      "generatedImage": null,
+      "visualMode": "background-character"
+    },
+    "readerStateInput": {
+      "mode": "pc",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "readerSettings": {
+        "fontSize": 18,
+        "toolbarDirection": "horizontal"
+      }
+    },
+    "expected": {
+      "layout": "desktop",
+      "backgroundVisible": true,
+      "generatedVisible": false,
+      "characterVisible": true,
+      "dialogueVisible": true,
+      "toolbarLayout": "horizontal"
+    }
+  },
+  "generated": {
+    "scene": {
+      "messageId": 8,
+      "speaker": "艾莉",
+      "emotion": "惊讶",
+      "text": "月光照在栏杆上。",
+      "time": "",
+      "weather": "",
+      "location": "天台",
+      "background": {
+        "id": "bg.rooftop.night"
+      },
+      "character": {
+        "id": "char.eli.surprised"
+      },
+      "generatedImage": {
+        "value": "prompt://moon-rooftop"
+      },
+      "visualMode": "generated-first"
+    },
+    "readerStateInput": {
+      "mode": "web",
+      "isMobile": true,
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "readerSettings": {
+        "toolbarDirection": "vertical",
+        "showAvatar": true
+      }
+    },
+    "expected": {
+      "layout": "mobile-landscape",
+      "backgroundVisible": false,
+      "generatedVisible": true,
+      "characterVisible": false,
+      "avatarVisible": true,
+      "toolbarLayout": "vertical"
+    }
+  }
+}

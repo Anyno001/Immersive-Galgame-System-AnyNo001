@@ -1,0 +1,13 @@
+{
+  "format": "igs_preset_v1",
+  "type": "text-format-preset",
+  "id": "preset.text-format.bubble-line",
+  "name": "Bubble 转对话行",
+  "version": 1,
+  "data": {
+    "enabled": true,
+    "pattern": "@bubble:([^|\\n]+)\\|([^|\\n]+)\\|([^\\n]+)",
+    "flags": "",
+    "replacement": "$1（$2）：$3"
+  }
+}

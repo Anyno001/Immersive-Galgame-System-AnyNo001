@@ -1,0 +1,1122 @@
+import { collectProviderImages, listBuiltinImageProviders } from './provider-runtime.js';
+import { createMessageImageCache } from '../media/message-image-cache.js';
+import {
+    detectExternalImageAdapter,
+    getGlobalDetectionRoots,
+    collectDomRegenerateButtonCandidates,
+} from './dom-image-candidates.js';
+import {
+    ensureMessageImagePlaceholders,
+    getMessageScopedRoots,
+} from '../host/tavern-helper-adapter.js';
+
+export function createReaderImageService(options = {}) {
+    const globalObject = options.global || globalThis.window || globalThis;
+    const hostAdapter = options.hostAdapter || null;
+    const cache = options.cache || createMessageImageCache();
+    const builtinProviders = normalizeProviders(options.providers || listBuiltinImageProviders());
+    const imageGenerator = typeof options.imageGenerator === 'function' ? options.imageGenerator : null;
+    const fetchFn = typeof options.fetch === 'function' ? options.fetch : null;
+
+    return {
+        registerProviders(registry) {
+            if (!registry || typeof registry.register !== 'function') return;
+            for (const provider of builtinProviders) {
+                registry.register(provider);
+            }
+        },
+
+        async collect(context = {}) {
+            const messageId = normalizeMessageId(firstDefined(
+                context.messageId,
+                context.message && context.message.id,
+                context.scene && context.scene.messageId,
+            ));
+            if (messageId == null) {
+                return emptyImageState({ ok: false, reason: 'invalid-message-id' });
+            }
+
+            let message = await resolveMessageContext(context, hostAdapter, messageId);
+            const unifiedSettings = context.unifiedSettings || {};
+            const imageApi = resolveImageApi(unifiedSettings);
+            const imageSlots = normalizeImageSlots(firstDefined(
+                context.imageSlots,
+                context.imageState && context.imageState.slots,
+                [],
+            ));
+            const requireMessageScope = imageSlots.length > 0 || context.requiresMessageScope === true;
+            let scope = resolveContextScope(message, globalObject, { requireMessageScope });
+            if (requireMessageScope && (!scope.ok || isDetachedElement(message && message.element, globalObject))) {
+                const refreshed = await refreshMessageElement(message, hostAdapter, messageId, globalObject);
+                if (refreshed) {
+                    message = refreshed;
+                    scope = resolveContextScope(message, globalObject, { requireMessageScope });
+                }
+            }
+            const placeholderState = imageSlots.length && message && !hasExternalImageSlots(message)
+                ? ensureMessageImagePlaceholders(message, imageSlots)
+                : null;
+            const roots = scope.roots;
+            const cachedEntry = context.skipCache ? null : cache.get(messageId);
+            if (context.skipCache) cache.clearMessage(messageId);
+            const providerImages = await collectProviderImages(buildProviderContext({
+                context,
+                message,
+                unifiedSettings,
+                roots,
+                scope,
+                globalObject,
+                fetchFn,
+            }), resolveActiveProviders(context.providers, builtinProviders, imageApi));
+            const sceneImages = collectSceneImages(context.scene, context.render);
+            const cachedImages = cachedEntry && Array.isArray(cachedEntry.images) ? cachedEntry.images : [];
+            const preferredImageIndex = resolvePreferredImageIndex(context, imageSlots.length);
+            const diagnostics = buildImageDiagnostics(providerImages, placeholderState);
+            if (imageSlots.length) {
+                const imageState = buildSlottedImageState({
+                    messageId,
+                    imageSlots,
+                    cachedImages,
+                    providerImages,
+                    sceneImages,
+                    preferredImageIndex,
+                    preferredFallback: {
+                        enabled: context.allowPreferredSlotFallback === true,
+                        excludeUrls: context.preferredFallbackExcludeUrls,
+                    },
+                });
+                const stored = cache.remember(messageId, [
+                    ...extractStoredSlotImages(imageState.slots),
+                    ...imageState.unboundImages,
+                ]);
+                if (stored.ok === false) return emptyImageState(stored);
+                return {
+                    ...imageState,
+                    signature: String(stored.entry && stored.entry.signature || imageState.signature || ''),
+                    scopeKind: scope.kind,
+                    scopeOk: scope.ok,
+                    reason: scope.reason || imageState.reason || placeholderState && placeholderState.reason || '',
+                    diagnostics,
+                };
+            }
+            const images = uniqueImages([
+                ...providerImages,
+                ...cachedImages,
+                ...sceneImages,
+            ]);
+            const stored = cache.remember(messageId, images);
+            if (stored.ok === false) return emptyImageState(stored);
+            return buildImageState(stored.entry, context.currentIndex, {
+                scopeKind: scope.kind,
+                scopeOk: scope.ok,
+                reason: scope.reason || placeholderState && placeholderState.reason || '',
+                diagnostics,
+            });
+        },
+
+        async generate(context = {}) {
+            const message = await resolveMessageContext(context, hostAdapter, normalizeMessageId(context.messageId));
+            const unifiedSettings = context.unifiedSettings || {};
+            const imageApi = resolveImageApi(unifiedSettings);
+            const scope = resolveContextScope(message, globalObject, {
+                requireMessageScope: context.requiresMessageScope === true,
+            });
+            const roots = scope.roots;
+            const request = buildGenerationRequest(context);
+            const override = typeof context.imageGenerator === 'function' ? context.imageGenerator : imageGenerator;
+
+            if (typeof override === 'function') {
+                try {
+                    const generated = await override(request, {
+                        ...cloneData(context.generateOptions || {}),
+                        message,
+                        unifiedSettings,
+                        imageApi,
+                    });
+                    return normalizeGeneratedResult(generated, request);
+                } catch (error) {
+                    return buildErrorResult(error, 'provider-not-enabled', { request });
+                }
+            }
+
+            const provider = resolveGenerationProvider(
+                resolveActiveProviders(context.providers, builtinProviders, imageApi),
+                imageApi,
+            );
+            if (!provider || typeof provider.generate !== 'function') {
+                return { ok: false, reason: 'provider-not-enabled', request };
+            }
+
+            try {
+                const result = await provider.generate(request, buildProviderContext({
+                    context,
+                    message,
+                    unifiedSettings,
+                    roots,
+                    globalObject,
+                    fetchFn,
+                }));
+                return normalizeGeneratedResult(result, request);
+            } catch (error) {
+                return buildErrorResult(error, 'image-generate-failed', { request });
+            }
+        },
+
+        async fetchModels(context = {}) {
+            const unifiedSettings = context.unifiedSettings || context.settings || {};
+            const imageApi = resolveImageApi(unifiedSettings);
+            const provider = resolveGenerationProvider(
+                resolveActiveProviders(context.providers, builtinProviders, imageApi),
+                imageApi,
+            );
+            if (!provider || typeof provider.fetchModels !== 'function') {
+                return { ok: false, reason: 'provider-not-enabled' };
+            }
+            try {
+                const scope = resolveContextScope(context.message || null, globalObject, {
+                    requireMessageScope: context.requiresMessageScope === true,
+                });
+                return await provider.fetchModels(context.request || {}, buildProviderContext({
+                    context,
+                    message: context.message || null,
+                    unifiedSettings,
+                    roots: scope.roots,
+                    scope,
+                    globalObject,
+                    fetchFn,
+                }));
+            } catch (error) {
+                return buildErrorResult(error, 'fetch-models-failed');
+            }
+        },
+
+        async test(context = {}) {
+            const message = context.message || null;
+            const unifiedSettings = context.unifiedSettings || context.settings || {};
+            const imageApi = resolveImageApi(unifiedSettings);
+            if (imageApi.mode === 'nai') {
+                const result = await this.generate({
+                    ...context,
+                    message,
+                    unifiedSettings,
+                    prompt: String(context.prompt || 'simple visual novel background, soft light, no text').trim(),
+                    request: context.request || {},
+                });
+                if (result.ok === false) return result;
+                return {
+                    ok: true,
+                    message: '图像 API 真实生成测试成功',
+                    url: result.url,
+                    providerId: result.providerId,
+                };
+            }
+
+            const roots = message
+                ? resolveContextScope(message, globalObject, {
+                    requireMessageScope: false,
+                }).roots
+                : getGlobalDetectionRoots(globalObject);
+            return detectExternalImageAdapter({
+                roots,
+                imageApi,
+                global: globalObject,
+            });
+        },
+
+        async regenerate(context = {}) {
+            const messageId = normalizeMessageId(firstDefined(
+                context.messageId,
+                context.message && context.message.id,
+            ));
+            if (messageId == null) {
+                return { ok: false, reason: 'invalid-message-id', messageId };
+            }
+
+            const imageIndex = resolvePreferredImageIndex(context, countImageSlots(context.imageState));
+            const unifiedSettings = context.unifiedSettings || {};
+            const imageApi = resolveImageApi(unifiedSettings);
+            const currentState = context.imageState || await this.collect({
+                ...context,
+                currentIndex: imageIndex,
+                preferredImageIndex: imageIndex,
+                providers: context.providers,
+            });
+
+            if (imageApi.mode === 'nai') {
+                const generated = await this.generate({
+                    ...context,
+                    messageId,
+                    currentIndex: imageIndex,
+                    unifiedSettings,
+                    prompt: String(context.prompt || '').trim(),
+                    request: context.request || {},
+                });
+                if (!generated || generated.ok === false || !generated.url) {
+                    return {
+                        ok: false,
+                        reason: generated && generated.reason || 'provider-not-enabled',
+                        imageState: currentState,
+                    };
+                }
+                const nextImage = {
+                    url: generated.url,
+                    providerId: String(generated.providerId || 'vn.provider.nai').trim(),
+                    source: String(generated.source || 'generated-image').trim(),
+                    filename: String(generated.filename || '').trim(),
+                };
+                if (Array.isArray(currentState.slots) && currentState.slots.length) {
+                    const nextSlots = replaceSlotImageAtIndex(currentState.slots, imageIndex, nextImage);
+                    const nextUnbound = Array.isArray(currentState.unboundImages) ? cloneData(currentState.unboundImages) : [];
+                    const stored = cache.remember(messageId, [
+                        ...extractStoredSlotImages(nextSlots),
+                        ...nextUnbound,
+                    ]);
+                    const nextState = buildSlottedImageState({
+                        messageId,
+                        imageSlots: nextSlots,
+                        cachedImages: extractStoredSlotImages(nextSlots),
+                        providerImages: [],
+                        sceneImages: [],
+                        preferredImageIndex: imageIndex,
+                    });
+                    return {
+                        ok: stored.ok !== false,
+                        reason: 'generated-image-updated',
+                        imageState: {
+                            ...nextState,
+                            signature: String(stored.entry && stored.entry.signature || nextState.signature || ''),
+                        },
+                        url: generated.url,
+                    };
+                }
+                const nextImages = replaceImageAtIndex(currentState.images, imageIndex, nextImage);
+                const stored = cache.remember(messageId, nextImages);
+                return {
+                    ok: stored.ok !== false,
+                    reason: 'generated-image-updated',
+                    imageState: buildImageState(stored.entry, imageIndex),
+                    url: generated.url,
+                };
+            }
+
+            const button = await resolveRegenerateButton(hostAdapter, context, messageId, imageIndex, currentState);
+            if (!button || typeof button.click !== 'function') {
+                return { ok: false, reason: 'regen-button-not-found', imageState: currentState };
+            }
+
+            button.click();
+            const pollIntervalMs = normalizePositiveInteger(imageApi.pollIntervalMs, 2000);
+            const pollAttempts = normalizePositiveInteger(imageApi.pollAttempts, 60);
+            const baselineSignature = String(currentState.signature || '');
+            const baselineUrl = String(currentState.currentUrl || '');
+            const baselineUrls = collectImageStateUrls(currentState);
+            let lastState = currentState;
+
+            for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
+                await wait(pollIntervalMs, globalObject);
+                lastState = await this.collect({
+                    ...context,
+                    currentIndex: imageIndex,
+                    preferredImageIndex: imageIndex,
+                    allowPreferredSlotFallback: true,
+                    preferredFallbackExcludeUrls: baselineUrls,
+                    providers: context.providers,
+                });
+                if (!lastState || lastState.ok === false) continue;
+                const nextSignature = String(lastState.signature || '');
+                const nextUrl = String(lastState.currentUrl || '');
+                if ((nextUrl && nextUrl !== baselineUrl) || (nextSignature && nextSignature !== baselineSignature)) {
+                    return {
+                        ok: true,
+                        reason: 'external-image-updated',
+                        imageState: lastState,
+                        url: nextUrl,
+                    };
+                }
+            }
+
+            return {
+                ok: false,
+                reason: 'image-poll-timeout',
+                imageState: lastState,
+            };
+        },
+
+        async save(context = {}) {
+            const url = String(firstDefined(context.url, context.currentUrl, '') || '').trim();
+            if (!url) return { ok: false, reason: 'no-image-to-save' };
+            if (!isDownloadableUrl(url)) {
+                return { ok: false, reason: 'unsupported-save-url', url };
+            }
+
+            const filename = String(context.filename || buildFilename(
+                context.messageId,
+                firstDefined(context.imageIndex, context.currentIndex, 0),
+                url,
+            )).trim();
+            const doc = getDocument(globalObject);
+            const anchor = doc && typeof doc.createElement === 'function' ? doc.createElement('a') : null;
+
+            if (anchor && doc.body && typeof doc.body.appendChild === 'function' && typeof anchor.click === 'function') {
+                anchor.href = url;
+                anchor.download = filename;
+                doc.body.appendChild(anchor);
+                anchor.click();
+                if (typeof anchor.remove === 'function') anchor.remove();
+            }
+
+            return {
+                ok: true,
+                url,
+                filename,
+                downloaded: Boolean(anchor),
+            };
+        },
+    };
+}
+
+function collectSceneImages(scene = {}, render = {}) {
+    const images = [];
+    const generated = scene && scene.generatedImage && scene.generatedImage.value;
+    const renderGenerated = render
+        && render.stage
+        && render.stage.layers
+        && render.stage.layers.generated
+        && render.stage.layers.generated.resource
+        && render.stage.layers.generated.resource.value;
+    const background = render
+        && render.stage
+        && render.stage.layers
+        && render.stage.layers.background
+        && render.stage.layers.background.resource
+        && render.stage.layers.background.resource.url;
+
+    for (const candidate of [
+        { url: renderGenerated, providerId: 'vn.scene.generated', source: 'scene-generated' },
+        { url: generated, providerId: 'vn.scene.generated', source: 'scene-generated' },
+        { url: background, providerId: 'vn.scene.background', source: 'scene-background' },
+    ]) {
+        const url = String(candidate.url || '').trim();
+        if (!url) continue;
+        images.push({ ...candidate, url });
+    }
+
+    return uniqueImages(images);
+}
+
+function buildImageState(entry, currentIndex = 0, extra = {}) {
+    if (!entry || typeof entry !== 'object') {
+        return emptyImageState({ ok: true, ...extra });
+    }
+    const images = Array.isArray(entry.images) ? cloneData(entry.images) : [];
+    const activeIndex = images.length ? Math.max(0, Math.min(images.length - 1, normalizeIndex(currentIndex))) : 0;
+    return {
+        ok: true,
+        messageId: entry.messageId,
+        images,
+        slots: [],
+        unboundImages: [],
+        count: images.length,
+        expectedCount: images.length,
+        boundCount: images.length,
+        unboundCount: 0,
+        availableCount: images.length,
+        signature: String(entry.signature || ''),
+        currentIndex: activeIndex,
+        currentUrl: images[activeIndex] ? images[activeIndex].url : '',
+        displayUrl: images[activeIndex] ? images[activeIndex].url : '',
+        slotUrl: images[activeIndex] ? images[activeIndex].url : '',
+        scopeKind: 'legacy-global',
+        scopeOk: true,
+        diagnostics: buildImageDiagnostics(images),
+        ...extra,
+    };
+}
+
+function emptyImageState(extra = {}) {
+    return {
+        ok: true,
+        messageId: null,
+        images: [],
+        slots: [],
+        unboundImages: [],
+        count: 0,
+        expectedCount: 0,
+        boundCount: 0,
+        unboundCount: 0,
+        availableCount: 0,
+        signature: '',
+        currentIndex: 0,
+        currentUrl: '',
+        displayUrl: '',
+        slotUrl: '',
+        scopeKind: 'none',
+        scopeOk: false,
+        diagnostics: buildImageDiagnostics(),
+        ...extra,
+    };
+}
+
+function resolveActiveProviders(explicitProviders, builtinProviders, imageApi = {}) {
+    const sourceProviders = Array.isArray(explicitProviders) && explicitProviders.length
+        ? normalizeProviders(explicitProviders)
+        : builtinProviders;
+    const mode = String(imageApi.mode || 'extension').trim();
+    const requestedAdapter = String(imageApi.externalAdapter || 'auto').trim().toLowerCase();
+    return sourceProviders.filter((provider) => {
+        if (!provider || typeof provider !== 'object') return false;
+        if (mode === 'nai') {
+            return String(provider.providerType || '').trim() === 'nai';
+        }
+        if (String(provider.providerType || '').trim() === 'nai') {
+            return false;
+        }
+        const adapterKey = String(provider.adapterKey || '').trim().toLowerCase();
+        if (!adapterKey) return true;
+        if (requestedAdapter === 'auto') return true;
+        return adapterKey === requestedAdapter || adapterKey === 'generic';
+    });
+}
+
+function resolveGenerationProvider(providers, imageApi = {}) {
+    const mode = String(imageApi.mode || 'extension').trim();
+    if (mode !== 'nai') return null;
+    return normalizeProviders(providers).find((provider) => String(provider.providerType || '').trim() === 'nai') || null;
+}
+
+function resolveImageApi(unifiedSettings = {}) {
+    const bridge = unifiedSettings.bridge && typeof unifiedSettings.bridge === 'object'
+        ? unifiedSettings.bridge
+        : {};
+    const imageApi = unifiedSettings.imageApi && typeof unifiedSettings.imageApi === 'object'
+        ? unifiedSettings.imageApi
+        : bridge.imageApi && typeof bridge.imageApi === 'object'
+            ? bridge.imageApi
+            : {};
+    return {
+        mode: String(imageApi.mode || 'extension').trim() || 'extension',
+        ...imageApi,
+    };
+}
+
+function buildProviderContext({ context, message, unifiedSettings, roots, scope, globalObject, fetchFn }) {
+    return {
+        ...context,
+        message: message || null,
+        messageId: firstDefined(context.messageId, message && message.id),
+        root: roots[0] || message && message.element || null,
+        roots,
+        scopePolicy: scope && scope.policy ? cloneData(scope.policy) : buildScopePolicy({ kind: 'legacy-global', ok: true }),
+        document: message && message.element && message.element.ownerDocument || context.document || null,
+        settings: unifiedSettings,
+        unifiedSettings,
+        imageApi: resolveImageApi(unifiedSettings),
+        global: globalObject,
+        fetch: context.fetch || fetchFn || globalObject && globalObject.fetch || globalThis.fetch,
+        AbortController: context.AbortController || globalObject && globalObject.AbortController || globalThis.AbortController,
+        setTimeout: context.setTimeout || globalObject && globalObject.setTimeout || globalThis.setTimeout,
+        clearTimeout: context.clearTimeout || globalObject && globalObject.clearTimeout || globalThis.clearTimeout,
+    };
+}
+
+function buildGenerationRequest(context = {}) {
+    const request = isPlainObject(context.request) ? cloneData(context.request) : {};
+    const prompt = String(firstDefined(context.prompt, request.prompt, request.input, '') || '').trim();
+    if (prompt && !request.prompt && !request.input) {
+        request.prompt = prompt;
+    }
+    return request;
+}
+
+function normalizeGeneratedResult(result, request) {
+    if (!result) return { ok: false, reason: 'provider-not-enabled', request };
+    if (result.ok === false) return result;
+    if (!result.url) return { ok: false, reason: 'provider-not-enabled', request };
+    return {
+        ok: true,
+        ...result,
+        providerId: String(result.providerId || '').trim(),
+        source: String(result.source || 'generated-image').trim(),
+        filename: String(result.filename || '').trim(),
+    };
+}
+
+function buildErrorResult(error, fallbackReason, extra = {}) {
+    return {
+        ok: false,
+        reason: error && error.message ? error.message : fallbackReason,
+        error,
+        ...extra,
+    };
+}
+
+function resolveContextScope(message, globalObject, options = {}) {
+    const roots = message ? getMessageScopedRoots(message) : [];
+    if (roots.length) {
+        return {
+            roots,
+            kind: 'message',
+            ok: true,
+            reason: '',
+            policy: buildScopePolicy({
+                kind: 'message',
+                ok: true,
+                allowGlobalGeneric: false,
+            }),
+        };
+    }
+    if (options.requireMessageScope === true) {
+        return {
+            roots: [],
+            kind: 'message',
+            ok: false,
+            reason: 'message-scope-not-found',
+            policy: buildScopePolicy({
+                kind: 'message',
+                ok: false,
+                allowGlobalGeneric: false,
+            }),
+        };
+    }
+    return {
+        roots: getGlobalDetectionRoots(globalObject),
+        kind: 'legacy-global',
+        ok: true,
+        reason: '',
+        policy: buildScopePolicy({
+            kind: 'legacy-global',
+            ok: true,
+            allowGlobalGeneric: true,
+        }),
+    };
+}
+
+async function resolveMessageContext(context, hostAdapter, messageId) {
+    if (context.message) return context.message;
+    if (messageId == null || !hostAdapter || typeof hostAdapter.getMessageById !== 'function') {
+        return null;
+    }
+    return hostAdapter.getMessageById(messageId);
+}
+
+function isDetachedElement(element, globalObject) {
+    if (!element || typeof element.getRootNode !== 'function') return true;
+    try {
+        const root = element.getRootNode();
+        if (root && root.defaultView) return false;
+        const docs = [];
+        const gObj = globalObject || globalThis.window || globalThis;
+        if (gObj && gObj.document) docs.push(gObj.document);
+        try { if (gObj && gObj.top && gObj.top.document) docs.push(gObj.top.document); } catch (e) { /* cross-origin */ }
+        if (typeof document !== 'undefined') docs.push(document);
+        return !docs.some((doc) => doc && doc.contains && doc.contains(element));
+    } catch (error) {
+        return true;
+    }
+}
+
+async function refreshMessageElement(oldMessage, hostAdapter, messageId, globalObject) {
+    if (messageId == null || !hostAdapter || typeof hostAdapter.getMessageById !== 'function') {
+        return null;
+    }
+    try {
+        const fresh = await hostAdapter.getMessageById(messageId);
+        if (!fresh || !fresh.element) return null;
+        if (isDetachedElement(fresh.element, globalObject)) return null;
+        return fresh;
+    } catch (error) {
+        return null;
+    }
+}
+
+function hasExternalImageSlots(message) {
+    const element = message && message.element;
+    if (!element || typeof element.querySelector !== 'function') return false;
+    const mesText = element.querySelector && element.querySelector('.mes_text') || element;
+    return Boolean(mesText.querySelector && mesText.querySelector('.tsp-image-slot, [data-image-id].tsp-generated-image'));
+}
+
+function replaceImageAtIndex(images, index, image) {
+    const normalizedImages = uniqueImages(Array.isArray(images) ? images : []);
+    const nextIndex = normalizeIndex(index);
+    const nextImage = uniqueImages([image])[0];
+    if (!nextImage) return normalizedImages;
+    const output = normalizedImages.slice();
+    if (nextIndex < output.length) {
+        output[nextIndex] = nextImage;
+    } else {
+        output.push(nextImage);
+    }
+    return uniqueImages(output);
+}
+
+function uniqueImages(images) {
+    const output = [];
+    const seen = new Map();
+    for (const image of Array.isArray(images) ? images : []) {
+        const url = String(image && image.url || '').trim();
+        if (!url) continue;
+        const nextImage = {
+            url,
+            providerId: String(image.providerId || '').trim(),
+            source: String(image.source || '').trim(),
+            filename: String(image.filename || '').trim(),
+            imageId: String(image.imageId || '').trim(),
+            locationHash: String(image.locationHash || '').trim(),
+            slotIndex: normalizeOptionalIndex(image.slotIndex),
+            buttonIndex: normalizeOptionalIndex(image.buttonIndex),
+            order: normalizeOptionalIndex(image.order),
+        };
+        const existingIndex = seen.get(url);
+        if (existingIndex == null) {
+            seen.set(url, output.length);
+            output.push(nextImage);
+            continue;
+        }
+        output[existingIndex] = {
+            ...output[existingIndex],
+            ...nextImage,
+            providerId: output[existingIndex].providerId || nextImage.providerId,
+            source: output[existingIndex].source || nextImage.source,
+            filename: output[existingIndex].filename || nextImage.filename,
+            imageId: output[existingIndex].imageId || nextImage.imageId,
+            locationHash: output[existingIndex].locationHash || nextImage.locationHash,
+            slotIndex: output[existingIndex].slotIndex ?? nextImage.slotIndex ?? null,
+            buttonIndex: output[existingIndex].buttonIndex ?? nextImage.buttonIndex ?? null,
+            order: output[existingIndex].order ?? nextImage.order ?? null,
+        };
+    }
+    return output;
+}
+
+function normalizeProviders(providers) {
+    const output = [];
+    const seen = new Set();
+    for (const provider of Array.isArray(providers) ? providers : []) {
+        if (!provider || typeof provider !== 'object') continue;
+        const key = String(provider.id || provider.label || output.length);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        output.push(provider);
+    }
+    return output;
+}
+
+function normalizeMessageId(value) {
+    const id = Number(value);
+    if (!Number.isFinite(id) || id < 0) return null;
+    return id;
+}
+
+function normalizeIndex(value) {
+    const index = Number(value);
+    if (!Number.isFinite(index) || index < 0) return 0;
+    return Math.floor(index);
+}
+
+function normalizePositiveInteger(value, fallback) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+    return Math.floor(numeric);
+}
+
+function buildFilename(messageId, currentIndex, url) {
+    const extension = resolveFileExtension(url);
+    const safeMessageId = normalizeMessageId(messageId) ?? 'scene';
+    return `vn-${safeMessageId}-${normalizeIndex(currentIndex) + 1}.${extension}`;
+}
+
+function resolveFileExtension(url) {
+    const match = String(url || '').match(/\.([a-zA-Z0-9]{2,5})(?:[?#]|$)/);
+    return match ? match[1].toLowerCase() : 'png';
+}
+
+function isDownloadableUrl(url) {
+    return /^(https?:|blob:|data:image\/)/i.test(String(url || '').trim());
+}
+
+function getDocument(globalObject) {
+    try {
+        if (globalObject && globalObject.document) return globalObject.document;
+    } catch (error) {
+        // Cross-origin parents are ignored.
+    }
+    return typeof document !== 'undefined' ? document : null;
+}
+
+async function resolveRegenerateButton(hostAdapter, context, messageId, imageIndex, imageState = null) {
+    if (hostAdapter && typeof hostAdapter.findRegenerateButton === 'function') {
+        const button = await hostAdapter.findRegenerateButton(messageId, imageIndex, imageState);
+        if (button) return button;
+    }
+    const message = context && context.message;
+    if (!message) return null;
+    const candidates = collectDomRegenerateButtonCandidates(getMessageScopedRoots(message));
+    const matched = matchRegenerateButtonCandidate(candidates, imageIndex, imageState);
+    return matched ? matched.button : null;
+}
+
+function wait(duration, globalObject) {
+    return new Promise((resolve) => {
+        const timeout = globalObject && typeof globalObject.setTimeout === 'function'
+            ? globalObject.setTimeout.bind(globalObject)
+            : setTimeout;
+        timeout(resolve, duration);
+    });
+}
+
+function firstDefined(...values) {
+    for (const value of values) {
+        if (value !== undefined && value !== null) return value;
+    }
+    return undefined;
+}
+
+function cloneData(value) {
+    if (value == null) return value;
+    if (Array.isArray(value)) return value.map(cloneData);
+    if (typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneData(item)]));
+    }
+    return value;
+}
+
+function isPlainObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function buildSlottedImageState({
+    messageId,
+    imageSlots,
+    cachedImages,
+    providerImages,
+    sceneImages,
+    preferredImageIndex,
+    preferredFallback,
+}) {
+    const slots = normalizeImageSlots(imageSlots);
+    const preferredIndex = clampSlotIndex(preferredImageIndex, slots.length);
+    const cachedCandidates = normalizeCandidateImages(cachedImages);
+    const providerCandidates = normalizeCandidateImages(providerImages);
+    const sceneCandidates = normalizeCandidateImages(sceneImages);
+    const preferredFallbackOptions = normalizePreferredFallback(preferredFallback);
+    const claimedUrls = new Set();
+
+    assignCandidatesToSlots(slots, cachedCandidates, {
+        preferredIndex,
+        fillOnlyEmpty: true,
+    }, claimedUrls);
+    assignCandidatesToSlots(slots, providerCandidates, {
+        preferredIndex,
+        fillOnlyEmpty: false,
+        allowPreferredFallback: preferredFallbackOptions.enabled,
+        preferredFallbackUrlBlacklist: preferredFallbackOptions.excludeUrls,
+    }, claimedUrls);
+    assignCandidatesToSlots(slots, sceneCandidates, {
+        preferredIndex,
+        fillOnlyEmpty: true,
+    }, claimedUrls);
+
+    const unboundImages = uniqueImages([
+        ...collectUnboundCandidates(cachedCandidates, claimedUrls),
+        ...collectUnboundCandidates(providerCandidates, claimedUrls),
+        ...collectUnboundCandidates(sceneCandidates, claimedUrls),
+    ]);
+    const currentSlot = slots[preferredIndex] || null;
+    const currentUrl = String(currentSlot && currentSlot.url || '').trim();
+    const boundCount = countBoundSlots(slots);
+    const unboundCount = unboundImages.length;
+    return {
+        ok: true,
+        messageId,
+        slots: cloneData(slots),
+        images: cloneData(slots),
+        unboundImages: cloneData(unboundImages),
+        count: slots.length,
+        expectedCount: slots.length,
+        boundCount,
+        unboundCount,
+        availableCount: boundCount + unboundCount,
+        signature: buildSlotSignature(slots, unboundImages),
+        currentIndex: preferredIndex,
+        currentUrl,
+        displayUrl: currentUrl,
+        slotUrl: currentUrl,
+        reason: currentUrl ? '' : 'no-provider-images-yet',
+    };
+}
+
+function normalizeImageSlots(imageSlots) {
+    return (Array.isArray(imageSlots) ? imageSlots : []).map((slot, index) => ({
+        slotIndex: normalizeIndex(firstDefined(slot && slot.slotIndex, index)),
+        title: String(slot && slot.title || `图 ${index + 1}`).trim(),
+        tagName: String(slot && slot.tagName || 'image').trim(),
+        rawBlock: String(slot && slot.rawBlock || '').trim(),
+        promptText: String(slot && slot.promptText || '').trim(),
+        locationHash: String(slot && slot.locationHash || '').trim(),
+        source: String(slot && slot.source || 'image-tag').trim(),
+        url: String(slot && slot.url || '').trim(),
+        providerId: String(slot && slot.providerId || '').trim(),
+        filename: String(slot && slot.filename || '').trim(),
+        imageId: String(slot && slot.imageId || '').trim(),
+        buttonIndex: normalizeOptionalIndex(slot && slot.buttonIndex),
+        order: normalizeOptionalIndex(slot && slot.order),
+    })).sort((left, right) => left.slotIndex - right.slotIndex);
+}
+
+function normalizeCandidateImages(images) {
+    return uniqueImages(Array.isArray(images) ? images : []);
+}
+
+function assignCandidatesToSlots(slots, candidates, options, claimedUrls) {
+    const remaining = Array.isArray(candidates) ? candidates.slice() : [];
+    applyExactSlotMatches(slots, remaining, options, claimedUrls);
+    applyLocationHashMatches(slots, remaining, options, claimedUrls);
+    applyImageIdMatches(slots, remaining, options, claimedUrls);
+    applyOrderedSlotFill(slots, remaining, options, claimedUrls);
+    applyPreferredSlotFallback(slots, remaining, options, claimedUrls);
+}
+
+function applyExactSlotMatches(slots, candidates, options, claimedUrls) {
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+        const candidate = candidates[index];
+        const slotIndex = normalizeOptionalIndex(candidate && candidate.slotIndex);
+        if (slotIndex == null || slotIndex >= slots.length) continue;
+        if (!canWriteSlot(slots[slotIndex], options)) continue;
+        writeSlotImage(slots[slotIndex], candidate);
+        claimedUrls.add(candidate.url);
+        candidates.splice(index, 1);
+    }
+}
+
+function applyLocationHashMatches(slots, candidates, options, claimedUrls) {
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+        const candidate = candidates[index];
+        if (!candidate || !candidate.locationHash) continue;
+        const slot = slots.find((item) => item.locationHash && item.locationHash === candidate.locationHash && canWriteSlot(item, options));
+        if (!slot) continue;
+        writeSlotImage(slot, candidate);
+        claimedUrls.add(candidate.url);
+        candidates.splice(index, 1);
+    }
+}
+
+function applyImageIdMatches(slots, candidates, options, claimedUrls) {
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+        const candidate = candidates[index];
+        if (!candidate || !candidate.imageId) continue;
+        const slot = slots.find((item) => item.imageId && item.imageId === candidate.imageId && canWriteSlot(item, options));
+        if (!slot) continue;
+        writeSlotImage(slot, candidate);
+        claimedUrls.add(candidate.url);
+        candidates.splice(index, 1);
+    }
+}
+
+function applyOrderedSlotFill(slots, candidates, options, claimedUrls) {
+    if (!candidates.length) return;
+    const ordered = candidates.filter((c) => c && c.order != null);
+    if (ordered.length < 2) return;
+    ordered.sort((a, b) => a.order - b.order);
+    const used = new Set();
+    for (const slot of slots) {
+        if (!ordered.length) break;
+        if (!canWriteSlot(slot, options)) continue;
+        const candidate = ordered.shift();
+        if (!candidate || !candidate.url) continue;
+        writeSlotImage(slot, candidate);
+        claimedUrls.add(candidate.url);
+        used.add(candidate);
+    }
+    for (let i = candidates.length - 1; i >= 0; i -= 1) {
+        if (used.has(candidates[i])) candidates.splice(i, 1);
+    }
+}
+
+function applyPreferredSlotFallback(slots, candidates, options, claimedUrls) {
+    if (!candidates.length) return;
+    if (!options || options.allowPreferredFallback !== true) return;
+    const preferredIndex = clampSlotIndex(options && options.preferredIndex, slots.length);
+    const preferredSlot = slots[preferredIndex];
+    if (!preferredSlot) return;
+    if (!canWriteSlot(preferredSlot, options)) return;
+    const blacklist = options && options.preferredFallbackUrlBlacklist instanceof Set
+        ? options.preferredFallbackUrlBlacklist
+        : new Set();
+    const candidateIndex = candidates.findIndex((candidate) => candidate && candidate.url && !blacklist.has(candidate.url));
+    if (candidateIndex < 0) return;
+    const [candidate] = candidates.splice(candidateIndex, 1);
+    writeSlotImage(preferredSlot, candidate);
+    claimedUrls.add(candidate.url);
+}
+
+function canWriteSlot(slot, options) {
+    return options && options.fillOnlyEmpty === true
+        ? !String(slot && slot.url || '').trim()
+        : true;
+}
+
+function writeSlotImage(slot, candidate) {
+    if (!slot || !candidate) return;
+    slot.url = String(candidate.url || '').trim();
+    slot.providerId = String(candidate.providerId || slot.providerId || '').trim();
+    slot.source = String(candidate.source || slot.source || '').trim();
+    slot.filename = String(candidate.filename || slot.filename || '').trim();
+    slot.imageId = String(candidate.imageId || slot.imageId || '').trim();
+    slot.locationHash = String(candidate.locationHash || slot.locationHash || '').trim();
+    slot.buttonIndex = normalizeOptionalIndex(firstDefined(candidate.buttonIndex, slot.buttonIndex));
+    slot.order = normalizeOptionalIndex(firstDefined(candidate.order, slot.order));
+}
+
+function buildScopePolicy(input = {}) {
+    return {
+        kind: String(input.kind || 'legacy-global').trim(),
+        hasMessageScope: input.ok === true && String(input.kind || '') === 'message',
+        allowGlobalGeneric: input.allowGlobalGeneric !== false,
+    };
+}
+
+function buildImageDiagnostics(images = [], placeholderState = null) {
+    const output = {
+        providerCounts: {
+            chatu8: 0,
+            chami: 0,
+            generic: 0,
+            other: 0,
+        },
+        placeholder: placeholderState && typeof placeholderState === 'object'
+            ? {
+                ok: placeholderState.ok !== false,
+                reason: String(placeholderState.reason || '').trim(),
+                count: Number(placeholderState.count) || 0,
+            }
+            : null,
+    };
+    for (const image of Array.isArray(images) ? images : []) {
+        const providerId = String(image && image.providerId || '').trim();
+        if (providerId === 'builtin.st-chatu8') output.providerCounts.chatu8 += 1;
+        else if (providerId === 'builtin.chami') output.providerCounts.chami += 1;
+        else if (providerId === 'builtin.dom-generic') output.providerCounts.generic += 1;
+        else output.providerCounts.other += 1;
+    }
+    return output;
+}
+
+function collectUnboundCandidates(candidates, claimedUrls) {
+    return (Array.isArray(candidates) ? candidates : []).filter((candidate) => {
+        return candidate && candidate.url && !claimedUrls.has(candidate.url);
+    });
+}
+
+function countBoundSlots(slots) {
+    return (Array.isArray(slots) ? slots : []).filter((slot) => String(slot && slot.url || '').trim()).length;
+}
+
+function normalizePreferredFallback(value) {
+    const excludeUrls = new Set();
+    for (const url of Array.isArray(value && value.excludeUrls) ? value.excludeUrls : []) {
+        const normalized = String(url || '').trim();
+        if (normalized) excludeUrls.add(normalized);
+    }
+    return {
+        enabled: value && value.enabled === true,
+        excludeUrls,
+    };
+}
+
+function collectImageStateUrls(imageState) {
+    const urls = [];
+    for (const source of [
+        imageState && imageState.images,
+        imageState && imageState.slots,
+        imageState && imageState.unboundImages,
+    ]) {
+        for (const image of Array.isArray(source) ? source : []) {
+            const url = String(image && image.url || '').trim();
+            if (url && !urls.includes(url)) urls.push(url);
+        }
+    }
+    return urls;
+}
+
+function extractStoredSlotImages(slots) {
+    return (Array.isArray(slots) ? slots : [])
+        .filter((slot) => String(slot && slot.url || '').trim())
+        .map((slot) => ({
+            url: String(slot.url || '').trim(),
+            providerId: String(slot.providerId || '').trim(),
+            source: String(slot.source || '').trim(),
+            filename: String(slot.filename || '').trim(),
+            imageId: String(slot.imageId || '').trim(),
+            locationHash: String(slot.locationHash || '').trim(),
+            slotIndex: normalizeOptionalIndex(slot.slotIndex),
+            buttonIndex: normalizeOptionalIndex(slot.buttonIndex),
+            order: normalizeOptionalIndex(slot.order),
+        }));
+}
+
+function replaceSlotImageAtIndex(slots, index, image) {
+    const nextSlots = normalizeImageSlots(slots);
+    const slotIndex = clampSlotIndex(index, nextSlots.length);
+    if (!nextSlots[slotIndex]) return nextSlots;
+    writeSlotImage(nextSlots[slotIndex], {
+        ...image,
+        slotIndex,
+        locationHash: nextSlots[slotIndex].locationHash,
+        imageId: nextSlots[slotIndex].imageId,
+    });
+    return nextSlots;
+}
+
+function buildSlotSignature(slots, unboundImages) {
+    const bound = (Array.isArray(slots) ? slots : []).map((slot) => {
+        return [slot.slotIndex, String(slot.url || '').trim()].join(':');
+    });
+    const unbound = (Array.isArray(unboundImages) ? unboundImages : []).map((image) => String(image.url || '').trim());
+    return bound.concat(unbound).filter(Boolean).join('\n');
+}
+
+function countImageSlots(imageState) {
+    return Array.isArray(imageState && imageState.slots) ? imageState.slots.length : 0;
+}
+
+function resolvePreferredImageIndex(context = {}, slotCount = 0) {
+    const preferred = firstDefined(context.imageIndex, context.preferredImageIndex, context.currentIndex, 0);
+    return clampSlotIndex(preferred, slotCount || Number.MAX_SAFE_INTEGER);
+}
+
+function clampSlotIndex(value, slotCount) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return 0;
+    if (!Number.isFinite(slotCount) || slotCount <= 0) return Math.floor(numeric);
+    return Math.max(0, Math.min(slotCount - 1, Math.floor(numeric)));
+}
+
+function normalizeOptionalIndex(value) {
+    if (value == null || value === '') return null;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return null;
+    return Math.floor(numeric);
+}
+
+function matchRegenerateButtonCandidate(candidates, imageIndex, imageState) {
+    const buttonCandidates = Array.isArray(candidates) ? candidates : [];
+    const currentSlot = imageState
+        && Array.isArray(imageState.slots)
+        && imageState.slots[clampSlotIndex(imageIndex, imageState.slots.length)]
+        ? imageState.slots[clampSlotIndex(imageIndex, imageState.slots.length)]
+        : null;
+    if (currentSlot && currentSlot.locationHash) {
+        const exact = buttonCandidates.find((candidate) => candidate.locationHash && candidate.locationHash === currentSlot.locationHash);
+        if (exact) return exact;
+    }
+    if (currentSlot && currentSlot.imageId) {
+        const exact = buttonCandidates.find((candidate) => candidate.imageId && candidate.imageId === currentSlot.imageId);
+        if (exact) return exact;
+    }
+    if (currentSlot && currentSlot.buttonIndex != null) {
+        const exact = buttonCandidates.find((candidate) => candidate.buttonIndex === currentSlot.buttonIndex);
+        if (exact) return exact;
+    }
+    return buttonCandidates[normalizeIndex(imageIndex)] || buttonCandidates[0] || null;
+}

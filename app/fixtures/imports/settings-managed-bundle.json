@@ -1,0 +1,41 @@
+{
+  "type": "igs-import-bundle",
+  "items": [
+    {
+      "format": "igs_preset_v1",
+      "type": "choice-parser-preset",
+      "id": "preset.choice.bracket-options",
+      "name": "括号选项解析",
+      "version": 1,
+      "data": {
+        "pattern": "^\\s*[（(](\\d+)[）)]\\s*(.+)$",
+        "flags": "gm"
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "css-preset",
+      "id": "preset.css.subtitle-clean",
+      "name": "字幕式干净 CSS",
+      "version": 1,
+      "data": {
+        "css": ".igs-dialogue-layer{background:rgba(0,0,0,.56);}"
+      }
+    },
+    {
+      "type": "character-pack",
+      "id": "pack.character.demo",
+      "name": "演示立绘包",
+      "version": 1,
+      "data": {
+        "characters": [
+          {
+            "name": "玉子",
+            "emotion": "default",
+            "resource": "demo://tamako-default"
+          }
+        ]
+      }
+    }
+  ]
+}

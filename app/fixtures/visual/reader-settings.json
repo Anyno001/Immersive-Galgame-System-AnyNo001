@@ -1,0 +1,101 @@
+{
+  "pc": {
+    "input": {
+      "mode": "pc",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "readerSettings": {
+        "fontSize": 18,
+        "dialogWidth": 860,
+        "toolbarDirection": "horizontal"
+      }
+    },
+    "expected": {
+      "layout": "desktop",
+      "toolbarLayout": "horizontal",
+      "toolbarPlacement": "top-right",
+      "dialogueStyle": "panel",
+      "dialogueFontSize": "18px",
+      "dialogueWidth": "860px"
+    }
+  },
+  "mobile": {
+    "input": {
+      "mode": "mobile",
+      "isMobile": true,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "readerSettings": {
+        "fontSize": 16,
+        "dialogWidth": "calc(100vw - 24px)",
+        "toolbarDirection": "auto"
+      }
+    },
+    "expected": {
+      "layout": "mobile-portrait",
+      "toolbarLayout": "vertical",
+      "dialogueFontSize": "16px",
+      "dialogueWidth": "calc(100vw - 24px)"
+    }
+  },
+  "webLandscape": {
+    "input": {
+      "mode": "web",
+      "isMobile": true,
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "readerSettings": {
+        "fontSize": 15,
+        "toolbarPlacement": "bottom-right",
+        "toolbarDirection": "vertical",
+        "showAvatar": true
+      }
+    },
+    "expected": {
+      "layout": "mobile-landscape",
+      "toolbarLayout": "vertical",
+      "toolbarPlacement": "bottom-right",
+      "avatarVisible": true,
+      "dialogueFontSize": "15px"
+    }
+  },
+  "fullscreenLegacy": {
+    "input": {
+      "viewerMode": "fullscreen",
+      "isMobile": true,
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "legacyIgs": {
+        "ok": true,
+        "bridge": {
+          "openMode": "mobile"
+        },
+        "displayMode": "pc",
+        "readerMode": "pc",
+        "readerSettings": {},
+        "readerSettingsByMode": {
+          "fullscreen": {
+            "fontSize": 22,
+            "dialogWidth": 1040,
+            "toolbarDirection": "horizontal"
+          }
+        }
+      }
+    },
+    "expected": {
+      "mode": "fullscreen",
+      "layout": "mobile-landscape",
+      "toolbarLayout": "horizontal",
+      "dialogueFontSize": "22px",
+      "dialogueWidth": "1040px"
+    }
+  }
+}

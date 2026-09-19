@@ -1,0 +1,17 @@
+{
+  "name": "igs-app",
+  "version": "0.23.28",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "structure": "node scripts/gate-structure.js",
+    "static": "node scripts/gate-static.js",
+    "test": "node --test tests/unit.test.js tests/gate-contract.test.js",
+    "simulate": "node --test tests/simulate.test.js",
+    "perf": "node scripts/perf-smoke.js",
+    "build": "node scripts/build.js",
+    "build:loader": "node scripts/build-loader.js",
+    "package:loader": "npm run build && npm run build:loader",
+    "gate": "npm run structure && npm run static && npm run test && npm run simulate && npm run perf && npm run build"
+  }
+}

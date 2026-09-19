@@ -1,0 +1,67 @@
+{
+  "requiredSelectors": [
+    "#igs-overlay",
+    "#igs-bg",
+    "#igs-bg-blur",
+    "#igs-sprite",
+    "#igs-click-layer",
+    "#igs-dialog-layer",
+    ".igs-dialogue-layer",
+    "#igs-toolbar-layer",
+    ".igs-hud-layer",
+    "#igs-option-layer",
+    ".igs-choice-layer",
+    "#igs-db-layer",
+    ".igs-system-layer",
+    ".igs-dialog",
+    ".igs-ctrl-bar",
+    ".igs-toolbar",
+    "#igs-bar-btns",
+    "#igs-settings",
+    ".igs-controls",
+    "#igs-send-status",
+    "#igs-input",
+    "#igs-send-btn",
+    "#igs-toast"
+  ],
+  "styles": {
+    "#igs-overlay": {
+      "zIndex": "2147483000",
+      "background": "#000"
+    },
+    ".igs-dialog": {
+      "width": "min(880px,calc(100vw - 32px))",
+      "padding": "22px 26px 18px",
+      "borderRadius": "22px"
+    },
+    ".igs-input": {
+      "height": "32px"
+    },
+    ".igs-send-btn": {
+      "minWidth": "58px"
+    },
+    ".igs-icon-btn": {
+      "width": "36px",
+      "height": "36px"
+    },
+    "#igs-overlay.igs-floating #igs-click-layer": {
+      "cursor": "grab",
+      "touchAction": "none"
+    },
+    "#igs-overlay.igs-floating.is-dragging #igs-click-layer": {
+      "cursor": "grabbing"
+    },
+    "#igs-overlay.igs-floating .igs-progress": {
+      "flexShrink": "0"
+    },
+    "#igs-overlay.igs-floating .igs-text": {
+      "minHeight": "0",
+      "overflowY": "auto",
+      "marginBottom": "12px",
+      "flex": "1 1 auto"
+    },
+    "#igs-overlay.igs-floating .igs-controls": {
+      "flexShrink": "0"
+    }
+  }
+}

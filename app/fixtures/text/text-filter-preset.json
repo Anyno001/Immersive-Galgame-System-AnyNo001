@@ -1,0 +1,16 @@
+{
+  "format": "igs_preset_v1",
+  "type": "text-filter-preset",
+  "id": "preset.text-filter.content-only",
+  "name": "正文 content 过滤",
+  "version": 1,
+  "data": {
+    "enabled": true,
+    "stripHtmlComments": true,
+    "allowUntaggedFallback": false,
+    "textIncludeTags": "content",
+    "textExcludeTags": "thinking\nSubtext_think\nStatus_block\ntext_to_image\nparallel_world\naftertalk",
+    "imageIncludeTags": "image\ntext_to_image",
+    "imageExcludeTags": ""
+  }
+}

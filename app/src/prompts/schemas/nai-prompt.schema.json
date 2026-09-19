@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["prompt"],
+  "properties": {
+    "prompt": { "type": "string" },
+    "negativePrompt": { "type": "string" },
+    "model": { "type": "string" },
+    "parameters": { "type": "object" }
+  },
+  "additionalProperties": true
+}

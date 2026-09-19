@@ -1,0 +1,13 @@
+{
+  "format": "igs_preset_v1",
+  "type": "text-format-preset",
+  "id": "preset.text-format.invalid",
+  "name": "非法正文格式化正则",
+  "version": 1,
+  "data": {
+    "enabled": true,
+    "pattern": "([未闭合",
+    "flags": "",
+    "replacement": "$1"
+  }
+}

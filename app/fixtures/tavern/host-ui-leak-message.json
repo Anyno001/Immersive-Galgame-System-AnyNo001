@@ -1,0 +1,5 @@
+{
+  "id": 27,
+  "text": "<div class=\"flex-container\"><button class=\"menu_button menu_button_icon drawer-opener inline-flex\" data-target=\"sys-settings-button\">⚙</button><span data-i18n=\"API Connections\">API Connections</span><div id=\"rightNavHolder\">rightNavHolder</div></div>",
+  "visibleText": "[角色: 玉子]\n[情绪: 害羞]\n[时间: 夜晚]\n[天气: 雨]\n[地点: 图书馆]\n玉子: 今晚我们先从这里开始。"
+}

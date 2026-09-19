@@ -1,0 +1,10 @@
+{
+  "type": "background-pack",
+  "id": "pack.library",
+  "items": [
+    {
+      "id": "bg.library.night",
+      "url": "placeholder://library-night"
+    }
+  ]
+}

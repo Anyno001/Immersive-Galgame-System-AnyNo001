@@ -1,0 +1,359 @@
+- generic [ref=e2]:
+  - list [ref=e4]:
+    - listitem [ref=e5] [cursor=pointer]:
+      - img "Trending" [ref=e6]
+    - listitem [ref=e7] [cursor=pointer]:
+      - link "Zenless Zone Zero" [ref=e8]:
+        - /url: https://zenless-zone-zero.en.uptodown.com/windows
+    - listitem [ref=e9] [cursor=pointer]:
+      - link "Mozilla Firefox" [ref=e10]:
+        - /url: https://mozilla-firefox.en.uptodown.com/windows
+    - listitem [ref=e11] [cursor=pointer]:
+      - link "VPN Apps" [ref=e12]:
+        - /url: https://en.uptodown.com/windows/vpn-apps
+    - listitem [ref=e13] [cursor=pointer]:
+      - link "Ollama" [ref=e14]:
+        - /url: https://ollama.en.uptodown.com/windows
+    - listitem [ref=e15] [cursor=pointer]:
+      - link "x64dbg" [ref=e16]:
+        - /url: https://x64dbg.en.uptodown.com/windows
+    - listitem [ref=e17] [cursor=pointer]:
+      - link "AI Coding Tools" [ref=e18]:
+        - /url: https://en.uptodown.com/windows/ai-coding-tools
+    - listitem [ref=e19] [cursor=pointer]:
+      - link "ForkGram" [ref=e20]:
+        - /url: https://forkgram.en.uptodown.com/windows
+    - listitem [ref=e21] [cursor=pointer]:
+      - link "Anki" [ref=e22]:
+        - /url: https://anki.en.uptodown.com/windows
+    - listitem [ref=e23] [cursor=pointer]:
+      - link "Online TV" [ref=e24]:
+        - /url: https://en.uptodown.com/windows/online-tv-apps
+    - listitem [ref=e25] [cursor=pointer]:
+      - link "ComfyUI" [ref=e26]:
+        - /url: https://comfyui.en.uptodown.com/windows
+    - listitem [ref=e27] [cursor=pointer]:
+      - link "Township" [ref=e28]:
+        - /url: https://township.en.uptodown.com/windows
+    - listitem [ref=e29] [cursor=pointer]:
+      - link "Open-Source Games" [ref=e30]:
+        - /url: https://en.uptodown.com/windows/open-source-games
+    - listitem [ref=e31] [cursor=pointer]:
+      - link "OpenMSX" [ref=e32]:
+        - /url: https://openmsx.en.uptodown.com/windows
+    - listitem [ref=e33] [cursor=pointer]:
+      - link "Quill Meetings" [ref=e34]:
+        - /url: https://quill-meetings.en.uptodown.com/windows
+    - listitem [ref=e35] [cursor=pointer]:
+      - link "Office Suites" [ref=e36]:
+        - /url: https://en.uptodown.com/windows/office-suites
+  - banner [ref=e37]:
+    - img "Menu icon" [ref=e39] [cursor=pointer]
+    - link "Download, discover, share" [ref=e40] [cursor=pointer]:
+      - /url: https://en.uptodown.com/windows
+      - img "Download, discover, share" [ref=e42]
+    - img "Subscribe to Uptodown Turbo" [ref=e44] [cursor=pointer]
+    - img "Search icon" [ref=e46] [cursor=pointer]
+    - img "login" [ref=e48] [cursor=pointer]
+  - generic [ref=e49]:
+    - link "Windows" [ref=e50] [cursor=pointer]:
+      - /url: https://en.uptodown.com/windows
+    - text: /
+    - generic [ref=e51]:
+      - button "Apps" [ref=e52] [cursor=pointer]
+      - text: /
+      - generic [ref=e53]:
+        - link "Lifestyle" [ref=e54] [cursor=pointer]:
+          - /url: https://en.uptodown.com/windows/personal
+        - text: /
+        - generic [ref=e55]:
+          - link "Artificial Intelligence" [ref=e56] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/artificial-intelligence
+          - text: /
+          - generic [ref=e57]:
+            - link "Claude" [ref=e58] [cursor=pointer]:
+              - /url: https://claude.en.uptodown.com/windows
+            - text: /
+            - generic [ref=e59]: old versions
+  - generic [ref=e60]:
+    - img "Claude icon" [ref=e62]
+    - generic [ref=e63]:
+      - link "Claude" [ref=e64] [cursor=pointer]:
+        - /url: https://claude.en.uptodown.com/windows
+        - heading "Claude" [level=1] [ref=e65]
+      - generic [ref=e66]: 1.12603.1
+      - button "Anthropic PBC" [ref=e68] [cursor=pointer]
+      - button "#2 AI Coding Tools" [ref=e69] [cursor=pointer]:
+        - generic [ref=e70]: "#2 AI Coding Tools"
+    - generic [ref=e71]:
+      - generic [ref=e72] [cursor=pointer]:
+        - generic [ref=e74]: "4.5"
+        - generic [ref=e75]:
+          - generic [ref=e76]: "2"
+          - text: reviews
+          - img [ref=e77]
+      - generic [ref=e81]:
+        - generic [ref=e82]: 50 k
+        - generic [ref=e83]:
+          - text: downloads
+          - img [ref=e84]
+      - generic [ref=e89] [cursor=pointer]:
+        - img "security" [ref=e91]
+        - generic [ref=e92]:
+          - text: security
+          - img [ref=e93]
+    - heading "An AI-based chatbot that respects your privacy" [level=2] [ref=e96]
+  - generic [ref=e98]:
+    - heading "Older versions of Claude" [level=2] [ref=e100]
+    - generic [ref=e101]: It's not uncommon for the latest version of an app to cause problems when installed on older devices. Sometimes newer versions of apps may not work with your device due to system incompatibilities. Until the app developer has fixed the problem, try using an older version of the app. If you need a rollback of Claude, check out the app's version history on Uptodown. It includes all the file versions available to download off Uptodown for that app. Download rollbacks of Claude for Windows. Any version of Claude distributed on Uptodown is completely virus-free and free to download at no cost.
+    - generic [ref=e102]:
+      - generic [ref=e103]: Advertisement
+      - generic [ref=e104] [cursor=pointer]:
+        - text: Remove ads and more with Turbo
+        - img [ref=e105]
+    - generic [ref=e249] [cursor=pointer]:
+      - generic [ref=e250]:
+        - generic "exe" [ref=e251]
+        - generic [ref=e252]: 1.12603.1
+        - generic [ref=e253]: Jun 15, 2026
+      - generic [ref=e254]:
+        - generic "exe" [ref=e255]
+        - generic [ref=e256]: 1.11187.4
+        - generic [ref=e257]: Jun 8, 2026
+      - generic [ref=e258]:
+        - generic "exe" [ref=e259]
+        - generic [ref=e260]: 1.11187.1
+        - generic [ref=e261]: Jun 5, 2026
+      - generic [ref=e262]:
+        - generic "exe" [ref=e263]
+        - generic [ref=e264]: 1.9659.2
+        - generic [ref=e265]: May 30, 2026
+      - generic [ref=e266]:
+        - generic "exe" [ref=e267]
+        - generic [ref=e268]: 1.8555.0
+        - generic [ref=e269]: May 22, 2026
+      - generic [ref=e270]:
+        - generic "exe" [ref=e271]
+        - generic [ref=e272]: 1.7196.3
+        - generic [ref=e273]: May 19, 2026
+      - generic [ref=e274]:
+        - generic "exe" [ref=e275]
+        - generic [ref=e276]: 1.3109.0
+        - generic [ref=e277]: Apr 17, 2026
+      - generic [ref=e278]:
+        - generic "exe" [ref=e279]
+        - generic [ref=e280]: 1.2773.0
+        - generic [ref=e281]: Apr 15, 2026
+      - generic [ref=e282]:
+        - generic "exe" [ref=e283]
+        - generic [ref=e284]: 1.2581.0
+        - generic [ref=e285]: Apr 14, 2026
+      - generic [ref=e286]:
+        - generic "exe" [ref=e287]
+        - generic [ref=e288]: 1.1617.0
+        - generic [ref=e289]: Apr 10, 2026
+      - generic [ref=e290]:
+        - generic "exe" [ref=e291]
+        - generic [ref=e292]: 1.1348.0
+        - generic [ref=e293]: Apr 9, 2026
+      - generic [ref=e294]:
+        - generic "exe" [ref=e295]
+        - generic [ref=e296]: 1.569.0
+        - generic [ref=e297]: Apr 3, 2026
+      - generic [ref=e298]:
+        - generic "exe" [ref=e299]
+        - generic [ref=e300]: 1.2.234
+        - generic [ref=e301]: Apr 3, 2026
+      - generic [ref=e302]:
+        - generic "exe" [ref=e303]
+        - generic [ref=e304]: 1.1.9669
+        - generic [ref=e305]: Apr 1, 2026
+      - generic [ref=e306]:
+        - generic "exe" [ref=e307]
+        - generic [ref=e308]: 1.1.9493
+        - generic [ref=e309]: Mar 29, 2026
+      - generic [ref=e310]:
+        - generic "exe" [ref=e311]
+        - generic [ref=e312]: 1.1.9134
+        - generic [ref=e313]: Mar 28, 2026
+      - generic [ref=e314]:
+        - generic "exe" [ref=e315]
+        - generic [ref=e316]: 1.1.8629
+        - generic [ref=e317]: Mar 25, 2026
+      - generic [ref=e318]:
+        - generic "exe" [ref=e319]
+        - generic [ref=e320]: 1.1.8359
+        - generic [ref=e321]: Mar 24, 2026
+      - generic [ref=e322]:
+        - generic "exe" [ref=e323]
+        - generic [ref=e324]: 1.1.7714
+        - generic [ref=e325]: Mar 19, 2026
+      - generic [ref=e326]:
+        - generic "exe" [ref=e327]
+        - generic [ref=e328]: 1.1.7464
+        - generic [ref=e329]: Mar 19, 2026
+    - generic [ref=e111] [cursor=pointer]: See more
+  - navigation [ref=e112]:
+    - generic [ref=e113]:
+      - img "Close icon" [ref=e115] [cursor=pointer]
+      - generic [ref=e116] [cursor=pointer]:
+        - generic [ref=e117]: EN
+        - text: English
+    - generic [ref=e118]:
+      - generic [ref=e120] [cursor=pointer]:
+        - img "User icon" [ref=e121]
+        - text: Log in or Sign up
+      - link "Go to Windows platform Windows" [ref=e123] [cursor=pointer]:
+        - /url: https://en.uptodown.com/windows
+        - img "Go to Windows platform" [ref=e124]
+        - text: Windows
+      - generic [ref=e125]:
+        - link "Games Games" [ref=e127] [cursor=pointer]:
+          - /url: https://en.uptodown.com/windows/games
+          - img "Games" [ref=e128]
+          - text: Games
+        - button "Apps Apps" [ref=e130] [cursor=pointer]:
+          - img "Apps" [ref=e131]
+          - text: Apps
+        - generic [ref=e133]:
+          - link "Internet" [ref=e135] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/internet
+          - link "Development" [ref=e137] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/development
+          - link "Utilities" [ref=e139] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/utilities
+          - link "Photo & Design" [ref=e141] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/photo-design
+          - link "Video" [ref=e143] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/video
+          - link "Desktop" [ref=e145] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/desktop
+          - link "Business" [ref=e147] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/business
+          - link "Lifestyle" [ref=e149] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/personal
+          - link "Education" [ref=e151] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/education
+          - link "Audio" [ref=e153] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/audio
+          - link "Security" [ref=e155] [cursor=pointer]:
+            - /url: https://en.uptodown.com/windows/security
+        - link "Editor's choice Editor's choice" [ref=e157] [cursor=pointer]:
+          - /url: https://en.uptodown.com/windows/editors-choice
+          - text: Editor's choice
+          - img "Editor's choice" [ref=e158]
+      - link "Go to Mac platform Mac" [ref=e160] [cursor=pointer]:
+        - /url: https://en.uptodown.com/mac
+        - img "Go to Mac platform" [ref=e161]
+        - text: Mac
+      - link "Go to Android platform Android" [ref=e163] [cursor=pointer]:
+        - /url: https://en.uptodown.com
+        - img "Go to Android platform" [ref=e164]
+        - text: Android
+      - link "Go to iOS platform iOS" [ref=e166] [cursor=pointer]:
+        - /url: https://en.uptodown.com/ios
+        - img "Go to iOS platform" [ref=e167]
+        - text: iOS
+      - link "Subscribe to Uptodown Turbo Uptodown Turbo" [ref=e169] [cursor=pointer]:
+        - /url: https://en.uptodown.com/turbo?platform=windows
+        - img "Subscribe to Uptodown Turbo" [ref=e170]
+        - text: Uptodown Turbo
+      - link "Uptodown App Store icon Uptodown App Store" [ref=e172] [cursor=pointer]:
+        - /url: https://uptodown-android.en.uptodown.com/android
+        - img "Uptodown App Store icon" [ref=e173]
+        - text: Uptodown App Store
+      - link "Transparency Center Transparency Center" [ref=e175] [cursor=pointer]:
+        - /url: https://en.uptodown.com/about-us/stats
+        - img "Transparency Center" [ref=e176]
+        - text: Transparency Center
+      - link "Go to support page' Go to support page" [ref=e178] [cursor=pointer]:
+        - /url: https://support.uptodown.com/hc/en-us
+        - img "Go to support page'" [ref=e179]
+        - text: Go to support page
+  - paragraph [ref=e183] [cursor=pointer]:
+    - img "Close icon" [ref=e184]
+  - contentinfo [ref=e185]:
+    - generic [ref=e186]:
+      - img "Uptodown logo" [ref=e188]
+      - paragraph [ref=e189]: Uptodown is a multi-platform app store specialized in Android. Our goal is to provide free and open access to a large catalog of apps without restrictions, while providing a legal distribution platform accessible from any browser, and also through its official native app.
+      - generic [ref=e190] [cursor=pointer]:
+        - link "YouTube icon" [ref=e191]:
+          - /url: https://www.youtube.com/uptodown
+          - img "YouTube icon" [ref=e192]
+        - link "TikTok icon" [ref=e193]:
+          - /url: https://www.tiktok.com/@uptodown_com
+          - img "TikTok icon" [ref=e194]
+        - link "X icon" [ref=e195]:
+          - /url: https://x.com/uptodown
+          - img "X icon" [ref=e196]
+        - link "Instagram icon" [ref=e197]:
+          - /url: https://instagram.com/uptodown
+          - img "Instagram icon" [ref=e198]
+        - link "LinkedIn icon" [ref=e199]:
+          - /url: https://www.linkedin.com/company/uptodown/
+          - img "LinkedIn icon" [ref=e200]
+        - link "Facebook icon" [ref=e201]:
+          - /url: https://www.facebook.com/Uptodown.International
+          - img "Facebook icon" [ref=e202]
+    - generic [ref=e203]:
+      - paragraph [ref=e204]: DISCOVER US
+      - list [ref=e205]:
+        - listitem [ref=e206]:
+          - link "About us" [ref=e207] [cursor=pointer]:
+            - /url: https://en.uptodown.com/about-us
+        - listitem [ref=e208]:
+          - link "Our company" [ref=e209] [cursor=pointer]:
+            - /url: https://en.uptodown.com/about-us/our-company
+        - listitem [ref=e210]:
+          - link "Editorial policy" [ref=e211] [cursor=pointer]:
+            - /url: https://en.uptodown.com/about-us/editors
+        - listitem [ref=e212]:
+          - link "Transparency Center" [ref=e213] [cursor=pointer]:
+            - /url: https://en.uptodown.com/about-us/stats
+        - listitem [ref=e214]:
+          - link "Brand & Press Resources" [ref=e215] [cursor=pointer]:
+            - /url: https://en.uptodown.com/about-us/brand-assets
+        - listitem [ref=e216]:
+          - link "Corporate blog" [ref=e217] [cursor=pointer]:
+            - /url: https://blog.en.uptodown.com/
+        - listitem [ref=e218]:
+          - link "Careers" [ref=e219] [cursor=pointer]:
+            - /url: https://uptodown.factorialhr.es/
+    - generic [ref=e220]:
+      - paragraph [ref=e221]: OUR SERVICES
+      - list [ref=e222]:
+        - listitem [ref=e223]:
+          - link "Uptodown App Store" [ref=e224] [cursor=pointer]:
+            - /url: https://en.uptodown.com/marketplace
+        - listitem [ref=e225]:
+          - link "Publish your app" [ref=e226] [cursor=pointer]:
+            - /url: https://en.uptodown.com/developers-console
+        - listitem [ref=e227]:
+          - link "Promote your app" [ref=e228] [cursor=pointer]:
+            - /url: https://en.uptodown.com/advertising
+        - listitem [ref=e229]:
+          - link "Uptodown Ads" [ref=e230] [cursor=pointer]:
+            - /url: https://ads.uptodown.dev/ads/
+        - listitem [ref=e231]:
+          - link "Uptodown TurboNew" [ref=e232] [cursor=pointer]:
+            - /url: https://en.uptodown.com/turbo?platform=windows
+        - listitem [ref=e233]:
+          - link "FAQs & Support" [ref=e234] [cursor=pointer]:
+            - /url: https://support.uptodown.com/hc/en-us
+    - generic [ref=e235]:
+      - paragraph [ref=e236]: LEGAL
+      - list [ref=e237]:
+        - listitem [ref=e238]:
+          - link "Terms of Service for Users" [ref=e239] [cursor=pointer]:
+            - /url: https://en.uptodown.com/aboutus/services
+        - listitem [ref=e240]:
+          - link "Privacy & Cookies Policy" [ref=e241] [cursor=pointer]:
+            - /url: https://en.uptodown.com/aboutus/privacy
+        - listitem [ref=e242]:
+          - button "Cookie Settings" [ref=e243] [cursor=pointer]
+        - listitem [ref=e244]:
+          - link "Terms of Service for Developers" [ref=e245] [cursor=pointer]:
+            - /url: https://en.uptodown.com/developers-zone/services
+        - listitem [ref=e246]:
+          - link "DMCA" [ref=e247] [cursor=pointer]:
+            - /url: https://en.uptodown.com/dmca

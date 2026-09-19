@@ -1,0 +1,19 @@
+node_modules/
+npm-debug.log*
+pnpm-lock.yaml
+.DS_Store
+Thumbs.db
+
+# 本地运行缓存与临时数据
+.cache/
+.tmp/
+coverage/
+.playwright-mcp/
+
+# 真实用户数据和私有配置不得进入仓库
+pc-data/
+local-data/
+*.local.json
+*.secret.json
+*.key
+*.pem

@@ -1,0 +1,89 @@
+{
+  "requiredSelectors": [
+    "#igs-unified-settings",
+    ".igs-settings-shell",
+    ".igs-settings-head",
+    ".igs-settings-tabs",
+    ".igs-settings-body",
+    ".igs-segmented",
+    ".igs-source-filter",
+    ".igs-settings-preview"
+  ],
+  "tabs": [
+    {
+      "id": "basic",
+      "label": "基础",
+      "requiredPaths": [
+        "bridge.openMode",
+        "bridge.showToasts",
+        "bridge.debug"
+      ]
+    },
+    {
+      "id": "regex",
+      "label": "正文替换",
+      "requiredPaths": [
+        "bridge.sourceFilter.enabled",
+        "bridge.sourceFilter.textIncludeTags",
+        "bridge.sourceFilter.textExcludeTags",
+        "bridge.sourceFilter.imageIncludeTags",
+        "bridge.virtualRegex.enabled",
+        "bridge.virtualRegex.pattern",
+        "bridge.virtualRegex.flags",
+        "bridge.virtualRegex.replacement"
+      ],
+      "requiredActions": [
+        "reset-virtual-regex",
+        "test-virtual-regex"
+      ]
+    },
+    {
+      "id": "image",
+      "label": "图像",
+      "requiredPaths": [
+        "bridge.imageApi.mode",
+        "bridge.imageApi.externalAdapter",
+        "bridge.imageApi.endpoint",
+        "bridge.imageApi.apiKey",
+        "bridge.imageApi.model",
+        "bridge.imageApi.size",
+        "bridge.imageApi.steps",
+        "bridge.imageApi.sampler",
+        "bridge.imageApi.requestTimeoutMs",
+        "bridge.imageApi.pollIntervalMs",
+        "bridge.imageApi.pollAttempts",
+        "bridge.imageApi.promptPrefix"
+      ],
+      "requiredActions": [
+        "fetch-image-models",
+        "test-image"
+      ]
+    },
+    {
+      "id": "reader",
+      "label": "阅读器",
+      "requiredPaths": [
+        "readerMode",
+        "readerSettings.fontSize",
+        "readerSettings.dialogWidth",
+        "readerSettings.dialogHeight",
+        "readerSettings.glassOpacity",
+        "readerSettings.imageCountOverride",
+        "readerSettings.inputScale",
+        "readerSettings.toolbarScale",
+        "readerSettings.imgMode"
+      ]
+    }
+  ],
+  "styleChecks": {
+    "viewportLeft": "left:var(--igs-settings-vleft)",
+    "viewportTop": "top:var(--igs-settings-vtop)",
+    "viewportWidth": "width:var(--igs-settings-vw)",
+    "viewportHeight": "height:var(--igs-settings-vh)",
+    "shellWidth": "width:var(--igs-settings-width)",
+    "headerHeight": "height:54px",
+    "segmentedHeight": "height:40px",
+    "switchHeight": "height:38px",
+    "mobileMedia": "@media (max-width:640px)"
+  }
+}

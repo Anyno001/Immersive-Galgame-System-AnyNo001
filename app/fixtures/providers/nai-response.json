@@ -1,0 +1,7 @@
+{
+  "providerType": "nai",
+  "taskId": "fake-nai-task",
+  "images": [
+    "placeholder://nai-result"
+  ]
+}

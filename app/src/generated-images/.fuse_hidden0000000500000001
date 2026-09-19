@@ -1,0 +1,569 @@
+const ADAPTER_SELECTORS = Object.freeze({
+    chatu8: Object.freeze({
+        images: Object.freeze([
+            'img.st-chatu8-image-tag-image',
+            '[class*="st-chatu8"] img',
+            '[class*="chatu8"] img',
+        ]),
+        buttons: Object.freeze([
+            'button.image-tag-button',
+            'button[class*="image-tag-button"]',
+            'button[class*="st-chatu8-image"]',
+        ]),
+    }),
+    chami: Object.freeze({
+        images: Object.freeze([
+            '.tsp-generated-image',
+            '.tsp-inline-image',
+            '.tsp-image-slot img',
+            'img[src*="tsp-images"]',
+        ]),
+        buttons: Object.freeze([
+            '.tsp-inline-gen-btn',
+            '.tsp-regenerate-btn',
+        ]),
+        metadata: Object.freeze([
+            '[data-image-id]',
+            '[data-location-hash]',
+            '[data-slot-index]',
+            '[data-image-index]',
+            '[data-vn-image-slot]',
+            'img[data-image-id]',
+            'img[data-location-hash]',
+            '[data-image-id] img',
+            '[data-location-hash] img',
+        ]),
+    }),
+    generic: Object.freeze({
+        images: Object.freeze([
+            '.mes_text img[src]',
+            '.mes_text img[data-src]',
+            'img[src]',
+            'img[data-src]',
+            'img[src^="blob:"]',
+            'img[src^="data:image"]',
+            'video',
+            'a[href^="blob:"]',
+            'a[href^="data:image"]',
+            '[style*="background-image"]',
+        ]),
+    }),
+});
+
+export function getAdapterSelectors() {
+    return ADAPTER_SELECTORS;
+}
+
+export function resolveDomRoots(input = {}) {
+    const roots = [];
+    const seen = new Set();
+    const scopePolicy = input.scopePolicy && typeof input.scopePolicy === 'object'
+        ? input.scopePolicy
+        : {};
+    const lockToScopedRoots = scopePolicy.hasMessageScope === true;
+
+    function add(root) {
+        if (!root || typeof root.querySelectorAll !== 'function' || seen.has(root)) return;
+        seen.add(root);
+        roots.push(root);
+    }
+
+    const sourceRoots = Array.isArray(input.roots) ? input.roots : [];
+    sourceRoots.forEach(add);
+    add(input.root);
+    if (!lockToScopedRoots) add(input.document);
+    return roots;
+}
+
+export function getGlobalDetectionRoots(globalObject = globalThis.window || globalThis) {
+    const roots = [];
+    const seen = new Set();
+    const add = (root) => {
+        if (!root || typeof root.querySelectorAll !== 'function' || seen.has(root)) return;
+        seen.add(root);
+        roots.push(root);
+    };
+
+    add(safeDocument(globalObject));
+    try {
+        add(safeDocument(globalObject.top));
+    } catch (error) {
+        // Cross-origin parents are ignored.
+    }
+    if (typeof document !== 'undefined') add(document);
+    return roots;
+}
+
+export function detectExternalImageAdapter(context = {}) {
+    const roots = resolveDomRoots(context);
+    const globalObject = context.global || globalThis.window || globalThis;
+    const selectors = getAdapterSelectors();
+    const chatu8Images = countMatches(roots, selectors.chatu8.images);
+    const chatu8Buttons = countMatches(roots, selectors.chatu8.buttons);
+    const chamiImages = countMatches(roots, selectors.chami.images);
+    const chamiButtons = countMatches(roots, selectors.chami.buttons);
+    const chamiMetadata = countMatches(roots, selectors.chami.metadata);
+    const topWindow = resolveTopWindow(globalObject);
+    const hasEventSource = Boolean(topWindow && topWindow.eventSource && typeof topWindow.eventSource.emit === 'function');
+    const hasChamiApi = Boolean(topWindow && (topWindow.TSP || topWindow.tsp || topWindow.tspPlugin || topWindow.TavernScenePlugin));
+    const requested = normalizeAdapterSelection(context.imageApi && context.imageApi.externalAdapter);
+
+    let adapter = 'none';
+    if (requested === 'chami') {
+        adapter = chamiImages || chamiButtons || chamiMetadata || hasEventSource || hasChamiApi ? 'chami' : 'none';
+    } else if (requested === 'chatu8') {
+        adapter = chatu8Images || chatu8Buttons ? 'chatu8' : 'none';
+    } else if (chamiImages || chamiButtons || chamiMetadata || hasEventSource || hasChamiApi) {
+        adapter = 'chami';
+    } else if (chatu8Images || chatu8Buttons) {
+        adapter = 'chatu8';
+    }
+
+    const summary = [];
+    if (chamiImages || chamiButtons || chamiMetadata || hasEventSource || hasChamiApi) {
+        summary.push(`chami: 图片 ${chamiImages}，按钮 ${chamiButtons}，元数据 ${chamiMetadata}${hasEventSource ? '，事件可用' : ''}${hasChamiApi ? '，页面对象可见' : ''}`);
+    }
+    if (chatu8Images || chatu8Buttons) {
+        summary.push(`chatu8: 图片 ${chatu8Images}，按钮 ${chatu8Buttons}`);
+    }
+
+    return {
+        ok: adapter !== 'none',
+        adapter,
+        details: {
+            chamiImages,
+            chamiButtons,
+            chamiMetadata,
+            chatu8Images,
+            chatu8Buttons,
+            hasEventSource,
+            hasChamiApi,
+        },
+        message: adapter === 'none'
+            ? `未检测到可用插图扩展。${summary.length ? ` 当前探测：${summary.join('；')}` : ''}`
+            : `已检测到 ${adapter} 插图扩展。${summary.length ? ` ${summary.join('；')}` : ''}`,
+    };
+}
+
+export function collectDomImageCandidates(roots, options = {}) {
+    const adapterKeys = normalizeAdapterKeyList(options.adapterKeys);
+    const selectors = buildCandidateSelectorList(adapterKeys);
+    const seenNodes = new Set();
+    const grouped = new Map();
+    const plain = [];
+    let order = 0;
+
+    function add(node, adapterKey, root, selector) {
+        if (!node || seenNodes.has(node)) return;
+        seenNodes.add(node);
+        const imageNode = getImageElement(node) || node;
+        if (adapterKey === 'generic' && isLikelyHostDecorImage(node, imageNode)) return;
+        if (adapterKey === 'generic' && !isGenericCandidateAllowed(node, imageNode, root, selector, options.scopePolicy)) return;
+        const url = rawImageUrl(imageNode);
+        if (!url) return;
+        const groupKey = imageCandidateGroupKey(node, imageNode, url, order);
+        const metadata = collectNodeMetadata(node, imageNode);
+        const candidate = {
+            url,
+            groupKey,
+            order: order + 1,
+            adapterKey,
+            imageId: metadata.imageId,
+            locationHash: metadata.locationHash,
+            slotIndex: metadata.slotIndex,
+            buttonIndex: metadata.buttonIndex,
+        };
+        order += 1;
+        if (groupKey.startsWith('node:')) {
+            plain.push(candidate);
+            return;
+        }
+        const previous = grouped.get(groupKey);
+        if (!previous || candidate.order >= previous.order) {
+            grouped.set(groupKey, candidate);
+        }
+    }
+
+    for (const entry of selectors) {
+        for (const root of Array.isArray(roots) ? roots : []) {
+            for (const node of safeQueryAll(root, entry.selector)) {
+                add(node, entry.adapterKey, root, entry.selector);
+            }
+        }
+    }
+
+    return plain.concat(Array.from(grouped.values())).sort((left, right) => left.order - right.order);
+}
+
+export function findDomRegenerateButtons(roots) {
+    return collectDomRegenerateButtonCandidates(roots).map((candidate) => candidate.button);
+}
+
+export function collectDomRegenerateButtonCandidates(roots) {
+    const selectors = [
+        ...ADAPTER_SELECTORS.chatu8.buttons.map((selector) => ({ selector, adapterKey: 'chatu8', requireHint: false })),
+        ...ADAPTER_SELECTORS.chami.buttons.map((selector) => ({ selector, adapterKey: 'chami', requireHint: false })),
+        { selector: 'button', adapterKey: 'generic', requireHint: true },
+        { selector: '[role="button"]', adapterKey: 'generic', requireHint: true },
+        { selector: 'input[type="button"]', adapterKey: 'generic', requireHint: true },
+        { selector: 'input[type="submit"]', adapterKey: 'generic', requireHint: true },
+        { selector: 'a[role="button"]', adapterKey: 'generic', requireHint: true },
+    ];
+    const buttons = [];
+    const seen = new Set();
+    let order = 0;
+    for (const entry of selectors) {
+        for (const root of Array.isArray(roots) ? roots : []) {
+            for (const button of safeQueryAll(root, entry.selector)) {
+                if (!button || seen.has(button)) continue;
+                if (entry.requireHint && !isLikelyRegenerateButton(button)) continue;
+                seen.add(button);
+                const metadata = collectNodeMetadata(button);
+                buttons.push({
+                    button,
+                    adapterKey: entry.adapterKey,
+                    order: order + 1,
+                    imageId: metadata.imageId,
+                    locationHash: metadata.locationHash,
+                    slotIndex: metadata.slotIndex,
+                    buttonIndex: metadata.buttonIndex,
+                });
+                order += 1;
+            }
+        }
+    }
+    return buttons;
+}
+
+export function normalizeImageUrl(value, key) {
+    let url = decodeImageUrlText(value);
+    if (!url || (/\s/.test(url) && !/^data:image\//i.test(url))) return '';
+    url = url.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
+    if (/^data:image\//i.test(url) || /^blob:/i.test(url)) return url;
+    const imageish = /\.(?:png|jpe?g|webp|gif|bmp|svg|avif)(?:[?#].*)?$/i.test(url)
+        || /(?:\/|=)(?:image|img|thumbnail|thumb|cover|photo|picture|tsp-images|chatu8|scene)(?:[\/._=?&-]|$)/i.test(url)
+        || imageKeyHint(key);
+    if (/^https?:\/\//i.test(url)) return imageish ? url : '';
+    if (/^(?:\/|\.\.?\/)[^\s"'<>]+/i.test(url)) return imageish ? url : '';
+    if (/^(?:[A-Za-z0-9_.~%-]+\/)*[A-Za-z0-9_.~%-]+\.(?:png|jpe?g|webp|gif|bmp|svg|avif)(?:[?#].*)?$/i.test(url)) return url;
+    return '';
+}
+
+function normalizeAdapterKeyList(value) {
+    const keys = Array.isArray(value) ? value : [];
+    if (!keys.length) return ['chatu8', 'chami', 'generic'];
+    const output = [];
+    for (const key of keys) {
+        const normalized = normalizeAdapterSelection(key);
+        if (!normalized || output.includes(normalized)) continue;
+        output.push(normalized);
+    }
+    return output.length ? output : ['chatu8', 'chami', 'generic'];
+}
+
+function buildCandidateSelectorList(adapterKeys) {
+    const output = [];
+    for (const key of adapterKeys) {
+        const config = ADAPTER_SELECTORS[key];
+        if (!config) continue;
+        for (const selector of config.images || []) {
+            output.push({ adapterKey: key, selector });
+        }
+        if (key === 'chami') {
+            for (const selector of config.metadata || []) {
+                output.push({ adapterKey: key, selector });
+            }
+        }
+    }
+    return output;
+}
+
+function countMatches(roots, selectors) {
+    const seen = new Set();
+    for (const selector of Array.isArray(selectors) ? selectors : []) {
+        for (const root of Array.isArray(roots) ? roots : []) {
+            for (const node of safeQueryAll(root, selector)) {
+                seen.add(node);
+            }
+        }
+    }
+    return seen.size;
+}
+
+function getImageElement(node) {
+    if (!node) return null;
+    if (isImageLikeNode(node)) return node;
+    return typeof node.querySelector === 'function'
+        ? node.querySelector('img[src], img[data-src]')
+        : null;
+}
+
+function rawImageUrl(node) {
+    if (!node) return '';
+    if (isUnloadedPlaceholderImage(node)) return '';
+    if (node.tagName === 'IMG' || hasImageSource(node)) {
+        return normalizeImageUrl(node.currentSrc || node.src || safeGetAttribute(node, 'data-src') || '', 'src');
+    }
+    if (node.tagName === 'VIDEO') {
+        return normalizeImageUrl(node.currentSrc || node.src || '', 'src');
+    }
+    if (node.tagName === 'A' || hasHref(node)) {
+        return normalizeImageUrl(node.href || safeGetAttribute(node, 'href') || '', 'href');
+    }
+    const backgroundImage = node.style && node.style.backgroundImage;
+    if (backgroundImage && backgroundImage !== 'none') {
+        const match = backgroundImage.match(/url\(["']?([^"')]+)["']?\)/);
+        if (match) return normalizeImageUrl(match[1], 'backgroundImage');
+    }
+    const nested = getImageElement(node);
+    return nested ? rawImageUrl(nested) : '';
+}
+
+function imageCandidateGroupKey(sourceNode, imageNode, url, order) {
+    const source = sourceNode && typeof sourceNode === 'object' ? sourceNode : imageNode;
+    const slot = safeClosest(source, '.tsp-image-slot,[class*="tsp-image-slot"]');
+    if (slot) return `slot:${nodePathKey(slot)}`;
+    const metadataNode = safeClosest(source, '[data-location-hash],[data-image-id]');
+    const locationHash = safeGetAttribute(source, 'data-location-hash')
+        || safeGetAttribute(imageNode, 'data-location-hash')
+        || safeGetAttribute(metadataNode, 'data-location-hash')
+        || '';
+    if (locationHash) return `loc:${locationHash}`;
+    const imageId = safeGetAttribute(source, 'data-image-id')
+        || safeGetAttribute(imageNode, 'data-image-id')
+        || safeGetAttribute(metadataNode, 'data-image-id')
+        || '';
+    if (imageId) return `id:${imageId}`;
+    const isChami = Boolean(safeClosest(source, '[class*="tsp-"],[data-location-hash],[data-image-id]'));
+    if (isChami) return `chami-url:${url}`;
+    return `node:${order}`;
+}
+
+function collectNodeMetadata(sourceNode, imageNode = null) {
+    const source = sourceNode && typeof sourceNode === 'object' ? sourceNode : imageNode;
+    const metadataNode = safeClosest(source, '[data-location-hash],[data-image-id],[data-slot-index],[data-image-index],[data-vn-image-slot]');
+    return {
+        imageId: safeGetAttribute(source, 'data-image-id')
+            || safeGetAttribute(imageNode, 'data-image-id')
+            || safeGetAttribute(metadataNode, 'data-image-id')
+            || safeGetAttribute(source, 'data-vn-image-id')
+            || safeGetAttribute(imageNode, 'data-vn-image-id')
+            || safeGetAttribute(metadataNode, 'data-vn-image-id')
+            || '',
+        locationHash: safeGetAttribute(source, 'data-location-hash')
+            || safeGetAttribute(imageNode, 'data-location-hash')
+            || safeGetAttribute(metadataNode, 'data-location-hash')
+            || safeGetAttribute(source, 'data-vn-location-hash')
+            || safeGetAttribute(imageNode, 'data-vn-location-hash')
+            || safeGetAttribute(metadataNode, 'data-vn-location-hash')
+            || '',
+        slotIndex: readIndexAttribute(source, imageNode, metadataNode, ['data-slot-index', 'data-image-index', 'data-vn-image-slot']),
+        buttonIndex: readIndexAttribute(source, imageNode, metadataNode, ['data-button-index', 'data-image-index', 'data-slot-index', 'data-vn-image-slot']),
+    };
+}
+
+function readIndexAttribute(sourceNode, imageNode, metadataNode, names) {
+    for (const name of Array.isArray(names) ? names : []) {
+        const value = safeGetAttribute(sourceNode, name)
+            || safeGetAttribute(imageNode, name)
+            || safeGetAttribute(metadataNode, name)
+            || '';
+        if (value === '') continue;
+        const numeric = Number(value);
+        if (Number.isFinite(numeric) && numeric >= 0) return Math.floor(numeric);
+    }
+    return null;
+}
+
+function nodePathKey(node) {
+    const parts = [];
+    let cursor = node;
+    let depth = 0;
+    while (cursor && depth < 8) {
+        const parent = cursor.parentElement;
+        let index = 0;
+        if (parent && parent.children && parent.children.length != null) {
+            index = Math.max(0, Array.prototype.indexOf.call(parent.children, cursor));
+        }
+        parts.unshift(`${String(cursor.tagName || 'node').toLowerCase()}:${index}`);
+        if (cursor.classList && cursor.classList.contains('mes')) break;
+        cursor = parent;
+        depth += 1;
+    }
+    return parts.join('/');
+}
+
+function decodeImageUrlText(text) {
+    return String(text || '')
+        .trim()
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, '\'')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>');
+}
+
+function imageKeyHint(key) {
+    const name = String(key || '');
+    if (/(?:api|base|endpoint|model|prompt|negative|token|key|authorization)/i.test(name)) return false;
+    return /(?:image|img|src|href|url|thumbnail|thumb|cover|background|bg|avatar|picture|photo)/i.test(name);
+}
+
+function normalizeAdapterSelection(value) {
+    const normalized = String(value || 'auto').trim().toLowerCase();
+    if (normalized === 'chatu8' || normalized === 'chami' || normalized === 'generic') return normalized;
+    return normalized === 'auto' ? 'auto' : normalized;
+}
+
+function isGenericCandidateAllowed(sourceNode, imageNode, root, selector, scopePolicy = {}) {
+    const source = sourceNode && typeof sourceNode === 'object' ? sourceNode : imageNode;
+    const normalizedSelector = String(selector || '');
+    if (String(scopePolicy && scopePolicy.kind || '') === 'legacy-global' && scopePolicy && scopePolicy.allowGlobalGeneric === false) {
+        return false;
+    }
+    if (isDocumentLikeRoot(root)) {
+        if (String(scopePolicy && scopePolicy.kind || '') !== 'message' && normalizedSelector.includes('background-image')) {
+            return false;
+        }
+        return true;
+    }
+    if (isMessageTextRoot(root)) return true;
+    if (isMessageRoot(root)) {
+        if (normalizedSelector.includes('background-image')) {
+            return Boolean(safeClosest(source, '[data-location-hash],[data-image-id],[class*="tsp-"],.mes_text'));
+        }
+        return isWithinMessageText(source);
+    }
+    return true;
+}
+
+function isDocumentLikeRoot(root) {
+    return Boolean(root && typeof root === 'object' && typeof root.querySelectorAll === 'function' && (root.defaultView || root.documentElement || root.body));
+}
+
+function isMessageRoot(root) {
+    if (!root || typeof root !== 'object') return false;
+    const classText = [
+        safeGetAttribute(root, 'class'),
+        root.className,
+    ].filter(Boolean).join(' ');
+    return Boolean(
+        safeGetAttribute(root, 'mesid')
+        || safeGetAttribute(root, 'data-mesid')
+        || safeGetAttribute(root, 'data-message-id')
+        || /(^|\s)mes(\s|$)/.test(classText)
+    );
+}
+
+function isMessageTextRoot(root) {
+    if (!root || typeof root !== 'object') return false;
+    const classText = [
+        safeGetAttribute(root, 'class'),
+        root.className,
+    ].filter(Boolean).join(' ');
+    return /(^|\s)mes_text(\s|$)/.test(classText);
+}
+
+function isWithinMessageText(node) {
+    return Boolean(node && safeClosest(node, '.mes_text'));
+}
+
+function safeQueryAll(root, selector) {
+    try {
+        return root && typeof root.querySelectorAll === 'function'
+            ? Array.from(root.querySelectorAll(selector))
+            : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function safeClosest(node, selector) {
+    try {
+        return node && typeof node.closest === 'function' ? node.closest(selector) : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function safeGetAttribute(node, name) {
+    try {
+        return node && typeof node.getAttribute === 'function' ? node.getAttribute(name) : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function isLikelyRegenerateButton(button) {
+    const text = [
+        safeGetAttribute(button, 'title'),
+        safeGetAttribute(button, 'aria-label'),
+        safeGetAttribute(button, 'data-action'),
+        safeGetAttribute(button, 'data-command'),
+        safeGetAttribute(button, 'data-tooltip'),
+        safeGetAttribute(button, 'value'),
+        safeGetAttribute(button, 'class'),
+        button && button.textContent,
+        button && button.innerText,
+        button && button.value,
+    ].filter(Boolean).join(' ');
+    return /(?:重新生成|生成图片|生成图|重绘|重画|换图|再来一张|regen|regenerate|reroll|generate\s*image|image\s*gen)/i.test(text);
+}
+
+function safeDocument(target) {
+    try {
+        return target && target.document ? target.document : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function resolveTopWindow(globalObject) {
+    try {
+        return globalObject && globalObject.top ? globalObject.top : globalObject;
+    } catch (error) {
+        return globalObject;
+    }
+}
+
+function isImageLikeNode(node) {
+    return Boolean(
+        node
+        && typeof node === 'object'
+        && (
+            node.tagName === 'IMG'
+            || node.tagName === 'VIDEO'
+            || node.tagName === 'A'
+        ),
+    );
+}
+
+function hasImageSource(node) {
+    return Boolean(node && typeof node === 'object' && (node.currentSrc || node.src || safeGetAttribute(node, 'data-src')));
+}
+
+const PLACEHOLDER_GIF_PREFIX = 'data:image/gif;base64,R0lGODlhAQABAIAAA';
+
+function isUnloadedPlaceholderImage(node) {
+    if (!node || node.tagName !== 'IMG') return false;
+    const src = node.currentSrc || node.src || '';
+    if (src.startsWith(PLACEHOLDER_GIF_PREFIX)) return true;
+    return false;
+}
+
+function hasHref(node) {
+    return Boolean(node && typeof node === 'object' && (node.href || safeGetAttribute(node, 'href')));
+}
+
+function isLikelyHostDecorImage(sourceNode, imageNode) {
+    const source = sourceNode && typeof sourceNode === 'object' ? sourceNode : imageNode;
+    const classText = [
+        safeGetAttribute(source, 'class'),
+        safeGetAttribute(imageNode, 'class'),
+        source && source.className,
+        imageNode && imageNode.className,
+    ].filter(Boolean).join(' ');
+    if (/(^|\s)(avatar|mesAvatar|mes_avatar|ch_name|name|timestamp)(\s|$)/i.test(classText)) return true;
+    return Boolean(safeClosest(source, '.avatar,.mesAvatar,.mes_avatar,.ch_name,.timestamp'));
+}
+                                                                           

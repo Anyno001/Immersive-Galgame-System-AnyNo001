@@ -1,0 +1,13 @@
+{
+  "type": "igs-import-bundle",
+  "items": [
+    {
+      "type": "background-pack",
+      "id": "pack.library"
+    },
+    {
+      "type": "hotkey-preset",
+      "id": "blocked.hotkey"
+    }
+  ]
+}

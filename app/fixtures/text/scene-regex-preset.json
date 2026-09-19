@@ -1,0 +1,17 @@
+{
+  "format": "igs_preset_v1",
+  "type": "scene-regex-preset",
+  "id": "preset.scene-regex.stage-fields",
+  "name": "正文场景字段提取",
+  "version": 1,
+  "data": {
+    "enabled": true,
+    "overrideExplicitTags": false,
+    "location": "\\[地点\\s*[:：]\\s*([^\\]]+)\\]",
+    "time": "\\[时间\\s*[:：]\\s*([^\\]]+)\\]",
+    "weather": "\\[天气\\s*[:：]\\s*([^\\]]+)\\]",
+    "speaker": "(?:^|\\n)([^（：:\\n]+)（[^）\\n]+）[：:]",
+    "emotion": "（([^）\\n]+)）[：:]",
+    "generatedImage": "\\[生图\\s*[:：]\\s*([^\\]]+)\\]"
+  }
+}

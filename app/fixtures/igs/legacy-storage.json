@@ -1,0 +1,8 @@
+{
+  "igs_bridge_config": "{\"debug\":true,\"showToasts\":true,\"openMode\":\"mobile\",\"imageApi\":{\"mode\":\"nai\",\"model\":\"nai-diffusion-4\"}}",
+  "igs-reader-settings-v9-pc": "{\"fontSize\":20,\"dialogWidth\":860,\"toolbarDirection\":\"horizontal\"}",
+  "igs-reader-settings-v9-mobile": "{\"fontSize\":18,\"dialogWidth\":\"100%\",\"toolbarDirection\":\"vertical\"}",
+  "igs-reader-settings-v9-web": "{\"fontSize\":19,\"dialogWidth\":920,\"toolbarDirection\":\"horizontal\"}",
+  "igs-reader-settings-v9-fullscreen": "{\"fontSize\":22,\"dialogWidth\":1040,\"toolbarDirection\":\"horizontal\"}",
+  "igs-display-mode": "pc"
+}

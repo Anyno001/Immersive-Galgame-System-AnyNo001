@@ -1,0 +1,300 @@
+{
+  "type": "igs-import-bundle",
+  "items": [
+    {
+      "type": "image-provider",
+      "id": "provider.demo-dom",
+      "name": "演示 DOM 插图 Provider",
+      "version": 1,
+      "data": {
+        "providerType": "extension-dom",
+        "adapterKey": "demo-dom",
+        "selectors": {
+          "image": ".igs-demo-generated-image",
+          "regenerateButton": ".igs-demo-regenerate"
+        }
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "image-provider-preset",
+      "id": "preset.image-provider.demo-nai",
+      "name": "演示 NAI Provider 参数",
+      "version": 1,
+      "data": {
+        "providerType": "nai",
+        "model": "nai-diffusion-3",
+        "parameters": {
+          "width": 832,
+          "height": 1216,
+          "steps": 28,
+          "sampler": "k_euler_ancestral"
+        }
+      }
+    },
+    {
+      "type": "image-request-builder",
+      "id": "builder.nai.demo",
+      "name": "演示 NAI Request Builder",
+      "version": 1,
+      "data": {
+        "providerType": "nai",
+        "schemaVersion": 1,
+        "template": "scene-aware-nai"
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "image-request-builder-preset",
+      "id": "preset.builder.nai-soft-scene",
+      "name": "柔光场景 Builder 参数",
+      "version": 1,
+      "data": {
+        "providerType": "nai",
+        "negativePrompt": "low quality, text, watermark",
+        "parameters": {
+          "n_samples": 1,
+          "scale": 5.5
+        }
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "workflow-preset",
+      "id": "preset.workflow.single-image",
+      "name": "单图生成工作流",
+      "version": 1,
+      "data": {
+        "workflow": {
+          "kind": "single-image",
+          "providerType": "nai",
+          "poll": false
+        }
+      }
+    },
+    {
+      "type": "ui-component",
+      "id": "component.hud.mini-status",
+      "name": "迷你状态 HUD",
+      "version": 1,
+      "data": {
+        "slot": "hud",
+        "enabled": true,
+        "priority": 20
+      }
+    },
+    {
+      "type": "choice-component",
+      "id": "component.choice.compact",
+      "name": "紧凑选项按钮",
+      "version": 1,
+      "data": {
+        "layout": "floating",
+        "buttonClass": "igs-choice-compact"
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "ui-skin-preset",
+      "id": "preset.skin.cinematic-bottom",
+      "name": "电影底栏 Skin",
+      "version": 1,
+      "data": {
+        "css": ".igs-dialogue-layer{align-items:flex-end}.igs-dialog{max-width:860px}",
+        "layout": {
+          "toolbarPlacement": "top-right",
+          "dialogueStyle": "subtitle"
+        },
+        "settingsSchema": {
+          "dialogueOpacity": {
+            "type": "number",
+            "min": 0,
+            "max": 1
+          }
+        }
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "ui-layout-preset",
+      "id": "preset.layout.left-toolbar",
+      "name": "左侧工具栏布局",
+      "version": 1,
+      "data": {
+        "toolbarPlacement": "left",
+        "toolbarLayout": "vertical",
+        "dialogueStyle": "panel"
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "theme-preset",
+      "id": "preset.theme.cool-night",
+      "name": "冷夜主题",
+      "version": 1,
+      "data": {
+        "tokens": {
+          "--igs-dialogue-opacity": "0.72",
+          "--igs-accent-color": "#8ec5ff"
+        }
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "css-preset",
+      "id": "preset.css.full-coverage",
+      "name": "全组件覆盖 CSS",
+      "version": 1,
+      "data": {
+        "css": ".igs-toolbar{gap:10px}.igs-choice-button{min-height:44px}.igs-shujuku-table input{min-width:120px}"
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "scene-regex-preset",
+      "id": "preset.scene.time-weather-location",
+      "name": "时空栏解析演示",
+      "version": 1,
+      "data": {
+        "enabled": true,
+        "time": {
+          "pattern": "时间[:：]\\s*([^\\n]+)",
+          "flags": "i"
+        },
+        "weather": {
+          "pattern": "天气[:：]\\s*([^\\n]+)",
+          "flags": "i"
+        },
+        "location": {
+          "pattern": "地点[:：]\\s*([^\\n]+)",
+          "flags": "i"
+        }
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "text-filter-preset",
+      "id": "preset.text-filter.content-only",
+      "name": "只读取 content 标签",
+      "version": 1,
+      "data": {
+        "enabled": true,
+        "stripHtmlComments": true,
+        "allowUntaggedFallback": true,
+        "textIncludeTags": "content",
+        "textExcludeTags": "thinking\naftertalk",
+        "imageIncludeTags": "image\ntext_to_image"
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "text-format-preset",
+      "id": "preset.text-format.colon-speaker",
+      "name": "冒号对白格式",
+      "version": 1,
+      "data": {
+        "enabled": true,
+        "pattern": "^([^：:\\n]{1,16})[:：]\\s*(.+)$",
+        "flags": "gm",
+        "replacement": "$1: $2"
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "choice-parser-preset",
+      "id": "preset.choice.numbered",
+      "name": "数字选项解析",
+      "version": 1,
+      "data": {
+        "pattern": "^\\s*(\\d+)[\\.、)]\\s*(.+)$",
+        "flags": "gm"
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "visual-mode-preset",
+      "id": "preset.visual.background-character",
+      "name": "背景立绘优先",
+      "version": 1,
+      "data": {
+        "visualMode": "background-character",
+        "environmentEffects": true,
+        "effectLevel": "medium"
+      }
+    },
+    {
+      "type": "background-pack",
+      "id": "pack.background.library-night",
+      "name": "图书馆夜景背景包",
+      "version": 1,
+      "data": {
+        "backgrounds": [
+          {
+            "id": "bg.library.night",
+            "name": "图书馆夜晚",
+            "url": "placeholder://library-night",
+            "match": {
+              "location": ["图书馆"],
+              "time": ["夜晚"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "character-pack",
+      "id": "pack.character.tamako-demo",
+      "name": "玉子演示立绘包",
+      "version": 1,
+      "data": {
+        "characters": [
+          {
+            "name": "玉子",
+            "emotion": "默认",
+            "resource": "placeholder://tamako-default"
+          },
+          {
+            "name": "玉子",
+            "emotion": "微笑",
+            "resource": "placeholder://tamako-smile"
+          }
+        ]
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "background-rule-preset",
+      "id": "preset.background-rule.library-rain",
+      "name": "雨夜图书馆背景规则",
+      "version": 1,
+      "data": {
+        "rules": [
+          {
+            "id": "rule.library.rain-night",
+            "priority": 40,
+            "resource": "placeholder://library-rain-night",
+            "match": {
+              "location": ["图书馆"],
+              "weather": ["雨", "小雨"],
+              "time": ["夜晚"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "format": "igs_preset_v1",
+      "type": "prompt-preset",
+      "id": "preset.prompt.scene-soft-light",
+      "name": "柔光场景提示词",
+      "version": 1,
+      "data": {
+        "prompt": "visual novel background, {{location}}, {{time}}, {{weather}}, soft cinematic light, no text",
+        "negativePrompt": "low quality, bad anatomy, watermark",
+        "parameters": {
+          "cfg_scale": 5.5
+        }
+      }
+    }
+  ]
+}

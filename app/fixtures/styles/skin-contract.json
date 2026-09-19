@@ -1,0 +1,20 @@
+{
+  "slots": [
+    ".igs-stage",
+    ".igs-background-layer",
+    ".igs-generated-layer",
+    ".igs-character-layer",
+    ".igs-dialogue-layer",
+    ".igs-hud-layer",
+    ".igs-toolbar",
+    ".igs-choice-layer",
+    ".igs-system-layer"
+  ],
+  "attributes": {
+    "data-igs-toolbar-layout": "vertical",
+    "data-igs-toolbar-placement": "top-right",
+    "data-igs-dialogue-style": "box",
+    "data-igs-nameplate-visible": "true",
+    "data-igs-avatar-visible": "true"
+  }
+}

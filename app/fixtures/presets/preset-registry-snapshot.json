@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "current": {
+    "text-filter-preset": "preset.text-filter.content-only",
+    "text-format-preset": "preset.text-format.bubble-line",
+    "scene-regex-preset": "preset.scene-regex.stage-fields"
+  },
+  "items": {
+    "text-filter-preset": {
+      "preset.text-filter.content-only": {
+        "format": "igs_preset_v1",
+        "type": "text-filter-preset",
+        "id": "preset.text-filter.content-only",
+        "name": "正文 content 过滤",
+        "version": 1,
+        "data": {
+          "enabled": true,
+          "stripHtmlComments": true,
+          "allowUntaggedFallback": false,
+          "textIncludeTags": "content",
+          "textExcludeTags": "thinking\nSubtext_think\nStatus_block\ntext_to_image\nparallel_world\naftertalk",
+          "imageIncludeTags": "image\ntext_to_image",
+          "imageExcludeTags": ""
+        }
+      }
+    },
+    "text-format-preset": {
+      "preset.text-format.bubble-line": {
+        "format": "igs_preset_v1",
+        "type": "text-format-preset",
+        "id": "preset.text-format.bubble-line",
+        "name": "Bubble 转对话行",
+        "version": 1,
+        "data": {
+          "enabled": true,
+          "pattern": "@bubble:([^|\\n]+)\\|([^|\\n]+)\\|([^\\n]+)",
+          "flags": "",
+          "replacement": "$1（$2）：$3"
+        }
+      }
+    },
+    "scene-regex-preset": {
+      "preset.scene-regex.stage-fields": {
+        "format": "igs_preset_v1",
+        "type": "scene-regex-preset",
+        "id": "preset.scene-regex.stage-fields",
+        "name": "正文场景字段提取",
+        "version": 1,
+        "data": {
+          "enabled": true,
+          "overrideExplicitTags": false,
+          "location": "\\[地点\\s*[:：]\\s*([^\\]]+)\\]",
+          "time": "\\[时间\\s*[:：]\\s*([^\\]]+)\\]",
+          "weather": "\\[天气\\s*[:：]\\s*([^\\]]+)\\]",
+          "speaker": "(?:^|\\n)([^（：:\\n]+)（[^）\\n]+）[：:]",
+          "emotion": "（([^）\\n]+)）[：:]",
+          "generatedImage": "\\[生图\\s*[:：]\\s*([^\\]]+)\\]"
+        }
+      }
+    }
+  },
+  "drafts": {},
+  "updatedAt": "2026-06-12T20:35:00.000Z"
+}

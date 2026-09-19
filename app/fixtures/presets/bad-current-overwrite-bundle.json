@@ -1,0 +1,18 @@
+{
+  "type": "igs-import-bundle",
+  "items": [
+    {
+      "format": "igs_preset_v1",
+      "type": "text-format-preset",
+      "id": "preset.text-format.bubble-line",
+      "name": "Bubble 转对话行（损坏）",
+      "version": 2,
+      "data": {
+        "enabled": true,
+        "pattern": "([未闭合",
+        "flags": "",
+        "replacement": "$1"
+      }
+    }
+  ]
+}

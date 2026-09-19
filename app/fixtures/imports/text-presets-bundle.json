@@ -1,0 +1,17 @@
+{
+  "type": "igs-import-bundle",
+  "items": [
+    {
+      "type": "text-filter-preset",
+      "id": "preset.text-filter.content-only"
+    },
+    {
+      "type": "text-format-preset",
+      "id": "preset.text-format.bubble-line"
+    },
+    {
+      "type": "scene-regex-preset",
+      "id": "preset.scene-regex.stage-fields"
+    }
+  ]
+}
