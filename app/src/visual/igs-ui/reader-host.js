@@ -28,6 +28,7 @@ import {
     TOOLBAR_ACTIONS,
     VN_THEME_PRESETS,
 } from './reader-host-constants.js';
+import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
 import {
     cloneData,
     esc,
@@ -60,6 +61,15 @@ import {
     disabledAttr,
     modelPicker,
 } from './settings-fields.js';
+import {
+    ensureEmbeddedHost,
+    findEmbeddedHost,
+    hideEmbeddedSourceText,
+    resolveEmbeddedHostParent,
+    restoreEmbeddedSourceText,
+} from './embedded-reader-runtime.js';
+import { buildReaderSourceSignature, createReaderSourceCache } from './reader-source-cache.js';
+import { createChatStreamObserver } from '../../host/chat-stream-observer.js';
 import {
     applyImageCountOverride,
     buildImageActionContext,
@@ -117,9 +127,22 @@ export function createIgsReaderHost(options = {}) {
         activeReader: null,
         activeSettings: null,
     };
+    const sourceCache = createReaderSourceCache({
+        parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
+    });
+    const streamObserver = createChatStreamObserver({
+        global: options.global || globalThis,
+        onActivity: () => enterEmbeddedLoading(),
+        onStable: () => handleChatStreamStable(),
+        onTimeout: async () => {
+            const completed = await handleChatStreamStable();
+            if (completed === false) exitEmbeddedLoading();
+        },
+    });
 
     const host = {
         openReader,
+        replaceReader,
         openSettings,
         closeReader,
         closeSettings,
@@ -169,12 +192,18 @@ export function createIgsReaderHost(options = {}) {
             payload.startAtEnd === true ? Number.MAX_SAFE_INTEGER : 0,
         );
         const controller = createReaderController();
-        const domState = mountReaderDom(snapshot, controller);
+        const domState = mountReaderDom(snapshot, controller, payload);
 
         state.activeReader = {
             payload: cloneReaderPayload(payload),
             mode: nextMode,
             index: snapshot.content.currentIndex,
+            mountMessageId: snapshot.messageId,
+            contentMessageId: snapshot.messageId,
+            turnOffset: 0,
+            streamPhase: 'idle',
+            mountBaselineRaw: getMessagePrimaryText(payload.message && (payload.message.raw || payload.message) || payload.raw || ''),
+            mountBaselineVisible: String(payload.visibleText || ''),
             inputValue: '',
             hidden: false,
             dragSuppressClick: false,
@@ -195,6 +224,11 @@ export function createIgsReaderHost(options = {}) {
         };
         updateMountedReader(snapshot);
         startReaderImagePolling(state.activeReader);
+        if (isEmbeddedReaderMode(nextMode)) {
+            streamObserver.start();
+        } else {
+            streamObserver.stop();
+        }
 
         return {
             ok: true,
@@ -204,6 +238,50 @@ export function createIgsReaderHost(options = {}) {
             domMounted: Boolean(domState),
             controller,
         };
+    }
+
+    // 已打开阅读器时原地替换阅读源：复用同一 reader root、controller 与事件绑定，
+    // 不 closeReader→openReader 重建，避免内嵌轮次切换和流式完成时反复重建 DOM。
+    function replaceReader(payload = {}, replaceOptions = {}) {
+        const current = state.activeReader;
+        if (!current) return openReader(payload, replaceOptions);
+        current.contentMessageId = payload.messageId != null ? payload.messageId : current.contentMessageId;
+        if (replaceOptions.turnOffset != null) current.turnOffset = Math.max(0, Number(replaceOptions.turnOffset) || 0);
+        current.payload = cloneReaderPayload(payload);
+        if (current.turnOffset === 0 || payload.messageId === current.mountMessageId) {
+            current.mountBaselineRaw = getMessagePrimaryText(payload.message && (payload.message.raw || payload.message) || payload.raw || '');
+            current.mountBaselineVisible = String(payload.visibleText || '');
+        }
+        current.index = 0;
+        current.inputValue = '';
+        current.mountMessageId = replaceOptions.mountMessageId != null ? replaceOptions.mountMessageId : current.mountMessageId;
+        const mode = normalizeReaderMode(current.mode, resolveBridgeConfigSnapshot({ mode: current.mode }).bridge);
+        current.mode = mode;
+        const merged = applyReaderPayloadToState(current, mode);
+        updateMountedReader(merged);
+        exitEmbeddedLoading();
+        if (isEmbeddedReaderMode(mode) && current.turnOffset === 0) startReaderImagePolling(current);
+        return {
+            ok: true,
+            mode,
+            readerMode: mode,
+            snapshot: cloneData(merged),
+            domMounted: Boolean(current.dom),
+            controller: current.controller,
+            replaced: true,
+        };
+    }
+
+    // 由当前 payload 重新构建 snapshot：正文解析走 source 缓存，普通换源不会重复整楼解析。
+    function applyReaderPayloadToState(current, mode, optionsForRender = {}) {
+        const unified = resolveBridgeConfigSnapshot({ mode });
+        const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
+        readerSettings._sceneAssets = unified.bridge.sceneAssets || null;
+        readerSettings._sentencePaging = Boolean(unified.bridge.sentencePaging);
+        readerSettings._vnTheme = readerSettings.vnTheme || null;
+        const snapshot = buildReaderSnapshot(current.payload, mode, readerSettings, optionsForRender.index || current.index);
+        current.snapshot = snapshot;
+        return snapshot;
     }
 
     function openSettings(openOptions = {}) {
@@ -254,6 +332,8 @@ export function createIgsReaderHost(options = {}) {
             exitDocumentFullscreen(getRootDocument(options.global));
         }
         current.imagePollToken += 1;
+        streamObserver.stop();
+        sourceCache.invalidate();
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
         }
@@ -297,7 +377,120 @@ export function createIgsReaderHost(options = {}) {
     function destroy() {
         closeSettings();
         closeReader();
+        streamObserver.stop();
         return { ok: true };
+    }
+
+    // 观察器只在“稳定”后调用一次：读取最新 AI 消息并原地换源。
+    // 流式 token 期间不解析正文、不收集图片，避免酒馆卡顿与页面抖动。
+    async function handleChatStreamStable() {
+        const current = state.activeReader;
+        if (!current || !isEmbeddedReaderMode(current.mode)) return true;
+        if (typeof options.getCurrentMessage !== 'function'
+            || typeof options.openViewerFromMessage !== 'function') {
+            exitEmbeddedLoading();
+            return true;
+        }
+        const message = await options.getCurrentMessage();
+        if (!message || message.id == null) {
+            exitEmbeddedLoading();
+            return true;
+        }
+        const nextRaw = getMessagePrimaryText(message.raw || message);
+        const nextVisible = String(message.visibleText || '');
+        const changed = message.id !== current.mountMessageId
+            || nextRaw !== current.streamBaselineRaw
+            || nextVisible !== current.streamBaselineVisible;
+        if (!changed) {
+            exitEmbeddedLoading();
+            return true;
+        }
+        if (message.id !== current.mountMessageId) remountEmbeddedReader(current, message);
+        current.turnOffset = 0;
+        current.mountMessageId = message.id;
+        try {
+            await options.openViewerFromMessage(message.id, current.mode, {
+                replaceActive: true,
+                turnOffset: 0,
+                mountMessageId: message.id,
+                message,
+            });
+        } catch (error) {
+            // 宿主异常不得打断阅读器；保持当前内容即可。
+        } finally {
+            exitEmbeddedLoading();
+        }
+        return true;
+    }
+
+    function enterEmbeddedLoading() {
+        const current = state.activeReader;
+        const mount = current && current.dom && current.dom.embeddedMount;
+        if (!current || !isEmbeddedReaderMode(current.mode) || !mount || !mount.host) return;
+        if (current.streamPhase !== 'streaming') {
+            current.imagePollToken += 1;
+            current.imagePolling = false;
+            current.streamBaselineRaw = String(current.mountBaselineRaw || '');
+            current.streamBaselineVisible = String(current.mountBaselineVisible || '');
+        }
+        current.streamPhase = 'streaming';
+        current.turnOffset = 0;
+        const host = mount.host;
+        host.setAttribute('data-igs-embedded-loading', '1');
+        if (current.dom.root && current.dom.root.style) current.dom.root.style.display = 'none';
+        let loading = host.querySelector && host.querySelector('.igs-embedded-loading');
+        if (!loading && host.ownerDocument && typeof host.ownerDocument.createElement === 'function') {
+            loading = host.ownerDocument.createElement('div');
+            loading.className = 'igs-embedded-loading';
+            loading.setAttribute('role', 'status');
+            loading.setAttribute('aria-live', 'polite');
+            loading.innerHTML = '<span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-text">正在生成…</span>';
+            host.appendChild(loading);
+        }
+    }
+
+    function exitEmbeddedLoading() {
+        const current = state.activeReader;
+        if (!current) return;
+        current.streamBaselineRaw = '';
+        current.streamBaselineVisible = '';
+        current.streamPhase = 'idle';
+        const mount = current.dom && current.dom.embeddedMount;
+        const host = mount && mount.host;
+        if (host && host.removeAttribute) host.removeAttribute('data-igs-embedded-loading');
+        const loading = host && host.querySelector ? host.querySelector('.igs-embedded-loading') : null;
+        if (loading && typeof loading.remove === 'function') loading.remove();
+        if (current.dom && current.dom.root && current.dom.root.style) current.dom.root.style.display = '';
+    }
+
+    function remountEmbeddedReader(current, message) {
+        if (!current || !current.dom || !current.dom.root) return;
+        const root = current.dom.root;
+        teardownEmbeddedMount(current.dom.embeddedMount);
+        current.dom.embeddedMount = mountEmbeddedRoot(current.dom.doc, root, message, message && message.id);
+        if (!current.dom.embeddedMount) {
+            (current.dom.doc.documentElement || current.dom.doc.body).appendChild(root);
+        }
+    }
+
+    function syncReaderMountForMode(current, mode) {
+        if (!current || !current.dom || !current.dom.root) return;
+        const doc = current.dom.doc;
+        const root = current.dom.root;
+        if (isEmbeddedReaderMode(mode)) {
+            if (!current.dom.embeddedMount) {
+                current.dom.embeddedMount = mountEmbeddedRoot(doc, root, current.payload.message, current.mountMessageId);
+            }
+            streamObserver.start();
+            return;
+        }
+        streamObserver.stop();
+        exitEmbeddedLoading();
+        if (current.dom.embeddedMount) {
+            (doc.documentElement || doc.body).appendChild(root);
+            teardownEmbeddedMount(current.dom.embeddedMount);
+            current.dom.embeddedMount = null;
+        }
     }
 
     function createReaderController() {
@@ -382,11 +575,17 @@ export function createIgsReaderHost(options = {}) {
 
     async function submitReaderInput(text) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
+        const embedded = isEmbeddedReaderMode(state.activeReader.mode);
+        if (embedded) {
+            enterEmbeddedLoading();
+        }
         const nextText = String(firstDefined(text, state.activeReader.inputValue, '') || '');
         const send = typeof options.typeAndSend === 'function'
             ? options.typeAndSend
             : async () => ({ ok: false, reason: 'missing-send-handler' });
         const result = await send(nextText);
+        if (embedded && result.ok === false) exitEmbeddedLoading();
+        else if (embedded) streamObserver.noteActivity();
         state.activeReader.inputValue = '';
         if (state.activeReader.dom && state.activeReader.dom.input) {
             state.activeReader.dom.input.value = '';
@@ -672,6 +871,7 @@ export function createIgsReaderHost(options = {}) {
             : normalizeReaderMode(state.activeReader.mode, baseSnapshot.bridge);
         const unified = resolveBridgeConfigSnapshot({ mode: nextMode });
         state.activeReader.mode = nextMode;
+        syncReaderMountForMode(state.activeReader, nextMode);
         const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
         readerSettings._sceneAssets = unified.bridge.sceneAssets || null;
         readerSettings._sentencePaging = Boolean(unified.bridge.sentencePaging);
@@ -684,6 +884,11 @@ export function createIgsReaderHost(options = {}) {
     async function moveReaderTurn(delta) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
+        // 楼层内嵌：容器始终留在最新 AI 楼层，只切换内部阅读源，不调用宿主跳楼，
+        // 避免酒馆滚动、楼层重排和阅读器重建带来的卡顿与跳动。
+        if (isEmbeddedReaderMode(current.mode)) {
+            return moveEmbeddedReaderTurn(current, delta);
+        }
         const currentMessageId = current.snapshot && current.snapshot.messageId;
         const getAdjacentMessage = typeof options.getAdjacentMessage === 'function'
             ? options.getAdjacentMessage
@@ -721,6 +926,54 @@ export function createIgsReaderHost(options = {}) {
             reason: result && result.reason || 'turn-open-failed',
             messageId: target.id,
         };
+    }
+
+    async function moveEmbeddedReaderTurn(current, delta) {
+        const getAdjacentMessage = typeof options.getAdjacentMessage === 'function'
+            ? options.getAdjacentMessage
+            : null;
+        const currentMessageId = current.contentMessageId != null
+            ? current.contentMessageId
+            : (current.snapshot && current.snapshot.messageId);
+        if (currentMessageId == null || !getAdjacentMessage) {
+            writeToast('楼层切换需要宿主消息列表。');
+            return { ok: true, moved: false, reason: 'turn-switch-host-required' };
+        }
+        const target = await getAdjacentMessage(currentMessageId, delta);
+        if (!target) {
+            writeToast(delta > 0 ? '没有下一轮' : '没有上一轮');
+            return { ok: true, moved: false, reason: 'turn-not-found', messageId: currentMessageId };
+        }
+        if (typeof options.openViewerFromMessage !== 'function') {
+            return { ok: false, reason: 'missing-open-viewer-handler', messageId: target.id };
+        }
+        // 历史轮次优先读文字：跳过 provider 图片收集，不跳楼、不扫不可见 DOM、不开轮询。
+        const nextOffset = Math.max(0, (Number(current.turnOffset) || 0) - Number(delta));
+        const result = await options.openViewerFromMessage(target.id, current.mode, {
+            startAtEnd: false,
+            message: target,
+            replaceActive: true,
+            skipImageCollection: nextOffset > 0,
+            turnOffset: nextOffset,
+        });
+        if (result && result.ok !== false) {
+            writeToast(delta > 0 ? '已切到下一轮' : '已切到上一轮');
+            return { ok: true, moved: true, messageId: target.id, reader: result.reader };
+        }
+        return {
+            ok: false,
+            moved: false,
+            reason: result && result.reason || 'turn-open-failed',
+            messageId: target.id,
+        };
+    }
+
+    function formatReaderProgress(snapshot) {
+        const base = snapshot && snapshot.content ? snapshot.content.progress : '';
+        if (!isEmbeddedReaderMode(snapshot && snapshot.mode)) return base;
+        const offset = Number(state.activeReader && state.activeReader.turnOffset) || 0;
+        const prefix = offset <= 0 ? '最新回复' : `前 ${offset} 轮`;
+        return base ? `${prefix} · ${base}` : prefix;
     }
 
     async function regenerateCurrentImage() {
@@ -767,6 +1020,7 @@ export function createIgsReaderHost(options = {}) {
     async function rescanCurrentImages() {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
+        sourceCache.invalidate();
         if (typeof options.collectMessageImages !== 'function') {
             writeToast('图片收集不可用。');
             return { ok: false, reason: 'collect-not-available' };
@@ -893,13 +1147,24 @@ export function createIgsReaderHost(options = {}) {
         const render = payload.render || {};
         const stage = render.stage || {};
         const liveMessage = (payload.message && payload.message.raw) || payload.message || payload.raw || '';
-        const extracted = buildIgsTextPayload(liveMessage, {
+        const parseOptions = {
             sourceFilter: payload.sourceFilter,
             virtualRegex: payload.virtualRegex,
             visibleText: payload.visibleText,
             sceneAssets: readerSettings._sceneAssets,
             sentencePaging: readerSettings._sentencePaging,
+        };
+        const sourceSignature = buildReaderSourceSignature({
+            messageId: payload.messageId,
+            rawText: getMessagePrimaryText(liveMessage),
+            visibleText: payload.visibleText,
+            sourceFilter: payload.sourceFilter,
+            virtualRegex: payload.virtualRegex,
+            sceneAssetsEnabled: Boolean(readerSettings._sceneAssets && readerSettings._sceneAssets.enabled),
+            sentencePaging: Boolean(readerSettings._sentencePaging),
         });
+        const cached = sourceCache.get(sourceSignature, { liveMessage, parseOptions });
+        const extracted = cached.value || buildIgsTextPayload(liveMessage, parseOptions);
         const text = firstRenderableText(
             scene.text,
             scene.formattedText,
@@ -1076,6 +1341,7 @@ export function createIgsReaderHost(options = {}) {
         const overlayClasses = ['igs-stage', 'igs-mode-' + mode];
         if (mode === 'pc' || mode === 'mobile') overlayClasses.push('igs-floating');
         if (mode === 'mobile') overlayClasses.push('igs-floating-mobile');
+        if (isEmbeddedReaderMode(mode)) overlayClasses.push('igs-embedded-overlay');
 
         return {
             mode,
@@ -1194,12 +1460,7 @@ export function createIgsReaderHost(options = {}) {
                     segmentedInput(
                         'bridge.openMode',
                         bridge.openMode,
-                        [
-                            ['pc', '电脑', getReaderModeIcon('pc')],
-                            ['mobile', '手机', getReaderModeIcon('mobile')],
-                            ['web', '网页全屏', getReaderModeIcon('web')],
-                            ['fullscreen', '全屏', getReaderModeIcon('fullscreen')],
-                        ],
+                        PUBLIC_READER_MODES.map((id) => [id, getReaderModeLabel(id), getReaderModeIcon(id)]),
                         '切换模式',
                     ),
                 )}</div>`,
@@ -1415,7 +1676,7 @@ export function createIgsReaderHost(options = {}) {
         }, true);
     }
 
-    function mountReaderDom(snapshot, controller) {
+    function mountReaderDom(snapshot, controller, payload = {}) {
         const doc = getRootDocument(options.global);
         if (!doc) return null;
         ensureStyleTag(doc, 'igs-overlay-style', getOriginalReaderStyleText());
@@ -1423,9 +1684,12 @@ export function createIgsReaderHost(options = {}) {
         if (existing) existing.remove();
 
         const root = doc.createElement('div');
-        // 挂到 documentElement 而非 body：宿主移动端把 body 设为 position:fixed 且尺寸受限，
-        // 会成为 overlay fixed 定位的包含块，导致 100% 取到 body 尺寸而非视口（阅读器被压成一小块）。
-        (doc.documentElement || doc.body).appendChild(root);
+        const embeddedMount = isEmbeddedReaderMode(snapshot.mode) ? mountEmbeddedRoot(doc, root, payload.message, snapshot.messageId) : null;
+        if (!embeddedMount) {
+            // 挂到 documentElement 而非 body：宿主移动端把 body 设为 position:fixed 且尺寸受限，
+            // 会成为 overlay fixed 定位的包含块，导致 100% 取到 body 尺寸而非视口（阅读器被压成一小块）。
+            (doc.documentElement || doc.body).appendChild(root);
+        }
         installToolbarDragScroll(root, doc);
         root.addEventListener('click', async (event) => {
             const button = event.target.closest('[data-act]');
@@ -1475,17 +1739,65 @@ export function createIgsReaderHost(options = {}) {
             doc.addEventListener('keydown', keydownHandler, true);
         }
         const dbController = createDbPanelController(doc, options.global);
-        return {
+        const domState = {
             root,
             doc,
             dbController,
+            embeddedMount,
             dispose() {
                 if (typeof doc.removeEventListener === 'function') {
                     doc.removeEventListener('keydown', keydownHandler, true);
                 }
                 dbController.close();
+                teardownEmbeddedMount(domState.embeddedMount);
+                domState.embeddedMount = null;
             },
         };
+        return domState;
+    }
+
+    // 把唯一 reader root 挂到最新 AI 楼层 .mes_text 的兄弟容器中，并隐藏宿主原文。
+    // 定位不到楼层节点时返回 null，由调用方回退到全局挂载，避免整块 UI 打不开。
+    function mountEmbeddedRoot(doc, root, message, messageId) {
+        const element = message && message.element ? message.element : resolveLiveMessageElement(doc, messageId);
+        if (!element) return null;
+        const resolved = resolveEmbeddedHostParent(element);
+        if (!resolved) return null;
+        const host = ensureEmbeddedHost(resolved.parent, doc, findEmbeddedHost(doc));
+        if (!host) return null;
+        hideEmbeddedSourceText(resolved.mesText);
+        if (root.classList) root.classList.add('igs-embedded-root');
+        if (root.style) {
+            root.style.width = '100%';
+            root.style.height = '100%';
+            root.style.position = 'relative';
+            root.style.overflow = 'hidden';
+        }
+        host.appendChild(root);
+        return { host, mesText: resolved.mesText, messageId, root };
+    }
+
+    function teardownEmbeddedMount(mount) {
+        if (!mount) return;
+        restoreEmbeddedSourceText(mount.mesText);
+        if (mount.root && mount.root.classList) mount.root.classList.remove('igs-embedded-root');
+        if (mount.root && mount.root.style) {
+            mount.root.style.width = '';
+            mount.root.style.height = '';
+            mount.root.style.position = '';
+            mount.root.style.overflow = '';
+        }
+        if (mount.host && typeof mount.host.remove === 'function') mount.host.remove();
+    }
+
+    function resolveLiveMessageElement(doc, messageId) {
+        if (doc && messageId != null && typeof doc.querySelector === 'function') {
+            const found = doc.querySelector(`#chat .mes[mesid="${messageId}"]`)
+                || doc.querySelector(`#chat .mes[data-mesid="${messageId}"]`);
+            if (found) return found;
+        }
+        const message = state.activeReader && state.activeReader.payload && state.activeReader.payload.message;
+        return message && message.element ? message.element : null;
     }
 
     function mountSettingsDom(controller) {
@@ -1633,6 +1945,9 @@ export function createIgsReaderHost(options = {}) {
             isActiveReader: (reader) => state.activeReader === reader,
             closeReader,
         });
+        if (current.dom.progress) {
+            current.dom.progress.textContent = formatReaderProgress(snapshot);
+        }
         syncOptionBubblesAfterRender(current, snapshot);
     }
 

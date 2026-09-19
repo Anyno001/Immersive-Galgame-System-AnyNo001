@@ -1,7 +1,8 @@
 import { resolveLegacyReaderMode } from '../storage/legacy-igs.js';
 import { getResponsiveLayout } from './responsive-layout.js';
+import { PUBLIC_READER_MODES } from '../schemas/reader-mode.js';
 
-const READER_MODES = Object.freeze(['pc', 'mobile', 'web', 'fullscreen']);
+const READER_MODES = PUBLIC_READER_MODES;
 const TOOLBAR_LAYOUTS = Object.freeze(['horizontal', 'vertical']);
 const TOOLBAR_PLACEMENTS = Object.freeze(['top-left', 'top-right', 'top', 'bottom', 'bottom-right', 'custom']);
 const DIALOGUE_STYLES = Object.freeze(['panel', 'subtitle', 'bubble']);

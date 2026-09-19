@@ -7,6 +7,7 @@
 - SceneState、ScenePatch、CharacterMatch、BackgroundMatch 等跨 `scene` 与 `visual` 的结构。
 - ModManifest、PresetManifest、PackManifest、ImportResult 等跨 `registry`、`mods`、`presets`、`media` 的结构。
 - PublicApiResult、PermissionDeclaration、ActionDescriptor 等跨 `api`、`actions`、`mods` 的结构。
+- ReaderMode 等被 API、存储和 visual 共同消费的稳定枚举与纯归一化函数。
 - 可导入文件格式的 JSON Schema。
 - 运行时校验器的薄封装，但必须无副作用。
 

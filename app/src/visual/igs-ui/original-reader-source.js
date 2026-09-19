@@ -129,6 +129,23 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-send-status{display:none;flex:1;align-items:center;gap:8px;padding:8px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;font-size:13px;color:rgba(255,255,255,.55);letter-spacing:.3px;}
 #igs-settings{display:none;position:absolute;right:0;bottom:calc(100% + 10px);min-width:232px;background:rgba(16,16,20,.92);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(40px) saturate(180%);border-radius:18px;padding:16px 18px 14px;box-shadow:0 10px 40px rgba(0,0,0,.6);z-index:30;}
 #igs-toast{position:absolute;left:50%;top:24px;transform:translateX(-50%);min-width:200px;max-width:min(420px,calc(100vw - 32px));padding:10px 14px;border-radius:12px;background:rgba(16,16,20,.88);border:1px solid rgba(255,255,255,.12);font-size:12px;line-height:1.45;opacity:0;pointer-events:none;}
+/* 楼层内嵌：容器固定高度、不可拖动、不锁页面滚动，全部层约束在容器内。 */
+.igs-embedded-host{position:relative;display:block;width:100%;margin:8px 0;border-radius:6px;overflow:hidden;isolation:isolate;background:#000;}
+.igs-embedded-root{position:relative;width:100%;height:100%;overflow:hidden;}
+.igs-embedded-host[data-igs-embedded-loading="1"]{display:flex;align-items:center;justify-content:center;}
+#igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;}
+.igs-mode-embedded .igs-dialog{left:12px;right:12px;bottom:14px;width:auto;transform:none;display:flex;flex-direction:column;max-height:min(46%,220px);overflow:visible;padding:16px 18px 14px;}
+.igs-mode-embedded #igs-toolbar-layer{left:12px;right:12px;bottom:14px;width:auto;transform:none;}
+.igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}
+.igs-embedded-host{aspect-ratio:16 / 9;max-height:720px;}
+.igs-embedded-loading{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:100%;color:rgba(255,255,255,.72);font-size:13px;letter-spacing:.08em;}
+.igs-embedded-loading-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.35;animation:igs-embedded-pulse 1.1s ease-in-out infinite;}
+.igs-embedded-loading-dot:nth-child(2){animation-delay:.18s;}
+.igs-embedded-loading-dot:nth-child(3){animation-delay:.36s;}
+.igs-embedded-loading-text{margin-left:6px;color:rgba(255,255,255,.5);}
+@keyframes igs-embedded-pulse{0%,100%{opacity:.25}50%{opacity:.9}}
+@media (max-width:640px){.igs-embedded-host{aspect-ratio:auto;height:min(70dvh,640px);}}
+@media (prefers-reduced-motion: reduce){.igs-embedded-loading-dot{animation:none;opacity:.6;}}
 `.trim();
 
 const ORIGINAL_READER_HTML = `

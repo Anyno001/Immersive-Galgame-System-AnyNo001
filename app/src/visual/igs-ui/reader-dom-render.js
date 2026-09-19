@@ -493,7 +493,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (spriteEl && snapshot.content.spriteImage) {
         spriteEl.style.backgroundImage = `url("${snapshot.content.spriteImage.replace(/"/g, '&quot;')}")`;
         spriteEl.style.display = 'block';
-        spriteEl.style.cssText += ';position:absolute;inset:0;width:100%;height:100%;transform:none;bottom:auto;left:auto';
+        spriteEl.style.position = 'absolute';
+        spriteEl.style.inset = '0';
+        spriteEl.style.width = '100%';
+        spriteEl.style.height = '100%';
+        spriteEl.style.transform = 'none';
+        spriteEl.style.bottom = 'auto';
+        spriteEl.style.left = 'auto';
         if (!current.spriteEditMode) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
             const spriteMood = snapshot.content.spriteMood || '';

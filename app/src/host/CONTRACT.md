@@ -11,6 +11,8 @@
 - 酒馆助手 QR 按钮入口由 `loader/igs-loader.js` 负责：按钮名固定为 `Gal模拟`，点击通过宿主 `eventOn(getButtonEvent('Gal模拟'))` 委托公开 API 打开最新阅读器；该入口不使用自定义 CSS，也不承载业务逻辑。
 - 入口启用状态由 `bridge.entry = { magic }` 驱动（默认 magic:true）；魔法棒由 bootstrap attach/destroy。
 - 隔离宿主 DOM 选择器变化，避免其它模块直接依赖 `#send_textarea`、`#send_but` 等选择器。
+- `chat-stream-observer.js` 只在楼层内嵌阅读器打开时观察 `#chat`，不得观察整个 document 或按固定间隔轮询。
+- 流式 mutation 只触发载入状态与稳定计时，不在 token 回调中解析正文或扫描图片。
 
 ## 输入发送契约
 

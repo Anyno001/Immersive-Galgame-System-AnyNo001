@@ -16,6 +16,7 @@ import {
 import { checkStyleContract } from '../src/styles/style-contract.js';
 import { readLegacyIgsSettings } from '../src/storage/legacy-igs.js';
 import { createReaderState } from '../src/visual/reader-state.js';
+import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { createStageModel } from '../src/visual/stage-model.js';
 import { getOriginalReaderSource } from '../src/visual/igs-ui/original-reader-source.js';
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
@@ -661,6 +662,9 @@ test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
         'palettePaper',
         'palettePanel',
         'paletteField',
+        'radiusShell',
+        'radiusControl',
+        'radiusSmall',
         'flatShell',
         'flatBackdrop',
         'flatSegmentedIndicator',
@@ -671,7 +675,28 @@ test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
     assert.ok(shadows.length > 0);
     assert.deepEqual(Array.from(new Set(shadows)), ['none']);
     assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(|blur\(|saturate\(/);
-    assert.doesNotMatch(styleText, /border-radius:(?:[3-9]|[1-9][0-9]+)px/);
+    assert.doesNotMatch(styleText, /border-radius:999px/);
+});
+
+test('gate:igs-ui:settings-style-uses-soft-radius-tokens', () => {
+    const styleText = getSettingsStyleText();
+    assert.match(styleText, /--igs-settings-radius-shell:8px/);
+    assert.match(styleText, /--igs-settings-radius-control:6px/);
+    assert.match(styleText, /--igs-settings-radius-small:4px/);
+    assert.match(styleText, /\.igs-settings-shell\{[^}]*border-radius:var\(--igs-settings-radius-shell\)/);
+    assert.match(styleText, /\.igs-settings-field input,[^{]+\{[^}]*border-radius:var\(--igs-settings-radius-control\)/);
+    assert.match(styleText, /\.igs-settings-tab\{[^}]*border-radius:var\(--igs-settings-radius-small\)/);
+    assert.doesNotMatch(styleText, /border-radius:999px/);
+    assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(/);
+    const shadows = Array.from(styleText.matchAll(/box-shadow:([^;}]+)/g), (match) => match[1].trim());
+    assert.deepEqual(Array.from(new Set(shadows)), ['none']);
+});
+
+test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
+    const source = getOriginalReaderStyleText();
+    assert.match(source, /\.igs-embedded-host\{[^}]*aspect-ratio:16 \/ 9/);
+    assert.match(source, /#igs-overlay\.igs-mode-embedded\{[^}]*position:relative/);
+    assert.match(source, /@media \(prefers-reduced-motion: reduce\)\{\.igs-embedded-loading-dot\{animation:none/);
 });
 
 test('gate:api:public-api-exposes-text-preset-groups', () => {

@@ -6,6 +6,7 @@ import { parseSceneText } from '../scene/text-parser.js';
 import { createSceneState } from '../scene/scene-state.js';
 import { resolveScene } from '../scene/scene-resolver.js';
 import {
+    LEGACY_READER_MODES,
     readLegacyIgsSettings,
     writeLegacyIgsSettings,
     resolveLegacyReaderMode,
@@ -22,7 +23,7 @@ import { createReaderImageService } from '../generated-images/reader-image-servi
 import { createPromptInjector } from '../host/prompt-injector.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.23.31';
+const IGS_VERSION = '0.23.32';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -123,6 +124,7 @@ export function bootstrapIGS(options = {}) {
         saveImage(context = {}) {
             return readerImageService.save(context);
         },
+        getCurrentMessage: () => hostAdapter.getCurrentMessage(),
     });
     publicApi = createPublicApi(app);
     readerImageService.registerProviders(publicApi.api.imageProviders);
@@ -309,7 +311,7 @@ export function bootstrapIGS(options = {}) {
         const readerSettingsByMode = cloneData(currentLegacy.readerSettingsByMode || {});
         // v0.21.4 起全模式共用一套设置，统一存取 'default' 桶。
         // 历史上保存按 readerMode 分桶、读取却固定读 'default'，导致移动端存了读不回。
-        for (const mode of ['default', 'pc', 'mobile', 'web', 'fullscreen']) {
+        for (const mode of LEGACY_READER_MODES) {
             if (!readerSettingsByMode[mode]) readerSettingsByMode[mode] = {};
         }
         if (payload.readerSettings && typeof payload.readerSettings === 'object') {

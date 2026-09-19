@@ -1,5 +1,6 @@
 import { getOwnerWindow } from './reader-dom-utils.js';
 import { clampNumber } from './reader-value-utils.js';
+import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
 
 export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
     if (current.runtime && current.runtime.mode === snapshot.mode && current.runtime.root === root) {
@@ -24,6 +25,10 @@ export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
     };
     current.runtime = runtime;
 
+    if (isEmbeddedReaderMode(snapshot.mode)) {
+        applyEmbeddedReaderRuntime(root, runtime);
+        return;
+    }
     if (snapshot.mode === 'pc' || snapshot.mode === 'mobile') {
         applyInlineReaderRuntime(root, snapshot.mode, runtime, current);
         return;
@@ -34,6 +39,26 @@ export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
     }
     if (snapshot.mode === 'fullscreen') {
         applyFullscreenReaderRuntime(root, current, runtime, ctx);
+    }
+}
+
+// 楼层内嵌：阅读器完全受宿主楼层容器约束，不做 fixed、不锁滚动、不请求全屏、不可拖动。
+// 尺寸交给 .igs-mode-embedded 的 CSS（固定高度、16:9 上限、移动端 dVH 上限）统一控制，
+// 这里只清掉可能从上一次内联模式残留下来的几何属性。
+function applyEmbeddedReaderRuntime(root, runtime) {
+    if (!root || !root.style) return;
+    for (const prop of [
+        'top', 'right', 'bottom', 'left', 'width', 'height',
+        'maxWidth', 'maxHeight', 'transform', 'borderRadius',
+        'boxShadow', 'overflow', 'boxSizing', 'zIndex',
+    ]) {
+        root.style[prop] = '';
+    }
+    root.classList.add('igs-mode-embedded');
+    if (runtime) {
+        runtime.cleanup.push(() => {
+            if (root.classList) root.classList.remove('igs-mode-embedded');
+        });
     }
 }
 

@@ -1,10 +1,12 @@
+import { LEGACY_READER_MODE_KEYS } from '../schemas/reader-mode.js';
+
 export const LEGACY_VN_KEYS = Object.freeze({
     bridge: 'igs_bridge_config',
     readerPrefix: 'igs-reader-settings-v9-',
     displayMode: 'igs-display-mode',
 });
 
-export const LEGACY_READER_MODES = Object.freeze(['pc', 'mobile', 'web', 'fullscreen', 'default']);
+export const LEGACY_READER_MODES = LEGACY_READER_MODE_KEYS;
 
 export function readLegacyIgsSettings(storageLike, preferredMode) {
     const result = {

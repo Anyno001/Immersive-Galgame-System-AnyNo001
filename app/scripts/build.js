@@ -54,7 +54,7 @@ function buildModuleGraph(rootFile) {
         const absolute = path.resolve(file);
         const id = moduleId(absolute);
         if (modules.has(id)) return;
-        const source = fs.readFileSync(absolute, 'utf8');
+        const source = fs.readFileSync(absolute, 'utf8').replace(/\r\n?/g, '\n');
         const dependencies = extractDependencies(source).map((request) => resolveLocalModule(absolute, request));
         modules.set(id, { id, file: absolute, source, dependencies });
         for (const dependency of dependencies) {

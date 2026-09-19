@@ -50,6 +50,165 @@ import {
     resolveMoodGroup,
 } from '../src/scene/mood-groups.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
+import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normalizePublicReaderMode } from '../src/schemas/reader-mode.js';
+import { ensureEmbeddedHost, hideEmbeddedSourceText, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
+import { buildReaderSourceSignature, createReaderSourceCache } from '../src/visual/igs-ui/reader-source-cache.js';
+import { createChatStreamObserver } from '../src/host/chat-stream-observer.js';
+
+test('gate:igs-ui:reader-mode-schema-is-single-source-with-embedded', () => {
+    assert.deepEqual(Array.from(PUBLIC_READER_MODES), ['pc', 'mobile', 'web', 'fullscreen', 'embedded']);
+    assert.equal(getReaderModeLabel('embedded'), '楼层内嵌');
+    assert.equal(isEmbeddedReaderMode('embedded'), true);
+    assert.equal(isEmbeddedReaderMode('pc'), false);
+    assert.equal(normalizePublicReaderMode('embedded'), 'embedded');
+    assert.equal(normalizePublicReaderMode('nope'), 'pc');
+});
+
+test('gate:igs-ui:embedded-source-cache-parses-once-per-signature', () => {
+    const cache = createReaderSourceCache({ parse: (input) => ({ value: input.mark }) });
+    const signature = buildReaderSourceSignature({
+        messageId: 7,
+        rawText: 'line one\nline two',
+        visibleText: 'line one\nline two',
+        sourceFilter: { enabled: true },
+        virtualRegex: { enabled: true, pattern: 'x', flags: 'g', replacement: 'y' },
+        sceneAssetsEnabled: false,
+        sentencePaging: false,
+    });
+    for (let index = 0; index < 100; index += 1) cache.get(signature, { mark: index });
+    const hit = cache.get(signature, { mark: 999 });
+    assert.equal(cache.getParseCount(), 1);
+    assert.equal(hit.hit, true);
+    assert.equal(hit.value.value, 0);
+
+    const pagingSignature = buildReaderSourceSignature({
+        messageId: 7,
+        rawText: 'line one\nline two',
+        visibleText: 'line one\nline two',
+        sourceFilter: { enabled: true },
+        virtualRegex: { enabled: true, pattern: 'x', flags: 'g', replacement: 'y' },
+        sceneAssetsEnabled: false,
+        sentencePaging: true,
+    });
+    cache.get(pagingSignature, { mark: 2 });
+    assert.equal(cache.getParseCount(), 2);
+});
+
+test('gate:igs-ui:embedded-source-cache-tolerates-circular-host-objects', () => {
+    const circular = { name: 'config' };
+    circular.self = circular;
+    const signature = buildReaderSourceSignature({
+        messageId: 1,
+        rawText: 'text',
+        visibleText: 'text',
+        sourceFilter: circular,
+        virtualRegex: null,
+        sceneAssetsEnabled: false,
+        sentencePaging: false,
+    });
+    assert.equal(typeof signature, 'string');
+    assert.ok(signature.length > 0);
+});
+
+test('gate:igs-ui:embedded-cache-evicts-oldest-beyond-limit', () => {
+    const cache = createReaderSourceCache({ limit: 2, parse: (input) => input.mark });
+    cache.get('a', { mark: 1 });
+    cache.get('b', { mark: 2 });
+    cache.get('c', { mark: 3 });
+    assert.equal(cache.size(), 2);
+    const reparse = cache.get('a', { mark: 4 });
+    assert.equal(reparse.hit, false);
+});
+
+test('gate:igs-ui:embedded-host-mounts-beside-mes-text-and-restores', () => {
+    const makeNode = (className = '') => {
+        const node = {
+            className,
+            children: [],
+            attributes: new Map(),
+            style: { display: '' },
+            parentNode: null,
+            get classList() {
+                const names = String(node.className || '').split(/\s+/).filter(Boolean);
+                return {
+                    contains: (name) => names.includes(name),
+                    add: (name) => { node.className = String(node.className || '').split(/\s+/).filter(Boolean).concat(name).join(' '); },
+                    remove: (name) => { node.className = String(node.className || '').split(/\s+/).filter(Boolean).filter((item) => item !== name).join(' '); },
+                };
+            },
+            appendChild(child) {
+                child.parentNode = node;
+                node.children.push(child);
+                return child;
+            },
+            insertBefore(child, reference) {
+                const index = node.children.indexOf(reference);
+                child.parentNode = node;
+                if (index < 0) node.children.push(child);
+                else node.children.splice(index, 0, child);
+                return child;
+            },
+            setAttribute(name, value) { node.attributes.set(name, String(value)); },
+            getAttribute(name) { return node.attributes.has(name) ? node.attributes.get(name) : null; },
+            removeAttribute(name) { node.attributes.delete(name); },
+            querySelector(selector) {
+                return node.querySelectorAll(selector)[0] || null;
+            },
+            querySelectorAll(selector) {
+                return selector === '.mes_text' ? node.children.filter((child) => child.className === '.mes_text'.slice(1)) : [];
+            },
+        };
+        return node;
+    };
+    const parent = makeNode();
+    const mesText = makeNode('mes_text');
+    mesText.className = 'mes_text';
+    mesText.style.display = '';
+    const messageElement = makeNode();
+    messageElement.appendChild(mesText);
+    parent.appendChild(messageElement);
+
+    const resolved = resolveEmbeddedHostParent(messageElement);
+    assert.equal(resolved.parent, messageElement);
+    assert.equal(resolved.mesText, mesText);
+
+    const doc = { createElement: () => makeNode(), querySelector: () => null };
+    const host = ensureEmbeddedHost(resolved.parent, doc, null);
+    assert.ok(host);
+    assert.equal(host.getAttribute('data-igs-embedded-host'), '1');
+    assert.equal(host.getAttribute('data-igs-internal-reader'), '1');
+    assert.equal(messageElement.children.indexOf(host), messageElement.children.indexOf(mesText) + 1);
+
+    hideEmbeddedSourceText(mesText);
+    assert.equal(mesText.style.display, 'none');
+    assert.equal(mesText.getAttribute('aria-hidden'), 'true');
+    restoreEmbeddedSourceText(mesText);
+    assert.equal(mesText.style.display, '');
+    assert.equal(mesText.getAttribute('aria-hidden'), null);
+});
+
+test('gate:igs-ui:embedded-chat-observer-only-starts-when-asked', () => {
+    const created = [];
+    const globalObject = {
+        setTimeout: () => 1,
+        clearTimeout: () => {},
+        MutationObserver: class {
+            constructor(handler) { this.handler = handler; created.push(this); }
+            observe() { this.observed = true; }
+            disconnect() { this.disconnected = true; }
+        },
+    };
+    const document = { querySelector: () => ({}) };
+    const observer = createChatStreamObserver({ global: globalObject, document, onStable: () => {} });
+    assert.equal(observer.isActive(), false);
+    const started = observer.start();
+    assert.equal(started.ok, true);
+    assert.equal(created.length, 1);
+    assert.equal(created[0].observed, true);
+    observer.stop();
+    assert.equal(observer.isActive(), false);
+    assert.equal(created[0].disconnected, true);
+});
 
 const appRoot = path.resolve(import.meta.dirname, '..');
 

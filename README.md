@@ -19,7 +19,8 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 - 阶段：最小闭环已接通
 - 形态：独立 app 工程，已有 Node 原生测试与验收闸门
-- 当前项目版本 `v0.23.31`：统一设置页改为「霜夜」配色的平面极简界面；移除毛玻璃、投影、渐变、发光与大圆角，使用深灰分层、四级灰文字、2px 克制圆角和背景/文字色交互反馈；DOM、设置字段、事件与存储行为保持不变。
+- 当前项目版本 `v0.23.32`：新增第五模式「楼层内嵌」——阅读器固定挂在最新 AI 楼层正文区，流式阶段只显示固定高度载入动画，完成后一次性解析；上下轮仅切换内部阅读源、不触发酒馆跳楼。正文解析加入 8 项有界缓存，普通翻页不再重复整楼解析；设置页在霜夜平面风基础上恢复 8/6/4px 轻圆角。
+- `v0.23.31`：统一设置页改为「霜夜」配色的平面极简界面；移除毛玻璃、投影、渐变、发光与大圆角，使用深灰分层、四级灰文字、2px 克制圆角和背景/文字色交互反馈；DOM、设置字段、事件与存储行为保持不变。
 - `v0.23.30`：修复酒馆助手脚本作用域中的词法全局 `eventOn/getButtonEvent` 未被 loader 发现的问题；QR「Gal模拟」现在优先解析脚本直接作用域，再回退到窗口与 `SillyTavern` API，保留加载中待打开、重复绑定防护与 fail-open。
 - `v0.23.29`：新增酒馆助手 QR 按钮入口「Gal模拟」——`button.enabled=true` + `buttons:[{name:'Gal模拟',visible:true}]`，点击经 `eventOn(getButtonEvent('Gal模拟'))` 委托 `IGS.openLatestAvailable()` 打开最新阅读器；支持主程序未就绪时的一次待打开队列、重复启用时复用订阅不重复注册、QR API 缺失时降级不影响其余入口；按钮元数据由 `build-loader.js` 统一生成。
 - `v0.23.27`：三组修复：①鉴定建议表骰子命令丢失——`extractOptionTexts` 返回 `{display,send}[]`，检定建议表有 `骰子命令` 列时 `send=展示文本+骰子命令`，气泡显示用 `display`、点击发送用 `send`；②监听器累积→点击对话框跳首/末页——`applyReaderSnapshotToDom` 为 `send/clickLayer/dialog` 加 `data-igs-bound` 守卫，DOM 复用后不再每次渲染重复绑定；③模式切换内联样式残留→切换全屏/网页全屏无效——`applyReaderModeRuntime` 在切换模式前调 `resetInlineModeStyles` 清除`applyInlineReaderRuntime` 写入的 width/height/transform 等残留值。
@@ -191,6 +192,15 @@ projects/Immersive Galgame System/
 15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
 
 ## 更新日志
+
+### v0.23.32 - 2026-09-19
+
+- 新增第五种阅读模式「楼层内嵌」：阅读器作为 `.mes_text` 的兄弟节点挂在最新 AI 楼层内，保留头像、名字和楼层操作；关闭或切换模式后恢复宿主原文。
+- 内嵌流式阶段使用固定高度载入动画，不逐 token 渲染或解析；正文稳定后一次性刷新阅读器，并自动跟随新的最新 AI 楼层。
+- 内嵌上一轮/下一轮只替换阅读器内部文字来源，复用同一 host 与 `#igs-overlay`，不调用 `chat-jump`、不滚动酒馆页面。
+- 增加最多 8 项的阅读源解析缓存，同一消息翻页不再重复执行正文过滤、正则、标签解析、分页与图位映射；修复立绘重复渲染时 `style.cssText` 持续增长。
+- 设置页沿用霜夜平面配色，圆角调整为外壳 8px、常规控件 6px、小控件 4px；仍保持无投影、无毛玻璃、无渐变和无发光。
+- 自动化覆盖模式契约、挂载/恢复、载入态、解析缓存，以及内嵌上下轮不跳楼和复用同一阅读器根。
 
 ### v0.23.31 - 2026-09-19
 

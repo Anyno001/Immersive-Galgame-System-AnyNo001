@@ -1,8 +1,7 @@
 import { resolveLegacyReaderMode } from '../storage/legacy-igs.js';
 import { parseSceneText } from '../scene/text-parser.js';
 import { buildIgsTextPayload } from '../scene/message-source.js';
-
-const READER_MODES = Object.freeze(['pc', 'mobile', 'web', 'fullscreen']);
+import { PUBLIC_READER_MODES } from '../schemas/reader-mode.js';
 
 export function createIgsCompatApi(app) {
     return {
@@ -68,12 +67,26 @@ export function createIgsCompatApi(app) {
                 viewerMode: readerMode,
                 textScene: readerPayload.textScene,
             });
-            const payload = await enrichReaderPayload(app, {
+            const basePayload = {
                 ...readerPayload,
                 render: refreshed.render,
                 scene: refreshed.scene,
                 startAtEnd: resolved.options.startAtEnd === true,
-            });
+            };
+            const payload = resolved.options.skipImageCollection === true
+                ? basePayload
+                : await enrichReaderPayload(app, basePayload);
+            if (resolved.options.replaceActive === true
+                && app.igsUi && typeof app.igsUi.replaceReader === 'function') {
+                const reader = app.igsUi.replaceReader({
+                    ...payload,
+                    startAtEnd: false,
+                }, {
+                    keepEmbeddedMount: resolved.options.keepEmbeddedMount === true,
+                    turnOffset: resolved.options.turnOffset,
+                });
+                return { ...refreshed, ok: refreshed.ok !== false && reader.ok !== false, reader };
+            }
             return openReaderUi(app, {
                 ...payload,
             }, refreshed);
@@ -142,7 +155,7 @@ function resolveReaderMode(options, legacySettings, bridgeConfig) {
         legacyDisplayMode,
         bridgeConfig && Object.keys(bridgeConfig).length ? bridgeConfig : legacyBridge,
     );
-    return READER_MODES.includes(resolved) ? resolved : 'pc';
+    return PUBLIC_READER_MODES.includes(resolved) ? resolved : 'pc';
 }
 
 function normalizeMessageId(messageId) {

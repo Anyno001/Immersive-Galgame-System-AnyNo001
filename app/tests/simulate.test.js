@@ -1161,6 +1161,101 @@ test('gate:simulation:igs-ui-inline-modes-keep-original-floating-geometry', asyn
     vn.destroy();
 });
 
+test('gate:simulation:igs-ui-embedded-mounts-beside-latest-message-and-restores-source', async () => {
+    const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
+    const globalObject = document.defaultView;
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const element = createFakeMessageElement(document, {
+        messageId: 50,
+        textContent: '艾莉：楼层正文。',
+    });
+    chat.appendChild(element);
+    const message = { id: 50, text: '艾莉：楼层正文。', element };
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => message,
+            getMessageById: async () => message,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('embedded');
+    const mesText = element.querySelector('.mes_text');
+    const host = element.querySelector('[data-igs-embedded-host="1"]');
+    const overlay = document.getElementById('igs-overlay');
+
+    assert.equal(opened.ok, true);
+    assert.ok(host);
+    assert.equal(host.parentNode, mesText.parentNode);
+    assert.equal(mesText.style.display, 'none');
+    assert.equal(mesText.getAttribute('aria-hidden'), 'true');
+    assert.ok(host.contains(overlay));
+    assert.match(overlay.className, /igs-mode-embedded/);
+
+    const sendResult = await opened.reader.controller.submit('继续');
+    assert.equal(sendResult.ok, true);
+    assert.equal(host.getAttribute('data-igs-embedded-loading'), '1');
+    assert.equal(opened.reader.controller.getSnapshot().content.displayText.includes('继续'), false);
+    assert.equal(host.querySelector('.igs-embedded-loading') !== null, true);
+    assert.equal(opened.reader.controller.getSnapshot().mode, 'embedded');
+
+    opened.reader.controller.close();
+    assert.equal(element.querySelector('[data-igs-embedded-host="1"]'), null);
+    assert.equal(mesText.style.display, '');
+    assert.equal(mesText.getAttribute('aria-hidden'), null);
+
+    vn.destroy();
+});
+
+test('gate:simulation:igs-ui-embedded-turn-navigation-keeps-latest-host-and-does-not-jump', async () => {
+    const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
+    const globalObject = document.defaultView;
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const latestElement = createFakeMessageElement(document, { messageId: 61, textContent: '最新正文。' });
+    chat.appendChild(latestElement);
+    const messages = [
+        { id: 60, text: '上一轮正文。' },
+        { id: 61, text: '最新正文。', element: latestElement },
+    ];
+    const jumped = [];
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => messages[1],
+            getMessageById: async (id) => messages.find((item) => item.id === Number(id)) || null,
+            getAdjacentMessage: async (id, delta) => {
+                const index = messages.findIndex((item) => item.id === Number(id));
+                return index < 0 ? null : messages[index + (delta < 0 ? -1 : 1)] || null;
+            },
+            jumpToMessage: async (id) => { jumped.push(Number(id)); return { ok: true }; },
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('embedded');
+    const hostBefore = latestElement.querySelector('[data-igs-embedded-host="1"]');
+    const overlayBefore = document.getElementById('igs-overlay');
+    const previous = await opened.reader.controller.invokeAction('prev-turn');
+    const hostAfter = latestElement.querySelector('[data-igs-embedded-host="1"]');
+    const overlayAfter = document.getElementById('igs-overlay');
+
+    assert.equal(previous.ok, true);
+    assert.equal(previous.reader.snapshot.messageId, 60);
+    assert.equal(hostAfter, hostBefore);
+    assert.equal(overlayAfter, overlayBefore);
+    assert.deepEqual(jumped, []);
+    assert.match(overlayAfter.querySelector('#igs-progress').textContent, /前 1 轮/);
+
+    vn.destroy();
+});
+
 test('gate:simulation:igs-ui-floating-window-drag', async () => {
     const document = createFakeDocument({ innerWidth: 1600, innerHeight: 1200 });
     const globalObject = document.defaultView;
