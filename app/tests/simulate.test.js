@@ -1166,8 +1166,50 @@ test('gate:simulation:igs-ui-embedded-toolbar-floats-top-right-as-bare-icons', (
     const css = getOriginalReaderStyleText();
     assert.match(css, /\.igs-mode-embedded #igs-toolbar-layer\{inset:14px 14px auto auto;width:auto;height:auto;transform:none;\}/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar\{[^}]*position:static[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none[^}]*backdrop-filter:none/);
-    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn\{[^}]*width:32px[^}]*height:32px[^}]*border:0[^}]*background:transparent[^}]*color:rgba\(255,255,255,\.62\)/);
-    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn:hover\{[^}]*background:transparent[^}]*border-color:transparent[^}]*color:rgba\(255,255,255,\.9\)/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn\{[^}]*width:32px[^}]*height:32px[^}]*border:0[^}]*background:transparent[^}]*color:rgba\(255,255,255,\.32\)/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:9px;height:9px;\}/);
+    assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn:hover\{[^}]*background:transparent[^}]*border-color:transparent[^}]*color:rgba\(255,255,255,\.52\)/);
+    assert.match(css, /\.igs-mode-embedded #igs-option-bubbles\[data-igs-pos\]\{top:calc\(14px \+ var\(--igs-toolbar-h,32px\) \+ 8px\);bottom:calc\(14px \+ var\(--igs-dialog-h,220px\) \+ 10px\);max-height:none;overflow-y:auto;overscroll-behavior:contain;\}/);
+});
+
+test('gate:simulation:igs-ui-embedded-keeps-compact-expanded-toolbar-when-top-dock-is-saved', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ toolbarDock: 'top' }));
+    const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
+    const globalObject = document.defaultView;
+    globalObject.localStorage = storage;
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const element = createFakeMessageElement(document, { messageId: 49, textContent: '楼层正文。' });
+    chat.appendChild(element);
+    const message = { id: 49, text: '楼层正文。', element };
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => message,
+            getMessageById: async () => message,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('embedded');
+    const overlay = document.getElementById('igs-overlay');
+    const toolbar = overlay.querySelector('#igs-ctrl-bar');
+    const collapsible = overlay.querySelector('#igs-bar-btns');
+    assert.equal(opened.reader.snapshot.readerSettings.toolbarDock, 'top');
+    assert.equal(overlay.classList.contains('igs-toolbar-top'), false);
+    assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'float');
+    assert.equal(toolbar.style.transformOrigin, 'right top');
+    assert.equal(collapsible.style.display, 'none');
+
+    opened.reader.controller.toggleToolbar();
+    assert.equal(collapsible.style.display, 'flex');
+    assert.equal(overlay.querySelector('#igs-btn-next').parentNode, collapsible);
+    assert.equal(overlay.querySelector('#igs-btn-settings').parentNode, collapsible);
+    assert.match(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:9px;height:9px;\}/);
+    vn.destroy();
 });
 
 test('gate:simulation:igs-ui-embedded-mounts-beside-latest-message-and-restores-source', async () => {

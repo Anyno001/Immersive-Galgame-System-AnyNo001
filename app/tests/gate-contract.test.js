@@ -613,6 +613,9 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*width:auto[^}]*height:min\(220px,calc\(100% - 28px\)\)[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-controls\{flex:0 0 auto;\}/);
+    assert.match(source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:9px;height:9px;\}/);
+    assert.match(source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn\{[^}]*color:rgba\(255,255,255,\.32\)/);
+    assert.match(source.styleText, /\.igs-mode-embedded #igs-option-bubbles\[data-igs-pos\]\{[^}]*top:calc\(14px \+ var\(--igs-toolbar-h,32px\) \+ 8px\)[^}]*bottom:calc\(14px \+ var\(--igs-dialog-h,220px\) \+ 10px\)[^}]*overflow-y:auto/);
     assert.doesNotMatch(source.styleText, /transition:all/);
     assert.doesNotMatch(source.html, />‹</);
     assert.doesNotMatch(source.html, />⚙</);
@@ -620,6 +623,7 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
 
     const rendererText = readText('src/visual/igs-ui/reader-dom-render.js');
     const dbControllerText = readText('src/shujuku-panel/panel-controller.js');
+    assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock === 'top'/);
     assert.match(rendererText, /applyTransparentGlassMaterial\(root, readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings\.glassBackdropFilter,\s+\}\)/);
     assert.doesNotMatch(rendererText, /setProperty\('--igs-glass-bg'/);
     assert.match(dbControllerText, /applyTransparentGlassMaterial\(root, readerSettings && readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings && readerSettings\.glassBackdropFilter,\s+\}\)/);

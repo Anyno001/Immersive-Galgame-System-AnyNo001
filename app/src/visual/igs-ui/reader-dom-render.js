@@ -277,7 +277,8 @@ export function applyToolbarState(root, current) {
     const readerSettings = current.snapshot && current.snapshot.readerSettings || {};
     const pins = new Set(Array.isArray(readerSettings.pinnedBtns) ? readerSettings.pinnedBtns : []);
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
-    const dockTop = readerSettings.toolbarDock === 'top';
+    const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
+    const dockTop = !embeddedMode && readerSettings.toolbarDock === 'top';
     const order = Array.isArray(readerSettings.btnOrder) && readerSettings.btnOrder.length
         ? readerSettings.btnOrder
         : TOOLBAR_ACTIONS.map(([id]) => id);
@@ -394,7 +395,8 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         dialog.style.background = '';
     }
 
-    const toolbarDock = readerSettings.toolbarDock === 'top' ? 'top' : 'float';
+    // 内嵌模式拥有独立的右上角裸图标布局，不继承普通模式的顶部固定工具栏设置。
+    const toolbarDock = embeddedMode ? 'float' : (readerSettings.toolbarDock === 'top' ? 'top' : 'float');
     if (root && root.classList) {
         root.classList.toggle('igs-toolbar-top', toolbarDock === 'top');
     }

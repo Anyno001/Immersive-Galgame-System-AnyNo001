@@ -143,8 +143,10 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-mode-embedded .igs-controls{flex:0 0 auto;}
 .igs-mode-embedded #igs-toolbar-layer{inset:14px 14px auto auto;width:auto;height:auto;transform:none;}
 .igs-mode-embedded .igs-ctrl-bar{position:static;top:auto;right:auto;gap:4px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
-.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn{width:32px;height:32px;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.62);}
-.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.9);}
+.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn{width:32px;height:32px;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.32);}
+.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn svg{width:9px;height:9px;}
+.igs-mode-embedded .igs-ctrl-bar .igs-icon-btn:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.52);}
+.igs-mode-embedded #igs-option-bubbles[data-igs-pos]{top:calc(14px + var(--igs-toolbar-h,32px) + 8px);bottom:calc(14px + var(--igs-dialog-h,220px) + 10px);max-height:none;overflow-y:auto;overscroll-behavior:contain;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}
 .igs-embedded-host{aspect-ratio:16 / 9;max-height:720px;}
 .igs-embedded-loading{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:100%;color:rgba(255,255,255,.72);font-size:13px;letter-spacing:.08em;}
