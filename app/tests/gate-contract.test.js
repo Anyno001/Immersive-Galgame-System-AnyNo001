@@ -746,6 +746,7 @@ test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
         'activeTab',
         'mainTabsEqual',
         'themeToggle',
+        'themeToggleIcon',
         'sceneSettingsSubTabs',
         'sceneSettingsSubTabActive',
         'readerSubTabs',
@@ -773,6 +774,12 @@ test('gate:igs-ui:settings-style-uses-soft-radius-tokens', () => {
     assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(/);
     const shadows = Array.from(styleText.matchAll(/box-shadow:([^;}]+)/g), (match) => match[1].trim());
     assert.deepEqual(Array.from(new Set(shadows)), ['none']);
+});
+
+test('gate:igs-ui:reader-speaker-keeps-dialog-top-padding', () => {
+    const rendererText = readText('src/visual/igs-ui/reader-dom-render.js');
+    assert.match(rendererText, /dialog\.style\.paddingTop = ''/);
+    assert.doesNotMatch(rendererText, /dialog\.style\.paddingTop = .*'4px'/);
 });
 
 test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {

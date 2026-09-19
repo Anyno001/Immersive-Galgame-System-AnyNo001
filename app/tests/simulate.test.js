@@ -504,9 +504,11 @@ test('gate:simulation:thought-theme-applies-thought-style-and-speaker-divider-vi
     let textEl = overlay.querySelector('#igs-text');
     let speakerEl = overlay.querySelector('#igs-speaker');
     let dividerEl = overlay.querySelector('#igs-divider');
+    let dialogEl = overlay.querySelector('#igs-dialog');
 
     assert.equal(opened.reader.snapshot.content.textType, 'dialogue');
     assert.equal(speakerEl.style.display, 'block');
+    assert.equal(dialogEl.style.paddingTop, '');
     assert.equal(dividerEl.style.display, 'block');
     assert.equal(textEl.style.color, '#00ff00');
     assert.equal(textEl.style.fontFamily, 'Georgia,serif');
@@ -516,9 +518,11 @@ test('gate:simulation:thought-theme-applies-thought-style-and-speaker-divider-vi
     textEl = document.getElementById('igs-overlay').querySelector('#igs-text');
     speakerEl = document.getElementById('igs-overlay').querySelector('#igs-speaker');
     dividerEl = document.getElementById('igs-overlay').querySelector('#igs-divider');
+    dialogEl = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(thoughtSnapshot.content.textType, 'thought');
     assert.equal(thoughtSnapshot.content.speaker, 'Hero');
     assert.equal(speakerEl.style.display, 'block');
+    assert.equal(dialogEl.style.paddingTop, '');
     assert.equal(dividerEl.style.display, 'block');
     assert.equal(textEl.style.color, '#0000ff');
     assert.equal(textEl.style.fontFamily, 'Courier New,monospace');

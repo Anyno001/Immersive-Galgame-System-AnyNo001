@@ -617,8 +617,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         controls.style.display = snapshot.mode === 'embedded' ? 'none' : (isLastPage ? '' : 'none');
     }
     if (dialog) {
-        const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
-        dialog.style.paddingTop = (sceneAssetsEnabled && snapshot.content.speaker) ? '4px' : '';
+        dialog.style.paddingTop = '';
     }
     if (input) {
         input.placeholder = snapshot.input.placeholder;
