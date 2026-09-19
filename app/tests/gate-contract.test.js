@@ -814,7 +814,10 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     }
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="western-classic"/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:110px 184px,calc\(100% - 220px\) 184px,110px 184px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /width:187px;height:34px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /left:35px;top:-22px;width:min\(374px,calc\(100% - 70px\)\);height:68px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:65px 68px,calc\(100% - 130px\) 68px,65px 68px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-has-speaker="1"\]\{padding-top:58px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /overflow:visible/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data:image\/png;base64,/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /CLASSIC_DIALOG_ASSETS|iVBORw0KGgo/);
     assert.doesNotMatch(CLASSIC_DIALOG_STYLE_TEXT, /\.igs-ctrl-bar|#igs-toolbar-layer/);

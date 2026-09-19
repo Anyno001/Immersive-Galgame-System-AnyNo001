@@ -628,6 +628,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     if (dialog) {
         applyDialogSkinAssets(dialog, snapshot.readerSettings);
+        const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
+        if (classicDialog && sceneAssetsEnabled && snapshot.content.speaker) {
+            dialog.setAttribute('data-igs-has-speaker', '1');
+        } else {
+            dialog.removeAttribute('data-igs-has-speaker');
+        }
         dialog.style.paddingTop = '';
     }
     if (input) {

@@ -1016,6 +1016,7 @@ test('gate:simulation:classic-dialog-nameplate-uses-existing-speaker', async () 
     const speaker = overlay.querySelector('#igs-speaker');
     const divider = overlay.querySelector('#igs-divider');
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'western-classic');
+    assert.equal(dialog.getAttribute('data-igs-has-speaker'), '1');
     assert.equal(speaker.textContent, 'Hero');
     assert.equal(speaker.style.display, 'block');
     assert.equal(speaker.style.color, '#312b1b');
