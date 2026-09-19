@@ -145,7 +145,8 @@
     "sceneSettingsSubTabActive": ".igs-scene-settings-subtab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",
     "readerSubTabs": ".igs-reader-subtabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))",
     "readerSubTabActive": ".igs-reader-subtab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",
-    "segmentedButtonBox": ".igs-segmented-btn{box-sizing:border-box;width:100%;height:32px;min-width:0;margin:0;padding:0 6px",
+    "segmentedDynamicSpacing": ".igs-segmented{--igs-segment-pad:clamp(0px,calc(2cqi - 5px),6px);--igs-segment-gap:clamp(0px,calc(1.5cqi - 4px),5px);--igs-segment-font:clamp(9px,calc(5px + 1.5cqi),12px);--igs-segment-icon:clamp(8px,calc(3px + 2cqi),15px);container-type:inline-size",
+    "segmentedButtonBox": ".igs-segmented-btn{box-sizing:border-box;width:100%;height:32px;min-width:0;margin:0;padding:0 var(--igs-segment-pad)",
     "flatSegmentedIndicator": ".igs-segmented-indicator{display:none",
     "mobileMedia": "@media (max-width:640px)"
   }

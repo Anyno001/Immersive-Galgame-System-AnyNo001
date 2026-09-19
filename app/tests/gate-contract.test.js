@@ -718,10 +718,12 @@ test('gate:igs-ui:settings-style-keeps-original-geometry', () => {
     assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.segmentedHeight)));
     assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.switchHeight)));
     assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.mobileMedia)));
+    assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.segmentedDynamicSpacing)));
     assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.segmentedButtonBox)));
     assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.mainTabsEqual)));
     assert.match(styleText, /\.igs-settings-tab\{[^}]*width:100%[^}]*text-align:center/);
-    assert.doesNotMatch(styleText, /\.igs-segmented-btn\{[^}]*padding:0 4px/);
+    assert.doesNotMatch(styleText, /\.igs-segmented-btn\{[^}]*padding:0 (?:4|6)px/);
+    assert.doesNotMatch(styleText, /@media \(max-width:640px\)[\s\S]*\.igs-segmented-btn\{/);
     assert.match(styleText, /\.igs-segmented-btn\{[^}]*min-width:0;[^}]*overflow:hidden/);
     assert.match(styleText, /\.igs-segmented-btn-label\{[^}]*display:block;[^}]*max-width:100%;[^}]*overflow:hidden;[^}]*text-overflow:ellipsis;[^}]*white-space:nowrap/);
 });
