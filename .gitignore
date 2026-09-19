@@ -17,3 +17,6 @@ local-data/
 *.secret.json
 *.key
 *.pem
+
+# 参考资料只作实现证据，不进入仓库
+/参考文件/

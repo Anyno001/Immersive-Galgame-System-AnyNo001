@@ -136,8 +136,13 @@ structure -> static -> test -> simulate -> perf -> build
   "content": "<loader/igs-loader.js 的原文>",
   "info": "Immersive Galgame System 自动更新 loader。",
   "button": {
-    "enabled": false,
-    "buttons": []
+    "enabled": true,
+    "buttons": [
+      {
+        "name": "Gal模拟",
+        "visible": true
+      }
+    ]
   },
   "data": {},
   "export_with": {

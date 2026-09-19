@@ -12,6 +12,24 @@ if (!content.includes('igs.bundle.js') || !content.includes('igs.bundle.css')) {
     throw new Error('Loader source must reference igs.bundle.js and igs.bundle.css.');
 }
 
+// QR 按钮元数据唯一生成源：所有 loader JSON（自动版/调试版/固定版）都从这里取。
+// 按钮名必须与 loader 里的 eventOn(getButtonEvent(...)) 事件名逐字一致，visible 必填，
+// 否则 JS-Slash-Runner 导入会失败或按钮点击无响应（v0.20.x 历史教训）。
+const QR_BUTTON = Object.freeze({ name: 'Gal模拟', visible: true });
+function buildLoaderButtonConfig() {
+    return {
+        enabled: true,
+        buttons: [ { ...QR_BUTTON } ],
+    };
+}
+
+function assertLoaderButtonConfig(button, label) {
+    const expected = buildLoaderButtonConfig();
+    if (JSON.stringify(button) !== JSON.stringify(expected)) {
+        throw new Error(`Loader button config mismatch in ${label}: ${JSON.stringify(button)}`);
+    }
+}
+
 // 版本化固定 loader：在 loader 源前注入 IGS_LOADER_REF，把它锁定到具体 tag（不追 main、不自动更新）。
 function buildPinnedContent(source, ref) {
     const prefix = `(function(){try{(window.parent&&window.parent.document?window.parent:window).IGS_LOADER_REF=${JSON.stringify(ref)};}catch(e){try{window.IGS_LOADER_REF=${JSON.stringify(ref)};}catch(e2){}}})();\n`;
@@ -33,7 +51,7 @@ function writePinnedLoader(ref) {
             `从 GitHub/jsDelivr 加载 ${ref} tag 的 app/dist/igs.bundle.css 与 igs.bundle.js。`,
             '如需自动更新，请改用「沉浸式Galgame系统（自动更新）」loader。',
         ].join('\n'),
-        button: { enabled: false, buttons: [] },
+        button: buildLoaderButtonConfig(),
         data: {},
         export_with: { data: true, button: true },
     };
@@ -56,10 +74,7 @@ const loaderJson = {
         '默认从 GitHub/jsDelivr 加载 app/dist/igs.bundle.css 与 app/dist/igs.bundle.js。',
         '测试前请确认仓库或发布资产为公开可访问。',
     ].join('\n'),
-    button: {
-        enabled: false,
-        buttons: [],
-    },
+    button: buildLoaderButtonConfig(),
     data: {},
     export_with: {
         data: true,
@@ -73,6 +88,7 @@ const parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 if (parsed.content !== content) {
     throw new Error('Loader JSON content does not match loader source.');
 }
+assertLoaderButtonConfig(parsed.button, path.relative(projectRoot, jsonPath));
 
 console.log(`loader:build ok ${path.relative(projectRoot, jsonPath)}`);
 
@@ -115,10 +131,7 @@ const debugLoaderJson = {
         '与正式版加载同一个远程 bundle，但会设置 IGS_DEBUG=true，输出 [DEBUG-*] 控制台日志。',
         '不要随正式版一起发布给普通用户。',
     ].join('\n'),
-    button: {
-        enabled: false,
-        buttons: [],
-    },
+    button: buildLoaderButtonConfig(),
     data: {},
     export_with: {
         data: true,
@@ -131,5 +144,6 @@ const debugParsed = JSON.parse(fs.readFileSync(debugJsonPath, 'utf8'));
 if (debugParsed.content !== debugContent || !debugContent.includes('root.IGS_DEBUG = true')) {
     throw new Error('Debug loader JSON content does not match debug loader source.');
 }
+assertLoaderButtonConfig(debugParsed.button, path.relative(projectRoot, debugJsonPath));
 
 console.log(`loader:debug ok ${path.relative(projectRoot, debugJsonPath)}`);

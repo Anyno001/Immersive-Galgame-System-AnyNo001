@@ -6,6 +6,8 @@
     const MAIN_BASE = `https://cdn.jsdelivr.net/gh/${REPOSITORY}@main`;
     const MAIN_BRANCH_URL = `https://api.github.com/repos/${REPOSITORY}/branches/main`;
     const INSTANCE_KEY = '__IGS_AUTO_UPDATE_LOADER_DEBUG__';
+    const QR_BINDING_KEY = '__IGS_QR_ENTRY_BINDING__';
+    const QR_BUTTON_NAME = 'Gal模拟';
     const CSS_ID = 'igs-auto-loader-css';
     const SCRIPT_ID = 'igs-auto-loader-js';
     const MAGIC_MENU_SELECTORS = ['#extensionsMenu', '#extensions_menu', '.extensions_block .list-group'];
@@ -22,6 +24,7 @@
     }
 
     const existingRuntime = reconcileExistingRuntime();
+    ensureQrButtonBinding();
     if (existingRuntime.done) {
         return;
     }
@@ -78,6 +81,7 @@
                 injectCss(cssUrl);
                 await injectScript(scriptUrl);
                 scheduleMagicWandEnsure();
+                schedulePendingQrOpen();
                 console.info('[IGS Loader] 使用远程版本。', attempt.ref, attempt.base);
                 return { ...config, activeRef: attempt.ref, activeBase: attempt.base };
             } catch (error) {
@@ -180,6 +184,139 @@
             seen.add(key);
             return true;
         });
+    }
+
+    function getQrBindingState() {
+        let state = root[QR_BINDING_KEY];
+        if (!state || typeof state !== 'object') {
+            state = { bound: false, pendingOpen: false, attempts: 0, provider: '', subscription: null };
+            try {
+                root[QR_BINDING_KEY] = state;
+            } catch (error) {
+                // Root window may reject writes; fall back to a local state object.
+            }
+        }
+        state.flushPendingOpen = schedulePendingQrOpen;
+        return state;
+    }
+
+    function resolveQrButtonApi() {
+        const candidates = [];
+        try {
+            if (root) candidates.push(root);
+        } catch (error) { /* ignore */ }
+        try {
+            if (root && root.parent && root.parent !== root) candidates.push(root.parent);
+        } catch (error) { /* ignore */ }
+        try {
+            if (root && root.top && root.top !== root) candidates.push(root.top);
+        } catch (error) { /* ignore */ }
+
+        for (const candidate of candidates) {
+            const direct = matchQrApi(candidate);
+            if (direct) return direct;
+            const stApi = safeReadProperty(candidate, 'SillyTavern');
+            const nested = matchQrApi(stApi);
+            if (nested) return nested;
+        }
+        return null;
+    }
+
+    function matchQrApi(target) {
+        if (!target) return null;
+        const eventOn = safeReadProperty(target, 'eventOn');
+        const getButtonEvent = safeReadProperty(target, 'getButtonEvent');
+        if (typeof eventOn !== 'function' || typeof getButtonEvent !== 'function') return null;
+        return { eventOn, getButtonEvent };
+    }
+
+    function safeReadProperty(target, key) {
+        try {
+            return target ? target[key] : undefined;
+        } catch (error) {
+            return undefined;
+        }
+    }
+
+    function ensureQrButtonBinding() {
+        const state = getQrBindingState();
+        if (state.bound) return { ok: true, reason: 'already-bound', provider: state.provider };
+
+        const api = resolveQrButtonApi();
+        if (!api) {
+            scheduleQrBindingRetry();
+            return { ok: false, reason: 'qr-api-not-found' };
+        }
+
+        try {
+            const subscription = api.eventOn(api.getButtonEvent(QR_BUTTON_NAME), handleQrButtonClick);
+            state.bound = true;
+            state.provider = QR_BUTTON_NAME;
+            state.subscription = subscription || null;
+            console.info('[IGS Loader] 已注册 QR 按钮事件。', QR_BUTTON_NAME);
+            schedulePendingQrOpen();
+            return { ok: true, reason: 'bound' };
+        } catch (error) {
+            console.warn('[IGS Loader] QR 按钮事件注册失败，继续加载主程序。', error);
+            return { ok: false, reason: 'qr-register-failed' };
+        }
+    }
+
+    function scheduleQrBindingRetry() {
+        const state = getQrBindingState();
+        const maxAttempts = 20;
+        if (state.attempts >= maxAttempts) {
+            console.warn('[IGS Loader] 未能获取酒馆助手 QR 按钮 API，QR 入口不可用。');
+            return;
+        }
+        state.attempts += 1;
+        setHostTimeout(retryQrButtonBinding, 500);
+    }
+
+    function retryQrButtonBinding() {
+        const state = getQrBindingState();
+        if (state.bound) return;
+        const result = ensureQrButtonBinding();
+        if (!result.ok && result.reason === 'qr-api-not-found') {
+            scheduleQrBindingRetry();
+        }
+    }
+
+    function handleQrButtonClick() {
+        const api = root.IGS || root.ImmersiveGalgameSystem;
+        if (api && typeof api.openLatestAvailable === 'function') {
+            return safeOpenLatestAvailable(api);
+        }
+        const state = getQrBindingState();
+        state.pendingOpen = true;
+        console.info('[IGS Loader] 主程序尚未就绪，已记录 QR 待打开请求。');
+        schedulePendingQrOpen();
+        return { ok: false, reason: 'runtime-not-ready' };
+    }
+
+    function safeOpenLatestAvailable(api) {
+        try {
+            const result = api.openLatestAvailable();
+            Promise.resolve(result).catch((error) => {
+                console.warn('[IGS Loader] QR 入口打开阅读器失败。', error);
+            });
+            return result;
+        } catch (error) {
+            console.warn('[IGS Loader] QR 入口打开阅读器异常。', error);
+            return { ok: false, reason: 'qr-open-failed' };
+        }
+    }
+
+    function schedulePendingQrOpen() {
+        const state = getQrBindingState();
+        if (!state.pendingOpen) return { ok: true, reason: 'no-pending-open' };
+        const api = root.IGS || root.ImmersiveGalgameSystem;
+        if (!api || typeof api.openLatestAvailable !== 'function') {
+            return { ok: false, reason: 'runtime-not-ready' };
+        }
+        state.pendingOpen = false;
+        safeOpenLatestAvailable(api);
+        return { ok: true, reason: 'pending-open-flushed' };
     }
 
     function scheduleLoaderMagicWandEntry() {

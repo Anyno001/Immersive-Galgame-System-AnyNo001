@@ -130,17 +130,24 @@ test('gate:loader-json:matches loader source and references public bundle', () =
     assert.match(loaderJson.content, /reconcileExistingRuntime/);
     assert.match(loaderJson.content, /ensureMagicWandEntry/);
     assert.doesNotMatch(loaderJson.content, /yuzi-phone/i);
-    assert.equal(loaderJson.button.enabled, false);
-    assert.deepEqual(loaderJson.button.buttons, []);
+    assert.deepEqual(loaderJson.button, {
+        enabled: true,
+        buttons: [ { name: 'Gal模拟', visible: true } ],
+    });
+    assert.match(loaderJson.content, /QR_BUTTON_NAME = 'Gal模拟'/);
+    assert.match(loaderJson.content, /getButtonEvent\(QR_BUTTON_NAME\)/);
 
     // 固定版 loader：锁定具体 tag、注入 IGS_LOADER_REF、不自动更新。按需生成（--pin），
-    // 不随升号自动产出，故校验已发布的 v0.23.21 固定版格式正确。
+    // 不随升号自动产出。固定版是历史产物，只校验它仍锁定自己的 ref 且是可导入脚本体，
+    // 不再要求它包含当前 mutable 的 loader 源码。
     const pinnedRef = 'v0.23.21';
     const pinnedJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'loader', `沉浸式Galgame系统 ${pinnedRef}.json`), 'utf8'));
     assert.equal(pinnedJson.name, `沉浸式Galgame系统 ${pinnedRef}`);
     assert.match(pinnedJson.content, new RegExp(`IGS_LOADER_REF=["']${pinnedRef.replace(/\./g, '\\.')}["']`));
-    assert.ok(pinnedJson.content.includes(loaderSource), '固定版 loader 应包含完整 loader 源');
+    assert.equal(pinnedJson.type, 'script');
+    assert.equal(typeof pinnedJson.content, 'string');
     assert.match(pinnedJson.content, /igs\.bundle\.js/);
+    assert.match(pinnedJson.content, /REPOSITORY = '\S+'/);
 });
 
 test('gate:dist-bundle:is-self-contained-for-loader-cache-bust', () => {
@@ -233,6 +240,134 @@ test('gate:loader-json:adds-temporary-magic-wand-entry-before-remote-bundle-load
         fetch: root.fetch,
     });
     vm.runInContext(loaderJson.content, context);
+
+
+function createQrLoaderHarness(options = {}) {
+    const loaderJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'loader', 'igs-loader.json'), 'utf8'));
+    const documentLike = createLoaderDocumentLike(options.documentOptions || {});
+    const subscriptions = [];
+    const opened = [];
+    const alerts = [];
+    const warnings = [];
+
+    const root = {
+        document: documentLike,
+        parent: null,
+        alert: (message) => alerts.push(message),
+        console: { info() {}, warn: (message, error) => warnings.push([message, error]), error() {} },
+        setTimeout: (callback) => { callback(); return 1; },
+        IGS: options.withRuntime
+            ? {
+                openLatestAvailable() {
+                    opened.push('open');
+                    return Promise.resolve({ ok: true });
+                },
+                ensureMagicWandEntry: () => ({ ok: true, entries: 1 }),
+            }
+            : undefined,
+    };
+    root.parent = root;
+    root.top = root;
+
+    if (options.qrApi === 'direct' || options.qrApi === 'nested' || options.qrApi === 'missing' || options.qrApi === 'throwing') {
+        const qrApi = {};
+        if (options.qrApi !== 'missing') {
+            qrApi.getButtonEvent = (name) => { qrApi.lastButtonName = name; return { name }; };
+            qrApi.eventOn = (event, handler) => {
+                if (options.qrApi === 'throwing') throw new Error('eventOn unavailable');
+                subscriptions.push({ event, handler });
+                return { stop() {} };
+            };
+        }
+        if (options.qrApi === 'direct') Object.assign(root, qrApi);
+        if (options.qrApi === 'nested' || options.qrApi === 'throwing') root.SillyTavern = qrApi;
+    }
+
+    const context = vm.createContext({
+        window: root,
+        document: documentLike,
+        console: root.console,
+        setTimeout: root.setTimeout,
+        fetch: options.fetch === null ? undefined : (options.fetch || (async () => ({ ok: true, status: 200 }))),
+    });
+
+    return {
+        root,
+        opened,
+        alerts,
+        warnings,
+        subscriptions,
+        run() { vm.runInContext(loaderJson.content, context); return root; },
+        runTwice() { vm.runInContext(loaderJson.content, context); vm.runInContext(loaderJson.content, context); },
+        click() {
+            assert.equal(subscriptions.length >= 1, true, 'QR subscription should exist');
+            const event = subscriptions[0].event;
+            assert.equal(event.name, 'Gal模拟');
+            return subscriptions[0].handler();
+        },
+    };
+}
+
+test('gate:loader-qr:registers Gal模拟 button event through host qr api', () => {
+    const harness = createQrLoaderHarness({ qrApi: 'direct', withRuntime: true });
+    harness.run();
+
+    assert.equal(harness.subscriptions.length, 1);
+    assert.equal(harness.subscriptions[0].event.name, 'Gal模拟');
+});
+
+test('gate:loader-qr:click-opens-latest-reader-when-runtime-ready', async () => {
+    const harness = createQrLoaderHarness({ qrApi: 'nested', withRuntime: true });
+    harness.run();
+
+    const result = harness.click();
+    await Promise.resolve(result);
+
+    assert.equal(harness.opened.length, 1);
+    assert.equal(harness.alerts.length, 0);
+});
+
+test('gate:loader-qr:click-before-runtime-ready-queues-single-open', async () => {
+    const harness = createQrLoaderHarness({ qrApi: 'direct', withRuntime: false });
+    harness.run();
+
+    harness.click();
+    harness.click();
+    assert.equal(harness.opened.length, 0);
+    assert.equal(harness.root.__IGS_QR_ENTRY_BINDING__.pendingOpen, true, 'runtime-not-ready click should queue exactly one pending open');
+
+    harness.root.IGS = {
+        openLatestAvailable() {
+            harness.opened.push('open');
+            return Promise.resolve({ ok: true });
+        },
+        ensureMagicWandEntry: () => ({ ok: true, entries: 1 }),
+    };
+
+    harness.root.__IGS_QR_ENTRY_BINDING__.flushPendingOpen();
+    assert.equal(harness.opened.length, 1);
+    assert.equal(harness.root.__IGS_QR_ENTRY_BINDING__.pendingOpen, false);
+});
+
+test('gate:loader-qr:repeated-enable-keeps-single-subscription', () => {
+    const harness = createQrLoaderHarness({ qrApi: 'direct', withRuntime: true });
+    harness.runTwice();
+
+    assert.equal(harness.subscriptions.length, 1);
+});
+
+test('gate:loader-qr:missing-or-throwing-qr-api-fails-open', () => {
+    const missing = createQrLoaderHarness({ qrApi: 'missing', withRuntime: true });
+    missing.run();
+    assert.equal(missing.subscriptions.length, 0);
+    assert.equal(missing.alerts.length, 0);
+
+    const throwing = createQrLoaderHarness({ qrApi: 'throwing', withRuntime: true });
+    throwing.run();
+    assert.equal(throwing.subscriptions.length, 0);
+    assert.equal(throwing.alerts.length, 0);
+    assert.equal(throwing.warnings.length >= 1, true);
+});
 
     const entry = documentLike.magicMenu.querySelector('[data-igs-loader-entry="1"]');
     assert.ok(entry);

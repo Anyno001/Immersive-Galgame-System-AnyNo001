@@ -30,6 +30,8 @@ npm run build:loader
 
 - 阻止重复加载。
 - 选择远程 ref，默认追踪 `main` 最新 bundle。
+- 注册酒馆助手 QR 按钮事件：`eventOn(getButtonEvent('Gal模拟'))`，点击后委托已加载的 `IGS.openLatestAvailable()` 打开最新阅读器；主程序尚未就绪时只记录一次待打开请求。
+- 重复启用 loader 时复用已有 QR 订阅，不重复注册。
 - 远程主程序加载完成前，先注册一个临时魔法棒入口。
 - 注入 `igs.bundle.css`。
 - 注入 `igs.bundle.js`。
