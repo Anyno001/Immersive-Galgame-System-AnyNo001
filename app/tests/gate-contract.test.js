@@ -604,9 +604,15 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.styleText, /--igs-db-head-blur:var\(--igs-db-blur\)/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating\.is-dragging #igs-click-layer\{cursor:grabbing;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating #igs-click-layer\{cursor:grab;touch-action:none;\}/);
+    assert.match(source.styleText, /#igs-overlay,#igs-overlay \*\{scrollbar-width:none;-ms-overflow-style:none;\}/);
+    assert.match(source.styleText, /#igs-overlay ::-webkit-scrollbar\{display:none;width:0;height:0;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating \.igs-progress\{flex-shrink:0;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating \.igs-controls\{flex-shrink:0;\}/);
+    assert.match(source.styleText, /\.igs-mode-embedded \.igs-progress\{display:none;\}/);
+    assert.match(source.styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*width:auto[^}]*height:min\(220px,calc\(100% - 28px\)\)[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden/);
+    assert.match(source.styleText, /\.igs-mode-embedded \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
+    assert.match(source.styleText, /\.igs-mode-embedded \.igs-controls\{flex:0 0 auto;\}/);
     assert.doesNotMatch(source.styleText, /transition:all/);
     assert.doesNotMatch(source.html, />‹</);
     assert.doesNotMatch(source.html, />⚙</);

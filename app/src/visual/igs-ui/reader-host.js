@@ -1046,11 +1046,8 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function formatReaderProgress(snapshot) {
-        const base = snapshot && snapshot.content ? snapshot.content.progress : '';
-        if (!isEmbeddedReaderMode(snapshot && snapshot.mode)) return base;
-        const offset = Number(state.activeReader && state.activeReader.turnOffset) || 0;
-        const prefix = offset <= 0 ? '最新回复' : `前 ${offset} 轮`;
-        return base ? `${prefix} · ${base}` : prefix;
+        if (isEmbeddedReaderMode(snapshot && snapshot.mode)) return '';
+        return snapshot && snapshot.content ? snapshot.content.progress : '';
     }
 
     async function regenerateCurrentImage() {

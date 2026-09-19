@@ -10,6 +10,7 @@ import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel
 import { createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
+import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import { VISUAL_MODES } from '../src/visual/visual-mode.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
@@ -1361,7 +1362,8 @@ test('gate:simulation:igs-ui-embedded-turn-navigation-keeps-latest-host-and-does
     assert.equal(hostAfter, hostBefore);
     assert.equal(overlayAfter, overlayBefore);
     assert.deepEqual(jumped, []);
-    assert.match(overlayAfter.querySelector('#igs-progress').textContent, /前 1 轮/);
+    assert.equal(overlayAfter.querySelector('#igs-progress').textContent, '');
+    assert.match(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-progress\{display:none;\}/);
 
     vn.destroy();
 });
@@ -2382,8 +2384,17 @@ test('gate:simulation:igs-ui-long-text-scrolls-not-overlaps-input', async () => 
     const opened = await vn.openLatestAvailable('pc');
     const styleText = opened.reader.snapshot.source.styleText;
 
+    assert.match(styleText, /#igs-overlay,#igs-overlay \*\{scrollbar-width:none;-ms-overflow-style:none;\}/);
+    assert.match(styleText, /#igs-overlay ::-webkit-scrollbar\{display:none;width:0;height:0;\}/);
     assert.match(styleText, /#igs-overlay\.igs-floating \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(styleText, /#igs-overlay\.igs-floating \.igs-controls\{flex-shrink:0;\}/);
+    assert.match(styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*left:12px[^}]*right:12px[^}]*bottom:14px[^}]*width:auto[^}]*height:min\(220px,calc\(100% - 28px\)\)[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden/);
+    assert.match(styleText, /\.igs-mode-embedded \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
+    assert.match(styleText, /\.igs-mode-embedded \.igs-controls\{flex:0 0 auto;\}/);
+
+    const settingsCss = getSettingsStyleText();
+    assert.match(settingsCss, /#igs-unified-settings,#igs-unified-settings \*\{scrollbar-width:none;-ms-overflow-style:none\}/);
+    assert.match(settingsCss, /#igs-unified-settings ::-webkit-scrollbar\{display:none;width:0;height:0\}/);
 
     vn.destroy();
 });
@@ -2544,6 +2555,8 @@ test('gate:simulation:db-panel renders editable empty cells on td and scrollable
     assert.match(css, /#igs-db-panel\{[^}]*box-shadow:var\(--igs-db-shadow,0 12px 48px rgba\(0,0,0,\.50\)\)/);
     assert.match(css, /#igs-db-panel\{[^}]*pointer-events:auto/);
     assert.match(css, /\.igs-shujuku-tabs\{[^}]*width:100%[^}]*max-width:100%[^}]*overflow-x:auto[^}]*overflow-y:hidden/);
+    assert.match(css, /#igs-db-panel,#igs-db-panel \*\{scrollbar-width:none;-ms-overflow-style:none;\}/);
+    assert.match(css, /#igs-db-panel ::-webkit-scrollbar\{display:none;width:0;height:0;\}/);
     assert.doesNotMatch(css, /--igs-db-head-bg,rgba\(20,20,22,\.92\)/);
 });
 

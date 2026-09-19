@@ -2,10 +2,8 @@ const SETTINGS_STYLE_TEXT = `
 #igs-unified-settings{--igs-settings-paper:#16181a;--igs-settings-panel:#1f2225;--igs-settings-surface:#1b1d1f;--igs-settings-field:#282c2f;--igs-settings-line:#2f3336;--igs-settings-line-strong:#4c5255;--igs-settings-ink:#d8d5cf;--igs-settings-ink-2:#bebbb4;--igs-settings-ink-3:#8c9093;--igs-settings-ink-4:#6a6e71;--igs-settings-accent:#cfccc6;--igs-settings-danger:#b08c8c;--igs-settings-highlight:#2b2f32;--igs-settings-vleft:0px;--igs-settings-vtop:0px;--igs-settings-vw:100vw;--igs-settings-vh:100dvh;--igs-settings-width:min(760px,calc(var(--igs-settings-vw) - 48px));--igs-settings-height:min(760px,calc(var(--igs-settings-vh) - 48px));position:fixed;left:var(--igs-settings-vleft);top:var(--igs-settings-vtop);width:var(--igs-settings-vw);height:var(--igs-settings-vh);z-index:2147483200;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;overflow:hidden;background:rgba(9,10,11,.78);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--igs-settings-ink);color-scheme:dark;-webkit-backdrop-filter:none;backdrop-filter:none}
 #igs-unified-settings{--igs-settings-radius-shell:8px;--igs-settings-radius-control:6px;--igs-settings-radius-small:4px}
 #igs-unified-settings,#igs-unified-settings *{box-shadow:none;filter:none}
-#igs-unified-settings *{scrollbar-width:thin;scrollbar-color:var(--igs-settings-line-strong) transparent}
-#igs-unified-settings ::-webkit-scrollbar{width:5px;height:5px}
-#igs-unified-settings ::-webkit-scrollbar-track{background:transparent}
-#igs-unified-settings ::-webkit-scrollbar-thumb{background:var(--igs-settings-line-strong);border-radius:0}
+#igs-unified-settings,#igs-unified-settings *{scrollbar-width:none;-ms-overflow-style:none}
+#igs-unified-settings ::-webkit-scrollbar{display:none;width:0;height:0}
 .igs-settings-shell{width:var(--igs-settings-width);height:var(--igs-settings-height);max-height:none;background:var(--igs-settings-panel);border:0;border-radius:var(--igs-settings-radius-shell);box-shadow:none;display:flex;flex-direction:column;overflow:hidden;-webkit-backdrop-filter:none;backdrop-filter:none}
 .igs-settings-head{height:54px;display:flex;align-items:center;gap:10px;padding:0 14px 0 20px;border-bottom:1px solid var(--igs-settings-line);flex-shrink:0}
 .igs-settings-title{font-size:15px;font-weight:500;letter-spacing:.08em;flex:1;color:var(--igs-settings-ink)}

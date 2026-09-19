@@ -338,6 +338,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     const bgBlur = root.querySelector('#igs-bg-blur');
     const readerSettings = snapshot.readerSettings || {};
     const inlineMode = snapshot.mode === 'pc' || snapshot.mode === 'mobile';
+    const embeddedMode = snapshot.mode === 'embedded';
     const win = getOwnerWindow(root);
     const overlayWidth = readElementWidth(root, win && win.innerWidth);
     const overlayHeight = readElementHeight(root, win && win.innerHeight);
@@ -351,7 +352,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         // floating（pc/mobile）：正文恒交给 CSS 的 flex:1 1 auto + min-height:0 填充/滚动，
         // 对话框高度由下方 dialog.style.height 控制气泡盒本身（输入框留在变高后气泡底部）。
         // 非 floating（web/fullscreen）：对话框无固定上限，dialogHeight 直接撑正文 min-height。
-        if (inlineMode || readerSettings.dialogHeight == null) {
+        if (inlineMode || embeddedMode || readerSettings.dialogHeight == null) {
             textEl.style.minHeight = '0';
         } else {
             textEl.style.minHeight = `${readerSettings.dialogHeight}px`;
@@ -359,7 +360,11 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     }
 
     if (dialog) {
-        if (inlineMode) {
+        if (embeddedMode) {
+            dialog.style.minHeight = '';
+            dialog.style.maxHeight = '';
+            dialog.style.width = '';
+        } else if (inlineMode) {
             if (readerSettings.dialogHeight == null) {
                 dialog.style.minHeight = '';
                 dialog.style.maxHeight = '';
@@ -377,7 +382,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             dialog.style.maxHeight = '';
         }
 
-        if (readerSettings.dialogWidth == null) {
+        if (embeddedMode || readerSettings.dialogWidth == null) {
             dialog.style.width = '';
         } else if (inlineMode) {
             const clampedWidth = Math.max(180, Math.min(readerSettings.dialogWidth, Math.max(180, (overlayWidth || readerSettings.dialogWidth) - 24)));

@@ -3,6 +3,8 @@ const LONG_TEXT = 80;
 export function getDbPanelStyles() {
     return `
 #igs-db-panel{position:absolute;top:48px;right:12px;width:min(440px,calc(100% - 24px));max-height:calc(100% - 130px);background:var(--igs-db-bg,var(--igs-glass-bg,rgba(20,20,22,.62)));border:1px solid var(--igs-db-border,rgba(255,255,255,.14));-webkit-backdrop-filter:var(--igs-db-blur,none);backdrop-filter:var(--igs-db-blur,none);border-radius:var(--igs-db-radius,22px);box-shadow:var(--igs-db-shadow,0 12px 48px rgba(0,0,0,.50));display:flex;flex-direction:column;z-index:10;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:#f4f4f6;overflow:hidden;user-select:none;pointer-events:auto;}
+#igs-db-panel,#igs-db-panel *{scrollbar-width:none;-ms-overflow-style:none;}
+#igs-db-panel ::-webkit-scrollbar{display:none;width:0;height:0;}
 .igs-shujuku-header{display:flex;align-items:center;gap:8px;padding:13px 16px 10px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;cursor:grab;}
 .igs-shujuku-header:active{cursor:grabbing;}
 .igs-shujuku-title{font-size:13px;font-weight:600;letter-spacing:.5px;flex:1;}

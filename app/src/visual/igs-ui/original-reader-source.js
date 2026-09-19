@@ -34,6 +34,8 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
 
 const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;height:100dvh;z-index:900;background:#000;overflow:hidden;overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:#fff;--igs-glass-fill-alpha:.62;--igs-glass-density:.62;--igs-glass-opacity:.62;--igs-transparent-glass-bg:rgba(20,20,22,.62);--igs-glass-bg:var(--igs-transparent-glass-bg);--igs-glass-border:rgba(255,255,255,.14);--igs-glass-blur:none;--igs-glass-radius:22px;--igs-glass-shadow:0 12px 48px rgba(0,0,0,.50);--igs-choice-soft-shadow:0 2px 10px rgba(0,0,0,.14);--igs-dialog-bg:var(--igs-glass-bg);--igs-dialog-border:var(--igs-glass-border);--igs-dialog-blur:var(--igs-glass-blur);--igs-dialog-radius:var(--igs-glass-radius);--igs-dialog-shadow:var(--igs-glass-shadow);--igs-toolbar-bg:var(--igs-glass-bg);--igs-toolbar-border:var(--igs-glass-border);--igs-toolbar-blur:var(--igs-glass-blur);--igs-toolbar-radius:18px;--igs-toolbar-shadow:0 4px 24px rgba(0,0,0,.20);--igs-choice-bg:var(--igs-glass-bg);--igs-choice-border:var(--igs-glass-border);--igs-choice-blur:var(--igs-glass-blur);--igs-choice-radius:18px;--igs-choice-shadow:var(--igs-choice-soft-shadow);--igs-db-bg:var(--igs-glass-bg);--igs-db-border:var(--igs-glass-border);--igs-db-blur:var(--igs-glass-blur);--igs-db-head-bg:var(--igs-db-bg);--igs-db-head-blur:var(--igs-db-blur);--igs-db-radius:var(--igs-glass-radius);--igs-db-shadow:var(--igs-glass-shadow);--igs-toolbar-h:50px;}
+#igs-overlay,#igs-overlay *{scrollbar-width:none;-ms-overflow-style:none;}
+#igs-overlay ::-webkit-scrollbar{display:none;width:0;height:0;}
 #igs-overlay.igs-floating,#igs-overlay.igs-mode-web,#igs-overlay.igs-mode-fullscreen{z-index:2147483000;}
 #igs-overlay.igs-fading{opacity:0;transition:opacity .25s;}
 #igs-bg{position:absolute;inset:0;background:radial-gradient(circle at 30% 30%, #2a2a3a 0%, #0c0c11 80%);background-position:center;background-size:cover;background-repeat:no-repeat;transition:opacity .3s ease;filter:brightness(.88);}
@@ -134,7 +136,11 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-embedded-root{position:relative;width:100%;height:100%;overflow:hidden;}
 .igs-embedded-host[data-igs-embedded-loading="1"]{display:flex;align-items:center;justify-content:center;}
 #igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;}
-.igs-mode-embedded .igs-dialog{left:12px;right:12px;bottom:14px;width:auto;transform:none;display:flex;flex-direction:column;max-height:min(46%,220px);overflow:visible;padding:16px 18px 14px;}
+.igs-mode-embedded .igs-progress{display:none;}
+.igs-mode-embedded .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;height:min(220px,calc(100% - 28px));min-height:min(112px,calc(100% - 28px));max-height:calc(100% - 28px);transform:none;display:flex;flex-direction:column;overflow:hidden;padding:16px 18px 14px;}
+.igs-mode-embedded .igs-text{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;}
+.igs-mode-embedded .igs-speaker,.igs-mode-embedded .igs-divider{flex-shrink:0;}
+.igs-mode-embedded .igs-controls{flex:0 0 auto;}
 .igs-mode-embedded #igs-toolbar-layer{inset:14px 14px auto auto;width:auto;height:auto;transform:none;}
 .igs-mode-embedded .igs-ctrl-bar{position:static;top:auto;right:auto;gap:4px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
 .igs-mode-embedded .igs-ctrl-bar .igs-icon-btn{width:32px;height:32px;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.62);}
