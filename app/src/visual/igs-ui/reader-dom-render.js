@@ -20,7 +20,11 @@ import {
     resolveSpriteLayout,
 } from './settings-normalize.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
-import { applyDialogSkinAssets, isClassicDialogSkin } from './classic-dialog-skin.js';
+import {
+    applyDialogSkinAssets,
+    isClassicDialogSkin,
+    normalizeClassicDialogWidthPercent,
+} from './classic-dialog-skin.js';
 
 export function createReaderButton(doc, id, title, html) {
     const button = doc.createElement('button');
@@ -361,6 +365,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     const readerSettings = snapshot.readerSettings || {};
     const classicDialog = isClassicDialogSkin(readerSettings);
     const inlineMode = snapshot.mode === 'pc' || snapshot.mode === 'mobile';
+    const pcMode = snapshot.mode === 'pc';
     const embeddedMode = snapshot.mode === 'embedded';
     const win = getOwnerWindow(root);
     const overlayWidth = readElementWidth(root, win && win.innerWidth);
@@ -410,8 +415,20 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             dialog.style.maxHeight = '';
         }
 
+        dialog.style.left = '';
+        dialog.style.right = '';
+        dialog.style.marginLeft = '';
+        dialog.style.marginRight = '';
         const minimumDialogWidth = classicDialog ? 280 : (inlineMode ? 180 : 260);
-        if (embeddedMode || readerSettings.dialogWidth == null) {
+        if (classicDialog && pcMode) {
+            const widthPercent = normalizeClassicDialogWidthPercent(readerSettings.classicDialogWidthPercent);
+            const horizontalGap = Math.round(24 * widthPercent) / 100;
+            dialog.style.left = '0';
+            dialog.style.right = '0';
+            dialog.style.marginLeft = 'auto';
+            dialog.style.marginRight = 'auto';
+            dialog.style.width = `max(${minimumDialogWidth}px,calc(${widthPercent}% - ${horizontalGap}px))`;
+        } else if (embeddedMode || (classicDialog && snapshot.mode === 'mobile') || readerSettings.dialogWidth == null) {
             dialog.style.width = '';
         } else if (inlineMode) {
             const clampedWidth = Math.max(minimumDialogWidth, Math.min(readerSettings.dialogWidth, Math.max(minimumDialogWidth, (overlayWidth || readerSettings.dialogWidth) - 24)));

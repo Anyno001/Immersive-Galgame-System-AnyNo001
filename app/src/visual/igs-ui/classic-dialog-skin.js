@@ -4,6 +4,9 @@ export const DIALOG_SKIN_DEFAULT = 'default';
 export const DIALOG_SKIN_WESTERN_CLASSIC = 'western-classic';
 export const CLASSIC_DIALOG_HEIGHT = 184;
 export const CLASSIC_DIALOG_EDGE_WIDTH = 110;
+export const CLASSIC_DIALOG_WIDTH_PERCENT_MIN = 60;
+export const CLASSIC_DIALOG_WIDTH_PERCENT_MAX = 100;
+export const CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT = 100;
 export const CLASSIC_NAMEPLATE_HEIGHT = 68;
 export const CLASSIC_NAMEPLATE_EDGE_WIDTH = 65;
 export const CLASSIC_NAMEPLATE_WIDTH = 374;
@@ -30,6 +33,12 @@ export const CLASSIC_DIALOG_THEME_DEFAULTS = Object.freeze({
 
 export function normalizeDialogSkin(value) {
     return value === DIALOG_SKIN_WESTERN_CLASSIC ? DIALOG_SKIN_WESTERN_CLASSIC : DIALOG_SKIN_DEFAULT;
+}
+
+export function normalizeClassicDialogWidthPercent(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT;
+    return Math.max(CLASSIC_DIALOG_WIDTH_PERCENT_MIN, Math.min(CLASSIC_DIALOG_WIDTH_PERCENT_MAX, numeric));
 }
 
 export function isClassicDialogSkin(readerSettings) {

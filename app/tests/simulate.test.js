@@ -937,8 +937,12 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     let result = settings.setValue('readerSettings.dialogSkin', 'western-classic');
     assert.equal(result.ok, true);
+    settings.setValue('readerSettings.classicDialogWidthPercent', 60);
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'western-classic');
+    assert.equal(dialog.style.width, 'max(280px,calc(60% - 14.4px))');
+    assert.equal(dialog.style.marginLeft, 'auto');
+    assert.equal(dialog.style.marginRight, 'auto');
 
     settings.setValue('readerSettings.classicVnTheme.narrationColor', '#123456');
     settings.setValue('readerSettings.fontSize', 22);
@@ -957,6 +961,7 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
     const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(saved.dialogSkin, 'western-classic');
+    assert.equal(saved.classicDialogWidthPercent, 60);
     assert.equal(saved.vnTheme.narrationColor, '#abcdef');
     assert.equal(saved.classicVnTheme.narrationColor, '#123456');
     assert.equal(saved.fontSize, 22);
@@ -976,9 +981,34 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     textEl = reopenedDocument.getElementById('igs-overlay').querySelector('#igs-text');
     active = reopened.getState().igsUi.activeReader.snapshot;
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'western-classic');
+    assert.equal(dialog.style.width, 'max(280px,calc(60% - 14.4px))');
+    assert.equal(active.readerSettings.classicDialogWidthPercent, 60);
     assert.equal(textEl.style.color, '#123456');
     assert.equal(active.readerSettings.fontSize, 22);
     reopened.destroy();
+});
+
+test('gate:simulation:classic-dialog-width-percent-keeps-mobile-full-width', async () => {
+    const document = createFakeDocument({ innerWidth: 420, innerHeight: 760 });
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        _v: '0.5.4',
+        dialogSkin: 'western-classic',
+        classicDialogWidthPercent: 60,
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '手机端宽度保持原样。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    await vn.openLatestAvailable('mobile');
+    const dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
+    assert.equal(dialog.style.width, '');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.classicDialogWidthPercent, 60);
+    vn.destroy();
 });
 
 test('gate:simulation:classic-dialog-nameplate-uses-existing-speaker', async () => {
@@ -1286,6 +1316,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.equal(displayView.snapshot.readerSubTab, 'display');
     assert.match(displayView.snapshot.html, /data-reader-pane="display"/);
     assert.match(displayView.snapshot.html, /对话框宽度/);
+    assert.doesNotMatch(displayView.snapshot.html, /对话框风格/);
     assert.doesNotMatch(displayView.snapshot.html, /按钮管理/);
 
     const optionsView = settings.switchReaderSubTab('options');
@@ -1300,8 +1331,16 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
 
     const themeView = settings.switchReaderSubTab('theme');
     assert.match(themeView.snapshot.html, /data-reader-pane="theme"/);
+    assert.match(themeView.snapshot.html, /对话框风格/);
+    assert.doesNotMatch(themeView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
     assert.match(themeView.snapshot.html, /角色名/);
     assert.match(themeView.snapshot.html, /分隔线/);
+
+    settings.setValue('readerSettings.dialogSkin', 'western-classic');
+    const classicThemeView = settings.switchReaderSubTab('theme');
+    assert.match(classicThemeView.snapshot.html, /对话框风格/);
+    assert.match(classicThemeView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
+    assert.match(classicThemeView.snapshot.html, /60%/);
 
     vn.destroy();
 });

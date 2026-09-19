@@ -82,6 +82,7 @@
         "readerMode",
         "readerSettings.fontSize",
         "readerSettings.dialogSkin",
+        "readerSettings.classicDialogWidthPercent",
         "readerSettings.optionFontSize",
         "readerSettings.dialogWidth",
         "readerSettings.dialogHeight",

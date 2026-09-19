@@ -125,8 +125,10 @@ import { loadScenePresets } from '../../scene/scene-preset-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
 import {
     CLASSIC_DIALOG_HEIGHT,
+    CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
     CLASSIC_DIALOG_THEME_DEFAULTS,
     DIALOG_SKIN_WESTERN_CLASSIC,
+    normalizeClassicDialogWidthPercent,
     normalizeDialogSkin,
 } from './classic-dialog-skin.js';
 import {
@@ -1723,8 +1725,9 @@ export function createIgsReaderHost(options = {}) {
         const readerValues = {
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
             dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典']])),
+            classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`])), '按阅读器可用宽度自动计算；手机端保持 100%。') : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
-            dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']])),
+            dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog), classicDialog ? '西欧古典请在「主题」页按比例调整；原像素值会保留。' : ''),
             dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, [['null', '自适应'], [10, '10px'], [20, '20px'], [40, '40px'], [60, '60px'], [90, '90px'], [130, '130px'], [160, '160px'], [200, '200px'], [250, '250px'], [300, '300px'], [400, '400px'], [500, '500px'], [600, '600px']], classicDialog), classicDialog ? `当前风格使用固定 ${CLASSIC_DIALOG_HEIGHT}px；原设置值会保留。` : ''),
             glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`])), classicDialog ? '不影响素材对话框，仍作用于工具栏、选项和数据库。' : ''),
             imageCountField: field('readerSettings.imageCountOverride', '检测图像数量', selectInput('readerSettings.imageCountOverride', reader.imageCountOverride === null ? 'null' : reader.imageCountOverride, [['null', '自动']].concat(Array.from({ length: 20 }, (_, index) => [index + 1, `${index + 1}张`])))),
@@ -2376,6 +2379,7 @@ export function createIgsReaderHost(options = {}) {
         const base = {
             _v: currentVersion,
             dialogSkin: 'default',
+            classicDialogWidthPercent: CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
             fontSize: 18,
             optionFontSize: 14,
             dialogWidth: null,
@@ -2397,6 +2401,7 @@ export function createIgsReaderHost(options = {}) {
         const normalized = { ...base, ...src, _v: currentVersion };
         delete normalized.emptyBackgroundColor;
         normalized.dialogSkin = normalizeDialogSkin(normalized.dialogSkin);
+        normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
         normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
         normalized.optionFontSize = clampNumber(normalizeFiniteNumber(normalized.optionFontSize, base.optionFontSize), 10, 30);
         normalized.dialogWidth = normalizeNullableNumber(normalized.dialogWidth);

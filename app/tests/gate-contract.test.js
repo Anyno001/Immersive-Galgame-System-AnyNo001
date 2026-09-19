@@ -20,7 +20,10 @@ import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader
 import { createStageModel } from '../src/visual/stage-model.js';
 import { getOriginalReaderSource } from '../src/visual/igs-ui/original-reader-source.js';
 import { CLASSIC_DIALOG_ASSETS, CLASSIC_DIALOG_ASSET_META } from '../src/visual/igs-ui/classic-dialog-assets.js';
-import { CLASSIC_DIALOG_STYLE_TEXT } from '../src/visual/igs-ui/classic-dialog-skin.js';
+import {
+    CLASSIC_DIALOG_STYLE_TEXT,
+    normalizeClassicDialogWidthPercent,
+} from '../src/visual/igs-ui/classic-dialog-skin.js';
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import {
@@ -697,13 +700,15 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     const toolbarTemplate = getReaderSubTabTemplate('toolbar');
     const themeTemplate = getReaderSubTabTemplate('theme');
     assert.match(displayTemplate, /fontSizeField/);
-    assert.match(displayTemplate, /dialogSkinField/);
     assert.match(displayTemplate, /dialogWidthField/);
+    assert.doesNotMatch(displayTemplate, /dialogSkinField|classicDialogWidthPercentField/);
     assert.doesNotMatch(displayTemplate, /optionBubbleToggle|pinnedButtonsField|nameFontField/);
     assert.match(optionsTemplate, /optionFontSizeField/);
     assert.match(optionsTemplate, /optionBubbleToggle/);
     assert.match(toolbarTemplate, /toolbarScaleField/);
     assert.match(toolbarTemplate, /pinnedButtonsField/);
+    assert.match(themeTemplate, /对话框风格/);
+    assert.match(themeTemplate, /dialogSkinField[\s\S]*classicDialogWidthPercentField/);
     assert.match(themeTemplate, /nameFontField/);
     assert.match(themeTemplate, /dividerColorField/);
 });
@@ -821,6 +826,9 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data:image\/png;base64,/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /CLASSIC_DIALOG_ASSETS|iVBORw0KGgo/);
     assert.doesNotMatch(CLASSIC_DIALOG_STYLE_TEXT, /\.igs-ctrl-bar|#igs-toolbar-layer/);
+    assert.equal(normalizeClassicDialogWidthPercent(undefined), 100);
+    assert.equal(normalizeClassicDialogWidthPercent(40), 60);
+    assert.equal(normalizeClassicDialogWidthPercent(120), 100);
 });
 
 test('gate:api:public-api-exposes-text-preset-groups', () => {
