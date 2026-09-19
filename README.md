@@ -19,7 +19,8 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 - 阶段：最小闭环已接通
 - 形态：独立 app 工程，已有 Node 原生测试与验收闸门
-- 当前项目版本 `v0.23.29`：新增酒馆助手 QR 按钮入口「Gal模拟」——`button.enabled=true` + `buttons:[{name:'Gal模拟',visible:true}]`，点击经 `eventOn(getButtonEvent('Gal模拟'))` 委托 `IGS.openLatestAvailable()` 打开最新阅读器；支持主程序未就绪时的一次待打开队列、重复启用时复用订阅不重复注册、QR API 缺失时降级不影响其余入口；按钮元数据由 `build-loader.js` 统一生成。
+- 当前项目版本 `v0.23.30`：修复酒馆助手脚本作用域中的词法全局 `eventOn/getButtonEvent` 未被 loader 发现的问题；QR「Gal模拟」现在优先解析脚本直接作用域，再回退到窗口与 `SillyTavern` API，保留加载中待打开、重复绑定防护与 fail-open。
+- `v0.23.29`：新增酒馆助手 QR 按钮入口「Gal模拟」——`button.enabled=true` + `buttons:[{name:'Gal模拟',visible:true}]`，点击经 `eventOn(getButtonEvent('Gal模拟'))` 委托 `IGS.openLatestAvailable()` 打开最新阅读器；支持主程序未就绪时的一次待打开队列、重复启用时复用订阅不重复注册、QR API 缺失时降级不影响其余入口；按钮元数据由 `build-loader.js` 统一生成。
 - `v0.23.27`：三组修复：①鉴定建议表骰子命令丢失——`extractOptionTexts` 返回 `{display,send}[]`，检定建议表有 `骰子命令` 列时 `send=展示文本+骰子命令`，气泡显示用 `display`、点击发送用 `send`；②监听器累积→点击对话框跳首/末页——`applyReaderSnapshotToDom` 为 `send/clickLayer/dialog` 加 `data-igs-bound` 守卫，DOM 复用后不再每次渲染重复绑定；③模式切换内联样式残留→切换全屏/网页全屏无效——`applyReaderModeRuntime` 在切换模式前调 `resetInlineModeStyles` 清除`applyInlineReaderRuntime` 写入的 width/height/transform 等残留值。
 - `v0.23.28`：迁移到 `Anyno001/Immersive-Galgame-System-AnyNo001`，同步自动更新/调试 loader、公开仓库文档与发布入口；未改写历史版本记录，旧固定版 loader 仍按其原始 tag 保留。
 

@@ -283,12 +283,22 @@ function createQrLoaderHarness(options = {}) {
         if (options.qrApi === 'nested' || options.qrApi === 'throwing') root.SillyTavern = qrApi;
     }
 
+    const lexicalHost = options.qrApi === 'lexical'
+        ? {
+            eventOn: (event, handler) => {
+                subscriptions.push({ event, handler });
+                return { stop() {} };
+            },
+            getButtonEvent: (name) => ({ name }),
+        }
+        : {};
     const context = vm.createContext({
         window: root,
         document: documentLike,
         console: root.console,
         setTimeout: root.setTimeout,
         fetch: options.fetch === null ? undefined : (options.fetch || (async () => ({ ok: true, status: 200 }))),
+        ...lexicalHost,
     });
 
     return {
@@ -312,6 +322,13 @@ test('gate:loader-qr:registers Gal模拟 button event through host qr api', () =
     const harness = createQrLoaderHarness({ qrApi: 'direct', withRuntime: true });
     harness.run();
 
+    assert.equal(harness.subscriptions.length, 1);
+    assert.equal(harness.subscriptions[0].event.name, 'Gal模拟');
+});
+
+test('gate:loader-qr:uses lexical host event api exposed by script runner', () => {
+    const harness = createQrLoaderHarness({ qrApi: 'lexical', withRuntime: true });
+    harness.run();
     assert.equal(harness.subscriptions.length, 1);
     assert.equal(harness.subscriptions[0].event.name, 'Gal模拟');
 });

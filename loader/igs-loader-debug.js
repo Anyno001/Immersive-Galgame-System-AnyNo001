@@ -189,18 +189,23 @@
     function getQrBindingState() {
         let state = root[QR_BINDING_KEY];
         if (!state || typeof state !== 'object') {
-            state = { bound: false, pendingOpen: false, attempts: 0, provider: '', subscription: null };
+            state = { bound: false, pendingOpen: false, attempts: 0, provider: '', subscription: null, retryScheduled: false, warnedUnavailable: false };
             try {
                 root[QR_BINDING_KEY] = state;
             } catch (error) {
                 // Root window may reject writes; fall back to a local state object.
             }
         }
+        if (typeof state.retryScheduled !== 'boolean') state.retryScheduled = false;
+        if (typeof state.warnedUnavailable !== 'boolean') state.warnedUnavailable = false;
         state.flushPendingOpen = schedulePendingQrOpen;
         return state;
     }
 
     function resolveQrButtonApi() {
+        const lexical = resolveLexicalQrButtonApi();
+        if (lexical) return lexical;
+
         const candidates = [];
         try {
             if (root) candidates.push(root);
@@ -222,6 +227,15 @@
         return null;
     }
 
+    function resolveLexicalQrButtonApi() {
+        try {
+            if (typeof eventOn === 'function' && typeof getButtonEvent === 'function') {
+                return { eventOn, getButtonEvent };
+            }
+        } catch (error) { /* lexical host APIs are optional */ }
+        return null;
+    }
+
     function matchQrApi(target) {
         if (!target) return null;
         const eventOn = safeReadProperty(target, 'eventOn');
@@ -238,13 +252,13 @@
         }
     }
 
-    function ensureQrButtonBinding() {
+    function ensureQrButtonBinding(options = {}) {
         const state = getQrBindingState();
         if (state.bound) return { ok: true, reason: 'already-bound', provider: state.provider };
 
         const api = resolveQrButtonApi();
         if (!api) {
-            scheduleQrBindingRetry();
+            if (options.scheduleRetry !== false) scheduleQrBindingRetry();
             return { ok: false, reason: 'qr-api-not-found' };
         }
 
@@ -265,21 +279,25 @@
     function scheduleQrBindingRetry() {
         const state = getQrBindingState();
         const maxAttempts = 20;
+        if (state.bound || state.retryScheduled) return;
         if (state.attempts >= maxAttempts) {
-            console.warn('[IGS Loader] 未能获取酒馆助手 QR 按钮 API，QR 入口不可用。');
+            if (!state.warnedUnavailable) {
+                state.warnedUnavailable = true;
+                console.warn('[IGS Loader] 未能获取酒馆助手 QR 按钮 API，QR 入口不可用。');
+            }
             return;
         }
-        state.attempts += 1;
-        setHostTimeout(retryQrButtonBinding, 500);
-    }
-
-    function retryQrButtonBinding() {
-        const state = getQrBindingState();
-        if (state.bound) return;
-        const result = ensureQrButtonBinding();
-        if (!result.ok && result.reason === 'qr-api-not-found') {
-            scheduleQrBindingRetry();
-        }
+        state.retryScheduled = true;
+        let callbackWasAsync = false;
+        setHostTimeout(() => {
+            state.retryScheduled = false;
+            state.attempts += 1;
+            const result = ensureQrButtonBinding({ scheduleRetry: false });
+            if (!result.ok && result.reason === 'qr-api-not-found' && callbackWasAsync) {
+                scheduleQrBindingRetry();
+            }
+        }, 500);
+        callbackWasAsync = true;
     }
 
     function handleQrButtonClick() {
