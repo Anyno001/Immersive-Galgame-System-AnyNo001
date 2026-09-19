@@ -1184,6 +1184,15 @@ test('gate:igs-ui:scene-assets-classifies-dialogue-vs-narration-per-segment', ()
     assert.equal(narr.snapshot.content.speaker, '');
     assert.equal(narr.snapshot.content.displayText, '小林海斗静静地看着窗外。');
     host2.destroy();
+
+    // 强制兜底：整条消息没有任何 [igs-*:] 指令时，即使长得像“[名字]：台词”也按旁白。
+    const host3 = makeHost();
+    const untagged = host3.openReader({
+        message: { text: '<content>[小林海斗]：这段没有 IGS 标签。</content>' },
+    }, { mode: 'pc' });
+    assert.equal(untagged.snapshot.content.textType, 'narration');
+    assert.equal(untagged.snapshot.content.speaker, '');
+    host3.destroy();
 });
 
 test('gate:scene:igs-message-source:extracts-scene-directives-from-fallback-text', () => {

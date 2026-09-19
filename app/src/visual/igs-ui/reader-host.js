@@ -1281,6 +1281,7 @@ export function createIgsReaderHost(options = {}) {
         const sceneAssets = readerSettings._sceneAssets || null;
         const sceneDirectives = Array.isArray(extracted.sceneDirectives) ? extracted.sceneDirectives
             : Array.isArray(payload.sceneDirectives) ? payload.sceneDirectives : [];
+        const hasIgsDirectives = sceneDirectives.length > 0;
         let finalBackgroundImage = backgroundImage;
         let spriteImage = null;
         let resolvedSpeaker = scene.speaker || '';
@@ -1346,6 +1347,8 @@ export function createIgsReaderHost(options = {}) {
             // own formatted text via fingerprint matching (no positional counter).
             // Returns null when the segment is plain narration with no char/thought tag.
             const classifySegment = (segText) => {
+                // 没有任何 [igs-*:] 指令时禁止按文本外形猜测台词/心理话，统一按旁白兜底。
+                if (!hasIgsDirectives) return null;
                 const seg = String(segText || '');
                 const tMatch = seg.match(/^\s*\*\s*(?:\[([^\]]+)\]\s*[:：]\s*)?([\s\S]*?)\s*\*\s*$/);
                 const dMatch = seg.match(/^\s*\[([^\]]+)\]\s*[:：]\s*([\s\S]*)$/);
