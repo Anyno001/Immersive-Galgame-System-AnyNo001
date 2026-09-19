@@ -13,6 +13,7 @@ import {
     DEFAULT_VIRTUAL_REGEX,
 } from '../src/scene/message-source.js';
 import {
+    buildNarrativeSegments,
     buildSegmentImageMap,
     parseImageSlots,
 } from '../src/scene/image-slots.js';
@@ -741,6 +742,49 @@ test('gate:scene:igs-message-source:formats-default-bubble-body', () => {
     assert.equal(payload.formattedText, '[玉子]：欢迎来到图书馆。');
     assert.equal(payload.virtualRegexChanged, true);
 });
+
+test('gate:scene:igs-message-source:splits-narration-after-directive-close', () => {
+    // 回归：[igs-char] 与旁白写在同一段时，旁白曾被粘进台词一起渲染成气泡。
+    // 契约：必须以指令闭合 "]" 为分界，旁白独立成段，不得并进对话正文。
+    const payload = buildIgsTextPayload({
+        text: '<content>[igs-char:爱丽丝|平和|你好]她转身看向窗外。</content>',
+    }, {
+        virtualRegex: DEFAULT_VIRTUAL_REGEX,
+    });
+
+    assert.equal(payload.formattedText, '[爱丽丝]：你好\n她转身看向窗外。');
+    const segments = buildNarrativeSegments(payload.formattedText);
+    assert.deepEqual(segments, ['[爱丽丝]：你好', '她转身看向窗外。']);
+    // 旁白段不得被识别为对话行（否则仍会被当台词渲染）。
+    assert.equal(/^\[[^\]]+\]\s*[:：]/.test(segments[1]), false);
+});
+
+test('gate:scene:igs-message-source:thought-and-scene-alias-boundaries', () => {
+    // 心理标签同段旁白：旁白必须独立；*…* 行仍按心理话处理。
+    const thought = buildIgsTextPayload({
+        text: '<content>[igs-thought:爱丽丝|平和|真麻烦]她叹了口气。</content>',
+    }, { virtualRegex: DEFAULT_VIRTUAL_REGEX });
+    assert.deepEqual(
+        buildNarrativeSegments(thought.formattedText),
+        ['*真麻烦*', '她叹了口气。'],
+    );
+
+    // 场景指令同段旁白：指令保留为独立行，不再吞掉后面的旁白。
+    const scene = buildIgsTextPayload({
+        text: '<content>[igs-scene:古城|下午|晴天]阳光很好。</content>',
+    }, { virtualRegex: DEFAULT_VIRTUAL_REGEX });
+    assert.deepEqual(
+        buildNarrativeSegments(scene.formattedText),
+        ['[igs-scene:古城|下午|晴天]', '阳光很好。'],
+    );
+
+    // 非 igs 方括号文本不得被改写。
+    const plain = buildIgsTextPayload({
+        text: '<content>[普通标题]正文。</content>',
+    }, { virtualRegex: DEFAULT_VIRTUAL_REGEX });
+    assert.equal(plain.formattedText, '[普通标题]正文。');
+});
+
 
 test('gate:host:prompt-injector-registers-scene-rule-as-in-chat-extension-prompt', () => {
     const extensionPrompts = {};

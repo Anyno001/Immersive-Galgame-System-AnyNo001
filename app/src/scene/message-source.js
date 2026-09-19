@@ -194,7 +194,8 @@ export function applyImmersiveGalgameSystemBodyFormat(raw, rule) {
 
     try {
         const regex = new RegExp(cfg.pattern, cfg.flags);
-        result.formattedRaw = source.replace(regex, cfg.replacement);
+        const bounded = breakAfterIgsDirectiveClose(source);
+        result.formattedRaw = bounded.replace(regex, cfg.replacement);
         result.formattedRaw = result.formattedRaw.replace(THOUGHT_RE_GLOBAL, '*$2*');
         result.virtualRegexChanged = result.formattedRaw !== source;
         if (!result.virtualRegexChanged) result.formatSourceKind = 'raw';
@@ -205,6 +206,23 @@ export function applyImmersiveGalgameSystemBodyFormat(raw, rule) {
     }
 
     return result;
+}
+
+// [igs-scene/char/thought:…] 与旁白写在同一段时，正文替换只消费到 "]" 之前，
+// "]" 之后残留的旁白会被替换结果粘在同一行，随后被当成台词一起渲染进对话框。
+// 这里严格以 "]" 为分界，在指令闭合符后补一个换行，让旁白独立成段。
+// 只对 igs 指令标签生效，不改动其他方括号文本；已有换行时不重复插入。
+const IGS_DIRECTIVE_CLOSE_RE = /\[\s*igs-(?:scene|char|thought)\s*:[^\]\n]*\]([^\n]*)/gi;
+
+function breakAfterIgsDirectiveClose(text) {
+    return String(text || '').replace(
+        IGS_DIRECTIVE_CLOSE_RE,
+        (match, trailing) => {
+            const normalized = String(trailing || '').replace(/^[ \t]+/, '');
+            if (!normalized) return match;
+            return `${match.slice(0, match.length - trailing.length)}\n${normalized}`;
+        },
+    );
 }
 
 export function buildFormattedReaderSource(formattedText, imageSource) {
