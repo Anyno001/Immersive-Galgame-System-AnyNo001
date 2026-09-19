@@ -145,8 +145,15 @@ const READER_THEME_TEMPLATE = `
 `.trim();
 
 const SCENE_TAB_TEMPLATE = `
-<div class="igs-settings-grid">
-  <div class="igs-settings-section igs-settings-full">{{sceneToggle}}</div>
+<div class="igs-scene-settings">
+  <div class="igs-settings-section">{{sceneToggle}}</div>
+  <div class="igs-scene-settings-subtabs" role="tablist" aria-label="场景设置分类">{{sceneSettingsSubTabs}}</div>
+  <div class="igs-scene-settings-subpane">{{sceneSettingsSubPane}}</div>
+</div>
+`.trim();
+
+const SCENE_RULES_TEMPLATE = `
+<div class="igs-settings-grid" data-scene-settings-pane="rules">
   <div class="{{sceneGroupClass}}">
     <div class="igs-source-filter igs-settings-full">
       <div>
@@ -156,8 +163,17 @@ const SCENE_TAB_TEMPLATE = `
       {{promptRuleField}}
       <div class="igs-settings-row">
         <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认提示词</button>
+        <button class="igs-settings-action" data-action="save-prompt-rule" type="button">保存提示词</button>
       </div>
+      <div class="igs-settings-result" data-result="prompt-rule">{{promptRuleStatus}}</div>
     </div>
+  </div>
+</div>
+`.trim();
+
+const SCENE_ASSETS_TEMPLATE = `
+<div class="igs-settings-grid" data-scene-settings-pane="assets">
+  <div class="{{sceneGroupClass}}">
     <div class="igs-source-filter igs-settings-full">
       <div>
         <div class="igs-source-filter-title">场景素材</div>
@@ -170,6 +186,11 @@ const SCENE_TAB_TEMPLATE = `
   </div>
 </div>
 `.trim();
+
+export const SCENE_SETTINGS_SUBTAB_DEFS = Object.freeze([
+    ['rules', '规则'],
+    ['assets', '素材'],
+]);
 
 export const READER_SUBTAB_DEFS = Object.freeze([
     ['display', '显示'],
@@ -185,6 +206,21 @@ export const SETTINGS_TAB_DEFS = Object.freeze([
     ['scene', '场景'],
     ['reader', '阅读器'],
 ]);
+
+export function normalizeSceneSettingsSubTab(subTab) {
+    const normalized = String(subTab || 'rules').trim();
+    return SCENE_SETTINGS_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'rules';
+}
+
+export function getSceneSettingsSubTabTemplate(subTab) {
+    switch (normalizeSceneSettingsSubTab(subTab)) {
+        case 'assets':
+            return SCENE_ASSETS_TEMPLATE;
+        case 'rules':
+        default:
+            return SCENE_RULES_TEMPLATE;
+    }
+}
 
 export function normalizeReaderSubTab(subTab) {
     const normalized = String(subTab || 'display').trim();

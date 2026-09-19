@@ -17,13 +17,16 @@ import {
 import { getSettingsShellTemplate } from './settings-shell.js';
 import { getSettingsStyleText } from './settings-style.js';
 import {
+    getSceneSettingsSubTabTemplate,
     getReaderSubTabTemplate,
     getSettingsTabTemplate,
+    normalizeSceneSettingsSubTab,
     normalizeReaderSubTab,
+    SCENE_SETTINGS_SUBTAB_DEFS,
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
 } from './settings-tabs.js';
-import { getReaderModeIcon } from './icons.js';
+import { getReaderModeIcon, getSettingsThemeIcon } from './icons.js';
 import {
     DEFAULT_IMAGE_API,
     DEFAULT_PINNED_TOOLBAR_BUTTONS,
@@ -638,6 +641,11 @@ export function createIgsReaderHost(options = {}) {
             switchReaderSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.asyncState.readerSubTab = normalizeReaderSubTab(subTab);
+                return rerenderSettings();
+            },
+            switchSceneSettingsSubTab(subTab) {
+                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+                state.activeSettings.asyncState.sceneSettingsSubTab = normalizeSceneSettingsSubTab(subTab);
                 return rerenderSettings();
             },
             switchSceneSubTab(subTab) {
@@ -1514,6 +1522,11 @@ export function createIgsReaderHost(options = {}) {
         const draft = normalizeUnifiedSettings(settingsState.draft);
         const tab = normalizeSettingsTab(settingsState.tab);
         const readerSubTab = tab === 'reader' ? normalizeReaderSubTab(settingsState.asyncState.readerSubTab) : null;
+        const sceneSettingsSubTab = tab === 'scene' ? normalizeSceneSettingsSubTab(settingsState.asyncState.sceneSettingsSubTab) : null;
+        const sceneSubTab = tab === 'scene' ? (settingsState.asyncState.sceneSubTab === 'characters' ? 'characters' : 'scenes') : null;
+        const settingsTheme = draft.bridge.settingsTheme === 'day' ? 'day' : 'night';
+        const nextSettingsTheme = settingsTheme === 'day' ? 'night' : 'day';
+        const settingsThemeLabel = nextSettingsTheme === 'day' ? '切换到日间模式' : '切换到夜间模式';
         const body = renderSettingsBody(tab, draft, settingsState.asyncState);
         const tabsHtml = SETTINGS_TAB_DEFS.map(([id, label]) => {
             return `<button type="button" class="igs-settings-tab${tab === id ? ' is-active' : ''}" data-tab="${id}">${label}</button>`;
@@ -1522,6 +1535,12 @@ export function createIgsReaderHost(options = {}) {
         return {
             tab,
             readerSubTab,
+            sceneSettingsSubTab,
+            sceneSubTab,
+            settingsTheme,
+            settingsThemeIcon: getSettingsThemeIcon(nextSettingsTheme),
+            settingsThemeLabel,
+            settingsThemePressed: settingsTheme === 'day' ? 'true' : 'false',
             selectors: Array.from(SETTINGS_PANEL_REQUIRED_SELECTORS),
             tabs: SETTINGS_TAB_DEFS.map(([id, label]) => ({
                 id,
@@ -1531,15 +1550,20 @@ export function createIgsReaderHost(options = {}) {
                 requiredActions: Array.from((SETTINGS_PANEL_TAB_CONTRACT[id] || {}).requiredActions || []),
             })),
             activeContract: SETTINGS_PANEL_TAB_CONTRACT[tab],
-            html: `<div id="igs-unified-settings" data-igs-igs-ui="true">${renderTemplate(getSettingsShellTemplate(), {
+            html: `<div id="igs-unified-settings" data-igs-igs-ui="true" data-igs-settings-theme="${settingsTheme}">${renderTemplate(getSettingsShellTemplate(), {
                 version: esc(options.version || '0.5.4'),
                 tabs: tabsHtml,
                 body,
+                settingsThemeIcon: getSettingsThemeIcon(nextSettingsTheme),
+                settingsThemeLabel,
+                settingsThemePressed: settingsTheme === 'day' ? 'true' : 'false',
             })}</div>`,
             resultText: {
                 image: settingsState.asyncState.imageResult || '',
                 imageModels: settingsState.asyncState.imageModelsMessage || '',
                 virtualRegex: settingsState.asyncState.virtualRegexPreview || '',
+                promptRule: settingsState.asyncState.promptRuleStatus || '',
+                promptRuleDraft: settingsState.asyncState.promptRuleDraft,
             },
             draft,
         };
@@ -1616,6 +1640,7 @@ export function createIgsReaderHost(options = {}) {
         if (tab === 'scene') {
             const sceneAssets = bridge.sceneAssets || {};
             const disabled = !sceneAssets.enabled;
+            const sceneSettingsSubTab = normalizeSceneSettingsSubTab(asyncState.sceneSettingsSubTab);
             const subTab = asyncState.sceneSubTab === 'characters' ? 'characters' : 'scenes';
             const scenesHtml = renderSceneAssetList(sceneAssets.scenes || {}, {
                 expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
@@ -1650,13 +1675,24 @@ export function createIgsReaderHost(options = {}) {
         ${charsHtml}
         <div class="igs-settings-row"><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认词库</button></div>
       </div>`;
-            return renderTemplate(getSettingsTabTemplate('scene'), {
-                sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
+            const sceneSettingsSubTabs = SCENE_SETTINGS_SUBTAB_DEFS.map(([id, label]) => (
+                `<button type="button" class="igs-scene-settings-subtab${sceneSettingsSubTab === id ? ' is-active' : ''}" data-scene-settings-subtab="${id}" role="tab" aria-selected="${sceneSettingsSubTab === id ? 'true' : 'false'}">${label}</button>`
+            )).join('');
+            const promptRuleDraft = typeof asyncState.promptRuleDraft === 'string'
+                ? asyncState.promptRuleDraft
+                : String(sceneAssets.promptRule || '');
+            const sceneValues = {
                 sceneGroupClass: `igs-settings-section igs-settings-full${disabled ? ' igs-settings-api-group is-disabled' : ''}`,
-                promptRuleField: field('bridge.sceneAssets.promptRule', '注入提示词', `<textarea data-path="bridge.sceneAssets.promptRule" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(sceneAssets.promptRule || '')}</textarea>`),
+                promptRuleField: field('bridge.sceneAssets.promptRule', '注入提示词', `<textarea data-prompt-rule-draft="1" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea>`),
+                promptRuleStatus: esc(asyncState.promptRuleStatus || '修改后点击右侧“保存提示词”才会覆盖当前规则。'),
                 scenePresetBar: scenePresetBarHtml,
                 sceneSubTabs: subTabsHtml,
                 sceneSubPane: subTab === 'characters' ? charactersPane : scenesPane,
+            };
+            return renderTemplate(getSettingsTabTemplate('scene'), {
+                sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
+                sceneSettingsSubTabs,
+                sceneSettingsSubPane: renderTemplate(getSceneSettingsSubTabTemplate(sceneSettingsSubTab), sceneValues),
             });
         }
 
@@ -1937,6 +1973,11 @@ export function createIgsReaderHost(options = {}) {
                 controller.switchReaderSubTab(readerSubTab.getAttribute('data-reader-subtab'));
                 return;
             }
+            const sceneSettingsSubTab = event.target.closest('[data-scene-settings-subtab]');
+            if (sceneSettingsSubTab) {
+                controller.switchSceneSettingsSubTab(sceneSettingsSubTab.getAttribute('data-scene-settings-subtab'));
+                return;
+            }
             const sceneSubTab = event.target.closest('[data-scene-subtab]');
             if (sceneSubTab) {
                 controller.switchSceneSubTab(sceneSubTab.getAttribute('data-scene-subtab'));
@@ -1980,6 +2021,13 @@ export function createIgsReaderHost(options = {}) {
         root.addEventListener('input', (event) => {
             const target = event.target;
             if (!target || !target.getAttribute) return;
+            if (target.getAttribute('data-prompt-rule-draft') !== null) {
+                state.activeSettings.asyncState.promptRuleDraft = target.value;
+                state.activeSettings.asyncState.promptRuleStatus = '有未保存的修改。';
+                const status = root.querySelector('[data-result="prompt-rule"]');
+                if (status) status.textContent = state.activeSettings.asyncState.promptRuleStatus;
+                return;
+            }
             if (target.type === 'color') return;
             const path = target.getAttribute('data-path');
             if (path) {
@@ -2180,6 +2228,7 @@ export function createIgsReaderHost(options = {}) {
         const normalized = cloneData(bridge || {});
         normalized.openMode = normalizeReaderMode(normalized.openMode, normalized);
         normalized.showToasts = normalizeBoolean(normalized.showToasts, true);
+        normalized.settingsTheme = normalized.settingsTheme === 'day' ? 'day' : 'night';
         normalized.debug = normalizeBoolean(normalized.debug, false);
         normalized.sourceFilter = normalizeSourceFilter(normalized.sourceFilter);
         normalized.virtualRegex = normalizeVirtualRegex(normalized.virtualRegex);

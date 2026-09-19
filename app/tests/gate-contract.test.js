@@ -22,8 +22,10 @@ import { getOriginalReaderSource } from '../src/visual/igs-ui/original-reader-so
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import {
+    getSceneSettingsSubTabTemplate,
     getReaderSubTabTemplate,
     getSettingsTabTemplate,
+    SCENE_SETTINGS_SUBTAB_DEFS,
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
 } from '../src/visual/igs-ui/settings-tabs.js';
@@ -633,8 +635,12 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     const readerHostText = readText('src/visual/igs-ui/reader-host.js');
     const dbControllerText = readText('src/shujuku-panel/panel-controller.js');
     assert.doesNotMatch(rendererText, /emptyBackgroundColor/);
+    assert.match(readerHostText, /switchSceneSettingsSubTab\(subTab\)/);
+    assert.match(readerHostText, /data-scene-settings-subtab/);
     assert.match(readerHostText, /switchReaderSubTab\(subTab\)/);
     assert.match(readerHostText, /data-reader-subtab/);
+    assert.match(readerHostText, /data-prompt-rule-draft/);
+    assert.doesNotMatch(readerHostText, /data-path="bridge\.sceneAssets\.promptRule"/);
     assert.doesNotMatch(readerHostText, /emptyBackgroundColorField|optionBubbleFontSizeField|readerSettings\.emptyBackgroundColor/);
     assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock === 'top'/);
     assert.match(rendererText, /applyTransparentGlassMaterial\(root, readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings\.glassBackdropFilter,\s+\}\)/);
@@ -648,6 +654,8 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     const shell = getSettingsShellTemplate();
 
     assert.match(shell, /igs-settings-shell/);
+    assert.match(shell, /data-action="toggle-settings-theme"/);
+    assert.match(shell, /settingsThemeIcon/);
     assert.match(shell, /igs-settings-tabs/);
     assert.match(shell, /igs-settings-body/);
 
@@ -657,6 +665,22 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
         assert.equal(defined[1], tab.label);
         assert.ok(getSettingsTabTemplate(tab.id).length > 0);
     }
+
+    assert.match(getSettingsTabTemplate('scene'), /sceneSettingsSubTabs/);
+    for (const subTab of fixture.sceneSettingsSubTabs) {
+        const defined = SCENE_SETTINGS_SUBTAB_DEFS.find(([id]) => id === subTab.id);
+        assert.ok(defined);
+        assert.equal(defined[1], subTab.label);
+        assert.ok(getSceneSettingsSubTabTemplate(subTab.id).length > 0);
+    }
+    const rulesTemplate = getSceneSettingsSubTabTemplate('rules');
+    const assetsTemplate = getSceneSettingsSubTabTemplate('assets');
+    assert.match(rulesTemplate, /data-action="reset-prompt-rule"/);
+    assert.match(rulesTemplate, /data-action="save-prompt-rule"/);
+    assert.match(rulesTemplate, /data-result="prompt-rule"/);
+    assert.doesNotMatch(rulesTemplate, /scenePresetBar|sceneSubTabs/);
+    assert.match(assetsTemplate, /scenePresetBar/);
+    assert.match(assetsTemplate, /sceneSubTabs/);
 
     assert.match(getSettingsTabTemplate('reader'), /readerSubTabs/);
     for (const subTab of fixture.readerSubTabs) {
@@ -694,6 +718,8 @@ test('gate:igs-ui:settings-style-keeps-original-geometry', () => {
     assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.segmentedHeight)));
     assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.switchHeight)));
     assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.mobileMedia)));
+    assert.match(styleText, new RegExp(escapeRegExp(fixture.styleChecks.segmentedButtonBox)));
+    assert.doesNotMatch(styleText, /\.igs-segmented-btn\{[^}]*padding:0 4px/);
     assert.match(styleText, /\.igs-segmented-btn\{[^}]*min-width:0;[^}]*overflow:hidden/);
     assert.match(styleText, /\.igs-segmented-btn-label\{[^}]*display:block;[^}]*max-width:100%;[^}]*overflow:hidden;[^}]*text-overflow:ellipsis;[^}]*white-space:nowrap/);
 });
@@ -705,6 +731,7 @@ test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
 
     for (const key of [
         'palettePaper',
+        'dayPalette',
         'palettePanel',
         'paletteField',
         'radiusShell',
@@ -713,6 +740,9 @@ test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
         'flatShell',
         'flatBackdrop',
         'activeTab',
+        'themeToggle',
+        'sceneSettingsSubTabs',
+        'sceneSettingsSubTabActive',
         'readerSubTabs',
         'readerSubTabActive',
         'flatSegmentedIndicator',

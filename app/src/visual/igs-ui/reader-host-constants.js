@@ -91,9 +91,12 @@ export const SETTINGS_PANEL_REQUIRED_SELECTORS = Object.freeze([
     '#igs-unified-settings',
     '.igs-settings-shell',
     '.igs-settings-head',
+    '.igs-settings-theme-toggle',
     '.igs-settings-tabs',
     '.igs-settings-body',
     '.igs-segmented',
+    '.igs-scene-settings-subtabs',
+    '.igs-reader-subtabs',
     '.igs-source-filter',
     '.igs-settings-preview',
 ]);
@@ -104,6 +107,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
         requiredPaths: Object.freeze([
             'bridge.openMode',
             'bridge.showToasts',
+            'bridge.settingsTheme',
         ]),
     }),
     regex: Object.freeze({
@@ -152,6 +156,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
         ]),
         requiredActions: Object.freeze([
             'reset-prompt-rule',
+            'save-prompt-rule',
         ]),
     }),
     reader: Object.freeze({

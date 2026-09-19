@@ -215,6 +215,7 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     const overlay = doc.createElement('div');
     overlay.id = 'igs-unified-settings';
     overlay.setAttribute('data-igs-igs-ui', 'true');
+    overlay.setAttribute('data-igs-settings-theme', snapshot.settingsTheme || 'night');
 
     const shell = doc.createElement('div');
     shell.className = 'igs-settings-shell';
@@ -231,6 +232,20 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     title.className = 'igs-settings-title';
     title.textContent = '设置';
     head.appendChild(title);
+
+    const themeToggle = doc.createElement('button');
+    themeToggle.className = 'igs-settings-theme-toggle';
+    themeToggle.type = 'button';
+    themeToggle.setAttribute('data-action', 'toggle-settings-theme');
+    themeToggle.setAttribute('aria-label', snapshot.settingsThemeLabel || '切换设置配色');
+    themeToggle.setAttribute('title', snapshot.settingsThemeLabel || '切换设置配色');
+    themeToggle.setAttribute('aria-pressed', snapshot.settingsThemePressed || 'false');
+    themeToggle.innerHTML = snapshot.settingsThemeIcon || '';
+    head.appendChild(themeToggle);
+
+    const headSpacer = doc.createElement('div');
+    headSpacer.className = 'igs-settings-head-spacer';
+    head.appendChild(headSpacer);
 
     const badge = doc.createElement('div');
     badge.className = 'igs-settings-badge';
@@ -262,6 +277,10 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     if (typeof ctx.renderSettingsBody === 'function') {
         body.innerHTML = ctx.renderSettingsBody(snapshot.tab, snapshot.draft, {
             readerSubTab: snapshot.readerSubTab,
+            sceneSettingsSubTab: snapshot.sceneSettingsSubTab,
+            sceneSubTab: snapshot.sceneSubTab,
+            promptRuleStatus: snapshot.resultText && snapshot.resultText.promptRule,
+            promptRuleDraft: snapshot.resultText && snapshot.resultText.promptRuleDraft,
             imageResult: snapshot.resultText && snapshot.resultText.image,
             imageModelsMessage: snapshot.resultText && snapshot.resultText.imageModels,
             virtualRegexPreview: snapshot.resultText && snapshot.resultText.virtualRegex,

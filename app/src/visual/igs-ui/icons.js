@@ -6,6 +6,15 @@ export const READER_MODE_ICONS = Object.freeze({
     embedded: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="6" y="8" width="12" height="8" rx="1"/></svg>',
 });
 
+export const SETTINGS_THEME_ICONS = Object.freeze({
+    day: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>',
+    night: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"/></svg>',
+});
+
 export function getReaderModeIcon(mode) {
     return READER_MODE_ICONS[mode] || READER_MODE_ICONS.pc;
+}
+
+export function getSettingsThemeIcon(theme) {
+    return SETTINGS_THEME_ICONS[theme === 'day' ? 'day' : 'night'];
 }

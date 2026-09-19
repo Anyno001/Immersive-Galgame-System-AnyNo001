@@ -1101,11 +1101,50 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     settings.switchTab('scene');
 
+    const rulesView = settings.switchSceneSettingsSubTab('rules');
+    assert.equal(rulesView.snapshot.sceneSettingsSubTab, 'rules');
+    assert.match(rulesView.snapshot.html, /data-scene-settings-pane="rules"/);
+    assert.match(rulesView.snapshot.html, /保存提示词/);
+    assert.doesNotMatch(rulesView.snapshot.html, /背景场景/);
+
+    const assetsView = settings.switchSceneSettingsSubTab('assets');
+    assert.equal(assetsView.snapshot.sceneSettingsSubTab, 'assets');
+    assert.match(assetsView.snapshot.html, /data-scene-settings-pane="assets"/);
     const scenesView = settings.switchSceneSubTab('scenes');
     assert.match(scenesView.snapshot.html, /背景场景/);
     const charsView = settings.switchSceneSubTab('characters');
     assert.match(charsView.snapshot.html, /统一角色立绘位置/);
 
+    vn.destroy();
+});
+
+test('gate:simulation:settings-theme-toggle-persists-day-mode', async () => {
+    const storage = createMemoryStorage();
+    const vn = bootstrapIGS({
+        global: { localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 3, text: '旁白。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    const initial = settings.getSnapshot();
+    assert.equal(initial.settingsTheme, 'night');
+    assert.match(initial.html, /data-igs-settings-theme="night"/);
+    assert.match(initial.html, /切换到日间模式/);
+
+    const toggled = await settings.invoke('toggle-settings-theme');
+    assert.equal(toggled.snapshot.settingsTheme, 'day');
+    assert.match(toggled.snapshot.html, /data-igs-settings-theme="day"/);
+    assert.match(toggled.snapshot.html, /切换到夜间模式/);
+    const bridge = JSON.parse(storage.getItem('igs_bridge_config'));
+    assert.equal(bridge.settingsTheme, 'day');
+
+    settings.close();
+    const reopened = opened.reader.controller.openSettings('basic');
+    assert.equal(reopened.snapshot.settingsTheme, 'day');
     vn.destroy();
 });
 

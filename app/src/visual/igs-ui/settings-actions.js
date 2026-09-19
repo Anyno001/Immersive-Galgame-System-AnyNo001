@@ -23,6 +23,14 @@ export async function handleSettingsAction(action, ctx) {
     const normalizedAction = String(action || '').trim();
     const settingsState = state.activeSettings;
 
+    if (normalizedAction === 'toggle-settings-theme') {
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        bridge.settingsTheme = bridge.settingsTheme === 'day' ? 'night' : 'day';
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'close') {
         return closeSettings();
     }
@@ -147,8 +155,26 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'reset-prompt-rule') {
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         settingsState.draft.bridge.sceneAssets.promptRule = DEFAULT_SCENE_PROMPT_RULE;
+        settingsState.asyncState.promptRuleDraft = DEFAULT_SCENE_PROMPT_RULE;
+        settingsState.asyncState.promptRuleStatus = '已恢复默认提示词并保存。';
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'save-prompt-rule') {
+        settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const nextRule = typeof settingsState.asyncState.promptRuleDraft === 'string'
+            ? settingsState.asyncState.promptRuleDraft
+            : String(settingsState.draft.bridge.sceneAssets.promptRule || '');
+        settingsState.draft.bridge.sceneAssets.promptRule = nextRule;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) {
+            settingsState.asyncState.promptRuleStatus = '保存失败，请重试。';
+            return rerenderSettings();
+        }
+        settingsState.asyncState.promptRuleDraft = nextRule;
+        settingsState.asyncState.promptRuleStatus = '提示词已保存并更新注入规则。';
         return rerenderSettings();
     }
 

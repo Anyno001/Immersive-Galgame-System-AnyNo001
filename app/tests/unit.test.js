@@ -50,6 +50,7 @@ import {
     resolveMoodGroup,
 } from '../src/scene/mood-groups.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
+import { DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normalizePublicReaderMode } from '../src/schemas/reader-mode.js';
 import { ensureEmbeddedHost, hideEmbeddedSourceText, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from '../src/visual/igs-ui/reader-source-cache.js';
@@ -913,6 +914,62 @@ test('gate:scene:settings-action-set-time-url-survives-colon-in-time-name', asyn
     assert.equal(persistCount, 1);
 });
 
+test('gate:scene:prompt-rule-draft-only-persists-on-explicit-save', async () => {
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                promptRule: '旧规则',
+                scenes: {},
+                characters: {},
+            },
+        },
+        readerSettings: {},
+    };
+    const asyncState = { promptRuleDraft: '新规则' };
+    let persistCount = 0;
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState } },
+        options: { global: {} },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
+        rerenderSettings: () => ({ ok: true, status: asyncState.promptRuleStatus }),
+        buildRegexPreview: () => '',
+    };
+
+    assert.equal(draft.bridge.sceneAssets.promptRule, '旧规则');
+    assert.equal(persistCount, 0);
+    const saved = await handleSettingsAction('save-prompt-rule', ctx);
+    assert.equal(saved.ok, true);
+    assert.equal(draft.bridge.sceneAssets.promptRule, '新规则');
+    assert.equal(persistCount, 1);
+    assert.equal(asyncState.promptRuleStatus, '提示词已保存并更新注入规则。');
+
+    await handleSettingsAction('reset-prompt-rule', ctx);
+    assert.equal(draft.bridge.sceneAssets.promptRule, DEFAULT_SCENE_PROMPT_RULE);
+    assert.equal(asyncState.promptRuleDraft, DEFAULT_SCENE_PROMPT_RULE);
+    assert.equal(persistCount, 2);
+});
+
+test('gate:settings:theme-toggle-persists-through-settings-action', async () => {
+    const draft = { bridge: { settingsTheme: 'night' }, readerSettings: {} };
+    let persistCount = 0;
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
+        options: { global: {} },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    await handleSettingsAction('toggle-settings-theme', ctx);
+    assert.equal(draft.bridge.settingsTheme, 'day');
+    assert.equal(persistCount, 1);
+    await handleSettingsAction('toggle-settings-theme', ctx);
+    assert.equal(draft.bridge.settingsTheme, 'night');
+    assert.equal(persistCount, 2);
+});
+
 test('gate:scene:settings-action-mood-groups-toggle-and-reset', async () => {
     const draft = { bridge: { sceneAssets: { enabled: true, scenes: {}, characters: { '小林': { '喜悦': '' } }, moodGroups: [{ label: '自定义', words: ['词A'] }] } }, readerSettings: {} };
     const asyncState = {};
@@ -1116,6 +1173,7 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
     const opened = host.openSettings({ tab: 'scene' });
     const controller = opened.controller;
     controller.switchTab('scene');
+    controller.switchSceneSettingsSubTab('assets');
     controller.switchSceneSubTab('characters');
 
     // 折叠态：不含缩略图
