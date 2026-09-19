@@ -41,7 +41,11 @@ export function ensureEmbeddedHost(parent, doc, hostRef) {
 
 export function hideEmbeddedSourceText(mesText) {
     if (!mesText || typeof mesText.setAttribute !== 'function') return;
-    if (typeof mesText.getAttribute === 'function' && mesText.getAttribute(EMBEDDED_TEXT_HIDDEN_ATTR) === '1') return;
+    if (typeof mesText.getAttribute === 'function' && mesText.getAttribute(EMBEDDED_TEXT_HIDDEN_ATTR) === '1') {
+        if (mesText.style) mesText.style.display = 'none';
+        mesText.setAttribute('aria-hidden', 'true');
+        return;
+    }
     const display = mesText.style ? String(mesText.style.display || '') : '';
     const aria = typeof mesText.getAttribute === 'function' ? mesText.getAttribute('aria-hidden') : null;
     mesText.setAttribute(EMBEDDED_TEXT_HIDDEN_ATTR, '1');

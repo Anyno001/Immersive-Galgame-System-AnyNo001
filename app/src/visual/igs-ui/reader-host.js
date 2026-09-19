@@ -132,7 +132,8 @@ export function createIgsReaderHost(options = {}) {
     });
     const streamObserver = createChatStreamObserver({
         global: options.global || globalThis,
-        onActivity: () => enterEmbeddedLoading(),
+        getDocument: () => resolveEmbeddedDocument(state.activeReader),
+        onActivity: () => handleChatStreamActivity(),
         onStable: () => handleChatStreamStable(),
         onTimeout: async () => {
             const completed = await handleChatStreamStable();
@@ -381,6 +382,81 @@ export function createIgsReaderHost(options = {}) {
         return { ok: true };
     }
 
+    function handleChatStreamActivity() {
+        const current = state.activeReader;
+        if (!current || !isEmbeddedReaderMode(current.mode)) return;
+        syncEmbeddedStreamMount(current);
+        enterEmbeddedLoading();
+    }
+
+    function resolveEmbeddedDocument(current) {
+        const mount = current && current.dom && current.dom.embeddedMount;
+        return mount && mount.host && mount.host.ownerDocument
+            || current && current.dom && current.dom.root && current.dom.root.ownerDocument
+            || current && current.dom && current.dom.doc
+            || getRootDocument(options.global);
+    }
+
+    function syncEmbeddedStreamMount(current) {
+        const message = resolveLatestLiveAiMessage(resolveEmbeddedDocument(current));
+        return message ? syncEmbeddedReaderMount(current, message) : false;
+    }
+
+    function resolveLatestLiveAiMessage(doc) {
+        const chat = doc && typeof doc.querySelector === 'function' ? doc.querySelector('#chat') : null;
+        const children = chat && chat.children ? Array.from(chat.children) : [];
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+            const element = children[index];
+            if (!element || !element.classList || !element.classList.contains('mes')) continue;
+            if (readHostBooleanAttribute(element, ['is_user', 'data-is-user'])) continue;
+            if (readHostBooleanAttribute(element, ['is_system', 'data-is-system'])) continue;
+            const messageId = readLiveMessageId(element);
+            if (messageId != null) return { id: messageId, element };
+        }
+        return null;
+    }
+
+    function readHostBooleanAttribute(element, names) {
+        if (!element || typeof element.getAttribute !== 'function') return false;
+        return names.some((name) => {
+            const value = element.getAttribute(name);
+            return value === true || value === 1 || value === '1' || value === 'true';
+        });
+    }
+
+    function readLiveMessageId(element) {
+        if (!element || typeof element.getAttribute !== 'function') return null;
+        for (const name of ['mesid', 'data-mesid', 'data-message-id', 'data-id']) {
+            const raw = element.getAttribute(name);
+            const id = Number(raw);
+            if (raw != null && Number.isFinite(id) && id >= 0) return id;
+        }
+        return null;
+    }
+
+    function syncEmbeddedReaderMount(current, message) {
+        if (!current || !current.dom || !current.dom.root || !message || message.id == null) return false;
+        const doc = resolveEmbeddedDocument(current);
+        const element = message.element || resolveLiveMessageElement(doc, message.id);
+        const resolved = resolveEmbeddedHostParent(element);
+        if (!resolved) return false;
+        const mount = current.dom.embeddedMount;
+        const sameMount = Boolean(
+            mount
+            && mount.messageId === message.id
+            && mount.mesText === resolved.mesText
+            && mount.host
+            && mount.host.parentNode === resolved.parent
+        );
+        if (sameMount) {
+            hideEmbeddedSourceText(resolved.mesText);
+            return false;
+        }
+        remountEmbeddedReader(current, { ...message, element });
+        if (current.dom.embeddedMount) current.mountMessageId = message.id;
+        return Boolean(current.dom.embeddedMount);
+    }
+
     // 观察器只在“稳定”后调用一次：读取最新 AI 消息并原地换源。
     // 流式 token 期间不解析正文、不收集图片，避免酒馆卡顿与页面抖动。
     async function handleChatStreamStable() {
@@ -398,14 +474,14 @@ export function createIgsReaderHost(options = {}) {
         }
         const nextRaw = getMessagePrimaryText(message.raw || message);
         const nextVisible = String(message.visibleText || '');
-        const changed = message.id !== current.mountMessageId
+        const changed = message.id !== current.contentMessageId
             || nextRaw !== current.streamBaselineRaw
             || nextVisible !== current.streamBaselineVisible;
         if (!changed) {
             exitEmbeddedLoading();
             return true;
         }
-        if (message.id !== current.mountMessageId) remountEmbeddedReader(current, message);
+        syncEmbeddedReaderMount(current, message);
         current.turnOffset = 0;
         current.mountMessageId = message.id;
         try {
@@ -466,10 +542,11 @@ export function createIgsReaderHost(options = {}) {
     function remountEmbeddedReader(current, message) {
         if (!current || !current.dom || !current.dom.root) return;
         const root = current.dom.root;
+        const doc = resolveEmbeddedDocument(current);
         teardownEmbeddedMount(current.dom.embeddedMount);
-        current.dom.embeddedMount = mountEmbeddedRoot(current.dom.doc, root, message, message && message.id);
+        current.dom.embeddedMount = mountEmbeddedRoot(doc, root, message, message && message.id);
         if (!current.dom.embeddedMount) {
-            (current.dom.doc.documentElement || current.dom.doc.body).appendChild(root);
+            (doc.documentElement || doc.body).appendChild(root);
         }
     }
 
@@ -1677,7 +1754,12 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function mountReaderDom(snapshot, controller, payload = {}) {
-        const doc = getRootDocument(options.global);
+        const rootDoc = getRootDocument(options.global);
+        const messageDoc = isEmbeddedReaderMode(snapshot.mode)
+            && payload.message
+            && payload.message.element
+            && payload.message.element.ownerDocument;
+        const doc = messageDoc || rootDoc;
         if (!doc) return null;
         ensureStyleTag(doc, 'igs-overlay-style', getOriginalReaderStyleText());
         const existing = doc.getElementById('igs-overlay');
@@ -1763,7 +1845,8 @@ export function createIgsReaderHost(options = {}) {
         if (!element) return null;
         const resolved = resolveEmbeddedHostParent(element);
         if (!resolved) return null;
-        const host = ensureEmbeddedHost(resolved.parent, doc, findEmbeddedHost(doc));
+        const targetDoc = resolved.mesText.ownerDocument || element.ownerDocument || doc;
+        const host = ensureEmbeddedHost(resolved.parent, targetDoc, findEmbeddedHost(targetDoc));
         if (!host) return null;
         hideEmbeddedSourceText(resolved.mesText);
         if (root.classList) root.classList.add('igs-embedded-root');

@@ -182,6 +182,11 @@ test('gate:igs-ui:embedded-host-mounts-beside-mes-text-and-restores', () => {
     hideEmbeddedSourceText(mesText);
     assert.equal(mesText.style.display, 'none');
     assert.equal(mesText.getAttribute('aria-hidden'), 'true');
+    mesText.style.display = '';
+    mesText.removeAttribute('aria-hidden');
+    hideEmbeddedSourceText(mesText);
+    assert.equal(mesText.style.display, 'none');
+    assert.equal(mesText.getAttribute('aria-hidden'), 'true');
     restoreEmbeddedSourceText(mesText);
     assert.equal(mesText.style.display, '');
     assert.equal(mesText.getAttribute('aria-hidden'), null);
@@ -207,6 +212,77 @@ test('gate:igs-ui:embedded-chat-observer-only-starts-when-asked', () => {
     assert.equal(created[0].observed, true);
     observer.stop();
     assert.equal(observer.isActive(), false);
+    assert.equal(created[0].disconnected, true);
+});
+
+test('gate:igs-ui:embedded-chat-observer-uses-generation-end-and-ignores-late-dom-noise', async () => {
+    const timers = new Map();
+    const listeners = new Map();
+    const created = [];
+    let timerId = 0;
+    const eventSource = {
+        on(name, handler) {
+            if (!listeners.has(name)) listeners.set(name, []);
+            listeners.get(name).push(handler);
+        },
+        off(name, handler) {
+            listeners.set(name, (listeners.get(name) || []).filter((item) => item !== handler));
+        },
+        emit(name) {
+            for (const handler of listeners.get(name) || []) handler();
+        },
+    };
+    const globalObject = {
+        setTimeout(handler, delay) {
+            timerId += 1;
+            timers.set(timerId, { handler, delay });
+            return timerId;
+        },
+        clearTimeout(id) {
+            timers.delete(id);
+        },
+        MutationObserver: class {
+            constructor(handler) { this.handler = handler; created.push(this); }
+            observe() { this.observed = true; }
+            disconnect() { this.disconnected = true; }
+        },
+    };
+    const document = { querySelector: () => ({}), defaultView: globalObject };
+    let activityCount = 0;
+    let stableCount = 0;
+    const observer = createChatStreamObserver({
+        global: globalObject,
+        document,
+        eventSource,
+        eventTypes: {
+            GENERATION_STARTED: 'generation_started',
+            GENERATION_ENDED: 'generation_ended',
+            GENERATION_STOPPED: 'generation_stopped',
+        },
+        onActivity: () => { activityCount += 1; },
+        onStable: () => { stableCount += 1; return true; },
+    });
+
+    const started = observer.start();
+    assert.equal(started.lifecycle, true);
+    eventSource.emit('generation_started');
+    created[0].handler([{ target: {} }]);
+    assert.equal(activityCount, 2);
+    assert.equal(stableCount, 0);
+
+    eventSource.emit('generation_ended');
+    const stableTimer = Array.from(timers.entries()).find(([, timer]) => timer.delay === 800);
+    assert.ok(stableTimer);
+    timers.delete(stableTimer[0]);
+    stableTimer[1].handler();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(stableCount, 1);
+
+    created[0].handler([{ target: {} }]);
+    assert.equal(activityCount, 2);
+    assert.equal(stableCount, 1);
+    observer.stop();
     assert.equal(created[0].disconnected, true);
 });
 

@@ -1,12 +1,19 @@
+import { getSillyTavernContext } from './tavern-helper-adapter.js';
+
 // 楼层内嵌的流式生命周期：仅在 embedded 阅读器打开时创建，
-// 只观察 #chat，不轮询、不全页监听；每次 token 只重置计时器，不做解析。
+// 官方生成事件负责起止，#chat mutation 只在生成期间同步活动，不做解析。
 
 export const DEFAULT_STABLE_MS = 800;
 export const DEFAULT_HARD_TIMEOUT_MS = 120000;
 
+const FALLBACK_GENERATION_EVENTS = Object.freeze({
+    started: 'generation_started',
+    ended: 'generation_ended',
+    stopped: 'generation_stopped',
+});
+
 export function createChatStreamObserver(opts = {}) {
     const globalObject = opts.global || globalThis;
-    const doc = opts.document || (globalObject && globalObject.document) || null;
     const onActivity = typeof opts.onActivity === 'function' ? opts.onActivity : () => {};
     const onStable = typeof opts.onStable === 'function' ? opts.onStable : () => {};
     const onTimeout = typeof opts.onTimeout === 'function' ? opts.onTimeout : onStable;
@@ -16,52 +23,147 @@ export function createChatStreamObserver(opts = {}) {
     let stableTimer = null;
     let hardTimer = null;
     let active = false;
+    let generationActive = false;
+    let manualArmed = false;
+    let lifecycleAvailable = false;
+    const lifecycleCleanup = [];
 
-    const schedule = () => {
-        if (!active) return;
-        onActivity();
-        clearStable();
-        const setter = typeof globalObject.setTimeout === 'function' ? globalObject.setTimeout.bind(globalObject) : setTimeout;
-        if (hardTimer == null) {
-            hardTimer = setter(() => {
-                hardTimer = null;
-                if (active) onTimeout();
-            }, hardTimeoutMs);
-        }
-        stableTimer = setter(() => {
-            stableTimer = null;
-            if (!active) return;
-            Promise.resolve(onStable()).then((completed) => {
-                if (completed !== false) clearHard();
-            });
-        }, stableMs);
-    };
+    const getSetter = () => typeof globalObject.setTimeout === 'function'
+        ? globalObject.setTimeout.bind(globalObject)
+        : setTimeout;
+
+    const getClearer = () => typeof globalObject.clearTimeout === 'function'
+        ? globalObject.clearTimeout.bind(globalObject)
+        : clearTimeout;
 
     const clearStable = () => {
         if (stableTimer == null) return;
-        const clearer = typeof globalObject.clearTimeout === 'function' ? globalObject.clearTimeout.bind(globalObject) : clearTimeout;
-        clearer(stableTimer);
+        getClearer()(stableTimer);
         stableTimer = null;
     };
 
     const clearHard = () => {
         if (hardTimer == null) return;
-        const clearer = typeof globalObject.clearTimeout === 'function' ? globalObject.clearTimeout.bind(globalObject) : clearTimeout;
-        clearer(hardTimer);
+        getClearer()(hardTimer);
         hardTimer = null;
     };
 
-    const MutationObserverCtor = globalObject.MutationObserver || globalObject.WebKitMutationObserver || null;
+    const scheduleStable = () => {
+        if (!active) return;
+        clearStable();
+        stableTimer = getSetter()(() => {
+            stableTimer = null;
+            if (!active) return;
+            Promise.resolve()
+                .then(onStable)
+                .then((completed) => {
+                    if (completed !== false) {
+                        manualArmed = false;
+                        clearHard();
+                        return;
+                    }
+                    scheduleStable();
+                })
+                .catch(() => scheduleStable());
+        }, stableMs);
+    };
+
+    const ensureHard = () => {
+        if (!active || hardTimer != null) return;
+        hardTimer = getSetter()(() => {
+            hardTimer = null;
+            generationActive = false;
+            manualArmed = false;
+            clearStable();
+            if (active) Promise.resolve().then(onTimeout).catch(() => {});
+        }, hardTimeoutMs);
+    };
+
+    const scheduleActivity = () => {
+        if (!active) return;
+        try { onActivity(); } catch (error) { /* */ }
+        ensureHard();
+        if (!lifecycleAvailable || (manualArmed && !generationActive)) scheduleStable();
+    };
+
+    const onGenerationStarted = () => {
+        if (!active) return;
+        generationActive = true;
+        manualArmed = false;
+        clearStable();
+        scheduleActivity();
+    };
+
+    const onGenerationFinished = () => {
+        if (!active) return;
+        generationActive = false;
+        manualArmed = false;
+        ensureHard();
+        scheduleStable();
+    };
+
+    const detachLifecycle = () => {
+        while (lifecycleCleanup.length) {
+            const cleanup = lifecycleCleanup.pop();
+            try { cleanup(); } catch (error) { /* */ }
+        }
+        lifecycleAvailable = false;
+    };
+
+    const attachLifecycle = () => {
+        detachLifecycle();
+        const context = opts.context || getSillyTavernContext(globalObject);
+        const eventSource = opts.eventSource || context && context.eventSource;
+        const eventTypes = opts.eventTypes || context && (context.event_types || context.eventTypes) || {};
+        if (!eventSource || typeof eventSource.on !== 'function') return false;
+        const started = eventTypes.GENERATION_STARTED || FALLBACK_GENERATION_EVENTS.started;
+        const finished = Array.from(new Set([
+            eventTypes.GENERATION_ENDED || FALLBACK_GENERATION_EVENTS.ended,
+            eventTypes.GENERATION_STOPPED || FALLBACK_GENERATION_EVENTS.stopped,
+        ].filter(Boolean)));
+        const subscribe = (eventName, handler) => {
+            eventSource.on(eventName, handler);
+            lifecycleCleanup.push(() => {
+                if (typeof eventSource.removeListener === 'function') eventSource.removeListener(eventName, handler);
+                else if (typeof eventSource.off === 'function') eventSource.off(eventName, handler);
+            });
+        };
+        try {
+            subscribe(started, onGenerationStarted);
+            finished.forEach((eventName) => subscribe(eventName, onGenerationFinished));
+            lifecycleAvailable = true;
+            return true;
+        } catch (error) {
+            detachLifecycle();
+            return false;
+        }
+    };
+
+    const resolveDocument = () => {
+        if (typeof opts.getDocument === 'function') {
+            try {
+                const resolved = opts.getDocument();
+                if (resolved) return resolved;
+            } catch (error) { /* */ }
+        }
+        return opts.document || (globalObject && globalObject.document) || null;
+    };
 
     const start = () => {
         if (active) return { ok: true, already: true };
         active = true;
+        attachLifecycle();
+        const doc = resolveDocument();
+        const observerWindow = doc && doc.defaultView;
+        const MutationObserverCtor = globalObject.MutationObserver || globalObject.WebKitMutationObserver
+            || observerWindow && (observerWindow.MutationObserver || observerWindow.WebKitMutationObserver) || null;
         const chat = doc && typeof doc.querySelector === 'function' ? doc.querySelector('#chat') : null;
         if (MutationObserverCtor && chat) {
             observer = new MutationObserverCtor((records) => {
                 const external = Array.isArray(records) && records.some((record) => !isInternalRecord(record));
                 if (!external) return;
-                schedule();
+                if (lifecycleAvailable && !generationActive && !manualArmed) return;
+                scheduleActivity();
             });
             try {
                 observer.observe(chat, { childList: true, subtree: true, characterData: true });
@@ -69,18 +171,38 @@ export function createChatStreamObserver(opts = {}) {
                 observer = null;
             }
         }
-        return { ok: true, observed: Boolean(observer) };
+        return { ok: true, observed: Boolean(observer), lifecycle: lifecycleAvailable };
+    };
+
+    const cancelPending = () => {
+        generationActive = false;
+        manualArmed = false;
+        clearStable();
+        clearHard();
     };
 
     const stop = () => {
         active = false;
-        clearStable();
-        clearHard();
+        cancelPending();
         if (observer && typeof observer.disconnect === 'function') observer.disconnect();
         observer = null;
+        detachLifecycle();
     };
 
-    return { start, stop, isActive: () => active, noteActivity: schedule };
+    const noteActivity = () => {
+        if (!active) return;
+        manualArmed = true;
+        scheduleActivity();
+    };
+
+    return {
+        start,
+        stop,
+        cancelPending,
+        isActive: () => active,
+        hasLifecycle: () => lifecycleAvailable,
+        noteActivity,
+    };
 }
 
 function isInternalRecord(record) {

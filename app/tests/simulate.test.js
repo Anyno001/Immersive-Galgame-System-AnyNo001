@@ -1211,6 +1211,107 @@ test('gate:simulation:igs-ui-embedded-mounts-beside-latest-message-and-restores-
     vn.destroy();
 });
 
+test('gate:simulation:igs-ui-embedded-stream-hides-new-floor-and-finishes-on-host-event', async () => {
+    const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
+    const globalObject = document.defaultView;
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const initialElement = createFakeMessageElement(document, { messageId: 70, textContent: '上一轮正文。' });
+    chat.appendChild(initialElement);
+    const messages = new Map();
+    let currentMessage = { id: 70, text: '上一轮正文。', visibleText: '上一轮正文。', element: initialElement };
+    messages.set(70, currentMessage);
+
+    const eventListeners = new Map();
+    const eventSource = {
+        on(name, handler) {
+            if (!eventListeners.has(name)) eventListeners.set(name, []);
+            eventListeners.get(name).push(handler);
+        },
+        off(name, handler) {
+            eventListeners.set(name, (eventListeners.get(name) || []).filter((item) => item !== handler));
+        },
+        emit(name) {
+            for (const handler of eventListeners.get(name) || []) handler();
+        },
+    };
+    const mutationObservers = [];
+    globalObject.MutationObserver = class {
+        constructor(handler) { this.handler = handler; mutationObservers.push(this); }
+        observe() { this.observed = true; }
+        disconnect() { this.disconnected = true; }
+    };
+    const timers = new Map();
+    let timerId = 0;
+    globalObject.setTimeout = (handler, delay) => {
+        timerId += 1;
+        timers.set(timerId, { handler, delay });
+        return timerId;
+    };
+    globalObject.clearTimeout = (id) => timers.delete(id);
+    globalObject.SillyTavern = {
+        getContext: () => ({
+            eventSource,
+            event_types: {
+                GENERATION_STARTED: 'generation_started',
+                GENERATION_ENDED: 'generation_ended',
+                GENERATION_STOPPED: 'generation_stopped',
+            },
+        }),
+    };
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => currentMessage,
+            getMessageById: async (id) => messages.get(Number(id)) || null,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('embedded');
+    assert.equal(opened.ok, true);
+    assert.equal(mutationObservers.length, 1);
+    eventSource.emit('generation_started');
+
+    const streamingElement = createFakeMessageElement(document, { messageId: 71, textContent: '流式中的楼层字样。' });
+    const streamingText = streamingElement.querySelector('.mes_text');
+    chat.appendChild(streamingElement);
+    currentMessage = { id: 71, text: '流式中的楼层字样。', visibleText: '流式中的楼层字样。', element: streamingElement };
+    messages.set(71, currentMessage);
+    mutationObservers[0].handler([{ target: chat, addedNodes: [streamingElement], removedNodes: [] }]);
+
+    const streamHost = streamingElement.querySelector('[data-igs-embedded-host="1"]');
+    assert.ok(streamHost);
+    assert.equal(initialElement.querySelector('.mes_text').style.display, '');
+    assert.equal(streamingText.style.display, 'none');
+    assert.equal(streamHost.getAttribute('data-igs-embedded-loading'), '1');
+    assert.ok(streamHost.querySelector('.igs-embedded-loading'));
+
+    streamingText.textContent = '生成完成后的最终正文。';
+    streamingText.innerText = streamingText.textContent;
+    currentMessage = { id: 71, text: '生成完成后的最终正文。', visibleText: '生成完成后的最终正文。', element: streamingElement };
+    messages.set(71, currentMessage);
+    eventSource.emit('generation_ended');
+    const stableTimer = Array.from(timers.entries()).find(([, timer]) => timer.delay === 800);
+    assert.ok(stableTimer);
+    timers.delete(stableTimer[0]);
+    stableTimer[1].handler();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(streamHost.getAttribute('data-igs-embedded-loading'), null);
+    assert.equal(streamHost.querySelector('.igs-embedded-loading'), null);
+    assert.notEqual(document.getElementById('igs-overlay').style.display, 'none');
+    assert.match(opened.reader.controller.getSnapshot().content.displayText, /生成完成后的最终正文/);
+
+    mutationObservers[0].handler([{ target: streamingText, addedNodes: [], removedNodes: [] }]);
+    assert.equal(streamHost.querySelector('.igs-embedded-loading'), null);
+    vn.destroy();
+    assert.equal(streamingText.style.display, '');
+});
+
 test('gate:simulation:igs-ui-embedded-turn-navigation-keeps-latest-host-and-does-not-jump', async () => {
     const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
     const globalObject = document.defaultView;
