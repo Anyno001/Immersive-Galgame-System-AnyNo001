@@ -346,11 +346,6 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     applyTransparentGlassMaterial(root, readerSettings.glassOpacity, {
         backdropFilter: readerSettings.glassBackdropFilter,
     });
-    if (root && root.style && typeof root.style.setProperty === 'function') {
-        root.style.setProperty('--igs-empty-bg', readerSettings.emptyBackgroundColor);
-    }
-    const embeddedHost = embeddedMode && root && typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
-    if (embeddedHost && embeddedHost.style) embeddedHost.style.backgroundColor = readerSettings.emptyBackgroundColor;
 
     if (textEl) {
         textEl.style.fontSize = `${readerSettings.fontSize}px`;
@@ -433,7 +428,6 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
 
     if (bg) {
         bg.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'contain' : 'cover';
-        bg.style.backgroundColor = readerSettings.emptyBackgroundColor;
         const brightness = Number(readerSettings.imgBrightness);
         bg.style.filter = `brightness(${(Number.isFinite(brightness) ? brightness : 88) / 100})`;
     }

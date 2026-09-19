@@ -69,7 +69,7 @@ const IMAGE_TAB_TEMPLATE = `
 const READER_TAB_TEMPLATE = `
 <div class="igs-settings-grid">
   {{fontSizeField}}
-  {{emptyBackgroundColorField}}
+  {{optionFontSizeField}}
   {{dialogWidthField}}
   {{dialogHeightField}}
   {{glassOpacityField}}
@@ -86,7 +86,7 @@ const READER_TAB_TEMPLATE = `
       <div class="igs-source-filter-note">在最后一页点击对话框空白处显示选项（取自数据库「选项 / 选项表 / 行动选项 / 检定建议表」表的文本列），再点空白处隐藏。需安装数据库插件。</div>
     </div>
     <div class="igs-settings-row">{{optionBubbleToggle}}</div>
-    <div class="igs-settings-row">{{optionBubbleWidthToggle}}{{optionBubbleFontSizeField}}</div>
+    <div class="igs-settings-row">{{optionBubbleWidthToggle}}</div>
     <div class="igs-settings-row">{{optionBubblePositionField}}{{optionBubbleActionField}}</div>
   </div>
   <div class="igs-settings-section igs-settings-full">{{pinnedButtonsField}}</div>

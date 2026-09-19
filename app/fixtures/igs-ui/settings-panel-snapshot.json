@@ -66,7 +66,6 @@
         "readerMode",
         "readerSettings.fontSize",
         "readerSettings.optionFontSize",
-        "readerSettings.emptyBackgroundColor",
         "readerSettings.dialogWidth",
         "readerSettings.dialogHeight",
         "readerSettings.glassOpacity",
@@ -94,6 +93,7 @@
     "radiusSmall": "--igs-settings-radius-small:4px",
     "flatShell": "border:0;border-radius:var(--igs-settings-radius-shell);box-shadow:none",
     "flatBackdrop": "backdrop-filter:none",
+    "activeTab": ".igs-settings-tab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",
     "flatSegmentedIndicator": ".igs-segmented-indicator{display:none",
     "mobileMedia": "@media (max-width:640px)"
   }

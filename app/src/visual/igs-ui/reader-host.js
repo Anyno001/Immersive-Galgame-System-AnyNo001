@@ -1438,7 +1438,6 @@ export function createIgsReaderHost(options = {}) {
             styles: {
                 '#igs-overlay': {
                     zIndex: ORIGINAL_READER_STYLE_CONTRACT.overlayZIndex,
-                    background: readerSettings.emptyBackgroundColor,
                 },
                 '.igs-dialog': {
                     width: ORIGINAL_READER_STYLE_CONTRACT.dialogWidth,
@@ -1656,7 +1655,7 @@ export function createIgsReaderHost(options = {}) {
         const displayTheme = vnTheme;
         return renderTemplate(getSettingsTabTemplate('reader'), {
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
-            emptyBackgroundColorField: field('readerSettings.emptyBackgroundColor', '无背景底色', colorInput('readerSettings.emptyBackgroundColor', toHex(reader.emptyBackgroundColor || '#16181a'))),
+            optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
             dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']])),
             dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, [['null', '自适应'], [10, '10px'], [20, '20px'], [40, '40px'], [60, '60px'], [90, '90px'], [130, '130px'], [160, '160px'], [200, '200px'], [250, '250px'], [300, '300px'], [400, '400px'], [500, '500px'], [600, '600px']])),
             glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`]))),
@@ -1673,7 +1672,6 @@ export function createIgsReaderHost(options = {}) {
             optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
             optionBubbleActionField: field('bridge.optionBubble.clickAction', '点击选项', segmentedInput('bridge.optionBubble.clickAction', (bridge.optionBubble && bridge.optionBubble.clickAction) || 'send', [['send', '自动发送'], ['fill', '填入输入框']], '点击行为')),
             optionBubbleWidthToggle: checkbox('bridge.optionBubble.widthFollowsText', Boolean(bridge.optionBubble && bridge.optionBubble.widthFollowsText), '气泡宽度随文本变化'),
-            optionBubbleFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
             pinnedButtonsField: renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder),
             themeGroupClass: `igs-source-filter igs-settings-full${themeDisabled ? ' igs-settings-api-group is-disabled' : ''}`,
             themePresetField: '',
@@ -2288,7 +2286,6 @@ export function createIgsReaderHost(options = {}) {
             _v: currentVersion,
             fontSize: 18,
             optionFontSize: 14,
-            emptyBackgroundColor: '#16181a',
             dialogWidth: null,
             dialogHeight: null,
             glassOpacity: 0.62,
@@ -2306,10 +2303,9 @@ export function createIgsReaderHost(options = {}) {
             spriteLayouts: {},
         };
         const normalized = { ...base, ...src, _v: currentVersion };
+        delete normalized.emptyBackgroundColor;
         normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
         normalized.optionFontSize = clampNumber(normalizeFiniteNumber(normalized.optionFontSize, base.optionFontSize), 10, 30);
-        normalized.emptyBackgroundColor = /^#[0-9a-f]{6}$/i.test(String(normalized.emptyBackgroundColor || ''))
-            ? String(normalized.emptyBackgroundColor).toLowerCase() : base.emptyBackgroundColor;
         normalized.dialogWidth = normalizeNullableNumber(normalized.dialogWidth);
         normalized.dialogHeight = normalizeNullableNumber(normalized.dialogHeight);
         normalized.glassOpacity = normalizeOpacity(normalized.glassOpacity, base.glassOpacity);

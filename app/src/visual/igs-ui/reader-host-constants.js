@@ -69,7 +69,6 @@ export const VN_THEME_PRESETS = Object.freeze({
 export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.fontSize',
     'readerSettings.optionFontSize',
-    'readerSettings.emptyBackgroundColor',
     'readerSettings.dialogWidth',
     'readerSettings.dialogHeight',
     'readerSettings.glassOpacity',
@@ -178,7 +177,7 @@ export const TOOLBAR_ACTIONS = Object.freeze([
 ]);
 
 export const DEFAULT_PINNED_TOOLBAR_BUTTONS = Object.freeze([]);
-export const READER_SETTINGS_SCHEMA_VERSION = '0.5.3';
+export const READER_SETTINGS_SCHEMA_VERSION = '0.5.4';
 export const INITIAL_IMAGE_POLL_ATTEMPTS = 8;
 export const INITIAL_IMAGE_POLL_INTERVAL_MS = 250;
 

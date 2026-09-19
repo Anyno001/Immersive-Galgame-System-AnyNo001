@@ -625,7 +625,10 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.html, /id="igs-controls-shujuku_v120-guard"/);
 
     const rendererText = readText('src/visual/igs-ui/reader-dom-render.js');
+    const readerHostText = readText('src/visual/igs-ui/reader-host.js');
     const dbControllerText = readText('src/shujuku-panel/panel-controller.js');
+    assert.doesNotMatch(rendererText, /emptyBackgroundColor/);
+    assert.doesNotMatch(readerHostText, /emptyBackgroundColorField|optionBubbleFontSizeField|readerSettings\.emptyBackgroundColor/);
     assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock === 'top'/);
     assert.match(rendererText, /applyTransparentGlassMaterial\(root, readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings\.glassBackdropFilter,\s+\}\)/);
     assert.doesNotMatch(rendererText, /setProperty\('--igs-glass-bg'/);
@@ -647,6 +650,13 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
         assert.equal(defined[1], tab.label);
         assert.ok(getSettingsTabTemplate(tab.id).length > 0);
     }
+
+    const readerTemplate = getSettingsTabTemplate('reader');
+    const fontSizeIndex = readerTemplate.indexOf('{{fontSizeField}}');
+    const optionFontSizeIndex = readerTemplate.indexOf('{{optionFontSizeField}}');
+    const dialogWidthIndex = readerTemplate.indexOf('{{dialogWidthField}}');
+    assert.ok(fontSizeIndex >= 0 && optionFontSizeIndex > fontSizeIndex && dialogWidthIndex > optionFontSizeIndex);
+    assert.doesNotMatch(readerTemplate, /emptyBackgroundColorField|optionBubbleFontSizeField/);
 });
 
 test('gate:igs-ui:settings-style-keeps-original-geometry', () => {
@@ -680,6 +690,7 @@ test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
         'radiusSmall',
         'flatShell',
         'flatBackdrop',
+        'activeTab',
         'flatSegmentedIndicator',
     ]) {
         assert.match(styleText, new RegExp(escapeRegExp(checks[key])));

@@ -529,6 +529,11 @@ test('gate:simulation:thought-theme-applies-thought-style-and-speaker-divider-vi
 test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
     const legacyStorage = readJson('fixtures/igs/legacy-storage.json');
     const storage = createMemoryStorage(legacyStorage);
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        _v: '0.5.3',
+        optionFontSize: 14,
+        emptyBackgroundColor: '#24272a',
+    }));
     const vn = bootstrapIGS({
         global: { localStorage: storage },
         hostAdapter: {
@@ -539,25 +544,26 @@ test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
 
     try {
         const opened = vn.openSettings({ tab: 'reader', mode: 'mobile' });
-        assert.equal(opened.controller.getSnapshot().draft.readerSettings.glassBackdropFilter, false);
+        const initialReader = opened.controller.getSnapshot().draft.readerSettings;
+        assert.equal(initialReader.glassBackdropFilter, false);
+        assert.equal(Object.hasOwn(initialReader, 'emptyBackgroundColor'), false);
         const updated = opened.controller.setValue('readerSettings.fontSize', 20);
         const optionSize = opened.controller.setValue('readerSettings.optionFontSize', 18);
-        const emptyBg = opened.controller.setValue('readerSettings.emptyBackgroundColor', '#24272a');
         const toggled = opened.controller.toggle('readerSettings.glassBackdropFilter');
         const current = vn.getUnifiedSettings({ mode: 'mobile' });
         const savedStorage = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
 
         assert.equal(updated.ok, true);
         assert.equal(optionSize.ok, true);
-        assert.equal(emptyBg.ok, true);
         assert.equal(toggled.ok, true);
         assert.equal(current.readerSettings.fontSize, 20);
         assert.equal(current.readerSettings.optionFontSize, 18);
-        assert.equal(current.readerSettings.emptyBackgroundColor, '#24272a');
+        assert.equal(Object.hasOwn(current.readerSettings, 'emptyBackgroundColor'), false);
         assert.equal(current.readerSettings.glassBackdropFilter, true);
         assert.equal(savedStorage.fontSize, 20);
         assert.equal(savedStorage.optionFontSize, 18);
-        assert.equal(savedStorage.emptyBackgroundColor, '#24272a');
+        assert.equal(savedStorage._v, '0.5.4');
+        assert.equal(Object.hasOwn(savedStorage, 'emptyBackgroundColor'), false);
         assert.equal(savedStorage.glassBackdropFilter, true);
     } finally {
         vn.destroy();
