@@ -652,6 +652,28 @@ test('gate:igs-ui:settings-style-keeps-original-geometry', () => {
     assert.match(styleText, /\.igs-segmented-btn-label\{[^}]*display:block;[^}]*max-width:100%;[^}]*overflow:hidden;[^}]*text-overflow:ellipsis;[^}]*white-space:nowrap/);
 });
 
+test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
+    const fixture = readJson('fixtures/igs-ui/settings-panel-snapshot.json');
+    const styleText = getSettingsStyleText();
+    const checks = fixture.styleChecks;
+
+    for (const key of [
+        'palettePaper',
+        'palettePanel',
+        'paletteField',
+        'flatShell',
+        'flatBackdrop',
+        'flatSegmentedIndicator',
+    ]) {
+        assert.match(styleText, new RegExp(escapeRegExp(checks[key])));
+    }
+    const shadows = Array.from(styleText.matchAll(/box-shadow:([^;}]+)/g), (match) => match[1].trim());
+    assert.ok(shadows.length > 0);
+    assert.deepEqual(Array.from(new Set(shadows)), ['none']);
+    assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(|blur\(|saturate\(/);
+    assert.doesNotMatch(styleText, /border-radius:(?:[3-9]|[1-9][0-9]+)px/);
+});
+
 test('gate:api:public-api-exposes-text-preset-groups', () => {
     const vn = bootstrapIGS({
         global: {},

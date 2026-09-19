@@ -84,6 +84,12 @@
     "headerHeight": "height:54px",
     "segmentedHeight": "height:40px",
     "switchHeight": "height:38px",
+    "palettePaper": "--igs-settings-paper:#16181a",
+    "palettePanel": "--igs-settings-panel:#1f2225",
+    "paletteField": "--igs-settings-field:#282c2f",
+    "flatShell": "border:0;border-radius:2px;box-shadow:none",
+    "flatBackdrop": "backdrop-filter:none",
+    "flatSegmentedIndicator": ".igs-segmented-indicator{display:none",
     "mobileMedia": "@media (max-width:640px)"
   }
 }
