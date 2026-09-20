@@ -546,6 +546,7 @@ export function applyStatusHudToDom(root, snapshot) {
     host.className = '';
     const hasEmotion = Boolean(hud && hud.emotion);
     const hasMetrics = Boolean(hud && Array.isArray(hud.metrics) && hud.metrics.length);
+    const grayscaleBars = Boolean(hud && hud.barColor === 'grayscale');
     const shouldShow = Boolean(hud && hud.enabled && hud.character) && (hasEmotion || hasMetrics || Boolean(hud.avatar));
     if (globalThis.__IGS_HUD_DEBUG__) {
         console.log('[HUD-PROBE]', JSON.stringify({ hud: hud ? { enabled: hud.enabled, character: hud.character, emotion: hud.emotion, avatar: Boolean(hud.avatar), metrics: hud.metrics && hud.metrics.length } : null, hasEmotion, hasMetrics, shouldShow }));
@@ -600,7 +601,9 @@ export function applyStatusHudToDom(root, snapshot) {
         const fill = doc.createElement('div');
         fill.className = 'igs-hud-fill';
         const color = STATUS_HUD_COLOR_VARS[metric.colorKey] || STATUS_HUD_COLOR_VARS['slot-1'];
-        fill.style.backgroundImage = `linear-gradient(90deg, color-mix(in srgb, ${color} 42%, #ffffff), ${color})`;
+        fill.style.backgroundImage = grayscaleBars
+            ? 'linear-gradient(90deg, rgba(255,255,255,.46), rgba(255,255,255,.86))'
+            : `linear-gradient(90deg, color-mix(in srgb, ${color} 42%, #ffffff), ${color})`;
         fill.style.width = `${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%`;
         track.appendChild(fill);
         const value = doc.createElement('span');

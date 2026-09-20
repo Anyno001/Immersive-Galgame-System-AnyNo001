@@ -1715,6 +1715,7 @@ export function createIgsReaderHost(options = {}) {
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', selectInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']]))}</div>`,
+                `<div class="igs-settings-row">${field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色'))}</div>`,
                 `<div class="igs-settings-row igs-settings-full"><div class="igs-settings-field"><span>读取表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: catalogNote })}</div></div>`,
             ].join('');
             return `<div class="${sectionClass}" data-status-hud>${body}</div>`;

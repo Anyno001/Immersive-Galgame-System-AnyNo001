@@ -663,7 +663,10 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(rendererText, /class="igs-hud-icon-expand" d="M12 5v14M5 12h14"/);
     assert.match(rendererText, /class="igs-hud-icon-collapse" d="M5 12h14"/);
     assert.match(rendererText, /`calc\(\$\{radius\}px \* var\(--igs-hud-scale,1\)\)`/);
+    assert.match(rendererText, /hud && hud\.barColor === 'grayscale'/);
+    assert.match(rendererText, /linear-gradient\(90deg, rgba\(255,255,255,\.46\), rgba\(255,255,255,\.86\)\)/);
     assert.match(readerHostText, /normalizedAction === 'toggle-status-hud'/);
+    assert.match(readerHostText, /readerSettings\.statusHud\.barColor/);
     assert.match(rendererText, /applyTransparentGlassMaterial\(root, readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings\.glassBackdropFilter,\s+\}\)/);
     assert.doesNotMatch(rendererText, /setProperty\('--igs-glass-bg'/);
     assert.match(dbControllerText, /applyTransparentGlassMaterial\(root, readerSettings && readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings && readerSettings\.glassBackdropFilter,\s+\}\)/);

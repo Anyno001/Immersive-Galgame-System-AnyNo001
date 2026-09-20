@@ -3739,6 +3739,9 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /无背景/);
     assert.match(enabled, /跟随对话框/);
+    assert.match(enabled, /HUD条配色/);
+    assert.match(enabled, /彩色/);
+    assert.match(enabled, /灰白/);
     assert.match(enabled, /data-status-hud-tables/);
     assert.match(enabled, /角色数值表/);
     assert.match(enabled, /任务表/);
@@ -3746,6 +3749,8 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /<div class="igs-settings-field"><span>读取表格<\/span><div class="igs-status-hud-tables"/);
     assert.doesNotMatch(enabled, /<label class="igs-settings-field"><span>读取表格<\/span>/);
 
+    settings.setValue('readerSettings.statusHud.barColor', 'grayscale');
+    assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.barColor, 'grayscale');
     settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
     settings.invoke('status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8');
     assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.tables.map((t) => t.uid), ['sheet_quest', 'sheet_stats']);
@@ -3756,6 +3761,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
 
     const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(persisted.statusHud.enabled, true);
+    assert.equal(persisted.statusHud.barColor, 'grayscale');
     assert.deepEqual(persisted.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
 
     vn.destroy();
@@ -3871,7 +3877,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
         }),
     });
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
-        statusHud: { enabled: true, size: 'large', showEmotion: true, avatarRadius: 'medium', background: 'dialog', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+        statusHud: { enabled: true, size: 'large', showEmotion: true, avatarRadius: 'medium', background: 'dialog', barColor: 'grayscale', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
     }));
     const vn = bootstrapIGS({
         global: {
@@ -3904,6 +3910,9 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     assert.equal(chip.textContent, '紧张');
 
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 4);
+    const fills = host.querySelectorAll('.igs-hud-fill');
+    assert.equal(fills.length, 4);
+    assert.equal(fills[0].style.backgroundImage, 'linear-gradient(90deg, rgba(255,255,255,.46), rgba(255,255,255,.86))');
     const overflow = host.querySelector('.igs-hud-overflow');
     assert.equal(overflow.textContent, '+1');
 

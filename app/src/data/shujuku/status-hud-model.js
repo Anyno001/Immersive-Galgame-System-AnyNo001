@@ -8,6 +8,7 @@ const STATUS_HUD_OVERALL_SCALE = 0.8;
 export const STATUS_HUD_AVATAR_RADIUS_IDS = Object.freeze(['square', 'soft', 'small', 'medium', 'large', 'circle']);
 export const STATUS_HUD_AVATAR_RADIUS_PX = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
 export const STATUS_HUD_BACKGROUND_IDS = Object.freeze(['none', 'dialog']);
+export const STATUS_HUD_BAR_COLOR_IDS = Object.freeze(['color', 'grayscale']);
 
 export const STATUS_HUD_DEFAULTS = Object.freeze({
     enabled: false,
@@ -16,6 +17,7 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     showEmotion: true,
     avatarRadius: 'circle',
     background: 'none',
+    barColor: 'color',
     tables: [],
 });
 
@@ -28,6 +30,7 @@ export function normalizeStatusHudSettings(raw) {
         showEmotion: src.showEmotion === false ? false : true,
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
+        barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,
         tables: normalizeStatusHudTables(src.tables),
     };
 }
@@ -128,6 +131,7 @@ export function buildStatusHudModel(input = {}) {
         avatar: resolveStatusAvatar(sceneAssets.statusAvatars, character),
         avatarRadius: settings.avatarRadius,
         background: settings.background,
+        barColor: settings.barColor,
         metrics: [],
         hiddenCount: 0,
         loadState: 'idle',

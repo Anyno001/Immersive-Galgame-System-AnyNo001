@@ -2302,15 +2302,17 @@ import {
 
 test('gate:simulation:status-hud-settings-normalize-defaults-and-invalid', () => {
     assert.deepEqual(normalizeStatusHudSettings(null), { ...STATUS_HUD_DEFAULTS });
-    const legacy = normalizeStatusHudSettings({ enabled: true, collapsed: true, size: 'huge', showEmotion: 'yes', avatarRadius: 'blob', background: 'solid', tables: 'nope' });
+    const legacy = normalizeStatusHudSettings({ enabled: true, collapsed: true, size: 'huge', showEmotion: 'yes', avatarRadius: 'blob', background: 'solid', barColor: 'sepia', tables: 'nope' });
     assert.equal(legacy.enabled, true);
     assert.equal(legacy.collapsed, true);
     assert.equal(legacy.size, 'medium');
     assert.equal(legacy.showEmotion, true);
     assert.equal(legacy.avatarRadius, 'circle');
     assert.equal(legacy.background, 'none');
+    assert.equal(legacy.barColor, 'color');
     assert.deepEqual(legacy.tables, []);
     assert.equal(normalizeStatusHudSettings({ collapsed: 'yes' }).collapsed, false);
+    assert.equal(normalizeStatusHudSettings({ barColor: 'grayscale' }).barColor, 'grayscale');
 });
 
 test('gate:simulation:status-hud-table-selection-order-dedupe-and-listing', () => {
@@ -2419,6 +2421,7 @@ test('gate:simulation:status-hud-model-matches-alias-row-and-caps-at-four', () =
     assert.equal(model.character, '天之音');
     assert.equal(model.emotion, '紧张');
     assert.equal(model.avatar, 'data:image/png;base64,AAA');
+    assert.equal(model.barColor, 'color');
     assert.equal(model.metrics.length, 4);
     assert.equal(model.hiddenCount, 2);
     assert.equal(model.metrics[0].colorKey, 'trust');
