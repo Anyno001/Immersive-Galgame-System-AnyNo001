@@ -229,6 +229,12 @@ projects/Immersive Galgame System/
 
 ## 更新日志
 
+### v0.23.81 - 2026-09-20
+
+- 修复角色页（对白与内心）状态栏整体消失：v0.23.79 把「单段兜底」的角色匹配从按段索引改为按正文文本指纹，指纹匹配失败后说话人为空，导致头像、名字、情绪与 HUD 条全部不显示。恢复为按段索引匹配 char/thought 指令。
+- 状态栏内容按页面类型区分：角色页（对白/内心）显示头像、名字、情绪与 HUD 条；旁白页显示地点栏。内心页与对白页除台词样式外完全一致。
+- 按约定运行 unit/simulate 全量、build、build:loader、static，尚未在真实酒馆复验，因此不打 tag。
+
 ### v0.23.80 - 2026-09-20
 
 - 照抄加滤镜开关前的内嵌规则补回内嵌模式人物过场滤镜：`#igs-overlay.igs-mode-embedded #igs-sprite.igs-sprite-narration` 双写 `!important` 与 `-webkit-filter`，数值沿用当前 `brightness(.86) saturate(.86)`。

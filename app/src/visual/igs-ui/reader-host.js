@@ -1567,14 +1567,9 @@ export function createIgsReaderHost(options = {}) {
             // Single-segment fallback: parseSpeakerPrefix strips the "[名字]：" prefix off
             // a lone segment, so the bubble regex no longer matches. Recover speaker/mood
             // from the directive that lands on this segment index.
-            // 判据是「当前段正文与该指令的对白/心里话文本一致」，而不是段索引相等：
-            // 段索引在分页与重排版后会漂移，仅按索引匹配会把旁白页误判成对白，
-            // 导致旁白页的立绘滤镜失效。
             if (textType === 'narration') {
-                const segBody = String(currentText || '').replace(/^\s*\*\s*|\s*\*\s*$/g, '').trim();
-                const segDirective = sceneDirectives.find((d) => (d.type === 'char' || d.type === 'thought')
-                    && String(d.type === 'thought' ? d.thought : d.dialogue || '').trim()
-                    && normalizeFingerprint(String(d.type === 'thought' ? d.thought : d.dialogue)) === normalizeFingerprint(segBody));
+                const segDirective = sceneDirectives.find((d) => Number(d.segmentIndex) === normalizedIndex
+                    && (d.type === 'char' || d.type === 'thought'));
                 if (segDirective) {
                     textType = segDirective.type === 'thought' ? 'thought' : 'dialogue';
                     bubbleSpeaker = segDirective.character || scene.speaker;
