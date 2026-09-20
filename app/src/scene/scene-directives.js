@@ -23,15 +23,20 @@ export function extractSceneDirectives(text) {
     let segmentCount = 0;
     // 待结算的正文本：只有遇到 [igs-scene] 或行尾时才确定它属于哪一段。
     let pending = '';
+    // 行首偏移：用于按「字符位置」定位指令，弥补按行计数的段索引与文本管线分段之间的错位。
+    let lineOffset = 0;
 
     for (let i = 0; i < lines.length; i++) {
-        const trimmed = lines[i].trim();
+        const rawLine = lines[i];
+        const trimmed = rawLine.trim();
+        const indent = rawLine.length - rawLine.trimStart().length;
         if (!trimmed) continue;
         // 场景切换的唯一依据是 [igs-scene] 标签本身：标签出现在哪里，它之后的正文就属于哪个场景。
         // 一行内可混排任意指令与正文（位置不限），因此按出现顺序消费：
         // 先结算「标签之前的正文」为当前段，标签本身归属「其后的正文段」。
         let rest = trimmed;
         let m;
+        let cursor = lineOffset + indent;
         while (rest) {
             // 只认「紧贴当前位置」的指令：否则 SCENE_RE 会越过行首的 thought/char
             // 标签去匹配后面的 scene，把前面的指令当成正文吞掉。
@@ -46,13 +51,14 @@ export function extractSceneDirectives(text) {
                     nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw',
                     segmentIndex: segmentCount,
                     lineIndex: i,
+                    offset: cursor,
                 });
             } else if ((m = rest.match(CHAR_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
-                directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
+                directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i, offset: cursor });
             } else if ((m = rest.match(THOUGHT_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
-                directives.push({ type: 'thought', character: m[1].trim(), mood: m[2].trim(), thought: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
+                directives.push({ type: 'thought', character: m[1].trim(), mood: m[2].trim(), thought: m[3].trim(),segmentIndex: segmentCount, lineIndex: i, offset: cursor });
             } else {
                 // 当前位置不是指令：把到「下一条指令之前」的文本计入正文。
                 const nextAt = nextDirectiveIndex(rest);
@@ -62,12 +68,35 @@ export function extractSceneDirectives(text) {
                 continue;
             }
             rest = rest.slice(m[0].length);
+            cursor += m[0].length;
         }
         pending += rest;
+        lineOffset += rawLine.length + 1;
     }
 
     return { directives, strippedText: source };
 }
+// 按「字符位置」找最近一条 char/thought 指令：用于恢复说话人，
+// 不依赖按行计数的 segmentIndex，因此不受文本管线重排版影响。
+export function resolveNearestCharacterBefore(directives, offset) {
+    const out = { character: '', mood: '', lastDirectiveType: '' };
+    if (!Array.isArray(directives) || !directives.length) return out;
+    const limit = Number(offset);
+    let best = null;
+    for (const d of directives) {
+        if (d.type !== 'char' && d.type !== 'thought') continue;
+        if (Number.isFinite(limit) && Number(d.offset) > limit) continue;
+        if (!best || Number(d.offset) >= Number(best.offset)) best = d;
+    }
+    if (best) {
+        out.character = best.character || '';
+        out.mood = best.mood || '';
+        out.lastDirectiveType = best.type;
+    }
+    return out;
+}
+
+
 
 export function resolveSceneStateAtIndex(directives, segmentIndex) {
     const state = { scene: '', time: '', weather: '', nsfw: false, character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: '' };

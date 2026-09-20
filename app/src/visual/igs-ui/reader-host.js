@@ -5,7 +5,7 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { resolveSceneStateAtIndex, lookupSceneAssetUrls } from '../../scene/scene-directives.js';
+import { resolveSceneStateAtIndex, resolveNearestCharacterBefore, lookupSceneAssetUrls } from '../../scene/scene-directives.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import {
@@ -1569,13 +1569,31 @@ export function createIgsReaderHost(options = {}) {
             // Single-segment fallback: parseSpeakerPrefix strips the "[名字]：" prefix off
             // a lone segment, so the bubble regex no longer matches. Recover speaker/mood
             // from the directive that lands on this segment index.
-            if (textType === 'narration') {
+            // 只要还没确定说话人就需要兜底：classifySegment 可能只判定出类型
+            // （如 dialogue/thought）却没带出角色名，此时也必须补 speaker。
+            if (!bubbleSpeaker) {
                 const segDirective = sceneDirectives.find((d) => Number(d.segmentIndex) === normalizedIndex
                     && (d.type === 'char' || d.type === 'thought'));
                 if (segDirective) {
                     textType = segDirective.type === 'thought' ? 'thought' : 'dialogue';
                     bubbleSpeaker = segDirective.character || scene.speaker;
                     bubbleMood = segDirective.mood || '';
+                } else {
+                    // 按行计数的 segmentIndex 与文本管线分段会错位，索引匹配失败时改用字符位置：
+                    // 在原文里定位当前段正文，取它前方最近的一条 char/thought 指令。
+                    // 仅在「当前段正文能与某条指令的台词/心里话对上」时才认角色：
+                    // 旁白句不与任何指令匹配，因此不会被误判成角色页。
+                    const probeBody = String(currentText || '')
+                        .replace(/^\s*\*+\s*/, '').replace(/\s*\*+\s*$/, '')
+                        .replace(/^\s*\[[^\]]+\]\s*[:：]\s*/, '')
+                        .trim();
+                    const matchedDirective = findDirectiveByText('', probeBody);
+                    if (globalThis.__IGS_HUD_DEBUG__) console.log('[FB]', JSON.stringify({ cur: String(currentText || '').slice(0, 30), hit: matchedDirective ? matchedDirective.character : null }));
+                    if (matchedDirective) {
+                        textType = matchedDirective.type === 'thought' ? 'thought' : 'dialogue';
+                        bubbleSpeaker = matchedDirective.character || scene.speaker;
+                        bubbleMood = matchedDirective.mood || '';
+                    }
                 }
             }
             resolvedSpeaker = bubbleSpeaker;
@@ -2814,12 +2832,32 @@ function stripSceneDirectivesInline(rawText) {
         .trim();
 }
 
+// 逐行剥离 [igs-scene:] 标签，丢弃剥离后为空的行，供兜底分段使用。
 function stripSceneDirectiveLines(rawText) {
     return String(rawText || '').split('\n')
-        .map((line) => line
-            // 行内任意位置的 [igs-scene:...] 一并剥离，避免指令文字落入对话框。
-            .replace(/\[igs-scene:[^\]]*\]/g, '')
-            .trim())
-        .filter(line => line.length > 0 && !SCENE_TAG_LINE_RE.test(line))
+        .map((line) => line.replace(/\[igs-scene:[^\]]*\]/g, '').trim())
+        .filter((line) => line.length > 0 && !SCENE_TAG_LINE_RE.test(line))
         .join('\n');
 }
+
+
+// 在原文里定位一段正文的位置：先精确匹配，失败再去掉排版符号后匹配。
+// 纯函数、不做全局缓存，避免跨页状态残留。
+function locateTextOffsetInSource(source, segText) {
+    const src = String(source || '');
+    const needle = String(segText || '').trim();
+    if (!src || !needle) return -1;
+    const exact = src.indexOf(needle);
+    if (exact >= 0) return exact;
+    const loose = needle.replace(/[\s*（）\[\]]+/g, '');
+    if (!loose) return -1;
+    let seen = 0;
+    for (let i = 0; i < src.length; i += 1) {
+        if (/[\s*（）\[\]]/.test(src[i])) continue;
+        if (seen === loose.length - 1) return i;
+        seen += 1;
+    }
+    return -1;
+}
+
+

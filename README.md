@@ -229,6 +229,13 @@ projects/Immersive Galgame System/
 
 ## 更新日志
 
+### v0.23.84 - 2026-09-20
+
+- 人物滤镜、状态栏与场景指令识别：指令解析只认「紧贴当前位置」的标签，避免 `[igs-scene:]` 越过同行的 `[igs-thought:]`/`[igs-char:]` 造成指令丢失；说话人兜底在索引匹配失败时改用正文文本指纹与字符位置。
+- 补回被误删的 `stripSceneDirectiveLines`，恢复兜底分段路径。
+- 状态栏展开符号下移 2.5px。
+- 按约定运行 unit/simulate 全量、build、build:loader、static、structure，尚未在真实酒馆复验，因此不打 tag。
+
 ### v0.23.83 - 2026-09-20
 
 - 修正地点栏的作用范围：只在该页没有角色（旁白页）时显示；内心页与对白页同属角色页，不显示地点栏。

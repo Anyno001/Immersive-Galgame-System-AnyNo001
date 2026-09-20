@@ -69,8 +69,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-status-hud.igs-hud-suppressed{opacity:0;}
 #igs-status-hud .igs-hud-toggle{position:absolute;inset:0;width:100%;height:100%;align-self:center;padding:0;pointer-events:auto;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.48);cursor:pointer;}
 #igs-status-hud .igs-hud-toggle:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.9);}
-#igs-status-hud .igs-hud-toggle svg{display:none;width:calc(18px * var(--igs-hud-scale,1));height:calc(18px * var(--igs-hud-scale,1));}
-#igs-status-hud.igs-hud-collapsed{display:flex;width:calc(36px * var(--igs-hud-scale,1));height:calc(36px * var(--igs-hud-scale,1));padding:0;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;}
+#igs-status-hud .igs-hud-toggle svg{display:none;width:calc(18px * var(--igs-hud-scale,1));height:calc(18px * var(--igs-hud-scale,1));transform:translateY(2.5px);}
+
 #igs-status-hud.igs-hud-collapsed .igs-hud-identity,#igs-status-hud.igs-hud-collapsed .igs-hud-metrics,#igs-status-hud.igs-hud-collapsed .igs-hud-overflow{display:none;}
 #igs-status-hud.igs-hud-collapsed .igs-hud-toggle{width:calc(36px * var(--igs-hud-scale,1));height:calc(36px * var(--igs-hud-scale,1));border:0;background:transparent;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
 #igs-status-hud.igs-hud-collapsed .igs-hud-toggle svg{display:block;}
