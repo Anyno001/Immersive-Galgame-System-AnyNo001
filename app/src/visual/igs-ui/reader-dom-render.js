@@ -792,6 +792,11 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         } else {
             dialog.removeAttribute('data-igs-has-speaker');
         }
+        if (!classicDialog && !snapshot.content.speaker) {
+            dialog.setAttribute('data-igs-narration', '1');
+        } else {
+            dialog.removeAttribute('data-igs-narration');
+        }
         dialog.style.paddingTop = '';
     }
     if (input) {

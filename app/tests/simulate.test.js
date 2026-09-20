@@ -577,6 +577,48 @@ test('gate:simulation:thought-theme-applies-thought-style-and-speaker-divider-vi
     vn.destroy();
 });
 
+test('gate:simulation:default-dialog-adds-five-pixels-only-for-nameless-narration', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: createMemoryStorage() },
+        autoAttachMagicWand: false,
+        config: {
+            sceneAssets: {
+                enabled: true,
+                promptRule: 'rule',
+                scenes: {},
+                characters: { Hero: { default: '' } },
+                characterAliases: { Hero: [] },
+                moodGroups: [],
+            },
+        },
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 1,
+                text: [
+                    '<now_plot>',
+                    '<content>',
+                    '无姓名旁白。',
+                    '[igs-char:Hero|calm|有姓名对白。]',
+                    '</content>',
+                    '</now_plot>',
+                ].join('\n'),
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    let dialog = document.getElementById('igs-dialog');
+    assert.equal(opened.reader.snapshot.content.speaker, '');
+    assert.equal(dialog.getAttribute('data-igs-narration'), '1');
+    await opened.reader.controller.invokeAction('next');
+    dialog = document.getElementById('igs-dialog');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.speaker, 'Hero');
+    assert.equal(dialog.getAttribute('data-igs-narration'), null);
+    vn.destroy();
+});
+
 test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
     const legacyStorage = readJson('fixtures/igs/legacy-storage.json');
     const storage = createMemoryStorage(legacyStorage);

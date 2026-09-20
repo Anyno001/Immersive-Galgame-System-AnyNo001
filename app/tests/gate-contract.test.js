@@ -806,6 +806,17 @@ test('gate:igs-ui:reader-speaker-keeps-dialog-top-padding', () => {
     assert.doesNotMatch(rendererText, /dialog\.style\.paddingTop = .*'4px'/);
 });
 
+test('gate:igs-ui:default-narration-adds-five-pixels-in-every-mode', () => {
+    const source = getOriginalReaderStyleText();
+    const rendererText = readText('src/visual/igs-ui/reader-dom-render.js');
+    assert.match(source, /\.igs-dialog\[data-igs-narration="1"\]\{padding-top:15px;\}/);
+    assert.match(source, /#igs-overlay\.igs-floating \.igs-dialog\[data-igs-narration="1"\]\{padding-top:12px;\}/);
+    assert.match(source, /#igs-overlay\.igs-floating-mobile \.igs-dialog\[data-igs-narration="1"\]\{padding-top:11px;\}/);
+    assert.match(source, /\.igs-mode-embedded \.igs-dialog\[data-igs-narration="1"\]\{padding-top:14px;\}/);
+    assert.match(rendererText, /if \(!classicDialog && !snapshot\.content\.speaker\)/);
+    assert.match(rendererText, /dialog\.removeAttribute\('data-igs-narration'\)/);
+});
+
 test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
     const source = getOriginalReaderStyleText();
     assert.match(source, /\.igs-embedded-host\{aspect-ratio:8 \/ 5;max-height:760px;\}/);
