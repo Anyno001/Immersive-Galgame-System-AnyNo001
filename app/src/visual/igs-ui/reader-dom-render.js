@@ -697,6 +697,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const resolveAssetUrl = typeof ctx.resolveAssetUrl === 'function'
         ? ctx.resolveAssetUrl
         : (url) => String(url || '').trim();
+    if (root.classList) {
+        root.classList.toggle('igs-scene-nsfw', snapshot.content.sceneNsfw === true);
+    }
     const backgroundAssetUrl = resolveAssetUrl(snapshot.content.backgroundImage);
 
     if (bg && backgroundAssetUrl) {
@@ -731,7 +734,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         bgBlur.style.opacity = '0';
     }
     const spriteEl = root.querySelector('#igs-sprite');
-    const spriteAssetUrl = resolveAssetUrl(snapshot.content.spriteImage);
+    const spriteAssetUrl = snapshot.content.sceneNsfw === true
+        ? null
+        : resolveAssetUrl(snapshot.content.spriteImage);
     if (spriteEl && spriteAssetUrl) {
         const spriteFilter = snapshot.content.textType === 'narration' ? 'brightness(0.58) saturate(0.52)' : '';
         spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;

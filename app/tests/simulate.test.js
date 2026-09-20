@@ -11,6 +11,7 @@ import { createImageResourceCache, createResourceCache } from '../src/media/reso
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
+import { LEGACY_DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
 import { VISUAL_MODES } from '../src/visual/visual-mode.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
@@ -355,7 +356,7 @@ test('gate:simulation:scene-assets-injects-prompt-and-renders-single-configured-
         igs_bridge_config: JSON.stringify({
             sceneAssets: {
                 enabled: true,
-                promptRule: '请严格输出 [igs-scene:场景|时间|天气] [igs-char:角色|情绪|对白]\n情绪池：\n{{mood_groups}}',
+                promptRule: LEGACY_DEFAULT_SCENE_PROMPT_RULE,
                 scenes: {
                     'B班教室': { url: 'https://example.com/classroom.png', times: {} },
                 },
@@ -404,6 +405,7 @@ test('gate:simulation:scene-assets-injects-prompt-and-renders-single-configured-
     assert.equal(injected.position, 1);
     assert.equal(injected.role, 0);
     assert.match(injected.value, /\[igs-scene:/);
+    assert.match(injected.value, /\[igs-scene:场景名\|时间\|天气\|NSFW\]/);
     assert.doesNotMatch(injected.value, /\{\{mood_groups\}\}/);
     assert.match(injected.value, /喜悦组：/);
 
@@ -414,6 +416,61 @@ test('gate:simulation:scene-assets-injects-prompt-and-renders-single-configured-
 
     vn.destroy();
     assert.equal(Object.hasOwn(extensionPrompts, 'igs-scene-assets-format-rule'), false);
+});
+
+test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-veil', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: {
+                enabled: true,
+                promptRule: '规则',
+                scenes: { Room: { url: 'https://example.com/room.png', times: {} } },
+                characters: { Alice: { calm: 'https://example.com/alice.png' } },
+                characterAliases: { Alice: [] },
+                moodGroups: [],
+                statusAvatars: { Alice: 'data:image/png;base64,AAA' },
+            },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, showEmotion: true, showLocation: true },
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 39,
+                text: [
+                    '<now_plot>',
+                    '<content>',
+                    '[igs-scene:Room|night|rain|NSFW]',
+                    '[igs-char:Alice|calm|Stay.]',
+                    '</content>',
+                    '</now_plot>',
+                ].join('\n'),
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const content = opened.reader.snapshot.content;
+    const overlay = document.getElementById('igs-overlay');
+    const sprite = overlay.querySelector('#igs-sprite');
+    const hud = document.getElementById('igs-status-hud');
+    assert.equal(content.sceneNsfw, true);
+    assert.equal(content.spriteImage, null);
+    assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
+    assert.equal(sprite.style.display, 'none');
+    assert.equal(hud.querySelector('.igs-hud-avatar'), null);
+    assert.equal(hud.querySelector('.igs-hud-emotion'), null);
+    assert.equal(hud.querySelector('.igs-hud-location-label').textContent, 'Room');
+    const styleText = getOriginalReaderStyleText();
+    assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg\{[^}]*blur\(8px\)[^}]*brightness\(\.62\)[^}]*saturate\(\.72\)/);
+    assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg::after\{[^}]*radial-gradient/);
+    vn.destroy();
 });
 
 test('gate:simulation:scene-and-character-aliases-reuse-original-assets-and-layout', async () => {

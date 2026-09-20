@@ -1,6 +1,6 @@
 import { resolveMoodGroup } from './mood-groups.js';
 
-const SCENE_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
+const SCENE_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
 const CHAR_RE = /^\[igs-char:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
 const THOUGHT_RE = /^\[igs-thought:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
 
@@ -19,7 +19,15 @@ export function extractSceneDirectives(text) {
         let isDirective = false;
         if ((m = trimmed.match(SCENE_RE))) {
             isDirective = true;
-            directives.push({ type: 'scene', scene: m[1].trim(), time: m[2].trim(), weather: m[3].trim(), segmentIndex: segmentCount, lineIndex: lineCount });
+            directives.push({
+                type: 'scene',
+                scene: m[1].trim(),
+                time: m[2].trim(),
+                weather: m[3].trim(),
+                nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw',
+                segmentIndex: segmentCount,
+                lineIndex: lineCount,
+            });
         } else if ((m = trimmed.match(CHAR_RE))) {
             isDirective = true;
             directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: lineCount });
@@ -35,7 +43,7 @@ export function extractSceneDirectives(text) {
 }
 
 export function resolveSceneStateAtIndex(directives, segmentIndex) {
-    const state = { scene: '', time: '', weather: '', character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: '' };
+    const state = { scene: '', time: '', weather: '', nsfw: false, character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: '' };
     if (!Array.isArray(directives) || !directives.length) return state;
     const targetIndex = normalizeSegmentIndex(segmentIndex);
 
@@ -46,6 +54,7 @@ export function resolveSceneStateAtIndex(directives, segmentIndex) {
             if (directive.scene) state.scene = directive.scene;
             if (directive.time) state.time = directive.time;
             if (directive.weather) state.weather = directive.weather;
+            state.nsfw = directive.nsfw === true;
             state.lastDirectiveType = 'scene';
         } else if (directive.type === 'char') {
             if (directive.character) state.character = directive.character;

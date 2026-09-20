@@ -52,7 +52,7 @@ import {
 } from '../src/scene/mood-groups.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
 import { renderCharacterAssetList, renderSceneAssetList, tableMultiSelect } from '../src/visual/igs-ui/settings-fields.js';
-import { DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
+import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule } from '../src/visual/igs-ui/reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normalizePublicReaderMode } from '../src/schemas/reader-mode.js';
 import { ensureEmbeddedHost, hideEmbeddedSourceText, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from '../src/visual/igs-ui/reader-source-cache.js';
@@ -1027,6 +1027,13 @@ test('gate:scene:prompt-rule-draft-only-persists-on-explicit-save', async () => 
     assert.equal(persistCount, 2);
 });
 
+test('gate:scene:legacy-default-prompt-upgrades-without-touching-custom-rule', () => {
+    assert.equal(normalizeScenePromptRule(LEGACY_DEFAULT_SCENE_PROMPT_RULE), DEFAULT_SCENE_PROMPT_RULE);
+    assert.equal(normalizeScenePromptRule('自定义规则'), '自定义规则');
+    assert.match(DEFAULT_SCENE_PROMPT_RULE, /\[igs-scene:场景名\|时间\|天气\|NSFW\]/);
+    assert.match(DEFAULT_SCENE_PROMPT_RULE, /NSFW第四栏是前端隐藏人物视觉并启用中性暗角柔焦帷幕/);
+});
+
 test('gate:settings:theme-toggle-persists-through-settings-action', async () => {
     const draft = { bridge: { settingsTheme: 'night' }, readerSettings: {} };
     let persistCount = 0;
@@ -1226,10 +1233,24 @@ test('gate:scene:scene-assets-state-follows-current-reader-segment', () => {
 
     // directive lines don't count toward segmentIndex — only non-directive lines do
     assert.deepEqual(directives.map((d) => d.segmentIndex), [1, 1, 2]);
-    const empty = { scene: '', time: '', weather: '', character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: '' };
+    const empty = { scene: '', time: '', weather: '', nsfw: false, character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: '' };
     assert.deepEqual(resolveSceneStateAtIndex(directives, 0), empty);
-    assert.deepEqual(resolveSceneStateAtIndex(directives, 1), { scene: 'Room', time: 'morning', weather: 'sunny', character: 'Alice', mood: 'calm', dialogue: 'Hello.', thought: '', lastDirectiveType: 'char' });
-    assert.deepEqual(resolveSceneStateAtIndex(directives, 2), { scene: 'Room', time: 'morning', weather: 'sunny', character: 'Bob', mood: 'annoyed', dialogue: 'Move faster.', thought: '', lastDirectiveType: 'char' });
+    assert.deepEqual(resolveSceneStateAtIndex(directives, 1), { scene: 'Room', time: 'morning', weather: 'sunny', nsfw: false, character: 'Alice', mood: 'calm', dialogue: 'Hello.', thought: '', lastDirectiveType: 'char' });
+    assert.deepEqual(resolveSceneStateAtIndex(directives, 2), { scene: 'Room', time: 'morning', weather: 'sunny', nsfw: false, character: 'Bob', mood: 'annoyed', dialogue: 'Move faster.', thought: '', lastDirectiveType: 'char' });
+});
+
+test('gate:scene:nsfw-scene-state-resets-on-next-scene', () => {
+    const { directives } = extractSceneDirectives([
+        '[igs-scene:Room|night|rain|NSFW]',
+        '[igs-char:Alice|calm|Stay.]',
+        'The door closes.',
+        '[igs-scene:Street|night|rain]',
+        'The story continues.',
+    ].join('\n'));
+
+    assert.equal(directives[0].nsfw, true);
+    assert.equal(resolveSceneStateAtIndex(directives, 0).nsfw, true);
+    assert.equal(resolveSceneStateAtIndex(directives, 1).nsfw, false);
 });
 
 test('gate:igs-ui:scene-assets-keeps-sprite-with-existing-background', () => {

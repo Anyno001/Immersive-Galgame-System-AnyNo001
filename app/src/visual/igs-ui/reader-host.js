@@ -32,6 +32,7 @@ import {
     DEFAULT_IMAGE_API,
     DEFAULT_PINNED_TOOLBAR_BUTTONS,
     DEFAULT_SCENE_PROMPT_RULE,
+    normalizeScenePromptRule,
     READER_SETTINGS_SCHEMA_VERSION,
     SETTINGS_PANEL_REQUIRED_SELECTORS,
     SETTINGS_PANEL_TAB_CONTRACT,
@@ -393,8 +394,9 @@ export function createIgsReaderHost(options = {}) {
         const next = buildStatusHudModel({
             settings: normalizeStatusHudSettings(settings && settings.statusHud),
             sceneAssets: (settings && settings._sceneAssets) || {},
-            character: content && content.speaker,
-            emotion: content && content.statusEmotion,
+            location: content && content.statusHud && content.statusHud.location,
+            character: content && !content.sceneNsfw ? content.speaker : '',
+            emotion: content && !content.sceneNsfw ? content.statusEmotion : '',
             readResult: readStatusHudTablesSafe(),
         });
         current.snapshot.content.statusHud = next;
@@ -1474,13 +1476,14 @@ export function createIgsReaderHost(options = {}) {
             && displayImageState.slots[Math.floor(Number(rawSegmentSlotValue))]
             ? String(displayImageState.slots[Math.floor(Number(rawSegmentSlotValue))].url || '').trim()
             : '';
-        let sceneStateForBg = null;
+        const sceneStateForBg = sceneDirectives.length
+            ? resolveSceneStateAtIndex(sceneDirectives, normalizedIndex)
+            : null;
         if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
             spriteImage = null;
         } else if (sceneAssets && sceneAssets.enabled) {
             if (sceneDirectives.length) {
-                sceneStateForBg = resolveSceneStateAtIndex(sceneDirectives, normalizedIndex);
                 const bgUrls = lookupSceneAssetUrls(sceneStateForBg, sceneAssets);
                 finalBackgroundImage = bgUrls.backgroundUrl || '';
             } else {
@@ -1587,7 +1590,7 @@ export function createIgsReaderHost(options = {}) {
                 spriteChar = sceneStateForBg.character;
                 spriteMood = sceneStateForBg.mood || '';
             }
-            if (!slotBoundUrl && sceneAssets && sceneAssets.enabled && spriteChar) {
+            if (!slotBoundUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw)) {
                 const spriteUrls = lookupSceneAssetUrls({ character: spriteChar, mood: spriteMood }, sceneAssets);
                 spriteImage = spriteUrls.spriteUrl || null;
                 if (spriteImage) {
@@ -1665,7 +1668,8 @@ export function createIgsReaderHost(options = {}) {
                 sourceKind: firstDefined(scene.sourceKind, payload.sourceKind, 'raw-text'),
                 warnings: extracted.warnings,
                 errors: extracted.errors,
-                statusHud: buildStatusHudForSnapshot(readerSettings, resolvedSpeaker, bubbleMood, firstDefined(sceneStateForBg && sceneStateForBg.scene, scene.location, '')),
+                sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
+                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, firstDefined(sceneStateForBg && sceneStateForBg.scene, scene.location, '')),
             },
             readerSettings: cloneData(readerSettings),
             input: {
@@ -2479,7 +2483,7 @@ export function createIgsReaderHost(options = {}) {
     function normalizeSceneAssets(value) {
         const normalized = cloneData(value || {});
         normalized.enabled = normalizeBoolean(normalized.enabled, false);
-        normalized.promptRule = String(normalized.promptRule || DEFAULT_SCENE_PROMPT_RULE);
+        normalized.promptRule = normalizeScenePromptRule(normalized.promptRule);
         if (!normalized.scenes || typeof normalized.scenes !== 'object' || Array.isArray(normalized.scenes)) {
             normalized.scenes = {};
         }

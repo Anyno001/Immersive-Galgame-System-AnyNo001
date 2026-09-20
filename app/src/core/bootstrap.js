@@ -15,6 +15,7 @@ import { createPresetStore } from '../storage/preset-store.js';
 import { createLayerController } from '../visual/layer-controller.js';
 import { createStageRenderer } from '../visual/stage-renderer.js';
 import { resolveVisualMode } from '../visual/visual-mode.js';
+import { normalizeScenePromptRule } from '../visual/igs-ui/reader-host-constants.js';
 import { createIgsReaderHost } from '../visual/igs-ui/reader-host.js';
 import { createEventBus } from './event-bus.js';
 import { createMagicWandEntry } from '../host/magic-wand-entry.js';
@@ -23,7 +24,7 @@ import { createReaderImageService } from '../generated-images/reader-image-servi
 import { createPromptInjector } from '../host/prompt-injector.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.23.71';
+const IGS_VERSION = '0.23.72';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -274,6 +275,12 @@ export function bootstrapIGS(options = {}) {
             ...cloneData(state.legacyIgs && state.legacyIgs.bridge || {}),
             ...cloneData(state.config || {}),
         };
+        if (bridge.sceneAssets && typeof bridge.sceneAssets === 'object' && !Array.isArray(bridge.sceneAssets)) {
+            bridge.sceneAssets = {
+                ...cloneData(bridge.sceneAssets),
+                promptRule: normalizeScenePromptRule(bridge.sceneAssets.promptRule),
+            };
+        }
         const readerMode = resolveLegacyReaderMode(
             input && typeof input === 'object' ? input.mode : input,
             state.legacyIgs && state.legacyIgs.displayMode,

@@ -184,7 +184,7 @@ const SCENE_ASSETS_TEMPLATE = `
     <div class="igs-source-filter igs-settings-full">
       <div>
         <div class="igs-source-filter-title">场景素材</div>
-        <div class="igs-source-filter-note">使用 [igs-scene:场景|时间|天气] 切换场景，[igs-char:角色|情绪|对白] 标记对白，[igs-thought:角色|情绪|心里话] 标记心理描写。扫描图优先显示。</div>
+        <div class="igs-source-filter-note">使用 [igs-scene:场景|时间|天气|可选标签] 切换场景，第四栏填写 NSFW 时隐藏人物视觉并启用暗角柔焦帷幕；[igs-char:角色|情绪|对白] 标记对白，[igs-thought:角色|情绪|心里话] 标记心理描写。扫描图优先显示。</div>
       </div>
       {{scenePresetBar}}
       {{sceneSubTabs}}
