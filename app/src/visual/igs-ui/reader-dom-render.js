@@ -592,13 +592,15 @@ export function applyStatusHudToDom(root, snapshot) {
     if (hasLocation) {
         const location = doc.createElement('div');
         location.className = 'igs-hud-location';
-        const icon = doc.createElement('span');
-        icon.className = 'igs-hud-location-icon';
-        icon.innerHTML = STATUS_HUD_LOCATION_ICON;
+        if (!hud.character) {
+            const icon = doc.createElement('span');
+            icon.className = 'igs-hud-location-icon';
+            icon.innerHTML = STATUS_HUD_LOCATION_ICON;
+            location.appendChild(icon);
+        }
         const chip = doc.createElement('span');
         chip.className = 'igs-hud-location-label';
         chip.textContent = hud.location;
-        location.appendChild(icon);
         location.appendChild(chip);
         identity.appendChild(location);
     }

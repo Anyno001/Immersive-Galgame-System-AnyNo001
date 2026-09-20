@@ -4083,7 +4083,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     const location = host.querySelector('.igs-hud-location');
     assert.ok(location);
     assert.equal(location.querySelector('.igs-hud-location-label').textContent, '旧城');
-    assert.match(location.querySelector('.igs-hud-location-icon').innerHTML, /<svg/);
+    assert.equal(location.querySelector('.igs-hud-location-icon'), null);
 
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 4);
     const fills = host.querySelectorAll('.igs-hud-fill');
@@ -4181,6 +4181,8 @@ test('gate:simulation:status-hud-location-occupies-identity-slot-without-charact
     assert.equal(host.querySelector('.igs-hud-avatar'), null);
     assert.equal(host.querySelector('.igs-hud-emotion'), null);
     assert.equal(host.querySelector('.igs-hud-location-label').textContent, '旧城');
+    const locationIcon = host.querySelector('.igs-hud-location-icon');
+    assert.match(locationIcon.innerHTML, /<svg/);
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
 
     vn.destroy();
