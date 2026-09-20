@@ -1467,7 +1467,7 @@ export function createIgsReaderHost(options = {}) {
             : Array.isArray(payload.sceneDirectives) ? payload.sceneDirectives : [];
         const hasIgsDirectives = sceneDirectives.length > 0;
         let finalBackgroundImage = backgroundImage;
-        const hideSpriteOnNsfw = normalizeStatusHudSettings(readerSettings && readerSettings.statusHud).hideSpriteOnNsfw;
+        const hideSpriteOnNsfw = !normalizeStatusHudSettings(readerSettings && readerSettings.statusHud).showSpriteOnNsfw;
         let spriteImage = null;
         let resolvedSpeaker = scene.speaker || '';
         let spriteCharacter = '';
@@ -1763,9 +1763,9 @@ export function createIgsReaderHost(options = {}) {
                 toggle,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏（仅旁白）')}</div>`,
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示更多的场景信息')}</div>`,
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.hideSpriteOnNsfw', statusHud.hideSpriteOnNsfw, 'NSFW 场景隐藏立绘（暗角保留）')}</div>`,
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.dimSpriteOnNarration', statusHud.dimSpriteOnNarration, '旁白时立绘变暗')}</div>`,
+                statusHud.showLocation ? `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示更多的场景信息')}</div>` : '',
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showSpriteOnNsfw', statusHud.showSpriteOnNsfw, '显示NSFW场景下的人物立绘')}</div>`,
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.dimSpriteOnNarration', statusHud.dimSpriteOnNarration, '启用人物滤镜（仅旁白）')}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景'))}</div>`,
@@ -2802,6 +2802,10 @@ const SCENE_TAG_LINE_RE = /^\[igs-scene:[^\]]*\]/;
 
 function stripSceneDirectiveLines(rawText) {
     return String(rawText || '').split('\n')
-        .filter(line => !SCENE_TAG_LINE_RE.test(line.trim()))
+        .map((line) => line
+            // 行内任意位置的 [igs-scene:...] 一并剥离，避免指令文字落入对话框。
+            .replace(/\[igs-scene:[^\]]*\]/g, '')
+            .trim())
+        .filter(line => line.length > 0 && !SCENE_TAG_LINE_RE.test(line))
         .join('\n');
 }

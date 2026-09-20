@@ -434,7 +434,7 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
         }),
     });
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
-        statusHud: { enabled: true, showEmotion: true, showLocation: true, hideSpriteOnNsfw: true },
+        statusHud: { enabled: true, showEmotion: true, showLocation: true, showSpriteOnNsfw: false },
     }));
     const vn = bootstrapIGS({
         global: { document, localStorage: storage },
@@ -648,9 +648,9 @@ test('gate:simulation:mobile-sentence-paging-keeps-current-sprite-dimmed-until-n
     sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(content.textType, 'narration');
     assert.equal(content.spriteImage, 'https://example.com/alice.png');
-    assert.equal(sprite.classList.contains('igs-sprite-narration'), false);
-    assert.equal(sprite.style.filter, '');
-    assert.equal(sprite.style['-webkit-filter'], '');
+    assert.equal(sprite.classList.contains('igs-sprite-narration'), true);
+    assert.equal(sprite.style.filter, 'brightness(0.86) saturate(0.86)');
+    assert.equal(sprite.style['-webkit-filter'], 'brightness(0.86) saturate(0.86)');
 
     await controller.invokeAction('next');
     content = vn.getState().igsUi.activeReader.snapshot.content;
@@ -4083,16 +4083,19 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     settings.switchTab('reader');
 
     settings.setValue('readerSettings.statusHud.enabled', true);
+    const hidden = settings.switchReaderSubTab('display').snapshot.html;
+    assert.match(hidden, /显示情绪标签/);
+    assert.match(hidden, /显示地点栏（仅旁白）/);
+    assert.doesNotMatch(hidden, /显示更多的场景信息/);
+
+    settings.setValue('readerSettings.statusHud.showLocation', true);
     const enabled = settings.switchReaderSubTab('display').snapshot.html;
-    assert.match(enabled, /显示情绪标签/);
-    assert.match(enabled, /显示地点栏/);
     assert.match(enabled, /显示更多的场景信息/);
-    assert.doesNotMatch(enabled, /显示详细地点/);
-    assert.match(enabled, /NSFW 场景隐藏立绘（暗角保留）/);
-    assert.match(enabled, /旁白时立绘变暗/);
+    assert.match(enabled, /显示NSFW场景下的人物立绘/);
+    assert.match(enabled, /启用人物滤镜（仅旁白）/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
-    assert.match(enabled, /显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息[\s\S]*NSFW 场景隐藏立绘（暗角保留）[\s\S]*旁白时立绘变暗[\s\S]*头像圆角[\s\S]*状态栏大小/);
+    assert.match(enabled, /显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息[\s\S]*显示NSFW场景下的人物立绘[\s\S]*启用人物滤镜（仅旁白）[\s\S]*头像圆角[\s\S]*状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
     assert.doesNotMatch(enabled, /<select data-path="readerSettings\.statusHud\.background"/);
     assert.match(enabled, /无背景/);

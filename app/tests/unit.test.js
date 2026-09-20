@@ -1253,6 +1253,36 @@ test('gate:scene:nsfw-scene-state-resets-on-next-scene', () => {
     assert.equal(resolveSceneStateAtIndex(directives, 1).nsfw, false);
 });
 
+test('gate:scene:inline-multi-scene-directives-follow-segment-and-revert', () => {
+    // 行内混排：指令与正文同段时，A 段用 A 场景、B 段用 B 场景，倒回仍回 A。
+    const inline = extractSceneDirectives([
+        '[igs-scene:A|night|rain]A 段正文。',
+        '[igs-scene:B|day|sunny]B 段正文。',
+    ].join('\n')).directives;
+    assert.deepEqual(inline.map((d) => [d.scene, d.segmentIndex]), [['A', 0], ['B', 1]]);
+    assert.equal(resolveSceneStateAtIndex(inline, 0).scene, 'A');
+    assert.equal(resolveSceneStateAtIndex(inline, 1).scene, 'B');
+    assert.equal(resolveSceneStateAtIndex(inline, 0).scene, 'A');
+
+    // 段首独立行指令与段末预告指令都生效于下一段。
+    const headLine = extractSceneDirectives([
+        '[igs-scene:A|night|rain]',
+        'A 段正文。',
+        '[igs-scene:B|day|sunny]',
+        'B 段正文。',
+    ].join('\n')).directives;
+    assert.deepEqual(headLine.map((d) => [d.scene, d.segmentIndex]), [['A',0], ['B', 1]]);
+
+    const tailLine = extractSceneDirectives([
+        '前段正文。',
+        '[igs-scene:C|dawn|fog]',
+        '后段正文。',
+    ].join('\n')).directives;
+    assert.deepEqual(tailLine.map((d) => [d.scene, d.segmentIndex]), [['C', 1]]);
+    assert.equal(resolveSceneStateAtIndex(tailLine, 1).scene, 'C');
+});
+
+
 test('gate:igs-ui:scene-assets-keeps-sprite-with-existing-background', () => {
     const host = createIgsReaderHost({
         global: {},
@@ -2331,6 +2361,8 @@ test('gate:simulation:status-hud-settings-normalize-defaults-and-invalid', () =>
     assert.equal(legacy.showEmotion, true);
     assert.equal(legacy.showLocation, false);
     assert.equal(legacy.showLocationDetails, false);
+    assert.equal(legacy.showSpriteOnNsfw, true);
+    assert.equal(legacy.dimSpriteOnNarration, true);
     assert.equal(legacy.avatarRadius, 'circle');
     assert.equal(legacy.background, 'none');
     assert.equal(legacy.barColor, 'color');
@@ -2485,16 +2517,19 @@ test('gate:simulation:status-hud-model-disabled-and-narration-do-not-inherit', (
     assert.equal(narration.weather, '小雨');
     assert.equal(narration.showLocationDetails, true);
     assert.equal(narration.avatar, '');
+});
 
-test('gate:simulation:status-hud-sprite-toggles-default-off-and-normalize', () => {
-    assert.equal(STATUS_HUD_DEFAULTS.hideSpriteOnNsfw, false);
-    assert.equal(STATUS_HUD_DEFAULTS.dimSpriteOnNarration, false);
-    assert.equal(normalizeStatusHudSettings({}).hideSpriteOnNsfw, false);
-    assert.equal(normalizeStatusHudSettings({}).dimSpriteOnNarration, false);
-    assert.equal(normalizeStatusHudSettings({ hideSpriteOnNsfw: true }).hideSpriteOnNsfw, true);
+
+
+test('gate:simulation:status-hud-sprite-toggles-defaults-and-normalize', () => {
+    assert.equal(STATUS_HUD_DEFAULTS.showSpriteOnNsfw, true);
+    assert.equal(STATUS_HUD_DEFAULTS.dimSpriteOnNarration, true);
+    assert.equal(normalizeStatusHudSettings({}).showSpriteOnNsfw, true);
+    assert.equal(normalizeStatusHudSettings({}).dimSpriteOnNarration, true);
+    assert.equal(normalizeStatusHudSettings({ showSpriteOnNsfw: false }).showSpriteOnNsfw, false);
     assert.equal(normalizeStatusHudSettings({ dimSpriteOnNarration: true }).dimSpriteOnNarration, true);
-    assert.equal(normalizeStatusHudSettings({ hideSpriteOnNsfw: 'yes' }).hideSpriteOnNsfw, false);
-    assert.equal(normalizeStatusHudSettings({ dimSpriteOnNarration: 1 }).dimSpriteOnNarration, false);
+    assert.equal(normalizeStatusHudSettings({ showSpriteOnNsfw: true }).showSpriteOnNsfw, true);
+    assert.equal(normalizeStatusHudSettings({ showSpriteOnNsfw: 'no' }).showSpriteOnNsfw, true);
 });
 
 test('gate:simulation:status-hud-location-scale-tiers', () => {
@@ -2505,7 +2540,6 @@ test('gate:simulation:status-hud-location-scale-tiers', () => {
     assert.equal(resolveStatusHudLocationScale(undefined), 1.45);
 });
 
-});
 
 test('gate:simulation:status-hud-model-failure-is-diagnostic-not-zero', () => {
     const failed = buildStatusHudModel({

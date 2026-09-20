@@ -745,12 +745,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     const spriteEl = root.querySelector('#igs-sprite');
     const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
-    const hideSpriteNsfw = snapshot.content.sceneNsfw === true && spriteSettings.hideSpriteOnNsfw === true;
+    const hideSpriteNsfw = snapshot.content.sceneNsfw === true && spriteSettings.showSpriteOnNsfw === false;
     const spriteAssetUrl = hideSpriteNsfw
         ? null
         : resolveAssetUrl(snapshot.content.spriteImage);
     if (spriteEl && spriteAssetUrl) {
-        const spriteNarration = snapshot.content.textType === 'narration' && spriteSettings.dimSpriteOnNarration === true;
+        const spriteNarration = snapshot.content.textType === 'narration' && spriteSettings.dimSpriteOnNarration !== false;
         const spriteFilter = spriteNarration ? 'brightness(0.86) saturate(0.86)' : '';
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
         spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;

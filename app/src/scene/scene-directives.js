@@ -10,33 +10,43 @@ export function extractSceneDirectives(text) {
 
     const directives = [];
     const lines = source.split('\n');
-    let lineCount = 0;
     let segmentCount = 0;
 
     for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim();
+        if (!trimmed) continue;
+        // 行首可连续混排多条指令，指令行也可与正文同段：逐条剥离，
+        // 指令统一归属「其所在正文段」（segmentCount），使 A 段用 A 场景、B 段用 B 场景。
+        let rest = trimmed;
         let m;
-        let isDirective = false;
-        if ((m = trimmed.match(SCENE_RE))) {
-            isDirective = true;
-            directives.push({
-                type: 'scene',
-                scene: m[1].trim(),
-                time: m[2].trim(),
-                weather: m[3].trim(),
-                nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw',
-                segmentIndex: segmentCount,
-                lineIndex: lineCount,
-            });
-        } else if ((m = trimmed.match(CHAR_RE))) {
-            isDirective = true;
-            directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: lineCount });
-        } else if ((m = trimmed.match(THOUGHT_RE))) {
-            isDirective = true;
-            directives.push({ type: 'thought', character: m[1].trim(), mood: m[2].trim(), thought: m[3].trim(), segmentIndex: segmentCount, lineIndex: lineCount });
+        let consumedAny = false;
+        while (rest) {
+            if ((m = rest.match(SCENE_RE))) {
+                consumedAny = true;
+                directives.push({
+                    type: 'scene',
+                    scene: m[1].trim(),
+                    time: m[2].trim(),
+                    weather: m[3].trim(),
+                    nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw',
+                    segmentIndex: segmentCount,
+                    lineIndex: i,
+                });
+            } else if ((m = rest.match(CHAR_RE))) {
+                consumedAny = true;
+                directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
+            } else if ((m = rest.match(THOUGHT_RE))) {
+                consumedAny = true;
+                directives.push({ type: 'thought', character: m[1].trim(), mood: m[2].trim(), thought: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
+            } else {
+                break;
+            }
+            rest = rest.slice(m[0].length).trim();
         }
-        if (trimmed && !isDirective) segmentCount++;
-        lineCount++;
+        // 该行在剥离所有指令后仍有正文、或本就不是指令行，才算一个正文段。
+        // 纯指令行不占段：其 segmentIndex 指向「其后第一个正文段」，因此
+        // 段首指令与段末（预告下一段）指令都等价地生效于下一段。
+        if (rest) segmentCount++;
     }
 
     return { directives, strippedText: source };
