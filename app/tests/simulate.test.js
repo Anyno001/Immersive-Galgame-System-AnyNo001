@@ -434,7 +434,7 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
         }),
     });
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
-        statusHud: { enabled: true, showEmotion: true, showLocation: true },
+        statusHud: { enabled: true, showEmotion: true, showLocation: true, hideSpriteOnNsfw: true },
     }));
     const vn = bootstrapIGS({
         global: { document, localStorage: storage },
@@ -462,6 +462,7 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     const hud = document.getElementById('igs-status-hud');
     assert.equal(content.sceneNsfw, true);
     assert.equal(content.spriteImage, null);
+    assert.equal(sprite.style.backgroundImage, '');
     assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
     assert.equal(sprite.style.display, 'none');
     assert.equal(hud.hasAttribute('hidden'), true);
@@ -472,6 +473,81 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg\{[^}]*blur\(8px\)[^}]*brightness\(\.62\)[^}]*saturate\(\.72\)/);
     assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg::after\{[^}]*radial-gradient/);
     vn.destroy();
+});
+
+test('gate:simulation:nsfw-scene-keeps-sprite-when-hide-toggle-off', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: {
+                enabled: true,
+                promptRule: '规则',
+                scenes: { Room: { url: 'https://example.com/room.png', times: {} } },
+                characters: { Alice: { calm: 'https://example.com/alice.png' } },
+                characterAliases: { Alice: [] },
+                moodGroups: [],
+            },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: false },
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 41,
+                text: [
+                    '<now_plot>',
+                    '<content>',
+                    '[igs-scene:Room|night|rain|NSFW]',
+                    '[igs-char:Alice|calm|Stay.]',
+                    '</content>',
+                    '</now_plot>',
+                ].join('\n'),
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const sprite = overlay.querySelector('#igs-sprite');
+    assert.equal(opened.reader.snapshot.content.sceneNsfw, true);
+    assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
+    assert.equal(sprite.style.display, 'block');
+    assert.match(sprite.style.backgroundImage, /alice\.png/);
+    vn.destroy();
+});
+
+test('gate:simulation:status-hud-location-scale-lands-on-dom', async () => {
+    for (const [size, expected] of [['small', '1.2'], ['medium', '1.45'], ['large', '1.7']]) {
+        const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+        const storage = createMemoryStorage({
+            igs_bridge_config: JSON.stringify({
+                sceneAssets: { enabled: true, promptRule: '规则', scenes: { Room: { url: 'https://example.com/room.png', times: {} } }, characters: {}, characterAliases: {}, moodGroups: [] },
+            }),
+        });
+        storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+            statusHud: { enabled: true, size, showLocation: true },
+        }));
+        const vn = bootstrapIGS({
+            global: { document, localStorage: storage },
+            autoAttachMagicWand: false,
+            hostAdapter: {
+                getCurrentMessage: async () => ({
+                    id: 42,
+                    text: ['<now_plot>', '<content>', '[igs-scene:Room|night|rain]', '旁白。', '</content>', '</now_plot>'].join('\n'),
+                }),
+                typeAndSend: async () => ({ ok: true }),
+            },
+        });
+        await vn.openLatestAvailable('pc');
+        const opened = vn.getState().igsUi.activeReader;
+        assert.equal(String(opened.snapshot._statusHudLocationScale), expected, `size=${size}`);
+        vn.destroy();
+    }
 });
 
 test('gate:simulation:scene-and-character-aliases-reuse-original-assets-and-layout', async () => {
@@ -572,9 +648,9 @@ test('gate:simulation:mobile-sentence-paging-keeps-current-sprite-dimmed-until-n
     sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(content.textType, 'narration');
     assert.equal(content.spriteImage, 'https://example.com/alice.png');
-    assert.equal(sprite.classList.contains('igs-sprite-narration'), true);
-    assert.equal(sprite.style.filter, 'brightness(0.58) saturate(0.52)');
-    assert.equal(sprite.style['-webkit-filter'], 'brightness(0.58) saturate(0.52)');
+    assert.equal(sprite.classList.contains('igs-sprite-narration'), false);
+    assert.equal(sprite.style.filter, '');
+    assert.equal(sprite.style['-webkit-filter'], '');
 
     await controller.invokeAction('next');
     content = vn.getState().igsUi.activeReader.snapshot.content;
@@ -610,6 +686,9 @@ test('gate:simulation:embedded-mobile-narration-keeps-current-sprite-dimmed', as
             },
         }),
     });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, dimSpriteOnNarration: true },
+    }));
     globalObject.localStorage = storage;
     const chat = document.createElement('div');
     chat.id = 'chat';
@@ -647,9 +726,8 @@ test('gate:simulation:embedded-mobile-narration-keeps-current-sprite-dimmed', as
     assert.equal(content.textType, 'narration');
     assert.equal(content.spriteImage, 'https://example.com/alice.png');
     assert.equal(sprite.classList.contains('igs-sprite-narration'), true);
-    assert.equal(sprite.style.filter, 'brightness(0.58) saturate(0.52)');
-    assert.equal(sprite.style['-webkit-filter'], 'brightness(0.58) saturate(0.52)');
-    assert.match(opened.reader.snapshot.source.styleText, /#igs-overlay\.igs-mode-embedded #igs-sprite\.igs-sprite-narration\{[^}]*filter:brightness\(\.58\) saturate\(\.52\)!important;[^}]*-webkit-filter:brightness\(\.58\) saturate\(\.52\)!important/);
+    assert.equal(sprite.style.filter, 'brightness(0.86) saturate(0.86)');
+    assert.equal(sprite.style['-webkit-filter'], 'brightness(0.86) saturate(0.86)');
 
     await controller.invokeAction('next');
     await controller.invokeAction('next');
@@ -4008,10 +4086,13 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     const enabled = settings.switchReaderSubTab('display').snapshot.html;
     assert.match(enabled, /显示情绪标签/);
     assert.match(enabled, /显示地点栏/);
-    assert.match(enabled, /显示详细地点/);
+    assert.match(enabled, /显示更多的场景信息/);
+    assert.doesNotMatch(enabled, /显示详细地点/);
+    assert.match(enabled, /NSFW 场景隐藏立绘（暗角保留）/);
+    assert.match(enabled, /旁白时立绘变暗/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
-    assert.match(enabled, /显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示详细地点[\s\S]*头像圆角[\s\S]*状态栏大小/);
+    assert.match(enabled, /显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息[\s\S]*NSFW 场景隐藏立绘（暗角保留）[\s\S]*旁白时立绘变暗[\s\S]*头像圆角[\s\S]*状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
     assert.doesNotMatch(enabled, /<select data-path="readerSettings\.statusHud\.background"/);
     assert.match(enabled, /无背景/);

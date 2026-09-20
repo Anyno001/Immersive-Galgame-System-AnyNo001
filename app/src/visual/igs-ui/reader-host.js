@@ -1467,6 +1467,7 @@ export function createIgsReaderHost(options = {}) {
             : Array.isArray(payload.sceneDirectives) ? payload.sceneDirectives : [];
         const hasIgsDirectives = sceneDirectives.length > 0;
         let finalBackgroundImage = backgroundImage;
+        const hideSpriteOnNsfw = normalizeStatusHudSettings(readerSettings && readerSettings.statusHud).hideSpriteOnNsfw;
         let spriteImage = null;
         let resolvedSpeaker = scene.speaker || '';
         let spriteCharacter = '';
@@ -1594,7 +1595,7 @@ export function createIgsReaderHost(options = {}) {
                 spriteChar = sceneStateForBg.character;
                 spriteMood = sceneStateForBg.mood || '';
             }
-            if (!slotBoundUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw)) {
+            if (!slotBoundUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
                 const spriteUrls = lookupSceneAssetUrls({ character: spriteChar, mood: spriteMood }, sceneAssets);
                 spriteImage = spriteUrls.spriteUrl || null;
                 if (spriteImage) {
@@ -1762,7 +1763,9 @@ export function createIgsReaderHost(options = {}) {
                 toggle,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏（仅旁白）')}</div>`,
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示详细地点')}</div>`,
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示更多的场景信息')}</div>`,
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.hideSpriteOnNsfw', statusHud.hideSpriteOnNsfw, 'NSFW 场景隐藏立绘（暗角保留）')}</div>`,
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.dimSpriteOnNarration', statusHud.dimSpriteOnNarration, '旁白时立绘变暗')}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景'))}</div>`,

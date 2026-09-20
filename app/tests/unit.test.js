@@ -2319,6 +2319,7 @@ import {
     normalizeStatusHudSettings,
     parseMetricCell,
     resolveStatusHudScale,
+    resolveStatusHudLocationScale,
 } from '../src/data/shujuku/status-hud-model.js';
 
 test('gate:simulation:status-hud-settings-normalize-defaults-and-invalid', () => {
@@ -2484,6 +2485,26 @@ test('gate:simulation:status-hud-model-disabled-and-narration-do-not-inherit', (
     assert.equal(narration.weather, '小雨');
     assert.equal(narration.showLocationDetails, true);
     assert.equal(narration.avatar, '');
+
+test('gate:simulation:status-hud-sprite-toggles-default-off-and-normalize', () => {
+    assert.equal(STATUS_HUD_DEFAULTS.hideSpriteOnNsfw, false);
+    assert.equal(STATUS_HUD_DEFAULTS.dimSpriteOnNarration, false);
+    assert.equal(normalizeStatusHudSettings({}).hideSpriteOnNsfw, false);
+    assert.equal(normalizeStatusHudSettings({}).dimSpriteOnNarration, false);
+    assert.equal(normalizeStatusHudSettings({ hideSpriteOnNsfw: true }).hideSpriteOnNsfw, true);
+    assert.equal(normalizeStatusHudSettings({ dimSpriteOnNarration: true }).dimSpriteOnNarration, true);
+    assert.equal(normalizeStatusHudSettings({ hideSpriteOnNsfw: 'yes' }).hideSpriteOnNsfw, false);
+    assert.equal(normalizeStatusHudSettings({ dimSpriteOnNarration: 1 }).dimSpriteOnNarration, false);
+});
+
+test('gate:simulation:status-hud-location-scale-tiers', () => {
+    assert.equal(resolveStatusHudLocationScale('small'), 1.2);
+    assert.equal(resolveStatusHudLocationScale('medium'), 1.45);
+    assert.equal(resolveStatusHudLocationScale('large'), 1.7);
+    assert.equal(resolveStatusHudLocationScale('huge'), 1.45);
+    assert.equal(resolveStatusHudLocationScale(undefined), 1.45);
+});
+
 });
 
 test('gate:simulation:status-hud-model-failure-is-diagnostic-not-zero', () => {

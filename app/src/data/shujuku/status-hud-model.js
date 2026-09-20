@@ -4,6 +4,9 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 export const STATUS_HUD_MAX_METRICS = 4;
 export const STATUS_HUD_SIZE_IDS = Object.freeze(['small', 'medium', 'large']);
 export const STATUS_HUD_SIZE_SCALE = Object.freeze({ small: 0.86, medium: 1, large: 1.16 });
+// 地点栏独立档位系数：状态栏 size 已通过 --igs-hud-scale 影响地点栏，但整体偏小，
+// 因此在地点栏上再叠加一档系数，最小档即为当前观感的 120%。
+export const STATUS_HUD_LOCATION_SCALE = Object.freeze({ small: 1.2, medium: 1.45, large: 1.7 });
 const STATUS_HUD_OVERALL_SCALE = 0.8;
 export const STATUS_HUD_AVATAR_RADIUS_IDS = Object.freeze(['square', 'soft', 'small', 'medium', 'large', 'circle']);
 export const STATUS_HUD_AVATAR_RADIUS_PX = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
@@ -17,6 +20,8 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     showEmotion: true,
     showLocation: false,
     showLocationDetails: false,
+    hideSpriteOnNsfw: false,
+    dimSpriteOnNarration: false,
     avatarRadius: 'circle',
     background: 'none',
     barColor: 'color',
@@ -32,6 +37,8 @@ export function normalizeStatusHudSettings(raw) {
         showEmotion: src.showEmotion === false ? false : true,
         showLocation: src.showLocation === true,
         showLocationDetails: src.showLocationDetails === true,
+        hideSpriteOnNsfw: src.hideSpriteOnNsfw === true,
+        dimSpriteOnNarration: src.dimSpriteOnNarration === true,
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
         barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,
@@ -71,6 +78,11 @@ export function resolveStatusHudScale(size, viewportWidth, viewportHeight) {
     const tier = STATUS_HUD_SIZE_SCALE[size] != null ? STATUS_HUD_SIZE_SCALE[size] : 1;
     return clampNumber(base * tier, 0.72, 1.28, 1) * STATUS_HUD_OVERALL_SCALE;
 }
+
+export function resolveStatusHudLocationScale(size) {
+    return STATUS_HUD_LOCATION_SCALE[size] != null ? STATUS_HUD_LOCATION_SCALE[size] : STATUS_HUD_LOCATION_SCALE.medium;
+}
+
 
 export function listStatusHudTables(readResult) {
     if (!readResult || readResult.ok === false) {

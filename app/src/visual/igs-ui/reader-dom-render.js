@@ -13,7 +13,7 @@ import {
     removeImageLoadingSpinner,
 } from './reader-dom-utils.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
-import { resolveStatusHudScale } from '../../data/shujuku/status-hud-model.js';
+import { resolveStatusHudScale, resolveStatusHudLocationScale } from '../../data/shujuku/status-hud-model.js';
 import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import {
     renderDialogueHtml,
@@ -662,6 +662,9 @@ export function applyStatusHudScale(root, snapshot) {
     const scale = resolveStatusHudScale(hudSettings.size, overlayWidth, overlayHeight);
     snapshot._statusHudScale = scale;
     host.style.setProperty('--igs-hud-scale', String(scale));
+    const locationScale = resolveStatusHudLocationScale(hudSettings.size);
+    snapshot._statusHudLocationScale = locationScale;
+    host.style.setProperty('--igs-hud-location-scale', String(locationScale));
 }
 
 function applyAlignStyleImpl(element, align) {
@@ -741,12 +744,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         bgBlur.style.opacity = '0';
     }
     const spriteEl = root.querySelector('#igs-sprite');
-    const spriteAssetUrl = snapshot.content.sceneNsfw === true
+    const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
+    const hideSpriteNsfw = snapshot.content.sceneNsfw === true && spriteSettings.hideSpriteOnNsfw === true;
+    const spriteAssetUrl = hideSpriteNsfw
         ? null
         : resolveAssetUrl(snapshot.content.spriteImage);
     if (spriteEl && spriteAssetUrl) {
-        const spriteNarration = snapshot.content.textType === 'narration';
-        const spriteFilter = spriteNarration ? 'brightness(0.58) saturate(0.52)' : '';
+        const spriteNarration = snapshot.content.textType === 'narration' && spriteSettings.dimSpriteOnNarration === true;
+        const spriteFilter = spriteNarration ? 'brightness(0.86) saturate(0.86)' : '';
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
         spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;
         spriteEl.style.display = 'block';
