@@ -47,6 +47,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay.igs-scene-nsfw #igs-bg{filter:blur(8px) brightness(.62) saturate(.72);transform:scale(1.04);}
 #igs-overlay.igs-scene-nsfw #igs-bg::after{display:block;background:radial-gradient(ellipse at center,rgba(12,14,18,.08) 20%,rgba(12,14,18,.72) 100%);}
 #igs-sprite{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:40%;height:85%;background-size:100%;background-repeat:no-repeat;background-position:50% 100%;pointer-events:none;z-index:2;display:none;}
+#igs-sprite.igs-sprite-narration{filter:brightness(.86) saturate(.86);-webkit-filter:brightness(.86) saturate(.86);}
+
 #igs-sprite.igs-sprite-editing{pointer-events:all;cursor:grab;outline:2px dashed rgba(255,255,255,.5);outline-offset:-2px;}
 #igs-sprite.igs-sprite-editing.is-dragging{cursor:grabbing;}
 #igs-dialog-layer,#igs-toolbar-layer,#igs-option-layer,#igs-db-layer{position:absolute;inset:0;pointer-events:none;}

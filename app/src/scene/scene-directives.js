@@ -1,8 +1,9 @@
 import { resolveMoodGroup } from './mood-groups.js';
 
-const SCENE_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
-const CHAR_RE = /^\[igs-char:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
-const THOUGHT_RE = /^\[igs-thought:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
+// 指令可独占整行，也可紧跟在正文之后（同一行内混排），因此不做行首锚定。
+const SCENE_RE = /\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
+const CHAR_RE = /\[igs-char:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
+const THOUGHT_RE = /\[igs-thought:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
 
 export function extractSceneDirectives(text) {
     const source = String(text || '');
@@ -15,14 +16,15 @@ export function extractSceneDirectives(text) {
     for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim();
         if (!trimmed) continue;
-        // 行首可连续混排多条指令，指令行也可与正文同段：逐条剥离，
-        // 指令统一归属「其所在正文段」（segmentCount），使 A 段用 A 场景、B 段用 B 场景。
+        // 一行内可出现任意数量的指令，位置不限（行首、正文之后、甚至夹在正文中间）。
+        // 从左到右扫描：指令前的文本算正文；指令归属「其所在正文段」，
+        // 使 A 段用 A 场景、B 段用 B 场景。
         let rest = trimmed;
         let m;
-        let consumedAny = false;
+        let textBefore = '';
         while (rest) {
             if ((m = rest.match(SCENE_RE))) {
-                consumedAny = true;
+                textBefore += rest.slice(0, m.index);
                 directives.push({
                     type: 'scene',
                     scene: m[1].trim(),
@@ -33,20 +35,21 @@ export function extractSceneDirectives(text) {
                     lineIndex: i,
                 });
             } else if ((m = rest.match(CHAR_RE))) {
-                consumedAny = true;
+                textBefore += rest.slice(0, m.index);
                 directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
             } else if ((m = rest.match(THOUGHT_RE))) {
-                consumedAny = true;
+                textBefore += rest.slice(0, m.index);
                 directives.push({ type: 'thought', character: m[1].trim(), mood: m[2].trim(), thought: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
             } else {
                 break;
             }
-            rest = rest.slice(m[0].length).trim();
+            rest = rest.slice(m.index + m[0].length);
         }
-        // 该行在剥离所有指令后仍有正文、或本就不是指令行，才算一个正文段。
-        // 纯指令行不占段：其 segmentIndex 指向「其后第一个正文段」，因此
-        // 段首指令与段末（预告下一段）指令都等价地生效于下一段。
-        if (rest) segmentCount++;
+        textBefore += rest;
+        // 该行剥离所有指令后仍有正文才占一个正文段；纯指令行不占段，
+        // 其 segmentIndex 指向「其后第一个正文段」，因此段首指令与段末预告
+        // 指令都等价地生效于下一段。
+        if (textBefore.trim()) segmentCount++;
     }
 
     return { directives, strippedText: source };

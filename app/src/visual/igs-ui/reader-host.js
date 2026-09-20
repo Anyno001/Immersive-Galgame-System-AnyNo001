@@ -1443,6 +1443,12 @@ export function createIgsReaderHost(options = {}) {
             : hasExtractedSegments
                 ? cloneData(extractedSegments)
                 : buildTextSegments(stripSceneDirectiveLines(text));
+        // 场景指令可能紧贴正文（如「正文。[igs-scene:…]」），所有分段来源都必须再剥离一次，
+        // 否则标签会作为正文渲染进对话框。原位写回，长度不变，下游索引语义不受影响。
+        for (let si = 0; si < segments.length; si += 1) {
+            segments[si] = stripSceneDirectivesInline(segments[si]);
+        }
+
         const normalizedIndex = Math.max(0, Math.min(segments.length - 1, Number(index) || 0));
         const segmentImageSlots = Array.isArray(payload.segmentImageSlots) && payload.segmentImageSlots.length
             ? payload.segmentImageSlots
@@ -1764,8 +1770,6 @@ export function createIgsReaderHost(options = {}) {
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏（仅旁白）')}</div>`,
                 statusHud.showLocation ? `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示更多的场景信息')}</div>` : '',
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showSpriteOnNsfw', statusHud.showSpriteOnNsfw, '显示NSFW场景下的人物立绘')}</div>`,
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.dimSpriteOnNarration', statusHud.dimSpriteOnNarration, '启用人物滤镜（仅旁白）')}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景'))}</div>`,
@@ -1935,8 +1939,10 @@ export function createIgsReaderHost(options = {}) {
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
             readerToggles: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜')
-                + checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示状态行')
-                + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按句号自动分页（启用场景素材时仅分旁白）'),
+                + checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
+                + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
+                + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘')
+                + checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
             optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
@@ -2799,6 +2805,12 @@ function cloneReaderPayload(payload = {}) {
 }
 
 const SCENE_TAG_LINE_RE = /^\[igs-scene:[^\]]*\]/;
+
+function stripSceneDirectivesInline(rawText) {
+    return String(rawText || '')
+        .replace(/\[igs-scene:[^\]]*\]/g, '')
+        .trim();
+}
 
 function stripSceneDirectiveLines(rawText) {
     return String(rawText || '').split('\n')

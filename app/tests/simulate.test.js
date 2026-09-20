@@ -4083,19 +4083,18 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     settings.switchTab('reader');
 
     settings.setValue('readerSettings.statusHud.enabled', true);
-    const hidden = settings.switchReaderSubTab('display').snapshot.html;
-    assert.match(hidden, /显示情绪标签/);
-    assert.match(hidden, /显示地点栏（仅旁白）/);
-    assert.doesNotMatch(hidden, /显示更多的场景信息/);
-
     settings.setValue('readerSettings.statusHud.showLocation', true);
     const enabled = settings.switchReaderSubTab('display').snapshot.html;
+    assert.match(enabled, /显示左上角状态栏/);
+    assert.match(enabled, /显示情绪标签/);
+    assert.match(enabled, /显示地点栏（仅旁白）/);
     assert.match(enabled, /显示更多的场景信息/);
-    assert.match(enabled, /显示NSFW场景下的人物立绘/);
-    assert.match(enabled, /启用人物滤镜（仅旁白）/);
+    assert.match(enabled, /显示左上角状态栏[\s\S]*显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息/);
+    // 常驻区五项始终显示，且位于跟随区之前。
+    assert.match(enabled, /启用背景滤镜[\s\S]*启用人物过场滤镜（仅旁白）[\s\S]*按照句号自动分页（仅旁白）[\s\S]*显示NSFW场景下的人物立绘[\s\S]*显示对话框内状态行[\s\S]*显示左上角状态栏/);
+    assert.match(enabled, /启用人物过场滤镜（仅旁白）[\s\S]*按照句号自动分页（仅旁白）[\s\S]*显示NSFW场景下的人物立绘[\s\S]*显示对话框内状态行/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
-    assert.match(enabled, /显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息[\s\S]*显示NSFW场景下的人物立绘[\s\S]*启用人物滤镜（仅旁白）[\s\S]*头像圆角[\s\S]*状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
     assert.doesNotMatch(enabled, /<select data-path="readerSettings\.statusHud\.background"/);
     assert.match(enabled, /无背景/);
@@ -4133,6 +4132,20 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.equal(persisted.statusHud.background, 'dialog');
     assert.equal(persisted.statusHud.barColor, 'grayscale');
     assert.deepEqual(persisted.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
+
+
+    // 关闭总开关后：跟随区隐藏，常驻区五项保留。
+    settings.setValue('readerSettings.statusHud.enabled', false);
+    const disabled = settings.switchReaderSubTab('display').snapshot.html;
+    assert.match(disabled, /显示左上角状态栏/);
+    assert.doesNotMatch(disabled, /显示情绪标签/);
+    assert.doesNotMatch(disabled, /显示地点栏/);
+    assert.doesNotMatch(disabled, /显示更多的场景信息/);
+    assert.match(disabled, /启用背景滤镜/);
+    assert.match(disabled, /启用人物过场滤镜（仅旁白）/);
+    assert.match(disabled, /按照句号自动分页（仅旁白）/);
+    assert.match(disabled, /显示NSFW场景下的人物立绘/);
+    assert.match(disabled, /显示对话框内状态行/);
 
     vn.destroy();
 });
