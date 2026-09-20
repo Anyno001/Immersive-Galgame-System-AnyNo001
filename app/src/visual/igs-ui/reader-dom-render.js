@@ -716,6 +716,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const spriteEl = root.querySelector('#igs-sprite');
     const spriteAssetUrl = resolveAssetUrl(snapshot.content.spriteImage);
     if (spriteEl && spriteAssetUrl) {
+        const spriteFilter = snapshot.content.textType === 'narration' ? 'brightness(0.58) saturate(0.52)' : '';
         spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;
         spriteEl.style.display = 'block';
         spriteEl.style.position = 'absolute';
@@ -725,7 +726,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         spriteEl.style.transform = 'none';
         spriteEl.style.bottom = 'auto';
         spriteEl.style.left = 'auto';
-        spriteEl.style.filter = snapshot.content.textType === 'narration' ? 'brightness(0.58) saturate(0.52)' : '';
+        spriteEl.style.filter = spriteFilter;
+        spriteEl.style.setProperty('-webkit-filter', spriteFilter);
         if (!current.spriteEditMode) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
             const spriteMood = snapshot.content.spriteMood || '';
@@ -738,6 +740,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         spriteEl.style.backgroundImage = '';
         spriteEl.style.display = 'none';
         spriteEl.style.filter = '';
+        spriteEl.style.setProperty('-webkit-filter', '');
     }
     if (textEl) {
         const theme = resolveActiveTheme(snapshot);

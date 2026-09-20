@@ -463,7 +463,7 @@ test('gate:simulation:scene-and-character-aliases-reuse-original-assets-and-layo
     vn.destroy();
 });
 
-test('gate:simulation:sentence-paging-keeps-current-sprite-dimmed-until-next-dialogue', async () => {
+test('gate:simulation:mobile-sentence-paging-keeps-current-sprite-dimmed-until-next-dialogue', async () => {
     const document = createFakeDocument();
     const storage = createMemoryStorage({
         igs_bridge_config: JSON.stringify({
@@ -499,13 +499,14 @@ test('gate:simulation:sentence-paging-keeps-current-sprite-dimmed-until-next-dia
         },
     });
 
-    const opened = await vn.openLatestAvailable('pc');
+    const opened = await vn.openLatestAvailable('mobile');
     const controller = opened.reader.controller;
     let content = vn.getState().igsUi.activeReader.snapshot.content;
     let sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(content.textType, 'dialogue');
     assert.equal(content.spriteImage, 'https://example.com/alice.png');
     assert.equal(sprite.style.filter, '');
+    assert.equal(sprite.style['-webkit-filter'], '');
 
     await controller.invokeAction('next');
     content = vn.getState().igsUi.activeReader.snapshot.content;
@@ -513,6 +514,7 @@ test('gate:simulation:sentence-paging-keeps-current-sprite-dimmed-until-next-dia
     assert.equal(content.textType, 'narration');
     assert.equal(content.spriteImage, 'https://example.com/alice.png');
     assert.equal(sprite.style.filter, 'brightness(0.58) saturate(0.52)');
+    assert.equal(sprite.style['-webkit-filter'], 'brightness(0.58) saturate(0.52)');
 
     await controller.invokeAction('next');
     content = vn.getState().igsUi.activeReader.snapshot.content;
@@ -526,6 +528,7 @@ test('gate:simulation:sentence-paging-keeps-current-sprite-dimmed-until-next-dia
     assert.equal(content.speaker, 'Bob');
     assert.equal(content.spriteImage, 'https://example.com/bob.png');
     assert.equal(sprite.style.filter, '');
+    assert.equal(sprite.style['-webkit-filter'], '');
     vn.destroy();
 });
 
