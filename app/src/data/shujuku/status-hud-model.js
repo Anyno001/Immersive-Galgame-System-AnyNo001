@@ -140,7 +140,8 @@ export function buildStatusHudModel(input = {}) {
     const rawCharacter = String(input.character || '').trim();
     const character = resolveCharacterKey(characters, sceneAssets.characterAliases, rawCharacter) || '';
     const emotion = character ? String(input.emotion || '').trim() : '';
-    const showSceneInfo = settings.showLocation && input.isNarration === true && !character;
+    // 旁白页与心理活动页都显示地点栏；是否有角色不影响场景信息。
+    const showSceneInfo = settings.showLocation && input.isNarration === true;
     const model = {
         enabled: settings.enabled,
         character,

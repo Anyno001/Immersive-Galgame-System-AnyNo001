@@ -1031,7 +1031,10 @@ test('gate:scene:legacy-default-prompt-upgrades-without-touching-custom-rule', (
     assert.equal(normalizeScenePromptRule(LEGACY_DEFAULT_SCENE_PROMPT_RULE), DEFAULT_SCENE_PROMPT_RULE);
     assert.equal(normalizeScenePromptRule('自定义规则'), '自定义规则');
     assert.match(DEFAULT_SCENE_PROMPT_RULE, /\[igs-scene:场景名\|时间\|天气\|NSFW\]/);
-    assert.match(DEFAULT_SCENE_PROMPT_RULE, /NSFW第四栏是前端隐藏人物视觉并启用中性暗角柔焦帷幕/);
+    // NSFW 只规定格式与触发条件，不解释前端用途。
+    assert.doesNotMatch(DEFAULT_SCENE_PROMPT_RULE, /前端隐藏人物视觉/);
+    assert.match(DEFAULT_SCENE_PROMPT_RULE, /\[igs-char:角色名\|表情\|对白\]/);
+    assert.match(DEFAULT_SCENE_PROMPT_RULE, /禁止描述家具/);
 });
 
 test('gate:settings:theme-toggle-persists-through-settings-action', async () => {

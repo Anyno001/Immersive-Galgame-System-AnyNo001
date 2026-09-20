@@ -12,44 +12,46 @@ export function extractSceneDirectives(text) {
     const directives = [];
     const lines = source.split('\n');
     let segmentCount = 0;
+    // 待结算的正文本：只有遇到 [igs-scene] 或行尾时才确定它属于哪一段。
+    let pending = '';
 
     for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim();
         if (!trimmed) continue;
-        // 一行内可出现任意数量的指令，位置不限（行首、正文之后、甚至夹在正文中间）。
-        // 从左到右扫描：指令前的文本算正文；指令归属「其所在正文段」，
-        // 使 A 段用 A 场景、B 段用 B 场景。
+        // 场景切换的唯一依据是 [igs-scene] 标签本身：标签出现在哪里，它之后的正文就属于哪个场景。
+        // 一行内可混排任意指令与正文（位置不限），因此按出现顺序消费：
+        // 先结算「标签之前的正文」为当前段，标签本身归属「其后的正文段」。
         let rest = trimmed;
         let m;
-        let textBefore = '';
         while (rest) {
             if ((m = rest.match(SCENE_RE))) {
-                textBefore += rest.slice(0, m.index);
+                pending += rest.slice(0, m.index);
+                // 标签之前的正文自成一段（若有）。
+                if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({
                     type: 'scene',
                     scene: m[1].trim(),
                     time: m[2].trim(),
                     weather: m[3].trim(),
                     nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw',
+                    // 指向「其后的正文段」：该标签一旦出现，后续正文即属于它。
                     segmentIndex: segmentCount,
                     lineIndex: i,
                 });
             } else if ((m = rest.match(CHAR_RE))) {
-                textBefore += rest.slice(0, m.index);
+                pending += rest.slice(0, m.index);
+                if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
             } else if ((m = rest.match(THOUGHT_RE))) {
-                textBefore += rest.slice(0, m.index);
+                pending += rest.slice(0, m.index);
+                if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'thought', character: m[1].trim(), mood: m[2].trim(), thought: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
             } else {
                 break;
             }
             rest = rest.slice(m.index + m[0].length);
         }
-        textBefore += rest;
-        // 该行剥离所有指令后仍有正文才占一个正文段；纯指令行不占段，
-        // 其 segmentIndex 指向「其后第一个正文段」，因此段首指令与段末预告
-        // 指令都等价地生效于下一段。
-        if (textBefore.trim()) segmentCount++;
+        pending += rest;
     }
 
     return { directives, strippedText: source };

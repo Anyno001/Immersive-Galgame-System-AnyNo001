@@ -155,13 +155,15 @@ export function resolveActiveTheme(snapshot) {
 export function renderDialogueHtml(text, theme, sceneAssetsEnabled) {
     const escaped = esc(text);
     if (!sceneAssetsEnabled) return escaped;
-    return escaped.replace(/\*([^*]+)\*/g, (_, inner) => {
+    const html = escaped.replace(/\*([^*]+)\*/g, (_, inner) => {
         const styles = [];
         if (theme.thoughtFont && theme.thoughtFont !== 'inherit') styles.push(`font-family:${cssFontValue(theme.thoughtFont)}`);
         if (theme.thoughtColor) styles.push(`color:${theme.thoughtColor}`);
         const styleAttr = styles.length ? ` style="${styles.join(';')}"` : '';
         return `<span class="igs-thought"${styleAttr}>${inner}</span>`;
     });
+    // 心理活动标记可能不成对（模型漏写右星号），残留的星号一律不渲染。
+    return html.replace(/\*/g, '');
 }
 
 function cssFontValue(font) {
