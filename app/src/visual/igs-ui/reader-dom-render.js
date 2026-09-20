@@ -665,8 +665,9 @@ export function applyStatusHudScale(root, snapshot) {
     const locationScale = resolveStatusHudLocationScale(hudSettings.size);
     snapshot._statusHudLocationScale = locationScale;
     host.style.setProperty('--igs-hud-location-scale', String(locationScale));
-    // 地点栏按档位微调垂直位置：小档下移 6px，中档下移 1.5px，大档保持。
-    const locationOffset = hudSettings.size === 'small' ? 6 : hudSettings.size === 'medium' ? 1.5 : 0;
+    // 地点栏按档位微调垂直位置：小档下移 9px，中档下移 3.5px，大档保持。
+    const locationOffset = hudSettings.size === 'small' ? 9 : hudSettings.size === 'medium' ? 3.5 : 0;
+
 
     host.style.setProperty('--igs-hud-location-offset', `${locationOffset}px`);
 }
