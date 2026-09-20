@@ -2497,6 +2497,35 @@ test('gate:simulation:status-hud-model-matches-alias-row-and-caps-at-four', () =
     assert.equal(model.loadState, 'ready');
 });
 
+test('gate:hud:unregistered-character-still-shows-identity-and-emotion', () => {
+    // 未在场景素材注册的角色：仍用原始名显示身份/情绪，只是取不到自定义头像。
+    const model = buildStatusHudModel({
+        settings: { enabled: true, showEmotion: true, showLocation: true },
+        sceneAssets: { characters: {}, characterAliases: {}, statusAvatars: {} },
+        character: '殷哪吒',
+        emotion: '恼火',
+        isNarration: false,
+    });
+    assert.equal(model.character, '殷哪吒');
+    assert.equal(model.emotion, '恼火');
+    assert.equal(model.avatar, '');
+    assert.equal(model.enabled, true);
+});
+
+test('gate:hud:location-only-on-narration-without-character', () => {
+    const base = {
+        settings: { enabled: true, showEmotion: true, showLocation: true },
+        sceneAssets: { characters: {}, characterAliases: {}, statusAvatars: {} },
+        location: '艺术楼402教研室',
+    };
+    // 旁白页（无角色）显示地点栏。
+    assert.equal(buildStatusHudModel({ ...base, character: '', isNarration: true }).location, '艺术楼402教研室');
+    // 内心页与对白页同为角色页，不显示地点栏。
+    assert.equal(buildStatusHudModel({ ...base, character: '殷哪吒', isNarration: true }).location, '');
+    assert.equal(buildStatusHudModel({ ...base, character: '殷哪吒', isNarration: false }).location, '');
+});
+
+
 test('gate:simulation:status-hud-model-disabled-and-narration-do-not-inherit', () => {
     const disabled = buildStatusHudModel({ settings: { enabled: false }, sceneAssets: { characters: { A: {} } }, character: 'A', emotion: '喜' });
     assert.equal(disabled.enabled, false);

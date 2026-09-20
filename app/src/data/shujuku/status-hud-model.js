@@ -138,10 +138,12 @@ export function buildStatusHudModel(input = {}) {
     const sceneAssets = input.sceneAssets && typeof input.sceneAssets === 'object' ? input.sceneAssets : {};
     const characters = sceneAssets.characters && typeof sceneAssets.characters === 'object' ? sceneAssets.characters : {};
     const rawCharacter = String(input.character || '').trim();
-    const character = resolveCharacterKey(characters, sceneAssets.characterAliases, rawCharacter) || '';
+    // 未在场景素材注册的角色也用原始名作为显示名：状态栏照常显示头像占位、情绪与 HUD 条，
+    // 只是取不到自定义头像。
+    const character = resolveCharacterKey(characters, sceneAssets.characterAliases, rawCharacter) || rawCharacter;
     const emotion = character ? String(input.emotion || '').trim() : '';
-    // 旁白页与心理活动页都显示地点栏；是否有角色不影响场景信息。
-    const showSceneInfo = settings.showLocation && input.isNarration === true;
+    // 地点栏只在没有角色的旁白页显示；内心页属于角色页，与对白页同样不显示地点。
+    const showSceneInfo = settings.showLocation && input.isNarration === true && !rawCharacter;
     const model = {
         enabled: settings.enabled,
         character,
