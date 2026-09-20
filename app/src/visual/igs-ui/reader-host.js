@@ -1388,12 +1388,12 @@ export function createIgsReaderHost(options = {}) {
 
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
         const scene = cloneData(payload.scene || (payload.render && payload.render.scene) || {});
-        const buildStatusHudForSnapshot = (settings, speaker, emotion) => {
+        const buildStatusHudForSnapshot = (settings, speaker, emotion, location) => {
             const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
-            if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '' });
+            if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '', location: '' });
             const sceneAssets = (settings && settings._sceneAssets) || {};
             const readResult = statusHud.tables.length ? readStatusHudTables() : null;
-            return buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, readResult });
+            return buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location, readResult });
         };
         const readStatusHudTables = () => {
             const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
@@ -1665,7 +1665,7 @@ export function createIgsReaderHost(options = {}) {
                 sourceKind: firstDefined(scene.sourceKind, payload.sourceKind, 'raw-text'),
                 warnings: extracted.warnings,
                 errors: extracted.errors,
-                statusHud: buildStatusHudForSnapshot(readerSettings, resolvedSpeaker, bubbleMood),
+                statusHud: buildStatusHudForSnapshot(readerSettings, resolvedSpeaker, bubbleMood, firstDefined(sceneStateForBg && sceneStateForBg.scene, scene.location, '')),
             },
             readerSettings: cloneData(readerSettings),
             input: {
@@ -1740,11 +1740,12 @@ export function createIgsReaderHost(options = {}) {
             const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
             const listed = api ? listStatusHudTables(createShujukuClient(api).readTables()) : { ok: false, reason: 'missing-api', tables: [] };
             const catalogNote = listed.ok
-                ? '勾选后额外显示当前角色匹配到的 HUD 条；留空则只显示头像与情绪。'
-                : '数据库插件未就绪，头像与情绪仍可显示；已保存的表格选择会保留。';
+                ? '勾选后额外显示当前角色匹配到的 HUD 条；留空则只显示已开启的头像、情绪与地点。'
+                : '数据库插件未就绪，头像、情绪与地点仍可显示；已保存的表格选择会保留。';
             const body = [
                 toggle,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏')}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景'))}</div>`,

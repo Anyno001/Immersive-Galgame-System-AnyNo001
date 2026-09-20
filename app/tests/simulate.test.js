@@ -3839,9 +3839,10 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     settings.setValue('readerSettings.statusHud.enabled', true);
     const enabled = settings.switchReaderSubTab('display').snapshot.html;
     assert.match(enabled, /显示情绪标签/);
+    assert.match(enabled, /显示地点栏/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
-    assert.match(enabled, /显示情绪标签[\s\S]*头像圆角[\s\S]*状态栏大小/);
+    assert.match(enabled, /显示情绪标签[\s\S]*显示地点栏[\s\S]*头像圆角[\s\S]*状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
     assert.doesNotMatch(enabled, /<select data-path="readerSettings\.statusHud\.background"/);
     assert.match(enabled, /无背景/);
@@ -3856,6 +3857,8 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /<div class="igs-settings-field"><span>读取表格<\/span><div class="igs-status-hud-tables"/);
     assert.doesNotMatch(enabled, /<label class="igs-settings-field"><span>读取表格<\/span>/);
 
+    settings.setValue('readerSettings.statusHud.showLocation', true);
+    assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.showLocation, true);
     settings.setValue('readerSettings.statusHud.background', 'dialog');
     assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.background, 'dialog');
     settings.setValue('readerSettings.statusHud.barColor', 'grayscale');
@@ -3870,6 +3873,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
 
     const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(persisted.statusHud.enabled, true);
+    assert.equal(persisted.statusHud.showLocation, true);
     assert.equal(persisted.statusHud.background, 'dialog');
     assert.equal(persisted.statusHud.barColor, 'grayscale');
     assert.deepEqual(persisted.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
@@ -3885,7 +3889,7 @@ test('gate:simulation:status-hud-snapshot-keeps-raw-emotion-and-skips-narration'
             sceneAssets: {
                 enabled: true,
                 promptRule: 'rule',
-                scenes: {},
+                scenes: { '旧城': { url: '' } },
                 characters: { 'H': { default: '', '喜悦': 'https://example.com/happy.png', '平和': 'https://example.com/calm.png' } },
                 characterAliases: { 'H': [] },
                 moodGroups: [],
@@ -3894,7 +3898,7 @@ test('gate:simulation:status-hud-snapshot-keeps-raw-emotion-and-skips-narration'
         }),
     });
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
-        statusHud: { enabled: true, size: 'medium', showEmotion: true, avatarRadius: 'circle', background: 'none', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+        statusHud: { enabled: true, size: 'medium', showEmotion: true, showLocation: true, avatarRadius: 'circle', background: 'none', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
     }));
     const vn = bootstrapIGS({
         global: {
@@ -3910,7 +3914,7 @@ test('gate:simulation:status-hud-snapshot-keeps-raw-emotion-and-skips-narration'
         hostAdapter: {
             getCurrentMessage: async () => ({
                 id: 1,
-                text: ['<now_plot>', '<content>', '[igs-char:H|喜悦|Hello.]', '</content>', '</now_plot>'].join('\n'),
+                text: ['<now_plot>', '<content>', '[igs-scene:旧城|夜晚|晴天]', '[igs-char:H|喜悦|Hello.]', '</content>', '</now_plot>'].join('\n'),
   }),
             typeAndSend: async () => ({ ok: true }),
         },
@@ -3921,6 +3925,7 @@ test('gate:simulation:status-hud-snapshot-keeps-raw-emotion-and-skips-narration'
     assert.equal(content.statusEmotion, '喜悦');
     assert.equal(content.statusHud.character, 'H');
     assert.equal(content.statusHud.emotion, '喜悦');
+    assert.equal(content.statusHud.location, '旧城');
     assert.equal(content.statusHud.avatar, 'data:image/png;base64,AAA');
     assert.equal(content.statusHud.metrics.length, 2);
     assert.equal(content.statusHud.metrics[0].label, '信任');
@@ -3978,7 +3983,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
             sceneAssets: {
                 enabled: true,
                 promptRule: 'rule',
-                scenes: {},
+                scenes: { '旧城': { url: '' } },
                 characters: { H: { default: '' } },
                 characterAliases: { H: [] },
                 moodGroups: [],
@@ -3987,7 +3992,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
         }),
     });
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
-        statusHud: { enabled: true, size: 'large', showEmotion: true, avatarRadius: 'medium', background: 'dialog', barColor: 'grayscale', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+        statusHud: { enabled: true, size: 'large', showEmotion: true, showLocation: true, avatarRadius: 'medium', background: 'dialog', barColor: 'grayscale', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
     }));
     const vn = bootstrapIGS({
         global: {
@@ -4001,7 +4006,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
         },
         autoAttachMagicWand: false,
         hostAdapter: {
-            getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-char:H|紧张|Hello.]', '</content>', '</now_plot>'].join('\n') }),
+            getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-scene:旧城|夜晚|晴天]', '[igs-char:H|紧张|Hello.]', '</content>', '</now_plot>'].join('\n') }),
             typeAndSend: async () => ({ ok: true }),
         },
     });
@@ -4018,6 +4023,10 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
 
     const chip = host.querySelector('.igs-hud-emotion');
     assert.equal(chip.textContent, '紧张');
+    const location = host.querySelector('.igs-hud-location');
+    assert.ok(location);
+    assert.equal(location.querySelector('.igs-hud-location-label').textContent, '旧城');
+    assert.match(location.querySelector('.igs-hud-location-icon').innerHTML, /<svg/);
 
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 4);
     const fills = host.querySelectorAll('.igs-hud-fill');
@@ -4084,6 +4093,38 @@ test('gate:simulation:status-hud-dom-hidden-when-disabled-and-placeholder-withou
     assert.equal(host.querySelector('.igs-hud-emotion').textContent, '平和');
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
     assert.equal(host.style['--igs-hud-scale'] != null, true);
+
+    vn.destroy();
+});
+
+test('gate:simulation:status-hud-location-occupies-identity-slot-without-character', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: { enabled: true, promptRule: 'rule', scenes: { '旧城': { url: '' } }, characters: {}, characterAliases: {}, moodGroups: [] },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, showEmotion: true, showLocation: true, tables: [] },
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-scene:旧城|夜晚|晴天]', '风吹过街道。', '</content>', '</now_plot>'].join('\n') }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const host = document.getElementById('igs-status-hud');
+    assert.equal(opened.reader.snapshot.content.statusHud.character, '');
+    assert.equal(opened.reader.snapshot.content.statusHud.location, '旧城');
+    assert.equal(host.hasAttribute('hidden'), false);
+    assert.equal(host.querySelector('.igs-hud-avatar'), null);
+    assert.equal(host.querySelector('.igs-hud-emotion'), null);
+    assert.equal(host.querySelector('.igs-hud-location-label').textContent, '旧城');
+    assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
 
     vn.destroy();
 });

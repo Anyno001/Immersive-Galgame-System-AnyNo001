@@ -510,6 +510,7 @@ export function applyAlignStyle(element, align) {
 
 const STATUS_HUD_PLACEHOLDER = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
 const STATUS_HUD_TOGGLE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path class="igs-hud-icon-expand" d="M12 5v14M5 12h14"/></svg>';
+const STATUS_HUD_LOCATION_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z"/><circle cx="12" cy="9" r="2.3"/></svg>';
 
 const STATUS_HUD_COLOR_VARS = Object.freeze({
     trust: 'var(--igs-hud-bar-trust,#4ab3da)',
@@ -545,11 +546,12 @@ export function applyStatusHudToDom(root, snapshot) {
     host.style.setProperty('--igs-hud-scale', String(Number(scale) > 0 ? Number(scale) : 1));
     host.className = '';
     const hasEmotion = Boolean(hud && hud.emotion);
+    const hasLocation = Boolean(hud && hud.location);
     const hasMetrics = Boolean(hud && Array.isArray(hud.metrics) && hud.metrics.length);
     const grayscaleBars = Boolean(hud && hud.barColor === 'grayscale');
-    const shouldShow = Boolean(hud && hud.enabled && hud.character);
+    const shouldShow = Boolean(hud && hud.enabled && (hud.character || hasLocation));
     if (globalThis.__IGS_HUD_DEBUG__) {
-        console.log('[HUD-PROBE]', JSON.stringify({ hud: hud ? { enabled: hud.enabled, character: hud.character, emotion: hud.emotion, avatar: Boolean(hud.avatar), metrics: hud.metrics && hud.metrics.length } : null, hasEmotion, hasMetrics, shouldShow }));
+        console.log('[HUD-PROBE]', JSON.stringify({ hud: hud ? { enabled: hud.enabled, character: hud.character, emotion: hud.emotion, location: hud.location, avatar: Boolean(hud.avatar), metrics: hud.metrics && hud.metrics.length } : null, hasEmotion, hasLocation, hasMetrics, shouldShow }));
     }
     if (!shouldShow) {
         host.setAttribute('hidden', '');
@@ -565,25 +567,40 @@ export function applyStatusHudToDom(root, snapshot) {
 
     const identity = doc.createElement('div');
     identity.className = 'igs-hud-identity';
-    if (hud.avatar) {
-        const img = doc.createElement('img');
-        img.className = 'igs-hud-avatar';
-        img.setAttribute('src', hud.avatar);
-        img.setAttribute('alt', '');
-        img.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
-        identity.appendChild(img);
-    } else {
-        const placeholder = doc.createElement('div');
-        placeholder.className = 'igs-hud-avatar igs-hud-avatar-empty';
-        placeholder.innerHTML = STATUS_HUD_PLACEHOLDER;
-        placeholder.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
-        identity.appendChild(placeholder);
+    if (hud.character) {
+        if (hud.avatar) {
+            const img = doc.createElement('img');
+            img.className = 'igs-hud-avatar';
+            img.setAttribute('src', hud.avatar);
+            img.setAttribute('alt', '');
+            img.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
+            identity.appendChild(img);
+        } else {
+            const placeholder = doc.createElement('div');
+            placeholder.className = 'igs-hud-avatar igs-hud-avatar-empty';
+            placeholder.innerHTML = STATUS_HUD_PLACEHOLDER;
+            placeholder.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
+            identity.appendChild(placeholder);
+        }
     }
     if (hasEmotion) {
         const chip = doc.createElement('span');
         chip.className = 'igs-hud-emotion';
         chip.textContent = hud.emotion;
         identity.appendChild(chip);
+    }
+    if (hasLocation) {
+        const location = doc.createElement('div');
+        location.className = 'igs-hud-location';
+        const icon = doc.createElement('span');
+        icon.className = 'igs-hud-location-icon';
+        icon.innerHTML = STATUS_HUD_LOCATION_ICON;
+        const chip = doc.createElement('span');
+        chip.className = 'igs-hud-location-label';
+        chip.textContent = hud.location;
+        location.appendChild(icon);
+        location.appendChild(chip);
+        identity.appendChild(location);
     }
     host.appendChild(identity);
 
