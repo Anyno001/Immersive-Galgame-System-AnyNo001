@@ -842,7 +842,7 @@ test('gate:simulation:igs-ui-option-bubble-width-follows-text-and-top-right-posi
     vn.destroy();
 });
 
-test('gate:simulation:igs-ui-toolbar-dock-top-fixes-bar-and-keeps-buttons-visible', async () => {
+test('gate:simulation:igs-ui-toolbar-dock-top-fixes-bar-and-supports-collapse', async () => {
     const storage = createMemoryStorage();
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ toolbarDock: 'top' }));
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
@@ -866,8 +866,11 @@ test('gate:simulation:igs-ui-toolbar-dock-top-fixes-bar-and-keeps-buttons-visibl
 
     assert.equal(overlay.classList.contains('igs-toolbar-top'), true);
     assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'top');
-    // 顶部固定模式下默认折叠态也不收起按钮区。
     assert.equal(vn.getState().igsUi.activeReader.toolbarCollapsed, true);
+    assert.equal(collapsible.style.display, 'none');
+
+    const toggleResult = await opened.reader.controller.invokeAction('toggle-bar');
+    assert.equal(toggleResult.collapsed, false);
     assert.equal(collapsible.style.display, 'flex');
 
     // 顶部固定模式：设置键移入固定区、退出键固定在 ctrl-bar 直属，导航键留在横滚按钮区。
@@ -3886,7 +3889,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
         },
     });
 
-    await vn.openLatestAvailable('pc');
+    const opened = await vn.openLatestAvailable('pc');
     const host = document.getElementById('igs-status-hud');
     assert.equal(host.hasAttribute('hidden'), false);
     assert.equal(host.classList.contains('igs-hud-bg-dialog'), true);
@@ -3905,6 +3908,27 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
 
     const labels = Array.from(host.querySelectorAll('.igs-hud-metric-label')).map((node) => node.textContent);
     assert.deepEqual(labels, ['信任', '好感', '了解', '体力']);
+    assert.equal(host.querySelector('[data-act="toggle-status-hud"]') != null, true);
+
+    const collapsed = await opened.reader.controller.invokeAction('toggle-status-hud');
+    assert.equal(collapsed.collapsed, true);
+    assert.equal(host.classList.contains('igs-hud-collapsed'), true);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).statusHud.collapsed, true);
+
+    const expanded = await opened.reader.controller.invokeAction('toggle-status-hud');
+    assert.equal(expanded.collapsed, false);
+    assert.equal(host.classList.contains('igs-hud-collapsed'), false);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).statusHud.collapsed, false);
+
+    const toolbarExpanded = await opened.reader.controller.invokeAction('toggle-bar');
+    assert.equal(toolbarExpanded.collapsed, false);
+    assert.equal(host.classList.contains('igs-hud-collapsed'), true);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).statusHud.collapsed, false);
+
+    const hudExpanded = await opened.reader.controller.invokeAction('toggle-status-hud');
+    assert.equal(hudExpanded.collapsed, false);
+    assert.equal(vn.getState().igsUi.activeReader.toolbarCollapsed, true);
+    assert.equal(host.classList.contains('igs-hud-collapsed'), false);
 
     vn.destroy();
 });

@@ -316,6 +316,10 @@ export function applyToolbarState(root, current) {
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const dockTop = !embeddedMode && readerSettings.toolbarDock === 'top';
+    const toolbarExpanded = current.toolbarCollapsed === false;
+    if (root.classList) {
+        root.classList.toggle('igs-toolbar-expanded', toolbarExpanded);
+    }
     const order = Array.isArray(readerSettings.btnOrder) && readerSettings.btnOrder.length
         ? readerSettings.btnOrder
         : TOOLBAR_ACTIONS.map(([id]) => id);
@@ -337,7 +341,7 @@ export function applyToolbarState(root, current) {
     }
 
     if (collapsible) {
-        collapsible.style.display = (current.toolbarCollapsed && !dockTop) ? 'none' : 'flex';
+        collapsible.style.display = current.toolbarCollapsed ? 'none' : 'flex';
         collapsible.style.gap = embeddedMode ? '2px' : '6px';
         collapsible.style.alignItems = 'center';
     }
@@ -345,6 +349,12 @@ export function applyToolbarState(root, current) {
         pinned.style.display = 'flex';
         pinned.style.gap = embeddedMode ? '2px' : '6px';
         pinned.style.alignItems = 'center';
+    }
+
+    const statusHud = root.querySelector('#igs-status-hud');
+    if (statusHud) {
+        const persistedCollapsed = Boolean(readerSettings.statusHud && readerSettings.statusHud.collapsed);
+        statusHud.classList.toggle('igs-hud-collapsed', persistedCollapsed || toolbarExpanded);
     }
 
     // 顶部固定栏：按钮放得下时平均铺满（space-evenly），放不下时改左对齐以便横向滚动查看
@@ -499,6 +509,7 @@ export function applyAlignStyle(element, align) {
 }
 
 const STATUS_HUD_PLACEHOLDER = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
+const STATUS_HUD_TOGGLE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15.5 5 7.5 12l8 7Z" fill="currentColor"/></svg>';
 
 const STATUS_HUD_COLOR_VARS = Object.freeze({
     trust: 'var(--igs-hud-bar-trust,#4ab3da)',
@@ -532,7 +543,7 @@ export function applyStatusHudToDom(root, snapshot) {
     const radius = STATUS_HUD_RADIUS[hud && hud.avatarRadius] != null ? STATUS_HUD_RADIUS[hud && hud.avatarRadius] : '50%';
     const scale = snapshot && snapshot.readerSettings && snapshot._statusHudScale;
     host.style.setProperty('--igs-hud-scale', String(Number(scale) > 0 ? Number(scale) : 1));
-    host.className = [];
+    host.className = '';
     const hasEmotion = Boolean(hud && hud.emotion);
     const hasMetrics = Boolean(hud && Array.isArray(hud.metrics) && hud.metrics.length);
     const shouldShow = Boolean(hud && hud.enabled && hud.character) && (hasEmotion || hasMetrics || Boolean(hud.avatar));
@@ -547,6 +558,8 @@ export function applyStatusHudToDom(root, snapshot) {
     host.removeAttribute('hidden');
     if (hud.background === 'dialog') host.classList.add('igs-hud-bg-dialog');
     if (root.classList && root.classList.contains('igs-options-visible')) host.classList.add('igs-hud-suppressed');
+    const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
+    if (hudSettings && hudSettings.collapsed) host.classList.add('igs-hud-collapsed');
     while (host.firstChild) host.removeChild(host.firstChild);
 
     const identity = doc.createElement('div');
@@ -599,6 +612,13 @@ export function applyStatusHudToDom(root, snapshot) {
         metrics.appendChild(row);
     }
     host.appendChild(metrics);
+    const toggle = doc.createElement('button');
+    toggle.className = 'igs-icon-btn igs-hud-toggle';
+    toggle.setAttribute('data-act', 'toggle-status-hud');
+    toggle.setAttribute('title', '折叠/展开状态栏');
+    toggle.setAttribute('type', 'button');
+    toggle.innerHTML = STATUS_HUD_TOGGLE_ICON;
+    host.appendChild(toggle);
     if (hasMetrics && Number(hud.hiddenCount) > 0) {
         const overflow = doc.createElement('span');
         overflow.className = 'igs-hud-overflow';

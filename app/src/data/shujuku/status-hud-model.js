@@ -10,6 +10,7 @@ export const STATUS_HUD_BACKGROUND_IDS = Object.freeze(['none', 'dialog']);
 
 export const STATUS_HUD_DEFAULTS = Object.freeze({
     enabled: false,
+    collapsed: false,
     size: 'medium',
     showEmotion: true,
     avatarRadius: 'circle',
@@ -21,6 +22,7 @@ export function normalizeStatusHudSettings(raw) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     return {
         enabled: src.enabled === true,
+        collapsed: src.collapsed === true,
         size: STATUS_HUD_SIZE_IDS.includes(src.size) ? src.size : STATUS_HUD_DEFAULTS.size,
         showEmotion: src.showEmotion === false ? false : true,
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,

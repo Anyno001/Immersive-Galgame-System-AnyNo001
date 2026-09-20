@@ -2302,13 +2302,15 @@ import {
 
 test('gate:simulation:status-hud-settings-normalize-defaults-and-invalid', () => {
     assert.deepEqual(normalizeStatusHudSettings(null), { ...STATUS_HUD_DEFAULTS });
-    const legacy = normalizeStatusHudSettings({ enabled: true, size: 'huge', showEmotion: 'yes', avatarRadius: 'blob', background: 'solid', tables: 'nope' });
+    const legacy = normalizeStatusHudSettings({ enabled: true, collapsed: true, size: 'huge', showEmotion: 'yes', avatarRadius: 'blob', background: 'solid', tables: 'nope' });
     assert.equal(legacy.enabled, true);
+    assert.equal(legacy.collapsed, true);
     assert.equal(legacy.size, 'medium');
     assert.equal(legacy.showEmotion, true);
     assert.equal(legacy.avatarRadius, 'circle');
     assert.equal(legacy.background, 'none');
     assert.deepEqual(legacy.tables, []);
+    assert.equal(normalizeStatusHudSettings({ collapsed: 'yes' }).collapsed, false);
 });
 
 test('gate:simulation:status-hud-table-selection-order-dedupe-and-listing', () => {

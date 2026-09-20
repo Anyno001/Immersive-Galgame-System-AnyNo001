@@ -687,6 +687,25 @@ export function createIgsReaderHost(options = {}) {
                 applyToolbarState(state.activeReader.dom && state.activeReader.dom.overlay, state.activeReader);
                 return { ok: true, collapsed: state.activeReader.toolbarCollapsed };
             },
+            toggleStatusHud() {
+                const current = state.activeReader;
+                if (!current) return { ok: false, reason: 'reader-not-open' };
+                const hudSettings = current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.statusHud || {};
+                const effectiveCollapsed = hudSettings.collapsed === true || current.toolbarCollapsed === false;
+                if (effectiveCollapsed) {
+                    current.toolbarCollapsed = true;
+                    if (hudSettings.collapsed === true) {
+                        const result = saveReaderSettingsPatch({ statusHud: { ...hudSettings, collapsed: false } });
+                        if (result && result.ok === false) return result;
+                    } else {
+                        applyToolbarState(current.dom && current.dom.overlay, current);
+                    }
+                    return { ok: true, collapsed: false };
+                }
+                const result = saveReaderSettingsPatch({ statusHud: { ...hudSettings, collapsed: true } });
+                if (result && result.ok === false) return result;
+                return { ok: true, collapsed: true };
+            },
             invokeAction(action) {
                 return handleReaderAction(action);
             },
@@ -964,6 +983,9 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'close') {
             return state.activeReader.controller.close();
+        }
+        if (normalizedAction === 'toggle-status-hud') {
+            return state.activeReader.controller.toggleStatusHud();
         }
         if (normalizedAction === 'toggle-bar') {
             return state.activeReader.controller.toggleToolbar();
@@ -2629,11 +2651,11 @@ export function createIgsReaderHost(options = {}) {
 
     function saveReaderSettingsPatch(patch) {
         const save = typeof options.saveUnifiedSettings === 'function' ? options.saveUnifiedSettings : null;
-        if (!save || !state.activeReader) return;
+        if (!save || !state.activeReader) return { ok: false, reason: 'missing-save-handler' };
         const mode = state.activeReader.mode;
         const unified = resolveBridgeConfigSnapshot({ mode });
         const result = save({ bridge: unified.bridge, readerMode: unified.readerMode, readerSettings: { ...unified.readerSettings, ...patch } });
-        if (!result || result.ok === false) return;
+        if (!result || result.ok === false) return result || { ok: false, reason: 'save-failed' };
         const refreshed = resolveBridgeConfigSnapshot({ mode });
         const readerSettings = normalizeReaderSettings(refreshed.readerSettings, refreshed.bridge.vnTheme);
         readerSettings._sceneAssets = refreshed.bridge.sceneAssets || null;
@@ -2641,6 +2663,7 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._vnTheme = readerSettings.vnTheme || null;
         state.activeReader.snapshot = buildReaderSnapshot(state.activeReader.payload, mode, readerSettings, state.activeReader.index);
         updateMountedReader(state.activeReader.snapshot);
+        return result;
     }
 }
 
