@@ -7,7 +7,7 @@ import { bootstrapIGS, createMemoryStorage, createPresetRegistry, PRESET_STORE_K
 import { createShujukuClient } from '../src/data/shujuku/client.js';
 import { createDbTabClickGuard, toShujukuApiRowIndex } from '../src/shujuku-panel/panel-controller.js';
 import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel-render.js';
-import { createResourceCache } from '../src/media/resource-cache.js';
+import { createImageResourceCache, createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
@@ -172,6 +172,37 @@ test('gate:simulation:resource cache preserves local resource entry', () => {
     assert.equal(putResult.ok, true);
     assert.equal(cache.get('bg.library.night').url, 'placeholder://library-night');
     assert.equal(cache.list().length, 1);
+});
+
+test('gate:simulation:image-resource-cache-loads-on-demand-and-deduplicates-url', async () => {
+    let fetchCount = 0;
+    const revoked = [];
+    const cache = createImageResourceCache({
+        async fetch(url, options) {
+            fetchCount += 1;
+            assert.equal(url, 'https://example.com/scene.png');
+            assert.deepEqual(options, { cache: 'force-cache', mode: 'cors' });
+            return { ok: true, async blob() { return { type: 'image/png' }; } };
+        },
+        URL: {
+            createObjectURL() { return 'blob:scene-cache'; },
+            revokeObjectURL(url) { revoked.push(url); },
+        },
+    });
+
+    assert.equal(fetchCount, 0);
+    assert.equal(cache.get('https://example.com/scene.png'), '');
+    const first = cache.load('https://example.com/scene.png');
+    const second = cache.load('https://example.com/scene.png');
+    assert.equal(first, second);
+    assert.equal(fetchCount, 1);
+    assert.equal(await first, 'blob:scene-cache');
+    assert.equal(await second, 'blob:scene-cache');
+    assert.equal(cache.get('https://example.com/scene.png'), 'blob:scene-cache');
+    assert.equal(cache.size(), 1);
+    cache.clear();
+    assert.deepEqual(revoked, ['blob:scene-cache']);
+    assert.equal(cache.size(), 0);
 });
 
 test('gate:simulation:igs-open-latest-and-open-message-use-compat-api', async () => {
@@ -429,6 +460,72 @@ test('gate:simulation:scene-and-character-aliases-reuse-original-assets-and-layo
     const sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(sprite.style.backgroundPosition, '14% 78%');
     assert.equal(sprite.style.backgroundSize, '126%');
+    vn.destroy();
+});
+
+test('gate:simulation:sentence-paging-keeps-current-sprite-dimmed-until-next-dialogue', async () => {
+    const document = createFakeDocument();
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sentencePaging: true,
+            sceneAssets: {
+                enabled: true,
+                promptRule: '规则',
+                scenes: {},
+                characters: {
+                    Alice: { calm: 'https://example.com/alice.png' },
+                    Bob: { angry: 'https://example.com/bob.png' },
+                },
+            },
+        }),
+    });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 9,
+                text: [
+                    '<now_plot>',
+                    '<content>',
+                    '[igs-char:Alice|calm|Start.]',
+                    '旁白第一句。旁白第二句。',
+                    '[igs-char:Bob|angry|Now.]',
+                    '</content>',
+                    '</now_plot>',
+                ].join('\n'),
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const controller = opened.reader.controller;
+    let content = vn.getState().igsUi.activeReader.snapshot.content;
+    let sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
+    assert.equal(content.textType, 'dialogue');
+    assert.equal(content.spriteImage, 'https://example.com/alice.png');
+    assert.equal(sprite.style.filter, '');
+
+    await controller.invokeAction('next');
+    content = vn.getState().igsUi.activeReader.snapshot.content;
+    sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
+    assert.equal(content.textType, 'narration');
+    assert.equal(content.spriteImage, 'https://example.com/alice.png');
+    assert.equal(sprite.style.filter, 'brightness(0.58) saturate(0.52)');
+
+    await controller.invokeAction('next');
+    content = vn.getState().igsUi.activeReader.snapshot.content;
+    assert.equal(content.textType, 'narration');
+    assert.equal(content.spriteImage, 'https://example.com/alice.png');
+
+    await controller.invokeAction('next');
+    content = vn.getState().igsUi.activeReader.snapshot.content;
+    sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
+    assert.equal(content.textType, 'dialogue');
+    assert.equal(content.speaker, 'Bob');
+    assert.equal(content.spriteImage, 'https://example.com/bob.png');
+    assert.equal(sprite.style.filter, '');
     vn.destroy();
 });
 

@@ -677,9 +677,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const toast = root.querySelector('#igs-toast');
     const segmentsLen = snapshot.content && Array.isArray(snapshot.content.segments) ? snapshot.content.segments.length : 0;
     const isLastPage = segmentsLen <= 0 || (snapshot.content && snapshot.content.currentIndex >= segmentsLen - 1);
+    const resolveAssetUrl = typeof ctx.resolveAssetUrl === 'function'
+        ? ctx.resolveAssetUrl
+        : (url) => String(url || '').trim();
+    const backgroundAssetUrl = resolveAssetUrl(snapshot.content.backgroundImage);
 
-    if (bg && snapshot.content.backgroundImage) {
-        bg.style.backgroundImage = `url("${snapshot.content.backgroundImage.replace(/"/g, '&quot;')}")`;
+    if (bg && backgroundAssetUrl) {
+        bg.style.backgroundImage = `url("${backgroundAssetUrl.replace(/"/g, '&quot;')}")`;
         bg.setAttribute('data-igs-has-image', '1');
         removeImageLoadingSpinner(bg);
         removeImageEmptyPlaceholder(bg);
@@ -688,7 +692,11 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         bg.removeAttribute('data-igs-has-image');
         const expectsImage = snapshot.content.imageExpectedCount > 0
             && snapshot.content.imageBoundCount < snapshot.content.imageExpectedCount;
-        if (expectsImage && snapshot.content.imageLoading) {
+        const sceneAssetLoading = Boolean(snapshot.content.backgroundImage) && !backgroundAssetUrl;
+        if (sceneAssetLoading) {
+            removeImageEmptyPlaceholder(bg);
+            ensureImageLoadingSpinner(bg);
+        } else if (expectsImage && snapshot.content.imageLoading) {
             removeImageEmptyPlaceholder(bg);
             ensureImageLoadingSpinner(bg);
         } else if (expectsImage) {
@@ -698,16 +706,17 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             removeImageEmptyPlaceholder(bg);
         }
     }
-    if (bgBlur && snapshot.content.backgroundImage) {
-        bgBlur.style.backgroundImage = `url("${snapshot.content.backgroundImage.replace(/"/g, '&quot;')}")`;
+    if (bgBlur && backgroundAssetUrl) {
+        bgBlur.style.backgroundImage = `url("${backgroundAssetUrl.replace(/"/g, '&quot;')}")`;
         bgBlur.style.opacity = '0.72';
     } else if (bgBlur) {
         bgBlur.style.backgroundImage = '';
         bgBlur.style.opacity = '0';
     }
     const spriteEl = root.querySelector('#igs-sprite');
-    if (spriteEl && snapshot.content.spriteImage) {
-        spriteEl.style.backgroundImage = `url("${snapshot.content.spriteImage.replace(/"/g, '&quot;')}")`;
+    const spriteAssetUrl = resolveAssetUrl(snapshot.content.spriteImage);
+    if (spriteEl && spriteAssetUrl) {
+        spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;
         spriteEl.style.display = 'block';
         spriteEl.style.position = 'absolute';
         spriteEl.style.inset = '0';
@@ -716,6 +725,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         spriteEl.style.transform = 'none';
         spriteEl.style.bottom = 'auto';
         spriteEl.style.left = 'auto';
+        spriteEl.style.filter = snapshot.content.textType === 'narration' ? 'brightness(0.58) saturate(0.52)' : '';
         if (!current.spriteEditMode) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
             const spriteMood = snapshot.content.spriteMood || '';
@@ -727,6 +737,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     } else if (spriteEl) {
         spriteEl.style.backgroundImage = '';
         spriteEl.style.display = 'none';
+        spriteEl.style.filter = '';
     }
     if (textEl) {
         const theme = resolveActiveTheme(snapshot);

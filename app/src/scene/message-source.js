@@ -312,6 +312,7 @@ export function buildIgsTextPayload(message, options = {}) {
     let sourceKind = strictPayload.sourceKind;
     let formatSourceKind = strictPayload.formatSourceKind;
     let sceneDirectives = strictPayload.sceneDirectives || [];
+    let sceneDirectiveSource = strictPayload.tagText || raw;
     let usedFallback = false;
     let usedDomOverride = false;
 
@@ -370,19 +371,22 @@ export function buildIgsTextPayload(message, options = {}) {
         // domClobbersDirectiveTags：宿主把指令标签从 DOM 清洗掉了，DOM 里没有标签，
         // 不能从 DOM 重提指令——保留数据层已提取的 sceneDirectives。
         if (!domClobbersDirectiveTags) {
-            sceneDirectives = sceneAssetsEnabled
-                ? extractSceneDirectives(domVisibleText).directives
-                : sceneDirectives;
+            if (sceneAssetsEnabled) {
+                const extractedDirectives = extractSceneDirectives(domVisibleText);
+                sceneDirectives = extractedDirectives.directives;
+                sceneDirectiveSource = domVisibleText;
+            }
         }
     }
 
     if (sceneAssetsEnabled && !sceneDirectives.length) {
-        sceneDirectives = extractSceneDirectives(firstNonEmpty(
+        sceneDirectiveSource = firstNonEmpty(
             formattedText,
             visibleText,
             cleanedRaw,
             String(raw || '').trim(),
-        )).directives;
+        );
+        sceneDirectives = extractSceneDirectives(sceneDirectiveSource).directives;
     }
     const readerScene = parseSceneText(formattedText, {});
     const readerText = normalizeReaderSegmentText(firstNonEmpty(
@@ -395,6 +399,12 @@ export function buildIgsTextPayload(message, options = {}) {
     const pagedReaderText = sentencePagingEnabled
         ? applySentencePaging(readerText, { narrationOnly: sceneAssetsEnabled })
         : readerText;
+    if (sceneAssetsEnabled && sceneDirectives.length) {
+        sceneDirectives = remapSceneDirectiveSegments(sceneDirectives, sceneDirectiveSource, virtualRegex, {
+            sentencePaging: sentencePagingEnabled,
+            narrationOnly: true,
+        });
+    }
     const textSegments = buildNarrativeSegments(pagedReaderText);
     const imageSlots = parseImageSlots(raw, strictPayload.imageSource, sourceFilter);
     const segmentImageSlots = pagedReaderText
@@ -635,6 +645,51 @@ function normalizeReaderSegmentText(text, speaker = '') {
     const escaped = escapeRegExp(speakerName);
     normalized = normalized.replace(new RegExp(`^${escaped}\\s*[:：]\\s*`), '');
     return normalizeWhitespace(normalized);
+}
+
+function remapSceneDirectiveSegments(directives, source, virtualRegex, options = {}) {
+    const sourceLines = String(source || '').split('\n');
+    const markers = new Map();
+    const markerLines = new Map();
+    directives.forEach((directive, index) => {
+        const lineIndex = Number(directive && directive.lineIndex);
+        if (!Number.isFinite(lineIndex) || lineIndex < 0 || lineIndex >= sourceLines.length) return;
+        const marker = `\uE000IGS${index}\uE001`;
+        markers.set(marker, index);
+        if (!markerLines.has(lineIndex)) markerLines.set(lineIndex, []);
+        markerLines.get(lineIndex).push(marker);
+    });
+    if (!markers.size) return directives.map((directive) => ({ ...directive }));
+
+    const markedSource = sourceLines.flatMap((line, index) => [
+        ...(markerLines.get(index) || []),
+        line,
+    ]).join('\n');
+    const formatted = applyImmersiveGalgameSystemBodyFormat(markedSource, virtualRegex);
+    const readerScene = parseSceneText(formatted.formattedRaw || markedSource, {});
+    const readerText = normalizeReaderSegmentText(firstNonEmpty(
+        readerScene.text,
+        formatted.formattedRaw,
+        markedSource,
+    ), readerScene.speaker);
+    const pagedText = options.sentencePaging
+        ? applySentencePaging(readerText, { narrationOnly: options.narrationOnly === true })
+        : readerText;
+    const segments = buildNarrativeSegments(pagedText);
+    const mapped = [];
+    let visibleIndex = 0;
+    for (const segment of segments) {
+        const markerIndex = markers.get(String(segment || '').trim());
+        if (markerIndex != null) {
+            mapped[markerIndex] = visibleIndex;
+        } else {
+            visibleIndex += 1;
+        }
+    }
+    return directives.map((directive, index) => ({
+        ...directive,
+        segmentIndex: mapped[index] == null ? directive.segmentIndex : mapped[index],
+    }));
 }
 
 function escapeRegExp(value) {

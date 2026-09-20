@@ -80,6 +80,7 @@ import {
     restoreEmbeddedSourceText,
 } from './embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from './reader-source-cache.js';
+import { createImageResourceCache } from '../../media/resource-cache.js';
 import { createChatStreamObserver } from '../../host/chat-stream-observer.js';
 import {
     applyImageCountOverride,
@@ -152,6 +153,7 @@ export function createIgsReaderHost(options = {}) {
     const sourceCache = createReaderSourceCache({
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
+    const imageResourceCache = createImageResourceCache(options.global || globalThis);
     const streamObserver = createChatStreamObserver({
         global: options.global || globalThis,
         getDocument: () => resolveEmbeddedDocument(state.activeReader),
@@ -244,6 +246,7 @@ export function createIgsReaderHost(options = {}) {
             runtime: null,
             toastTimer: null,
             imagePollToken: 0,
+            assetLoadRequests: new Set(),
         };
         updateMountedReader(snapshot);
         startReaderImagePolling(state.activeReader);
@@ -397,7 +400,29 @@ export function createIgsReaderHost(options = {}) {
         current.snapshot.content.statusHud = next;
         applyReaderSnapshotToDom(current.dom.overlay, current.snapshot, current, {
             hasActiveSettings: () => Boolean(state.activeSettings),
+            resolveAssetUrl: (url) => resolveReaderAssetUrl(url, current),
         });
+    }
+
+    function resolveReaderAssetUrl(url, current) {
+        const source = String(url || '').trim();
+        if (!source) return '';
+        const ready = imageResourceCache.get(source);
+        if (ready) return ready;
+        if (!current.assetLoadRequests.has(source)) {
+            current.assetLoadRequests.add(source);
+            const loading = imageResourceCache.load(source);
+            const immediate = imageResourceCache.get(source);
+            loading.then(() => {
+                current.assetLoadRequests.delete(source);
+                if (state.activeReader !== current) return;
+                const content = current.snapshot && current.snapshot.content;
+                if (!content || (content.backgroundImage !== source && content.spriteImage !== source)) return;
+                updateMountedReader(current.snapshot);
+            });
+            if (immediate) return immediate;
+        }
+        return '';
     }
 
 
@@ -459,6 +484,7 @@ export function createIgsReaderHost(options = {}) {
         closeSettings();
         closeReader();
         streamObserver.stop();
+        imageResourceCache.clear();
         return { ok: true };
     }
 
@@ -1404,13 +1430,20 @@ export function createIgsReaderHost(options = {}) {
             getMessagePrimaryText(liveMessage),
             payload.raw,
         );
+        const extractedSegments = Array.isArray(extracted.textSegments) ? extracted.textSegments : [];
+        const hasExtractedSegments = extractedSegments.some((segment) => String(segment || '').trim());
         const segments = Array.isArray(payload.textSegments) && payload.textSegments.length
             ? cloneData(payload.textSegments)
-            : buildTextSegments(stripSceneDirectiveLines(text));
+            : hasExtractedSegments
+                ? cloneData(extractedSegments)
+                : buildTextSegments(stripSceneDirectiveLines(text));
         const normalizedIndex = Math.max(0, Math.min(segments.length - 1, Number(index) || 0));
+        const segmentImageSlots = Array.isArray(payload.segmentImageSlots) && payload.segmentImageSlots.length
+            ? payload.segmentImageSlots
+            : extracted.segmentImageSlots;
         const imageState = normalizeSnapshotImageState(
             payload.imageState,
-            resolveSegmentImageIndex(payload, normalizedIndex),
+            resolveSegmentImageIndex({ imageState: payload.imageState, segmentImageSlots }, normalizedIndex),
         );
         const displayImageState = applyImageCountOverride(imageState, readerSettings.imageCountOverride);
         const currentText = segments[normalizedIndex] || text;
@@ -1520,7 +1553,7 @@ export function createIgsReaderHost(options = {}) {
             // Single-segment fallback: parseSpeakerPrefix strips the "[名字]：" prefix off
             // a lone segment, so the bubble regex no longer matches. Recover speaker/mood
             // from the directive that lands on this segment index.
-            if (textType === 'narration' && scene.speaker) {
+            if (textType === 'narration') {
                 const segDirective = sceneDirectives.find((d) => Number(d.segmentIndex) === normalizedIndex
                     && (d.type === 'char' || d.type === 'thought'));
                 if (segDirective) {
@@ -2280,6 +2313,7 @@ export function createIgsReaderHost(options = {}) {
             handleBlankClick: () => handleOptionBubbleBlankClick(current, snapshot),
             isActiveReader: (reader) => state.activeReader === reader,
             closeReader,
+            resolveAssetUrl: (url) => resolveReaderAssetUrl(url, current),
         });
         if (current.dom.progress) {
             current.dom.progress.textContent = formatReaderProgress(snapshot);
