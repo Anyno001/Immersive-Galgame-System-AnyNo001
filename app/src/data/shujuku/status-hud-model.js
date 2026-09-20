@@ -16,6 +16,7 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     size: 'medium',
     showEmotion: true,
     showLocation: false,
+    showLocationDetails: false,
     avatarRadius: 'circle',
     background: 'none',
     barColor: 'color',
@@ -30,6 +31,7 @@ export function normalizeStatusHudSettings(raw) {
         size: STATUS_HUD_SIZE_IDS.includes(src.size) ? src.size : STATUS_HUD_DEFAULTS.size,
         showEmotion: src.showEmotion === false ? false : true,
         showLocation: src.showLocation === true,
+        showLocationDetails: src.showLocationDetails === true,
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
         barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,
@@ -126,11 +128,15 @@ export function buildStatusHudModel(input = {}) {
     const rawCharacter = String(input.character || '').trim();
     const character = resolveCharacterKey(characters, sceneAssets.characterAliases, rawCharacter) || '';
     const emotion = character ? String(input.emotion || '').trim() : '';
+    const showSceneInfo = settings.showLocation && input.isNarration === true && !character;
     const model = {
         enabled: settings.enabled,
         character,
         emotion: settings.showEmotion ? emotion : '',
-        location: settings.showLocation ? String(input.location || '').trim() : '',
+        location: showSceneInfo ? String(input.location || '').trim() : '',
+        time: showSceneInfo && settings.showLocationDetails ? String(input.time || '').trim() : '',
+        weather: showSceneInfo && settings.showLocationDetails ? String(input.weather || '').trim() : '',
+        showLocationDetails: settings.showLocationDetails,
         avatar: resolveStatusAvatar(sceneAssets.statusAvatars, character),
         avatarRadius: settings.avatarRadius,
         background: settings.background,

@@ -464,9 +464,10 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     assert.equal(content.spriteImage, null);
     assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
     assert.equal(sprite.style.display, 'none');
+    assert.equal(hud.hasAttribute('hidden'), true);
     assert.equal(hud.querySelector('.igs-hud-avatar'), null);
     assert.equal(hud.querySelector('.igs-hud-emotion'), null);
-    assert.equal(hud.querySelector('.igs-hud-location-label').textContent, 'Room');
+    assert.equal(hud.querySelector('.igs-hud-location'), null);
     const styleText = getOriginalReaderStyleText();
     assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg\{[^}]*blur\(8px\)[^}]*brightness\(\.62\)[^}]*saturate\(\.72\)/);
     assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg::after\{[^}]*radial-gradient/);
@@ -3897,9 +3898,10 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     const enabled = settings.switchReaderSubTab('display').snapshot.html;
     assert.match(enabled, /显示情绪标签/);
     assert.match(enabled, /显示地点栏/);
+    assert.match(enabled, /显示详细地点/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
-    assert.match(enabled, /显示情绪标签[\s\S]*显示地点栏[\s\S]*头像圆角[\s\S]*状态栏大小/);
+    assert.match(enabled, /显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示详细地点[\s\S]*头像圆角[\s\S]*状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
     assert.doesNotMatch(enabled, /<select data-path="readerSettings\.statusHud\.background"/);
     assert.match(enabled, /无背景/);
@@ -3916,6 +3918,8 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
 
     settings.setValue('readerSettings.statusHud.showLocation', true);
     assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.showLocation, true);
+    settings.setValue('readerSettings.statusHud.showLocationDetails', true);
+    assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.showLocationDetails, true);
     settings.setValue('readerSettings.statusHud.background', 'dialog');
     assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.background, 'dialog');
     settings.setValue('readerSettings.statusHud.barColor', 'grayscale');
@@ -3931,6 +3935,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(persisted.statusHud.enabled, true);
     assert.equal(persisted.statusHud.showLocation, true);
+    assert.equal(persisted.statusHud.showLocationDetails, true);
     assert.equal(persisted.statusHud.background, 'dialog');
     assert.equal(persisted.statusHud.barColor, 'grayscale');
     assert.deepEqual(persisted.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
@@ -3982,7 +3987,10 @@ test('gate:simulation:status-hud-snapshot-keeps-raw-emotion-and-skips-narration'
     assert.equal(content.statusEmotion, '喜悦');
     assert.equal(content.statusHud.character, 'H');
     assert.equal(content.statusHud.emotion, '喜悦');
-    assert.equal(content.statusHud.location, '旧城');
+    assert.equal(content.statusHud.location, '');
+    assert.equal(content.sceneLocation, '旧城');
+    assert.equal(content.sceneTime, '夜晚');
+    assert.equal(content.sceneWeather, '晴天');
     assert.equal(content.statusHud.avatar, 'data:image/png;base64,AAA');
     assert.equal(content.statusHud.metrics.length, 2);
     assert.equal(content.statusHud.metrics[0].label, '信任');
@@ -4080,10 +4088,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
 
     const chip = host.querySelector('.igs-hud-emotion');
     assert.equal(chip.textContent, '紧张');
-    const location = host.querySelector('.igs-hud-location');
-    assert.ok(location);
-    assert.equal(location.querySelector('.igs-hud-location-label').textContent, '旧城');
-    assert.equal(location.querySelector('.igs-hud-location-icon'), null);
+    assert.equal(host.querySelector('.igs-hud-location'), null);
 
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 4);
     const fills = host.querySelectorAll('.igs-hud-fill');
@@ -4184,6 +4189,44 @@ test('gate:simulation:status-hud-location-occupies-identity-slot-without-charact
     const locationIcon = host.querySelector('.igs-hud-location-icon');
     assert.match(locationIcon.innerHTML, /<svg/);
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
+
+    const styleText = getOriginalReaderStyleText();
+    const locationStyle = styleText.match(/\.igs-hud-location-label\{([^}]*)\}/);
+    assert.ok(locationStyle);
+    assert.doesNotMatch(locationStyle[1], /background|border-radius|padding/);
+
+    vn.destroy();
+});
+
+test('gate:simulation:status-hud-location-details-render-on-narration', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: { enabled: true, promptRule: 'rule', scenes: { '旧城': { url: '' } }, characters: {}, characterAliases:{}, moodGroups: [] },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, showLocation: true, showLocationDetails: true, tables: [] },
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-scene:旧城|深夜|小雨]', '风吹过街道。', '</content>', '</now_plot>'].join('\n') }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const content = opened.reader.snapshot.content;
+    const host = document.getElementById('igs-status-hud');
+    assert.equal(content.textType, 'narration');
+    assert.equal(content.statusHud.character, '');
+    assert.equal(content.statusHud.location, '旧城');
+    assert.equal(content.statusHud.time, '深夜');
+    assert.equal(content.statusHud.weather, '小雨');
+    assert.equal(host.querySelector('.igs-hud-location-label').textContent, '小雨 · 深夜 の 旧城');
+    assert.match(host.querySelector('.igs-hud-location-icon').innerHTML, /<svg/);
 
     vn.destroy();
 });

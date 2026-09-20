@@ -2329,11 +2329,13 @@ test('gate:simulation:status-hud-settings-normalize-defaults-and-invalid', () =>
     assert.equal(legacy.size, 'medium');
     assert.equal(legacy.showEmotion, true);
     assert.equal(legacy.showLocation, false);
+    assert.equal(legacy.showLocationDetails, false);
     assert.equal(legacy.avatarRadius, 'circle');
     assert.equal(legacy.background, 'none');
     assert.equal(legacy.barColor, 'color');
     assert.deepEqual(legacy.tables, []);
     assert.equal(normalizeStatusHudSettings({ showLocation: true }).showLocation, true);
+    assert.equal(normalizeStatusHudSettings({ showLocationDetails: true }).showLocationDetails, true);
     assert.equal(normalizeStatusHudSettings({ collapsed: 'yes' }).collapsed, false);
     assert.equal(normalizeStatusHudSettings({ barColor: 'grayscale' }).barColor, 'grayscale');
 });
@@ -2446,7 +2448,9 @@ test('gate:simulation:status-hud-model-matches-alias-row-and-caps-at-four', () =
     });
     assert.equal(model.character, '天之音');
     assert.equal(model.emotion, '紧张');
-    assert.equal(model.location, '旧城');
+    assert.equal(model.location, '');
+    assert.equal(model.time, '');
+    assert.equal(model.weather, '');
     assert.equal(model.avatar, 'data:image/png;base64,AAA');
     assert.equal(model.barColor, 'color');
     assert.equal(model.metrics.length, 4);
@@ -2463,16 +2467,22 @@ test('gate:simulation:status-hud-model-disabled-and-narration-do-not-inherit', (
     assert.deepEqual(disabled.metrics, []);
 
     const narration = buildStatusHudModel({
-        settings: { enabled: true, showLocation: true, tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+        settings: { enabled: true, showLocation: true, showLocationDetails: true, tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
         sceneAssets: { characters: { A: {} }, statusAvatars: { A: 'https://example.com/a.png' } },
         character: '',
         emotion: '紧张',
         location: '旧城',
+        time: '深夜',
+        weather: '小雨',
+        isNarration: true,
         readResult: { ok: true, data: {} },
     });
     assert.equal(narration.character, '');
     assert.equal(narration.emotion, '');
     assert.equal(narration.location, '旧城');
+    assert.equal(narration.time, '深夜');
+    assert.equal(narration.weather, '小雨');
+    assert.equal(narration.showLocationDetails, true);
     assert.equal(narration.avatar, '');
 });
 

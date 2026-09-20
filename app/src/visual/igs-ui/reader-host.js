@@ -394,9 +394,12 @@ export function createIgsReaderHost(options = {}) {
         const next = buildStatusHudModel({
             settings: normalizeStatusHudSettings(settings && settings.statusHud),
             sceneAssets: (settings && settings._sceneAssets) || {},
-            location: content && content.statusHud && content.statusHud.location,
+            location: content && content.sceneLocation,
+            time: content && content.sceneTime,
+            weather: content && content.sceneWeather,
             character: content && !content.sceneNsfw ? content.speaker : '',
             emotion: content && !content.sceneNsfw ? content.statusEmotion : '',
+            isNarration: Boolean(content && content.textType === 'narration'),
             readResult: readStatusHudTablesSafe(),
         });
         current.snapshot.content.statusHud = next;
@@ -1390,12 +1393,13 @@ export function createIgsReaderHost(options = {}) {
 
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
         const scene = cloneData(payload.scene || (payload.render && payload.render.scene) || {});
-        const buildStatusHudForSnapshot = (settings, speaker, emotion, location) => {
+        const buildStatusHudForSnapshot = (settings, speaker, emotion, sceneInfo, isNarration) => {
             const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
             if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '', location: '' });
             const sceneAssets = (settings && settings._sceneAssets) || {};
             const readResult = statusHud.tables.length ? readStatusHudTables() : null;
-            return buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location, readResult });
+            const info = sceneInfo && typeof sceneInfo === 'object' ? sceneInfo : {};
+            return buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult });
         };
         const readStatusHudTables = () => {
             const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
@@ -1602,6 +1606,11 @@ export function createIgsReaderHost(options = {}) {
                 }
             }
         }
+        const statusSceneInfo = {
+            location: firstDefined(sceneStateForBg && sceneStateForBg.scene, scene.location, ''),
+            time: firstDefined(sceneStateForBg && sceneStateForBg.time, scene.time, ''),
+            weather: firstDefined(sceneStateForBg && sceneStateForBg.weather, scene.weather, ''),
+        };
         const displayText = (!sceneAssetsEnabled && scene.speaker && currentText)
             ? `${scene.speaker}: ${currentText}`
             : (sceneAssetsEnabled ? segmentBody : currentText);
@@ -1668,8 +1677,11 @@ export function createIgsReaderHost(options = {}) {
                 sourceKind: firstDefined(scene.sourceKind, payload.sourceKind, 'raw-text'),
                 warnings: extracted.warnings,
                 errors: extracted.errors,
+                sceneLocation: statusSceneInfo.location,
+                sceneTime: statusSceneInfo.time,
+                sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
-                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, firstDefined(sceneStateForBg && sceneStateForBg.scene, scene.location, '')),
+                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration'),
             },
             readerSettings: cloneData(readerSettings),
             input: {
@@ -1744,12 +1756,13 @@ export function createIgsReaderHost(options = {}) {
             const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
             const listed = api ? listStatusHudTables(createShujukuClient(api).readTables()) : { ok: false, reason: 'missing-api', tables: [] };
             const catalogNote = listed.ok
-                ? '勾选后额外显示当前角色匹配到的 HUD 条；留空则只显示已开启的头像、情绪与地点。'
-                : '数据库插件未就绪，头像、情绪与地点仍可显示；已保存的表格选择会保留。';
+                ? '勾选后额外显示当前角色匹配到的 HUD 条；留空则只显示已开启的人物信息与旁白场景信息。'
+                : '数据库插件未就绪，人物信息与旁白场景信息仍可显示；已保存的表格选择会保留。';
             const body = [
                 toggle,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏')}</div>`,
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏（仅旁白）')}</div>`,
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示详细地点')}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景'))}</div>`,
