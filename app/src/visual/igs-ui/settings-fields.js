@@ -55,7 +55,8 @@ export function tableMultiSelect(paths, selected, catalog, options = {}) {
         const name = normalize(table && table.name) || uid;
         if (!uid && !name) continue;
         const on = isPicked(uid, name);
-        rows.push(`<button type="button" class="igs-table-pick${on ? ' is-on' : ''}" data-table-uid="${esc(uid)}" data-table-name="${esc(name)}" aria-pressed="${on ? 'true' : 'false'}"><i></i><span>${esc(name)}</span></button>`);
+        const action = `status-hud-toggle-table:${encSeg(uid)}:${encSeg(name)}`;
+        rows.push(`<button type="button" class="igs-table-pick${on ? ' is-on' : ''}" data-action="${esc(action)}" data-table-uid="${esc(uid)}" data-table-name="${esc(name)}" aria-pressed="${on ? 'true' : 'false'}"><i></i><span>${esc(name)}</span></button>`);
     }
     for (const item of picked) {
         const uid = normalize(item.uid);
@@ -63,12 +64,13 @@ export function tableMultiSelect(paths, selected, catalog, options = {}) {
         const exists = (Array.isArray(catalog) ? catalog : []).some((table) => (uid && normalize(table && table.uid) === uid)
             || (!uid && name && normalize(table && table.name) === name));
         if (!exists) {
-            rows.push(`<button type="button" class="igs-table-pick is-on is-missing" data-table-uid="${esc(uid)}" data-table-name="${esc(name)}" aria-pressed="true"><i></i><span>${esc(name)}（未找到）</span></button>`);
+            const action = `status-hud-toggle-table:${encSeg(uid)}:${encSeg(name)}`;
+            rows.push(`<button type="button" class="igs-table-pick is-on is-missing" data-action="${esc(action)}" data-table-uid="${esc(uid)}" data-table-name="${esc(name)}" aria-pressed="true"><i></i><span>${esc(name)}（未找到）</span></button>`);
         }
     }
     const empty = options.emptyText || '未检测到可读表格';
     const note = options.note ? `<em>${esc(options.note)}</em>` : '';
-    return `<div class="igs-status-hud-tables" data-status-hud-tables>${rows.join('') || `<div class="igs-scene-empty">${esc(empty)}</div>`}${note}</div>`;
+    return `<div class="igs-status-hud-tables" data-status-hud-tables data-path="${esc(paths)}">${rows.join('') || `<div class="igs-scene-empty">${esc(empty)}</div>`}${note}</div>`;
 }
 
 export function selectInput(path, value, items, disabled = false) {
@@ -121,7 +123,7 @@ export function renderSceneAssetList(scenes, options = {}) {
                 const weatherObj = typeof weatherVal === 'string' ? { url: weatherVal } : (weatherVal || { url: '' });
                 const wExpanded = expandedSlots.has('weather\x00' + sceneName + '\x00' + timeName + '\x00' + weatherName);
                 const wBody = wExpanded ? renderSceneGroupExpansion('weather', weatherName, weatherObj.url || '', weatherGroups) : '';
-                return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row igs-scene-mood-row" style="margin-left:32px">`
+                return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row">`
                     + badge('天气')
                     + `<span class="igs-btn-mgr-label">${esc(weatherName)}</span>`
                     + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="重命名">${pencil}</button>`
@@ -131,7 +133,7 @@ export function renderSceneAssetList(scenes, options = {}) {
                     + `</div>${wBody}</div>`;
             }).join('');
             const timeBody = timeExpanded ? renderSceneGroupExpansion('time', timeName, timeObj.url || '', timeGroups) : '';
-            return `<div class="igs-scene-char-group" style="margin-left:16px"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
+            return `<div class="igs-scene-char-group igs-scene-time-group"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
                 + badge('时间')
                 + `<span class="igs-btn-mgr-label">${esc(timeName)}</span>`
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="重命名">${pencil}</button>`
@@ -228,7 +230,6 @@ export function renderCharacterAssetList(characters, options = {}) {
             const expandedBody = expanded ? renderSpriteSlotExpansion(charName, mood, url, moodGroups, { pencil, trash }) : '';
             return `<div class="igs-sprite-slot">${collapsedRow}${expandedBody}</div>`;
         }).join('');
-        return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span><button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}<div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪</div>'}</div></div>`;
         return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span><button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}${avatarHtml}<div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪</div>'}</div></div>`;
     }).join('');
 }

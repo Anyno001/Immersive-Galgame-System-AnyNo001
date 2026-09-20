@@ -736,6 +736,20 @@ test('gate:igs-ui:settings-style-keeps-original-geometry', () => {
     assert.doesNotMatch(styleText, /@media \(max-width:640px\)[\s\S]*\.igs-segmented-btn\{/);
     assert.match(styleText, /\.igs-segmented-btn\{[^}]*min-width:0;[^}]*overflow:hidden/);
     assert.match(styleText, /\.igs-segmented-btn-label\{[^}]*display:block;[^}]*max-width:100%;[^}]*overflow:hidden;[^}]*text-overflow:ellipsis;[^}]*white-space:nowrap/);
+    assert.match(styleText, /\.igs-settings-grid\{[^}]*grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\);[^}]*min-width:0/);
+    assert.match(styleText, /\.igs-source-filter\{[^}]*min-width:0;[^}]*max-width:100%;[^}]*box-sizing:border-box/);
+    assert.match(styleText, /\.igs-btn-mgr-row\{[^}]*min-width:0;[^}]*max-width:100%;[^}]*box-sizing:border-box/);
+    assert.match(styleText, /\.igs-scene-char-group\{[^}]*min-width:0;[^}]*max-width:100%;[^}]*box-sizing:border-box/);
+    assert.match(styleText, /\.igs-sprite-slot-body\{[^}]*min-width:0;[^}]*max-width:100%;[^}]*box-sizing:border-box/);
+    assert.match(styleText, /\.igs-scene-time-group\{[^}]*margin-left:16px;[^}]*max-width:calc\(100% - 16px\)/);
+    assert.match(styleText, /\.igs-scene-weather-row\{[^}]*margin-left:32px;[^}]*max-width:calc\(100% - 32px\)/);
+});
+
+test('gate:igs-ui:status-hud-table-picker-has-separated-note-and-selected-state', () => {
+    const styleText = getSettingsStyleText();
+    assert.match(styleText, /\.igs-status-hud-tables\{[^}]*flex-wrap:wrap;[^}]*gap:8px;[^}]*min-width:0/);
+    assert.match(styleText, /\.igs-status-hud-tables>em\{[^}]*flex-basis:100%;[^}]*margin-top:2px/);
+    assert.match(styleText, /\.igs-table-pick\.is-on\{[^}]*background:var\(--igs-settings-accent\);[^}]*color:var\(--igs-settings-paper\)/);
 });
 
 test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {

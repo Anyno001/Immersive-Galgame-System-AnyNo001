@@ -3696,10 +3696,14 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /data-status-hud-tables/);
     assert.match(enabled, /角色数值表/);
     assert.match(enabled, /任务表/);
+    assert.match(enabled, /data-action="status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8"/);
+    assert.match(enabled, /<div class="igs-settings-field"><span>读取表格<\/span><div class="igs-status-hud-tables"/);
+    assert.doesNotMatch(enabled, /<label class="igs-settings-field"><span>读取表格<\/span>/);
 
     settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
     settings.invoke('status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8');
     assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.tables.map((t) => t.uid), ['sheet_quest', 'sheet_stats']);
+    assert.equal((settings.getSnapshot().html.match(/class="igs-table-pick is-on"/g) || []).length, 2);
 
     settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
     assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.tables.map((t) => t.uid), ['sheet_stats']);

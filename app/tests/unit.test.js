@@ -51,6 +51,7 @@ import {
     resolveMoodGroup,
 } from '../src/scene/mood-groups.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
+import { renderCharacterAssetList, renderSceneAssetList, tableMultiSelect } from '../src/visual/igs-ui/settings-fields.js';
 import { DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normalizePublicReaderMode } from '../src/schemas/reader-mode.js';
 import { ensureEmbeddedHost, hideEmbeddedSourceText, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
@@ -2332,6 +2333,47 @@ test('gate:simulation:status-hud-table-selection-order-dedupe-and-listing', () =
     });
     assert.deepEqual(listed.tables.map((t) => t.uid), ['sheet_a', 'sheet_b']);
     assert.equal(listStatusHudTables({ ok: false, reason: 'missing-api' }).ok, false);
+});
+
+test('gate:simulation:status-hud-table-picker-wires-actions-and-only-highlights-selected-table', () => {
+    const html = tableMultiSelect(
+        'readerSettings.statusHud.tables',
+        [{ uid: 'sheet_stats', name: '角色数值表' }],
+        [
+            { uid: 'sheet_global', name: '全局状态表' },
+            { uid: 'sheet_stats', name: '角色数值表' },
+        ],
+        { note: '仅读取勾选的表；留空则不读取任何表。' },
+    );
+    assert.match(html, /data-path="readerSettings\.statusHud\.tables"/);
+    assert.match(html, /data-action="status-hud-toggle-table:sheet_global:%E5%85%A8%E5%B1%80%E7%8A%B6%E6%80%81%E8%A1%A8"[^>]*aria-pressed="false"/);
+    assert.match(html, /class="igs-table-pick is-on"[^>]*data-action="status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8"[^>]*aria-pressed="true"/);
+    assert.equal((html.match(/class="igs-table-pick is-on"/g) || []).length, 1);
+    assert.match(html, /<em>仅读取勾选的表；留空则不读取任何表。<\/em>/);
+});
+
+test('gate:scene:character-assets-render-status-avatar-row', () => {
+    const html = renderCharacterAssetList(
+        { H: { 默认: '' } },
+        { aliases: { H: [] }, moodGroups: [], statusAvatars: { H: 'data:image/png;base64,AAA' } },
+    );
+    assert.equal((html.match(/状态栏头像/g) || []).length, 1);
+    assert.match(html, /data-action="status-avatar-pick:H"/);
+    assert.match(html, /class="igs-status-avatar-thumb"[^>]*src="data:image\/png;base64,AAA"/);
+});
+
+test('gate:scene:scene-assets-indent-without-horizontal-overflow', () => {
+    const html = renderSceneAssetList({
+        旧城: {
+            url: '',
+            times: {
+                夜晚: { url: '', weathers: { 雨天: { url: '' } } },
+            },
+        },
+    });
+    assert.match(html, /class="igs-scene-char-group igs-scene-time-group"/);
+    assert.match(html, /class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row"/);
+    assert.doesNotMatch(html, /style="margin-left:(?:16|32)px"/);
 });
 
 test('gate:simulation:status-hud-metric-parsing-positive-and-negative', () => {
