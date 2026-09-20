@@ -972,7 +972,7 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
     const controls = document.getElementById('igs-overlay').querySelector('.igs-controls');
 
     assert.equal(dialog.style.height, 'auto');
-    assert.equal(dialog.style.minHeight, '');
+    assert.equal(dialog.style.minHeight, '0');
     assert.equal(dialog.style.maxHeight, '464px');
     const css = getOriginalReaderStyleText();
     assert.match(css, /#igs-overlay\.igs-floating \.igs-dialog\{[^}]*max-height:none/);
@@ -995,9 +995,78 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
     assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dialogHeight, 60);
     settings.setValue('readerSettings.dialogHeight', null);
     assert.equal(dialog.style.height, 'auto');
-    assert.equal(dialog.style.minHeight, '');
+    assert.equal(dialog.style.minHeight, '0');
     assert.equal(dialog.style.maxHeight, '464px');
     assert.equal(controls.style.display, '');
+    vn.destroy();
+});
+
+test('gate:simulation:default-dialog-height-controls-all-reader-modes', async () => {
+    const cases = [
+        { mode: 'pc', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }) },
+        { mode: 'mobile', document: createFakeDocument({ innerWidth: 390, innerHeight: 844 }) },
+        { mode: 'web', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }) },
+        { mode: 'fullscreen', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }) },
+    ];
+
+    for (const item of cases) {
+        const globalObject = item.document.defaultView;
+        if (item.mode === 'fullscreen') {
+            item.document.documentElement.requestFullscreen = () => {
+                item.document.fullscreenElement = item.document.documentElement;
+                return Promise.resolve();
+            };
+        }
+        const vn = bootstrapIGS({
+            global: globalObject,
+            autoAttachMagicWand: false,
+            hostAdapter: {
+                getCurrentMessage: async () => ({ id: 1, text: '五模式高度测试。' }),
+                typeAndSend: async () => ({ ok: true }),
+            },
+        });
+        const opened = await vn.openLatestAvailable(item.mode);
+        const settings = opened.reader.controller.openSettings('reader').controller;
+        const dialog = item.document.getElementById('igs-overlay').querySelector('#igs-dialog');
+
+        settings.setValue('readerSettings.dialogHeight', 80);
+        assert.equal(dialog.style.height, '80px', item.mode);
+        settings.setValue('readerSettings.dialogHeight', 300);
+        assert.equal(dialog.style.height, '300px', item.mode);
+        settings.setValue('readerSettings.dialogHeight', null);
+        assert.equal(dialog.style.height, 'auto', item.mode);
+        assert.equal(dialog.style.minHeight, '0', item.mode);
+        vn.destroy();
+    }
+
+    const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
+    const globalObject = document.defaultView;
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const element = createFakeMessageElement(document, { messageId: 51, textContent: '内嵌模式高度测试。' });
+    chat.appendChild(element);
+    const message = { id: 51, text: '内嵌模式高度测试。', element };
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => message,
+            getMessageById: async () => message,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('embedded');
+    const settings = opened.reader.controller.openSettings('reader').controller;
+    const dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
+
+    settings.setValue('readerSettings.dialogHeight', 80);
+    assert.equal(dialog.style.height, '80px', 'embedded');
+    settings.setValue('readerSettings.dialogHeight', 300);
+    assert.equal(dialog.style.height, '300px', 'embedded');
+    settings.setValue('readerSettings.dialogHeight', null);
+    assert.equal(dialog.style.height, 'auto', 'embedded');
+    assert.equal(dialog.style.minHeight, '0', 'embedded');
     vn.destroy();
 });
 
@@ -2798,7 +2867,9 @@ test('gate:simulation:igs-ui-long-text-scrolls-not-overlaps-input', async () => 
     assert.match(styleText, /#igs-overlay ::-webkit-scrollbar\{display:none;width:0;height:0;\}/);
     assert.match(styleText, /#igs-overlay\.igs-floating \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(styleText, /#igs-overlay\.igs-floating \.igs-controls\{flex-shrink:0;\}/);
-    assert.match(styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*left:12px[^}]*right:12px[^}]*bottom:14px[^}]*width:auto[^}]*height:min\(220px,calc\(100% - 28px\)\)[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden/);
+    assert.match(styleText, /#igs-overlay\.igs-mode-web \.igs-dialog,#igs-overlay\.igs-mode-fullscreen \.igs-dialog\{[^}]*display:flex;flex-direction:column[^}]*overflow:hidden;\}/);
+    assert.match(styleText, /#igs-overlay\.igs-mode-web \.igs-text,#igs-overlay\.igs-mode-fullscreen \.igs-text\{min-height:0;overflow-y:auto;flex:1 1 auto;\}/);
+    assert.match(styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*left:12px[^}]*right:12px[^}]*bottom:14px[^}]*width:auto[^}]*height:auto[^}]*min-height:0[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden/);
     assert.match(styleText, /\.igs-mode-embedded \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(styleText, /\.igs-mode-embedded \.igs-controls\{display:none;\}/);
 
