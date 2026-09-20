@@ -563,6 +563,7 @@ test('gate:simulation:mobile-sentence-paging-keeps-current-sprite-dimmed-until-n
     let sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(content.textType, 'dialogue');
     assert.equal(content.spriteImage, 'https://example.com/alice.png');
+    assert.equal(sprite.classList.contains('igs-sprite-narration'), false);
     assert.equal(sprite.style.filter, '');
     assert.equal(sprite.style['-webkit-filter'], '');
 
@@ -571,6 +572,7 @@ test('gate:simulation:mobile-sentence-paging-keeps-current-sprite-dimmed-until-n
     sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(content.textType, 'narration');
     assert.equal(content.spriteImage, 'https://example.com/alice.png');
+    assert.equal(sprite.classList.contains('igs-sprite-narration'), true);
     assert.equal(sprite.style.filter, 'brightness(0.58) saturate(0.52)');
     assert.equal(sprite.style['-webkit-filter'], 'brightness(0.58) saturate(0.52)');
 
@@ -585,6 +587,76 @@ test('gate:simulation:mobile-sentence-paging-keeps-current-sprite-dimmed-until-n
     assert.equal(content.textType, 'dialogue');
     assert.equal(content.speaker, 'Bob');
     assert.equal(content.spriteImage, 'https://example.com/bob.png');
+    assert.equal(sprite.classList.contains('igs-sprite-narration'), false);
+    assert.equal(sprite.style.filter, '');
+    assert.equal(sprite.style['-webkit-filter'], '');
+    vn.destroy();
+});
+
+test('gate:simulation:embedded-mobile-narration-keeps-current-sprite-dimmed', async () => {
+    const document = createFakeDocument({ innerWidth: 390, innerHeight: 844 });
+    const globalObject = document.defaultView;
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sentencePaging: true,
+            sceneAssets: {
+                enabled: true,
+                promptRule: '规则',
+                scenes: {},
+                characters: {
+                    Alice: { calm: 'https://example.com/alice.png' },
+                    Bob: { angry: 'https://example.com/bob.png' },
+                },
+            },
+        }),
+    });
+    globalObject.localStorage = storage;
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const text = [
+        '<now_plot>',
+        '<content>',
+        '[igs-char:Alice|calm|Start.]',
+        '旁白第一句。旁白第二句。',
+        '[igs-char:Bob|angry|Now.]',
+        '</content>',
+        '</now_plot>',
+    ].join('\n');
+    const element = createFakeMessageElement(document, { messageId: 10, textContent: text });
+    chat.appendChild(element);
+    const message = { id: 10, text, element };
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => message,
+            getMessageById: async () => message,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('embedded');
+    const controller = opened.reader.controller;
+    let sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
+    assert.equal(sprite.classList.contains('igs-sprite-narration'), false);
+
+    await controller.invokeAction('next');
+    let content = vn.getState().igsUi.activeReader.snapshot.content;
+    sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
+    assert.equal(content.textType, 'narration');
+    assert.equal(content.spriteImage, 'https://example.com/alice.png');
+    assert.equal(sprite.classList.contains('igs-sprite-narration'), true);
+    assert.equal(sprite.style.filter, 'brightness(0.58) saturate(0.52)');
+    assert.equal(sprite.style['-webkit-filter'], 'brightness(0.58) saturate(0.52)');
+    assert.match(opened.reader.snapshot.source.styleText, /#igs-overlay\.igs-mode-embedded #igs-sprite\.igs-sprite-narration\{[^}]*filter:brightness\(\.58\) saturate\(\.52\)!important;[^}]*-webkit-filter:brightness\(\.58\) saturate\(\.52\)!important/);
+
+    await controller.invokeAction('next');
+    await controller.invokeAction('next');
+    content = vn.getState().igsUi.activeReader.snapshot.content;
+    sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
+    assert.equal(content.textType, 'dialogue');
+    assert.equal(sprite.classList.contains('igs-sprite-narration'), false);
     assert.equal(sprite.style.filter, '');
     assert.equal(sprite.style['-webkit-filter'], '');
     vn.destroy();
@@ -1002,7 +1074,7 @@ test('gate:simulation:igs-ui-option-bubble-width-follows-text-and-top-right-posi
 
 test('gate:simulation:igs-ui-toolbar-dock-top-fixes-bar-and-supports-collapse', async () => {
     const storage = createMemoryStorage();
-    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ toolbarDock: 'top' }));
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ toolbarDock: 'top', dialogSkin: 'western-classic' }));
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     const globalObject = document.defaultView;
     globalObject.localStorage = storage;
@@ -1040,6 +1112,44 @@ test('gate:simulation:igs-ui-toolbar-dock-top-fixes-bar-and-supports-collapse', 
     assert.equal(overlay.querySelector('#igs-btn-next').parentNode, collapsible);
     assert.equal(overlay.querySelector('#igs-btn-db-panel').parentNode, collapsible);
 
+    vn.destroy();
+});
+
+test('gate:simulation:igs-ui-default-skin-unifies-dialog-and-toolbar-with-embedded-chrome', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ toolbarDock: 'top' }));
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const globalObject = document.defaultView;
+    globalObject.localStorage = storage;
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '旁白一。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const toolbar = overlay.querySelector('#igs-ctrl-bar');
+    const collapsible = overlay.querySelector('#igs-bar-btns');
+    const pinned = overlay.querySelector('#igs-bar-pinned');
+    assert.equal(opened.reader.snapshot.readerSettings.toolbarDock, 'top');
+    assert.equal(overlay.classList.contains('igs-default-reader-chrome'), true);
+    assert.equal(overlay.classList.contains('igs-toolbar-top'), false);
+    assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'float');
+    assert.equal(toolbar.style.transformOrigin, 'right top');
+    assert.equal(collapsible.style.gap, '2px');
+    assert.equal(pinned.style.gap, '2px');
+
+    opened.reader.controller.toggleToolbar();
+    assert.equal(overlay.querySelector('#igs-btn-settings').parentNode, collapsible);
+    const css = getOriginalReaderStyleText();
+    assert.match(css, /#igs-overlay\.igs-default-reader-chrome \.igs-dialog\{[^}]*display:flex[^}]*overflow:hidden[^}]*padding:9px 18px 14px/);
+    assert.match(css, /#igs-overlay\.igs-default-reader-chrome #igs-toolbar-layer\{inset:14px 14px auto auto;width:auto;height:auto;transform:none;\}/);
+    assert.match(css, /#igs-overlay\.igs-default-reader-chrome \.igs-ctrl-bar\{[^}]*position:static[^}]*gap:1\.5px[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none/);
+    assert.match(css, /#igs-overlay\.igs-default-reader-chrome \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;transform:scale\(1\.2\);transform-origin:center;\}/);
     vn.destroy();
 });
 

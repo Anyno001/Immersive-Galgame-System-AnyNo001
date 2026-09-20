@@ -315,7 +315,8 @@ export function applyToolbarState(root, current) {
     const pins = new Set(Array.isArray(readerSettings.pinnedBtns) ? readerSettings.pinnedBtns : []);
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
-    const dockTop = !embeddedMode && readerSettings.toolbarDock === 'top';
+    const compactChrome = embeddedMode || Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
+    const dockTop = !compactChrome && readerSettings.toolbarDock === 'top';
     const toolbarExpanded = current.toolbarCollapsed === false;
     if (root.classList) {
         root.classList.toggle('igs-toolbar-expanded', toolbarExpanded);
@@ -342,12 +343,12 @@ export function applyToolbarState(root, current) {
 
     if (collapsible) {
         collapsible.style.display = current.toolbarCollapsed ? 'none' : 'flex';
-        collapsible.style.gap = embeddedMode ? '2px' : '6px';
+        collapsible.style.gap = compactChrome ? '2px' : '6px';
         collapsible.style.alignItems = 'center';
     }
     if (pinned) {
         pinned.style.display = 'flex';
-        pinned.style.gap = embeddedMode ? '2px' : '6px';
+        pinned.style.gap = compactChrome ? '2px' : '6px';
         pinned.style.alignItems = 'center';
     }
 
@@ -463,8 +464,8 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         dialog.style.background = '';
     }
 
-    // 内嵌模式拥有独立的右上角裸图标布局，不继承普通模式的顶部固定工具栏设置。
-    const toolbarDock = embeddedMode ? 'float' : (readerSettings.toolbarDock === 'top' ? 'top' : 'float');
+    const compactChrome = embeddedMode || !classicDialog;
+    const toolbarDock = compactChrome ? 'float' : (readerSettings.toolbarDock === 'top' ? 'top' : 'float');
     if (root && root.classList) {
         root.classList.toggle('igs-toolbar-top', toolbarDock === 'top');
     }
@@ -476,7 +477,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             toolbar.style.transformOrigin = '';
         } else {
             toolbar.style.transform = `scale(${Number(readerSettings.toolbarScale || 100) / 100})`;
-            toolbar.style.transformOrigin = snapshot.mode === 'embedded' ? 'right top' : 'right bottom';
+            toolbar.style.transformOrigin = compactChrome ? 'right top' : 'right bottom';
         }
         // The shared glass material is applied through CSS variables on the overlay.
         toolbar.style.background = '';
@@ -692,6 +693,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const send = root.querySelector('#igs-send-btn');
     const dialog = root.querySelector('#igs-dialog');
     const classicDialog = isClassicDialogSkin(snapshot.readerSettings);
+    if (root.classList) {
+        root.classList.toggle('igs-default-reader-chrome', !classicDialog);
+    }
     const toolbar = root.querySelector('#igs-ctrl-bar');
     const clickLayer = root.querySelector('#igs-click-layer');
     const toast = root.querySelector('#igs-toast');
@@ -741,7 +745,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         ? null
         : resolveAssetUrl(snapshot.content.spriteImage);
     if (spriteEl && spriteAssetUrl) {
-        const spriteFilter = snapshot.content.textType === 'narration' ? 'brightness(0.58) saturate(0.52)' : '';
+        const spriteNarration = snapshot.content.textType === 'narration';
+        const spriteFilter = spriteNarration ? 'brightness(0.58) saturate(0.52)' : '';
+        spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
         spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;
         spriteEl.style.display = 'block';
         spriteEl.style.position = 'absolute';
@@ -762,6 +768,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, index: snapshot.content.currentIndex, layoutKey: spriteKey ? `${snapshot.mode}::${spriteKey}::${spriteMood}` : snapshot.mode, layout: { ...layout } });
         }
     } else if (spriteEl) {
+        spriteEl.classList.remove('igs-sprite-narration');
         spriteEl.style.backgroundImage = '';
         spriteEl.style.display = 'none';
         spriteEl.style.filter = '';
