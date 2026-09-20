@@ -1546,7 +1546,9 @@ export function createIgsReaderHost(options = {}) {
                 const dMatch = seg.match(/^\s*\[([^\]]+)\]\s*[:：]\s*([\s\S]*)$/);
                 if (tMatch) {
                     let sp = tMatch[1] ? tMatch[1].trim() : '';
-                    const matched = findDirectiveByText(sp, tMatch[2]);
+                    // 正文可能写作 **…**（成对双星号），匹配指令前剥掉残留星号。
+                    const bodyText = String(tMatch[2] || '').replace(/^\s*\*+\s*/, '').replace(/\s*\*+\s*$/, '').trim();
+                    const matched = findDirectiveByText(sp, bodyText) || findDirectiveByText(sp, tMatch[2]);
                     if (matched && !sp) sp = matched.character || '';
                     return { textType: 'thought', speaker: sp, mood: matched ? (matched.mood || '') : '', body: seg };
                 }

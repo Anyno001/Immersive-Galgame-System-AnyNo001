@@ -4,6 +4,15 @@ import { resolveMoodGroup } from './mood-groups.js';
 const SCENE_RE = /\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
 const CHAR_RE = /\[igs-char:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
 const THOUGHT_RE = /\[igs-thought:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
+// 锚定在当前位置的版本：用于「紧贴当前位置」的指令识别。
+const SCENE_AT_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
+const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
+const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
+// 找出当前位置之后最近一条 igs 指令的起始下标；没有则返回 -1。
+function nextDirectiveIndex(text) {
+    const m = String(text || '').match(/\[igs-(?:scene|char|thought):/);
+    return m ? m.index : -1;
+}
 
 export function extractSceneDirectives(text) {
     const source = String(text || '');
@@ -24,8 +33,9 @@ export function extractSceneDirectives(text) {
         let rest = trimmed;
         let m;
         while (rest) {
-            if ((m = rest.match(SCENE_RE))) {
-                pending += rest.slice(0, m.index);
+            // 只认「紧贴当前位置」的指令：否则 SCENE_RE 会越过行首的 thought/char
+            // 标签去匹配后面的 scene，把前面的指令当成正文吞掉。
+            if ((m = rest.match(SCENE_AT_RE))) {
                 // 标签之前的正文自成一段（若有）。
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({
@@ -34,22 +44,24 @@ export function extractSceneDirectives(text) {
                     time: m[2].trim(),
                     weather: m[3].trim(),
                     nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw',
-                    // 指向「其后的正文段」：该标签一旦出现，后续正文即属于它。
                     segmentIndex: segmentCount,
                     lineIndex: i,
                 });
-            } else if ((m = rest.match(CHAR_RE))) {
-                pending += rest.slice(0, m.index);
+            } else if ((m = rest.match(CHAR_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
-            } else if ((m = rest.match(THOUGHT_RE))) {
-                pending += rest.slice(0, m.index);
+            } else if ((m = rest.match(THOUGHT_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'thought', character: m[1].trim(), mood: m[2].trim(), thought: m[3].trim(), segmentIndex: segmentCount, lineIndex: i });
             } else {
-                break;
+                // 当前位置不是指令：把到「下一条指令之前」的文本计入正文。
+                const nextAt = nextDirectiveIndex(rest);
+                if (nextAt < 0) { pending += rest; rest = ''; break; }
+                pending += rest.slice(0, nextAt);
+                rest = rest.slice(nextAt);
+                continue;
             }
-            rest = rest.slice(m.index + m[0].length);
+            rest = rest.slice(m[0].length);
         }
         pending += rest;
     }
