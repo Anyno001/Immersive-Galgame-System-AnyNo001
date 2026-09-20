@@ -973,10 +973,18 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
 
     assert.equal(dialog.style.height, 'auto');
     assert.equal(dialog.style.minHeight, '');
-    assert.equal(dialog.style.maxHeight, '');
+    assert.equal(dialog.style.maxHeight, '464px');
+    const css = getOriginalReaderStyleText();
+    assert.match(css, /#igs-overlay\.igs-floating \.igs-dialog\{[^}]*max-height:none/);
+    assert.match(css, /#igs-overlay\.igs-floating-mobile \.igs-dialog\{[^}]*max-height:none/);
     settings.setValue('readerSettings.dialogHeight', 60);
     assert.equal(dialog.style.height, '60px');
+    assert.equal(dialog.style.maxHeight, '464px');
     assert.equal(controls.style.display, '');
+    settings.setValue('readerSettings.dialogHeight', 80);
+    assert.equal(dialog.style.height, '80px');
+    settings.setValue('readerSettings.dialogHeight', 120);
+    assert.equal(dialog.style.height, '120px');
     settings.setValue('readerSettings.dialogHeight', 300);
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(dialog.style.height, '300px');
@@ -988,7 +996,7 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
     settings.setValue('readerSettings.dialogHeight', null);
     assert.equal(dialog.style.height, 'auto');
     assert.equal(dialog.style.minHeight, '');
-    assert.equal(dialog.style.maxHeight, '');
+    assert.equal(dialog.style.maxHeight, '464px');
     assert.equal(controls.style.display, '');
     vn.destroy();
 });

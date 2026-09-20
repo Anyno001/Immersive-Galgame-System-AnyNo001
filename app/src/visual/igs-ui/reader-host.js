@@ -1719,7 +1719,7 @@ export function createIgsReaderHost(options = {}) {
         // 对话主题已取消预设选择，恒为自定义：自定义项始终可编辑（仅受场景素材开关 themeDisabled 控制）。
         const themeCustom = true;
         const displayTheme = classicDialog ? classicVnTheme : vnTheme;
-        const dialogHeightItems = [['null', '自适应'], [60, '60px'], [160, '160px'], [200, '200px'], [250, '250px'], [300, '300px'], [400, '400px'], [500, '500px'], [600, '600px']];
+        const dialogHeightItems = [['null', '自适应'], [60, '60px'], [80, '80px'], [120, '120px'], [160, '160px'], [200, '200px'], [250, '250px'], [300, '300px'], [400, '400px'], [500, '500px'], [600, '600px']];
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
             dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（保留）`]);
         }

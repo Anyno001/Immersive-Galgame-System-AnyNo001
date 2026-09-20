@@ -398,21 +398,21 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             dialog.style.maxHeight = '';
             dialog.style.width = '';
         } else if (inlineMode) {
+            const viewportHeight = Number(win && win.visualViewport && win.visualViewport.height)
+                || Number(win && win.innerHeight)
+                || overlayHeight;
+            const designHeight = snapshot.mode === 'pc' ? 540 : 680;
+            const runtimeHeight = Math.min(designHeight, Math.max(180, viewportHeight - 32));
+            const maxBubble = Math.max(140, Math.floor(runtimeHeight * 0.86));
             if (readerSettings.dialogHeight == null) {
-                // 显式恢复内容驱动高度，避免固定档位留下的内联盒高影响自适应。
+                // 显式恢复内容驱动高度；安全上限跟随当前浮窗，而不是退回旧 CSS 的固定上限。
                 dialog.style.height = 'auto';
                 dialog.style.minHeight = '';
-                dialog.style.maxHeight = '';
+                dialog.style.maxHeight = `${maxBubble}px`;
             } else {
                 // floating 气泡：正文已固定 min-height:0 并在内部滚动，因此可以给气泡盒
                 // 明确目标高度。最低 60px 保留可调档位，最大值继续按
                 // 阅读器可用高度钳制，避免重新引入输入区溢出。
-                const viewportHeight = Number(win && win.visualViewport && win.visualViewport.height)
-                    || Number(win && win.innerHeight)
-                    || overlayHeight;
-                const designHeight = snapshot.mode === 'pc' ? 540 : 680;
-                const runtimeHeight = Math.min(designHeight, Math.max(180, viewportHeight - 32));
-                const maxBubble = Math.max(140, Math.floor(runtimeHeight * 0.86));
                 const target = Math.max(60, Math.min(readerSettings.dialogHeight, maxBubble));
                 dialog.style.height = `${target}px`;
                 dialog.style.minHeight = '';
