@@ -143,7 +143,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-embedded-host[data-igs-embedded-loading="1"]{display:flex;align-items:center;justify-content:center;}
 #igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;}
 .igs-mode-embedded .igs-progress{display:none;}
-.igs-mode-embedded .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;height:auto;min-height:0;max-height:calc(100% - 28px);transform:none;display:flex;flex-direction:column;overflow:hidden;padding:20px 18px 14px;}
+.igs-mode-embedded .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;height:auto;min-height:0;max-height:calc(100% - 28px);transform:none;display:flex;flex-direction:column;overflow:hidden;padding:13px 18px 14px;}
 .igs-mode-embedded .igs-text{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;}
 .igs-mode-embedded .igs-speaker,.igs-mode-embedded .igs-divider{flex-shrink:0;}
 .igs-mode-embedded .igs-controls{display:none;}
