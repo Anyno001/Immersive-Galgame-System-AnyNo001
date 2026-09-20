@@ -1485,6 +1485,8 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     const charsView = settings.switchSceneSubTab('characters');
     assert.match(charsView.snapshot.html, /统一角色立绘位置/);
     assert.doesNotMatch(charsView.snapshot.html, />角色别名<\/div>/);
+    assert.match(charsView.snapshot.html, /data-status-avatar-char=/);
+    assert.match(charsView.snapshot.html, /https:\/\/\.\.\. 或 data:image\/\.\.\./);
     assert.match(charsView.snapshot.html, /爱丽/);
 
     vn.destroy();
@@ -3736,9 +3738,10 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
 
     settings.setValue('readerSettings.statusHud.enabled', true);
     const enabled = settings.switchReaderSubTab('display').snapshot.html;
-    assert.match(enabled, /状态栏大小/);
     assert.match(enabled, /显示情绪标签/);
     assert.match(enabled, /头像圆角/);
+    assert.match(enabled, /状态栏大小/);
+    assert.match(enabled, /显示情绪标签[\s\S]*头像圆角[\s\S]*状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
     assert.doesNotMatch(enabled, /<select data-path="readerSettings\.statusHud\.background"/);
     assert.match(enabled, /无背景/);

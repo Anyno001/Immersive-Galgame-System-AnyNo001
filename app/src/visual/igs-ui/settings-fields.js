@@ -216,7 +216,7 @@ export function renderCharacterAssetList(characters, options = {}) {
         const avatarPreview = avatarUrl
             ? `<img class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" loading="lazy" alt="" data-action="sprite-preview:${encSeg(avatarUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
-        const avatarHtml = `<div class="igs-btn-mgr-row igs-status-avatar-row"><span class="igs-btn-mgr-label">状态栏头像</span>${avatarPreview}<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button></div>`;
+        const avatarHtml = `<div class="igs-btn-mgr-row igs-status-avatar-row"><span class="igs-btn-mgr-label">状态栏头像</span>${avatarPreview}<input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/..."><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button></div>`;
         const moodEntries = Object.entries(moods || {});
         const moodRows = moodEntries.map(([mood, url]) => {
             const expanded = expandedSlots.has(charName + "\x00" + mood);

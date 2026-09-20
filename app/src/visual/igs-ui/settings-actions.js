@@ -59,6 +59,28 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction.startsWith('status-avatar-set-url:')) {
+        const rest = normalizedAction.slice('status-avatar-set-url:'.length);
+        const colon = rest.indexOf(':');
+        if (colon > 0) {
+            const charName = decodeSeg(rest.slice(0, colon));
+            const url = decodeSeg(rest.slice(colon + 1)).trim();
+            const sceneAssets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+            const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
+            if (url) {
+                const normalized = normalizeStatusAvatars({ [charName]: url });
+                if (!normalized[charName]) return rerenderSettings();
+                avatars[charName] = normalized[charName];
+            } else {
+                delete avatars[charName];
+            }
+            sceneAssets.statusAvatars = avatars;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+        }
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('status-avatar-pick:')) {
         const charName = decodeSeg(normalizedAction.slice('status-avatar-pick:'.length));
         const globalObj = options.global || globalThis;

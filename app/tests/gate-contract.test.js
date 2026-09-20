@@ -669,6 +669,12 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(rendererText, /linear-gradient\(90deg, rgba\(255,255,255,\.46\), rgba\(255,255,255,\.86\)\)/);
     assert.match(readerHostText, /normalizedAction === 'toggle-status-hud'/);
     assert.match(readerHostText, /readerSettings\.statusHud\.barColor/);
+    assert.match(readerHostText, /data-status-avatar-char/);
+    assert.match(readerHostText, /status-avatar-set-url:/);
+    const settingsFieldsText = readText('src/visual/igs-ui/settings-fields.js');
+    const settingsActionsText = readText('src/visual/igs-ui/settings-actions.js');
+    assert.match(settingsFieldsText, /data-status-avatar-char=/);
+    assert.match(settingsActionsText, /normalizedAction\.startsWith\('status-avatar-set-url:'\)/);
     assert.match(readerHostText, /segmentedInput\('readerSettings\.statusHud\.background', statusHud\.background, \[\['none', '无背景'\], \['dialog', '跟随对话框'\]\], '状态栏背景'\)/);
     assert.doesNotMatch(readerHostText, /selectInput\('readerSettings\.statusHud\.background'/);
     assert.match(rendererText, /applyTransparentGlassMaterial\(root, readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings\.glassBackdropFilter,\s+\}\)/);

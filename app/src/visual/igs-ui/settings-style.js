@@ -141,6 +141,7 @@ const SETTINGS_STYLE_TEXT = `
 .igs-sprite-thumb-empty{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--igs-settings-ink-4);cursor:default}
 .igs-sprite-thumb-broken{position:relative}
  .igs-status-avatar-row{justify-content:flex-start;gap:8px}
+ .igs-status-avatar-row .igs-btn-mgr-label{flex:0 0 auto}
  .igs-status-avatar-thumb{width:28px;height:28px;flex-shrink:0;border-radius:50%;object-fit:cover;background:var(--igs-settings-paper);overflow:hidden}
  .igs-status-avatar-empty{display:inline-flex;align-items:center;justify-content:center;padding:3px;color:var(--igs-settings-ink-4);cursor:default}
 .igs-sprite-words{flex:1;min-width:0}

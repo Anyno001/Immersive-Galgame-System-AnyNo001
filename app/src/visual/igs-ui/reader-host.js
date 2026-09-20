@@ -1711,9 +1711,9 @@ export function createIgsReaderHost(options = {}) {
                 : '数据库插件未就绪，暂无法列出表格；已保存的选择会保留。';
             const body = [
                 toggle,
-                `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
+                `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景'))}</div>`,
                 `<div class="igs-settings-row">${field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色'))}</div>`,
                 `<div class="igs-settings-row igs-settings-full"><div class="igs-settings-field"><span>读取表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: catalogNote })}</div></div>`,
@@ -2229,6 +2229,11 @@ export function createIgsReaderHost(options = {}) {
             }
             if (event.target && event.target.getAttribute && event.target.getAttribute('data-preset-select') !== null) {
                 controller.invoke('scene-preset-apply:' + encodeURIComponent(event.target.value));
+                return;
+            }
+            const statusAvatarChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-status-avatar-char') : '';
+            if (statusAvatarChar) {
+                controller.invoke('status-avatar-set-url:' + encodeURIComponent(statusAvatarChar) + ':' + encodeURIComponent(event.target.value || ''));
                 return;
             }
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';

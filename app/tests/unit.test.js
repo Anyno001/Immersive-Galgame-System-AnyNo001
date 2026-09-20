@@ -2362,7 +2362,9 @@ test('gate:scene:character-assets-render-status-avatar-row', () => {
         { aliases: { H: [] }, moodGroups: [], statusAvatars: { H: 'data:image/png;base64,AAA' } },
     );
     assert.equal((html.match(/状态栏头像/g) || []).length, 1);
+    assert.match(html, /class="igs-scene-url-input igs-status-avatar-url"[^>]*data-status-avatar-char="H"[^>]*value="data:image\/png;base64,AAA"/);
     assert.match(html, /data-action="status-avatar-pick:H"/);
+    assert.match(html, /data-action="status-avatar-clear:H"/);
     assert.match(html, /class="igs-status-avatar-thumb"[^>]*src="data:image\/png;base64,AAA"/);
 });
 
@@ -2507,6 +2509,9 @@ test('gate:scene:status-avatar-lifecycle-upload-clear-rename-remove', async () =
         rerenderSettings: () => ({ ok: true }),
         buildRegexPreview: () => '',
     };
+
+    await handleSettingsAction('status-avatar-set-url:' + encodeURIComponent('白墨') + ':' + encodeURIComponent('https://example.com/avatar.png'), ctx);
+    assert.equal(draft.bridge.sceneAssets.statusAvatars['白墨'], 'https://example.com/avatar.png');
 
     await handleSettingsAction('status-avatar-clear:' + encodeURIComponent('白墨'), ctx);
     assert.deepEqual(Object.keys(draft.bridge.sceneAssets.statusAvatars), ['爱丽丝']);
