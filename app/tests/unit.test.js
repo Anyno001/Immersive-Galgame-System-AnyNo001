@@ -2452,22 +2452,30 @@ test('gate:simulation:status-hud-model-disabled-and-narration-do-not-inherit', (
 test('gate:simulation:status-hud-model-failure-is-diagnostic-not-zero', () => {
     const failed = buildStatusHudModel({
         settings: { enabled: true, tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
-        sceneAssets: { characters: { A: {} } },
+        sceneAssets: { characters: { A: {} }, statusAvatars: { A: 'https://example.com/a.png' } },
         character: 'A',
+        emotion: '焦虑',
         readResult: { ok: false, reason: 'missing-api' },
     });
     assert.equal(failed.loadState, 'error');
     assert.deepEqual(failed.metrics, []);
     assert.equal(failed.loadReason, 'missing-api');
+    assert.equal(failed.character, 'A');
+    assert.equal(failed.emotion, '焦虑');
+    assert.equal(failed.avatar, 'https://example.com/a.png');
 
     const missingRow = buildStatusHudModel({
         settings: { enabled: true, tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
         sceneAssets: { characters: { A: {} } },
         character: 'A',
+        emotion: '平静',
         readResult: { ok: true, data: { sheet_stats: { uid: 'sheet_stats', name: '角色数值表', orderNo: 1, content: [['row_id', '姓名', '信任'], ['1', 'B', '50%']] } } },
     });
     assert.equal(missingRow.loadState, 'no-data');
     assert.deepEqual(missingRow.metrics, []);
+    assert.equal(missingRow.character, 'A');
+    assert.equal(missingRow.emotion, '平静');
+    assert.equal(missingRow.avatar, '');
 });
 
 test('gate:simulation:status-hud-responsive-scale-is-clamped-and-ordered', () => {

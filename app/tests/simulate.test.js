@@ -4084,3 +4084,44 @@ test('gate:simulation:status-hud-dom-hidden-when-disabled-and-placeholder-withou
 
     vn.destroy();
 });
+
+test('gate:simulation:status-hud-keeps-default-avatar-when-selected-table-has-no-character-row', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: { enabled: true, promptRule: 'rule', scenes: {}, characters: { H: { default: '' } }, characterAliases: { H: [] }, moodGroups: [] },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, size: 'small', showEmotion: false, avatarRadius: 'circle', background: 'none', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+    }));
+    const vn = bootstrapIGS({
+        global: {
+            document,
+            localStorage: storage,
+            AutoCardUpdaterAPI: {
+                exportTableAsJson() {
+                    return { sheet_stats: { uid: 'sheet_stats', name: '角色数值表', orderNo: 1, content: [['row_id', '姓名', '信任'], ['1', 'B', '50%']] } };
+                },
+            },
+        },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-char:H|平和|Hello.]', '</content>', '</now_plot>'].join('\n') }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const host = document.getElementById('igs-status-hud');
+    assert.equal(opened.reader.snapshot.content.statusHud.loadState, 'no-data');
+    assert.equal(opened.reader.snapshot.content.statusHud.character, 'H');
+    assert.equal(opened.reader.snapshot.content.statusHud.emotion, '');
+    assert.deepEqual(opened.reader.snapshot.content.statusHud.metrics, []);
+    assert.equal(host.hasAttribute('hidden'), false);
+    assert.equal(host.querySelector('.igs-hud-avatar-empty') != null, true);
+    assert.equal(host.querySelector('.igs-hud-emotion'), null);
+    assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
+
+    vn.destroy();
+});

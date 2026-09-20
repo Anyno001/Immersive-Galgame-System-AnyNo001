@@ -1740,8 +1740,8 @@ export function createIgsReaderHost(options = {}) {
             const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
             const listed = api ? listStatusHudTables(createShujukuClient(api).readTables()) : { ok: false, reason: 'missing-api', tables: [] };
             const catalogNote = listed.ok
-                ? '仅读取勾选的表；留空则不读取任何表。'
-                : '数据库插件未就绪，暂无法列出表格；已保存的选择会保留。';
+                ? '勾选后额外显示当前角色匹配到的 HUD 条；留空则只显示头像与情绪。'
+                : '数据库插件未就绪，头像与情绪仍可显示；已保存的表格选择会保留。';
             const body = [
                 toggle,
                 `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,

@@ -547,7 +547,7 @@ export function applyStatusHudToDom(root, snapshot) {
     const hasEmotion = Boolean(hud && hud.emotion);
     const hasMetrics = Boolean(hud && Array.isArray(hud.metrics) && hud.metrics.length);
     const grayscaleBars = Boolean(hud && hud.barColor === 'grayscale');
-    const shouldShow = Boolean(hud && hud.enabled && hud.character) && (hasEmotion || hasMetrics || Boolean(hud.avatar));
+    const shouldShow = Boolean(hud && hud.enabled && hud.character);
     if (globalThis.__IGS_HUD_DEBUG__) {
         console.log('[HUD-PROBE]', JSON.stringify({ hud: hud ? { enabled: hud.enabled, character: hud.character, emotion: hud.emotion, avatar: Boolean(hud.avatar), metrics: hud.metrics && hud.metrics.length } : null, hasEmotion, hasMetrics, shouldShow }));
     }
