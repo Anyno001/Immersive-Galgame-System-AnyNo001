@@ -932,10 +932,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         });
     }
     if (dialog) {
-        // 内容为空白时也隐藏对话框，避免留下一个空壳。
-        const bodyText = snapshot && snapshot.content ? String(snapshot.content.displayText || '').trim() : '';
-        const blankPage = bodyText.length === 0;
-        dialog.classList.toggle('igs-hidden', Boolean(current.hidden) || blankPage);
+        dialog.classList.toggle('igs-hidden', current.hidden);
     }
     if (toolbar) {
         toolbar.classList.toggle('igs-hidden', current.hidden);

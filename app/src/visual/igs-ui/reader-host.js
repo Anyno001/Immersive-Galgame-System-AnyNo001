@@ -1438,16 +1438,19 @@ export function createIgsReaderHost(options = {}) {
         );
         const extractedSegments = Array.isArray(extracted.textSegments) ? extracted.textSegments : [];
         const hasExtractedSegments = extractedSegments.some((segment) => String(segment || '').trim());
-        const segments = Array.isArray(payload.textSegments) && payload.textSegments.length
+        let segments = Array.isArray(payload.textSegments) && payload.textSegments.length
             ? cloneData(payload.textSegments)
             : hasExtractedSegments
                 ? cloneData(extractedSegments)
                 : buildTextSegments(stripSceneDirectiveLines(text));
         // 场景指令可能紧贴正文（如「正文。[igs-scene:…]」），所有分段来源都必须再剥离一次，
-        // 否则标签会作为正文渲染进对话框。原位写回，长度不变，下游索引语义不受影响。
-        for (let si = 0; si < segments.length; si += 1) {
-            segments[si] = stripSceneDirectivesInline(segments[si]);
-        }
+        // 否则标签会作为正文渲染进对话框。
+        // 剥离后为空的段（例如整行只有 [igs-scene:]）直接丢弃，避免多出一个空白页。
+        const visibleSegments = segments
+            .map((seg) => stripSceneDirectivesInline(seg))
+            .filter((seg) => String(seg || '').trim().length > 0);
+        segments = visibleSegments.length ? visibleSegments : [''];
+
 
         const normalizedIndex = Math.max(0, Math.min(segments.length - 1, Number(index) || 0));
         const segmentImageSlots = Array.isArray(payload.segmentImageSlots) && payload.segmentImageSlots.length
