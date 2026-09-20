@@ -211,7 +211,7 @@ export function renderCharacterAssetList(characters, options = {}) {
         const aliasTags = aliases.map((alias) => (
             `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="scene-remove-char-alias:${encSeg(charName)}:${encSeg(alias)}" title="删除别名">×</button></span>`
         )).join('');
-        const aliasesHtml = `<div class="igs-sprite-words"><div class="igs-source-filter-note">角色别名</div><div class="igs-mood-word-list">${aliasTags || '<div class="igs-scene-empty">暂无别名</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-char-alias:${encSeg(charName)}" title="添加别名">+</button></div></div>`;
+        const aliasesHtml = `<div class="igs-sprite-words"><div class="igs-mood-word-list">${aliasTags || '<div class="igs-scene-empty">暂无别名</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-char-alias:${encSeg(charName)}" title="添加别名">+</button></div></div>`;
         const avatarUrl = String(statusAvatars[charName] || '').trim();
         const avatarPreview = avatarUrl
             ? `<img class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" loading="lazy" alt="" data-action="sprite-preview:${encSeg(avatarUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`

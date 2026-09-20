@@ -1312,7 +1312,7 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
     // 折叠态：不含缩略图
     const snap = controller.getSnapshot();
     assert.equal(/igs-sprite-thumb/.test(snap.html), false);
-    assert.match(snap.html, /角色别名/);
+    assert.doesNotMatch(snap.html, />角色别名<\/div>/);
     assert.match(snap.html, /海斗/);
 
     // 展开后：含缩略图和该情绪组的词

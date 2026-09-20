@@ -1484,7 +1484,7 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     assert.match(scenesView.snapshot.html, /古城/);
     const charsView = settings.switchSceneSubTab('characters');
     assert.match(charsView.snapshot.html, /统一角色立绘位置/);
-    assert.match(charsView.snapshot.html, /角色别名/);
+    assert.doesNotMatch(charsView.snapshot.html, />角色别名<\/div>/);
     assert.match(charsView.snapshot.html, /爱丽/);
 
     vn.destroy();
@@ -1538,6 +1538,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.equal(displayView.snapshot.readerSubTab, 'display');
     assert.match(displayView.snapshot.html, /data-reader-pane="display"/);
     assert.match(displayView.snapshot.html, /对话框宽度/);
+    assert.doesNotMatch(displayView.snapshot.html, /最低 60px，正文过长时在框内滚动。/);
     assert.doesNotMatch(displayView.snapshot.html, /对话框风格/);
     assert.doesNotMatch(displayView.snapshot.html, /按钮管理/);
 
@@ -1553,14 +1554,15 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
 
     const themeView = settings.switchReaderSubTab('theme');
     assert.match(themeView.snapshot.html, /data-reader-pane="theme"/);
-    assert.match(themeView.snapshot.html, /对话框风格/);
+    assert.equal((themeView.snapshot.html.match(/对话框风格/g) || []).length, 1);
+    assert.doesNotMatch(themeView.snapshot.html, /西欧古典的电脑端宽度按阅读器可用宽度计算/);
     assert.doesNotMatch(themeView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
     assert.match(themeView.snapshot.html, /角色名/);
     assert.match(themeView.snapshot.html, /分隔线/);
 
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
     const classicThemeView = settings.switchReaderSubTab('theme');
-    assert.match(classicThemeView.snapshot.html, /对话框风格/);
+    assert.equal((classicThemeView.snapshot.html.match(/对话框风格/g) || []).length, 1);
     assert.match(classicThemeView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
     assert.match(classicThemeView.snapshot.html, /60%/);
 

@@ -730,7 +730,8 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(optionsTemplate, /optionBubbleToggle/);
     assert.match(toolbarTemplate, /toolbarScaleField/);
     assert.match(toolbarTemplate, /pinnedButtonsField/);
-    assert.match(themeTemplate, /对话框风格/);
+    assert.doesNotMatch(themeTemplate, /<div class="igs-source-filter-title">对话框风格<\/div>/);
+    assert.doesNotMatch(themeTemplate, /西欧古典的电脑端宽度按阅读器可用宽度计算/);
     assert.match(themeTemplate, /dialogSkinField[\s\S]*classicDialogWidthPercentField/);
     assert.match(themeTemplate, /nameFontField/);
     assert.match(themeTemplate, /dividerColorField/);

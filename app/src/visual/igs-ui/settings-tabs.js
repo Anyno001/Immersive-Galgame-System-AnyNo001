@@ -115,10 +115,6 @@ const READER_TOOLBAR_TEMPLATE = `
 const READER_THEME_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="theme">
   <div class="igs-source-filter igs-settings-full">
-    <div>
-      <div class="igs-source-filter-title">对话框风格</div>
-      <div class="igs-source-filter-note">西欧古典的电脑端宽度按阅读器可用宽度计算；手机端保持原有满宽。</div>
-    </div>
     <div class="igs-source-filter-grid">
       {{dialogSkinField}}
       {{classicDialogWidthPercentField}}
