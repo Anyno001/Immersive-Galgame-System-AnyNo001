@@ -3737,6 +3737,8 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /状态栏大小/);
     assert.match(enabled, /显示情绪标签/);
     assert.match(enabled, /头像圆角/);
+    assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
+    assert.doesNotMatch(enabled, /<select data-path="readerSettings\.statusHud\.background"/);
     assert.match(enabled, /无背景/);
     assert.match(enabled, /跟随对话框/);
     assert.match(enabled, /HUD条配色/);
@@ -3749,6 +3751,8 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /<div class="igs-settings-field"><span>读取表格<\/span><div class="igs-status-hud-tables"/);
     assert.doesNotMatch(enabled, /<label class="igs-settings-field"><span>读取表格<\/span>/);
 
+    settings.setValue('readerSettings.statusHud.background', 'dialog');
+    assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.background, 'dialog');
     settings.setValue('readerSettings.statusHud.barColor', 'grayscale');
     assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.barColor, 'grayscale');
     settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
@@ -3761,6 +3765,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
 
     const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(persisted.statusHud.enabled, true);
+    assert.equal(persisted.statusHud.background, 'dialog');
     assert.equal(persisted.statusHud.barColor, 'grayscale');
     assert.deepEqual(persisted.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
 
@@ -3918,15 +3923,19 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
 
     const labels = Array.from(host.querySelectorAll('.igs-hud-metric-label')).map((node) => node.textContent);
     assert.deepEqual(labels, ['信任', '好感', '了解', '体力']);
-    assert.equal(host.querySelector('[data-act="toggle-status-hud"]') != null, true);
+    const overlay = document.getElementById('igs-overlay');
+    const readerRoot = overlay.parentNode;
+    assert.ok(readerRoot);
+    let hudToggle = host.querySelector('[data-act="toggle-status-hud"]');
+    assert.ok(hudToggle);
 
-    const collapsed = await opened.reader.controller.invokeAction('toggle-status-hud');
-    assert.equal(collapsed.collapsed, true);
+    await readerRoot.dispatchEvent({ type: 'click', target: hudToggle });
     assert.equal(host.classList.contains('igs-hud-collapsed'), true);
     assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).statusHud.collapsed, true);
 
-    const expanded = await opened.reader.controller.invokeAction('toggle-status-hud');
-    assert.equal(expanded.collapsed, false);
+    hudToggle = host.querySelector('[data-act="toggle-status-hud"]');
+    assert.ok(hudToggle);
+    await readerRoot.dispatchEvent({ type: 'click', target: hudToggle });
     assert.equal(host.classList.contains('igs-hud-collapsed'), false);
     assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).statusHud.collapsed, false);
 
