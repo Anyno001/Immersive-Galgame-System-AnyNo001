@@ -560,7 +560,8 @@ export function applyStatusHudToDom(root, snapshot) {
         return;
     }
     host.removeAttribute('hidden');
-    if (hud.background === 'dialog') host.classList.add('igs-hud-bg-dialog');
+    // 背景只在有 HUD 条时出现：只有头像/情绪/地点栏时不加背景，即使背景开关开着。
+    if (hud.background === 'dialog' && hasMetrics) host.classList.add('igs-hud-bg-dialog');
     if (root.classList && root.classList.contains('igs-options-visible')) host.classList.add('igs-hud-suppressed');
     const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     if (hudSettings && hudSettings.collapsed) host.classList.add('igs-hud-collapsed');
@@ -931,7 +932,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         });
     }
     if (dialog) {
-        dialog.classList.toggle('igs-hidden', current.hidden);
+        // 内容为空白时也隐藏对话框，避免留下一个空壳。
+        const bodyText = snapshot && snapshot.content ? String(snapshot.content.displayText || '').trim() : '';
+        const blankPage = bodyText.length === 0;
+        dialog.classList.toggle('igs-hidden', Boolean(current.hidden) || blankPage);
     }
     if (toolbar) {
         toolbar.classList.toggle('igs-hidden', current.hidden);
