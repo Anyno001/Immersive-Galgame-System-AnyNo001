@@ -21,7 +21,7 @@ export function normalizeSettingsValue(path, value) {
         return String(value || '');
     }
     if (path.startsWith('readerSettings.')) {
-        if (value === 'null') return null;
+        if (value === null || value === 'null') return null;
         if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|toolbarScale|inputScale|imageCountOverride|imgBrightness/.test(path)) {
             return Number(value);
         }
