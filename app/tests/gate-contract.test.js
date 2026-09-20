@@ -635,7 +635,10 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.styleText, /\.igs-mode-embedded #igs-option-bubbles\[data-igs-pos\]\{[^}]*top:calc\(14px \+ var\(--igs-toolbar-h,32px\) \+ 8px\)[^}]*bottom:calc\(14px \+ var\(--igs-dialog-h,220px\) \+ 10px\)[^}]*overflow-y:auto/);
     assert.match(source.styleText, /#igs-status-hud\{[^}]*grid-template-columns:auto minmax\(0,1fr\) auto[^}]*width:calc\(340px \* var\(--igs-hud-scale,1\)\)/);
     assert.match(source.styleText, /\.igs-hud-metric\{[^}]*grid-template-columns:max-content minmax\(0,1fr\) auto[^}]*gap:calc\(3px \* var\(--igs-hud-scale,1\)\)/);
-    assert.match(source.styleText, /#igs-status-hud\.igs-hud-collapsed \.igs-hud-toggle\{[^}]*width:36px;height:36px[^}]*background:var\(--igs-toolbar-bg/);
+    assert.match(source.styleText, /#igs-status-hud\.igs-hud-bg-dialog\{background:transparent;[^}]*backdrop-filter:none;\}/);
+    assert.match(source.styleText, /#igs-status-hud \.igs-hud-toggle\{[^}]*width:36px;height:36px[^}]*border:0;background:transparent;border-radius:0/);
+    assert.match(source.styleText, /#igs-status-hud\.igs-hud-collapsed \.igs-hud-toggle\{[^}]*width:36px;height:36px;border:0;background:transparent;border-radius:0/);
+    assert.doesNotMatch(source.styleText, /#igs-status-hud\.igs-hud-collapsed \.igs-hud-toggle\{[^}]*var\(--igs-toolbar-bg/);
     assert.match(source.styleText, /#igs-overlay\.igs-toolbar-top #igs-status-hud\{top:14px;\}/);
     assert.doesNotMatch(source.styleText, /transition:all/);
     assert.doesNotMatch(source.html, />‹</);
@@ -655,6 +658,8 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.doesNotMatch(readerHostText, /emptyBackgroundColorField|optionBubbleFontSizeField|readerSettings\.emptyBackgroundColor/);
     assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock === 'top'/);
     assert.match(rendererText, /statusHud\.classList\.toggle\('igs-hud-collapsed', persistedCollapsed \|\| toolbarExpanded\)/);
+    assert.match(rendererText, /class="igs-hud-icon-expand" d="M12 5v14M5 12h14"/);
+    assert.match(rendererText, /class="igs-hud-icon-collapse" d="M5 12h14"/);
     assert.match(readerHostText, /normalizedAction === 'toggle-status-hud'/);
     assert.match(rendererText, /applyTransparentGlassMaterial\(root, readerSettings\.glassOpacity, \{\s+backdropFilter: readerSettings\.glassBackdropFilter,\s+\}\)/);
     assert.doesNotMatch(rendererText, /setProperty\('--igs-glass-bg'/);
