@@ -1458,7 +1458,8 @@ export function createIgsReaderHost(options = {}) {
             resolveSegmentImageIndex({ imageState: payload.imageState, segmentImageSlots }, normalizedIndex),
         );
         const displayImageState = applyImageCountOverride(imageState, readerSettings.imageCountOverride);
-        const currentText = segments[normalizedIndex] || text;
+        // 分段缺失时给空串：绝不用整篇 text 兜底，否则会凭空多出一页「全文」。
+        const currentText = segments[normalizedIndex] == null ? '' : String(segments[normalizedIndex]);
         const sceneAssetsEnabled = readerSettings._sceneAssets && readerSettings._sceneAssets.enabled;
         const backgroundImage = firstNonEmptyString(
             displayImageState.displayUrl,
