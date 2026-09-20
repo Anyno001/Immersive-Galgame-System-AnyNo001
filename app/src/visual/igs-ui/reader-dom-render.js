@@ -569,13 +569,13 @@ export function applyStatusHudToDom(root, snapshot) {
         img.className = 'igs-hud-avatar';
         img.setAttribute('src', hud.avatar);
         img.setAttribute('alt', '');
-        img.style.borderRadius = typeof radius === 'number' ? `${radius}px` : radius;
+        img.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
         identity.appendChild(img);
     } else {
         const placeholder = doc.createElement('div');
         placeholder.className = 'igs-hud-avatar igs-hud-avatar-empty';
         placeholder.innerHTML = STATUS_HUD_PLACEHOLDER;
-        placeholder.style.borderRadius = typeof radius === 'number' ? `${radius}px` : radius;
+        placeholder.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
         identity.appendChild(placeholder);
     }
     if (hasEmotion) {

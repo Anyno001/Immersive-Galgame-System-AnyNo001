@@ -3738,6 +3738,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /显示情绪标签/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /无背景/);
+    assert.match(enabled, /跟随对话框/);
     assert.match(enabled, /data-status-hud-tables/);
     assert.match(enabled, /角色数值表/);
     assert.match(enabled, /任务表/);
@@ -3897,7 +3898,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     const avatar = host.querySelector('.igs-hud-avatar');
     assert.ok(avatar, 'avatar node should exist');
     assert.equal(avatar.getAttribute('src'), 'data:image/png;base64,AAA');
-    assert.equal(avatar.style.borderRadius, '16px');
+    assert.equal(avatar.style.borderRadius, 'calc(16px * var(--igs-hud-scale,1))');
 
     const chip = host.querySelector('.igs-hud-emotion');
     assert.equal(chip.textContent, '紧张');

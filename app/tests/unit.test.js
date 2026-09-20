@@ -2466,11 +2466,13 @@ test('gate:simulation:status-hud-model-failure-is-diagnostic-not-zero', () => {
 });
 
 test('gate:simulation:status-hud-responsive-scale-is-clamped-and-ordered', () => {
-    assert.ok(Math.abs(resolveStatusHudScale('medium', 900, 600) - 1) < 1e-9);
+    assert.ok(Math.abs(resolveStatusHudScale('small', 900, 600) - 0.688) < 1e-9);
+    assert.ok(Math.abs(resolveStatusHudScale('medium', 900, 600) - 0.8) < 1e-9);
+    assert.ok(Math.abs(resolveStatusHudScale('large', 900, 600) - 0.928) < 1e-9);
     assert.ok(resolveStatusHudScale('small', 900, 600) < resolveStatusHudScale('medium', 900, 600));
     assert.ok(resolveStatusHudScale('large', 900, 600) > resolveStatusHudScale('medium', 900, 600));
-    assert.equal(resolveStatusHudScale('medium', 10, 10), 0.78);
-    assert.equal(resolveStatusHudScale('large', 4000, 4000), 1.28);
+    assert.ok(Math.abs(resolveStatusHudScale('medium', 10, 10) - 0.624) < 1e-9);
+    assert.ok(Math.abs(resolveStatusHudScale('large', 4000, 4000) - 1.024) < 1e-9);
 });
 
 test('gate:scene:status-avatar-lifecycle-upload-clear-rename-remove', async () => {
