@@ -229,6 +229,13 @@ projects/Immersive Galgame System/
 
 ## 更新日志
 
+### v0.23.80 - 2026-09-20
+
+- 照抄加滤镜开关前的内嵌规则补回内嵌模式人物过场滤镜：`#igs-overlay.igs-mode-embedded #igs-sprite.igs-sprite-narration` 双写 `!important` 与 `-webkit-filter`，数值沿用当前 `brightness(.86) saturate(.86)`。
+- 内心页与对白页的状态栏逻辑一致：翻页主路径 `isNarration` 同样接受 `thought`，左上角状态栏在内心页正常显示（台词样式仍按心理话渲染）。
+- 工具栏左右两组水平对齐：图标组、常驻组与常驻按钮统一 `display:flex`、`align-self:center`、32px 行高。
+- 按约定运行 unit/simulate 全量、build、build:loader、static、structure，尚未在真实酒馆复验，因此不打 tag。
+
 ### v0.23.79 - 2026-09-20
 
 - 修复旁白页立绘滤镜失效（电脑端可见、移动端不可见的设备差异假象）：根因是「单段兜底」用段索引相等匹配 char/thought 指令，分页与重排版后索引漂移，把旁白页误判成对白。改为按「当前段正文与指令对白/心里话文本的指纹一致」判定。
