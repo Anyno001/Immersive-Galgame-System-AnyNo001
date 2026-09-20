@@ -98,6 +98,25 @@ export function resolveNearestCharacterBefore(directives, offset) {
 
 
 
+// 取「指定字符位置前方最近的 [igs-scene] 标签」：直接在原文里 lastIndexOf 查找，
+// 不做任何偏移累加，因此不受排版、行内混排、段数错位影响。
+export function resolveSceneAtSourceOffset(source, position) {
+    const empty = { scene: '', time: '', weather: '', nsfw: false, character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: '' };
+    const src = String(source || '');
+    const limit = Math.max(0, Math.min(src.length, Number(position) || 0));
+    const at = src.slice(0, limit).lastIndexOf('[igs-scene:');
+    if (at < 0) return empty;
+    const m = src.slice(at).match(SCENE_AT_RE);
+    if (!m) return empty;
+    return {
+        scene: m[1].trim(),
+        time: m[2].trim(),
+        weather: m[3].trim(),
+        nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw',
+        character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: 'scene',
+    };
+}
+
 export function resolveSceneStateAtIndex(directives, segmentIndex) {
     const state = { scene: '', time: '', weather: '', nsfw: false, character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: '' };
     if (!Array.isArray(directives) || !directives.length) return state;

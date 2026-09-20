@@ -5,7 +5,7 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { resolveSceneStateAtIndex, resolveNearestCharacterBefore, lookupSceneAssetUrls } from '../../scene/scene-directives.js';
+import { resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveNearestCharacterBefore, lookupSceneAssetUrls } from '../../scene/scene-directives.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import {
@@ -1487,8 +1487,16 @@ export function createIgsReaderHost(options = {}) {
             && displayImageState.slots[Math.floor(Number(rawSegmentSlotValue))]
             ? String(displayImageState.slots[Math.floor(Number(rawSegmentSlotValue))].url || '').trim()
             : '';
+        // 场景切换只看 [igs-scene] 标签：直接在原文里定位「当前页正文」，
+        // 再取它前方最近的场景标签。不依赖段数、不做偏移累加。
+        const sceneSourceForOffset = String(payload.raw || text || '');
+        const currentOffset = sceneDirectives.length
+            ? locateTextOffsetInSource(sceneSourceForOffset, currentText)
+            : -1;
         const sceneStateForBg = sceneDirectives.length
-            ? resolveSceneStateAtIndex(sceneDirectives, normalizedIndex)
+            ? (currentOffset >= 0
+                ? resolveSceneAtSourceOffset(sceneSourceForOffset, currentOffset)
+                : resolveSceneStateAtIndex(sceneDirectives, normalizedIndex))
             : null;
         if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
@@ -1612,6 +1620,19 @@ export function createIgsReaderHost(options = {}) {
                         spriteChar = prev.speaker;
                         spriteMood = prev.mood;
                         break;
+                    }
+                }
+            }
+            // 回溯也失败时（段落前缀被剥离，文本已不含「[名字]：」）按段索引取 char/thought 指令。
+            // 只用于立绘继承，不改 textType，避免把旁白页误判成角色页。
+            if (!spriteChar) {
+                for (let i = normalizedIndex; i >= 0; i--) {
+                    const d = sceneDirectives.find((x) => Number(x.segmentIndex) === i
+                        && (x.type === 'char' || x.type === 'thought') && x.character);
+                    if (d) {
+                        spriteChar = d.character;
+                        spriteMood = d.mood || '';
+                  break;
                     }
                 }
             }
@@ -2843,19 +2864,27 @@ function stripSceneDirectiveLines(rawText) {
 
 // 在原文里定位一段正文的位置：先精确匹配，失败再去掉排版符号后匹配。
 // 纯函数、不做全局缓存，避免跨页状态残留。
-function locateTextOffsetInSource(source, segText) {
+function locateTextOffsetInSource(source, segText, from = 0) {
     const src = String(source || '');
     const needle = String(segText || '').trim();
     if (!src || !needle) return -1;
-    const exact = src.indexOf(needle);
+    const exact = src.indexOf(needle, Math.max(0, Number(from) || 0));
     if (exact >= 0) return exact;
     const loose = needle.replace(/[\s*（）\[\]]+/g, '');
     if (!loose) return -1;
-    let seen = 0;
-    for (let i = 0; i < src.length; i += 1) {
+    // 把原文与目标都去掉排版符号，再做一次真实匹配；命中后回推原文下标。
+    const fromIndex = Math.max(0, Number(from) || 0);
+    const map = [];
+    let flat = '';
+    for (let i = fromIndex; i < src.length; i += 1) {
         if (/[\s*（）\[\]]/.test(src[i])) continue;
-        if (seen === loose.length - 1) return i;
-        seen += 1;
+        map.push(i);
+        flat += src[i];
+    }
+    const hit = flat.indexOf(loose);
+    if (hit >= 0) {
+        const end = hit + loose.length - 1;
+        if (end < map.length) return map[hit];
     }
     return -1;
 }
