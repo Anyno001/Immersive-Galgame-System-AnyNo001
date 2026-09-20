@@ -1599,7 +1599,7 @@ test('gate:simulation:igs-ui-embedded-toolbar-floats-top-right-as-bare-icons', (
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar\{[^}]*position:static[^}]*gap:1\.5px[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none[^}]*backdrop-filter:none/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn\{[^}]*width:32px[^}]*height:32px[^}]*border:0[^}]*background:transparent[^}]*color:rgba\(255,255,255,\.32\)/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;transform:scale\(1\.2\);transform-origin:center;\}/);
-    assert.match(css, /\.igs-mode-embedded \.igs-dialog\{[^}]*padding:20px 18px 14px;\}/);
+    assert.match(css, /\.igs-mode-embedded \.igs-dialog\{[^}]*padding:9px 18px 14px;\}/);
     assert.match(css, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn:hover\{[^}]*background:transparent[^}]*border-color:transparent[^}]*color:rgba\(255,255,255,\.52\)/);
     assert.match(css, /\.igs-mode-embedded #igs-option-bubbles\[data-igs-pos\]\{top:calc\(14px \+ var\(--igs-toolbar-h,32px\) \+ 8px\);bottom:calc\(14px \+ var\(--igs-dialog-h,220px\) \+ 10px\);max-height:none;overflow-y:auto;overscroll-behavior:contain;\}/);
 });
@@ -3120,7 +3120,7 @@ function createFakeElement(tagName, ownerDocument) {
             this[name] = String(value);
         },
         removeProperty(name) {
-            delete this[name];
+            this[name] = '';
         },
     };
     const element = {
@@ -3625,3 +3625,271 @@ function attachNodeToFakeParent(node, parent, ownerDocument) {
     }
     return node;
 }
+
+test('gate:simulation:status-hud-settings-collapse-when-disabled-without-reading-db', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    let dbReads = 0;
+    const vn = bootstrapIGS({
+        global: {
+            document,
+            localStorage: createMemoryStorage(),
+            AutoCardUpdaterAPI: {
+                exportTableAsJson() {
+                    dbReads += 1;
+                    return { sheet_stats: { uid: 'sheet_stats', name: '角色数值表', orderNo: 1, content: [['row_id', '姓名', '信任'], ['1', 'A', '50%']] } };
+                },
+            },
+        },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 2, text: '旁白。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.switchTab('reader');
+    const html = settings.switchReaderSubTab('display').snapshot.html;
+
+    assert.match(html, /data-status-hud/);
+    assert.match(html, /显示左上角状态栏/);
+    assert.doesNotMatch(html, /状态栏大小/);
+    assert.doesNotMatch(html, /头像圆角/);
+    assert.doesNotMatch(html, /data-status-hud-tables/);
+    assert.equal(dbReads, 0);
+
+    vn.destroy();
+});
+
+test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    const vn = bootstrapIGS({
+    global: {
+            document,
+            localStorage: storage,
+            AutoCardUpdaterAPI: {
+                exportTableAsJson() {
+                    return {
+                        sheet_stats: { uid: 'sheet_stats', name: '角色数值表', orderNo: 1, content: [['row_id', '姓名', '信任'], ['1', 'A', '50%']] },
+                        sheet_quest: { uid: 'sheet_quest', name: '任务表', orderNo: 2, content: [['row_id', '任务名称', '进度'], ['1', '主线', '30%']] },
+                    };
+                },
+            },
+        },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 2, text: '旁白。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.switchTab('reader');
+
+    settings.setValue('readerSettings.statusHud.enabled', true);
+    const enabled = settings.switchReaderSubTab('display').snapshot.html;
+    assert.match(enabled, /状态栏大小/);
+    assert.match(enabled, /显示情绪标签/);
+    assert.match(enabled, /头像圆角/);
+    assert.match(enabled, /无背景/);
+    assert.match(enabled, /data-status-hud-tables/);
+    assert.match(enabled, /角色数值表/);
+    assert.match(enabled, /任务表/);
+
+    settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
+    settings.invoke('status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8');
+    assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.tables.map((t) => t.uid), ['sheet_quest', 'sheet_stats']);
+
+    settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
+    assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
+
+    const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+    assert.equal(persisted.statusHud.enabled, true);
+    assert.deepEqual(persisted.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
+
+    vn.destroy();
+});
+
+
+test('gate:simulation:status-hud-snapshot-keeps-raw-emotion-and-skips-narration', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: {
+                enabled: true,
+                promptRule: 'rule',
+                scenes: {},
+                characters: { 'H': { default: '', '喜悦': 'https://example.com/happy.png', '平和': 'https://example.com/calm.png' } },
+                characterAliases: { 'H': [] },
+                moodGroups: [],
+                statusAvatars: { 'H': 'data:image/png;base64,AAA' },
+            },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, size: 'medium', showEmotion: true, avatarRadius: 'circle', background: 'none', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+    }));
+    const vn = bootstrapIGS({
+        global: {
+            document,
+            localStorage: storage,
+            AutoCardUpdaterAPI: {
+                exportTableAsJson() {
+                    return { sheet_stats: { uid: 'sheet_stats', name: '角色数值表', orderNo: 1, content: [['row_id', '姓名', '信任', '好感'], ['1', 'H', '72%', '54%']] } };
+                },
+            },
+        },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 1,
+                text: ['<now_plot>', '<content>', '[igs-char:H|喜悦|Hello.]', '</content>', '</now_plot>'].join('\n'),
+  }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const content = opened.reader.snapshot.content;
+    assert.equal(content.statusEmotion, '喜悦');
+    assert.equal(content.statusHud.character, 'H');
+    assert.equal(content.statusHud.emotion, '喜悦');
+    assert.equal(content.statusHud.avatar, 'data:image/png;base64,AAA');
+    assert.equal(content.statusHud.metrics.length, 2);
+    assert.equal(content.statusHud.metrics[0].label, '信任');
+    assert.equal(content.statusHud.metrics[0].percent, 72);
+
+    vn.destroy();
+});
+
+test('gate:simulation:status-hud-subscription-registers-once-and-tears-down', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const registered = [];
+    const unregistered = [];
+    let dbReads = 0;
+    const vn = bootstrapIGS({
+        global: {
+            document,
+            localStorage: createMemoryStorage(),
+            AutoCardUpdaterAPI: {
+                exportTableAsJson() {
+                    dbReads += 1;
+                    return { sheet_stats: { uid: 'sheet_stats', name: '角色数值表', orderNo: 1, content: [['row_id', '姓名', '信任'], ['1', 'H', '72%']] } };
+                },
+                registerTableUpdateCallback(cb) { registered.push(cb); },
+                unregisterTableUpdateCallback(cb) { unregistered.push(cb); },
+            },
+        },
+        autoAttachMagicWand: false,
+        config: { sceneAssets: { enabled: true, promptRule: 'rule', scenes: {}, characters: { H: { default: '' } }, characterAliases: { H: [] }, moodGroups: [] } },
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '[igs-char:H|喜悦|Hello.]' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    assert.equal(registered.length, 0);
+    assert.equal(dbReads, 0);
+
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.switchTab('reader');
+    settings.setValue('readerSettings.statusHud.enabled', true);
+    settings.invoke('status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8');
+    settings.close();
+
+    vn.destroy();
+    assert.equal(registered.length <= 1, true);
+    assert.equal(unregistered.length, registered.length);
+});
+
+
+test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: {
+                enabled: true,
+                promptRule: 'rule',
+                scenes: {},
+                characters: { H: { default: '' } },
+                characterAliases: { H: [] },
+                moodGroups: [],
+                statusAvatars: { H: 'data:image/png;base64,AAA' },
+            },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, size: 'large', showEmotion: true, avatarRadius: 'medium', background: 'dialog', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+    }));
+    const vn = bootstrapIGS({
+        global: {
+            document,
+            localStorage: storage,
+            AutoCardUpdaterAPI: {
+                exportTableAsJson() {
+                    return { sheet_stats: { uid: 'sheet_stats', name: '角色数值表', orderNo: 1, content: [['row_id', '姓名', '信任', '好感', '了解', '体力', '精神'], ['1', 'H', '72%', '54%', '83%', '60%', '70%']] } };
+                },
+            },
+        },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-char:H|紧张|Hello.]', '</content>', '</now_plot>'].join('\n') }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    await vn.openLatestAvailable('pc');
+    const host = document.getElementById('igs-status-hud');
+    assert.equal(host.hasAttribute('hidden'), false);
+    assert.equal(host.classList.contains('igs-hud-bg-dialog'), true);
+
+    const avatar = host.querySelector('.igs-hud-avatar');
+    assert.ok(avatar, 'avatar node should exist');
+    assert.equal(avatar.getAttribute('src'), 'data:image/png;base64,AAA');
+    assert.equal(avatar.style.borderRadius, '16px');
+
+    const chip = host.querySelector('.igs-hud-emotion');
+    assert.equal(chip.textContent, '紧张');
+
+    assert.equal(host.querySelectorAll('.igs-hud-metric').length, 4);
+    const overflow = host.querySelector('.igs-hud-overflow');
+    assert.equal(overflow.textContent, '+1');
+
+    const labels = Array.from(host.querySelectorAll('.igs-hud-metric-label')).map((node) => node.textContent);
+    assert.deepEqual(labels, ['信任', '好感', '了解', '体力']);
+
+    vn.destroy();
+});
+
+test('gate:simulation:status-hud-dom-hidden-when-disabled-and-placeholder-without-avatar', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: { enabled: true, promptRule: 'rule', scenes: {}, characters: { H: { default: '' } }, characterAliases: { H: [] }, moodGroups: [] },
+    }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, size: 'small', showEmotion: true, avatarRadius: 'square', background: 'none', tables: [] },
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-char:H|平和|Hello.]', '</content>', '</now_plot>'].join('\n') }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    await vn.openLatestAvailable('pc');
+    const host = document.getElementById('igs-status-hud');
+    assert.equal(host.hasAttribute('hidden'), false);
+    assert.equal(host.classList.contains('igs-hud-bg-dialog'), false);
+    assert.equal(host.querySelector('.igs-hud-avatar-empty') != null, true);
+    assert.equal(host.querySelector('.igs-hud-emotion').textContent, '平和');
+    assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
+    assert.equal(host.style['--igs-hud-scale'] != null, true);
+
+    vn.destroy();
+});

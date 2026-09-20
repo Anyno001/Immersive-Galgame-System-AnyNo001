@@ -13,6 +13,7 @@ import {
     removeImageLoadingSpinner,
 } from './reader-dom-utils.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
+import { resolveStatusHudScale } from '../../data/shujuku/status-hud-model.js';
 import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import {
     renderDialogueHtml,
@@ -83,6 +84,12 @@ export function normalizeReaderStableLayers(overlay) {
     const dialogLayer = ensureReaderLayer(doc, overlay, 'igs-dialog-layer', 'igs-dialogue-layer', toolbar);
     const toolbarLayer = ensureReaderLayer(doc, overlay, 'igs-toolbar-layer', 'igs-hud-layer');
     ensureReaderLayer(doc, overlay, 'igs-db-layer', 'igs-system-layer');
+    if (overlay.querySelector && !overlay.querySelector('#igs-status-hud')) {
+        const statusHud = doc.createElement('div');
+        statusHud.id = 'igs-status-hud';
+        statusHud.setAttribute('hidden', '');
+        overlay.appendChild(statusHud);
+    }
 
     if (optionBubbles && optionLayer && optionBubbles.parentNode !== optionLayer) optionLayer.appendChild(optionBubbles);
     if (dialog && dialogLayer && dialog.parentNode !== dialogLayer) dialogLayer.appendChild(dialog);
@@ -211,6 +218,11 @@ export function buildFallbackReaderOverlay(doc) {
     toast.id = 'igs-toast';
     toast.setAttribute('aria-live', 'polite');
     dialog.appendChild(toast);
+
+    const statusHud = doc.createElement('div');
+    statusHud.id = 'igs-status-hud';
+    statusHud.setAttribute('hidden', '');
+    overlay.appendChild(statusHud);
 
     return normalizeReaderStableLayers(overlay);
 }
@@ -483,6 +495,132 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
 }
 
 export function applyAlignStyle(element, align) {
+    applyAlignStyleImpl(element, align);
+}
+
+const STATUS_HUD_PLACEHOLDER = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
+
+const STATUS_HUD_COLOR_VARS = Object.freeze({
+    trust: 'var(--igs-hud-bar-trust,#4ab3da)',
+    like: 'var(--igs-hud-bar-like,#ee83b6)',
+    know: 'var(--igs-hud-bar-know,#e8a355)',
+    'slot-1': 'var(--igs-hud-bar-1,#57aaee)',
+    'slot-2': 'var(--igs-hud-bar-2,#55c795)',
+    'slot-3': 'var(--igs-hud-bar-3,#eec254)',
+    'slot-4': 'var(--igs-hud-bar-4,#b57fe0)',
+    'slot-5': 'var(--igs-hud-bar-5,#ea8a8a)',
+    'slot-6': 'var(--igs-hud-bar-6,#8896ea)',
+});
+
+const STATUS_HUD_RADIUS = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
+
+function findStatusHudHost(root) {
+    if (!root) return null;
+    const doc = root.ownerDocument;
+    if (doc && typeof doc.getElementById === 'function') {
+        const byId = doc.getElementById('igs-status-hud');
+        if (byId) return byId;
+    }
+    return typeof root.querySelector === 'function' ? root.querySelector('#igs-status-hud') : null;
+}
+
+export function applyStatusHudToDom(root, snapshot) {
+    const host = findStatusHudHost(root);
+    if (!host) return;
+    const hud = snapshot && snapshot.content && snapshot.content.statusHud;
+    const doc = host.ownerDocument;
+    const radius = STATUS_HUD_RADIUS[hud && hud.avatarRadius] != null ? STATUS_HUD_RADIUS[hud && hud.avatarRadius] : '50%';
+    const scale = snapshot && snapshot.readerSettings && snapshot._statusHudScale;
+    host.style.setProperty('--igs-hud-scale', String(Number(scale) > 0 ? Number(scale) : 1));
+    host.className = [];
+    const hasEmotion = Boolean(hud && hud.emotion);
+    const hasMetrics = Boolean(hud && Array.isArray(hud.metrics) && hud.metrics.length);
+    const shouldShow = Boolean(hud && hud.enabled && hud.character) && (hasEmotion || hasMetrics || Boolean(hud.avatar));
+    if (globalThis.__IGS_HUD_DEBUG__) {
+        console.log('[HUD-PROBE]', JSON.stringify({ hud: hud ? { enabled: hud.enabled, character: hud.character, emotion: hud.emotion, avatar: Boolean(hud.avatar), metrics: hud.metrics && hud.metrics.length } : null, hasEmotion, hasMetrics, shouldShow }));
+    }
+    if (!shouldShow) {
+        host.setAttribute('hidden', '');
+        while (host.firstChild) host.removeChild(host.firstChild);
+        return;
+    }
+    host.removeAttribute('hidden');
+    if (hud.background === 'dialog') host.classList.add('igs-hud-bg-dialog');
+    if (root.classList && root.classList.contains('igs-options-visible')) host.classList.add('igs-hud-suppressed');
+    while (host.firstChild) host.removeChild(host.firstChild);
+
+    const identity = doc.createElement('div');
+    identity.className = 'igs-hud-identity';
+    if (hud.avatar) {
+        const img = doc.createElement('img');
+        img.className = 'igs-hud-avatar';
+        img.setAttribute('src', hud.avatar);
+        img.setAttribute('alt', '');
+        img.style.borderRadius = typeof radius === 'number' ? `${radius}px` : radius;
+        identity.appendChild(img);
+    } else {
+        const placeholder = doc.createElement('div');
+        placeholder.className = 'igs-hud-avatar igs-hud-avatar-empty';
+        placeholder.innerHTML = STATUS_HUD_PLACEHOLDER;
+        placeholder.style.borderRadius = typeof radius === 'number' ? `${radius}px` : radius;
+        identity.appendChild(placeholder);
+    }
+    if (hasEmotion) {
+        const chip = doc.createElement('span');
+        chip.className = 'igs-hud-emotion';
+        chip.textContent = hud.emotion;
+        identity.appendChild(chip);
+    }
+    host.appendChild(identity);
+
+    const metrics = doc.createElement('div');
+    metrics.className = 'igs-hud-metrics';
+    const rows = hasMetrics ? hud.metrics.slice(0, 4) : [];
+    for (const metric of rows) {
+        const row = doc.createElement('div');
+        row.className = 'igs-hud-metric';
+        const label = doc.createElement('span');
+        label.className = 'igs-hud-metric-label';
+        label.textContent = metric.label;
+        const track = doc.createElement('div');
+        track.className = 'igs-hud-track';
+        const fill = doc.createElement('div');
+        fill.className = 'igs-hud-fill';
+        const color = STATUS_HUD_COLOR_VARS[metric.colorKey] || STATUS_HUD_COLOR_VARS['slot-1'];
+        fill.style.backgroundImage = `linear-gradient(90deg, color-mix(in srgb, ${color} 42%, #ffffff), ${color})`;
+        fill.style.width = `${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%`;
+        track.appendChild(fill);
+        const value = doc.createElement('span');
+        value.className = 'igs-hud-metric-value';
+        value.textContent = metric.display;
+        row.appendChild(label);
+        row.appendChild(track);
+        row.appendChild(value);
+        metrics.appendChild(row);
+    }
+    host.appendChild(metrics);
+    if (hasMetrics && Number(hud.hiddenCount) > 0) {
+        const overflow = doc.createElement('span');
+        overflow.className = 'igs-hud-overflow';
+        overflow.textContent = `+${Number(hud.hiddenCount)}`;
+        host.appendChild(overflow);
+    }
+}
+
+export function applyStatusHudScale(root, snapshot) {
+    const host = findStatusHudHost(root);
+    if (!host) return;
+    const settings = snapshot && snapshot.readerSettings;
+    const hudSettings = settings && settings.statusHud;
+    if (!hudSettings || !hudSettings.enabled) return;
+    const overlayWidth = readElementWidth(root, 0);
+    const overlayHeight = readElementHeight(root, 0);
+    const scale = resolveStatusHudScale(hudSettings.size, overlayWidth, overlayHeight);
+    snapshot._statusHudScale = scale;
+    host.style.setProperty('--igs-hud-scale', String(scale));
+}
+
+function applyAlignStyleImpl(element, align) {
     if (!element) return;
     // align 取值：left / center / indent（首行缩进2字符）。indent 等价左对齐 + text-indent:2em。
     if (align === 'center') {
@@ -644,6 +782,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 内嵌模式使用酒馆默认输入框；其它模式的 IGS 输入区只在最后一页显示。
         controls.style.display = snapshot.mode === 'embedded' ? 'none' : (isLastPage ? '' : 'none');
     }
+    applyStatusHudToDom(root, snapshot);
+    applyStatusHudScale(root, snapshot);
     if (dialog) {
         applyDialogSkinAssets(dialog, snapshot.readerSettings);
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;

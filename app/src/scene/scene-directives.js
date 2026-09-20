@@ -82,7 +82,7 @@ export function lookupSceneAssetUrls(sceneState, sceneAssets) {
     return { backgroundUrl, spriteUrl, spriteSlot, spriteCharacter: spriteCharacter || '' };
 }
 
-function resolveCharacterKey(characters, characterAliases, characterName) {
+export function resolveCharacterKey(characters, characterAliases, characterName) {
     const target = String(characterName || '').trim();
     if (!target || !characters || typeof characters !== 'object') return null;
     if (characters[target] != null) return target;

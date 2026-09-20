@@ -28,6 +28,9 @@ export function normalizeSettingsValue(path, value) {
         if (/glassOpacity/.test(path)) {
             return Number(value);
         }
+        if (/^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path)) {
+            return value === true || value === 'true' || value === 1 || value === '1';
+        }
     }
     if (/^bridge\.imageApi\.(steps|requestTimeoutMs|pollIntervalMs|pollAttempts)$/.test(path)) {
         return Number(value);

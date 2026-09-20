@@ -3,6 +3,9 @@ import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
+const STATUS_AVATAR_PLACEHOLDER_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
+const STATUS_AVATAR_UPLOAD_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>';
+
 export function renderTemplate(template, values) {
     return String(template || '').replace(/\{\{(\w+)\}\}/g, (_, key) => {
         return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : '';
@@ -39,6 +42,33 @@ export function numberInput(path, value, min, max, disabled) {
 
 export function checkbox(path, value, label) {
     return `<button type="button" class="igs-switch${value ? ' is-on' : ''}" data-switch="${esc(path)}" aria-pressed="${value ? 'true' : 'false'}"><i></i><span>${esc(label)}</span></button>`;
+}
+
+export function tableMultiSelect(paths, selected, catalog, options = {}) {
+    const picked = Array.isArray(selected) ? selected : [];
+    const normalize = (value) => String(value == null ? '' : value).trim();
+    const isPicked = (uid, name) => picked.some((item) => (uid && normalize(item.uid) === normalize(uid))
+        || (!uid && name && normalize(item.name) === normalize(name)));
+    const rows = [];
+    for (const table of Array.isArray(catalog) ? catalog : []) {
+        const uid = normalize(table && table.uid);
+        const name = normalize(table && table.name) || uid;
+        if (!uid && !name) continue;
+        const on = isPicked(uid, name);
+        rows.push(`<button type="button" class="igs-table-pick${on ? ' is-on' : ''}" data-table-uid="${esc(uid)}" data-table-name="${esc(name)}" aria-pressed="${on ? 'true' : 'false'}"><i></i><span>${esc(name)}</span></button>`);
+    }
+    for (const item of picked) {
+        const uid = normalize(item.uid);
+        const name = normalize(item.name) || uid;
+        const exists = (Array.isArray(catalog) ? catalog : []).some((table) => (uid && normalize(table && table.uid) === uid)
+            || (!uid && name && normalize(table && table.name) === name));
+        if (!exists) {
+            rows.push(`<button type="button" class="igs-table-pick is-on is-missing" data-table-uid="${esc(uid)}" data-table-name="${esc(name)}" aria-pressed="true"><i></i><span>${esc(name)}（未找到）</span></button>`);
+        }
+    }
+    const empty = options.emptyText || '未检测到可读表格';
+    const note = options.note ? `<em>${esc(options.note)}</em>` : '';
+    return `<div class="igs-status-hud-tables" data-status-hud-tables>${rows.join('') || `<div class="igs-scene-empty">${esc(empty)}</div>`}${note}</div>`;
 }
 
 export function selectInput(path, value, items, disabled = false) {
@@ -165,6 +195,9 @@ export function renderCharacterAssetList(characters, options = {}) {
     const expandedSlots = options.expandedSlots instanceof Set ? options.expandedSlots : new Set();
     const aliasesByCharacter = options.aliases && typeof options.aliases === 'object' && !Array.isArray(options.aliases)
         ? options.aliases : {};
+    const statusAvatars = options.statusAvatars && typeof options.statusAvatars === 'object' && !Array.isArray(options.statusAvatars)
+        ? options.statusAvatars : {};
+    const upload = STATUS_AVATAR_UPLOAD_ICON;
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const chevronDown = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
@@ -177,6 +210,11 @@ export function renderCharacterAssetList(characters, options = {}) {
             `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="scene-remove-char-alias:${encSeg(charName)}:${encSeg(alias)}" title="删除别名">×</button></span>`
         )).join('');
         const aliasesHtml = `<div class="igs-sprite-words"><div class="igs-source-filter-note">角色别名</div><div class="igs-mood-word-list">${aliasTags || '<div class="igs-scene-empty">暂无别名</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-char-alias:${encSeg(charName)}" title="添加别名">+</button></div></div>`;
+        const avatarUrl = String(statusAvatars[charName] || '').trim();
+        const avatarPreview = avatarUrl
+            ? `<img class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" loading="lazy" alt="" data-action="sprite-preview:${encSeg(avatarUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+            : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
+        const avatarHtml = `<div class="igs-btn-mgr-row igs-status-avatar-row"><span class="igs-btn-mgr-label">状态栏头像</span>${avatarPreview}<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button></div>`;
         const moodEntries = Object.entries(moods || {});
         const moodRows = moodEntries.map(([mood, url]) => {
             const expanded = expandedSlots.has(charName + "\x00" + mood);
@@ -191,6 +229,7 @@ export function renderCharacterAssetList(characters, options = {}) {
             return `<div class="igs-sprite-slot">${collapsedRow}${expandedBody}</div>`;
         }).join('');
         return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span><button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}<div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪</div>'}</div></div>`;
+        return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span><button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}${avatarHtml}<div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪</div>'}</div></div>`;
     }).join('');
 }
 

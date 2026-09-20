@@ -3,6 +3,11 @@ import { cloneData } from './reader-value-utils.js';
 import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { loadScenePresets, saveScenePresets } from '../../scene/scene-preset-store.js';
+import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
+import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
+
+const STATUS_AVATAR_MAX_BYTES = 512 * 1024;
+const STATUS_AVATAR_MIME = /^image\/(?:png|jpeg|jpg|webp|gif|bmp|svg\+xml)$/i;
 
 function decodeSeg(value) {
     try { return decodeURIComponent(String(value == null ? '' : value)); }
@@ -33,6 +38,56 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'close') {
         return closeSettings();
+    }
+
+    if (normalizedAction.startsWith('status-hud-toggle-table:')) {
+        const rest = normalizedAction.slice('status-hud-toggle-table:'.length);
+        const colon = rest.indexOf(':');
+        if (colon < 0) return rerenderSettings();
+        const uid = decodeSeg(rest.slice(0, colon));
+        const name = decodeSeg(rest.slice(colon + 1));
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeStatusHudSettings(readerDraft.statusHud);
+        const key = uid || `name:${name}`;
+        const exists = current.tables.some((item) => (uid && item.uid === uid) || (!uid && item.name === name));
+        current.tables = exists
+            ? current.tables.filter((item) => !((uid && item.uid === uid) || (!uid && item.name === name)))
+            : current.tables.concat([{ uid, name }]);
+        readerDraft.statusHud = current;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('status-avatar-pick:')) {
+        const charName = decodeSeg(normalizedAction.slice('status-avatar-pick:'.length));
+        const globalObj = options.global || globalThis;
+        const doc = globalObj.document;
+        if (!doc || !charName) return rerenderSettings();
+        const picked = await pickStatusAvatarFile(doc);
+        if (!picked) return rerenderSettings();
+        if (picked.ok === false) {
+            if (globalObj.alert) globalObj.alert(picked.reason === 'too-large' ? '图片过大，请选择更小的图片。' : '仅支持图片文件。');
+            return rerenderSettings();
+        }
+        const sceneAssets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
+        avatars[charName] = picked.dataUrl;
+        sceneAssets.statusAvatars = avatars;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('status-avatar-clear:')) {
+        const charName = decodeSeg(normalizedAction.slice('status-avatar-clear:'.length));
+        const sceneAssets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
+        delete avatars[charName];
+        sceneAssets.statusAvatars = avatars;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
     }
 
     if (normalizedAction === 'reset-virtual-regex') {
@@ -514,6 +569,9 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.draft.bridge.sceneAssets.characterAliases = settingsState.draft.bridge.sceneAssets.characterAliases || {};
         delete settingsState.draft.bridge.sceneAssets.characters[name];
         delete settingsState.draft.bridge.sceneAssets.characterAliases[name];
+        if (settingsState.draft.bridge.sceneAssets.statusAvatars && typeof settingsState.draft.bridge.sceneAssets.statusAvatars === 'object') {
+            delete settingsState.draft.bridge.sceneAssets.statusAvatars[name];
+        }
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -639,6 +697,9 @@ export async function handleSettingsAction(action, ctx) {
             }
             sceneAssets.characters = reorderKey(chars, oldName, newName);
             sceneAssets.characterAliases = reorderKey(aliases, oldName, newName);
+            if (sceneAssets.statusAvatars && typeof sceneAssets.statusAvatars === 'object') {
+                sceneAssets.statusAvatars = reorderKey(sceneAssets.statusAvatars, oldName, newName);
+            }
             renameSetPrefix(settingsState.asyncState.expandedSpriteSlots, `${oldName}\x00`, `${newName}\x00`);
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
@@ -840,6 +901,7 @@ export async function handleSettingsAction(action, ctx) {
             characters: cloneData(sa.characters || {}),
             characterAliases: cloneData(sa.characterAliases || {}),
             moodGroups: cloneData(sa.moodGroups || []),
+            statusAvatars: cloneData(sa.statusAvatars || {}),
             timeGroups: cloneData(sa.timeGroups || []),
             weatherGroups: cloneData(sa.weatherGroups || []),
             spriteLayouts: cloneData((settingsState.draft.readerSettings && settingsState.draft.readerSettings.spriteLayouts) || {}),
@@ -868,6 +930,7 @@ export async function handleSettingsAction(action, ctx) {
                 settingsState.draft.bridge.sceneAssets.characters = cloneData(preset.characters || {});
                 settingsState.draft.bridge.sceneAssets.characterAliases = cloneData(preset.characterAliases || {});
                 settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(preset.moodGroups || []);
+                settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(preset.statusAvatars || {});
                 settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(preset.timeGroups || []);
                 settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(preset.weatherGroups || []);
                 if (preset.spriteLayouts && typeof preset.spriteLayouts === 'object') {
@@ -916,6 +979,7 @@ export async function handleSettingsAction(action, ctx) {
             characters: fileResult.data.characters || {},
             characterAliases: fileResult.data.characterAliases || {},
             moodGroups: fileResult.data.moodGroups || [],
+            statusAvatars: (fileResult.data.statusAvatars && typeof fileResult.data.statusAvatars === 'object') ? fileResult.data.statusAvatars : {},
             timeGroups: fileResult.data.timeGroups || [],
             weatherGroups: fileResult.data.weatherGroups || [],
             spriteLayouts: (fileResult.data.spriteLayouts && typeof fileResult.data.spriteLayouts === 'object') ? fileResult.data.spriteLayouts : {},
@@ -926,6 +990,7 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.draft.bridge.sceneAssets.scenes = cloneData(presets[name].scenes);
         settingsState.draft.bridge.sceneAssets.characters = cloneData(presets[name].characters);
         settingsState.draft.bridge.sceneAssets.characterAliases = cloneData(presets[name].characterAliases || {});
+        settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(presets[name].statusAvatars || {});
         settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(presets[name].moodGroups);
         settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(presets[name].timeGroups || []);
         settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(presets[name].weatherGroups || []);
@@ -945,7 +1010,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!preset) return rerenderSettings();
         const doc = globalObj.document;
         if (!doc) return { ok: false, reason: 'no-document' };
-        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], spriteLayouts: preset.spriteLayouts || {} }, null, 2);
+        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], spriteLayouts: preset.spriteLayouts || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = doc.createElement('a');
@@ -1176,6 +1241,33 @@ function removeSceneWordEntry(scenes, entry) {
     else if (entry.type === 'time') arr = scenes[sn] && scenes[sn].times && scenes[sn].times[tn] && scenes[sn].times[tn].words;
     else arr = scenes[sn] && scenes[sn].times && scenes[sn].times[tn] && scenes[sn].times[tn].weathers && scenes[sn].times[tn].weathers[wn] && scenes[sn].times[tn].weathers[wn].words;
     if (Array.isArray(arr)) { const i = arr.indexOf(entry.word); if (i >= 0) arr.splice(i, 1); }
+}
+
+function pickStatusAvatarFile(doc) {
+    return new Promise((resolve) => {
+        const input = doc.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        let done = false;
+        const finish = (val) => { if (!done) { done = true; resolve(val); } };
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file) { finish(null); return; }
+            const type = String(file.type || '');
+            if (type && !STATUS_AVATAR_MIME.test(type)) { finish({ ok: false, reason: 'not-image' }); return; }
+            if (Number(file.size) > STATUS_AVATAR_MAX_BYTES) { finish({ ok: false, reason: 'too-large' }); return; }
+            const fr = new FileReader();
+            fr.onload = (e) => {
+                const dataUrl = String((e && e.target && e.target.result) || '');
+                if (!/^data:image\//i.test(dataUrl)) { finish({ ok: false, reason: 'not-image' }); return; }
+                finish({ ok: true, dataUrl });
+            };
+            fr.onerror = () => finish({ ok: false, reason: 'read-failed' });
+            fr.readAsDataURL(file);
+        };
+        input.click();
+        setTimeout(() => finish(null), 300000);
+    });
 }
 
 function pickPresetFile(doc) {

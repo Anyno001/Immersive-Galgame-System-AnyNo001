@@ -6,6 +6,7 @@ import {
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
 import { resolveSceneStateAtIndex, lookupSceneAssetUrls } from '../../scene/scene-directives.js';
+import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import {
     getOriginalReaderHtml,
@@ -69,6 +70,7 @@ import {
     numberInput,
     disabledAttr,
     modelPicker,
+    tableMultiSelect,
 } from './settings-fields.js';
 import {
     ensureEmbeddedHost,
@@ -119,6 +121,7 @@ import { clearReaderModeRuntime, exitDocumentFullscreen } from './reader-runtime
 import { enterSpriteEditMode } from './sprite-edit.js';
 import { createDbPanelController } from '../../shujuku-panel/panel-controller.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
+import { buildStatusHudModel, listStatusHudTables, normalizeStatusAvatars, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
 import { handleSettingsAction as runSettingsAction } from './settings-actions.js';
 import { loadScenePresets } from '../../scene/scene-preset-store.js';
@@ -140,6 +143,8 @@ import {
 } from './reader-dom-render.js';
 
 export function createIgsReaderHost(options = {}) {
+    let statusHudClient = null;
+    let statusHudCallback = null;
     const state = {
         activeReader: null,
         activeSettings: null,
@@ -242,6 +247,7 @@ export function createIgsReaderHost(options = {}) {
         };
         updateMountedReader(snapshot);
         startReaderImagePolling(state.activeReader);
+        syncStatusHudSubscription();
         if (isEmbeddedReaderMode(nextMode)) {
             streamObserver.start();
         } else {
@@ -340,8 +346,64 @@ export function createIgsReaderHost(options = {}) {
         };
     }
 
+    function teardownStatusHudSubscription() {
+        if (statusHudClient && statusHudCallback) {
+            statusHudClient.unregisterCallback(statusHudCallback);
+        }
+        statusHudClient = null;
+        statusHudCallback = null;
+    }
+
+    function syncStatusHudSubscription() {
+        const current = state.activeReader;
+        const settings = current && current.snapshot && current.snapshot.readerSettings;
+        const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
+        const shouldSubscribe = Boolean(current) && statusHud.enabled && statusHud.tables.length > 0;
+        if (!shouldSubscribe) {
+            teardownStatusHudSubscription();
+            return;
+        }
+        if (statusHudClient && statusHudCallback) return;
+        const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+        statusHudClient = createShujukuClient(api);
+        statusHudCallback = () => {
+            if (!state.activeReader) return;
+            refreshStatusHudInActiveReader();
+        };
+        statusHudClient.registerCallback(statusHudCallback);
+    }
+
+    function readStatusHudTablesSafe() {
+        const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+        try {
+            return createShujukuClient(api).readTables();
+        } catch (error) {
+            return { ok: false, reason: String((error && error.message) || 'read-failed') };
+        }
+    }
+
+    function refreshStatusHudInActiveReader() {
+        const current = state.activeReader;
+        if (!current || !current.dom || !current.dom.overlay) return;
+        const settings = current.snapshot && current.snapshot.readerSettings;
+        const content = current.snapshot && current.snapshot.content;
+        const next = buildStatusHudModel({
+            settings: normalizeStatusHudSettings(settings && settings.statusHud),
+            sceneAssets: (settings && settings._sceneAssets) || {},
+            character: content && content.speaker,
+            emotion: content && content.statusEmotion,
+            readResult: readStatusHudTablesSafe(),
+        });
+        current.snapshot.content.statusHud = next;
+        applyReaderSnapshotToDom(current.dom.overlay, current.snapshot, current, {
+            hasActiveSettings: () => Boolean(state.activeSettings),
+        });
+    }
+
+
     function closeReader(closeOptions = {}) {
         const current = state.activeReader;
+        teardownStatusHudSubscription();
         if (!current) return { ok: true, reason: 'reader-not-open' };
         closeSettings();
         clearReaderToast(current);
@@ -393,6 +455,7 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function destroy() {
+        teardownStatusHudSubscription();
         closeSettings();
         closeReader();
         streamObserver.stop();
@@ -740,9 +803,25 @@ export function createIgsReaderHost(options = {}) {
         return true;
     }
 
+    function syncStatusHudOptionSuppression(container, visible) {
+        const doc = container && container.ownerDocument;
+        const overlay = doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-overlay') : null;
+        const hud = doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-status-hud') : null;
+        if (overlay && overlay.classList) {
+            if (visible) overlay.classList.add('igs-options-visible');
+            else overlay.classList.remove('igs-options-visible');
+        }
+        if (hud && hud.classList) {
+            if (visible) hud.classList.add('igs-hud-suppressed');
+            else hud.classList.remove('igs-hud-suppressed');
+        }
+    }
+
+
     function hideOptionBubbles(container) {
         if (!container) return;
         container.setAttribute('hidden', '');
+        syncStatusHudOptionSuppression(container, false);
         clearChildren(container);
     }
 
@@ -773,6 +852,7 @@ export function createIgsReaderHost(options = {}) {
             container.appendChild(bubble);
         }
         container.removeAttribute('hidden');
+        syncStatusHudOptionSuppression(container, true);
     }
 
     async function onOptionBubbleClick(container, text, cfg) {
@@ -1260,6 +1340,17 @@ export function createIgsReaderHost(options = {}) {
 
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
         const scene = cloneData(payload.scene || (payload.render && payload.render.scene) || {});
+        const buildStatusHudForSnapshot = (settings, speaker, emotion) => {
+            const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
+            if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '' });
+            const sceneAssets = (settings && settings._sceneAssets) || {};
+            const readResult = statusHud.tables.length ? readStatusHudTables() : null;
+            return buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, readResult });
+        };
+        const readStatusHudTables = () => {
+            const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+            return createShujukuClient(api).readTables();
+        };
         const render = payload.render || {};
         const stage = render.stage || {};
         const liveMessage = (payload.message && payload.message.raw) || payload.message || payload.raw || '';
@@ -1493,6 +1584,7 @@ export function createIgsReaderHost(options = {}) {
                 speaker: resolvedSpeaker,
                 spriteCharacter,
                 spriteMood,
+                statusEmotion: bubbleMood,
                 textType,
                 text: currentText,
                 fullText: text,
@@ -1518,6 +1610,7 @@ export function createIgsReaderHost(options = {}) {
                 sourceKind: firstDefined(scene.sourceKind, payload.sourceKind, 'raw-text'),
                 warnings: extracted.warnings,
                 errors: extracted.errors,
+                statusHud: buildStatusHudForSnapshot(readerSettings, resolvedSpeaker, bubbleMood),
             },
             readerSettings: cloneData(readerSettings),
             input: {
@@ -1582,6 +1675,29 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function renderSettingsBody(tab, draft, asyncState) {
+        function buildStatusHudSettingsHtml(reader, options) {
+            const statusHud = normalizeStatusHudSettings(reader && reader.statusHud);
+            const sectionClass = 'igs-settings-section igs-settings-full igs-status-hud-section';
+            const toggle = `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.enabled', statusHud.enabled, '显示左上角状态栏')}</div>`;
+            if (!statusHud.enabled) {
+                return `<div class="${sectionClass}" data-status-hud>${toggle}</div>`;
+            }
+            const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+            const listed = api ? listStatusHudTables(createShujukuClient(api).readTables()) : { ok: false, reason: 'missing-api', tables: [] };
+            const catalogNote = listed.ok
+                ? '仅读取勾选的表；留空则不读取任何表。'
+                : '数据库插件未就绪，暂无法列出表格；已保存的选择会保留。';
+            const body = [
+                toggle,
+                `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
+                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
+                `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
+                `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', selectInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']]))}</div>`,
+                `<div class="igs-settings-row igs-settings-full">${field('readerSettings.statusHud.tables', '读取表格', tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: catalogNote }))}</div>`,
+            ].join('');
+            return `<div class="${sectionClass}" data-status-hud>${body}</div>`;
+        }
+
         const bridge = draft.bridge;
         const imageApi = bridge.imageApi;
         const sourceFilter = bridge.sourceFilter;
@@ -1663,6 +1779,7 @@ export function createIgsReaderHost(options = {}) {
                 aliases: sceneAssets.characterAliases || {},
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
+                statusAvatars: sceneAssets.statusAvatars || {},
             });
             const scenePresets = loadScenePresets((options.global || globalThis).localStorage);
             const scenePresetBarHtml = renderScenePresetBar(scenePresets, asyncState.scenePresetName || '');
@@ -1743,6 +1860,7 @@ export function createIgsReaderHost(options = {}) {
             readerToggles: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜')
                 + checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示状态行')
                 + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按句号自动分页（启用场景素材时仅分旁白）'),
+            statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
             optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
             optionBubbleActionField: field('bridge.optionBubble.clickAction', '点击选项', segmentedInput('bridge.optionBubble.clickAction', (bridge.optionBubble && bridge.optionBubble.clickAction) || 'send', [['send', '自动发送'], ['fill', '填入输入框']], '点击行为')),
@@ -2437,6 +2555,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.imgMode = normalized.imgMode === 'contain' ? 'contain' : 'adaptive';
         normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);
         normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
+        normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
         normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);
         normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);

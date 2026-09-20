@@ -84,6 +84,7 @@ const READER_DISPLAY_TEMPLATE = `
   {{imgModeField}}
   {{imgBrightnessField}}
   <div class="igs-settings-section igs-settings-full">{{readerToggles}}</div>
+  {{statusHudSection}}
 </div>
 `.trim();
 

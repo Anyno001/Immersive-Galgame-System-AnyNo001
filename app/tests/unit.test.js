@@ -2288,3 +2288,247 @@ test('gate:choices:readOptionItems returns empty when api/table missing', () => 
     const noTableClient = { readTables: () => ({ ok: true, data: { sheet_1: { uid: 'sheet_1', name: '别的表', content: [['row_id']] } } }) };
     assert.deepEqual(readOptionItems(noTableClient), []);
 });
+
+
+import {
+    STATUS_HUD_DEFAULTS,
+    buildStatusHudModel,
+    listStatusHudTables,
+    normalizeStatusHudSettings,
+    parseMetricCell,
+    resolveStatusHudScale,
+} from '../src/data/shujuku/status-hud-model.js';
+
+test('gate:simulation:status-hud-settings-normalize-defaults-and-invalid', () => {
+    assert.deepEqual(normalizeStatusHudSettings(null), { ...STATUS_HUD_DEFAULTS });
+    const legacy = normalizeStatusHudSettings({ enabled: true, size: 'huge', showEmotion: 'yes', avatarRadius: 'blob', background: 'solid', tables: 'nope' });
+    assert.equal(legacy.enabled, true);
+    assert.equal(legacy.size, 'medium');
+    assert.equal(legacy.showEmotion, true);
+    assert.equal(legacy.avatarRadius, 'circle');
+    assert.equal(legacy.background, 'none');
+    assert.deepEqual(legacy.tables, []);
+});
+
+test('gate:simulation:status-hud-table-selection-order-dedupe-and-listing', () => {
+    const settings = normalizeStatusHudSettings({
+        enabled: true,
+        tables: [
+            { uid: 'sheet_b', name: '角色数值表' },
+            { uid: 'sheet_a', name: '任务表' },
+            { uid: 'sheet_b', name: '重复项' },
+            { name: '仅名称表' },
+            { uid: '', name: '' },
+        ],
+    });
+    assert.deepEqual(settings.tables.map((t) => t.uid || t.name), ['sheet_b', 'sheet_a', '仅名称表']);
+
+    const listed = listStatusHudTables({
+        ok: true,
+        data: {
+            sheet_b: { uid: 'sheet_b', name: '角色数值表', orderNo: 2, content: [['row_id', '姓名', '信任']] },
+            sheet_a: { uid: 'sheet_a', name: '任务表', orderNo: 1, content: [['row_id', '任务名称', '进度']] },
+        },
+    });
+    assert.deepEqual(listed.tables.map((t) => t.uid), ['sheet_a', 'sheet_b']);
+    assert.equal(listStatusHudTables({ ok: false, reason: 'missing-api' }).ok, false);
+});
+
+test('gate:simulation:status-hud-metric-parsing-positive-and-negative', () => {
+    assert.deepEqual(parseMetricCell('信任:72%', '信任'), [{ label: '信任', percent: 72, display: '72%' }]);
+    assert.deepEqual(parseMetricCell('好感 54/100', '好感'), [{ label: '好感', percent: 54, display: '54/100' }]);
+    const multi = parseMetricCell('信任:72%;好感:54%;了解:83%', '综合');
+    assert.equal(multi.length, 3);
+    assert.equal(multi[2].percent, 83);
+    assert.equal(parseMetricCell('10:30', '时间'), null);
+    assert.equal(parseMetricCell('2026-09-20', '日期'), null);
+    assert.equal(parseMetricCell('3/4', '默认'), null);
+    assert.equal(parseMetricCell('信任:300%', '信任'), null);
+});
+
+test('gate:simulation:status-hud-model-matches-alias-row-and-caps-at-four', () => {
+    const model = buildStatusHudModel({
+        settings: { enabled: true, size: 'medium', showEmotion: true, avatarRadius: 'circle', background: 'none', tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+        sceneAssets: {
+            characters: { '天之音': { default: '' } },
+            characterAliases: { '天之音': ['天音'] },
+            statusAvatars: { '天之音': 'data:image/png;base64,AAA' },
+        },
+        character: '天音',
+        emotion: '紧张',
+        readResult: {
+            ok: true,
+            data: {
+                sheet_stats: {
+                    uid: 'sheet_stats',
+                    name: '角色数值表',
+                    orderNo: 1,
+                    content: [
+                        ['row_id', '姓名', '信任', '好感', '了解', '体力', '精神', '运气'],
+                        ['1', '天音', '72%', '54/100', '了解:83%', '60%', '70%', '80%'],
+                        ['2', '其它角色', '10%', '20%', '30%', '40%', '50%', '60%'],
+                    ],
+                },
+            },
+        },
+    });
+    assert.equal(model.character, '天之音');
+    assert.equal(model.emotion, '紧张');
+    assert.equal(model.avatar, 'data:image/png;base64,AAA');
+    assert.equal(model.metrics.length, 4);
+    assert.equal(model.hiddenCount, 2);
+    assert.equal(model.metrics[0].colorKey, 'trust');
+    assert.equal(model.metrics[1].colorKey, 'like');
+    assert.equal(model.metrics[2].colorKey, 'know');
+    assert.equal(model.loadState, 'ready');
+});
+
+test('gate:simulation:status-hud-model-disabled-and-narration-do-not-inherit', () => {
+    const disabled = buildStatusHudModel({ settings: { enabled: false }, sceneAssets: { characters: { A: {} } }, character: 'A', emotion: '喜' });
+    assert.equal(disabled.enabled, false);
+    assert.deepEqual(disabled.metrics, []);
+
+    const narration = buildStatusHudModel({
+        settings: { enabled: true, tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+        sceneAssets: { characters: { A: {} }, statusAvatars: { A: 'https://example.com/a.png' } },
+        character: '',
+        emotion: '紧张',
+        readResult: { ok: true, data: {} },
+    });
+    assert.equal(narration.character, '');
+    assert.equal(narration.emotion, '');
+    assert.equal(narration.avatar, '');
+});
+
+test('gate:simulation:status-hud-model-failure-is-diagnostic-not-zero', () => {
+    const failed = buildStatusHudModel({
+        settings: { enabled: true, tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+        sceneAssets: { characters: { A: {} } },
+        character: 'A',
+        readResult: { ok: false, reason: 'missing-api' },
+    });
+    assert.equal(failed.loadState, 'error');
+    assert.deepEqual(failed.metrics, []);
+    assert.equal(failed.loadReason, 'missing-api');
+
+    const missingRow = buildStatusHudModel({
+        settings: { enabled: true, tables: [{ uid: 'sheet_stats', name: '角色数值表' }] },
+        sceneAssets: { characters: { A: {} } },
+        character: 'A',
+        readResult: { ok: true, data: { sheet_stats: { uid: 'sheet_stats', name: '角色数值表', orderNo: 1, content: [['row_id', '姓名', '信任'], ['1', 'B', '50%']] } } },
+    });
+    assert.equal(missingRow.loadState, 'no-data');
+    assert.deepEqual(missingRow.metrics, []);
+});
+
+test('gate:simulation:status-hud-responsive-scale-is-clamped-and-ordered', () => {
+    assert.ok(Math.abs(resolveStatusHudScale('medium', 900, 600) - 1) < 1e-9);
+    assert.ok(resolveStatusHudScale('small', 900, 600) < resolveStatusHudScale('medium', 900, 600));
+    assert.ok(resolveStatusHudScale('large', 900, 600) > resolveStatusHudScale('medium', 900, 600));
+    assert.equal(resolveStatusHudScale('medium', 10, 10), 0.78);
+    assert.equal(resolveStatusHudScale('large', 4000, 4000), 1.28);
+});
+
+test('gate:scene:status-avatar-lifecycle-upload-clear-rename-remove', async () => {
+    const storage = createMemoryStorage();
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                scenes: {},
+                characters: { '爱丽丝': { '平和': 'sprite' }, '白墨': { '默认': '' } },
+                characterAliases: { '爱丽丝': ['爱丽'] },
+                statusAvatars: { '爱丽丝': 'data:image/png;base64,AAA' },
+            },
+        },
+        readerSettings: {},
+    };
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
+        options: {
+            global: {
+                localStorage: storage,
+                document: { createElement: () => ({ click() {}, set onchange(v) { this._on = v; } }) },
+                prompt: (message, fallback) => (String(message || '').includes('重命名角色') ? '艾莉西亚' : fallback),
+                alert: () => {},
+            },
+        },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+
+    await handleSettingsAction('status-avatar-clear:' + encodeURIComponent('白墨'), ctx);
+    assert.deepEqual(Object.keys(draft.bridge.sceneAssets.statusAvatars), ['爱丽丝']);
+
+    await handleSettingsAction('status-avatar-clear:' + encodeURIComponent('爱丽丝'), ctx);
+    assert.deepEqual(Object.keys(draft.bridge.sceneAssets.statusAvatars), []);
+
+    await handleSettingsAction('scene-rename-char:' + encodeURIComponent('爱丽丝'), ctx);
+    assert.equal(draft.bridge.sceneAssets.characters['艾莉西亚'] != null, true);
+    assert.equal(draft.bridge.sceneAssets.characterAliases['艾莉西亚'][0], '爱丽');
+
+    draft.bridge.sceneAssets.statusAvatars = { '白墨': 'data:image/png;base64,BBB' };
+    await handleSettingsAction('scene-remove-char:' + encodeURIComponent('白墨'), ctx);
+    assert.equal(draft.bridge.sceneAssets.characters['白墨'], undefined);
+    assert.equal(draft.bridge.sceneAssets.statusAvatars['白墨'], undefined);
+});
+
+test('gate:scene:status-avatar-rename-migrates-avatar-key', async () => {
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                scenes: {},
+                characters: { '爱丽丝': { '平和': 'sprite' } },
+                characterAliases: { '爱丽丝': [] },
+                statusAvatars: { '爱丽丝': 'data:image/png;base64,AAA' },
+            },
+        },
+        readerSettings: {},
+    };
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
+        options: { global: { prompt: (m, f) => '艾莉西亚', alert: () => {} } },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    await handleSettingsAction('scene-rename-char:' + encodeURIComponent('爱丽丝'), ctx);
+    assert.equal(draft.bridge.sceneAssets.statusAvatars['艾莉西亚'], 'data:image/png;base64,AAA');
+    assert.equal(draft.bridge.sceneAssets.statusAvatars['爱丽丝'], undefined);
+});
+
+test('gate:scene:scene-preset-round-trip-keeps-status-avatars', async () => {
+    const storage = createMemoryStorage();
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                scenes: {},
+                characters: { '爱丽丝': { '平和': 'sprite' } },
+                characterAliases: { '爱丽丝': ['爱丽'] },
+                statusAvatars: { '爱丽丝': 'data:image/png;base64,AAA' },
+                moodGroups: [],
+            },
+        },
+        readerSettings: {},
+    };
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: { scenePresetName: '头像预设' } } },
+        options: { global: { localStorage: storage, alert: () => {} } },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    await handleSettingsAction('scene-preset-save', ctx);
+    const saved = JSON.parse(storage.getItem('igs:scene-presets:v1')).presets['头像预设'];
+    assert.equal(saved.statusAvatars['爱丽丝'], 'data:image/png;base64,AAA');
+
+    draft.bridge.sceneAssets.statusAvatars = {};
+    await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('头像预设'), ctx);
+    assert.equal(draft.bridge.sceneAssets.statusAvatars['爱丽丝'], 'data:image/png;base64,AAA');
+});
