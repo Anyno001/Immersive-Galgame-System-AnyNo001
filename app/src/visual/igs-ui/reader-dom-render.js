@@ -445,13 +445,12 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
                 dialog.style.maxHeight = `${maxDialogHeight}px`;
             } else {
                 const requestedHeight = Number(readerSettings.dialogHeight);
-                const target = Math.max(60, Math.min(
-                    Number.isFinite(requestedHeight) ? requestedHeight : 60,
-                    maxDialogHeight,
-                ));
+                // 固定高度即用户意图：只保底 60px 防止零高，不再按可用高度封顶，
+                // 避免手机地址栏伸缩导致 maxDialogHeight 抖动、高度反复跳动。
+                const target = Math.max(60, Number.isFinite(requestedHeight) ? requestedHeight : 60);
                 dialog.style.height = `${target}px`;
                 dialog.style.minHeight = '0';
-                dialog.style.maxHeight = `${maxDialogHeight}px`;
+                dialog.style.maxHeight = 'none';
             }
             if (embeddedMode) dialog.style.width = '';
         }

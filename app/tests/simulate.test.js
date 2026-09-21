@@ -1370,7 +1370,7 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
     assert.match(css, /#igs-overlay\.igs-floating-mobile \.igs-dialog\{[^}]*max-height:none/);
     settings.setValue('readerSettings.dialogHeight', 60);
     assert.equal(dialog.style.height, '60px');
-    assert.equal(dialog.style.maxHeight, '464px');
+    assert.equal(dialog.style.maxHeight, 'none');
     assert.equal(controls.style.display, '');
     settings.setValue('readerSettings.dialogHeight', 80);
     assert.equal(dialog.style.height, '80px');
@@ -1380,7 +1380,7 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(dialog.style.height, '300px');
     settings.setValue('readerSettings.dialogHeight', 600);
-    assert.equal(dialog.style.height, '464px');
+    assert.equal(dialog.style.height, '600px');
     settings.setValue('readerSettings.dialogHeight', 20);
     assert.equal(dialog.style.height, '60px');
     assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dialogHeight, 60);

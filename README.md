@@ -229,6 +229,14 @@ projects/Immersive Galgame System/
 
 ## 更新日志
 
+### v0.23.93 - 2026-09-20
+
+- 修复对话框固定高度在手机端“乱动”：固定值不再按可用高度封顶，`max-height` 置为 `none`，只保底 `60px`。根因是手机 `visualViewport.height` 随地址栏伸缩变化，导致可用高度反复变、把固定高度压回小值。
+- `[null]` 自适应分支不受影响，仍保留随阅读器计算的安全上限。
+- 同步 CONTRACT 与 simulate 断言（固定档不再钳制）。
+- 按约定运行 unit/gate/simulate/build/static/structure，尚未在真实酒馆复验，因此不打 tag。
+
+
 ### v0.23.92 - 2026-09-20
 
 - 对话框高度固定档新增 180px 选项。
