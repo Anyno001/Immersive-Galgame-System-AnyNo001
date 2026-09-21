@@ -104,6 +104,15 @@ export function toHex(color) {
     return '#ffffff';
 }
 
+export function hexToRgba(color, alpha) {
+    const hex = toHex(color);
+    const value = hex.slice(1);
+    const r = parseInt(value.slice(0, 2), 16);
+    const g = parseInt(value.slice(2, 4), 16);
+    const b = parseInt(value.slice(4, 6), 16);
+    const a = Number.isFinite(Number(alpha)) ? Math.min(1, Math.max(0, Number(alpha))) : 0.62;
+    return `rgba(${r},${g},${b},${a})`;
+}
 export function computeLineHeight(fontSize) {
     if (fontSize <= 8) return '2.0';
     if (fontSize <= 11) return '1.9';

@@ -386,7 +386,8 @@ function applyDialogBgOverride(root, snapshot, classicDialog) {
     }
     const value = resolveActiveTheme(snapshot).dialogBg;
     if (value) {
-        root.style.setProperty('--igs-dialog-bg', value);
+        const opacity = snapshot.readerSettings && snapshot.readerSettings.glassOpacity;
+        root.style.setProperty('--igs-dialog-bg', hexToRgba(value, opacity));
     } else {
         root.style.removeProperty('--igs-dialog-bg');
     }

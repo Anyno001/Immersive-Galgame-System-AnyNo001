@@ -147,8 +147,8 @@ const READER_THEME_TEMPLATE = `
         <div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div>
       </div>
       <div class="igs-source-filter">
-        <div class="igs-source-filter-title">对话框</div>
-        <div class="igs-settings-row">{{dialogBgField}}</div>
+        <div class="igs-source-filter-title">对话框背景</div>
+        <div class="igs-settings-row">{{dialogBgField}}{{glassOpacityField}}</div>
       </div>
     </div>
   </div>

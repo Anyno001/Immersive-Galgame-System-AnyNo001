@@ -151,7 +151,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-status-line{font-size:10px;color:rgba(255,255,255,.35);letter-spacing:1px;margin:2px 0 8px;text-align:center;display:none;}
 .igs-speaker{font-size:14px;font-weight:600;letter-spacing:1px;margin-top:0;margin-bottom:4px;display:none;text-shadow:none;}
 .igs-divider{font-size:11px;letter-spacing:4px;text-align:center;margin-bottom:4px;opacity:.6;display:none;}
-.igs-thought{font-style:italic;opacity:.72;font-size:.92em;}
+.igs-thought{font-style:italic;opacity:.72;font-size:.96em;}
 .igs-text{font-size:18px;line-height:1.7;letter-spacing:.5px;min-height:60px;color:#d8d5cf;text-shadow:none;margin-bottom:14px;margin-top:0;white-space:pre-wrap;word-break:break-word;}
 .igs-controls{display:flex;align-items:center;gap:8px;border-top:1px solid rgba(255,255,255,.08);padding-top:12px;}
 #igs-overlay.igs-floating .igs-progress{flex-shrink:0;}
