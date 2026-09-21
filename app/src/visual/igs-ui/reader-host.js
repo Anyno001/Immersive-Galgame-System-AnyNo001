@@ -1519,6 +1519,19 @@ export function createIgsReaderHost(options = {}) {
         // a thought segment looks like *[名字]：...* and would otherwise match dialogue.
         // Fallback: when the prefix was stripped (single-segment messages), use the
         // directive that lands on this exact segment index.
+        // 角色台词若被成对引号整体包裹（AI 偶发额外输出中英文引号），前端不渲染引号。
+        const stripWrappingQuotes = (text) => {
+            const value = String(text == null ? '' : text).trim();
+            if (value.length < 2) return value;
+            const pairs = [['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ['"', '"'], ["'", "'"]];
+            for (const [open, close] of pairs) {
+                if (value.startsWith(open) && value.endsWith(close)) {
+                    return value.slice(open.length, value.length - close.length).trim();
+                }
+            }
+            return value;
+        };
+
         let textType = 'narration';
         let bubbleSpeaker = '';
         let segmentBody = currentText;
@@ -1547,9 +1560,6 @@ export function createIgsReaderHost(options = {}) {
                 }
                 return null;
             };
-            // Classify a single segment into {textType, speaker, mood} purely from its
-            // own formatted text via fingerprint matching (no positional counter).
-            // Returns null when the segment is plain narration with no char/thought tag.
             const classifySegment = (segText) => {
                 // 没有任何 [igs-*:] 指令时禁止按文本外形猜测台词/心理话，统一按旁白兜底。
                 if (!hasIgsDirectives) return null;
@@ -1567,7 +1577,7 @@ export function createIgsReaderHost(options = {}) {
                 if (dMatch) {
                     const sp = dMatch[1].trim();
                     const matched = findDirectiveByText(sp, dMatch[2]);
-                    return { textType: 'dialogue', speaker: sp, mood: matched ? (matched.mood || '') : '', body: dMatch[2] };
+                    return { textType: 'dialogue', speaker: sp, mood: matched ? (matched.mood || '') : '', body: stripWrappingQuotes(dMatch[2]) };
                 }
                 return null;
             };
@@ -1663,9 +1673,12 @@ export function createIgsReaderHost(options = {}) {
             time: firstDefined(sceneStateForBg && sceneStateForBg.time, scene.time, ''),
             weather: firstDefined(sceneStateForBg && sceneStateForBg.weather, scene.weather, ''),
         };
+        const isDialogueText = textType === 'dialogue' || (!sceneAssetsEnabled && Boolean(scene.speaker) && Boolean(currentText));
         const displayText = (!sceneAssetsEnabled && scene.speaker && currentText)
-            ? `${scene.speaker}: ${currentText}`
-            : (sceneAssetsEnabled ? segmentBody : currentText);
+            ? `${scene.speaker}: ${stripWrappingQuotes(currentText)}`
+            : (sceneAssetsEnabled
+                ? (isDialogueText ? stripWrappingQuotes(segmentBody) : segmentBody)
+                : currentText);
         const overlayClasses = ['igs-stage', 'igs-mode-' + mode];
         if (mode === 'pc' || mode === 'mobile') overlayClasses.push('igs-floating');
         if (mode === 'mobile') overlayClasses.push('igs-floating-mobile');
@@ -2011,6 +2024,7 @@ export function createIgsReaderHost(options = {}) {
             narrationFontField: field(`${themePath}.narrationFont`, '字体', selectInput(`${themePath}.narrationFont`, displayTheme.narrationFont || 'inherit', [['inherit', '默认'], ['"KaiTi","STKaiti",serif', '楷体'], ['"SimHei",sans-serif', '黑体'], ['"FangSong","STFangsong",serif', '仿宋'], ['"Microsoft YaHei",sans-serif', '微软雅黑']], themeDisabled || !themeCustom)),
             narrationColorField: field(`${themePath}.narrationColor`, '颜色', colorInput(`${themePath}.narrationColor`, toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
             dividerColorField: field(`${themePath}.dividerColor`, '颜色', colorInput(`${themePath}.dividerColor`, toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || classicDialog || !themeCustom)),
+            dialogBgField: field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), themeDisabled || classicDialog || !themeCustom)),
             themeAdvancedClass: themeCustom ? '' : 'igs-settings-api-group is-disabled',
         };
         return renderTemplate(getSettingsTabTemplate('reader'), {
@@ -2640,6 +2654,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.thoughtColor = normalized.thoughtColor || fallback.thoughtColor;
         normalized.narrationColor = normalized.narrationColor || fallback.narrationColor;
         normalized.dividerColor = normalized.dividerColor || fallback.dividerColor;
+        normalized.dialogBg = normalized.dialogBg || fallback.dialogBg;
         return normalized;
     }
 

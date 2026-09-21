@@ -1440,6 +1440,24 @@ test('gate:igs-ui:scene-assets-classifies-dialogue-vs-narration-per-segment', ()
     assert.equal(untagged.snapshot.content.textType, 'narration');
     assert.equal(untagged.snapshot.content.speaker, '');
     host3.destroy();
+
+    // 角色台词被成对引号包裹时，前端剥掉引号；thought/旁白不受影响。
+    const quotedCases = [
+        ['“これは台詞です。”', 'これは台詞です。'],
+        ['"これは台詞です。"', 'これは台詞です。'],
+        ['「これは台詞です。」', 'これは台詞です。'],
+        ['『これは台詞です。』', 'これは台詞です。'],
+        ["'これは台詞です。'", 'これは台詞です。'],
+    ];
+    for (const [raw, expected] of quotedCases) {
+        const host = makeHost();
+        const res = host.openReader({
+            message: { text: `<content>[igs-char:小林海斗|平静|${raw}]</content>` },
+        }, { mode: 'pc' });
+        assert.equal(res.snapshot.content.textType, 'dialogue');
+        assert.equal(res.snapshot.content.displayText, expected);
+        host.destroy();
+    }
 });
 
 test('gate:scene:igs-message-source:extracts-scene-directives-from-fallback-text', () => {

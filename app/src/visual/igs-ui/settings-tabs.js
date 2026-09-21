@@ -146,6 +146,10 @@ const READER_THEME_TEMPLATE = `
         <div class="igs-source-filter-title">分隔线</div>
         <div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div>
       </div>
+      <div class="igs-source-filter">
+        <div class="igs-source-filter-title">对话框</div>
+        <div class="igs-settings-row">{{dialogBgField}}</div>
+      </div>
     </div>
   </div>
 </div>

@@ -378,6 +378,21 @@ export function applyToolbarState(root, current) {
     }
 }
 
+function applyDialogBgOverride(root, snapshot, classicDialog) {
+    if (!root || !root.style || typeof root.style.setProperty !== 'function') return;
+    if (classicDialog) {
+        root.style.removeProperty('--igs-dialog-bg');
+        return;
+    }
+    const value = resolveActiveTheme(snapshot).dialogBg;
+    if (value) {
+        root.style.setProperty('--igs-dialog-bg', value);
+    } else {
+        root.style.removeProperty('--igs-dialog-bg');
+    }
+}
+
+
 export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     const dialog = refs.dialog || root.querySelector('#igs-dialog');
     const textEl = refs.textEl || root.querySelector('#igs-text');
@@ -396,6 +411,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     applyTransparentGlassMaterial(root, readerSettings.glassOpacity, {
         backdropFilter: readerSettings.glassBackdropFilter,
     });
+    applyDialogBgOverride(root, snapshot, classicDialog);
 
     if (textEl) {
         textEl.style.fontSize = `${readerSettings.fontSize}px`;

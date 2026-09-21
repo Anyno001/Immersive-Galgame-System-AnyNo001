@@ -149,6 +149,7 @@ export function resolveActiveTheme(snapshot) {
         thoughtColor: vnTheme.thoughtColor || preset.thoughtColor,
         narrationColor: vnTheme.narrationColor || preset.narrationColor,
         dividerColor: vnTheme.dividerColor || preset.dividerColor,
+        dialogBg: vnTheme.dialogBg || preset.dialogBg,
     };
 }
 

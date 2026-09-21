@@ -638,8 +638,8 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.styleText, /\.igs-hud-metric-value\{width:7ch;[^}]*text-align:left/);
     assert.match(source.styleText, /#igs-status-hud\.igs-hud-bg-dialog\{[^}]*background:color-mix\(in srgb,var\(--igs-dialog-bg[^}]*50%,transparent\)[^}]*backdrop-filter:var\(--igs-dialog-blur,none\)[^}]*border-radius:calc\(6px \* var\(--igs-hud-scale,1\)\)/);
     assert.match(source.styleText, /#igs-status-hud \.igs-hud-toggle\{position:absolute;inset:0;width:100%;height:100%;[^}]*pointer-events:auto[^}]*border:0;background:transparent;border-radius:0/);
-    assert.match(source.styleText, /#igs-status-hud \.igs-hud-toggle svg\{display:none;width:calc\(18px \* var\(--igs-hud-scale,1\)\);height:calc\(18px \* var\(--igs-hud-scale,1\)\);\}/);
-    assert.match(source.styleText, /#igs-status-hud\.igs-hud-collapsed\{[^}]*width:calc\(36px \* var\(--igs-hud-scale,1\)\);height:calc\(36px \* var\(--igs-hud-scale,1\)\)/);
+    assert.match(source.styleText, /#igs-status-hud \.igs-hud-toggle svg\{display:none;width:calc\(18px \* var\(--igs-hud-scale,1\)\);height:calc\(18px \* var\(--igs-hud-scale,1\)\);transform:translateY\(4\.5px\);\}/);
+    assert.match(source.styleText, /#igs-status-hud\.igs-hud-collapsed \.igs-hud-identity,#igs-status-hud\.igs-hud-collapsed \.igs-hud-metrics,#igs-status-hud\.igs-hud-collapsed \.igs-hud-overflow\{display:none;\}/);
     assert.match(source.styleText, /#igs-status-hud\.igs-hud-collapsed \.igs-hud-toggle\{[^}]*width:calc\(36px \* var\(--igs-hud-scale,1\)\);height:calc\(36px \* var\(--igs-hud-scale,1\)\);border:0;background:transparent;border-radius:0/);
     assert.match(source.styleText, /#igs-status-hud\.igs-hud-collapsed \.igs-hud-toggle svg\{display:block;\}/);
     assert.doesNotMatch(source.styleText, /#igs-status-hud\.igs-hud-collapsed \.igs-hud-toggle\{[^}]*var\(--igs-toolbar-bg/);
@@ -660,7 +660,7 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(readerHostText, /data-prompt-rule-draft/);
     assert.doesNotMatch(readerHostText, /data-path="bridge\.sceneAssets\.promptRule"/);
     assert.doesNotMatch(readerHostText, /emptyBackgroundColorField|optionBubbleFontSizeField|readerSettings\.emptyBackgroundColor/);
-    assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock === 'top'/);
+    assert.match(rendererText, /const dockTop = !compactChrome && readerSettings\.toolbarDock === 'top'/);
     assert.match(rendererText, /statusHud\.classList\.toggle\('igs-hud-collapsed', persistedCollapsed \|\| toolbarExpanded\)/);
     assert.match(rendererText, /class="igs-hud-icon-expand" d="M12 5v14M5 12h14"/);
     assert.doesNotMatch(rendererText, /igs-hud-icon-collapse/);
@@ -741,6 +741,7 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(themeTemplate, /dialogSkinField[\s\S]*classicDialogWidthPercentField/);
     assert.match(themeTemplate, /nameFontField/);
     assert.match(themeTemplate, /dividerColorField/);
+    assert.match(themeTemplate, /dialogBgField/);
 });
 
 test('gate:igs-ui:settings-style-keeps-original-geometry', () => {
