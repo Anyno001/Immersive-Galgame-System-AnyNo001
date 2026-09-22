@@ -44,8 +44,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-bg-blur{position:absolute;inset:0;background-position:center;background-size:cover;background-repeat:no-repeat;transition:opacity .3s ease;filter:blur(40px) brightness(.55) saturate(1.3);transform:scale(1.12);opacity:0;pointer-events:none;}
 #igs-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.6) 0%,rgba(0,0,0,.1) 50%,rgba(0,0,0,0) 80%);pointer-events:none;}
 #igs-bg:not([data-igs-has-image="1"])::after{display:none;}
-#igs-overlay.igs-scene-nsfw #igs-bg{filter:blur(8px) brightness(.62) saturate(.72);transform:scale(1.04);}
-#igs-overlay.igs-scene-nsfw #igs-bg::after{display:block;background:radial-gradient(ellipse at center,rgba(12,14,18,.08) 20%,rgba(12,14,18,.72) 100%);}
+#igs-overlay.igs-scene-nsfw #igs-bg{filter:blur(8px) brightness(var(--igs-nsfw-bg-brightness,.62)) saturate(.72);transform:scale(1.04);}
+#igs-overlay.igs-scene-nsfw #igs-bg::after{display:block;background:radial-gradient(ellipse at center,rgba(12,14,18,var(--igs-nsfw-veil-center,.30)) 20%,rgba(12,14,18,var(--igs-nsfw-veil-edge,.72)) 100%);}
 #igs-sprite{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:40%;height:85%;background-size:100%;background-repeat:no-repeat;background-position:50% 100%;pointer-events:none;z-index:2;display:none;}
 #igs-overlay.igs-mode-embedded #igs-sprite.igs-sprite-narration{filter:brightness(.86) saturate(.86)!important;-webkit-filter:brightness(.86) saturate(.86)!important;}
 

@@ -2376,6 +2376,7 @@ import {
 test('gate:simulation:status-hud-settings-normalize-defaults-and-invalid', () => {
     assert.deepEqual(normalizeStatusHudSettings(null), { ...STATUS_HUD_DEFAULTS });
     const legacy = normalizeStatusHudSettings({ enabled: true, collapsed: true, size: 'huge', showEmotion: 'yes', avatarRadius: 'blob', background: 'solid', barColor: 'sepia', tables: 'nope' });
+    const legacyWithBadVeil = normalizeStatusHudSettings({ nsfwVeilLevel: 'extreme' });
     assert.equal(legacy.enabled, true);
     assert.equal(legacy.collapsed, true);
     assert.equal(legacy.size, 'medium');
@@ -2383,6 +2384,8 @@ test('gate:simulation:status-hud-settings-normalize-defaults-and-invalid', () =>
     assert.equal(legacy.showLocation, false);
     assert.equal(legacy.showLocationDetails, false);
     assert.equal(legacy.showSpriteOnNsfw, true);
+    assert.equal(legacy.nsfwVeilLevel, 'medium');
+    assert.equal(legacyWithBadVeil.nsfwVeilLevel, 'medium');
     assert.equal(legacy.dimSpriteOnNarration, true);
     assert.equal(legacy.avatarRadius, 'circle');
     assert.equal(legacy.background, 'none');

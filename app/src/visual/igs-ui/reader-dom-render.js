@@ -13,7 +13,7 @@ import {
     removeImageLoadingSpinner,
 } from './reader-dom-utils.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
-import { resolveStatusHudScale, resolveStatusHudLocationScale } from '../../data/shujuku/status-hud-model.js';
+import { resolveStatusHudScale, resolveStatusHudLocationScale, NSFW_VEIL_LEVEL_STYLE } from '../../data/shujuku/status-hud-model.js';
 import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import {
     renderDialogueHtml,
@@ -731,6 +731,20 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         : (url) => String(url || '').trim();
     if (root.classList) {
         root.classList.toggle('igs-scene-nsfw', snapshot.content.sceneNsfw === true);
+    }
+    // NSFW 黑幕强度：档位写入 CSS 变量驱动 veil 与背景亮度；非 NSFW 场景清除，回落 CSS 内默认值。
+    const nsfwVeilLevel = snapshot.content.sceneNsfw === true
+        ? (((snapshot.readerSettings || {}).statusHud) || {}).nsfwVeilLevel
+        : '';
+    const nsfwVeilStyle = snapshot.content.sceneNsfw === true
+        ? (NSFW_VEIL_LEVEL_STYLE[nsfwVeilLevel] || NSFW_VEIL_LEVEL_STYLE.medium)
+        : null;
+    if (root.style && typeof root.style.setProperty === 'function') {
+        const nsfwVeilPairs = [['--igs-nsfw-veil-center', 'center'], ['--igs-nsfw-veil-edge', 'edge'], ['--igs-nsfw-bg-brightness', 'brightness']];
+        for (const [prop, key] of nsfwVeilPairs) {
+            if (nsfwVeilStyle) root.style.setProperty(prop, nsfwVeilStyle[key]);
+            else if (typeof root.style.removeProperty === 'function') root.style.removeProperty(prop);
+        }
     }
     const backgroundAssetUrl = resolveAssetUrl(snapshot.content.backgroundImage);
 

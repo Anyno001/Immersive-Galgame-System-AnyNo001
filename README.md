@@ -229,6 +229,14 @@ projects/Immersive Galgame System/
 
 ## 更新日志
 
+### v0.23.94 - 2026-09-21
+
+- 修复 NSFW 场景黑幕「只有四角发黑」：暗角渐变的中心透明度由 `.08` 抬至 `.30`（默认中档），黑幕中心与边缘一致压暗。
+- 新增「NSFW黑幕强度」分段按钮（阅读器→显示，常驻区）：弱 / 中（默认）/ 强三档，持久化于 `readerSettings.statusHud.nsfwVeilLevel`；档位通过 CSS 变量 `--igs-nsfw-veil-center` / `--igs-nsfw-veil-edge` / `--igs-nsfw-bg-brightness` 驱动黑幕中心、边缘透明度与背景亮度，非 NSFW 场景自动清除变量。
+- 档位映射单一来源：`status-hud-model.js` 的 `NSFW_VEIL_LEVEL_STYLE`；同步 CONTRACT、unit 与 simulate 断言（含强档应用与切回普通场景清除变量的端到端用例）。
+- 已运行 unit（143/143）与 simulate（91/91），build 后尚未在真实酒馆复验，因此不打 tag。
+
+
 ### v0.23.93 - 2026-09-20
 
 - 修复对话框固定高度在手机端“乱动”：固定值不再按可用高度封顶，`max-height` 置为 `none`，只保底 `60px`。根因是手机 `visualViewport.height` 随地址栏伸缩变化，导致可用高度反复变、把固定高度压回小值。

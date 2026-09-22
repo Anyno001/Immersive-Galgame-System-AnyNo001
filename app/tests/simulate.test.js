@@ -470,8 +470,12 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     assert.equal(hud.querySelector('.igs-hud-emotion'), null);
     assert.equal(hud.querySelector('.igs-hud-location'), null);
     const styleText = getOriginalReaderStyleText();
-    assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg\{[^}]*blur\(8px\)[^}]*brightness\(\.62\)[^}]*saturate\(\.72\)/);
-    assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg::after\{[^}]*radial-gradient/);
+    assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg\{[^}]*blur\(8px\)[^}]*brightness\(var\(--igs-nsfw-bg-brightness,\.62\)\)[^}]*saturate\(\.72\)/);
+    assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg::after\{[^}]*radial-gradient\(ellipse at center,rgba\(12,14,18,var\(--igs-nsfw-veil-center,\.30\)\) 20%,rgba\(12,14,18,var\(--igs-nsfw-veil-edge,\.72\)\) 100%\)/);
+    // 默认档（medium）中心不再接近透明，消除「只有四角发黑」。
+    assert.equal(overlay.style['--igs-nsfw-veil-center'], '.30');
+    assert.equal(overlay.style['--igs-nsfw-veil-edge'], '.72');
+    assert.equal(overlay.style['--igs-nsfw-bg-brightness'], '.62');
     vn.destroy();
 });
 
@@ -520,6 +524,59 @@ test('gate:simulation:nsfw-scene-keeps-sprite-when-hide-toggle-off', async () =>
     assert.match(sprite.style.backgroundImage, /alice\.png/);
     vn.destroy();
 });
+test('gate:simulation:nsfw-veil-level-strong-applies-and-clears-on-safe-scene', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: {
+                enabled: true,
+                promptRule: '规则',
+                scenes: { Room: { url: 'https://example.com/room.png', times: {} } },
+                characters: { Alice: { calm: 'https://example.com/alice.png' } },
+                characterAliases: { Alice: [] },
+                moodGroups: [],
+            },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: false, nsfwVeilLevel: 'strong' },
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 43,
+                text: [
+                    '<now_plot>',
+                    '<content>',
+                    '[igs-scene:Room|night|rain|NSFW]',
+                    '旁白。',
+                    '[igs-scene:Room|morning|sunny]',
+                    '[igs-char:Alice|calm|Morning.]',
+                    '</content>',
+                    '</now_plot>',
+                ].join('\n'),
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
+    assert.equal(overlay.style['--igs-nsfw-veil-center'], '.55');
+    assert.equal(overlay.style['--igs-nsfw-veil-edge'], '.88');
+    assert.equal(overlay.style['--igs-nsfw-bg-brightness'], '.5');
+    // 走到下一条不带 NSFW 的场景后变量清除，回落 CSS 内默认值。
+    await opened.reader.controller.invokeAction('next');
+    assert.equal(overlay.classList.contains('igs-scene-nsfw'), false);
+    assert.equal(overlay.style['--igs-nsfw-veil-center'], '');
+    assert.equal(overlay.style['--igs-nsfw-veil-edge'], '');
+    assert.equal(overlay.style['--igs-nsfw-bg-brightness'], '');
+    vn.destroy();
+});
+
 
 test('gate:simulation:status-hud-location-scale-lands-on-dom', async () => {
     for (const [size, expected] of [['small', '1.2'], ['medium', '1.45'], ['large', '1.7']]) {
