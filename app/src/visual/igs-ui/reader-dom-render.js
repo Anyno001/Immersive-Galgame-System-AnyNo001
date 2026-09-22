@@ -398,6 +398,32 @@ function applyDialogBgOverride(root, snapshot, classicDialog) {
 }
 
 
+function resolveFrozenDialogHeight(current, snapshot, requestedHeight, win, overlayHeight) {
+    const numeric = Number(requestedHeight);
+    const ratioMode = Number.isFinite(numeric) && numeric > 0 && numeric <= 1;
+    const cacheKey = `${snapshot.mode}:${numeric}`;
+    const cached = current && current.dialogHeightFreeze;
+    if (cached && cached.key === cacheKey && Number.isFinite(cached.px)) {
+        return cached.px;
+    }
+
+    const docHeight = Number(win && win.document && win.document.documentElement && win.document.documentElement.clientHeight);
+    const iframeHeight = Number(win && win.innerHeight) || docHeight || Number(overlayHeight) || 680;
+    const target = ratioMode ? Math.round(iframeHeight * numeric) : numeric;
+    const px = Math.max(60, Number.isFinite(target) ? target : 60);
+    if (current) {
+        current.dialogHeightFreeze = {
+            key: cacheKey,
+            px,
+        };
+    }
+    return px;
+}
+
+function clearFrozenDialogHeight(current) {
+    if (current) current.dialogHeightFreeze = null;
+}
+
 export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     const dialog = refs.dialog || root.querySelector('#igs-dialog');
     const textEl = refs.textEl || root.querySelector('#igs-text');
@@ -428,6 +454,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         applyDialogSkinAssets(dialog, readerSettings);
         dialog.style.height = '';
         if (classicDialog) {
+            clearFrozenDialogHeight(current);
             dialog.style.minHeight = '';
             dialog.style.maxHeight = '';
         } else {
@@ -444,14 +471,14 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
                     : viewportHeight - 48;
             const maxDialogHeight = Math.max(60, Math.min(600, Math.floor(availableHeight)));
             if (readerSettings.dialogHeight == null) {
+                clearFrozenDialogHeight(current);
                 dialog.style.height = 'auto';
                 dialog.style.minHeight = '0';
                 dialog.style.maxHeight = `${maxDialogHeight}px`;
             } else {
-                const requestedHeight = Number(readerSettings.dialogHeight);
-                // 固定高度即用户意图：只保底 60px 防止零高，不再按可用高度封顶，
-                // 避免手机地址栏伸缩导致 maxDialogHeight 抖动、高度反复跳动。
-                const target = Math.max(60, Number.isFinite(requestedHeight) ? requestedHeight : 60);
+                // 新档位按插件 iframe 高度计算一次并冻结；历史 px 设置保持原值。
+                // 台词、分页、流式更新及宿主后续 resize 均只复用当前阅读器实例的冻结值。
+                const target = resolveFrozenDialogHeight(current, snapshot, readerSettings.dialogHeight, win, overlayHeight);
                 dialog.style.height = `${target}px`;
                 dialog.style.minHeight = '0';
                 dialog.style.maxHeight = 'none';

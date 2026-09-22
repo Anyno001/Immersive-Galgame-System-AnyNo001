@@ -1422,22 +1422,20 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
     const css = getOriginalReaderStyleText();
     assert.match(css, /#igs-overlay\.igs-floating \.igs-dialog\{[^}]*max-height:none/);
     assert.match(css, /#igs-overlay\.igs-floating-mobile \.igs-dialog\{[^}]*max-height:none/);
-    settings.setValue('readerSettings.dialogHeight', 60);
-    assert.equal(dialog.style.height, '60px');
+    settings.setValue('readerSettings.dialogHeight', 0.2);
+    assert.equal(dialog.style.height, '144px');
     assert.equal(dialog.style.maxHeight, 'none');
     assert.equal(controls.style.display, '');
-    settings.setValue('readerSettings.dialogHeight', 80);
-    assert.equal(dialog.style.height, '80px');
-    settings.setValue('readerSettings.dialogHeight', 120);
-    assert.equal(dialog.style.height, '120px');
+    document.defaultView.innerHeight = 900;
+    settings.setValue('readerSettings.fontSize', 20);
+    assert.equal(dialog.style.height, '144px', 'same reader keeps frozen iframe ratio height');
+    settings.setValue('readerSettings.dialogHeight', 0.3);
+    assert.equal(dialog.style.height, '270px', 'changing ratio recalculates from current iframe height');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dialogHeight, 0.3);
+    // 历史 px 设置继续按原像素值读取。
     settings.setValue('readerSettings.dialogHeight', 300);
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(dialog.style.height, '300px');
-    settings.setValue('readerSettings.dialogHeight', 600);
-    assert.equal(dialog.style.height, '600px');
-    settings.setValue('readerSettings.dialogHeight', 20);
-    assert.equal(dialog.style.height, '60px');
-    assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dialogHeight, 60);
     settings.setValue('readerSettings.dialogHeight', null);
     assert.equal(dialog.style.height, 'auto');
     assert.equal(dialog.style.minHeight, '0');
@@ -1448,10 +1446,10 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
 
 test('gate:simulation:default-dialog-height-controls-all-reader-modes', async () => {
     const cases = [
-        { mode: 'pc', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }) },
-        { mode: 'mobile', document: createFakeDocument({ innerWidth: 390, innerHeight: 844 }) },
-        { mode: 'web', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }) },
-        { mode: 'fullscreen', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }) },
+        { mode: 'pc', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), expected: '180px' },
+        { mode: 'mobile', document: createFakeDocument({ innerWidth: 390, innerHeight: 844 }), expected: '211px' },
+        { mode: 'web', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), expected: '180px' },
+        { mode: 'fullscreen', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), expected: '180px' },
     ];
 
     for (const item of cases) {
@@ -1474,10 +1472,8 @@ test('gate:simulation:default-dialog-height-controls-all-reader-modes', async ()
         const settings = opened.reader.controller.openSettings('reader').controller;
         const dialog = item.document.getElementById('igs-overlay').querySelector('#igs-dialog');
 
-        settings.setValue('readerSettings.dialogHeight', 80);
-        assert.equal(dialog.style.height, '80px', item.mode);
-        settings.setValue('readerSettings.dialogHeight', 300);
-        assert.equal(dialog.style.height, '300px', item.mode);
+        settings.setValue('readerSettings.dialogHeight', 0.25);
+        assert.equal(dialog.style.height, item.expected, item.mode);
         settings.setValue('readerSettings.dialogHeight', null);
         assert.equal(dialog.style.height, 'auto', item.mode);
         assert.equal(dialog.style.minHeight, '0', item.mode);
@@ -1505,10 +1501,8 @@ test('gate:simulation:default-dialog-height-controls-all-reader-modes', async ()
     const settings = opened.reader.controller.openSettings('reader').controller;
     const dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
 
-    settings.setValue('readerSettings.dialogHeight', 80);
-    assert.equal(dialog.style.height, '80px', 'embedded');
-    settings.setValue('readerSettings.dialogHeight', 300);
-    assert.equal(dialog.style.height, '300px', 'embedded');
+    settings.setValue('readerSettings.dialogHeight', 0.25);
+    assert.equal(dialog.style.height, '200px', 'embedded');
     settings.setValue('readerSettings.dialogHeight', null);
     assert.equal(dialog.style.height, 'auto', 'embedded');
     assert.equal(dialog.style.minHeight, '0', 'embedded');
