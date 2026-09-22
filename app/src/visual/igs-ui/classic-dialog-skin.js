@@ -72,4 +72,5 @@ export const CLASSIC_DIALOG_STYLE_TEXT = `
 .igs-dialog[data-igs-dialog-skin="western-classic"] .igs-divider{display:none;}
 #igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="western-classic"]{height:min(184px,calc(100% - 28px));min-height:min(184px,calc(100% - 28px));max-height:calc(100% - 28px);padding:20px 44px 18px;}
 #igs-overlay .igs-dialog[data-igs-dialog-skin="western-classic"][data-igs-has-speaker="1"]{padding-top:44px;}
+#igs-overlay.igs-floating-mobile .igs-dialog[data-igs-dialog-skin="western-classic"] .igs-speaker{width:min(100px,calc(100% - 70px));height:33px;line-height:32px;background-size:40px 33px,calc(100% - 80px) 33px,40px 33px;}
 `.trim();
