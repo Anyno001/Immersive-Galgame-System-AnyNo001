@@ -10,7 +10,7 @@ fs.mkdirSync(distRoot, { recursive: true });
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
 const graph = buildModuleGraph(entryFile);
-const bundle = renderBundle(graph, moduleId(entryFile));
+const bundle = inlineDialogThemeAssets(renderBundle(graph, moduleId(entryFile)));
 
 const css = [
     '.igs-stage { position: relative; width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: #0b0d12; }',
@@ -30,6 +30,9 @@ const manifest = {
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+if (bundle.includes('__IGS_ASSET__')) {
+    throw new Error('Build output contains unresolved dialog theme asset placeholders.');
+}
 
 for (const name of ['igs.bundle.js', 'igs.bundle.css', 'manifest.json']) {
     const file = path.join(distRoot, name);
@@ -109,6 +112,19 @@ function renderBundle(graph, entryId) {
         publicExport + 'export default __igsEntry;',
         '',
     ].join('\n');
+}
+
+function inlineDialogThemeAssets(bundle) {
+    const cache = new Map();
+    return bundle.replace(/__IGS_ASSET__([a-z0-9-]+)\/(dialog-left|dialog-center|dialog-right|name-left|name-center|name-right)\.png__/g, (_match, theme, part) => {
+        const key = `${theme}/${part}`;
+        if (!cache.has(key)) {
+            const file = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'dialog-themes', theme, `${part}.png`);
+            if (!fs.existsSync(file)) throw new Error(`Dialog theme asset is missing: ${file}`);
+            cache.set(key, `data:image/png;base64,${fs.readFileSync(file).toString('base64')}`);
+        }
+        return cache.get(key);
+    });
 }
 
 function transformModule(module) {

@@ -20,7 +20,13 @@ import {
 import { parseSceneText } from '../src/scene/text-parser.js';
 import { applyAlignStyle } from '../src/visual/igs-ui/reader-dom-render.js';
 import { resolveSpriteLayout, resolveActiveTheme } from '../src/visual/igs-ui/settings-normalize.js';
-import { DIALOG_SKIN_GRADIENT_VEIL, normalizeDialogSkin } from '../src/visual/igs-ui/classic-dialog-skin.js';
+import {
+    DIALOG_SKIN_BLACK_WHITE_MANGA,
+    DIALOG_SKIN_CUTE_PINK,
+    DIALOG_SKIN_GRADIENT_VEIL,
+    DIALOG_SKIN_PLANT_COFFEE,
+    normalizeDialogSkin,
+} from '../src/visual/igs-ui/classic-dialog-skin.js';
 import { normalizeGradientVeil } from '../src/visual/igs-ui/gradient-veil-dialog-skin.js';
 import { runTextPipeline } from '../src/scene/text-pipeline.js';
 import { createMemoryStorage } from '../src/storage/preset-store.js';
@@ -2776,4 +2782,18 @@ test('gate:igs-ui:gradient-veil-normalizes-values-and-shares-default-theme', () 
     assert.equal(theme.textColor, '#abcdef');
 });
 
+});
+
+test('gate:igs-ui:illustrated-dialog-skins-normalize-and-share-default-theme', () => {
+    for (const skin of [DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK]) {
+        assert.equal(normalizeDialogSkin(skin), skin);
+        const theme = resolveActiveTheme({
+            readerSettings: {
+                dialogSkin: skin,
+                _vnTheme: { preset: 'custom', textColor: '#abcdef', nameColor: '#123456' },
+            },
+        });
+        assert.equal(theme.textColor, '#abcdef');
+        assert.equal(theme.nameColor, '#123456');
+    }
 });

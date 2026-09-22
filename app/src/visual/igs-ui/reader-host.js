@@ -133,8 +133,12 @@ import {
     CLASSIC_DIALOG_HEIGHT,
     CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
     CLASSIC_DIALOG_THEME_DEFAULTS,
+    DIALOG_SKIN_BLACK_WHITE_MANGA,
+    DIALOG_SKIN_CUTE_PINK,
     DIALOG_SKIN_GRADIENT_VEIL,
+    DIALOG_SKIN_PLANT_COFFEE,
     DIALOG_SKIN_WESTERN_CLASSIC,
+    isIllustratedDialogSkin,
     normalizeClassicDialogWidthPercent,
     normalizeDialogSkin,
 } from './classic-dialog-skin.js';
@@ -1998,8 +2002,9 @@ export function createIgsReaderHost(options = {}) {
         const readerSubTab = normalizeReaderSubTab(asyncState.readerSubTab);
         const sceneEnabled = !!(bridge.sceneAssets && bridge.sceneAssets.enabled);
         const classicDialog = reader.dialogSkin === DIALOG_SKIN_WESTERN_CLASSIC;
+        const illustratedDialog = isIllustratedDialogSkin(reader.dialogSkin);
         const gradientVeilDialog = reader.dialogSkin === DIALOG_SKIN_GRADIENT_VEIL;
-        const themeDisabled = !sceneEnabled && !classicDialog;
+        const themeDisabled = !sceneEnabled && !classicDialog && !illustratedDialog;
         const themePath = classicDialog ? 'readerSettings.classicVnTheme' : 'readerSettings.vnTheme';
         const vnTheme = reader.vnTheme || {};
         const classicVnTheme = reader.classicVnTheme || CLASSIC_DIALOG_THEME_DEFAULTS;
@@ -2017,7 +2022,7 @@ export function createIgsReaderHost(options = {}) {
         )).join('');
         const readerValues = {
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
+            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
             gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`])), '按阅读器可用宽度自动计算；手机端保持 100%。') : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),

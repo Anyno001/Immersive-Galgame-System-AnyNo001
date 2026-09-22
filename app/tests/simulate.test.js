@@ -4738,3 +4738,37 @@ test('gate:simulation:gradient-veil-applies-settings-and-clears-on-skin-switch',
     });
     vn.destroy();
 });
+
+test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ dialogSkin: 'plant-coffee' }));
+    const document = createFakeDocument({ innerWidth: 880, innerHeight: 720 });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '[igs-char:Alice|平和|植物咖啡测试]' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+        config: {
+            sceneAssets: { enabled: true, scenes: {}, characters: {}, characterAliases: {}, moodGroups: [] },
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const dialog = overlay.querySelector('#igs-dialog');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'plant-coffee');
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.switchTab('reader');
+    const dialogView = settings.switchReaderSubTab('dialog');
+    assert.match(dialogView.snapshot.html, /植物咖啡/);
+    assert.match(dialogView.snapshot.html, /黑白漫画/);
+    assert.match(dialogView.snapshot.html, /超可爱粉/);
+    settings.setValue('readerSettings.dialogSkin', 'black-white-manga');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'black-white-manga');
+    settings.setValue('readerSettings.dialogSkin', 'cute-pink');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'cute-pink');
+    const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+    assert.equal(saved.dialogSkin, 'cute-pink');
+    vn.destroy();
+});

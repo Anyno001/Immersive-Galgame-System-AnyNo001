@@ -27,6 +27,7 @@ import {
     applyDialogSkinAssets,
     isClassicDialogSkin,
     isGradientVeilDialogSkin,
+    isMaterialDialogSkin,
     normalizeClassicDialogWidthPercent,
 } from './classic-dialog-skin.js';
 import { gradientVeilColorToRgba, normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
@@ -458,9 +459,9 @@ export function applyToolbarState(root, current) {
     }
 }
 
-function applyDialogBgOverride(root, snapshot, classicDialog) {
+function applyDialogBgOverride(root, snapshot, materialDialog) {
     if (!root || !root.style || typeof root.style.setProperty !== 'function') return;
-    if (classicDialog) {
+    if (materialDialog) {
         root.style.removeProperty('--igs-dialog-bg');
         return;
     }
@@ -526,6 +527,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     const bgBlur = root.querySelector('#igs-bg-blur');
     const readerSettings = snapshot.readerSettings || {};
     const classicDialog = isClassicDialogSkin(readerSettings);
+    const materialDialog = isMaterialDialogSkin(readerSettings);
     const inlineMode = snapshot.mode === 'pc' || snapshot.mode === 'mobile';
     const pcMode = snapshot.mode === 'pc';
     const embeddedMode = snapshot.mode === 'embedded';
@@ -535,7 +537,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     applyTransparentGlassMaterial(root, readerSettings.glassOpacity, {
         backdropFilter: readerSettings.glassBackdropFilter,
     });
-    applyDialogBgOverride(root, snapshot, classicDialog);
+    applyDialogBgOverride(root, snapshot, materialDialog);
     applyGradientVeilToDom(root, dialog, readerSettings);
 
     if (textEl) {
@@ -547,7 +549,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     if (dialog) {
         applyDialogSkinAssets(dialog, readerSettings);
         dialog.style.height = '';
-        if (classicDialog) {
+        if (materialDialog) {
             clearFrozenDialogHeight(current);
             dialog.style.minHeight = '';
             dialog.style.maxHeight = '';
@@ -584,7 +586,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         dialog.style.right = '';
         dialog.style.marginLeft = '';
         dialog.style.marginRight = '';
-        const minimumDialogWidth = classicDialog ? 280 : (inlineMode ? 180 : 260);
+        const minimumDialogWidth = materialDialog ? 280 : (inlineMode ? 180 : 260);
         if (classicDialog && pcMode) {
             const widthPercent = normalizeClassicDialogWidthPercent(readerSettings.classicDialogWidthPercent);
             const horizontalGap = Math.round(24 * widthPercent) / 100;
@@ -593,7 +595,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             dialog.style.marginLeft = 'auto';
             dialog.style.marginRight = 'auto';
             dialog.style.width = `max(${minimumDialogWidth}px,calc(${widthPercent}% - ${horizontalGap}px))`;
-        } else if (embeddedMode || (classicDialog && snapshot.mode === 'mobile') || readerSettings.dialogWidth == null) {
+        } else if (embeddedMode || materialDialog || readerSettings.dialogWidth == null) {
             dialog.style.width = '';
         } else if (inlineMode) {
             const clampedWidth = Math.max(minimumDialogWidth, Math.min(readerSettings.dialogWidth, Math.max(minimumDialogWidth, (overlayWidth || readerSettings.dialogWidth) - 24)));
@@ -605,7 +607,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         dialog.style.background = '';
     }
 
-    const compactChrome = embeddedMode || !classicDialog;
+    const compactChrome = embeddedMode || !materialDialog;
     const toolbarDock = compactChrome ? 'float' : (readerSettings.toolbarDock === 'top' ? 'top' : 'float');
     if (root && root.classList) {
         root.classList.toggle('igs-toolbar-top', toolbarDock === 'top');
@@ -844,9 +846,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const send = root.querySelector('#igs-send-btn');
     const dialog = root.querySelector('#igs-dialog');
     const classicDialog = isClassicDialogSkin(snapshot.readerSettings);
+    const materialDialog = isMaterialDialogSkin(snapshot.readerSettings);
     const gradientVeilDialog = isGradientVeilDialogSkin(snapshot.readerSettings);
     if (root.classList) {
-        root.classList.toggle('igs-default-reader-chrome', !classicDialog);
+        root.classList.toggle('igs-default-reader-chrome', !materialDialog);
         root.classList.toggle('igs-gradient-veil-active', gradientVeilDialog);
     }
     const toolbar = root.querySelector('#igs-ctrl-bar');
@@ -963,7 +966,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const segFont = isThought ? theme.thoughtFont : isNarration ? theme.narrationFont : theme.textFont;
         const segColor = isThought ? theme.thoughtColor : isNarration ? theme.narrationColor : theme.textColor;
         const segAlign = isThought ? theme.thoughtAlign : isNarration ? theme.narrationAlign : theme.textAlign;
-        const themeEnabled = sceneAssetsEnabled || classicDialog;
+        const themeEnabled = sceneAssetsEnabled || materialDialog;
         applyAlignStyle(textEl, themeEnabled ? segAlign : '');
         if (themeEnabled && segFont && segFont !== 'inherit') {
             textEl.style.fontFamily = segFont;
@@ -1012,7 +1015,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (dividerEl) {
         const theme = resolveActiveTheme(snapshot);
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
-        if (!classicDialog && sceneAssetsEnabled && snapshot.content.speaker && theme.dividerSymbol !== 'none') {
+        if (!materialDialog && sceneAssetsEnabled && snapshot.content.speaker && theme.dividerSymbol !== 'none') {
             if (theme.dividerSymbol === 'gradient') {
                 dividerEl.textContent = '';
                 dividerEl.style.display = 'block';
@@ -1050,12 +1053,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (dialog) {
         applyDialogSkinAssets(dialog, snapshot.readerSettings);
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
-        if (classicDialog && sceneAssetsEnabled && snapshot.content.speaker) {
+        if (materialDialog && sceneAssetsEnabled && snapshot.content.speaker) {
             dialog.setAttribute('data-igs-has-speaker', '1');
         } else {
             dialog.removeAttribute('data-igs-has-speaker');
         }
-        if (!classicDialog && !snapshot.content.speaker) {
+        if (!materialDialog && !snapshot.content.speaker) {
             dialog.setAttribute('data-igs-narration', '1');
         } else {
             dialog.removeAttribute('data-igs-narration');

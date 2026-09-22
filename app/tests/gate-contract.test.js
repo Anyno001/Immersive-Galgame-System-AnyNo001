@@ -22,7 +22,11 @@ import { getOriginalReaderSource } from '../src/visual/igs-ui/original-reader-so
 import { CLASSIC_DIALOG_ASSETS, CLASSIC_DIALOG_ASSET_META } from '../src/visual/igs-ui/classic-dialog-assets.js';
 import {
     CLASSIC_DIALOG_STYLE_TEXT,
+    DIALOG_SKIN_BLACK_WHITE_MANGA,
+    DIALOG_SKIN_CUTE_PINK,
     DIALOG_SKIN_GRADIENT_VEIL,
+    DIALOG_SKIN_PLANT_COFFEE,
+    ILLUSTRATED_DIALOG_STYLE_TEXT,
     normalizeClassicDialogWidthPercent,
     normalizeDialogSkin,
 } from '../src/visual/igs-ui/classic-dialog-skin.js';
@@ -914,6 +918,21 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     assert.equal(normalizeClassicDialogWidthPercent(undefined), 100);
     assert.equal(normalizeClassicDialogWidthPercent(40), 60);
     assert.equal(normalizeClassicDialogWidthPercent(120), 100);
+});
+
+test('gate:igs-ui:illustrated-dialog-style-uses-three-slice-assets', () => {
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_PLANT_COFFEE}"`));
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /height:177px;min-height:177px;max-height:177px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /background-size:130px 177px,calc\(100% - 260px\) 177px,130px 177px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_BLACK_WHITE_MANGA}"`));
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /height:191px;min-height:191px;max-height:191px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /background-size:90px 191px,calc\(100% - 179px\) 191px,89px 191px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_CUTE_PINK}"`));
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /height:215px;min-height:215px;max-height:215px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /background-size:120px 215px,calc\(100% - 265px\) 215px,145px 215px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__plant-coffee\/dialog-left\.png__/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__black-white-manga\/name-center\.png__/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__cute-pink\/dialog-right\.png__/);
 });
 
 test('gate:api:public-api-exposes-text-preset-groups', () => {

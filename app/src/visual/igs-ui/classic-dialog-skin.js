@@ -1,9 +1,25 @@
 import { CLASSIC_DIALOG_ASSETS } from './classic-dialog-assets.js';
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
+import {
+    DIALOG_SKIN_BLACK_WHITE_MANGA,
+    DIALOG_SKIN_CUTE_PINK,
+    DIALOG_SKIN_PLANT_COFFEE,
+    ILLUSTRATED_DIALOG_SKINS,
+    ILLUSTRATED_DIALOG_STYLE_TEXT,
+    isIllustratedDialogSkin,
+} from './dialog-theme-skins.js';
 
 export const DIALOG_SKIN_DEFAULT = 'default';
 export const DIALOG_SKIN_WESTERN_CLASSIC = 'western-classic';
 export { DIALOG_SKIN_GRADIENT_VEIL };
+export {
+    DIALOG_SKIN_BLACK_WHITE_MANGA,
+    DIALOG_SKIN_CUTE_PINK,
+    DIALOG_SKIN_PLANT_COFFEE,
+    ILLUSTRATED_DIALOG_SKINS,
+    ILLUSTRATED_DIALOG_STYLE_TEXT,
+    isIllustratedDialogSkin,
+};
 export const CLASSIC_DIALOG_HEIGHT = 184;
 export const CLASSIC_DIALOG_EDGE_WIDTH = 110;
 export const CLASSIC_DIALOG_WIDTH_PERCENT_MIN = 60;
@@ -36,6 +52,7 @@ export const CLASSIC_DIALOG_THEME_DEFAULTS = Object.freeze({
 export function normalizeDialogSkin(value) {
     if (value === DIALOG_SKIN_WESTERN_CLASSIC) return DIALOG_SKIN_WESTERN_CLASSIC;
     if (value === DIALOG_SKIN_GRADIENT_VEIL) return DIALOG_SKIN_GRADIENT_VEIL;
+    if (isIllustratedDialogSkin(value)) return value;
     return DIALOG_SKIN_DEFAULT;
 }
 
@@ -53,10 +70,15 @@ export function isGradientVeilDialogSkin(readerSettings) {
     return normalizeDialogSkin(readerSettings && readerSettings.dialogSkin) === DIALOG_SKIN_GRADIENT_VEIL;
 }
 
+export function isMaterialDialogSkin(readerSettings) {
+    const skin = normalizeDialogSkin(readerSettings && readerSettings.dialogSkin);
+    return skin === DIALOG_SKIN_WESTERN_CLASSIC || isIllustratedDialogSkin(skin);
+}
+
 export function applyDialogSkinAssets(dialog, readerSettings) {
     if (!dialog) return;
     const skin = normalizeDialogSkin(readerSettings && readerSettings.dialogSkin);
-    if (skin !== DIALOG_SKIN_WESTERN_CLASSIC && skin !== DIALOG_SKIN_GRADIENT_VEIL) {
+    if (skin !== DIALOG_SKIN_WESTERN_CLASSIC && skin !== DIALOG_SKIN_GRADIENT_VEIL && !isIllustratedDialogSkin(skin)) {
         if (typeof dialog.removeAttribute === 'function') dialog.removeAttribute('data-igs-dialog-skin');
         else if (typeof dialog.setAttribute === 'function') dialog.setAttribute('data-igs-dialog-skin', '');
         return;

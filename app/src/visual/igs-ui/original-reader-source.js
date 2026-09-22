@@ -1,4 +1,5 @@
 import { CLASSIC_DIALOG_STYLE_TEXT } from './classic-dialog-skin.js';
+import { ILLUSTRATED_DIALOG_STYLE_TEXT } from './dialog-theme-skins.js';
 import { GRADIENT_VEIL_STYLE_TEXT } from './gradient-veil-dialog-skin.js';
 
 export const ORIGINAL_READER_ICONS = Object.freeze({
@@ -219,6 +220,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-stage-motion.igs-stage-shake-active[data-igs-stage-shake-intensity="strong"]{animation:igs-stage-shake-strong .38s ease-out both}
 @media (prefers-reduced-motion: reduce){#igs-stage-motion.igs-stage-shake-active{animation:none!important;transform:none!important;}}
 ${GRADIENT_VEIL_STYLE_TEXT}
+${ILLUSTRATED_DIALOG_STYLE_TEXT}
 ${CLASSIC_DIALOG_STYLE_TEXT}
 `.trim();
 

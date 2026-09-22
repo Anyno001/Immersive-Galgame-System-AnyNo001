@@ -17,9 +17,10 @@
 - 内嵌容器桌面比例使用更修长的 `8:5`，移动端高度上限为 `min(74dvh, 680px)`；不得通过放大内部对话框代替容器增高。
 - 默认对话框皮肤与全部选项使用霜夜微圆角平面语言；默认对话框无描边，选项仅允许极弱描边，透明度继续由现有玻璃浓度设置控制。
 - 默认皮肤的 `readerSettings.dialogHeight` 在电脑浮窗、手机浮窗、楼层内嵌、网页全屏和浏览器全屏模式统一表示插件 iframe 高度比例，档位为 `5% / 8% / 12% / 15% / 18% / 20% / 25% / 30% / 35% / 40%`。自动 loader 必须把源插件 iframe 的高度桥接给父页 bundle，禁止误用酒馆父窗口高度；打开阅读器、切换模式或修改档位时计算一次像素盒高并冻结，同一阅读器实例内的台词长短、分页、流式更新及宿主后续 resize 不得改变该值。历史 `60–600` px 值仅兼容读取并保持原像素高度，改选新档位后保存为比例。正文只在现有 `.igs-text` 内滚动，角色名、分隔线和输入区必须留在框内。`null` 恢复内容驱动的自适应高度及当前模式安全上限。
-- `readerSettings.dialogSkin` 只接受 `default` / `western-classic`；缺失或非法值回落 `default`。切换皮肤不得替换 `#igs-dialog`、`#igs-speaker`、`#igs-text`，不得换肤工具栏、选项、背景或正文解析。
+- `readerSettings.dialogSkin` 只接受 `default` / `western-classic` / `plant-coffee` / `black-white-manga` / `cute-pink` / `gradient-veil`；缺失或非法值回落 `default`。切换皮肤不得替换 `#igs-dialog`、`#igs-speaker`、`#igs-text`，不得换肤工具栏、选项、背景或正文解析。
 - `readerSettings.dialogSkin=gradient-veil` 为第三种可选皮肤：共享默认 `vnTheme`、布局、正文与交互配置，仅新增 `readerSettings.gradientVeil` 的颜色、stage 高度比例、最大不透明度和姓名样式；黑幕使用全宽 `to top` 渐变贴合阅读器左右与底边，不使用毛玻璃，不把渐变写入纯色 `--igs-dialog-bg`。
 - 渐变黑幕的姓名样式默认沿用默认主题，可选 `plain-text`；切回 `default` 或 `western-classic` 必须清除黑幕节点显示、专属变量和姓名样式状态，西欧古典主题与姓名牌资产保持隔离。
+- 三套素材主题共享默认 `vnTheme` 与交互链，分别使用项目内 PNG 三片资源：植物咖啡 `130/898/130 × 177`、黑白漫画 `90/930/89 × 191`、超可爱粉 `120/913/145 × 215`；各自姓名框保留原作者切片比例，不互用西欧古典几何。
 - 西欧古典皮肤使用内嵌三片背景：高度 `184px`、左右端各 `110px` 保形、中段横向伸缩，常规最小目标宽度 `280px`；正文继续在现有安全区和滚动节点内排版。`readerSettings.classicDialogWidthPercent` 取 `60–100`，默认 `100`，只在电脑浮窗模式按阅读器可用宽度自动计算并居中；手机与楼层内嵌保持原有满宽。
 - 西欧古典姓名牌复用 `#igs-speaker` 及其既有显隐条件；常规起点相对主框为 `left:35px; top:-22px`，常规尺寸 `300×50px`，两端各 `40px`、中段占主要宽度。窄屏视口（`max-width:640px`）的五种阅读模式统一使用相对主框 `41.667%` 宽度、`left:38px; top:-14px` 与原始 `50px` 高度；姓名使用 `13px` 深色字与细白描边并垂直居中。无姓名时不得出现空牌，切回默认必须恢复原姓名与分隔线布局。
 - `readerSettings.classicVnTheme` 独立保存古典字体、颜色与对齐；`vnTheme` 保留默认皮肤设置，`fontSize` 共用。古典固定推荐高度时只禁用高度编辑、保留旧 `dialogHeight`；共享玻璃设置继续作用于工具栏、选项和数据库，不得为古典对话框全局关闭。
