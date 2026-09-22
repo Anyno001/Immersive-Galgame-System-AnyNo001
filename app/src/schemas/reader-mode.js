@@ -5,7 +5,7 @@ const STORED_READER_MODES = Object.freeze(['pc', 'mobile', 'web', 'fullscreen', 
 
 const READER_MODE_LABELS = Object.freeze({
     pc: '电脑',
-    mobile: '手机',
+    mobile: '窄屏模式',
     web: '网页全屏',
     fullscreen: '全屏',
     [EMBEDDED_READER_MODE]: '楼层内嵌',

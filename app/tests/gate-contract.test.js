@@ -905,6 +905,7 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:40px 50px,calc\(100% - 80px\) 50px,40px 50px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /font-size:13px;font-weight:600;letter-spacing:\.5px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /-webkit-text-stroke:\.6px rgba\(255,255,255,\.78\)/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /@media \(max-width:640px\)\{#igs-overlay \.igs-dialog\[data-igs-dialog-skin="western-classic"\] \.igs-speaker\{left:38px;top:-14px;width:41\.667%;height:50px;line-height:49px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-has-speaker="1"\]\{padding-top:44px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /overflow:visible/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data:image\/png;base64,/);

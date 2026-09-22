@@ -62,6 +62,7 @@ import { createChatStreamObserver } from '../src/host/chat-stream-observer.js';
 
 test('gate:igs-ui:reader-mode-schema-is-single-source-with-embedded', () => {
     assert.deepEqual(Array.from(PUBLIC_READER_MODES), ['pc', 'mobile', 'web', 'fullscreen', 'embedded']);
+    assert.equal(getReaderModeLabel('mobile'), '窄屏模式');
     assert.equal(getReaderModeLabel('embedded'), '楼层内嵌');
     assert.equal(isEmbeddedReaderMode('embedded'), true);
     assert.equal(isEmbeddedReaderMode('pc'), false);
