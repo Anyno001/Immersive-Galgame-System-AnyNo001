@@ -3,7 +3,8 @@ import { buildNarrativeSegments } from '../../scene/image-slots.js';
 import { SETTINGS_TAB_DEFS } from './settings-tabs.js';
 import { TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { esc, normalizeFiniteNumber } from './reader-value-utils.js';
-import { CLASSIC_DIALOG_THEME_DEFAULTS, isClassicDialogSkin } from './classic-dialog-skin.js';
+import { CLASSIC_DIALOG_THEME_DEFAULTS, isClassicDialogSkin, normalizeDialogSkin } from './classic-dialog-skin.js';
+import { getReferenceDialogTypography } from './dialog-theme-typography.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 
 export function normalizeReaderMode(mode, bridge) {
@@ -130,12 +131,13 @@ export function resolveSpriteLayout(layouts, mode, character, mood) {
 
 export function resolveActiveTheme(snapshot) {
     const readerSettings = snapshot.readerSettings || {};
+    const dialogSkin = normalizeDialogSkin(readerSettings.dialogSkin);
     const classic = isClassicDialogSkin(readerSettings);
+    const referenceTypography = getReferenceDialogTypography(dialogSkin);
     const vnTheme = classic ? (readerSettings.classicVnTheme || {}) : (readerSettings._vnTheme || readerSettings.vnTheme || {});
     const presetName = classic ? 'custom' : (vnTheme.preset || 'genshin');
     const preset = classic ? CLASSIC_DIALOG_THEME_DEFAULTS : (VN_THEME_PRESETS[presetName] || VN_THEME_PRESETS.genshin);
-    if (!classic && presetName !== 'custom') return { ...preset };
-    return {
+    const activeTheme = !classic && presetName !== 'custom' ? { ...preset } : {
         nameAlign: vnTheme.nameAlign || preset.nameAlign,
         textAlign: vnTheme.textAlign || preset.textAlign || 'left',
         narrationAlign: vnTheme.narrationAlign || preset.narrationAlign || 'left',
@@ -153,6 +155,15 @@ export function resolveActiveTheme(snapshot) {
         dialogBg: vnTheme.dialogBg || preset.dialogBg,
         bgOpacity: vnTheme.bgOpacity != null ? vnTheme.bgOpacity : null,
     };
+    return referenceTypography ? applyReferenceTypographyDefaults(activeTheme, referenceTypography, preset) : activeTheme;
+}
+
+function applyReferenceTypographyDefaults(theme, referenceTypography, baseline) {
+    const result = { ...theme };
+    for (const [key, value] of Object.entries(referenceTypography)) {
+        if (result[key] == null || result[key] === baseline[key]) result[key] = value;
+    }
+    return result;
 }
 
 export function renderDialogueHtml(text, theme, sceneAssetsEnabled) {

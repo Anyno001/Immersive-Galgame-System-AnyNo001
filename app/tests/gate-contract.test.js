@@ -905,11 +905,11 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     }
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="western-classic"/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:110px 184px,calc\(100% - 220px\) 184px,110px 184px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /left:35px;top:-22px;width:min\(300px,calc\(100% - 70px\)\);height:50px;line-height:49px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /left:35px;top:-22px;width:min\(300px,calc\(100% - 70px\)\);height:50px;line-height:1\.2;margin:0;padding:0 36px;display:flex;align-items:center;justify-content:center/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:40px 50px,calc\(100% - 80px\) 50px,40px 50px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /font-size:13px;font-weight:600;letter-spacing:\.5px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /-webkit-text-stroke:\.6px rgba\(255,255,255,\.78\)/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /@media \(max-width:640px\)\{#igs-overlay \.igs-dialog\[data-igs-dialog-skin="western-classic"\] \.igs-speaker\{left:38px;top:-14px;width:41\.667%;height:50px;line-height:49px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /@media \(max-width:640px\)\{#igs-overlay \.igs-dialog\[data-igs-dialog-skin="western-classic"\] \.igs-speaker\{left:38px;top:-14px;width:41\.667%;height:50px;line-height:1\.2/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-has-speaker="1"\]\{padding-top:44px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /overflow:visible/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data:image\/png;base64,/);
@@ -930,6 +930,9 @@ test('gate:igs-ui:illustrated-dialog-style-uses-three-slice-assets', () => {
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_CUTE_PINK}"`));
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /height:215px;min-height:215px;max-height:215px/);
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /background-size:120px 215px,calc\(100% - 265px\) 215px,145px 215px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="plant-coffee"\] \.igs-speaker\{[^}]*display:flex;align-items:center;justify-content:center/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="black-white-manga"\] \.igs-speaker\{[^}]*padding:0 84px;display:flex;align-items:center;justify-content:flex-start/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="cute-pink"\] \.igs-speaker\{[^}]*padding:0 100px 0 40px;display:flex;align-items:center;justify-content:center/);
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__plant-coffee\/dialog-left\.png__/);
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__black-white-manga\/name-center\.png__/);
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__cute-pink\/dialog-right\.png__/);

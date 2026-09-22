@@ -727,7 +727,7 @@ test('gate:igs-ui:classic-dialog-active-theme-keeps-default-isolated', () => {
     });
     assert.equal(theme.textColor, '#123456');
     assert.equal(theme.nameColor, '#654321');
-    assert.equal(theme.narrationColor, '#e6dcc3');
+    assert.equal(theme.narrationColor, '#f2e5c4');
     assert.equal(theme.dividerSymbol, 'none');
 });
 
@@ -2796,4 +2796,24 @@ test('gate:igs-ui:illustrated-dialog-skins-normalize-and-share-default-theme', (
         assert.equal(theme.textColor, '#abcdef');
         assert.equal(theme.nameColor, '#123456');
     }
+});
+
+
+test('gate:igs-ui:reference-typography-applies-to-material-themes-only', () => {
+    const expected = {
+        'western-classic': { nameColor: '#3b2a22', textColor: '#f2e5c4', nameAlign: 'center' },
+        'plant-coffee': { nameColor: '#b4d35f', textColor: '#5a4442', nameAlign: 'center' },
+        'black-white-manga': { nameColor: '#241b18', textColor: '#352923', nameAlign: 'left' },
+        'cute-pink': { nameColor: '#ffffff', textColor: '#604050', nameAlign: 'center' },
+    };
+    for (const [skin, values] of Object.entries(expected)) {
+        const theme = resolveActiveTheme({ readerSettings: { dialogSkin: skin } });
+        assert.equal(theme.nameColor, values.nameColor);
+        assert.equal(theme.textColor, values.textColor);
+        assert.equal(theme.nameAlign, values.nameAlign);
+    }
+    const defaultTheme = resolveActiveTheme({ readerSettings: { dialogSkin: 'default' } });
+    const veilTheme = resolveActiveTheme({ readerSettings: { dialogSkin: 'gradient-veil' } });
+    assert.equal(defaultTheme.nameColor, '#ffeeb8');
+    assert.equal(veilTheme.nameColor, '#ffeeb8');
 });
