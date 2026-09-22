@@ -30,6 +30,7 @@ import {
     getSceneSettingsSubTabTemplate,
     getReaderSubTabTemplate,
     getSettingsTabTemplate,
+    normalizeReaderSubTab,
     SCENE_SETTINGS_SUBTAB_DEFS,
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
@@ -653,6 +654,9 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     const readerHostText = readText('src/visual/igs-ui/reader-host.js');
     const dbControllerText = readText('src/shujuku-panel/panel-controller.js');
     assert.doesNotMatch(rendererText, /emptyBackgroundColor/);
+    assert.match(rendererText, /applyTypewriterEffect\(textEl/);
+    assert.match(rendererText, /cancelTypewriter\(textEl, \{ finish: true \}\)/);
+    assert.match(readerHostText, /readerSettings\.typewriter\.enabled/);
     assert.match(readerHostText, /switchSceneSettingsSubTab\(subTab\)/);
     assert.match(readerHostText, /data-scene-settings-subtab/);
     assert.match(readerHostText, /switchReaderSubTab\(subTab\)/);
@@ -724,24 +728,34 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
         assert.ok(getReaderSubTabTemplate(subTab.id).length > 0);
     }
 
-    const displayTemplate = getReaderSubTabTemplate('display');
+    const dialogTemplate = getReaderSubTabTemplate('dialog');
+    const visualTemplate = getReaderSubTabTemplate('visual');
+    const performanceTemplate = getReaderSubTabTemplate('performance');
     const optionsTemplate = getReaderSubTabTemplate('options');
-    const toolbarTemplate = getReaderSubTabTemplate('toolbar');
-    const themeTemplate = getReaderSubTabTemplate('theme');
-    assert.match(displayTemplate, /fontSizeField/);
-    assert.match(displayTemplate, /dialogWidthField/);
-    assert.doesNotMatch(displayTemplate, /dialogSkinField|classicDialogWidthPercentField/);
-    assert.doesNotMatch(displayTemplate, /optionBubbleToggle|pinnedButtonsField|nameFontField/);
+    const interfaceTemplate = getReaderSubTabTemplate('interface');
+    assert.match(dialogTemplate, /fontSizeField/);
+    assert.match(dialogTemplate, /dialogWidthField/);
+    assert.match(dialogTemplate, /dialogSkinField/);
+    assert.match(dialogTemplate, /nameFontField/);
+    assert.match(dialogTemplate, /dividerColorField/);
+    assert.match(dialogTemplate, /dialogBgField/);
+    assert.doesNotMatch(dialogTemplate, /optionBubbleToggle|pinnedButtonsField|typewriterToggle/);
+    assert.match(visualTemplate, /imageCountField/);
+    assert.match(visualTemplate, /imgModeField/);
+    assert.match(visualTemplate, /imgBrightnessField/);
+    assert.doesNotMatch(visualTemplate, /dialogWidthField|typewriterToggle|statusHudSection/);
+    assert.match(performanceTemplate, /typewriterToggle/);
+    assert.match(performanceTemplate, /typewriterSpeedField/);
+    assert.match(performanceTemplate, /performanceToggles/);
+    assert.match(performanceTemplate, /nsfwVeilLevelField/);
     assert.match(optionsTemplate, /optionFontSizeField/);
     assert.match(optionsTemplate, /optionBubbleToggle/);
-    assert.match(toolbarTemplate, /toolbarScaleField/);
-    assert.match(toolbarTemplate, /pinnedButtonsField/);
-    assert.doesNotMatch(themeTemplate, /<div class="igs-source-filter-title">对话框风格<\/div>/);
-    assert.doesNotMatch(themeTemplate, /西欧古典的电脑端宽度按阅读器可用宽度计算/);
-    assert.match(themeTemplate, /dialogSkinField[\s\S]*classicDialogWidthPercentField/);
-    assert.match(themeTemplate, /nameFontField/);
-    assert.match(themeTemplate, /dividerColorField/);
-    assert.match(themeTemplate, /dialogBgField/);
+    assert.match(interfaceTemplate, /toolbarScaleField/);
+    assert.match(interfaceTemplate, /pinnedButtonsField/);
+    assert.match(interfaceTemplate, /statusHudSection/);
+    assert.equal(normalizeReaderSubTab('display'), 'dialog');
+    assert.equal(normalizeReaderSubTab('theme'), 'dialog');
+    assert.equal(normalizeReaderSubTab('toolbar'), 'interface');
 });
 
 test('gate:igs-ui:settings-style-keeps-original-geometry', () => {

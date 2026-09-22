@@ -137,6 +137,11 @@ import {
     normalizeDialogSkin,
 } from './classic-dialog-skin.js';
 import {
+    TYPEWRITER_DEFAULTS,
+    cancelTypewriter,
+    normalizeTypewriterSettings,
+} from './typewriter-runtime.js';
+import {
     applyReaderSnapshotToDom,
     applyToolbarState,
     buildFallbackReaderOverlay,
@@ -392,15 +397,17 @@ export function createIgsReaderHost(options = {}) {
         if (!current || !current.dom || !current.dom.overlay) return;
         const settings = current.snapshot && current.snapshot.readerSettings;
         const content = current.snapshot && current.snapshot.content;
+        const statusHudSettings = normalizeStatusHudSettings(settings && settings.statusHud);
+        const showSceneHud = Boolean(content && content.sceneNsfw && statusHudSettings.showSpriteOnNsfw === false);
         const next = buildStatusHudModel({
-            settings: normalizeStatusHudSettings(settings && settings.statusHud),
+            settings: statusHudSettings,
             sceneAssets: (settings && settings._sceneAssets) || {},
             location: content && content.sceneLocation,
             time: content && content.sceneTime,
             weather: content && content.sceneWeather,
             character: content && !content.sceneNsfw ? content.speaker : '',
             emotion: content && !content.sceneNsfw ? content.statusEmotion : '',
-            isNarration: Boolean(content && (content.textType === 'narration' || content.textType === 'thought')),
+            isNarration: Boolean(content && (content.textType === 'narration' || content.textType === 'thought')) || showSceneHud,
             readResult: readStatusHudTablesSafe(),
         });
         current.snapshot.content.statusHud = next;
@@ -438,6 +445,7 @@ export function createIgsReaderHost(options = {}) {
         if (!current) return { ok: true, reason: 'reader-not-open' };
         closeSettings();
         clearReaderToast(current);
+        cancelTypewriter(current.dom && current.dom.text, { finish: false });
         clearReaderModeRuntime(current);
         if (closeOptions.keepFullscreen !== true) {
             exitDocumentFullscreen(getRootDocument(options.global));
@@ -1030,6 +1038,14 @@ export function createIgsReaderHost(options = {}) {
             return moveReaderSegment(-1);
         }
         if (normalizedAction === 'next') {
+            if (cancelTypewriter(state.activeReader.dom && state.activeReader.dom.text, { finish: true })) {
+                return {
+                    ok: true,
+                    moved: false,
+                    reason: 'typewriter-completed',
+                    index: state.activeReader.index,
+                };
+            }
             return moveReaderSegment(1);
         }
         if (normalizedAction === 'first-page') {
@@ -1751,7 +1767,7 @@ export function createIgsReaderHost(options = {}) {
                 sceneTime: statusSceneInfo.time,
                 sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
-                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought'),
+                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
             },
             readerSettings: cloneData(readerSettings),
             input: {
@@ -1981,6 +1997,7 @@ export function createIgsReaderHost(options = {}) {
         const themeCustom = true;
         const displayTheme = classicDialog ? classicVnTheme : vnTheme;
         const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
+        const typewriter = normalizeTypewriterSettings(reader.typewriter);
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
             dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（旧设置保留）`]);
         }
@@ -2001,11 +2018,13 @@ export function createIgsReaderHost(options = {}) {
             toolbarDockField: field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'float', [['float', '悬浮'], ['top', '顶部固定']])),
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            readerToggles: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜')
-                + checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
-                + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
-                + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘')
+            dialogToggles: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜')
                 + checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
+            typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '启用打字机演出'),
+            typewriterSpeedField: field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度')),
+            performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
+                + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
+                + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘'),
             nsfwVeilLevelField: `<div class="igs-settings-row">${field('readerSettings.statusHud.nsfwVeilLevel', 'NSFW黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) ||'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], 'NSFW黑幕强度'))}</div>`,
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
@@ -2689,6 +2708,7 @@ export function createIgsReaderHost(options = {}) {
             imgMode: 'adaptive',
             imgBrightness: 88,
             showStatusLine: false,
+            typewriter: { ...TYPEWRITER_DEFAULTS },
             imageCountOverride: null,
             pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
             hiddenBtns: [],
@@ -2719,6 +2739,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.imgMode = normalized.imgMode === 'contain' ? 'contain' : 'adaptive';
         normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);
         normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
+        normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
         normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
         normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);

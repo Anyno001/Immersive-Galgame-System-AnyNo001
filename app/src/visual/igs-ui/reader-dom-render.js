@@ -21,6 +21,7 @@ import {
     resolveSpriteLayout,
 } from './settings-normalize.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
+import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import {
     applyDialogSkinAssets,
     isClassicDialogSkin,
@@ -217,7 +218,7 @@ export function buildFallbackReaderOverlay(doc) {
     const toast = doc.createElement('div');
     toast.id = 'igs-toast';
     toast.setAttribute('aria-live', 'polite');
-    dialog.appendChild(toast);
+    overlay.appendChild(toast);
 
     const statusHud = doc.createElement('div');
     statusHud.id = 'igs-status-hud';
@@ -863,7 +864,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const theme = resolveActiveTheme(snapshot);
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
         const textType = snapshot.content.textType || 'narration';
-        textEl.innerHTML = renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled);
+        const renderedHtml = renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled);
+        const textRenderKey = [snapshot.messageId, snapshot.content.currentIndex, textType, renderedHtml].join(':');
+        const sameTextRender = Boolean(textEl.dataset && textEl.dataset.igsTextRenderKey === textRenderKey);
+        if (!sameTextRender) {
+            cancelTypewriter(textEl, { finish: false });
+            textEl.innerHTML = renderedHtml;
+            if (textEl.dataset) textEl.dataset.igsTextRenderKey = textRenderKey;
+        }
         textEl.style.fontSize = `${snapshot.readerSettings.fontSize}px`;
         textEl.style.lineHeight = computeLineHeight(snapshot.readerSettings.fontSize);
         textEl.style.marginTop = '';
@@ -884,6 +892,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         } else {
             textEl.style.color = '';
         }
+        const typewriterSettings = snapshot.readerSettings.typewriter || {};
+        applyTypewriterEffect(textEl, {
+            enabled: typewriterSettings.enabled === true,
+            speed: typewriterSettings.speed,
+            key: textRenderKey,
+        });
     }
     const speakerEl = root.querySelector('#igs-speaker');
     if (speakerEl) {
@@ -992,6 +1006,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 || event.target.closest('#igs-ctrl-bar')
                 || event.target.closest('#igs-settings')
             )) {
+                return;
+            }
+            if (cancelTypewriter(textEl, { finish: true })) {
+                event.preventDefault();
                 return;
             }
             const rect = typeof dialog.getBoundingClientRect === 'function'

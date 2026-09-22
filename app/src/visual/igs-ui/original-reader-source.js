@@ -171,7 +171,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-image-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:1;font-size:13px;color:rgba(255,255,255,.4);letter-spacing:.5px;}
 #igs-send-status{display:none;flex:1;align-items:center;gap:8px;padding:8px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;font-size:13px;color:rgba(255,255,255,.55);letter-spacing:.3px;}
 #igs-settings{display:none;position:absolute;right:0;bottom:calc(100% + 10px);min-width:232px;background:rgba(16,16,20,.92);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(40px) saturate(180%);border-radius:18px;padding:16px 18px 14px;box-shadow:0 10px 40px rgba(0,0,0,.6);z-index:30;}
-#igs-toast{position:absolute;left:50%;top:24px;transform:translateX(-50%);min-width:200px;max-width:min(420px,calc(100vw - 32px));padding:10px 14px;border-radius:12px;background:rgba(16,16,20,.88);border:1px solid rgba(255,255,255,.12);font-size:12px;line-height:1.45;opacity:0;pointer-events:none;}
+#igs-toast{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;min-width:200px;max-width:min(420px,calc(100vw - 32px));padding:10px 14px;border-radius:12px;background:rgba(16,16,20,.88);border:1px solid rgba(255,255,255,.12);font-size:12px;line-height:1.45;opacity:0;pointer-events:none;}
 /* 楼层内嵌：容器固定高度、不可拖动、不锁页面滚动，全部层约束在容器内。 */
 .igs-embedded-host{position:relative;display:block;width:100%;margin:8px 0;border-radius:8px;overflow:hidden;isolation:isolate;background:#16181a;}
 .igs-embedded-root{position:relative;width:100%;height:100%;overflow:hidden;}
@@ -232,7 +232,6 @@ const ORIGINAL_READER_HTML = `
     <input class="igs-input" id="igs-input" type="text" placeholder="输入内容后按 Enter 发送">
     <button class="igs-send-btn" id="igs-send-btn" type="button">发送</button>
   </div>
-  <div id="igs-toast" aria-live="polite"></div>
 </div>
 </div>
 <div id="igs-toolbar-layer" class="igs-hud-layer">
@@ -250,6 +249,7 @@ const ORIGINAL_READER_HTML = `
 </div>
 <div id="igs-db-layer" class="igs-system-layer"></div>
 <div id="igs-status-hud" hidden></div>
+<div id="igs-toast" aria-live="polite"></div>
 `.trim();
 
 export const ORIGINAL_READER_REQUIRED_SELECTORS = Object.freeze([

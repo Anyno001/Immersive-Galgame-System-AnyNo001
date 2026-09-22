@@ -73,19 +73,47 @@ const READER_TAB_TEMPLATE = `
 </div>
 `.trim();
 
-const READER_DISPLAY_TEMPLATE = `
-<div class="igs-settings-grid" data-reader-pane="display">
-  {{fontSizeField}}
-  {{dialogWidthField}}
-  {{dialogHeightField}}
-  {{glassOpacityField}}
-  {{imageCountField}}
-  {{inputScaleField}}
-  {{imgModeField}}
-  {{imgBrightnessField}}
-  <div class="igs-settings-section igs-settings-full">{{readerToggles}}</div>
-  {{nsfwVeilLevelField}}
-  {{statusHudSection}}
+const READER_DIALOG_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="dialog">
+  <div class="igs-source-filter igs-settings-full">
+    <div class="igs-source-filter-title">对话框布局</div>
+    <div class="igs-source-filter-grid">
+      {{fontSizeField}}
+      {{dialogWidthField}}
+      {{dialogHeightField}}
+      {{inputScaleField}}
+      {{dialogSkinField}}
+      {{classicDialogWidthPercentField}}
+    </div>
+    <div class="igs-settings-section">{{dialogToggles}}</div>
+  </div>
+  <div class="{{themeGroupClass}}">
+    <div>
+      <div class="igs-source-filter-title">文字与外观</div>
+      <div class="igs-source-filter-note">{{themeNote}}</div>
+    </div>
+    <div class="{{themeAdvancedClass}}" style="display:flex;flex-direction:column;gap:12px">
+      <div class="igs-source-filter"><div class="igs-source-filter-title">角色名</div><div class="igs-settings-row">{{nameFontField}}{{nameColorField}}{{nameAlignField}}</div></div>
+      <div class="igs-source-filter"><div class="igs-source-filter-title">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}{{textAlignField}}</div></div>
+      <div class="igs-source-filter"><div class="igs-source-filter-title">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}{{narrationAlignField}}</div></div>
+      <div class="igs-source-filter"><div class="igs-source-filter-title">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}{{thoughtAlignField}}</div></div>
+      <div class="igs-source-filter"><div class="igs-source-filter-title">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
+      <div class="igs-source-filter"><div class="igs-source-filter-title">对话框背景</div><div class="igs-settings-row">{{dialogBgField}}{{dialogBgOpacityField}}{{glassOpacityField}}</div></div>
+    </div>
+  </div>
+</div>
+`.trim();
+
+const READER_VISUAL_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="visual">
+  <div class="igs-source-filter igs-settings-full"><div><div class="igs-source-filter-title">背景与图像</div><div class="igs-source-filter-note">控制阅读器中的背景图呈现与图像检测数量。</div></div><div class="igs-source-filter-grid">{{imageCountField}}{{imgModeField}}{{imgBrightnessField}}</div></div>
+</div>
+`.trim();
+
+const READER_PERFORMANCE_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="performance">
+  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">文字演出</div><div class="igs-settings-row">{{typewriterToggle}}</div><div class="igs-settings-row">{{typewriterSpeedField}}</div></div>
+  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">场景演出</div><div class="igs-settings-section">{{performanceToggles}}</div>{{nsfwVeilLevelField}}</div>
 </div>
 `.trim();
 
@@ -105,54 +133,10 @@ const READER_OPTIONS_TEMPLATE = `
 </div>
 `.trim();
 
-const READER_TOOLBAR_TEMPLATE = `
-<div class="igs-settings-grid" data-reader-pane="toolbar">
-  {{toolbarScaleField}}
-  {{toolbarDockField}}
-  <div class="igs-settings-section igs-settings-full">{{pinnedButtonsField}}</div>
-</div>
-`.trim();
-
-const READER_THEME_TEMPLATE = `
-<div class="igs-settings-grid" data-reader-pane="theme">
-  <div class="igs-source-filter igs-settings-full">
-    <div class="igs-source-filter-grid">
-      {{dialogSkinField}}
-      {{classicDialogWidthPercentField}}
-    </div>
-  </div>
-  <div class="{{themeGroupClass}}">
-    <div>
-      <div class="igs-source-filter-title">对话主题</div>
-      <div class="igs-source-filter-note">{{themeNote}}</div>
-    </div>
-    <div class="{{themeAdvancedClass}}" style="display:flex;flex-direction:column;gap:12px">
-      <div class="igs-source-filter">
-        <div class="igs-source-filter-title">角色名</div>
-        <div class="igs-settings-row">{{nameFontField}}{{nameColorField}}{{nameAlignField}}</div>
-      </div>
-      <div class="igs-source-filter">
-        <div class="igs-source-filter-title">台词</div>
-        <div class="igs-settings-row">{{textFontField}}{{textColorField}}{{textAlignField}}</div>
-      </div>
-      <div class="igs-source-filter">
-        <div class="igs-source-filter-title">旁白</div>
-        <div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}{{narrationAlignField}}</div>
-      </div>
-      <div class="igs-source-filter">
-        <div class="igs-source-filter-title">心里话</div>
-        <div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}{{thoughtAlignField}}</div>
-      </div>
-      <div class="igs-source-filter">
-        <div class="igs-source-filter-title">分隔线</div>
-        <div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div>
-      </div>
-      <div class="igs-source-filter">
-        <div class="igs-source-filter-title">对话框背景</div>
-        <div class="igs-settings-row">{{dialogBgField}}{{dialogBgOpacityField}}{{glassOpacityField}}</div>
-      </div>
-    </div>
-  </div>
+const READER_INTERFACE_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="interface">
+  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">顶部工具栏</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}</div><div class="igs-settings-section">{{pinnedButtonsField}}</div></div>
+  {{statusHudSection}}
 </div>
 `.trim();
 
@@ -205,10 +189,11 @@ export const SCENE_SETTINGS_SUBTAB_DEFS = Object.freeze([
 ]);
 
 export const READER_SUBTAB_DEFS = Object.freeze([
-    ['display', '显示'],
+    ['dialog', '对话框'],
+    ['visual', '画面'],
+    ['performance', '演出'],
     ['options', '选项'],
-    ['toolbar', '工具栏'],
-    ['theme', '主题'],
+    ['interface', '顶部UI'],
 ]);
 
 export const SETTINGS_TAB_DEFS = Object.freeze([
@@ -234,22 +219,31 @@ export function getSceneSettingsSubTabTemplate(subTab) {
     }
 }
 
+const READER_SUBTAB_ALIASES = Object.freeze({
+    display: 'dialog',
+    theme: 'dialog',
+    toolbar: 'interface',
+});
+
 export function normalizeReaderSubTab(subTab) {
-    const normalized = String(subTab || 'display').trim();
-    return READER_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'display';
+    const raw = String(subTab || 'dialog').trim();
+    const normalized = READER_SUBTAB_ALIASES[raw] || raw;
+    return READER_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'dialog';
 }
 
 export function getReaderSubTabTemplate(subTab) {
     switch (normalizeReaderSubTab(subTab)) {
+        case 'visual':
+            return READER_VISUAL_TEMPLATE;
+        case 'performance':
+            return READER_PERFORMANCE_TEMPLATE;
         case 'options':
             return READER_OPTIONS_TEMPLATE;
-        case 'toolbar':
-            return READER_TOOLBAR_TEMPLATE;
-        case 'theme':
-            return READER_THEME_TEMPLATE;
-        case 'display':
+        case 'interface':
+            return READER_INTERFACE_TEMPLATE;
+        case 'dialog':
         default:
-            return READER_DISPLAY_TEMPLATE;
+            return READER_DIALOG_TEMPLATE;
     }
 }
 

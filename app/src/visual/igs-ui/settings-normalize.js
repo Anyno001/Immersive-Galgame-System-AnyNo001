@@ -28,7 +28,7 @@ export function normalizeSettingsValue(path, value) {
         if (/glassOpacity/.test(path)) {
             return Number(value);
         }
-        if (/^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path) || /^readerSettings\.statusHud\.showLocation$/.test(path) || /^readerSettings\.statusHud\.showLocationDetails$/.test(path) || /^readerSettings\.statusHud\.showSpriteOnNsfw$/.test(path) || /^readerSettings\.statusHud\.dimSpriteOnNarration$/.test(path)) {
+        if (/^readerSettings\.typewriter\.enabled$/.test(path) || /^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path) || /^readerSettings\.statusHud\.showLocation$/.test(path) || /^readerSettings\.statusHud\.showLocationDetails$/.test(path) || /^readerSettings\.statusHud\.showSpriteOnNsfw$/.test(path) || /^readerSettings\.statusHud\.dimSpriteOnNarration$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
     }

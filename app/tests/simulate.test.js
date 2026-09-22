@@ -12,6 +12,7 @@ import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import { LEGACY_DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
+import { applyTypewriterEffect } from '../src/visual/igs-ui/typewriter-runtime.js';
 import { VISUAL_MODES } from '../src/visual/visual-mode.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
@@ -460,22 +461,24 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     const overlay = document.getElementById('igs-overlay');
     const sprite = overlay.querySelector('#igs-sprite');
     const hud = document.getElementById('igs-status-hud');
+    const location = hud.querySelector('.igs-hud-location-label');
     assert.equal(content.sceneNsfw, true);
     assert.equal(content.spriteImage, null);
     assert.equal(sprite.style.backgroundImage, '');
     assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
     assert.equal(sprite.style.display, 'none');
-    assert.equal(hud.hasAttribute('hidden'), true);
+    assert.equal(content.statusHud.location, 'Room');
+    assert.equal(hud.hasAttribute('hidden'), false);
     assert.equal(hud.querySelector('.igs-hud-avatar'), null);
     assert.equal(hud.querySelector('.igs-hud-emotion'), null);
-    assert.equal(hud.querySelector('.igs-hud-location'), null);
+    assert.ok(hud.querySelector('.igs-hud-location'));
+    assert.equal(location && location.textContent, 'Room');
     const styleText = getOriginalReaderStyleText();
-    assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg\{[^}]*blur\(8px\)[^}]*brightness\(var\(--igs-nsfw-bg-brightness,\.62\)\)[^}]*saturate\(\.72\)/);
+    assert.doesNotMatch(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg\{[^}]*filter:/);
     assert.match(styleText, /#igs-overlay\.igs-scene-nsfw #igs-bg::after\{[^}]*radial-gradient\(ellipse at center,rgba\(12,14,18,var\(--igs-nsfw-veil-center,\.30\)\) 20%,rgba\(12,14,18,var\(--igs-nsfw-veil-edge,\.72\)\) 100%\)/);
     // 默认档（medium）中心不再接近透明，消除「只有四角发黑」。
     assert.equal(overlay.style['--igs-nsfw-veil-center'], '.30');
     assert.equal(overlay.style['--igs-nsfw-veil-edge'], '.72');
-    assert.equal(overlay.style['--igs-nsfw-bg-brightness'], '.62');
     vn.destroy();
 });
 
@@ -1017,7 +1020,7 @@ test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
         assert.equal(current.readerSettings.glassBackdropFilter, true);
         assert.equal(savedStorage.fontSize, 20);
         assert.equal(savedStorage.optionFontSize, 18);
-        assert.equal(savedStorage._v, '0.5.4');
+        assert.equal(savedStorage._v, '0.5.5');
         assert.equal(Object.hasOwn(savedStorage, 'emptyBackgroundColor'), false);
         assert.equal(savedStorage.glassBackdropFilter, true);
     } finally {
@@ -1082,6 +1085,57 @@ test('gate:simulation:igs-ui-background-click-does-not-page-dialog-click-still-p
     dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160 });
     assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '2 / 2');
 
+    vn.destroy();
+});
+
+test('gate:simulation:typewriter-first-forward-completes-text-and-second-forward-pages', async () => {
+    const document = createFakeDocument();
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        typewriter: { enabled: true, speed: 'slow' },
+    }));
+    const vn = bootstrapIGS({
+        global: { document },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 440,
+                text: '[角色: 艾莉]\n艾莉: 第一段。\n第二段。',
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const dialog = overlay.querySelector('#igs-dialog');
+    const textEl = overlay.querySelector('#igs-text');
+    const textNode = { nodeType: 3, nodeValue: '第一段。', childNodes: [] };
+    textEl.nodeType = 1;
+    textEl.childNodes = [textNode];
+    const queue = [];
+    applyTypewriterEffect(textEl, {
+        enabled: true,
+        speed: 'slow',
+        key: 'host-page-1',
+        reducedMotion: false,
+        schedule(callback) {
+            queue.push(callback);
+            return callback;
+        },
+        clear(timer) {
+            const index = queue.indexOf(timer);
+            if (index >= 0) queue.splice(index, 1);
+        },
+    });
+
+    assert.equal(textNode.nodeValue, '第');
+    assert.equal(opened.reader.snapshot.content.progress, '1 / 2');
+    dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160 });
+    assert.equal(textNode.nodeValue, '第一段。');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '1 / 2');
+    dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160 });
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '2 / 2');
     vn.destroy();
 });
 
@@ -1947,37 +2001,52 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     settings.switchTab('reader');
 
-    const displayView = settings.switchReaderSubTab('display');
-    assert.equal(displayView.snapshot.readerSubTab, 'display');
-    assert.match(displayView.snapshot.html, /data-reader-pane="display"/);
-    assert.match(displayView.snapshot.html, /对话框宽度/);
-    assert.doesNotMatch(displayView.snapshot.html, /最低 60px，正文过长时在框内滚动。/);
-    assert.doesNotMatch(displayView.snapshot.html, /对话框风格/);
-    assert.doesNotMatch(displayView.snapshot.html, /按钮管理/);
+    const dialogView = settings.switchReaderSubTab('dialog');
+    assert.equal(dialogView.snapshot.readerSubTab, 'dialog');
+    assert.match(dialogView.snapshot.html, /data-reader-pane="dialog"/);
+    assert.match(dialogView.snapshot.html, /对话框宽度/);
+    assert.match(dialogView.snapshot.html, /对话框风格/);
+    assert.match(dialogView.snapshot.html, /角色名/);
+    assert.match(dialogView.snapshot.html, /分隔线/);
+    assert.doesNotMatch(dialogView.snapshot.html, /按钮管理|启用打字机演出/);
+
+    const visualView = settings.switchReaderSubTab('visual');
+    assert.match(visualView.snapshot.html, /data-reader-pane="visual"/);
+    assert.match(visualView.snapshot.html, /检测图像数量/);
+    assert.match(visualView.snapshot.html, /图像显示模式/);
+    assert.match(visualView.snapshot.html, /图片亮度/);
+
+    const performanceView = settings.switchReaderSubTab('performance');
+    assert.match(performanceView.snapshot.html, /data-reader-pane="performance"/);
+    assert.match(performanceView.snapshot.html, /启用打字机演出/);
+    assert.match(performanceView.snapshot.html, /打字机速度/);
+    assert.match(performanceView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
+    assert.match(performanceView.snapshot.html, /启用人物过场滤镜（仅旁白）/);
+    assert.match(performanceView.snapshot.html, /显示NSFW场景下的人物立绘/);
 
     const optionsView = settings.switchReaderSubTab('options');
     assert.match(optionsView.snapshot.html, /data-reader-pane="options"/);
     assert.match(optionsView.snapshot.html, /选项字体大小/);
     assert.match(optionsView.snapshot.html, /启用选项气泡/);
 
-    const toolbarView = settings.switchReaderSubTab('toolbar');
-    assert.match(toolbarView.snapshot.html, /data-reader-pane="toolbar"/);
-    assert.match(toolbarView.snapshot.html, /工具栏大小/);
-    assert.match(toolbarView.snapshot.html, /按钮管理/);
+    const interfaceView = settings.switchReaderSubTab('interface');
+    assert.match(interfaceView.snapshot.html, /data-reader-pane="interface"/);
+    assert.match(interfaceView.snapshot.html, /顶部工具栏/);
+    assert.match(interfaceView.snapshot.html, /工具栏大小/);
+    assert.match(interfaceView.snapshot.html, /按钮管理/);
+    assert.match(interfaceView.snapshot.html, /显示左上角状态栏/);
 
-    const themeView = settings.switchReaderSubTab('theme');
-    assert.match(themeView.snapshot.html, /data-reader-pane="theme"/);
-    assert.equal((themeView.snapshot.html.match(/对话框风格/g) || []).length, 1);
-    assert.doesNotMatch(themeView.snapshot.html, /西欧古典的电脑端宽度按阅读器可用宽度计算/);
-    assert.doesNotMatch(themeView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
-    assert.match(themeView.snapshot.html, /角色名/);
-    assert.match(themeView.snapshot.html, /分隔线/);
+    settings.setValue('readerSettings.typewriter.enabled', true);
+    settings.setValue('readerSettings.typewriter.speed', 'slow');
+    assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter, { enabled: true, speed: 'slow' });
+    const savedTypewriter = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+    assert.deepEqual(savedTypewriter.typewriter, { enabled: true, speed: 'slow' });
 
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
-    const classicThemeView = settings.switchReaderSubTab('theme');
-    assert.equal((classicThemeView.snapshot.html.match(/对话框风格/g) || []).length, 1);
-    assert.match(classicThemeView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
-    assert.match(classicThemeView.snapshot.html, /60%/);
+    const classicDialogView = settings.switchReaderSubTab('dialog');
+    assert.equal((classicDialogView.snapshot.html.match(/对话框风格/g) || []).length, 1);
+    assert.match(classicDialogView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
+    assert.match(classicDialogView.snapshot.html, /60%/);
 
     vn.destroy();
 });
@@ -2549,6 +2618,8 @@ test('gate:simulation:igs-ui-hidden-state-can-be-restored-and-toast-shows-bounda
     let clickLayer = overlay.querySelector('#igs-click-layer');
 
     assert.equal(dialog.parentNode && dialog.parentNode.id, 'igs-dialog-layer');
+    const toast = overlay.querySelector('#igs-toast');
+    assert.equal(toast.parentNode && toast.parentNode.id, 'igs-overlay');
     assert.equal(toolbar.parentNode && toolbar.parentNode.id, 'igs-toolbar-layer');
     assert.equal(optionBubbles.parentNode && optionBubbles.parentNode.id, 'igs-option-layer');
     assert.ok(overlay.querySelector('#igs-db-layer'));
@@ -4109,7 +4180,7 @@ test('gate:simulation:status-hud-settings-collapse-when-disabled-without-reading
     const opened = await vn.openLatestAvailable('pc');
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     settings.switchTab('reader');
-    const html = settings.switchReaderSubTab('display').snapshot.html;
+    const html = settings.switchReaderSubTab('interface').snapshot.html;
 
     assert.match(html, /data-status-hud/);
     assert.match(html, /显示左上角状态栏/);
@@ -4149,15 +4220,13 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
 
     settings.setValue('readerSettings.statusHud.enabled', true);
     settings.setValue('readerSettings.statusHud.showLocation', true);
-    const enabled = settings.switchReaderSubTab('display').snapshot.html;
+    const enabled = settings.switchReaderSubTab('interface').snapshot.html;
     assert.match(enabled, /显示左上角状态栏/);
     assert.match(enabled, /显示情绪标签/);
     assert.match(enabled, /显示地点栏（仅旁白）/);
     assert.match(enabled, /显示更多的场景信息/);
     assert.match(enabled, /显示左上角状态栏[\s\S]*显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息/);
-    // 常驻区五项始终显示，且位于跟随区之前。
-    assert.match(enabled, /启用背景滤镜[\s\S]*启用人物过场滤镜（仅旁白）[\s\S]*按照句号自动分页（仅旁白）[\s\S]*显示NSFW场景下的人物立绘[\s\S]*显示对话框内状态行[\s\S]*显示左上角状态栏/);
-    assert.match(enabled, /启用人物过场滤镜（仅旁白）[\s\S]*按照句号自动分页（仅旁白）[\s\S]*显示NSFW场景下的人物立绘[\s\S]*显示对话框内状态行/);
+    assert.doesNotMatch(enabled, /启用背景滤镜|启用人物过场滤镜|显示NSFW场景下的人物立绘/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
@@ -4174,6 +4243,14 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /<div class="igs-settings-field"><span>读取表格<\/span><div class="igs-status-hud-tables"/);
     assert.doesNotMatch(enabled, /<label class="igs-settings-field"><span>读取表格<\/span>/);
 
+    const performance = settings.switchReaderSubTab('performance').snapshot.html;
+    assert.match(performance, /启用打字机演出/);
+    assert.match(performance, /启用人物过场滤镜（仅旁白）[\s\S]*按照句号自动分页（仅旁白）[\s\S]*显示NSFW场景下的人物立绘/);
+    assert.match(performance, /NSFW黑幕强度/);
+    const dialog = settings.switchReaderSubTab('dialog').snapshot.html;
+    assert.match(dialog, /启用背景滤镜/);
+    assert.match(dialog, /显示对话框内状态行/);
+
     settings.setValue('readerSettings.statusHud.showLocation', true);
     assert.equal(settings.getSnapshot().draft.readerSettings.statusHud.showLocation, true);
     settings.setValue('readerSettings.statusHud.showLocationDetails', true);
@@ -4185,6 +4262,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
     settings.invoke('status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8');
     assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.tables.map((t) => t.uid), ['sheet_quest', 'sheet_stats']);
+    settings.switchReaderSubTab('interface');
     assert.equal((settings.getSnapshot().html.match(/class="igs-table-pick is-on"/g) || []).length, 2);
 
     settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
@@ -4199,18 +4277,16 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.deepEqual(persisted.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
 
 
-    // 关闭总开关后：跟随区隐藏，常驻区五项保留。
+    // 关闭总开关后：顶部 UI 的状态栏子设置隐藏，其他分类互不受影响。
     settings.setValue('readerSettings.statusHud.enabled', false);
-    const disabled = settings.switchReaderSubTab('display').snapshot.html;
+    const disabled = settings.switchReaderSubTab('interface').snapshot.html;
     assert.match(disabled, /显示左上角状态栏/);
     assert.doesNotMatch(disabled, /显示情绪标签/);
     assert.doesNotMatch(disabled, /显示地点栏/);
     assert.doesNotMatch(disabled, /显示更多的场景信息/);
-    assert.match(disabled, /启用背景滤镜/);
-    assert.match(disabled, /启用人物过场滤镜（仅旁白）/);
-    assert.match(disabled, /按照句号自动分页（仅旁白）/);
-    assert.match(disabled, /显示NSFW场景下的人物立绘/);
-    assert.match(disabled, /显示对话框内状态行/);
+    assert.doesNotMatch(disabled, /启用背景滤镜|启用人物过场滤镜|显示NSFW场景下的人物立绘/);
+    assert.match(settings.switchReaderSubTab('performance').snapshot.html, /启用人物过场滤镜（仅旁白）/);
+    assert.match(settings.switchReaderSubTab('dialog').snapshot.html, /显示对话框内状态行/);
 
     vn.destroy();
 });

@@ -89,6 +89,8 @@
         "readerSettings.glassOpacity",
         "readerSettings.imageCountOverride",
         "readerSettings.inputScale",
+        "readerSettings.typewriter.enabled",
+        "readerSettings.typewriter.speed",
         "readerSettings.toolbarScale",
         "readerSettings.imgMode"
       ]
@@ -106,20 +108,24 @@
   ],
   "readerSubTabs": [
     {
-      "id": "display",
-      "label": "显示"
+      "id": "dialog",
+      "label": "对话框"
+    },
+    {
+      "id": "visual",
+      "label": "画面"
+    },
+    {
+      "id": "performance",
+      "label": "演出"
     },
     {
       "id": "options",
       "label": "选项"
     },
     {
-      "id": "toolbar",
-      "label": "工具栏"
-    },
-    {
-      "id": "theme",
-      "label": "主题"
+      "id": "interface",
+      "label": "顶部UI"
     }
   ],
   "styleChecks": {
@@ -146,7 +152,7 @@
     "themeToggleIcon": ".igs-settings-theme-toggle svg{display:block;width:11px;height:11px",
     "sceneSettingsSubTabs": ".igs-scene-settings-subtabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))",
     "sceneSettingsSubTabActive": ".igs-scene-settings-subtab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",
-    "readerSubTabs": ".igs-reader-subtabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))",
+    "readerSubTabs": ".igs-reader-subtabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(5,minmax(0,1fr))",
     "readerSubTabActive": ".igs-reader-subtab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none",
     "segmentedDynamicSpacing": ".igs-segmented{--igs-segment-pad:clamp(0px,calc(2cqi - 5px),6px);--igs-segment-gap:clamp(0px,calc(1.5cqi - 4px),5px);--igs-segment-font:clamp(9px,calc(5px + 1.5cqi),12px);--igs-segment-icon:clamp(8px,calc(3px + 2cqi),15px);container-type:inline-size",
     "segmentedButtonBox": ".igs-segmented-btn{box-sizing:border-box;width:100%;height:32px;min-width:0;margin:0;padding:0 var(--igs-segment-pad)",
