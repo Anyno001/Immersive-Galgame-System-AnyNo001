@@ -20,6 +20,8 @@ import {
 import { parseSceneText } from '../src/scene/text-parser.js';
 import { applyAlignStyle } from '../src/visual/igs-ui/reader-dom-render.js';
 import { resolveSpriteLayout, resolveActiveTheme } from '../src/visual/igs-ui/settings-normalize.js';
+import { DIALOG_SKIN_GRADIENT_VEIL, normalizeDialogSkin } from '../src/visual/igs-ui/classic-dialog-skin.js';
+import { normalizeGradientVeil } from '../src/visual/igs-ui/gradient-veil-dialog-skin.js';
 import { runTextPipeline } from '../src/scene/text-pipeline.js';
 import { createMemoryStorage } from '../src/storage/preset-store.js';
 import { resolveScene } from '../src/scene/scene-resolver.js';
@@ -2738,4 +2740,39 @@ test('gate:scene:scene-preset-round-trip-keeps-status-avatars', async () => {
     draft.bridge.sceneAssets.statusAvatars = {};
     await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('头像预设'), ctx);
     assert.equal(draft.bridge.sceneAssets.statusAvatars['爱丽丝'], 'data:image/png;base64,AAA');
+
+test('gate:igs-ui:gradient-veil-normalizes-values-and-shares-default-theme', () => {
+    assert.equal(normalizeDialogSkin(DIALOG_SKIN_GRADIENT_VEIL), DIALOG_SKIN_GRADIENT_VEIL);
+    assert.deepEqual(normalizeGradientVeil({
+        color: 'invalid',
+        heightPercent: -10,
+        opacity: 2,
+        speakerStyle: 'invalid',
+    }), {
+        color: '#000000',
+        heightPercent: 20,
+        opacity: 1,
+        speakerStyle: 'default',
+    });
+    assert.deepEqual(normalizeGradientVeil({
+        color: '#AABBCC',
+        heightPercent: 70.4,
+        opacity: '0.55',
+        speakerStyle: 'plain-text',
+    }), {
+        color: '#aabbcc',
+        heightPercent: 70,
+        opacity: 0.55,
+        speakerStyle: 'plain-text',
+    });
+    const theme = resolveActiveTheme({
+        readerSettings: {
+            dialogSkin: DIALOG_SKIN_GRADIENT_VEIL,
+            _vnTheme: { preset: 'custom', textColor: '#abcdef' },
+            classicVnTheme: { preset: 'custom', textColor: '#123456' },
+        },
+    });
+    assert.equal(theme.textColor, '#abcdef');
+});
+
 });

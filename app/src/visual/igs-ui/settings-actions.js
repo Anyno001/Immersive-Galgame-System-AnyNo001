@@ -5,6 +5,7 @@ import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-group
 import { loadScenePresets, saveScenePresets } from '../../scene/scene-preset-store.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
+import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 
 const STATUS_AVATAR_MAX_BYTES = 512 * 1024;
 const STATUS_AVATAR_MIME = /^image\/(?:png|jpeg|jpg|webp|gif|bmp|svg\+xml)$/i;
@@ -78,6 +79,32 @@ export async function handleSettingsAction(action, ctx) {
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
         }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'stage-shake-add-emotion') {
+        const globalObj = options.global || globalThis;
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeStageShakeSettings(readerDraft.stageShake);
+        const raw = globalObj.prompt ? globalObj.prompt('新增震动触发情绪（中文）：', '') : '';
+        const emotion = String(raw == null ? '' : raw).trim();
+        if (emotion && !current.emotions.includes(emotion) && !/[A-Za-z]/u.test(emotion) && /[\u3400-\u9fff]/u.test(emotion)) {
+            current.emotions.push(emotion);
+            readerDraft.stageShake = current;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('stage-shake-remove-emotion:')) {
+        const emotion = decodeSeg(normalizedAction.slice('stage-shake-remove-emotion:'.length));
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeStageShakeSettings(readerDraft.stageShake);
+        current.emotions = current.emotions.filter((item) => item !== emotion);
+        readerDraft.stageShake = current;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 

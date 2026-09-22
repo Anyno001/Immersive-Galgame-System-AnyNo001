@@ -1,5 +1,6 @@
 import { esc } from './reader-value-utils.js';
 import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
+import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -88,6 +89,20 @@ export function segmentedInput(path, value, items, label) {
         const icon = item[2] ? `<span class="igs-segmented-btn-icon" aria-hidden="true">${item[2]}</span>` : '';
         return `<button type="button" class="igs-segmented-btn${item[2] ? ' has-icon' : ''}${selected ? ' is-active' : ''}" data-segment-path="${esc(path)}" data-segment-value="${esc(item[0])}" role="radio" aria-checked="${selected ? 'true' : 'false'}" aria-pressed="${selected ? 'true' : 'false'}">${icon}<span class="igs-segmented-btn-label">${esc(item[1])}</span></button>`;
     }).join('')}</div>`;
+}
+
+export function renderStageShakeSettings(settings) {
+    const source = settings && typeof settings === 'object' ? settings : {};
+    const emotions = Array.isArray(source.emotions) ? source.emotions : [];
+    const intensity = STAGE_SHAKE_INTENSITIES.includes(source.intensity) ? source.intensity : 'medium';
+    const intensityField = field('readerSettings.stageShake.intensity', '震动强度', segmentedInput(
+        'readerSettings.stageShake.intensity',
+        intensity,
+        [['weak', '弱'], ['medium', '中'], ['strong', '强']],
+        '震动强度',
+    ));
+    const tags = emotions.map((emotion) => `<span class="igs-mood-word-tag">${esc(emotion)}<button type="button" class="igs-mood-word-del" data-action="stage-shake-remove-emotion:${encSeg(emotion)}" title="删除触发情绪">×</button></span>`).join('');
+    return `<div class="igs-settings-section igs-stage-shake-settings"><div class="igs-settings-row">${intensityField}</div><div class="igs-source-filter-note">触发情绪（只匹配当前人物指令，不扫描台词正文）</div><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无触发情绪</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="stage-shake-add-emotion" title="添加触发情绪">+</button></div></div>`;
 }
 
 export function modelPicker(path, value, models, action, placeholder, disabled) {

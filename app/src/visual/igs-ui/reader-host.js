@@ -62,6 +62,7 @@ import {
     renderPinnedButtons,
     renderSceneAssetList,
     renderScenePresetBar,
+    renderStageShakeSettings,
     renderTemplate,
     secretInput,
     segmentedInput,
@@ -132,15 +133,19 @@ import {
     CLASSIC_DIALOG_HEIGHT,
     CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
     CLASSIC_DIALOG_THEME_DEFAULTS,
+    DIALOG_SKIN_GRADIENT_VEIL,
     DIALOG_SKIN_WESTERN_CLASSIC,
     normalizeClassicDialogWidthPercent,
     normalizeDialogSkin,
 } from './classic-dialog-skin.js';
+import { normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
+import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import {
     TYPEWRITER_DEFAULTS,
     cancelTypewriter,
     normalizeTypewriterSettings,
 } from './typewriter-runtime.js';
+import { cancelStageShakeEffect } from './stage-shake-runtime.js';
 import {
     applyReaderSnapshotToDom,
     applyToolbarState,
@@ -446,6 +451,10 @@ export function createIgsReaderHost(options = {}) {
         closeSettings();
         clearReaderToast(current);
         cancelTypewriter(current.dom && current.dom.text, { finish: false });
+        const stageMotion = current.dom && current.dom.overlay && current.dom.overlay.querySelector
+            ? current.dom.overlay.querySelector('#igs-stage-motion')
+            : null;
+        cancelStageShakeEffect(stageMotion);
         clearReaderModeRuntime(current);
         if (closeOptions.keepFullscreen !== true) {
             exitDocumentFullscreen(getRootDocument(options.global));
@@ -1989,6 +1998,7 @@ export function createIgsReaderHost(options = {}) {
         const readerSubTab = normalizeReaderSubTab(asyncState.readerSubTab);
         const sceneEnabled = !!(bridge.sceneAssets && bridge.sceneAssets.enabled);
         const classicDialog = reader.dialogSkin === DIALOG_SKIN_WESTERN_CLASSIC;
+        const gradientVeilDialog = reader.dialogSkin === DIALOG_SKIN_GRADIENT_VEIL;
         const themeDisabled = !sceneEnabled && !classicDialog;
         const themePath = classicDialog ? 'readerSettings.classicVnTheme' : 'readerSettings.vnTheme';
         const vnTheme = reader.vnTheme || {};
@@ -1998,6 +2008,7 @@ export function createIgsReaderHost(options = {}) {
         const displayTheme = classicDialog ? classicVnTheme : vnTheme;
         const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
         const typewriter = normalizeTypewriterSettings(reader.typewriter);
+        const stageShake = normalizeStageShakeSettings(reader.stageShake);
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
             dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（旧设置保留）`]);
         }
@@ -2006,7 +2017,8 @@ export function createIgsReaderHost(options = {}) {
         )).join('');
         const readerValues = {
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典']])),
+            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
+            gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`])), '按阅读器可用宽度自动计算；手机端保持 100%。') : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
             dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog), classicDialog ? '西欧古典请在「主题」页按比例调整；原像素值会保留。' : ''),
@@ -2022,6 +2034,8 @@ export function createIgsReaderHost(options = {}) {
                 + checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
             typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '启用打字机演出'),
             typewriterSpeedField: field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度')),
+            stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '启用震动演出'),
+            stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
                 + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
                 + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘'),
@@ -2695,6 +2709,7 @@ export function createIgsReaderHost(options = {}) {
         const base = {
             _v: currentVersion,
             dialogSkin: 'default',
+            gradientVeil: normalizeGradientVeil(null),
             classicDialogWidthPercent: CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
             fontSize: 18,
             optionFontSize: 14,
@@ -2709,6 +2724,7 @@ export function createIgsReaderHost(options = {}) {
             imgBrightness: 88,
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
+            stageShake: normalizeStageShakeSettings(null),
             imageCountOverride: null,
             pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
             hiddenBtns: [],
@@ -2718,6 +2734,7 @@ export function createIgsReaderHost(options = {}) {
         const normalized = { ...base, ...src, _v: currentVersion };
         delete normalized.emptyBackgroundColor;
         normalized.dialogSkin = normalizeDialogSkin(normalized.dialogSkin);
+        normalized.gradientVeil = normalizeGradientVeil(normalized.gradientVeil);
         normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
         normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
         normalized.optionFontSize = clampNumber(normalizeFiniteNumber(normalized.optionFontSize, base.optionFontSize), 10, 30);
@@ -2740,6 +2757,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);
         normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
         normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
+        normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);
         normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
         normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);

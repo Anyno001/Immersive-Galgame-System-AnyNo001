@@ -4,6 +4,7 @@ import { SETTINGS_TAB_DEFS } from './settings-tabs.js';
 import { TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { esc, normalizeFiniteNumber } from './reader-value-utils.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS, isClassicDialogSkin } from './classic-dialog-skin.js';
+import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 
 export function normalizeReaderMode(mode, bridge) {
     if (mode === 'default') return 'default';
@@ -22,13 +23,13 @@ export function normalizeSettingsValue(path, value) {
     }
     if (path.startsWith('readerSettings.')) {
         if (value === null || value === 'null') return null;
-        if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|toolbarScale|inputScale|imageCountOverride|imgBrightness/.test(path)) {
+        if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|toolbarScale|inputScale|imageCountOverride|imgBrightness|gradientVeil\.(heightPercent|opacity)/.test(path)) {
             return Number(value);
         }
         if (/glassOpacity/.test(path)) {
             return Number(value);
         }
-        if (/^readerSettings\.typewriter\.enabled$/.test(path) || /^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path) || /^readerSettings\.statusHud\.showLocation$/.test(path) || /^readerSettings\.statusHud\.showLocationDetails$/.test(path) || /^readerSettings\.statusHud\.showSpriteOnNsfw$/.test(path) || /^readerSettings\.statusHud\.dimSpriteOnNarration$/.test(path)) {
+        if (/^readerSettings\.typewriter\.enabled$/.test(path) || /^readerSettings\.stageShake\.enabled$/.test(path) || /^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path) || /^readerSettings\.statusHud\.showLocation$/.test(path) || /^readerSettings\.statusHud\.showLocationDetails$/.test(path) || /^readerSettings\.statusHud\.showSpriteOnNsfw$/.test(path) || /^readerSettings\.statusHud\.dimSpriteOnNarration$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
     }

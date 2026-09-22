@@ -22,11 +22,14 @@ import {
 } from './settings-normalize.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
+import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import {
     applyDialogSkinAssets,
     isClassicDialogSkin,
+    isGradientVeilDialogSkin,
     normalizeClassicDialogWidthPercent,
 } from './classic-dialog-skin.js';
+import { gradientVeilColorToRgba, normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
 
 export function createReaderButton(doc, id, title, html) {
     const button = doc.createElement('button');
@@ -70,12 +73,36 @@ export function normalizeReaderStableLayers(overlay) {
     const doc = overlay.ownerDocument;
     addClasses(overlay, 'igs-stage');
 
+    let motionLayer = overlay.querySelector ? overlay.querySelector('#igs-stage-motion') : null;
+    if (!motionLayer && typeof doc.createElement === 'function') {
+        motionLayer = doc.createElement('div');
+        motionLayer.id = 'igs-stage-motion';
+        const firstChild = overlay.firstChild || null;
+        if (firstChild && typeof overlay.insertBefore === 'function') overlay.insertBefore(motionLayer, firstChild);
+        else if (typeof overlay.appendChild === 'function') overlay.appendChild(motionLayer);
+        const movableIds = ['igs-bg-blur', 'igs-bg', 'igs-sprite', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
+        for (const id of movableIds) {
+            const node = overlay.querySelector ? overlay.querySelector(`#${id}`) : null;
+            if (node && node !== motionLayer && node.parentNode === overlay && typeof motionLayer.appendChild === 'function') motionLayer.appendChild(node);
+        }
+    }
+
     const bgBlur = overlay.querySelector ? overlay.querySelector('#igs-bg-blur') : null;
     const bg = overlay.querySelector ? overlay.querySelector('#igs-bg') : null;
     const sprite = overlay.querySelector ? overlay.querySelector('#igs-sprite') : null;
     addClasses(bgBlur, 'igs-background-layer igs-background-blur-layer');
     addClasses(bg, 'igs-background-layer');
     addClasses(sprite, 'igs-character-layer');
+
+    if (motionLayer) {
+        const movableIds = ['igs-bg-blur', 'igs-bg', 'igs-sprite', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
+        for (const id of movableIds) {
+            const node = overlay.querySelector ? overlay.querySelector(`#${id}`) : null;
+            if (node && node !== motionLayer && node.parentNode === overlay && typeof motionLayer.appendChild === 'function') {
+                motionLayer.appendChild(node);
+            }
+        }
+    }
 
     const optionBubbles = overlay.querySelector ? overlay.querySelector('#igs-option-bubbles') : null;
     const dialog = overlay.querySelector ? overlay.querySelector('#igs-dialog') : null;
@@ -94,14 +121,60 @@ export function normalizeReaderStableLayers(overlay) {
 
     if (optionBubbles && optionLayer && optionBubbles.parentNode !== optionLayer) optionLayer.appendChild(optionBubbles);
     if (dialog && dialogLayer && dialog.parentNode !== dialogLayer) dialogLayer.appendChild(dialog);
+    const existingGradientVeil = overlay.querySelector ? overlay.querySelector('#igs-gradient-veil') : null;
+    const gradientVeil = existingGradientVeil && existingGradientVeil.parentNode !== dialogLayer
+        ? existingGradientVeil
+        : ensureReaderLayer(doc, dialogLayer, 'igs-gradient-veil', 'igs-dialog-gradient-veil', dialog);
+    if (gradientVeil && dialogLayer && gradientVeil.parentNode !== dialogLayer && typeof dialogLayer.appendChild === 'function') {
+        dialogLayer.appendChild(gradientVeil);
+    }
+    if (gradientVeil && dialog && gradientVeil.parentNode === dialogLayer && typeof dialogLayer.insertBefore === 'function') {
+        dialogLayer.insertBefore(gradientVeil, dialog);
+    }
     if (toolbar && toolbarLayer && toolbar.parentNode !== toolbarLayer) toolbarLayer.appendChild(toolbar);
     return overlay;
+}
+
+function applyGradientVeilToDom(root, dialog, readerSettings) {
+    const veil = root && root.querySelector ? root.querySelector('#igs-gradient-veil') : null;
+    const active = isGradientVeilDialogSkin(readerSettings);
+    if (!root || !dialog) return;
+    if (!active) {
+        root.classList && root.classList.remove('igs-gradient-veil-active');
+        if (root.style && typeof root.style.removeProperty === 'function') {
+            root.style.removeProperty('--igs-gradient-veil-height');
+            root.style.removeProperty('--igs-gradient-veil-color');
+        }
+        dialog.removeAttribute && dialog.removeAttribute('data-igs-speaker-style');
+        if (veil) {
+            veil.hidden = true;
+            veil.style.display = 'none';
+        }
+        return;
+    }
+    const normalized = normalizeGradientVeil(readerSettings.gradientVeil);
+    const color = gradientVeilColorToRgba(normalized.color, normalized.opacity);
+    root.classList && root.classList.add('igs-gradient-veil-active');
+    if (root.style && typeof root.style.setProperty === 'function') {
+        root.style.setProperty('--igs-gradient-veil-height', `${normalized.heightPercent}%`);
+        root.style.setProperty('--igs-gradient-veil-color', color);
+        // HUD 的 color-mix 仍要求这里是纯色，不能写入 linear-gradient。
+        root.style.setProperty('--igs-dialog-bg', color);
+    }
+    dialog.setAttribute && dialog.setAttribute('data-igs-speaker-style', normalized.speakerStyle);
+    if (veil) {
+        veil.hidden = false;
+        veil.style.display = 'block';
+    }
 }
 
 export function buildFallbackReaderOverlay(doc) {
     if (!doc || typeof doc.createElement !== 'function') return null;
     const overlay = doc.createElement('div');
     overlay.id = 'igs-overlay';
+    const motionLayer = doc.createElement('div');
+    motionLayer.id = 'igs-stage-motion';
+    overlay.appendChild(motionLayer);
 
     const bgBlur = doc.createElement('div');
     bgBlur.id = 'igs-bg-blur';
@@ -130,6 +203,12 @@ export function buildFallbackReaderOverlay(doc) {
     dialog.id = 'igs-dialog';
     dialog.className = 'igs-dialog';
     overlay.appendChild(dialog);
+
+    const gradientVeil = doc.createElement('div');
+    gradientVeil.id = 'igs-gradient-veil';
+    gradientVeil.className = 'igs-dialog-gradient-veil';
+    gradientVeil.hidden = true;
+    overlay.appendChild(gradientVeil);
 
     const ctrlBar = doc.createElement('div');
     ctrlBar.id = 'igs-ctrl-bar';
@@ -457,6 +536,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         backdropFilter: readerSettings.glassBackdropFilter,
     });
     applyDialogBgOverride(root, snapshot, classicDialog);
+    applyGradientVeilToDom(root, dialog, readerSettings);
 
     if (textEl) {
         textEl.style.fontSize = `${readerSettings.fontSize}px`;
@@ -755,6 +835,7 @@ function applyAlignStyleImpl(element, align) {
 export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     root.className = snapshot.classes.join(' ');
     root.setAttribute('data-igs-igs-ui', 'true');
+    const stageMotion = root.querySelector('#igs-stage-motion') || root;
 
     const bg = root.querySelector('#igs-bg');
     const bgBlur = root.querySelector('#igs-bg-blur');
@@ -763,8 +844,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const send = root.querySelector('#igs-send-btn');
     const dialog = root.querySelector('#igs-dialog');
     const classicDialog = isClassicDialogSkin(snapshot.readerSettings);
+    const gradientVeilDialog = isGradientVeilDialogSkin(snapshot.readerSettings);
     if (root.classList) {
         root.classList.toggle('igs-default-reader-chrome', !classicDialog);
+        root.classList.toggle('igs-gradient-veil-active', gradientVeilDialog);
     }
     const toolbar = root.querySelector('#igs-ctrl-bar');
     const clickLayer = root.querySelector('#igs-click-layer');
@@ -899,6 +982,18 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             key: textRenderKey,
         });
     }
+    const stageShakeSettings = snapshot.readerSettings && snapshot.readerSettings.stageShake;
+    const stageShakeKey = [
+        snapshot.messageId,
+        snapshot.content && snapshot.content.currentIndex,
+        snapshot.content && snapshot.content.statusEmotion,
+        snapshot.content && snapshot.content.displayText,
+    ].join(':');
+    applyStageShakeEffect(stageMotion, {
+        settings: stageShakeSettings,
+        emotion: snapshot.content && snapshot.content.statusEmotion,
+        key: stageShakeKey,
+    });
     const speakerEl = root.querySelector('#igs-speaker');
     if (speakerEl) {
         const theme = resolveActiveTheme(snapshot);

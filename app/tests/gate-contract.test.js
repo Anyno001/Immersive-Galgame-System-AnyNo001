@@ -22,8 +22,11 @@ import { getOriginalReaderSource } from '../src/visual/igs-ui/original-reader-so
 import { CLASSIC_DIALOG_ASSETS, CLASSIC_DIALOG_ASSET_META } from '../src/visual/igs-ui/classic-dialog-assets.js';
 import {
     CLASSIC_DIALOG_STYLE_TEXT,
+    DIALOG_SKIN_GRADIENT_VEIL,
     normalizeClassicDialogWidthPercent,
+    normalizeDialogSkin,
 } from '../src/visual/igs-ui/classic-dialog-skin.js';
+import { GRADIENT_VEIL_STYLE_TEXT } from '../src/visual/igs-ui/gradient-veil-dialog-skin.js';
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import {
@@ -652,10 +655,17 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
 
     const rendererText = readText('src/visual/igs-ui/reader-dom-render.js');
     const readerHostText = readText('src/visual/igs-ui/reader-host.js');
+    const readerSourceText = getOriginalReaderStyleText();
     const dbControllerText = readText('src/shujuku-panel/panel-controller.js');
     assert.doesNotMatch(rendererText, /emptyBackgroundColor/);
     assert.match(rendererText, /applyTypewriterEffect\(textEl/);
     assert.match(rendererText, /cancelTypewriter\(textEl, \{ finish: true \}\)/);
+    assert.match(rendererText, /#igs-stage-motion/);
+    assert.match(rendererText, /applyStageShakeEffect\(stageMotion/);
+    assert.match(readerHostText, /readerSettings\.stageShake/);
+    assert.match(readerSourceText, /@keyframes igs-stage-shake-(?:weak|medium|strong)/);
+    assert.match(readerSourceText, /#igs-stage-motion\.igs-stage-shake-active/);
+    assert.match(readerSourceText, /prefers-reduced-motion: reduce\)\{#igs-stage-motion/);
     assert.match(readerHostText, /readerSettings\.typewriter\.enabled/);
     assert.match(readerHostText, /switchSceneSettingsSubTab\(subTab\)/);
     assert.match(readerHostText, /data-scene-settings-subtab/);
@@ -746,6 +756,8 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.doesNotMatch(visualTemplate, /dialogWidthField|typewriterToggle|statusHudSection/);
     assert.match(performanceTemplate, /typewriterToggle/);
     assert.match(performanceTemplate, /typewriterSpeedField/);
+    assert.match(performanceTemplate, /stageShakeToggle/);
+    assert.match(performanceTemplate, /stageShakeSettings/);
     assert.match(performanceTemplate, /performanceToggles/);
     assert.match(performanceTemplate, /nsfwVeilLevelField/);
     assert.match(optionsTemplate, /optionFontSizeField/);
@@ -1016,6 +1028,20 @@ function selectorToken(selector) {
     }
     return selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+
+test('gate:igs-ui:gradient-veil-style-is-edge-to-edge-and-filter-free', () => {
+    assert.equal(normalizeDialogSkin(DIALOG_SKIN_GRADIENT_VEIL), DIALOG_SKIN_GRADIENT_VEIL);
+    assert.match(GRADIENT_VEIL_STYLE_TEXT, /position: absolute/);
+    assert.match(GRADIENT_VEIL_STYLE_TEXT, /inset-inline: 0/);
+    assert.match(GRADIENT_VEIL_STYLE_TEXT, /bottom: 0/);
+    assert.match(GRADIENT_VEIL_STYLE_TEXT, /width: 100%/);
+    assert.match(GRADIENT_VEIL_STYLE_TEXT, /pointer-events: none/);
+    assert.match(GRADIENT_VEIL_STYLE_TEXT, /linear-gradient\(to top/);
+    assert.doesNotMatch(GRADIENT_VEIL_STYLE_TEXT, /linear-gradient\(to (left|right)/);
+    assert.match(GRADIENT_VEIL_STYLE_TEXT, /backdrop-filter: none/);
+    assert.match(GRADIENT_VEIL_STYLE_TEXT, /-webkit-backdrop-filter: none/);
+});
 
 function escapeRegExp(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

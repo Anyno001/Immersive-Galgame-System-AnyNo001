@@ -1,4 +1,5 @@
 import { CLASSIC_DIALOG_STYLE_TEXT } from './classic-dialog-skin.js';
+import { GRADIENT_VEIL_STYLE_TEXT } from './gradient-veil-dialog-skin.js';
 
 export const ORIGINAL_READER_ICONS = Object.freeze({
     db: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="display:block"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
@@ -150,7 +151,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-status-line{font-size:10px;color:rgba(255,255,255,.35);letter-spacing:1px;margin:2px 0 8px;text-align:center;display:none;}
 .igs-speaker{font-size:14px;font-weight:600;letter-spacing:1px;margin-top:0;margin-bottom:4px;display:none;text-shadow:none;}
 .igs-divider{font-size:11px;letter-spacing:4px;text-align:center;margin-bottom:4px;opacity:.6;display:none;}
-.igs-thought{font-style:italic;opacity:.72;font-size:.96em;}
+.igs-thought{font-style:italic;opacity:.72;font-size:.98em;}
 .igs-text{font-size:18px;line-height:1.7;letter-spacing:.5px;min-height:60px;color:#d8d5cf;text-shadow:none;margin-bottom:14px;margin-top:0;white-space:pre-wrap;word-break:break-word;}
 .igs-controls{display:flex;align-items:center;gap:8px;border-top:1px solid rgba(255,255,255,.08);padding-top:12px;}
 #igs-overlay.igs-floating .igs-progress{flex-shrink:0;}
@@ -209,10 +210,20 @@ const ORIGINAL_READER_STYLE_TEXT = `
 @keyframes igs-embedded-pulse{0%,100%{opacity:.25}50%{opacity:.9}}
 @media (max-width:640px){.igs-embedded-host{aspect-ratio:auto;height:min(74dvh,680px);}}
 @media (prefers-reduced-motion: reduce){.igs-embedded-loading-dot{animation:none;opacity:.6;}}
+@keyframes igs-stage-shake-weak{0%,100%{transform:translate3d(0,0,0)}25%{transform:translate3d(3px,0,0)}50%{transform:translate3d(-3px,0,0)}75%{transform:translate3d(2px,0,0)}}
+@keyframes igs-stage-shake-medium{0%,100%{transform:translate3d(0,0,0)}20%{transform:translate3d(6px,0,0)}40%{transform:translate3d(-6px,0,0)}60%{transform:translate3d(4px,0,0)}80%{transform:translate3d(-2px,0,0)}}
+@keyframes igs-stage-shake-strong{0%,100%{transform:translate3d(0,0,0)}16%{transform:translate3d(10px,0,0)}32%{transform:translate3d(-10px,0,0)}48%{transform:translate3d(8px,0,0)}64%{transform:translate3d(-6px,0,0)}80%{transform:translate3d(3px,0,0)}}
+#igs-stage-motion{position:absolute;inset:0;transform:translate3d(0,0,0);}
+#igs-stage-motion.igs-stage-shake-active[data-igs-stage-shake-intensity="weak"]{animation:igs-stage-shake-weak .18s ease-out both}
+#igs-stage-motion.igs-stage-shake-active[data-igs-stage-shake-intensity="medium"]{animation:igs-stage-shake-medium .28s ease-out both}
+#igs-stage-motion.igs-stage-shake-active[data-igs-stage-shake-intensity="strong"]{animation:igs-stage-shake-strong .38s ease-out both}
+@media (prefers-reduced-motion: reduce){#igs-stage-motion.igs-stage-shake-active{animation:none!important;transform:none!important;}}
+${GRADIENT_VEIL_STYLE_TEXT}
 ${CLASSIC_DIALOG_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `
+<div id="igs-stage-motion">
 <div id="igs-bg-blur" class="igs-background-layer igs-background-blur-layer"></div>
 <div id="igs-bg" class="igs-background-layer"></div>
 <div id="igs-sprite" class="igs-character-layer"></div>
@@ -221,6 +232,7 @@ const ORIGINAL_READER_HTML = `
   <div id="igs-option-bubbles" data-igs-pos="top-left" data-igs-width="dialog" hidden></div>
 </div>
 <div id="igs-dialog-layer" class="igs-dialogue-layer">
+<div id="igs-gradient-veil" class="igs-dialog-gradient-veil" hidden></div>
 <div class="igs-dialog" id="igs-dialog">
   <div class="igs-progress" id="igs-progress"></div>
   <div class="igs-speaker" id="igs-speaker"></div>
@@ -249,6 +261,7 @@ const ORIGINAL_READER_HTML = `
 </div>
 <div id="igs-db-layer" class="igs-system-layer"></div>
 <div id="igs-status-hud" hidden></div>
+</div>
 <div id="igs-toast" aria-live="polite"></div>
 `.trim();
 
@@ -259,6 +272,7 @@ export const ORIGINAL_READER_REQUIRED_SELECTORS = Object.freeze([
     '#igs-sprite',
     '#igs-click-layer',
     '#igs-dialog-layer',
+    '#igs-gradient-veil',
     '.igs-dialogue-layer',
     '#igs-toolbar-layer',
     '.igs-hud-layer',

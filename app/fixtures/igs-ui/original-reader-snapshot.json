@@ -6,6 +6,7 @@
     "#igs-sprite",
     "#igs-click-layer",
     "#igs-dialog-layer",
+    "#igs-gradient-veil",
     ".igs-dialogue-layer",
     "#igs-toolbar-layer",
     ".igs-hud-layer",

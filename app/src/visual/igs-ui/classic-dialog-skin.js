@@ -1,7 +1,9 @@
 import { CLASSIC_DIALOG_ASSETS } from './classic-dialog-assets.js';
+import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
 
 export const DIALOG_SKIN_DEFAULT = 'default';
 export const DIALOG_SKIN_WESTERN_CLASSIC = 'western-classic';
+export { DIALOG_SKIN_GRADIENT_VEIL };
 export const CLASSIC_DIALOG_HEIGHT = 184;
 export const CLASSIC_DIALOG_EDGE_WIDTH = 110;
 export const CLASSIC_DIALOG_WIDTH_PERCENT_MIN = 60;
@@ -32,7 +34,9 @@ export const CLASSIC_DIALOG_THEME_DEFAULTS = Object.freeze({
 });
 
 export function normalizeDialogSkin(value) {
-    return value === DIALOG_SKIN_WESTERN_CLASSIC ? DIALOG_SKIN_WESTERN_CLASSIC : DIALOG_SKIN_DEFAULT;
+    if (value === DIALOG_SKIN_WESTERN_CLASSIC) return DIALOG_SKIN_WESTERN_CLASSIC;
+    if (value === DIALOG_SKIN_GRADIENT_VEIL) return DIALOG_SKIN_GRADIENT_VEIL;
+    return DIALOG_SKIN_DEFAULT;
 }
 
 export function normalizeClassicDialogWidthPercent(value) {
@@ -45,14 +49,19 @@ export function isClassicDialogSkin(readerSettings) {
     return normalizeDialogSkin(readerSettings && readerSettings.dialogSkin) === DIALOG_SKIN_WESTERN_CLASSIC;
 }
 
+export function isGradientVeilDialogSkin(readerSettings) {
+    return normalizeDialogSkin(readerSettings && readerSettings.dialogSkin) === DIALOG_SKIN_GRADIENT_VEIL;
+}
+
 export function applyDialogSkinAssets(dialog, readerSettings) {
     if (!dialog) return;
-    if (!isClassicDialogSkin(readerSettings)) {
+    const skin = normalizeDialogSkin(readerSettings && readerSettings.dialogSkin);
+    if (skin !== DIALOG_SKIN_WESTERN_CLASSIC && skin !== DIALOG_SKIN_GRADIENT_VEIL) {
         if (typeof dialog.removeAttribute === 'function') dialog.removeAttribute('data-igs-dialog-skin');
         else if (typeof dialog.setAttribute === 'function') dialog.setAttribute('data-igs-dialog-skin', '');
         return;
     }
-    dialog.setAttribute('data-igs-dialog-skin', DIALOG_SKIN_WESTERN_CLASSIC);
+    dialog.setAttribute('data-igs-dialog-skin', skin);
 }
 
 export const CLASSIC_DIALOG_STYLE_TEXT = `

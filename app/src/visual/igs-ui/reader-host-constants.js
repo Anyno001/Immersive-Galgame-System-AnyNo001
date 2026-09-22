@@ -69,6 +69,10 @@ export const VN_THEME_PRESETS = Object.freeze({
 export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.fontSize',
     'readerSettings.dialogSkin',
+    'readerSettings.gradientVeil.color',
+    'readerSettings.gradientVeil.heightPercent',
+    'readerSettings.gradientVeil.opacity',
+    'readerSettings.gradientVeil.speakerStyle',
     'readerSettings.classicDialogWidthPercent',
     'readerSettings.optionFontSize',
     'readerSettings.dialogWidth',

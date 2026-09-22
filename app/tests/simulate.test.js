@@ -4619,3 +4619,120 @@ test('gate:simulation:status-hud-keeps-default-avatar-when-selected-table-has-no
 
     vn.destroy();
 });
+
+
+test('gate:simulation:stage-shake-settings-and-raw-emotion-drive-igs-stage-only', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage, prompt: () => '震撼' },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 77,
+                text: '[igs-scene:旧城|夜晚|晴天]\n[igs-char:H|震撼|台词内容]',
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+        config: {
+            sceneAssets: { enabled: true, scenes: {}, characters: {}, characterAliases: {}, moodGroups: [] },
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.switchTab('reader');
+    const disabled = settings.switchReaderSubTab('performance').snapshot.html;
+    assert.match(disabled, /启用震动演出/);
+    assert.doesNotMatch(disabled, /震动强度/);
+    settings.setValue('readerSettings.stageShake.enabled', true);
+    const enabled = settings.switchReaderSubTab('performance').snapshot.html;
+    assert.match(enabled, /震动强度/);
+    assert.match(enabled, /触发情绪/);
+    settings.invoke('stage-shake-remove-emotion:%E9%9C%87%E6%92%BC');
+    settings.invoke('stage-shake-add-emotion');
+    const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+    assert.equal(persisted.stageShake.enabled, true);
+    assert.equal(persisted.stageShake.intensity, 'medium');
+
+    const overlay = document.getElementById('igs-overlay');
+    const stage = overlay.querySelector('#igs-stage-motion');
+    assert.ok(stage);
+    assert.equal(stage.getAttribute('data-igs-stage-shake'), '1');
+    assert.equal(stage.getAttribute('data-igs-stage-shake-intensity'), 'medium');
+    assert.equal(overlay.getAttribute('data-igs-stage-shake'), null);
+
+    vn.destroy();
+});
+
+
+test('gate:simulation:gradient-veil-applies-settings-and-clears-on-skin-switch', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        dialogSkin: 'gradient-veil',
+        gradientVeil: {
+            color: '#112233',
+            heightPercent: 70,
+            opacity: 0.55,
+            speakerStyle: 'plain-text',
+        },
+    }));
+    const document = createFakeDocument({ innerWidth: 880, innerHeight: 720 });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 1,
+                text: '[igs-scene:Room|晚上|晴天]\n[igs-char:Alice|平和|台词]',
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+        config: {
+            sceneAssets: {
+                enabled: true,
+                scenes: {},
+                characters: { Alice: { 平和: 'sprite' } },
+                characterAliases: {},
+                moodGroups: [],
+            },
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const dialog = overlay.querySelector('#igs-dialog');
+    const veil = overlay.querySelector('#igs-gradient-veil');
+    const readStyle = (name) => typeof overlay.style.getPropertyValue === 'function'
+        ? overlay.style.getPropertyValue(name)
+        : overlay.style[name];
+    assert.equal(veil.parentNode.id, 'igs-dialog-layer');
+    assert.equal(veil.hidden, false);
+    assert.equal(veil.style.display, 'block');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'gradient-veil');
+    assert.equal(dialog.getAttribute('data-igs-speaker-style'), 'plain-text');
+    assert.equal(readStyle('--igs-gradient-veil-height'), '70%');
+    assert.equal(readStyle('--igs-gradient-veil-color'), 'rgba(17,34,51,0.55)');
+    assert.equal(readStyle('--igs-dialog-bg'), 'rgba(17,34,51,0.55)');
+
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.switchTab('reader');
+    const dialogView = settings.switchReaderSubTab('dialog');
+    assert.match(dialogView.snapshot.html, /渐变黑幕/);
+    assert.match(dialogView.snapshot.html, /data-path="readerSettings\.gradientVeil\.heightPercent"/);
+    assert.match(dialogView.snapshot.html, /纯文字/);
+    settings.setValue('readerSettings.dialogSkin', 'default');
+    assert.equal(veil.hidden, true);
+    assert.equal(veil.style.display, 'none');
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), null);
+    assert.equal(dialog.getAttribute('data-igs-speaker-style'), null);
+    assert.equal(overlay.classList.contains('igs-gradient-veil-active'), false);
+    const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+    assert.deepEqual(saved.gradientVeil, {
+        color: '#112233',
+        heightPercent: 70,
+        opacity: 0.55,
+        speakerStyle: 'plain-text',
+    });
+    vn.destroy();
+});
