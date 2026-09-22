@@ -149,7 +149,7 @@ const READER_THEME_TEMPLATE = `
       </div>
       <div class="igs-source-filter">
         <div class="igs-source-filter-title">对话框背景</div>
-        <div class="igs-settings-row">{{dialogBgField}}{{glassOpacityField}}</div>
+        <div class="igs-settings-row">{{dialogBgField}}{{dialogBgOpacityField}}{{glassOpacityField}}</div>
       </div>
     </div>
   </div>

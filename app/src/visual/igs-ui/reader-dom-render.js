@@ -386,7 +386,11 @@ function applyDialogBgOverride(root, snapshot, classicDialog) {
     }
     const value = resolveActiveTheme(snapshot).dialogBg;
     if (value) {
-        const opacity = snapshot.readerSettings && snapshot.readerSettings.glassOpacity;
+        const theme = resolveActiveTheme(snapshot);
+        const explicit = Number(theme.bgOpacity);
+        const opacity = theme.bgOpacity != null && Number.isFinite(explicit)
+            ? Math.min(1, Math.max(0, explicit))
+            : (snapshot.readerSettings && snapshot.readerSettings.glassOpacity);
         root.style.setProperty('--igs-dialog-bg', hexToRgba(value, opacity));
     } else {
         root.style.removeProperty('--igs-dialog-bg');
@@ -740,7 +744,6 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         ? (NSFW_VEIL_LEVEL_STYLE[nsfwVeilLevel] || NSFW_VEIL_LEVEL_STYLE.medium)
         : null;
     if (root.style && typeof root.style.setProperty === 'function') {
-        const nsfwVeilPairs = [['--igs-nsfw-veil-center', 'center'], ['--igs-nsfw-veil-edge', 'edge'], ['--igs-nsfw-bg-brightness', 'brightness']];
         for (const [prop, key] of nsfwVeilPairs) {
             if (nsfwVeilStyle) root.style.setProperty(prop, nsfwVeilStyle[key]);
             else if (typeof root.style.removeProperty === 'function') root.style.removeProperty(prop);

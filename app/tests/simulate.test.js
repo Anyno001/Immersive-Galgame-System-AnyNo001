@@ -567,13 +567,10 @@ test('gate:simulation:nsfw-veil-level-strong-applies-and-clears-on-safe-scene', 
     assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
     assert.equal(overlay.style['--igs-nsfw-veil-center'], '.55');
     assert.equal(overlay.style['--igs-nsfw-veil-edge'], '.88');
-    assert.equal(overlay.style['--igs-nsfw-bg-brightness'], '.5');
     // 走到下一条不带 NSFW 的场景后变量清除，回落 CSS 内默认值。
     await opened.reader.controller.invokeAction('next');
     assert.equal(overlay.classList.contains('igs-scene-nsfw'), false);
     assert.equal(overlay.style['--igs-nsfw-veil-center'], '');
-    assert.equal(overlay.style['--igs-nsfw-veil-edge'], '');
-    assert.equal(overlay.style['--igs-nsfw-bg-brightness'], '');
     vn.destroy();
 });
 

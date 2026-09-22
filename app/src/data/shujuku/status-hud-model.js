@@ -12,13 +12,13 @@ export const STATUS_HUD_AVATAR_RADIUS_IDS = Object.freeze(['square', 'soft', 'sm
 export const STATUS_HUD_AVATAR_RADIUS_PX = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
 export const STATUS_HUD_BACKGROUND_IDS = Object.freeze(['none', 'dialog']);
 export const STATUS_HUD_BAR_COLOR_IDS = Object.freeze(['color', 'grayscale']);
-// NSFW 黑幕强度：中心/边缘透明度与背景亮度按档位同步抬升，
-// 中心不再接近透明，消除「只有四角发黑」的渐晕观感。
+// NSFW 黑幕强度：只调边缘暗角渐变的中心/边缘透明度，
+// 背景图本身不加模糊、压暗或去饱和滤镜。
 export const NSFW_VEIL_LEVEL_IDS = Object.freeze(['light', 'medium', 'strong']);
 export const NSFW_VEIL_LEVEL_STYLE = Object.freeze({
-    light: { center: '.18', edge: '.55', brightness: '.72' },
-    medium: { center: '.30', edge: '.72', brightness: '.62' },
-    strong: { center: '.55', edge: '.88', brightness: '.5' },
+    light: { center: '.18', edge: '.55' },
+    medium: { center: '.30', edge: '.72' },
+    strong: { center: '.55', edge: '.88' },
 });
 
 export const STATUS_HUD_DEFAULTS = Object.freeze({

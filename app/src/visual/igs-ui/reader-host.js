@@ -160,9 +160,10 @@ export function createIgsReaderHost(options = {}) {
         getDocument: () => resolveEmbeddedDocument(state.activeReader),
         onActivity: () => handleChatStreamActivity(),
         onStable: () => handleChatStreamStable(),
-        onTimeout: async () => {
-            const completed = await handleChatStreamStable();
-            if (completed === false) exitEmbeddedLoading();
+        // 硬超时是最后兜底：handleChatStreamStable 恒返回 true，原条件分支永不退出。
+        // 改为无条件强制退出，不再依赖主路径返回值。
+        onTimeout: () => {
+            exitEmbeddedLoading();
         },
     });
 
@@ -578,7 +579,11 @@ export function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
             return true;
         }
-        const message = await options.getCurrentMessage();
+        // 宿主挂起时该 await 可能无限 pending，超时兜底保证 loading 退出路径必然到达。
+        const message = await Promise.race([
+            options.getCurrentMessage(),
+            new Promise((resolve) => setTimeout(resolve, 5000)),
+        ]);
         if (!message || message.id == null) {
             exitEmbeddedLoading();
             return true;
@@ -2026,6 +2031,7 @@ export function createIgsReaderHost(options = {}) {
             narrationColorField: field(`${themePath}.narrationColor`, '颜色', colorInput(`${themePath}.narrationColor`, toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
             dividerColorField: field(`${themePath}.dividerColor`, '颜色', colorInput(`${themePath}.dividerColor`, toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || classicDialog || !themeCustom)),
             dialogBgField: field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), themeDisabled || classicDialog || !themeCustom)),
+            dialogBgOpacityField: field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随玻璃'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], themeDisabled || classicDialog || !themeCustom)),
             themeAdvancedClass: themeCustom ? '' : 'igs-settings-api-group is-disabled',
         };
         return renderTemplate(getSettingsTabTemplate('reader'), {
@@ -2656,6 +2662,9 @@ export function createIgsReaderHost(options = {}) {
         normalized.narrationColor = normalized.narrationColor || fallback.narrationColor;
         normalized.dividerColor = normalized.dividerColor || fallback.dividerColor;
         normalized.dialogBg = normalized.dialogBg || fallback.dialogBg;
+        normalized.bgOpacity = normalized.bgOpacity == null
+            ? null
+            : clampNumber(normalizeFiniteNumber(normalized.bgOpacity, 0.62), 0, 1);
         return normalized;
     }
 

@@ -150,6 +150,7 @@ export function resolveActiveTheme(snapshot) {
         narrationColor: vnTheme.narrationColor || preset.narrationColor,
         dividerColor: vnTheme.dividerColor || preset.dividerColor,
         dialogBg: vnTheme.dialogBg || preset.dialogBg,
+        bgOpacity: vnTheme.bgOpacity != null ? vnTheme.bgOpacity : null,
     };
 }
 
