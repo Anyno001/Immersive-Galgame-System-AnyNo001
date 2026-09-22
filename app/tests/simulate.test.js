@@ -1402,6 +1402,12 @@ test('gate:simulation:reader-settings-shared-across-modes', async () => {
 
 test('gate:simulation:default-dialog-height-controls-floating-box', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    let pluginIframeHeight = 500;
+    document.defaultView.__IGS_PLUGIN_VIEWPORT__ = {
+        source: 'loader-iframe',
+        initialHeight: pluginIframeHeight,
+        getHeight: () => pluginIframeHeight,
+    };
     const storage = createMemoryStorage();
     const vn = bootstrapIGS({
         global: { document, localStorage: storage },
@@ -1422,16 +1428,17 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
     const css = getOriginalReaderStyleText();
     assert.match(css, /#igs-overlay\.igs-floating \.igs-dialog\{[^}]*max-height:none/);
     assert.match(css, /#igs-overlay\.igs-floating-mobile \.igs-dialog\{[^}]*max-height:none/);
-    settings.setValue('readerSettings.dialogHeight', 0.2);
-    assert.equal(dialog.style.height, '144px');
+    settings.setValue('readerSettings.dialogHeight', 0.05);
+    assert.equal(dialog.style.height, '25px', 'ratio uses bridged plugin iframe height, not parent window');
     assert.equal(dialog.style.maxHeight, 'none');
     assert.equal(controls.style.display, '');
     document.defaultView.innerHeight = 900;
+    pluginIframeHeight = 900;
     settings.setValue('readerSettings.fontSize', 20);
-    assert.equal(dialog.style.height, '144px', 'same reader keeps frozen iframe ratio height');
-    settings.setValue('readerSettings.dialogHeight', 0.3);
-    assert.equal(dialog.style.height, '270px', 'changing ratio recalculates from current iframe height');
-    assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dialogHeight, 0.3);
+    assert.equal(dialog.style.height, '25px', 'same reader keeps frozen plugin iframe ratio height');
+    settings.setValue('readerSettings.dialogHeight', 0.18);
+    assert.equal(dialog.style.height, '162px', 'changing ratio recalculates from current plugin iframe height');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dialogHeight, 0.18);
     // 历史 px 设置继续按原像素值读取。
     settings.setValue('readerSettings.dialogHeight', 300);
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
@@ -1446,14 +1453,19 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
 
 test('gate:simulation:default-dialog-height-controls-all-reader-modes', async () => {
     const cases = [
-        { mode: 'pc', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), expected: '180px' },
-        { mode: 'mobile', document: createFakeDocument({ innerWidth: 390, innerHeight: 844 }), expected: '211px' },
-        { mode: 'web', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), expected: '180px' },
-        { mode: 'fullscreen', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), expected: '180px' },
+        { mode: 'pc', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), iframeHeight: 500, expected: '75px' },
+        { mode: 'mobile', document: createFakeDocument({ innerWidth: 390, innerHeight: 844 }), iframeHeight: 600, expected: '90px' },
+        { mode: 'web', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), iframeHeight: 700, expected: '105px' },
+        { mode: 'fullscreen', document: createFakeDocument({ innerWidth: 1280, innerHeight: 720 }), iframeHeight: 800, expected: '120px' },
     ];
 
     for (const item of cases) {
         const globalObject = item.document.defaultView;
+        globalObject.__IGS_PLUGIN_VIEWPORT__ = {
+            source: 'loader-iframe',
+            initialHeight: item.iframeHeight,
+            getHeight: () => item.iframeHeight,
+        };
         if (item.mode === 'fullscreen') {
             item.document.documentElement.requestFullscreen = () => {
                 item.document.fullscreenElement = item.document.documentElement;
@@ -1472,7 +1484,7 @@ test('gate:simulation:default-dialog-height-controls-all-reader-modes', async ()
         const settings = opened.reader.controller.openSettings('reader').controller;
         const dialog = item.document.getElementById('igs-overlay').querySelector('#igs-dialog');
 
-        settings.setValue('readerSettings.dialogHeight', 0.25);
+        settings.setValue('readerSettings.dialogHeight', 0.15);
         assert.equal(dialog.style.height, item.expected, item.mode);
         settings.setValue('readerSettings.dialogHeight', null);
         assert.equal(dialog.style.height, 'auto', item.mode);
@@ -1482,6 +1494,11 @@ test('gate:simulation:default-dialog-height-controls-all-reader-modes', async ()
 
     const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
     const globalObject = document.defaultView;
+    globalObject.__IGS_PLUGIN_VIEWPORT__ = {
+        source: 'loader-iframe',
+        initialHeight: 640,
+        getHeight: () => 640,
+    };
     const chat = document.createElement('div');
     chat.id = 'chat';
     document.body.appendChild(chat);
@@ -1501,8 +1518,8 @@ test('gate:simulation:default-dialog-height-controls-all-reader-modes', async ()
     const settings = opened.reader.controller.openSettings('reader').controller;
     const dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
 
-    settings.setValue('readerSettings.dialogHeight', 0.25);
-    assert.equal(dialog.style.height, '200px', 'embedded');
+    settings.setValue('readerSettings.dialogHeight', 0.12);
+    assert.equal(dialog.style.height, '77px', 'embedded');
     settings.setValue('readerSettings.dialogHeight', null);
     assert.equal(dialog.style.height, 'auto', 'embedded');
     assert.equal(dialog.style.minHeight, '0', 'embedded');

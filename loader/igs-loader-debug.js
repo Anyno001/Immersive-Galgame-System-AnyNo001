@@ -13,10 +13,13 @@
     const MAGIC_MENU_SELECTORS = ['#extensionsMenu', '#extensions_menu', '.extensions_block .list-group'];
     const LOADER_ENTRY_SELECTOR = '[data-igs-loader-entry="1"]';
     const TRACE_IDS = [CSS_ID, SCRIPT_ID, 'igs-root', 'igs-stage'];
+    const PLUGIN_VIEWPORT_KEY = '__IGS_PLUGIN_VIEWPORT__';
 
+    const loaderWindow = window;
     const root = resolveRootWindow();
     try { root.IGS_DEBUG = true; } catch (vnDebugError) { /* ignore */ }
     const doc = getRootDocument();
+    exposePluginViewport();
 
     if (!doc) {
         console.warn('[IGS Loader] 未找到可访问的文档，无法加载 Immersive Galgame System。');
@@ -51,6 +54,39 @@
             // Cross-origin parent is not usable inside Tavern.
         }
         return window;
+    }
+
+    function readPluginViewportHeight() {
+        try {
+            const frame = loaderWindow.frameElement;
+            if (frame) {
+                const clientHeight = Number(frame.clientHeight);
+                if (clientHeight > 0) return clientHeight;
+                if (typeof frame.getBoundingClientRect === 'function') {
+                    const rectHeight = Number(frame.getBoundingClientRect().height);
+                    if (rectHeight > 0) return rectHeight;
+                }
+            }
+        } catch (error) {
+            // Fall back to the iframe window viewport.
+        }
+        const innerHeight = Number(loaderWindow.innerHeight);
+        return innerHeight > 0 ? innerHeight : 0;
+    }
+
+    function exposePluginViewport() {
+        const initialHeight = readPluginViewportHeight();
+        try {
+            root[PLUGIN_VIEWPORT_KEY] = {
+                source: 'loader-iframe',
+                initialHeight,
+                getHeight() {
+                    return readPluginViewportHeight() || initialHeight;
+                },
+            };
+        } catch (error) {
+            // The application will fall back to its owner window when unavailable.
+        }
     }
 
     function getRootDocument() {

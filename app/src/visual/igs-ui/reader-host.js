@@ -1980,7 +1980,7 @@ export function createIgsReaderHost(options = {}) {
         // 对话主题已取消预设选择，恒为自定义：自定义项始终可编辑（仅受场景素材开关 themeDisabled 控制）。
         const themeCustom = true;
         const displayTheme = classicDialog ? classicVnTheme : vnTheme;
-        const dialogHeightItems = [['null', '自适应'], [.2, '插件高度 20%'], [.25, '插件高度 25%'], [.3, '插件高度 30%'], [.35, '插件高度 35%'], [.4, '插件高度 40%'], [.45, '插件高度 45%'], [.5, '插件高度 50%'], [.6, '插件高度 60%'], [.7, '插件高度 70%']];
+        const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
             dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（旧设置保留）`]);
         }
@@ -1993,7 +1993,7 @@ export function createIgsReaderHost(options = {}) {
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`])), '按阅读器可用宽度自动计算；手机端保持 100%。') : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
             dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog), classicDialog ? '西欧古典请在「主题」页按比例调整；原像素值会保留。' : ''),
-            dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, dialogHeightItems, classicDialog), classicDialog ? `当前风格使用固定 ${CLASSIC_DIALOG_HEIGHT}px；原设置值会保留。` : '按插件 iframe 高度计算一次并固定；台词、分页和流式更新不会改变。'),
+            dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, dialogHeightItems, classicDialog), classicDialog ? `当前风格使用固定 ${CLASSIC_DIALOG_HEIGHT}px；原设置值会保留。` : ''),
             glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`])), classicDialog ? '不影响素材对话框，仍作用于工具栏、选项和数据库。' : ''),
             imageCountField: field('readerSettings.imageCountOverride', '检测图像数量', selectInput('readerSettings.imageCountOverride', reader.imageCountOverride === null ? 'null' : reader.imageCountOverride, [['null', '自动']].concat(Array.from({ length: 20 }, (_, index) => [index + 1, `${index + 1}张`])))),
             inputScaleField: field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
@@ -2706,7 +2706,7 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedDialogHeight == null) {
             normalized.dialogHeight = null;
         } else if (normalizedDialogHeight >= 0 && normalizedDialogHeight <= 1) {
-            normalized.dialogHeight = clampNumber(normalizedDialogHeight, 0.2, 0.7);
+            normalized.dialogHeight = clampNumber(normalizedDialogHeight, 0.05, 0.4);
         } else {
             // 兼容历史 px 设置；用户改选新档位后即保存为 iframe 高度比例。
             normalized.dialogHeight = clampNumber(normalizedDialogHeight, 60, 600);

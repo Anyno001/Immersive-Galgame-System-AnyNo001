@@ -398,6 +398,20 @@ function applyDialogBgOverride(root, snapshot, classicDialog) {
 }
 
 
+function readPluginIframeHeight(win, fallback) {
+    try {
+        const viewport = win && win.__IGS_PLUGIN_VIEWPORT__;
+        const bridged = viewport && typeof viewport.getHeight === 'function'
+            ? Number(viewport.getHeight())
+            : Number(viewport && viewport.initialHeight);
+        if (bridged > 0) return bridged;
+    } catch (error) {
+        // Direct/local runs do not have the loader iframe bridge.
+    }
+    const innerHeight = Number(win && win.innerHeight);
+    return innerHeight > 0 ? innerHeight : Number(fallback) || 680;
+}
+
 function resolveFrozenDialogHeight(current, snapshot, requestedHeight, win, overlayHeight) {
     const numeric = Number(requestedHeight);
     const ratioMode = Number.isFinite(numeric) && numeric > 0 && numeric <= 1;
@@ -407,10 +421,9 @@ function resolveFrozenDialogHeight(current, snapshot, requestedHeight, win, over
         return cached.px;
     }
 
-    const docHeight = Number(win && win.document && win.document.documentElement && win.document.documentElement.clientHeight);
-    const iframeHeight = Number(win && win.innerHeight) || docHeight || Number(overlayHeight) || 680;
+    const iframeHeight = readPluginIframeHeight(win, overlayHeight);
     const target = ratioMode ? Math.round(iframeHeight * numeric) : numeric;
-    const px = Math.max(60, Number.isFinite(target) ? target : 60);
+    const px = Math.max(ratioMode ? 1 : 60, Number.isFinite(target) ? target : 60);
     if (current) {
         current.dialogHeightFreeze = {
             key: cacheKey,
