@@ -744,6 +744,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         ? (NSFW_VEIL_LEVEL_STYLE[nsfwVeilLevel] || NSFW_VEIL_LEVEL_STYLE.medium)
         : null;
     if (root.style && typeof root.style.setProperty === 'function') {
+        const nsfwVeilPairs = [['--igs-nsfw-veil-center', 'center'], ['--igs-nsfw-veil-edge', 'edge']];
         for (const [prop, key] of nsfwVeilPairs) {
             if (nsfwVeilStyle) root.style.setProperty(prop, nsfwVeilStyle[key]);
             else if (typeof root.style.removeProperty === 'function') root.style.removeProperty(prop);

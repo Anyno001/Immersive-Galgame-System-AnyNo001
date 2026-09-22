@@ -229,6 +229,14 @@ projects/Immersive Galgame System/
 
 ## 更新日志
 
+### v0.23.97 - 2026-09-21
+
+- 紧急修复阅读器完全无法显示正文与地点：v0.23.95 收窄 NSFW 暗角变量时误删 `nsfwVeilPairs` 声明，但 `applyReaderSnapshotToDom` 仍迭代该变量，导致每次渲染均抛出 `ReferenceError`，正文与地点 HUD 的共同渲染入口同时中断。
+- 恢复仅含 `--igs-nsfw-veil-center` / `--igs-nsfw-veil-edge` 的变量映射；不恢复已废弃的背景亮度变量。
+- 本版为最小热修，仅运行直接覆盖阅读器渲染入口的定向验证并重建发布产物。
+
+
+
 ### v0.23.96 - 2026-09-21
 
 - 修复「正在生成」动画不退出：硬超时兜底原依赖 `handleChatStreamStable` 返回 false 才退出，但该函数恒返回 true，导致 120s 超时永不生效；改为 onTimeout 无条件强制退出，并给 `getCurrentMessage()` 加 5s pending 兜底（酒馆挂起时保证退出路径必然到达）。
