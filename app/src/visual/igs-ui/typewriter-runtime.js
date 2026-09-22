@@ -11,27 +11,42 @@ export const TYPEWRITER_DEFAULTS = Object.freeze({
 
 const activeJobs = new WeakMap();
 const renderedKeys = new WeakMap();
+const TYPEWRITER_VISUAL_MIN_DURATION_MS = 160;
+const TYPEWRITER_VISUAL_MAX_DURATION_MS = 1200;
+const graphemeSegmenter = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null;
+const VISUAL_REVEAL_KEYFRAMES = Object.freeze([
+    Object.freeze({ opacity: 0, clipPath: 'inset(0 100% 0 0)' }),
+    Object.freeze({ opacity: 1, clipPath: 'inset(0 0 0 0)' }),
+]);
 
-function splitGraphemes(value) {
-    const text = String(value || '');
-    if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
-        return Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), (part) => part.segment);
-    }
-    return Array.from(text);
+function readText(root) {
+    if (!root) return '';
+    if (root.nodeType === 3) return String(root.nodeValue || '');
+    return Array.from(root.childNodes || [], readText).join('');
 }
 
-function collectTextNodes(root) {
-    const result = [];
-    const visit = (node) => {
-        if (!node) return;
-        if (node.nodeType === 3) {
-            if (node.nodeValue) result.push(node);
-            return;
+function countGraphemesUpTo(text, limit) {
+    if (graphemeSegmenter) {
+        let count = 0;
+        for (const _part of graphemeSegmenter.segment(text)) {
+            count += 1;
+            if (count >= limit) break;
         }
-        for (const child of Array.from(node.childNodes || [])) visit(child);
-    };
-    visit(root);
-    return result;
+        return count;
+    }
+    return Math.min(Array.from(text).length, limit);
+}
+
+function getVisualDuration(text, speed) {
+    const perGraphemeMs = TYPEWRITER_SPEED_MS[speed];
+    const graphemeCount = countGraphemesUpTo(text, Math.ceil(TYPEWRITER_VISUAL_MAX_DURATION_MS / perGraphemeMs));
+    if (!graphemeCount) return 0;
+    return Math.min(
+        TYPEWRITER_VISUAL_MAX_DURATION_MS,
+        Math.max(TYPEWRITER_VISUAL_MIN_DURATION_MS, graphemeCount * perGraphemeMs),
+    );
 }
 
 function setRunningState(target, running) {
@@ -50,14 +65,38 @@ export function normalizeTypewriterSettings(value) {
 export function cancelTypewriter(target, { finish = true } = {}) {
     const job = target && activeJobs.get(target);
     if (!job) return false;
-    job.cancelled = true;
-    job.clear(job.timer);
-    if (finish) {
-        for (const entry of job.entries) entry.node.nodeValue = entry.text;
-    }
     activeJobs.delete(target);
+    // The full text was rendered before this visual effect started, so either
+    // cancel path leaves the underlying DOM complete and immediately visible.
+    void finish;
+    if (job.animation && typeof job.animation.cancel === 'function') {
+        job.animation.cancel();
+    }
     setRunningState(target, false);
     return true;
+}
+
+function settleVisualJob(target, job) {
+    if (activeJobs.get(target) !== job) return;
+    activeJobs.delete(target);
+    if (job.animation && typeof job.animation.cancel === 'function') {
+        job.animation.cancel();
+    }
+    setRunningState(target, false);
+}
+
+function createVisualAnimation(target, options, timing) {
+    const animate = typeof options.animate === 'function'
+        ? () => options.animate(target, VISUAL_REVEAL_KEYFRAMES, timing)
+        : typeof target.animate === 'function'
+            ? () => target.animate(VISUAL_REVEAL_KEYFRAMES, timing)
+            : null;
+    if (!animate) return null;
+    try {
+        return animate();
+    } catch {
+        return null;
+    }
 }
 
 export function applyTypewriterEffect(target, options = {}) {
@@ -88,44 +127,34 @@ export function applyTypewriterEffect(target, options = {}) {
         return { animated: false, finish() {} };
     }
 
-    const entries = collectTextNodes(target).map((node) => ({
-        node,
-        text: String(node.nodeValue || ''),
-        graphemes: splitGraphemes(node.nodeValue),
-    }));
-    if (!entries.some((entry) => entry.graphemes.length)) {
+    const duration = getVisualDuration(readText(target), settings.speed);
+    if (!duration) {
         setRunningState(target, false);
         return { animated: false, finish() {} };
     }
 
-    const schedule = typeof options.schedule === 'function' ? options.schedule : (fn, delay) => setTimeout(fn, delay);
-    const clear = typeof options.clear === 'function' ? options.clear : (timer) => clearTimeout(timer);
-    const job = { entries, clear, timer: null, cancelled: false, entryIndex: 0, graphemeIndex: 0, key };
-    for (const entry of entries) entry.node.nodeValue = '';
-    activeJobs.set(target, job);
-    if (key) renderedKeys.set(target, key);
-    setRunningState(target, true);
-
-    const tick = () => {
-        if (job.cancelled) return;
-        while (job.entryIndex < entries.length) {
-            const entry = entries[job.entryIndex];
-            if (job.graphemeIndex >= entry.graphemes.length) {
-                job.entryIndex += 1;
-                job.graphemeIndex = 0;
-                continue;
-            }
-            do {
-                entry.node.nodeValue += entry.graphemes[job.graphemeIndex];
-                job.graphemeIndex += 1;
-            } while (job.graphemeIndex < entry.graphemes.length && /^\s$/u.test(entry.graphemes[job.graphemeIndex]));
-            job.timer = schedule(tick, TYPEWRITER_SPEED_MS[settings.speed]);
-            return;
-        }
-        activeJobs.delete(target);
+    const animation = createVisualAnimation(target, options, {
+        duration,
+        easing: 'ease-out',
+        fill: 'both',
+    });
+    if (!animation || typeof animation.cancel !== 'function') {
         setRunningState(target, false);
-    };
-    tick();
+        return { animated: false, finish() {} };
+    }
+    if (key) renderedKeys.set(target, key);
+
+    const job = { animation, key };
+    activeJobs.set(target, job);
+    setRunningState(target, true);
+    const settle = () => settleVisualJob(target, job);
+    if (typeof animation.addEventListener === 'function') {
+        animation.addEventListener('finish', settle, { once: true });
+        animation.addEventListener('cancel', settle, { once: true });
+    } else {
+        animation.onfinish = settle;
+        animation.oncancel = settle;
+    }
 
     return {
         animated: true,

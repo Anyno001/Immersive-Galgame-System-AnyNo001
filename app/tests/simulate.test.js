@@ -1113,26 +1113,28 @@ test('gate:simulation:typewriter-first-forward-completes-text-and-second-forward
     const textNode = { nodeType: 3, nodeValue: '第一段。', childNodes: [] };
     textEl.nodeType = 1;
     textEl.childNodes = [textNode];
-    const queue = [];
+    const animation = {
+        cancelled: false,
+        cancel() {
+            this.cancelled = true;
+            this.oncancel?.();
+        },
+    };
     applyTypewriterEffect(textEl, {
         enabled: true,
         speed: 'slow',
         key: 'host-page-1',
         reducedMotion: false,
-        schedule(callback) {
-            queue.push(callback);
-            return callback;
-        },
-        clear(timer) {
-            const index = queue.indexOf(timer);
-            if (index >= 0) queue.splice(index, 1);
+        animate() {
+            return animation;
         },
     });
 
-    assert.equal(textNode.nodeValue, '第');
+    assert.equal(textNode.nodeValue, '第一段。');
     assert.equal(opened.reader.snapshot.content.progress, '1 / 2');
     dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160 });
     assert.equal(textNode.nodeValue, '第一段。');
+    assert.equal(animation.cancelled, true);
     assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '1 / 2');
     dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160 });
     assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '2 / 2');
