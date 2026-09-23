@@ -99,6 +99,9 @@ const SETTINGS_STYLE_TEXT = `
 .igs-source-filter-title{font-size:12px;line-height:18px;font-weight:500;letter-spacing:.06em;color:var(--igs-settings-ink)}
 .igs-source-filter-note{font-size:11px;line-height:16px;font-weight:400;color:var(--igs-settings-ink-4);overflow-wrap:anywhere}
 .igs-source-filter-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0}
+.igs-settings-grid[data-reader-pane="dialog"] .igs-gradient-veil-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px;min-width:0}
+.igs-reader-dialog-details>.igs-source-filter{background:var(--igs-settings-paper);gap:8px}
+.igs-reader-dialog-details>.igs-source-filter>.igs-source-filter-title{font-size:11px;color:var(--igs-settings-ink-2)}
 .igs-source-filter textarea{min-height:76px}
 .igs-body-format textarea[data-path="bridge.virtualRegex.replacement"]{min-height:132px}
 .igs-settings-row{display:flex;gap:10px;align-items:center;min-width:0}
@@ -148,6 +151,7 @@ const SETTINGS_STYLE_TEXT = `
 .igs-sprite-preview-overlay{position:absolute;inset:0;z-index:2147483600;background:rgba(9,10,11,.94);display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:24px;box-sizing:border-box}
 .igs-sprite-preview-img{max-width:100%;max-height:100%;object-fit:contain;border-radius:var(--igs-settings-radius-control);box-shadow:none}
 @media (max-width:640px){#igs-unified-settings{--igs-settings-width:min(760px,calc(var(--igs-settings-vw) - 24px));--igs-settings-height:min(760px,calc(var(--igs-settings-vh) - 24px));padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}.igs-settings-shell{width:var(--igs-settings-width);height:var(--igs-settings-height);border-radius:var(--igs-settings-radius-shell)}.igs-settings-grid,.igs-settings-api-group,.igs-source-filter-grid{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.igs-settings-grid[data-reader-pane="dialog"] .igs-gradient-veil-settings{grid-template-columns:minmax(0,1fr)}.igs-reader-dialog-details .igs-settings-row{flex-wrap:wrap}.igs-reader-dialog-details .igs-settings-row>*{flex:1 1 100px}}
 `.trim();
 
 export function getSettingsStyleText() {

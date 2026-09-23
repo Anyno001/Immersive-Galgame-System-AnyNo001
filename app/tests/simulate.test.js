@@ -2034,12 +2034,26 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.equal(dialogView.snapshot.readerSubTab, 'dialog');
     assert.match(dialogView.snapshot.html, /data-reader-pane="dialog"/);
     assert.match(dialogView.snapshot.html, /对话框样式/);
+    assert.match(dialogView.snapshot.html, /文字排版/);
+    assert.match(dialogView.snapshot.html, /尺寸与显示/);
+    assert.match(dialogView.snapshot.html, /外观细节/);
     assert.match(dialogView.snapshot.html, /对话框宽度/);
     assert.match(dialogView.snapshot.html, /对话框风格/);
-    assert.ok(dialogView.snapshot.html.indexOf('对话框样式') < dialogView.snapshot.html.indexOf('对话框宽度'));
+    const dialogHeadings = ['对话框样式', '文字排版', '尺寸与显示', '外观细节', '对话框背景', '角色名', '台词', '旁白', '心里话', '分隔线'];
+    for (let index = 1; index < dialogHeadings.length; index += 1) {
+        assert.ok(dialogView.snapshot.html.indexOf(dialogHeadings[index - 1]) < dialogView.snapshot.html.indexOf(dialogHeadings[index]), `${dialogHeadings[index]} must follow ${dialogHeadings[index - 1]}`);
+    }
+    assert.ok(dialogView.snapshot.html.indexOf('对话框风格') < dialogView.snapshot.html.indexOf('对话框字体'));
+    assert.ok(dialogView.snapshot.html.indexOf('对话框字重') < dialogView.snapshot.html.indexOf('对话框宽度'));
     assert.match(dialogView.snapshot.html, /角色名/);
     assert.match(dialogView.snapshot.html, /分隔线/);
     assert.doesNotMatch(dialogView.snapshot.html, /按钮管理|启用打字机演出/);
+
+    settings.setValue('readerSettings.dialogSkin', 'gradient-veil');
+    const gradientDialogView = settings.switchReaderSubTab('dialog');
+    assert.ok(gradientDialogView.snapshot.html.indexOf('对话框风格') < gradientDialogView.snapshot.html.indexOf('黑幕颜色'));
+    assert.ok(gradientDialogView.snapshot.html.indexOf('黑幕颜色') < gradientDialogView.snapshot.html.indexOf('文字排版'));
+    assert.match(gradientDialogView.snapshot.html, /igs-gradient-veil-settings/);
 
     const visualView = settings.switchReaderSubTab('visual');
     assert.match(visualView.snapshot.html, /data-reader-pane="visual"/);
@@ -2076,6 +2090,8 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
     const classicDialogView = settings.switchReaderSubTab('dialog');
     assert.equal((classicDialogView.snapshot.html.match(/对话框风格/g) || []).length, 1);
+    assert.ok(classicDialogView.snapshot.html.indexOf('对话框宽度') < classicDialogView.snapshot.html.indexOf('电脑端宽度'));
+    assert.ok(classicDialogView.snapshot.html.indexOf('电脑端宽度') < classicDialogView.snapshot.html.indexOf('对话框高度'));
     assert.doesNotMatch(classicDialogView.snapshot.html, /西欧古典请在「主题」页按比例调整|当前风格使用固定 184px/);
     assert.match(classicDialogView.snapshot.html, /data-path="readerSettings\.dialogFontWeight"/);
     assert.match(classicDialogView.snapshot.html, /跟随当前样式/);

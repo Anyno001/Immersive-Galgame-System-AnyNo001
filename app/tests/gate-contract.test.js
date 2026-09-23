@@ -750,9 +750,25 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     const optionsTemplate = getReaderSubTabTemplate('options');
     const interfaceTemplate = getReaderSubTabTemplate('interface');
     assert.match(dialogTemplate, /对话框样式/);
-    assert.ok(dialogTemplate.indexOf('对话框样式') < dialogTemplate.indexOf('对话框布局'));
-    assert.ok(dialogTemplate.indexOf('dialogSkinField') < dialogTemplate.indexOf('fontSizeField'));
-    assert.equal((dialogTemplate.match(/dialogSkinField/g) || []).length, 1);
+    const dialogHierarchy = [
+        '对话框样式', 'dialogSkinField', 'gradientVeilFields',
+        '文字排版', 'fontSizeField', 'dialogFontField', 'dialogFontWeightField',
+        '尺寸与显示', 'dialogWidthField', 'classicDialogWidthPercentField',
+        'dialogHeightField', 'inputScaleField', 'dialogToggles',
+        '外观细节', 'dialogBgField', 'nameFontField', 'textFontField',
+        'narrationFontField', 'thoughtFontField', 'dividerField',
+    ];
+    for (const [index, item] of dialogHierarchy.entries()) {
+        assert.equal(dialogTemplate.split(item).length - 1, 1, `${item} must appear exactly once`);
+        if (index > 0) assert.ok(dialogTemplate.indexOf(dialogHierarchy[index - 1]) < dialogTemplate.indexOf(item), `${item} must follow ${dialogHierarchy[index - 1]}`);
+    }
+    assert.match(dialogTemplate, /igs-reader-dialog-details/);
+    const settingsStyle = getSettingsStyleText();
+    assert.match(settingsStyle, /\.igs-settings-grid\[data-reader-pane="dialog"\] \.igs-gradient-veil-settings\{display:grid/);
+    assert.match(settingsStyle, /\.igs-reader-dialog-details>\.igs-source-filter\{background:var\(--igs-settings-paper\)/);
+    const publishedBundle = fs.readFileSync(path.join(appRoot, 'dist', 'igs.bundle.js'), 'utf8');
+    assert.ok(publishedBundle.includes('.igs-gradient-veil-settings{display:grid'));
+    assert.ok(publishedBundle.includes('.igs-reader-dialog-details>.igs-source-filter{background:var(--igs-settings-paper)'));
     assert.match(dialogTemplate, /dialogFontField/);
     assert.match(dialogTemplate, /dialogFontWeightField/);
     assert.match(dialogTemplate, /fontSizeField/);

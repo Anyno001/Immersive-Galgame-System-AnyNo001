@@ -78,33 +78,38 @@ const READER_DIALOG_TEMPLATE = `
   <div class="igs-source-filter igs-settings-full">
     <div class="igs-source-filter-title">对话框样式</div>
     <div class="igs-settings-row">{{dialogSkinField}}</div>
+    {{gradientVeilFields}}
   </div>
   <div class="igs-source-filter igs-settings-full">
-    <div class="igs-source-filter-title">对话框布局</div>
+    <div class="igs-source-filter-title">文字排版</div>
     <div class="igs-source-filter-grid">
       {{fontSizeField}}
       {{dialogFontField}}
       {{dialogFontWeightField}}
+    </div>
+  </div>
+  <div class="igs-source-filter igs-settings-full">
+    <div class="igs-source-filter-title">尺寸与显示</div>
+    <div class="igs-source-filter-grid">
       {{dialogWidthField}}
+      {{classicDialogWidthPercentField}}
       {{dialogHeightField}}
       {{inputScaleField}}
-      {{gradientVeilFields}}
-      {{classicDialogWidthPercentField}}
     </div>
     <div class="igs-settings-section">{{dialogToggles}}</div>
   </div>
   <div class="{{themeGroupClass}}">
     <div>
-      <div class="igs-source-filter-title">文字与外观</div>
+      <div class="igs-source-filter-title">外观细节</div>
       <div class="igs-source-filter-note">{{themeNote}}</div>
     </div>
-    <div class="{{themeAdvancedClass}}" style="display:flex;flex-direction:column;gap:12px">
+    <div class="igs-reader-dialog-details {{themeAdvancedClass}}" style="display:flex;flex-direction:column;gap:12px">
+      <div class="igs-source-filter"><div class="igs-source-filter-title">对话框背景</div><div class="igs-settings-row">{{dialogBgField}}{{dialogBgOpacityField}}{{glassOpacityField}}</div></div>
       <div class="igs-source-filter"><div class="igs-source-filter-title">角色名</div><div class="igs-settings-row">{{nameFontField}}{{nameColorField}}{{nameAlignField}}</div></div>
       <div class="igs-source-filter"><div class="igs-source-filter-title">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}{{textAlignField}}</div></div>
       <div class="igs-source-filter"><div class="igs-source-filter-title">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}{{narrationAlignField}}</div></div>
       <div class="igs-source-filter"><div class="igs-source-filter-title">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}{{thoughtAlignField}}</div></div>
       <div class="igs-source-filter"><div class="igs-source-filter-title">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
-      <div class="igs-source-filter"><div class="igs-source-filter-title">对话框背景</div><div class="igs-settings-row">{{dialogBgField}}{{dialogBgOpacityField}}{{glassOpacityField}}</div></div>
     </div>
   </div>
 </div>
