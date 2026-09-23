@@ -1,12 +1,12 @@
 {
   "name": "igs-app",
-  "version": "0.24.13",
+  "version": "0.24.14",
   "private": true,
   "type": "module",
   "scripts": {
     "structure": "node scripts/gate-structure.js",
     "static": "node scripts/gate-static.js",
-    "test": "node --test tests/unit.test.js tests/typewriter-runtime.test.js tests/stage-shake-runtime.test.js tests/gate-contract.test.js",
+    "test": "node --test tests/unit.test.js tests/typewriter-runtime.test.js tests/stage-shake-runtime.test.js tests/gate-contract.test.js tests/map-model.test.js tests/map-fill.test.js",
     "simulate": "node --test tests/simulate.test.js",
     "perf": "node scripts/perf-smoke.js",
     "build": "node scripts/build.js",

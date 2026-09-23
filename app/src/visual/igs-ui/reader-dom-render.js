@@ -714,20 +714,31 @@ export function applyStatusHudToDom(root, snapshot) {
     const identity = doc.createElement('div');
     identity.className = 'igs-hud-identity';
     if (hud.character) {
+        const avatarFrame = doc.createElement('div');
+        avatarFrame.className = 'igs-hud-avatar-frame';
         if (hud.avatar) {
             const img = doc.createElement('img');
             img.className = 'igs-hud-avatar';
             img.setAttribute('src', hud.avatar);
             img.setAttribute('alt', '');
             img.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
-            identity.appendChild(img);
+            avatarFrame.appendChild(img);
         } else {
             const placeholder = doc.createElement('div');
             placeholder.className = 'igs-hud-avatar igs-hud-avatar-empty';
             placeholder.innerHTML = STATUS_HUD_PLACEHOLDER;
             placeholder.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
-            identity.appendChild(placeholder);
+            avatarFrame.appendChild(placeholder);
         }
+        const entry = doc.createElement('button');
+        entry.className = 'igs-map-avatar-entry';
+        entry.type = 'button';
+        entry.setAttribute('data-act', 'map');
+        entry.setAttribute('aria-label', '打开地点地图');
+        entry.setAttribute('title', '地点地图');
+        entry.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 3 6 1l4 2 4-2v12l-4 2-4-2-4 2Z"/><path d="M6 1v12m4-10v12"/></svg>';
+        avatarFrame.appendChild(entry);
+        identity.appendChild(avatarFrame);
     }
     if (hasEmotion) {
         const chip = doc.createElement('span');
@@ -736,8 +747,9 @@ export function applyStatusHudToDom(root, snapshot) {
         identity.appendChild(chip);
     }
     if (hasLocation) {
-        const location = doc.createElement('div');
+        const location = doc.createElement(hud.character ? 'div' : 'button');
         location.className = 'igs-hud-location';
+        if (!hud.character) { location.type = 'button'; location.setAttribute('data-act', 'map'); location.setAttribute('aria-label', '打开地点地图'); }
         const icon = doc.createElement('span');
         icon.className = 'igs-hud-location-icon';
         icon.innerHTML = STATUS_HUD_LOCATION_ICON;

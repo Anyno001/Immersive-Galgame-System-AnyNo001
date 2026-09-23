@@ -10,6 +10,7 @@ import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel
 import { createImageResourceCache, createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
+import { createMapPanelController } from '../src/visual/igs-ui/map-panel.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import { LEGACY_DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
 import { applyTypewriterEffect } from '../src/visual/igs-ui/typewriter-runtime.js';
@@ -3673,6 +3674,210 @@ function readJson(relativePath) {
 function readText(relativePath) {
     return fs.readFileSync(path.join(appRoot, relativePath), 'utf8');
 }
+
+test('gate:simulation:map-panel-navigates-read-only-sheets-refreshes-and-cleans-up', async () => {
+    const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
+    const overlay = document.createElement('div');
+    const layer = document.createElement('div');
+    layer.id = 'igs-db-layer';
+    overlay.appendChild(layer);
+    document.body.appendChild(overlay);
+    let restoredFocus = 0;
+    document.activeElement = { focus() { restoredFocus++; } };
+    const columns = ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序'];
+    const home = ['home', '', '我家', '.2', '.7', '屋子 <安全>', '甲', '1'];
+    const floor = ['floor', 'home', '一楼', '', '', '无平面点', '', '1'];
+    let rows = [home, floor, ['room', 'floor', '卧室', '.5', '.5', '窗边', '乙', '1']];
+    const callbacks = new Set();
+    let reads = 0;
+    let writes = 0;
+    const api = {
+        exportTableAsJson() {
+            reads++;
+            return { sheet_map: { uid: 'sheet_map', name: '家庭地图', content: [columns, ...rows] },
+                sheet_other: { uid: 'sheet_other', name: '人物', content: [columns, ['x', '', '无关', '', '', '', '', '']] } };
+        },
+        registerTableUpdateCallback(callback) { callbacks.add(callback); },
+        unregisterTableUpdateCallback(callback) { callbacks.delete(callback); },
+        updateCell() { writes++; },
+    };
+    const panel = createMapPanelController(document, { AutoCardUpdaterAPI: api }, async () => ({ ok: false, reason: 'draft-not-empty' }));
+    const act = async (action, id = '') => {
+        const target = document.createElement('button');
+        target.setAttribute('data-map-act', action);
+        target.setAttribute('data-map-id', id);
+        const root = document.getElementById('igs-map-panel');
+        root.appendChild(target);
+        await root.dispatchEvent({ type: 'click', target });
+        target.remove();
+    };
+    assert.equal(panel.open(overlay, {}, '我家').ok, true);
+    assert.equal(panel.getState().selectedId, 'sheet_map:home');
+    assert.equal(panel.getState().model.tables.length, 1);
+    assert.equal(panel.open(overlay, {}, '我家').reason, 'already-open');
+    assert.equal(callbacks.size, 1);
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /屋子 &lt;安全&gt;/);
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /left:20%;top:70%/);
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /stroke="currentColor"/);
+    await act('enter', 'sheet_map:home');
+    assert.equal(panel.getState().parentId, 'sheet_map:home');
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /未标注坐标的地点/);
+    await act('select', 'sheet_map:floor');
+    await act('enter', 'sheet_map:floor');
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /left:50%;top:50%/);
+    await act('select', 'sheet_map:room');
+    await act('travel');
+    assert.match(panel.getState().message, /未覆盖/);
+    assert.equal(writes, 0);
+    rows = [home, floor, ['room', 'floor', '新房间', '.5', '.5', '', '', '1']];
+    callbacks.forEach(callback => callback());
+    assert.equal(panel.getState().model.tables[0].locations[2].name, '新房间');
+    await act('back');
+    assert.equal(panel.getState().parentId, 'sheet_map:home');
+    panel.close();
+    assert.equal(callbacks.size, 0);
+    assert.equal(document.getElementById('igs-map-panel'), null);
+    assert.equal(restoredFocus, 1);
+    assert.equal(panel.open(overlay, {}, '').ok, true);
+    assert.equal(callbacks.size, 1);
+    assert.ok(reads >= 2);
+    const backdrop = document.getElementById('igs-map-panel');
+    await backdrop.dispatchEvent({ type: 'click', target: backdrop });
+    assert.equal(callbacks.size, 0);
+    assert.equal(restoredFocus, 2);
+    assert.equal(document.getElementById('igs-map-panel'), null);
+});
+
+test('gate:simulation:map-hud-entry-does-not-open-while-collapsed-and-only-fills-reader-draft', async () => {
+    const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
+    const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify({
+        sceneAssets: { enabled: true, promptRule: 'rule', scenes: { '我家': { url: '' } }, characters: {}, characterAliases: {}, moodGroups: [] },
+    }) });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ statusHud: { enabled: true, showLocation: true, tables: [] } }));
+    const vn = bootstrapIGS({ global: { document, localStorage: storage }, autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-scene:我家|夜晚|晴天]', '旁白。', '</content>', '</now_plot>'].join('\n') }),
+            typeAndSend: async () => { throw Error('map must never send'); } } });
+    const opened = await vn.openLatestAvailable('pc');
+    const hud = document.getElementById('igs-status-hud');
+    assert.equal(hud.querySelector('[data-act="map"]').tagName, 'BUTTON');
+    assert.equal(hud.querySelector('.igs-map-avatar-entry'), null);
+    const controller = opened.reader.controller;
+    assert.equal((await controller.invokeAction('map')).ok, true);
+    const panel = document.getElementById('igs-map-panel');
+    assert.ok(panel);
+    assert.match(panel.innerHTML, /地图读取失败：missing-api/);
+    assert.equal(document.getElementById('igs-input').value, '');
+    const docStyle = getOriginalReaderStyleText();
+    assert.match(docStyle, /#igs-map-panel .igs-map-plane/);
+    const page = vn.getState().igsUi.activeReader.index;
+    document.dispatchEvent({ type: 'keydown', key: 'ArrowRight', target: panel });
+    document.dispatchEvent({ type: 'keydown', key: ' ', target: panel });
+    assert.equal(vn.getState().igsUi.activeReader.index, page);
+    assert.ok(document.getElementById('igs-map-panel'));
+    document.dispatchEvent({ type: 'keydown', key: 'Escape', target: panel });
+    assert.equal(document.getElementById('igs-map-panel'), null);
+    assert.ok(vn.getState().igsUi.activeReader);
+    assert.equal((await controller.invokeAction('map')).ok, true);
+    controller.close();
+    assert.equal(document.getElementById('igs-map-panel'), null);
+    const again = await vn.openLatestAvailable('pc');
+    document.getElementById('igs-overlay').classList.add('igs-options-visible');
+    assert.equal((await again.reader.controller.invokeAction('map')).reason, 'map-entry-not-visible');
+    document.getElementById('igs-overlay').classList.remove('igs-options-visible');
+    await again.reader.controller.invokeAction('toggle-status-hud');
+    assert.equal(document.getElementById('igs-status-hud').classList.contains('igs-hud-collapsed'), true);
+    assert.equal((await again.reader.controller.invokeAction('map')).reason, 'map-entry-not-visible');
+    vn.destroy();
+});
+
+test('gate:simulation:map-avatar-entry-keeps-keyboard-and-hud-actions-separated', async () => {
+    const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
+    const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify({
+        sceneAssets: { enabled: true, promptRule: 'rule', scenes: {}, characters: { Alice: {} },
+            characterAliases: {}, moodGroups: [], statusAvatars: { Alice: 'data:image/png;base64,AAA' } },
+    }) });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ statusHud: { enabled: true, showLocation: true, tables: [] } }));
+    const vn = bootstrapIGS({ global: { document, localStorage: storage }, autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => ({ id: 21, text: '<content>[igs-char:Alice|平静|你好。]</content>' }),
+            typeAndSend: async () => { throw Error('map must not send'); } } });
+    const opened = await vn.openLatestAvailable('pc');
+    const controller = opened.reader.controller;
+    const hud = document.getElementById('igs-status-hud');
+    const entry = hud.querySelector('.igs-map-avatar-entry');
+    assert.equal(entry.tagName, 'BUTTON');
+    assert.equal(entry.getAttribute('aria-label'), '打开地点地图');
+    assert.equal(hud.querySelector('.igs-hud-location'), null);
+    assert.equal(hud.querySelectorAll('.igs-hud-metric').length, 0);
+    const before = vn.getState().igsUi.activeReader.index;
+    let stopped = false;
+    document.dispatchEvent({ type: 'keydown', key: ' ', target: entry,
+        stopPropagation() { stopped = true; } });
+    assert.equal(vn.getState().igsUi.activeReader.index, before);
+    assert.equal(stopped, false);
+    assert.equal((await controller.invokeAction('map')).ok, true);
+    assert.ok(document.getElementById('igs-map-panel'));
+    stopped = false;
+    document.dispatchEvent({ type: 'keydown', key: 'ArrowRight', target: entry,
+        stopPropagation() { stopped = true; } });
+    assert.equal(stopped, true);
+    assert.equal(vn.getState().igsUi.activeReader.index, before);
+    document.dispatchEvent({ type: 'keydown', key: 'Escape', target: entry });
+    assert.equal(document.getElementById('igs-map-panel'), null);
+    assert.ok(vn.getState().igsUi.activeReader);
+    assert.equal((await controller.invokeAction('toggle-status-hud')).ok, true);
+    assert.equal((await controller.invokeAction('map')).reason, 'map-entry-not-visible');
+    vn.destroy();
+});
+
+test('gate:simulation:map-embedded-only-fills-empty-host-draft', async () => {
+    const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
+    const globalObject = document.defaultView;
+    const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify({
+        sceneAssets: { enabled: true, promptRule: 'rule', scenes: { '我家': { url: '' } }, characters: {},
+            characterAliases: {}, moodGroups: [] },
+    }) });
+    globalObject.localStorage = storage;
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ statusHud: { enabled: true, showLocation: true, tables: [] } }));
+    const columns = ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序'];
+    globalObject.AutoCardUpdaterAPI = { exportTableAsJson: () => ({ sheet_map: { uid: 'sheet_map', name: '家庭地图',
+        content: [columns, ['p', '', '<房间 & 门>', '.5', '.5', '', '', '1']] } }) };
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const text = '<now_plot>\n<content>\n[igs-scene:我家|夜晚|晴天]\n旁白。\n</content>\n</now_plot>';
+    const element = createFakeMessageElement(document, { messageId: 22, textContent: text });
+    chat.appendChild(element);
+    const message = { id: 22, text, element };
+    let draft = '';
+    let fills = 0;
+    const vn = bootstrapIGS({ global: globalObject, autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => message, getMessageById: async () => message,
+            fillEmptyInputText: async value => { fills++; if (draft) return { ok: false, reason: 'draft-not-empty' }; draft = value; return { ok: true }; },
+            typeAndSend: async () => { throw Error('map must not send'); } } });
+    const opened = await vn.openLatestAvailable('embedded');
+    assert.equal(opened.ok, true);
+    assert.equal(opened.reader.snapshot.mode, 'embedded');
+    assert.equal((await opened.reader.controller.invokeAction('map')).ok, true);
+    const root = document.getElementById('igs-map-panel');
+    assert.ok(root);
+    const act = async (action, id = '') => {
+        const target = document.createElement('button');
+        target.setAttribute('data-map-act', action);
+        target.setAttribute('data-map-id', id);
+        root.appendChild(target);
+        await root.dispatchEvent({ type: 'click', target });
+        target.remove();
+    };
+    await act('select', 'sheet_map:p');
+    await act('travel');
+    assert.equal(draft, '前往<房间 & 门>地点');
+    await act('travel');
+    assert.equal(draft, '前往<房间 & 门>地点');
+    assert.equal(fills, 2);
+    assert.match(root.innerHTML, /未覆盖/);
+    vn.destroy();
+    assert.equal(document.getElementById('igs-map-panel'), null);
+});
 
 function createFakeDocument(viewOptions = {}) {
     const document = {

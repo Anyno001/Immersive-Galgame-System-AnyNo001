@@ -124,6 +124,7 @@ import {
 import { clearReaderModeRuntime, exitDocumentFullscreen } from './reader-runtime.js';
 import { enterSpriteEditMode } from './sprite-edit.js';
 import { createDbPanelController } from '../../shujuku-panel/panel-controller.js';
+import { createMapPanelController } from './map-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildStatusHudModel, listStatusHudTables, normalizeStatusAvatars, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
@@ -1057,6 +1058,16 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'close') {
             return state.activeReader.controller.close();
         }
+        if (normalizedAction === 'map') {
+            const current = state.activeReader;
+            const hud = current.snapshot?.content?.statusHud;
+            const settings = current.snapshot?.readerSettings;
+            const overlay = current.dom?.overlay;
+            if (!hud?.enabled || (!hud.character && !hud.location) || settings?.statusHud?.collapsed || !current.toolbarCollapsed
+                || overlay?.classList?.contains('igs-options-visible') || !current.dom?.mapController)
+                return { ok: false, reason: 'map-entry-not-visible' };
+            return current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation);
+        }
         if (normalizedAction === 'toggle-status-hud') {
             return state.activeReader.controller.toggleStatusHud();
         }
@@ -1488,6 +1499,23 @@ export function createIgsReaderHost(options = {}) {
             getMessagePrimaryText(liveMessage),
             payload.raw,
         );
+        // 剥离空台词分段里的 [人名]：前缀后，再判断是否有可见正文。
+        const dialogueBody = (value) => {
+            const source = String(value == null ? '' : value).trim();
+            const match = source.match(/^\[([^\]\n]+)\]\s*[:：]\s*([\s\S]*)$/);
+            return match ? match[2].trim() : source;
+        };
+        const stripWrappingQuotes = (value) => {
+            const source = String(value == null ? '' : value).trim();
+            if (source.length < 2) return source;
+            const pairs = [['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ['"', '"'], ["'", "'"]];
+            for (const [open, close] of pairs) {
+                if (source.startsWith(open) && source.endsWith(close)) {
+                    return source.slice(open.length, source.length - close.length).trim();
+                }
+            }
+            return source;
+        };
         const extractedSegments = Array.isArray(extracted.textSegments) ? extracted.textSegments : [];
         const hasExtractedSegments = extractedSegments.some((segment) => String(segment || '').trim());
         let segments = enforceExcludedText
@@ -1499,10 +1527,14 @@ export function createIgsReaderHost(options = {}) {
                 : buildTextSegments(stripSceneDirectiveLines(text));
         // 场景指令可能紧贴正文（如「正文。[igs-scene:…]」），所有分段来源都必须再剥离一次，
         // 否则标签会作为正文渲染进对话框。
-        // 剥离后为空的段（例如整行只有 [igs-scene:]）直接丢弃，避免多出一个空白页。
+        // 剥离后为空的段（场景标签、空台词、U+2062/U+2063 隐形格式字符）直接丢弃。
         const visibleSegments = segments
-            .map((seg) => stripSceneDirectivesInline(seg))
-            .filter((seg) => String(seg || '').trim().length > 0);
+            .map((seg) => stripSceneDirectivesInline(String(seg || '').replace(/[\u2062\u2063]/g, '')))
+            .filter((seg) => {
+                const visible = String(seg || '').trim();
+                return visible.length > 0 && (!/^\[[^\]\n]+\]\s*[:：]/.test(visible)
+                    || stripWrappingQuotes(dialogueBody(visible)).length > 0);
+            });
         segments = visibleSegments.length ? visibleSegments : [''];
 
 
@@ -1574,18 +1606,6 @@ export function createIgsReaderHost(options = {}) {
         // Fallback: when the prefix was stripped (single-segment messages), use the
         // directive that lands on this exact segment index.
         // 角色台词若被成对引号整体包裹（AI 偶发额外输出中英文引号），前端不渲染引号。
-        const stripWrappingQuotes = (text) => {
-            const value = String(text == null ? '' : text).trim();
-            if (value.length < 2) return value;
-            const pairs = [['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ['"', '"'], ["'", "'"]];
-            for (const [open, close] of pairs) {
-                if (value.startsWith(open) && value.endsWith(close)) {
-                    return value.slice(open.length, value.length - close.length).trim();
-                }
-            }
-            return value;
-        };
-
         let textType = 'narration';
         let bubbleSpeaker = '';
         let segmentBody = currentText;
@@ -2211,6 +2231,14 @@ export function createIgsReaderHost(options = {}) {
         });
         const keydownHandler = (event) => {
             if (!state.activeReader) return;
+            const mapPanel = state.activeReader.dom?.mapController;
+            if (mapPanel?.isOpen()) {
+                if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation?.(); mapPanel.close(); }
+                else if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.stopPropagation?.();
+                return;
+            }
+            // A focused HUD button owns Space/Enter; neither key is a page turn.
+            if (event.key !== 'Escape' && event.target?.closest?.('button, [role="button"]')) return;
             const input = state.activeReader.dom && state.activeReader.dom.input;
             if (doc.activeElement === input && event.key !== 'Escape') return;
             if (event.key === 'Escape') {
@@ -2237,15 +2265,33 @@ export function createIgsReaderHost(options = {}) {
             doc.addEventListener('keydown', keydownHandler, true);
         }
         const dbController = createDbPanelController(doc, options.global);
+        const mapController = createMapPanelController(doc, options.global, async text => {
+            const current = state.activeReader;
+            if (!current) return { ok: false, reason: 'reader-not-open' };
+            if (isEmbeddedReaderMode(current.mode)) {
+                return typeof options.fillEmptyInputText === 'function'
+                    ? options.fillEmptyInputText(text)
+                    : { ok: false, reason: 'missing-readable-input' };
+            }
+            const input = current.dom?.input;
+            if (!input) return { ok: false, reason: 'missing-reader-input' };
+            if (String(input.value ?? '') !== '') return { ok: false, reason: 'draft-not-empty' };
+            input.value = text;
+            current.inputValue = text;
+            input.focus?.();
+            return { ok: true };
+        });
         const domState = {
             root,
             doc,
             dbController,
+            mapController,
             embeddedMount,
             dispose() {
                 if (typeof doc.removeEventListener === 'function') {
                     doc.removeEventListener('keydown', keydownHandler, true);
                 }
+                mapController.close();
                 dbController.close();
                 teardownEmbeddedMount(domState.embeddedMount);
                 domState.embeddedMount = null;

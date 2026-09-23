@@ -91,6 +91,31 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
             return { ok: false, reason: domResult.reason || 'missing-input-api' };
         },
 
+        async fillEmptyInputText(text) {
+            // Do not invoke the unconditional setter until the actual draft is observable.
+            const helper = getTavernHelper(globalObject);
+            const input = getCandidateDocuments(globalObject)
+                .map(doc => safeQuery(doc, '#send_textarea')).find(Boolean);
+            try {
+                if (input) {
+                    if (String(input.value ?? '') !== '') return { ok: false, reason: 'draft-not-empty' };
+                    // The DOM fallback checks again just before writing; helper reads may be stale.
+                    return setInputTextViaHostDom(globalObject, text, true);
+                }
+                if (helper && typeof helper.getInputText === 'function' && typeof helper.setInputText === 'function') {
+                    const existing = await helper.getInputText();
+                    if (existing == null) return { ok: false, reason: 'missing-readable-input' };
+                    if (String(existing) !== '') return { ok: false, reason: 'draft-not-empty' };
+                    const filled = await helper.setInputText(String(text ?? ''));
+                    if (filled === false) return { ok: false, reason: 'input-fill-failed' };
+                    return { ok: true, reason: 'tavern-helper-fill' };
+                }
+            } catch (error) {
+                return { ok: false, reason: 'input-read-or-fill-failed' };
+            }
+            return { ok: false, reason: 'missing-readable-input' };
+        },
+
         async typeAndSend(text) {
             const helper = getTavernHelper(globalObject);
             if (helper && typeof helper.typeAndSend === 'function') {
@@ -110,12 +135,13 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
     };
 }
 
-function setInputTextViaHostDom(globalObject, text) {
+function setInputTextViaHostDom(globalObject, text, onlyIfEmpty = false) {
     const value = String(text == null ? '' : text);
     for (const doc of getCandidateDocuments(globalObject)) {
         const textarea = safeQuery(doc, '#send_textarea');
         if (!textarea) continue;
         try {
+            if (onlyIfEmpty && String(textarea.value ?? '') !== '') return { ok: false, reason: 'draft-not-empty' };
             const setter = resolveNativeValueSetter(textarea, doc);
             if (setter) setter.call(textarea, value);
             else textarea.value = value;

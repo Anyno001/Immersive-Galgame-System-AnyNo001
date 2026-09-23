@@ -347,6 +347,15 @@ export function buildIgsTextPayload(message, options = {}) {
         );
     }
 
+    // 无 <content> 的回退文本仍须消费 [igs-char:]，否则整条指令会被误读为说话人前缀。
+    if (sceneAssetsEnabled && usedFallback && hasIgsDirectiveTags(formattedText)) {
+        // 格式化会替换掉指令标签；先保留原文中的角色/场景定位供后续分页归属使用。
+        if (!sceneDirectives.length) {
+            sceneDirectiveSource = formattedText;
+            sceneDirectives = extractSceneDirectives(sceneDirectiveSource).directives;
+        }
+        formattedText = applyImmersiveGalgameSystemBodyFormat(formattedText, virtualRegex).formattedRaw;
+    }
     formattedText = normalizeWhitespace(formattedText);
 
     // DOM 差异优先：第三方关键词过滤插件（如 Veridis）会改渲染层 .mes_text，

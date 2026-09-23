@@ -1587,6 +1587,44 @@ test('gate:igs-ui:scene-assets-classifies-dialogue-vs-narration-per-segment', ()
     }
 });
 
+test('gate:igs-ui:reader-host-skips-empty-dialogue-pages', () => {
+    const host = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({
+            version: '0.4.9',
+            bridge: { openMode: 'pc', sceneAssets: { enabled: true, scenes: {}, characters: {} } },
+            readerMode: 'pc', readerSettings: {},
+        }),
+        saveUnifiedSettings: () => ({ ok: true, legacy: {}, unified: {} }),
+    });
+    const opened = host.openReader({
+        message: { text: '<content>[igs-char:小林海斗|平静|你好。]</content>' },
+        textSegments: ['[小林海斗]：你好。', '  ', '\u2063\u2062\u2063', '[小林海斗]： ', '[小林海斗]：「」', '[小林海斗]：再见。'],
+    }, { mode: 'pc' });
+    assert.deepEqual(opened.snapshot.content.segments, ['[小林海斗]：你好。', '[小林海斗]：再见。']);
+    assert.equal(opened.snapshot.content.progress.includes('/ 2'), true);
+    host.destroy();
+});
+
+test('gate:igs-ui:reader-host-strips-quotes-from-ai-char-directive', () => {
+    const host = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({
+            version: '0.4.9', bridge: { openMode: 'pc', sceneAssets: { enabled: true, scenes: {}, characters: {} } },
+            readerMode: 'pc', readerSettings: {},
+        }),
+        saveUnifiedSettings: () => ({ ok: true, legacy: {}, unified: {} }),
+    });
+    const opened = host.openReader({
+        message: { text: '\u2063\u2062\u2063[igs-char:哪吒|震怒|「喂……开什么玩笑？！小爷的身体到底怎么了！」]' },
+    }, { mode: 'pc' });
+    assert.equal(opened.snapshot.content.speaker, '哪吒');
+    assert.equal(opened.snapshot.content.textType, 'dialogue');
+    assert.equal(opened.snapshot.content.segments.length, 1);
+    assert.equal(opened.snapshot.content.displayText, '喂……开什么玩笑？！小爷的身体到底怎么了！');
+    host.destroy();
+});
+
 test('gate:scene:igs-message-source:extracts-scene-directives-from-fallback-text', () => {
     const payload = buildIgsTextPayload({
         text: '[igs-scene:B班教室|下午|晴天]\n[igs-char:小林海斗|平静|できるもん！]',
