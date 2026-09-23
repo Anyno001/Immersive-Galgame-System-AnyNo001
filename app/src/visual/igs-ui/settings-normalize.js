@@ -167,12 +167,12 @@ function applyReferenceTypographyDefaults(theme, referenceTypography, baseline) 
     return result;
 }
 
-export function renderDialogueHtml(text, theme, sceneAssetsEnabled, dialogFont = 'inherit') {
+export function renderDialogueHtml(text, theme, sceneAssetsEnabled) {
     const escaped = esc(text);
     if (!sceneAssetsEnabled) return escaped;
     const html = escaped.replace(/\*([^*]+)\*/g, (_, inner) => {
         const styles = [];
-        if ((!dialogFont || dialogFont === 'inherit') && theme.thoughtFont && theme.thoughtFont !== 'inherit') styles.push(`font-family:${cssFontValue(theme.thoughtFont)}`);
+        if (theme.thoughtFont && theme.thoughtFont !== 'inherit') styles.push(`font-family:${cssFontValue(theme.thoughtFont)}`);
         if (theme.thoughtColor) styles.push(`color:${theme.thoughtColor}`);
         const styleAttr = styles.length ? ` style="${styles.join(';')}"` : '';
         return `<span class="igs-thought"${styleAttr}>${inner}</span>`;

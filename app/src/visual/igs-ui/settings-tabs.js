@@ -84,7 +84,6 @@ const READER_DIALOG_TEMPLATE = `
     <div class="igs-source-filter-title">文字排版</div>
     <div class="igs-source-filter-grid">
       {{fontSizeField}}
-      {{dialogFontField}}
       {{dialogFontWeightField}}
     </div>
   </div>

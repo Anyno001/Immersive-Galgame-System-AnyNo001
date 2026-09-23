@@ -1021,10 +1021,42 @@ test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
         assert.equal(current.readerSettings.glassBackdropFilter, true);
         assert.equal(savedStorage.fontSize, 20);
         assert.equal(savedStorage.optionFontSize, 18);
-        assert.equal(savedStorage.dialogFont, 'inherit');
-        assert.equal(savedStorage._v, '0.5.5');
+        assert.equal(Object.hasOwn(savedStorage, 'dialogFont'), false);
+        assert.equal(savedStorage._v, '0.5.6');
         assert.equal(Object.hasOwn(savedStorage, 'emptyBackgroundColor'), false);
         assert.equal(savedStorage.glassBackdropFilter, true);
+    } finally {
+        vn.destroy();
+    }
+});
+
+
+test('gate:simulation:legacy-dialog-font-migrates-to-theme-text-font', () => {
+    const storage = createMemoryStorage();
+    const roundedFont = '"IGS Rounded","Microsoft YaHei",sans-serif';
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        dialogFont: roundedFont,
+        dialogSkin: 'default',
+    }));
+    const vn = bootstrapIGS({
+        global: { localStorage: storage },
+        hostAdapter: {
+            getCurrentMessage: async () => null,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = vn.openSettings({ tab: 'reader', mode: 'pc' });
+        const settings = opened.controller;
+        const migrated = settings.getSnapshot().draft.readerSettings;
+        assert.equal(Object.hasOwn(migrated, 'dialogFont'), false);
+        assert.equal(migrated.vnTheme.textFont, roundedFont);
+        assert.equal(migrated.classicVnTheme.textFont, roundedFont);
+        settings.setValue('readerSettings.fontSize', 19);
+        const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+        assert.equal(Object.hasOwn(saved, 'dialogFont'), false);
+        assert.equal(saved.vnTheme.textFont, roundedFont);
+        assert.equal(saved.classicVnTheme.textFont, roundedFont);
     } finally {
         vn.destroy();
     }
@@ -1632,11 +1664,11 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     assert.equal(textEl.style.color, '#123456');
 
     const roundedFont = '"IGS Rounded","Microsoft YaHei",sans-serif';
-    assert.equal(active.readerSettings.dialogFont, 'inherit');
-    settings.setValue('readerSettings.dialogFont', roundedFont);
+    assert.equal(Object.hasOwn(active.readerSettings, 'dialogFont'), false);
+    settings.setValue('readerSettings.classicVnTheme.narrationFont', roundedFont);
     assert.equal(textEl.style.fontFamily, roundedFont);
-    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).dialogFont, roundedFont);
-    settings.setValue('readerSettings.dialogFont', 'inherit');
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).classicVnTheme.narrationFont, roundedFont);
+    settings.setValue('readerSettings.classicVnTheme.narrationFont', 'inherit');
     assert.equal(textEl.style.fontFamily || '', '');
 
     settings.setValue('readerSettings.dialogFontWeight', '700');
@@ -2043,7 +2075,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     for (let index = 1; index < dialogHeadings.length; index += 1) {
         assert.ok(dialogView.snapshot.html.indexOf(dialogHeadings[index - 1]) < dialogView.snapshot.html.indexOf(dialogHeadings[index]), `${dialogHeadings[index]} must follow ${dialogHeadings[index - 1]}`);
     }
-    assert.ok(dialogView.snapshot.html.indexOf('对话框风格') < dialogView.snapshot.html.indexOf('对话框字体'));
+    assert.doesNotMatch(dialogView.snapshot.html, /对话框字体/);
     assert.ok(dialogView.snapshot.html.indexOf('对话框字重') < dialogView.snapshot.html.indexOf('对话框宽度'));
     assert.match(dialogView.snapshot.html, /角色名/);
     assert.match(dialogView.snapshot.html, /分隔线/);
@@ -4821,7 +4853,7 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     const name = overlay.querySelector('#igs-speaker');
     const text = overlay.querySelector('#igs-text');
-    assert.equal(settings.getSnapshot().draft.readerSettings.dialogFont, 'inherit');
+    assert.equal(Object.hasOwn(settings.getSnapshot().draft.readerSettings, 'dialogFont'), false);
     assert.equal(name.style.display, 'block');
     assert.equal(name.style.fontWeight || '', '');
     assert.equal(text.style.fontWeight || '', '');
@@ -4831,13 +4863,9 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     assert.equal(dialog.style.fontWeight || '', '');
     assert.equal(overlay.querySelector('#igs-input').style.fontWeight || '', '');
     assert.equal(overlay.querySelector('#igs-ctrl-bar').style.fontWeight || '', '');
-    settings.setValue('readerSettings.dialogFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
-    assert.match(name.style.fontFamily, /IGS Rounded/);
-    assert.match(text.style.fontFamily, /IGS Rounded/);
-    settings.setValue('readerSettings.dialogFont', 'inherit');
     settings.setValue('readerSettings.vnTheme.nameFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
-    settings.setValue('readerSettings.vnTheme.textFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
     assert.match(name.style.fontFamily, /IGS Rounded/);
+    settings.setValue('readerSettings.vnTheme.textFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
     assert.match(text.style.fontFamily, /IGS Rounded/);
     settings.setValue('readerSettings.dialogFontWeight', 'null');
     assert.equal(name.style.fontWeight, '');

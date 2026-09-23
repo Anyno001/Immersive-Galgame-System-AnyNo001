@@ -704,14 +704,14 @@ test('gate:igs-ui:apply-align-style-maps-left-center-indent', () => {
     assert.equal(indent.style.textIndent, '2em');
 });
 
-test('gate:igs-ui:dialog-font-overrides-inline-thought-font-only-when-selected', () => {
+test('gate:igs-ui:dialog-font-merge-keeps-inline-thought-font-from-theme', () => {
     const theme = { thoughtFont: '"KaiTi",serif', thoughtColor: '#c8c8dc' };
     const previous = renderDialogueHtml('hello *think*', theme, true);
     assert.match(previous, /font-family:'KaiTi',serif/);
-    const rounded = renderDialogueHtml('hello *think*', theme, true, '"IGS Rounded",sans-serif');
-    assert.doesNotMatch(rounded, /font-family:/);
-    assert.match(rounded, /color:#c8c8dc/);
-    assert.match(rounded, /hello <span class="igs-thought"/);
+    const merged = renderDialogueHtml('hello *think*', theme, true);
+    assert.match(merged, /font-family:'KaiTi',serif/);
+    assert.match(merged, /color:#c8c8dc/);
+    assert.match(merged, /hello <span class="igs-thought"/);
 });
 
 test('gate:igs-ui:resolve-active-theme-exposes-align-fields', () => {

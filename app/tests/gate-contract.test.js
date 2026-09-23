@@ -752,7 +752,7 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(dialogTemplate, /对话框样式/);
     const dialogHierarchy = [
         '对话框样式', 'dialogSkinField', 'gradientVeilFields',
-        '文字排版', 'fontSizeField', 'dialogFontField', 'dialogFontWeightField',
+        '文字排版', 'fontSizeField', 'dialogFontWeightField',
         '尺寸与显示', 'dialogWidthField', 'classicDialogWidthPercentField',
         'dialogHeightField', 'inputScaleField', 'dialogToggles',
         '外观细节', 'dialogBgField', 'nameFontField', 'textFontField',
@@ -769,7 +769,7 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     const publishedBundle = fs.readFileSync(path.join(appRoot, 'dist', 'igs.bundle.js'), 'utf8');
     assert.ok(publishedBundle.includes('.igs-gradient-veil-settings{display:grid'));
     assert.ok(publishedBundle.includes('.igs-reader-dialog-details>.igs-source-filter{background:var(--igs-settings-paper)'));
-    assert.match(dialogTemplate, /dialogFontField/);
+    assert.doesNotMatch(dialogTemplate, /dialogFontField/);
     assert.match(dialogTemplate, /dialogFontWeightField/);
     assert.match(dialogTemplate, /fontSizeField/);
     assert.match(dialogTemplate, /dialogWidthField/);

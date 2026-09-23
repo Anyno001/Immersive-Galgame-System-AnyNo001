@@ -950,7 +950,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const theme = resolveActiveTheme(snapshot);
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
         const textType = snapshot.content.textType || 'narration';
-        const renderedHtml = renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled, snapshot.readerSettings.dialogFont);
+        const renderedHtml = renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled);
         const textRenderKey = [snapshot.messageId, snapshot.content.currentIndex, textType, renderedHtml].join(':');
         const sameTextRender = Boolean(textEl.dataset && textEl.dataset.igsTextRenderKey === textRenderKey);
         if (!sameTextRender) {
@@ -968,11 +968,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const segColor = isThought ? theme.thoughtColor : isNarration ? theme.narrationColor : theme.textColor;
         const segAlign = isThought ? theme.thoughtAlign : isNarration ? theme.narrationAlign : theme.textAlign;
         const themeEnabled = sceneAssetsEnabled || materialDialog;
-        const dialogFont = snapshot.readerSettings.dialogFont;
         applyAlignStyle(textEl, themeEnabled ? segAlign : '');
-        if (dialogFont && dialogFont !== 'inherit') {
-            textEl.style.fontFamily = dialogFont;
-        } else if (themeEnabled && segFont && segFont !== 'inherit') {
+        if (themeEnabled && segFont && segFont !== 'inherit') {
             textEl.style.fontFamily = segFont;
         } else {
             textEl.style.fontFamily = '';
@@ -1009,9 +1006,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             speakerEl.textContent = snapshot.content.speaker;
             speakerEl.style.display = 'block';
             applyAlignStyle(speakerEl, theme.nameAlign);
-            const dialogFont = snapshot.readerSettings.dialogFont;
-            speakerEl.style.fontFamily = dialogFont && dialogFont !== 'inherit' ? dialogFont
-                : theme.nameFont && theme.nameFont !== 'inherit' ? theme.nameFont : '';
+            speakerEl.style.fontFamily = theme.nameFont && theme.nameFont !== 'inherit' ? theme.nameFont : '';
             speakerEl.style.fontWeight = snapshot.readerSettings.dialogFontWeight == null ? '' : String(snapshot.readerSettings.dialogFontWeight);
             speakerEl.style.color = theme.nameColor || '';
         } else {
