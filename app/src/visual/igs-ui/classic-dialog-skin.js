@@ -40,11 +40,11 @@ export const CLASSIC_DIALOG_THEME_DEFAULTS = Object.freeze({
     dividerSymbol: 'none',
     nameFont: 'inherit',
     textFont: 'inherit',
-    thoughtFont: 'inherit',
+    thoughtFont: '"Cormorant Garamond","Source Han Serif CN",serif',
     narrationFont: 'inherit',
     nameColor: '#312b1b',
     textColor: '#f2e5c4',
-    thoughtColor: '#c7c4b2',
+    thoughtColor: '#6b5146',
     narrationColor: '#e6dcc3',
     dividerColor: '#ffeeb8',
 });
@@ -90,7 +90,7 @@ export const CLASSIC_DIALOG_STYLE_TEXT = `
 #igs-overlay .igs-dialog[data-igs-dialog-skin="western-classic"]{box-sizing:border-box;height:184px;min-height:184px;max-height:184px;display:flex;flex-direction:column;overflow:visible;padding:20px 44px 18px;background-color:transparent;background-image:url("${CLASSIC_DIALOG_ASSETS.dialogLeft}"),url("${CLASSIC_DIALOG_ASSETS.dialogCenter}"),url("${CLASSIC_DIALOG_ASSETS.dialogRight}");background-position:left top,110px top,right top;background-size:110px 184px,calc(100% - 220px) 184px,110px 184px;background-repeat:no-repeat;border-radius:0;-webkit-backdrop-filter:none;backdrop-filter:none;}
 .igs-dialog[data-igs-dialog-skin="western-classic"] .igs-progress,.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-speaker,.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-divider,.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-controls{flex-shrink:0;}
 .igs-dialog[data-igs-dialog-skin="western-classic"] .igs-text{min-height:0;overflow-y:auto;flex:1 1 auto;}
-.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;left:35px;top:-22px;width:min(300px,calc(100% - 70px));height:50px;line-height:1.2;margin:0;padding:0 36px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;letter-spacing:.5px;color:#f2e5c4;-webkit-text-stroke:.6px rgba(255,255,255,.78);paint-order:stroke fill;text-shadow:0 1px 0 rgba(255,255,255,.32);background-color:transparent;background-image:url("${CLASSIC_DIALOG_ASSETS.nameLeft}"),url("${CLASSIC_DIALOG_ASSETS.nameCenter}"),url("${CLASSIC_DIALOG_ASSETS.nameRight}");background-position:left top,40px top,right top;background-size:40px 50px,calc(100% - 80px) 50px,40px 50px;background-repeat:no-repeat;}
+.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;left:35px;top:-22px;width:min(300px,calc(100% - 70px));height:50px;line-height:1.2;margin:0;padding:1.6em 36px 0 calc(36px + .2em);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;letter-spacing:.5px;color:#f2e5c4;-webkit-text-stroke:.6px rgba(255,255,255,.78);paint-order:stroke fill;text-shadow:0 1px 0 rgba(255,255,255,.32);background-color:transparent;background-image:url("${CLASSIC_DIALOG_ASSETS.nameLeft}"),url("${CLASSIC_DIALOG_ASSETS.nameCenter}"),url("${CLASSIC_DIALOG_ASSETS.nameRight}");background-position:left top,40px top,right top;background-size:40px 50px,calc(100% - 80px) 50px,40px 50px;background-repeat:no-repeat;}
 .igs-dialog[data-igs-dialog-skin="western-classic"] .igs-divider{display:none;}
 #igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="western-classic"]{height:min(184px,calc(100% - 28px));min-height:min(184px,calc(100% - 28px));max-height:calc(100% - 28px);padding:20px 44px 18px;}
 #igs-overlay .igs-dialog[data-igs-dialog-skin="western-classic"][data-igs-has-speaker="1"]{padding-top:44px;}

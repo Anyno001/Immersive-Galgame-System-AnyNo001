@@ -930,7 +930,9 @@ test('gate:igs-ui:bundled-rounded-font-keeps-original-and-license', () => {
     const build = fs.readFileSync(path.join(appRoot, 'scripts/build.js'), 'utf8');
     assert.match(build, /roundedFontWeights = \[300, 400, 500, 700\]/);
     assert.match(build, /copyFileSync\(source, path\.join\(fontTargetDir, name\)\)/);
-    assert.match(build, /copyFileSync\(fontLicense, path\.join\(fontTargetDir, 'OFL\.txt'\)\)/);
+    assert.match(build, /fontLicenseFiles = \['OFL\.txt', 'SourceHanSerifCN-LICENSE\.txt', 'Cormorant-OFL\.txt', 'Cormorant-OFL-FAQ\.txt'\]/);
+    assert.match(build, /for \(const licenseName of fontLicenseFiles\)/);
+    assert.match(build, /copyFileSync\(source, path\.join\(fontTargetDir, licenseName\)\)/);
 });
 
 test('gate:igs-ui:classic-dialog-assets-and-style', () => {
@@ -954,7 +956,7 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     }
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="western-classic"/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:110px 184px,calc\(100% - 220px\) 184px,110px 184px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /left:35px;top:-22px;width:min\(300px,calc\(100% - 70px\)\);height:50px;line-height:1\.2;margin:0;padding:0 36px;display:flex;align-items:center;justify-content:center/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /left:35px;top:-22px;width:min\(300px,calc\(100% - 70px\)\);height:50px;line-height:1\.2;margin:0;padding:1\.6em 36px 0 calc\(36px \+ \.2em\);display:flex;align-items:center;justify-content:center/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:40px 50px,calc\(100% - 80px\) 50px,40px 50px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /font-size:13px;font-weight:600;letter-spacing:\.5px/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /-webkit-text-stroke:\.6px rgba\(255,255,255,\.78\)/);

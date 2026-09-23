@@ -21,7 +21,7 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
 });
 
 export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
-    { id: 'db-panel', title: '数据库', html: ORIGINAL_READER_ICONS.db },
+
     { id: 'prev-turn', title: '上一轮', html: ORIGINAL_READER_ICONS.prevTurn },
     { id: 'first-page', title: '第一页', html: ORIGINAL_READER_ICONS.firstPage },
     { id: 'prev', title: '上一页', html: ORIGINAL_READER_ICONS.prev },

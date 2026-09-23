@@ -27,6 +27,7 @@ import {
     applyDialogSkinAssets,
     isClassicDialogSkin,
     isGradientVeilDialogSkin,
+    isIllustratedDialogSkin,
     isMaterialDialogSkin,
     normalizeClassicDialogWidthPercent,
 } from './classic-dialog-skin.js';
@@ -848,6 +849,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const classicDialog = isClassicDialogSkin(snapshot.readerSettings);
     const materialDialog = isMaterialDialogSkin(snapshot.readerSettings);
     const gradientVeilDialog = isGradientVeilDialogSkin(snapshot.readerSettings);
+    const illustratedDialog = isIllustratedDialogSkin(snapshot.readerSettings);
     if (root.classList) {
         root.classList.toggle('igs-default-reader-chrome', !materialDialog);
         root.classList.toggle('igs-gradient-veil-active', gradientVeilDialog);
@@ -964,6 +966,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         textEl.style.marginTop = '';
         const isNarration = textType === 'narration';
         const isThought = textType === 'thought';
+        const isDialogue = textType === 'dialogue';
+        const moveIllustratedDialogue = illustratedDialog && isDialogue;
+        textEl.style.paddingTop = (classicDialog && isNarration) || moveIllustratedDialogue ? '1.5em' : '';
         const segFont = isThought ? theme.thoughtFont : isNarration ? theme.narrationFont : theme.textFont;
         const segColor = isThought ? theme.thoughtColor : isNarration ? theme.narrationColor : theme.textColor;
         const segAlign = isThought ? theme.thoughtAlign : isNarration ? theme.narrationAlign : theme.textAlign;

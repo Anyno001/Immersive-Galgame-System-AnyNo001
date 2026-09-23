@@ -186,7 +186,6 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
 });
 
 export const TOOLBAR_ACTIONS = Object.freeze([
-    ['db-panel', '数据库'],
     ['prev-turn', '上一轮'],
     ['first-page', '第一页'],
     ['prev', '上一页'],

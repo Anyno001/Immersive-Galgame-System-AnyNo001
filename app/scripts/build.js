@@ -13,8 +13,14 @@ const graph = buildModuleGraph(entryFile);
 const bundle = inlineDialogThemeAssets(renderBundle(graph, moduleId(entryFile)));
 
 const roundedFontWeights = [300, 400, 500, 700];
+const classicFontAssets = [
+    { family: 'Source Han Serif CN', file: 'SourceHanSerifCN-Regular.otf', weight: 400, style: 'normal', format: 'opentype' },
+    { family: 'Cormorant Garamond', file: 'CormorantGaramond-Regular.woff2', weight: 400, style: 'normal', format: 'woff2' },
+    { family: 'Cormorant Garamond', file: 'CormorantGaramond-Italic.woff2', weight: 400, style: 'italic', format: 'woff2' },
+];
 const css = [
     ...roundedFontWeights.map((weight) => `@font-face { font-family: "IGS Rounded"; font-style: normal; font-weight: ${weight}; font-display: swap; src: url("./fonts/nowar-rounded-bliz-${weight}.ttf") format("truetype"); }`),
+    ...classicFontAssets.map(({ family, file, weight, style, format }) => `@font-face { font-family: "${family}"; font-style: ${style}; font-weight: ${weight}; font-display: swap; src: url("./fonts/${file}") format("${format}"); }`),
     '.igs-stage { position: relative; width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: #0b0d12; }',
     '.igs-background-layer, .igs-generated-layer, .igs-effect-layer, .igs-character-layer, .igs-avatar-layer, .igs-dialogue-layer, .igs-hud-layer, .igs-choice-layer, .igs-system-layer { position: absolute; inset: 0; }',
     '.igs-dialogue-layer { left: 0; right: 0; bottom: 0; width: 100%; min-height: 96px; padding: 24px; }',
@@ -31,10 +37,7 @@ const manifest = {
 
 const fontSourceDir = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'fonts');
 const fontTargetDir = path.join(distRoot, 'fonts');
-const fontLicense = path.join(fontSourceDir, 'OFL.txt');
-if (!fs.existsSync(fontLicense)) {
-    throw new Error('Bundled font OFL license is missing.');
-}
+const fontLicenseFiles = ['OFL.txt', 'SourceHanSerifCN-LICENSE.txt', 'Cormorant-OFL.txt', 'Cormorant-OFL-FAQ.txt'];
 fs.mkdirSync(fontTargetDir, { recursive: true });
 for (const weight of roundedFontWeights) {
     const name = `nowar-rounded-bliz-${weight}.ttf`;
@@ -44,7 +47,20 @@ for (const weight of roundedFontWeights) {
     }
     fs.copyFileSync(source, path.join(fontTargetDir, name));
 }
-fs.copyFileSync(fontLicense, path.join(fontTargetDir, 'OFL.txt'));
+for (const asset of classicFontAssets) {
+    const source = path.join(fontSourceDir, asset.file);
+    if (!fs.existsSync(source)) {
+        throw new Error(`Bundled classic font is missing or invalid: ${source}`);
+    }
+    const signature = fs.readFileSync(source).subarray(0, 4).toString('ascii');
+    if (!['OTTO', 'wOF2', '\0\x01\0\0'].includes(signature)) throw new Error(`Bundled classic font is missing or invalid: ${source}`);
+    fs.copyFileSync(source, path.join(fontTargetDir, asset.file));
+}
+for (const licenseName of fontLicenseFiles) {
+    const source = path.join(fontSourceDir, licenseName);
+    if (!fs.existsSync(source)) throw new Error(`Bundled font license is missing: ${source}`);
+    fs.copyFileSync(source, path.join(fontTargetDir, licenseName));
+}
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');

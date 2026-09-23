@@ -1332,7 +1332,7 @@ test('gate:simulation:igs-ui-toolbar-dock-top-fixes-bar-and-supports-collapse', 
     assert.equal(settingsBtn.parentNode, pinned);
     assert.equal(closeBtn.parentNode, toolbar);
     assert.equal(overlay.querySelector('#igs-btn-next').parentNode, collapsible);
-    assert.equal(overlay.querySelector('#igs-btn-db-panel').parentNode, collapsible);
+    assert.equal(overlay.querySelector('#igs-btn-db-panel'), null);
 
     vn.destroy();
 });
