@@ -301,10 +301,16 @@ export function buildIgsTextPayload(message, options = {}) {
     const sourceFilter = normalizeSourceFilter(options.sourceFilter);
     const virtualRegex = normalizeVirtualRegex(options.virtualRegex);
     const visibleText = resolveVisibleText(message, options.visibleText);
+    const hasExcludedBlocks = sourceFilter.enabled && hasTagBlocks(raw, sourceFilter.textExcludeTags);
+    // Once DOM has flattened a removed block into plain text, its boundaries cannot be recovered.
+    const safeVisibleText = hasExcludedBlocks ? '' : (sourceFilter.enabled
+        ? normalizeWhitespace(removeTagBlocks(visibleText, sourceFilter.textExcludeTags)) : visibleText);
+    const safeRaw = sourceFilter.enabled ? removeTagBlocks(raw, sourceFilter.textExcludeTags) : raw;
     const sceneAssetsEnabled = Boolean(options.sceneAssets && options.sceneAssets.enabled);
     const sentencePagingEnabled = Boolean(options.sentencePaging);
-    const strictPayload = buildFormattedTextPipeline(raw, sourceFilter, virtualRegex, { visibleText, sceneAssetsEnabled });
-    const cleanedRaw = normalizeWhitespace(cleanNarrativeSource(raw));
+    const strictPayload = buildFormattedTextPipeline(raw, sourceFilter, virtualRegex, { visibleText: safeVisibleText, sceneAssetsEnabled });
+    const cleanedRaw = normalizeWhitespace(cleanNarrativeSource(safeRaw));
+    const filteredToEmpty = strictPayload.sourceKind === 'tagged-empty';
     const warnings = [];
     const errors = [];
 
@@ -312,7 +318,7 @@ export function buildIgsTextPayload(message, options = {}) {
     let sourceKind = strictPayload.sourceKind;
     let formatSourceKind = strictPayload.formatSourceKind;
     let sceneDirectives = strictPayload.sceneDirectives || [];
-    let sceneDirectiveSource = strictPayload.tagText || raw;
+    let sceneDirectiveSource = strictPayload.tagText || safeRaw;
     let usedFallback = false;
     let usedDomOverride = false;
 
@@ -320,12 +326,12 @@ export function buildIgsTextPayload(message, options = {}) {
         warnings.push({ code: 'host-ui-html-raw', message: 'Raw message looks like host UI HTML.' });
     }
 
-    if (!formattedText || looksLikeHostUiHtml(formattedText)) {
+    if (!filteredToEmpty && (!formattedText || looksLikeHostUiHtml(formattedText))) {
         formattedText = firstNonEmpty(
             !looksLikeHostUiHtml(strictPayload.formattedText) ? strictPayload.formattedText : '',
-            visibleText,
+            safeVisibleText,
             cleanedRaw,
-            String(raw || '').trim(),
+            sourceFilter.enabled ? '' : String(raw || '').trim(),
         );
         sourceKind = formattedText ? 'forced-fallback' : (sourceKind || 'empty-forced');
         formatSourceKind = strictPayload.formattedText ? strictPayload.formatSourceKind : 'forced-fallback';
@@ -335,7 +341,7 @@ export function buildIgsTextPayload(message, options = {}) {
     if (looksLikeHostUiHtml(formattedText)) {
         errors.push({ code: 'host-ui-html-leaked', message: 'Extracted text still looks like host UI HTML.' });
         formattedText = firstNonEmpty(
-            visibleText,
+            safeVisibleText,
             cleanedRaw && !looksLikeHostUiHtml(cleanedRaw) ? cleanedRaw : '',
             '',
         );
@@ -351,9 +357,10 @@ export function buildIgsTextPayload(message, options = {}) {
     // 文本覆盖和指令来源解耦：
     //   - DOM 文本覆盖照常进行（让 Veridis 替换词进阅读器）
     //   - 场景指令始终从数据层原文提取（DOM 里没有标签，不能从 DOM 重提）
+    // Raw excluded blocks prohibit DOM override: the visible text may have lost their tag boundaries.
     // 长度比对用 domCompareBase：domClobbersDirectiveTags 时去掉指令行，
     // 避免标签内容撑大数据层长度后被 localizedTextDiffers 误判为"不同内容"。
-    const domVisibleText = normalizeWhitespace(visibleText);
+    const domVisibleText = normalizeWhitespace(safeVisibleText);
     const domClobbersDirectiveTags = hasIgsDirectiveTags(raw) && !hasIgsDirectiveTags(domVisibleText);
     const domCompareBase = domClobbersDirectiveTags
         ? normalizeWhitespace(buildDomCompareBase(formattedText))
@@ -379,22 +386,22 @@ export function buildIgsTextPayload(message, options = {}) {
         }
     }
 
-    if (sceneAssetsEnabled && !sceneDirectives.length) {
+    if (sceneAssetsEnabled && !sceneDirectives.length && !filteredToEmpty) {
         sceneDirectiveSource = firstNonEmpty(
             formattedText,
-            visibleText,
+            safeVisibleText,
             cleanedRaw,
-            String(raw || '').trim(),
+            sourceFilter.enabled ? '' : String(raw || '').trim(),
         );
         sceneDirectives = extractSceneDirectives(sceneDirectiveSource).directives;
     }
     const readerScene = parseSceneText(formattedText, {});
-    const readerText = normalizeReaderSegmentText(firstNonEmpty(
+    const readerText = filteredToEmpty ? '' : normalizeReaderSegmentText(firstNonEmpty(
         readerScene.text,
         formattedText,
-        visibleText,
+        safeVisibleText,
         cleanedRaw,
-        String(raw || '').trim(),
+        sourceFilter.enabled ? '' : String(raw || '').trim(),
     ), readerScene.speaker);
     const pagedReaderText = sentencePagingEnabled
         ? applySentencePaging(readerText, { narrationOnly: sceneAssetsEnabled })
@@ -423,8 +430,9 @@ export function buildIgsTextPayload(message, options = {}) {
 
     return {
         raw,
+        hasExcludedTextBlocks: Boolean(hasExcludedBlocks),
         cleanedRaw,
-        visibleText,
+        visibleText: safeVisibleText,
         tagText: strictPayload.tagText,
         textSource: formattedText,
         formattedText,
@@ -512,12 +520,13 @@ function buildTagFilteredTextSource(raw, filter) {
     let source = String(raw || '');
     if (!cfg.enabled) return source;
     if (cfg.stripHtmlComments) source = stripHtmlComments(source);
+    // Remove excluded ancestors before extracting included descendants.
+    source = removeTagBlocks(source, cfg.textExcludeTags);
     const includeTags = parseTagList(cfg.textIncludeTags);
     if (includeTags.length) {
         source = extractTagBlocks(source, includeTags).join('\n\n');
         if (!source) return '';
     }
-    source = removeTagBlocks(source, cfg.textExcludeTags);
     return source.trim();
 }
 
@@ -544,10 +553,10 @@ function extractTagBlocks(raw, tags, keepWrapper = false) {
     const source = String(raw || '');
     const parts = [];
     for (const tag of parseTagList(tags)) {
-        const regex = new RegExp(`(^|[\\s>])(<${escapeRegExp(tag)}\\b[^>]*>([\\s\\S]*?)<\\/${escapeRegExp(tag)}>)`, 'gi');
+        const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*>([\\s\\S]*?)<\\/${escapeRegExp(tag)}>`, 'gi');
         let match = null;
         while ((match = regex.exec(source)) !== null) {
-            parts.push(keepWrapper ? (match[2] || '') : (match[3] || ''));
+            parts.push(keepWrapper ? (match[0] || '') : (match[1] || ''));
         }
     }
     return parts;
@@ -556,8 +565,8 @@ function extractTagBlocks(raw, tags, keepWrapper = false) {
 function removeTagBlocks(raw, tags) {
     let output = String(raw || '');
     for (const tag of parseTagList(tags)) {
-        const regex = new RegExp(`(^|[\\s>])<${escapeRegExp(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'gi');
-        output = output.replace(regex, (match, prefix) => prefix || '');
+        const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'gi');
+        output = output.replace(regex, '');
     }
     return output;
 }
@@ -565,7 +574,7 @@ function removeTagBlocks(raw, tags) {
 function hasTagBlocks(raw, tags) {
     const source = String(raw || '');
     return parseTagList(tags).some((tag) => {
-        const regex = new RegExp(`(^|[\\s>])<${escapeRegExp(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'i');
+        const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'i');
         return regex.test(source);
     });
 }

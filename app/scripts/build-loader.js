@@ -92,6 +92,23 @@ assertLoaderButtonConfig(parsed.button, path.relative(projectRoot, jsonPath));
 
 console.log(`loader:build ok ${path.relative(projectRoot, jsonPath)}`);
 
+// 自动更新版的版本化导入文件按需生成，与固定入口复用同一份内容和元数据。
+const releaseArgIndex = process.argv.indexOf('--release');
+if (releaseArgIndex !== -1) {
+    const releaseRef = process.argv[releaseArgIndex + 1];
+    if (!/^v\d+\.\d+\.\d+$/.test(releaseRef || '')) {
+        throw new Error('--release requires a vX.Y.Z ref.');
+    }
+    const releasePath = path.join(loaderRoot, `酒馆助手脚本-沉浸式Galgame系统（自动更新） ${releaseRef}.json`);
+    fs.writeFileSync(releasePath, `${JSON.stringify(loaderJson, null, 2)}\n`, 'utf8');
+    const releaseJson = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
+    if (releaseJson.content !== content || releaseJson.name !== parsed.name) {
+        throw new Error(`Release loader JSON does not match ${path.relative(projectRoot, jsonPath)}.`);
+    }
+    assertLoaderButtonConfig(releaseJson.button, path.relative(projectRoot, releasePath));
+    console.log(`loader:release ok ${path.relative(projectRoot, releasePath)}`);
+}
+
 // 固定版 loader 按需生成：`node scripts/build-loader.js --pin v0.23.21 v0.23.15`
 // 不传 --pin 时只更新自动更新版 + debug 版，不生成任何 pinned（避免每次升号堆文件）。
 const pinArgIndex = process.argv.indexOf('--pin');

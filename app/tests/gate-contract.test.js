@@ -48,6 +48,19 @@ import {
 const appRoot = path.resolve(import.meta.dirname, '..');
 const projectRoot = path.resolve(appRoot, '..');
 
+test('gate:loader:versioned-release-matches-source-and-internal-entry', () => {
+    const { version } = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
+    const source = fs.readFileSync(path.join(projectRoot, 'loader/igs-loader.js'), 'utf8');
+    const internal = JSON.parse(fs.readFileSync(path.join(projectRoot, 'loader/igs-loader.json'), 'utf8'));
+    const releasePath = path.join(projectRoot, 'loader', `酒馆助手脚本-沉浸式Galgame系统（自动更新） v${version}.json`);
+    const release = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
+
+    assert.equal(internal.type, 'script');
+    assert.equal(internal.content, source);
+    assert.ok(source.includes('igs.bundle.js'));
+    assert.deepEqual(release, internal);
+});
+
 test('gate:import-contract:dispatches allowed types and rejects forbidden types', () => {
     const bundle = readJson('fixtures/imports/sample-bundle.json');
     const handled = [];

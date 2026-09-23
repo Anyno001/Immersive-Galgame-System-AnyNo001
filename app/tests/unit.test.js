@@ -498,6 +498,114 @@ test('gate:scene:igs-message-source:extracts-readable-text-from-host-ui-html', (
     assert.equal(payload.usedFallback, true);
 });
 
+test('gate:scene:igs-message-source:excludes-adjacent-tagged-text', () => {
+    const payload = buildIgsTextPayload({
+        text: '<content>第一句。<THINKING data-role="hidden">不能显示</THINKING>第二句。</content>',
+    }, { sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' } });
+
+    assert.equal(payload.formattedText, '第一句。第二句。');
+    assert.equal(payload.textSegments.join(''), '第一句。第二句。');
+});
+
+test('gate:scene:igs-message-source:excludes-parent-before-including-nested-content', () => {
+    const payload = buildIgsTextPayload({
+        text: '<thinking><content>绝不能从排除块中取正文。</content></thinking><content>保留正文。</content>',
+    }, { sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' } });
+
+    assert.equal(payload.formattedText, '保留正文。');
+    assert.equal(payload.textSegments.join(''), '保留正文。');
+});
+
+test('gate:scene:igs-message-source:filters-visible-tag-when-raw-has-no-excluded-block', () => {
+    const payload = buildIgsTextPayload({ text: '<content>保留正文。</content>', visibleText: '保留正文。<thinking>不要显示</thinking>' }, {
+        sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' },
+    });
+    assert.equal(payload.formattedText, '保留正文。');
+    assert.equal(payload.textSegments.join(''), '保留正文。');
+});
+
+test('gate:scene:igs-message-source:does-not-resurrect-excluded-only-content', () => {
+    const payload = buildIgsTextPayload({
+        text: '<content><thinking>不能显示</thinking></content>',
+        visibleText: '不能显示',
+    }, { sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' } });
+
+    assert.equal(payload.formattedText, '');
+    assert.equal(payload.textSegments.some((segment) => segment.includes('不能显示')), false);
+});
+
+test('gate:scene:igs-message-source:empty-included-block-does-not-fall-back-to-outside-text', () => {
+    const payload = buildIgsTextPayload({
+        text: '<content><thinking>不能显示</thinking></content>标签之外也不是正文',
+        visibleText: '不能显示标签之外也不是正文',
+    }, { sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' } });
+
+    assert.equal(payload.formattedText, '');
+    assert.deepEqual(payload.textSegments, ['']);
+    assert.equal(payload.usedDomOverride, false);
+});
+
+test('gate:scene:igs-message-source:excluded-content-cannot-return-via-dom-or-untagged-fallback', () => {
+    const body = '这是一段完整且正常的正文，应该始终保留在阅读器中。';
+    const raw = `${body}<thinking>不能显示</thinking>结尾。`;
+    const filter = { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' };
+    const withDom = buildIgsTextPayload({ text: `<content>${raw}</content>`, visibleText: `${body}不能显示结尾。` }, { sourceFilter: filter });
+    const untagged = buildIgsTextPayload({ text: raw, visibleText: `${body}不能显示结尾。` }, { sourceFilter: filter });
+
+    for (const payload of [withDom, untagged]) {
+        assert.equal(payload.formattedText.includes('不能显示'), false);
+        assert.equal(payload.textSegments.join('').includes('不能显示'), false);
+        assert.equal(payload.usedDomOverride, false);
+        assert.match(payload.formattedText, /结尾。/);
+    }
+});
+
+test('gate:igs-ui:excluded-only-message-never-renders-from-stale-reader-fallback', () => {
+    const filter = { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' };
+    const host = createIgsReaderHost({ global: {} });
+    const opened = host.openReader({
+        message: { text: '<content><thinking>不能显示</thinking></content>', visibleText: '不能显示' },
+        sourceFilter: filter,
+        visibleText: '不能显示',
+        textSegments: ['不能显示'],
+        formattedText: '不能显示',
+    }, { mode: 'pc' });
+
+    assert.equal(opened.ok, true);
+    assert.equal(opened.snapshot.content.displayText.includes('不能显示'), false);
+    assert.equal(opened.snapshot.content.segments.some((segment) => segment.includes('不能显示')), false);
+    host.destroy();
+});
+
+test('gate:igs-ui:saving-exclusion-filter-reparses-open-reader', () => {
+    const bridge = { sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: '' } };
+    const host = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({ bridge, readerMode: 'pc', readerSettings: {} }),
+        saveUnifiedSettings: (settings) => {
+            bridge.sourceFilter = settings.bridge.sourceFilter;
+            return { ok: true };
+        },
+    });
+    const opened = host.openReader({
+        message: { text: '<content>保留正文。<thinking>不能显示</thinking></content>' },
+        sourceFilter: bridge.sourceFilter,
+        textSegments: ['保留正文。', '不能显示'],
+        formattedText: '保留正文。不能显示',
+    }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    assert.equal(opened.snapshot.content.segments.some((segment) => segment.includes('不能显示')), true);
+
+    const settings = host.openSettings({ tab: 'regex' });
+    assert.equal(settings.ok, true);
+    assert.equal(settings.controller.setValue('bridge.sourceFilter.textExcludeTags', 'thinking').ok, true);
+    const refreshed = host.getState().activeReader.snapshot.content;
+    assert.equal(refreshed.segments.some((segment) => segment.includes('不能显示')), false);
+    assert.equal(refreshed.displayText.includes('不能显示'), false);
+    assert.equal(refreshed.segments.join(''), '保留正文。');
+    host.destroy();
+});
+
 test('gate:scene:igs-message-source:prefers-dom-text-when-keyword-filter-rewrites-word', () => {
     const dataLayer = '<content>这一步迈出去，好像就真的踏进了那个名为“自相残杀”的怪圈里。</content>';
     const domVisible = '这一步迈出去，好像就真的踏进了那个名为“互相杀”的怪圈里。';

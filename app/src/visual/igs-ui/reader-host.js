@@ -1011,6 +1011,21 @@ export function createIgsReaderHost(options = {}) {
 
         const snapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
         state.activeSettings.draft = cloneData(snapshot);
+        if (state.activeReader) {
+            const current = state.activeReader.payload;
+            const filterChanged = JSON.stringify(current.sourceFilter) !== JSON.stringify(snapshot.bridge.sourceFilter);
+            const formatChanged = JSON.stringify(current.virtualRegex) !== JSON.stringify(snapshot.bridge.virtualRegex);
+            if (filterChanged || formatChanged) {
+                current.sourceFilter = cloneData(snapshot.bridge.sourceFilter);
+                current.virtualRegex = cloneData(snapshot.bridge.virtualRegex);
+                // These values were produced with the old rules; the reader must reparse its message.
+                current.textSegments = null;
+                current.segmentImageSlots = null;
+                current.sceneDirectives = null;
+                current.formattedText = '';
+                sourceCache.invalidate();
+            }
+        }
         rerenderActiveReader({
             syncModeFromSettings: optionsForPersist.syncActiveModeFromSettings === true,
         });
@@ -1461,7 +1476,9 @@ export function createIgsReaderHost(options = {}) {
         });
         const cached = sourceCache.get(sourceSignature, { liveMessage, parseOptions });
         const extracted = cached.value || buildIgsTextPayload(liveMessage, parseOptions);
-        const text = firstRenderableText(
+        // A matched exclusion must never be undone by stale scene/payload text.
+        const enforceExcludedText = extracted.hasExcludedTextBlocks === true;
+        const text = enforceExcludedText ? extracted.formattedText : firstRenderableText(
             scene.text,
             scene.formattedText,
             payload.formattedText,
@@ -1473,7 +1490,9 @@ export function createIgsReaderHost(options = {}) {
         );
         const extractedSegments = Array.isArray(extracted.textSegments) ? extracted.textSegments : [];
         const hasExtractedSegments = extractedSegments.some((segment) => String(segment || '').trim());
-        let segments = Array.isArray(payload.textSegments) && payload.textSegments.length
+        let segments = enforceExcludedText
+            ? cloneData(extractedSegments)
+            : Array.isArray(payload.textSegments) && payload.textSegments.length
             ? cloneData(payload.textSegments)
             : hasExtractedSegments
                 ? cloneData(extractedSegments)

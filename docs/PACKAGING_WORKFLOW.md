@@ -110,9 +110,11 @@ loader/igs-loader.js
 
 ```powershell
 cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System\app"
+npm run build:loader -- --release v<当前版本>
 npm run gate
-npm run build:loader
 ```
+
+`--release` 接受与 `app/package.json` 一致的版本号并生成版本化自动更新导入件；每次升版本后先生成对应导入件，再运行包含发布产物一致性测试的 `gate`。无参数的 `build:loader` 仍只更新固定入口和调试版。
 
 `gate` 顺序固定为：
 
@@ -188,6 +190,7 @@ loader 默认读取 `main` 的最新提交哈希，并优先加载不可变的 `
 
 ```powershell
 cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System\app"
+npm run build:loader -- --release v<当前版本>
 npm run gate
 ```
 
@@ -197,25 +200,38 @@ git status --short
 git add .
 git commit -m "Prepare loader packaging workflow"
 git push origin main
-git tag -a v<当前版本> -m "v<当前版本>: Prepare loader packaging workflow"
-git push origin v<当前版本>
+git ls-remote --heads origin main
 ```
 
-## 每轮回退点发布规则
+真实酒馆复验通过后才执行：
+
+```powershell
+git tag -a v<当前版本> -m "v<当前版本>: Prepare loader packaging workflow"
+git push origin v<当前版本>
+git ls-remote --tags origin v<当前版本>
+```
+
+## 每轮推送与验收后回退点规则
 
 后续 AI 每轮结束时，只要本项目有文件改动，必须完成：
 
 ```powershell
 git rev-parse --show-toplevel
 cd app
+npm run build:loader -- --release v<当前版本>
 npm run gate
 cd ..
 git add .
 git commit -m "Release v<当前版本>: <本轮说明>"
 git push origin main
+git ls-remote --heads origin main
+```
+
+仅在真实酒馆复验通过后执行：
+
+```powershell
 git tag -a v<当前版本> -m "v<当前版本>: <本轮说明>"
 git push origin v<当前版本>
-git ls-remote --heads origin main
 git ls-remote --tags origin v<当前版本>
 ```
 
