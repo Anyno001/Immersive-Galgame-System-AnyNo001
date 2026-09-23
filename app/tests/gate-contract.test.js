@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 import { bootstrapIGS } from '../src/index.js';
@@ -33,6 +34,7 @@ import {
 import { GRADIENT_VEIL_STYLE_TEXT } from '../src/visual/igs-ui/gradient-veil-dialog-skin.js';
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
+import { DIALOG_FONT_OPTIONS } from '../src/visual/igs-ui/reader-host-constants.js';
 import {
     getSceneSettingsSubTabTemplate,
     getReaderSubTabTemplate,
@@ -747,9 +749,20 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     const performanceTemplate = getReaderSubTabTemplate('performance');
     const optionsTemplate = getReaderSubTabTemplate('options');
     const interfaceTemplate = getReaderSubTabTemplate('interface');
+    assert.match(dialogTemplate, /对话框样式/);
+    assert.ok(dialogTemplate.indexOf('对话框样式') < dialogTemplate.indexOf('对话框布局'));
+    assert.ok(dialogTemplate.indexOf('dialogSkinField') < dialogTemplate.indexOf('fontSizeField'));
+    assert.equal((dialogTemplate.match(/dialogSkinField/g) || []).length, 1);
+    assert.match(dialogTemplate, /dialogFontField/);
+    assert.match(dialogTemplate, /dialogFontWeightField/);
     assert.match(dialogTemplate, /fontSizeField/);
     assert.match(dialogTemplate, /dialogWidthField/);
     assert.match(dialogTemplate, /dialogSkinField/);
+    const rounded = DIALOG_FONT_OPTIONS.find(([, label]) => label === '有爱圆体（内置）');
+    assert.ok(rounded);
+    assert.match(rounded[0], /IGS Rounded/);
+    assert.equal(DIALOG_FONT_OPTIONS[0][0], 'inherit');
+    assert.doesNotMatch(getOriginalReaderStyleText(), /__IGS_FONT__/);
     assert.match(dialogTemplate, /nameFontField/);
     assert.match(dialogTemplate, /dividerColorField/);
     assert.match(dialogTemplate, /dialogBgField/);
@@ -872,7 +885,7 @@ test('gate:igs-ui:default-narration-adds-five-pixels-in-every-mode', () => {
     assert.match(source, /#igs-overlay\.igs-floating \.igs-dialog\[data-igs-narration="1"\]\{padding-top:12px;\}/);
     assert.match(source, /#igs-overlay\.igs-floating-mobile \.igs-dialog\[data-igs-narration="1"\]\{padding-top:11px;\}/);
     assert.match(source, /\.igs-mode-embedded \.igs-dialog\[data-igs-narration="1"\]\{padding-top:14px;\}/);
-    assert.match(rendererText, /if \(!classicDialog && !snapshot\.content\.speaker\)/);
+    assert.match(rendererText, /if \(!materialDialog && !snapshot\.content\.speaker\)/);
     assert.match(rendererText, /dialog\.removeAttribute\('data-igs-narration'\)/);
 });
 
@@ -882,6 +895,26 @@ test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
     assert.match(source, /@media \(max-width:640px\)\{\.igs-embedded-host\{aspect-ratio:auto;height:min\(74dvh,680px\);\}\}/);
     assert.match(source, /#igs-overlay\.igs-mode-embedded\{[^}]*position:relative/);
     assert.match(source, /@media \(prefers-reduced-motion: reduce\)\{\.igs-embedded-loading-dot\{animation:none/);
+});
+
+test('gate:igs-ui:bundled-rounded-font-keeps-original-and-license', () => {
+    const root = path.join(appRoot, 'src/visual/igs-ui/assets/fonts');
+    const license = fs.readFileSync(path.join(root, 'OFL.txt'), 'utf8');
+    assert.match(license, /SIL OPEN FONT LICENSE Version 1\.1/);
+    const hashes = {
+        300: '3f954cd12771bdb24bc141d84dbf400e40e0f363e0b1ff58a876f3a6f3956ae2',
+        400: 'e538ccc39b5ce44abd582937267df1706186fde602fe7d29d81a5582136b4c41',
+        500: '9c150faf5710cd07fa21bdde4e46fb10e2bea47da2f0b2dbbba1bc1dcb55572e',
+        700: 'ed5fccf2bd649a0012874f8146dc874755c2bf3d8391541f56d4bcba7acbfa15',
+    };
+    for (const [weight, hash] of Object.entries(hashes)) {
+        const font = fs.readFileSync(path.join(root, `nowar-rounded-bliz-${weight}.ttf`));
+        assert.equal(createHash('sha256').update(font).digest('hex'), hash);
+    }
+    const build = fs.readFileSync(path.join(appRoot, 'scripts/build.js'), 'utf8');
+    assert.match(build, /roundedFontWeights = \[300, 400, 500, 700\]/);
+    assert.match(build, /copyFileSync\(source, path\.join\(fontTargetDir, name\)\)/);
+    assert.match(build, /copyFileSync\(fontLicense, path\.join\(fontTargetDir, 'OFL\.txt'\)\)/);
 });
 
 test('gate:igs-ui:classic-dialog-assets-and-style', () => {

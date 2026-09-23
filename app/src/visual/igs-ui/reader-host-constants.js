@@ -66,8 +66,20 @@ export const VN_THEME_PRESETS = Object.freeze({
     }),
 });
 
+// 字体选项沿用原持久化值；内置字体只新增一个可选值，不改变历史设置。
+export const DIALOG_FONT_OPTIONS = Object.freeze([
+    ['inherit', '默认'],
+    ['"KaiTi","STKaiti",serif', '楷体'],
+    ['"SimHei",sans-serif', '黑体'],
+    ['"FangSong","STFangsong",serif', '仿宋'],
+    ['"Microsoft YaHei",sans-serif', '微软雅黑'],
+    ['"IGS Rounded","Microsoft YaHei",sans-serif', '有爱圆体（内置）'],
+]);
+
 export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.fontSize',
+    'readerSettings.dialogFont',
+    'readerSettings.dialogFontWeight',
     'readerSettings.dialogSkin',
     'readerSettings.gradientVeil.color',
     'readerSettings.gradientVeil.heightPercent',

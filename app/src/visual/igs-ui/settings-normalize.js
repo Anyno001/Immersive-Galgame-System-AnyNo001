@@ -24,6 +24,7 @@ export function normalizeSettingsValue(path, value) {
     }
     if (path.startsWith('readerSettings.')) {
         if (value === null || value === 'null') return null;
+        if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
         if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|toolbarScale|inputScale|imageCountOverride|imgBrightness|gradientVeil\.(heightPercent|opacity)/.test(path)) {
             return Number(value);
         }
@@ -166,12 +167,12 @@ function applyReferenceTypographyDefaults(theme, referenceTypography, baseline) 
     return result;
 }
 
-export function renderDialogueHtml(text, theme, sceneAssetsEnabled) {
+export function renderDialogueHtml(text, theme, sceneAssetsEnabled, dialogFont = 'inherit') {
     const escaped = esc(text);
     if (!sceneAssetsEnabled) return escaped;
     const html = escaped.replace(/\*([^*]+)\*/g, (_, inner) => {
         const styles = [];
-        if (theme.thoughtFont && theme.thoughtFont !== 'inherit') styles.push(`font-family:${cssFontValue(theme.thoughtFont)}`);
+        if ((!dialogFont || dialogFont === 'inherit') && theme.thoughtFont && theme.thoughtFont !== 'inherit') styles.push(`font-family:${cssFontValue(theme.thoughtFont)}`);
         if (theme.thoughtColor) styles.push(`color:${theme.thoughtColor}`);
         const styleAttr = styles.length ? ` style="${styles.join(';')}"` : '';
         return `<span class="igs-thought"${styleAttr}>${inner}</span>`;

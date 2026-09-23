@@ -19,7 +19,7 @@ import {
 } from '../src/scene/image-slots.js';
 import { parseSceneText } from '../src/scene/text-parser.js';
 import { applyAlignStyle } from '../src/visual/igs-ui/reader-dom-render.js';
-import { resolveSpriteLayout, resolveActiveTheme } from '../src/visual/igs-ui/settings-normalize.js';
+import { resolveSpriteLayout, resolveActiveTheme, renderDialogueHtml } from '../src/visual/igs-ui/settings-normalize.js';
 import {
     DIALOG_SKIN_BLACK_WHITE_MANGA,
     DIALOG_SKIN_CUTE_PINK,
@@ -702,6 +702,16 @@ test('gate:igs-ui:apply-align-style-maps-left-center-indent', () => {
     applyAlignStyle(indent, 'indent');
     assert.equal(indent.style.textAlign, 'left');
     assert.equal(indent.style.textIndent, '2em');
+});
+
+test('gate:igs-ui:dialog-font-overrides-inline-thought-font-only-when-selected', () => {
+    const theme = { thoughtFont: '"KaiTi",serif', thoughtColor: '#c8c8dc' };
+    const previous = renderDialogueHtml('hello *think*', theme, true);
+    assert.match(previous, /font-family:'KaiTi',serif/);
+    const rounded = renderDialogueHtml('hello *think*', theme, true, '"IGS Rounded",sans-serif');
+    assert.doesNotMatch(rounded, /font-family:/);
+    assert.match(rounded, /color:#c8c8dc/);
+    assert.match(rounded, /hello <span class="igs-thought"/);
 });
 
 test('gate:igs-ui:resolve-active-theme-exposes-align-fields', () => {

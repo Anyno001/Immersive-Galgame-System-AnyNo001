@@ -12,7 +12,9 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'
 const graph = buildModuleGraph(entryFile);
 const bundle = inlineDialogThemeAssets(renderBundle(graph, moduleId(entryFile)));
 
+const roundedFontWeights = [300, 400, 500, 700];
 const css = [
+    ...roundedFontWeights.map((weight) => `@font-face { font-family: "IGS Rounded"; font-style: normal; font-weight: ${weight}; font-display: swap; src: url("./fonts/nowar-rounded-bliz-${weight}.ttf") format("truetype"); }`),
     '.igs-stage { position: relative; width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: #0b0d12; }',
     '.igs-background-layer, .igs-generated-layer, .igs-effect-layer, .igs-character-layer, .igs-avatar-layer, .igs-dialogue-layer, .igs-hud-layer, .igs-choice-layer, .igs-system-layer { position: absolute; inset: 0; }',
     '.igs-dialogue-layer { left: 0; right: 0; bottom: 0; width: 100%; min-height: 96px; padding: 24px; }',
@@ -27,6 +29,22 @@ const manifest = {
     style: 'igs.bundle.css',
 };
 
+const fontSourceDir = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'fonts');
+const fontTargetDir = path.join(distRoot, 'fonts');
+const fontLicense = path.join(fontSourceDir, 'OFL.txt');
+if (!fs.existsSync(fontLicense)) {
+    throw new Error('Bundled font OFL license is missing.');
+}
+fs.mkdirSync(fontTargetDir, { recursive: true });
+for (const weight of roundedFontWeights) {
+    const name = `nowar-rounded-bliz-${weight}.ttf`;
+    const source = path.join(fontSourceDir, name);
+    if (!fs.existsSync(source) || fs.readFileSync(source).subarray(0, 4).toString('hex') !== '00010000') {
+        throw new Error(`Bundled font is missing or invalid: ${source}`);
+    }
+    fs.copyFileSync(source, path.join(fontTargetDir, name));
+}
+fs.copyFileSync(fontLicense, path.join(fontTargetDir, 'OFL.txt'));
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');

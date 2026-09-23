@@ -1015,11 +1015,13 @@ test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
         assert.equal(optionSize.ok, true);
         assert.equal(toggled.ok, true);
         assert.equal(current.readerSettings.fontSize, 20);
+        assert.equal(current.readerSettings.dialogFontWeight, null);
         assert.equal(current.readerSettings.optionFontSize, 18);
         assert.equal(Object.hasOwn(current.readerSettings, 'emptyBackgroundColor'), false);
         assert.equal(current.readerSettings.glassBackdropFilter, true);
         assert.equal(savedStorage.fontSize, 20);
         assert.equal(savedStorage.optionFontSize, 18);
+        assert.equal(savedStorage.dialogFont, 'inherit');
         assert.equal(savedStorage._v, '0.5.5');
         assert.equal(Object.hasOwn(savedStorage, 'emptyBackgroundColor'), false);
         assert.equal(savedStorage.glassBackdropFilter, true);
@@ -1621,12 +1623,37 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     settings.setValue('readerSettings.classicVnTheme.narrationColor', '#123456');
     settings.setValue('readerSettings.fontSize', 22);
     let active = vn.getState().igsUi.activeReader.snapshot;
-    let textEl = document.getElementById('igs-overlay').querySelector('#igs-text');
+    let overlay = document.getElementById('igs-overlay');
+    let textEl = overlay.querySelector('#igs-text');
     assert.equal(active.readerSettings.fontSize, 22);
     assert.equal(active.readerSettings.dialogHeight, 300);
     assert.equal(active.readerSettings.glassOpacity, 0.74);
     assert.equal(active.readerSettings.toolbarScale, 80);
     assert.equal(textEl.style.color, '#123456');
+
+    const roundedFont = '"IGS Rounded","Microsoft YaHei",sans-serif';
+    assert.equal(active.readerSettings.dialogFont, 'inherit');
+    settings.setValue('readerSettings.dialogFont', roundedFont);
+    assert.equal(textEl.style.fontFamily, roundedFont);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).dialogFont, roundedFont);
+    settings.setValue('readerSettings.dialogFont', 'inherit');
+    assert.equal(textEl.style.fontFamily || '', '');
+
+    settings.setValue('readerSettings.dialogFontWeight', '700');
+    overlay = document.getElementById('igs-overlay');
+    textEl = overlay.querySelector('#igs-text');
+    const speakerEl = overlay.querySelector('#igs-speaker');
+    assert.equal(textEl.style.fontWeight, '700');
+    // No font-weight is written to surrounding controls or other reader layers.
+    assert.equal(overlay.querySelector('#igs-dialog').style.fontWeight || '', '');
+    assert.equal(overlay.querySelector('#igs-ctrl-bar').style.fontWeight || '', '');
+    assert.equal(overlay.querySelector('#igs-input').style.fontWeight || '', '');
+    settings.setValue('readerSettings.dialogFontWeight', 'null');
+    assert.equal(overlay.querySelector('#igs-text').style.fontWeight, '');
+
+    // A page with a speaker applies the same weight only to its name and text.
+    // The no-speaker page above must not invent a name when the setting changes.
+    assert.equal(speakerEl.style.fontWeight || '', '');
 
     settings.setValue('readerSettings.dialogSkin', 'default');
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
@@ -1723,7 +1750,7 @@ test('gate:simulation:classic-dialog-nameplate-uses-existing-speaker', async () 
     assert.equal(dialog.getAttribute('data-igs-has-speaker'), '1');
     assert.equal(speaker.textContent, 'Hero');
     assert.equal(speaker.style.display, 'block');
-    assert.equal(speaker.style.color, '#312b1b');
+    assert.equal(speaker.style.color, '#3b2a22');
     assert.equal(divider.style.display, 'none');
     vn.destroy();
 });
@@ -2006,8 +2033,10 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     const dialogView = settings.switchReaderSubTab('dialog');
     assert.equal(dialogView.snapshot.readerSubTab, 'dialog');
     assert.match(dialogView.snapshot.html, /data-reader-pane="dialog"/);
+    assert.match(dialogView.snapshot.html, /对话框样式/);
     assert.match(dialogView.snapshot.html, /对话框宽度/);
     assert.match(dialogView.snapshot.html, /对话框风格/);
+    assert.ok(dialogView.snapshot.html.indexOf('对话框样式') < dialogView.snapshot.html.indexOf('对话框宽度'));
     assert.match(dialogView.snapshot.html, /角色名/);
     assert.match(dialogView.snapshot.html, /分隔线/);
     assert.doesNotMatch(dialogView.snapshot.html, /按钮管理|启用打字机演出/);
@@ -2047,8 +2076,23 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
     const classicDialogView = settings.switchReaderSubTab('dialog');
     assert.equal((classicDialogView.snapshot.html.match(/对话框风格/g) || []).length, 1);
+    assert.doesNotMatch(classicDialogView.snapshot.html, /西欧古典请在「主题」页按比例调整|当前风格使用固定 184px/);
+    assert.match(classicDialogView.snapshot.html, /data-path="readerSettings\.dialogFontWeight"/);
+    assert.match(classicDialogView.snapshot.html, /跟随当前样式/);
+    settings.setValue('readerSettings.dialogFontWeight', '700');
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogFontWeight, 700);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).dialogFontWeight, 700);
+    settings.setValue('readerSettings.dialogFontWeight', 'null');
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogFontWeight, null);
+    settings.setValue('readerSettings.dialogFontWeight', 'not-a-weight');
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogFontWeight, null);
     assert.match(classicDialogView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
     assert.match(classicDialogView.snapshot.html, /60%/);
+    const roundedFont = '"IGS Rounded","Microsoft YaHei",sans-serif';
+    assert.match(classicDialogView.snapshot.html, /有爱圆体（内置）/);
+    settings.setValue('readerSettings.classicVnTheme.nameFont', roundedFont);
+    assert.equal(settings.getSnapshot().draft.readerSettings.classicVnTheme.nameFont, roundedFont);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).classicVnTheme.nameFont, roundedFont);
 
     vn.destroy();
 });
@@ -4759,6 +4803,29 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     const dialog = overlay.querySelector('#igs-dialog');
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'plant-coffee');
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    const name = overlay.querySelector('#igs-speaker');
+    const text = overlay.querySelector('#igs-text');
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogFont, 'inherit');
+    assert.equal(name.style.display, 'block');
+    assert.equal(name.style.fontWeight || '', '');
+    assert.equal(text.style.fontWeight || '', '');
+    settings.setValue('readerSettings.dialogFontWeight', '700');
+    assert.equal(name.style.fontWeight, '700');
+    assert.equal(text.style.fontWeight, '700');
+    assert.equal(dialog.style.fontWeight || '', '');
+    assert.equal(overlay.querySelector('#igs-input').style.fontWeight || '', '');
+    assert.equal(overlay.querySelector('#igs-ctrl-bar').style.fontWeight || '', '');
+    settings.setValue('readerSettings.dialogFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
+    assert.match(name.style.fontFamily, /IGS Rounded/);
+    assert.match(text.style.fontFamily, /IGS Rounded/);
+    settings.setValue('readerSettings.dialogFont', 'inherit');
+    settings.setValue('readerSettings.vnTheme.nameFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
+    settings.setValue('readerSettings.vnTheme.textFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
+    assert.match(name.style.fontFamily, /IGS Rounded/);
+    assert.match(text.style.fontFamily, /IGS Rounded/);
+    settings.setValue('readerSettings.dialogFontWeight', 'null');
+    assert.equal(name.style.fontWeight, '');
+    assert.equal(text.style.fontWeight, '');
     settings.switchTab('reader');
     const dialogView = settings.switchReaderSubTab('dialog');
     assert.match(dialogView.snapshot.html, /植物咖啡/);

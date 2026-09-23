@@ -76,13 +76,18 @@ const READER_TAB_TEMPLATE = `
 const READER_DIALOG_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="dialog">
   <div class="igs-source-filter igs-settings-full">
+    <div class="igs-source-filter-title">对话框样式</div>
+    <div class="igs-settings-row">{{dialogSkinField}}</div>
+  </div>
+  <div class="igs-source-filter igs-settings-full">
     <div class="igs-source-filter-title">对话框布局</div>
     <div class="igs-source-filter-grid">
       {{fontSizeField}}
+      {{dialogFontField}}
+      {{dialogFontWeightField}}
       {{dialogWidthField}}
       {{dialogHeightField}}
       {{inputScaleField}}
-      {{dialogSkinField}}
       {{gradientVeilFields}}
       {{classicDialogWidthPercentField}}
     </div>
