@@ -560,6 +560,89 @@ test('gate:scene:igs-message-source:excluded-content-cannot-return-via-dom-or-un
     }
 });
 
+test('gate:igs-ui:excluded-yuan-with-invisible-boundaries-does-not-add-pages', () => {
+    const raw = '\u2063\u2062\u2063[igs-scene:李家主宅卧室|早晨|晴]醒来。\n\u2063\u2064\u2063\u2060\n'
+        + '<yuan>\u2063\u200c[igs-thought:哪吒|怪訝|*日本語*]日本語。</yuan>\n'
+        + '\u2063\u200c\u2063\u2061\u2063\u2062\u2063\n[igs-thought:哪吒|纳闷|*怎么回事？*]又醒了。';
+    const sourceFilter = { ...DEFAULT_SOURCE_FILTER, textIncludeTags: '', textExcludeTags: 'yuan' };
+    const host = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({
+            bridge: { openMode: 'pc', sourceFilter, sceneAssets: { enabled: true, scenes: {}, characters: {} } },
+            readerMode: 'pc', readerSettings: {},
+        }),
+    });
+    const opened = host.openReader({ message: { text: raw }, sourceFilter }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const segments = opened.snapshot.content.segments;
+    assert.deepEqual(segments, ['醒来。', '**怎么回事？**', '又醒了。']);
+    assert.equal(segments.some((segment) => segment.includes('日本語') || segment.includes('yuan')), false);
+    assert.equal(segments.some((segment) => /[\u2060-\u2064]/.test(segment)), false);
+    assert.equal(segments[0], '醒来。');
+    assert.equal(segments[2], '又醒了。');
+    host.destroy();
+});
+
+test('gate:igs-ui:excluded-yuan-with-default-include-and-untagged-source-keeps-readable-pages', () => {
+    const raw = '\u2063\u2062\u2063[igs-scene:李家主宅卧室|早晨|晴]醒来。'
+        + '\u2063\u2064\u2063\u2060<yuan>[igs-thought:哪吒|怪訝|日本語]日本語。</yuan>'
+        + '\u2063\u200c\u2063\u2061\u2063\u2062\u2063[igs-thought:哪吒|纳闷|怎么回事？]继续。';
+    const sourceFilter = { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'yuan' };
+    const host = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({
+            bridge: { openMode: 'pc', sourceFilter, sceneAssets: { enabled: true, scenes: {}, characters: {} } },
+            readerMode: 'pc', readerSettings: {},
+        }),
+    });
+    const opened = host.openReader({ message: { text: raw }, sourceFilter }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const segments = opened.snapshot.content.segments;
+    assert.equal(segments.length > 0, true);
+    assert.equal(segments.join('').includes('醒来。'), true);
+    assert.equal(segments.join('').includes('继续。'), true);
+    assert.equal(segments.join('').includes('日本語'), false);
+    assert.equal(segments.every((segment) => /[^\s\u200B-\u200D\u2060-\u2064]/u.test(segment)), true);
+    assert.equal(segments.join('').includes('李家主宅卧室|早晨|晴]'), false);
+    host.destroy();
+});
+
+test('gate:igs-ui:excluded-yuan-inline-formatting-controls-do-not-create-blank-pages', () => {
+    const raw = '<content>\u2063\u2062\u2063[igs-scene:李家主宅卧室|早晨|晴]醒来。'
+        + '\u2063\u2064\u2063\u2060<yuan>\u2063[igs-thought:哪吒|怪訝|*日本語*]日本語。</yuan>'
+        + '\u2063\u200c\u2063\u2061\u2063\u2062\u2063[igs-thought:哪吒|纳闷|*怎么回事？*]又醒了。</content>';
+    const sourceFilter = { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'yuan' };
+    const host = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({
+            bridge: { openMode: 'pc', sourceFilter, sceneAssets: { enabled: true, scenes: {}, characters: {} }, sentencePaging: true },
+            readerMode: 'pc', readerSettings: {},
+        }),
+    });
+    const opened = host.openReader({ message: { text: raw }, sourceFilter }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const segments = opened.snapshot.content.segments;
+    assert.equal(segments.length, 2);
+    assert.equal(segments.join('').includes('日本語'), false);
+    assert.equal(segments.join('').includes('李家主宅卧室|早晨|晴]'), false);
+    assert.equal(segments.every((segment) => /[^\s\u200B-\u200D\u2060-\u2064]/u.test(segment)), true);
+    assert.equal(segments.join('').includes('醒来。'), true);
+    assert.equal(segments.join('').includes('又醒了。'), true);
+    host.destroy();
+});
+
+test('gate:igs-ui:excluded-yuan-leaves-only-invisible-text-without-reader-page', () => {
+    const host = createIgsReaderHost({ global: {} });
+    const result = host.openReader({
+        message: { text: '<content>\u2063\u2064<yuan>日本語。</yuan>\u2060\u2061\u200c</content>' },
+        sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'yuan' },
+    }, { mode: 'pc' });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'no-readable-text');
+    assert.equal(host.getState().activeReader, null);
+    host.destroy();
+});
+
 test('gate:igs-ui:excluded-only-message-never-renders-from-stale-reader-fallback', () => {
     const filter = { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' };
     const host = createIgsReaderHost({ global: {} });
@@ -1635,10 +1718,10 @@ test('gate:igs-ui:reader-host-skips-empty-dialogue-pages', () => {
     });
     const opened = host.openReader({
         message: { text: '<content>[igs-char:小林海斗|平静|你好。]</content>' },
-        textSegments: ['[小林海斗]：你好。', '  ', '\u2063\u2062\u2063', '[小林海斗]： ', '[小林海斗]：「」', '[小林海斗]：再见。'],
+        textSegments: ['[小林海斗]：你好。', '  ', '\u2063\u2062\u2063', '\u2064\u2060', '\u2061', '\u200c', '\u200b', '[小林海斗]：\u2060\u2064', '[小林海斗]： ', '[小林海斗]：「」', '[小林海斗]：👩\u200d👩\u200d👧\u200d👦', '[小林海斗]：再见。'],
     }, { mode: 'pc' });
-    assert.deepEqual(opened.snapshot.content.segments, ['[小林海斗]：你好。', '[小林海斗]：再见。']);
-    assert.equal(opened.snapshot.content.progress.includes('/ 2'), true);
+    assert.deepEqual(opened.snapshot.content.segments, ['[小林海斗]：你好。', '[小林海斗]：👩\u200d👩\u200d👧\u200d👦', '[小林海斗]：再见。']);
+    assert.equal(opened.snapshot.content.progress.includes('/ 3'), true);
     host.destroy();
 });
 

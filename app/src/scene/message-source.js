@@ -273,17 +273,19 @@ export function buildFormattedTextPipeline(raw, sourceFilter, formatRule, option
     const cfg = normalizeSourceFilter(sourceFilter);
     const visibleText = typeof options.visibleText === 'string' ? options.visibleText : '';
     const filtered = buildFilteredTextSource(raw, cfg, visibleText);
+    // Formatting controls around an excluded block can precede [igs-scene:] and prevent the directive from being recognized.
+    const textSource = stripReaderFormattingControls(filtered.textSource);
     const imageSource = buildBridgeImageSource(raw, cfg);
     const directiveResult = options.sceneAssetsEnabled
-        ? extractSceneDirectives(filtered.textSource)
-        : { directives: [], strippedText: filtered.textSource };
-    const formatted = applyImmersiveGalgameSystemBodyFormat(filtered.textSource, formatRule);
+        ? extractSceneDirectives(textSource)
+        : { directives: [], strippedText: textSource };
+    const formatted = applyImmersiveGalgameSystemBodyFormat(textSource, formatRule);
     const formattedText = String(formatted.formattedRaw || '').trim();
 
     return {
         raw: String(raw || ''),
-        tagText: filtered.textSource,
-        textSource: filtered.textSource,
+        tagText: textSource,
+        textSource,
         formattedText,
         formattedRaw: buildFormattedReaderSource(formattedText, imageSource),
         imageSource,
@@ -309,7 +311,7 @@ export function buildIgsTextPayload(message, options = {}) {
     const sceneAssetsEnabled = Boolean(options.sceneAssets && options.sceneAssets.enabled);
     const sentencePagingEnabled = Boolean(options.sentencePaging);
     const strictPayload = buildFormattedTextPipeline(raw, sourceFilter, virtualRegex, { visibleText: safeVisibleText, sceneAssetsEnabled });
-    const cleanedRaw = normalizeWhitespace(cleanNarrativeSource(safeRaw));
+    const cleanedRaw = normalizeWhitespace(stripReaderFormattingControls(cleanNarrativeSource(safeRaw)));
     const filteredToEmpty = strictPayload.sourceKind === 'tagged-empty';
     const warnings = [];
     const errors = [];
@@ -586,6 +588,11 @@ function hasTagBlocks(raw, tags) {
         const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'i');
         return regex.test(source);
     });
+}
+
+function stripReaderFormattingControls(text) {
+    // Preserve U+200D: emoji sequences use the zero-width joiner to display as one glyph.
+    return String(text || '').replace(/[\u200B-\u200C\u2060-\u2064]/g, '');
 }
 
 function normalizeWhitespace(text) {

@@ -1536,13 +1536,15 @@ export function createIgsReaderHost(options = {}) {
                 : buildTextSegments(stripSceneDirectiveLines(text));
         // 场景指令可能紧贴正文（如「正文。[igs-scene:…]」），所有分段来源都必须再剥离一次，
         // 否则标签会作为正文渲染进对话框。
-        // 剥离后为空的段（场景标签、空台词、U+2062/U+2063 隐形格式字符）直接丢弃。
+        // 剥离后为空的段（场景标签、空台词、不可见格式字符）直接丢弃。
         const visibleSegments = segments
-            .map((seg) => stripSceneDirectivesInline(String(seg || '').replace(/[\u2062\u2063]/g, '')))
+            .map((seg) => stripSceneDirectivesInline(String(seg || '').replace(/[\u200B-\u200C\u2060-\u2064]/g, '')))
             .filter((seg) => {
                 const visible = String(seg || '').trim();
-                return visible.length > 0 && (!/^\[[^\]\n]+\]\s*[:：]/.test(visible)
-                    || stripWrappingQuotes(dialogueBody(visible)).length > 0);
+                // ZWJ can join emoji: ignore it when deciding if a page is empty, but preserve it in readable text.
+                const readable = visible.replace(/\u200D/g, '');
+                return readable.length > 0 && (!/^\[[^\]\n]+\]\s*[:：]/.test(readable)
+                    || stripWrappingQuotes(dialogueBody(readable)).length > 0);
             });
         segments = visibleSegments.length ? visibleSegments : enforceExcludedText ? [] : [''];
 
