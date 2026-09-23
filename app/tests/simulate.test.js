@@ -2092,7 +2092,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.equal((classicDialogView.snapshot.html.match(/对话框风格/g) || []).length, 1);
     assert.ok(classicDialogView.snapshot.html.indexOf('对话框宽度') < classicDialogView.snapshot.html.indexOf('电脑端宽度'));
     assert.ok(classicDialogView.snapshot.html.indexOf('电脑端宽度') < classicDialogView.snapshot.html.indexOf('对话框高度'));
-    assert.doesNotMatch(classicDialogView.snapshot.html, /西欧古典请在「主题」页按比例调整|当前风格使用固定 184px/);
+    assert.doesNotMatch(classicDialogView.snapshot.html, /西欧古典请在「主题」页按比例调整|当前风格使用固定 184px|按阅读器可用宽度自动计算|不影响素材对话框，仍作用于工具栏、选项和数据库。|当前编辑西欧古典风格的文字外观；默认风格配置会保留。|姓名牌风格不显示额外分隔线。/);
     assert.match(classicDialogView.snapshot.html, /data-path="readerSettings\.dialogFontWeight"/);
     assert.match(classicDialogView.snapshot.html, /跟随当前样式/);
     settings.setValue('readerSettings.dialogFontWeight', '700');
