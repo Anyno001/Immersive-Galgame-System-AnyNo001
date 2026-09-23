@@ -85,7 +85,12 @@ export function createIgsCompatApi(app) {
                     keepEmbeddedMount: resolved.options.keepEmbeddedMount === true,
                     turnOffset: resolved.options.turnOffset,
                 });
-                return { ...refreshed, ok: refreshed.ok !== false && reader.ok !== false, reader };
+                return {
+                    ...refreshed,
+                    ok: refreshed.ok !== false && reader.ok !== false,
+                    ...(reader.ok === false ? { reason: reader.reason } : {}),
+                    reader,
+                };
             }
             return openReaderUi(app, {
                 ...payload,
@@ -246,6 +251,7 @@ function openReaderUi(app, payload, refreshed) {
     return {
         ...refreshed,
         ok: refreshed.ok !== false && reader.ok !== false,
+        ...(reader.ok === false ? { reason: reader.reason } : {}),
         reader,
     };
 }

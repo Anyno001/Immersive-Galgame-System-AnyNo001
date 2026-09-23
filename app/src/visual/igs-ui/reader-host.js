@@ -234,6 +234,9 @@ export function createIgsReaderHost(options = {}) {
             readerSettings,
             payload.startAtEnd === true ? Number.MAX_SAFE_INTEGER : 0,
         );
+        if (!snapshot.content.segments.length) {
+            return { ok: false, reason: 'no-readable-text' };
+        }
         const controller = createReaderController();
         const domState = mountReaderDom(snapshot, controller, payload);
 
@@ -290,6 +293,9 @@ export function createIgsReaderHost(options = {}) {
     function replaceReader(payload = {}, replaceOptions = {}) {
         const current = state.activeReader;
         if (!current) return openReader(payload, replaceOptions);
+        const mode = normalizeReaderMode(current.mode, resolveBridgeConfigSnapshot({ mode: current.mode }).bridge);
+        const merged = applyReaderPayloadToState(current, mode, { payload, index: 0 });
+        if (!merged.content.segments.length) return { ok: false, reason: 'no-readable-text' };
         current.contentMessageId = payload.messageId != null ? payload.messageId : current.contentMessageId;
         if (replaceOptions.turnOffset != null) current.turnOffset = Math.max(0, Number(replaceOptions.turnOffset) || 0);
         current.payload = cloneReaderPayload(payload);
@@ -300,9 +306,8 @@ export function createIgsReaderHost(options = {}) {
         current.index = 0;
         current.inputValue = '';
         current.mountMessageId = replaceOptions.mountMessageId != null ? replaceOptions.mountMessageId : current.mountMessageId;
-        const mode = normalizeReaderMode(current.mode, resolveBridgeConfigSnapshot({ mode: current.mode }).bridge);
         current.mode = mode;
-        const merged = applyReaderPayloadToState(current, mode);
+        current.snapshot = merged;
         updateMountedReader(merged);
         exitEmbeddedLoading();
         if (isEmbeddedReaderMode(mode) && current.turnOffset === 0) startReaderImagePolling(current);
@@ -324,9 +329,8 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._sceneAssets = unified.bridge.sceneAssets || null;
         readerSettings._sentencePaging = Boolean(unified.bridge.sentencePaging);
         readerSettings._vnTheme = readerSettings.vnTheme || null;
-        const snapshot = buildReaderSnapshot(current.payload, mode, readerSettings, optionsForRender.index || current.index);
-        current.snapshot = snapshot;
-        return snapshot;
+        return buildReaderSnapshot(optionsForRender.payload || current.payload, mode, readerSettings,
+            optionsForRender.index ?? current.index);
     }
 
     function openSettings(openOptions = {}) {
@@ -454,7 +458,7 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         teardownStatusHudSubscription();
         if (!current) return { ok: true, reason: 'reader-not-open' };
-        closeSettings();
+        if (closeOptions.keepSettings !== true) closeSettings();
         clearReaderToast(current);
         cancelTypewriter(current.dom && current.dom.text, { finish: false });
         const stageMotion = current.dom && current.dom.overlay && current.dom.overlay.querySelector
@@ -1183,14 +1187,19 @@ export function createIgsReaderHost(options = {}) {
             )
             : normalizeReaderMode(state.activeReader.mode, baseSnapshot.bridge);
         const unified = resolveBridgeConfigSnapshot({ mode: nextMode });
-        state.activeReader.mode = nextMode;
-        syncReaderMountForMode(state.activeReader, nextMode);
         const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
         readerSettings._sceneAssets = unified.bridge.sceneAssets || null;
         readerSettings._sentencePaging = Boolean(unified.bridge.sentencePaging);
         readerSettings._vnTheme = readerSettings.vnTheme || null;
-        state.activeReader.snapshot = buildReaderSnapshot(state.activeReader.payload, nextMode, readerSettings, state.activeReader.index);
-        updateMountedReader(state.activeReader.snapshot);
+        const snapshot = buildReaderSnapshot(state.activeReader.payload, nextMode, readerSettings, state.activeReader.index);
+        if (!snapshot.content.segments.length) {
+            closeReader({ keepSettings: true });
+            return { ok: false, reason: 'no-readable-text' };
+        }
+        state.activeReader.mode = nextMode;
+        syncReaderMountForMode(state.activeReader, nextMode);
+        state.activeReader.snapshot = snapshot;
+        updateMountedReader(snapshot);
         return { ok: true };
     }
 
@@ -1535,7 +1544,7 @@ export function createIgsReaderHost(options = {}) {
                 return visible.length > 0 && (!/^\[[^\]\n]+\]\s*[:：]/.test(visible)
                     || stripWrappingQuotes(dialogueBody(visible)).length > 0);
             });
-        segments = visibleSegments.length ? visibleSegments : [''];
+        segments = visibleSegments.length ? visibleSegments : enforceExcludedText ? [] : [''];
 
 
         const normalizedIndex = Math.max(0, Math.min(segments.length - 1, Number(index) || 0));

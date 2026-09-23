@@ -531,7 +531,7 @@ test('gate:scene:igs-message-source:does-not-resurrect-excluded-only-content', (
     }, { sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' } });
 
     assert.equal(payload.formattedText, '');
-    assert.equal(payload.textSegments.some((segment) => segment.includes('不能显示')), false);
+    assert.deepEqual(payload.textSegments, []);
 });
 
 test('gate:scene:igs-message-source:empty-included-block-does-not-fall-back-to-outside-text', () => {
@@ -541,7 +541,7 @@ test('gate:scene:igs-message-source:empty-included-block-does-not-fall-back-to-o
     }, { sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' } });
 
     assert.equal(payload.formattedText, '');
-    assert.deepEqual(payload.textSegments, ['']);
+    assert.deepEqual(payload.textSegments, []);
     assert.equal(payload.usedDomOverride, false);
 });
 
@@ -571,9 +571,9 @@ test('gate:igs-ui:excluded-only-message-never-renders-from-stale-reader-fallback
         formattedText: '不能显示',
     }, { mode: 'pc' });
 
-    assert.equal(opened.ok, true);
-    assert.equal(opened.snapshot.content.displayText.includes('不能显示'), false);
-    assert.equal(opened.snapshot.content.segments.some((segment) => segment.includes('不能显示')), false);
+    assert.equal(opened.ok, false);
+    assert.equal(opened.reason, 'no-readable-text');
+    assert.equal(host.getState().activeReader, null);
     host.destroy();
 });
 
@@ -603,6 +603,42 @@ test('gate:igs-ui:saving-exclusion-filter-reparses-open-reader', () => {
     assert.equal(refreshed.segments.some((segment) => segment.includes('不能显示')), false);
     assert.equal(refreshed.displayText.includes('不能显示'), false);
     assert.equal(refreshed.segments.join(''), '保留正文。');
+    host.destroy();
+});
+
+test('gate:igs-ui:saving-exclusion-filter-closes-reader-with-no-readable-text', () => {
+    const bridge = { sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: '' } };
+    const host = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({ bridge, readerMode: 'pc', readerSettings: {} }),
+        saveUnifiedSettings: (settings) => {
+            bridge.sourceFilter = settings.bridge.sourceFilter;
+            return { ok: true };
+        },
+    });
+    const opened = host.openReader({
+        message: { text: '<content><thinking>不能显示</thinking></content>' },
+        sourceFilter: bridge.sourceFilter,
+    }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const settings = host.openSettings({ tab: 'regex' });
+    assert.equal(settings.controller.setValue('bridge.sourceFilter.textExcludeTags', 'thinking').ok, true);
+    assert.equal(host.getState().activeReader, null);
+    assert.equal(host.getState().activeSettings.tab, 'regex');
+    host.destroy();
+});
+
+test('gate:igs-ui:replace-reader-rejects-excluded-only-source-without-blank-page', () => {
+    const host = createIgsReaderHost({ global: {} });
+    const opened = host.openReader({ message: { text: '<content>保留正文。</content>' } }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const replaced = host.replaceReader({
+        message: { text: '<content><thinking>不能显示</thinking></content>' },
+        sourceFilter: { ...DEFAULT_SOURCE_FILTER, textExcludeTags: 'thinking' },
+    }, { mode: 'pc' });
+    assert.equal(replaced.ok, false);
+    assert.equal(replaced.reason, 'no-readable-text');
+    assert.equal(host.getState().activeReader.snapshot.content.segments.join(''), '保留正文。');
     host.destroy();
 });
 

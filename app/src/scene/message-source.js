@@ -421,7 +421,7 @@ export function buildIgsTextPayload(message, options = {}) {
             narrationOnly: true,
         });
     }
-    const textSegments = buildNarrativeSegments(pagedReaderText);
+    const textSegments = pagedReaderText ? buildNarrativeSegments(pagedReaderText) : [];
     const imageSlots = parseImageSlots(raw, strictPayload.imageSource, sourceFilter);
     const segmentImageSlots = pagedReaderText
         ? buildSegmentImageMap(raw, textSegments, imageSlots, { sceneAssetsMode: sceneAssetsEnabled })

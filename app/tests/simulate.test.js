@@ -251,6 +251,41 @@ test('gate:simulation:igs-open-latest-and-open-message-use-compat-api', async ()
     vn.destroy();
 });
 
+test('gate:simulation:compat-api-reports-excluded-only-text-without-opening-blank-reader', async () => {
+    const document = createFakeDocument();
+    const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify({
+        sourceFilter: { textExcludeTags: 'thinking' },
+    }) });
+    const excluded = { id: 42, text: '<content><thinking>不能显示</thinking></content>' };
+    const readable = { id: 43, text: '<content>保留正文。</content>' };
+    let current = excluded;
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => current,
+            getMessageById: async id => Number(id) === 42 ? excluded : readable,
+            typeAndSend: async () => { throw Error('reader opening must not send'); },
+        },
+    });
+
+    const empty = await vn.openLatestAvailable('pc');
+    assert.equal(empty.ok, false);
+    assert.equal(empty.reason, 'no-readable-text');
+    assert.equal(empty.reader.reason, 'no-readable-text');
+    assert.equal(vn.getState().igsUi.activeReader, null);
+    assert.equal(document.getElementById('igs-overlay'), null);
+
+    current = readable;
+    const opened = await vn.openLatestAvailable('pc');
+    assert.equal(opened.ok, true);
+    const replaced = await vn.openViewerFromMessage(42, 'pc', { replaceActive: true });
+    assert.equal(replaced.ok, false);
+    assert.equal(replaced.reason, 'no-readable-text');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.segments.join(''), '保留正文。');
+    vn.destroy();
+});
+
 test('gate:simulation:magic-wand-entry-opens-latest-reader', async () => {
     const document = createFakeDocument();
     const menu = document.createElement('div');
@@ -3798,24 +3833,41 @@ test('gate:simulation:map-avatar-entry-keeps-keyboard-and-hud-actions-separated'
     }) });
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ statusHud: { enabled: true, showLocation: true, tables: [] } }));
     const vn = bootstrapIGS({ global: { document, localStorage: storage }, autoAttachMagicWand: false,
-        hostAdapter: { getCurrentMessage: async () => ({ id: 21, text: '<content>[igs-char:Alice|平静|你好。]</content>' }),
+        hostAdapter: { getCurrentMessage: async () => ({ id: 21, text: '<content>[igs-scene:我家|夜晚|晴天]\n[igs-char:Alice|平静|你好。]</content>' }),
             typeAndSend: async () => { throw Error('map must not send'); } } });
     const opened = await vn.openLatestAvailable('pc');
     const controller = opened.reader.controller;
     const hud = document.getElementById('igs-status-hud');
     const entry = hud.querySelector('.igs-map-avatar-entry');
+    const toggle = hud.querySelector('.igs-hud-toggle');
     assert.equal(entry.tagName, 'BUTTON');
-    assert.equal(entry.getAttribute('aria-label'), '打开地点地图');
+    assert.equal(entry.getAttribute('aria-label'), '打开地点地图：我家');
+    assert.equal(entry.getAttribute('title'), '我家');
+    assert.equal(entry.parentNode.className, 'igs-hud-avatar-frame');
+    assert.equal(toggle.parentNode, hud);
+    assert.equal(entry.innerHTML, '');
+    assert.equal(toggle.getAttribute('data-act'), 'toggle-status-hud');
     assert.equal(hud.querySelector('.igs-hud-location'), null);
     assert.equal(hud.querySelectorAll('.igs-hud-metric').length, 0);
+    const css = getOriginalReaderStyleText();
+    assert.match(css, /#igs-status-hud \.igs-hud-identity\{position:relative;z-index:1;pointer-events:none;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-toggle\{z-index:0;\}/);
+    assert.match(css, /#igs-status-hud \.igs-map-avatar-entry\{[^}]*z-index:2;[^}]*width:30px;height:30px;[^}]*pointer-events:auto;/);
+    assert.match(css, /#igs-status-hud \.igs-map-avatar-entry::after\{[^}]*width:9px;height:9px;/);
+    assert.match(css, /\.igs-map-avatar-entry:focus-visible::before\{opacity:1;\}/);
     const before = vn.getState().igsUi.activeReader.index;
     let stopped = false;
     document.dispatchEvent({ type: 'keydown', key: ' ', target: entry,
         stopPropagation() { stopped = true; } });
     assert.equal(vn.getState().igsUi.activeReader.index, before);
     assert.equal(stopped, false);
-    assert.equal((await controller.invokeAction('map')).ok, true);
+    let mapClickStopped = false;
+    const readerRoot = document.getElementById('igs-overlay').parentNode;
+    await readerRoot.dispatchEvent({ type: 'click', target: entry,
+        stopPropagation() { mapClickStopped = true; } });
+    assert.equal(mapClickStopped, true);
     assert.ok(document.getElementById('igs-map-panel'));
+    assert.equal(hud.classList.contains('igs-hud-collapsed'), false);
     stopped = false;
     document.dispatchEvent({ type: 'keydown', key: 'ArrowRight', target: entry,
         stopPropagation() { stopped = true; } });
@@ -3824,7 +3876,8 @@ test('gate:simulation:map-avatar-entry-keeps-keyboard-and-hud-actions-separated'
     document.dispatchEvent({ type: 'keydown', key: 'Escape', target: entry });
     assert.equal(document.getElementById('igs-map-panel'), null);
     assert.ok(vn.getState().igsUi.activeReader);
-    assert.equal((await controller.invokeAction('toggle-status-hud')).ok, true);
+    await readerRoot.dispatchEvent({ type: 'click', target: toggle });
+    assert.equal(hud.classList.contains('igs-hud-collapsed'), true);
     assert.equal((await controller.invokeAction('map')).reason, 'map-entry-not-visible');
     vn.destroy();
 });
@@ -4833,8 +4886,9 @@ test('gate:simulation:status-hud-location-occupies-identity-slot-without-charact
     assert.equal(host.querySelector('.igs-hud-avatar'), null);
     assert.equal(host.querySelector('.igs-hud-emotion'), null);
     assert.equal(host.querySelector('.igs-hud-location-label').textContent, '旧城');
-    const locationIcon = host.querySelector('.igs-hud-location-icon');
-    assert.match(locationIcon.innerHTML, /<svg/);
+    assert.equal(host.querySelector('.igs-hud-location').tagName, 'BUTTON');
+    assert.equal(host.querySelector('.igs-hud-location').getAttribute('data-act'), 'map');
+    assert.equal(host.querySelector('.igs-hud-location-icon'), null);
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
 
     const styleText = getOriginalReaderStyleText();
@@ -4873,7 +4927,8 @@ test('gate:simulation:status-hud-location-details-render-on-narration', async ()
     assert.equal(content.statusHud.time, '深夜');
     assert.equal(content.statusHud.weather, '小雨');
     assert.equal(host.querySelector('.igs-hud-location-label').textContent, '小雨 · 深夜 の 旧城');
-    assert.match(host.querySelector('.igs-hud-location-icon').innerHTML, /<svg/);
+    assert.equal(host.querySelector('.igs-hud-location').getAttribute('data-act'), 'map');
+    assert.equal(host.querySelector('.igs-hud-location-icon'), null);
 
     vn.destroy();
 });

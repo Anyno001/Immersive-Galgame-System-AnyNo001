@@ -734,9 +734,9 @@ export function applyStatusHudToDom(root, snapshot) {
         entry.className = 'igs-map-avatar-entry';
         entry.type = 'button';
         entry.setAttribute('data-act', 'map');
-        entry.setAttribute('aria-label', '打开地点地图');
-        entry.setAttribute('title', '地点地图');
-        entry.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 3 6 1l4 2 4-2v12l-4 2-4-2-4 2Z"/><path d="M6 1v12m4-10v12"/></svg>';
+        const currentLocation = String(snapshot.content.sceneLocation || '').trim();
+        entry.setAttribute('aria-label', currentLocation ? `打开地点地图：${currentLocation}` : '打开地点地图');
+        entry.setAttribute('title', currentLocation || '地点地图');
         avatarFrame.appendChild(entry);
         identity.appendChild(avatarFrame);
     }
@@ -750,10 +750,6 @@ export function applyStatusHudToDom(root, snapshot) {
         const location = doc.createElement(hud.character ? 'div' : 'button');
         location.className = 'igs-hud-location';
         if (!hud.character) { location.type = 'button'; location.setAttribute('data-act', 'map'); location.setAttribute('aria-label', '打开地点地图'); }
-        const icon = doc.createElement('span');
-        icon.className = 'igs-hud-location-icon';
-        icon.innerHTML = STATUS_HUD_LOCATION_ICON;
-        location.appendChild(icon);
         const chip = doc.createElement('span');
         chip.className = 'igs-hud-location-label';
         const context = [hud.weather, hud.time].filter(Boolean).join(' · ');
