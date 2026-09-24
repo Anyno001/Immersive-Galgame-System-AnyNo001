@@ -5,6 +5,7 @@ import {
     cancelTypewriter,
     normalizeTypewriterSettings,
 } from '../src/visual/igs-ui/typewriter-runtime.js';
+import { measureClassicReveal } from '../src/visual/igs-ui/typewriter-classic.js';
 import { scheduleTypewriterAudio } from '../src/visual/igs-ui/typewriter-audio.js';
 
 function text(value) {
@@ -238,6 +239,56 @@ test('classic measures rendered lines and Unicode graphemes once, then animates 
     assert.deepEqual(sounds.slice(1), ['stop']);
     assert.equal(first.nodeValue + second.nodeValue, '甲😀乙丙');
     assert.equal(applyTypewriterEffect(root, options).animated, false);
+});
+
+test('classic keeps DOM grapheme order when glyph tops differ within one visual line', () => {
+    const node = lockedText('ABCD');
+    let offset = 0;
+    const boxes = [
+        { top: 0, bottom: 20, left: 0, right: 10, width: 10, height: 20 },
+        { top: 4, bottom: 24, left: 10, right: 20, width: 10, height: 20 },
+        { top: 0, bottom: 20, left: 20, right: 30, width: 10, height: 20 },
+        { top: 4, bottom: 24, left: 30, right: 40, width: 10, height: 20 },
+    ];
+    const root = element(node);
+    root.getBoundingClientRect = () => ({ top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40 });
+    root.ownerDocument = { createRange() {
+        return {
+            setStart(_node, start) { offset = start; },
+            setEnd() {},
+            getClientRects() { return [boxes[offset]]; },
+        };
+    } };
+
+    const result = measureClassicReveal(root, 28);
+    assert.deepEqual(result.events.map(event => event.text), ['A', 'B', 'C', 'D']);
+    assert.match(result.frames[1].clipPath, /60\.0000%/);
+    assert.deepEqual(new Set(result.frames.slice(0, -1).map(frame => frame.easing)), new Set(['steps(1, end)']));
+});
+
+test('classic preserves DOM order when visual lines span nested text nodes', () => {
+    const first = lockedText('AB');
+    const second = lockedText('CD');
+    let currentNode = null;
+    let offset = 0;
+    const boxes = [
+        { top: 0, bottom: 20, left: 0, right: 10, width: 10, height: 20 },
+        { top: 20, bottom: 40, left: 0, right: 10, width: 10, height: 20 },
+        { top: 0, bottom: 20, left: 10, right: 20, width: 10, height: 20 },
+        { top: 20, bottom: 40, left: 10, right: 20, width: 10, height: 20 },
+    ];
+    const root = element(first, second);
+    root.getBoundingClientRect = () => ({ top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40 });
+    root.ownerDocument = { createRange() {
+        return {
+            setStart(node, start) { currentNode = node; offset = start; },
+            setEnd() {},
+            getClientRects() { return [currentNode === first ? boxes[offset] : boxes[2 + offset]]; },
+        };
+    } };
+
+    const result = measureClassicReveal(root, 28);
+    assert.deepEqual(result.events.map(event => event.text), ['A', 'B', 'C', 'D']);
 });
 
 test('classic skips audio for mute, zero volume, reduced motion and unavailable geometry', () => {

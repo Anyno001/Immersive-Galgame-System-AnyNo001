@@ -31,6 +31,13 @@ function mask(rect, bounds, isFirst) {
     return `polygon(0 0, 100% 0, 100% ${top}, ${right} ${top}, ${right} ${bottom}, 0 ${bottom})`;
 }
 
+function visualLineOverlap(line, rect) {
+    const lineHeight = Math.max(1, line.bottom - line.top);
+    const rectHeight = Math.max(1, rect.bottom - rect.top);
+    const overlap = Math.max(0, Math.min(line.bottom, rect.bottom) - Math.max(line.top, rect.top));
+    return overlap / Math.min(lineHeight, rectHeight);
+}
+
 export function measureClassicReveal(target, speed) {
     const doc = target && target.ownerDocument;
     if (!doc || typeof doc.createRange !== 'function' || typeof target.getBoundingClientRect !== 'function') return null;
@@ -38,6 +45,8 @@ export function measureClassicReveal(target, speed) {
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
     const range = doc.createRange();
     const lines = [];
+    // 字素按 DOM 遍历顺序保留；视觉行只提供垂直遮罩边界。
+    const parts = [];
     try {
         for (const node of textNodes(target)) {
             for (const part of graphemes(String(node.nodeValue || ''))) {
@@ -46,13 +55,24 @@ export function measureClassicReveal(target, speed) {
                 const rect = Array.from(range.getClientRects()).find(item => item.width > 0 && item.height > 0);
                 if (!rect) continue;
                 if (rect.right < bounds.left || rect.left > bounds.right || rect.top < bounds.top || rect.bottom > bounds.bottom) return null;
-                let line = lines.find(item => Math.abs(item.top - rect.top) < 2);
-                if (!line) {
-                    line = { top: rect.top, bottom: rect.bottom, parts: [] };
-                    lines.push(line);
+
+                let line = null;
+                let bestOverlap = 0;
+                for (const candidate of lines) {
+                    const overlap = visualLineOverlap(candidate, rect);
+                    if (overlap > bestOverlap) {
+                        line = candidate;
+                        bestOverlap = overlap;
+                    }
                 }
-                line.bottom = Math.max(line.bottom, rect.bottom);
-                line.parts.push({ text: part.text, rect });
+                if (!line || bestOverlap < 0.5) {
+                    line = { top: rect.top, bottom: rect.bottom, index: lines.length };
+                    lines.push(line);
+                } else {
+                    line.top = Math.min(line.top, rect.top);
+                    line.bottom = Math.max(line.bottom, rect.bottom);
+                }
+                parts.push({ text: part.text, line, rect });
             }
         }
     } catch {
@@ -61,16 +81,20 @@ export function measureClassicReveal(target, speed) {
         range.detach?.();
     }
     if (!lines.length) return null;
-    lines.sort((a, b) => a.top - b.top);
-    const steps = lines.flatMap(line => line.parts.map(part => ({ text: part.text, rect: {
-        top: line.top, bottom: line.bottom, right: part.rect.right,
-    } })));
+    // Keep DOM traversal order; line metadata only supplies the vertical mask bounds.
+    const steps = parts.map(part => ({
+        text: part.text,
+        isFirstLine: part.line.index === 0,
+        rect: {
+            top: part.line.top, bottom: part.line.bottom, right: part.rect.right,
+        },
+    }));
     const duration = steps.length * speed;
     const frames = [{ offset: 0, clipPath: mask(null), easing: 'steps(1, end)' }];
     const events = [];
     for (let index = 0; index < steps.length; index += 1) {
         const offset = (index + 1) / steps.length;
-        const next = mask(steps[index].rect, bounds, index < lines[0].parts.length);
+        const next = mask(steps[index].rect, bounds, steps[index].isFirstLine);
         frames.push({ offset, clipPath: next, easing: 'steps(1, end)' });
         events.push({ timeMs: (index + 1) * speed, text: steps[index].text });
     }

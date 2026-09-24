@@ -3886,6 +3886,7 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*width:32px;height:32px;[^}]*pointer-events:auto;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\[aria-expanded="true"\] svg\{[^}]*rotate\(-90deg\)/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*left:calc\(100% - 7px\);top:calc\(50% \+ 2\.5px\)/);
+    assert.match(css, /#igs-status-hud\.igs-hud-size-large \.igs-hud-location ~ \.igs-hud-entry-arrow\{top:calc\(50% \+ 1px\);\}/);
     assert.match(css, /#igs-status-hud\.igs-hud-character-emotion-only \.igs-hud-entry-arrow\{top:calc\(50% \+ \.5px\);\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:calc\(100% \+ 21px\);top:calc\(50% \+ 1\.5px\);[^}]*flex-direction:row;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*background:transparent;/);
@@ -3951,10 +3952,10 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
         exportTableAsJson() {
             reads++;
             return {
-                sheet_diary: { uid: 'sheet_diary', name: '恋爱日记表', content: [['标题', '日期', '正文'],
+                sheet_diary: { uid: 'sheet_diary', name: '恋爱日记表', content: [['写作角色', '发生时间', '正文'],
                     ['晚', '2024-03-02', '<img src=x onerror=alert(1)>'], ['早', '2024-03-01', '第一天']] },
-                sheet_items: { uid: 'sheet_items', name: '随身物品', content: [['物品名称', '描述'],
-                    ['钥匙', '<安全>'], ['未知物', '无法识别']] },
+                sheet_items: { uid: 'sheet_items', name: '随身物品', content: [['row_id', '物品名称', '数量', '描述'],
+                    [1, '钥匙', 2, '<安全>'], [2, '未知物', 1, '无法识别']] },
                 sheet_rel: { uid: 'sheet_rel', name: '商会势力', content: [['名称', '关系'], ['商会', '<敌视>']] },
             };
         },
@@ -3965,31 +3966,49 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     const panel = createRecordPanelController(document, { AutoCardUpdaterAPI: api });
     assert.equal(panel.open(overlay, {}, 'diary').ok, true);
     assert.equal(callbacks.size, 1);
+    assert.equal(overlay.classList.contains('igs-record-screen-open'), true);
     let root = document.getElementById('igs-record-panel');
-    assert.match(root.innerHTML, /恋爱日记表/);
+    assert.match(root.innerHTML, /TA の 日记/);
+    assert.doesNotMatch(root.innerHTML, /恋爱日记表/);
+    assert.match(root.innerHTML, /igs-record-bookshelf/);
+    assert.equal(root.querySelector('.igs-record-diary-detail'), null);
     assert.ok(root.innerHTML.indexOf('早') < root.innerHTML.indexOf('晚'));
+    const diaryEntry = document.createElement('button');
+    diaryEntry.setAttribute('data-record-act', 'select');
+    diaryEntry.setAttribute('data-record-id', 'sheet_diary:0');
+    root.appendChild(diaryEntry);
+    await root.dispatchEvent({ type: 'click', target: diaryEntry });
+    diaryEntry.remove();
     assert.match(root.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    assert.match(root.innerHTML, /igs-record-diary-detail/);
     callbacks.forEach(callback => callback());
     assert.equal(reads, 2);
     panel.close();
     assert.equal(callbacks.size, 0);
+    assert.equal(overlay.classList.contains('igs-record-screen-open'), false);
     assert.equal(restoredFocus, 1);
     assert.equal(document.getElementById('igs-record-panel'), null);
 
     assert.equal(panel.open(overlay, {}, 'inventory').ok, true);
     root = document.getElementById('igs-record-panel');
-    assert.match(root.innerHTML, /随身物品/);
+    assert.equal(overlay.classList.contains('igs-record-screen-open'), true);
+    assert.match(root.innerHTML, /你的物品/);
+    assert.doesNotMatch(root.innerHTML, /随身物品/);
     assert.match(root.innerHTML, /钥匙/);
     assert.match(root.innerHTML, /未知物/);
-    assert.match(root.innerHTML, /&lt;安全&gt;/);
+    assert.match(root.innerHTML, /x2/);
+    assert.doesNotMatch(root.innerHTML, /&lt;安全&gt;/);
+    assert.doesNotMatch(root.innerHTML, /row_id|物品名称/);
     const item = document.createElement('button');
     item.setAttribute('data-record-act', 'select');
-    item.setAttribute('data-record-id', 'sheet_items:1');
+    item.setAttribute('data-record-id', 'sheet_items:0');
     root.appendChild(item);
     await root.dispatchEvent({ type: 'click', target: item });
     item.remove();
-    assert.equal(panel.getState().selectedId, 'sheet_items:1');
-    assert.match(root.innerHTML, /无法识别/);
+    assert.equal(panel.getState().selectedId, 'sheet_items:0');
+    assert.match(root.innerHTML, /&lt;安全&gt;/);
+    assert.doesNotMatch(root.innerHTML, /class="igs-record-slot-name">钥匙<\/span>/);
+    assert.doesNotMatch(root.innerHTML, /data-record-act="refresh"/);
     panel.close();
 
     assert.equal(panel.open(overlay, {}, 'relationships').ok, true);

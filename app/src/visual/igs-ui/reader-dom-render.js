@@ -714,6 +714,7 @@ export function applyStatusHudToDom(root, snapshot) {
     host.classList.toggle('igs-hud-character-emotion-with-metrics', Boolean(hud && hud.character && hasEmotion && hasMetrics));
     const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     if (hudSettings && hudSettings.collapsed) host.classList.add('igs-hud-collapsed');
+    host.classList.toggle('igs-hud-size-large', hudSettings?.size === 'large');
     while (host.firstChild) host.removeChild(host.firstChild);
 
     const identity = doc.createElement('div');
@@ -877,6 +878,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     root.className = snapshot.classes.join(' ');
     root.setAttribute('data-igs-igs-ui', 'true');
     const stageMotion = root.querySelector('#igs-stage-motion') || root;
+    let typewriterTextType = '';
+    let typewriterRenderKey = '';
 
     const bg = root.querySelector('#igs-bg');
     const bgBlur = root.querySelector('#igs-bg-blur');
@@ -992,6 +995,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const textType = snapshot.content.textType || 'narration';
         const renderedHtml = renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled);
         const textRenderKey = [snapshot.messageId, snapshot.content.currentIndex, textType, renderedHtml].join(':');
+
+        typewriterTextType = textType;
+        typewriterRenderKey = textRenderKey;
         const sameTextRender = Boolean(textEl.dataset && textEl.dataset.igsTextRenderKey === textRenderKey);
         if (!sameTextRender) {
             cancelTypewriter(textEl, { finish: false });
@@ -1022,15 +1028,6 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         } else {
             textEl.style.color = '';
         }
-        const typewriterSettings = snapshot.readerSettings.typewriter || {};
-        applyTypewriterEffect(textEl, {
-            enabled: typewriterSettings.enabled === true,
-            speed: typewriterSettings.speed,
-            mode: typewriterSettings.mode,
-            sound: typewriterSettings.sound,
-            textType,
-            key: textRenderKey,
-        });
     }
     const stageShakeSettings = snapshot.readerSettings && snapshot.readerSettings.stageShake;
     const stageShakeKey = [
@@ -1182,6 +1179,17 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         isActiveReader: (reader) => (typeof ctx.isActiveReader === 'function' ? ctx.isActiveReader(reader) : true),
         requestClose: () => { if (typeof ctx.closeReader === 'function') ctx.closeReader(); },
     });
+    if (textEl && typewriterRenderKey) {
+        const typewriterSettings = snapshot.readerSettings.typewriter || {};
+        applyTypewriterEffect(textEl, {
+            enabled: typewriterSettings.enabled === true,
+            speed: typewriterSettings.speed,
+            mode: typewriterSettings.mode,
+            sound: typewriterSettings.sound,
+            textType: typewriterTextType,
+            key: typewriterRenderKey,
+        });
+    }
     if (toast) {
         toast.textContent = current.toastMessage || '';
         toast.style.opacity = current.toastMessage ? '1' : '0';

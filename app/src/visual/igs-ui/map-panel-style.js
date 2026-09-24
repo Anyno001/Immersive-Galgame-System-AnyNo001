@@ -6,6 +6,7 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-status-hud.igs-hud-no-metrics .igs-hud-entry-anchor{display:flex;flex-direction:column;align-items:center;}
 #igs-status-hud.igs-hud-character-emotion-only .igs-hud-entry-arrow{top:calc(50% + .5px);}
 #igs-status-hud.igs-hud-character-emotion-with-metrics .igs-hud-metrics{align-self:flex-start;height:calc(46px * var(--igs-hud-scale,1));}
+#igs-status-hud.igs-hud-size-large .igs-hud-location ~ .igs-hud-entry-arrow{top:calc(50% + 1px);}
 #igs-status-hud .igs-hud-entry-arrow{position:absolute;left:calc(100% - 7px);top:calc(50% + 2.5px);transform:translateY(-50%);display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;background:transparent;color:rgba(232,230,226,.7);cursor:pointer;pointer-events:auto;}
 #igs-status-hud .igs-hud-entry-arrow svg{width:13px;height:13px;transition:transform .15s ease;}
 #igs-status-hud .igs-hud-entry-arrow[aria-expanded="true"] svg{transform:rotate(-90deg);}
