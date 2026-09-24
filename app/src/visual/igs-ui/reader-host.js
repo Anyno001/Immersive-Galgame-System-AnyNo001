@@ -2249,13 +2249,6 @@ export function createIgsReaderHost(options = {}) {
         installToolbarDragScroll(root, doc);
         root.addEventListener('click', async (event) => {
             const button = event.target?.closest?.('[data-act]');
-            const hud = state.activeReader?.dom?.overlay?.querySelector?.('#igs-status-hud');
-            const menu = hud?.querySelector?.('#igs-hud-record-menu');
-            if (menu && !menu.hasAttribute('hidden') && button?.getAttribute('data-act') !== 'toggle-record-menu'
-                && !menu.contains(event.target)) {
-                menu.setAttribute('hidden', '');
-                hud.querySelector?.('.igs-hud-entry-arrow')?.setAttribute('aria-expanded', 'false');
-            }
             if (!button) return;
             event.preventDefault();
             event.stopPropagation();

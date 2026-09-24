@@ -783,10 +783,9 @@ export function applyStatusHudToDom(root, snapshot) {
         button.type = 'button';
         button.className = 'igs-hud-entry-item';
         button.setAttribute('data-act', category);
+        button.setAttribute('aria-label', label);
+        button.setAttribute('title', label);
         button.innerHTML = RECORD_ICONS[category];
-        const text = doc.createElement('span');
-        text.textContent = label;
-        button.appendChild(text);
         menu.appendChild(button);
     }
     entryAnchor.appendChild(menu);

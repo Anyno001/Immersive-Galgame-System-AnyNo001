@@ -3880,6 +3880,8 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.match(css, /#igs-status-hud \.igs-hud-identity\{position:relative;z-index:1;pointer-events:none;/);
     assert.match(css, /#igs-status-hud \.igs-hud-toggle\{z-index:0;\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*width:32px;height:32px;[^}]*pointer-events:auto;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\[aria-expanded="true"\] svg\{[^}]*rotate\(-90deg\)/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*left:calc\(100% - 4px\);top:calc\(50% \+ 1\.5px\)/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:100%;[^}]*flex-direction:row;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*background:transparent;/);
     assert.match(css, /#igs-status-hud \.igs-hud-location-icon\{[^}]*width:calc\(16px \* var\(--igs-hud-scale,1\)\)/);
@@ -3903,9 +3905,14 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.ok(menu.querySelector('[data-act="diary"]'));
     assert.ok(menu.querySelector('[data-act="inventory"]'));
     assert.ok(menu.querySelector('[data-act="relationships"]'));
-    assert.equal(mapItem.querySelector('span').textContent, '地图');
+    assert.equal(mapItem.querySelector('span'), null);
+    assert.equal(mapItem.getAttribute('aria-label'), '地图');
+    assert.equal(mapItem.getAttribute('title'), '地图');
+    assert.match(mapItem.innerHTML, /<svg/);
     await readerRoot.dispatchEvent({ type: 'click', target: mapItem });
     assert.ok(document.getElementById('igs-map-panel'));
+    assert.equal(menu.hasAttribute('hidden'), true);
+    assert.equal(entry.getAttribute('aria-expanded'), 'false');
     assert.equal(hud.classList.contains('igs-hud-collapsed'), false);
     stopped = false;
     document.dispatchEvent({ type: 'keydown', key: 'ArrowRight', target: entry,
