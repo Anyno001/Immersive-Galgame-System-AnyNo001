@@ -3968,7 +3968,7 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     assert.equal(callbacks.size, 1);
     assert.equal(overlay.classList.contains('igs-record-screen-open'), true);
     let root = document.getElementById('igs-record-panel');
-    assert.match(root.innerHTML, /TA の 日记/);
+    assert.match(root.innerHTML, /珍藏心事/);
     assert.doesNotMatch(root.innerHTML, /恋爱日记表/);
     assert.match(root.innerHTML, /igs-record-bookshelf/);
     assert.equal(root.querySelector('.igs-record-diary-detail'), null);
@@ -3994,13 +3994,15 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     assert.equal(overlay.classList.contains('igs-record-screen-open'), true);
     const recordCss = getOriginalReaderStyleText();
     assert.match(recordCss, /#igs-record-panel\[data-record-category="diary"\] h2,[^}]*font-size:17px/);
+    assert.match(recordCss, /#igs-record-panel\[data-record-category="diary"\] h2,[^}]*position:absolute;left:50%;transform:translateX\(-50%\);/);
+    assert.match(recordCss, /#igs-record-panel header \.igs-record-back svg\{width:22px;height:22px;stroke-width:1.4;opacity:\.82;\}/);
     assert.match(recordCss, /#igs-record-panel\[data-record-category="diary"\] \.igs-record-body,[^}]*font-size:13px/);
     assert.match(recordCss, /\.igs-record-item-detail h3\{[^}]*font-size:17px/);
     assert.match(recordCss, /\.igs-record-slot-name\{[^}]*font-size:12px/);
     assert.match(recordCss, /\.igs-record-book span\{font-size:12px/);
     assert.match(recordCss, /#igs-record-panel\[data-record-category="diary"\] \.igs-record-book,#igs-record-panel\[data-record-category="inventory"\] \.igs-record-slots button\{border:0;\}/);
     assert.match(recordCss, /\.igs-record-slot-quantity\{position:absolute;right:7px;bottom:6px;/);
-    assert.match(root.innerHTML, /你的物品/);
+    assert.match(root.innerHTML, /你的背包/);
     assert.doesNotMatch(root.innerHTML, /随身物品/);
     assert.match(root.innerHTML, /钥匙/);
     assert.match(root.innerHTML, /未知物/);

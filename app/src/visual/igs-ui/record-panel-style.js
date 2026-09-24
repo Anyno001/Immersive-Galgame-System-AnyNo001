@@ -4,14 +4,14 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel{position:absolute;inset:0;z-index:11;display:flex;align-items:stretch;justify-content:stretch;padding:0;box-sizing:border-box;pointer-events:auto;background:rgba(8,10,14,.78);color:#e8e6e2;}
 #igs-record-panel .igs-record-window{width:100%;height:100%;max-height:none;min-height:0;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;background:transparent;border:0;border-radius:0;color:#e8e6e2;box-shadow:none;}
 #igs-record-panel header{position:relative;display:flex;justify-content:center;align-items:center;min-height:72px;padding:14px 72px;border-bottom:1px solid rgba(255,255,255,.18);}
-#igs-record-panel[data-record-category="diary"] h2,#igs-record-panel[data-record-category="inventory"] h2{font-size:17px;font-weight:600;letter-spacing:.04em;}
+#igs-record-panel[data-record-category="diary"] h2,#igs-record-panel[data-record-category="inventory"] h2{position:absolute;left:50%;transform:translateX(-50%);max-width:calc(100% - 116px);font-size:17px;font-weight:600;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 #igs-record-panel[data-record-category="diary"] .igs-record-bookshelf,#igs-record-panel[data-record-category="inventory"] .igs-record-slots{justify-content:center;}
 #igs-record-panel[data-record-category="diary"] .igs-record-book,#igs-record-panel[data-record-category="inventory"] .igs-record-slots button{border:0;}
 #igs-record-panel h2,#igs-record-panel h3{font-size:20px;margin:0;text-align:center;}
 #igs-record-panel[data-record-category="diary"] .igs-record-body,#igs-record-panel[data-record-category="diary"] .igs-record-fields,#igs-record-panel[data-record-category="inventory"] .igs-record-fields{font-size:13px;line-height:1.55;}
 #igs-record-panel button{color:inherit;cursor:pointer;}
 #igs-record-panel header .igs-record-back{position:absolute;left:16px;top:14px;display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;background:transparent;}
-#igs-record-panel header .igs-record-back svg{width:25px;height:25px;}
+#igs-record-panel header .igs-record-back svg{width:22px;height:22px;stroke-width:1.4;opacity:.82;}
 #igs-record-panel .igs-record-head-spacer{width:44px;height:44px;}
 #igs-record-panel .igs-record-tabs{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.1);}
 #igs-record-panel .igs-record-scroll{overflow:auto;min-height:0;padding:18px clamp(16px,4vw,56px) 36px;overscroll-behavior:contain;}

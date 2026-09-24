@@ -4,7 +4,7 @@ import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { RECORD_ICONS, inventoryIconKey } from './record-icons.js';
 
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系' });
-const pageTitles = Object.freeze({ diary: 'TA の 日记', inventory: '你的物品', relationships: '人际关系' });
+const pageTitles = Object.freeze({ diary: '珍藏心事', inventory: '你的背包', relationships: '人际关系' });
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const cellsHtml = cells => `<dl class="igs-record-fields">${cells.map(cell => `<div><dt>${escapeHtml(cell.label)}</dt><dd>${escapeHtml(cell.value)}</dd></div>`).join('')}</dl>`;
 
