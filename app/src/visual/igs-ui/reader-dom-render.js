@@ -748,7 +748,10 @@ export function applyStatusHudToDom(root, snapshot) {
             location.type = 'button';
             location.setAttribute('data-act', 'map');
             location.setAttribute('aria-label', `打开地点地图：${hud.location}`);
-            location.innerHTML = RECORD_ICONS.map;
+            const icon = doc.createElement('span');
+            icon.className = 'igs-hud-location-icon';
+            icon.innerHTML = RECORD_ICONS.map;
+            location.appendChild(icon);
         }
         const chip = doc.createElement('span');
         chip.className = 'igs-hud-location-label';

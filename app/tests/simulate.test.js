@@ -3880,7 +3880,9 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.match(css, /#igs-status-hud \.igs-hud-identity\{position:relative;z-index:1;pointer-events:none;/);
     assert.match(css, /#igs-status-hud \.igs-hud-toggle\{z-index:0;\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*width:32px;height:32px;[^}]*pointer-events:auto;/);
-    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:100%;[^}]*flex-direction:row;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*background:transparent;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-location-icon\{[^}]*width:calc\(16px \* var\(--igs-hud-scale,1\)\)/);
     assert.match(css, /#igs-status-hud\.igs-hud-suppressed \.igs-hud-entry-anchor\{[^}]*visibility:hidden;/);
     const before = vn.getState().igsUi.activeReader.index;
     let stopped = false;
@@ -4991,7 +4993,8 @@ test('gate:simulation:status-hud-location-occupies-identity-slot-without-charact
     assert.equal(host.querySelector('.igs-hud-location-label').textContent, '旧城');
     assert.equal(host.querySelector('.igs-hud-location').tagName, 'BUTTON');
     assert.equal(host.querySelector('.igs-hud-location').getAttribute('data-act'), 'map');
-    assert.equal(host.querySelector('.igs-hud-location-icon'), null);
+    assert.ok(host.querySelector('.igs-hud-location-icon'));
+    assert.match(host.querySelector('.igs-hud-location-icon').innerHTML, /<svg/);
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
 
     const styleText = getOriginalReaderStyleText();
@@ -5031,7 +5034,7 @@ test('gate:simulation:status-hud-location-details-render-on-narration', async ()
     assert.equal(content.statusHud.weather, '小雨');
     assert.equal(host.querySelector('.igs-hud-location-label').textContent, '小雨 · 深夜 の 旧城');
     assert.equal(host.querySelector('.igs-hud-location').getAttribute('data-act'), 'map');
-    assert.equal(host.querySelector('.igs-hud-location-icon'), null);
+    assert.ok(host.querySelector('.igs-hud-location-icon'));
 
     vn.destroy();
 });
