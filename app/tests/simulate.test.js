@@ -3863,7 +3863,7 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     }) });
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ statusHud: { enabled: true, showLocation: true, tables: [] } }));
     const vn = bootstrapIGS({ global: { document, localStorage: storage }, autoAttachMagicWand: false,
-        hostAdapter: { getCurrentMessage: async () => ({ id: 21, text: '<content>[igs-scene:我家|夜晚|晴天]\n[igs-char:Alice|平静|你好。]</content>' }),
+        hostAdapter: { getCurrentMessage: async () => ({ id: 21, text: '<content>[igs-char:Alice|平静|你好。]</content>' }),
             typeAndSend: async () => { throw Error('map must not send'); } } });
     const opened = await vn.openLatestAvailable('pc');
     const controller = opened.reader.controller;
@@ -3879,13 +3879,15 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.equal(toggle.getAttribute('data-act'), 'toggle-status-hud');
     assert.equal(hud.querySelector('.igs-map-avatar-entry'), null);
     assert.equal(hud.querySelectorAll('.igs-hud-metric').length, 0);
+    assert.equal(hud.classList.contains('igs-hud-character-emotion-only'), true);
     const css = getOriginalReaderStyleText();
     assert.match(css, /#igs-status-hud \.igs-hud-identity\{position:relative;z-index:1;pointer-events:none;/);
     assert.match(css, /#igs-status-hud \.igs-hud-toggle\{z-index:0;\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*width:32px;height:32px;[^}]*pointer-events:auto;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\[aria-expanded="true"\] svg\{[^}]*rotate\(-90deg\)/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*left:calc\(100% - 7px\);top:calc\(50% \+ 2\.5px\)/);
-    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:100%;[^}]*flex-direction:row;/);
+    assert.match(css, /#igs-status-hud\.igs-hud-character-emotion-only \.igs-hud-entry-arrow\{top:calc\(50% \+ 1\.5px\);\}/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:calc\(100% \+ 12px\);[^}]*flex-direction:row;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*background:transparent;/);
     assert.match(css, /#igs-status-hud \.igs-hud-location-icon\{[^}]*width:calc\(16px \* var\(--igs-hud-scale,1\)\)/);
     assert.match(css, /#igs-status-hud\.igs-hud-suppressed \.igs-hud-entry-anchor\{[^}]*visibility:hidden;/);
@@ -4895,6 +4897,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     const host = document.getElementById('igs-status-hud');
     assert.equal(host.hasAttribute('hidden'), false);
     assert.equal(host.classList.contains('igs-hud-bg-dialog'), true);
+    assert.equal(host.classList.contains('igs-hud-character-emotion-with-metrics'), true);
 
     const avatar = host.querySelector('.igs-hud-avatar');
     assert.ok(avatar, 'avatar node should exist');
@@ -4911,6 +4914,8 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     assert.equal(fills[0].style.backgroundImage, 'linear-gradient(90deg, rgba(255,255,255,.46), rgba(255,255,255,.86))');
     const overflow = host.querySelector('.igs-hud-overflow');
     assert.equal(overflow.textContent, '+1');
+    const metricsCss = getOriginalReaderStyleText();
+    assert.match(metricsCss, /#igs-status-hud\.igs-hud-character-emotion-with-metrics \.igs-hud-metrics\{[^}]*align-self:flex-start;height:calc\(46px \* var\(--igs-hud-scale,1\)\);/);
 
     const labels = Array.from(host.querySelectorAll('.igs-hud-metric-label')).map((node) => node.textContent);
     assert.deepEqual(labels, ['信任', '好感', '了解', '体力']);

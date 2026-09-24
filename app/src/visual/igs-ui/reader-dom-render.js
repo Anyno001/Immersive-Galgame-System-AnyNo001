@@ -710,6 +710,8 @@ export function applyStatusHudToDom(root, snapshot) {
     if (root.classList && root.classList.contains('igs-options-visible')) host.classList.add('igs-hud-suppressed');
     // 仅头像/情绪/地点、无 HUD 条时挂修饰类，anchor 恢复加菜单前的列式几何，情绪与头像间距回到旧值；有 HUD 条时保持现状。
     host.classList.toggle('igs-hud-no-metrics', !hasMetrics);
+    host.classList.toggle('igs-hud-character-emotion-only', Boolean(hud && hud.character && hasEmotion && !hasLocation && !hasMetrics));
+    host.classList.toggle('igs-hud-character-emotion-with-metrics', Boolean(hud && hud.character && hasEmotion && hasMetrics));
     const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     if (hudSettings && hudSettings.collapsed) host.classList.add('igs-hud-collapsed');
     while (host.firstChild) host.removeChild(host.firstChild);
