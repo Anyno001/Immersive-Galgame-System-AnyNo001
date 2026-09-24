@@ -2113,7 +2113,7 @@ export function createIgsReaderHost(options = {}) {
                 + checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
             typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '启用打字机演出'),
             typewriterControls: [
-                `<div class="igs-settings-row">${field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度'))}</div>`,
+                typewriter.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度'))}</div>` : '',
                 typewriter.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式'))}</div>` : '',
                 typewriter.enabled && typewriter.mode === 'classic' ? `<div class="igs-settings-row">${checkbox('readerSettings.typewriter.sound.enabled', typewriter.sound.enabled, '启用打字音效')}</div>` : '',
                 typewriter.enabled && typewriter.mode === 'classic' && typewriter.sound.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.sound.volume', '打字音效音量', rangeInput('readerSettings.typewriter.sound.volume', typewriter.sound.volume))}</div>` : '',

@@ -2133,8 +2133,8 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     const performanceView = settings.switchReaderSubTab('performance');
     assert.match(performanceView.snapshot.html, /data-reader-pane="performance"/);
     assert.match(performanceView.snapshot.html, /启用打字机演出/);
-    assert.match(performanceView.snapshot.html, /打字机速度/);
-    assert.match(performanceView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
+    assert.doesNotMatch(performanceView.snapshot.html, /打字机速度/);
+    assert.doesNotMatch(performanceView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
     assert.match(performanceView.snapshot.html, /启用人物过场滤镜（仅旁白）/);
     assert.match(performanceView.snapshot.html, /显示NSFW场景下的人物立绘/);
 
@@ -2157,6 +2157,8 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.deepEqual(savedTypewriter.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5 } });
 
     const enabledView = settings.switchReaderSubTab('performance');
+    assert.match(enabledView.snapshot.html, /打字机速度/);
+    assert.match(enabledView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
     assert.match(enabledView.snapshot.html, /演出方式/);
     assert.doesNotMatch(enabledView.snapshot.html, /启用打字音效|打字音效音量/);
 
