@@ -2152,37 +2152,38 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
 
     settings.setValue('readerSettings.typewriter.enabled', true);
     settings.setValue('readerSettings.typewriter.speed', 'slow');
-    assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5 } });
+    assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
     const savedTypewriter = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
-    assert.deepEqual(savedTypewriter.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5 } });
+    assert.deepEqual(savedTypewriter.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
 
     const enabledView = settings.switchReaderSubTab('performance');
     assert.match(enabledView.snapshot.html, /打字机速度/);
     assert.match(enabledView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
     assert.match(enabledView.snapshot.html, /演出方式/);
-    assert.doesNotMatch(enabledView.snapshot.html, /启用打字音效|打字音效音量/);
+    assert.doesNotMatch(enabledView.snapshot.html, /启用打字音效|台词音效音量|旁白音效音量/);
 
     settings.setValue('readerSettings.typewriter.mode', 'classic');
     const classicView = settings.switchReaderSubTab('performance');
     assert.match(classicView.snapshot.html, /启用打字音效/);
-    assert.match(classicView.snapshot.html, /打字音效音量/);
+    assert.match(classicView.snapshot.html, /台词音效音量/);
+    assert.match(classicView.snapshot.html, /旁白音效音量/);
     assert.match(classicView.snapshot.html, /type="range" min="0" max="1" step="0\.05"/);
     assert.match(classicView.snapshot.html, />50%</);
 
     settings.setValue('readerSettings.typewriter.sound.enabled', false);
     const mutedView = settings.switchReaderSubTab('performance');
     assert.match(mutedView.snapshot.html, /启用打字音效/);
-    assert.doesNotMatch(mutedView.snapshot.html, /打字音效音量/);
-    assert.deepEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound, { enabled: false, volume: 0.5 });
+    assert.doesNotMatch(mutedView.snapshot.html, /台词音效音量|旁白音效音量/);
+    assert.deepEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound, { enabled: false, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 });
 
     settings.setValue('readerSettings.typewriter.sound.enabled', true);
-    settings.setValue('readerSettings.typewriter.sound.volume', 0.35);
-    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound.volume, 0.35);
+    settings.setValue('readerSettings.typewriter.sound.dialogueVolume', 0.35);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound.dialogueVolume, 0.35);
 
     settings.setValue('readerSettings.typewriter.mode', 'soft');
     const softView = settings.switchReaderSubTab('performance');
-    assert.doesNotMatch(softView.snapshot.html, /启用打字音效|打字音效音量/);
-    assert.deepEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound, { enabled: true, volume: 0.35 });
+    assert.doesNotMatch(softView.snapshot.html, /启用打字音效|台词音效音量|旁白音效音量/);
+    assert.deepEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound, { enabled: true, volume: 0.5, dialogueVolume: 0.35, narrationVolume: 0.5 });
 
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
     const classicDialogView = settings.switchReaderSubTab('dialog');

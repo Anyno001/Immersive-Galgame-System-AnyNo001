@@ -195,8 +195,8 @@ const SCENE_ASSETS_TEMPLATE = `
 `.trim();
 
 export const SCENE_SETTINGS_SUBTAB_DEFS = Object.freeze([
-    ['rules', '规则'],
     ['assets', '素材'],
+    ['rules', '规则'],
 ]);
 
 export const READER_SUBTAB_DEFS = Object.freeze([
@@ -216,8 +216,8 @@ export const SETTINGS_TAB_DEFS = Object.freeze([
 ]);
 
 export function normalizeSceneSettingsSubTab(subTab) {
-    const normalized = String(subTab || 'rules').trim();
-    return SCENE_SETTINGS_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'rules';
+    const normalized = String(subTab || 'assets').trim();
+    return SCENE_SETTINGS_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'assets';
 }
 
 export function getSceneSettingsSubTabTemplate(subTab) {

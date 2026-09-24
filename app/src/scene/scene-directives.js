@@ -189,7 +189,43 @@ function resolveSceneKey(scenes, sceneName) {
         const words = entry && typeof entry === 'object' && Array.isArray(entry.words) ? entry.words : [];
         if (words.some((w) => String(w || '').trim() === target)) return key;
     }
-    return null;
+    // 按字模糊匹配兜底：候选词（场景名与别名）全部字都命中目标优先，
+    // 其次命中字数多者优先，再次候选字数多者优先；全不中返回 null。
+    let bestKey = null;
+    let bestScore = null;
+    for (const key of Object.keys(scenes)) {
+        const entry = scenes[key];
+        const words = entry && typeof entry === 'object' && Array.isArray(entry.words) ? entry.words : [];
+        for (const candidate of [key, ...words]) {
+            const score = scoreSceneFuzzyCandidate(target, candidate);
+            if (!score) continue;
+            if (!bestScore || compareSceneFuzzyScore(score, bestScore) > 0) {
+                bestScore = score;
+                bestKey = key;
+            }
+        }
+    }
+    return bestKey;
+}
+
+function scoreSceneFuzzyCandidate(target, candidate) {
+    const text = String(candidate || '').trim();
+    if (!text) return null;
+    const targetChars = new Set(Array.from(target));
+    const chars = Array.from(text);
+    let matched = 0;
+    for (const char of chars) {
+        if (targetChars.has(char)) matched += 1;
+    }
+    if (!matched) return null;
+    return [matched === chars.length ? 1 : 0, matched, chars.length];
+}
+
+function compareSceneFuzzyScore(a, b) {
+    for (let index = 0; index < a.length; index += 1) {
+        if (a[index] !== b[index]) return a[index] - b[index];
+    }
+    return 0;
 }
 
 // 时间/天气词库是全局组：[{label,words}]。先精确命中 record 的 key，

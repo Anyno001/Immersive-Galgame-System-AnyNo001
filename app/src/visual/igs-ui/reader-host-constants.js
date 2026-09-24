@@ -102,6 +102,8 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.typewriter.mode',
     'readerSettings.typewriter.sound.enabled',
     'readerSettings.typewriter.sound.volume',
+    'readerSettings.typewriter.sound.dialogueVolume',
+    'readerSettings.typewriter.sound.narrationVolume',
     'readerSettings.pinnedBtns',
     'readerSettings.hiddenBtns',
     'readerSettings.btnOrder',

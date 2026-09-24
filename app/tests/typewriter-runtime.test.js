@@ -51,13 +51,16 @@ function createAnimator() {
 }
 
 test('typewriter settings default to disabled medium and reject invalid speed', () => {
-    assert.deepEqual(normalizeTypewriterSettings(null), { enabled: false, speed: 'medium', mode: 'soft', sound: { enabled: true, volume: 0.5 } });
-    assert.deepEqual(normalizeTypewriterSettings({ enabled: true, speed: 'fast' }), { enabled: true, speed: 'fast', mode: 'soft', sound: { enabled: true, volume: 0.5 } });
-    assert.deepEqual(normalizeTypewriterSettings({ enabled: 'true', speed: 'instant' }), { enabled: false, speed: 'medium', mode: 'soft', sound: { enabled: true, volume: 0.5 } });
+    assert.deepEqual(normalizeTypewriterSettings(null), { enabled: false, speed: 'medium', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
+    assert.deepEqual(normalizeTypewriterSettings({ enabled: true, speed: 'fast' }), { enabled: true, speed: 'fast', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
+    assert.deepEqual(normalizeTypewriterSettings({ enabled: 'true', speed: 'instant' }), { enabled: false, speed: 'medium', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
     assert.deepEqual(normalizeTypewriterSettings({ enabled: true, mode: 'classic', sound: { enabled: false, volume: 0 } }),
-        { enabled: true, speed: 'medium', mode: 'classic', sound: { enabled: false, volume: 0 } });
+        { enabled: true, speed: 'medium', mode: 'classic', sound: { enabled: false, volume: 0, dialogueVolume: 0, narrationVolume: 0 } });
     assert.equal(normalizeTypewriterSettings({ sound: { volume: 4 } }).sound.volume, 1);
     assert.equal(normalizeTypewriterSettings({ sound: { volume: 'bad' } }).sound.volume, 0.5);
+    const splitVolumes = normalizeTypewriterSettings({ sound: { volume: 0.8, dialogueVolume: 0.2 } }).sound;
+    assert.equal(splitVolumes.dialogueVolume, 0.2);
+    assert.equal(splitVolumes.narrationVolume, 0.8);
 });
 
 test('typewriter uses one visual animation without mutating fully rendered nested text', () => {
@@ -237,11 +240,11 @@ test('classic measures rendered lines and Unicode graphemes once, then animates 
     assert.equal(applyTypewriterEffect(root, options).animated, false);
 });
 
-test('classic skips audio for thought, mute, reduced motion and unavailable geometry', () => {
+test('classic skips audio for mute, zero volume, reduced motion and unavailable geometry', () => {
     const scheduler = () => { throw new Error('unexpected audio'); };
     for (const variant of [
-        { textType: 'thought' }, { sound: { enabled: false, volume: 0.5 } },
-        { sound: { enabled: true, volume: 0 } }, { reducedMotion: true },
+        { sound: { enabled: false, volume: 0.5 } },
+        { sound: { enabled: true, volume: 0, narrationVolume: 0 } }, { reducedMotion: true },
     ]) {
         const { root } = classicRoot();
         const animator = createAnimator();

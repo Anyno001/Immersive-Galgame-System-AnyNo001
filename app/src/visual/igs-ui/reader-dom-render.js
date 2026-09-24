@@ -708,6 +708,8 @@ export function applyStatusHudToDom(root, snapshot) {
     // 背景只在有 HUD 条时出现：只有头像/情绪/地点栏时不加背景，即使背景开关开着。
     if (hud.background === 'dialog' && hasMetrics) host.classList.add('igs-hud-bg-dialog');
     if (root.classList && root.classList.contains('igs-options-visible')) host.classList.add('igs-hud-suppressed');
+    // 仅头像/情绪/地点、无 HUD 条时挂修饰类，anchor 恢复加菜单前的列式几何，情绪与头像间距回到旧值；有 HUD 条时保持现状。
+    host.classList.toggle('igs-hud-no-metrics', !hasMetrics);
     const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     if (hudSettings && hudSettings.collapsed) host.classList.add('igs-hud-collapsed');
     while (host.firstChild) host.removeChild(host.firstChild);

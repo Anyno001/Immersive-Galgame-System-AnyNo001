@@ -1,6 +1,7 @@
 // Replaced by the build with the two validated OGG payloads.
 const SOURCES = Object.freeze({
     dialogue: '__IGS_TYPEWRITER_AUDIO__dududu.ogg__',
+    thought: '__IGS_TYPEWRITER_AUDIO__dududu.ogg__',
     narration: '__IGS_TYPEWRITER_AUDIO__keyboard.ogg__',
 });
 let audioContext = null;

@@ -11,7 +11,7 @@ export const TYPEWRITER_DEFAULTS = Object.freeze({
     enabled: false,
     speed: 'medium',
     mode: 'soft',
-    sound: Object.freeze({ enabled: true, volume: 0.5 }),
+    sound: Object.freeze({ enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 }),
 });
 
 const activeJobs = new WeakMap();
@@ -62,17 +62,24 @@ function setRunningState(target, running) {
 export function normalizeTypewriterSettings(value) {
     const source = value && typeof value === 'object' ? value : {};
     const sound = source.sound && typeof source.sound === 'object' ? source.sound : {};
-    const volume = sound.volume === undefined || sound.volume === null || sound.volume === ''
-        ? TYPEWRITER_DEFAULTS.sound.volume : Number(sound.volume);
+    const legacyVolume = clampVolume(sound.volume, TYPEWRITER_DEFAULTS.sound.volume);
     return {
         enabled: source.enabled === true,
         speed: TYPEWRITER_SPEED_IDS.includes(source.speed) ? source.speed : TYPEWRITER_DEFAULTS.speed,
         mode: source.mode === 'classic' ? 'classic' : 'soft',
         sound: {
             enabled: sound.enabled === undefined ? true : sound.enabled === true,
-            volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : TYPEWRITER_DEFAULTS.sound.volume,
+            volume: legacyVolume,
+            dialogueVolume: clampVolume(sound.dialogueVolume, legacyVolume),
+            narrationVolume: clampVolume(sound.narrationVolume, legacyVolume),
         },
     };
+}
+
+function clampVolume(value, fallback) {
+    if (value === undefined || value === null || value === '') return fallback;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : fallback;
 }
 
 export function cancelTypewriter(target, { finish = true } = {}) {
@@ -118,6 +125,9 @@ export function applyTypewriterEffect(target, options = {}) {
     if (!target) return { animated: false, finish() {} };
     const settings = normalizeTypewriterSettings(options);
     const key = String(options.key || '');
+    const jobVolume = options.textType === 'dialogue' || options.textType === 'thought'
+        ? settings.sound.dialogueVolume
+        : settings.sound.narrationVolume;
     const reducedMotion = options.reducedMotion === true
         || (options.reducedMotion !== false
             && typeof globalThis.matchMedia === 'function'
@@ -131,7 +141,7 @@ export function applyTypewriterEffect(target, options = {}) {
     if (activeJob && key && activeJob.key === key) {
         const sameSettings = activeJob.mode === settings.mode
             && activeJob.soundEnabled === settings.sound.enabled
-            && activeJob.volume === settings.sound.volume;
+            && activeJob.volume === jobVolume;
         if (!sameSettings) {
             cancelTypewriter(target, { finish: true });
             return { animated: false, finish() {} };
@@ -167,12 +177,12 @@ export function applyTypewriterEffect(target, options = {}) {
     }
     if (key) renderedKeys.set(target, key);
 
-    const job = { animation, key, mode: settings.mode, soundEnabled: settings.sound.enabled, volume: settings.sound.volume, audio: null };
+    const job = { animation, key, mode: settings.mode, soundEnabled: settings.sound.enabled, volume: jobVolume, audio: null };
     activeJobs.set(target, job);
     setRunningState(target, true);
-    if (classic && settings.sound.enabled && settings.sound.volume > 0) {
+    if (classic && settings.sound.enabled && jobVolume > 0) {
         job.audio = scheduleTypewriterAudio(classic.events, {
-            textType: options.textType, volume: settings.sound.volume, audioScheduler: options.audioScheduler,
+            textType: options.textType, volume: jobVolume, audioScheduler: options.audioScheduler,
         });
     }
     const settle = () => settleVisualJob(target, job);

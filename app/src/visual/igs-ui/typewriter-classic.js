@@ -23,11 +23,11 @@ function* textNodes(root) {
 const percent = (part, total) => `${Math.max(0, Math.min(100, part / total * 100)).toFixed(4)}%`;
 
 function mask(rect, bounds, isFirst) {
-    if (!rect) return 'polygon(0 0, 0 0, 0 0)';
-    const top = percent(rect.top - bounds.top, bounds.height);
+    // 统一 6 顶点同构多边形：配合 steps(1, end)，避免相邻帧顶点数不一致时的离散跳变与插值形变。
+    if (!rect) return 'polygon(0 0, 0 0, 0 0, 0 0, 0 0, 0 0)';
+    const top = isFirst ? '0%' : percent(rect.top - bounds.top, bounds.height);
     const bottom = percent(rect.bottom - bounds.top, bounds.height);
     const right = percent(rect.right - bounds.left, bounds.width);
-    if (isFirst) return `polygon(0 0, ${right} 0, ${right} ${bottom}, 0 ${bottom})`;
     return `polygon(0 0, 100% 0, 100% ${top}, ${right} ${top}, ${right} ${bottom}, 0 ${bottom})`;
 }
 

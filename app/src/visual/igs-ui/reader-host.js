@@ -2116,7 +2116,10 @@ export function createIgsReaderHost(options = {}) {
                 typewriter.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度'))}</div>` : '',
                 typewriter.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式'))}</div>` : '',
                 typewriter.enabled && typewriter.mode === 'classic' ? `<div class="igs-settings-row">${checkbox('readerSettings.typewriter.sound.enabled', typewriter.sound.enabled, '启用打字音效')}</div>` : '',
-                typewriter.enabled && typewriter.mode === 'classic' && typewriter.sound.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.sound.volume', '打字音效音量', rangeInput('readerSettings.typewriter.sound.volume', typewriter.sound.volume))}</div>` : '',
+                typewriter.enabled && typewriter.mode === 'classic' && typewriter.sound.enabled
+                    ? `<div class="igs-settings-row">${field('readerSettings.typewriter.sound.dialogueVolume', '台词音效音量（嘟嘟嘟）', rangeInput('readerSettings.typewriter.sound.dialogueVolume', typewriter.sound.dialogueVolume ?? typewriter.sound.volume ?? 0.5))}</div>`
+                        + `<div class="igs-settings-row">${field('readerSettings.typewriter.sound.narrationVolume', '旁白音效音量（键盘）', rangeInput('readerSettings.typewriter.sound.narrationVolume', typewriter.sound.narrationVolume ?? typewriter.sound.volume ?? 0.5))}</div>`
+                    : '',
             ].join(''),
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '启用震动演出'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
@@ -2526,7 +2529,7 @@ export function createIgsReaderHost(options = {}) {
                 return;
             }
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
-            if (event.target && event.target.type === 'range' && path !== 'readerSettings.typewriter.sound.volume') return;
+            if (event.target && event.target.type === 'range' && !/^readerSettings\.typewriter\.sound\./.test(path || '')) return;
             if (!path) return;
             controller.setValue(path, event.target.value);
         });

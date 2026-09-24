@@ -25,7 +25,7 @@ export function normalizeSettingsValue(path, value) {
     if (path.startsWith('readerSettings.')) {
         if (value === null || value === 'null') return null;
         if (path === 'readerSettings.typewriter.mode') return value === 'classic' ? 'classic' : 'soft';
-        if (path === 'readerSettings.typewriter.sound.volume') {
+        if (/^readerSettings\.typewriter\.sound\.(volume|dialogueVolume|narrationVolume)$/.test(path)) {
             const volume = Number(value);
             return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.5;
         }
