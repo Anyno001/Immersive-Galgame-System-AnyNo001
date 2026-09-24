@@ -801,7 +801,7 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(visualTemplate, /imgBrightnessField/);
     assert.doesNotMatch(visualTemplate, /dialogWidthField|typewriterToggle|statusHudSection/);
     assert.match(performanceTemplate, /typewriterToggle/);
-    assert.match(performanceTemplate, /typewriterSpeedField/);
+    assert.match(performanceTemplate, /typewriterControls/);
     assert.match(performanceTemplate, /stageShakeToggle/);
     assert.match(performanceTemplate, /stageShakeSettings/);
     assert.match(performanceTemplate, /performanceToggles/);

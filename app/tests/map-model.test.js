@@ -67,3 +67,62 @@ test('scene highlighting requires exactly one location match across map tables',
   assert.equal(locateMapScene(model, '不存在').location, null);
   assert.equal(locateMapScene(model, '').ambiguous, false);
 });
+
+
+import { selectRecordTables } from '../src/data/shujuku/record-tables.js';
+import { buildRecordModel } from '../src/data/shujuku/record-model.js';
+
+test('record selection uses name substrings, retains multiple sources and distinguishes errors', () => {
+  const data = {
+    a: { uid: 'sheet_a', name: '恋爱日记表', content: [['标题', '正文'], ['春日', '第一天']] },
+    b: { uid: 'sheet_b', name: '旧日记', content: [['标题'], ['再见']] },
+    c: { uid: 'sheet_c', name: '城镇地点', content: [['名称'], ['大街']] },
+    d: { uid: 'sheet_d', name: '商会势力', content: [['名称'], ['商会']] },
+    e: { uid: 'sheet_e', name: '随身物品', content: [['物品名称'], ['钥匙']] },
+    other: { uid: 'sheet_other', name: '人物', content: [['名称'], ['无关']] },
+  };
+  const read = { ok: true, data };
+  assert.deepEqual(selectRecordTables(read, 'diary').tables.map(item => item.uid), ['sheet_a', 'sheet_b']);
+  assert.deepEqual(selectRecordTables(read, 'map').tables.map(item => item.uid), ['sheet_c']);
+  assert.deepEqual(selectRecordTables(read, 'relationships').tables.map(item => item.uid), ['sheet_d']);
+  assert.deepEqual(selectRecordTables(read, 'inventory').tables.map(item => item.uid), ['sheet_e']);
+  assert.equal(selectRecordTables(read, 'invalid').status, 'invalid-category');
+  assert.equal(selectRecordTables({ ok: false, reason: 'offline' }, 'diary').status, 'read-error');
+  assert.equal(selectRecordTables({ ok: true, data: {} }, 'diary').status, 'no-tables');
+  assert.equal(selectRecordTables({ ok: true, data: { a: { ...data.a, content: [['标题']] } } }, 'diary').status, 'empty');
+  const diary = buildRecordModel(read, 'diary');
+  assert.deepEqual(diary.entries.map(entry => entry.title), ['春日', '再见']);
+  assert.equal(diary.entries[0].body, '第一天');
+  assert.equal(diary.entries[0].date, '');
+  assert.equal(diary.entries[0].source, '恋爱日记表');
+  assert.equal(buildRecordModel(read, 'inventory').entries[0].title, '钥匙');
+  assert.equal(buildRecordModel({ ok: true, data: { a: { ...data.a, content: [['标题'], ['']] } } }, 'diary').status, 'empty');
+});
+
+test('record model keeps independent sheet identities, diagnoses missing fields and only sorts valid dates', () => {
+  const read = { ok: true, data: {
+    a: { uid: 'sheet_a', name: '旅行日记', content: [['标题', '日期', '正文'], ['晚', '2024-03-02', '<script>text</script>'], ['早', '2024-03-01', '第一天']] },
+    b: { uid: 'sheet_b', name: '旧日记', content: [['随笔'], ['无日期']] },
+    c: { uid: 'sheet_c', name: '随身物品', content: [['不明字段'], ['钥匙']] },
+    d: { uid: 'sheet_d', name: '空关系', content: [] },
+  } };
+  const diary = buildRecordModel(read, 'diary');
+  assert.deepEqual(diary.entries.map(entry => entry.title), ['早', '晚', '无日期']);
+  assert.notEqual(diary.entries[0].id, diary.entries[2].id);
+  assert.equal(diary.entries[1].body, '<script>text</script>');
+  assert.ok(diary.tables[1].diagnostics.some(item => item.includes('字段不足')));
+  const inventory = buildRecordModel(read, 'inventory');
+  assert.equal(inventory.status, 'insufficient-fields');
+  assert.equal(inventory.entries[0].title, '钥匙');
+  assert.ok(inventory.tables[0].diagnostics.some(item => item.includes('字段不足')));
+  assert.equal(buildRecordModel(read, 'relationships').status, 'empty');
+  assert.equal(buildRecordModel({ ok: false, reason: 'offline' }, 'diary').status, 'read-error');
+});
+
+test('place sheets without coordinate schema remain readable as list, never invented pins', () => {
+  const result = buildMapModel([table('sheet_place', '城镇地点', [['', '广场']], ['序号', '名称'])]);
+  assert.equal(result.status, 'ready');
+  assert.ok(result.tables[0].missingColumns.includes('x'));
+  assert.equal(result.tables[0].locations[0].name, '广场');
+  assert.equal(result.tables[0].locations[0].x, null);
+});

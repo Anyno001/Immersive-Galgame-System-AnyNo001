@@ -41,6 +41,11 @@ export function numberInput(path, value, min, max, disabled) {
     return `<input data-path="${esc(path)}" type="number" min="${esc(min)}" max="${esc(max)}" value="${esc(value)}"${disabledAttr(disabled)}>`;
 }
 
+export function rangeInput(path, value) {
+    const percent = Math.round(Number(value) * 100);
+    return `<span class="igs-settings-range"><input data-path="${esc(path)}" type="range" min="0" max="1" step="0.05" value="${esc(value)}" aria-label="打字音效音量"><output data-range-value="${esc(path)}">${esc(percent)}%</output></span>`;
+}
+
 export function checkbox(path, value, label) {
     return `<button type="button" class="igs-switch${value ? ' is-on' : ''}" data-switch="${esc(path)}" aria-pressed="${value ? 'true' : 'false'}"><i></i><span>${esc(label)}</span></button>`;
 }

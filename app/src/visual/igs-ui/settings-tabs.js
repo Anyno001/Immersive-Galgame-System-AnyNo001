@@ -122,7 +122,7 @@ const READER_VISUAL_TEMPLATE = `
 
 const READER_PERFORMANCE_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="performance">
-  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">文字演出</div><div class="igs-settings-row">{{typewriterToggle}}</div><div class="igs-settings-row">{{typewriterSpeedField}}</div></div>
+  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">文字演出</div><div class="igs-settings-row">{{typewriterToggle}}</div>{{typewriterControls}}</div>
   <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">震动演出</div><div class="igs-settings-row">{{stageShakeToggle}}</div>{{stageShakeSettings}}</div>
   <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">场景演出</div><div class="igs-settings-section">{{performanceToggles}}</div>{{nsfwVeilLevelField}}</div>
 </div>

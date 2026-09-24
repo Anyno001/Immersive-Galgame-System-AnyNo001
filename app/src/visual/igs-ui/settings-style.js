@@ -53,6 +53,8 @@ const SETTINGS_STYLE_TEXT = `
 .igs-table-pick.is-on>i{border-color:var(--igs-settings-paper);background:var(--igs-settings-paper)}
 .igs-table-pick.is-missing{opacity:.66}
 .igs-settings-field input,.igs-settings-field select,.igs-settings-field textarea{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid transparent;background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:8px 10px;font:inherit;font-size:13px;line-height:1.5;outline:none;transition:background-color .14s ease,border-color .14s ease}
+.igs-settings-range{display:flex;align-items:center;gap:10px;min-width:0;width:100%}
+.igs-settings-field .igs-settings-range input[type="range"]{min-width:0;flex:1;height:36px;padding:0 8px;cursor:pointer;accent-color:var(--igs-settings-accent)}.igs-settings-range output{flex:none;min-width:3.5em;text-align:right;color:var(--igs-settings-ink-2);font-size:12px}
 .igs-settings-field option{background:var(--igs-settings-panel);color:var(--igs-settings-ink)}
 .igs-settings-field input[type="color"]{width:42px;height:36px;padding:3px;border-radius:var(--igs-settings-radius-small);cursor:pointer}
 .igs-settings-field input[type="color"]::-webkit-color-swatch-wrapper{padding:0}

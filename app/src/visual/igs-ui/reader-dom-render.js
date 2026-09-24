@@ -1,3 +1,4 @@
+import { RECORD_ICONS } from './record-icons.js';
 import {
     ORIGINAL_READER_ICONS,
     ORIGINAL_READER_TOOLBAR_BUTTONS,
@@ -730,26 +731,25 @@ export function applyStatusHudToDom(root, snapshot) {
             placeholder.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
             avatarFrame.appendChild(placeholder);
         }
-        const entry = doc.createElement('button');
-        entry.className = 'igs-map-avatar-entry';
-        entry.type = 'button';
-        entry.setAttribute('data-act', 'map');
-        const currentLocation = String(snapshot.content.sceneLocation || '').trim();
-        entry.setAttribute('aria-label', currentLocation ? `打开地点地图：${currentLocation}` : '打开地点地图');
-        entry.setAttribute('title', currentLocation || '地点地图');
-        avatarFrame.appendChild(entry);
         identity.appendChild(avatarFrame);
     }
-    if (hasEmotion) {
+    const entryAnchor = doc.createElement('div');
+    entryAnchor.className = 'igs-hud-entry-anchor';
+    if (hud.character && hasEmotion) {
         const chip = doc.createElement('span');
         chip.className = 'igs-hud-emotion';
         chip.textContent = hud.emotion;
-        identity.appendChild(chip);
+        entryAnchor.appendChild(chip);
     }
     if (hasLocation) {
         const location = doc.createElement(hud.character ? 'div' : 'button');
         location.className = 'igs-hud-location';
-        if (!hud.character) { location.type = 'button'; location.setAttribute('data-act', 'map'); location.setAttribute('aria-label', '打开地点地图'); }
+        if (!hud.character) {
+            location.type = 'button';
+            location.setAttribute('data-act', 'map');
+            location.setAttribute('aria-label', `打开地点地图：${hud.location}`);
+            location.innerHTML = RECORD_ICONS.map;
+        }
         const chip = doc.createElement('span');
         chip.className = 'igs-hud-location-label';
         const context = [hud.weather, hud.time].filter(Boolean).join(' · ');
@@ -757,8 +757,37 @@ export function applyStatusHudToDom(root, snapshot) {
             ? `${context} の ${hud.location}`
             : hud.location;
         location.appendChild(chip);
-        identity.appendChild(location);
+        entryAnchor.appendChild(location);
     }
+    const arrow = doc.createElement('button');
+    arrow.className = 'igs-hud-entry-arrow';
+    arrow.type = 'button';
+    arrow.setAttribute('data-act', 'toggle-record-menu');
+    arrow.setAttribute('aria-label', '打开资料菜单');
+    arrow.setAttribute('aria-haspopup', 'true');
+    arrow.setAttribute('aria-expanded', 'false');
+    arrow.setAttribute('aria-controls', 'igs-hud-record-menu');
+    arrow.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 10 5 5 5-5"/></svg>';
+    entryAnchor.appendChild(arrow);
+    const menu = doc.createElement('div');
+    menu.id = 'igs-hud-record-menu';
+    menu.className = 'igs-hud-entry-menu';
+    menu.setAttribute('aria-label', '资料入口');
+    menu.setAttribute('hidden', '');
+    const items = hud.character ? ['map', 'diary', 'inventory', 'relationships'] : ['diary', 'inventory', 'relationships'];
+    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系' })[name]])) {
+        const button = doc.createElement('button');
+        button.type = 'button';
+        button.className = 'igs-hud-entry-item';
+        button.setAttribute('data-act', category);
+        button.innerHTML = RECORD_ICONS[category];
+        const text = doc.createElement('span');
+        text.textContent = label;
+        button.appendChild(text);
+        menu.appendChild(button);
+    }
+    entryAnchor.appendChild(menu);
+    identity.appendChild(entryAnchor);
     host.appendChild(identity);
 
     const metrics = doc.createElement('div');
@@ -996,6 +1025,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         applyTypewriterEffect(textEl, {
             enabled: typewriterSettings.enabled === true,
             speed: typewriterSettings.speed,
+            mode: typewriterSettings.mode,
+            sound: typewriterSettings.sound,
+            textType,
             key: textRenderKey,
         });
     }

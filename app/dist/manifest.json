@@ -1,6 +1,6 @@
 {
   "name": "Immersive Galgame System",
-  "version": "0.24.16",
+  "version": "0.25.0",
   "entry": "igs.bundle.js",
   "style": "igs.bundle.css"
 }

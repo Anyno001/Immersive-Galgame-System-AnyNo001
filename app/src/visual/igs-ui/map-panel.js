@@ -137,7 +137,7 @@ export function createMapPanelController(doc, global, fillDraft) {
             `<button type="button" data-map-act="select" data-map-id="${escapeHtml(loc.id)}" aria-label="查看${escapeHtml(loc.name || '未命名地点')}" ${loc.id === selectedId ? 'aria-current="location"' : ''}>${pointer}</button><span>${escapeHtml(loc.name || '未命名地点')}</span></div>`).join('');
         const diagnostics = table ? [...table.diagnostics, ...table.locations.flatMap(loc => loc.issues.map(issue => `${loc.name || `第${loc.rowIndex + 1}行`}: ${issue}`))] : [];
         const notice = model.status === 'read-error' ? `地图读取失败：${model.reason}` :
-            model.status === 'no-tables' ? '未找到名称含“地图”的表' : '';
+            model.status === 'no-tables' ? '未找到名称含“地图”或“地点”的表' : '';
         const card = place ? `<section class="igs-map-card"><h3>${escapeHtml(place.name || '未命名地点')}</h3>` +
             `<p>${escapeHtml(place.description || '暂无地点说明')}</p><p>角色：${escapeHtml(place.characters.join('、') || '暂无角色信息')}</p>` +
             (getMapChildren(table, place.id).length ? `<button type="button" data-map-act="enter" data-map-id="${escapeHtml(place.id)}">查看子地点</button>` : '') +

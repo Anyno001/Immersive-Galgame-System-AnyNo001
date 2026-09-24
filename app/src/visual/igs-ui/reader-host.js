@@ -65,6 +65,7 @@ import {
     renderScenePresetBar,
     renderStageShakeSettings,
     renderTemplate,
+    rangeInput,
     secretInput,
     segmentedInput,
     selectInput,
@@ -125,6 +126,7 @@ import { clearReaderModeRuntime, exitDocumentFullscreen } from './reader-runtime
 import { enterSpriteEditMode } from './sprite-edit.js';
 import { createDbPanelController } from '../../shujuku-panel/panel-controller.js';
 import { createMapPanelController } from './map-panel.js';
+import { createRecordPanelController } from './record-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildStatusHudModel, listStatusHudTables, normalizeStatusAvatars, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
@@ -1062,15 +1064,35 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'close') {
             return state.activeReader.controller.close();
         }
-        if (normalizedAction === 'map') {
+        if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships'].includes(normalizedAction)) {
             const current = state.activeReader;
             const hud = current.snapshot?.content?.statusHud;
             const settings = current.snapshot?.readerSettings;
             const overlay = current.dom?.overlay;
+            const host = overlay?.querySelector?.('#igs-status-hud');
+            const arrow = host?.querySelector?.('.igs-hud-entry-arrow');
+            const menu = host?.querySelector?.('#igs-hud-record-menu');
             if (!hud?.enabled || (!hud.character && !hud.location) || settings?.statusHud?.collapsed || !current.toolbarCollapsed
-                || overlay?.classList?.contains('igs-options-visible') || !current.dom?.mapController)
-                return { ok: false, reason: 'map-entry-not-visible' };
-            return current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation);
+                || overlay?.classList?.contains('igs-options-visible') || !host || !menu || host.classList?.contains('igs-hud-collapsed'))
+                return { ok: false, reason: 'record-entry-not-visible' };
+            if (normalizedAction === 'toggle-record-menu') {
+                if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen()) return { ok: false, reason: 'panel-open' };
+                const expanded = menu.hasAttribute('hidden');
+                if (expanded) menu.removeAttribute('hidden');
+                else menu.setAttribute('hidden', '');
+                arrow?.setAttribute('aria-expanded', String(expanded));
+                return { ok: true, expanded };
+            }
+            if (normalizedAction === 'map' && !hud.character && !hud.location) return { ok: false, reason: 'record-entry-not-visible' };
+            if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen()) return { ok: false, reason: 'panel-open' };
+            if (!menu.hasAttribute('hidden')) {
+                menu.setAttribute('hidden', '');
+                arrow?.setAttribute('aria-expanded', 'false');
+                arrow?.focus?.();
+            }
+            return normalizedAction === 'map'
+                ? current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation)
+                : current.dom.recordController.open(overlay, settings, normalizedAction);
         }
         if (normalizedAction === 'toggle-status-hud') {
             return state.activeReader.controller.toggleStatusHud();
@@ -2090,7 +2112,12 @@ export function createIgsReaderHost(options = {}) {
             dialogToggles: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜')
                 + checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
             typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '启用打字机演出'),
-            typewriterSpeedField: field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度')),
+            typewriterControls: [
+                `<div class="igs-settings-row">${field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度'))}</div>`,
+                typewriter.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式'))}</div>` : '',
+                typewriter.enabled && typewriter.mode === 'classic' ? `<div class="igs-settings-row">${checkbox('readerSettings.typewriter.sound.enabled', typewriter.sound.enabled, '启用打字音效')}</div>` : '',
+                typewriter.enabled && typewriter.mode === 'classic' && typewriter.sound.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.sound.volume', '打字音效音量', rangeInput('readerSettings.typewriter.sound.volume', typewriter.sound.volume))}</div>` : '',
+            ].join(''),
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '启用震动演出'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
@@ -2221,7 +2248,14 @@ export function createIgsReaderHost(options = {}) {
         }
         installToolbarDragScroll(root, doc);
         root.addEventListener('click', async (event) => {
-            const button = event.target.closest('[data-act]');
+            const button = event.target?.closest?.('[data-act]');
+            const hud = state.activeReader?.dom?.overlay?.querySelector?.('#igs-status-hud');
+            const menu = hud?.querySelector?.('#igs-hud-record-menu');
+            if (menu && !menu.hasAttribute('hidden') && button?.getAttribute('data-act') !== 'toggle-record-menu'
+                && !menu.contains(event.target)) {
+                menu.setAttribute('hidden', '');
+                hud.querySelector?.('.igs-hud-entry-arrow')?.setAttribute('aria-expanded', 'false');
+            }
             if (!button) return;
             event.preventDefault();
             event.stopPropagation();
@@ -2243,13 +2277,25 @@ export function createIgsReaderHost(options = {}) {
         const keydownHandler = (event) => {
             if (!state.activeReader) return;
             const mapPanel = state.activeReader.dom?.mapController;
-            if (mapPanel?.isOpen()) {
-                if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation?.(); mapPanel.close(); }
-                else if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.stopPropagation?.();
+            const recordPanel = state.activeReader.dom?.recordController;
+            if (mapPanel?.isOpen() || recordPanel?.isOpen()) {
+                if (event.key === 'Escape') {
+                    event.preventDefault(); event.stopPropagation?.();
+                    if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
+                } else if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.stopPropagation?.();
                 return;
             }
-            // A focused HUD button owns Space/Enter; neither key is a page turn.
-            if (event.key !== 'Escape' && event.target?.closest?.('button, [role="button"]')) return;
+            const host = state.activeReader.dom?.overlay?.querySelector?.('#igs-status-hud');
+            const menu = host?.querySelector?.('#igs-hud-record-menu');
+            if (event.key === 'Escape' && menu && !menu.hasAttribute('hidden')) {
+                event.preventDefault(); event.stopPropagation?.();
+                menu.setAttribute('hidden', '');
+                const arrow = host.querySelector?.('.igs-hud-entry-arrow');
+                arrow?.setAttribute('aria-expanded', 'false'); arrow?.focus?.();
+                return;
+            }
+            // Focused controls own their keyboard input; sliders must not turn pages.
+            if (event.key !== 'Escape' && event.target?.closest?.('button, input, select, textarea, [role="button"], [role="slider"]')) return;
             const input = state.activeReader.dom && state.activeReader.dom.input;
             if (doc.activeElement === input && event.key !== 'Escape') return;
             if (event.key === 'Escape') {
@@ -2276,6 +2322,7 @@ export function createIgsReaderHost(options = {}) {
             doc.addEventListener('keydown', keydownHandler, true);
         }
         const dbController = createDbPanelController(doc, options.global);
+        const recordController = createRecordPanelController(doc, options.global);
         const mapController = createMapPanelController(doc, options.global, async text => {
             const current = state.activeReader;
             if (!current) return { ok: false, reason: 'reader-not-open' };
@@ -2297,12 +2344,14 @@ export function createIgsReaderHost(options = {}) {
             doc,
             dbController,
             mapController,
+            recordController,
             embeddedMount,
             dispose() {
                 if (typeof doc.removeEventListener === 'function') {
                     doc.removeEventListener('keydown', keydownHandler, true);
                 }
                 mapController.close();
+                recordController.close();
                 dbController.close();
                 teardownEmbeddedMount(domState.embeddedMount);
                 domState.embeddedMount = null;
@@ -2434,6 +2483,11 @@ export function createIgsReaderHost(options = {}) {
                 if (status) status.textContent = state.activeSettings.asyncState.promptRuleStatus;
                 return;
             }
+            if (target.type === 'range' && target.getAttribute('data-path') === 'readerSettings.typewriter.sound.volume') {
+                const label = root.querySelector('[data-range-value="readerSettings.typewriter.sound.volume"]');
+                if (label) label.textContent = `${Math.round(Number(target.value) * 100)}%`;
+                return;
+            }
             if (target.type === 'color') return;
             const path = target.getAttribute('data-path');
             if (path) {
@@ -2479,6 +2533,7 @@ export function createIgsReaderHost(options = {}) {
                 return;
             }
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
+            if (event.target && event.target.type === 'range' && path !== 'readerSettings.typewriter.sound.volume') return;
             if (!path) return;
             controller.setValue(path, event.target.value);
         });

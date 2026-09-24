@@ -11,6 +11,7 @@ import { createImageResourceCache, createResourceCache } from '../src/media/reso
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { createMapPanelController } from '../src/visual/igs-ui/map-panel.js';
+import { createRecordPanelController } from '../src/visual/igs-ui/record-panel.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import { LEGACY_DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
 import { applyTypewriterEffect } from '../src/visual/igs-ui/typewriter-runtime.js';
@@ -2151,9 +2152,35 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
 
     settings.setValue('readerSettings.typewriter.enabled', true);
     settings.setValue('readerSettings.typewriter.speed', 'slow');
-    assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter, { enabled: true, speed: 'slow' });
+    assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5 } });
     const savedTypewriter = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
-    assert.deepEqual(savedTypewriter.typewriter, { enabled: true, speed: 'slow' });
+    assert.deepEqual(savedTypewriter.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5 } });
+
+    const enabledView = settings.switchReaderSubTab('performance');
+    assert.match(enabledView.snapshot.html, /演出方式/);
+    assert.doesNotMatch(enabledView.snapshot.html, /启用打字音效|打字音效音量/);
+
+    settings.setValue('readerSettings.typewriter.mode', 'classic');
+    const classicView = settings.switchReaderSubTab('performance');
+    assert.match(classicView.snapshot.html, /启用打字音效/);
+    assert.match(classicView.snapshot.html, /打字音效音量/);
+    assert.match(classicView.snapshot.html, /type="range" min="0" max="1" step="0\.05"/);
+    assert.match(classicView.snapshot.html, />50%</);
+
+    settings.setValue('readerSettings.typewriter.sound.enabled', false);
+    const mutedView = settings.switchReaderSubTab('performance');
+    assert.match(mutedView.snapshot.html, /启用打字音效/);
+    assert.doesNotMatch(mutedView.snapshot.html, /打字音效音量/);
+    assert.deepEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound, { enabled: false, volume: 0.5 });
+
+    settings.setValue('readerSettings.typewriter.sound.enabled', true);
+    settings.setValue('readerSettings.typewriter.sound.volume', 0.35);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound.volume, 0.35);
+
+    settings.setValue('readerSettings.typewriter.mode', 'soft');
+    const softView = settings.switchReaderSubTab('performance');
+    assert.doesNotMatch(softView.snapshot.html, /启用打字音效|打字音效音量/);
+    assert.deepEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound, { enabled: true, volume: 0.35 });
 
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
     const classicDialogView = settings.switchReaderSubTab('dialog');
@@ -3817,15 +3844,15 @@ test('gate:simulation:map-hud-entry-does-not-open-while-collapsed-and-only-fills
     assert.equal(document.getElementById('igs-map-panel'), null);
     const again = await vn.openLatestAvailable('pc');
     document.getElementById('igs-overlay').classList.add('igs-options-visible');
-    assert.equal((await again.reader.controller.invokeAction('map')).reason, 'map-entry-not-visible');
+    assert.equal((await again.reader.controller.invokeAction('map')).reason, 'record-entry-not-visible');
     document.getElementById('igs-overlay').classList.remove('igs-options-visible');
     await again.reader.controller.invokeAction('toggle-status-hud');
     assert.equal(document.getElementById('igs-status-hud').classList.contains('igs-hud-collapsed'), true);
-    assert.equal((await again.reader.controller.invokeAction('map')).reason, 'map-entry-not-visible');
+    assert.equal((await again.reader.controller.invokeAction('map')).reason, 'record-entry-not-visible');
     vn.destroy();
 });
 
-test('gate:simulation:map-avatar-entry-keeps-keyboard-and-hud-actions-separated', async () => {
+test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', async () => {
     const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
     const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify({
         sceneAssets: { enabled: true, promptRule: 'rule', scenes: {}, characters: { Alice: {} },
@@ -3838,34 +3865,44 @@ test('gate:simulation:map-avatar-entry-keeps-keyboard-and-hud-actions-separated'
     const opened = await vn.openLatestAvailable('pc');
     const controller = opened.reader.controller;
     const hud = document.getElementById('igs-status-hud');
-    const entry = hud.querySelector('.igs-map-avatar-entry');
+    const entry = hud.querySelector('.igs-hud-entry-arrow');
     const toggle = hud.querySelector('.igs-hud-toggle');
     assert.equal(entry.tagName, 'BUTTON');
-    assert.equal(entry.getAttribute('aria-label'), '打开地点地图：我家');
-    assert.equal(entry.getAttribute('title'), '我家');
-    assert.equal(entry.parentNode.className, 'igs-hud-avatar-frame');
+    assert.equal(entry.getAttribute('aria-label'), '打开资料菜单');
+    assert.equal(entry.getAttribute('aria-expanded'), 'false');
+    assert.equal(entry.parentNode.className, 'igs-hud-entry-anchor');
     assert.equal(toggle.parentNode, hud);
-    assert.equal(entry.innerHTML, '');
+    assert.match(entry.innerHTML, /<svg/);
     assert.equal(toggle.getAttribute('data-act'), 'toggle-status-hud');
-    assert.equal(hud.querySelector('.igs-hud-location'), null);
+    assert.equal(hud.querySelector('.igs-map-avatar-entry'), null);
     assert.equal(hud.querySelectorAll('.igs-hud-metric').length, 0);
     const css = getOriginalReaderStyleText();
     assert.match(css, /#igs-status-hud \.igs-hud-identity\{position:relative;z-index:1;pointer-events:none;/);
     assert.match(css, /#igs-status-hud \.igs-hud-toggle\{z-index:0;\}/);
-    assert.match(css, /#igs-status-hud \.igs-map-avatar-entry\{[^}]*z-index:2;[^}]*width:30px;height:30px;[^}]*pointer-events:auto;/);
-    assert.match(css, /#igs-status-hud \.igs-map-avatar-entry::after\{[^}]*width:9px;height:9px;/);
-    assert.match(css, /\.igs-map-avatar-entry:focus-visible::before\{opacity:1;\}/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*width:32px;height:32px;[^}]*pointer-events:auto;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+    assert.match(css, /#igs-status-hud\.igs-hud-suppressed \.igs-hud-entry-anchor\{[^}]*visibility:hidden;/);
     const before = vn.getState().igsUi.activeReader.index;
     let stopped = false;
     document.dispatchEvent({ type: 'keydown', key: ' ', target: entry,
         stopPropagation() { stopped = true; } });
     assert.equal(vn.getState().igsUi.activeReader.index, before);
     assert.equal(stopped, false);
-    let mapClickStopped = false;
     const readerRoot = document.getElementById('igs-overlay').parentNode;
     await readerRoot.dispatchEvent({ type: 'click', target: entry,
-        stopPropagation() { mapClickStopped = true; } });
-    assert.equal(mapClickStopped, true);
+        stopPropagation() { stopped = true; } });
+    assert.equal(stopped, true);
+    assert.equal(entry.getAttribute('aria-expanded'), 'true');
+    const menu = hud.querySelector('#igs-hud-record-menu');
+    assert.equal(menu.hasAttribute('hidden'), false);
+    assert.equal(menu.querySelectorAll('.igs-hud-entry-item').length, 4);
+    const mapItem = menu.querySelector('[data-act="map"]');
+    assert.ok(mapItem);
+    assert.ok(menu.querySelector('[data-act="diary"]'));
+    assert.ok(menu.querySelector('[data-act="inventory"]'));
+    assert.ok(menu.querySelector('[data-act="relationships"]'));
+    assert.equal(mapItem.querySelector('span').textContent, '地图');
+    await readerRoot.dispatchEvent({ type: 'click', target: mapItem });
     assert.ok(document.getElementById('igs-map-panel'));
     assert.equal(hud.classList.contains('igs-hud-collapsed'), false);
     stopped = false;
@@ -3878,8 +3915,74 @@ test('gate:simulation:map-avatar-entry-keeps-keyboard-and-hud-actions-separated'
     assert.ok(vn.getState().igsUi.activeReader);
     await readerRoot.dispatchEvent({ type: 'click', target: toggle });
     assert.equal(hud.classList.contains('igs-hud-collapsed'), true);
-    assert.equal((await controller.invokeAction('map')).reason, 'map-entry-not-visible');
+    assert.equal((await controller.invokeAction('map')).reason, 'record-entry-not-visible');
     vn.destroy();
+});
+
+test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safely', async () => {
+    const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
+    const overlay = document.createElement('div');
+    const layer = document.createElement('div');
+    layer.id = 'igs-db-layer';
+    overlay.appendChild(layer);
+    document.body.appendChild(overlay);
+    let restoredFocus = 0;
+    document.activeElement = { focus() { restoredFocus++; } };
+    const callbacks = new Set();
+    let reads = 0;
+    let writes = 0;
+    const api = {
+        exportTableAsJson() {
+            reads++;
+            return {
+                sheet_diary: { uid: 'sheet_diary', name: '恋爱日记表', content: [['标题', '日期', '正文'],
+                    ['晚', '2024-03-02', '<img src=x onerror=alert(1)>'], ['早', '2024-03-01', '第一天']] },
+                sheet_items: { uid: 'sheet_items', name: '随身物品', content: [['物品名称', '描述'],
+                    ['钥匙', '<安全>'], ['未知物', '无法识别']] },
+                sheet_rel: { uid: 'sheet_rel', name: '商会势力', content: [['名称', '关系'], ['商会', '<敌视>']] },
+            };
+        },
+        registerTableUpdateCallback(callback) { callbacks.add(callback); },
+        unregisterTableUpdateCallback(callback) { callbacks.delete(callback); },
+        updateCell() { writes++; },
+    };
+    const panel = createRecordPanelController(document, { AutoCardUpdaterAPI: api });
+    assert.equal(panel.open(overlay, {}, 'diary').ok, true);
+    assert.equal(callbacks.size, 1);
+    let root = document.getElementById('igs-record-panel');
+    assert.match(root.innerHTML, /恋爱日记表/);
+    assert.ok(root.innerHTML.indexOf('早') < root.innerHTML.indexOf('晚'));
+    assert.match(root.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    callbacks.forEach(callback => callback());
+    assert.equal(reads, 2);
+    panel.close();
+    assert.equal(callbacks.size, 0);
+    assert.equal(restoredFocus, 1);
+    assert.equal(document.getElementById('igs-record-panel'), null);
+
+    assert.equal(panel.open(overlay, {}, 'inventory').ok, true);
+    root = document.getElementById('igs-record-panel');
+    assert.match(root.innerHTML, /随身物品/);
+    assert.match(root.innerHTML, /钥匙/);
+    assert.match(root.innerHTML, /未知物/);
+    assert.match(root.innerHTML, /&lt;安全&gt;/);
+    const item = document.createElement('button');
+    item.setAttribute('data-record-act', 'select');
+    item.setAttribute('data-record-id', 'sheet_items:1');
+    root.appendChild(item);
+    await root.dispatchEvent({ type: 'click', target: item });
+    item.remove();
+    assert.equal(panel.getState().selectedId, 'sheet_items:1');
+    assert.match(root.innerHTML, /无法识别/);
+    panel.close();
+
+    assert.equal(panel.open(overlay, {}, 'relationships').ok, true);
+    root = document.getElementById('igs-record-panel');
+    assert.match(root.innerHTML, /<table>/);
+    assert.match(root.innerHTML, /&lt;敌视&gt;/);
+    assert.equal(writes, 0);
+    panel.close();
+    assert.equal(restoredFocus, 3);
 });
 
 test('gate:simulation:map-embedded-only-fills-empty-host-draft', async () => {

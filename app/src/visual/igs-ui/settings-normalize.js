@@ -24,6 +24,11 @@ export function normalizeSettingsValue(path, value) {
     }
     if (path.startsWith('readerSettings.')) {
         if (value === null || value === 'null') return null;
+        if (path === 'readerSettings.typewriter.mode') return value === 'classic' ? 'classic' : 'soft';
+        if (path === 'readerSettings.typewriter.sound.volume') {
+            const volume = Number(value);
+            return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.5;
+        }
         if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
         if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|toolbarScale|inputScale|imageCountOverride|imgBrightness|gradientVeil\.(heightPercent|opacity)/.test(path)) {
             return Number(value);
@@ -31,7 +36,7 @@ export function normalizeSettingsValue(path, value) {
         if (/glassOpacity/.test(path)) {
             return Number(value);
         }
-        if (/^readerSettings\.typewriter\.enabled$/.test(path) || /^readerSettings\.stageShake\.enabled$/.test(path) || /^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path) || /^readerSettings\.statusHud\.showLocation$/.test(path) || /^readerSettings\.statusHud\.showLocationDetails$/.test(path) || /^readerSettings\.statusHud\.showSpriteOnNsfw$/.test(path) || /^readerSettings\.statusHud\.dimSpriteOnNarration$/.test(path)) {
+        if (/^readerSettings\.typewriter\.(enabled|sound\.enabled)$/.test(path) || /^readerSettings\.stageShake\.enabled$/.test(path) || /^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path) || /^readerSettings\.statusHud\.showLocation$/.test(path) || /^readerSettings\.statusHud\.showLocationDetails$/.test(path) || /^readerSettings\.statusHud\.showSpriteOnNsfw$/.test(path) || /^readerSettings\.statusHud\.dimSpriteOnNarration$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
     }

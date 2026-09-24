@@ -10,7 +10,7 @@ fs.mkdirSync(distRoot, { recursive: true });
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
 const graph = buildModuleGraph(entryFile);
-const bundle = inlineDialogThemeAssets(renderBundle(graph, moduleId(entryFile)));
+const bundle = inlineTypewriterAudio(inlineDialogThemeAssets(renderBundle(graph, moduleId(entryFile))));
 
 const roundedFontWeights = [300, 400, 500, 700];
 const classicFontAssets = [
@@ -64,8 +64,8 @@ for (const licenseName of fontLicenseFiles) {
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-if (bundle.includes('__IGS_ASSET__')) {
-    throw new Error('Build output contains unresolved dialog theme asset placeholders.');
+if (bundle.includes('__IGS_ASSET__') || bundle.includes('__IGS_TYPEWRITER_AUDIO__')) {
+    throw new Error('Build output contains unresolved asset placeholders.');
 }
 
 for (const name of ['igs.bundle.js', 'igs.bundle.css', 'manifest.json']) {
@@ -146,6 +146,23 @@ function renderBundle(graph, entryId) {
         publicExport + 'export default __igsEntry;',
         '',
     ].join('\n');
+}
+
+function inlineTypewriterAudio(bundle) {
+    const names = ['dududu.ogg', 'keyboard.ogg'];
+    let result = bundle;
+    for (const name of names) {
+        const placeholder = `__IGS_TYPEWRITER_AUDIO__${name}__`;
+        if (!result.includes(placeholder)) throw new Error(`Typewriter audio placeholder is missing: ${name}`);
+        const file = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'audio', `typewriter-${name}`);
+        if (!fs.existsSync(file)) throw new Error(`Typewriter audio asset is missing: ${file}`);
+        const bytes = fs.readFileSync(file);
+        if (bytes.length < 60 || bytes.subarray(0, 4).toString('ascii') !== 'OggS') {
+            throw new Error(`Typewriter audio asset is invalid: ${file}`);
+        }
+        result = result.replaceAll(placeholder, `data:audio/ogg;base64,${bytes.toString('base64')}`);
+    }
+    return result;
 }
 
 function inlineDialogThemeAssets(bundle) {

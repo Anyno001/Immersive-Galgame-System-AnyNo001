@@ -1,3 +1,6 @@
+import { measureClassicReveal } from './typewriter-classic.js';
+import { scheduleTypewriterAudio } from './typewriter-audio.js';
+
 export const TYPEWRITER_SPEED_IDS = Object.freeze(['fast', 'medium', 'slow']);
 export const TYPEWRITER_SPEED_MS = Object.freeze({
     fast: 14,
@@ -7,6 +10,8 @@ export const TYPEWRITER_SPEED_MS = Object.freeze({
 export const TYPEWRITER_DEFAULTS = Object.freeze({
     enabled: false,
     speed: 'medium',
+    mode: 'soft',
+    sound: Object.freeze({ enabled: true, volume: 0.5 }),
 });
 
 const activeJobs = new WeakMap();
@@ -56,9 +61,17 @@ function setRunningState(target, running) {
 
 export function normalizeTypewriterSettings(value) {
     const source = value && typeof value === 'object' ? value : {};
+    const sound = source.sound && typeof source.sound === 'object' ? source.sound : {};
+    const volume = sound.volume === undefined || sound.volume === null || sound.volume === ''
+        ? TYPEWRITER_DEFAULTS.sound.volume : Number(sound.volume);
     return {
         enabled: source.enabled === true,
         speed: TYPEWRITER_SPEED_IDS.includes(source.speed) ? source.speed : TYPEWRITER_DEFAULTS.speed,
+        mode: source.mode === 'classic' ? 'classic' : 'soft',
+        sound: {
+            enabled: sound.enabled === undefined ? true : sound.enabled === true,
+            volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : TYPEWRITER_DEFAULTS.sound.volume,
+        },
     };
 }
 
@@ -69,6 +82,7 @@ export function cancelTypewriter(target, { finish = true } = {}) {
     // The full text was rendered before this visual effect started, so either
     // cancel path leaves the underlying DOM complete and immediately visible.
     void finish;
+    job.audio?.stop?.();
     if (job.animation && typeof job.animation.cancel === 'function') {
         job.animation.cancel();
     }
@@ -79,17 +93,18 @@ export function cancelTypewriter(target, { finish = true } = {}) {
 function settleVisualJob(target, job) {
     if (activeJobs.get(target) !== job) return;
     activeJobs.delete(target);
+    job.audio?.stop?.();
     if (job.animation && typeof job.animation.cancel === 'function') {
         job.animation.cancel();
     }
     setRunningState(target, false);
 }
 
-function createVisualAnimation(target, options, timing) {
+function createVisualAnimation(target, options, keyframes, timing) {
     const animate = typeof options.animate === 'function'
-        ? () => options.animate(target, VISUAL_REVEAL_KEYFRAMES, timing)
+        ? () => options.animate(target, keyframes, timing)
         : typeof target.animate === 'function'
-            ? () => target.animate(VISUAL_REVEAL_KEYFRAMES, timing)
+            ? () => target.animate(keyframes, timing)
             : null;
     if (!animate) return null;
     try {
@@ -114,6 +129,13 @@ export function applyTypewriterEffect(target, options = {}) {
     }
     const activeJob = activeJobs.get(target);
     if (activeJob && key && activeJob.key === key) {
+        const sameSettings = activeJob.mode === settings.mode
+            && activeJob.soundEnabled === settings.sound.enabled
+            && activeJob.volume === settings.sound.volume;
+        if (!sameSettings) {
+            cancelTypewriter(target, { finish: true });
+            return { animated: false, finish() {} };
+        }
         return {
             animated: true,
             finish() {
@@ -127,15 +149,16 @@ export function applyTypewriterEffect(target, options = {}) {
         return { animated: false, finish() {} };
     }
 
-    const duration = getVisualDuration(readText(target), settings.speed);
+    const classic = settings.mode === 'classic' ? measureClassicReveal(target, TYPEWRITER_SPEED_MS[settings.speed]) : null;
+    const duration = settings.mode === 'classic' ? classic?.duration : getVisualDuration(readText(target), settings.speed);
     if (!duration) {
         setRunningState(target, false);
         return { animated: false, finish() {} };
     }
 
-    const animation = createVisualAnimation(target, options, {
+    const animation = createVisualAnimation(target, options, classic ? classic.frames : VISUAL_REVEAL_KEYFRAMES, {
         duration,
-        easing: 'ease-out',
+        easing: classic ? 'linear' : 'ease-out',
         fill: 'both',
     });
     if (!animation || typeof animation.cancel !== 'function') {
@@ -144,9 +167,14 @@ export function applyTypewriterEffect(target, options = {}) {
     }
     if (key) renderedKeys.set(target, key);
 
-    const job = { animation, key };
+    const job = { animation, key, mode: settings.mode, soundEnabled: settings.sound.enabled, volume: settings.sound.volume, audio: null };
     activeJobs.set(target, job);
     setRunningState(target, true);
+    if (classic && settings.sound.enabled && settings.sound.volume > 0) {
+        job.audio = scheduleTypewriterAudio(classic.events, {
+            textType: options.textType, volume: settings.sound.volume, audioScheduler: options.audioScheduler,
+        });
+    }
     const settle = () => settleVisualJob(target, job);
     if (typeof animation.addEventListener === 'function') {
         animation.addEventListener('finish', settle, { once: true });

@@ -1,4 +1,5 @@
 import { parseTables } from './table-parser.js';
+import { matchesRecordTable } from './record-tables.js';
 
 const REQUIRED = ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序'];
 const value = (row, index) => index < 0 ? '' : String(row[index] ?? '').trim();
@@ -10,7 +11,7 @@ const coordinate = (raw) => {
 
 // This contract describes newly authored map sheets, not a migration of existing user sheets.
 export function buildMapModel(tables) {
-    const matches = (Array.isArray(tables) ? tables : []).filter(table => String(table.name || '').includes('地图'));
+    const matches = (Array.isArray(tables) ? tables : []).filter(table => matchesRecordTable(table.name, 'map'));
     if (!matches.length) return { status: 'no-tables', tables: [] };
     return { status: 'ready', tables: matches.map(buildMapTable) };
 }
