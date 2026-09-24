@@ -66,16 +66,13 @@ export function measureClassicReveal(target, speed) {
         top: line.top, bottom: line.bottom, right: part.rect.right,
     } })));
     const duration = steps.length * speed;
-    const frames = [{ offset: 0, clipPath: mask(null) }];
+    const frames = [{ offset: 0, clipPath: mask(null), easing: 'steps(1, end)' }];
     const events = [];
-    let prior = frames[0].clipPath;
     for (let index = 0; index < steps.length; index += 1) {
         const offset = (index + 1) / steps.length;
         const next = mask(steps[index].rect, bounds, index < lines[0].parts.length);
-        frames.push({ offset, clipPath: prior });
-        frames.push({ offset, clipPath: next });
+        frames.push({ offset, clipPath: next, easing: 'steps(1, end)' });
         events.push({ timeMs: (index + 1) * speed, text: steps[index].text });
-        prior = next;
     }
     // Complete when the last grapheme appears; cancellation always reveals the full DOM.
     frames.push({ offset: 1, clipPath: 'inset(0 0 0 0)' });

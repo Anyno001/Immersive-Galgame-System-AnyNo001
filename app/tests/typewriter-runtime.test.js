@@ -222,9 +222,11 @@ test('classic measures rendered lines and Unicode graphemes once, then animates 
     const { keyframes, timing } = animator.calls[0];
     assert.equal(timing.duration, 4 * 48);
     assert.equal(timing.easing, 'linear');
-    assert.match(keyframes[2].clipPath, /10\.0000%/);
-    assert.match(keyframes[4].clipPath, /30\.0000%/);
-    assert.match(keyframes[6].clipPath, /50\.0000%/); // second line starts below the full first line
+    assert.match(keyframes[1].clipPath, /10\.0000%/);
+    assert.match(keyframes[2].clipPath, /30\.0000%/);
+    assert.match(keyframes[3].clipPath, /50\.0000%/); // second line starts below the full first line
+    assert.deepEqual(new Set(keyframes.slice(0, -1).map(frame => frame.easing)), new Set(['steps(1, end)']));
+    assert.deepEqual(new Set(keyframes.slice(0, -1).map(frame => frame.offset)).size, 5);
     assert.equal(sounds[0].textType, 'dialogue');
     assert.deepEqual(sounds[0].timesMs, [48, 144]);
     assert.equal(applyTypewriterEffect(root, options).animated, true);

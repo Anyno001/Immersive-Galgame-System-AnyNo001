@@ -3881,7 +3881,7 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.match(css, /#igs-status-hud \.igs-hud-toggle\{z-index:0;\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*width:32px;height:32px;[^}]*pointer-events:auto;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\[aria-expanded="true"\] svg\{[^}]*rotate\(-90deg\)/);
-    assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*left:calc\(100% - 4px\);top:calc\(50% \+ 1\.5px\)/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*left:calc\(100% - 7px\);top:calc\(50% \+ 2\.5px\)/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:100%;[^}]*flex-direction:row;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*background:transparent;/);
     assert.match(css, /#igs-status-hud \.igs-hud-location-icon\{[^}]*width:calc\(16px \* var\(--igs-hud-scale,1\)\)/);
@@ -4998,8 +4998,9 @@ test('gate:simulation:status-hud-location-occupies-identity-slot-without-charact
     assert.equal(host.querySelector('.igs-hud-avatar'), null);
     assert.equal(host.querySelector('.igs-hud-emotion'), null);
     assert.equal(host.querySelector('.igs-hud-location-label').textContent, '旧城');
-    assert.equal(host.querySelector('.igs-hud-location').tagName, 'BUTTON');
-    assert.equal(host.querySelector('.igs-hud-location').getAttribute('data-act'), 'map');
+    assert.equal(host.querySelector('.igs-hud-location').tagName, 'DIV');
+    assert.equal(host.querySelector('.igs-hud-location').getAttribute('data-act'), null);
+    assert.ok(host.querySelector('#igs-hud-record-menu').querySelector('[data-act="map"]'));
     assert.ok(host.querySelector('.igs-hud-location-icon'));
     assert.match(host.querySelector('.igs-hud-location-icon').innerHTML, /<svg/);
     assert.equal(host.querySelectorAll('.igs-hud-metric').length, 0);
@@ -5040,7 +5041,7 @@ test('gate:simulation:status-hud-location-details-render-on-narration', async ()
     assert.equal(content.statusHud.time, '深夜');
     assert.equal(content.statusHud.weather, '小雨');
     assert.equal(host.querySelector('.igs-hud-location-label').textContent, '小雨 · 深夜 の 旧城');
-    assert.equal(host.querySelector('.igs-hud-location').getAttribute('data-act'), 'map');
+    assert.equal(host.querySelector('.igs-hud-location').getAttribute('data-act'), null);
     assert.ok(host.querySelector('.igs-hud-location-icon'));
 
     vn.destroy();

@@ -742,17 +742,12 @@ export function applyStatusHudToDom(root, snapshot) {
         entryAnchor.appendChild(chip);
     }
     if (hasLocation) {
-        const location = doc.createElement(hud.character ? 'div' : 'button');
+        const location = doc.createElement('div');
         location.className = 'igs-hud-location';
-        if (!hud.character) {
-            location.type = 'button';
-            location.setAttribute('data-act', 'map');
-            location.setAttribute('aria-label', `打开地点地图：${hud.location}`);
-            const icon = doc.createElement('span');
-            icon.className = 'igs-hud-location-icon';
-            icon.innerHTML = RECORD_ICONS.map;
-            location.appendChild(icon);
-        }
+        const icon = doc.createElement('span');
+        icon.className = 'igs-hud-location-icon';
+        icon.innerHTML = RECORD_ICONS.pin;
+        location.appendChild(icon);
         const chip = doc.createElement('span');
         chip.className = 'igs-hud-location-label';
         const context = [hud.weather, hud.time].filter(Boolean).join(' · ');
@@ -777,7 +772,7 @@ export function applyStatusHudToDom(root, snapshot) {
     menu.className = 'igs-hud-entry-menu';
     menu.setAttribute('aria-label', '资料入口');
     menu.setAttribute('hidden', '');
-    const items = hud.character ? ['map', 'diary', 'inventory', 'relationships'] : ['diary', 'inventory', 'relationships'];
+    const items = ['map', 'diary', 'inventory', 'relationships'];
     for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系' })[name]])) {
         const button = doc.createElement('button');
         button.type = 'button';
