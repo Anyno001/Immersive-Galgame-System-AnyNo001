@@ -11,11 +11,11 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-status-hud .igs-hud-entry-arrow[aria-expanded="true"] svg{transform:rotate(-90deg);}
 #igs-status-hud .igs-hud-location-icon{display:flex;flex:0 0 auto;width:calc(16px * var(--igs-hud-scale,1));height:calc(16px * var(--igs-hud-scale,1));color:rgba(255,255,255,.48);pointer-events:none;}
 #igs-status-hud .igs-hud-location-icon svg{display:block;width:100%;height:100%;}
-#igs-status-hud .igs-hud-entry-menu{position:absolute;left:calc(100% + 18px);top:calc(50% + 2.5px);transform:translateY(-50%);z-index:3;display:flex;flex-direction:row;align-items:center;gap:4px;padding-left:0;pointer-events:none;}
+#igs-status-hud .igs-hud-entry-menu{position:absolute;left:calc(100% + 21px);top:calc(50% + 1.5px);transform:translateY(-50%);z-index:3;display:flex;flex-direction:row;align-items:center;gap:4px;padding-left:0;pointer-events:none;}
 #igs-status-hud .igs-hud-entry-menu[hidden]{display:none;}
-#igs-status-hud .igs-hud-entry-item{display:flex;align-items:center;gap:3px;min-width:0;padding:3px 4px;border:0;background:transparent;color:rgba(232,230,226,.58);font-size:11px;white-space:nowrap;cursor:pointer;pointer-events:auto;}
+#igs-status-hud .igs-hud-entry-item{display:flex;align-items:center;gap:3px;min-width:0;padding:3px 4px;border:0;background:transparent;color:rgba(232,230,226,.58);font-size:13px;white-space:nowrap;cursor:pointer;pointer-events:auto;}
 #igs-status-hud .igs-hud-entry-item:hover{color:#fff;}
-#igs-status-hud .igs-hud-entry-item svg{width:10.4px;height:10.4px;flex:none;}
+#igs-status-hud .igs-hud-entry-item svg{width:12.4px;height:12.4px;flex:none;}
 #igs-status-hud .igs-hud-entry-arrow:focus-visible,#igs-status-hud .igs-hud-entry-item:focus-visible{outline:2px solid #f4e3ad;outline-offset:1px;}
 #igs-status-hud.igs-hud-suppressed .igs-hud-toggle,#igs-status-hud.igs-hud-suppressed .igs-hud-entry-anchor{pointer-events:none;visibility:hidden;}
 @media (pointer:coarse){#igs-status-hud .igs-hud-entry-arrow{width:44px;height:44px;}#igs-status-hud .igs-hud-entry-menu{padding-left:0;}}
