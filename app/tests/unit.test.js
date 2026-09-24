@@ -278,11 +278,13 @@ test('gate:igs-ui:embedded-chat-observer-uses-generation-end-and-ignores-late-do
     const started = observer.start();
     assert.equal(started.lifecycle, true);
     eventSource.emit('generation_started');
+    assert.equal(activityCount, 0);
     created[0].handler([{ target: {} }]);
-    assert.equal(activityCount, 2);
+    assert.equal(activityCount, 1);
     assert.equal(stableCount, 0);
 
     eventSource.emit('generation_ended');
+    eventSource.emit('generation_started');
     const stableTimer = Array.from(timers.entries()).find(([, timer]) => timer.delay === 800);
     assert.ok(stableTimer);
     timers.delete(stableTimer[0]);
@@ -291,8 +293,9 @@ test('gate:igs-ui:embedded-chat-observer-uses-generation-end-and-ignores-late-do
     await Promise.resolve();
     assert.equal(stableCount, 1);
 
+    eventSource.emit('generation_ended');
     created[0].handler([{ target: {} }]);
-    assert.equal(activityCount, 2);
+    assert.equal(activityCount, 1);
     assert.equal(stableCount, 1);
     observer.stop();
     assert.equal(created[0].disconnected, true);

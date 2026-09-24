@@ -90,8 +90,9 @@ export function createChatStreamObserver(opts = {}) {
         if (!active) return;
         generationActive = true;
         manualArmed = false;
-        clearStable();
-        scheduleActivity();
+        // 酒馆生成事件是全局信号，插件自身的 API 请求也会触发它。
+        // 这里只武装生命周期；必须先看到 #chat 的外部变更，才进入载入态。
+        // 不清理已有稳定定时器，避免无关请求打断正文结束收尾。
     };
 
     const onGenerationFinished = () => {
