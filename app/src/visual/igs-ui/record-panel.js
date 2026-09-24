@@ -116,7 +116,7 @@ export function createRecordPanelController(doc, global) {
             content = `<div class="igs-record-inventory"><div class="igs-record-slots" aria-label="物品栏">${items.map(item => {
                 const quantity = String(item.quantity || '').trim() || '1';
                 const selected = item.id === selectedId;
-                return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}" ${selected ? 'aria-current="true"' : ''}>${RECORD_ICONS[inventoryIconKey(item.title)]}${selected ? '' : `<span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}</span>`}<small class="igs-record-slot-quantity">x${escapeHtml(quantity)}</small></button>`;
+                return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}" ${selected ? 'aria-current="true"' : ''}>${RECORD_ICONS[inventoryIconKey(item.title)]}${selected ? '' : `<span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}</span>`}<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small></button>`;
             }).join('')}</div>` +
                 (chosen ? `<section class="igs-record-item-detail"><h3>${RECORD_ICONS[inventoryIconKey(chosen.title)]}<span>${escapeHtml(chosen.title || '未命名')}</span></h3>${cellsHtml(chosen.detailCells || [])}</section>` : '') + '</div>';
         } else if (current && items.length) {
