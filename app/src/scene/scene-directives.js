@@ -1,4 +1,5 @@
 import { resolveMoodGroup } from './mood-groups.js';
+import { resolveSceneTimeAsset } from './scene-time.js';
 
 // 指令可独占整行，也可紧跟在正文之后（同一行内混排），因此不做行首锚定。
 const SCENE_RE = /\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
@@ -257,9 +258,9 @@ function lookupSceneUrl(scenes, sceneName, time, weather, sceneAssets) {
             const weatherEntry = typeof weatherRaw === 'string' ? { url: weatherRaw } : weatherRaw;
             return (weatherEntry && weatherEntry.url) || (typeof weatherRaw === 'string' ? weatherRaw : null) || null;
         }
-        return timeEntry.url || null;
+        return resolveSceneTimeAsset(timeEntry.url || '', time);
     }
-    return entry.url || null;
+    return resolveSceneTimeAsset(entry.url || '', time);
 }
 
 function lookupAssetValue(record, requestedKey, moodGroups) {

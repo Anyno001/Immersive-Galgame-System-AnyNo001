@@ -2,6 +2,8 @@ import { parseTables } from './table-parser.js';
 import { matchesRecordTable } from './record-tables.js';
 
 const REQUIRED = ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序'];
+const BASEMAP_FIELDS = ['地图底图', '底图'];
+const DATA_URL_MAX_CHARS = 12_000_000; // 约 8 MiB 二进制对应的 base64 长度上限
 const value = (row, index) => index < 0 ? '' : String(row[index] ?? '').trim();
 const coordinate = (raw) => {
     if (raw === '') return null;
@@ -90,4 +92,48 @@ export function locateMapScene(model, sceneName) {
         .filter(loc => loc.name === name && !loc.issues.includes('地点ID重复'))
         .map(location => ({ table, location })));
     return { location: hits.length === 1 ? hits[0] : null, ambiguous: hits.length > 1 };
+}
+
+// 底图字段读取：按 BASEMAP_FIELDS 顺序取第一个命中的列；校验为安全 URL。
+function basemapColumnIndex(columns) {
+    for (const name of BASEMAP_FIELDS) {
+        const index = columns.indexOf(name);
+        if (index >= 0) return index;
+    }
+    return -1;
+}
+
+// 仅允许 http(s) 或 data:image/png|jpeg|webp；拒绝脚本协议、HTML 与用户 SVG。
+export function sanitizeMapBasemapUrl(raw) {
+    const text = String(raw ?? '').trim();
+    if (!text) return '';
+    if (/^https?:\/\//i.test(text)) return text;
+    if (/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(text)) {
+        return text.length <= DATA_URL_MAX_CHARS ? text : '';
+    }
+    return '';
+}
+
+// 当前层底图：收集本层子行的底图值，去重后恰好一个才绑定；多个不同值报冲突，不猜选。
+// 父行自己的底图字段属于父层，不传给子层。
+export function resolveMapBasemap(table, parentId) {
+    const index = basemapColumnIndex(table?.columns || []);
+    if (index < 0) return { status: 'none', url: '', reason: '' };
+    const children = getMapChildren(table, parentId);
+    const values = [...new Set(children
+        .map(loc => sanitizeMapBasemapUrl(loc.rawBasemap ?? value(table.rows[loc.rowIndex], index)))
+        .filter(Boolean))];
+    if (values.length === 0) return { status: 'none', url: '', reason: '' };
+    if (values.length > 1) return { status: 'conflict', url: '', reason: '本层底图配置不一致' };
+    return { status: 'ok', url: values[0], reason: '' };
+}
+
+// 本层底图 URL 是否为非法地址（有字段但全部被校验拒绝）。
+export function hasInvalidBasemap(table, parentId) {
+    const index = basemapColumnIndex(table?.columns || []);
+    if (index < 0) return false;
+    return getMapChildren(table, parentId).some(loc => {
+        const raw = value(table.rows[loc.rowIndex], index);
+        return Boolean(raw) && !sanitizeMapBasemapUrl(raw);
+    });
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildMapModel, getMapChildren, locateMapScene, readMapModel } from '../src/data/shujuku/map-model.js';
+import { normalizeMapTime, resolveMapTimeBasemap } from '../src/data/shujuku/map-time.js';
 
 const columns = ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序'];
 const row = (id, parent, name, x, y, description = '', characters = '') => [id, parent, name, x, y, description, characters, ''];
@@ -125,4 +126,102 @@ test('place sheets without coordinate schema remain readable as list, never inve
   assert.ok(result.tables[0].missingColumns.includes('x'));
   assert.equal(result.tables[0].locations[0].name, '广场');
   assert.equal(result.tables[0].locations[0].x, null);
+});
+
+import { hasInvalidBasemap, resolveMapBasemap, sanitizeMapBasemapUrl } from '../src/data/shujuku/map-model.js';
+
+const baseColumns = [...columns, '地图底图'];
+const brow = (id, parent, name, x, y, basemap) => [id, parent, name, x, y, '', '', '1', basemap];
+
+test('map basemap binds only when the current level agrees on one validated url', () => {
+    const url = 'https://example.com/map.webp';
+    const rootRows = [brow('a', '', '甲', '.2', '.3', url), brow('b', '', '乙', '.4', '.5', url),
+        brow('c', 'a', '甲内', '.5', '.5', 'https://example.com/inner.webp')];
+    const map = buildMapModel([table('sheet_m', '城镇地图', rootRows, baseColumns)]).tables[0];
+    // 同层两行相同地址 → 绑定
+    assert.deepEqual(resolveMapBasemap(map, null), { status: 'ok', url, reason: '' });
+    // 子层使用子层自己的地址，不继承父行
+    assert.equal(resolveMapBasemap(map, 'sheet_m:a').url, 'https://example.com/inner.webp');
+    // 冲突：同层不同地址不猜选
+    const conflict = buildMapModel([table('sheet_c', '城镇地图',
+        [brow('a', '', '甲', '.2', '.3', url), brow('b', '', '乙', '.4', '.5', 'https://example.com/other.webp')], baseColumns)]).tables[0];
+    assert.equal(resolveMapBasemap(conflict, null).status, 'conflict');
+    assert.equal(resolveMapBasemap(conflict, null).reason, '本层底图配置不一致');
+    // 无字段/无值 → none，不是错误
+    assert.equal(resolveMapBasemap(buildMapModel([table('sheet_n', '城镇地图', [row('a', '', '甲', '.2', '.3')])]).tables[0], null).status, 'none');
+});
+
+test('map basemap url validation rejects scripts, html, svg and oversized data urls', () => {
+    assert.equal(sanitizeMapBasemapUrl('https://example.com/a.png'), 'https://example.com/a.png');
+    assert.equal(sanitizeMapBasemapUrl('http://example.com/a.webp'), 'http://example.com/a.webp');
+    assert.ok(sanitizeMapBasemapUrl('data:image/png;base64,AAAA').startsWith('data:image/png'));
+    assert.equal(sanitizeMapBasemapUrl('javascript:alert(1)'), '');
+    assert.equal(sanitizeMapBasemapUrl('data:image/svg+xml;base64,AAAA'), '');
+    assert.equal(sanitizeMapBasemapUrl('data:text/html;base64,AAAA'), '');
+    assert.equal(sanitizeMapBasemapUrl('file:///c:/a.png'), '');
+    assert.equal(sanitizeMapBasemapUrl(''), '');
+    assert.equal(sanitizeMapBasemapUrl('data:image/webp;base64,' + 'A'.repeat(12_000_001)), '');
+    const invalid = buildMapModel([table('sheet_i', '城镇地图', [brow('a', '', '甲', '.2', '.3', 'javascript:alert(1)')], baseColumns)]).tables[0];
+    assert.equal(hasInvalidBasemap(invalid, null), true);
+    assert.equal(resolveMapBasemap(invalid, null).status, 'none');
+});
+
+test('map time variants follow igs-scene time and unknown values keep the base map', () => {
+  const base = 'assets/map-demo-clean-night.png';
+  assert.equal(normalizeMapTime('清晨'), 'dawn');
+  assert.equal(normalizeMapTime('白天'), 'day');
+  assert.equal(normalizeMapTime('傍晚'), 'dusk');
+  assert.equal(normalizeMapTime('夜晚'), 'night');
+  assert.equal(normalizeMapTime('深夜'), 'minight');
+  assert.equal(resolveMapTimeBasemap(base, '清晨'), 'assets/map-demo-clean-dawn.png');
+  assert.equal(resolveMapTimeBasemap(base, '白天'), 'assets/map-demo-clean-day.png');
+  assert.equal(resolveMapTimeBasemap(base, '傍晚'), 'assets/map-demo-clean-dusk.png');
+  assert.equal(resolveMapTimeBasemap(base, '夜晚'), 'assets/map-demo-clean-night.png');
+  assert.equal(resolveMapTimeBasemap(base, '深夜'), 'assets/map-demo-clean-minight.png');
+  assert.equal(resolveMapTimeBasemap(base, '未知时间'), base);
+  assert.equal(resolveMapTimeBasemap('assets/map-demo-clean.png', '夜晚'), 'assets/map-demo-clean-night.png');
+  assert.equal(resolveMapTimeBasemap('https://example.com/map.webp', '深夜'), 'https://example.com/map.webp');
+});
+
+
+
+import { buildRelationshipModel } from '../src/data/shujuku/record-model.js';
+
+test('relationship model keeps explicit people and edges isolated by source', () => {
+  const read = { ok: true, data: {
+    a: { uid: 'sheet_rel_a', name: '示例关系', content: [
+      ['姓名', '身份', '人物描述', '相关人员', '人物A', '人物B', '关系'],
+      ['林夏', '书店常客', '<描述>', '', '', '', ''],
+      ['陈屿', '旧友', '多年旧友', '', '', '', ''],
+      ['', '', '', '', '林夏', '陈屿', '同学'],
+      ['', '', '', '', '陈屿', '林夏', '同学'],
+      ['林夏', '', '', '许宁（旧识）', '', '', ''],
+    ] },
+    b: { uid: 'sheet_rel_b', name: '另一关系', content: [
+      ['姓名', '身份', '人物描述'],
+      ['林夏', '另一来源人物', '不应与 rel_a 合并'],
+    ] },
+    c: { uid: 'sheet_rel_legacy', name: '旧关系', content: [
+      ['名称', '关系'],
+      ['商会', '<敌视>'],
+    ] },
+  } };
+  const result = buildRelationshipModel(read);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.people.filter(person => person.uid === 'sheet_rel_a' && person.name === '林夏').length, 2);
+  assert.equal(result.people.filter(person => person.uid === 'sheet_rel_b' && person.name === '林夏').length, 1);
+  assert.equal(result.edges.filter(edge => edge.uid === 'sheet_rel_a' && edge.label === '同学').length, 1);
+  assert.deepEqual(result.edges.filter(edge => edge.uid === 'sheet_rel_a' && edge.label === '旧识').map(edge => [edge.from, edge.to]), [['林夏', '许宁']]);
+  assert.ok(result.people.some(person => person.uid === 'sheet_rel_a' && person.name === '许宁' && person.synthetic));
+  assert.equal(result.edges.some(edge => edge.uid === 'sheet_rel_legacy'), false);
+  assert.ok(result.people.some(person => person.uid === 'sheet_rel_legacy' && person.name === '商会' && person.detailCells.some(cell => cell.value === '<敌视>')));
+  assert.equal(result.edges.some(edge => edge.uid === 'sheet_rel_b'), false);
+});
+
+test('relationship model distinguishes empty and failed reads without inventing data', () => {
+  assert.deepEqual(buildRelationshipModel({ ok: false, reason: 'offline' }), { status: 'read-error', reason: 'offline', tables: [], people: [], edges: [] });
+  assert.equal(buildRelationshipModel({ ok: true, data: {
+    empty: { uid: 'sheet_rel_empty', name: '空关系', content: [['姓名', '关系']] },
+  } }).status, 'empty');
+  assert.deepEqual(buildRelationshipModel({ ok: true, data: {} }), { status: 'no-tables', tables: [], reason: '', people: [], edges: [] });
 });

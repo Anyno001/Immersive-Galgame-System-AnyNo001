@@ -1091,7 +1091,7 @@ export function createIgsReaderHost(options = {}) {
                 arrow?.focus?.();
             }
             return normalizedAction === 'map'
-                ? current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation)
+                ? current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation, current.snapshot?.content?.sceneTime)
                 : current.dom.recordController.open(overlay, settings, normalizedAction);
         }
         if (normalizedAction === 'toggle-status-hud') {

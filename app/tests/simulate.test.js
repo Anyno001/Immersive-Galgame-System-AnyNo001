@@ -3777,19 +3777,21 @@ test('gate:simulation:map-panel-navigates-read-only-sheets-refreshes-and-cleans-
         target.remove();
     };
     assert.equal(panel.open(overlay, {}, '我家').ok, true);
-    assert.equal(panel.getState().selectedId, 'sheet_map:home');
+    assert.equal(panel.getState().currentId, 'sheet_map:home');
+    assert.equal(panel.getState().selectedId, null);
     assert.equal(panel.getState().model.tables.length, 1);
     assert.equal(panel.open(overlay, {}, '我家').reason, 'already-open');
     assert.equal(callbacks.size, 1);
     assert.match(document.getElementById('igs-map-panel').innerHTML, /屋子 &lt;安全&gt;/);
-    assert.match(document.getElementById('igs-map-panel').innerHTML, /left:20%;top:70%/);
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /left:320px;top:630px/);
     assert.match(document.getElementById('igs-map-panel').innerHTML, /stroke="currentColor"/);
+    await act('select', 'sheet_map:home');
     await act('enter', 'sheet_map:home');
     assert.equal(panel.getState().parentId, 'sheet_map:home');
     assert.match(document.getElementById('igs-map-panel').innerHTML, /未标注坐标的地点/);
     await act('select', 'sheet_map:floor');
     await act('enter', 'sheet_map:floor');
-    assert.match(document.getElementById('igs-map-panel').innerHTML, /left:50%;top:50%/);
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /left:800px;top:450px/);
     await act('select', 'sheet_map:room');
     await act('travel');
     assert.match(panel.getState().message, /未覆盖/);
@@ -3833,7 +3835,7 @@ test('gate:simulation:map-hud-entry-does-not-open-while-collapsed-and-only-fills
     assert.match(panel.innerHTML, /地图读取失败：missing-api/);
     assert.equal(document.getElementById('igs-input').value, '');
     const docStyle = getOriginalReaderStyleText();
-    assert.match(docStyle, /#igs-map-panel .igs-map-plane/);
+    assert.match(docStyle, /#igs-map-panel .igs-map-viewport/);
     const page = vn.getState().igsUi.activeReader.index;
     document.dispatchEvent({ type: 'keydown', key: 'ArrowRight', target: panel });
     document.dispatchEvent({ type: 'keydown', key: ' ', target: panel });
@@ -3955,7 +3957,7 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
                 sheet_diary: { uid: 'sheet_diary', name: '恋爱日记表', content: [['写作角色', '发生时间', '正文'],
                     ['晚', '2024-03-02', '<img src=x onerror=alert(1)>'], ['早', '2024-03-01', '第一天']] },
                 sheet_items: { uid: 'sheet_items', name: '随身物品', content: [['row_id', '物品名称', '数量', '描述'],
-                    [1, '钥匙', 2, '<安全>'], [2, '未知物', 1, '无法识别']] },
+                    [1, '钥匙', 2, '<安全>'], [2, '未知物', 1, '无法识别'], [3, '空墨水瓶', 0, '用完了'], [4, '黄铜钥匙圈', '', '来历不明']] },
                 sheet_rel: { uid: 'sheet_rel', name: '商会势力', content: [['名称', '关系'], ['商会', '<敌视>']] },
             };
         },
@@ -3981,6 +3983,18 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     diaryEntry.remove();
     assert.match(root.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
     assert.match(root.innerHTML, /igs-record-diary-detail/);
+    // 心事动作：选册清空篇章，篇章选择定位到对应册，前后篇在单篇册边界保持不动。
+    assert.match(root.innerHTML, /data-record-act="book"/);
+    assert.match(root.innerHTML, /data-record-act="prev-entry" disabled/);
+    assert.match(root.innerHTML, /data-record-act="next-entry" disabled/);
+    assert.equal(panel.getState().selectedId, 'sheet_diary:0');
+    const prevButton = document.createElement('button');
+    prevButton.setAttribute('data-record-act', 'prev-entry');
+    root.appendChild(prevButton);
+    await root.dispatchEvent({ type: 'click', target: prevButton });
+    prevButton.remove();
+    assert.equal(panel.getState().selectedId, 'sheet_diary:0');
+    assert.match(root.innerHTML, /未署名册|<span>晚<\/span>/);
     callbacks.forEach(callback => callback());
     assert.equal(reads, 2);
     panel.close();
@@ -3993,14 +4007,14 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     root = document.getElementById('igs-record-panel');
     assert.equal(overlay.classList.contains('igs-record-screen-open'), true);
     const recordCss = getOriginalReaderStyleText();
-    assert.match(recordCss, /#igs-record-panel\[data-record-category="diary"\] h2,[^}]*font-size:17px/);
-    assert.match(recordCss, /#igs-record-panel\[data-record-category="diary"\] h2,[^}]*position:absolute;left:50%;transform:translateX\(-50%\);/);
-    assert.match(recordCss, /#igs-record-panel header \.igs-record-back svg\{width:22px;height:22px;stroke-width:1.4;opacity:\.82;\}/);
-    assert.match(recordCss, /#igs-record-panel\[data-record-category="diary"\] \.igs-record-body,[^}]*font-size:13px/);
-    assert.match(recordCss, /\.igs-record-item-detail h3\{[^}]*font-size:17px/);
+    assert.match(recordCss, /#igs-record-panel,#igs-map-panel\{[^}]*--igs-rp-text:#d8d5cf/);
+    assert.match(recordCss, /#igs-record-panel \.igs-rp-title::before,#igs-record-panel \.igs-rp-title::after,/);
+    assert.match(recordCss, /#igs-record-panel \.igs-rp-back,#igs-map-panel \.igs-rp-back\{[^}]*min-width:44px;min-height:44px/);
+    assert.match(recordCss, /#igs-record-panel \.igs-rp-title,#igs-map-panel \.igs-rp-title\{[^}]*letter-spacing:\.14em/);
+    assert.match(recordCss, /\.igs-record-item-detail h3\{[^}]*font-size:26px/);
     assert.match(recordCss, /\.igs-record-slot-name\{[^}]*font-size:12px/);
-    assert.match(recordCss, /\.igs-record-book span\{font-size:12px/);
-    assert.match(recordCss, /#igs-record-panel\[data-record-category="diary"\] \.igs-record-book,#igs-record-panel\[data-record-category="inventory"\] \.igs-record-slots button\{border:0;\}/);
+    assert.match(recordCss, /\.igs-record-book span\{[^}]*font-size:12px/);
+    assert.doesNotMatch(recordCss, /125,92,54|57,39,27/);
     assert.match(recordCss, /\.igs-record-slot-quantity\{position:absolute;right:7px;bottom:6px;/);
     assert.match(root.innerHTML, /你的背包/);
     assert.doesNotMatch(root.innerHTML, /随身物品/);
@@ -4017,14 +4031,37 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     item.remove();
     assert.equal(panel.getState().selectedId, 'sheet_items:0');
     assert.match(root.innerHTML, /&lt;安全&gt;/);
-    assert.doesNotMatch(root.innerHTML, /class="igs-record-slot-name">钥匙<\/span>/);
+    // 新契约：选中物品名称保留，不隐藏。
+    assert.match(root.innerHTML, /class="igs-record-slot-name">钥匙<\/span>/);
+    // 数量语义：0 如实显示 ×0；详情头数量只出现一次。
+    assert.match(root.innerHTML, /×0/);
+    assert.match(root.innerHTML, /数量：×2/);
+    // 缺数量：格位无角标，详情写“数量未记录”。
+    assert.doesNotMatch(root.innerHTML, /黄铜钥匙圈<\/span><small/);
+    const missingQty = document.createElement('button');
+    missingQty.setAttribute('data-record-act', 'select');
+    missingQty.setAttribute('data-record-id', 'sheet_items:3');
+    root.appendChild(missingQty);
+    await root.dispatchEvent({ type: 'click', target: missingQty });
+    missingQty.remove();
+    assert.match(root.innerHTML, /数量未记录/);
     assert.doesNotMatch(root.innerHTML, /data-record-act="refresh"/);
     panel.close();
 
     assert.equal(panel.open(overlay, {}, 'relationships').ok, true);
     root = document.getElementById('igs-record-panel');
-    assert.match(root.innerHTML, /<table>/);
+    assert.match(root.innerHTML, /igs-record-relationships/);
+    assert.match(root.innerHTML, /igs-record-relationship-stage/);
+    assert.match(root.innerHTML, /igs-record-people/);
+    assert.match(root.innerHTML, /aria-label="人物索引"/);
+    assert.match(root.innerHTML, /igs-record-relationship-graph/);
+    assert.match(root.innerHTML, /igs-record-relationship-detail/);
     assert.match(root.innerHTML, /&lt;敌视&gt;/);
+    assert.doesNotMatch(root.innerHTML, /<aside class="igs-record-people"/);
+    assert.doesNotMatch(root.innerHTML, /igs-record-person-avatar-large/);
+    assert.doesNotMatch(root.innerHTML, /相关人员/);
+    assert.doesNotMatch(root.innerHTML, /<table>/);
+    assert.equal(panel.getState().relationshipPersonId, 'sheet_rel:0');
     assert.equal(writes, 0);
     panel.close();
     assert.equal(restoredFocus, 3);

@@ -3,6 +3,7 @@ import { ILLUSTRATED_DIALOG_STYLE_TEXT } from './dialog-theme-skins.js';
 import { GRADIENT_VEIL_STYLE_TEXT } from './gradient-veil-dialog-skin.js';
 import { MAP_PANEL_STYLE_TEXT } from './map-panel-style.js';
 import { RECORD_PANEL_STYLE_TEXT } from './record-panel-style.js';
+import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
 
 export const ORIGINAL_READER_ICONS = Object.freeze({
     db: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="display:block"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
@@ -220,6 +221,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-stage-motion.igs-stage-shake-active[data-igs-stage-shake-intensity="strong"]{animation:igs-stage-shake-strong .38s ease-out both}
 @media (prefers-reduced-motion: reduce){#igs-stage-motion.igs-stage-shake-active{animation:none!important;transform:none!important;}}
 ${MAP_PANEL_STYLE_TEXT}
+${RECORD_PAGE_SHELL_STYLE_TEXT}
 ${RECORD_PANEL_STYLE_TEXT}
 ${GRADIENT_VEIL_STYLE_TEXT}
 ${ILLUSTRATED_DIALOG_STYLE_TEXT}

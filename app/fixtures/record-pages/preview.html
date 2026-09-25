@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IGS 资料页截图入口</title>
+<style>
+@font-face{font-family:"Source Han Serif CN";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/SourceHanSerifCN-Regular.otf") format("opentype");}
+@font-face{font-family:"Cormorant Garamond";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/CormorantGaramond-Regular.woff2") format("woff2");}
+html,body{margin:0;height:100%;background:#0b0d10;color:#d8d5cf;font-family:"Source Han Serif CN",serif;}
+#stage{position:relative;margin:0 auto;overflow:hidden;background:#16181a;background-image:url("./assets/scene-demo-clean-night.png");background-size:cover;background-position:center;}
+#stage[data-bg="none"]{background-image:none;}
+#igs-overlay{position:absolute;inset:0;overflow:hidden;}
+#igs-db-layer{position:absolute;inset:0;pointer-events:none;}
+#hud{display:none;position:fixed;top:8px;left:8px;z-index:99;gap:6px;font:12px sans-serif;}
+#hud button{padding:4px 10px;border:1px solid #555;background:#222;color:#ddd;cursor:pointer;}
+#hud button[aria-current="true"]{border-color:#d8d5cf;}
+</style>
+</head>
+<body>
+<div id="errlog" style="position:fixed;bottom:0;left:0;z-index:999;max-width:100%;font:12px monospace;color:#f88;background:#300;white-space:pre-wrap;"></div>
+<div id="hud" aria-hidden="false">
+  <button data-page="map">地图</button>
+  <button data-page="diary">心事</button>
+  <button data-page="inventory">背包</button>
+  <button data-page="relationships">关系</button>
+</div>
+<div id="stage"><div id="igs-overlay"><div id="igs-db-layer"></div></div></div>
+<script type="module">
+const errors = [];
+const showErrors = () => { document.getElementById('errlog').textContent = errors.join('\n'); };
+window.addEventListener('error', event => { errors.push(String(event.message || event.error) + ' @ ' + String(event.filename || '') + ':' + String(event.lineno || '')); document.title = 'ERR'; showErrors(); });
+window.addEventListener('unhandledrejection', event => { errors.push('rejection: ' + String(event.reason?.message || event.reason)); document.title = 'ERR'; showErrors(); });
+import { getOriginalReaderStyleText } from '../../src/visual/igs-ui/original-reader-source.js';
+import { createRecordPanelController } from '../../src/visual/igs-ui/record-panel.js';
+import { createMapPanelController } from '../../src/visual/igs-ui/map-panel.js';
+import { mapFixture } from './fixtures/map.fixture.js';
+import { diaryFixture } from './fixtures/diary.fixture.js';
+import { inventoryFixture } from './fixtures/inventory.fixture.js';
+import { relationshipsFixture } from './fixtures/relationships.fixture.js';
+
+const style = document.createElement('style');
+style.id = 'igs-overlay-style';
+style.textContent = getOriginalReaderStyleText();
+document.head.appendChild(style);
+
+// fake 数据客户端：只读导出，写接口全部计数并拒绝。
+const stats = { writes: 0, sends: 0 };
+// 底图契约只收 http(s)/data：预览把相对资产路径解析成绝对 URL，验证真实底图加载链。
+const basemapUrl = mapFixture.basemap ? new URL(mapFixture.basemap, location.href).href : '';
+const mapSheet = {
+
+  uid: mapFixture.uid, name: mapFixture.tableName,
+  content: [['地点ID','上级地点ID','名称','x','y','说明','角色','排序','地图底图'],
+    ...mapFixture.places.map((place, index) => [place.id.replace(/^p-/, 'p_'), '', place.name,
+      place.x === null ? '' : String(place.x), place.y === null ? '' : String(place.y),
+      place.description, place.characters.join('、'), String(index + 1), index === 0 ? basemapUrl : ''])]
+};
+
+const diarySheet = {
+  uid: diaryFixture.uid, name: diaryFixture.tableName,
+  content: [['写作角色','篇名','发生日期','正文'],
+    ...diaryFixture.entries.map(entry => [entry.author || '', entry.chapterTitle || '', entry.date || '', entry.body || ''])]
+};
+const inventorySheet = {
+  uid: inventoryFixture.uid, name: inventoryFixture.tableName,
+  content: [['物品名称','数量','描述'],
+    ...inventoryFixture.items.map(item => [item.name, item.quantity === null ? '' : String(item.quantity), item.description])]
+};
+const relationshipsSheet = {
+  uid: relationshipsFixture.uid, name: relationshipsFixture.tableName,
+  content: [['姓名','身份','人物描述','人物A','人物B','关系'],
+    ...relationshipsFixture.people.map(person => [person.name, person.role, person.description, '', '', '']),
+    ...relationshipsFixture.edges.map(edge => ['', '', '',
+      relationshipsFixture.people.find(person => person.id === edge.from)?.name || edge.from,
+      relationshipsFixture.people.find(person => person.id === edge.to)?.name || edge.to,
+      edge.label])]
+};
+const tables = { [mapSheet.uid]: mapSheet, [diarySheet.uid]: diarySheet, [inventorySheet.uid]: inventorySheet, [relationshipsSheet.uid]: relationshipsSheet };
+const api = {
+  exportTableAsJson: () => tables,
+  registerTableUpdateCallback() {}, unregisterTableUpdateCallback() {},
+  updateCell() { stats.writes++; }, insertRow() { stats.writes++; }, deleteRow() { stats.writes++; }, updateRow() { stats.writes++; return { ok: false }; },
+};
+const globalShim = { AutoCardUpdaterAPI: api };
+
+const overlay = document.getElementById('igs-overlay');
+const stage = document.getElementById('stage');
+const record = createRecordPanelController(document, globalShim);
+const map = createMapPanelController(document, globalShim, async () => ({ ok: true }));
+const SIZES = {
+  desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768],
+  mobile: [390, 844], short: [390, 500], tiny: [320, 568],
+};
+let current = null;
+function openPage(page) {
+  current?.close?.();
+  if (page === 'map') current = map, map.open(overlay, {}, '临河街道');
+  else current = record, record.open(overlay, {}, page);
+  document.querySelectorAll('#hud button').forEach(btn =>
+    btn.toggleAttribute('aria-current', btn.dataset.page === page));
+}
+function setSize(name) {
+  const [w, h] = SIZES[name] || SIZES.desktop;
+  stage.style.width = w + 'px'; stage.style.height = h + 'px';
+}
+const params = new URLSearchParams(location.search);
+setSize(params.get('size') || 'desktop');
+if (params.get('bg') === 'none') stage.dataset.bg = 'none';
+openPage(params.get('page') || 'map');
+// 可选 ?select=<data-record-id>：打开后自动选中，用于阅读态/详情态截图。
+const selectId = params.get('select');
+if (selectId) document.querySelector(`[data-record-id="${CSS.escape(selectId)}"],[data-map-id="${CSS.escape(selectId)}"]`)?.click();
+document.getElementById('hud').addEventListener('click', event => {
+  const page = event.target?.dataset?.page;
+  if (page) openPage(page);
+});
+window.__preview = { openPage, setSize, record, map, stats };
+</script>
+</body>
+</html>

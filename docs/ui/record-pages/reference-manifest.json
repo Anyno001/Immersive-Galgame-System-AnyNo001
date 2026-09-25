@@ -1,0 +1,43 @@
+{
+  "archivedAt": "2026-09-25",
+  "sourceDir": "工作区上级 设计稿/IGS-资料界面/（原件保留不覆盖）",
+  "note": "八图 SHA-256 与原件逐一比对一致（2026-09-25 执行，8/8 MATCH）。图片为开发参考，不进入运行时 bundle。",
+  "references": [
+    { "id": "D-MAP", "file": "references/desktop/01-地图.png", "originalFile": "01-地图.png", "width": 1672, "height": 941, "sha256": "2EF899C98471DEEE7D64305DBA83AD273AC32819512BAA8EDF8F181B3822266E", "purpose": "电脑地图页视觉验收依据" },
+    { "id": "D-DIARY", "file": "references/desktop/02-珍藏心事.png", "originalFile": "02-珍藏心事.png", "width": 1672, "height": 941, "sha256": "5EC0D64BC737981CF02D6DD062D80134FDF32563C85E0E55EB4E70EFCA4A7433", "purpose": "电脑心事页视觉验收依据" },
+    { "id": "D-BAG", "file": "references/desktop/03-你的背包.png", "originalFile": "03-你的背包.png", "width": 1672, "height": 941, "sha256": "8745698BA4C97DE997812F45226FEC6FFCADF31F4B8B9144BB81901B7DACF726", "purpose": "电脑背包页视觉验收依据" },
+    { "id": "D-REL", "file": "references/desktop/04-人际关系.png", "originalFile": "04-人际关系.png", "width": 1672, "height": 941, "sha256": "BB8949A57B7A7540C13742DAF5C861664A8879ADA41B25585B5212A612473C65", "purpose": "电脑关系页视觉验收依据" },
+    { "id": "M-MAP", "file": "references/mobile/01-地图-移动版.png", "originalFile": "移动版/01-地图-移动版.png", "width": 853, "height": 1844, "sha256": "B601F8B94DCE390B4B2D338B74627657193B431DD368B1CEC24F05513E516BBB", "purpose": "手机地图页视觉验收依据；假状态栏（时间/信号/电量）为需去除的生图附属物" },
+    { "id": "M-DIARY", "file": "references/mobile/02-珍藏心事-移动版.png", "originalFile": "移动版/02-珍藏心事-移动版.png", "width": 880, "height": 1786, "sha256": "E08191E00F7716555937F6BA0EBF6B8489C4A5C5A7F3EAA93AD9F2B149104F1F", "purpose": "手机心事页视觉验收依据" },
+    { "id": "M-BAG", "file": "references/mobile/03-你的背包-移动版.png", "originalFile": "移动版/03-你的背包-移动版.png", "width": 904, "height": 1740, "sha256": "5B2C212091CCE416D9CD6E7EBA1D6C9F95DC663A65930B35C469FE01E650C578", "purpose": "手机背包页视觉验收依据" },
+    { "id": "M-REL", "file": "references/mobile/04-人际关系-移动版.png", "originalFile": "移动版/04-人际关系-移动版.png", "width": 909, "height": 1731, "sha256": "3B2CD0C9048A2C4DC771DB7D89FD4C93763FB3C03932539828AFF3CAA09263C0", "purpose": "手机关系页视觉验收依据" }
+  ],
+  "docs": [
+    { "file": "设计基线.md", "sha256": "23E3A393F8D3FE93C9D1030C26EF511C3B82DD94BE30E0F8311D6B5644488321" },
+    { "file": "移动版适配说明.md", "sha256": "ED448BB58343AA9D029E93378E881641BA9C4ECC2EC1550A6FD543D071298726" },
+    { "file": "implementation-plan.md", "sha256": "6880D54BD9267A062AD792DA298791C6C7E760B7892371609EA0AEDD083E3D64", "note": ".limcode/plans/igs-record-pages-responsive-implementation.md 的交接副本" }
+  ],
+  "allowedDifferences": [
+    "真实内容替换示例文字",
+    "中文字体栅格化差异",
+    "实际容器造成的换行/滚动",
+    "安全区高度",
+    "同一干净底图的等比取景变化",
+    "无数据或旧格式的诚实降级",
+    "干净资产实际为 PNG 而非计划拟定的 .webp 扩展名（生图工具输出格式；内容与用途不变，已在此记录）"
+  ],
+  "removedFromReferences": [
+    "手机地图的假时间、电量、信号状态栏",
+    "桌面鼠标光标",
+    "装饰性诗句（右上/右下角）",
+    "图片里固定的示例人物/日期/数量"
+  ],
+  "forbidden": [
+    "整图铺底再叠透明按钮",
+    "金色/霓虹/毛玻璃替代",
+    "沿用旧棕色书册",
+    "普通表格冒充关系页",
+    "电脑三栏缩小塞手机",
+    "选中物品名称消失"
+  ]
+}

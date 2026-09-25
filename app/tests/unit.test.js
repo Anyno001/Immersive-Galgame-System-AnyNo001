@@ -65,6 +65,31 @@ import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normaliz
 import { ensureEmbeddedHost, hideEmbeddedSourceText, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from '../src/visual/igs-ui/reader-source-cache.js';
 import { createChatStreamObserver } from '../src/host/chat-stream-observer.js';
+import { RECORD_ICONS, inventoryIconKey } from '../src/visual/igs-ui/record-icons.js';
+
+test('gate:visual:inventory-icons-use-static-tabler-whitelist-and-longest-match', () => {
+    assert.equal(inventoryIconKey('黄铜钥匙圈'), 'key');
+    assert.equal(inventoryIconKey('门禁卡'), 'key');
+    assert.equal(inventoryIconKey('药瓶'), 'potion');
+    assert.equal(inventoryIconKey('空墨水瓶'), 'bottle');
+    assert.equal(inventoryIconKey('弓箭'), 'bow');
+    assert.equal(inventoryIconKey('铁剑'), 'weapon');
+    assert.equal(inventoryIconKey('苹果'), 'food');
+    assert.equal(inventoryIconKey('钻石'), 'gem');
+    assert.equal(inventoryIconKey('工具箱'), 'tool');
+    assert.equal(inventoryIconKey('宝箱'), 'box');
+    assert.equal(inventoryIconKey('指南针'), 'compass');
+    assert.equal(inventoryIconKey('未知物'), 'generic');
+    assert.equal(inventoryIconKey({ title: '普通物品', description: '钥匙' }), 'generic');
+    assert.equal(inventoryIconKey('<script>钥匙</script>'), 'key');
+    for (const key of ['key', 'book', 'potion', 'bottle', 'bow', 'food', 'weapon', 'armor', 'money', 'tool', 'gem', 'box', 'candle', 'dice', 'crown', 'compass']) {
+        assert.match(RECORD_ICONS[key], /viewBox="0 0 24 24"/);
+        assert.match(RECORD_ICONS[key], /currentColor/);
+        assert.doesNotMatch(RECORD_ICONS[key], /<script|onerror|黄铜钥匙圈/);
+    }
+    assert.match(RECORD_ICONS.book, /fill="currentColor"/);
+    assert.match(RECORD_ICONS.weapon, /stroke="currentColor"/);
+});
 
 test('gate:igs-ui:reader-mode-schema-is-single-source-with-embedded', () => {
     assert.deepEqual(Array.from(PUBLIC_READER_MODES), ['pc', 'mobile', 'web', 'fullscreen', 'embedded']);
@@ -1208,6 +1233,24 @@ test('gate:scene:scene-bg-resolves-by-group-reduction-across-three-layers', () =
     // 天气归约：AI 写「大雨」→ 归约到天气组「雨天」
     const full = lookupSceneAssetUrls({ scene: '便利店', time: '晚上', weather: '大雨' }, assets);
     assert.equal(full.backgroundUrl, 'https://example.com/store-night-rain.png');
+});
+
+test('gate:scene:demo-night-background-derives-time-variants', () => {
+    const base = 'assets/scene-demo-clean-night.png';
+    const assets = { scenes: { '默认': { url: base, times: {} } } };
+    const resolve = (time) => lookupSceneAssetUrls({ scene: '未配置场景', time, weather: '' }, assets).backgroundUrl;
+
+    assert.equal(resolve('清晨'), 'assets/scene-demo-clean-dawn.png');
+    assert.equal(resolve('白天'), 'assets/scene-demo-clean-day.png');
+    assert.equal(resolve('傍晚'), 'assets/scene-demo-clean-dusk.png');
+    assert.equal(resolve('夜晚'), 'assets/scene-demo-clean-night.png');
+    assert.equal(resolve('深夜'), 'assets/scene-demo-clean-minight.png');
+    assert.equal(resolve('未知时间'), base);
+
+    const custom = lookupSceneAssetUrls({ scene: '默认', time: '深夜', weather: '' }, {
+        scenes: { '默认': { url: 'https://example.com/background.png', times: {} } },
+    });
+    assert.equal(custom.backgroundUrl, 'https://example.com/background.png');
 });
 
 test('gate:scene:settings-action-set-time-url-survives-colon-in-time-name', async () => {
