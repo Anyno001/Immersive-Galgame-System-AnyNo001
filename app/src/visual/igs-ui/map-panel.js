@@ -310,7 +310,8 @@ export function createMapPanelController(doc, global, fillDraft) {
         const detailSceneImage = sceneAssetUrl(detailLocation?.name || sceneName);
         const detailArtHtml = detailSceneImage ? `<img class="igs-map-detail-art" src="${escapeHtml(detailSceneImage)}" alt="" aria-hidden="true" draggable="false" referrerpolicy="no-referrer">` : '';
         const detailPeople = detailLocation?.characters || [];
-        const peopleHtml = detailPeople.length ? `<div class="igs-map-card-people"><p>在场人物</p><div>${detailPeople.map(name => `<span class="igs-map-card-person"><span class="igs-map-card-person-avatar" aria-hidden="true">${personInitial(name)}</span><span>${escapeHtml(name)}</span></span>`).join('')}</div></div>` : '';
+        const peopleLabel = table?.place ? '位于此处的角色' : '在场人物';
+        const peopleHtml = detailPeople.length ? `<div class="igs-map-card-people"><p>${peopleLabel}</p><div>${detailPeople.map(name => `<span class="igs-map-card-person"><span class="igs-map-card-person-avatar" aria-hidden="true">${personInitial(name)}</span><span>${escapeHtml(name)}</span></span>`).join('')}</div></div>` : '';
         const childButton = place && getMapChildren(table, place.id).length
             ? `<button class="igs-map-card-secondary" type="button" data-map-act="enter" data-map-id="${escapeHtml(place.id)}">查看子地点</button>` : '';
         const travelButton = place && place.name && place.rowId && !place.issues.includes('地点ID重复')

@@ -1,3 +1,5 @@
+/table/
+
 node_modules/
 npm-debug.log*
 pnpm-lock.yaml

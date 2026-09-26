@@ -3815,6 +3815,79 @@ test('gate:simulation:map-panel-navigates-read-only-sheets-refreshes-and-cleans-
     assert.equal(document.getElementById('igs-map-panel'), null);
 });
 
+test('gate:simulation:place-map-reads-live-character-locations-without-using-presence', () => {
+    const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
+    const overlay = document.createElement('div');
+    document.body.appendChild(overlay);
+    const callbacks = new Set();
+    let location = '咖啡馆';
+    let writes = 0;
+    const api = {
+        exportTableAsJson() {
+            return {
+                place: { uid: 'sheet_chang_jing_di_dian_biao', name: '场景地点表', content: [
+                    ['row_id', '地点名称', '场景描述', '上级地点ID', 'x', 'y'],
+                    [1, '咖啡馆', '临街小店', '', '.2', '.3'],
+                    [2, '图书馆', '阅读室', '', '.7', '.8'],
+                ] },
+                chars: { uid: 'sheet_zhong_yao_jue_se_biao', name: '重要角色表', content: [
+                    ['row_id', '姓名', '所在地点', '在场状态'], [1, '<爱丽丝>', location, '离场'],
+                ] },
+            };
+        },
+        registerTableUpdateCallback(callback) { callbacks.add(callback); },
+        unregisterTableUpdateCallback(callback) { callbacks.delete(callback); },
+        updateCell() { writes++; },
+    };
+    const panel = createMapPanelController(document, { AutoCardUpdaterAPI: api }, async () => ({ ok: true }));
+    assert.equal(panel.open(overlay, {}, '咖啡馆').ok, true);
+    let root = document.getElementById('igs-map-panel');
+    assert.equal(panel.getState().currentId, 'sheet_chang_jing_di_dian_biao:1');
+    assert.match(root.innerHTML, /位于此处的角色/);
+    assert.match(root.innerHTML, /&lt;爱丽丝&gt;/);
+    assert.doesNotMatch(root.innerHTML, /<爱丽丝>/);
+    location = '图书馆';
+    callbacks.forEach(callback => callback());
+    assert.deepEqual(panel.getState().model.tables[0].locations.map(item => item.characters), [[], ['<爱丽丝>']]);
+    assert.doesNotMatch(root.innerHTML, /位于此处的角色/);
+    assert.equal(writes, 0);
+    panel.close();
+    assert.equal(callbacks.size, 0);
+});
+
+test('gate:simulation:relationship-page-displays-important-character-profiles-not-networks', () => {
+    const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
+    const overlay = document.createElement('div');
+    document.body.appendChild(overlay);
+    let writes = 0;
+    const api = {
+        exportTableAsJson() {
+            return {
+                chars: { uid: 'sheet_zhong_yao_jue_se_biao', name: '重要角色表', content: [
+                    ['row_id', '姓名', '角色类型', '一句话介绍', '所在地点', '人际关系'],
+                    [1, '爱丽丝', '恋爱对象', '<图书管理员>', '图书馆', '木下:同学'],
+                    [2, '木下', '配角', '咖啡馆员工', '咖啡馆', '爱丽丝:同学'],
+                ] },
+                network: { uid: 'sheet_guan_xi_wang_luo_biao', name: '关系网络表', content: [
+                    ['row_id', '名称', '立场'], [1, '学生会', '友好'],
+                ] },
+            };
+        },
+        updateCell() { writes++; },
+    };
+    const panel = createRecordPanelController(document, { AutoCardUpdaterAPI: api });
+    assert.equal(panel.open(overlay, {}, 'relationships').ok, true);
+    const root = document.getElementById('igs-record-panel');
+    assert.equal(panel.getState().activeUid, 'sheet_zhong_yao_jue_se_biao');
+    assert.match(root.innerHTML, /爱丽丝 · 恋爱对象/);
+    assert.match(root.innerHTML, /&lt;图书管理员&gt;/);
+    assert.match(root.innerHTML, /同学/);
+    assert.doesNotMatch(root.innerHTML, /学生会|<图书管理员>/);
+    assert.equal(writes, 0);
+    panel.close();
+});
+
+
 test('gate:simulation:map-hud-entry-does-not-open-while-collapsed-and-only-fills-reader-draft', async () => {
     const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
     const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify({

@@ -25,9 +25,9 @@ function fieldIndex(columns, names) {
 // 人际关系显式字段契约：只识别明确列名，不从自然语言描述推断关系。
 const RELATIONSHIP_FIELDS = Object.freeze({
     name: ['姓名', '人物', '角色', '名称'],
-    role: ['身份', '职业', '称谓'],
-    description: ['人物描述', '描述', '说明'],
-    related: ['相关人员', '关联人员', '相关人物'],
+    role: ['角色类型', '身份', '职业', '称谓'],
+    description: ['一句话介绍', '人物描述', '描述', '说明'],
+    related: ['人际关系', '相关人员', '关联人员', '相关人物'],
     pairFrom: ['人物A', '主体'],
     pairTo: ['人物B', '对象'],
     relation: ['关系'],
@@ -73,6 +73,19 @@ export function buildRelationshipModel(readResult) {
                 role: get(roleIdx), description: get(descIdx), relatedText,
                 cells, detailCells: cells.filter((cell, index) => !hidden.has(index)),
             });
+            if (String(table.columns[relatedIdx] || '').trim() === '人际关系') {
+                // 角色档案以“姓名:标签1,标签2; 姓名:标签”明确记录关联。
+                for (const part of relatedText.split(/[;；]/).map(text => text.trim()).filter(Boolean)) {
+                    const match = /^([^:：]+)[:：](.+)$/.exec(part);
+                    if (!match) continue;
+                    const target = match[1].trim();
+                    if (!target || target === name) continue;
+                    for (const label of match[2].split(/[,，]/).map(text => text.trim()).filter(Boolean)) {
+                        edges.push({ id: `${table.uid}:${rowIndex}→${target}:${label}`, uid: table.uid, from: name, to: target, label, rowIndex });
+                    }
+                }
+                return;
+            }
             for (const item of relatedText.split(/[、,，;；]/).map(part => part.trim()).filter(Boolean)) {
                 const match = /^(.+?)[（(]([^（）()]+)[）)]$/.exec(item);
                 const target = (match ? match[1] : item).trim();

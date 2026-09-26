@@ -1,7 +1,11 @@
 import { parseTables } from './table-parser.js';
-import { matchesRecordTable } from './record-tables.js';
+import { isImportantCharactersTable, matchesRecordTable } from './record-tables.js';
 
-const REQUIRED = ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序'];
+const LEGACY_FIELDS = ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序'];
+const PLACE_FIELDS = ['row_id', '上级地点ID', '地点名称', 'x', 'y', '场景描述'];
+const PLACE_SHEET_UID = 'sheet_chang_jing_di_dian_biao';
+const mapFields = table => table.uid === PLACE_SHEET_UID || table.name === '场景地点表'
+    ? { fields: PLACE_FIELDS, place: true } : { fields: LEGACY_FIELDS, place: false };
 const BASEMAP_FIELDS = ['地图底图', '底图'];
 const DATA_URL_MAX_CHARS = 12_000_000; // 约 8 MiB 二进制对应的 base64 长度上限
 const value = (row, index) => index < 0 ? '' : String(row[index] ?? '').trim();
@@ -11,11 +15,32 @@ const coordinate = (raw) => {
     return Number.isFinite(number) && number >= 0 && number <= 1 ? number : null;
 };
 
-// This contract describes newly authored map sheets, not a migration of existing user sheets.
+// 新地点表按原有列读取，旧地图表继续使用既有列名与静态人物名单。
 export function buildMapModel(tables) {
-    const matches = (Array.isArray(tables) ? tables : []).filter(table => matchesRecordTable(table.name, 'map'));
+    const source = Array.isArray(tables) ? tables : [];
+    const matches = source.filter(table => matchesRecordTable(table.name, 'map'));
     if (!matches.length) return { status: 'no-tables', tables: [] };
-    return { status: 'ready', tables: matches.map(buildMapTable) };
+    const maps = matches.map(buildMapTable);
+    const characterTable = source.find(isImportantCharactersTable);
+    const nameIndex = characterTable?.columns?.indexOf('姓名') ?? -1;
+    const locationIndex = characterTable?.columns?.indexOf('所在地点') ?? -1;
+    if (nameIndex >= 0 && locationIndex >= 0) {
+        const byName = new Map();
+        for (const map of maps) for (const location of map.locations) {
+            if (!map.place || !location.name || !location.rowId || location.issues.includes('地点ID重复')) continue;
+            const hits = byName.get(location.name) || [];
+            hits.push(location);
+            byName.set(location.name, hits);
+        }
+        for (const row of characterTable.rows || []) {
+            if (!Array.isArray(row)) continue;
+            const name = String(row[nameIndex] ?? '').trim();
+            const place = String(row[locationIndex] ?? '').trim();
+            const hits = byName.get(place) || [];
+            if (name && hits.length === 1 && !hits[0].characters.includes(name)) hits[0].characters.push(name);
+        }
+    }
+    return { status: 'ready', tables: maps };
 }
 
 export function readMapModel(readResult) {
@@ -28,15 +53,17 @@ export function readMapModel(readResult) {
 function buildMapTable(table) {
     const columns = Array.isArray(table.columns) ? table.columns : [];
     const rows = Array.isArray(table.rows) ? table.rows : [];
-    const indices = Object.fromEntries(REQUIRED.map(key => [key, columns.indexOf(key)]));
-    const missingColumns = REQUIRED.filter(key => indices[key] < 0);
+    const { fields, place } = mapFields(table);
+    const indices = Object.fromEntries(fields.map(key => [key, columns.indexOf(key)]));
+    const missingColumns = fields.filter(key => indices[key] < 0);
     const diagnostics = missingColumns.map(key => `缺少列：${key}`);
+    const [idKey, parentKey, nameKey, , , descriptionKey] = fields;
     const idCounts = new Map();
     const locations = rows.map((raw, index) => {
         const row = Array.isArray(raw) ? raw : [];
-        const rowId = value(row, indices['地点ID']);
-        const parentRowId = value(row, indices['上级地点ID']);
-        const name = value(row, indices['名称']);
+        const rowId = value(row, indices[idKey]);
+        const parentRowId = value(row, indices[parentKey]);
+        const name = value(row, indices[nameKey]);
         const rawX = value(row, indices.x);
         const rawY = value(row, indices.y);
         const x = coordinate(rawX);
@@ -47,12 +74,12 @@ function buildMapTable(table) {
         if ((rawX && x === null) || (rawY && y === null)) issues.push('坐标超出 0–1');
         if (Boolean(rawX) !== Boolean(rawY)) issues.push('坐标未成对填写');
         if (rowId) idCounts.set(rowId, (idCounts.get(rowId) || 0) + 1);
-        const characters = value(row, indices['角色']).split(/[、,，;；\n]+/).map(part => part.trim()).filter(Boolean);
+        const characters = place ? [] : value(row, indices['角色']).split(/[、,，;；\n]+/).map(part => part.trim()).filter(Boolean);
         return {
             id: `${table.uid}:${rowId || `row-${index + 1}`}`,
             rowId, parentRowId, parentId: null, name, x, y,
-            description: value(row, indices['说明']), characters,
-            order: Number(value(row, indices['排序'])) || 0, rowIndex: index, issues,
+            description: value(row, indices[descriptionKey]), characters,
+            order: place ? 0 : Number(value(row, indices['排序'])) || 0, rowIndex: index, issues,
         };
     });
     for (const loc of locations) {
@@ -76,7 +103,7 @@ function buildMapTable(table) {
         loc.parentId = parent.id;
     }
     if (!rows.length) diagnostics.push('地图表为空');
-    return { uid: table.uid, name: table.name, columns, rows, missingColumns, diagnostics, locations };
+    return { uid: table.uid, name: table.name, columns, rows, missingColumns, diagnostics, locations, ...(place ? { place: true } : {}) };
 }
 
 export function getMapChildren(table, parentId = null) {

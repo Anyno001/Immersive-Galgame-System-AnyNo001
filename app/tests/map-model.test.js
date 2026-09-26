@@ -225,3 +225,86 @@ test('relationship model distinguishes empty and failed reads without inventing 
   } }).status, 'empty');
   assert.deepEqual(buildRelationshipModel({ ok: true, data: {} }), { status: 'no-tables', tables: [], reason: '', people: [], edges: [] });
 });
+
+
+test('scene place sheet uses its own schema and locates NPCs from important characters', () => {
+  const data = {
+    place: { uid: 'sheet_chang_jing_di_dian_biao', name: '场景地点表', content: [
+      ['row_id', '地点名称', '场景描述', '上级地点ID', 'x', 'y'],
+      [1, '街区', '热闹的街区', '', '', ''],
+      [2, '咖啡馆', '街角小店', 1, '0.3', '0.7'],
+      [3, '图书馆', '临街阅览室', 1, '0.8', '0.2'],
+    ] },
+    characters: { uid: 'sheet_zhong_yao_jue_se_biao', name: '重要角色表', content: [
+      ['row_id', '姓名', '所在地点', '在场状态'],
+      [1, '爱丽丝', '咖啡馆', '离场'],
+      [2, '木下', '图书馆', '在场'],
+      [3, '未知', '不存在', '在场'],
+    ] },
+  };
+  const model = readMapModel({ ok: true, data });
+  const map = model.tables[0];
+  assert.deepEqual(map.missingColumns, []);
+  assert.deepEqual(map.locations.map(loc => loc.characters), [[], ['爱丽丝'], ['木下']]);
+  assert.equal(map.locations[1].parentId, 'sheet_chang_jing_di_dian_biao:1');
+  assert.equal(map.locations[1].description, '街角小店');
+  assert.deepEqual(getMapChildren(map, 'sheet_chang_jing_di_dian_biao:1').map(loc => loc.name), ['咖啡馆', '图书馆']);
+  assert.equal(map.locations[1].x, 0.3);
+  // Refresh reads location anew; presence is not a map-position filter.
+  data.characters.content[1][2] = '图书馆';
+  const refreshed = readMapModel({ ok: true, data }).tables[0];
+  assert.deepEqual(refreshed.locations.map(loc => loc.characters), [[], [], ['爱丽丝', '木下']]);
+  assert.deepEqual(map.locations[1].characters, ['爱丽丝']);
+});
+
+test('ambiguous place names do not claim an NPC; legacy map retains explicit character column', () => {
+  const places = table('sheet_chang_jing_di_dian_biao', '场景地点表',
+    [[1, '同名', '', '', '', ''], [2, '同名', '', '', '', '']],
+    ['row_id', '地点名称', '场景描述', '上级地点ID', 'x', 'y']);
+  const characters = table('sheet_zhong_yao_jue_se_biao', '重要角色表',
+    [[1, '小明', '同名', '离场']], ['row_id', '姓名', '所在地点', '在场状态']);
+  const legacy = table('sheet_old', '旧地图', [row('old', '', '旧地点', '', '', '', '老友')]);
+  const model = buildMapModel([places, characters, legacy]);
+  assert.deepEqual(model.tables[0].locations.map(loc => loc.characters), [[], []]);
+  assert.deepEqual(model.tables[1].locations[0].characters, ['老友']);
+});
+
+test('invalid pin coordinates do not hide a character at a uniquely named place', () => {
+  const places = table('sheet_chang_jing_di_dian_biao', '场景地点表',
+    [[1, '咖啡馆', '', '', '2', '']], ['row_id', '地点名称', '场景描述', '上级地点ID', 'x', 'y']);
+  const characters = table('sheet_zhong_yao_jue_se_biao', '重要角色表',
+    [[1, '爱丽丝', '咖啡馆', '离场']], ['row_id', '姓名', '所在地点', '在场状态']);
+  const location = buildMapModel([places, characters]).tables[0].locations[0];
+  assert.ok(location.issues.includes('坐标未成对填写'));
+  assert.deepEqual(location.characters, ['爱丽丝']);
+});
+
+test('relationship page prefers full important-character profiles over network records', () => {
+  const read = { ok: true, data: {
+    chars: { uid: 'sheet_zhong_yao_jue_se_biao', name: '重要角色表', content: [
+      ['row_id', '姓名', '角色类型', '一句话介绍', '所在地点', '人际关系'],
+      [1, '爱丽丝', '恋爱对象', '图书管理员', '图书馆', '木下:同学,邻居; 林夏:旧识'],
+      [2, '木下', '家人', '咖啡馆店员', '咖啡馆', '爱丽丝:同学'],
+    ] },
+    networks: { uid: 'sheet_guan_xi_wang_luo_biao', name: '关系网络表', content: [
+      ['row_id', '名称', '立场', '关联角色'], [1, '学生会', '友好', '爱丽丝'],
+    ] },
+  } };
+  const selection = selectRecordTables(read, 'relationships');
+  assert.deepEqual(selection.tables.map(item => item.name), ['重要角色表']);
+  const model = buildRelationshipModel(read);
+  assert.equal(model.status, 'ready');
+  assert.equal(model.people.find(person => person.name === '爱丽丝').role, '恋爱对象');
+  assert.equal(model.people.find(person => person.name === '爱丽丝').description, '图书管理员');
+  assert.deepEqual(model.edges.map(edge => [edge.from, edge.to, edge.label]),
+    [['爱丽丝', '木下', '同学'], ['爱丽丝', '木下', '邻居'], ['爱丽丝', '林夏', '旧识']]);
+  assert.equal(model.people.some(person => person.name === '学生会'), false);
+  assert.ok(model.people.some(person => person.name === '林夏' && person.synthetic));
+  assert.equal(selectRecordTables({ ok: true, data: { networks: read.data.networks } }, 'relationships').status, 'no-tables');
+  assert.equal(selectRecordTables({ ok: true, data: { networks: {
+    ...read.data.networks, name: '学生会关系',
+  } } }, 'relationships').status, 'no-tables');
+  assert.equal(selectRecordTables({ ok: true, data: {
+    chars: { ...read.data.chars, content: [read.data.chars.content[0]] }, networks: read.data.networks,
+  } }, 'relationships').status, 'empty');
+});
