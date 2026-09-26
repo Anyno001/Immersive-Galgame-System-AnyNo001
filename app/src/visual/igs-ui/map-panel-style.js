@@ -1,25 +1,27 @@
 export const MAP_PANEL_STYLE_TEXT = `
 #igs-status-hud .igs-hud-toggle{z-index:0;}
-#igs-status-hud .igs-hud-identity{position:relative;z-index:1;pointer-events:none;}
-#igs-status-hud .igs-hud-avatar-frame{position:relative;width:calc(46px * var(--igs-hud-scale,1));height:calc(46px * var(--igs-hud-scale,1));}
-#igs-status-hud .igs-hud-entry-anchor{position:relative;max-width:100%;min-width:0;pointer-events:none;}
-#igs-status-hud .igs-hud-entry-anchor{display:flex;flex-direction:column;align-items:center;}
-#igs-status-hud .igs-hud-emotion + .igs-hud-entry-arrow{top:calc(50% + .5px);}
-#igs-status-hud.igs-hud-character-emotion-with-metrics .igs-hud-metrics{align-self:flex-start;height:calc(46px * var(--igs-hud-scale,1));}
-#igs-status-hud.igs-hud-size-large .igs-hud-location ~ .igs-hud-entry-arrow{top:calc(50% + 1px);}
-#igs-status-hud .igs-hud-entry-arrow{position:absolute;left:calc(100% - 7px);top:calc(50% + 2.5px);transform:translateY(-50%);display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;background:transparent;color:rgba(232,230,226,.7);cursor:pointer;pointer-events:auto;}
-#igs-status-hud .igs-hud-entry-arrow svg{width:13px;height:13px;transition:transform .15s ease;}
+#igs-status-hud .igs-hud-identity{display:contents;}
+#igs-status-hud .igs-hud-avatar-frame{position:relative;grid-column:1;grid-row:1 / span 2;align-self:center;width:calc(46px * var(--igs-hud-scale,1));height:calc(46px * var(--igs-hud-scale,1));}
+#igs-status-hud .igs-hud-entry-anchor{position:relative;z-index:1;grid-column:2;grid-row:1;justify-self:start;display:flex;align-items:center;gap:calc(3px * var(--igs-hud-scale,1));max-width:100%;min-width:0;pointer-events:none;}
+#igs-status-hud .igs-hud-emotion{flex:none;}
+#igs-status-hud .igs-hud-metrics{grid-column:2;grid-row:2;margin-top:calc(4px * var(--igs-hud-scale,1));}
+#igs-status-hud.igs-hud-no-metrics .igs-hud-metrics{display:none;}
+#igs-status-hud.igs-hud-no-metrics .igs-hud-entry-anchor{grid-row:1 / span 2;}
+#igs-status-hud .igs-hud-overflow{grid-column:3;grid-row:2;}
+#igs-status-hud .igs-hud-entry-arrow{position:relative;display:grid;place-items:center;flex:none;width:14px;height:20px;margin-left:calc(-2px * var(--igs-hud-scale,1));padding:0;border:0;background:transparent;color:rgba(232,230,226,.7);cursor:pointer;pointer-events:auto;}
+#igs-status-hud .igs-hud-entry-arrow::after{content:"";position:absolute;inset:-6px -8px;}
+#igs-status-hud .igs-hud-entry-arrow svg{width:12px;height:12px;transition:transform .15s ease;}
 #igs-status-hud .igs-hud-entry-arrow[aria-expanded="true"] svg{transform:rotate(-90deg);}
 #igs-status-hud .igs-hud-location-icon{display:flex;flex:0 0 auto;width:calc(16px * var(--igs-hud-scale,1));height:calc(16px * var(--igs-hud-scale,1));color:rgba(255,255,255,.48);pointer-events:none;}
 #igs-status-hud .igs-hud-location-icon svg{display:block;width:100%;height:100%;}
-#igs-status-hud .igs-hud-entry-menu{position:absolute;left:calc(100% + 18px);top:calc(50% + 1.5px);transform:translateY(-50%);z-index:3;display:flex;flex-direction:row;align-items:center;gap:1px;padding-left:0;pointer-events:none;}
+#igs-status-hud .igs-hud-entry-menu{position:relative;z-index:3;display:flex;flex-direction:row;align-items:center;gap:1px;margin-left:calc(2px * var(--igs-hud-scale,1));padding-left:calc(4px * var(--igs-hud-scale,1));border-left:1px solid rgba(255,255,255,.2);pointer-events:none;}
 #igs-status-hud .igs-hud-entry-menu[hidden]{display:none;}
 #igs-status-hud .igs-hud-entry-item{display:flex;align-items:center;gap:3px;min-width:0;padding:3px;border:0;background:transparent;color:rgba(232,230,226,.58);font-size:13px;white-space:nowrap;cursor:pointer;pointer-events:auto;}
 #igs-status-hud .igs-hud-entry-item:hover{color:#fff;}
 #igs-status-hud .igs-hud-entry-item svg{width:12.4px;height:12.4px;flex:none;}
 #igs-status-hud .igs-hud-entry-arrow:focus-visible,#igs-status-hud .igs-hud-entry-item:focus-visible{outline:2px solid #f4e3ad;outline-offset:1px;}
 #igs-status-hud.igs-hud-suppressed .igs-hud-toggle,#igs-status-hud.igs-hud-suppressed .igs-hud-entry-anchor{pointer-events:none;visibility:hidden;}
-@media (pointer:coarse){#igs-status-hud .igs-hud-entry-arrow{width:44px;height:44px;}#igs-status-hud .igs-hud-entry-menu{padding-left:0;}}
+@media (pointer:coarse){#igs-status-hud .igs-hud-entry-arrow::after{inset:-12px -14px;}}
 #igs-status-hud .igs-hud-entry-item svg path,#igs-status-hud .igs-hud-entry-item svg rect,#igs-status-hud .igs-hud-entry-item svg circle,#igs-status-hud .igs-hud-location-icon svg path,#igs-status-hud .igs-hud-location-icon svg circle{stroke-width:1.8;}
 #igs-map-panel{position:absolute;inset:0;z-index:11;display:block;padding:0;box-sizing:border-box;pointer-events:auto;background:#0b0d10;color:var(--igs-rp-text,#ece8e1);}
 #igs-map-panel .igs-map-window{position:relative;width:100%;height:100%;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent;border:0;border-radius:0;box-shadow:none;}

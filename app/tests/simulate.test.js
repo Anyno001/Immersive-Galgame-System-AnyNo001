@@ -4260,14 +4260,14 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.equal(hud.querySelectorAll('.igs-hud-metric').length, 0);
     assert.equal(hud.classList.contains('igs-hud-character-emotion-only'), true);
     const css = getOriginalReaderStyleText();
-    assert.match(css, /#igs-status-hud \.igs-hud-identity\{position:relative;z-index:1;pointer-events:none;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-identity\{display:contents;\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-toggle\{z-index:0;\}/);
-    assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*width:32px;height:32px;[^}]*pointer-events:auto;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*flex:none;width:14px;height:20px;[^}]*pointer-events:auto;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\[aria-expanded="true"\] svg\{[^}]*rotate\(-90deg\)/);
-    assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*left:calc\(100% - 7px\);top:calc\(50% \+ 2\.5px\)/);
-    assert.match(css, /#igs-status-hud\.igs-hud-size-large \.igs-hud-location ~ \.igs-hud-entry-arrow\{top:calc\(50% \+ 1px\);\}/);
-    assert.match(css, /#igs-status-hud \.igs-hud-emotion \+ \.igs-hud-entry-arrow\{top:calc\(50% \+ \.5px\);\}/);
-    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:calc\(100% \+ 18px\);top:calc\(50% \+ 1\.5px\);[^}]*flex-direction:row;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-avatar-frame\{[^}]*grid-column:1;grid-row:1 \/ span 2;align-self:center;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-anchor\{[^}]*grid-column:2;grid-row:1;[^}]*display:flex;align-items:center;/);
+    assert.match(css, /#igs-status-hud\.igs-hud-no-metrics \.igs-hud-entry-anchor\{grid-row:1 \/ span 2;\}/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*flex-direction:row;[^}]*border-left:1px solid/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*background:transparent;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item svg\{width:12\.4px;height:12\.4px;flex:none;\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*font-size:13px;/);
@@ -5364,7 +5364,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     const overflow = host.querySelector('.igs-hud-overflow');
     assert.equal(overflow.textContent, '+1');
     const metricsCss = getOriginalReaderStyleText();
-    assert.match(metricsCss, /#igs-status-hud\.igs-hud-character-emotion-with-metrics \.igs-hud-metrics\{[^}]*align-self:flex-start;height:calc\(46px \* var\(--igs-hud-scale,1\)\);/);
+    assert.match(metricsCss, /#igs-status-hud \.igs-hud-metrics\{grid-column:2;grid-row:2;/);
 
     const labels = Array.from(host.querySelectorAll('.igs-hud-metric-label')).map((node) => node.textContent);
     assert.deepEqual(labels, ['信任', '好感', '了解', '体力']);
