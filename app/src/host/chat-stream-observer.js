@@ -5,6 +5,7 @@ import { getSillyTavernContext } from './tavern-helper-adapter.js';
 
 export const DEFAULT_STABLE_MS = 800;
 export const DEFAULT_HARD_TIMEOUT_MS = 120000;
+export const DEFAULT_IDLE_MS = 10000;
 
 const FALLBACK_GENERATION_EVENTS = Object.freeze({
     started: 'generation_started',
@@ -19,6 +20,7 @@ export function createChatStreamObserver(opts = {}) {
     const onTimeout = typeof opts.onTimeout === 'function' ? opts.onTimeout : onStable;
     const stableMs = Number(opts.stableMs) > 0 ? Number(opts.stableMs) : DEFAULT_STABLE_MS;
     const hardTimeoutMs = Number(opts.hardTimeoutMs) > 0 ? Number(opts.hardTimeoutMs) : DEFAULT_HARD_TIMEOUT_MS;
+    const idleMs = Number(opts.idleMs) > 0 ? Number(opts.idleMs) : DEFAULT_IDLE_MS;
     let observer = null;
     let stableTimer = null;
     let hardTimer = null;
@@ -48,7 +50,7 @@ export function createChatStreamObserver(opts = {}) {
         hardTimer = null;
     };
 
-    const scheduleStable = () => {
+    const scheduleStable = (delay = stableMs) => {
         if (!active) return;
         clearStable();
         stableTimer = getSetter()(() => {
@@ -65,7 +67,7 @@ export function createChatStreamObserver(opts = {}) {
                     scheduleStable();
                 })
                 .catch(() => scheduleStable());
-        }, stableMs);
+        }, delay);
     };
 
     const ensureHard = () => {
@@ -83,11 +85,17 @@ export function createChatStreamObserver(opts = {}) {
         if (!active) return;
         try { onActivity(); } catch (error) { /* */ }
         ensureHard();
-        if (!lifecycleAvailable || (manualArmed && !generationActive)) scheduleStable();
+        // 生成期间结束事件可能缺失（宿主报错、版本差异），#chat 静默 idleMs 即先收尾；
+        // 仍在生成时下一次变更会重新进入载入态，避免只能等硬超时。
+        scheduleStable(lifecycleAvailable && generationActive ? idleMs : stableMs);
     };
 
-    const onGenerationStarted = () => {
+    const onGenerationStarted = (type, params, dryRun) => {
         if (!active) return;
+        // quiet 为插件后台请求、dryRun 只组装提示词，二者都不写入楼层；dryRun 还不会发结束事件，
+        // 若据此武装，会让之后任意 #chat 变更长期卡在“正在生成”。
+        if (dryRun === true) return;
+        if (type === 'quiet' && !(params && params.quietToLoud)) return;
         generationActive = true;
         manualArmed = false;
         // 酒馆生成事件是全局信号，插件自身的 API 请求也会触发它。

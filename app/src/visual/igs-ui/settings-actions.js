@@ -6,6 +6,7 @@ import { loadScenePresets, saveScenePresets } from '../../scene/scene-preset-sto
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
+import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 
 const STATUS_AVATAR_MAX_BYTES = 512 * 1024;
 const STATUS_AVATAR_MIME = /^image\/(?:png|jpeg|jpg|webp|gif|bmp|svg\+xml)$/i;
@@ -103,6 +104,37 @@ export async function handleSettingsAction(action, ctx) {
         const current = normalizeStageShakeSettings(readerDraft.stageShake);
         current.emotions = current.emotions.filter((item) => item !== emotion);
         readerDraft.stageShake = current;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    const weatherWordAdd = normalizedAction.match(/^weather-fx-add-(indoor|outdoor)$/);
+    if (weatherWordAdd) {
+        const scene = weatherWordAdd[1];
+        const globalObj = options.global || globalThis;
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeWeatherFxSettings(readerDraft.weatherFx);
+        const listKey = `${scene}Words`;
+        const raw = globalObj.prompt ? globalObj.prompt(scene === 'indoor' ? '新增室内地点词：' : '新增室外地点词：', '') : '';
+        const word = String(raw == null ? '' : raw).trim();
+        if (word && !current[listKey].includes(word)) {
+            current[listKey].push(word);
+            readerDraft.weatherFx = current;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+        }
+        return rerenderSettings();
+    }
+
+    const weatherWordRemove = normalizedAction.match(/^weather-fx-remove-(indoor|outdoor):/);
+    if (weatherWordRemove) {
+        const listKey = `${weatherWordRemove[1]}Words`;
+        const word = decodeSeg(normalizedAction.slice(weatherWordRemove[0].length));
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeWeatherFxSettings(readerDraft.weatherFx);
+        current[listKey] = current[listKey].filter((item) => item !== word);
+        readerDraft.weatherFx = current;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();

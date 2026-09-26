@@ -7,8 +7,9 @@ const CHAR_RE = /\[igs-char:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
 const THOUGHT_RE = /\[igs-thought:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
 // 锚定在当前位置的版本：用于「紧贴当前位置」的指令识别。
 const SCENE_AT_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
-const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
-const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|([^|\]]+)\|([^|\]]+)\]/;
+// 台词/心里话漏写 "]" 时以行尾收口，与正文格式化规则一致；表情栏可省略（两栏写法视为没写表情）。
+const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
+const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 // 找出当前位置之后最近一条 igs 指令的起始下标；没有则返回 -1。
 function nextDirectiveIndex(text) {
     const m = String(text || '').match(/\[igs-(?:scene|char|thought):/);
@@ -56,16 +57,18 @@ export function extractSceneDirectives(text) {
                 });
             } else if ((m = rest.match(CHAR_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
-                directives.push({ type: 'char', character: m[1].trim(), mood: m[2].trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i, offset: cursor });
+                directives.push({ type: 'char', character: m[1].trim(), mood: String(m[2] || '').trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i, offset: cursor });
             } else if ((m = rest.match(THOUGHT_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
-                directives.push({ type: 'thought', character: m[1].trim(), mood: m[2].trim(), thought: m[3].trim(),segmentIndex: segmentCount, lineIndex: i, offset: cursor });
+                directives.push({ type: 'thought', character: m[1].trim(), mood: String(m[2] || '').trim(), thought: m[3].trim(),segmentIndex: segmentCount, lineIndex: i, offset: cursor });
             } else {
                 // 当前位置不是指令：把到「下一条指令之前」的文本计入正文。
-                const nextAt = nextDirectiveIndex(rest);
+                // 残缺指令（缺 "]" 或缺字段）停在当前位置时 nextAt 为 0，须越过其 "[" 当正文，否则死循环。
+                const nextAt = nextDirectiveIndex(rest.slice(1));
                 if (nextAt < 0) { pending += rest; rest = ''; break; }
-                pending += rest.slice(0, nextAt);
-                rest = rest.slice(nextAt);
+                pending += rest.slice(0, nextAt + 1);
+                rest = rest.slice(nextAt + 1);
+                cursor += nextAt + 1;
                 continue;
             }
             rest = rest.slice(m[0].length);
@@ -117,6 +120,25 @@ export function resolveSceneAtSourceOffset(source, position) {
         character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: 'scene',
     };
 }
+
+// 从已提取的指令中取最后一条 [igs-scene]：供跨楼层场景追溯使用，
+// 当前楼层正文未重发场景标签时继承上一 AI 楼层的场景状态。
+export function resolveLatestSceneDirective(directives) {
+    if (!Array.isArray(directives)) return null;
+    for (let index = directives.length - 1; index >= 0; index -= 1) {
+        const directive = directives[index];
+        if (directive && directive.type === 'scene' && directive.scene) {
+            return {
+                scene: directive.scene,
+                time: directive.time || '',
+                weather: directive.weather || '',
+                nsfw: directive.nsfw === true,
+            };
+        }
+    }
+    return null;
+}
+
 
 export function resolveSceneStateAtIndex(directives, segmentIndex) {
     const state = { scene: '', time: '', weather: '', nsfw: false, character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: '' };

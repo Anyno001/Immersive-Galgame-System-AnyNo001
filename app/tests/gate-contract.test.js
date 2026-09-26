@@ -804,6 +804,8 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(performanceTemplate, /typewriterControls/);
     assert.match(performanceTemplate, /stageShakeToggle/);
     assert.match(performanceTemplate, /stageShakeSettings/);
+    assert.match(performanceTemplate, /weatherFxToggle/);
+    assert.match(performanceTemplate, /weatherFxSettings/);
     assert.match(performanceTemplate, /performanceToggles/);
     assert.match(performanceTemplate, /nsfwVeilLevelField/);
     assert.match(optionsTemplate, /optionFontSizeField/);
@@ -969,12 +971,10 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     }
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="western-classic"/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:110px 184px,calc\(100% - 220px\) 184px,110px 184px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /left:35px;top:-22px;width:min\(300px,calc\(100% - 70px\)\);height:50px;line-height:1\.2;margin:0;padding:1\.6em 36px 0 calc\(36px \+ \.2em\);display:flex;align-items:center;justify-content:center/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:40px 50px,calc\(100% - 80px\) 50px,40px 50px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /font-size:13px;font-weight:600;letter-spacing:\.5px/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /-webkit-text-stroke:\.6px rgba\(255,255,255,\.78\)/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /@media \(max-width:640px\)\{#igs-overlay \.igs-dialog\[data-igs-dialog-skin="western-classic"\] \.igs-speaker\{left:38px;top:-14px;width:41\.667%;height:50px;line-height:1\.2/);
-    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-has-speaker="1"\]\{padding-top:44px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /\.igs-speaker\{[^}]*left:60px;top:-22px;width:max-content;min-width:150px;max-width:calc\(100% - 120px\);height:52px;line-height:44px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /background-size:50px 52px,calc\(100% - 100px\) 52px,50px 52px/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /\.igs-speaker\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px;font-weight:600/);
+    assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data-igs-has-speaker="1"\]\{padding:38px 50px 22px 50px;\}/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /overflow:visible/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /data:image\/png;base64,/);
     assert.match(CLASSIC_DIALOG_STYLE_TEXT, /CLASSIC_DIALOG_ASSETS|iVBORw0KGgo/);
@@ -994,12 +994,28 @@ test('gate:igs-ui:illustrated-dialog-style-uses-three-slice-assets', () => {
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_CUTE_PINK}"`));
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /height:215px;min-height:215px;max-height:215px/);
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /background-size:120px 215px,calc\(100% - 265px\) 215px,145px 215px/);
-    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="plant-coffee"\] \.igs-speaker\{[^}]*display:flex;align-items:center;justify-content:center/);
-    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="black-white-manga"\] \.igs-speaker\{[^}]*padding:0 84px;display:flex;align-items:center;justify-content:flex-start/);
-    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /data-igs-dialog-skin="cute-pink"\] \.igs-speaker\{[^}]*padding:0 100px 0 40px;display:flex;align-items:center;justify-content:center/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /plant-coffee"\] \.igs-speaker\{[^}]*background-size:31px 42px,calc\(100% - 62px\) 42px,31px 42px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /black-white-manga"\] \.igs-speaker\{[^}]*background-size:56px 56px,calc\(100% - 112px\) 56px,56px 56px/);
+    assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /cute-pink"\] \.igs-speaker\{[^}]*background-size:34px 58px,calc\(100% - 119px\) 58px,85px 58px/);
+    for (const skin of [DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK]) {
+        const speakerRule = ILLUSTRATED_DIALOG_STYLE_TEXT.split('\n').find((line) => line.includes(`"${skin}"] .igs-speaker{`));
+        assert.match(speakerRule, /width:max-content;/);
+        assert.match(speakerRule, /text-overflow:ellipsis/);
+        assert.ok(ILLUSTRATED_DIALOG_STYLE_TEXT.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"]{--igs-skin-plate-rise:`));
+    }
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__plant-coffee\/dialog-left\.png__/);
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__black-white-manga\/name-center\.png__/);
     assert.match(ILLUSTRATED_DIALOG_STYLE_TEXT, /__IGS_ASSET__cute-pink\/dialog-right\.png__/);
+});
+
+test('gate:igs-ui:options-follow-dialog-skin', () => {
+    const css = getOriginalReaderStyleText();
+    for (const skin of ['western-classic', 'plant-coffee', 'black-white-manga', 'cute-pink', 'gradient-veil']) {
+        assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-option-bubble{`), skin);
+        assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-option-bubble:hover{`), skin);
+    }
+    assert.ok(!css.includes('[data-igs-dialog-skin="default"] .igs-option-bubble'));
+    assert.ok(css.includes('#igs-overlay[data-igs-dialog-skin] #igs-option-bubbles{margin-bottom:var(--igs-skin-plate-rise,0px);}'));
 });
 
 test('gate:api:public-api-exposes-text-preset-groups', () => {

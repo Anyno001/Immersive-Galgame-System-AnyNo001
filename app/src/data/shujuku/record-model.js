@@ -1,19 +1,36 @@
 import { selectRecordTables } from './record-tables.js';
 
 const FIELDS = Object.freeze({
-    diary: { author: ['写作角色', '作者', '角色'], chapterTitle: ['篇名', '日记标题', '标题', '主题', '名称'], title: ['写作角色', '角色', '标题', '日记标题', '名称', '主题'], date: ['发生时间', '发生日期', '日期', '时间', '记录时间'], body: ['正文', '内容', '日记内容', '记录', '描述'] },
-    inventory: { title: ['物品名称', '名称', '物品', '道具名称'], quantity: ['数量', '数目', '个数', '数量值', 'amount', 'count'] },
+    diary: { author: ['写作角色', '作者', '角色'], chapterTitle: ['篇名', '日记标题', '标题', '主题', '名称'], title: ['写作角色', '角色', '标题', '日记标题', '名称', '主题'], date: ['发生时间', '发生日期', '日期', '时间', '记录时间'], body: ['正文', '内容', '日记内容', '记录', '描述'], related: ['关联角色', '相关角色', '对象'] },
+    inventory: { title: ['物品名称', '名称', '物品', '道具名称'], quantity: ['数量', '数目', '个数', '数量值', 'amount', 'count'], category: ['类别', '分类', '类型', '种类', '物品类别', '物品类型'] },
 });
 
-const DIARY_CORE_FIELDS = new Set(['写作角色', '作者', '角色', '篇名', '标题', '日记标题', '名称', '主题', '发生时间', '发生日期', '日期', '时间', '记录时间', '正文', '内容', '日记内容', '记录', '描述']);
+const DIARY_CORE_FIELDS = new Set(['写作角色', '作者', '角色', '篇名', '标题', '日记标题', '名称', '主题', '发生时间', '发生日期', '日期', '时间', '记录时间', '正文', '内容', '日记内容', '记录', '描述', '关联角色', '相关角色', '对象']);
 const INVENTORY_TITLE_FIELDS = new Set(['物品名称', '名称', '物品', '道具名称']);
 const INVENTORY_QUANTITY_FIELDS = new Set(['数量', '数目', '个数', '数量值', 'amount', 'count']);
+const INVENTORY_CATEGORY_FIELDS = new Set(FIELDS.inventory.category);
+
+// 宽松日期：识别 2024-06-18、2024/6/18、2024年6月18日、6月18日 及可选 HH:MM，只用于排序与短标签，不改写原值。
+export function parseLooseDate(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return null;
+    const full = /(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})/.exec(text);
+    const short = full ? null : /(?:^|[^\d])(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?/.exec(text);
+    if (!full && !short) return null;
+    const year = full ? Number(full[1]) : 0;
+    const month = Number(full ? full[2] : short[1]);
+    const day = Number(full ? full[3] : short[2]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const time = /(\d{1,2})[:：](\d{2})/.exec(text.slice((full || short).index + (full || short)[0].length));
+    const minutes = time && Number(time[1]) < 24 && Number(time[2]) < 60 ? Number(time[1]) * 60 + Number(time[2]) : 0;
+    return { key: ((year * 13 + month) * 32 + day) * 1440 + minutes, label: `${String(month).padStart(2, '0')}.${String(day).padStart(2, '0')}`, hasYear: Boolean(full) };
+}
 
 function isHiddenDetailField(category, label) {
     const value = String(label || '').trim();
     const normalized = value.toLowerCase().replace(/[\s_-]/g, '');
     // 背包详情：数量由详情头独立呈现，格位角标与详情行不重复。
-    if (category === 'inventory') return normalized === 'rowid' || normalized === 'id' || INVENTORY_TITLE_FIELDS.has(value) || INVENTORY_QUANTITY_FIELDS.has(value);
+    if (category === 'inventory') return normalized === 'rowid' || normalized === 'id' || INVENTORY_TITLE_FIELDS.has(value) || INVENTORY_QUANTITY_FIELDS.has(value) || INVENTORY_CATEGORY_FIELDS.has(value);
     if (category === 'diary') return DIARY_CORE_FIELDS.has(value);
     return false;
 }
@@ -116,7 +133,7 @@ export function buildRecordModel(readResult, category) {
     const tables = selection.tables.map(table => {
         const fields = FIELDS[category];
         const missing = fields ? Object.entries(fields).filter(([key, names]) =>
-            key !== 'date' && key !== 'quantity' && key !== 'author' && key !== 'chapterTitle'
+            !['date', 'quantity', 'author', 'chapterTitle', 'related', 'category'].includes(key)
             && fieldIndex(table.columns, names) < 0).map(([key]) => key) : [];
         const diagnostics = missing.length ? [`字段不足：未识别${missing.join('、')}列，保留原始单元格`] : [];
         if (!table.rows.length) diagnostics.push('表为空');
@@ -135,9 +152,11 @@ export function buildRecordModel(readResult, category) {
         const date = fields?.date ? get(fields.date) : '';
         const body = fields?.body ? get(fields.body) : '';
         const quantity = fields?.quantity ? get(fields.quantity) : '';
+        const related = fields?.related ? get(fields.related) : '';
+        const itemCategory = fields?.category ? get(fields.category) : '';
         const detailCells = cells.filter(cell => !isHiddenDetailField(category, cell.label));
         return { id: `${table.uid}:${rowIndex}`, uid: table.uid, source: table.name, rowIndex,
-            title, author, chapterTitle, date, body, quantity, cells, detailCells, fieldIssues: table.diagnostics };
+            title, author, chapterTitle, date, body, quantity, related, category: itemCategory, cells, detailCells, fieldIssues: table.diagnostics };
     }).filter(entry => entry.cells.length));
     if (category === 'diary') {
         // Sort only within a source whose every visible entry has a canonical date.

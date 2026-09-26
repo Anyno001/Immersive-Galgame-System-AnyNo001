@@ -16,16 +16,23 @@ export const DEFAULT_SOURCE_FILTER = Object.freeze({
     imageExcludeTags: '',
 });
 
+// 字段不得跨行：AI 漏写 "]" 时旧规则会一路吞到后文下一个 "]"，把旁白并进台词。
+// 表情栏可省略：AI 偶发 [igs-char:角色|台词] 两栏写法，按「没写表情」的台词处理。
 export const DEFAULT_VIRTUAL_REGEX = Object.freeze({
     enabled: true,
-    pattern: '\\[igs-char:([^|\\]]+)\\|[^|\\]]+\\|([^\\]]+)\\]',
+    pattern: '\\[igs-char:([^|\\]\\n]+)\\|(?:[^|\\]\\n]*\\|)?([^\\]\\n]+)\\]?',
     flags: 'gm',
     replacement: '[$1]：$2',
 });
 
+// 已保存设置中的旧默认规则按原值迁移，用户自定义规则不动。
+const LEGACY_VIRTUAL_REGEX_PATTERNS = Object.freeze([
+    '\\[igs-char:([^|\\]]+)\\|[^|\\]]+\\|([^\\]]+)\\]',
+]);
+
 const SENTENCE_PAGING_TERMINATOR = '。';
 
-const THOUGHT_RE_GLOBAL = /\[igs-thought:([^|\]]+)\|[^|\]]+\|([^\]]+)\]/gm;
+const THOUGHT_RE_GLOBAL = /\[igs-thought:([^|\]\n]+)\|(?:[^|\]\n]*\|)?([^\]\n]+)\]?/gm;
 
 // 数据层正文里是否含 IGS 场景标签（给 AI 看的格式标记）。宿主前端会用正则把这些
 // 标签从渲染层 .mes_text 隐藏，所以「数据层有标签、DOM 无标签」是渲染清洗造成的
@@ -151,9 +158,10 @@ export function normalizeSourceFilter(value) {
 export function normalizeVirtualRegex(value) {
     const source = isPlainObject(value) ? value : {};
     const merged = { ...DEFAULT_VIRTUAL_REGEX, ...source };
+    const pattern = String(merged.pattern == null ? DEFAULT_VIRTUAL_REGEX.pattern : merged.pattern);
     return {
         enabled: merged.enabled !== false,
-        pattern: String(merged.pattern == null ? DEFAULT_VIRTUAL_REGEX.pattern : merged.pattern),
+        pattern: LEGACY_VIRTUAL_REGEX_PATTERNS.includes(pattern) ? DEFAULT_VIRTUAL_REGEX.pattern : pattern,
         flags: String(merged.flags == null ? DEFAULT_VIRTUAL_REGEX.flags : merged.flags).replace(/\s+/g, ''),
         replacement: String(merged.replacement == null ? DEFAULT_VIRTUAL_REGEX.replacement : merged.replacement),
     };
@@ -406,7 +414,7 @@ export function buildIgsTextPayload(message, options = {}) {
         );
         sceneDirectives = extractSceneDirectives(sceneDirectiveSource).directives;
     }
-    const readerScene = parseSceneText(formattedText, {});
+    const readerScene = parseSceneText(formattedText, { keepSpeakerPrefix: sceneAssetsEnabled });
     const readerText = filteredToEmpty ? '' : normalizeReaderSegmentText(firstNonEmpty(
         readerScene.text,
         formattedText,
@@ -691,7 +699,7 @@ function remapSceneDirectiveSegments(directives, source, virtualRegex, options =
         line,
     ]).join('\n');
     const formatted = applyImmersiveGalgameSystemBodyFormat(markedSource, virtualRegex);
-    const readerScene = parseSceneText(formatted.formattedRaw || markedSource, {});
+    const readerScene = parseSceneText(formatted.formattedRaw || markedSource, { keepSpeakerPrefix: true });
     const readerText = normalizeReaderSegmentText(firstNonEmpty(
         readerScene.text,
         formatted.formattedRaw,

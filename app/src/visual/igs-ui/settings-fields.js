@@ -110,6 +110,22 @@ export function renderStageShakeSettings(settings) {
     return `<div class="igs-settings-section igs-stage-shake-settings"><div class="igs-settings-row">${intensityField}</div><div class="igs-source-filter-note">触发情绪（只匹配当前人物指令，不扫描台词正文）</div><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无触发情绪</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="stage-shake-add-emotion" title="添加触发情绪">+</button></div></div>`;
 }
 
+export function renderWeatherFxSettings(settings) {
+    const source = settings && typeof settings === 'object' ? settings : {};
+    const intensity = ['weak', 'medium', 'strong'].includes(source.intensity) ? source.intensity : 'medium';
+    const intensityField = field('readerSettings.weatherFx.intensity', '演出强度', segmentedInput(
+        'readerSettings.weatherFx.intensity',
+        intensity,
+        [['weak', '弱'], ['medium', '中'], ['strong', '强']],
+        '演出强度',
+    ));
+    const wordList = (scene, label, words) => {
+        const tags = (Array.isArray(words) ? words : []).map((word) => `<span class="igs-mood-word-tag">${esc(word)}<button type="button" class="igs-mood-word-del" data-action="weather-fx-remove-${scene}:${encSeg(word)}" title="删除${label}">×</button></span>`).join('');
+        return `<div class="igs-mood-word-list">${tags || `<div class="igs-scene-empty">暂无${label}</div>`}<button type="button" class="igs-btn-mgr-icon" data-action="weather-fx-add-${scene}" title="添加${label}">+</button></div>`;
+    };
+    return `<div class="igs-settings-section igs-weather-fx-settings"><div class="igs-settings-row">${intensityField}</div><div class="igs-source-filter-note">室内地点词（命中后不下雨雪粒子，只保留隔窗的压暗、水痕光影、窗光与闪电侧光）</div>${wordList('indoor', '室内地点词', source.indoorWords)}<div class="igs-source-filter-note">室外地点词（与室内词同时命中时，取地点末尾的词，如「图书馆门口」算室外、「山间小屋」算室内）</div>${wordList('outdoor', '室外地点词', source.outdoorWords)}</div>`;
+}
+
 export function modelPicker(path, value, models, action, placeholder, disabled) {
     const items = Array.isArray(models) ? models.filter(Boolean) : [];
     const options = ['<option value="">从已拉取模型中选择</option>'].concat(items.map((model) => {

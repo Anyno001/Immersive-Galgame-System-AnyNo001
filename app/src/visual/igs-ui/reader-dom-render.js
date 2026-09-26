@@ -24,11 +24,11 @@ import {
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
+import { applyWeatherFx } from './weather-fx-runtime.js';
 import {
     applyDialogSkinAssets,
     isClassicDialogSkin,
     isGradientVeilDialogSkin,
-    isIllustratedDialogSkin,
     isMaterialDialogSkin,
     normalizeClassicDialogWidthPercent,
 } from './classic-dialog-skin.js';
@@ -83,7 +83,7 @@ export function normalizeReaderStableLayers(overlay) {
         const firstChild = overlay.firstChild || null;
         if (firstChild && typeof overlay.insertBefore === 'function') overlay.insertBefore(motionLayer, firstChild);
         else if (typeof overlay.appendChild === 'function') overlay.appendChild(motionLayer);
-        const movableIds = ['igs-bg-blur', 'igs-bg', 'igs-sprite', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
+        const movableIds = ['igs-bg-blur', 'igs-bg', 'igs-sprite', 'igs-effect-layer', 'igs-effect-front-layer', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
         for (const id of movableIds) {
             const node = overlay.querySelector ? overlay.querySelector(`#${id}`) : null;
             if (node && node !== motionLayer && node.parentNode === overlay && typeof motionLayer.appendChild === 'function') motionLayer.appendChild(node);
@@ -96,9 +96,14 @@ export function normalizeReaderStableLayers(overlay) {
     addClasses(bgBlur, 'igs-background-layer igs-background-blur-layer');
     addClasses(bg, 'igs-background-layer');
     addClasses(sprite, 'igs-character-layer');
+    // 天气演出双层：后景 #igs-effect-layer（背景之上、立绘之下）、前景 #igs-effect-front-layer（立绘之上、对话层之下），层级由 z-index 决定。
+    const fxParent = motionLayer || overlay;
+    const fxBefore = overlay.querySelector ? overlay.querySelector('#igs-click-layer') : null;
+    ensureReaderLayer(doc, fxParent, 'igs-effect-layer', 'igs-effect-layer', fxBefore);
+    ensureReaderLayer(doc, fxParent, 'igs-effect-front-layer', 'igs-effect-front-layer', fxBefore);
 
     if (motionLayer) {
-        const movableIds = ['igs-bg-blur', 'igs-bg', 'igs-sprite', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
+        const movableIds =['igs-bg-blur', 'igs-bg', 'igs-sprite', 'igs-effect-layer', 'igs-effect-front-layer', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
         for (const id of movableIds) {
             const node = overlay.querySelector ? overlay.querySelector(`#${id}`) : null;
             if (node && node !== motionLayer && node.parentNode === overlay && typeof motionLayer.appendChild === 'function') {
@@ -190,6 +195,16 @@ export function buildFallbackReaderOverlay(doc) {
     const sprite = doc.createElement('div');
     sprite.id = 'igs-sprite';
     overlay.appendChild(sprite);
+
+    const effectLayer = doc.createElement('div');
+    effectLayer.id = 'igs-effect-layer';
+    effectLayer.className = 'igs-effect-layer';
+    overlay.appendChild(effectLayer);
+
+    const effectFrontLayer = doc.createElement('div');
+    effectFrontLayer.id = 'igs-effect-front-layer';
+    effectFrontLayer.className = 'igs-effect-front-layer';
+    overlay.appendChild(effectFrontLayer);
 
     const clickLayer = doc.createElement('div');
     clickLayer.id = 'igs-click-layer';
@@ -543,8 +558,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     applyGradientVeilToDom(root, dialog, readerSettings);
 
     if (textEl) {
-        textEl.style.fontSize = `${readerSettings.fontSize}px`;
-        textEl.style.lineHeight = computeLineHeight(readerSettings.fontSize);
+        applyDialogTextSize(textEl, readerSettings.fontSize);
         textEl.style.minHeight = '0';
     }
 
@@ -652,6 +666,12 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
 
 export function applyAlignStyle(element, align) {
     applyAlignStyleImpl(element, align);
+}
+
+// 字号仍由用户设置决定；皮肤只通过 --igs-skin-text-scale 按比例微调，不改变用户档位。
+function applyDialogTextSize(textEl, fontSize) {
+    textEl.style.fontSize = `calc(${fontSize}px * var(--igs-skin-text-scale, 1))`;
+    textEl.style.lineHeight = computeLineHeight(fontSize);
 }
 
 const STATUS_HUD_PLACEHOLDER = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
@@ -887,14 +907,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const input = root.querySelector('#igs-input');
     const send = root.querySelector('#igs-send-btn');
     const dialog = root.querySelector('#igs-dialog');
-    const classicDialog = isClassicDialogSkin(snapshot.readerSettings);
     const materialDialog = isMaterialDialogSkin(snapshot.readerSettings);
     const gradientVeilDialog = isGradientVeilDialogSkin(snapshot.readerSettings);
-    const illustratedDialog = isIllustratedDialogSkin(snapshot.readerSettings);
     if (root.classList) {
         root.classList.toggle('igs-default-reader-chrome', !materialDialog);
         root.classList.toggle('igs-gradient-veil-active', gradientVeilDialog);
     }
+    // 根节点同步皮肤标记，供对话框之外的选项气泡跟随皮肤。
+    applyDialogSkinAssets(root, snapshot.readerSettings);
     const toolbar = root.querySelector('#igs-ctrl-bar');
     const clickLayer = root.querySelector('#igs-click-layer');
     const toast = root.querySelector('#igs-toast');
@@ -1004,15 +1024,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             textEl.innerHTML = renderedHtml;
             if (textEl.dataset) textEl.dataset.igsTextRenderKey = textRenderKey;
         }
-        textEl.style.fontSize = `${snapshot.readerSettings.fontSize}px`;
+        applyDialogTextSize(textEl, snapshot.readerSettings.fontSize);
         textEl.style.fontWeight = snapshot.readerSettings.dialogFontWeight == null ? '' : String(snapshot.readerSettings.dialogFontWeight);
-        textEl.style.lineHeight = computeLineHeight(snapshot.readerSettings.fontSize);
         textEl.style.marginTop = '';
+        textEl.style.paddingTop = '';
         const isNarration = textType === 'narration';
         const isThought = textType === 'thought';
-        const isDialogue = textType === 'dialogue';
-        const moveIllustratedDialogue = illustratedDialog && isDialogue;
-        textEl.style.paddingTop = (classicDialog && isNarration) || moveIllustratedDialogue ? '1.5em' : '';
+        if (dialog) dialog.setAttribute('data-igs-text-type', textType);
         const segFont = isThought ? theme.thoughtFont : isNarration ? theme.narrationFont : theme.textFont;
         const segColor = isThought ? theme.thoughtColor : isNarration ? theme.narrationColor : theme.textColor;
         const segAlign = isThought ? theme.thoughtAlign : isNarration ? theme.narrationAlign : theme.textAlign;
@@ -1040,6 +1058,15 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         settings: stageShakeSettings,
         emotion: snapshot.content && snapshot.content.statusEmotion,
         key: stageShakeKey,
+    });
+    const effectLayer = root.querySelector('#igs-effect-layer');
+    const effectFrontLayer = root.querySelector('#igs-effect-front-layer');
+    applyWeatherFx(effectLayer, {
+        settings: snapshot.readerSettings && snapshot.readerSettings.weatherFx,
+        weather: snapshot.content && snapshot.content.sceneWeather,
+        location: snapshot.content && snapshot.content.sceneLocation,
+        time: snapshot.content && snapshot.content.sceneTime,
+        front: effectFrontLayer,
     });
     const speakerEl = root.querySelector('#igs-speaker');
     if (speakerEl) {

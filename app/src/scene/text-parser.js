@@ -38,7 +38,8 @@ export function parseSceneText(text = '', options = {}) {
     }
 
     scene.text = body.join('\n').trim();
-    parseSpeakerPrefix(scene);
+    // 场景素材模式逐段按 [名]：判定台词；整段剥前缀会吞掉首段台词名或「她小声嘀咕：」之类旁白。
+    if (options.keepSpeakerPrefix !== true) parseSpeakerPrefix(scene);
     applyScenePatch(scene, pipeline.scenePatch, {
         explicitKeys,
         overrideExplicitTags: pipeline.overrideExplicitTags,

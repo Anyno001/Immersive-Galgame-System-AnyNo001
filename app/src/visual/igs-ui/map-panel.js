@@ -1,11 +1,11 @@
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { getMapChildren, hasInvalidBasemap, locateMapScene, readMapModel, resolveMapBasemap, sanitizeMapBasemapUrl } from '../../data/shujuku/map-model.js';
-import { resolveMapTimeBasemap } from '../../data/shujuku/map-time.js';
+import { normalizeMapTime, resolveMapTimeBasemap } from '../../data/shujuku/map-time.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { lookupSceneAssetUrls } from '../../scene/scene-directives.js';
 import { RECORD_ICONS } from './record-icons.js';
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
-import { MAP_FALLBACK_WORLD, fitMapCamera, mapPinWorldPoint, mapScreenToWorld, panMapCamera, zoomMapCamera } from './map-viewport.js';
+import { MAP_FALLBACK_WORLD, autoPlaceMapPoints, centerMapCamera, fitMapCamera, mapPinWorldPoint, panMapCamera, zoomMapCamera } from './map-viewport.js';
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const personInitial = value => escapeHtml(String(value ?? '').trim().charAt(0) || '·');
@@ -74,6 +74,7 @@ export function createMapPanelController(doc, global, fillDraft) {
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-modal', 'true');
         root.setAttribute('aria-label', '地点地图');
+        root.setAttribute('data-map-time', normalizeMapTime(sceneTime) || 'night');
         root.addEventListener('click', onClick);
         container.appendChild(root);
         overlay.classList?.toggle('igs-record-screen-open', true);
@@ -285,12 +286,16 @@ export function createMapPanelController(doc, global, fillDraft) {
         const parent = table?.locations.find(loc => loc.id === parentId);
         const children = table ? getMapChildren(table, parentId) : [];
         const pins = children.filter(loc => loc.x !== null && loc.y !== null && loc.rowId && loc.name && !loc.issues.length);
-        const list = children.filter(loc => !pins.includes(loc));
+        // 未记录坐标但可唯一识别的地点按固定算法排布在示意位置，不再堆成列表卡片；缺名称/重复 ID 只进诊断。
+        const floating = children.filter(loc => !pins.includes(loc) && loc.rowId && loc.name
+            && !loc.issues.includes('地点ID重复') && !loc.issues.includes('父级循环'));
+        const autoPoints = autoPlaceMapPoints(pins.map(loc => ({ x: loc.x, y: loc.y })), floating.length, world.width / world.height);
+        const markers = [...pins.map(loc => ({ loc, x: loc.x, y: loc.y, auto: false })),
+            ...floating.map((loc, index) => ({ loc, x: autoPoints[index]?.x ?? 0.5, y: autoPoints[index]?.y ?? 0.5, auto: true }))];
         const place = selected();
         const current = table?.locations.find(loc => loc.id === currentId) || null;
         const tabs = model.tables.length > 1 ? `<nav class="igs-map-tabs" aria-label="选择地图">${model.tables.map(item =>
-            `<button type="button" data-map-act="table" data-map-id="${escapeHtml(item.uid)}" ${item.uid === activeUid ? 'aria-current="true"' : ''}>${escapeHtml(item.name)}</button>`).join('')}</nav>` : '';
-        const choice = loc => `<button type="button" data-map-act="select" data-map-id="${escapeHtml(loc.id)}" aria-label="查看${escapeHtml(loc.name || '未命名地点')}">${escapeHtml(loc.name || '未命名地点')}</button>`;
+            `<button type="button" class="igs-rp-chip" aria-pressed="${item.uid === activeUid ? 'true' : 'false'}" data-map-act="table" data-map-id="${escapeHtml(item.uid)}" ${item.uid === activeUid ? 'aria-current="true"' : ''}>${escapeHtml(item.name)}</button>`).join('')}</nav>` : '';
         const baseResolution = table ? resolveMapBasemap(table, parentId) : { status: 'none', url: '', reason: '' };
         const resolution = baseResolution.status === 'none'
             ? { status: 'ok', url: resolveMapTimeBasemap(DEFAULT_MAP_BASEMAP, sceneTime), reason: '' }
@@ -299,17 +304,22 @@ export function createMapPanelController(doc, global, fillDraft) {
         const basemapNotice = resolution.status === 'conflict' ? resolution.reason
             : invalidBasemap ? (baseResolution.status === 'none' ? '底图地址不可用，已使用内置地图' : '底图地址不可用，已回退为坐标平面')
                 : basemapState === 'failed' ? '底图加载失败，已回退为坐标平面' : '';
-        const pinsHtml = pins.map(loc => {
-            const pt = mapPinWorldPoint(loc.x, loc.y, world.width, world.height);
-            const stateClass = loc.id === currentId ? 'igs-map-current' : loc.id === selectedId ? 'igs-map-selected' : '';
+        const pinsHtml = markers.map(({ loc, x, y, auto }) => {
+            const pt = mapPinWorldPoint(x, y, world.width, world.height);
+            const stateClass = [loc.id === currentId ? 'igs-map-current' : '', loc.id === selectedId ? 'igs-map-selected' : '', auto ? 'igs-map-auto' : ''].filter(Boolean).join(' ');
+            const people = loc.characters || [];
+            const peopleHtml = people.length ? `<span class="igs-map-people" aria-hidden="true">${people.slice(0, 3).map(name => `<i>${personInitial(name)}</i>`).join('')}${people.length > 3 ? `<i>+${people.length - 3}</i>` : ''}</span>` : '';
+            const label = `查看${loc.name}${loc.id === currentId ? '（你在这里）' : ''}${people.length ? `，${people.length} 位角色在此` : ''}${auto ? '，位置为示意' : ''}`;
             return `<div class="igs-map-marker ${stateClass}" style="left:${pt.x}px;top:${pt.y}px">` +
-`<button type="button" data-map-act="select" data-map-id="${escapeHtml(loc.id)}" aria-label="查看${escapeHtml(loc.name)}" ${loc.id === selectedId ? 'aria-current="location"' : ''}>${RECORD_ICONS.pin}</button><span class="igs-map-label">${escapeHtml(loc.name)}</span></div>`;
+                (loc.id === currentId ? '<span class="igs-map-here" aria-hidden="true">你在这里</span>' : '') +
+                `<button type="button" data-map-act="select" data-map-id="${escapeHtml(loc.id)}" aria-label="${escapeHtml(label)}" ${loc.id === selectedId ? 'aria-current="location"' : ''}>${RECORD_ICONS.pin}</button><span class="igs-map-label">${escapeHtml(loc.name)}${peopleHtml}</span></div>`;
         }).join('');
         const diagnostics = table ? [...table.diagnostics, ...table.locations.flatMap(loc => loc.issues.map(issue => `${loc.name || `第${loc.rowIndex + 1}行`}: ${issue}`))] : [];
         const notice = model.status === 'read-error' ? `地图读取失败：${model.reason}` :
             model.status === 'no-tables' ? '未找到名称含“地图”或“地点”的表' : '';
         const detailLocation = place || current;
-        const detailKicker = place ? '已选地点' : '当前位置';
+        const detailKicker = detailLocation && detailLocation.id === currentId ? '你在这里' : place ? '已选地点' : '当前位置';
+        const detailAuto = Boolean(detailLocation && floating.includes(detailLocation));
         const detailSceneImage = sceneAssetUrl(detailLocation?.name || sceneName);
         const detailArtHtml = detailSceneImage ? `<img class="igs-map-detail-art" src="${escapeHtml(detailSceneImage)}" alt="" aria-hidden="true" draggable="false" referrerpolicy="no-referrer">` : '';
         const detailPeople = detailLocation?.characters || [];
@@ -320,28 +330,34 @@ export function createMapPanelController(doc, global, fillDraft) {
         const travelButton = place && place.name && place.rowId && !place.issues.includes('地点ID重复')
             ? '<button class="igs-map-card-travel" type="button" data-map-act="travel">前往</button><small class="igs-map-card-note">将地点填入草稿，不会自动发送</small>' : '';
         const card = detailLocation ? `<section class="igs-map-card"><p class="igs-map-card-kicker">${detailKicker}</p><h3>${escapeHtml(detailLocation.name || '未命名地点')}</h3>` +
-            `<p class="igs-map-card-description">${escapeHtml(detailLocation.description || '暂无地点说明')}</p>${peopleHtml}${childButton}${travelButton}</section>` : '';
+            `<p class="igs-map-card-description">${escapeHtml(detailLocation.description || '暂无地点说明')}</p>${detailAuto ? '<p class="igs-map-card-note igs-map-card-auto">表格未记录坐标，图上位置仅为示意</p>' : ''}${peopleHtml}<div class="igs-map-card-actions">${childButton}${travelButton}</div></section>` : '';
+        const notes = [notice, basemapNotice, table && !children.length ? '这一层没有子地点' : ''].filter(Boolean);
         root.innerHTML = `<div class="igs-rp-page igs-map-window">${recordPageHeadHtml('地点地图', { closeAttr: 'data-map-act', backAriaLabel: '关闭地图' })}` +
-            tabs + `<div class="igs-rp-body igs-map-body"><div class="igs-map-main">${parentId ? `<button type="button" data-map-act="back">返回上级：${escapeHtml(parent?.name || table?.name || '地图')}</button>` : ''}` +
-            (notice ? `<p role="status">${escapeHtml(notice)}</p>` : '') +
-            (basemapNotice ? `<p role="status">${escapeHtml(basemapNotice)}</p>` : '') +
-            (table && !children.length ? '<p>这一层没有子地点</p>' : '') +
+            tabs + `<div class="igs-rp-body igs-map-body"><div class="igs-map-main"><div class="igs-map-overlay-top">${parentId ? `<button type="button" class="igs-rp-chip igs-map-back" data-map-act="back">${RECORD_ICONS.back}<span>返回上级：${escapeHtml(parent?.name || table?.name || '地图')}</span></button>` : ''}` +
+            notes.map(text => `<p class="igs-rp-notice" role="status">${escapeHtml(text)}</p>`).join('') + '</div>' +
             `<div class="igs-map-viewport" aria-label="地图视口"><div class="igs-map-world" style="width:${world.width}px;height:${world.height}px">` +
             (basemapState === 'ready' && basemapUrl ? `<img class="igs-map-basemap" src="${escapeHtml(basemapUrl)}" alt="" draggable="false" referrerpolicy="no-referrer" width="${world.width}" height="${world.height}">` : '') +
             pinsHtml + `</div><div class="igs-map-controls"><button type="button" data-map-act="zoom-in" aria-label="放大">${RECORD_ICONS.zoomIn}</button><button type="button" data-map-act="zoom-out" aria-label="缩小">${RECORD_ICONS.zoomOut}</button><button type="button" data-map-act="reset-view" aria-label="归位">${RECORD_ICONS.locate}</button></div>` +
             `<p class="igs-map-hint">拖动浏览 · 点击定位针查看</p></div>` +
-            (list.length ? `<div class="igs-map-list" aria-label="未标注坐标的地点">${list.map(choice).join('')}</div>` : '') +
             `<p class="igs-map-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p>` +
             '</div>' +
-            `<aside class="igs-map-detail">${detailArtHtml}${card || '<p class="igs-map-detail-empty">选择地点查看详情</p>'}` +
+            `<aside class="igs-map-detail${card ? '' : ' is-empty'}">${detailArtHtml}${card || '<p class="igs-map-detail-empty">选择地点查看详情</p>'}` +
             (diagnostics.length ? `<details><summary>地图数据提示（${diagnostics.length}）</summary><ul>${diagnostics.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>` : '') + '</aside></div></div>';
         const viewport = root.querySelector?.('.igs-map-viewport');
         bindViewportGestures(viewport);
         prepareBasemap(resolution);
         if (!camera && viewport) {
             const rect = viewport.getBoundingClientRect?.() || { width: 0, height: 0 };
-            camera = fitMapCamera(rect.width || world.width, rect.height || world.height, world.width, world.height, 'cover');
+            const viewW = rect.width || world.width;
+            const viewH = rect.height || world.height;
+            camera = fitMapCamera(viewW, viewH, world.width, world.height, 'cover');
             baseK = camera.k;
+            // 首次镜头与「归位」对准当前地点（其次是已选地点），竖屏裁切时也能看到“你在这里”。
+            const focus = markers.find(item => item.loc.id === currentId) || markers.find(item => item.loc.id === selectedId);
+            if (focus) {
+                const pt = mapPinWorldPoint(focus.x, focus.y, world.width, world.height);
+                camera = centerMapCamera(camera, viewW, viewH, world.width, world.height, pt.x, pt.y);
+            }
         }
         if (camera) applyCamera();
     }

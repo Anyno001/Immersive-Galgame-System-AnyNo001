@@ -1,6 +1,7 @@
 import { resolveLegacyReaderMode } from '../storage/legacy-igs.js';
 import { parseSceneText } from '../scene/text-parser.js';
-import { buildIgsTextPayload } from '../scene/message-source.js';
+import { buildIgsTextPayload, getMessagePrimaryText } from '../scene/message-source.js';
+import { extractSceneDirectives, resolveLatestSceneDirective } from '../scene/scene-directives.js';
 import { PUBLIC_READER_MODES } from '../schemas/reader-mode.js';
 
 export function createIgsCompatApi(app) {
@@ -60,7 +61,7 @@ export function createIgsCompatApi(app) {
             if (!message) {
                 return { ok: false, reason: 'message-not-found', messageId: normalizedId, mode: readerMode };
             }
-            const readerPayload = buildReaderPayload(app, message, normalizedId, readerMode);
+            const readerPayload = await buildReaderPayload(app, message, normalizedId, readerMode);
             const refreshed = await app.refresh({
                 message,
                 messageId: normalizedId,
@@ -106,7 +107,7 @@ export function createIgsCompatApi(app) {
             if (!message) {
                 return { ok: false, reason: 'no-message', mode: readerMode, options: cloneData(options) };
             }
-            const readerPayload = buildReaderPayload(app, message, message.id, readerMode);
+            const readerPayload = await buildReaderPayload(app, message, message.id, readerMode);
             const refreshed = await app.refresh({
                 message,
                 messageId: message.id,
@@ -178,7 +179,39 @@ function cloneData(value) {
     return value;
 }
 
-function buildReaderPayload(app, message, messageId, readerMode) {
+// 跨楼层场景追溯：AI 偶尔在 content 正文后不落 [igs-scene:] 标签，导致本楼
+// 无场景指令、背景/地点栏退化为空。此时向前最多追溯 3 个 AI 楼层
+// （getAdjacentMessage 已排除 user/system/hidden 楼层），取最近一条场景指令继承。
+// 只有这一条追溯链：追溯结果只影响场景背景/地点栏，不写入 sceneDirectives，
+// 不改变立绘与分页归属。本楼有自己的场景标签时同样计算——「正文—标签—正文」
+// 楼层中标签之前的段落没有本楼场景可归属，由消费点回退到这里的继承场景。
+const INHERITED_SCENE_MAX_FLOORS = 3;
+
+async function resolveInheritedSceneState(app, visualNovelText, messageId) {
+    if (!app || !app.hostAdapter || typeof app.hostAdapter.getAdjacentMessage !== 'function') return null;
+    const normalizedId = Number(messageId);
+    if (!Number.isFinite(normalizedId) || normalizedId < 0) return null;
+
+    let cursor = normalizedId;
+    for (let depth = 0; depth < INHERITED_SCENE_MAX_FLOORS; depth += 1) {
+        let previous = null;
+        try {
+            previous = await app.hostAdapter.getAdjacentMessage(cursor, -1);
+        } catch (error) {
+            return null;
+        }
+        if (!previous || previous.id == null || Number(previous.id) === cursor) return null;
+        cursor = Number(previous.id);
+        const inherited = resolveLatestSceneDirective(
+            extractSceneDirectives(getMessagePrimaryText(previous)).directives,
+        );
+        if (inherited) return { ...inherited, inheritedFromMessageId: cursor };
+    }
+    return null;
+}
+
+
+async function buildReaderPayload(app, message, messageId, readerMode) {
     const unifiedSettings = typeof app.getUnifiedSettingsSnapshot === 'function'
         ? app.getUnifiedSettingsSnapshot({ mode: readerMode })
         : null;
@@ -193,6 +226,12 @@ function buildReaderPayload(app, message, messageId, readerMode) {
         sceneAssets: bridge.sceneAssets,
         sentencePaging: bridge.sentencePaging,
     });
+    // 跨楼层场景追溯只在场景素材模式启用时发生；本楼没有任何场景指令时
+    // （AI 漏发 [igs-scene:]，正文照常输出）才向前最多追溯 3 个 AI 楼层。
+    const sceneAssetsEnabled = Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled);
+    const inheritedSceneState = sceneAssetsEnabled
+        ? await resolveInheritedSceneState(app, visualNovelText, messageId)
+        : null;
     const textScene = parseSceneText(
         visualNovelText.formattedText || visualNovelText.visibleText || visualNovelText.cleanedRaw || '',
         { messageId },
@@ -203,6 +242,7 @@ function buildReaderPayload(app, message, messageId, readerMode) {
 
     return {
         ...visualNovelText,
+        inheritedSceneState,
         message,
         messageId,
         mode: readerMode,

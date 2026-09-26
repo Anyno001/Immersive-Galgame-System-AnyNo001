@@ -6,6 +6,7 @@ import {
     DIALOG_SKIN_PLANT_COFFEE,
     ILLUSTRATED_DIALOG_SKINS,
     ILLUSTRATED_DIALOG_STYLE_TEXT,
+    buildSlicedDialogSkinCss,
     isIllustratedDialogSkin,
 } from './dialog-theme-skins.js';
 
@@ -25,10 +26,9 @@ export const CLASSIC_DIALOG_EDGE_WIDTH = 110;
 export const CLASSIC_DIALOG_WIDTH_PERCENT_MIN = 60;
 export const CLASSIC_DIALOG_WIDTH_PERCENT_MAX = 100;
 export const CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT = 100;
-export const CLASSIC_NAMEPLATE_HEIGHT = 50;
-export const CLASSIC_NAMEPLATE_EDGE_WIDTH = 40;
-export const CLASSIC_NAMEPLATE_WIDTH = 300;
-export const CLASSIC_NAMEPLATE_LEFT = 35;
+export const CLASSIC_NAMEPLATE_HEIGHT = 52;
+export const CLASSIC_NAMEPLATE_EDGE_WIDTH = 50;
+export const CLASSIC_NAMEPLATE_LEFT = 60;
 export const CLASSIC_NAMEPLATE_TOP = -22;
 
 export const CLASSIC_DIALOG_THEME_DEFAULTS = Object.freeze({
@@ -86,13 +86,13 @@ export function applyDialogSkinAssets(dialog, readerSettings) {
     dialog.setAttribute('data-igs-dialog-skin', skin);
 }
 
-export const CLASSIC_DIALOG_STYLE_TEXT = `
-#igs-overlay .igs-dialog[data-igs-dialog-skin="western-classic"]{box-sizing:border-box;height:184px;min-height:184px;max-height:184px;display:flex;flex-direction:column;overflow:visible;padding:20px 44px 18px;background-color:transparent;background-image:url("${CLASSIC_DIALOG_ASSETS.dialogLeft}"),url("${CLASSIC_DIALOG_ASSETS.dialogCenter}"),url("${CLASSIC_DIALOG_ASSETS.dialogRight}");background-position:left top,110px top,right top;background-size:110px 184px,calc(100% - 220px) 184px,110px 184px;background-repeat:no-repeat;border-radius:0;-webkit-backdrop-filter:none;backdrop-filter:none;}
-.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-progress,.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-speaker,.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-divider,.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-controls{flex-shrink:0;}
-.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-text{min-height:0;overflow-y:auto;flex:1 1 auto;}
-.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;left:35px;top:-22px;width:min(300px,calc(100% - 70px));height:50px;line-height:1.2;margin:0;padding:1.6em 36px 0 calc(36px + .2em);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;letter-spacing:.5px;color:#f2e5c4;-webkit-text-stroke:.6px rgba(255,255,255,.78);paint-order:stroke fill;text-shadow:0 1px 0 rgba(255,255,255,.32);background-color:transparent;background-image:url("${CLASSIC_DIALOG_ASSETS.nameLeft}"),url("${CLASSIC_DIALOG_ASSETS.nameCenter}"),url("${CLASSIC_DIALOG_ASSETS.nameRight}");background-position:left top,40px top,right top;background-size:40px 50px,calc(100% - 80px) 50px,40px 50px;background-repeat:no-repeat;}
-.igs-dialog[data-igs-dialog-skin="western-classic"] .igs-divider{display:none;}
-#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="western-classic"]{height:min(184px,calc(100% - 28px));min-height:min(184px,calc(100% - 28px));max-height:calc(100% - 28px);padding:20px 44px 18px;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="western-classic"][data-igs-has-speaker="1"]{padding-top:44px;}
-@media (max-width:640px){#igs-overlay .igs-dialog[data-igs-dialog-skin="western-classic"] .igs-speaker{left:38px;top:-14px;width:41.667%;height:50px;line-height:1.2;}}
-`.trim();
+// 姓名牌素材 65×68，可见牌面在上方 0–57px；按 52px 高等比缩放后两端 50px，牌面约 44px。
+export const CLASSIC_DIALOG_SPEC = Object.freeze({
+    dialog: { height: CLASSIC_DIALOG_HEIGHT, left: CLASSIC_DIALOG_EDGE_WIDTH, right: CLASSIC_DIALOG_EDGE_WIDTH },
+    text: { top: 26, speakerTop: 38, right: 50, bottom: 22, left: 50 },
+    plate: { height: CLASSIC_NAMEPLATE_HEIGHT, left: CLASSIC_NAMEPLATE_EDGE_WIDTH, right: CLASSIC_NAMEPLATE_EDGE_WIDTH, x: CLASSIC_NAMEPLATE_LEFT, rise: -CLASSIC_NAMEPLATE_TOP, lineHeight: 44, padding: '0 42px', minWidth: 150 },
+    nameCss: 'font-size:15px;font-weight:600;letter-spacing:.22em;text-indent:.22em;text-shadow:0 1px 0 rgba(255,236,190,.42);',
+    textCss: 'letter-spacing:.06em;',
+});
+
+export const CLASSIC_DIALOG_STYLE_TEXT = buildSlicedDialogSkinCss(DIALOG_SKIN_WESTERN_CLASSIC, CLASSIC_DIALOG_SPEC, CLASSIC_DIALOG_ASSETS);

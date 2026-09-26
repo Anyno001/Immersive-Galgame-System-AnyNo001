@@ -1,6 +1,6 @@
 // CDP 截图与探针：驱动本机 Edge（无头）访问 record-pages preview，
 // 收集控制台错误、核对 DOM 状态、按容器尺寸截图。
-// 用法：node scripts/record-pages-capture.mjs [--page map] [--size desktop] [--select <data-record-id>] [--out <file>] [--probe-only]
+// 用法：node scripts/record-pages-capture.mjs [--page map] [--size desktop] [--select <data-record-id>] [--query <k=v&...>] [--out <file>] [--probe-only]
 // 依赖：Node >= 22（内置 WebSocket）；Edge 以 --remote-debugging-port 启动。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -13,6 +13,7 @@ const page = arg('page', 'map');
 const size = arg('size', 'desktop');
 const bg = arg('bg', '');
 const selectId = arg('select', '');
+const extraQuery = arg('query', '');
 const outFile = arg('out', path.join(appRoot, '..', 'docs', 'ui', 'record-pages', 'verification', `step2-shell-${page}-${size}.png`));
 const probeOnly = args.includes('--probe-only');
 const exerciseMap = args.includes('--exercise-map');
@@ -53,7 +54,7 @@ try {
     await send('Page.enable');
     await send('Network.enable');
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 768 });
-    const url = `http://127.0.0.1:4173/fixtures/record-pages/preview.html?page=${page}&size=${size}${bg ? '&bg=' + bg : ''}${selectId ? '&select=' + encodeURIComponent(selectId) : ''}`;
+    const url = `http://127.0.0.1:4173/fixtures/record-pages/preview.html?page=${page}&size=${size}${bg ? '&bg=' + bg : ''}${selectId ? '&select=' + encodeURIComponent(selectId) : ''}${extraQuery ? '&' + extraQuery : ''}`;
     await send('Page.navigate', { url });
     const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true })).result?.result?.value;
     // 等待面板挂载且地图底图状态机收敛（loading → ready/failed/none），替代固定时长猜测。

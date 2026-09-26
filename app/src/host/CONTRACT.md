@@ -15,6 +15,7 @@
 - 地图独用 `fillEmptyInputText(text)`：必须读取酒馆真实草稿，只有确知为空才纯文本填入并触发输入事件；非空、不可读取或失败均返回诊断，不改变原 `setInputText` / `typeAndSend` 调用语义。
 - `chat-stream-observer.js` 只在楼层内嵌阅读器打开时观察阅读器实际挂载文档的 `#chat`，不得观察整个 document 或按固定间隔轮询。
 - 酒馆 `GENERATION_STARTED / GENERATION_ENDED / GENERATION_STOPPED` 是流式起止主信号；DOM 静默窗口仅作兼容兜底。
+- `GENERATION_STARTED` 的 `dryRun === true` 与 `type === 'quiet'`（非 `quietToLoud`）是插件后台请求/提示词组装，不得武装载入态；生成期间 `#chat` 静默 10s 先做一次稳定收尾，不只依赖 120s 硬超时。
 - 流式 mutation 只同步载入状态与最新 AI 楼层挂载，不在 token 回调中解析正文或扫描图片；生成结束后一次性换源。
 
 ## 输入发送契约

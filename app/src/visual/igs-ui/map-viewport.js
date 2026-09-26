@@ -31,6 +31,17 @@ export function panMapCamera(camera, dx, dy) {
     return { k: camera.k, tx: camera.tx + dx, ty: camera.ty + dy };
 }
 
+// 把世界点 (wx, wy) 移到视口中心；世界尺寸大于视口时夹紧边缘，避免露出底图外的空白。
+export function centerMapCamera(camera, viewW, viewH, worldW, worldH, wx, wy) {
+    if (!camera || !(viewW > 0) || !(viewH > 0)) return camera;
+    const clamp = (value, span, view) => span <= view ? (view - span) / 2 : Math.min(0, Math.max(view - span, value));
+    return {
+        k: camera.k,
+        tx: clamp(viewW / 2 - wx * camera.k, worldW * camera.k, viewW),
+        ty: clamp(viewH / 2 - wy * camera.k, worldH * camera.k, viewH),
+    };
+}
+
 export function mapWorldToScreen(camera, x, y) {
     return { x: x * camera.k + camera.tx, y: y * camera.k + camera.ty };
 }
@@ -42,4 +53,38 @@ export function mapScreenToWorld(camera, sx, sy) {
 // 0–1 归一化坐标 → 世界像素。禁止按外容器百分比摆放，必须以底图自然宽高为基准。
 export function mapPinWorldPoint(x, y, worldW, worldH) {
     return { x: x * worldW, y: y * worldH };
+}
+
+// 表格未记录坐标的地点：在中心椭圆的黄金角候选点里，贪心选离已有针最远处（超过阈值后偏向中心），
+// 结果只由输入顺序决定，重绘与刷新不会跳位。aspect 为世界宽高比，用于按屏幕距离而非归一化距离避让。
+export function autoPlaceMapPoints(fixed, count, aspect = 16 / 9) {
+    const total = Math.max(0, Math.floor(Number(count) || 0));
+    if (!total) return [];
+    const ratio = Number(aspect) > 0 ? Number(aspect) : 16 / 9;
+    const candidateCount = Math.max(96, total * 12);
+    const candidates = [];
+    for (let index = 0; index < candidateCount; index += 1) {
+        const radius = Math.sqrt((index + 0.5) / candidateCount);
+        const angle = index * 2.399963229728653;
+        candidates.push({ x: 0.5 + radius * 0.34 * Math.cos(angle), y: 0.5 + radius * 0.28 * Math.sin(angle), used: false });
+    }
+    const placed = (Array.isArray(fixed) ? fixed : []).filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
+    const distance = (a, b) => Math.hypot((a.x - b.x) * ratio, a.y - b.y);
+    const out = [];
+    for (let step = 0; step < total; step += 1) {
+        let best = null;
+        let bestScore = -Infinity;
+        for (const candidate of candidates) {
+            if (candidate.used) continue;
+            const nearest = placed.length ? Math.min(...placed.map(point => distance(point, candidate))) : 1;
+            const score = Math.min(nearest, 0.2) - Math.hypot(candidate.x - 0.5, candidate.y - 0.5) * 0.04;
+            if (score > bestScore) { best = candidate; bestScore = score; }
+        }
+        if (!best) break;
+        best.used = true;
+        const point = { x: Math.round(best.x * 1000) / 1000, y: Math.round(best.y * 1000) / 1000 };
+        placed.push(point);
+        out.push(point);
+    }
+    return out;
 }

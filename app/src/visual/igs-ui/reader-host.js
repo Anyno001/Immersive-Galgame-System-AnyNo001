@@ -64,6 +64,7 @@ import {
     renderSceneAssetList,
     renderScenePresetBar,
     renderStageShakeSettings,
+    renderWeatherFxSettings,
     renderTemplate,
     rangeInput,
     secretInput,
@@ -148,6 +149,7 @@ import {
 } from './classic-dialog-skin.js';
 import { normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
+import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import {
     TYPEWRITER_DEFAULTS,
     cancelTypewriter,
@@ -1616,16 +1618,23 @@ export function createIgsReaderHost(options = {}) {
         const currentOffset = sceneDirectives.length
             ? locateTextOffsetInSource(sceneSourceForOffset, currentText)
             : -1;
-        const sceneStateForBg = sceneDirectives.length
+        const inheritedSceneState = payload.inheritedSceneState && payload.inheritedSceneState.scene
+            ? { ...payload.inheritedSceneState, lastDirectiveType: 'scene' }
+            : null;
+        // 本楼正文解析出的场景优先；AI 漏发 [igs-scene:]（本楼可能仍有 char/thought 指令）
+        // 时继承 payload.inheritedSceneState——它由 buildReaderPayload 向前最多追溯
+        // 3 个 AI 楼层取得，只影响背景/地点栏，不影响立绘与分页归属。
+        const ownSceneState = sceneDirectives.length
             ? (currentOffset >= 0
                 ? resolveSceneAtSourceOffset(sceneSourceForOffset, currentOffset)
                 : resolveSceneStateAtIndex(sceneDirectives, normalizedIndex))
             : null;
+        const sceneStateForBg = (ownSceneState && ownSceneState.scene) ? ownSceneState : inheritedSceneState;
         if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
             spriteImage = null;
         } else if (sceneAssets && sceneAssets.enabled) {
-            if (sceneDirectives.length) {
+            if (sceneStateForBg && sceneStateForBg.scene) {
                 const bgUrls = lookupSceneAssetUrls(sceneStateForBg, sceneAssets);
                 finalBackgroundImage = bgUrls.backgroundUrl || '';
             } else {
@@ -1656,12 +1665,24 @@ export function createIgsReaderHost(options = {}) {
                 .replace(/[\[\]\*（）]/g, '')
                 .replace(/\s+/g, '')
                 .trim();
-            const findDirectiveByText = (speaker, body) => {
+            // 严格认领：整句相等，或当前段不少于 6 字且是指令原文的片段。
+            // 12 字前缀的双向包含会让「……」「嗯。」这类短台词认领以它开头或含它的旁白，只能用于已判定类型的段补情绪。
+            const textMatchesDirective = (bodyKey, d) => {
+                const src = normalizeFingerprint(d.type === 'thought' ? d.thought : d.dialogue);
+                if (!bodyKey || !src) return false;
+                return bodyKey === src || (bodyKey.length >= 6 && src.includes(bodyKey));
+            };
+            const findDirectiveByText = (speaker, body, match = {}) => {
                 const bodyKey = normalizeFingerprint(body);
                 if (!bodyKey) return null;
                 const probe = bodyKey.slice(0, 12);
-                const pool = charThoughtDirectives.filter((d) => !speaker || d.character === speaker);
+                const pool = charThoughtDirectives.filter((d) => (!speaker || d.character === speaker)
+                    && (!match.type || d.type === match.type));
                 for (const d of pool) {
+                    if (match.strict) {
+                        if (textMatchesDirective(bodyKey, d)) return d;
+                        continue;
+                    }
                     const src = normalizeFingerprint(d.type === 'thought' ? d.thought : d.dialogue);
                     if (src && (src.includes(probe) || probe.includes(src.slice(0, 12)))) return d;
                 }
@@ -1677,8 +1698,12 @@ export function createIgsReaderHost(options = {}) {
                     let sp = tMatch[1] ? tMatch[1].trim() : '';
                     // 正文可能写作 **…**（成对双星号），匹配指令前剥掉残留星号。
                     const bodyText = String(tMatch[2] || '').replace(/^\s*\*+\s*/, '').replace(/\s*\*+\s*$/, '').trim();
-                    const matched = findDirectiveByText(sp, bodyText) || findDirectiveByText(sp, tMatch[2]);
-                    if (matched && !sp) sp = matched.character || '';
+                    // 无角色名的 *…* 也可能是 AI 的斜体旁白：只有严格对上某条心里话指令才算心理活动。
+                    const matched = sp
+                        ? findDirectiveByText(sp, bodyText) || findDirectiveByText(sp, tMatch[2])
+                        : findDirectiveByText('', bodyText, { strict: true, type: 'thought' });
+                    if (!sp && !matched) return null;
+                    if (!sp) sp = matched.character || '';
                     return { textType: 'thought', speaker: sp, mood: matched ? (matched.mood || '') : '', body: seg };
                 }
                 if (dMatch) {
@@ -1695,34 +1720,22 @@ export function createIgsReaderHost(options = {}) {
                 bubbleMood = classified.mood;
                 segmentBody = classified.body;
             }
-            // Single-segment fallback: parseSpeakerPrefix strips the "[名字]：" prefix off
-            // a lone segment, so the bubble regex no longer matches. Recover speaker/mood
-            // from the directive that lands on this segment index.
-            // 只要还没确定说话人就需要兜底：classifySegment 可能只判定出类型
-            // （如 dialogue/thought）却没带出角色名，此时也必须补 speaker。
+            // 兜底：段落缺「[名字]：」前缀（自定义格式化规则等）时找回说话人。
+            // 段索引会错位、文本相似度会误认，两条路径都必须严格对上指令原文，旁白页不借用相邻台词。
             if (!bubbleSpeaker) {
+                const probeKey = normalizeFingerprint(String(currentText || '')
+                    .replace(/^\s*\*+\s*/, '').replace(/\s*\*+\s*$/, '')
+                    .replace(/^\s*\[[^\]]+\]\s*[:：]\s*/, ''));
                 const segDirective = sceneDirectives.find((d) => Number(d.segmentIndex) === normalizedIndex
-                    && (d.type === 'char' || d.type === 'thought'));
-                if (segDirective) {
-                    textType = segDirective.type === 'thought' ? 'thought' : 'dialogue';
-                    bubbleSpeaker = segDirective.character || scene.speaker;
-                    bubbleMood = segDirective.mood || '';
-                } else {
-                    // 按行计数的 segmentIndex 与文本管线分段会错位，索引匹配失败时改用字符位置：
-                    // 在原文里定位当前段正文，取它前方最近的一条 char/thought 指令。
-                    // 仅在「当前段正文能与某条指令的台词/心里话对上」时才认角色：
-                    // 旁白句不与任何指令匹配，因此不会被误判成角色页。
-                    const probeBody = String(currentText || '')
-                        .replace(/^\s*\*+\s*/, '').replace(/\s*\*+\s*$/, '')
-                        .replace(/^\s*\[[^\]]+\]\s*[:：]\s*/, '')
-                        .trim();
-                    const matchedDirective = findDirectiveByText('', probeBody);
-                    if (globalThis.__IGS_HUD_DEBUG__) console.log('[FB]', JSON.stringify({ cur: String(currentText || '').slice(0, 30), hit: matchedDirective ? matchedDirective.character : null }));
-                    if (matchedDirective) {
-                        textType = matchedDirective.type === 'thought' ? 'thought' : 'dialogue';
-                        bubbleSpeaker = matchedDirective.character || scene.speaker;
-                        bubbleMood = matchedDirective.mood || '';
-                    }
+                    && (d.type === 'char' || d.type === 'thought') && textMatchesDirective(probeKey, d));
+                // 「……」「嗯。」这类短句旁白与台词可能逐字相同，不带段索引佐证时不按文本认领。
+                const matchedDirective = segDirective
+                    || (probeKey.length >= 6 ? findDirectiveByText('', probeKey, { strict: true }) : null);
+                if (globalThis.__IGS_HUD_DEBUG__) console.log('[FB]', JSON.stringify({ cur: String(currentText || '').slice(0, 30), hit: matchedDirective ? matchedDirective.character : null }));
+                if (matchedDirective) {
+                    textType = matchedDirective.type === 'thought' ? 'thought' : 'dialogue';
+                    bubbleSpeaker = matchedDirective.character || scene.speaker;
+                    bubbleMood = matchedDirective.mood || '';
                 }
             }
             resolvedSpeaker = bubbleSpeaker;
@@ -2087,6 +2100,7 @@ export function createIgsReaderHost(options = {}) {
         const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
         const typewriter = normalizeTypewriterSettings(reader.typewriter);
         const stageShake = normalizeStageShakeSettings(reader.stageShake);
+        const weatherFx = normalizeWeatherFxSettings(reader.weatherFx);
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
             dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（旧设置保留）`]);
         }
@@ -2123,6 +2137,8 @@ export function createIgsReaderHost(options = {}) {
             ].join(''),
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '启用震动演出'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
+            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '启用天气演出（雨/雷/雪/雾/阴/风/沙尘/晴，区分室内外并随时段变色）'),
+            weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
             performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
                 + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
                 + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘'),
@@ -2318,8 +2334,8 @@ export function createIgsReaderHost(options = {}) {
             doc.addEventListener('keydown', keydownHandler, true);
         }
         const dbController = createDbPanelController(doc, options.global);
-        const recordController = createRecordPanelController(doc, options.global);
-        const mapController = createMapPanelController(doc, options.global, async text => {
+        // 资料页只填空草稿：「前往 / 使用」共用同一条非覆盖、不发送的输入框路径。
+        const fillRecordDraft = async text => {
             const current = state.activeReader;
             if (!current) return { ok: false, reason: 'reader-not-open' };
             if (isEmbeddedReaderMode(current.mode)) {
@@ -2334,7 +2350,9 @@ export function createIgsReaderHost(options = {}) {
             current.inputValue = text;
             input.focus?.();
             return { ok: true };
-        });
+        };
+        const recordController = createRecordPanelController(doc, options.global, fillRecordDraft);
+        const mapController = createMapPanelController(doc, options.global, fillRecordDraft);
         const domState = {
             root,
             doc,
@@ -2860,6 +2878,7 @@ export function createIgsReaderHost(options = {}) {
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),
+            weatherFx: normalizeWeatherFxSettings(null),
             imageCountOverride: null,
             pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
             hiddenBtns: [],
@@ -2896,9 +2915,9 @@ export function createIgsReaderHost(options = {}) {
         normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
         normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
         normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);
+        normalized.weatherFx = normalizeWeatherFxSettings(normalized.weatherFx);
         normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
-        normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);
         normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
         normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
         normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);

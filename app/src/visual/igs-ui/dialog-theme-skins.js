@@ -13,61 +13,85 @@ export function isIllustratedDialogSkin(value) {
     return ILLUSTRATED_DIALOG_SKINS.includes(skin);
 }
 
+// 构建脚本按字面占位符内联 PNG，这里必须保留完整字面量。
 const DIALOG_THEME_ASSETS = Object.freeze({
     [DIALOG_SKIN_PLANT_COFFEE]: Object.freeze({
-        'dialog-left': '__IGS_ASSET__plant-coffee/dialog-left.png__',
-        'dialog-center': '__IGS_ASSET__plant-coffee/dialog-center.png__',
-        'dialog-right': '__IGS_ASSET__plant-coffee/dialog-right.png__',
-        'name-left': '__IGS_ASSET__plant-coffee/name-left.png__',
-        'name-center': '__IGS_ASSET__plant-coffee/name-center.png__',
-        'name-right': '__IGS_ASSET__plant-coffee/name-right.png__',
+        dialogLeft: '__IGS_ASSET__plant-coffee/dialog-left.png__',
+        dialogCenter: '__IGS_ASSET__plant-coffee/dialog-center.png__',
+        dialogRight: '__IGS_ASSET__plant-coffee/dialog-right.png__',
+        nameLeft: '__IGS_ASSET__plant-coffee/name-left.png__',
+        nameCenter: '__IGS_ASSET__plant-coffee/name-center.png__',
+        nameRight: '__IGS_ASSET__plant-coffee/name-right.png__',
     }),
     [DIALOG_SKIN_BLACK_WHITE_MANGA]: Object.freeze({
-        'dialog-left': '__IGS_ASSET__black-white-manga/dialog-left.png__',
-        'dialog-center': '__IGS_ASSET__black-white-manga/dialog-center.png__',
-        'dialog-right': '__IGS_ASSET__black-white-manga/dialog-right.png__',
-        'name-left': '__IGS_ASSET__black-white-manga/name-left.png__',
-        'name-center': '__IGS_ASSET__black-white-manga/name-center.png__',
-        'name-right': '__IGS_ASSET__black-white-manga/name-right.png__',
+        dialogLeft: '__IGS_ASSET__black-white-manga/dialog-left.png__',
+        dialogCenter: '__IGS_ASSET__black-white-manga/dialog-center.png__',
+        dialogRight: '__IGS_ASSET__black-white-manga/dialog-right.png__',
+        nameLeft: '__IGS_ASSET__black-white-manga/name-left.png__',
+        nameCenter: '__IGS_ASSET__black-white-manga/name-center.png__',
+        nameRight: '__IGS_ASSET__black-white-manga/name-right.png__',
     }),
     [DIALOG_SKIN_CUTE_PINK]: Object.freeze({
-        'dialog-left': '__IGS_ASSET__cute-pink/dialog-left.png__',
-        'dialog-center': '__IGS_ASSET__cute-pink/dialog-center.png__',
-        'dialog-right': '__IGS_ASSET__cute-pink/dialog-right.png__',
-        'name-left': '__IGS_ASSET__cute-pink/name-left.png__',
-        'name-center': '__IGS_ASSET__cute-pink/name-center.png__',
-        'name-right': '__IGS_ASSET__cute-pink/name-right.png__',
+        dialogLeft: '__IGS_ASSET__cute-pink/dialog-left.png__',
+        dialogCenter: '__IGS_ASSET__cute-pink/dialog-center.png__',
+        dialogRight: '__IGS_ASSET__cute-pink/dialog-right.png__',
+        nameLeft: '__IGS_ASSET__cute-pink/name-left.png__',
+        nameCenter: '__IGS_ASSET__cute-pink/name-center.png__',
+        nameRight: '__IGS_ASSET__cute-pink/name-right.png__',
     }),
 });
 
-function asset(theme, part) {
-    return DIALOG_THEME_ASSETS[theme][part];
+// 三片素材皮肤的几何全部来自素材实测：dialog 为原始高度与左右端宽度，
+// plate 为姓名牌缩放后的高度与两端宽度（保持素材宽高比），text 为正文安全区内距。
+// rise 是姓名牌高出对话框顶边的距离，供选项气泡避让。
+export const ILLUSTRATED_DIALOG_SPECS = Object.freeze({
+    [DIALOG_SKIN_PLANT_COFFEE]: Object.freeze({
+        dialog: { height: 177, left: 130, right: 130 },
+        text: { top: 30, speakerTop: 42, right: 56, bottom: 24, left: 52 },
+        plate: { height: 42, left: 31, right: 31, x: 62, rise: 12, lineHeight: 42, padding: '0 30px', minWidth: 124 },
+        nameCss: 'font-size:15px;font-weight:500;letter-spacing:.2em;text-indent:.2em;',
+        textCss: '--igs-skin-text-scale:.96;letter-spacing:.06em;',
+    }),
+    [DIALOG_SKIN_BLACK_WHITE_MANGA]: Object.freeze({
+        dialog: { height: 191, left: 90, right: 89 },
+        text: { top: 30, speakerTop: 40, right: 62, bottom: 28, left: 64 },
+        plate: { height: 56, left: 56, right: 56, x: 24, rise: 30, lineHeight: 54, padding: '0 58px 0 36px', minWidth: 168 },
+        nameCss: 'font-size:18px;font-weight:700;letter-spacing:.24em;',
+        textCss: 'letter-spacing:.04em;',
+    }),
+    [DIALOG_SKIN_CUTE_PINK]: Object.freeze({
+        dialog: { height: 215, left: 120, right: 145 },
+        text: { top: 46, speakerTop: 46, right: 70, bottom: 38, left: 78 },
+        plate: { height: 58, left: 34, right: 85, x: 30, rise: 32, lineHeight: 52, padding: '0 46px 0 40px', minWidth: 156 },
+        nameCss: 'font-size:17px;font-weight:700;letter-spacing:.14em;text-shadow:0 1px 0 #c24a6f,0 -1px 0 rgba(255,255,255,.35);',
+        textCss: '--igs-skin-text-scale:.97;letter-spacing:.05em;',
+    }),
+});
+
+function px(value) {
+    return `${value}px`;
 }
 
-const PLANT = DIALOG_SKIN_PLANT_COFFEE;
-const MANGA = DIALOG_SKIN_BLACK_WHITE_MANGA;
-const CUTE = DIALOG_SKIN_CUTE_PINK;
+export function buildSlicedDialogSkinCss(skin, spec, assets) {
+    const { dialog, text, plate } = spec;
+    const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]`;
+    const dialogSize = [px(dialog.left), `calc(100% - ${dialog.left + dialog.right}px)`, px(dialog.right)]
+        .map((width) => `${width} ${px(dialog.height)}`).join(',');
+    const plateSize = [px(plate.left), `calc(100% - ${plate.left + plate.right}px)`, px(plate.right)]
+        .map((width) => `${width} ${px(plate.height)}`).join(',');
+    const padding = (top) => `padding:${px(top)} ${px(text.right)} ${px(text.bottom)} ${px(text.left)};`;
+    return [
+        `${scope}{box-sizing:border-box;height:${px(dialog.height)};min-height:${px(dialog.height)};max-height:${px(dialog.height)};display:flex;flex-direction:column;overflow:visible;${padding(text.top)}background-color:transparent;background-image:url("${assets.dialogLeft}"),url("${assets.dialogCenter}"),url("${assets.dialogRight}");background-position:left top,${px(dialog.left)} top,right top;background-size:${dialogSize};background-repeat:no-repeat;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}`,
+        `${scope}[data-igs-has-speaker="1"]{${padding(text.speakerTop)}}`,
+        `${scope} .igs-progress,${scope} .igs-speaker,${scope} .igs-divider,${scope} .igs-controls{flex-shrink:0;}`,
+        `${scope} .igs-divider{display:none;}`,
+        `${scope} .igs-text{min-height:0;margin:0;overflow-y:auto;flex:1 1 auto;text-shadow:none;${spec.textCss || ''}}`,
+        `${scope} .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;left:${px(plate.x)};top:${px(-plate.rise)};width:max-content;min-width:${px(plate.minWidth)};max-width:calc(100% - ${px(plate.x * 2)});height:${px(plate.height)};line-height:${px(plate.lineHeight)};margin:0;padding:${plate.padding};background-color:transparent;background-image:url("${assets.nameLeft}"),url("${assets.nameCenter}"),url("${assets.nameRight}");background-position:left top,${px(plate.left)} top,right top;background-size:${plateSize};background-repeat:no-repeat;border:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${spec.nameCss || ''}}`,
+        `#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{height:min(${px(dialog.height)},calc(100% - 28px));min-height:min(${px(dialog.height)},calc(100% - 28px));max-height:calc(100% - 28px);}`,
+        `#igs-overlay[data-igs-dialog-skin="${skin}"]{--igs-skin-plate-rise:${px(plate.rise)};}`,
+    ].join('\n');
+}
 
-export const ILLUSTRATED_DIALOG_STYLE_TEXT = `
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"]{box-sizing:border-box;height:177px;min-height:177px;max-height:177px;display:flex;flex-direction:column;overflow:visible;padding:16px 42px 16px;background-color:transparent;background-image:url("${asset(PLANT,'dialog-left')}"),url("${asset(PLANT,'dialog-center')}"),url("${asset(PLANT,'dialog-right')}");background-position:left top,130px top,right top;background-size:130px 177px,calc(100% - 260px) 177px,130px 177px;background-repeat:no-repeat;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"] .igs-progress,#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"] .igs-speaker,#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"] .igs-divider,#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"] .igs-controls{flex-shrink:0;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"] .igs-text{min-height:0;overflow-y:auto;flex:1 1 auto;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"] .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;left:35px;top:-16px;width:min(400px,calc(100% - 70px));height:47px;line-height:1.2;margin:0;padding:0 28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;letter-spacing:.5px;background:transparent url("${asset(PLANT,'name-left')}") left top/35px 47px no-repeat;border:0;text-shadow:none;background-image:url("${asset(PLANT,'name-left')}"),url("${asset(PLANT,'name-center')}"),url("${asset(PLANT,'name-right')}");background-position:left top,35px top,right top;background-size:35px 47px,calc(100% - 70px) 47px,35px 47px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"][data-igs-has-speaker="1"]{padding-top:39px;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${PLANT}"] .igs-divider{display:none;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"]{box-sizing:border-box;height:191px;min-height:191px;max-height:191px;display:flex;flex-direction:column;overflow:visible;padding:18px 40px 18px;background-color:transparent;background-image:url("${asset(MANGA,'dialog-left')}"),url("${asset(MANGA,'dialog-center')}"),url("${asset(MANGA,'dialog-right')}");background-position:left top,90px top,right top;background-size:90px 191px,calc(100% - 179px) 191px,89px 191px;background-repeat:no-repeat;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"] .igs-progress,#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"] .igs-speaker,#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"] .igs-divider,#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"] .igs-controls{flex-shrink:0;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"] .igs-text{min-height:0;overflow-y:auto;flex:1 1 auto;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"] .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;left:40px;top:-24px;width:min(460px,calc(100% - 80px));height:68px;line-height:1.2;margin:0;padding:0 84px;display:flex;align-items:center;justify-content:flex-start;font-size:13px;font-weight:600;letter-spacing:.5px;background-image:url("${asset(MANGA,'name-left')}"),url("${asset(MANGA,'name-center')}"),url("${asset(MANGA,'name-right')}");background-position:left top,68px top,right top;background-size:68px 68px,calc(100% - 136px) 68px,68px 68px;background-repeat:no-repeat;color:#241b19;text-shadow:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"][data-igs-has-speaker="1"]{padding-top:58px;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${MANGA}"] .igs-divider{display:none;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"]{box-sizing:border-box;height:215px;min-height:215px;max-height:215px;display:flex;flex-direction:column;overflow:visible;padding:20px 44px 18px;background-color:transparent;background-image:url("${asset(CUTE,'dialog-left')}"),url("${asset(CUTE,'dialog-center')}"),url("${asset(CUTE,'dialog-right')}");background-position:left top,120px top,right top;background-size:120px 215px,calc(100% - 265px) 215px,145px 215px;background-repeat:no-repeat;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"] .igs-progress,#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"] .igs-speaker,#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"] .igs-divider,#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"] .igs-controls{flex-shrink:0;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"] .igs-text{min-height:0;overflow-y:auto;flex:1 1 auto;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"] .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;left:35px;top:-24px;width:min(430px,calc(100% - 70px));height:68px;line-height:1.2;margin:0;padding:0 100px 0 40px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;letter-spacing:.5px;color:#fff;text-shadow:none;background-image:url("${asset(CUTE,'name-left')}"),url("${asset(CUTE,'name-center')}"),url("${asset(CUTE,'name-right')}");background-position:left top,40px top,right top;background-size:40px 68px,calc(100% - 140px) 68px,100px 68px;background-repeat:no-repeat;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"][data-igs-has-speaker="1"]{padding-top:58px;}
-#igs-overlay .igs-dialog[data-igs-dialog-skin="${CUTE}"] .igs-divider{display:none;}
-#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${PLANT}"]{height:min(177px,calc(100% - 28px));min-height:min(177px,calc(100% - 28px));max-height:calc(100% - 28px);}
-#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${MANGA}"]{height:min(191px,calc(100% - 28px));min-height:min(191px,calc(100% - 28px));max-height:calc(100% - 28px);}
-#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${CUTE}"]{height:min(215px,calc(100% - 28px));min-height:min(215px,calc(100% - 28px));max-height:calc(100% - 28px);}
-`.trim();
+export const ILLUSTRATED_DIALOG_STYLE_TEXT = ILLUSTRATED_DIALOG_SKINS
+    .map((skin) => buildSlicedDialogSkinCss(skin, ILLUSTRATED_DIALOG_SPECS[skin], DIALOG_THEME_ASSETS[skin]))
+    .join('\n');

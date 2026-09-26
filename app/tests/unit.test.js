@@ -11,6 +11,7 @@ import {
     cleanNarrativeSource,
     DEFAULT_SOURCE_FILTER,
     DEFAULT_VIRTUAL_REGEX,
+    normalizeVirtualRegex,
 } from '../src/scene/message-source.js';
 import {
     buildNarrativeSegments,
@@ -41,6 +42,7 @@ import { chamiProvider } from '../src/generated-images/providers/chami-provider.
 import { fetchModels as fetchImageModels, generateImage as generateImageFromApi } from '../src/generated-images/image-api-client.js';
 import { createReaderImageService } from '../src/generated-images/reader-image-service.js';
 import { createPublicApi, attachPublicApi } from '../src/api/public-api.js';
+import { createIgsCompatApi } from '../src/api/igs-compat.js';
 import {
     createTavernHelperAdapter,
     ensureMessageImagePlaceholders,
@@ -65,7 +67,10 @@ import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normaliz
 import { ensureEmbeddedHost, hideEmbeddedSourceText, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from '../src/visual/igs-ui/reader-source-cache.js';
 import { createChatStreamObserver } from '../src/host/chat-stream-observer.js';
-import { RECORD_ICONS, inventoryIconKey } from '../src/visual/igs-ui/record-icons.js';
+import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from '../src/visual/igs-ui/record-icons.js';
+import { autoPlaceMapPoints, centerMapCamera } from '../src/visual/igs-ui/map-viewport.js';
+import { parseLooseDate } from '../src/data/shujuku/record-model.js';
+import { createCharacterMetricsLookup } from '../src/data/shujuku/character-metrics.js';
 
 test('gate:visual:inventory-icons-use-static-tabler-whitelist-and-longest-match', () => {
     assert.equal(inventoryIconKey('黄铜钥匙圈'), 'key');
@@ -82,13 +87,67 @@ test('gate:visual:inventory-icons-use-static-tabler-whitelist-and-longest-match'
     assert.equal(inventoryIconKey('未知物'), 'generic');
     assert.equal(inventoryIconKey({ title: '普通物品', description: '钥匙' }), 'generic');
     assert.equal(inventoryIconKey('<script>钥匙</script>'), 'key');
-    for (const key of ['key', 'book', 'potion', 'bottle', 'bow', 'food', 'weapon', 'armor', 'money', 'tool', 'gem', 'box', 'candle', 'dice', 'crown', 'compass']) {
+    assert.equal(inventoryIconKey('车票'), 'ticket');
+    assert.equal(inventoryIconKey('便笺'), 'note');
+    assert.equal(inventoryIconKey('手电筒'), 'flashlight');
+    assert.equal(inventoryIconKey('怀表'), 'watch');
+    assert.equal(inventoryIconKey('信封'), 'envelope');
+    assert.equal(inventoryIconKey('笔记本'), 'notebook');
+    assert.equal(inventoryIconKey('钱包'), 'wallet');
+    assert.equal(inventoryIconKey('书包'), 'bag');
+    assert.equal(inventoryIconKey('信用卡'), 'card');
+    assert.equal(inventoryGroupLabel('车票'), '文书');
+    assert.equal(inventoryGroupLabel('门禁卡'), '钥匙证件');
+    assert.equal(inventoryGroupLabel('未知物'), '其他');
+    assert.ok(INVENTORY_GROUP_ORDER.includes('其他'));
+    for (const key of ['key', 'book', 'potion', 'bottle', 'bow', 'food', 'weapon', 'armor', 'money', 'tool', 'gem', 'box', 'candle', 'dice', 'crown', 'compass', 'ticket', 'note', 'flashlight', 'watch', 'envelope', 'notebook', 'generic']) {
         assert.match(RECORD_ICONS[key], /viewBox="0 0 24 24"/);
-        assert.match(RECORD_ICONS[key], /currentColor/);
-        assert.doesNotMatch(RECORD_ICONS[key], /<script|onerror|黄铜钥匙圈/);
+        // 细线图标：统一描边、不填充，粗细由样式层控制。
+        assert.match(RECORD_ICONS[key], /fill="none" stroke="currentColor" stroke-width="1\.3"/);
+        assert.doesNotMatch(RECORD_ICONS[key], /fill="currentColor"|<script|onerror|黄铜钥匙圈/);
     }
-    assert.match(RECORD_ICONS.book, /fill="currentColor"/);
-    assert.match(RECORD_ICONS.weapon, /stroke="currentColor"/);
+});
+
+test('gate:visual:map-auto-layout-and-focus-are-deterministic', () => {
+    const fixed = [{ x: 0.2, y: 0.3 }, { x: 0.7, y: 0.6 }];
+    const first = autoPlaceMapPoints(fixed, 3, 16 / 9);
+    assert.deepEqual(first, autoPlaceMapPoints(fixed, 3, 16 / 9));
+    assert.equal(first.length, 3);
+    for (const point of first) {
+        assert.ok(point.x >= 0.14 && point.x <= 0.86 && point.y >= 0.2 && point.y <= 0.8);
+        for (const other of fixed) assert.ok(Math.hypot((point.x - other.x) * 16 / 9, point.y - other.y) > 0.1);
+    }
+    assert.equal(new Set(first.map(point => `${point.x},${point.y}`)).size, 3);
+    assert.deepEqual(autoPlaceMapPoints(fixed, 0), []);
+    const camera = centerMapCamera({ k: 1, tx: 0, ty: 0 }, 400, 800, 1600, 900, 100, 100);
+    assert.deepEqual(camera, { k: 1, tx: 0, ty: 0 }, 'clamps at the world edge');
+    const middle = centerMapCamera({ k: 1, tx: 0, ty: 0 }, 400, 800, 1600, 900, 800, 450);
+    assert.equal(middle.tx, -600);
+    assert.equal(middle.ty, -50);
+});
+
+test('gate:data:loose-dates-and-character-metrics-read-explicit-values', () => {
+    assert.equal(parseLooseDate('2024-06-18').label, '06.18');
+    assert.equal(parseLooseDate('2024年6月8日 傍晚').label, '06.08');
+    assert.equal(parseLooseDate('6月8日 20:30').label, '06.08');
+    assert.ok(parseLooseDate('2024-06-18 09:00').key > parseLooseDate('2024-06-18').key);
+    assert.ok(parseLooseDate('2024-06-18').key > parseLooseDate('2024-05-30').key);
+    assert.equal(parseLooseDate('第三天傍晚'), null);
+    assert.equal(parseLooseDate('13月2日'), null);
+    const readResult = { ok: true, data: {
+        metrics: { uid: 'sheet_metrics', name: '角色数值表', content: [['row_id', '角色姓名', '好感度', '信任度', '已知秘密', '关系阶段'],
+            [1, '林夏', '72', '65/100', '她会弹琴', '暧昧'], [2, '陈屿', '120', '', '', '']] },
+        other: { uid: 'sheet_other', name: '物品表', content: [['row_id', '物品名称', '数量'], [1, '林夏', '3']] },
+    } };
+    const lookup = createCharacterMetricsLookup(readResult);
+    const linxia = lookup('林夏');
+    assert.deepEqual(linxia.metrics.map(item => [item.label, item.percent]), [['好感度', 72], ['信任度', 65]]);
+    assert.deepEqual(linxia.stages, [{ label: '关系阶段', value: '暧昧' }]);
+    assert.deepEqual(lookup('陈屿').metrics, [], 'out-of-range plain values are not shown');
+    assert.deepEqual(lookup('无名').metrics, []);
+    assert.deepEqual(createCharacterMetricsLookup({ ok: false, reason: 'x' })('林夏'), { metrics: [], stages: [] });
+    const picked = createCharacterMetricsLookup(readResult, { selectedTables: [{ uid: 'sheet_other', name: '物品表' }] })('林夏');
+    assert.deepEqual(picked.metrics.map(item => item.label), ['好感度', '信任度']);
 });
 
 test('gate:igs-ui:reader-mode-schema-is-single-source-with-embedded', () => {
@@ -324,6 +383,70 @@ test('gate:igs-ui:embedded-chat-observer-uses-generation-end-and-ignores-late-do
     assert.equal(stableCount, 1);
     observer.stop();
     assert.equal(created[0].disconnected, true);
+});
+
+test('gate:igs-ui:embedded-chat-observer-ignores-quiet-and-dry-run-generations', async () => {
+    const timers = new Map();
+    const listeners = new Map();
+    const created = [];
+    let timerId = 0;
+    const eventSource = {
+        on(name, handler) {
+            if (!listeners.has(name)) listeners.set(name, []);
+            listeners.get(name).push(handler);
+        },
+        off(name, handler) {
+            listeners.set(name, (listeners.get(name) || []).filter((item) => item !== handler));
+        },
+        emit(name, ...args) {
+            for (const handler of listeners.get(name) || []) handler(...args);
+        },
+    };
+    const globalObject = {
+        setTimeout(handler, delay) {
+            timerId += 1;
+            timers.set(timerId, { handler, delay });
+            return timerId;
+        },
+        clearTimeout(id) {
+            timers.delete(id);
+        },
+        MutationObserver: class {
+            constructor(handler) { this.handler = handler; created.push(this); }
+            observe() {}
+            disconnect() {}
+        },
+    };
+    let activityCount = 0;
+    let stableCount = 0;
+    const observer = createChatStreamObserver({
+        global: globalObject,
+        document: { querySelector: () => ({}), defaultView: globalObject },
+        eventSource,
+        eventTypes: { GENERATION_STARTED: 'generation_started', GENERATION_ENDED: 'generation_ended' },
+        onActivity: () => { activityCount += 1; },
+        onStable: () => { stableCount += 1; return true; },
+    });
+    observer.start();
+
+    eventSource.emit('generation_started', 'normal', {}, true);
+    created[0].handler([{ target: {} }]);
+    eventSource.emit('generation_started', 'quiet', { quiet_prompt: 'plugin' }, false);
+    created[0].handler([{ target: {} }]);
+    assert.equal(activityCount, 0);
+    assert.equal(timers.size, 0);
+
+    eventSource.emit('generation_started', 'normal', {}, false);
+    created[0].handler([{ target: {} }]);
+    assert.equal(activityCount, 1);
+    const idleTimer = Array.from(timers.entries()).find(([, timer]) => timer.delay === 10000);
+    assert.ok(idleTimer);
+    timers.delete(idleTimer[0]);
+    idleTimer[1].handler();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(stableCount, 1);
+    observer.stop();
 });
 
 const appRoot = path.resolve(import.meta.dirname, '..');
@@ -992,7 +1115,7 @@ test('gate:igs-ui:classic-dialog-active-theme-keeps-default-isolated', () => {
     });
     assert.equal(theme.textColor, '#123456');
     assert.equal(theme.nameColor, '#654321');
-    assert.equal(theme.narrationColor, '#f2e5c4');
+    assert.equal(theme.narrationColor, '#ddd3b8');
     assert.equal(theme.dividerSymbol, 'none');
 });
 
@@ -1750,6 +1873,65 @@ test('gate:igs-ui:scene-assets-classifies-dialogue-vs-narration-per-segment', ()
         assert.equal(res.snapshot.content.displayText, expected);
         host.destroy();
     }
+});
+
+test('gate:igs-ui:scene-assets-keeps-narration-out-of-dialogue-and-thought-pages', async () => {
+    const pagesOf = async (body, sentencePaging = false) => {
+        const host = createIgsReaderHost({
+            global: {},
+            getUnifiedSettings: () => ({
+                version: '0.4.9',
+                bridge: { openMode: 'pc', sentencePaging, sceneAssets: { enabled: true, scenes: {}, characters: {} } },
+                readerMode: 'pc',
+                readerSettings: {},
+            }),
+            saveUnifiedSettings: () => ({ ok: true, legacy: {}, unified: {} }),
+        });
+        const opened = host.openReader({ message: { text: `<content>${body}</content>` } }, { mode: 'pc' });
+        const pages = [];
+        for (let index = 0; index < opened.snapshot.content.segments.length; index += 1) {
+            if (index) await opened.controller.invokeAction('next');
+            const { content } = host.getState().activeReader.snapshot;
+            pages.push([content.textType, content.speaker, content.displayText]);
+        }
+        host.destroy();
+        return pages;
+    };
+
+    // 短台词「……」不得认领以它开头的旁白，也不得让独立的「……」旁白认领含它的台词。
+    assert.deepEqual(await pagesOf('[igs-scene:教室|傍晚|晴]\n[igs-char:小雪|沉默|……]\n……空气安静得只能听见钟表声。\n……\n[igs-char:小雪|害羞|其实……我等你很久了。]'), [
+        ['dialogue', '小雪', '……'],
+        ['narration', '', '……空气安静得只能听见钟表声。'],
+        ['narration', '', '……'],
+        ['dialogue', '小雪', '其实……我等你很久了。'],
+    ]);
+    // AI 的斜体旁白 *…* 不对应任何心里话指令，不进入心理活动页。
+    assert.deepEqual((await pagesOf('[igs-char:小雪|微笑|你来了。]\n*她把书合上，抬头看向门口。*\n[igs-thought:小雪|紧张|要冷静]')).map(([type]) => type), ['dialogue', 'narration', 'thought']);
+    // 首段「xx：」旁白不被当成说话人前缀剥掉。
+    assert.deepEqual((await pagesOf('她小声嘀咕：真是的。\n[igs-char:小雪|微笑|你来了。]', true))[0], ['narration', '', '她小声嘀咕：真是的。']);
+    // 漏写 "]" 的台词只到行尾，不吞并后文旁白与心里话指令。
+    assert.deepEqual(await pagesOf('[igs-char:小雪|微笑|你来了。\n她笑着迎上来。\n[igs-thought:小雪|期待|他会不会注意到呢]'), [
+        ['dialogue', '小雪', '你来了。'],
+        ['narration', '', '她笑着迎上来。'],
+        ['thought', '小雪', '*他会不会注意到呢*'],
+    ]);
+    // 省略表情栏的两栏写法按「没写表情」的台词/心里话处理，不再整句消失。
+    assert.deepEqual(await pagesOf('[igs-char:小雪|你来了。]\n旁白五。\n[igs-thought:小雪|他会来吗]'), [
+        ['dialogue', '小雪', '你来了。'],
+        ['narration', '', '旁白五。'],
+        ['thought', '小雪', '*他会来吗*'],
+    ]);
+});
+
+test('gate:scene:directive-extraction-survives-malformed-tags-and-legacy-format-rule-migrates', () => {
+    const { directives } = extractSceneDirectives('[igs-char:小雪|你来了。]\n[igs-char:小雪|微笑|等你好久了\n[igs-char:\n旁白。');
+    assert.deepEqual(directives.map((d) => [d.type, d.character, d.mood, d.dialogue]), [
+        ['char', '小雪', '', '你来了。'],
+        ['char', '小雪', '微笑', '等你好久了'],
+    ]);
+    const legacy = normalizeVirtualRegex({ pattern: String.raw`\[igs-char:([^|\]]+)\|[^|\]]+\|([^\]]+)\]` });
+    assert.equal(legacy.pattern, DEFAULT_VIRTUAL_REGEX.pattern);
+    assert.equal(normalizeVirtualRegex({ pattern: '^@bubble:(.+)$' }).pattern, '^@bubble:(.+)$');
 });
 
 test('gate:igs-ui:reader-host-skips-empty-dialogue-pages', () => {
@@ -3103,6 +3285,100 @@ test('gate:igs-ui:gradient-veil-normalizes-values-and-shares-default-theme', () 
     assert.equal(theme.textColor, '#abcdef');
 });
 
+function createSceneInheritanceApp(floors) {
+    const captured = { payload: null };
+    return {
+        captured,
+        getState: () => ({ config: { sceneAssets: { enabled: true } } }),
+        hostAdapter: {
+            async getMessageById(id) {
+                return floors.find((m) => m.id === Number(id)) || null;
+            },
+            async getAdjacentMessage(id, delta) {
+                const idx = floors.findIndex((m) => m.id === Number(id));
+                if (idx < 0) return null;
+                return floors[idx + (Number(delta) < 0 ? -1 : 1)] || null;
+            },
+        },
+        refresh: async () => ({ ok: true, render:{}, scene: {} }),
+        igsUi: {
+            openReader(payload) {
+                captured.payload = payload;
+                return { ok: true };
+            },
+        },
+    };
+}
+
+test('gate:igs-scene-inheritance:reuses-latest-scene-tag-within-three-ai-floors', async () => {
+    const floors = [
+        { id: 0, text: '<content>[igs-scene:厢房|早晨|晴天]开场。</content>' },
+        { id: 1, text: '<content>第二楼正文，没有场景标签。</content>' },
+        { id: 2, text: '<content>第三楼正文，也没有场景标签。</content>' },
+        { id: 3, text: '<content>第四楼正文，仍然没有场景标签。</content>' },
+    ];
+    const app = createSceneInheritanceApp(floors);
+    const api = createIgsCompatApi(app);
+    const result = await api.openViewerFromMessage(3, 'pc');
+    assert.equal(result.ok, true);
+    const inherited = app.captured.payload && app.captured.payload.inheritedSceneState;
+    assert.ok(inherited, '三层内的最近场景标签应被继承');
+    assert.equal(inherited.scene, '厢房');
+    assert.equal(inherited.time, '早晨');
+    assert.equal(inherited.weather, '晴天');
+    assert.equal(inherited.inheritedFromMessageId, 0);
+});
+
+test('gate:igs-scene-inheritance:own-scene-tag-wins-over-inheritance', async () => {
+    const floors = [
+        { id: 0, text: '<content>[igs-scene:厢房|早晨|晴天]开场。</content>' },
+        { id: 1, text: '<content>[igs-scene:花园|下午|阴天]本楼自己带了场景标签。</content>' },
+    ];
+    const app = createSceneInheritanceApp(floors);
+    const api = createIgsCompatApi(app);
+    const result = await api.openViewerFromMessage(1, 'pc');
+    assert.equal(result.ok, true);
+    // 始终计算追溯结果：标签之后的段落由消费点用本楼场景，
+    // 这里的继承值供标签之前的段落回退。
+    const inherited = app.captured.payload.inheritedSceneState;
+    assert.ok(inherited, '本楼有标签时仍应计算追溯结果供楼内前段回退');
+    assert.equal(inherited.scene, '厢房');
+});
+
+test('gate:igs-scene-inheritance:text-before-own-tag-falls-back-to-inherited-scene', async () => {
+    // 「正文—标签—正文」楼层：标签前的段落没有本楼场景可归属，
+    // 应能拿到上一楼的继承场景，不再黑屏。
+    const floors = [
+        { id: 0, text: '<content>[igs-scene:厢房|早晨|晴天]开场。</content>' },
+        { id: 1, text: '<content>先写了一段正文。[igs-scene:花园|下午|阴天]然后才是标签后的正文。</content>' },
+    ];
+    const app = createSceneInheritanceApp(floors);
+    const api = createIgsCompatApi(app);
+    const result = await api.openViewerFromMessage(1, 'pc');
+    assert.equal(result.ok, true);
+    const payload = app.captured.payload;
+    assert.ok(payload.sceneDirectives.some((d) => d.type === 'scene' && d.scene === '花园'),
+        '本楼标签应正常解析');
+    assert.equal(payload.inheritedSceneState.scene, '厢房');
+    assert.equal(payload.inheritedSceneState.inheritedFromMessageId, 0);
+});
+
+test('gate:igs-scene-inheritance:does-not-reach-beyond-three-ai-floors', async () => {
+    const floors = [
+        { id: 0, text: '<content>[igs-scene:厢房|早晨|晴天]开场。</content>' },
+        { id: 1, text: '<content>无标签一楼。</content>' },
+        { id: 2, text: '<content>无标签二楼。</content>' },
+        { id: 3, text: '<content>无标签三楼。</content>' },
+        { id: 4, text: '<content>无标签四楼。</content>' },
+    ];
+    const app = createSceneInheritanceApp(floors);
+    const api = createIgsCompatApi(app);
+    const result = await api.openViewerFromMessage(4, 'pc');
+    assert.equal(result.ok, true);
+    assert.equal(app.captured.payload.inheritedSceneState, null);
+});
+
+
 });
 
 test('gate:igs-ui:illustrated-dialog-skins-normalize-and-share-default-theme', () => {
@@ -3122,16 +3398,17 @@ test('gate:igs-ui:illustrated-dialog-skins-normalize-and-share-default-theme', (
 
 test('gate:igs-ui:reference-typography-applies-to-material-themes-only', () => {
     const expected = {
-        'western-classic': { nameColor: '#3b2a22', textColor: '#f2e5c4', nameAlign: 'center' },
-        'plant-coffee': { nameColor: '#b4d35f', textColor: '#5a4442', nameAlign: 'center' },
-        'black-white-manga': { nameColor: '#241b18', textColor: '#352923', nameAlign: 'left' },
-        'cute-pink': { nameColor: '#ffffff', textColor: '#604050', nameAlign: 'center' },
+        'western-classic': { nameColor: '#2e2218', textColor: '#f2e5c4', nameAlign: 'center', textFont: /Source Han Serif CN/ },
+        'plant-coffee': { nameColor: '#f6ecd9', textColor: '#5b4643', nameAlign: 'center', textFont: /IGS Rounded/ },
+        'black-white-manga': { nameColor: '#171412', textColor: '#231f1c', nameAlign: 'left', textFont: /PingFang SC/ },
+        'cute-pink': { nameColor: '#ffffff', textColor: '#5d3a4a', nameAlign: 'center', textFont: /IGS Rounded/ },
     };
     for (const [skin, values] of Object.entries(expected)) {
         const theme = resolveActiveTheme({ readerSettings: { dialogSkin: skin } });
         assert.equal(theme.nameColor, values.nameColor);
         assert.equal(theme.textColor, values.textColor);
         assert.equal(theme.nameAlign, values.nameAlign);
+        assert.match(theme.textFont, values.textFont);
     }
     const defaultTheme = resolveActiveTheme({ readerSettings: { dialogSkin: 'default' } });
     const veilTheme = resolveActiveTheme({ readerSettings: { dialogSkin: 'gradient-veil' } });

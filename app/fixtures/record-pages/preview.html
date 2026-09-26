@@ -76,7 +76,12 @@ const relationshipsSheet = {
       relationshipsFixture.people.find(person => person.id === edge.to)?.name || edge.to,
       edge.label])]
 };
-const tables = { [mapSheet.uid]: mapSheet, [diarySheet.uid]: diarySheet, [inventorySheet.uid]: inventorySheet, [relationshipsSheet.uid]: relationshipsSheet };
+// 人物数值：关系页按姓名读取「角色数值表」的好感度等纯数值列。
+const metricsSheet = {
+  uid: 'sheet_demo_metrics', name: '角色数值表',
+  content: [['row_id','角色姓名','好感度','信任度','了解程度'], [1,'林夏','72','65','48'], [2,'陈屿','58','80','35']]
+};
+const tables = { [mapSheet.uid]: mapSheet, [diarySheet.uid]: diarySheet, [inventorySheet.uid]: inventorySheet, [relationshipsSheet.uid]: relationshipsSheet, [metricsSheet.uid]: metricsSheet };
 const api = {
   exportTableAsJson: () => tables,
   registerTableUpdateCallback() {}, unregisterTableUpdateCallback() {},
@@ -86,7 +91,7 @@ const globalShim = { AutoCardUpdaterAPI: api };
 
 const overlay = document.getElementById('igs-overlay');
 const stage = document.getElementById('stage');
-const record = createRecordPanelController(document, globalShim);
+const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }));
 const map = createMapPanelController(document, globalShim, async () => ({ ok: true }));
 const SIZES = {
   desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768],
@@ -95,7 +100,7 @@ const SIZES = {
 let current = null;
 function openPage(page) {
   current?.close?.();
-  if (page === 'map') current = map, map.open(overlay, {}, '临河街道');
+  if (page === 'map') current = map, map.open(overlay, {}, '临河街道', new URLSearchParams(location.search).get('time') || '');
   else current = record, record.open(overlay, {}, page);
   document.querySelectorAll('#hud button').forEach(btn =>
     btn.toggleAttribute('aria-current', btn.dataset.page === page));
@@ -111,6 +116,15 @@ openPage(params.get('page') || 'map');
 // 可选 ?select=<data-record-id>：打开后自动选中，用于阅读态/详情态截图。
 const selectId = params.get('select');
 if (selectId) document.querySelector(`[data-record-id="${CSS.escape(selectId)}"],[data-map-id="${CSS.escape(selectId)}"]`)?.click();
+// 可选 ?click=act:id,act:id：按顺序点击资料页控件（如 diary-view:timeline、toggle-prefs:、group:文书）。
+for (const step of (params.get('click') || '').split(',').filter(Boolean)) {
+  const cut = step.indexOf(':');
+  const act = cut < 0 ? step : step.slice(0, cut);
+  const id = cut < 0 ? '' : step.slice(cut + 1);
+  Array.from(document.querySelectorAll('[data-record-act],[data-map-act]')).find(node =>
+    (node.getAttribute('data-record-act') || node.getAttribute('data-map-act')) === act
+    && (node.getAttribute('data-record-id') || node.getAttribute('data-map-id') || '') === id)?.click();
+}
 document.getElementById('hud').addEventListener('click', event => {
   const page = event.target?.dataset?.page;
   if (page) openPage(page);

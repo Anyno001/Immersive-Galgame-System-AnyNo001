@@ -1706,7 +1706,7 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     assert.equal(textEl.style.fontFamily, roundedFont);
     assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).classicVnTheme.narrationFont, roundedFont);
     settings.setValue('readerSettings.classicVnTheme.narrationFont', 'inherit');
-    assert.equal(textEl.style.fontFamily || '', '');
+    assert.match(textEl.style.fontFamily, /Source Han Serif CN/);
 
     settings.setValue('readerSettings.dialogFontWeight', '700');
     overlay = document.getElementById('igs-overlay');
@@ -1819,7 +1819,7 @@ test('gate:simulation:classic-dialog-nameplate-uses-existing-speaker', async () 
     assert.equal(dialog.getAttribute('data-igs-has-speaker'), '1');
     assert.equal(speaker.textContent, 'Hero');
     assert.equal(speaker.style.display, 'block');
-    assert.equal(speaker.style.color, '#3b2a22');
+    assert.equal(speaker.style.color, '#2e2218');
     assert.equal(divider.style.display, 'none');
     vn.destroy();
 });
@@ -3859,8 +3859,12 @@ test('gate:simulation:map-panel-navigates-read-only-sheets-refreshes-and-cleans-
     await act('select', 'sheet_map:home');
     await act('enter', 'sheet_map:home');
     assert.equal(panel.getState().parentId, 'sheet_map:home');
-    assert.match(document.getElementById('igs-map-panel').innerHTML, /未标注坐标的地点/);
+    // 无坐标地点不再堆成列表卡片，而是以示意针排布在图上并在无障碍名称中注明。
+    assert.doesNotMatch(document.getElementById('igs-map-panel').innerHTML, /igs-map-list|未标注坐标的地点/);
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /igs-map-marker igs-map-auto/);
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /查看一楼，位置为示意/);
     await act('select', 'sheet_map:floor');
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /表格未记录坐标，图上位置仅为示意/);
     await act('enter', 'sheet_map:floor');
     assert.match(document.getElementById('igs-map-panel').innerHTML, /left:800px;top:450px/);
     await act('select', 'sheet_map:room');
@@ -4151,15 +4155,17 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     root = document.getElementById('igs-record-panel');
     assert.equal(overlay.classList.contains('igs-record-screen-open'), true);
     const recordCss = getOriginalReaderStyleText();
-    assert.match(recordCss, /#igs-record-panel,#igs-map-panel\{[^}]*--igs-rp-text:#d8d5cf/);
-    assert.match(recordCss, /#igs-record-panel \.igs-rp-title::before,#igs-record-panel \.igs-rp-title::after,/);
+    // 液态磨玻璃：资料页整页只有一层 backdrop 模糊，格位/卡片无描边，标题两侧不再画线。
+    assert.match(recordCss, /#igs-record-panel,#igs-map-panel\{[^}]*--igs-rp-text:#ece8e1/);
+    assert.match(recordCss, /#igs-record-panel \.igs-rp-page::before\{[^}]*backdrop-filter:blur\(var\(--igs-rp-blur\)\)/);
+    assert.match(recordCss, /prefers-reduced-transparency:reduce/);
+    assert.doesNotMatch(recordCss, /\.igs-rp-title::before/);
     assert.match(recordCss, /#igs-record-panel \.igs-rp-back,#igs-map-panel \.igs-rp-back\{[^}]*min-width:44px;min-height:44px/);
-    assert.match(recordCss, /#igs-record-panel \.igs-rp-title,#igs-map-panel \.igs-rp-title\{[^}]*letter-spacing:\.14em/);
-    assert.match(recordCss, /\.igs-record-item-detail h3\{[^}]*font-size:26px/);
+    assert.match(recordCss, /\.igs-record-slots button\{[^}]*border:0;[^}]*background:var\(--igs-rp-sheen\)/);
+    assert.match(recordCss, /\.igs-record-slot-icon svg\{[^}]*stroke-width:1\.15/);
     assert.match(recordCss, /\.igs-record-slot-name\{[^}]*font-size:12px/);
-    assert.match(recordCss, /\.igs-record-book span\{[^}]*font-size:12px/);
     assert.doesNotMatch(recordCss, /125,92,54|57,39,27/);
-    assert.match(recordCss, /\.igs-record-slot-quantity\{position:absolute;right:7px;bottom:6px;/);
+    assert.match(recordCss, /\.igs-record-slot-quantity\{position:absolute;/);
     assert.match(root.innerHTML, /你的背包/);
     assert.doesNotMatch(root.innerHTML, /随身物品/);
     assert.match(root.innerHTML, /钥匙/);
