@@ -1,12 +1,13 @@
 export const MAP_PANEL_STYLE_TEXT = `
 #igs-status-hud .igs-hud-toggle{z-index:0;}
 #igs-status-hud .igs-hud-identity{display:contents;}
-#igs-status-hud .igs-hud-avatar-frame{position:relative;grid-column:1;grid-row:1 / span 2;align-self:center;width:calc(46px * var(--igs-hud-scale,1));height:calc(46px * var(--igs-hud-scale,1));}
-#igs-status-hud .igs-hud-entry-anchor{position:relative;z-index:1;grid-column:2;grid-row:1;justify-self:start;display:flex;align-items:center;gap:calc(3px * var(--igs-hud-scale,1));max-width:100%;min-width:0;pointer-events:none;}
+#igs-status-hud .igs-hud-avatar-frame{position:relative;grid-column:1;grid-row:1;align-self:center;width:calc(46px * var(--igs-hud-scale,1));height:calc(46px * var(--igs-hud-scale,1));}
+#igs-status-hud .igs-hud-entry-anchor{position:relative;z-index:1;grid-column:2;grid-row:1;align-self:center;justify-self:start;display:flex;align-items:center;gap:calc(3px * var(--igs-hud-scale,1));max-width:100%;min-width:0;pointer-events:none;}
 #igs-status-hud .igs-hud-emotion{flex:none;}
-#igs-status-hud .igs-hud-metrics{grid-column:2;grid-row:2;margin-top:calc(4px * var(--igs-hud-scale,1));}
+#igs-status-hud .igs-hud-metrics{grid-column:1 / 3;grid-row:2;display:grid;grid-template-columns:max-content minmax(0,1fr) auto;align-items:center;justify-content:normal;align-self:auto;gap:calc(4px * var(--igs-hud-scale,1)) calc(5px * var(--igs-hud-scale,1));margin-top:calc(7px * var(--igs-hud-scale,1));}
+#igs-status-hud .igs-hud-metric{display:contents;}
 #igs-status-hud.igs-hud-no-metrics .igs-hud-metrics{display:none;}
-#igs-status-hud.igs-hud-no-metrics .igs-hud-entry-anchor{grid-row:1 / span 2;}
+#igs-status-hud .igs-hud-avatar-empty{box-sizing:border-box;padding:calc(9px * var(--igs-hud-scale,1));background:rgba(255,255,255,.16);color:rgba(255,255,255,.62);}
 #igs-status-hud .igs-hud-overflow{grid-column:3;grid-row:2;}
 #igs-status-hud .igs-hud-entry-arrow{position:relative;display:grid;place-items:center;flex:none;width:14px;height:20px;margin-left:calc(-2px * var(--igs-hud-scale,1));padding:0;border:0;background:transparent;color:rgba(232,230,226,.7);cursor:pointer;pointer-events:auto;}
 #igs-status-hud .igs-hud-entry-arrow::after{content:"";position:absolute;inset:-6px -8px;}

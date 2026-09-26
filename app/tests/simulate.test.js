@@ -4264,9 +4264,9 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.match(css, /#igs-status-hud \.igs-hud-toggle\{z-index:0;\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*flex:none;width:14px;height:20px;[^}]*pointer-events:auto;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\[aria-expanded="true"\] svg\{[^}]*rotate\(-90deg\)/);
-    assert.match(css, /#igs-status-hud \.igs-hud-avatar-frame\{[^}]*grid-column:1;grid-row:1 \/ span 2;align-self:center;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-avatar-frame\{[^}]*grid-column:1;grid-row:1;align-self:center;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-anchor\{[^}]*grid-column:2;grid-row:1;[^}]*display:flex;align-items:center;/);
-    assert.match(css, /#igs-status-hud\.igs-hud-no-metrics \.igs-hud-entry-anchor\{grid-row:1 \/ span 2;\}/);
+    assert.match(css, /#igs-status-hud \.igs-hud-avatar-empty\{[^}]*background:rgba\(255,255,255,\.16\);/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*flex-direction:row;[^}]*border-left:1px solid/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*background:transparent;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item svg\{width:12\.4px;height:12\.4px;flex:none;\}/);
@@ -5364,7 +5364,7 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     const overflow = host.querySelector('.igs-hud-overflow');
     assert.equal(overflow.textContent, '+1');
     const metricsCss = getOriginalReaderStyleText();
-    assert.match(metricsCss, /#igs-status-hud \.igs-hud-metrics\{grid-column:2;grid-row:2;/);
+    assert.match(metricsCss, /#igs-status-hud \.igs-hud-metrics\{grid-column:1 \/ 3;grid-row:2;display:grid;grid-template-columns:max-content minmax\(0,1fr\) auto;/);
 
     const labels = Array.from(host.querySelectorAll('.igs-hud-metric-label')).map((node) => node.textContent);
     assert.deepEqual(labels, ['信任', '好感', '了解', '体力']);
