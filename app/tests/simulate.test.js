@@ -4266,8 +4266,8 @@ test('gate:simulation:record-entry-keeps-keyboard-and-hud-actions-separated', as
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\[aria-expanded="true"\] svg\{[^}]*rotate\(-90deg\)/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-arrow\{[^}]*left:calc\(100% - 7px\);top:calc\(50% \+ 2\.5px\)/);
     assert.match(css, /#igs-status-hud\.igs-hud-size-large \.igs-hud-location ~ \.igs-hud-entry-arrow\{top:calc\(50% \+ 1px\);\}/);
-    assert.match(css, /#igs-status-hud\.igs-hud-character-emotion-only \.igs-hud-entry-arrow\{top:calc\(50% \+ \.5px\);\}/);
-    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:calc\(100% \+ 21px\);top:calc\(50% \+ 1\.5px\);[^}]*flex-direction:row;/);
+    assert.match(css, /#igs-status-hud \.igs-hud-emotion \+ \.igs-hud-entry-arrow\{top:calc\(50% \+ \.5px\);\}/);
+    assert.match(css, /#igs-status-hud \.igs-hud-entry-menu\{[^}]*left:calc\(100% \+ 18px\);top:calc\(50% \+ 1\.5px\);[^}]*flex-direction:row;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*background:transparent;/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item svg\{width:12\.4px;height:12\.4px;flex:none;\}/);
     assert.match(css, /#igs-status-hud \.igs-hud-entry-item\{[^}]*font-size:13px;/);
