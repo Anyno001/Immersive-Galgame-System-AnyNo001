@@ -3,8 +3,8 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-status-hud .igs-hud-identity{position:relative;z-index:1;pointer-events:none;}
 #igs-status-hud .igs-hud-avatar-frame{position:relative;width:calc(46px * var(--igs-hud-scale,1));height:calc(46px * var(--igs-hud-scale,1));}
 #igs-status-hud .igs-hud-entry-anchor{position:relative;max-width:100%;min-width:0;pointer-events:none;}
-#igs-status-hud.igs-hud-no-metrics .igs-hud-entry-anchor{display:flex;flex-direction:column;align-items:center;}
-#igs-status-hud.igs-hud-character-emotion-only .igs-hud-entry-arrow{top:calc(50% + .5px);}
+#igs-status-hud .igs-hud-entry-anchor{display:flex;flex-direction:column;align-items:center;}
+#igs-status-hud .igs-hud-emotion + .igs-hud-entry-arrow{top:calc(50% + .5px);}
 #igs-status-hud.igs-hud-character-emotion-with-metrics .igs-hud-metrics{align-self:flex-start;height:calc(46px * var(--igs-hud-scale,1));}
 #igs-status-hud.igs-hud-size-large .igs-hud-location ~ .igs-hud-entry-arrow{top:calc(50% + 1px);}
 #igs-status-hud .igs-hud-entry-arrow{position:absolute;left:calc(100% - 7px);top:calc(50% + 2.5px);transform:translateY(-50%);display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;background:transparent;color:rgba(232,230,226,.7);cursor:pointer;pointer-events:auto;}
@@ -12,9 +12,9 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-status-hud .igs-hud-entry-arrow[aria-expanded="true"] svg{transform:rotate(-90deg);}
 #igs-status-hud .igs-hud-location-icon{display:flex;flex:0 0 auto;width:calc(16px * var(--igs-hud-scale,1));height:calc(16px * var(--igs-hud-scale,1));color:rgba(255,255,255,.48);pointer-events:none;}
 #igs-status-hud .igs-hud-location-icon svg{display:block;width:100%;height:100%;}
-#igs-status-hud .igs-hud-entry-menu{position:absolute;left:calc(100% + 21px);top:calc(50% + 1.5px);transform:translateY(-50%);z-index:3;display:flex;flex-direction:row;align-items:center;gap:4px;padding-left:0;pointer-events:none;}
+#igs-status-hud .igs-hud-entry-menu{position:absolute;left:calc(100% + 18px);top:calc(50% + 1.5px);transform:translateY(-50%);z-index:3;display:flex;flex-direction:row;align-items:center;gap:1px;padding-left:0;pointer-events:none;}
 #igs-status-hud .igs-hud-entry-menu[hidden]{display:none;}
-#igs-status-hud .igs-hud-entry-item{display:flex;align-items:center;gap:3px;min-width:0;padding:3px 4px;border:0;background:transparent;color:rgba(232,230,226,.58);font-size:13px;white-space:nowrap;cursor:pointer;pointer-events:auto;}
+#igs-status-hud .igs-hud-entry-item{display:flex;align-items:center;gap:3px;min-width:0;padding:3px;border:0;background:transparent;color:rgba(232,230,226,.58);font-size:13px;white-space:nowrap;cursor:pointer;pointer-events:auto;}
 #igs-status-hud .igs-hud-entry-item:hover{color:#fff;}
 #igs-status-hud .igs-hud-entry-item svg{width:12.4px;height:12.4px;flex:none;}
 #igs-status-hud .igs-hud-entry-arrow:focus-visible,#igs-status-hud .igs-hud-entry-item:focus-visible{outline:2px solid #f4e3ad;outline-offset:1px;}
