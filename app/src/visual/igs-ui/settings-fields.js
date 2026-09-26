@@ -37,8 +37,8 @@ export function secretInput(path, value, placeholder, disabled) {
     return `<div class="igs-settings-secret">${textInput(path, value, placeholder, 'password', disabled)}<button type="button" class="igs-settings-secret-toggle" data-action="toggle-secret" aria-label="显示或隐藏密钥" aria-pressed="false"${disabledAttr(disabled)}>显示</button></div>`;
 }
 
-export function numberInput(path, value, min, max, disabled) {
-    return `<input data-path="${esc(path)}" type="number" min="${esc(min)}" max="${esc(max)}" value="${esc(value)}"${disabledAttr(disabled)}>`;
+export function numberInput(path, value, min, max, disabled, step) {
+    return `<input data-path="${esc(path)}" type="number" min="${esc(min)}" max="${esc(max)}"${step == null ? '' : ` step="${esc(step)}"`} value="${esc(value)}"${disabledAttr(disabled)}>`;
 }
 
 export function rangeInput(path, value) {

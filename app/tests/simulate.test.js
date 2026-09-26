@@ -9,6 +9,7 @@ import { createDbTabClickGuard, toShujukuApiRowIndex } from '../src/shujuku-pane
 import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel-render.js';
 import { createImageResourceCache, createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
+import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { createMapPanelController } from '../src/visual/igs-ui/map-panel.js';
 import { createRecordPanelController } from '../src/visual/igs-ui/record-panel.js';
@@ -518,6 +519,76 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     assert.equal(overlay.style['--igs-nsfw-veil-edge'], '.72');
     vn.destroy();
 });
+
+test('gate:illustration:reader-rerenders-after-marker-write-and-keeps-veil-until-image-ready', () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const original = '[igs-scene:Room|night|rain|NSFW]\n一段。\n二段。';
+    let raw = original;
+    let imageUrl = '';
+    let trigger;
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({ bridge: { sceneAssets: { enabled: true, scenes: {}, characters: {} } }, readerSettings: {} }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 39, swipeId: 0, text: raw }),
+        getIllustrationUrl: ({ chatId, messageId, swipeId, slot }) => {
+            assert.deepEqual([chatId, messageId, swipeId, slot], ['chat-1', 39, 0, 1]);
+            return imageUrl;
+        },
+        onIllustrationUpdated: (handler) => { trigger = handler; return () => {}; },
+    });
+    const opened = host.openReader({ messageId: 39, message: { id: 39, text: original }, raw: original }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const before = host.getState().activeReader.snapshot;
+    assert.equal(before.content.illustrationActive, false);
+    raw = '[igs-scene:Room|night|rain|NSFW]\n[igs-img:1]\n更新后正文。\n二段。';
+    trigger({ chatId: 'chat-1', messageId: 39, swipeId: 1, slot: 1 });
+    assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, false);
+    trigger({ chatId: 'chat-1', messageId: 39, swipeId: 0, slot: 1 });
+    assert.ok(host.getState().activeReader.snapshot.content.segments.some((segment) => segment.includes('更新后正文')));
+    assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, false);
+    imageUrl = 'data:image/png;base64,AAAA';
+    trigger({ chatId: 'chat-1', messageId: 39, swipeId: 0, slot: 1 });
+    const after = host.getState().activeReader.snapshot;
+    assert.equal(after.content.illustrationActive, true);
+    assert.equal(after.content.backgroundImage, imageUrl);
+    assert.equal(after.content.spriteImage, null);
+    assert.ok(after.content.segments.every((segment) => !segment.includes('[igs-img:')));
+    assert.equal(document.getElementById('igs-overlay').classList.contains('igs-scene-nsfw'), false);
+    host.destroy();
+});
+
+test('gate:illustration:reader-activates-only-after-marker-and-keeps-veil-without-image', () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const raw = '[igs-scene:Room|night|rain|NSFW]\n一段。\n[igs-img:1]\n二段。\n[igs-scene:Garden|day|sun]\n三段。';
+    let imageUrl = '';
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({ bridge: { sceneAssets: { enabled: true, scenes: {}, characters: {} } }, readerSettings: {} }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 39, swipeId: 0, text: raw }),
+        getIllustrationUrl: ({ slot }) => slot === 1 ? imageUrl : '',
+    });
+    const opened = host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const overlay = document.getElementById('igs-overlay');
+    assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, false);
+    assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
+    opened.controller.invokeAction('next');
+    assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, false);
+    assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
+    imageUrl = 'data:image/png;base64,AAAA';
+    opened.controller.invokeAction('prev');
+    opened.controller.invokeAction('next');
+    const after = host.getState().activeReader.snapshot.content;
+    assert.equal(after.illustrationActive, true);
+    assert.equal(after.backgroundImage, imageUrl);
+    assert.equal(overlay.classList.contains('igs-scene-nsfw'), false);
+    assert.ok(after.segments.every((segment) => !segment.includes('[igs-img:')));
+    opened.controller.invokeAction('next');
+    assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, false);
+    host.destroy();
+});
+
+
 
 test('gate:simulation:nsfw-scene-keeps-sprite-when-hide-toggle-off', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
@@ -1062,6 +1133,62 @@ test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
         assert.equal(savedStorage._v, '0.5.6');
         assert.equal(Object.hasOwn(savedStorage, 'emptyBackgroundColor'), false);
         assert.equal(savedStorage.glassBackdropFilter, true);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
+    const storage = createMemoryStorage();
+    const vn = bootstrapIGS({
+        global: { localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => null,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = vn.openSettings({ tab: 'image', mode: 'pc' });
+        assert.equal(opened.ok, true);
+        const initial = opened.controller.getSnapshot();
+        const auto = initial.draft.bridge.autoIllustration;
+        assert.equal(auto.nsfwEnabled, false);
+        assert.equal(auto.interludeEnabled, false);
+        assert.equal(auto.llm.source, 'tavern');
+        assert.equal(auto.nai.transport, 'direct');
+        for (const path of initial.activeContract.requiredPaths.filter((item) => item.startsWith('bridge.autoIllustration.'))) {
+            assert.ok(initial.html.includes(`data-path="${path}"`) || initial.html.includes(`data-switch="${path}"`), `Missing image field: ${path}`);
+        }
+        assert.match(initial.html, /data-path="bridge\.autoIllustration\.nai\.scale"[^>]*step="any"/);
+        assert.match(initial.html, /data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*disabled/);
+        assert.equal(opened.controller.toggle('bridge.autoIllustration.nsfwEnabled').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.nsfwCount', '2').ok, true);
+        assert.equal(opened.controller.toggle('bridge.autoIllustration.interludeEnabled').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.interludeProbability', '45').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.source', 'openai').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.apiKey', 'test-llm-secret').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.apiKey', 'test-nai-secret').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.scale', '5.5').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.transport', 'st-proxy').ok, true);
+        const saved = vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration;
+        assert.equal(saved.nsfwEnabled, true);
+        assert.equal(saved.nsfwCount, 2);
+        assert.equal(saved.interludeEnabled, true);
+        assert.equal(saved.interludeProbability, 45);
+        assert.equal(saved.llm.source, 'openai');
+        assert.equal(saved.llm.endpoint, 'https://example.com/v1');
+        assert.ok(saved.llm.apiKey === 'test-llm-secret');
+        assert.ok(saved.nai.apiKey === 'test-nai-secret');
+        assert.equal(saved.nai.scale, 5.5);
+        assert.equal(saved.nai.transport, 'st-proxy');
+        opened.controller.close();
+        const reopened = vn.openSettings({ tab: 'image', mode: 'pc' }).controller.getSnapshot();
+        assert.equal(reopened.draft.bridge.autoIllustration.nsfwCount, 2);
+        assert.equal(reopened.draft.bridge.autoIllustration.nai.scale, 5.5);
+        assert.ok(/data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*value="https:\/\/example\.com\/v1"/.test(reopened.html));
+        assert.ok(/data-path="bridge\.autoIllustration\.llm\.apiKey"[^>]*type="password"/.test(reopened.html));
     } finally {
         vn.destroy();
     }

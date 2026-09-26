@@ -22,9 +22,14 @@ import { createMagicWandEntry } from '../host/magic-wand-entry.js';
 import { createExtensionPanel } from '../host/extension-panel.js';
 import { createReaderImageService } from '../generated-images/reader-image-service.js';
 import { createPromptInjector } from '../host/prompt-injector.js';
+import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
+import { createSecondaryLlm } from '../host/secondary-llm.js';
+import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
+import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
+import { createAutoIllustrationService, ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.27.3';
+const IGS_VERSION = '0.27.4';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -48,6 +53,16 @@ export function bootstrapIGS(options = {}) {
         fetch: options.fetch,
     });
     const promptInjector = options.promptInjector || createPromptInjector(globalObject);
+    const illustrationMessageHost = options.illustrationMessageHost || createIllustrationMessageHost(globalObject);
+    const illustrationService = options.illustrationService || createAutoIllustrationService({
+        messageHost: illustrationMessageHost,
+        llm: options.secondaryLlm || createSecondaryLlm(globalObject, { fetch: options.fetch }),
+        nai: options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch }),
+        store: options.illustrationStore || createIndexedDbIllustrationStore(globalObject),
+        getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration,
+        events,
+        random: options.random,
+    });
     const state = {
         status: 'booting',
         config: mergeInitialConfig(options.config, legacyIgs),
@@ -61,6 +76,7 @@ export function bootstrapIGS(options = {}) {
         version: IGS_VERSION,
         global: globalObject,
         events,
+        illustrations: illustrationService,
         hostAdapter,
         storage: storageLike,
         presetRegistry,
@@ -83,6 +99,9 @@ export function bootstrapIGS(options = {}) {
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
         version: app.version,
+        getIllustrationSource: (messageId) => illustrationMessageHost.readFloor(messageId),
+        getIllustrationUrl: (query) => illustrationService.getIllustrationUrl(query),
+        onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),
         getUnifiedSettings: getUnifiedSettingsSnapshot,
         saveUnifiedSettings,
         typeAndSend,
@@ -179,6 +198,7 @@ export function bootstrapIGS(options = {}) {
         }
     }
     state.status = 'ready';
+    illustrationService.start();
     scheduleSceneAssetsInjection(SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS, 1);
     attachChatChangedReinjection();
     events.emit('igs:ready', publicApi);
@@ -464,6 +484,7 @@ export function bootstrapIGS(options = {}) {
         clearSceneAssetsInjectionTimer();
         detachChatChangedReinjection();
         promptInjector.clear();
+        illustrationService.stop();
         if (app.igsUi && typeof app.igsUi.destroy === 'function') {
             app.igsUi.destroy();
         }

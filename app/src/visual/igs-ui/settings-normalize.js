@@ -40,6 +40,15 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
     }
+    if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled)$/.test(path)) {
+        return value === true || value === 'true' || value === 1 || value === '1';
+    }
+    if (/^bridge\.autoIllustration\.(nsfwCount|interludeProbability|interludeMaxCount|llm\.contextFloors|llm\.timeoutMs|nai\.steps|nai\.scale|nai\.timeoutMs)$/.test(path)) {
+        return Number(value);
+    }
+    if (path === 'bridge.autoIllustration.llm.source' || path === 'bridge.autoIllustration.nai.transport') {
+        return String(value || '');
+    }
     if (/^bridge\.imageApi\.(steps|requestTimeoutMs|pollIntervalMs|pollAttempts)$/.test(path)) {
         return Number(value);
     }

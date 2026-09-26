@@ -10,17 +10,26 @@ const SCENE_AT_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?
 // 台词/心里话漏写 "]" 时以行尾收口，与正文格式化规则一致；表情栏可省略（两栏写法视为没写表情）。
 const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
+const IMG_AT_RE = /^\[igs-img:\s*(\d+)\s*\]/;
+export const IGS_IMG_MARKER_SOURCE = '\\[igs-img:\\s*(\\d+)\\s*\\]';
+
+export function stripIllustrationMarkers(text) {
+    return String(text || '')
+        .replace(/^[ \t]*\[igs-img:\s*\d+\s*\][ \t]*(?:\r?\n|$)/gm, '')
+        .replace(/\[igs-img:\s*\d+\s*\]/g, '');
+}
 // 找出当前位置之后最近一条 igs 指令的起始下标；没有则返回 -1。
 function nextDirectiveIndex(text) {
-    const m = String(text || '').match(/\[igs-(?:scene|char|thought):/);
+    const m = String(text || '').match(/\[igs-(?:scene|char|thought|img):/);
     return m ? m.index : -1;
 }
 
 export function extractSceneDirectives(text) {
     const source = String(text || '');
-    if (!source.trim()) return { directives: [], strippedText: source };
+    if (!source.trim()) return { directives: [], illustrationMarkers: [], strippedText: source };
 
     const directives = [];
+    const illustrationMarkers = [];
     const lines = source.split('\n');
     let segmentCount = 0;
     // 待结算的正文本：只有遇到 [igs-scene] 或行尾时才确定它属于哪一段。
@@ -61,6 +70,8 @@ export function extractSceneDirectives(text) {
             } else if ((m = rest.match(THOUGHT_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'thought', character: m[1].trim(), mood: String(m[2] || '').trim(), thought: m[3].trim(),segmentIndex: segmentCount, lineIndex: i, offset: cursor });
+            } else if ((m = rest.match(IMG_AT_RE))) {
+                illustrationMarkers.push({ slot: Number(m[1]), lineIndex: i, offset: cursor });
             } else {
                 // 当前位置不是指令：把到「下一条指令之前」的文本计入正文。
                 // 残缺指令（缺 "]" 或缺字段）停在当前位置时 nextAt 为 0，须越过其 "[" 当正文，否则死循环。
@@ -78,7 +89,7 @@ export function extractSceneDirectives(text) {
         lineOffset += rawLine.length + 1;
     }
 
-    return { directives, strippedText: source };
+    return { directives, illustrationMarkers, strippedText: source };
 }
 // 按「字符位置」找最近一条 char/thought 指令：用于恢复说话人，
 // 不依赖按行计数的 segmentIndex，因此不受文本管线重排版影响。
@@ -119,6 +130,19 @@ export function resolveSceneAtSourceOffset(source, position) {
         nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw',
         character: '', mood: '', dialogue: '', thought: '', lastDirectiveType: 'scene',
     };
+}
+
+// 新场景标签终止此前的 CG；图像标记只作偏移定位，不改变场景指令段索引。
+export function resolveIllustrationAtSourceOffset(source, position) {
+    const src = String(source || '');
+    const limit = Math.max(0, Math.min(src.length, Number(position) || 0));
+    const head = src.slice(0, limit);
+    const imgAt = head.lastIndexOf('[igs-img:');
+    if (imgAt < 0) return null;
+    const m = src.slice(imgAt).match(IMG_AT_RE);
+    if (!m) return null;
+    if (head.lastIndexOf('[igs-scene:') > imgAt) return null;
+    return { slot: Number(m[1]), offset: imgAt };
 }
 
 // 从已提取的指令中取最后一条 [igs-scene]：供跨楼层场景追溯使用，

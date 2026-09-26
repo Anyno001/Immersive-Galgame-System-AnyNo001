@@ -923,14 +923,15 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const resolveAssetUrl = typeof ctx.resolveAssetUrl === 'function'
         ? ctx.resolveAssetUrl
         : (url) => String(url || '').trim();
+    const nsfwVeilActive = snapshot.content.sceneNsfw === true && snapshot.content.illustrationActive !== true;
     if (root.classList) {
-        root.classList.toggle('igs-scene-nsfw', snapshot.content.sceneNsfw === true);
+        root.classList.toggle('igs-scene-nsfw', nsfwVeilActive);
     }
     // NSFW 黑幕强度：档位写入 CSS 变量驱动 veil 与背景亮度；非 NSFW 场景清除，回落 CSS 内默认值。
-    const nsfwVeilLevel = snapshot.content.sceneNsfw === true
+    const nsfwVeilLevel = nsfwVeilActive
         ? (((snapshot.readerSettings || {}).statusHud) || {}).nsfwVeilLevel
         : '';
-    const nsfwVeilStyle = snapshot.content.sceneNsfw === true
+    const nsfwVeilStyle = nsfwVeilActive
         ? (NSFW_VEIL_LEVEL_STYLE[nsfwVeilLevel] || NSFW_VEIL_LEVEL_STYLE.medium)
         : null;
     if (root.style && typeof root.style.setProperty === 'function') {

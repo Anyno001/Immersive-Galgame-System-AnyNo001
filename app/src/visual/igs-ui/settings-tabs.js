@@ -63,6 +63,39 @@ const IMAGE_TAB_TEMPLATE = `
     <button class="igs-settings-action" data-action="test-image">{{imageTestActionLabel}}</button>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
+  <div class="igs-settings-full">
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">自动插图</div>
+      <div class="igs-settings-section">
+        {{autoNsfwField}}
+        {{autoNsfwCountField}}
+        {{autoInterludeField}}
+        {{autoInterludeProbabilityField}}
+        {{autoInterludeMaxField}}
+      </div>
+      <div class="igs-source-filter-title">副 LLM（把正文转成生图 tag）</div>
+      <div class="igs-settings-section">
+        {{autoLlmSourceField}}
+        {{autoLlmEndpointField}}
+        {{autoLlmKeyField}}
+        {{autoLlmModelField}}
+        {{autoLlmContextField}}
+      </div>
+      <div class="igs-source-filter-title">NovelAI 官方</div>
+      <div class="igs-settings-section">
+        {{autoNaiTransportField}}
+        {{autoNaiKeyField}}
+        {{autoNaiModelField}}
+        {{autoNaiSizeField}}
+        {{autoNaiStepsField}}
+        {{autoNaiScaleField}}
+        {{autoNaiSamplerField}}
+        {{autoNaiArtistField}}
+        {{autoNaiNegativeField}}
+      </div>
+      <div class="igs-source-filter-note">{{autoIllustrationNote}}</div>
+    </div>
+  </div>
 </div>
 `.trim();
 

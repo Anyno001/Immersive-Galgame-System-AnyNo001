@@ -5,6 +5,7 @@
 - 提供通用图片池和媒体缓存。
 - 管理本地文件、URL 图片、生成图片、Blob URL 和资源生命周期。
 - 为 `backgrounds`、`characters`、`generated-images` 提供统一资源句柄。
+- 自动插图的 tag 与图片持久化（`illustration-store.js`，IndexedDB，键 `chatId|messageId|swipeId[|slot]`）。
 
 ## 子能力
 

@@ -5,9 +5,10 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveNearestCharacterBefore, lookupSceneAssetUrls } from '../../scene/scene-directives.js';
+import { resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore, lookupSceneAssetUrls } from '../../scene/scene-directives.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
+import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import {
     getOriginalReaderHtml,
     getOriginalReaderSource,
@@ -186,6 +187,31 @@ export function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
         },
     });
+    const offIllustrationUpdated = typeof options.onIllustrationUpdated === 'function'
+        ? options.onIllustrationUpdated((payload) => {
+            const current = state.activeReader;
+            if (!current || !payload) return;
+            const messageId = Number(payload.messageId);
+            const contentId = current.payload && current.payload.messageId != null
+                ? current.payload.messageId : current.contentMessageId;
+            if (contentId == null || Number(contentId) !== messageId) return;
+            const floor = typeof options.getIllustrationSource === 'function'
+                ? options.getIllustrationSource(messageId)
+                : null;
+            if (!floor || floor.chatId !== payload.chatId || floor.swipeId !== payload.swipeId) return;
+            if (current.illustrationIdentity && (current.illustrationIdentity.chatId !== floor.chatId
+                || current.illustrationIdentity.swipeId !== floor.swipeId)) return;
+            const previous = current.payload.message;
+            current.payload.raw = floor.text;
+            current.payload.message = previous && typeof previous === 'object'
+                ? { ...previous, text: floor.text, raw: floor.text }
+                : floor.text;
+            current.payload.formattedText = null;
+            current.payload.textSegments = null;
+            current.payload.sceneDirectives = null;
+            rerenderActiveReader();
+        })
+        : () => {};
 
     const host = {
         openReader,
@@ -245,6 +271,7 @@ export function createIgsReaderHost(options = {}) {
         const domState = mountReaderDom(snapshot, controller, payload);
 
         state.activeReader = {
+            illustrationIdentity: readIllustrationIdentity(snapshot.messageId),
             payload: cloneReaderPayload(payload),
             mode: nextMode,
             index: snapshot.content.currentIndex,
@@ -301,6 +328,7 @@ export function createIgsReaderHost(options = {}) {
         const merged = applyReaderPayloadToState(current, mode, { payload, index: 0 });
         if (!merged.content.segments.length) return { ok: false, reason: 'no-readable-text' };
         current.contentMessageId = payload.messageId != null ? payload.messageId : current.contentMessageId;
+        current.illustrationIdentity = readIllustrationIdentity(current.contentMessageId);
         if (replaceOptions.turnOffset != null) current.turnOffset = Math.max(0, Number(replaceOptions.turnOffset) || 0);
         current.payload = cloneReaderPayload(payload);
         if (current.turnOffset === 0 || payload.messageId === current.mountMessageId) {
@@ -324,6 +352,12 @@ export function createIgsReaderHost(options = {}) {
             controller: current.controller,
             replaced: true,
         };
+    }
+
+    function readIllustrationIdentity(messageId) {
+        const floor = messageId != null && typeof options.getIllustrationSource === 'function'
+            ? options.getIllustrationSource(messageId) : null;
+        return floor ? { chatId: floor.chatId, swipeId: floor.swipeId } : null;
     }
 
     // 由当前 payload 重新构建 snapshot：正文解析走 source 缓存，普通换源不会重复整楼解析。
@@ -517,6 +551,7 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function destroy() {
+        offIllustrationUpdated();
         teardownStatusHudSubscription();
         closeSettings();
         closeReader();
@@ -1630,7 +1665,27 @@ export function createIgsReaderHost(options = {}) {
                 : resolveSceneStateAtIndex(sceneDirectives, normalizedIndex))
             : null;
         const sceneStateForBg = (ownSceneState && ownSceneState.scene) ? ownSceneState : inheritedSceneState;
-        if (slotBoundUrl) {
+        const illustrationOffset = currentOffset >= 0
+            ? currentOffset
+            : (sceneSourceForOffset.includes('[igs-img:') ? locateTextOffsetInSource(sceneSourceForOffset, currentText) : -1);
+        const illustrationHit = illustrationOffset >= 0
+            ? resolveIllustrationAtSourceOffset(sceneSourceForOffset, illustrationOffset)
+            : null;
+        const floorIdentity = state.activeReader && Number(state.activeReader.payload.messageId) === Number(payload.messageId)
+            ? state.activeReader.illustrationIdentity
+            : readIllustrationIdentity(payload.messageId);
+        const illustrationUrl = illustrationHit && typeof options.getIllustrationUrl === 'function'
+            ? String(options.getIllustrationUrl({
+                chatId: floorIdentity && floorIdentity.chatId,
+                messageId: firstDefined(payload.messageId, payload.message && payload.message.id, null),
+                swipeId: floorIdentity && floorIdentity.swipeId,
+                slot: illustrationHit.slot,
+            }) || '')
+            : '';
+        if (illustrationUrl) {
+            finalBackgroundImage = illustrationUrl;
+            spriteImage = null;
+        } else if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
             spriteImage = null;
         } else if (sceneAssets && sceneAssets.enabled) {
@@ -1776,7 +1831,7 @@ export function createIgsReaderHost(options = {}) {
                 spriteChar = sceneStateForBg.character;
                 spriteMood = sceneStateForBg.mood || '';
             }
-            if (!slotBoundUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
+            if (!slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
                 const spriteUrls = lookupSceneAssetUrls({ character: spriteChar, mood: spriteMood }, sceneAssets);
                 spriteImage = spriteUrls.spriteUrl || null;
                 if (spriteImage) {
@@ -1866,6 +1921,7 @@ export function createIgsReaderHost(options = {}) {
                 sceneTime: statusSceneInfo.time,
                 sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
+                illustrationActive: Boolean(illustrationUrl),
                 statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
             },
             readerSettings: cloneData(readerSettings),
@@ -2004,6 +2060,9 @@ export function createIgsReaderHost(options = {}) {
                 ? '内置模式会直接调用图像 API，不再依赖外部插图扩展。'
                 : '外部扩展模式会优先按适配器检测 chatu8 / chami。';
             const promptPrefixInput = `<textarea data-path="bridge.imageApi.promptPrefix" placeholder="可选，生成图片时追加到正文前"${disabledAttr(apiDisabled)}>${esc(imageApi.promptPrefix || '')}</textarea>`;
+            const auto = normalizeAutoIllustrationSettings(bridge.autoIllustration);
+            const openaiDisabled = auto.llm.source !== 'openai';
+            const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
             return renderTemplate(getSettingsTabTemplate('image'), {
                 imageModeField: field('bridge.imageApi.mode', '图像模式', selectInput('bridge.imageApi.mode', imageApi.mode, [['extension', '使用现有插图扩展'], ['nai', 'IGS 内置 NAI API']])),
                 adapterField: field('bridge.imageApi.externalAdapter', '插图扩展', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', 'st-chatu8 / chatu8'], ['chami', 'chami_tavern-scene-plugin']], imageApi.mode === 'nai'), imageModeNote),
@@ -2021,6 +2080,26 @@ export function createIgsReaderHost(options = {}) {
                 imageModelsMessage: esc(asyncState.imageModelsMessage || (apiDisabled ? '使用现有插图扩展时无需拉取内置 API 模型；检测插件会检查 chatu8 / chami 链路。' : '可手填模型，也可点击拉取模型获取候选列表。')),
                 imageTestActionLabel: imageApi.mode === 'nai' ? '测试生成' : '检测插件',
                 imageTestHelp: esc(asyncState.imageResult || (imageApi.mode === 'nai' ? '测试会对当前内置 API 发起真实生成请求；建议先填写 endpoint、模型和 key。' : '检测当前页面可用的外部插图扩展与图片/按钮链路。')),
+                autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW 自动生图（代替黑幕；图未就绪或失败时仍用黑幕）'),
+                autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', 'NSFW 每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, 4)),
+                autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图（每个 AI 楼层按概率自动插入）'),
+                autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
+                autoInterludeMaxField: field('bridge.autoIllustration.interludeMaxCount', '每层最多张数', numberInput('bridge.autoIllustration.interludeMaxCount', auto.interludeMaxCount, 1, 4)),
+                autoLlmSourceField: field('bridge.autoIllustration.llm.source', '副 LLM 来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API'], ['openai', '独立 OpenAI 兼容 API']])),
+                autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
+                autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '留空则不发送 Authorization', openaiDisabled)),
+                autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', textInput('bridge.autoIllustration.llm.model', auto.llm.model, 'gpt-4o-mini', 'text', openaiDisabled)),
+                autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
+                autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆 CORS 代理（需开启 enableCorsProxy）']])),
+                autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'NAI Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, 'pst-...')),
+                autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', textInput('bridge.autoIllustration.nai.model', auto.nai.model, 'nai-diffusion-4-5-full')),
+                autoNaiSizeField: field('bridge.autoIllustration.nai.size', '尺寸', textInput('bridge.autoIllustration.nai.size', auto.nai.size, '832x1216')),
+                autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', auto.nai.steps, 1, 50)),
+                autoNaiScaleField: field('bridge.autoIllustration.nai.scale', 'CFG', numberInput('bridge.autoIllustration.nai.scale', auto.nai.scale, 0, 10, false, 'any')),
+                autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', auto.nai.sampler, 'k_euler_ancestral')),
+                autoNaiArtistField: field('bridge.autoIllustration.nai.artistPrefix', '画师串 / 固定前缀', autoTextarea('bridge.autoIllustration.nai.artistPrefix', auto.nai.artistPrefix, '可选，拼在每张图的正向提示词最前面')),
+                autoNaiNegativeField: field('bridge.autoIllustration.nai.negativePrompt', '负面提示词', autoTextarea('bridge.autoIllustration.nai.negativePrompt', auto.nai.negativePrompt, '')),
+                autoIllustrationNote: esc('正文里只写入 [igs-img:N] 定位标记，酒馆界面和发给模型的上下文中都会隐藏。两个开关都关闭时不会发出任何请求。副 LLM 选「酒馆当前 API」会消耗主模型额度。'),
             });
         }
 
@@ -2142,7 +2221,7 @@ export function createIgsReaderHost(options = {}) {
             performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
                 + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
                 + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘'),
-            nsfwVeilLevelField: `<div class="igs-settings-row">${field('readerSettings.statusHud.nsfwVeilLevel', 'NSFW黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) ||'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], 'NSFW黑幕强度'))}</div>`,
+            nsfwVeilLevelField: `<div class="igs-settings-row">${field('readerSettings.statusHud.nsfwVeilLevel', 'NSFW黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) ||'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], 'NSFW黑幕强度'), '开启「图像 → 自动插图 → NSFW 自动生图」后，有插图的段落显示 CG，不加黑幕。')}</div>`,
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
             optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
@@ -2719,6 +2798,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.vnTheme = normalizeVnTheme(normalized.vnTheme);
         normalized.entry = normalizeEntryConfig(normalized.entry);
         normalized.optionBubble = normalizeOptionBubble(normalized.optionBubble);
+        normalized.autoIllustration = normalizeAutoIllustrationSettings(normalized.autoIllustration);
         return normalized;
     }
 
@@ -3086,14 +3166,14 @@ function cloneReaderPayload(payload = {}) {
 const SCENE_TAG_LINE_RE = /^\[igs-scene:[^\]]*\]/;
 
 function stripSceneDirectivesInline(rawText) {
-    return String(rawText || '')
+    return stripIllustrationMarkers(rawText)
         .replace(/\[igs-scene:[^\]]*\]/g, '')
         .trim();
 }
 
 // 逐行剥离 [igs-scene:] 标签，丢弃剥离后为空的行，供兜底分段使用。
 function stripSceneDirectiveLines(rawText) {
-    return String(rawText || '').split('\n')
+    return stripIllustrationMarkers(rawText).split('\n')
         .map((line) => line.replace(/\[igs-scene:[^\]]*\]/g, '').trim())
         .filter((line) => line.length > 0 && !SCENE_TAG_LINE_RE.test(line))
         .join('\n');

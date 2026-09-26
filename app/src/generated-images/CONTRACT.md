@@ -10,6 +10,8 @@
 - 支持内置生图 API、提示词预设、轮询和失败反馈。
 - 生成图持久化和图片池统一交给 `media`。
 - 检测到生图段时驱动 `visual` 切换到生图层；生图段消失时回到背景+立绘。
+- 自动插图由 `illustration/` 负责段落编号、标记插入、规划提示词与解析、设置规范化和事件驱动服务；tag 与图片交由 `media/illustration-store.js` 保存。
+- NovelAI 官方接口由 `request-builders/nai-v4-builder.js`（`providerType: nai-official`）构建请求、`nai-official-client.js` 发起请求，并复用 `image-api-client.js` 的响应解析；不得覆盖既有 `bridge.imageApi`。
 
 ## Provider 契约
 
