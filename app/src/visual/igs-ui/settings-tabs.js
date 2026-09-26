@@ -41,60 +41,68 @@ const REGEX_TAB_TEMPLATE = `
 `.trim();
 
 const IMAGE_TAB_TEMPLATE = `
-<div class="igs-settings-grid">
-  {{imageModeField}}
-  {{adapterField}}
-  <div class="{{apiGroupClass}}">
-    {{endpointField}}
-    {{apiKeyField}}
-    {{modelField}}
-    {{sizeField}}
-    {{stepsField}}
-    {{samplerField}}
-    {{timeoutField}}
-    {{pollIntervalField}}
-    {{pollAttemptsField}}
-    {{promptPrefixField}}
-  </div>
-  <div class="igs-settings-full">
-    <div class="igs-settings-result" data-result="image-models">{{imageModelsMessage}}</div>
-  </div>
-  <div class="igs-settings-full">
-    <button class="igs-settings-action" data-action="test-image">{{imageTestActionLabel}}</button>
-    <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
-  </div>
-  <div class="igs-settings-full">
-    <div class="igs-source-filter">
-      <div class="igs-source-filter-title">自动插图</div>
-      <div class="igs-settings-section">
-        {{autoNsfwField}}
-        {{autoNsfwCountField}}
-        {{autoInterludeField}}
-        {{autoInterludeProbabilityField}}
-        {{autoInterludeMaxField}}
-      </div>
-      <div class="igs-source-filter-title">副 LLM（把正文转成生图 tag）</div>
-      <div class="igs-settings-section">
-        {{autoLlmSourceField}}
-        {{autoLlmEndpointField}}
-        {{autoLlmKeyField}}
-        {{autoLlmModelField}}
-        {{autoLlmContextField}}
-      </div>
-      <div class="igs-source-filter-title">NovelAI 官方</div>
-      <div class="igs-settings-section">
-        {{autoNaiTransportField}}
-        {{autoNaiKeyField}}
-        {{autoNaiModelField}}
-        {{autoNaiSizeField}}
-        {{autoNaiStepsField}}
-        {{autoNaiScaleField}}
-        {{autoNaiSamplerField}}
-        {{autoNaiArtistField}}
-        {{autoNaiNegativeField}}
-      </div>
-      <div class="igs-source-filter-note">{{autoIllustrationNote}}</div>
+<div class="igs-image-settings">
+  <div class="igs-image-subtabs" role="tablist" aria-label="图像设置分类">{{imageSubTabs}}</div>
+  <div class="igs-image-subpane">{{imageSubPane}}</div>
+</div>
+`.trim();
+
+const IMAGE_OTHER_TEMPLATE = `
+<div class="igs-settings-grid" data-image-pane="other">
+  <div class="igs-source-filter igs-settings-full">
+    <div class="igs-source-filter-title">其他生图</div>
+    <div class="igs-source-filter-note">现有插图扩展与旧版内置图像 API，独立于自动插图。</div>
+    <div class="igs-source-filter-grid">{{imageModeField}}{{adapterField}}</div>
+    <div class="{{apiGroupClass}}">
+      {{endpointField}}{{apiKeyField}}{{modelField}}{{sizeField}}
+      {{stepsField}}{{samplerField}}{{timeoutField}}
+      {{pollIntervalField}}{{pollAttemptsField}}{{promptPrefixField}}
     </div>
+    <div class="igs-settings-result" data-result="image-models">{{imageModelsMessage}}</div>
+    <div>
+      <button class="igs-settings-action" data-action="test-image">{{imageTestActionLabel}}</button>
+      <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
+    </div>
+  </div>
+</div>
+`.trim();
+
+const IMAGE_AUTO_TEMPLATE = `
+<div class="igs-settings-grid" data-image-pane="auto">
+  <div class="igs-source-filter igs-settings-full">
+    <div class="igs-source-filter-title">自动插图</div>
+    <div class="igs-source-filter-note">{{autoIllustrationNote}}</div>
+    <div class="igs-image-feature">
+      {{autoNsfwField}}
+      <details class="igs-image-fold" data-image-fold="nsfw"{{autoNsfwOpen}}>
+        <summary>NSFW 生图参数<span>{{autoNsfwStatus}}</span></summary>
+        <div class="igs-source-filter-grid">{{autoNsfwCountField}}</div>
+      </details>
+    </div>
+    <div class="igs-image-feature">
+      {{autoInterludeField}}
+      <details class="igs-image-fold" data-image-fold="interlude"{{autoInterludeOpen}}>
+        <summary>过场插图参数<span>{{autoInterludeStatus}}</span></summary>
+        <div class="igs-source-filter-grid">{{autoInterludeProbabilityField}}{{autoInterludeMaxField}}</div>
+      </details>
+    </div>
+    <details class="igs-image-fold igs-image-shared" data-image-fold="shared"{{autoSharedOpen}}>
+      <summary>生成配置 · 副 LLM 与 NovelAI<span>{{autoSharedStatus}}</span></summary>
+      <div class="igs-image-config">
+        <div class="igs-source-filter-title">副 LLM · 生成图像标签</div>
+        <div class="igs-source-filter-grid">
+          {{autoLlmSourceField}}{{autoLlmEndpointField}}{{autoLlmKeyField}}
+          {{autoLlmModelField}}{{autoLlmContextField}}
+        </div>
+        <div class="igs-source-filter-title">NovelAI · 生成图片</div>
+        <div class="igs-source-filter-grid">
+          {{autoNaiTransportField}}{{autoNaiKeyField}}{{autoNaiModelField}}
+          {{autoNaiSizeField}}{{autoNaiStepsField}}{{autoNaiScaleField}}
+          {{autoNaiSamplerField}}{{autoNaiArtistField}}
+          <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
+        </div>
+      </div>
+    </details>
   </div>
 </div>
 `.trim();
@@ -233,6 +241,11 @@ export const SCENE_SETTINGS_SUBTAB_DEFS = Object.freeze([
     ['rules', '规则'],
 ]);
 
+export const IMAGE_SUBTAB_DEFS = Object.freeze([
+    ['auto', '自动插图'],
+    ['other', '其他生图'],
+]);
+
 export const READER_SUBTAB_DEFS = Object.freeze([
     ['dialog', '对话框'],
     ['visual', '画面'],
@@ -290,6 +303,14 @@ export function getReaderSubTabTemplate(subTab) {
         default:
             return READER_DIALOG_TEMPLATE;
     }
+}
+
+export function normalizeImageSubTab(subTab) {
+    return IMAGE_SUBTAB_DEFS.some(([id]) => id === subTab) ? subTab : 'auto';
+}
+
+export function getImageSubTabTemplate(subTab) {
+    return normalizeImageSubTab(subTab) === 'other' ? IMAGE_OTHER_TEMPLATE : IMAGE_AUTO_TEMPLATE;
 }
 
 export function getSettingsTabTemplate(tab) {

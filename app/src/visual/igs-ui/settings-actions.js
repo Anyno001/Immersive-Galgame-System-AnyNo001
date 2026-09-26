@@ -174,7 +174,8 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'reset-virtual-regex') {
         settingsState.draft.bridge.virtualRegex = cloneData(DEFAULT_VIRTUAL_REGEX);
         settingsState.asyncState.virtualRegexPreview = '已恢复默认正文替换，已自动保存。';
-        persistSettingsDraft();
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 
@@ -202,7 +203,8 @@ export async function handleSettingsAction(action, ctx) {
             : [];
         settingsState.draft.bridge.imageApi.modelsFetchedAt = String(result.modelsFetchedAt || new Date().toISOString());
         settingsState.asyncState.imageModelsMessage = String(result.message || `已拉取 ${settingsState.draft.bridge.imageApi.availableModels.length} 个模型。`);
-        persistSettingsDraft();
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 
@@ -371,7 +373,6 @@ export async function handleSettingsAction(action, ctx) {
             } else {
                 settingsState.draft.bridge.sceneAssets.scenes[name] = { url, times: {} };
             }
-            persistSettingsDraft();
         }
         return { ok: true };
     }
@@ -477,7 +478,6 @@ export async function handleSettingsAction(action, ctx) {
                     if (typeof t === 'object') t.url = url;
                     else scene.times[timeName] = { url, weathers: {} };
                 }
-                persistSettingsDraft();
             }
         }
         return { ok: true };
@@ -623,7 +623,6 @@ export async function handleSettingsAction(action, ctx) {
                         }
                     }
                     }
-                    persistSettingsDraft();
                 }
             }
         }
@@ -753,7 +752,6 @@ export async function handleSettingsAction(action, ctx) {
                     settingsState.draft.bridge.sceneAssets.characters[charName] = {};
                 }
                 settingsState.draft.bridge.sceneAssets.characters[charName][mood] = url;
-                persistSettingsDraft();
             }
         }
         return { ok: true };

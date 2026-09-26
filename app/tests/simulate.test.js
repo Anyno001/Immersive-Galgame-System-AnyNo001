@@ -1116,12 +1116,18 @@ test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
         const updated = opened.controller.setValue('readerSettings.fontSize', 20);
         const optionSize = opened.controller.setValue('readerSettings.optionFontSize', 18);
         const toggled = opened.controller.toggle('readerSettings.glassBackdropFilter');
-        const current = vn.getUnifiedSettings({ mode: 'mobile' });
-        const savedStorage = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
-
         assert.equal(updated.ok, true);
         assert.equal(optionSize.ok, true);
         assert.equal(toggled.ok, true);
+        const draft = opened.controller.getSnapshot().draft.readerSettings;
+        assert.equal(draft.fontSize, 20);
+        assert.equal(draft.optionFontSize, 18);
+        assert.equal(draft.glassBackdropFilter, true);
+        assert.notEqual(vn.getUnifiedSettings({ mode: 'mobile' }).readerSettings.fontSize, 20);
+        assert.notEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).optionFontSize, 18);
+        assert.equal(opened.controller.close().ok, true);
+        const current = vn.getUnifiedSettings({ mode: 'mobile' });
+        const savedStorage = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
         assert.equal(current.readerSettings.fontSize, 20);
         assert.equal(current.readerSettings.dialogFontWeight, null);
         assert.equal(current.readerSettings.optionFontSize, 18);
@@ -1157,14 +1163,29 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(auto.interludeEnabled, false);
         assert.equal(auto.llm.source, 'tavern');
         assert.equal(auto.nai.transport, 'direct');
+        assert.equal(initial.imageSubTab, 'auto');
+        assert.match(initial.html, /data-image-subtab="auto"[^>]*aria-selected="true"/);
+        assert.match(initial.html, /data-image-subtab="other"/);
+        assert.match(initial.html, /data-image-fold="nsfw"(?! open)/);
+        assert.match(initial.html, /data-image-fold="interlude"(?! open)/);
+        assert.match(initial.html, /data-image-fold="shared"(?! open)/);
         for (const path of initial.activeContract.requiredPaths.filter((item) => item.startsWith('bridge.autoIllustration.'))) {
             assert.ok(initial.html.includes(`data-path="${path}"`) || initial.html.includes(`data-switch="${path}"`), `Missing image field: ${path}`);
         }
         assert.match(initial.html, /data-path="bridge\.autoIllustration\.nai\.scale"[^>]*step="any"/);
         assert.match(initial.html, /data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*disabled/);
+        const other = opened.controller.switchImageSubTab('other').snapshot;
+        assert.equal(other.imageSubTab, 'other');
+        assert.match(other.html, /data-image-pane="other"/);
+        assert.match(other.html, /data-path="bridge\.imageApi\.mode"/);
+        assert.doesNotMatch(other.html, /data-switch="bridge\.autoIllustration\.nsfwEnabled"/);
+        assert.equal(opened.controller.switchImageSubTab('auto').snapshot.imageSubTab, 'auto');
         assert.equal(opened.controller.toggle('bridge.autoIllustration.nsfwEnabled').ok, true);
+        assert.match(opened.controller.getSnapshot().html, /data-image-fold="nsfw" open/);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nsfwCount', '2').ok, true);
         assert.equal(opened.controller.toggle('bridge.autoIllustration.interludeEnabled').ok, true);
+        assert.match(opened.controller.getSnapshot().html, /data-image-fold="interlude" open/);
+        assert.match(opened.controller.getSnapshot().html, /data-image-fold="shared" open/);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.interludeProbability', '45').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.source', 'openai').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1').ok, true);
@@ -1172,6 +1193,9 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.apiKey', 'test-nai-secret').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.scale', '5.5').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.transport', 'st-proxy').ok, true);
+        assert.equal(opened.controller.getSnapshot().draft.bridge.autoIllustration.nsfwCount, 2);
+        assert.equal(Boolean(vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration?.nsfwEnabled), false);
+        assert.equal(opened.controller.close().ok, true);
         const saved = vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration;
         assert.equal(saved.nsfwEnabled, true);
         assert.equal(saved.nsfwCount, 2);
@@ -1183,7 +1207,6 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.ok(saved.nai.apiKey === 'test-nai-secret');
         assert.equal(saved.nai.scale, 5.5);
         assert.equal(saved.nai.transport, 'st-proxy');
-        opened.controller.close();
         const reopened = vn.openSettings({ tab: 'image', mode: 'pc' }).controller.getSnapshot();
         assert.equal(reopened.draft.bridge.autoIllustration.nsfwCount, 2);
         assert.equal(reopened.draft.bridge.autoIllustration.nai.scale, 5.5);
@@ -1217,6 +1240,8 @@ test('gate:simulation:legacy-dialog-font-migrates-to-theme-text-font', () => {
         assert.equal(migrated.vnTheme.textFont, roundedFont);
         assert.equal(migrated.classicVnTheme.textFont, roundedFont);
         settings.setValue('readerSettings.fontSize', 19);
+        assert.equal(settings.getSnapshot().draft.readerSettings.fontSize, 19);
+        assert.equal(settings.close().ok, true);
         const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
         assert.equal(Object.hasOwn(saved, 'dialogFont'), false);
         assert.equal(saved.vnTheme.textFont, roundedFont);
@@ -1601,6 +1626,9 @@ test('gate:simulation:igs-ui-toolbar-actions-open-settings-toggle-and-close', as
 
     const modeResult = settingsResult.controller.setValue('bridge.openMode', 'mobile');
     assert.equal(modeResult.ok, true);
+    assert.equal(settingsResult.controller.getSnapshot().draft.bridge.openMode, 'mobile');
+    assert.equal(vn.getState().igsUi.activeReader.mode, 'pc');
+    assert.equal(settingsResult.controller.close().ok, true);
     assert.equal(vn.getState().igsUi.activeReader.mode, 'mobile');
 
     const toggleResult = await controller.invokeAction('toggle-bar');
@@ -1644,6 +1672,8 @@ test('gate:simulation:reader-settings-shared-across-modes', async () => {
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
 
     settings.setValue('readerSettings.fontSize', 24);
+    assert.notEqual(vn.getUnifiedSettings({ mode: 'pc' }).readerSettings.fontSize, 24);
+    assert.equal(settings.close().ok, true);
     const bucket = JSON.parse(storage.getItem('igs-reader-settings-v9-default') || '{}');
     assert.equal(bucket.fontSize, 24, 'writes to default bucket');
 
@@ -1672,7 +1702,12 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
         },
     });
     const opened = await vn.openLatestAvailable('pc');
-    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    let settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    const apply = (path, value) => {
+        settings.setValue(path, value);
+        assert.equal(settings.close().ok, true);
+        settings = opened.reader.controller.openSettings('reader').controller;
+    };
     let dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     const controls = document.getElementById('igs-overlay').querySelector('.igs-controls');
 
@@ -1682,22 +1717,22 @@ test('gate:simulation:default-dialog-height-controls-floating-box', async () => 
     const css = getOriginalReaderStyleText();
     assert.match(css, /#igs-overlay\.igs-floating \.igs-dialog\{[^}]*max-height:none/);
     assert.match(css, /#igs-overlay\.igs-floating-mobile \.igs-dialog\{[^}]*max-height:none/);
-    settings.setValue('readerSettings.dialogHeight', 0.05);
+    apply('readerSettings.dialogHeight', 0.05);
     assert.equal(dialog.style.height, '25px', 'ratio uses bridged plugin iframe height, not parent window');
     assert.equal(dialog.style.maxHeight, 'none');
     assert.equal(controls.style.display, '');
     document.defaultView.innerHeight = 900;
     pluginIframeHeight = 900;
-    settings.setValue('readerSettings.fontSize', 20);
+    apply('readerSettings.fontSize', 20);
     assert.equal(dialog.style.height, '25px', 'same reader keeps frozen plugin iframe ratio height');
-    settings.setValue('readerSettings.dialogHeight', 0.18);
+    apply('readerSettings.dialogHeight', 0.18);
     assert.equal(dialog.style.height, '162px', 'changing ratio recalculates from current plugin iframe height');
     assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dialogHeight, 0.18);
     // 历史 px 设置继续按原像素值读取。
-    settings.setValue('readerSettings.dialogHeight', 300);
+    apply('readerSettings.dialogHeight', 300);
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(dialog.style.height, '300px');
-    settings.setValue('readerSettings.dialogHeight', null);
+    apply('readerSettings.dialogHeight', null);
     assert.equal(dialog.style.height, 'auto');
     assert.equal(dialog.style.minHeight, '0');
     assert.equal(dialog.style.maxHeight, '464px');
@@ -1739,8 +1774,11 @@ test('gate:simulation:default-dialog-height-controls-all-reader-modes', async ()
         const dialog = item.document.getElementById('igs-overlay').querySelector('#igs-dialog');
 
         settings.setValue('readerSettings.dialogHeight', 0.15);
+        assert.equal(settings.close().ok, true);
         assert.equal(dialog.style.height, item.expected, item.mode);
-        settings.setValue('readerSettings.dialogHeight', null);
+        const reset = opened.reader.controller.openSettings('reader').controller;
+        reset.setValue('readerSettings.dialogHeight', null);
+        assert.equal(reset.close().ok, true);
         assert.equal(dialog.style.height, 'auto', item.mode);
         assert.equal(dialog.style.minHeight, '0', item.mode);
         vn.destroy();
@@ -1773,8 +1811,11 @@ test('gate:simulation:default-dialog-height-controls-all-reader-modes', async ()
     const dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
 
     settings.setValue('readerSettings.dialogHeight', 0.12);
+    assert.equal(settings.close().ok, true);
     assert.equal(dialog.style.height, '77px', 'embedded');
-    settings.setValue('readerSettings.dialogHeight', null);
+    const reset = opened.reader.controller.openSettings('reader').controller;
+    reset.setValue('readerSettings.dialogHeight', null);
+    assert.equal(reset.close().ok, true);
     assert.equal(dialog.style.height, 'auto', 'embedded');
     assert.equal(dialog.style.minHeight, '0', 'embedded');
     vn.destroy();
@@ -1806,10 +1847,16 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     let dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), null);
 
-    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    let settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    const commit = () => {
+        assert.equal(settings.close().ok, true);
+        settings = opened.reader.controller.openSettings('reader').controller;
+    };
     let result = settings.setValue('readerSettings.dialogSkin', 'western-classic');
     assert.equal(result.ok, true);
     settings.setValue('readerSettings.classicDialogWidthPercent', 60);
+    assert.equal(dialog.getAttribute('data-igs-dialog-skin'), null);
+    commit();
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'western-classic');
     assert.equal(dialog.style.width, 'max(280px,calc(60% - 14.4px))');
@@ -1818,6 +1865,7 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
 
     settings.setValue('readerSettings.classicVnTheme.narrationColor', '#123456');
     settings.setValue('readerSettings.fontSize', 22);
+    commit();
     let active = vn.getState().igsUi.activeReader.snapshot;
     let overlay = document.getElementById('igs-overlay');
     let textEl = overlay.querySelector('#igs-text');
@@ -1830,12 +1878,15 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     const roundedFont = '"IGS Rounded","Microsoft YaHei",sans-serif';
     assert.equal(Object.hasOwn(active.readerSettings, 'dialogFont'), false);
     settings.setValue('readerSettings.classicVnTheme.narrationFont', roundedFont);
+    commit();
     assert.equal(textEl.style.fontFamily, roundedFont);
     assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).classicVnTheme.narrationFont, roundedFont);
     settings.setValue('readerSettings.classicVnTheme.narrationFont', 'inherit');
+    commit();
     assert.match(textEl.style.fontFamily, /Source Han Serif CN/);
 
     settings.setValue('readerSettings.dialogFontWeight', '700');
+    commit();
     overlay = document.getElementById('igs-overlay');
     textEl = overlay.querySelector('#igs-text');
     const speakerEl = overlay.querySelector('#igs-speaker');
@@ -1845,6 +1896,7 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     assert.equal(overlay.querySelector('#igs-ctrl-bar').style.fontWeight || '', '');
     assert.equal(overlay.querySelector('#igs-input').style.fontWeight || '', '');
     settings.setValue('readerSettings.dialogFontWeight', 'null');
+    commit();
     assert.equal(overlay.querySelector('#igs-text').style.fontWeight, '');
 
     // A page with a speaker applies the same weight only to its name and text.
@@ -1852,10 +1904,12 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     assert.equal(speakerEl.style.fontWeight || '', '');
 
     settings.setValue('readerSettings.dialogSkin', 'default');
+    commit();
     dialog = document.getElementById('igs-overlay').querySelector('#igs-dialog');
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), null);
 
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
+    assert.equal(settings.close().ok, true);
     const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(saved.dialogSkin, 'western-classic');
     assert.equal(saved.classicDialogWidthPercent, 60);
@@ -1971,12 +2025,53 @@ test('gate:simulation:reader-settings-save-preserves-current-explicit-mode', asy
     const result = settings.setValue('readerSettings.fontSize', 24);
 
     assert.equal(result.ok, true);
+    assert.equal(settings.getSnapshot().draft.readerSettings.fontSize, 24);
+    assert.equal(settings.close().ok, true);
     assert.equal(vn.getState().igsUi.activeReader.mode, 'mobile');
     assert.equal(vn.getState().igsUi.activeReader.snapshot.mode, 'mobile');
     assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.fontSize, 24);
 
     vn.destroy();
 });
+
+test('gate:simulation:tag-filter-input-stays-draft-until-settings-close', async () => {
+    const storage = createMemoryStorage();
+    const document = createFakeDocument();
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '标签输入测试。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    const settings = opened.reader.controller.openSettings('regex').controller;
+    const root = document.getElementById('igs-unified-settings').parentNode;
+    const original = storage.getItem('igs_bridge_config');
+    const tags = {
+        textIncludeTags: 'content', textExcludeTags: 'thinking', imageIncludeTags: 'image\ntext_to_image',
+    };
+    for (const [name, value] of Object.entries(tags)) {
+        const path = `bridge.sourceFilter.${name}`;
+        assert.ok(settings.getSnapshot().html.includes(`data-path="${path}"`));
+        const input = document.createElement('textarea');
+        input.setAttribute('data-path', path);
+        root.appendChild(input);
+        document.activeElement = input;
+        input.value = value;
+        root.dispatchEvent({ type: 'input', target: input });
+        assert.ok(root.contains(input), 'typing must keep the input node mounted');
+        assert.ok(document.activeElement === input, 'typing must preserve focus');
+        assert.equal(settings.getSnapshot().draft.bridge.sourceFilter[name], value);
+        assert.equal(storage.getItem('igs_bridge_config'), original, 'typing must not save');
+    }
+    assert.equal(settings.close().ok, true);
+    const saved = JSON.parse(storage.getItem('igs_bridge_config')).sourceFilter;
+    for (const [name, value] of Object.entries(tags)) assert.equal(saved[name], value);
+    vn.destroy();
+});
+
 
 test('gate:simulation:open-mode-setting-still-switches-active-reader', async () => {
     const storage = createMemoryStorage();
@@ -1995,6 +2090,8 @@ test('gate:simulation:open-mode-setting-still-switches-active-reader', async () 
     const result = settings.setValue('bridge.openMode', 'mobile');
 
     assert.equal(result.ok, true);
+    assert.equal(vn.getState().igsUi.activeReader.mode, 'pc');
+    assert.equal(settings.close().ok, true);
     assert.equal(vn.getState().igsUi.activeReader.mode, 'mobile');
     assert.equal(vn.getState().igsUi.activeReader.snapshot.mode, 'mobile');
 
@@ -2076,6 +2173,8 @@ test('gate:simulation:reader-settings-saved-in-mobile-mode-read-back', async () 
     const opened = await vn.openLatestAvailable('mobile');
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     settings.setValue('readerSettings.fontSize', 28);
+    assert.notEqual(vn.getUnifiedSettings({ mode: 'mobile' }).readerSettings.fontSize, 28);
+    assert.equal(settings.close().ok, true);
 
     // default 桶被写入，且任意模式读回一致
     const bucket = JSON.parse(storage.getItem('igs-reader-settings-v9-default') || '{}');
@@ -2203,10 +2302,11 @@ test('gate:simulation:settings-theme-toggle-persists-day-mode', async () => {
     assert.equal(toggled.snapshot.settingsTheme, 'day');
     assert.match(toggled.snapshot.html, /data-igs-settings-theme="day"/);
     assert.match(toggled.snapshot.html, /切换到夜间模式/);
+    assert.equal(JSON.parse(storage.getItem('igs_bridge_config') || '{}').settingsTheme, undefined);
+    assert.equal(settings.close().ok, true);
     const bridge = JSON.parse(storage.getItem('igs_bridge_config'));
     assert.equal(bridge.settingsTheme, 'day');
 
-    settings.close();
     const reopened = opened.reader.controller.openSettings('basic');
     assert.equal(reopened.snapshot.settingsTheme, 'day');
     vn.destroy();
@@ -2280,8 +2380,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     settings.setValue('readerSettings.typewriter.enabled', true);
     settings.setValue('readerSettings.typewriter.speed', 'slow');
     assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
-    const savedTypewriter = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
-    assert.deepEqual(savedTypewriter.typewriter, { enabled: true, speed: 'slow', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
+    assert.notEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default') || '{}').typewriter?.speed, 'slow');
 
     const enabledView = settings.switchReaderSubTab('performance');
     assert.match(enabledView.snapshot.html, /打字机速度/);
@@ -2301,16 +2400,16 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     const mutedView = settings.switchReaderSubTab('performance');
     assert.match(mutedView.snapshot.html, /启用打字音效/);
     assert.doesNotMatch(mutedView.snapshot.html, /台词音效音量|旁白音效音量/);
-    assert.deepEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound, { enabled: false, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 });
+    assert.equal(settings.getSnapshot().draft.readerSettings.typewriter.sound.enabled, false);
 
     settings.setValue('readerSettings.typewriter.sound.enabled', true);
     settings.setValue('readerSettings.typewriter.sound.dialogueVolume', 0.35);
-    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound.dialogueVolume, 0.35);
+    assert.equal(settings.getSnapshot().draft.readerSettings.typewriter.sound.dialogueVolume, 0.35);
 
     settings.setValue('readerSettings.typewriter.mode', 'soft');
     const softView = settings.switchReaderSubTab('performance');
     assert.doesNotMatch(softView.snapshot.html, /启用打字音效|台词音效音量|旁白音效音量/);
-    assert.deepEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).typewriter.sound, { enabled: true, volume: 0.5, dialogueVolume: 0.35, narrationVolume: 0.5 });
+    assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter.sound, { enabled: true, volume: 0.5, dialogueVolume: 0.35, narrationVolume: 0.5 });
 
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
     const classicDialogView = settings.switchReaderSubTab('dialog');
@@ -2322,7 +2421,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.match(classicDialogView.snapshot.html, /跟随当前样式/);
     settings.setValue('readerSettings.dialogFontWeight', '700');
     assert.equal(settings.getSnapshot().draft.readerSettings.dialogFontWeight, 700);
-    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).dialogFontWeight, 700);
+    assert.notEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default') || '{}').dialogFontWeight, 700);
     settings.setValue('readerSettings.dialogFontWeight', 'null');
     assert.equal(settings.getSnapshot().draft.readerSettings.dialogFontWeight, null);
     settings.setValue('readerSettings.dialogFontWeight', 'not-a-weight');
@@ -2333,6 +2432,9 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.match(classicDialogView.snapshot.html, /有爱圆体（内置）/);
     settings.setValue('readerSettings.classicVnTheme.nameFont', roundedFont);
     assert.equal(settings.getSnapshot().draft.readerSettings.classicVnTheme.nameFont, roundedFont);
+    assert.equal(settings.close().ok, true);
+    const savedTypewriter = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+    assert.deepEqual(savedTypewriter.typewriter.sound, { enabled: true, volume: 0.5, dialogueVolume: 0.35, narrationVolume: 0.5 });
     assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).classicVnTheme.nameFont, roundedFont);
 
     vn.destroy();
@@ -5082,6 +5184,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     settings.invoke('status-hud-toggle-table:sheet_quest:%E4%BB%BB%E5%8A%A1%E8%A1%A8');
     assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.tables.map((t) => t.uid), ['sheet_stats']);
 
+    assert.equal(settings.close().ok, true);
     const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(persisted.statusHud.enabled, true);
     assert.equal(persisted.statusHud.showLocation, true);
@@ -5092,6 +5195,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
 
 
     // 关闭总开关后：顶部 UI 的状态栏子设置隐藏，其他分类互不受影响。
+    opened.reader.controller.openSettings('reader');
     settings.setValue('readerSettings.statusHud.enabled', false);
     const disabled = settings.switchReaderSubTab('interface').snapshot.html;
     assert.match(disabled, /显示左上角状态栏/);
@@ -5472,6 +5576,7 @@ test('gate:simulation:stage-shake-settings-and-raw-emotion-drive-igs-stage-only'
     assert.match(enabled, /触发情绪/);
     settings.invoke('stage-shake-remove-emotion:%E9%9C%87%E6%92%BC');
     settings.invoke('stage-shake-add-emotion');
+    assert.equal(settings.close().ok, true);
     const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(persisted.stageShake.enabled, true);
     assert.equal(persisted.stageShake.intensity, 'medium');
@@ -5543,6 +5648,8 @@ test('gate:simulation:gradient-veil-applies-settings-and-clears-on-skin-switch',
     assert.match(dialogView.snapshot.html, /data-path="readerSettings\.gradientVeil\.heightPercent"/);
     assert.match(dialogView.snapshot.html, /纯文字/);
     settings.setValue('readerSettings.dialogSkin', 'default');
+    assert.equal(veil.hidden, false);
+    assert.equal(settings.close().ok, true);
     assert.equal(veil.hidden, true);
     assert.equal(veil.style.display, 'none');
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), null);
@@ -5577,7 +5684,11 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     const overlay = document.getElementById('igs-overlay');
     const dialog = overlay.querySelector('#igs-dialog');
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'plant-coffee');
-    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    let settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    const commit = () => {
+        assert.equal(settings.close().ok, true);
+        settings = opened.reader.controller.openSettings('reader').controller;
+    };
     const name = overlay.querySelector('#igs-speaker');
     const text = overlay.querySelector('#igs-text');
     assert.equal(Object.hasOwn(settings.getSnapshot().draft.readerSettings, 'dialogFont'), false);
@@ -5585,16 +5696,20 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     assert.equal(name.style.fontWeight || '', '');
     assert.equal(text.style.fontWeight || '', '');
     settings.setValue('readerSettings.dialogFontWeight', '700');
+    commit();
     assert.equal(name.style.fontWeight, '700');
     assert.equal(text.style.fontWeight, '700');
     assert.equal(dialog.style.fontWeight || '', '');
     assert.equal(overlay.querySelector('#igs-input').style.fontWeight || '', '');
     assert.equal(overlay.querySelector('#igs-ctrl-bar').style.fontWeight || '', '');
     settings.setValue('readerSettings.vnTheme.nameFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
+    commit();
     assert.match(name.style.fontFamily, /IGS Rounded/);
     settings.setValue('readerSettings.vnTheme.textFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
+    commit();
     assert.match(text.style.fontFamily, /IGS Rounded/);
     settings.setValue('readerSettings.dialogFontWeight', 'null');
+    commit();
     assert.equal(name.style.fontWeight, '');
     assert.equal(text.style.fontWeight, '');
     settings.switchTab('reader');
@@ -5603,8 +5718,10 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     assert.match(dialogView.snapshot.html, /黑白漫画/);
     assert.match(dialogView.snapshot.html, /超可爱粉/);
     settings.setValue('readerSettings.dialogSkin', 'black-white-manga');
+    commit();
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'black-white-manga');
     settings.setValue('readerSettings.dialogSkin', 'cute-pink');
+    assert.equal(settings.close().ok, true);
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'cute-pink');
     const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
     assert.equal(saved.dialogSkin, 'cute-pink');

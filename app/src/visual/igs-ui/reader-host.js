@@ -19,11 +19,14 @@ import {
 import { getSettingsShellTemplate } from './settings-shell.js';
 import { getSettingsStyleText } from './settings-style.js';
 import {
+    getImageSubTabTemplate,
     getSceneSettingsSubTabTemplate,
     getReaderSubTabTemplate,
     getSettingsTabTemplate,
+    normalizeImageSubTab,
     normalizeSceneSettingsSubTab,
     normalizeReaderSubTab,
+    IMAGE_SUBTAB_DEFS,
     SCENE_SETTINGS_SUBTAB_DEFS,
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
@@ -130,7 +133,7 @@ import { createDbPanelController } from '../../shujuku-panel/panel-controller.js
 import { createMapPanelController } from './map-panel.js';
 import { createRecordPanelController } from './record-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
-import { buildStatusHudModel, listStatusHudTables, normalizeStatusAvatars, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
+import { buildStatusHudModel, listStatusHudTables, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
 import { handleSettingsAction as runSettingsAction } from './settings-actions.js';
 import { loadScenePresets } from '../../scene/scene-preset-store.js';
@@ -384,6 +387,7 @@ export function createIgsReaderHost(options = {}) {
         const settingsState = {
             tab: normalizedTab,
             draft: cloneData(initialSnapshot),
+            initialOpenMode: initialSnapshot.bridge.openMode,
             asyncState: {},
             controller,
             dom: null,
@@ -494,9 +498,12 @@ export function createIgsReaderHost(options = {}) {
 
     function closeReader(closeOptions = {}) {
         const current = state.activeReader;
-        teardownStatusHudSubscription();
         if (!current) return { ok: true, reason: 'reader-not-open' };
-        if (closeOptions.keepSettings !== true) closeSettings();
+        if (closeOptions.keepSettings !== true) {
+            const closed = closeSettings();
+            if (closed.ok === false) return closed;
+        }
+        teardownStatusHudSubscription();
         clearReaderToast(current);
         cancelTypewriter(current.dom && current.dom.text, { finish: false });
         const stageMotion = current.dom && current.dom.overlay && current.dom.overlay.querySelector
@@ -521,6 +528,10 @@ export function createIgsReaderHost(options = {}) {
     function closeSettings() {
         const current = state.activeSettings;
         if (!current) return { ok: true, reason: 'settings-not-open' };
+        const saved = persistSettingsDraft({
+            syncActiveModeFromSettings: current.initialOpenMode !== current.draft.bridge.openMode,
+        });
+        if (saved.ok === false) return saved;
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
         }
@@ -551,9 +562,10 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function destroy() {
+        const closed = closeSettings();
+        if (closed.ok === false) return closed;
         offIllustrationUpdated();
         teardownStatusHudSubscription();
-        closeSettings();
         closeReader();
         streamObserver.stop();
         imageResourceCache.clear();
@@ -830,6 +842,11 @@ export function createIgsReaderHost(options = {}) {
                 state.activeSettings.tab = normalizeSettingsTab(tab);
                 return rerenderSettings();
             },
+            switchImageSubTab(subTab) {
+                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+                state.activeSettings.asyncState.imageSubTab = normalizeImageSubTab(subTab);
+                return rerenderSettings();
+            },
             switchReaderSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.asyncState.readerSubTab = normalizeReaderSubTab(subTab);
@@ -845,8 +862,8 @@ export function createIgsReaderHost(options = {}) {
                 state.activeSettings.asyncState.sceneSubTab = subTab === 'characters' ? 'characters' : 'scenes';
                 return rerenderSettings();
             },
-            setValue(path, value) {
-                return updateSettingsValue(path, value);
+            setValue(path, value, editOptions) {
+                return updateSettingsValue(path, value, editOptions);
             },
             toggle(path) {
                 const current = getPath(state.activeSettings && state.activeSettings.draft, path);
@@ -999,15 +1016,13 @@ export function createIgsReaderHost(options = {}) {
         try { if (state.activeReader) writeToast(message); } catch (error) { /* ignore */ }
     }
 
-    function updateSettingsValue(path, value) {
+    function updateSettingsValue(path, value, editOptions = {}) {
         if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
         const draft = state.activeSettings.draft;
 
         if (path === 'bridge.openMode') {
             const nextMode = normalizeReaderMode(value, draft.bridge);
             setPath(draft, path, nextMode);
-            const persisted = persistSettingsDraft({ syncActiveModeFromSettings: true });
-            if (persisted.ok === false) return persisted;
             return rerenderSettings();
         }
 
@@ -1031,8 +1046,10 @@ export function createIgsReaderHost(options = {}) {
         if (path.startsWith(`${themeRoot}.`) && path !== `${themeRoot}.preset` && path !== `${themeRoot}._prevPreset`) {
             setPath(draft, `${themeRoot}.preset`, 'custom');
         }
-        const persisted = persistSettingsDraft();
-        if (persisted.ok === false) return persisted;
+        if (editOptions.liveInput) {
+            state.activeSettings.snapshot.draft = cloneData(draft);
+            return { ok: true };
+        }
         return rerenderSettings();
     }
 
@@ -1044,13 +1061,18 @@ export function createIgsReaderHost(options = {}) {
             : null;
         if (!save) return { ok: false, reason: 'missing-save-handler' };
 
-        const result = save({
-            bridge: draft.bridge,
-            readerMode: 'default',
-            readerSettings: draft.readerSettings,
-        });
+        let result;
+        try {
+            result = save({
+                bridge: draft.bridge,
+                readerMode: 'default',
+                readerSettings: draft.readerSettings,
+            });
+        } catch (error) {
+            return { ok: false, reason: 'save-failed' };
+        }
         if (!result || result.ok === false) {
-            return result || { ok: false, reason: 'save-failed' };
+            return { ok: false, reason: 'save-failed' };
         }
 
         const snapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
@@ -1938,6 +1960,7 @@ export function createIgsReaderHost(options = {}) {
     function buildSettingsSnapshot(settingsState) {
         const draft = normalizeUnifiedSettings(settingsState.draft);
         const tab = normalizeSettingsTab(settingsState.tab);
+        const imageSubTab = tab === 'image' ? normalizeImageSubTab(settingsState.asyncState.imageSubTab) : null;
         const readerSubTab = tab === 'reader' ? normalizeReaderSubTab(settingsState.asyncState.readerSubTab) : null;
         const sceneSettingsSubTab = tab === 'scene' ? normalizeSceneSettingsSubTab(settingsState.asyncState.sceneSettingsSubTab) : null;
         const sceneSubTab = tab === 'scene' ? (settingsState.asyncState.sceneSubTab === 'characters' ? 'characters' : 'scenes') : null;
@@ -1951,6 +1974,7 @@ export function createIgsReaderHost(options = {}) {
 
         return {
             tab,
+            imageSubTab,
             readerSubTab,
             sceneSettingsSubTab,
             sceneSubTab,
@@ -2063,7 +2087,8 @@ export function createIgsReaderHost(options = {}) {
             const auto = normalizeAutoIllustrationSettings(bridge.autoIllustration);
             const openaiDisabled = auto.llm.source !== 'openai';
             const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
-            return renderTemplate(getSettingsTabTemplate('image'), {
+            const imageSubTab = normalizeImageSubTab(asyncState.imageSubTab);
+            const imageFields = {
                 imageModeField: field('bridge.imageApi.mode', '图像模式', selectInput('bridge.imageApi.mode', imageApi.mode, [['extension', '使用现有插图扩展'], ['nai', 'IGS 内置 NAI API']])),
                 adapterField: field('bridge.imageApi.externalAdapter', '插图扩展', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', 'st-chatu8 / chatu8'], ['chami', 'chami_tavern-scene-plugin']], imageApi.mode === 'nai'), imageModeNote),
                 apiGroupClass: 'igs-settings-api-group' + (apiDisabled ? ' is-disabled' : ''),
@@ -2100,6 +2125,16 @@ export function createIgsReaderHost(options = {}) {
                 autoNaiArtistField: field('bridge.autoIllustration.nai.artistPrefix', '画师串 / 固定前缀', autoTextarea('bridge.autoIllustration.nai.artistPrefix', auto.nai.artistPrefix, '可选，拼在每张图的正向提示词最前面')),
                 autoNaiNegativeField: field('bridge.autoIllustration.nai.negativePrompt', '负面提示词', autoTextarea('bridge.autoIllustration.nai.negativePrompt', auto.nai.negativePrompt, '')),
                 autoIllustrationNote: esc('正文里只写入 [igs-img:N] 定位标记，酒馆界面和发给模型的上下文中都会隐藏。两个开关都关闭时不会发出任何请求。副 LLM 选「酒馆当前 API」会消耗主模型额度。'),
+                autoNsfwOpen: auto.nsfwEnabled ? ' open' : '',
+                autoInterludeOpen: auto.interludeEnabled ? ' open' : '',
+                autoSharedOpen: auto.nsfwEnabled || auto.interludeEnabled ? ' open' : '',
+                autoNsfwStatus: auto.nsfwEnabled ? '已开启' : '未开启',
+                autoInterludeStatus: auto.interludeEnabled ? '已开启' : '未开启',
+                autoSharedStatus: auto.nsfwEnabled || auto.interludeEnabled ? '生成配置' : '启用功能后配置',
+            };
+            return renderTemplate(getSettingsTabTemplate('image'), {
+                imageSubTabs: IMAGE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-image-subtab${imageSubTab === id ? ' is-active' : ''}" data-image-subtab="${id}" role="tab" aria-selected="${imageSubTab === id}">${label}</button>`).join(''),
+                imageSubPane: renderTemplate(getImageSubTabTemplate(imageSubTab), imageFields),
             });
         }
 
@@ -2516,6 +2551,11 @@ export function createIgsReaderHost(options = {}) {
                 controller.switchTab(tab.getAttribute('data-tab'));
                 return;
             }
+            const imageSubTab = event.target.closest('[data-image-subtab]');
+            if (imageSubTab) {
+                controller.switchImageSubTab(imageSubTab.getAttribute('data-image-subtab'));
+                return;
+            }
             const readerSubTab = event.target.closest('[data-reader-subtab]');
             if(readerSubTab) {
                 controller.switchReaderSubTab(readerSubTab.getAttribute('data-reader-subtab'));
@@ -2569,6 +2609,7 @@ export function createIgsReaderHost(options = {}) {
         root.addEventListener('input', (event) => {
             const target = event.target;
             if (!target || !target.getAttribute) return;
+            if (target.tagName === 'SELECT') return; // change handles dependent fields once
             if (target.getAttribute('data-prompt-rule-draft') !== null) {
                 state.activeSettings.asyncState.promptRuleDraft = target.value;
                 state.activeSettings.asyncState.promptRuleStatus = '有未保存的修改。';
@@ -2584,7 +2625,17 @@ export function createIgsReaderHost(options = {}) {
             if (target.type === 'color') return;
             const path = target.getAttribute('data-path');
             if (path) {
-                controller.setValue(path, target.value);
+                controller.setValue(path, target.value, { liveInput: true });
+                return;
+            }
+            const statusAvatarChar = target.getAttribute('data-status-avatar-char');
+            if (statusAvatarChar) {
+                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                const avatars = assets.statusAvatars || (assets.statusAvatars = {});
+                if (Object.hasOwn(avatars, statusAvatarChar) || !['__proto__', 'constructor', 'prototype'].includes(statusAvatarChar)) {
+                    avatars[statusAvatarChar] = target.value;
+                    state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
+                }
                 return;
             }
             const sceneBg = target.getAttribute('data-scene-bg');
@@ -2620,15 +2671,11 @@ export function createIgsReaderHost(options = {}) {
                 controller.invoke('scene-preset-apply:' + encodeURIComponent(event.target.value));
                 return;
             }
-            const statusAvatarChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-status-avatar-char') : '';
-            if (statusAvatarChar) {
-                controller.invoke('status-avatar-set-url:' + encodeURIComponent(statusAvatarChar) + ':' + encodeURIComponent(event.target.value || ''));
-                return;
-            }
+            const target = event.target;
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
             if (event.target && event.target.type === 'range' && !/^readerSettings\.typewriter\.sound\./.test(path || '')) return;
             if (!path) return;
-            controller.setValue(path, event.target.value);
+            controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
         });
         root.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {

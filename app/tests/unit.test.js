@@ -833,6 +833,8 @@ test('gate:igs-ui:saving-exclusion-filter-reparses-open-reader', () => {
     const settings = host.openSettings({ tab: 'regex' });
     assert.equal(settings.ok, true);
     assert.equal(settings.controller.setValue('bridge.sourceFilter.textExcludeTags', 'thinking').ok, true);
+    assert.equal(host.getState().activeReader.snapshot.content.segments.some((segment) => segment.includes('不能显示')), true);
+    assert.equal(settings.controller.close().ok, true);
     const refreshed = host.getState().activeReader.snapshot.content;
     assert.equal(refreshed.segments.some((segment) => segment.includes('不能显示')), false);
     assert.equal(refreshed.displayText.includes('不能显示'), false);
@@ -857,8 +859,10 @@ test('gate:igs-ui:saving-exclusion-filter-closes-reader-with-no-readable-text', 
     assert.equal(opened.ok, true);
     const settings = host.openSettings({ tab: 'regex' });
     assert.equal(settings.controller.setValue('bridge.sourceFilter.textExcludeTags', 'thinking').ok, true);
+    assert.notEqual(host.getState().activeReader, null);
+    assert.equal(settings.controller.close().ok, true);
     assert.equal(host.getState().activeReader, null);
-    assert.equal(host.getState().activeSettings.tab, 'regex');
+    assert.equal(host.getState().activeSettings, null);
     host.destroy();
 });
 

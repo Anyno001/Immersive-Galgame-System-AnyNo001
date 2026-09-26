@@ -38,6 +38,18 @@ const SETTINGS_STYLE_TEXT = `
 .igs-reader-subtab:hover,.igs-reader-subtab:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-reader-subtab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper);box-shadow:none}
 .igs-reader-subpane{min-width:0}
+.igs-image-settings{min-width:0}
+.igs-image-subtabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;margin:0 0 12px;padding:3px;background:var(--igs-settings-field);border-radius:var(--igs-settings-radius-control)}
+.igs-image-subtab{height:32px;border:0;border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink-3);font:inherit;font-size:12px;cursor:pointer}
+.igs-image-subtab.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-paper)}
+.igs-image-subtab:focus-visible,.igs-image-fold>summary:focus-visible{outline:2px solid var(--igs-settings-accent);outline-offset:2px}
+.igs-image-subpane{min-width:0}
+.igs-image-feature{display:grid;gap:8px;padding:10px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-paper)}
+.igs-image-fold{min-width:0;border:0;border-top:1px solid var(--igs-settings-line);padding:8px 0 0}
+.igs-image-fold>summary{cursor:pointer;color:var(--igs-settings-ink-2);font-size:12px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.igs-image-fold>summary span{font-size:11px;color:var(--igs-settings-ink-3)}
+.igs-image-fold>.igs-source-filter-grid,.igs-image-config{margin-top:12px}
+.igs-image-config{display:grid;gap:12px}.igs-image-shared{padding:10px;background:var(--igs-settings-paper);border-radius:var(--igs-settings-radius-control)}
 .igs-settings-body{flex:1;min-height:0;overflow-y:auto;padding:16px 20px 18px;background:var(--igs-settings-panel)}
 .igs-settings-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0}
 .igs-settings-section{display:flex;flex-direction:column;gap:10px;min-width:0}
