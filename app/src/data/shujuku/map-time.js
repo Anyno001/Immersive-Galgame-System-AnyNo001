@@ -15,5 +15,8 @@ export function resolveMapTimeBasemap(baseUrl, time) {
     const source = String(baseUrl || '').trim();
     const variant = normalizeMapTime(time);
     if (!source || !variant) return source;
+    // 白天美术沿用现有文件名 map-demo-day.png，而不是不存在的 clean-day。
+    if (variant === 'day' && /map-demo-clean(?:-(?:dawn|day|dusk|night|minight))?\.[a-z0-9]+(?:[?#].*)?$/i.test(source))
+        return source.replace(/map-demo-clean(?:-(?:dawn|day|dusk|night|minight))?(\.[a-z0-9]+)([?#].*)?$/i, 'map-demo-day$1$2');
     return source.replace(/(map-demo-clean)(?:-(?:dawn|day|dusk|night|minight))?(\.[a-z0-9]+)([?#].*)?$/i, `$1-${variant}$2$3`);
 }

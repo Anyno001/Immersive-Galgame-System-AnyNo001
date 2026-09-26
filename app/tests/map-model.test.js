@@ -174,7 +174,7 @@ test('map time variants follow igs-scene time and unknown values keep the base m
   assert.equal(normalizeMapTime('夜晚'), 'night');
   assert.equal(normalizeMapTime('深夜'), 'minight');
   assert.equal(resolveMapTimeBasemap(base, '清晨'), 'assets/map-demo-clean-dawn.png');
-  assert.equal(resolveMapTimeBasemap(base, '白天'), 'assets/map-demo-clean-day.png');
+  assert.equal(resolveMapTimeBasemap(base, '白天'), 'assets/map-demo-day.png');
   assert.equal(resolveMapTimeBasemap(base, '傍晚'), 'assets/map-demo-clean-dusk.png');
   assert.equal(resolveMapTimeBasemap(base, '夜晚'), 'assets/map-demo-clean-night.png');
   assert.equal(resolveMapTimeBasemap(base, '深夜'), 'assets/map-demo-clean-minight.png');

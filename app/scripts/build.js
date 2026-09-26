@@ -10,7 +10,10 @@ fs.mkdirSync(distRoot, { recursive: true });
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
 const graph = buildModuleGraph(entryFile);
-const bundle = inlineTypewriterAudio(inlineDialogThemeAssets(renderBundle(graph, moduleId(entryFile))));
+const mapSourcePath = '../../../fixtures/record-pages/assets/map-demo-clean-night.png';
+const compiled = renderBundle(graph, moduleId(entryFile));
+if (!compiled.includes(mapSourcePath)) throw new Error('Map image path is missing from bundle.');
+const bundle = inlineTypewriterAudio(inlineDialogThemeAssets(compiled.replace(mapSourcePath, './maps/map-demo-clean-night.png')));
 
 const roundedFontWeights = [300, 400, 500, 700];
 const classicFontAssets = [
@@ -60,6 +63,18 @@ for (const licenseName of fontLicenseFiles) {
     const source = path.join(fontSourceDir, licenseName);
     if (!fs.existsSync(source)) throw new Error(`Bundled font license is missing: ${source}`);
     fs.copyFileSync(source, path.join(fontTargetDir, licenseName));
+}
+// 地图页的既有城市美术随 bundle 一起发布；白天沿用现有 map-demo-day.png。
+const mapSourceDir = path.join(appRoot, 'fixtures', 'record-pages', 'assets');
+const mapTargetDir = path.join(distRoot, 'maps');
+fs.mkdirSync(mapTargetDir, { recursive: true });
+for (const variant of ['dawn', 'day', 'dusk', 'night', 'minight']) {
+    const sourceName = variant === 'day' ? 'map-demo-day.png' : `map-demo-clean-${variant}.png`;
+    const source = path.join(mapSourceDir, sourceName);
+    if (!fs.existsSync(source) || fs.readFileSync(source).subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') {
+        throw new Error(`Bundled map image is missing or invalid: ${source}`);
+    }
+    fs.copyFileSync(source, path.join(mapTargetDir, sourceName));
 }
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');

@@ -9,6 +9,7 @@ import { MAP_FALLBACK_WORLD, fitMapCamera, mapPinWorldPoint, mapScreenToWorld, p
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const personInitial = value => escapeHtml(String(value ?? '').trim().charAt(0) || '·');
+const DEFAULT_MAP_BASEMAP = new URL('../../../fixtures/record-pages/assets/map-demo-clean-night.png', import.meta.url).href;
 
 export function createMapPanelController(doc, global, fillDraft) {
     let root = null;
@@ -98,6 +99,8 @@ export function createMapPanelController(doc, global, fillDraft) {
     function close() {
         if (!root) return { ok: true, reason: 'not-open' };
         basemapToken++;
+        basemapUrl = '';
+        basemapState = 'none';
         unwatchLayout?.();
         unwatchLayout = null;
         root.removeEventListener('click', onClick);
@@ -248,7 +251,7 @@ export function createMapPanelController(doc, global, fillDraft) {
             basemapState = resolution.status === 'conflict' ? 'conflict' : 'none';
             return;
         }
-        if (resolution.url === basemapUrl && (basemapState === 'ready' || basemapState === 'loading')) return;
+        if (resolution.url === basemapUrl && (basemapState === 'ready' || basemapState === 'loading' || basemapState === 'failed')) return;
         const Img = doc?.defaultView?.Image || (typeof Image !== 'undefined' ? Image : null);
         if (!Img) { basemapState = 'none'; return; }
         basemapUrl = resolution.url;
@@ -289,12 +292,12 @@ export function createMapPanelController(doc, global, fillDraft) {
             `<button type="button" data-map-act="table" data-map-id="${escapeHtml(item.uid)}" ${item.uid === activeUid ? 'aria-current="true"' : ''}>${escapeHtml(item.name)}</button>`).join('')}</nav>` : '';
         const choice = loc => `<button type="button" data-map-act="select" data-map-id="${escapeHtml(loc.id)}" aria-label="查看${escapeHtml(loc.name || '未命名地点')}">${escapeHtml(loc.name || '未命名地点')}</button>`;
         const baseResolution = table ? resolveMapBasemap(table, parentId) : { status: 'none', url: '', reason: '' };
-        const resolution = baseResolution.status === 'ok'
-            ? { ...baseResolution, url: resolveMapTimeBasemap(baseResolution.url, sceneTime) }
-            : baseResolution;
+        const resolution = baseResolution.status === 'none'
+            ? { status: 'ok', url: resolveMapTimeBasemap(DEFAULT_MAP_BASEMAP, sceneTime), reason: '' }
+            : baseResolution.status === 'ok' ? { ...baseResolution, url: resolveMapTimeBasemap(baseResolution.url, sceneTime) } : baseResolution;
         const invalidBasemap = table ? hasInvalidBasemap(table, parentId) : false;
         const basemapNotice = resolution.status === 'conflict' ? resolution.reason
-            : invalidBasemap ? '底图地址不可用，已回退为坐标平面'
+            : invalidBasemap ? (baseResolution.status === 'none' ? '底图地址不可用，已使用内置地图' : '底图地址不可用，已回退为坐标平面')
                 : basemapState === 'failed' ? '底图加载失败，已回退为坐标平面' : '';
         const pinsHtml = pins.map(loc => {
             const pt = mapPinWorldPoint(loc.x, loc.y, world.width, world.height);

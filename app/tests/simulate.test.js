@@ -3740,6 +3740,77 @@ function readText(relativePath) {
     return fs.readFileSync(path.join(appRoot, relativePath), 'utf8');
 }
 
+test('gate:simulation:map-viewport-uses-bundled-city-map-for-scene-time', () => {
+    const document = createFakeDocument();
+    const loaded = [];
+    let failImage = false;
+    document.defaultView.Image = class {
+        naturalWidth = 1672;
+        naturalHeight = 941;
+        set src(value) { loaded.push(value); if (failImage) this.onerror?.(); else this.onload?.(); }
+    };
+    const overlay = document.createElement('div');
+    document.body.appendChild(overlay);
+    const rows = [
+        ['street', '', '临河街道', '.5', '.5', '', '', '1', ''],
+        ['square', '', '广场', '.3', '.4', '', '', '2', ''],
+    ];
+    const api = { exportTableAsJson: () => ({ sheet_map: { uid: 'sheet_map', name: '城市地图', content: [
+        ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序', '地图底图'], ...rows,
+    ] } }) };
+    const panel = createMapPanelController(document, { AutoCardUpdaterAPI: api }, async () => ({ ok: true }));
+    const html = () => document.getElementById('igs-map-panel').innerHTML;
+    const basemap = () => html().match(/<img class="igs-map-basemap" src="([^"]+)"/)?.[1];
+    for (const [time, file] of [
+        ['清晨', 'map-demo-clean-dawn.png'], ['白天', 'map-demo-day.png'],
+        ['傍晚', 'map-demo-clean-dusk.png'], ['夜晚', 'map-demo-clean-night.png'],
+        ['深夜', 'map-demo-clean-minight.png'],
+    ]) {
+        panel.open(overlay, {}, '临河街道', time);
+        assert.equal(panel.getState().basemapState, 'ready');
+        assert.ok(basemap().endsWith(`/${file}`), `${time} should use ${file}`);
+        panel.close();
+    }
+    assert.equal(loaded.length, 5);
+
+    rows[0][8] = 'https://example.com/custom-map.webp';
+    rows[1][8] = rows[0][8];
+    panel.open(overlay, {}, '临河街道', '深夜');
+    assert.equal(basemap(), rows[0][8], 'a valid table basemap takes priority');
+    panel.close();
+
+    rows[0][8] = 'javascript:alert(1)';
+    rows[1][8] = '';
+    panel.open(overlay, {}, '临河街道', '白天');
+    assert.ok(basemap().endsWith('/map-demo-day.png'));
+    assert.match(html(), /底图地址不可用，已使用内置地图/);
+    assert.doesNotMatch(html(), /javascript:alert/);
+    panel.close();
+
+    rows[0][8] = 'https://example.com/one.png';
+    rows[1][8] = 'https://example.com/two.png';
+    panel.open(overlay, {}, '临河街道', '夜晚');
+    assert.equal(panel.getState().basemapState, 'conflict');
+    assert.equal(basemap(), undefined);
+    assert.match(html(), /本层底图配置不一致/);
+    panel.close();
+
+    rows[0][8] = rows[1][8] = '';
+    failImage = true;
+    panel.open(overlay, {}, '临河街道', '夜晚');
+    assert.equal(panel.getState().basemapState, 'failed');
+    assert.equal(basemap(), undefined);
+    assert.match(html(), /底图加载失败，已回退为坐标平面/);
+    panel.close();
+
+    document.defaultView.Image = null;
+    panel.open(overlay, {}, '临河街道', '夜晚');
+    assert.equal(panel.getState().basemapState, 'none');
+    assert.equal(basemap(), undefined);
+    panel.close();
+});
+
+
 test('gate:simulation:map-panel-navigates-read-only-sheets-refreshes-and-cleans-up', async () => {
     const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
     const overlay = document.createElement('div');
