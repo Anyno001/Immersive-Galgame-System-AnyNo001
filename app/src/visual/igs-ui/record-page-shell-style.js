@@ -141,9 +141,9 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 #igs-record-panel .igs-rp-font-select:hover,#igs-record-panel .igs-rp-font-select:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
 #igs-record-panel .igs-rp-font-select b{font-weight:600;font-family:var(--igs-rp-font-body);}
 #igs-record-panel .igs-rp-font-select select{
-  max-width:7.5em;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
-  background:transparent!important;box-shadow:none!important;color:inherit;font:inherit;font-size:13px;cursor:pointer;
-  -webkit-appearance:none;appearance:none;text-overflow:ellipsis;
+  position:absolute;inset:0;width:100%;max-width:none;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
+  background:transparent!important;box-shadow:none!important;color:transparent;font:inherit;font-size:13px;cursor:pointer;opacity:0;
+  -webkit-appearance:none;appearance:none;
 }
 #igs-record-panel .igs-rp-font-select select option{color:var(--igs-rp-text);background:var(--igs-rp-solid);}
 #igs-record-panel .igs-rp-theme-switch{display:inline-flex;align-items:center;gap:5px;padding:4px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}

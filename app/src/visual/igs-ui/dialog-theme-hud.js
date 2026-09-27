@@ -148,7 +148,7 @@ const HUD_THEMES = Object.freeze({
     },
     [DIALOG_SKIN_GRADIENT_VEIL]: {
         neutral: 'rgba(255,255,255,.8)',
-        panel: 'background:linear-gradient(90deg,rgba(0,0,0,.62),rgba(0,0,0,.36) 75%,transparent);border-radius:0;-webkit-backdrop-filter:none;backdrop-filter:none;',
+        panel: 'background:linear-gradient(90deg,rgba(0,0,0,.125),rgba(0,0,0,.072) 75%,transparent);border-radius:0;-webkit-backdrop-filter:none;backdrop-filter:none;',
         emotion: `padding:0 ${s(2)};border:0;border-bottom:1px solid rgba(255,238,184,.7);border-radius:0;background:transparent;color:#fff;letter-spacing:.12em;text-shadow:0 1px 3px rgba(0,0,0,.9);`,
         avatar: 'filter:drop-shadow(0 2px 6px rgba(0,0,0,.6));',
         placeholder: 'background:rgba(0,0,0,.5);color:rgba(255,255,255,.7);',
