@@ -9,8 +9,6 @@ export const IGS_UI_DAY_RGB = '250,250,249';
 export const IGS_UI_THICKNESS = Object.freeze({ airy: 0.3, thin: 0.6, regular: 0.64, thick: 0.88 });
 export const IGS_UI_RADIUS = Object.freeze({ small: '4px', control: '6px', card: '8px' });
 export const IGS_UI_BLUR = 'blur(28px) saturate(150%)';
-// 资料页整页：更透、更艳、压暗，场景色被放大成晕染，文字仍有稳定对比。
-export const IGS_UI_BLUR_VIVID = 'blur(40px) saturate(185%) brightness(.84)';
 export const IGS_UI_PANE = 'rgba(255,255,255,.07)';
 export const IGS_UI_PANE_EDGE = 'inset 0 1px 0 rgba(255,255,255,.09)';
 

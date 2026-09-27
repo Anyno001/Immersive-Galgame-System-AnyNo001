@@ -3583,15 +3583,15 @@ test('gate:igs-ui:illustrated-dialog-skins-normalize-and-share-default-theme', (
 
 test('gate:igs-ui:reference-typography-applies-to-material-themes-only', () => {
     const expected = {
-        'western-classic': { nameColor: '#2e2218', textColor: '#f2e5c4', nameAlign: 'center', textFont: /^"Source Han Serif CN"/ },
-        'plant-coffee': { nameColor: '#f6ecd9', textColor: '#5b4643', nameAlign: 'center', textFont: /^"Tsanger YuYang"/ },
-        'black-white-manga': { nameColor: '#171412', textColor: '#231f1c', nameAlign: 'left', textFont: /^"Source Han Sans CN"/ },
-        'cute-pink': { nameColor: '#ffffff', textColor: '#5d3a4a', nameAlign: 'center', textFont: /^"IGS Rounded"/ },
-        'retro-japanese': { nameColor: '#f6e6c4', textColor: '#46322a', nameAlign: 'center', textFont: /^"LXGW WenKai"/ },
-        'adventure-journey': { nameColor: '#f0dcb8', textColor: '#45372d', nameAlign: 'center', textFont: /^"LXGW Neo ZhiSong"/ },
-        'day-minimal': { nameColor: '#f7f5ee', textColor: '#3a3935', nameAlign: 'left', textFont: /^"LXGW Neo XiHei"/ },
-        'warm-picturebook': { nameColor: '#f4efe9', textColor: '#4f4a45', nameAlign: 'center', textFont: /^"LXGW WenKai"/ },
-        'elegant-european': { nameColor: '#ffffff', textColor: '#eeeaf3', nameAlign: 'left', textFont: /^"Source Han Serif CN"/ },
+        'western-classic': { nameColor: '#2e2218', textColor: '#f2e5c4', nameAlign: 'center', textFont: /^"Source Han Serif CN"/, nameFont: /^"Cinzel"/ },
+        'plant-coffee': { nameColor: '#f6ecd9', textColor: '#5b4643', nameAlign: 'center', textFont: /^"LXGW WenKai Lite"/, nameFont: /^"Quicksand"/ },
+        'black-white-manga': { nameColor: '#171412', textColor: '#231f1c', nameAlign: 'left', textFont: /^"Source Han Sans CN"/, nameFont: /^"Smiley Sans"/ },
+        'cute-pink': { nameColor: '#ffffff', textColor: '#5d3a4a', nameAlign: 'center', textFont: /^"Yozai"/, nameFont: /^"ZCOOL KuaiLe"/ },
+        'retro-japanese': { nameColor: '#f6e6c4', textColor: '#46322a', nameAlign: 'center', textFont: /^"LXGW WenKai"/, nameFont: /^"Huiwen Mincho"/ },
+        'adventure-journey': { nameColor: '#f0dcb8', textColor: '#45372d', nameAlign: 'center', textFont: /^"LXGW Neo ZhiSong"/, nameFont: /^"Cinzel"/ },
+        'day-minimal': { nameColor: '#f7f5ee', textColor: '#3a3935', nameAlign: 'left', textFont: /^"LXGW Neo XiHei"/, nameFont: /^"Cormorant Garamond"/ },
+        'warm-picturebook': { nameColor: '#f4efe9', textColor: '#4f4a45', nameAlign: 'center', textFont: /^"LXGW WenKai"/, nameFont: /^"Yozai"/ },
+        'elegant-european': { nameColor: '#ffffff', textColor: '#eeeaf3', nameAlign: 'left', textFont: /^"Source Han Serif CN"/, nameFont: /^"Great Vibes"/ },
     };
     for (const [skin, values] of Object.entries(expected)) {
         const theme = resolveActiveTheme({ readerSettings: { dialogSkin: skin } });
@@ -3599,6 +3599,7 @@ test('gate:igs-ui:reference-typography-applies-to-material-themes-only', () => {
         assert.equal(theme.textColor, values.textColor);
         assert.equal(theme.nameAlign, values.nameAlign);
         assert.match(theme.textFont, values.textFont);
+        assert.match(theme.nameFont, values.nameFont);
     }
     const defaultTheme = resolveActiveTheme({ readerSettings: { dialogSkin: 'default' } });
     const veilTheme = resolveActiveTheme({ readerSettings: { dialogSkin: 'gradient-veil' } });

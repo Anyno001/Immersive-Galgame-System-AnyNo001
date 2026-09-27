@@ -5,7 +5,7 @@ import {
     DIALOG_SKIN_ELEGANT_EUROPEAN,
     DIALOG_SKIN_WARM_PICTUREBOOK,
 } from './dialog-theme-css-skins.js';
-import { buildDialogFrameCss, halo } from './dialog-skin-frame.js';
+import { buildDialogFrameCss, halo, stroke, threeSliceCss } from './dialog-skin-frame.js';
 
 export const DIALOG_SKIN_PLANT_COFFEE = 'plant-coffee';
 export const DIALOG_SKIN_BLACK_WHITE_MANGA = 'black-white-manga';
@@ -33,44 +33,24 @@ export function isIllustratedDialogSkin(value) {
 // 构建脚本按字面占位符内联 PNG，这里必须保留完整字面量。
 const DIALOG_THEME_ASSETS = Object.freeze({
     [DIALOG_SKIN_PLANT_COFFEE]: Object.freeze({
-        dialogLeft: '__IGS_ASSET__plant-coffee/dialog-left.png__',
-        dialogCenter: '__IGS_ASSET__plant-coffee/dialog-center.png__',
-        dialogRight: '__IGS_ASSET__plant-coffee/dialog-right.png__',
-        nameLeft: '__IGS_ASSET__plant-coffee/name-left.png__',
-        nameCenter: '__IGS_ASSET__plant-coffee/name-center.png__',
-        nameRight: '__IGS_ASSET__plant-coffee/name-right.png__',
+        dialog: '__IGS_ASSET__plant-coffee/dialog.png__',
+        name: '__IGS_ASSET__plant-coffee/name.png__',
     }),
     [DIALOG_SKIN_BLACK_WHITE_MANGA]: Object.freeze({
-        dialogLeft: '__IGS_ASSET__black-white-manga/dialog-left.png__',
-        dialogCenter: '__IGS_ASSET__black-white-manga/dialog-center.png__',
-        dialogRight: '__IGS_ASSET__black-white-manga/dialog-right.png__',
-        nameLeft: '__IGS_ASSET__black-white-manga/name-left.png__',
-        nameCenter: '__IGS_ASSET__black-white-manga/name-center.png__',
-        nameRight: '__IGS_ASSET__black-white-manga/name-right.png__',
+        dialog: '__IGS_ASSET__black-white-manga/dialog.png__',
+        name: '__IGS_ASSET__black-white-manga/name.png__',
     }),
     [DIALOG_SKIN_CUTE_PINK]: Object.freeze({
-        dialogLeft: '__IGS_ASSET__cute-pink/dialog-left.png__',
-        dialogCenter: '__IGS_ASSET__cute-pink/dialog-center.png__',
-        dialogRight: '__IGS_ASSET__cute-pink/dialog-right.png__',
-        nameLeft: '__IGS_ASSET__cute-pink/name-left.png__',
-        nameCenter: '__IGS_ASSET__cute-pink/name-center.png__',
-        nameRight: '__IGS_ASSET__cute-pink/name-right.png__',
+        dialog: '__IGS_ASSET__cute-pink/dialog.png__',
+        name: '__IGS_ASSET__cute-pink/name.png__',
     }),
     [DIALOG_SKIN_RETRO_JAPANESE]: Object.freeze({
-        dialogLeft: '__IGS_ASSET__retro-japanese/dialog-left.png__',
-        dialogCenter: '__IGS_ASSET__retro-japanese/dialog-center.png__',
-        dialogRight: '__IGS_ASSET__retro-japanese/dialog-right.png__',
-        nameLeft: '__IGS_ASSET__retro-japanese/name-left.png__',
-        nameCenter: '__IGS_ASSET__retro-japanese/name-center.png__',
-        nameRight: '__IGS_ASSET__retro-japanese/name-right.png__',
+        dialog: '__IGS_ASSET__retro-japanese/dialog.png__',
+        name: '__IGS_ASSET__retro-japanese/name.png__',
     }),
     [DIALOG_SKIN_ADVENTURE_JOURNEY]: Object.freeze({
-        dialogLeft: '__IGS_ASSET__adventure-journey/dialog-left.png__',
-        dialogCenter: '__IGS_ASSET__adventure-journey/dialog-center.png__',
-        dialogRight: '__IGS_ASSET__adventure-journey/dialog-right.png__',
-        nameLeft: '__IGS_ASSET__adventure-journey/name-left.png__',
-        nameCenter: '__IGS_ASSET__adventure-journey/name-center.png__',
-        nameRight: '__IGS_ASSET__adventure-journey/name-right.png__',
+        dialog: '__IGS_ASSET__adventure-journey/dialog.png__',
+        name: '__IGS_ASSET__adventure-journey/name.png__',
     }),
 });
 
@@ -79,48 +59,48 @@ const DIALOG_THEME_ASSETS = Object.freeze({
 // rise 是姓名牌高出对话框顶边的距离，供选项气泡避让。
 export const ILLUSTRATED_DIALOG_SPECS = Object.freeze({
     [DIALOG_SKIN_PLANT_COFFEE]: Object.freeze({
-        dialog: { height: 177, left: 130, right: 130 },
+        dialog: { height: 177, left: 130, right: 130, slice: [130, 130] },
         text: { top: 24, speakerTop: 34, right: 44, bottom: 20, left: 42 },
-        plate: { height: 42, left: 31, right: 31, x: 62, rise: 12, lineHeight: 42, padding: '0 30px', minWidth: 124 },
-        nameCss: 'font-size:15px;font-weight:500;letter-spacing:.2em;text-indent:.2em;',
-        textCss: `letter-spacing:.06em;${halo('#f6f1eb', 3)}`,
+        plate: { height: 42, left: 31, right: 31, slice: [35, 35], x: 62, rise: 12, lineHeight: 42, padding: '0 30px', minWidth: 124 },
+        nameCss: 'font-size:15px;font-weight:600;letter-spacing:.2em;text-indent:.2em;text-shadow:0 1px 0 rgba(58,40,34,.55),0 0 3px rgba(58,40,34,.35);',
+        textCss: 'letter-spacing:.06em;text-shadow:0 1px 0 rgba(255,255,255,.75),0 0 2px rgba(246,241,235,.9);',
     }),
     [DIALOG_SKIN_BLACK_WHITE_MANGA]: Object.freeze({
-        dialog: { height: 191, left: 90, right: 89 },
-        text: { top: 24, speakerTop: 34, right: 42, bottom: 22, left: 40 },
-        plate: { height: 56, left: 56, right: 56, x: 24, rise: 30, lineHeight: 54, padding: '0 58px 0 36px', minWidth: 168 },
-        nameCss: 'font-size:18px;font-weight:700;letter-spacing:.24em;',
-        textCss: `letter-spacing:.04em;${halo('#efe9dd', 3)}`,
+        dialog: { height: 191, left: 90, right: 89, slice: [90, 89] },
+        text: { top: 26, speakerTop: 36, right: 58, bottom: 24, left: 58 },
+        plate: { height: 56, left: 56, right: 56, slice: [68, 68], x: 24, rise: 30, lineHeight: 54, padding: '0 58px 0 36px', minWidth: 168 },
+        nameCss: `font-size:19px;font-weight:700;letter-spacing:.24em;text-shadow:${stroke('#fbf8f1')},2px 2px 0 rgba(23,20,18,.28);`,
+        textCss: `letter-spacing:.04em;${halo('#efe9dd', 2)}`,
     }),
     [DIALOG_SKIN_CUTE_PINK]: Object.freeze({
-        dialog: { height: 215, left: 120, right: 145 },
+        dialog: { height: 215, left: 120, right: 145, slice: [120, 145] },
         text: { top: 34, speakerTop: 38, right: 54, bottom: 34, left: 50 },
-        plate: { height: 58, left: 34, right: 85, x: 30, rise: 32, lineHeight: 52, padding: '0 46px 0 40px', minWidth: 156 },
-        nameCss: 'font-size:17px;font-weight:700;letter-spacing:.14em;text-shadow:0 1px 0 #c24a6f,0 -1px 0 rgba(255,255,255,.35);',
+        plate: { height: 58, left: 34, right: 85, slice: [40, 100], x: 30, rise: 32, lineHeight: 52, padding: '0 46px 0 40px', minWidth: 156 },
+        nameCss: `font-size:17px;font-weight:700;letter-spacing:.14em;text-shadow:${stroke('#d4557c')},0 2px 0 #b03e64,0 3px 4px rgba(120,30,60,.35);`,
         textCss: `letter-spacing:.05em;${halo('rgba(255,255,255,.95)', 4)}`,
     }),
     // messgeframe_01 按 0.9 缩放（236→212），纸面上沿约在 y=32。正文从上沿下方直接起排，
     // 压在两侧花簇上，靠纸色光晕保持可读；姓名牌骑在上沿，窄屏整体缩到 0.66。
     [DIALOG_SKIN_RETRO_JAPANESE]: Object.freeze({
-        dialog: { height: 212, left: 180, right: 171 },
+        dialog: { height: 212, left: 180, right: 171, slice: [200, 190] },
         text: { top: 44, speakerTop: 48, right: 64, bottom: 30, left: 58 },
-        plate: { height: 42, left: 21, right: 21, x: 150, rise: 14, lineHeight: 42, padding: '0 36px', minWidth: 150 },
-        nameCss: 'font-size:16px;font-weight:600;letter-spacing:.24em;text-indent:.24em;',
+        plate: { height: 42, left: 21, right: 21, slice: [20, 20], x: 150, rise: 14, lineHeight: 42, padding: '0 36px', minWidth: 150 },
+        nameCss: 'font-size:16px;font-weight:600;letter-spacing:.24em;text-indent:.24em;text-shadow:0 1px 0 rgba(30,18,12,.7),0 0 4px rgba(30,18,12,.45);',
         textCss: `letter-spacing:.06em;${halo('#f5ead3', 5)}`,
         compact: Object.freeze({
-            dialog: { height: 156, left: 132, right: 125 },
+            dialog: { height: 156, left: 132, right: 125, slice: [200, 190] },
             text: { top: 32, speakerTop: 36, right: 40, bottom: 20, left: 36 },
-            plate: { height: 34, left: 17, right: 17, x: 104, rise: 11, lineHeight: 34, padding: '0 26px', minWidth: 112 },
-            nameCss: 'font-size:14px;font-weight:600;letter-spacing:.2em;text-indent:.2em;',
+            plate: { height: 34, left: 17, right: 17, slice: [20, 20], x: 104, rise: 11, lineHeight: 34, padding: '0 26px', minWidth: 112 },
+            nameCss: 'font-size:14px;font-weight:600;letter-spacing:.2em;text-indent:.2em;text-shadow:0 1px 0 rgba(30,18,12,.7),0 0 3px rgba(30,18,12,.45);',
             textCss: `letter-spacing:.04em;${halo('#f5ead3', 4)}`,
         }),
     }),
     [DIALOG_SKIN_ADVENTURE_JOURNEY]: Object.freeze({
-        dialog: { height: 170, left: 48, right: 48 },
+        dialog: { height: 170, left: 48, right: 48, slice: [48, 48] },
         text: { top: 26, speakerTop: 34, right: 44, bottom: 20, left: 44 },
-        plate: { height: 50, left: 41, right: 41, x: 34, rise: 26, lineHeight: 50, padding: '0 50px', minWidth: 176 },
-        nameCss: 'font-size:16px;font-weight:600;letter-spacing:.2em;text-indent:.2em;',
-        textCss: `letter-spacing:.05em;${halo('#e6dccb', 3)}`,
+        plate: { height: 50, left: 41, right: 41, slice: [56, 56], x: 34, rise: 26, lineHeight: 50, padding: '0 50px', minWidth: 176 },
+        nameCss: 'font-size:16px;font-weight:600;letter-spacing:.2em;text-indent:.2em;text-shadow:0 1px 0 rgba(20,12,6,.75),0 0 5px rgba(240,200,130,.28);',
+        textCss: 'letter-spacing:.05em;text-shadow:0 1px 0 rgba(255,250,238,.7),0 0 2px rgba(230,220,203,.9);',
     }),
 });
 
@@ -130,16 +110,12 @@ function px(value) {
 
 export function buildSlicedDialogSkinCss(skin, spec, assets) {
     const { dialog, text, plate } = spec;
-    const dialogSize = [px(dialog.left), `calc(100% - ${dialog.left + dialog.right}px)`, px(dialog.right)]
-        .map((width) => `${width} ${px(dialog.height)}`).join(',');
-    const plateSize = [px(plate.left), `calc(100% - ${plate.left + plate.right}px)`, px(plate.right)]
-        .map((width) => `${width} ${px(plate.height)}`).join(',');
     return buildDialogFrameCss(skin, {
         height: dialog.height,
         text,
         rise: plate.rise,
-        frameCss: `background-color:transparent;background-image:url("${assets.dialogLeft}"),url("${assets.dialogCenter}"),url("${assets.dialogRight}");background-position:left top,${px(dialog.left)} top,right top;background-size:${dialogSize};background-repeat:no-repeat;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
-        speakerCss: `left:${px(plate.x)};top:${px(-plate.rise)};width:max-content;min-width:${px(plate.minWidth)};max-width:calc(100% - ${px(plate.x * 2)});height:${px(plate.height)};line-height:${px(plate.lineHeight)};margin:0;padding:${plate.padding};background-color:transparent;background-image:url("${assets.nameLeft}"),url("${assets.nameCenter}"),url("${assets.nameRight}");background-position:left top,${px(plate.left)} top,right top;background-size:${plateSize};background-repeat:no-repeat;border:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${spec.nameCss || ''}`,
+        frameCss: `${threeSliceCss(assets.dialog, dialog.slice, dialog.left, dialog.right)}border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
+        speakerCss: `left:${px(plate.x)};top:${px(-plate.rise)};width:max-content;min-width:${px(plate.minWidth)};max-width:calc(100% - ${px(plate.x * 2)});height:${px(plate.height)};line-height:${px(plate.lineHeight)};margin:0;padding:${plate.padding};${threeSliceCss(assets.name, plate.slice, plate.left, plate.right)}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${spec.nameCss || ''}`,
         textCss: spec.textCss || '',
     });
 }

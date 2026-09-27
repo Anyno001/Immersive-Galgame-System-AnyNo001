@@ -30,9 +30,10 @@ export function watchRecordPageLayout(panel, doc) {
     return () => { };
 }
 
-// 页头 DOM：返回按钮（44px 命中区）+ 居中标题（两侧短线由 CSS 伪元素绘制）。
+// 页头 DOM：返回按钮（44px 命中区）+ 居中标题 + 可选右侧附件（资料页放配色色板）。
 export function recordPageHeadHtml(title, options = {}) {
     const closeAttr = options.closeAttr || 'data-record-act';
     const backAriaLabel = options.backAriaLabel || '返回';
-    return `<header class="igs-rp-head"><button type="button" class="igs-rp-back" ${closeAttr}="close" aria-label="${backAriaLabel}">${RECORD_ICONS.back}</button><h2 class="igs-rp-title">${title}</h2></header>`;
+    const trailing = options.trailing ? `<div class="igs-rp-head-end">${options.trailing}</div>` : '';
+    return `<header class="igs-rp-head"><button type="button" class="igs-rp-back" ${closeAttr}="close" aria-label="${backAriaLabel}">${RECORD_ICONS.back}</button><h2 class="igs-rp-title">${title}</h2>${trailing}</header>`;
 }

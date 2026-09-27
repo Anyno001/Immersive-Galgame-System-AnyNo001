@@ -935,7 +935,7 @@ test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
     assert.match(source, /@media \(prefers-reduced-motion: reduce\)\{\.igs-embedded-loading-dot\{animation:none/);
 });
 
-test('gate:igs-ui:bundled-rounded-font-keeps-original-and-license', () => {
+test('gate:igs-ui:bundled-dialog-fonts-keep-assets-and-licenses', () => {
     const root = path.join(appRoot, 'src/visual/igs-ui/assets/fonts');
     const license = fs.readFileSync(path.join(root, 'OFL.txt'), 'utf8');
     assert.match(license, /SIL OPEN FONT LICENSE Version 1\.1/);
@@ -951,20 +951,40 @@ test('gate:igs-ui:bundled-rounded-font-keeps-original-and-license', () => {
     }
     const build = fs.readFileSync(path.join(appRoot, 'scripts/build.js'), 'utf8');
     assert.match(build, /roundedFontWeights = \[300, 400, 500, 700\]/);
+    const requiredFonts = [
+        'LXGWWenKai-Regular.ttf', 'LXGWWenKai-Light.ttf', 'LXGWWenKaiLite-Regular.ttf',
+        'LXGWNeoZhiSong.ttf', 'LXGWNeoXiHei.ttf', 'SourceHanSansCN-Medium.otf',
+        'SourceHanSerifCN-Regular.otf', 'HuiwenMincho.otf', 'TsangerYuYangT-W05.woff2',
+        'SmileySans-Oblique.ttf', 'ZCOOLKuaiLe-Regular.ttf', 'Yozai-Regular.ttf',
+        'Cinzel-Variable.ttf', 'GreatVibes-Regular.ttf', 'PinyonScript-Regular.ttf',
+        'Quicksand-Variable.ttf', 'Caveat-Variable.ttf', 'IMFellEnglishSC-Regular.ttf',
+    ];
+    for (const file of requiredFonts) {
+        const font = fs.readFileSync(path.join(root, file));
+        assert.ok(font.length > 1024, file);
+        assert.ok(['OTTO', 'wOF2', '\0\x01\0\0'].includes(font.subarray(0, 4).toString('ascii')), file);
+        assert.match(build, new RegExp(file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    }
+    const licenses = [
+        'OFL.txt', 'SourceHanSerifCN-LICENSE.txt', 'SourceHanSansCN-LICENSE.txt',
+        'Cormorant-OFL.txt', 'Cormorant-OFL-FAQ.txt', 'LXGW-OFL.txt', 'Yozai-OFL.txt',
+        'HuiwenMincho-CC0.txt', 'TsangerYuYangT-MIT.txt', 'SmileySans-OFL.txt',
+        'Cinzel-OFL.txt', 'ZCOOLKuaiLe-OFL.txt', 'GreatVibes-OFL.txt', 'PinyonScript-OFL.txt',
+        'Quicksand-OFL.txt', 'Caveat-OFL.txt', 'IMFellEnglish-OFL.txt',
+    ];
+    for (const file of licenses) {
+        assert.ok(fs.statSync(path.join(root, file)).size > 128, file);
+        assert.match(build, new RegExp(file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    }
     assert.match(build, /copyFileSync\(source, path\.join\(fontTargetDir, name\)\)/);
-    assert.match(build, /fontLicenseFiles = \['OFL\.txt', 'SourceHanSerifCN-LICENSE\.txt', 'Cormorant-OFL\.txt', 'Cormorant-OFL-FAQ\.txt'\]/);
     assert.match(build, /for \(const licenseName of fontLicenseFiles\)/);
     assert.match(build, /copyFileSync\(source, path\.join\(fontTargetDir, licenseName\)\)/);
 });
 
 test('gate:igs-ui:classic-dialog-assets-and-style', () => {
     const expected = {
-        dialogLeft: [110, 184],
-        dialogCenter: [744, 184],
-        dialogRight: [110, 184],
-        nameLeft: [65, 68],
-        nameCenter: [244, 68],
-        nameRight: [65, 68],
+        dialog: [964, 184],
+        name: [374, 68],
     };
     for (const [key, [width, height]] of Object.entries(expected)) {
         const dataUrl = CLASSIC_DIALOG_ASSETS[key];
@@ -977,9 +997,9 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
         assert.equal(bytes.readUInt32BE(20), height);
     }
     assert.match(CLASSIC_SKIN_CSS, /data-igs-dialog-skin="western-classic"/);
-    assert.match(CLASSIC_SKIN_CSS, /background-size:110px 184px,calc\(100% - 220px\) 184px,110px 184px/);
+    assert.match(CLASSIC_SKIN_CSS, /border-image:url\("data:image\/png;base64,[^"]+"\) 0 110 0 110 fill \/ 0 110px 0 110px \/ 0 stretch/);
     assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*left:60px;top:-22px;width:max-content;min-width:150px;max-width:calc\(100% - 120px\);height:52px;line-height:44px/);
-    assert.match(CLASSIC_SKIN_CSS, /background-size:50px 52px,calc\(100% - 100px\) 52px,50px 52px/);
+    assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*border-image:url\("data:image\/png;base64,[^"]+"\) 0 65 0 65 fill \/ 0 50px 0 50px \/ 0 stretch/);
     assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px;font-weight:600/);
     assert.match(CLASSIC_SKIN_CSS, /data-igs-has-speaker="1"\]\{padding:34px 44px 20px 44px;\}/);
     assert.match(CLASSIC_SKIN_CSS, /overflow:visible/);
@@ -994,25 +1014,27 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
 test('gate:igs-ui:illustrated-dialog-style-uses-three-slice-assets', () => {
     assert.match(ILLUSTRATED_SKIN_CSS, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_PLANT_COFFEE}"`));
     assert.match(ILLUSTRATED_SKIN_CSS, /height:177px;min-height:177px;max-height:177px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /background-size:130px 177px,calc\(100% - 260px\) 177px,130px 177px/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__plant-coffee\/dialog\.png__"\) 0 130 0 130 fill \/ 0 130px 0 130px \/ 0 stretch/);
     assert.match(ILLUSTRATED_SKIN_CSS, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_BLACK_WHITE_MANGA}"`));
     assert.match(ILLUSTRATED_SKIN_CSS, /height:191px;min-height:191px;max-height:191px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /background-size:90px 191px,calc\(100% - 179px\) 191px,89px 191px/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__black-white-manga\/dialog\.png__"\) 0 89 0 90 fill \/ 0 89px 0 90px \/ 0 stretch/);
     assert.match(ILLUSTRATED_SKIN_CSS, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_CUTE_PINK}"`));
     assert.match(ILLUSTRATED_SKIN_CSS, /height:215px;min-height:215px;max-height:215px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /background-size:120px 215px,calc\(100% - 265px\) 215px,145px 215px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /plant-coffee"\] \.igs-speaker\{[^}]*background-size:31px 42px,calc\(100% - 62px\) 42px,31px 42px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /black-white-manga"\] \.igs-speaker\{[^}]*background-size:56px 56px,calc\(100% - 112px\) 56px,56px 56px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /cute-pink"\] \.igs-speaker\{[^}]*background-size:34px 58px,calc\(100% - 119px\) 58px,85px 58px/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__cute-pink\/dialog\.png__"\) 0 145 0 120 fill \/ 0 145px 0 120px \/ 0 stretch/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /plant-coffee"\] \.igs-speaker\{[^}]*0 35 0 35 fill \/ 0 31px 0 31px \/ 0 stretch/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /black-white-manga"\] \.igs-speaker\{[^}]*0 68 0 68 fill \/ 0 56px 0 56px \/ 0 stretch/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /cute-pink"\] \.igs-speaker\{[^}]*0 100 0 40 fill \/ 0 85px 0 34px \/ 0 stretch/);
     for (const skin of [DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK]) {
         const speakerRule = ILLUSTRATED_SKIN_CSS.split('\n').find((line) => line.includes(`"${skin}"] .igs-speaker{`));
         assert.match(speakerRule, /width:max-content;/);
         assert.match(speakerRule, /text-overflow:ellipsis/);
         assert.ok(ILLUSTRATED_SKIN_CSS.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"]{--igs-skin-plate-rise:`));
     }
-    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__plant-coffee\/dialog-left\.png__/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__black-white-manga\/name-center\.png__/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__cute-pink\/dialog-right\.png__/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__black-white-manga\/name\.png__/);
+    for (const skin of [DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK]) {
+        const frameRule = ILLUSTRATED_SKIN_CSS.split('\n').find((line) => line.startsWith(`#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]{`));
+        assert.doesNotMatch(frameRule, /background-size/, skin);
+    }
 });
 
 test('gate:igs-ui:new-dialog-skins-register-frames-and-typography', () => {
@@ -1022,9 +1044,14 @@ test('gate:igs-ui:new-dialog-skins-register-frames-and-typography', () => {
         assert.ok(ILLUSTRATED_SKIN_CSS.includes(`#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]{`), skin);
         assert.ok(ILLUSTRATED_SKIN_CSS.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"]{--igs-skin-plate-rise:`), skin);
     }
-    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__retro-japanese\/dialog-left\.png__/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__adventure-journey\/name-center\.png__/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__retro-japanese\/dialog\.png__"\) 0 190 0 200 fill/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__adventure-journey\/name\.png__/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__elegant-european\/dialog\.png__"\) 0 200 0 200 fill/);
     assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__elegant-european\/ornament-top\.png__/);
+    for (const skin of ['day-minimal', 'elegant-european']) {
+        assert.ok(ILLUSTRATED_SKIN_CSS.includes(`#igs-overlay.igs-floating .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-floating-mobile .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{left:0;right:0;bottom:0;width:auto;margin:0;transform:none;}`), skin);
+    }
+    assert.ok(!ILLUSTRATED_SKIN_CSS.includes('#igs-overlay.igs-floating .igs-dialog[data-igs-dialog-skin="warm-picturebook"],'));
     assert.match(ILLUSTRATED_SKIN_CSS, /@media \(max-width:640px\)\{\n#igs-overlay \.igs-dialog\[data-igs-dialog-skin="retro-japanese"\]\{[^}]*height:156px/);
     assert.match(ILLUSTRATED_SKIN_CSS, /warm-picturebook"\] \.igs-speaker::after\{[^}]*mask:/);
 });

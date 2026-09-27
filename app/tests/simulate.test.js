@@ -1195,11 +1195,21 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.apiKey', 'test-nai-secret').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.scale', '5.5').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.transport', 'st-proxy').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.assets.templates.background', '{tags}, custom scene').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.assets.templates.backgroundNegative', 'no people').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.assets.templates.sprite', '{tags}, custom character').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.assets.templates.spriteNegative', 'no crowd').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.assets.templates.nsfwExtra', 'adult scene').ok, true);
         assert.equal(opened.controller.getSnapshot().draft.bridge.autoIllustration.nsfwCount, 2);
         assert.equal(Boolean(vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration?.nsfwEnabled), false);
         assert.equal(opened.controller.close().ok, true);
         const saved = vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration;
         assert.equal(saved.nsfwEnabled, true);
+        assert.equal(saved.assets.templates.background, '{tags}, custom scene');
+        assert.equal(saved.assets.templates.backgroundNegative, 'no people');
+        assert.equal(saved.assets.templates.sprite, '{tags}, custom character');
+        assert.equal(saved.assets.templates.spriteNegative, 'no crowd');
+        assert.equal(saved.assets.templates.nsfwExtra, 'adult scene');
         assert.equal(saved.nsfwCount, 2);
         assert.equal(saved.interludeEnabled, true);
         assert.equal(saved.interludeProbability, 45);
@@ -4300,7 +4310,7 @@ test('gate:simulation:relationship-page-displays-important-character-profiles-no
     assert.equal(panel.open(overlay, {}, 'relationships').ok, true);
     const root = document.getElementById('igs-record-panel');
     assert.equal(panel.getState().activeUid, 'sheet_zhong_yao_jue_se_biao');
-    assert.match(root.innerHTML, /爱丽丝 · 恋爱对象/);
+    assert.match(root.innerHTML, /<h2>爱丽丝<\/h2><span class="igs-record-tag">恋爱对象<\/span>/);
     assert.match(root.innerHTML, /&lt;图书管理员&gt;/);
     assert.match(root.innerHTML, /同学/);
     assert.doesNotMatch(root.innerHTML, /学生会|<图书管理员>/);
@@ -4503,11 +4513,11 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     const recordCss = getOriginalReaderStyleText();
     // 液态磨玻璃：资料页整页只有一层 backdrop 模糊，格位/卡片无描边，标题两侧不再画线。
     assert.match(recordCss, /#igs-record-panel,#igs-map-panel\{[^}]*--igs-rp-text:#eceae6/);
-    assert.match(recordCss, /#igs-record-panel \.igs-rp-page::before\{[^}]*backdrop-filter:[^;}]*blur\(/);
+    assert.match(recordCss, /#igs-record-panel \.igs-rp-page::before\{[^}]*background:var\(--igs-rp-backdrop\);[^}]*backdrop-filter:[^;}]*blur\(/);
     assert.match(recordCss, /prefers-reduced-transparency:reduce/);
     assert.doesNotMatch(recordCss, /\.igs-rp-title::before/);
     assert.match(recordCss, /#igs-record-panel \.igs-rp-back,#igs-map-panel \.igs-rp-back\{[^}]*min-width:44px;min-height:44px/);
-    assert.match(recordCss, /\.igs-record-slots button\{[^}]*border:0;[^}]*background:var\(--igs-rp-pane\)/);
+    assert.match(recordCss, /\.igs-record-slots button\{[^}]*border:0;[^}]*background:var\(--igs-rp-fill\)/);
     assert.match(recordCss, /\.igs-record-slot-icon svg\{[^}]*stroke-width:1\.3/);
     assert.match(recordCss, /\.igs-record-slot-name\{[^}]*font-size:12px/);
     assert.doesNotMatch(recordCss, /125,92,54|57,39,27/);
@@ -4561,6 +4571,86 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     assert.equal(writes, 0);
     panel.close();
     assert.equal(restoredFocus, 3);
+});
+
+test('gate:simulation:record-panel-follows-settings-theme-and-trims-repeated-details', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 800 });
+    const overlay = document.createElement('div');
+    document.body.appendChild(overlay);
+    const api = {
+        exportTableAsJson() {
+            return {
+                sheet_diary: { uid: 'sheet_diary', name: '恋爱日记表', content: [['row_id', '写作角色', '关联角色', '日记内容', '发生时间'],
+                    [1, '林夏', '陈屿', '今天下雨了。我在书店等到很晚，他没有来。', '2024-03-01'],
+                    [2, '林夏', '', '只有一句话的日记。', '2024-03-02'],
+                    [3, '陈屿', '', '这是一段非常非常长而且并没有在二十四个字以内结束的第一句话。后面还有。', '2024-03-03']] },
+                sheet_items: { uid: 'sheet_items', name: '物品表', content: [['row_id', '物品名称', '数量', '描述', '状态'],
+                    [1, '旧钥匙', 1, '刻痕已经磨浅', '已使用']] },
+                sheet_chars: { uid: 'sheet_chars', name: '重要角色表', content: [
+                    ['row_id', '姓名', '角色类型', '性别', '年龄', '一句话介绍', '外貌特征', '穿着打扮', '所在地点', '人际关系', '当下想法', '过往经历'],
+                    [1, '林夏', '恋爱对象', '女', '17', '书店常客', '黑色长发', '白色连衣裙', '书店', '陈屿:同学,旧识', '想见他', '在书店长大']] },
+            };
+        },
+    };
+    const saved = [];
+    const panel = createRecordPanelController(document, { AutoCardUpdaterAPI: api }, null, { getTheme: () => 'cream', setTheme: theme => saved.push(theme) });
+    let root = null;
+    const act = async (action, id = '') => {
+        const target = document.createElement('button');
+        target.setAttribute('data-record-act', action);
+        target.setAttribute('data-record-id', id);
+        root.appendChild(target);
+        await root.dispatchEvent({ type: 'click', target });
+        target.remove();
+    };
+
+    assert.equal(panel.open(overlay, {}, 'diary').ok, true);
+    root = document.getElementById('igs-record-panel');
+    assert.equal(root.getAttribute('data-rp-theme'), 'cream');
+    assert.equal((root.innerHTML.match(/class="igs-rp-theme-option/g) || []).length, 4);
+    assert.match(root.innerHTML, /igs-rp-theme-option is-active"[^>]*data-record-id="cream"/);
+    await act('theme', 'dark');
+    assert.equal(root.getAttribute('data-rp-theme'), 'dark');
+    assert.deepEqual(saved, ['dark']);
+    assert.match(root.innerHTML, /igs-rp-theme-option is-active"[^>]*data-record-id="dark"/);
+
+    // 无篇名：首句升为标题，正文从第二句开始，不再重复首句。
+    await act('select', 'sheet_diary:0');
+    assert.match(root.innerHTML, /<h3>今天下雨了<\/h3><p class="igs-record-body">我在书店等到很晚，他没有来。<\/p>/);
+    assert.doesNotMatch(root.innerHTML, /今天下雨了。我在/);
+    await act('select', 'sheet_diary:1');
+    assert.doesNotMatch(root.innerHTML, /<h3>/);
+    assert.match(root.innerHTML, /<p class="igs-record-body is-lead">只有一句话的日记。<\/p>/);
+    await act('select', 'sheet_diary:2');
+    assert.doesNotMatch(root.innerHTML, /<h3>/);
+    // 时间线目录：头像已给出写作角色首字，标题下不再重复人名。
+    await act('diary-view', 'timeline');
+    assert.match(root.innerHTML, /igs-record-timeline-copy"><strong>[^<]+<\/strong><\/span>/);
+    await act('diary-view', 'books');
+    panel.close();
+
+    assert.equal(panel.open(overlay, {}, 'inventory').ok, true);
+    root = document.getElementById('igs-record-panel');
+    assert.equal(root.getAttribute('data-rp-theme'), 'cream');
+    await act('select', 'sheet_items:0');
+    assert.match(root.innerHTML, /<span>数量：×1<\/span><span class="igs-record-tag">已使用<\/span>/);
+    assert.doesNotMatch(root.innerHTML, /igs-record-slot-quantity">×1</);
+    assert.doesNotMatch(root.innerHTML, /<dt>状态<\/dt>/);
+    panel.close();
+
+    assert.equal(panel.open(overlay, {}, 'relationships').ok, true);
+    root = document.getElementById('igs-record-panel');
+    assert.match(root.innerHTML, /<h2>林夏<\/h2><span class="igs-record-tag">恋爱对象<\/span><span class="igs-record-tag">17岁<\/span>/);
+    assert.match(root.innerHTML, /<dt>外貌<\/dt><dd>黑色长发<\/dd>/);
+    assert.match(root.innerHTML, /<dt>打扮<\/dt><dd>白色连衣裙<\/dd>/);
+    assert.match(root.innerHTML, /<dt>过往经历<\/dt><dd>在书店长大<\/dd>/);
+    // 当下想法做名下引语；同一对人物的多条关系合并成一个标签。
+    assert.match(root.innerHTML, /<\/header><p class="igs-record-thought" aria-label="当下想法">想见他<\/p>/);
+    assert.doesNotMatch(root.innerHTML, /<dt>当下想法<\/dt>/);
+    assert.match(root.innerHTML, />同学·旧识<\/span>/);
+    assert.equal((root.innerHTML.match(/<path d="M 50 /g) || []).length, 1);
+    assert.doesNotMatch(root.innerHTML, /书店常客|所在地点|igs-record-relationship-links/);
+    panel.close();
 });
 
 test('gate:simulation:map-embedded-only-fills-empty-host-draft', async () => {

@@ -7,6 +7,7 @@ import {
 } from '../../scene/message-source.js';
 import { resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
+import { parseHtmlCardMarker } from '../../scene/html-cards.js';
 import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -1659,6 +1660,10 @@ export function createIgsReaderHost(options = {}) {
         const displayImageState = applyImageCountOverride(imageState, readerSettings.imageCountOverride);
         // 分段缺失时给空串：绝不用整篇 text 兜底，否则会凭空多出一页「全文」。
         const currentText = segments[normalizedIndex] == null ? '' : String(segments[normalizedIndex]);
+        const htmlCardIndex = parseHtmlCardMarker(currentText);
+        const htmlCard = htmlCardIndex >= 0 && Array.isArray(extracted.htmlCards)
+            ? String(extracted.htmlCards[htmlCardIndex] || '')
+            : '';
         const sceneAssetsEnabled = readerSettings._sceneAssets && readerSettings._sceneAssets.enabled;
         const backgroundImage = firstNonEmptyString(
             displayImageState.displayUrl,
@@ -1899,7 +1904,7 @@ export function createIgsReaderHost(options = {}) {
             weather: firstDefined(sceneStateForBg && sceneStateForBg.weather, scene.weather, ''),
         };
         const isDialogueText = textType === 'dialogue' || (!sceneAssetsEnabled && Boolean(scene.speaker) && Boolean(currentText));
-        const displayText = (!sceneAssetsEnabled && scene.speaker && currentText)
+        const displayText = htmlCardIndex >= 0 ? '' : (!sceneAssetsEnabled && scene.speaker && currentText)
             ? `${scene.speaker}: ${stripWrappingQuotes(currentText)}`
             : (sceneAssetsEnabled
                 ? (isDialogueText ? stripWrappingQuotes(segmentBody) : segmentBody)
@@ -1946,6 +1951,8 @@ export function createIgsReaderHost(options = {}) {
                 text: currentText,
                 fullText: text,
                 displayText,
+                htmlCard,
+                htmlCardPage: htmlCardIndex >= 0,
                 segments: cloneData(segments),
                 currentIndex: normalizedIndex,
                 progress: buildProgressText(normalizedIndex, segments.length, displayImageState),
@@ -2088,6 +2095,7 @@ export function createIgsReaderHost(options = {}) {
                     ),
                 textIncludeField: field('bridge.sourceFilter.textIncludeTags', '正文保留标签', textareaInput('bridge.sourceFilter.textIncludeTags', sourceFilter.textIncludeTags, 'content')),
                 textExcludeField: field('bridge.sourceFilter.textExcludeTags', '正文排除标签', textareaInput('bridge.sourceFilter.textExcludeTags', sourceFilter.textExcludeTags)),
+                htmlCardField: field('bridge.sourceFilter.htmlCardTags', 'HTML 卡片标签（整块单独成页渲染）', textareaInput('bridge.sourceFilter.htmlCardTags', sourceFilter.htmlCardTags, 'htm1fenge')),
                 imageIncludeField: field('bridge.sourceFilter.imageIncludeTags', '图片保留标签', textareaInput('bridge.sourceFilter.imageIncludeTags', sourceFilter.imageIncludeTags, 'image&#10;text_to_image')),
                 regexToggle: checkbox('bridge.virtualRegex.enabled', bridge.virtualRegex.enabled, '启用正文格式化'),
                 regexHidden: hiddenAttr(!bridge.virtualRegex.enabled),
@@ -2133,9 +2141,11 @@ export function createIgsReaderHost(options = {}) {
                 autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多生成数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 4)),
                 autoAssetSpriteSizeField: field('bridge.autoIllustration.assets.spriteSize', '立绘尺寸', textInput('bridge.autoIllustration.assets.spriteSize', auto.assets.spriteSize, '832x1216')),
                 autoAssetBackgroundSizeField: field('bridge.autoIllustration.assets.backgroundSize', '背景尺寸', textInput('bridge.autoIllustration.assets.backgroundSize', auto.assets.backgroundSize, '1216x832')),
-                autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '背景模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '{tags}')),
-                autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '立绘模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '{tags}')),
-                autoAssetNsfwExtraField: '',
+                autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '场景正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '必须包含 {tags}')),
+                autoAssetBackgroundNegativeTemplateField: field('bridge.autoIllustration.assets.templates.backgroundNegative', '场景负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.backgroundNegative', auto.assets.templates.backgroundNegative, '不希望场景出现的 tag')),
+                autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
+                autoAssetSpriteNegativeTemplateField: field('bridge.autoIllustration.assets.templates.spriteNegative', '人物负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.spriteNegative', auto.assets.templates.spriteNegative, '不希望人物立绘出现的 tag')),
+                autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, '温和重试模式下追加到 CG 场景')),
                 autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图'),
                 autoInterludeHidden: hiddenAttr(!auto.interludeEnabled),
                 autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
@@ -2146,8 +2156,11 @@ export function createIgsReaderHost(options = {}) {
                 autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多素材数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 4)),
                 autoAssetSpriteSizeField: field('bridge.autoIllustration.assets.spriteSize', '立绘尺寸', textInput('bridge.autoIllustration.assets.spriteSize', auto.assets.spriteSize, '832x1216')),
                 autoAssetBackgroundSizeField: field('bridge.autoIllustration.assets.backgroundSize', '背景尺寸', textInput('bridge.autoIllustration.assets.backgroundSize', auto.assets.backgroundSize, '1216x832')),
-                autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '背景提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '必须包含 {tags}')),
-                autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '立绘提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
+                autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '场景正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '必须包含 {tags}')),
+                autoAssetBackgroundNegativeTemplateField: field('bridge.autoIllustration.assets.templates.backgroundNegative', '场景负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.backgroundNegative', auto.assets.templates.backgroundNegative, '不希望场景出现的 tag')),
+                autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
+                autoAssetSpriteNegativeTemplateField: field('bridge.autoIllustration.assets.templates.spriteNegative', '人物负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.spriteNegative', auto.assets.templates.spriteNegative, '不希望人物立绘出现的 tag')),
+                autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, '温和重试模式下追加到 CG 场景')),
                 autoSharedHidden: hiddenAttr(!auto.nsfwEnabled && !auto.interludeEnabled && !auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
                 autoLlmApiHidden: hiddenAttr(openaiDisabled),
                 autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API（消耗主模型额度）'], ['openai', '独立 OpenAI 兼容 API']])),
@@ -2510,7 +2523,10 @@ export function createIgsReaderHost(options = {}) {
             input.focus?.();
             return { ok: true };
         };
-        const recordController = createRecordPanelController(doc, options.global, fillRecordDraft);
+        const recordController = createRecordPanelController(doc, options.global, fillRecordDraft, {
+            getTheme: () => resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.settingsTheme,
+            setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
+        });
         const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
             getChatId: () => {
                 const ctx = getSillyTavernContext(options.global || globalThis);
@@ -2827,17 +2843,25 @@ export function createIgsReaderHost(options = {}) {
             if (persisted.ok !== false) rerenderSettings();
             return persisted.ok === false ? persisted : result;
         }
+        let result = null;
+        const saved = saveBridgePatch((bridge) => {
+            result = mutator(bridge.sceneAssets && bridge.sceneAssets.generated);
+            if (!result || result.ok === false) return null;
+            return { sceneAssets: { ...(bridge.sceneAssets || {}), generated: result.library } };
+        });
+        if (!result || result.ok === false) return saved.reason === 'missing-save-handler' ? saved : (result || { ok: false });
+        return saved && saved.ok !== false ? result : (saved || { ok: false, reason: 'save-failed' });
+    }
+
+    // 设置面板未打开时直接改存档里的 bridge；patch 返回 null 表示放弃保存。
+    function saveBridgePatch(buildPatch) {
         const save = typeof options.saveUnifiedSettings === 'function' ? options.saveUnifiedSettings : null;
         if (!save) return { ok: false, reason: 'missing-save-handler' };
         const unified = resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' });
-        const result = mutator(unified.bridge.sceneAssets && unified.bridge.sceneAssets.generated);
-        if (!result || result.ok === false) return result || { ok: false };
-        const bridge = {
-            ...unified.bridge,
-            sceneAssets: { ...(unified.bridge.sceneAssets || {}), generated: result.library },
-        };
-        const saved = save({ bridge, readerMode: unified.readerMode, readerSettings: unified.readerSettings });
-        return saved && saved.ok !== false ? result : (saved || { ok: false, reason: 'save-failed' });
+        const patch = typeof buildPatch === 'function' ? buildPatch(unified.bridge) : buildPatch;
+        if (!patch) return { ok: false, reason: 'no-change' };
+        return save({ bridge: { ...unified.bridge, ...patch }, readerMode: unified.readerMode, readerSettings: unified.readerSettings })
+            || { ok: false, reason: 'save-failed' };
     }
 
     async function resolveGeneratedReview(item, status, name) {

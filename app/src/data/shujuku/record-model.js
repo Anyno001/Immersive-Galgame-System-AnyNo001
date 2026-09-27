@@ -2,13 +2,14 @@ import { selectRecordTables } from './record-tables.js';
 
 const FIELDS = Object.freeze({
     diary: { author: ['写作角色', '作者', '角色'], chapterTitle: ['篇名', '日记标题', '标题', '主题', '名称'], title: ['写作角色', '角色', '标题', '日记标题', '名称', '主题'], date: ['发生时间', '发生日期', '日期', '时间', '记录时间'], body: ['正文', '内容', '日记内容', '记录', '描述'], related: ['关联角色', '相关角色', '对象'] },
-    inventory: { title: ['物品名称', '名称', '物品', '道具名称'], quantity: ['数量', '数目', '个数', '数量值', 'amount', 'count'], category: ['类别', '分类', '类型', '种类', '物品类别', '物品类型'] },
+    inventory: { title: ['物品名称', '名称', '物品', '道具名称'], quantity: ['数量', '数目', '个数', '数量值', 'amount', 'count'], category: ['类别', '分类', '类型', '种类', '物品类别', '物品类型'], status: ['状态', '物品状态', '使用状态'] },
 });
 
 const DIARY_CORE_FIELDS = new Set(['写作角色', '作者', '角色', '篇名', '标题', '日记标题', '名称', '主题', '发生时间', '发生日期', '日期', '时间', '记录时间', '正文', '内容', '日记内容', '记录', '描述', '关联角色', '相关角色', '对象']);
 const INVENTORY_TITLE_FIELDS = new Set(['物品名称', '名称', '物品', '道具名称']);
 const INVENTORY_QUANTITY_FIELDS = new Set(['数量', '数目', '个数', '数量值', 'amount', 'count']);
 const INVENTORY_CATEGORY_FIELDS = new Set(FIELDS.inventory.category);
+const INVENTORY_STATUS_FIELDS = new Set(FIELDS.inventory.status);
 
 // 宽松日期：识别 2024-06-18、2024/6/18、2024年6月18日、6月18日 及可选 HH:MM，只用于排序与短标签，不改写原值。
 export function parseLooseDate(value) {
@@ -29,8 +30,8 @@ export function parseLooseDate(value) {
 function isHiddenDetailField(category, label) {
     const value = String(label || '').trim();
     const normalized = value.toLowerCase().replace(/[\s_-]/g, '');
-    // 背包详情：数量由详情头独立呈现，格位角标与详情行不重复。
-    if (category === 'inventory') return normalized === 'rowid' || normalized === 'id' || INVENTORY_TITLE_FIELDS.has(value) || INVENTORY_QUANTITY_FIELDS.has(value) || INVENTORY_CATEGORY_FIELDS.has(value);
+    // 背包详情：数量与状态由详情头独立呈现，格位角标与详情行不重复。
+    if (category === 'inventory') return normalized === 'rowid' || normalized === 'id' || INVENTORY_TITLE_FIELDS.has(value) || INVENTORY_QUANTITY_FIELDS.has(value) || INVENTORY_CATEGORY_FIELDS.has(value) || INVENTORY_STATUS_FIELDS.has(value);
     if (category === 'diary') return DIARY_CORE_FIELDS.has(value);
     return false;
 }
@@ -50,6 +51,15 @@ const RELATIONSHIP_FIELDS = Object.freeze({
     relation: ['关系'],
 });
 
+// 人物档案只取这几栏（当下想法单独作为引语呈现）：有任一栏的表只展示档案；旧表没有这些列时仍回退为原始字段。
+const RELATIONSHIP_PROFILE = Object.freeze([
+    ['age', '年龄', ['年龄']],
+    ['appearance', '外貌', ['外貌特征', '外貌', '外观', '长相']],
+    ['outfit', '打扮', ['穿着打扮', '打扮', '穿着', '服装', '着装']],
+    ['past', '过往经历', ['过往经历', '经历', '背景故事', '生平']],
+    ['thought', '当下想法', ['当下想法', '内心想法', '想法', '心声']],
+]);
+
 // 关系页纯展示模型：人物行（主体/身份/描述/显式相关人员）与成对关系行（A+B+关系）。
 // 不跨来源合并同名人物；无法定位的相关人员保留为纯名称条目，不捏造身份与生平。
 export function buildRelationshipModel(readResult) {
@@ -67,6 +77,7 @@ export function buildRelationshipModel(readResult) {
         const toIdx = idx(RELATIONSHIP_FIELDS.pairTo);
         const relIdx = idx(RELATIONSHIP_FIELDS.relation);
         const hasPairSchema = fromIdx >= 0 && toIdx >= 0 && relIdx >= 0;
+        const profileFields = RELATIONSHIP_PROFILE.map(([key, label, names]) => ({ key, label, index: idx(names) })).filter(field => field.index >= 0);
         table.rows.forEach((row, rowIndex) => {
             const get = index => index >= 0 ? String(row?.[index] ?? '').trim() : '';
             const cells = (Array.isArray(row) ? row : []).map((raw, index) => ({
@@ -88,6 +99,8 @@ export function buildRelationshipModel(readResult) {
             people.push({
                 id: `${table.uid}:${rowIndex}`, uid: table.uid, source: table.name, rowIndex, name,
                 role: get(roleIdx), description: get(descIdx), relatedText,
+                hasProfile: profileFields.length > 0,
+                profile: profileFields.map(field => ({ key: field.key, label: field.label, value: get(field.index) })).filter(field => field.value),
                 cells, detailCells: cells.filter((cell, index) => !hidden.has(index)),
             });
             if (String(table.columns[relatedIdx] || '').trim() === '人际关系') {
@@ -122,7 +135,7 @@ export function buildRelationshipModel(readResult) {
     // 成对关系中只有名称、没有人物行的端点：保留为纯名称条目，不捏造身份与描述。
     for (const edge of dedupedEdges) for (const name of [edge.from, edge.to]) {
         if (!people.some(person => person.uid === edge.uid && person.name === name))
-            people.push({ id: `${edge.uid}:edge-name:${name}`, uid: edge.uid, source: '', rowIndex: -1, name, role: '', description: '', relatedText: '', cells: [], detailCells: [], synthetic: true });
+            people.push({ id: `${edge.uid}:edge-name:${name}`, uid: edge.uid, source: '', rowIndex: -1, name, role: '', description: '', relatedText: '', hasProfile: false, profile: [], cells: [], detailCells: [], synthetic: true });
     }
     return { ...selection, people, edges: dedupedEdges, status: people.length || dedupedEdges.length ? 'ready' : 'empty' };
 }
@@ -133,7 +146,7 @@ export function buildRecordModel(readResult, category) {
     const tables = selection.tables.map(table => {
         const fields = FIELDS[category];
         const missing = fields ? Object.entries(fields).filter(([key, names]) =>
-            !['date', 'quantity', 'author', 'chapterTitle', 'related', 'category'].includes(key)
+            !['date', 'quantity', 'author', 'chapterTitle', 'related', 'category', 'status'].includes(key)
             && fieldIndex(table.columns, names) < 0).map(([key]) => key) : [];
         const diagnostics = missing.length ? [`字段不足：未识别${missing.join('、')}列，保留原始单元格`] : [];
         if (!table.rows.length) diagnostics.push('表为空');
@@ -154,9 +167,10 @@ export function buildRecordModel(readResult, category) {
         const quantity = fields?.quantity ? get(fields.quantity) : '';
         const related = fields?.related ? get(fields.related) : '';
         const itemCategory = fields?.category ? get(fields.category) : '';
+        const status = fields?.status ? get(fields.status) : '';
         const detailCells = cells.filter(cell => !isHiddenDetailField(category, cell.label));
         return { id: `${table.uid}:${rowIndex}`, uid: table.uid, source: table.name, rowIndex,
-            title, author, chapterTitle, date, body, quantity, related, category: itemCategory, cells, detailCells, fieldIssues: table.diagnostics };
+            title, author, chapterTitle, date, body, quantity, related, category: itemCategory, status, cells, detailCells, fieldIssues: table.diagnostics };
     }).filter(entry => entry.cells.length));
     if (category === 'diary') {
         // Sort only within a source whose every visible entry has a canonical date.

@@ -5,6 +5,7 @@ import {
 } from './image-slots.js';
 import { extractSceneDirectives, stripIllustrationMarkers } from './scene-directives.js';
 import { parseSceneText } from './text-parser.js';
+import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards } from './html-cards.js';
 
 export const DEFAULT_SOURCE_FILTER = Object.freeze({
     enabled: true,
@@ -14,6 +15,7 @@ export const DEFAULT_SOURCE_FILTER = Object.freeze({
     textExcludeTags: 'thinking\nSubtext_think\nStatus_block\ntext_to_image\nparallel_world\naftertalk\nimage',
     imageIncludeTags: 'image\ntext_to_image',
     imageExcludeTags: '',
+    htmlCardTags: DEFAULT_HTML_CARD_TAGS,
 });
 
 // 字段不得跨行：AI 漏写 "]" 时旧规则会一路吞到后文下一个 "]"，把旁白并进台词。
@@ -152,6 +154,7 @@ export function normalizeSourceFilter(value) {
         textExcludeTags: normalizeTagText(merged.textExcludeTags),
         imageIncludeTags: normalizeTagText(merged.imageIncludeTags),
         imageExcludeTags: normalizeTagText(merged.imageExcludeTags),
+        htmlCardTags: normalizeTagText(merged.htmlCardTags),
     };
 }
 
@@ -307,8 +310,11 @@ export function buildFormattedTextPipeline(raw, sourceFilter, formatRule, option
 }
 
 export function buildIgsTextPayload(message, options = {}) {
-    const raw = getMessagePrimaryText(message);
+    const originalRaw = getMessagePrimaryText(message);
     const sourceFilter = normalizeSourceFilter(options.sourceFilter);
+    const htmlCardResult = extractHtmlCards(originalRaw, parseTagList(sourceFilter.htmlCardTags));
+    const raw = htmlCardResult.text;
+    const htmlCards = htmlCardResult.cards;
     const virtualRegex = normalizeVirtualRegex(options.virtualRegex);
     const visibleText = resolveVisibleText(message, options.visibleText);
     const hasExcludedBlocks = sourceFilter.enabled && hasTagBlocks(raw, sourceFilter.textExcludeTags);
@@ -384,7 +390,9 @@ export function buildIgsTextPayload(message, options = {}) {
     const domCompareBase = domClobbersDirectiveTags
         ? normalizeWhitespace(buildDomCompareBase(formattedText))
         : cleanedRaw;
-    if (domVisibleText
+    // 宿主把卡片渲染成了纯文本，DOM 覆盖会让卡片以散文字出现在正文里。
+    if (!htmlCards.length
+        && domVisibleText
         && !looksLikeHostUiHtml(domVisibleText)
         && localizedTextDiffers(domCompareBase, domVisibleText)) {
         // DOM 文本可能仍含 [igs-char/thought:] 原始标签（宿主没清洗）。必须先跑正文格式化，
@@ -448,7 +456,8 @@ export function buildIgsTextPayload(message, options = {}) {
     }
 
     return {
-        raw,
+        raw: originalRaw,
+        htmlCards,
         hasExcludedTextBlocks: Boolean(hasExcludedBlocks),
         cleanedRaw,
         visibleText: safeVisibleText,

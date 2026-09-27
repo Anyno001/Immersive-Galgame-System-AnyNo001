@@ -21,13 +21,15 @@
 - `readerSettings.dialogSkin=gradient-veil` 为第三种可选皮肤：共享默认 `vnTheme`、布局、正文与交互配置，仅新增 `readerSettings.gradientVeil` 的颜色、stage 高度比例、最大不透明度和姓名样式；黑幕使用全宽 `to top` 渐变贴合阅读器左右与底边，不使用毛玻璃，不把渐变写入纯色 `--igs-dialog-bg`。
 - 渐变黑幕的姓名样式默认沿用默认主题，可选 `plain-text`；切回 `default` 或 `western-classic` 必须清除黑幕节点显示、专属变量和姓名样式状态，西欧古典主题与姓名牌资产保持隔离。
 - 三套素材主题共享默认 `vnTheme` 与交互链，分别使用项目内 PNG 三片资源：植物咖啡 `130/898/130 × 177`、黑白漫画 `90/930/89 × 191`、超可爱粉 `120/913/145 × 215`；各自姓名框保留原作者切片比例，不互用西欧古典几何。
+- 三片素材（含西欧古典）预先横向拼成单张 `dialog.png` / `name.png`，以 `border-image … fill` 一次绘制、高度随框拉伸；禁止拆成三层背景分别定位（缩放后各层独立取整会漏缝，半透明纸面重叠会叠出亮线）。
+- 日间简约、优雅欧式为通栏主题（`buildDialogFrameCss` 的 `flush`），全部阅读模式贴合阅读器左右与底边、与阅读器等宽；其余主题保持卡片边距。优雅欧式底板取作者 `frame_message` 左右两片拼成（两端 200px 渐隐线保形、中段拉伸），中央饰纹由原图反合成抠出、按原尺寸单独叠放，不随宽度拉伸。
 - 复古日式、冒险旅途同为三片素材主题（裁自作者素材库 `messgeframe_01`/`text_ribbon_06`、`message_frame_02_light`/`name_tag_02`）；复古日式在 `max-width:640px` 下切换 `compact` 几何，避免两侧花簇挤占正文。
-- 日间简约、温暖绘本、优雅欧式为纯 CSS 还原主题（`dialog-theme-css-skins.js`），与三片主题共用 `dialog-skin-frame.js` 骨架并计入 `ILLUSTRATED_DIALOG_SKINS`；优雅欧式仅内嵌两枚饰纹 PNG。温暖绘本的断开外描边依赖 `overflow-clip-margin`，不支持时只丢描边。
+- 日间简约、温暖绘本、优雅欧式为纯 CSS 还原主题（`dialog-theme-css-skins.js`），与三片主题共用 `dialog-skin-frame.js` 骨架并计入 `ILLUSTRATED_DIALOG_SKINS`；优雅欧式内嵌通栏底板与两枚饰纹 PNG。温暖绘本的断开外描边依赖 `overflow-clip-margin`，不支持时只丢描边。
 - 选项跟随皮肤：西欧古典、植物咖啡、黑白漫画、超可爱粉、复古日式、冒险旅途使用作者选项按钮 PNG 的 `border-image` 九宫格（`choice`/`choice-hover`/`choice-active`），其余主题为 CSS。
 - 状态栏 HUD 与情绪标签跟随皮肤（`dialog-theme-hud.js`）：各主题分别定义面板、情绪标签、头像描边与角标、兜底头像、HUD 条轨道与填充；填充颜色经 `--igs-hud-fill-color` 传入，灰白模式改用主题的 `--igs-hud-fill-neutral`。复古日式、冒险旅途的情绪标签用作者缎带/名牌 PNG（`tag.png`）。资料小菜单（箭头与四个入口）不随皮肤变化。
 - 素材/CSS 主题几何（框高、两端宽、姓名牌、正文内距、装饰伪元素）统一写成 `calc(Npx * var(--igs-skin-scale,1))`；`readerSettings.skinDialogScale` 取 `1/0.9/0.8/0.7/0.6`（默认 `1`），由渲染层写到 `#igs-overlay`。字号与文字光晕不参与缩放。正文直接压在花纹上排版，各主题用同底色光晕描边保证可读，不再为避让装饰内缩。主题不再强制字体，排版默认值只含颜色与对齐。
 - 复古日式、冒险旅途同为三片素材主题（裁自作者素材库 `messgeframe_01`/`text_ribbon_06`、`message_frame_02_light`/`name_tag_02`）；复古日式在 `max-width:640px` 下切换 `compact` 几何，避免两侧花簇挤占正文。
-- 日间简约、温暖绘本、优雅欧式为纯 CSS 还原主题（`dialog-theme-css-skins.js`），与三片主题共用 `dialog-skin-frame.js` 骨架并计入 `ILLUSTRATED_DIALOG_SKINS`；优雅欧式仅内嵌两枚饰纹 PNG。温暖绘本的断开外描边依赖 `overflow-clip-margin`，不支持时只丢描边。
+- 日间简约、温暖绘本、优雅欧式为纯 CSS 还原主题（`dialog-theme-css-skins.js`），与三片主题共用 `dialog-skin-frame.js` 骨架并计入 `ILLUSTRATED_DIALOG_SKINS`；优雅欧式内嵌通栏底板与两枚饰纹 PNG。温暖绘本的断开外描边依赖 `overflow-clip-margin`，不支持时只丢描边。
 - 选项跟随皮肤：西欧古典、植物咖啡、黑白漫画、超可爱粉、复古日式、冒险旅途使用作者选项按钮 PNG 的 `border-image` 九宫格（`choice`/`choice-hover`/`choice-active`），其余主题为 CSS。
 - 西欧古典皮肤使用内嵌三片背景：高度 `184px`、左右端各 `110px` 保形、中段横向伸缩，常规最小目标宽度 `280px`；正文继续在现有安全区和滚动节点内排版。`readerSettings.classicDialogWidthPercent` 取 `60–100`，默认 `100`，只在电脑浮窗模式按阅读器可用宽度自动计算并居中；手机与楼层内嵌保持原有满宽。
 - 西欧古典姓名牌复用 `#igs-speaker` 及其既有显隐条件；常规起点相对主框为 `left:35px; top:-22px`，常规尺寸 `300×50px`，两端各 `40px`、中段占主要宽度。窄屏视口（`max-width:640px`）的五种阅读模式统一使用相对主框 `41.667%` 宽度、`left:38px; top:-14px` 与原始 `50px` 高度；姓名使用 `13px` 深色字与细白描边并垂直居中。无姓名时不得出现空牌，切回默认必须恢复原姓名与分隔线布局。

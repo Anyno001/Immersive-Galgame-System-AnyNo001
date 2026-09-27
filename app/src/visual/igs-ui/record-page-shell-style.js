@@ -1,10 +1,31 @@
 import {
-    IGS_UI_BLUR, IGS_UI_BLUR_VIVID, IGS_UI_FILL, IGS_UI_PANE, IGS_UI_PANE_EDGE, IGS_UI_FONT_SANS, IGS_UI_FONT_SERIF, IGS_UI_INK, IGS_UI_NIGHT_RGB,
-    IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, IGS_UI_THICKNESS, IGS_UI_WARM, igsUiLiquidRule, igsUiSurface,
+    IGS_UI_BLUR, IGS_UI_FILL, IGS_UI_PANE, IGS_UI_PANE_EDGE, IGS_UI_FONT_SANS, IGS_UI_FONT_SERIF, IGS_UI_INK, IGS_UI_NIGHT_RGB,
+    IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, IGS_UI_WARM, igsUiLiquidRule,
 } from '../../styles/ui-material.js';
+import { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette } from './settings-theme.js';
 
-// 四类资料页共用外壳：整页一层「通透艳丽」的模糊（薄色罩 + 高饱和 + 压暗），
-// 其上是水纹流光，再上是悬浮薄玻璃片（半透明填充 + 顶边 1px 反光，不描边）。
+// 背包/心事/关系三页与设置器共用四套配色：资料页语义 token 一一映射到设置器色板。
+// 后景 = 近不透明遮罩 + 主题色淡水纹（与设置器同一套），前景 = 设置器面板实色卡片 + 阴影。
+const RECORD_THEME_TOKENS = Object.freeze({
+    text: 'ink', 'text-soft': 'ink-2', 'text-faint': 'ink-3', 'text-ghost': 'ink-4',
+    fill: 'field', 'fill-hover': 'highlight', 'fill-active': 'raised', 'line-soft': 'line-strong',
+    pane: 'shell-bg', 'pane-edge': 'shell-shadow', reading: 'shell-bg', solid: 'panel',
+    accent: 'accent', 'on-ink': 'on-accent', warm: 'accent', ripple: 'ripple',
+});
+// 设置器的水纹大半被面板盖住，资料页后景整屏露出，浓度减半才与设置器观感一致。
+const RECORD_RIPPLE_SCALE = .5;
+const recordThemeRule = (selector, theme) => {
+    const palette = getSettingsThemePalette(theme);
+    const vars = Object.entries(RECORD_THEME_TOKENS).map(([key, token]) => `--igs-rp-${key}:${palette.tokens[token]};`).join('');
+    return `${selector}{${vars}--igs-rp-backdrop:${palette.backdrop};--igs-rp-backdrop-solid:${palette.backdropSolid};--igs-rp-ripple-opacity:${+(palette.ripple * RECORD_RIPPLE_SCALE).toFixed(3)};color-scheme:${palette.scheme};}`;
+};
+const RECORD_THEME_RULES = [
+    recordThemeRule('#igs-record-panel', SETTINGS_THEME_BASE),
+    ...SETTINGS_THEME_OPTIONS.filter(option => option.value !== SETTINGS_THEME_BASE)
+        .map(option => recordThemeRule(`#igs-record-panel[data-rp-theme="${option.value}"]`, option.value)),
+].join('\n');
+
+// 四类资料页共用外壳（地图页沿用霜夜默认 token，不跟随配色）。
 // 界面文字用黑体，只有正文内容（日记、描述）用宋体。
 export const RECORD_PAGE_SHELL_STYLE_TEXT = `
 #igs-record-panel,#igs-map-panel{
@@ -42,24 +63,25 @@ export const RECORD_PAGE_SHELL_STYLE_TEXT = `
   background:transparent;overflow:hidden;box-sizing:border-box;text-shadow:none;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
 }
+${RECORD_THEME_RULES}
 #igs-record-panel .igs-rp-page::before{
   content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
-  background:${igsUiSurface(IGS_UI_THICKNESS.airy)};
-  -webkit-backdrop-filter:${IGS_UI_BLUR_VIVID};backdrop-filter:${IGS_UI_BLUR_VIVID};
+  background:var(--igs-rp-backdrop);
+  -webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};
 }
-${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .25)}
-#igs-record-panel[data-record-category="diary"]{--igs-ui-caustic-size:760px;}
-#igs-record-panel[data-record-category="inventory"]{--igs-ui-caustic-size:460px;}
-#igs-record-panel[data-record-category="relationships"]{--igs-ui-caustic-size:600px;}
+#igs-record-panel{--igs-ui-caustic-size:900px;}
+${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .2, { tile: true, tint: 'var(--igs-rp-ripple)' })}
+#igs-record-panel .igs-rp-page::after{opacity:var(--igs-rp-ripple-opacity);}
 ${IGS_UI_LIQUID_KEYFRAMES}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  #igs-record-panel .igs-rp-page::before{background:rgba(${IGS_UI_NIGHT_RGB},.95);}
+  #igs-record-panel .igs-rp-page::before{background:var(--igs-rp-backdrop-solid);}
 }
 @media (prefers-reduced-transparency:reduce){
-  #igs-record-panel .igs-rp-page::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(${IGS_UI_NIGHT_RGB},.97);}
+  #igs-record-panel .igs-rp-page::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--igs-rp-backdrop-solid);}
+  #igs-record-panel{--igs-rp-pane:var(--igs-rp-solid);--igs-rp-reading:var(--igs-rp-solid);}
 }
 #igs-record-panel .igs-rp-head,#igs-map-panel .igs-rp-head{
-  position:relative;z-index:2;display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;
+  position:relative;z-index:2;display:grid;grid-template-columns:minmax(44px,1fr) auto minmax(44px,1fr);align-items:center;column-gap:12px;
   min-height:60px;padding:8px 16px 4px;padding-top:calc(8px + env(safe-area-inset-top,0px));
   background:transparent;flex:none;
 }
@@ -76,7 +98,7 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 #igs-record-panel .igs-rp-body,#igs-map-panel .igs-rp-body{
   position:relative;z-index:1;flex:1 1 auto;min-height:0;display:flex;overflow:hidden;
 }
-#igs-record-panel button:focus-visible,#igs-map-panel button:focus-visible{outline:2px solid rgba(236,234,230,.5);outline-offset:2px;}
+#igs-record-panel button:focus-visible,#igs-map-panel button:focus-visible{outline:2px solid var(--igs-rp-accent,rgba(236,234,230,.5));outline-offset:2px;}
 #igs-record-panel,#igs-map-panel,#igs-record-panel *,#igs-map-panel *{scrollbar-width:none;}
 #igs-record-panel ::-webkit-scrollbar,#igs-map-panel ::-webkit-scrollbar{display:none;}
 #igs-record-panel .igs-rp-chip,#igs-map-panel .igs-rp-chip,#igs-record-panel .igs-rp-segment button{
@@ -95,7 +117,7 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 #igs-record-panel .igs-rp-icon-btn svg{width:18px;height:18px;stroke-width:1.6;}
 #igs-record-panel .igs-rp-btn,#igs-map-panel .igs-rp-btn{
   display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:9px 24px;border:0;border-radius:var(--igs-rp-radius-m);
-  background:var(--igs-rp-text);color:var(--igs-rp-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;
+  background:var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;
   transition:opacity .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);
 }
 #igs-record-panel .igs-rp-btn:hover,#igs-map-panel .igs-rp-btn:hover{opacity:.88;}
@@ -114,11 +136,20 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 #igs-record-panel .igs-rp-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
 #igs-record-panel .igs-rp-switch{position:relative;flex:none;width:30px;height:18px;border-radius:5px;background:var(--igs-rp-fill-active);transition:background .2s var(--igs-rp-ease);}
 #igs-record-panel .igs-rp-switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:3px;background:var(--igs-rp-text-soft);transition:transform .2s var(--igs-rp-ease),background .2s var(--igs-rp-ease);}
-#igs-record-panel [aria-pressed="true"] .igs-rp-switch{background:var(--igs-rp-text);}
+#igs-record-panel [aria-pressed="true"] .igs-rp-switch{background:var(--igs-rp-accent);}
 #igs-record-panel [aria-pressed="true"] .igs-rp-switch::after{transform:translateX(12px);background:var(--igs-rp-on-ink);}
+#igs-record-panel .igs-rp-head-end{justify-self:end;display:flex;align-items:center;min-width:0;}
+#igs-record-panel .igs-rp-theme-switch{display:inline-flex;align-items:center;gap:5px;padding:4px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+#igs-record-panel .igs-rp-theme-option{display:inline-flex;width:20px;height:20px;flex:none;padding:0;border:0;border-radius:var(--igs-rp-radius-s);background:transparent;outline:1.5px solid transparent;outline-offset:1.5px;transition:transform .14s ease,outline-color .14s ease;}
+#igs-record-panel .igs-rp-theme-option svg{display:block;width:20px;height:20px;}
+#igs-record-panel .igs-rp-theme-option:hover{transform:translateY(-1px);}
+#igs-record-panel .igs-rp-theme-option.is-active{outline-color:var(--igs-rp-accent);}
 #igs-record-panel.igs-rp-narrow,#igs-map-panel.igs-rp-narrow{
   --igs-rp-title-size:15px;--igs-rp-line-height:1.58;
 }
+#igs-record-panel.igs-rp-narrow .igs-rp-head{padding-left:8px;padding-right:12px;column-gap:8px;}
+#igs-record-panel.igs-rp-narrow .igs-rp-theme-switch{gap:4px;padding:3px;}
+#igs-record-panel.igs-rp-narrow .igs-rp-theme-option,#igs-record-panel.igs-rp-narrow .igs-rp-theme-option svg{width:18px;height:18px;}
 #igs-record-panel.igs-rp-short .igs-rp-head,#igs-map-panel.igs-rp-short .igs-rp-head{min-height:50px;padding-top:calc(4px + env(safe-area-inset-top,0px));}
 @media (prefers-reduced-motion:reduce){
   #igs-record-panel *,#igs-map-panel *{transition:none!important;animation:none!important;}

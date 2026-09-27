@@ -111,15 +111,28 @@ test('gate:assets:sprite-slot-uses-light-grey-matte-or-native-transparency', () 
     assert.equal(v5.parameters.straight_alpha, true);
     const v45 = buildNaiV4Request(native, { model: 'nai-diffusion-4-5-full' }, () => 0);
     assert.equal(v45.parameters.straight_alpha, undefined);
-    const bg = buildAssetSlot({ need: { type: 'background', name: 'y' }, tags: 'factory', uc: '' }, { templates: { background: 'my style, {tags}' } });
+    const bg = buildAssetSlot({ need: { type: 'background', name: 'y' }, tags: 'factory', uc: '' }, { templates: { background: 'my style, {tags}', backgroundNegative: 'no people' } });
     assert.equal(bg.scene, 'my style, factory');
+    assert.equal(bg.sceneUc, 'no people');
+    const customSprite = buildAssetSlot({ need: { type: 'sprite', name: 'x' }, tags: '1girl, blue hair', uc: 'extra arms' }, { templates: { sprite: '{tags}, custom pose, {matte}', spriteNegative: 'no crowd', nsfwExtra: 'adult' } });
+    assert.match(customSprite.scene, /^1girl, blue hair, custom pose/);
+    assert.equal(customSprite.sceneUc, 'no crowd, loli, shota, child, young child, underage, toddler, aged down, extra arms');
 });
 
 test('gate:assets:templates-and-dictionary-fallback', () => {
     assert.equal(applyTemplate('{tags}, , solo', { tags: 'a, b' }), 'a, b, solo');
-    const s = normalizeAutoIllustrationSettings({ assets: { templates: { sprite: 'no placeholder', background: '' } } });
-    assert.ok(s.assets.templates.sprite.includes('{tags}'));
-    assert.ok(s.assets.templates.background.includes('{tags}'));
+    const s = normalizeAutoIllustrationSettings({ assets: { templates: {
+        background: '{tags}, custom scene', backgroundNegative: 'no people',
+        sprite: '{tags}, custom character', spriteNegative: 'no crowd', nsfwExtra: 'adult scene',
+    } } });
+    assert.equal(s.assets.templates.background, '{tags}, custom scene');
+    assert.equal(s.assets.templates.backgroundNegative, 'no people');
+    assert.equal(s.assets.templates.sprite, '{tags}, custom character');
+    assert.equal(s.assets.templates.spriteNegative, 'no crowd');
+    assert.equal(s.assets.templates.nsfwExtra, 'adult scene');
+    const fallback = normalizeAutoIllustrationSettings({ assets: { templates: { sprite: 'no placeholder', background: '' } } });
+    assert.ok(fallback.assets.templates.sprite.includes('{tags}'));
+    assert.ok(fallback.assets.templates.background.includes('{tags}'));
     assert.equal(isStrictBackgroundMatch({ assets: { strictMatch: true } }), false);
     assert.equal(isStrictBackgroundMatch({ assets: { strictMatch: true, backgroundEnabled: true } }), true);
     const items = buildDictionaryAssetItems([{ type: 'background', name: '学校教室', time: '黄昏', weather: '雨' }, { type: 'sprite', name: 'x' }, { type: 'background', name: '异次元' }]);

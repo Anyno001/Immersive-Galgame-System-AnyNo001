@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { igsUiLiquidRule } from '../src/styles/ui-material.js';
-import { recordPageLayoutClass } from '../src/visual/igs-ui/record-page-shell.js';
+import { recordPageHeadHtml, recordPageLayoutClass } from '../src/visual/igs-ui/record-page-shell.js';
 
 test('record-page-shell:layout-class-follows-container-breakpoints', () => {
     // 宽屏：无附加类
@@ -62,6 +62,21 @@ test('record-page-shell:caustic-tiles-only-in-settings', () => {
     assert.match(tintedRule, /mask-image:url\(/);
     assert.match(tintedRule, /mask-repeat:repeat/);
     assert.doesNotMatch(tintedRule, /background-image:/);
-    assert.match(recordSource, /igsUiLiquidRule\('#igs-record-panel \.igs-rp-page::after', \.25\)/);
-    assert.doesNotMatch(recordSource, /tile: true/);
+    // 资料页照搬设置器的后景：同一套主题色平铺水纹，浓度随配色走。
+    assert.match(recordSource, /igsUiLiquidRule\('#igs-record-panel \.igs-rp-page::after', \.2, \{ tile: true, tint: 'var\(--igs-rp-ripple\)' \}\)/);
+    assert.doesNotMatch(recordSource, /BLUR_VIVID/);
+});
+
+test('record-page-shell:record-pages-share-settings-palettes', async () => {
+    const { RECORD_PAGE_SHELL_STYLE_TEXT } = await import('../src/visual/igs-ui/record-page-shell-style.js');
+    const { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } = await import('../src/visual/igs-ui/settings-theme.js');
+    for (const { value } of SETTINGS_THEME_OPTIONS) {
+        const palette = getSettingsThemePalette(value);
+        const selector = value === 'landmine' ? '#igs-record-panel\\{' : `#igs-record-panel\\[data-rp-theme="${value}"\\]\\{`;
+        const rule = new RegExp(`${selector}[^}]*--igs-rp-accent:${palette.tokens.accent.replace(/[().]/g, '\\$&')};[^}]*--igs-rp-backdrop:${palette.backdrop.replace(/[().]/g, '\\$&')};`);
+        assert.match(RECORD_PAGE_SHELL_STYLE_TEXT, rule, value);
+    }
+    const html = recordPageHeadHtml('你的背包', { trailing: '<i>swatch</i>' });
+    assert.match(html, /<h2 class="igs-rp-title">你的背包<\/h2><div class="igs-rp-head-end"><i>swatch<\/i><\/div>/);
+    assert.doesNotMatch(recordPageHeadHtml('地点地图'), /igs-rp-head-end/);
 });

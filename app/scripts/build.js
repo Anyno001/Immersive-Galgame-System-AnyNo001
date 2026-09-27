@@ -19,12 +19,16 @@ const roundedFontWeights = [300, 400, 500, 700];
 const dialogFontAssets = [
     { family: 'LXGW WenKai', file: 'LXGWWenKai-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'LXGW WenKai', file: 'LXGWWenKai-Light.ttf', weight: 300, style: 'normal', format: 'truetype' },
+    { family: 'LXGW WenKai Lite', file: 'LXGWWenKaiLite-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'LXGW Neo ZhiSong', file: 'LXGWNeoZhiSong.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'LXGW Neo XiHei', file: 'LXGWNeoXiHei.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    // 该文件是 Medium 字重，但按默认正文的 400 入口注册，确保未显式设置字重时也实际命中 Medium 字形。
+    { family: 'Source Han Sans CN', file: 'SourceHanSansCN-Medium.otf', weight: 400, style: 'normal', format: 'opentype' },
     { family: 'Huiwen Mincho', file: 'HuiwenMincho.otf', weight: 400, style: 'normal', format: 'opentype' },
     { family: 'Tsanger YuYang', file: 'TsangerYuYangT-W05.woff2', weight: 400, style: 'normal', format: 'woff2' },
     { family: 'Smiley Sans', file: 'SmileySans-Oblique.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'ZCOOL KuaiLe', file: 'ZCOOLKuaiLe-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'Yozai', file: 'Yozai-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'Cinzel', file: 'Cinzel-Variable.ttf', weight: '100 900', style: 'normal', format: 'truetype' },
     { family: 'Great Vibes', file: 'GreatVibes-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'Pinyon Script', file: 'PinyonScript-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
@@ -57,7 +61,13 @@ const manifest = {
 
 const fontSourceDir = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'fonts');
 const fontTargetDir = path.join(distRoot, 'fonts');
-const fontLicenseFiles = ['OFL.txt', 'SourceHanSerifCN-LICENSE.txt', 'Cormorant-OFL.txt', 'Cormorant-OFL-FAQ.txt'];
+const fontLicenseFiles = [
+    'OFL.txt', 'SourceHanSerifCN-LICENSE.txt', 'SourceHanSansCN-LICENSE.txt',
+    'Cormorant-OFL.txt', 'Cormorant-OFL-FAQ.txt', 'LXGW-OFL.txt', 'Yozai-OFL.txt',
+    'HuiwenMincho-CC0.txt', 'TsangerYuYangT-MIT.txt', 'SmileySans-OFL.txt',
+    'Cinzel-OFL.txt', 'ZCOOLKuaiLe-OFL.txt', 'GreatVibes-OFL.txt', 'PinyonScript-OFL.txt',
+    'Quicksand-OFL.txt', 'Caveat-OFL.txt', 'IMFellEnglish-OFL.txt',
+];
 fs.mkdirSync(fontTargetDir, { recursive: true });
 for (const weight of roundedFontWeights) {
     const name = `nowar-rounded-bliz-${weight}.ttf`;

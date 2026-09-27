@@ -98,9 +98,9 @@ export function applyDialogSkinAssets(dialog, readerSettings) {
 
 // 姓名牌素材 65×68，可见牌面在上方 0–57px；按 52px 高等比缩放后两端 50px，牌面约 44px。
 export const CLASSIC_DIALOG_SPEC = Object.freeze({
-    dialog: { height: CLASSIC_DIALOG_HEIGHT, left: CLASSIC_DIALOG_EDGE_WIDTH, right: CLASSIC_DIALOG_EDGE_WIDTH },
+    dialog: { height: CLASSIC_DIALOG_HEIGHT, left: CLASSIC_DIALOG_EDGE_WIDTH, right: CLASSIC_DIALOG_EDGE_WIDTH, slice: [110, 110] },
     text: { top: 24, speakerTop: 34, right: 44, bottom: 20, left: 44 },
-    plate: { height: CLASSIC_NAMEPLATE_HEIGHT, left: CLASSIC_NAMEPLATE_EDGE_WIDTH, right: CLASSIC_NAMEPLATE_EDGE_WIDTH, x: CLASSIC_NAMEPLATE_LEFT, rise: -CLASSIC_NAMEPLATE_TOP, lineHeight: 44, padding: '0 42px', minWidth: 150 },
+    plate: { height: CLASSIC_NAMEPLATE_HEIGHT, left: CLASSIC_NAMEPLATE_EDGE_WIDTH, right: CLASSIC_NAMEPLATE_EDGE_WIDTH, slice: [65, 65], x: CLASSIC_NAMEPLATE_LEFT, rise: -CLASSIC_NAMEPLATE_TOP, lineHeight: 44, padding: '0 42px', minWidth: 150 },
     nameCss: 'font-size:15px;font-weight:600;letter-spacing:.22em;text-indent:.22em;text-shadow:0 1px 0 rgba(255,236,190,.42);',
     textCss: 'letter-spacing:.06em;text-shadow:0 1px 2px rgba(0,0,0,.75),0 0 4px rgba(20,22,14,.6);',
 });

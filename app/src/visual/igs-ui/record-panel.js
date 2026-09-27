@@ -4,6 +4,7 @@ import { createCharacterMetricsLookup } from '../../data/shujuku/character-metri
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from './record-icons.js';
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
+import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系' });
@@ -32,12 +33,32 @@ const clampDiaryFontSize = value => {
 const isCanonicalDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value)
     && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())
     && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+// 首句：首个非空行里到句末标点（含随后的收引号）为止；没有句末标点就取整行。
+const SENTENCE_END = /^(.*?[。！？!?…]+[”」』"'’）)]*)\s*/;
+const splitFirstSentence = text => {
+    const trimmed = String(text || '').trim();
+    const lineEnd = trimmed.indexOf('\n');
+    const line = lineEnd >= 0 ? trimmed.slice(0, lineEnd) : trimmed;
+    const match = SENTENCE_END.exec(line);
+    return { lead: (match ? match[1] : line).trim(), rest: trimmed.slice(match ? match[0].length : line.length).trim() };
+};
+const stripEndPunctuation = text => text.replace(/[。！？!?…,，、；;：:]+[”」』"'’）)]*$/, '');
 const excerpt = (text, max) => {
-    const line = String(text || '').split(/\n/).map(part => part.trim()).find(Boolean) || '';
-    const chars = Array.from(line.replace(/[。！？!?…,，、；;：:]+$/, ''));
+    const chars = Array.from(stripEndPunctuation(splitFirstSentence(text).lead));
     return chars.length > max ? `${chars.slice(0, max).join('')}…` : chars.join('');
 };
 const chapterTitle = entry => entry.chapterTitle || excerpt(entry.body, 16) || entry.title || '未命名篇章';
+// 无篇名时首句升为标题、正文从第二句接着读，避免标题和正文首句重复；
+// 首句过长或全篇只有一句时不另起标题，整段按正文排。
+const DIARY_LEAD_MAX = 24;
+function diaryHeading(entry) {
+    const body = String(entry.body || '').trim();
+    if (entry.chapterTitle || !body) return { title: chapterTitle(entry), body };
+    const { lead, rest } = splitFirstSentence(body);
+    const title = stripEndPunctuation(lead);
+    if (!rest || !title || Array.from(title).length > DIARY_LEAD_MAX) return { title: '', body };
+    return { title, body: rest };
+}
 const dateLabel = value => parseLooseDate(value)?.label || String(value || '');
 const hashText = text => { let hash = 5381; for (const char of String(text)) hash = ((hash * 33) ^ char.codePointAt(0)) >>> 0; return hash.toString(36); };
 const entryReadKey = entry => `${entry.uid}|${entry.author || ''}|${entry.date || ''}|${hashText(entry.body || entry.cells?.map(cell => cell.value).join('|'))}`;
@@ -50,8 +71,9 @@ function newestFirst(list) {
 }
 
 // Only names that appear in labels are ever rendered as SVG; sheet contents remain escaped text.
-export function createRecordPanelController(doc, global, fillDraft) {
+export function createRecordPanelController(doc, global, fillDraft, options = {}) {
     let root = null;
+    let theme = normalizeSettingsTheme('');
     let client = null;
     let category = '';
     let model = null;
@@ -141,6 +163,7 @@ export function createRecordPanelController(doc, global, fillDraft) {
         prefs = { ...DIARY_PREF_DEFAULTS, ...loadJson(DIARY_PREFS_KEY, {}) };
         prefs.fontSize = clampDiaryFontSize(prefs.fontSize);
         diaryView = loadJson(DIARY_PREFS_KEY, {})?.view === 'timeline' ? 'timeline' : 'books';
+        theme = normalizeSettingsTheme(readTheme());
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
         root = doc.createElement('div');
@@ -149,6 +172,7 @@ export function createRecordPanelController(doc, global, fillDraft) {
         root.setAttribute('aria-modal', 'true');
         root.setAttribute('aria-label', labels[type]);
         root.setAttribute('data-record-category', type);
+        root.setAttribute('data-rp-theme', theme);
         root.addEventListener('click', onClick);
         root.addEventListener('input', onInput);
         overlay.classList?.toggle('igs-record-screen-open', true);
@@ -226,6 +250,14 @@ export function createRecordPanelController(doc, global, fillDraft) {
         saveJson(DIARY_READ_KEY, [...readKeys].slice(-DIARY_READ_LIMIT));
     }
 
+    function readTheme() { try { return options.getTheme?.() || ''; } catch (_) { return ''; } }
+    // 与设置器共用同一个配色：这里切换即写回设置；保存失败只影响持久化，不影响当前页面。
+    function applyTheme(value) {
+        theme = normalizeSettingsTheme(value);
+        root?.setAttribute('data-rp-theme', theme);
+        try { options.setTheme?.(theme); } catch (_) { /* Host save is optional. */ }
+    }
+
     function savePrefs() { saveJson(DIARY_PREFS_KEY, { ...prefs, view: diaryView }); }
     function applyDiaryFontSize() { root?.style?.setProperty?.('--igs-rp-diary-size', `${prefs.fontSize}px`); }
 
@@ -263,6 +295,7 @@ export function createRecordPanelController(doc, global, fillDraft) {
         const previousSelected = selectedId;
         turn = '';
         if (action === 'use') { useItem(); return; }
+        if (action === 'theme') applyTheme(id);
         if (action !== 'toggle-prefs' && action !== 'pref' && action !== 'font-size') message = '';
         if (action === 'table' && model.tables.some(item => item.uid === id)) {
             activeUid = id;
@@ -326,10 +359,12 @@ export function createRecordPanelController(doc, global, fillDraft) {
     function slotsHtml(items) {
         if (!items.length) return '<p class="igs-record-slots-empty">没有符合条件的物品</p>';
         return items.map(item => {
-            // 数量语义：'0' 如实显示 ×0；缺失不补 ×1、不显示角标，详情写“数量未记录”。
+            // 数量语义：'0' 如实显示 ×0；缺失不补 ×1、不显示角标，详情写“数量未记录”；
+            // 单件是常态，格位上的 ×1 只是噪音，数量仍在详情头完整呈现。
             const quantity = String(item.quantity ?? '').trim();
+            const badge = quantity && quantity !== '1';
             const selected = item.id === selectedId;
-            return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}" ${selected ? 'aria-current="true"' : ''}><span class="igs-record-slot-icon" aria-hidden="true">${RECORD_ICONS[inventoryIconKey(item.title)]}</span><span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}</span>${quantity ? `<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small>` : ''}</button>`;
+            return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}" ${selected ? 'aria-current="true"' : ''}><span class="igs-record-slot-icon" aria-hidden="true">${RECORD_ICONS[inventoryIconKey(item.title)]}</span><span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}</span>${badge ? `<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small>` : ''}</button>`;
         }).join('');
     }
 
@@ -349,15 +384,16 @@ export function createRecordPanelController(doc, global, fillDraft) {
             const quantity = String(chosen.quantity ?? '').trim();
             const useButton = typeof fillDraft === 'function' && quantity !== '0'
                 ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button><small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small></div>` : '';
-            detail = `<section class="igs-record-item-detail"><div class="igs-record-item-detail-icon" aria-hidden="true">${RECORD_ICONS[inventoryIconKey(chosen.title)]}</div><div class="igs-record-item-detail-copy"><p class="igs-record-item-kicker">${escapeHtml(itemGroup(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity">${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</p>${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
+            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head"><div class="igs-record-item-detail-icon" aria-hidden="true">${RECORD_ICONS[inventoryIconKey(chosen.title)]}</div><div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemGroup(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
         }
         return `<div class="igs-record-inventory"><section class="igs-record-inventory-main">${tools}<div class="igs-record-slots" aria-label="物品栏">${slotsHtml(items)}</div></section><aside class="igs-record-item-pane">${detail}</aside></div>`;
     }
 
     function diaryPageHtml(entry, { heading = 'h3' } = {}) {
         const meta = [escapeHtml(entry.author || '未署名'), entry.date ? escapeHtml(entry.date) : '', entry.related ? `关于 ${escapeHtml(entry.related)}` : ''].filter(Boolean).join('<i aria-hidden="true">·</i>');
-        return `<p class="igs-record-diary-meta">${meta}</p><${heading}>${escapeHtml(chapterTitle(entry))}</${heading}>` +
-            (entry.body ? `<p class="igs-record-body">${escapeHtml(entry.body)}</p>` : cellsHtml(entry.detailCells || []));
+        const { title, body } = diaryHeading(entry);
+        return `<p class="igs-record-diary-meta">${meta}</p>${title ? `<${heading}>${escapeHtml(title)}</${heading}>` : ''}` +
+            (body ? `<p class="igs-record-body${title ? '' : ' is-lead'}">${escapeHtml(body)}</p>` : cellsHtml(entry.detailCells || []));
     }
 
     function renderDiary() {
@@ -386,7 +422,7 @@ export function createRecordPanelController(doc, global, fillDraft) {
                 const label = item.date ? dateLabel(item.date) : '';
                 const header = label !== lastDate && label ? `<li class="igs-record-timeline-date" aria-hidden="true">${escapeHtml(label)}</li>` : '';
                 lastDate = label;
-                return `${header}<li><button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="阅读${escapeHtml(item.author || '未署名')}的${escapeHtml(chapterTitle(item))}" ${item.id === selectedId ? 'aria-current="true"' : ''}><span class="igs-record-timeline-avatar" aria-hidden="true">${personInitial(item.author || '?')}</span><span class="igs-record-timeline-copy"><strong>${escapeHtml(chapterTitle(item))}</strong><small>${escapeHtml(item.author || '未署名')}</small></span>${dot(item)}</button></li>`;
+                return `${header}<li><button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="阅读${escapeHtml(item.author || '未署名')}的${escapeHtml(chapterTitle(item))}" ${item.id === selectedId ? 'aria-current="true"' : ''}><span class="igs-record-timeline-avatar" aria-hidden="true">${personInitial(item.author || '?')}</span><span class="igs-record-timeline-copy"><strong>${escapeHtml(chapterTitle(item))}</strong></span>${dot(item)}</button></li>`;
             }).join('')}</ol>` : '';
         }
         let reading;
@@ -406,31 +442,36 @@ export function createRecordPanelController(doc, global, fillDraft) {
         const chosen = people.find(item => item.id === relationshipPersonId) || people[0] || null;
         if (chosen && chosen.id !== relationshipPersonId) relationshipPersonId = chosen.id;
         const localEdges = chosen ? relationshipEdges().filter(edge => edge.from === chosen.name || edge.to === chosen.name) : [];
+        // 同一对人物的多条关系合并成一条线、一个标签（如「同学·旧识」），不再上下叠放。
         const neighbors = [];
+        const linkLabels = new Map();
         for (const edge of localEdges) {
             const name = edge.from === chosen?.name ? edge.to : edge.from;
             const person = people.find(item => item.name === name) || { id: `${activeUid}:edge-name:${name}`, uid: activeUid, name, role: '', description: '', synthetic: true };
             if (!neighbors.some(item => item.id === person.id)) neighbors.push(person);
+            const labels = linkLabels.get(name) || [];
+            if (edge.label && !labels.includes(edge.label)) labels.push(edge.label);
+            linkLabels.set(name, labels);
         }
         const neighborX = neighbors.length <= 1 ? [50] : neighbors.map((_, index) =>
             Math.round((18 + (64 * index) / (neighbors.length - 1)) * 10) / 10);
         const graphNodes = [{ person: chosen, x: 50, y: neighbors.length ? 24 : 50 }, ...neighbors.map((person, index) =>
             ({ person, x: neighborX[index], y: neighbors.length > 4 && index % 2 ? 80 : 72 }))].filter(item => item.person);
         const nodeByName = new Map(graphNodes.map(item => [item.person.name, item]));
-        const lineHtml = localEdges.map(edge => {
-            const target = nodeByName.get(edge.from === chosen?.name ? edge.to : edge.from);
+        const lineHtml = [...linkLabels.keys()].map(name => {
+            const target = nodeByName.get(name);
             if (!target) return '';
             const startY = neighbors.length ? 34 : 50;
             const endY = neighbors.length ? target.y - 9 : target.y;
             const controlX = Math.round(((50 + target.x) / 2) * 10) / 10;
             return `<path d="M 50 ${startY} C 50 ${startY + 14}, ${controlX} ${endY - 14}, ${target.x} ${endY}"></path>`;
         }).join('');
-        const labelHtml = localEdges.map((edge, index) => {
-            const target = nodeByName.get(edge.from === chosen?.name ? edge.to : edge.from);
+        const labelHtml = [...linkLabels].map(([name, labels], index) => {
+            const target = nodeByName.get(name);
             if (!target) return '';
             const left = Math.round(((50 + target.x) / 2) * 10) / 10;
-            const top = neighbors.length ? 50 + (index % 2) * 5 : 50;
-            return `<span class="igs-record-relationship-label" style="left:${left}%;top:${top}%">${escapeHtml(edge.label || '关系未标注')}</span>`;
+            const top = neighbors.length > 4 ? 50 + (index % 2) * 5 : 50;
+            return `<span class="igs-record-relationship-label" style="left:${left}%;top:${top}%">${escapeHtml(labels.join('·') || '关系未标注')}</span>`;
         }).join('');
         const graphHtml = chosen ? `<div class="igs-record-relationship-graph" aria-label="${escapeHtml(chosen.name)}的局部关系图"><svg class="igs-record-relationship-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lineHtml}</svg>${labelHtml}${graphNodes.map(node =>
             `<button type="button" class="igs-record-relationship-node${node.person.id === chosen.id ? ' is-current' : ''}" style="left:${node.x}%;top:${node.y}%" data-record-act="person" data-record-id="${escapeHtml(node.person.id)}" aria-label="查看${escapeHtml(node.person.name)}" ${node.person.id === relationshipPersonId ? 'aria-current="true"' : ''}><span class="igs-record-node-avatar" aria-hidden="true">${personInitial(node.person.name)}</span><span class="igs-record-node-name">${escapeHtml(node.person.name)}</span></button>`).join('')}</div>` : '<p class="igs-record-relationship-empty">当前来源没有可识别的人物记录。</p>';
@@ -438,13 +479,20 @@ export function createRecordPanelController(doc, global, fillDraft) {
         const metricsHtml = metrics.length || stages.length ? `<section class="igs-record-metrics" aria-label="${escapeHtml(chosen.name)}的数值">${stages.map(stage =>
             `<p class="igs-record-stage"><span>${escapeHtml(stage.label)}</span><strong>${escapeHtml(stage.value)}</strong></p>`).join('')}${metrics.map(metric =>
             `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</section>` : '';
-        const links = localEdges.map(edge => ({ label: edge.label || '关系未标注', name: edge.from === chosen?.name ? edge.to : edge.from }));
-        const linksHtml = links.length ? `<ul class="igs-record-relationship-links" aria-label="关系">${links.map(link => `<li><span>${escapeHtml(link.label)}</span>${escapeHtml(link.name)}</li>`).join('')}</ul>` : '';
+        const age = chosen?.profile?.find(field => field.key === 'age')?.value || '';
+        const tags = [chosen?.role, age && (/^\d+$/.test(age) ? `${age}岁` : age)].filter(Boolean);
+        const thought = chosen?.profile?.find(field => field.key === 'thought')?.value || '';
+        const headHtml = chosen ? `<header class="igs-record-person-head"><h2>${escapeHtml(chosen.name)}</h2>${tags.map(tag => `<span class="igs-record-tag">${escapeHtml(tag)}</span>`).join('')}</header>${thought ? `<p class="igs-record-thought" aria-label="当下想法">${escapeHtml(thought)}</p>` : ''}` : '';
+        // 档案表只展示外貌/打扮/过往经历（年龄进标题标签、当下想法做名下引语）；旧表没有这些列时才回退为描述 + 原始字段。
+        const profile = (chosen?.profile || []).filter(field => field.key !== 'age' && field.key !== 'thought');
+        const profileHtml = !chosen ? '' : chosen.hasProfile
+            ? (profile.length ? `<dl class="igs-record-profile">${profile.map(field => `<div><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.value)}</dd></div>`).join('')}</dl>` : '<p class="igs-record-relationship-note">暂无外貌与经历记录。</p>')
+            : `<p class="igs-record-relationship-description">${chosen.description ? escapeHtml(chosen.description) : '暂无人物描述。'}</p>${cellsHtml(chosen.detailCells || [])}${chosen.synthetic ? '<p class="igs-record-relationship-note">仅记录了姓名，未提供身份或描述。</p>' : ''}`;
         return `<div class="igs-record-relationships">` +
             `<section class="igs-record-relationship-stage">${graphHtml}</section>` +
             `<section class="igs-record-people" aria-label="人物索引"><div class="igs-record-people-list">${people.map(person =>
                 `<button type="button" data-record-act="person" data-record-id="${escapeHtml(person.id)}" aria-label="查看${escapeHtml(person.name)}" ${person.id === relationshipPersonId ? 'aria-current="true"' : ''}><span class="igs-record-person-avatar" aria-hidden="true">${personInitial(person.name)}</span><span class="igs-record-person-copy"><strong>${escapeHtml(person.name)}</strong></span></button>`).join('')}</div></section>` +
-            `<article class="igs-record-relationship-detail">${chosen ? `<header class="igs-record-person-head"><h2>${escapeHtml(chosen.name)}${chosen.role ? ` · ${escapeHtml(chosen.role)}` : ''}</h2></header>${metricsHtml}<section class="igs-record-relationship-section">${chosen.description ? `<p class="igs-record-relationship-description">${escapeHtml(chosen.description)}</p>` : '<p class="igs-record-relationship-description">暂无人物描述。</p>'}${linksHtml}${cellsHtml(chosen.detailCells || [])}${chosen.synthetic ? '<p class="igs-record-relationship-note">仅记录了姓名，未提供身份或描述。</p>' : ''}</section>` : '<p>请选择人物。</p>'}</article></div>`;
+            `<article class="igs-record-relationship-detail">${chosen ? `${headHtml}${metricsHtml}<section class="igs-record-relationship-section">${profileHtml}</section>` : '<p>请选择人物。</p>'}</article></div>`;
     }
 
     function render() {
@@ -466,7 +514,9 @@ export function createRecordPanelController(doc, global, fillDraft) {
         else if (current && items.length) {
             content = `<div class="igs-record-table-scroll"><table><caption>${escapeHtml(current.name)}</caption><thead><tr>${current.columns.map((column, index) => `<th scope="col">${escapeHtml(column || `第${index + 1}列`)}</th>`).join('')}</tr></thead><tbody>${items.map(item => `<tr>${current.columns.map((_, index) => `<td>${escapeHtml(current.rows[item.rowIndex]?.[index])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
         }
-        root.innerHTML = `<div class="igs-rp-page igs-record-window">${recordPageHeadHtml(pageTitles[category])}` +
+        const themeSwitch = `<div class="igs-rp-theme-switch" role="radiogroup" aria-label="界面配色">${renderSettingsThemeSwitch(theme, {
+            optionClass: 'igs-rp-theme-option', attrs: value => `data-record-act="theme" data-record-id="${value}"` })}</div>`;
+        root.innerHTML = `<div class="igs-rp-page igs-record-window">${recordPageHeadHtml(pageTitles[category], { trailing: themeSwitch })}` +
             tabs + `<div class="igs-rp-body"><div class="igs-record-scroll">` +
             (error ? `<p class="igs-rp-notice" role="status">${escapeHtml(error)}</p>` : '') +
             (diagnostics.length ? `<p class="igs-rp-notice" role="status">${escapeHtml(diagnostics.join('；'))}</p>` : '') +

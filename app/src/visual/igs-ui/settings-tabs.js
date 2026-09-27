@@ -14,6 +14,7 @@ const BASIC_TAB_TEMPLATE = `
         {{textIncludeField}}
         {{textExcludeField}}
         <div class="igs-settings-full">{{imageIncludeField}}</div>
+        <div class="igs-settings-full">{{htmlCardField}}</div>
       </div>
     </div>
   </div>
@@ -85,8 +86,10 @@ const IMAGE_AUTO_TEMPLATE = `
     </div>
     <div class="igs-settings-sub">
       <div class="igs-settings-full">{{autoAssetBackgroundTemplateField}}</div>
+      <div class="igs-settings-full">{{autoAssetBackgroundNegativeTemplateField}}</div>
       <div class="igs-settings-full">{{autoAssetSpriteTemplateField}}</div>
-      {{autoAssetNsfwExtraField}}
+      <div class="igs-settings-full">{{autoAssetSpriteNegativeTemplateField}}</div>
+      <div class="igs-settings-full">{{autoAssetNsfwExtraField}}</div>
     </div>
   </div>
   <div class="igs-source-filter" data-image-feature="llm"{{autoSharedHidden}}>

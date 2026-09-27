@@ -26,6 +26,7 @@ import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyWeatherFx } from './weather-fx-runtime.js';
+import { applyHtmlCardToDom } from './html-card-layer.js';
 import {
     applyDialogSkinAssets,
     isClassicDialogSkin,
@@ -1065,6 +1066,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         emotion: snapshot.content && snapshot.content.statusEmotion,
         key: stageShakeKey,
     });
+    applyHtmlCardToDom(root, snapshot.content, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');
     const effectFrontLayer = root.querySelector('#igs-effect-front-layer');
     applyWeatherFx(effectLayer, {

@@ -19,10 +19,11 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-groups{display:flex;flex-wrap:wrap;gap:2px;min-width:0;}
 #igs-record-panel .igs-record-inventory-actions{display:flex;align-items:center;gap:6px;margin-left:auto;}
 #igs-record-panel .igs-record-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:10px;}
-#igs-record-panel .igs-record-slots button{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;aspect-ratio:1/1;padding:10px 10px 30px;border:0;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);color:var(--igs-rp-text-soft);text-align:center;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);}
-#igs-record-panel .igs-record-slots button:hover{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
+#igs-record-panel .igs-record-slots button{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;aspect-ratio:1/1;padding:10px 10px 30px;border:0;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);text-align:center;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);}
+#igs-record-panel .igs-record-slots button:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
 #igs-record-panel .igs-record-slots button:active{transform:scale(.97);}
-#igs-record-panel .igs-record-slots button[aria-current="true"]{background:var(--igs-rp-text);color:var(--igs-rp-on-ink);box-shadow:none;}
+#igs-record-panel .igs-record-slots button[aria-current="true"]{background:var(--igs-rp-fill-active);box-shadow:inset 0 0 0 1.5px var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-text);}
+#igs-record-panel .igs-record-slots button[aria-current="true"] .igs-record-slot-icon{color:var(--igs-rp-accent,var(--igs-rp-text));}
 #igs-record-panel .igs-record-slot-icon{display:grid;place-items:center;width:44%;aspect-ratio:1/1;}
 #igs-record-panel .igs-record-slot-icon svg{width:100%;height:100%;stroke-width:1.3;}
 #igs-record-panel .igs-record-slot-name{position:absolute;left:10px;right:32px;bottom:9px;font-size:12px;font-weight:500;line-height:1.3;color:inherit;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:left;}
@@ -30,13 +31,16 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-slots-empty{grid-column:1/-1;margin:24px 0;color:var(--igs-rp-text-faint);text-align:center;}
 #igs-record-panel .igs-record-item-pane{position:sticky;top:0;min-width:0;}
 #igs-record-panel .igs-record-item-detail,#igs-record-panel .igs-record-item-empty{box-sizing:border-box;padding:24px 24px 22px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);}
-#igs-record-panel .igs-record-item-detail-icon{display:grid;place-items:center;width:72px;height:72px;margin:0 0 18px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
-#igs-record-panel .igs-record-item-detail-icon svg{width:40px;height:40px;stroke-width:1.3;}
+#igs-record-panel .igs-record-item-head{display:flex;align-items:center;gap:18px;min-width:0;}
+#igs-record-panel .igs-record-item-title{min-width:0;}
+#igs-record-panel .igs-record-item-detail-icon{display:grid;place-items:center;flex:none;width:64px;height:64px;margin:0;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-fill);color:var(--igs-rp-text);}
+#igs-record-panel .igs-record-item-detail-icon svg{width:34px;height:34px;stroke-width:1.3;}
 #igs-record-panel .igs-record-item-detail-copy{min-width:0;}
 #igs-record-panel .igs-record-item-kicker{margin:0;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.16em;}
-#igs-record-panel .igs-record-item-detail h3{margin:6px 0 4px;font-size:20px;line-height:1.35;font-weight:600;letter-spacing:.04em;overflow-wrap:anywhere;}
-#igs-record-panel .igs-record-item-quantity{margin:0;color:var(--igs-rp-text-faint);font-size:12px;font-variant-numeric:tabular-nums;}
-#igs-record-panel .igs-record-item-description{margin:16px 0 0;font-family:var(--igs-rp-font-body);font-size:15px;line-height:1.85;color:var(--igs-rp-text);white-space:pre-wrap;overflow-wrap:anywhere;}
+#igs-record-panel .igs-record-item-detail h3{margin:2px 0 4px;font-size:20px;line-height:1.35;font-weight:600;letter-spacing:.04em;overflow-wrap:anywhere;}
+#igs-record-panel .igs-record-item-quantity{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;color:var(--igs-rp-text-faint);font-size:12px;font-variant-numeric:tabular-nums;}
+#igs-record-panel .igs-record-tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:11px;font-weight:500;line-height:18px;letter-spacing:.04em;white-space:nowrap;}
+#igs-record-panel .igs-record-item-description{margin:20px 0 0;padding-top:18px;border-top:1px solid var(--igs-rp-line-soft);font-family:var(--igs-rp-font-body);font-size:15px;line-height:1.85;color:var(--igs-rp-text);white-space:pre-wrap;overflow-wrap:anywhere;}
 #igs-record-panel .igs-record-item-actions{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:22px;}
 #igs-record-panel .igs-record-item-actions small{color:var(--igs-rp-text-faint);font-size:11px;line-height:1.5;}
 #igs-record-panel .igs-record-feedback{margin:10px 0 0;color:var(--igs-rp-warm);font-size:12px;}
@@ -64,8 +68,8 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-book{position:relative;display:flex;align-items:center;gap:12px;width:100%;padding:8px 10px;border:0;border-radius:var(--igs-rp-radius-l);background:transparent;text-align:left;transition:background .18s var(--igs-rp-ease);}
 #igs-record-panel .igs-record-book:hover{background:var(--igs-rp-fill);}
 #igs-record-panel .igs-record-book[aria-current="true"]{background:var(--igs-rp-fill-active);}
-#igs-record-panel .igs-record-book-avatar,#igs-record-panel .igs-record-timeline-avatar{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:50%;background:var(--igs-rp-fill-hover);font-size:15px;font-weight:600;line-height:1;}
-#igs-record-panel .igs-record-book[aria-current="true"] .igs-record-book-avatar{background:var(--igs-rp-text);color:var(--igs-rp-on-ink);}
+#igs-record-panel .igs-record-book-avatar,#igs-record-panel .igs-record-timeline-avatar,#igs-record-panel .igs-record-person-avatar,#igs-record-panel .igs-record-node-avatar{display:grid;place-items:center;flex:none;width:36px;height:36px;box-sizing:border-box;border-radius:50%;background:transparent;box-shadow:inset 0 0 0 1px var(--igs-rp-text-ghost);color:var(--igs-rp-text-soft);font-size:15px;font-weight:500;line-height:1;transition:box-shadow .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease),transform .2s var(--igs-rp-ease);}
+#igs-record-panel .igs-record-book[aria-current="true"] .igs-record-book-avatar,#igs-record-panel .igs-record-people-list button[aria-current="true"] .igs-record-person-avatar,#igs-record-panel .igs-record-relationship-node.is-current .igs-record-node-avatar{box-shadow:inset 0 0 0 1.5px var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-accent,var(--igs-rp-text));}
 #igs-record-panel .igs-record-book-meta{display:flex;flex-direction:column;min-width:0;}
 #igs-record-panel .igs-record-book-meta>span{font-size:14px;font-weight:500;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 #igs-record-panel .igs-record-book-meta>small{color:var(--igs-rp-text-faint);font-size:11px;line-height:1.4;}
@@ -82,11 +86,11 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-timeline-avatar{width:30px;height:30px;font-size:13px;}
 #igs-record-panel .igs-record-timeline-copy{display:flex;flex-direction:column;flex:1;min-width:0;}
 #igs-record-panel .igs-record-timeline-copy strong{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-#igs-record-panel .igs-record-timeline-copy small{color:var(--igs-rp-text-faint);font-size:11px;}
 #igs-record-panel .igs-record-diary-detail{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:auto;box-sizing:border-box;padding:clamp(24px,3.4vw,44px) clamp(22px,4vw,56px) 16px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-reading);box-shadow:var(--igs-rp-pane-edge);}
 #igs-record-panel .igs-record-diary-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;color:var(--igs-rp-text-faint);font-size:12px;font-weight:500;letter-spacing:.12em;}
 #igs-record-panel .igs-record-diary-meta i{margin:0 10px;font-style:normal;color:var(--igs-rp-text-ghost);}
 #igs-record-panel .igs-record-diary-detail h3{margin:12px 0 20px;font-family:var(--igs-rp-font-body);font-size:calc(var(--igs-rp-diary-size) + 7px);font-weight:400;letter-spacing:.08em;line-height:1.4;overflow-wrap:anywhere;}
+#igs-record-panel .igs-record-diary-detail .igs-record-body.is-lead{margin-top:18px;}
 #igs-record-panel .igs-record-diary-detail .igs-record-body{margin:0;max-width:34em;font-family:var(--igs-rp-font-body);font-size:var(--igs-rp-diary-size);line-height:1.95;letter-spacing:.03em;color:var(--igs-rp-text);}
 #igs-record-panel .igs-record-diary-nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:auto;padding-top:28px;font-size:13px;}
 #igs-record-panel .igs-record-diary-nav button{min-height:36px;padding:7px 12px;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);font-weight:500;letter-spacing:.06em;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
@@ -112,37 +116,38 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-relationship-stage{grid-area:stage;position:relative;display:grid;place-items:center;min-height:360px;}
 #igs-record-panel .igs-record-relationship-graph{position:relative;width:min(100%,560px);aspect-ratio:1.2;min-height:320px;}
 #igs-record-panel .igs-record-relationship-lines{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
-#igs-record-panel .igs-record-relationship-lines path{fill:none;stroke:rgba(236,234,230,.22);stroke-width:1;vector-effect:non-scaling-stroke;}
+#igs-record-panel .igs-record-relationship-lines path{fill:none;stroke:var(--igs-rp-text-ghost);stroke-width:1;vector-effect:non-scaling-stroke;}
 #igs-record-panel .igs-record-relationship-node{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:8px;min-width:78px;padding:0;border:0;background:transparent;font-size:13px;font-weight:500;white-space:nowrap;}
-#igs-record-panel .igs-record-node-avatar{display:grid;place-items:center;width:56px;height:56px;border-radius:50%;background:#383b3f;font-size:22px;font-weight:600;line-height:1;transition:transform .2s var(--igs-rp-ease);}
+#igs-record-panel .igs-record-node-avatar{width:56px;height:56px;font-size:21px;}
 #igs-record-panel .igs-record-relationship-node:hover .igs-record-node-avatar{transform:scale(1.05);}
-#igs-record-panel .igs-record-relationship-node.is-current .igs-record-node-avatar{width:84px;height:84px;font-size:34px;background:var(--igs-rp-text);color:var(--igs-rp-on-ink);}
+#igs-record-panel .igs-record-relationship-node.is-current .igs-record-node-avatar{width:84px;height:84px;font-size:32px;}
 #igs-record-panel .igs-record-node-name{max-width:9em;overflow:hidden;text-overflow:ellipsis;}
-#igs-record-panel .igs-record-relationship-label{position:absolute;transform:translate(-50%,-50%);max-width:30%;padding:3px 8px;border-radius:var(--igs-rp-radius-s);background:rgba(18,20,23,.82);color:var(--igs-rp-text-soft);font-size:12px;line-height:1.3;letter-spacing:.04em;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#igs-record-panel .igs-record-relationship-label{position:absolute;transform:translate(-50%,-50%);max-width:30%;padding:3px 8px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-solid,rgba(18,20,23,.82));color:var(--igs-rp-text-soft);font-size:12px;line-height:1.3;letter-spacing:.04em;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 #igs-record-panel .igs-record-people{grid-area:people;}
 #igs-record-panel .igs-record-people-list{display:flex;flex-wrap:wrap;gap:2px;}
 #igs-record-panel .igs-record-people-list button{display:flex;flex-direction:column;align-items:center;gap:6px;width:68px;min-height:44px;padding:8px 4px 6px;border:0;border-radius:var(--igs-rp-radius-l);background:transparent;transition:background .18s var(--igs-rp-ease);}
 #igs-record-panel .igs-record-people-list button:hover{background:var(--igs-rp-fill);}
 #igs-record-panel .igs-record-people-list button[aria-current="true"]{background:var(--igs-rp-fill-active);}
-#igs-record-panel .igs-record-person-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:var(--igs-rp-fill-hover);font-size:17px;font-weight:600;line-height:1;}
-#igs-record-panel .igs-record-people-list button[aria-current="true"] .igs-record-person-avatar{background:var(--igs-rp-text);color:var(--igs-rp-on-ink);}
+#igs-record-panel .igs-record-person-avatar{width:42px;height:42px;font-size:17px;}
 #igs-record-panel .igs-record-person-copy strong{display:block;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--igs-rp-text-soft);font-size:12px;font-weight:500;}
 #igs-record-panel .igs-record-people-list button[aria-current="true"] strong{color:var(--igs-rp-text);}
 #igs-record-panel .igs-record-relationship-detail{grid-area:detail;align-self:start;max-height:100%;padding:24px 24px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);overflow:auto;}
-#igs-record-panel .igs-record-person-head h2{margin:0;font-size:20px;font-weight:600;letter-spacing:.06em;line-height:1.4;overflow-wrap:anywhere;}
+#igs-record-panel .igs-record-person-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;}
+#igs-record-panel .igs-record-person-head h2{margin:0 4px 0 0;font-size:20px;font-weight:600;letter-spacing:.06em;line-height:1.4;overflow-wrap:anywhere;}
+#igs-record-panel .igs-record-thought{margin:12px 0 0;padding:1px 0 1px 12px;box-shadow:inset 2px 0 0 var(--igs-rp-accent,var(--igs-rp-warm));color:var(--igs-rp-text-soft);font-family:var(--igs-rp-font-body);font-size:14px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere;}
 #igs-record-panel .igs-record-metrics{display:grid;gap:10px;margin:18px 0 4px;}
 #igs-record-panel .igs-record-metric{display:grid;grid-template-columns:5.5em minmax(0,1fr) 3.2em;align-items:center;gap:12px;color:var(--igs-rp-text-faint);font-size:12px;}
 #igs-record-panel .igs-record-metric i{display:block;height:4px;border-radius:2px;background:var(--igs-rp-fill-hover);overflow:hidden;}
-#igs-record-panel .igs-record-metric b{display:block;height:100%;border-radius:inherit;background:var(--igs-rp-warm);}
+#igs-record-panel .igs-record-metric b{display:block;height:100%;border-radius:inherit;background:var(--igs-rp-accent,var(--igs-rp-warm));}
 #igs-record-panel .igs-record-metric em{font-style:normal;font-weight:600;text-align:right;color:var(--igs-rp-text);font-variant-numeric:tabular-nums;}
 #igs-record-panel .igs-record-stage{display:inline-flex;align-items:center;gap:10px;width:fit-content;margin:0;padding:4px 10px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill-hover);font-size:12px;}
 #igs-record-panel .igs-record-stage span{color:var(--igs-rp-text-faint);}
 #igs-record-panel .igs-record-stage strong{font-weight:600;font-size:13px;}
-#igs-record-panel .igs-record-relationship-section{padding-top:14px;}
+#igs-record-panel .igs-record-relationship-section{padding-top:18px;}
 #igs-record-panel .igs-record-relationship-description{margin:0;font-family:var(--igs-rp-font-body);font-size:15px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85;}
-#igs-record-panel .igs-record-relationship-links{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:16px 0 0;padding:0;}
-#igs-record-panel .igs-record-relationship-links li{padding:4px 10px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill-hover);font-size:13px;}
-#igs-record-panel .igs-record-relationship-links span{margin-right:8px;color:var(--igs-rp-text-faint);font-size:12px;}
+#igs-record-panel .igs-record-profile{display:grid;gap:16px;margin:0;}
+#igs-record-panel .igs-record-profile dt{margin:0 0 4px;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.16em;}
+#igs-record-panel .igs-record-profile dd{margin:0;font-family:var(--igs-rp-font-body);font-size:15px;line-height:1.85;white-space:pre-wrap;overflow-wrap:anywhere;}
 #igs-record-panel .igs-record-relationship-note,#igs-record-panel .igs-record-relationship-empty{color:var(--igs-rp-text-faint);line-height:1.7;}
 
 #igs-record-panel .igs-record-table-scroll{overflow:auto;max-width:100%;}
@@ -165,7 +170,8 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel.igs-rp-narrow .igs-record-slot-name{left:7px;right:22px;bottom:6px;font-size:11px;-webkit-line-clamp:1;}
 #igs-record-panel.igs-rp-narrow .igs-record-slot-quantity{right:7px;bottom:6px;font-size:10px;}
 #igs-record-panel.igs-rp-narrow .igs-record-item-pane{position:static;}
-#igs-record-panel.igs-rp-narrow .igs-record-item-detail{display:grid;grid-template-columns:56px minmax(0,1fr);column-gap:14px;padding:18px 16px;}
+#igs-record-panel.igs-rp-narrow .igs-record-item-detail{padding:18px 16px;}
+#igs-record-panel.igs-rp-narrow .igs-record-item-head{gap:14px;}
 #igs-record-panel.igs-rp-narrow .igs-record-item-detail-icon{width:56px;height:56px;margin:0;border-radius:var(--igs-rp-radius-m);}
 #igs-record-panel.igs-rp-narrow .igs-record-item-detail-icon svg{width:32px;height:32px;}
 #igs-record-panel.igs-rp-narrow .igs-record-item-detail h3{font-size:18px;}

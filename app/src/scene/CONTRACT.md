@@ -8,6 +8,7 @@
 - 检测生图段出现和消失，给 `visual` 输出对应显示策略。
 - 根据时间、天气、地点输出背景规则和环境效果候选。
 - 按句分页启用时，场景指令索引必须重映射到最终可见分页坐标，不得沿用分页前的原始行号计数。
+- HTML 卡片（`html-cards.js`）：`bridge.sourceFilter.htmlCardTags`（默认 `htm1fenge`）命中的整块在一切正文处理前从原文抠出，原位换成独占一行的 `[igs-card#N]`，单独成页；占位不得写成 `[key:value]`（会被 `parseSceneText` 当场景标签吞掉）。未闭合块（流式中）同样占位。payload 以 `htmlCards[N]` 携带原始 HTML，渲染由 `visual/igs-ui/html-card-layer.js` 消毒后放入 Shadow DOM。
 - `[igs-img:N]` 只由插件写入；原文保留标记以定位插图，显示正文与主模型上下文隐藏标记。解析时记录原文偏移，不计入 scene/char/thought 的可见段索引；新场景指令终止此前插图。
 
 - 素材匹配分级（`scene-directives.js` 的 `classifySceneKey`）：exact / alias / fuzzy-strong / fuzzy-weak / none，「默认」兜底记为 default。

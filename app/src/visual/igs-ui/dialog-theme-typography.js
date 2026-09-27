@@ -3,6 +3,7 @@ export const DIALOG_FONT_ROUNDED = '"IGS Rounded","Microsoft YaHei",sans-serif';
 export const DIALOG_FONT_SANS = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
 export const DIALOG_FONT_CLASSIC_DISPLAY = '"Cormorant Garamond","Source Han Serif CN",serif';
 export const DIALOG_FONT_WENKAI = '"LXGW WenKai","Source Han Serif CN",serif';
+export const DIALOG_FONT_WENKAI_LITE = '"LXGW WenKai Lite","LXGW WenKai",serif';
 export const DIALOG_FONT_NEO_ZHISONG = '"LXGW Neo ZhiSong","Source Han Serif CN",serif';
 export const DIALOG_FONT_NEO_XIHEI = '"LXGW Neo XiHei","Source Han Sans CN","Microsoft YaHei",sans-serif';
 export const DIALOG_FONT_SOURCE_HAN_SANS = '"Source Han Sans CN","LXGW Neo XiHei","Microsoft YaHei",sans-serif';
@@ -10,10 +11,13 @@ export const DIALOG_FONT_HUIWEN = '"Huiwen Mincho","Source Han Serif CN",serif';
 export const DIALOG_FONT_YUYANG = '"Tsanger YuYang","LXGW WenKai",serif';
 export const DIALOG_FONT_SMILEY = '"Smiley Sans","Source Han Sans CN","Microsoft YaHei",sans-serif';
 export const DIALOG_FONT_ZCOOL_KUAILE = '"ZCOOL KuaiLe","Microsoft YaHei",sans-serif';
+export const DIALOG_FONT_YOZAI = '"Yozai","LXGW WenKai",serif';
 export const DIALOG_FONT_CINZEL = '"Cinzel","LXGW Neo ZhiSong","Source Han Serif CN",serif';
 export const DIALOG_FONT_CORMORANT = '"Cormorant Garamond","LXGW Neo ZhiSong","Source Han Serif CN",serif';
 export const DIALOG_FONT_GREAT_VIBES = '"Great Vibes","Pinyon Script","Source Han Serif CN",serif';
+export const DIALOG_FONT_PINYON_SCRIPT = '"Pinyon Script","Source Han Serif CN",serif';
 export const DIALOG_FONT_QUICKSAND = '"Quicksand","Caveat","Tsanger YuYang",sans-serif';
+export const DIALOG_FONT_CAVEAT = '"Caveat","Quicksand","Tsanger YuYang",sans-serif';
 export const DIALOG_FONT_IM_FELL = '"IM Fell English SC","Cinzel","Source Han Serif CN",serif';
 
 // 素材主题的默认排版；用户在主题页改过的值仍优先（见 settings-normalize 的 applyReferenceTypographyDefaults）。
@@ -32,9 +36,9 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
     'plant-coffee': Object.freeze({
         nameAlign: 'center',
         nameFont: DIALOG_FONT_QUICKSAND,
-        textFont: DIALOG_FONT_YUYANG,
-        thoughtFont: DIALOG_FONT_YUYANG,
-        narrationFont: DIALOG_FONT_YUYANG,
+        textFont: DIALOG_FONT_WENKAI_LITE,
+        thoughtFont: DIALOG_FONT_WENKAI_LITE,
+        narrationFont: DIALOG_FONT_WENKAI_LITE,
         nameColor: '#f6ecd9',
         textColor: '#5b4643',
         thoughtColor: '#7f8a55',
@@ -54,9 +58,9 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
     'cute-pink': Object.freeze({
         nameAlign: 'center',
         nameFont: DIALOG_FONT_ZCOOL_KUAILE,
-       textFont: DIALOG_FONT_ROUNDED,
-        thoughtFont: DIALOG_FONT_ROUNDED,
-        narrationFont: DIALOG_FONT_ROUNDED,
+        textFont: DIALOG_FONT_YOZAI,
+        thoughtFont: DIALOG_FONT_YOZAI,
+        narrationFont: DIALOG_FONT_YOZAI,
         nameColor: '#ffffff',
         textColor: '#5d3a4a',
         thoughtColor: '#c65f86',
@@ -97,7 +101,7 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
     }),
     'warm-picturebook': Object.freeze({
         nameAlign: 'center',
-        nameFont: DIALOG_FONT_YUYANG,
+        nameFont: DIALOG_FONT_YOZAI,
         textFont: DIALOG_FONT_WENKAI,
         thoughtFont: DIALOG_FONT_WENKAI,
         narrationFont: DIALOG_FONT_WENKAI,
