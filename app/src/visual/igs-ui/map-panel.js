@@ -1,5 +1,5 @@
 import { createShujukuClient } from '../../data/shujuku/client.js';
-import { getMapChildren, hasInvalidBasemap, locateMapScene, readMapModel, resolveMapBasemap, sanitizeMapBasemapUrl } from '../../data/shujuku/map-model.js';
+import { getMapChildren, hasInvalidBasemap, locateMapScene, mapAncestors, readMapModel, resolveMapBasemap, sanitizeMapBasemapUrl } from '../../data/shujuku/map-model.js';
 import { normalizeMapTime, resolveMapTimeBasemap } from '../../data/shujuku/map-time.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { lookupSceneAssetUrls } from '../../scene/scene-directives.js';
@@ -9,11 +9,11 @@ import { MAP_FALLBACK_WORLD, autoPlaceMapPoints, centerMapCamera, fitMapCamera, 
 import { buildMapGenInput, buildMarkerLightsInput, createMapBasemapGenerator } from '../map-gen/index.js';
 import { resolveMapLighting } from '../map-gen/lighting.js';
 import { mapBasemapFilter, mapLightLayersHtml } from './map-light-layers.js';
+import { MAP_BUILTIN_BASEMAPS, getBuiltinBasemap, resolveBuiltinBasemap } from './map-basemap-styles.js';
 import { applyWeatherFx, cancelWeatherFx, normalizeWeatherFxSettings, resolveWeatherFxTime } from './weather-fx-runtime.js';
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const personInitial = value => escapeHtml(String(value ?? '').trim().charAt(0) || '·');
-const DEFAULT_MAP_BASEMAP = new URL('../../../fixtures/record-pages/assets/map-demo-clean-night.png', import.meta.url).href;
 const BASEMAP_SOURCE_KEY = 'igs-map-basemap-source';
 const GEN_SALT_KEY = 'igs-map-gen-salt:';
 // map-demo 全套自带分时段美术，不再二次调色与点灯。
@@ -54,7 +54,10 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
     let generation = { status: 'none', key: '', theme: '', scale: '' };
     const getChatId = () => { try { return String(options.getChatId?.() || ''); } catch (_) { return ''; } };
     const storage = () => { try { return (global || globalThis).localStorage || null; } catch (_) { return null; } };
-    const basemapSource = () => { try { return storage()?.getItem(BASEMAP_SOURCE_KEY) === 'demo' ? 'demo' : 'auto'; } catch (_) { return 'auto'; } };
+    // 底图来源：'auto'（生成）或 'builtin:<款式>'；旧值 'demo' 视为第一款自带底图。
+    const storedSource = () => { try { return String(storage()?.getItem(BASEMAP_SOURCE_KEY) || 'auto'); } catch (_) { return 'auto'; } };
+    const basemapSource = () => (storedSource() === 'auto' ? 'auto' : 'builtin');
+    const builtinStyle = () => getBuiltinBasemap(storedSource().replace(/^builtin:/, ''));
     const saltKey = () => GEN_SALT_KEY + (getChatId() || 'default');
     const readSalt = () => { try { return Number(storage()?.getItem(saltKey())) || 0; } catch (_) { return 0; } };
     const writeStored = (key, value) => { try { storage()?.setItem(key, String(value)); } catch (_) { /* 隐私模式下仅本次会话生效 */ } };
@@ -171,8 +174,13 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
             selectedId = id; message = '';
         }
         if (action === 'enter') {
-            if (selectedId !== id || !selected() || !getMapChildren(activeTable(), id).length) return;
+            const table = activeTable();
+            if (!getMapChildren(table, parentId).some(loc => loc.id === id) || !getMapChildren(table, id).length) return;
             parentId = id; selectedId = null; message = ''; camera = null;
+        }
+        if (action === 'level') {
+            if (id && !mapAncestors(activeTable(), parentId).includes(id)) return;
+            parentId = id || null; selectedId = null; message = ''; camera = null;
         }
         if (action === 'back') {
             parentId = activeTable()?.locations.find(loc => loc.id === parentId)?.parentId || null;
@@ -183,7 +191,12 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
         if (action === 'zoom-out') zoomViewport(1 / 1.4);
         if (action === 'reset-view') { camera = null; applyCamera(); }
         if (action === 'reroll') writeStored(saltKey(), readSalt() + 1);
-        if (action === 'basemap-source') { writeStored(BASEMAP_SOURCE_KEY, basemapSource() === 'demo' ? 'auto' : 'demo'); camera = null; }
+        if (action === 'reroll-back') writeStored(saltKey(), Math.max(0, readSalt() - 1));
+        if (action === 'basemap-source' && (id === 'auto' || id === 'builtin') && id !== basemapSource()) {
+            writeStored(BASEMAP_SOURCE_KEY, id === 'auto' ? 'auto' : `builtin:${builtinStyle().id}`);
+            camera = null;
+        }
+        if (action === 'basemap-style' && MAP_BUILTIN_BASEMAPS.some(style => style.id === id)) writeStored(BASEMAP_SOURCE_KEY, `builtin:${id}`);
         render();
     }
 
@@ -329,15 +342,21 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
             ...floating.map((loc, index) => ({ loc, x: autoPoints[index]?.x ?? 0.5, y: autoPoints[index]?.y ?? 0.5, auto: true }))];
         const place = selected();
         const current = table?.locations.find(loc => loc.id === currentId) || null;
+        // 当前地点在更深的子层时，本层标出包含它的那个地点，而不是显得“你不在这张图上”。
+        const currentChain = currentId ? [currentId, ...mapAncestors(table, currentId)] : [];
+        const hereId = markers.find(item => currentChain.includes(item.loc.id))?.loc.id || null;
+        const hereInside = hereId && hereId !== currentId ? current : null;
+        const hereTag = hereInside ? `你在这里 · ${hereInside.name}` : '你在这里';
         const tabs = model.tables.length > 1 ? `<nav class="igs-map-tabs" aria-label="选择地图">${model.tables.map(item =>
             `<button type="button" class="igs-rp-chip" aria-pressed="${item.uid === activeUid ? 'true' : 'false'}" data-map-act="table" data-map-id="${escapeHtml(item.uid)}" ${item.uid === activeUid ? 'aria-current="true"' : ''}>${escapeHtml(item.name)}</button>`).join('')}</nav>` : '';
         const baseResolution = table ? resolveMapBasemap(table, parentId) : { status: 'none', url: '', reason: '' };
         const generated = table && baseResolution.status === 'none' && basemapSource() === 'auto' ? requestGenerated(table, parent, markers) : null;
-        // 生成失败（如宿主没有 Canvas）回退内置示例图；生成中与室内层保持中性坐标平面。
+        // 生成失败（如宿主没有 Canvas）回退当前自带款式；生成中与室内层保持中性坐标平面。
+        const builtin = baseResolution.status === 'none' ? resolveBuiltinBasemap(builtinStyle(), timeBucket(sceneTime)) : null;
         const resolution = generated && generated.status !== 'failed'
             ? (generated.status === 'ready' ? { status: 'ok', url: generated.result.url, reason: '' } : { status: 'none', url: '', reason: '' })
-            : baseResolution.status === 'none'
-                ? { status: 'ok', url: resolveMapTimeBasemap(DEFAULT_MAP_BASEMAP, timeBucket(sceneTime)), reason: '' }
+            : builtin
+                ? { status: 'ok', url: builtin.url, reason: '', ownTimeArt: builtin.ownTimeArt }
                 : baseResolution.status === 'ok' ? { ...baseResolution, url: resolveMapTimeBasemap(baseResolution.url, timeBucket(sceneTime)) } : baseResolution;
         const invalidBasemap = table ? hasInvalidBasemap(table, parentId) : false;
         const basemapNotice = resolution.status === 'conflict' ? resolution.reason
@@ -349,52 +368,53 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
         prepareBasemap(resolution);
         // 缓存图片可能同步触发 onload 并已完成一次完整重绘，外层这次就作废。
         if (!root || renders !== renderCount) return;
-        const ownTimeArt = OWN_TIME_ART.test(resolution.url || '');
+        const ownTimeArt = resolution.ownTimeArt ?? OWN_TIME_ART.test(resolution.url || '');
         const lighting = resolveMapLighting({ time: sceneTime, weather: sceneWeather, defaultHour: 12 });
         const lightsUrl = generated?.status === 'ready' ? generated.result.lightsUrl : resolution.status === 'ok' && !ownTimeArt ? requestMarkerLights(markers) : '';
         const lit = basemapState === 'ready' && Boolean(basemapUrl);
         const basemapFilter = lit ? mapBasemapFilter(lighting, { ownTimeArt }) : '';
-        const hint = generated?.status === 'pending' ? '正在生成地图…' : generated?.status === 'ready' ? '自动生成的示意地图 · 拖动浏览 · 点击定位针查看' : '拖动浏览 · 点击定位针查看';
-        const sourceControls = (generated?.status === 'ready' ? `<button type="button" data-map-act="reroll" aria-label="换一张自动生成的地图">${RECORD_ICONS.shuffle}</button>` : '')
-            + (table && baseResolution.status === 'none' ? `<button type="button" data-map-act="basemap-source" aria-label="${basemapSource() === 'auto' ? '改用内置示例地图' : '改用自动生成地图'}">${RECORD_ICONS.layers}</button>` : '');
+        const hint = generated?.status === 'pending' ? '正在生成地图…' : '拖动浏览 · 点击定位针查看';
+        const sourceHtml = table && baseResolution.status === 'none' ? basemapSourceHtml(generated) : '';
         const pinsHtml = markers.map(({ loc, x, y, auto }) => {
             const pt = mapPinWorldPoint(x, y, world.width, world.height);
-            const stateClass = [loc.id === currentId ? 'igs-map-current' : '', loc.id === selectedId ? 'igs-map-selected' : '', auto ? 'igs-map-auto' : ''].filter(Boolean).join(' ');
+            const stateClass = [loc.id === hereId ? 'igs-map-current' : '', loc.id === selectedId ? 'igs-map-selected' : '', auto ? 'igs-map-auto' : ''].filter(Boolean).join(' ');
             const people = loc.characters || [];
             const peopleHtml = people.length ? `<span class="igs-map-people" aria-hidden="true">${people.slice(0, 3).map(name => `<i>${personInitial(name)}</i>`).join('')}${people.length > 3 ? `<i>+${people.length - 3}</i>` : ''}</span>` : '';
-            const label = `查看${loc.name}${loc.id === currentId ? '（你在这里）' : ''}${people.length ? `，${people.length} 位角色在此` : ''}${auto ? '，位置为示意' : ''}`;
+            const label = `查看${loc.name}${loc.id === hereId ? `（${hereTag}）` : ''}${people.length ? `，${people.length} 位角色在此` : ''}${auto ? '，位置为示意' : ''}`;
             return `<div class="igs-map-marker ${stateClass}" style="left:${pt.x}px;top:${pt.y}px">` +
-                (loc.id === currentId ? '<span class="igs-map-here" aria-hidden="true">你在这里</span>' : '') +
+                (loc.id === hereId ? `<span class="igs-map-here" aria-hidden="true">${escapeHtml(hereTag)}</span>` : '') +
                 `<button type="button" data-map-act="select" data-map-id="${escapeHtml(loc.id)}" aria-label="${escapeHtml(label)}" ${loc.id === selectedId ? 'aria-current="location"' : ''}>${RECORD_ICONS.pin}</button><span class="igs-map-label">${escapeHtml(loc.name)}${peopleHtml}</span></div>`;
         }).join('');
         const diagnostics = table ? [...table.diagnostics, ...table.locations.flatMap(loc => loc.issues.map(issue => `${loc.name || `第${loc.rowIndex + 1}行`}: ${issue}`))] : [];
         const notice = model.status === 'read-error' ? `地图读取失败：${model.reason}` :
             model.status === 'no-tables' ? '未找到名称含“地图”或“地点”的表' : '';
-        const detailLocation = place || current;
-        const detailKicker = detailLocation && detailLocation.id === currentId ? '你在这里' : place ? '已选地点' : '当前位置';
+        const detailLocation = place || (hereId ? table.locations.find(loc => loc.id === hereId) : current);
+        const detailKicker = detailLocation && detailLocation.id === hereId ? hereTag
+            : detailLocation && detailLocation.id === currentId ? '你在这里' : place ? '已选地点' : '当前位置';
         const detailAuto = Boolean(detailLocation && floating.includes(detailLocation));
         const detailSceneImage = sceneAssetUrl(detailLocation?.name || sceneName);
         const detailArtHtml = detailSceneImage ? `<img class="igs-map-detail-art" src="${escapeHtml(detailSceneImage)}" alt="" aria-hidden="true" draggable="false" referrerpolicy="no-referrer">` : '';
         const detailPeople = detailLocation?.characters || [];
         const peopleLabel = table?.place ? '位于此处的角色' : '在场人物';
         const peopleHtml = detailPeople.length ? `<div class="igs-map-card-people"><p>${peopleLabel}</p><div>${detailPeople.map(name => `<span class="igs-map-card-person"><span class="igs-map-card-person-avatar" aria-hidden="true">${personInitial(name)}</span><span>${escapeHtml(name)}</span></span>`).join('')}</div></div>` : '';
-        const childButton = place && getMapChildren(table, place.id).length
-            ? `<button class="igs-map-card-secondary" type="button" data-map-act="enter" data-map-id="${escapeHtml(place.id)}">查看子地点</button>` : '';
+        const enterable = detailLocation && children.includes(detailLocation) && getMapChildren(table, detailLocation.id).length;
+        const childButton = enterable
+            ? `<button class="igs-map-card-secondary" type="button" data-map-act="enter" data-map-id="${escapeHtml(detailLocation.id)}">查看子地点</button>` : '';
         const travelButton = place && place.name && place.rowId && !place.issues.includes('地点ID重复')
             ? '<button class="igs-map-card-travel" type="button" data-map-act="travel">前往</button><small class="igs-map-card-note">将地点填入草稿，不会自动发送</small>' : '';
         const card = detailLocation ? `<section class="igs-map-card"><p class="igs-map-card-kicker">${detailKicker}</p><h3>${escapeHtml(detailLocation.name || '未命名地点')}</h3>` +
             `<p class="igs-map-card-description">${escapeHtml(detailLocation.description || '暂无地点说明')}</p>${detailAuto ? '<p class="igs-map-card-note igs-map-card-auto">表格未记录坐标，图上位置仅为示意</p>' : ''}${peopleHtml}<div class="igs-map-card-actions">${childButton}${travelButton}</div></section>` : '';
         const notes = [notice, basemapNotice, table && !children.length ? '这一层没有子地点' : ''].filter(Boolean);
         root.innerHTML = `<div class="igs-rp-page igs-map-window">${recordPageHeadHtml('地点地图', { closeAttr: 'data-map-act', backAriaLabel: '关闭地图' })}` +
-            tabs + `<div class="igs-rp-body igs-map-body"><div class="igs-map-main"><div class="igs-map-overlay-top">${parentId ? `<button type="button" class="igs-rp-chip igs-map-back" data-map-act="back">${RECORD_ICONS.back}<span>返回上级：${escapeHtml(parent?.name || table?.name || '地图')}</span></button>` : ''}` +
+            tabs + `<div class="igs-rp-body igs-map-body"><div class="igs-map-main"><div class="igs-map-overlay-top">${sourceHtml}` +
             notes.map(text => `<p class="igs-rp-notice" role="status">${escapeHtml(text)}</p>`).join('') + '</div>' +
             `<div class="igs-map-viewport" aria-label="地图视口"><div class="igs-map-world${lit && !ownTimeArt ? ' is-lit' : ''}" style="width:${world.width}px;height:${world.height}px">` +
             (lit ? `<img class="igs-map-basemap" src="${escapeHtml(basemapUrl)}" alt="" draggable="false" referrerpolicy="no-referrer" width="${world.width}" height="${world.height}"${basemapFilter ? ` style="filter:${basemapFilter}"` : ''}>` + mapLightLayersHtml(lighting, { ownTimeArt, lightsUrl }) : '') +
-            pinsHtml + `</div><div class="igs-map-controls"><button type="button" data-map-act="zoom-in" aria-label="放大">${RECORD_ICONS.zoomIn}</button><button type="button" data-map-act="zoom-out" aria-label="缩小">${RECORD_ICONS.zoomOut}</button><button type="button" data-map-act="reset-view" aria-label="归位">${RECORD_ICONS.locate}</button>${sourceControls}</div>` +
+            pinsHtml + `</div><div class="igs-map-controls"><button type="button" data-map-act="zoom-in" aria-label="放大">${RECORD_ICONS.zoomIn}</button><button type="button" data-map-act="zoom-out" aria-label="缩小">${RECORD_ICONS.zoomOut}</button><button type="button" data-map-act="reset-view" aria-label="归位">${RECORD_ICONS.locate}</button></div>` +
             `<p class="igs-map-hint">${hint}</p></div>` +
             `<p class="igs-map-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p>` +
             '</div>' +
-            `<aside class="igs-map-detail${card ? '' : ' is-empty'}">${detailArtHtml}${card || '<p class="igs-map-detail-empty">选择地点查看详情</p>'}` +
+            `<aside class="igs-map-detail${card ? '' : ' is-empty'}">${levelsHtml(table)}${detailArtHtml}${card || '<p class="igs-map-detail-empty">选择地点查看详情</p>'}` +
             (diagnostics.length ? `<details><summary>地图数据提示（${diagnostics.length}）</summary><ul>${diagnostics.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>` : '') + '</aside></div></div>';
         const viewport = root.querySelector?.('.igs-map-viewport');
         bindViewportGestures(viewport);
@@ -410,7 +430,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
             camera = fitMapCamera(viewW, viewH, world.width, world.height, 'cover');
             baseK = camera.k;
             // 首次镜头与「归位」对准当前地点（其次是已选地点），竖屏裁切时也能看到“你在这里”。
-            const focus = markers.find(item => item.loc.id === currentId) || markers.find(item => item.loc.id === selectedId);
+            const focus = markers.find(item => item.loc.id === hereId) || markers.find(item => item.loc.id === selectedId);
             if (focus) {
                 const pt = mapPinWorldPoint(focus.x, focus.y, world.width, world.height);
                 camera = centerMapCamera(camera, viewW, viewH, world.width, world.height, pt.x, pt.y);
@@ -428,6 +448,43 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
             pendingKey = '';
             if (root) render();
         });
+    }
+
+    // 进入子层后，详情面板顶部显示层级路径：返回上级按钮 + 可点任意上层直接跳回；顶层不显示。
+    function levelsHtml(table) {
+        if (!table || !parentId) return '';
+        const chain = [...mapAncestors(table, parentId).reverse(), parentId];
+        const crumbs = [{ id: '', name: table.name || '地图' }, ...chain.map(id => ({ id, name: table.locations.find(loc => loc.id === id)?.name || '未命名地点' }))];
+        const up = crumbs[crumbs.length - 2];
+        const back = up ? `<button type="button" class="igs-map-levels-back" data-map-act="back" aria-label="返回上级：${escapeHtml(up.name)}">${RECORD_ICONS.back}</button>` : '';
+        const trail = crumbs.map((crumb, index) => index === crumbs.length - 1
+            ? `<span aria-current="page">${escapeHtml(crumb.name)}</span>`
+            : `<button type="button" data-map-act="level" data-map-id="${escapeHtml(crumb.id)}">${escapeHtml(crumb.name)}</button>`).join('<i aria-hidden="true">›</i>');
+        return `<nav class="igs-map-levels" aria-label="地图层级">${back}<div class="igs-map-levels-trail">${trail}</div></nav>`;
+    }
+
+    // 底图来源卡：本层表格没有底图时出现。上排切换「生成 / 自带」，下排按来源显示款式或“已固定 · 第 N 张”。
+    function basemapSourceHtml(generated) {
+        const source = basemapSource();
+        const tab = (id, label) => `<button type="button" data-map-act="basemap-source" data-map-id="${id}" aria-pressed="${source === id ? 'true' : 'false'}">${label}</button>`;
+        let sub;
+        if (source === 'builtin') {
+            const current = builtinStyle();
+            sub = MAP_BUILTIN_BASEMAPS.length > 1
+                ? MAP_BUILTIN_BASEMAPS.map(style => `<button type="button" class="igs-map-source-chip" data-map-act="basemap-style" data-map-id="${escapeHtml(style.id)}" aria-pressed="${style.id === current.id ? 'true' : 'false'}">${escapeHtml(style.name)}</button>`).join('')
+                : `<span class="igs-map-source-state">款式：${escapeHtml(current.name)}</span>`;
+        } else if (generated?.status === 'skipped') {
+            sub = '<span class="igs-map-source-state">室内层不生成地图</span>';
+        } else if (generated?.status === 'failed') {
+            sub = `<span class="igs-map-source-state">生成失败，暂用「${escapeHtml(builtinStyle().name)}」</span>`;
+        } else {
+            const salt = readSalt();
+            const state = generated?.status === 'pending' ? '生成中…' : `已固定 · 第 ${salt + 1} 张`;
+            sub = `<span class="igs-map-source-state" title="本对话每次打开都是这张图；新增地点只改动它附近">${state}</span>`
+                + (salt > 0 ? '<button type="button" class="igs-map-source-chip" data-map-act="reroll-back">上一张</button>' : '')
+                + `<button type="button" class="igs-map-source-chip" data-map-act="reroll">${RECORD_ICONS.shuffle}<span>换一张</span></button>`;
+        }
+        return `<div class="igs-map-source" role="group" aria-label="底图"><div class="igs-map-source-switch">${tab('auto', '生成地图')}${tab('builtin', '自带底图')}</div><div class="igs-map-source-sub">${sub}</div></div>`;
     }
 
     function ensureGenerator() {

@@ -310,3 +310,16 @@ test('gate:map-gen:scene-carries-ground-zones-and-details', () => {
     assert.ok(scene.cars.length > 20, 'traffic on the arterials');
     assert.ok(scene.buildings.some(b => b.kind === 'flat') && scene.buildings.some(b => b.kind === 'house'));
 });
+
+test('gate:map-gen:builtin-basemap-styles-resolve-time-art', async () => {
+    const { MAP_BUILTIN_BASEMAPS, getBuiltinBasemap, resolveBuiltinBasemap } = await import('../src/visual/igs-ui/map-basemap-styles.js');
+    assert.ok(MAP_BUILTIN_BASEMAPS.length >= 1 && new Set(MAP_BUILTIN_BASEMAPS.map(style => style.id)).size === MAP_BUILTIN_BASEMAPS.length);
+    assert.equal(getBuiltinBasemap('missing'), MAP_BUILTIN_BASEMAPS[0], 'unknown ids fall back to the first style');
+    const demo = resolveBuiltinBasemap(getBuiltinBasemap('demo'), '白天');
+    assert.ok(demo.url.endsWith('/map-demo-day.png') && demo.ownTimeArt);
+    const single = resolveBuiltinBasemap({ id: 'x', name: 'x', url: 'https://a/x.webp' }, '夜晚');
+    assert.deepEqual(single, { url: 'https://a/x.webp', ownTimeArt: false }, 'a single image is graded by the lighting layer');
+    const timed = { id: 't', name: 't', url: 'https://a/day.webp', times: { day: 'https://a/day.webp', night: 'https://a/night.webp' } };
+    assert.deepEqual(resolveBuiltinBasemap(timed, '夜晚'), { url: 'https://a/night.webp', ownTimeArt: true });
+    assert.equal(resolveBuiltinBasemap(timed, '黄昏').url, 'https://a/day.webp', 'missing slots fall back to the day art');
+});

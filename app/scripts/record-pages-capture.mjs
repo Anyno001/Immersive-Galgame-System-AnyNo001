@@ -66,7 +66,7 @@ try {
             if (!panel) return false;
             if (panel.id !== 'igs-map-panel') return true;
             const state = window.__preview?.map?.getState?.();
-            return !!state && state.basemapState !== 'loading';
+            return !!state && state.basemapState !== 'loading' && state.generation?.status !== 'pending';
         })()`);
     }
     if (!settled) consoleErrors.push('capture: panel or basemap state did not settle in time');

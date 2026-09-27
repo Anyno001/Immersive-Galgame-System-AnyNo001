@@ -10,10 +10,20 @@ fs.mkdirSync(distRoot, { recursive: true });
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
 const graph = buildModuleGraph(entryFile);
-const mapSourcePath = '../../../fixtures/record-pages/assets/map-demo-clean-night.png';
 const compiled = renderBundle(graph, moduleId(entryFile));
-if (!compiled.includes(mapSourcePath)) throw new Error('Map image path is missing from bundle.');
-const bundle = inlineTypewriterAudio(inlineDialogThemeAssets(compiled.replace(mapSourcePath, './maps/map-demo-clean-night.png')));
+// 地图底图：源码里以相对路径引用的图片（内置 map-demo 与 assets/map-styles 下的自带款式）统一改写为 ./maps/<文件名> 并随 bundle 发布。
+const MAP_ASSET_DIRS = {
+    'fixtures/record-pages/assets': path.join(appRoot, 'fixtures', 'record-pages', 'assets'),
+    'assets/map-styles': path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'map-styles'),
+};
+const MAP_ASSET_RE = /(?:\.\.?\/)+(fixtures\/record-pages\/assets|assets\/map-styles)\/([\w.-]+\.(?:png|webp|jpe?g))/g;
+const mapAssets = new Map();
+const mapped = compiled.replace(MAP_ASSET_RE, (_match, dir, file) => {
+    mapAssets.set(file, path.join(MAP_ASSET_DIRS[dir], file));
+    return `./maps/${file}`;
+});
+if (!mapAssets.has('map-demo-clean-night.png')) throw new Error('Map image path is missing from bundle.');
+const bundle = inlineTypewriterAudio(inlineDialogThemeAssets(mapped));
 
 const roundedFontWeights = [300, 400, 500, 700];
 const dialogFontAssets = [
@@ -109,6 +119,10 @@ for (const variant of ['dawn', 'day', 'dusk', 'night', 'minight']) {
         throw new Error(`Bundled map image is missing or invalid: ${source}`);
     }
     fs.copyFileSync(source, path.join(mapTargetDir, sourceName));
+}
+for (const [file, source] of mapAssets) {
+    if (!fs.existsSync(source)) throw new Error(`Bundled map image is missing: ${source}`);
+    fs.copyFileSync(source, path.join(mapTargetDir, file));
 }
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');

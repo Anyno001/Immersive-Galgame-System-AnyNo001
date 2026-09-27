@@ -4095,10 +4095,11 @@ test('gate:simulation:map-viewport-generates-a-per-chat-city-and-lights-it-by-ti
     const html = () => document.getElementById('igs-map-panel').innerHTML;
     const basemap = () => html().match(/<img class="igs-map-basemap" src="([^"]+)"/)?.[1];
     const settle = async () => { for (let i = 0; i < 600 && panel.getState().generation.status === 'pending'; i++) await new Promise(r => setTimeout(r, 5)); };
-    const act = async action => {
-        assert.match(html(), new RegExp(`data-map-act="${action}"`), `${action} control should be rendered`);
+    const act = async (action, id = '') => {
+        assert.match(html(), new RegExp(`data-map-act="${action}"${id ? ` data-map-id="${id}"` : ''}`), `${action} control should be rendered`);
         const target = document.createElement('button');
         target.setAttribute('data-map-act', action);
+        target.setAttribute('data-map-id', id);
         const root = document.getElementById('igs-map-panel');
         root.appendChild(target);
         await root.dispatchEvent({ type: 'click', target });
@@ -4114,7 +4115,10 @@ test('gate:simulation:map-viewport-generates-a-per-chat-city-and-lights-it-by-ti
     assert.equal(first.status, 'ready');
     assert.equal(first.scale, 'city');
     assert.match(basemap(), /^data:image\/png;base64,generated-/);
-    assert.match(html(), /自动生成的示意地图/);
+    assert.match(html(), /data-map-act="basemap-source" data-map-id="auto" aria-pressed="true">生成地图/);
+    assert.match(html(), /data-map-act="basemap-source" data-map-id="builtin" aria-pressed="false">自带底图/);
+    assert.match(html(), /已固定 · 第 1 张/);
+    assert.doesNotMatch(html(), /data-map-act="reroll-back"/, 'no previous map before the first reroll');
     assert.match(html(), /igs-map-light-tint/, 'night tints the generated map');
     assert.match(html(), /igs-map-light-lamps/, 'night turns on generated street lights');
     assert.match(html(), /igs-map-light-clouds/, 'rain adds cloud shadows');
@@ -4130,6 +4134,11 @@ test('gate:simulation:map-viewport-generates-a-per-chat-city-and-lights-it-by-ti
     await settle();
     const rerolled = panel.getState().generation.key;
     assert.notEqual(rerolled, first.key, 'reroll produces another city for this chat');
+    assert.match(html(), /已固定 · 第 2 张/);
+    await act('reroll-back');
+    assert.equal(panel.getState().generation.key, first.key, 'going back restores the previous city from cache');
+    await act('reroll');
+    await settle();
     panel.close();
 
     chatId = 'chat-b';
@@ -4142,12 +4151,15 @@ test('gate:simulation:map-viewport-generates-a-per-chat-city-and-lights-it-by-ti
     chatId = 'chat-a';
     panel.open(overlay, {}, '临河街道', '12:00', '');
     assert.equal(panel.getState().generation.key, rerolled, 'the reroll is remembered per conversation');
-    await act('basemap-source');
-    assert.equal(panel.getState().basemapSource, 'demo');
+    await act('basemap-source', 'builtin');
+    assert.equal(panel.getState().basemapSource, 'builtin');
+    assert.match(html(), /款式：都市/);
+    assert.doesNotMatch(html(), /已固定/);
     assert.ok(basemap().endsWith('/map-demo-day.png'), 'the bundled demo map follows a clock time');
     assert.doesNotMatch(html(), /igs-map-light-tint/, 'bundled time art is not graded twice');
-    await act('basemap-source');
+    await act('basemap-source', 'auto');
     assert.equal(panel.getState().basemapSource, 'auto');
+    assert.equal(panel.getState().generation.key, rerolled, 'switching back keeps the pinned city');
     panel.close();
 
     panel.open(overlay, {}, '一楼', '12:00', '');
@@ -4232,17 +4244,37 @@ test('gate:simulation:map-panel-navigates-read-only-sheets-refreshes-and-cleans-
     assert.equal(panel.getState().model.tables[0].locations[2].name, '新房间');
     await act('back');
     assert.equal(panel.getState().parentId, 'sheet_map:home');
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /igs-map-levels[\s\S]*data-map-act="level" data-map-id=""[\s\S]*aria-current="page">我家</);
+    assert.doesNotMatch(document.getElementById('igs-map-panel').innerHTML, /igs-map-overlay-top"><button/, 'level navigation lives in the detail panel, not over the map');
+    await act('level', 'sheet_map:room');
+    assert.equal(panel.getState().parentId, 'sheet_map:home', 'level jumps only go up the current path');
+    await act('level', '');
+    assert.equal(panel.getState().parentId, null);
+    assert.doesNotMatch(document.getElementById('igs-map-panel').innerHTML, /igs-map-levels/, 'top layer has no breadcrumb');
+    panel.close();
+    // 当前地点在子层（新房间）时，顶层标出包含它的“我家”，详情默认展示它并可直接进入。
+    assert.equal(panel.open(overlay, {}, '新房间').ok, true);
+    assert.equal(panel.getState().parentId, 'sheet_map:floor');
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /aria-current="page">一楼/);
+    await act('level', '');
+    const top = document.getElementById('igs-map-panel').innerHTML;
+    assert.match(top, /igs-map-marker igs-map-current[\s\S]*你在这里 · 新房间/);
+    assert.match(top, /查看我家（你在这里 · 新房间）/);
+    assert.match(top, /data-map-act="enter" data-map-id="sheet_map:home"/);
+    await act('enter', 'sheet_map:home');
+    assert.equal(panel.getState().parentId, 'sheet_map:home');
+    assert.match(document.getElementById('igs-map-panel').innerHTML, /你在这里 · 新房间/, 'the floor containing the room is marked too');
     panel.close();
     assert.equal(callbacks.size, 0);
     assert.equal(document.getElementById('igs-map-panel'), null);
-    assert.equal(restoredFocus, 1);
+    assert.equal(restoredFocus, 2);
     assert.equal(panel.open(overlay, {}, '').ok, true);
     assert.equal(callbacks.size, 1);
     assert.ok(reads >= 2);
     const backdrop = document.getElementById('igs-map-panel');
     await backdrop.dispatchEvent({ type: 'click', target: backdrop });
     assert.equal(callbacks.size, 0);
-    assert.equal(restoredFocus, 2);
+    assert.equal(restoredFocus, 3);
     assert.equal(document.getElementById('igs-map-panel'), null);
 });
 

@@ -112,6 +112,18 @@ export function getMapChildren(table, parentId = null) {
         .sort((a, b) => a.order - b.order || a.rowIndex - b.rowIndex);
 }
 
+// 从近到远列出上级地点 ID（不含自身）；父级循环在建模时已切断，这里仍设上限防御。
+export function mapAncestors(table, id) {
+    const byId = new Map((table && table.locations || []).map(loc => [loc.id, loc]));
+    const chain = [];
+    let cursor = byId.get(id)?.parentId || null;
+    while (cursor && !chain.includes(cursor) && chain.length < 64) {
+        chain.push(cursor);
+        cursor = byId.get(cursor)?.parentId || null;
+    }
+    return chain;
+}
+
 export function locateMapScene(model, sceneName) {
     const name = String(sceneName || '').trim();
     if (!name) return { location: null, ambiguous: false };
