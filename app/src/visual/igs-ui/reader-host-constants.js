@@ -133,7 +133,7 @@ export const SETTINGS_PANEL_REQUIRED_SELECTORS = Object.freeze([
     '#igs-unified-settings',
     '.igs-settings-shell',
     '.igs-settings-head',
-    '.igs-settings-theme-toggle',
+    '.igs-settings-theme-switch',
     '.igs-settings-tabs',
     '.igs-settings-body',
     '.igs-segmented',

@@ -1,7 +1,7 @@
 import { DEFAULT_VIRTUAL_REGEX } from '../../scene/message-source.js';
 import { cloneData } from './reader-value-utils.js';
 import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-constants.js';
-import { getNextSettingsTheme } from './settings-theme.js';
+import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { loadScenePresets, saveScenePresets } from '../../scene/scene-preset-store.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
@@ -59,9 +59,13 @@ export async function handleSettingsAction(action, ctx) {
     const normalizedAction = String(action || '').trim();
     const settingsState = state.activeSettings;
 
-    if (normalizedAction === 'toggle-settings-theme') {
+    if (normalizedAction === 'toggle-settings-theme' || normalizedAction.startsWith('set-settings-theme:')) {
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        bridge.settingsTheme = getNextSettingsTheme(bridge.settingsTheme);
+        const nextTheme = normalizedAction === 'toggle-settings-theme'
+            ? getNextSettingsTheme(bridge.settingsTheme)
+            : normalizeSettingsTheme(normalizedAction.slice('set-settings-theme:'.length));
+        if (nextTheme === bridge.settingsTheme) return rerenderSettings();
+        bridge.settingsTheme = nextTheme;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();

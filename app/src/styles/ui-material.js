@@ -39,9 +39,14 @@ export function igsUiSurface(thickness, theme = 'night') {
 // 从左上向右下渐隐，避免规则纹路铺满整页。各界面只调尺度与浓度。
 export const IGS_UI_LIQUID_KEYFRAMES = '@keyframes igs-ui-liquid{0%,100%{transform:translate3d(-1.5%,-1%,0)}50%{transform:translate3d(1.5%,1%,0)}}';
 
-export function igsUiLiquidRule(selector, opacity = 1, { tile = false } = {}) {
-    const artwork = `background-image:${IGS_CAUSTIC_ART};background-position:left top;background-size:var(--igs-ui-caustic-size,640px) var(--igs-ui-caustic-size,640px);background-repeat:${tile ? 'repeat' : 'no-repeat'};`;
-    const fade = tile
+// tint：把焦散当遮罩、用纯色填充，纹路颜色随主题高亮色走，而不是固定白线。
+export function igsUiLiquidRule(selector, opacity = 1, { tile = false, tint = '' } = {}) {
+    const size = 'var(--igs-ui-caustic-size,640px) var(--igs-ui-caustic-size,640px)';
+    const repeat = tile ? 'repeat' : 'no-repeat';
+    const artwork = tint
+        ? `background-color:${tint};-webkit-mask-image:${IGS_CAUSTIC_ART};mask-image:${IGS_CAUSTIC_ART};-webkit-mask-position:left top;mask-position:left top;-webkit-mask-size:${size};mask-size:${size};-webkit-mask-repeat:${repeat};mask-repeat:${repeat};`
+        : `background-image:${IGS_CAUSTIC_ART};background-position:left top;background-size:${size};background-repeat:${repeat};`;
+    const fade = tile || tint
         ? ''
         : '-webkit-mask-image:linear-gradient(135deg,#000 0%,rgba(0,0,0,.82) 42%,transparent 88%);mask-image:linear-gradient(135deg,#000 0%,rgba(0,0,0,.82) 42%,transparent 88%);';
     return `${selector}{content:"";position:absolute;inset:-4%;z-index:0;pointer-events:none;${artwork}${fade}opacity:${opacity};animation:igs-ui-liquid 60s ease-in-out infinite;will-change:transform;}

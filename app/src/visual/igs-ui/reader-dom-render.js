@@ -331,7 +331,7 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     const overlay = doc.createElement('div');
     overlay.id = 'igs-unified-settings';
     overlay.setAttribute('data-igs-igs-ui', 'true');
-    overlay.setAttribute('data-igs-settings-theme', snapshot.settingsTheme || 'landmine');
+    overlay.setAttribute('data-igs-settings-theme', snapshot.settingsTheme || 'cream');
 
     const shell = doc.createElement('div');
     shell.className = 'igs-settings-shell';
@@ -349,14 +349,12 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     title.textContent = '设置';
     head.appendChild(title);
 
-    const themeToggle = doc.createElement('button');
-    themeToggle.className = 'igs-settings-theme-toggle';
-    themeToggle.type = 'button';
-    themeToggle.setAttribute('data-action', 'toggle-settings-theme');
-    themeToggle.setAttribute('aria-label', snapshot.settingsThemeLabel || '切换设置配色');
-    themeToggle.setAttribute('title', snapshot.settingsThemeLabel || '切换设置配色');
-    themeToggle.innerHTML = snapshot.settingsThemeIcon || '';
-    head.appendChild(themeToggle);
+    const themeSwitch = doc.createElement('div');
+    themeSwitch.className = 'igs-settings-theme-switch';
+    themeSwitch.setAttribute('role', 'radiogroup');
+    themeSwitch.setAttribute('aria-label', '设置配色');
+    themeSwitch.innerHTML = snapshot.settingsThemeSwitch || '';
+    head.appendChild(themeSwitch);
 
     const headSpacer = doc.createElement('div');
     headSpacer.className = 'igs-settings-head-spacer';

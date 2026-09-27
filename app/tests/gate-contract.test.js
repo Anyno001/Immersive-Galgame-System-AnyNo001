@@ -726,8 +726,8 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     const shell = getSettingsShellTemplate();
 
     assert.match(shell, /igs-settings-shell/);
-    assert.match(shell, /data-action="toggle-settings-theme"/);
-    assert.match(shell, /settingsThemeIcon/);
+    assert.match(shell, /igs-settings-theme-switch/);
+    assert.match(shell, /settingsThemeSwitch/);
     assert.match(shell, /igs-settings-tabs/);
     assert.match(shell, /igs-settings-body/);
 
@@ -872,8 +872,8 @@ test('gate:igs-ui:settings-style-keeps-material-language', () => {
         'flatBackdrop',
         'activeTab',
         'mainTabsEqual',
-        'themeToggle',
-        'themeToggleIcon',
+        'themeSwitch',
+        'themeSwatch',
         'sceneSettingsSubTabs',
         'sceneSettingsSubTabActive',
         'readerSubTabs',

@@ -36,8 +36,8 @@ import {
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
 } from './settings-tabs.js';
-import { getReaderModeIcon, getSettingsThemeIcon } from './icons.js';
-import { getNextSettingsTheme, getSettingsThemeLabel, normalizeSettingsTheme } from './settings-theme.js';
+import { getReaderModeIcon } from './icons.js';
+import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import {
     DEFAULT_IMAGE_API,
     DIALOG_FONT_OPTIONS,
@@ -1993,8 +1993,6 @@ export function createIgsReaderHost(options = {}) {
         const sceneSettingsSubTab = tab === 'scene' ? normalizeSceneSettingsSubTab(settingsState.asyncState.sceneSettingsSubTab) : null;
         const sceneSubTab = tab === 'scene' ? normalizeSceneSubTab(settingsState.asyncState.sceneSubTab) : null;
         const settingsTheme = normalizeSettingsTheme(draft.bridge.settingsTheme);
-        const nextSettingsTheme = getNextSettingsTheme(settingsTheme);
-        const settingsThemeLabel = getSettingsThemeLabel(settingsTheme);
         const body = renderSettingsBody(tab, draft, settingsState.asyncState);
         const tabsHtml = SETTINGS_TAB_DEFS.map(([id, label]) => {
             return `<button type="button" class="igs-settings-tab${tab === id ? ' is-active' : ''}" data-tab="${id}">${label}</button>`;
@@ -2007,8 +2005,7 @@ export function createIgsReaderHost(options = {}) {
             sceneSettingsSubTab,
             sceneSubTab,
             settingsTheme,
-            settingsThemeIcon: getSettingsThemeIcon(nextSettingsTheme),
-            settingsThemeLabel,
+            settingsThemeSwitch: renderSettingsThemeSwitch(settingsTheme),
             selectors: Array.from(SETTINGS_PANEL_REQUIRED_SELECTORS),
             tabs: SETTINGS_TAB_DEFS.map(([id, label]) => ({
                 id,
@@ -2022,8 +2019,7 @@ export function createIgsReaderHost(options = {}) {
                 version: esc(options.version || '0.5.4'),
                 tabs: tabsHtml,
                 body,
-                settingsThemeIcon: getSettingsThemeIcon(nextSettingsTheme),
-                settingsThemeLabel,
+                settingsThemeSwitch: renderSettingsThemeSwitch(settingsTheme),
             })}</div>`,
             resultText: {
                 image: settingsState.asyncState.imageResult || '',

@@ -1458,13 +1458,14 @@ test('gate:scene:legacy-default-prompt-upgrades-without-touching-custom-rule', (
 });
 
 test('gate:settings:theme-cycle-persists-through-settings-action-and-migrates-legacy-values', async () => {
-    assert.equal(normalizeSettingsTheme(), 'landmine');
+    assert.equal(normalizeSettingsTheme(), 'cream');
+    assert.equal(normalizeSettingsTheme('bogus'), 'cream');
     assert.equal(normalizeSettingsTheme('night'), 'landmine');
     assert.equal(normalizeSettingsTheme('day'), 'cream');
-    assert.equal(getNextSettingsTheme('landmine'), 'cream');
     assert.equal(getNextSettingsTheme('cream'), 'light');
-    assert.equal(getNextSettingsTheme('light'), 'dark');
-    assert.equal(getNextSettingsTheme('dark'), 'landmine');
+    assert.equal(getNextSettingsTheme('light'), 'landmine');
+    assert.equal(getNextSettingsTheme('landmine'), 'dark');
+    assert.equal(getNextSettingsTheme('dark'), 'cream');
     const draft = { bridge: { settingsTheme: 'night' }, readerSettings: {} };
     let persistCount = 0;
     const ctx = {
@@ -1476,11 +1477,16 @@ test('gate:settings:theme-cycle-persists-through-settings-action-and-migrates-le
         buildRegexPreview: () => '',
     };
     await handleSettingsAction('toggle-settings-theme', ctx);
-    assert.equal(draft.bridge.settingsTheme, 'cream');
+    assert.equal(draft.bridge.settingsTheme, 'dark');
     assert.equal(persistCount, 1);
-    await handleSettingsAction('toggle-settings-theme', ctx);
+    await handleSettingsAction('set-settings-theme:light', ctx);
     assert.equal(draft.bridge.settingsTheme, 'light');
     assert.equal(persistCount, 2);
+    await handleSettingsAction('set-settings-theme:light', ctx);
+    assert.equal(persistCount, 2);
+    await handleSettingsAction('set-settings-theme:bogus', ctx);
+    assert.equal(draft.bridge.settingsTheme, 'cream');
+    assert.equal(persistCount, 3);
 });
 
 test('gate:settings:generated-asset-actions-manage-library-and-temp-status', async () => {

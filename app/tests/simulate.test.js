@@ -2296,21 +2296,18 @@ test('gate:simulation:settings-theme-cycle-persists-all-four-themes', async () =
     const opened = await vn.openLatestAvailable('pc');
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     const initial = settings.getSnapshot();
-    assert.equal(initial.settingsTheme, 'landmine');
-    assert.match(initial.html, /data-igs-settings-theme="landmine"/);
-    assert.match(initial.html, /切换到奶油风/);
+    assert.equal(initial.settingsTheme, 'cream');
+    assert.match(initial.html, /data-igs-settings-theme="cream"/);
+    for (const theme of ['cream', 'light', 'landmine', 'dark']) {
+        assert.match(initial.html, new RegExp(`data-action="set-settings-theme:${theme}"`));
+    }
+    assert.match(initial.html, /igs-settings-theme-option is-active"[^>]*data-theme="cream"/);
 
-    const expected = [
-        ['cream', '浅色'],
-        ['light', '深色'],
-        ['dark', '地雷色'],
-        ['landmine', '奶油风'],
-    ];
-    for (const [theme, nextLabel] of expected) {
-        const toggled = await settings.invoke('toggle-settings-theme');
-        assert.equal(toggled.snapshot.settingsTheme, theme);
-        assert.match(toggled.snapshot.html, new RegExp(`data-igs-settings-theme="${theme}"`));
-        assert.match(toggled.snapshot.html, new RegExp(`切换到${nextLabel}`));
+    for (const theme of ['landmine', 'dark', 'light', 'cream', 'landmine']) {
+        const picked = await settings.invoke(`set-settings-theme:${theme}`);
+        assert.equal(picked.snapshot.settingsTheme, theme);
+        assert.match(picked.snapshot.html, new RegExp(`data-igs-settings-theme="${theme}"`));
+        assert.match(picked.snapshot.html, new RegExp(`is-active"[^>]*data-theme="${theme}"`));
         assert.equal(JSON.parse(storage.getItem('igs_bridge_config') || '{}').settingsTheme, theme);
     }
     assert.equal(settings.close().ok, true);

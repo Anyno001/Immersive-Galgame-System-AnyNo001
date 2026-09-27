@@ -2,7 +2,7 @@ const SETTINGS_SHELL_TEMPLATE = `
 <div class="igs-settings-shell" role="dialog" aria-modal="true" aria-label="设置">
   <div class="igs-settings-head">
     <div class="igs-settings-title">设置</div>
-    <button class="igs-settings-theme-toggle" data-action="toggle-settings-theme" type="button" aria-label="{{settingsThemeLabel}}" title="{{settingsThemeLabel}}">{{settingsThemeIcon}}</button>
+    <div class="igs-settings-theme-switch" role="radiogroup" aria-label="设置配色">{{settingsThemeSwitch}}</div>
     <div class="igs-settings-head-spacer"></div>
     <div class="igs-settings-badge">{{version}}</div>
     <button class="igs-settings-close" data-action="close" aria-label="关闭">×</button>
