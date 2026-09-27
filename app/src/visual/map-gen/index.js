@@ -4,7 +4,7 @@ import { generateCitySteps } from './city.js';
 import { renderCitySteps, renderLightSteps } from './render-canvas.js';
 
 // 升级生成算法或画风时加一，旧缓存与旧种子序列随之失效。
-export const MAP_GEN_VERSION = 1;
+export const MAP_GEN_VERSION = 2;
 export const MAP_GEN_WORLD = Object.freeze({ width: 1600, height: 900 });
 
 const round4 = value => Math.round(Number(value) * 10000) / 10000;

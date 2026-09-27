@@ -84,3 +84,14 @@ export function polylineAngle(points, i) {
     const b = points[Math.min(points.length - 1, i + 1)];
     return Math.atan2(b[1] - a[1], b[0] - a[0]);
 }
+
+// 噪声扰动的圆形轮廓（湖、池塘）；squash 压扁纵向，俯视时更像水面。
+export function blobPolygon(x, y, radius, squash, phase, noise, count = 36) {
+    const polygon = [];
+    for (let k = 0; k < count; k++) {
+        const angle = (k / count) * Math.PI * 2;
+        const r = radius * (1 + 0.2 * noise(Math.cos(angle) * 1.3 + phase, Math.sin(angle) * 1.3));
+        polygon.push([Math.round((x + Math.cos(angle) * r) * 10) / 10, Math.round((y + Math.sin(angle) * r * squash) * 10) / 10]);
+    }
+    return polygon;
+}

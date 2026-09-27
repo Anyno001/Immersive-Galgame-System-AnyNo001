@@ -1,28 +1,32 @@
 import { createRandom, createNoise2D } from './seed-random.js';
 import { classifyMapPlace, MAP_WATER_CATEGORIES } from './place-semantics.js';
-import { dist, nearestOnPolyline, smoothPath, pointInPolygon, polylineAngle } from './geometry.js';
+import { dist, nearestOnPolyline, smoothPath, pointInPolygon, polylineAngle, blobPolygon } from './geometry.js';
+import { getMapTheme } from './themes.js';
+import {
+    MAP_GEN_CELL, F_WATER, F_ROAD, F_CLEAR, F_RAIL, F_BANK, F_OUT,
+    Z_WATER, Z_SAND, Z_PARK, Z_GROVE, Z_FOREST, Z_DENSE, Z_SUBURB, Z_VILLAGE, Z_RURAL,
+    createGrid, cellIndex, cellCenter, flagAt, zoneAt, urbanAt, stamp, stampPath, fineStampPath,
+} from './city-grid.js';
+import { createTensorField, createPointHash, traceLevel, joinDeadEnds, seedCandidates } from './city-roads.js';
+import { planLots, planCars, planBoats } from './city-lots.js';
+import { planParks, planWildTrees, planStreetTrees } from './city-green.js';
 
-export const MAP_GEN_CELL = 8;
-const F_WATER = 1;
-const F_ROAD = 2;
-const F_CLEAR = 4;
-const F_BUILT = 8;
-const F_PATH = 16;
-const F_RAIL = 32;
-const F_OUT = 128;
-const BLOCKED = F_WATER | F_ROAD | F_CLEAR | F_RAIL;
-const MAIN_WIDTH = 16;
-const EXTRA_WIDTH = 12;
-const STREET_WIDTH = 7;
+export { MAP_GEN_CELL };
+const ARTERIAL_WIDTH = 14;
+const LINK_WIDTH = 9;
+const STREET_STEP = 6;
 
 const LANDMARK_CLEARANCE = Object.freeze({
     school: 64, park: 16, shrine: 28, station: 40, tower: 38, castle: 72, hospital: 38,
     public: 40, commercial: 34, residential: 26, generic: 28, sea: 18, river: 18, lake: 0,
 });
-const DENSE_CATEGORIES = Object.freeze(['commercial', 'station', 'public', 'hospital', 'tower', 'castle']);
-const PARK_CATEGORIES = Object.freeze(['park', 'shrine']);
+// 地点对周边建筑密度的加成（只影响建筑，不影响路网，保证新增地点不牵动远处街道）。
+const ANCHOR_URBAN = Object.freeze({
+    commercial: 0.38, station: 0.4, public: 0.3, hospital: 0.3, tower: 0.32, castle: 0.26, residential: 0.2, school: 0.14, generic: 0.14,
+});
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
 // 城市尺度几何：先定指针（锚点），再让水系、道路、街区与建筑绕开锚点生长。
 // 输出为纯数据，不含函数与 DOM，渲染器与光照层都只读它。
@@ -38,6 +42,7 @@ function* generateCitySteps(input) {
     const H = input.height;
     const root = createRandom(input.seed);
     const noise = createNoise2D(root.fork('noise').seed);
+    const theme = input.theme || 'modern';
     const anchors = (input.points || []).map((point, index) => ({
         id: String(point.id ?? index),
         name: String(point.name ?? ''),
@@ -47,9 +52,9 @@ function* generateCitySteps(input) {
     }));
     const grid = createGrid(W, H);
     const scene = {
-        width: W, height: H, theme: input.theme || 'modern', cell: MAP_GEN_CELL,
-        sea: null, rivers: [], lakes: [], mainRoads: [], streets: [], rails: [], bridges: [],
-        lawn: [], paths: [], plazas: [], pads: [], buildings: [], trees: [], landmarks: [], lights: [],
+        width: W, height: H, theme, cell: MAP_GEN_CELL,
+        sea: null, rivers: [], lakes: [], ponds: [], mainRoads: [], streets: [], lanes: [], paths: [], rails: [], bridges: [],
+        ground: null, fields: [], parking: [], courts: [], buildings: [], trees: [], landmarks: [], cars: [], boats: [], lights: [],
     };
     const land = anchors.filter(a => !MAP_WATER_CATEGORIES.includes(a.category));
 
@@ -59,58 +64,32 @@ function* generateCitySteps(input) {
     yield 'water-grid';
     for (const a of anchors) a.wet = Boolean(flagAt(grid, a.x, a.y) & F_WATER);
 
+    planZones(scene, anchors, grid, root.fork('zones'), noise, getMapTheme(theme));
     planRails(scene, anchors, grid, root.fork('rail'), W, H);
-    planMainRoads(scene, anchors, grid, root.fork('roads'), W, H);
-    planLandmarks(scene, anchors, grid, root.fork('landmarks'));
+    yield 'zones';
+
+    const field = createTensorField(W, H, root.fork('field'), noise, scene);
+    const roads = planRoadNetwork(scene, grid, field, root.fork('roads'), W, H);
     yield 'roads';
-    const districts = planDistricts(anchors, grid, root.fork('districts'), noise, scene, W, H);
-    yield 'districts';
-    planStreetsAndBuildings(scene, districts, grid, root);
-    yield 'blocks';
-    planParks(scene, districts, grid, root, noise);
+
+    planLandmarks(scene, anchors, grid, field, root.fork('landmarks'));
+    const entrances = cutStreets(scene, grid, roads.streets, scene.mainRoads);
+    planLinks(scene, anchors, grid, field, root.fork('links'));
+    trimParallel(scene, grid);
+    finishRoads(scene, grid);
+    yield 'links';
+
+    planParks(scene, grid, entrances, root.fork('parks'), noise, field);
+    yield 'parks';
+    planLots(scene, grid, root.fork('lots'), getMapTheme(theme));
+    yield 'lots';
     planStreetTrees(scene, grid, root.fork('street-trees'));
+    planWildTrees(scene, grid, root.fork('trees'), noise);
+    planCars(scene, grid, root.fork('cars'));
+    planBoats(scene, grid, root.fork('boats'));
     planLights(scene, root.fork('lights'));
+    scene.ground = { cols: grid.cols, rows: grid.rows, zone: Array.from(grid.zone), urban: Array.from(grid.urban, v => Math.round(v * 100) / 100) };
     return scene;
-}
-
-function createGrid(W, H) {
-    const cols = Math.ceil(W / MAP_GEN_CELL);
-    const rows = Math.ceil(H / MAP_GEN_CELL);
-    return { cols, rows, flags: new Uint8Array(cols * rows), district: new Int16Array(cols * rows).fill(-1) };
-}
-
-function cellIndex(grid, x, y) {
-    const c = Math.floor(x / MAP_GEN_CELL);
-    const r = Math.floor(y / MAP_GEN_CELL);
-    if (c < 0 || r < 0 || c >= grid.cols || r >= grid.rows) return -1;
-    return r * grid.cols + c;
-}
-
-function flagAt(grid, x, y) {
-    const index = cellIndex(grid, x, y);
-    return index < 0 ? F_OUT : grid.flags[index];
-}
-
-function districtAt(grid, x, y) {
-    const index = cellIndex(grid, x, y);
-    return index < 0 ? -1 : grid.district[index];
-}
-
-function stamp(grid, x, y, radius, flag) {
-    const half = MAP_GEN_CELL / 2;
-    const c0 = Math.max(0, Math.floor((x - radius) / MAP_GEN_CELL));
-    const c1 = Math.min(grid.cols - 1, Math.floor((x + radius) / MAP_GEN_CELL));
-    const r0 = Math.max(0, Math.floor((y - radius) / MAP_GEN_CELL));
-    const r1 = Math.min(grid.rows - 1, Math.floor((y + radius) / MAP_GEN_CELL));
-    for (let r = r0; r <= r1; r++) {
-        for (let c = c0; c <= c1; c++) {
-            if (dist(c * MAP_GEN_CELL + half, r * MAP_GEN_CELL + half, x, y) <= radius + half * 0.5) grid.flags[r * grid.cols + c] |= flag;
-        }
-    }
-}
-
-function stampPath(grid, points, radius, flag) {
-    for (const [x, y] of points) stamp(grid, x, y, radius, flag);
 }
 
 // ---------- 水系 ----------
@@ -179,13 +158,13 @@ function planRiver(riverAnchors, land, rng, noise, W, H, seaSide) {
         }
         control.push(end);
         const path = smoothPath(control, 12);
-        const baseHalf = rng.range(34, 50) * scale;
+        const baseHalf = rng.range(30, 44) * scale;
         const phase = rng.range(0, 100);
-        const halfs = path.map((_, i) => baseHalf * (1 + 0.28 * noise(i * 0.045 + phase, 9.1)));
+        const halfs = path.map((_, i) => baseHalf * (1 + 0.22 * noise(i * 0.04 + phase, 9.1)));
         let score = rng.next() * 4;
         for (const a of land) {
             const near = nearestOnPolyline(a.x, a.y, path);
-            const clearance = halfs[near.index] + 42;
+            const clearance = halfs[near.index] + 46;
             if (near.distance < clearance) score += 2000 + (clearance - near.distance) * 40;
         }
         for (const a of riverAnchors) {
@@ -195,56 +174,128 @@ function planRiver(riverAnchors, land, rng, noise, W, H, seaSide) {
         if (!best || score < best.score) best = { score, path, halfs };
     }
     if (!best) return null;
-    // 仍压到陆上锚点时就地收窄为溪流，而不是挪动用户指定的坐标。
-    for (let i = 0; i < best.path.length; i++) {
+    // 仍压到陆上锚点时就地收窄为溪流，而不是挪动用户指定的坐标；收窄处前后平滑过渡，不出现突变的豁口。
+    const halfs = best.halfs.map((h, i) => {
         const [x, y] = best.path[i];
-        for (const a of land) best.halfs[i] = Math.min(best.halfs[i], dist(x, y, a.x, a.y) - 34);
-        best.halfs[i] = Math.max(best.halfs[i], 9);
-    }
-    const narrow = best.halfs.filter(h => h <= 9).length / best.halfs.length;
+        let value = h;
+        for (const a of land) value = Math.min(value, dist(x, y, a.x, a.y) - 38);
+        return Math.max(value, 9);
+    });
+    const eased = halfs.map((_, i) => {
+        let min = Infinity;
+        for (let k = -4; k <= 4; k++) {
+            const j = clamp(i + k, 0, halfs.length - 1);
+            min = Math.min(min, halfs[j] + Math.abs(k) * 2.5);
+        }
+        return min;
+    });
+    const narrow = eased.filter(h => h <= 9).length / eased.length;
     if (narrow > 0.25 && !riverAnchors.length) return null;
-    return { points: best.path, halfs: best.halfs.map(h => Math.round(h * 10) / 10) };
+    return { points: best.path, halfs: eased.map(h => Math.round(h * 10) / 10) };
 }
 
 function planLake(anchor, anchors, rng, noise) {
     let radius = rng.range(46, 78);
     for (const other of anchors) if (other !== anchor) radius = Math.min(radius, dist(other.x, other.y, anchor.x, anchor.y) - 40);
     radius = Math.max(radius, 22);
-    const phase = rng.range(0, 100);
-    const polygon = [];
-    for (let k = 0; k < 32; k++) {
-        const angle = (k / 32) * Math.PI * 2;
-        const r = radius * (1 + 0.22 * noise(Math.cos(angle) * 1.3 + phase, Math.sin(angle) * 1.3));
-        polygon.push([anchor.x + Math.cos(angle) * r, anchor.y + Math.sin(angle) * r * 0.82]);
+    return { x: anchor.x, y: anchor.y, r: Math.round(radius), polygon: blobPolygon(anchor.x, anchor.y, radius, 0.82, rng.range(0, 100), noise) };
+}
+
+// 返回 'river' | 'still'（海、湖）| ''：主干道只架桥跨河，不横穿湖面和海面。
+function waterKind(scene, x, y) {
+    if (scene.sea && pointInPolygon(x, y, scene.sea.polygon)) return 'still';
+    for (const lake of scene.lakes) if (pointInPolygon(x, y, lake.polygon)) return 'still';
+    for (const river of scene.rivers) {
+        const near = nearestOnPolyline(x, y, river.points);
+        if (near.distance < river.halfs[near.index]) return 'river';
     }
-    return { x: anchor.x, y: anchor.y, polygon };
+    return '';
 }
 
 function rasterizeWater(scene, grid) {
-    const half = MAP_GEN_CELL / 2;
+    for (let i = 0; i < grid.flags.length; i++) {
+        const [x, y] = cellCenter(grid, i);
+        const kind = waterKind(scene, x, y);
+        if (kind) grid.flags[i] |= F_WATER;
+        if (kind === 'still') grid.still[i] = 1;
+    }
+    markBanks(grid);
+}
+
+// 水岸一圈留作河堤 / 护岸：房子不贴水，岸线读起来干净。
+function markBanks(grid) {
     for (let r = 0; r < grid.rows; r++) {
         for (let c = 0; c < grid.cols; c++) {
-            const x = c * MAP_GEN_CELL + half;
-            const y = r * MAP_GEN_CELL + half;
-            let wet = Boolean(scene.sea && pointInPolygon(x, y, scene.sea.polygon));
-            for (const river of scene.rivers) {
-                if (wet) break;
-                const near = nearestOnPolyline(x, y, river.points);
-                wet = near.distance < river.halfs[near.index];
+            const i = r * grid.cols + c;
+            if (grid.flags[i] & F_WATER) continue;
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    const rr = r + dr;
+                    const cc = c + dc;
+                    if (rr >= 0 && cc >= 0 && rr < grid.rows && cc < grid.cols && (grid.flags[rr * grid.cols + cc] & F_WATER)) grid.flags[i] |= F_BANK;
+                }
             }
-            for (const lake of scene.lakes) if (!wet) wet = pointInPolygon(x, y, lake.polygon);
-            if (wet) grid.flags[r * grid.cols + c] |= F_WATER;
         }
     }
 }
 
-// ---------- 交通 ----------
+// ---------- 用地分区 ----------
 
-function waterFraction(grid, ax, ay, bx, by) {
-    let wet = 0;
-    for (let k = 1; k < 16; k++) if (flagAt(grid, ax + (bx - ax) * k / 16, ay + (by - ay) * k / 16) & F_WATER) wet++;
-    return wet / 15;
+// 城区强度 urban 与绿意 green 只由种子决定（路网据此加密或放疏）；地点只在分区时额外加成建筑密度、圈出公园与神社林。
+function planZones(scene, anchors, grid, rng, noise, pal) {
+    const W = grid.W;
+    const H = grid.H;
+    const reach = 0.5 * Math.hypot(W, H) * (pal.urban || 0.9);
+    const cores = [{ x: W * rng.range(0.36, 0.64), y: H * rng.range(0.36, 0.64), r: reach * rng.range(0.85, 1.1) }];
+    if (rng.chance(0.65)) cores.push({ x: W * rng.range(0.12, 0.88), y: H * rng.range(0.15, 0.85), r: reach * rng.range(0.35, 0.6) });
+    const uo = rng.range(0, 100);
+    const go = rng.range(0, 100);
+    const discs = [];
+    for (const a of anchors) {
+        if (a.wet) continue;
+        const local = rng.fork(`disc:${a.id}`);
+        if (a.category === 'park') discs.push({ x: a.x, y: a.y, r: local.range(80, 125), zone: Z_PARK, phase: local.range(0, 50) });
+        if (a.category === 'shrine') discs.push({ x: a.x, y: a.y, r: local.range(58, 84), zone: Z_GROVE, phase: local.range(0, 50) });
+        if (a.category === 'castle') discs.push({ x: a.x, y: a.y, r: local.range(86, 104), zone: Z_PARK, phase: local.range(0, 50) });
+    }
+    const beachBand = scene.sea ? (scene.sea.beach ? 30 : 10) : 0;
+    for (let i = 0; i < grid.flags.length; i++) {
+        const [x, y] = cellCenter(grid, i);
+        let u = 0;
+        for (const core of cores) u = Math.max(u, 1.08 - dist(x, y, core.x, core.y) / core.r);
+        u = clamp(u + 0.24 * noise.fbm(x * 0.0028 + uo, y * 0.0028 - uo, 3), 0, 1);
+        const g = noise.fbm(x * 0.0021 - go, y * 0.0021 + go, 3);
+        grid.urban[i] = u;
+        grid.green[i] = g;
+        if (grid.flags[i] & F_WATER) { grid.zone[i] = Z_WATER; continue; }
+        if (beachBand && nearestOnPolyline(x, y, scene.sea.coast).distance < beachBand) { grid.zone[i] = Z_SAND; continue; }
+        const disc = discs.find(d => dist(x, y, d.x, d.y) < d.r * (1 + 0.22 * noise(Math.atan2(y - d.y, x - d.x) * 1.2 + d.phase, 3.1)));
+        if (disc) { grid.zone[i] = disc.zone; continue; }
+        const nearAnchor = anchors.some(a => !a.wet && dist(x, y, a.x, a.y) < 70);
+        if (isWild(u, g) && !nearAnchor) { grid.zone[i] = Z_FOREST; continue; }
+        if (isCityPark(u, g) || riversideGreen(scene, x, y, u)) { grid.zone[i] = Z_PARK; continue; }
+        let v = u;
+        for (const a of anchors) {
+            const boost = ANCHOR_URBAN[a.category];
+            if (boost && !a.wet) v += boost * Math.exp(-((dist(x, y, a.x, a.y) / 170) ** 2));
+        }
+        grid.zone[i] = v >= 0.72 ? Z_DENSE : v >= 0.34 ? Z_SUBURB : v >= 0.17 ? Z_VILLAGE : Z_RURAL;
+    }
 }
+
+const isWild = (u, g) => g - 0.62 * u > 0.12;
+const isCityPark = (u, g) => u > 0.3 && g - 0.3 * u > 0.16;
+
+function riversideGreen(scene, x, y, u) {
+    if (u > 0.86) return false;
+    for (const river of scene.rivers) {
+        const near = nearestOnPolyline(x, y, river.points);
+        if (near.distance - river.halfs[near.index] < 26) return true;
+    }
+    return false;
+}
+
+// ---------- 交通 ----------
 
 function splitBridges(scene, points, width, grid, kind) {
     let run = null;
@@ -285,82 +336,229 @@ function planRails(scene, anchors, grid, rng, W, H) {
     stampPath(grid, best.points, 10, F_RAIL);
 }
 
-function planMainRoads(scene, anchors, grid, rng, W, H) {
-    const nodes = anchors.filter(a => !a.wet).map(a => ({ key: a.id, x: a.x, y: a.y }));
-    const seaSide = scene.sea?.side;
-    const sides = SIDES.filter(side => side !== seaSide);
-    const exitCount = rng.int(3, 5);
-    for (let k = 0; k < exitCount; k++) {
-        const side = rng.pick(sides);
-        const t = rng.range(0.15, 0.85);
-        const point = side === 'top' ? { x: t * W, y: -30 } : side === 'bottom' ? { x: t * W, y: H + 30 }
-            : side === 'left' ? { x: -30, y: t * H } : { x: W + 30, y: t * H };
-        if (!(flagAt(grid, clamp(point.x, 1, W - 1), clamp(point.y, 1, H - 1)) & F_WATER)) nodes.push({ ...point, key: `exit:${k}`, exit: true });
+// 主干道与街道都沿张量场追踪：主干道间距大、可以架桥过河；街道按城区强度加密，遇水与野林止步。
+function planRoadNetwork(scene, grid, field, rng, W, H) {
+    const scale = Math.min(W, H) / 900;
+    const wild = (x, y) => {
+        const i = cellIndex(grid, x, y);
+        return i >= 0 && isWild(grid.urban[i], grid.green[i]);
+    };
+    // 图外没有栅格，改用水系几何判断：河道在图外还延伸一段，不能让道路从那里穿过去。
+    const water = (x, y) => {
+        const i = cellIndex(grid, x, y);
+        if (i < 0) return waterKind(scene, x, y);
+        return !(grid.flags[i] & F_WATER) ? '' : grid.still[i] ? 'still' : 'river';
+    };
+    const wet = (x, y) => Boolean(water(x, y));
+    const arterialHash = createPointHash(W, H, 24);
+    const arterialSep = 250 * scale;
+    const arterials = traceLevel({
+        field, W, H, step: 8, maxSteps: 420, minLength: 160 * scale, dsep: () => arterialSep, testRatio: 0.55,
+        blocked: (x, y) => { const kind = water(x, y); return kind === 'river' ? 'water' : kind; }, bridgeMax: 150 * scale, hash: arterialHash,
+        candidates: seedCandidates(W, H, 230 * scale, rng.fork('arterial-seeds')),
+    });
+    if (!arterials.length) {
+        // 退化：水面占满或场过于扭曲时，至少留一条横穿全图的主路。
+        const points = [];
+        for (let x = -20; x <= W + 20; x += 8) points.push([x, H / 2]);
+        arterials.push({ id: 0, family: 0, points, stops: ['edge', 'edge'] });
+        for (const [x, y] of points) arterialHash.add(x, y, 0, 0);
     }
-    if (nodes.filter(n => !n.exit).length === 0) nodes.push({ key: 'center', x: W * rng.range(0.4, 0.6), y: H * rng.range(0.4, 0.6) });
-    const cost = (a, b) => dist(a.x, a.y, b.x, b.y) * (1 + 6 * waterFraction(grid, a.x, a.y, b.x, b.y));
-    const inTree = new Set([0]);
-    const edges = [];
-    while (inTree.size < nodes.length) {
-        let best = null;
-        for (const i of inTree) {
-            for (let j = 0; j < nodes.length; j++) {
-                if (inTree.has(j)) continue;
-                const value = cost(nodes[i], nodes[j]);
-                if (!best || value < best.value) best = { i, j, value };
+    for (const line of arterials) {
+        scene.mainRoads.push({ points: line.points, width: ARTERIAL_WIDTH, kind: 'arterial' });
+        splitBridges(scene, line.points, ARTERIAL_WIDTH, grid, 'road');
+    }
+    const streetHash = createPointHash(W, H, 16);
+    const dsep = (x, y) => (50 + 88 * (1 - smooth(0.12, 0.9, urbanAt(grid, x, y)))) * scale;
+    const queue = [];
+    for (const line of arterials) {
+        for (let i = 4; i < line.points.length - 4; i += 6) queue.push([line.points[i][0], line.points[i][1], 1 - line.family]);
+    }
+    const streets = traceLevel({
+        field, W, H, step: STREET_STEP, maxSteps: 150, minLength: 36 * scale, dsep, testRatio: 0.56,
+        blocked: (x, y) => (wet(x, y) || (flagAt(grid, x, y) & F_BANK) ? 'water' : wild(x, y) ? 'wild' : ''), hash: streetHash, avoid: [arterialHash],
+        candidates: seedCandidates(W, H, 46 * scale, rng.fork('street-seeds')), queue, idBase: 10000,
+    });
+    joinDeadEnds(streets, [streetHash, arterialHash], { radius: 64 * scale, step: STREET_STEP, blocked: (x, y) => wet(x, y) || Boolean(flagAt(grid, x, y) & F_BANK) });
+    return { arterials, streets };
+}
+
+// 街道裁切：地标净空、公园 / 神社林 / 野林内部、与铁路或主干道平行重叠的段落删去；公园边的断点记为入口。
+function cutStreets(scene, grid, lines, mainRoads) {
+    const W = grid.W;
+    const H = grid.H;
+    const mainHash = createPointHash(W, H, 24);
+    mainRoads.forEach((road, id) => road.points.forEach((p, i) => mainHash.add(p[0], p[1], id, 0, polylineAngle(road.points, i))));
+    const railAngle = scene.rails[0]?.angle;
+    const entrances = [];
+    for (const line of lines) {
+        const keep = line.points.map((p, i) => {
+            const flags = flagAt(grid, p[0], p[1]);
+            if (flags & F_OUT) return !waterKind(scene, p[0], p[1]);
+            if (flags & (F_CLEAR | F_WATER | F_BANK)) return false;
+            const zone = zoneAt(grid, p[0], p[1]);
+            if (zone === Z_PARK || zone === Z_GROVE || zone === Z_FOREST || zone === Z_SAND) return false;
+            const angle = polylineAngle(line.points, i);
+            if ((flags & F_RAIL) && Math.abs(Math.sin(angle - railAngle)) < 0.6) return false;
+            let parallel = false;
+            mainHash.each(p[0], p[1], ARTERIAL_WIDTH / 2 + 7, (x, y, id, fam, a) => (parallel = Math.abs(Math.sin(angle - a)) < 0.45));
+            return !parallel;
+        });
+        let start = -1;
+        for (let i = 0; i <= line.points.length; i++) {
+            if (i < line.points.length && keep[i]) { if (start < 0) start = i; continue; }
+            if (start >= 0) {
+                const run = line.points.slice(start, i);
+                // 不足 24px 的碎段（多是铁路、地标边的残余）直接丢掉。
+                if (run.length >= 5) {
+                    scene.streets.push({ key: `${line.id}`, offset: start * STREET_STEP, points: run });
+                    for (const [edge, next] of [[start, start - 1], [i - 1, i]]) {
+                        const p = line.points[next];
+                        const zone = p ? zoneAt(grid, p[0], p[1]) : 0;
+                        if (zone === Z_PARK) entrances.push({ x: line.points[edge][0], y: line.points[edge][1], cell: cellIndex(grid, p[0], p[1]) });
+                    }
+                }
+                start = -1;
             }
         }
-        inTree.add(best.j);
-        edges.push([best.i, best.j, MAIN_WIDTH]);
     }
-    const linked = new Set(edges.map(([i, j]) => `${Math.min(i, j)}:${Math.max(i, j)}`));
-    for (let i = 0; i < nodes.length; i++) {
-        // 每个节点、每条边各用独立子流：新增地点不会改变其他道路的走向与弯曲。
-        if (nodes[i].exit || !rng.fork(`extra:${nodes[i].key}`).chance(0.45)) continue;
-        let near = null;
-        for (let j = 0; j < nodes.length; j++) {
-            if (i === j || linked.has(`${Math.min(i, j)}:${Math.max(i, j)}`)) continue;
-            const d = dist(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
-            if (d < 0.5 * Math.max(W, H) && (!near || d < near.d)) near = { j, d };
+    // 城区强度低的街道画成田间小路。
+    const streets = [];
+    for (const street of scene.streets) {
+        const u = street.points.reduce((sum, p) => sum + urbanAt(grid, p[0], p[1]), 0) / street.points.length;
+        const rural = street.points.filter(p => zoneAt(grid, p[0], p[1]) === Z_RURAL).length / street.points.length;
+        if (u < 0.17 || rural > 0.6) scene.lanes.push(street);
+        else streets.push(street);
+    }
+    scene.streets = streets;
+    return entrances;
+}
+
+// 地点接入：沿张量场朝最近的主干道 / 街道追一段，得到与街网同向的支路；追不到再直连。
+function planLinks(scene, anchors, grid, field, rng) {
+    const W = grid.W;
+    const H = grid.H;
+    const targets = createPointHash(W, H, 16);
+    const list = [];
+    const addTarget = (x, y, weight) => { targets.add(x, y, list.length, 0, weight); list.push([x, y, weight]); };
+    for (const road of scene.mainRoads) for (const p of road.points) addTarget(p[0], p[1], 1);
+    for (const street of [...scene.streets, ...scene.lanes]) for (let i = 0; i < street.points.length; i += 2) addTarget(street.points[i][0], street.points[i][1], 1.3);
+    const wet = (x, y) => Boolean(flagAt(grid, x, y) & F_WATER);
+    for (const a of anchors) {
+        if (a.wet || a.category === 'lake') continue;
+        let best = null;
+        for (const [x, y, weight] of list) {
+            const d = dist(a.x, a.y, x, y);
+            if (!best || d * weight < best.cost) best = { x, y, d, cost: d * weight };
         }
-        if (near) {
-            linked.add(`${Math.min(i, near.j)}:${Math.max(i, near.j)}`);
-            edges.push([i, near.j, EXTRA_WIDTH]);
+        let points = null;
+        if (!best) {
+            points = [[a.x, a.y], [a.x + 1, a.y]];
+        } else if (best.d < 3) {
+            points = [[a.x, a.y], [best.x, best.y]];
+        } else {
+            const want = [(best.x - a.x) / best.d, (best.y - a.y) / best.d];
+            const options = [];
+            for (const family of [0, 1]) {
+                const d = field.dir(a.x, a.y, family);
+                for (const sign of [1, -1]) {
+                    const dot = (d[0] * want[0] + d[1] * want[1]) * sign;
+                    if (dot > 0.35) options.push({ family, sign, dot });
+                }
+            }
+            options.sort((p, q) => q.dot - p.dot);
+            for (const option of options.slice(0, 2)) {
+                const traced = traceLink(a, option, field, targets, wet, Math.ceil(best.d * 1.7 / STREET_STEP) + 4);
+                if (traced && (!points || traced.length < points.length)) points = traced;
+            }
+            if (!points) {
+                const len = best.d;
+                const bend = rng.fork(`bend:${a.id}`).range(-0.08, 0.08) * len;
+                const nx = -(best.y - a.y) / len;
+                const ny = (best.x - a.x) / len;
+                points = smoothPath([[a.x, a.y], [(a.x + best.x) / 2 + nx * bend, (a.y + best.y) / 2 + ny * bend], [best.x, best.y]], STREET_STEP);
+            }
         }
+        points = points.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
+        points[0] = [a.x, a.y];
+        scene.mainRoads.push({ points, width: LINK_WIDTH, kind: 'link', id: a.id });
+        splitBridges(scene, points, LINK_WIDTH, grid, 'road');
+        for (const p of points) addTarget(p[0], p[1], 1);
     }
-    for (const [i, j, width] of edges) {
-        const a = nodes[i];
-        const b = nodes[j];
-        const len = dist(a.x, a.y, b.x, b.y);
-        const nx = -(b.y - a.y) / (len || 1);
-        const ny = (b.x - a.x) / (len || 1);
-        const bend = rng.fork(`bend:${[a.key, b.key].sort().join('|')}`).range(-0.09, 0.09) * len;
-        const points = smoothPath([[a.x, a.y], [(a.x + b.x) / 2 + nx * bend, (a.y + b.y) / 2 + ny * bend], [b.x, b.y]], 8);
-        scene.mainRoads.push({ points, width });
-        splitBridges(scene, points, width, grid, 'road');
-        stampPath(grid, points, width / 2 + 4, F_ROAD);
+}
+
+function traceLink(a, option, field, targets, wet, maxSteps) {
+    const pts = [[a.x, a.y]];
+    let [dx, dy] = field.dir(a.x, a.y, option.family);
+    dx *= option.sign; dy *= option.sign;
+    let x = a.x;
+    let y = a.y;
+    for (let k = 0; k < maxSteps; k++) {
+        let d = field.dir(x, y, option.family);
+        if (d[0] * dx + d[1] * dy < 0) d = [-d[0], -d[1]];
+        if (d[0] * dx + d[1] * dy < 0.8) return null;
+        x += d[0] * STREET_STEP;
+        y += d[1] * STREET_STEP;
+        dx = d[0]; dy = d[1];
+        if (wet(x, y)) return null;
+        let hit = null;
+        if (k > 1) targets.each(x, y, 7, (px, py, id, fam, w, dd) => { if (!hit || dd < hit.d) hit = { x: px, y: py, d: dd }; return false; });
+        pts.push([x, y]);
+        if (hit) { pts.push([hit.x, hit.y]); return pts; }
     }
+    return null;
+}
+
+// 支路与街道平行重叠时去掉街道那段，避免两条路叠画成一条粗线。
+function trimParallel(scene, grid) {
+    const links = scene.mainRoads.filter(road => road.kind === 'link');
+    if (!links.length) return;
+    const hash = createPointHash(grid.W, grid.H, 16);
+    links.forEach((road, id) => road.points.forEach((p, i) => hash.add(p[0], p[1], id, 0, polylineAngle(road.points, i))));
+    for (const key of ['streets', 'lanes']) {
+        const out = [];
+        for (const street of scene[key]) {
+            let run = [];
+            let runStart = 0;
+            const flush = end => {
+                if (run.length >= 4) out.push({ ...street, offset: street.offset + runStart * STREET_STEP, points: run });
+                run = [];
+                runStart = end + 1;
+            };
+            street.points.forEach((p, i) => {
+                const angle = polylineAngle(street.points, i);
+                let parallel = false;
+                hash.each(p[0], p[1], LINK_WIDTH / 2 + 6, (x, y, id, fam, a) => (parallel = Math.abs(Math.sin(angle - a)) < 0.5));
+                if (parallel) flush(i);
+                else run.push(p);
+            });
+            flush(street.points.length);
+        }
+        scene[key] = out;
+    }
+}
+
+function finishRoads(scene, grid) {
+    for (const road of scene.mainRoads) {
+        stampPath(grid, road.points, road.width / 2 + 3, F_ROAD);
+        fineStampPath(grid, road.points, road.width / 2 + 1.8);
+    }
+    // 细网格按路面外沿（含路缘描边）盖章，临街地块从这里起算退线。
+    for (const street of scene.streets) { stampPath(grid, street.points, 5, F_ROAD); fineStampPath(grid, street.points, 4.7); }
+    for (const lane of scene.lanes) { stampPath(grid, lane.points, 3.5, F_ROAD); fineStampPath(grid, lane.points, 2.8); }
+    for (const rail of scene.rails) fineStampPath(grid, rail.points, 10);
 }
 
 // ---------- 地标 ----------
 
-function roadAngleNear(scene, x, y, fallback) {
-    let best = null;
-    for (const road of [...scene.rails, ...scene.mainRoads]) {
-        const near = nearestOnPolyline(x, y, road.points);
-        if (near.distance < 220 && (!best || near.distance < best.distance)) best = { distance: near.distance, angle: polylineAngle(road.points, near.index) };
-    }
-    return best ? best.angle : fallback;
-}
-
-function planLandmarks(scene, anchors, grid, rng) {
+function planLandmarks(scene, anchors, grid, field, rng) {
     for (const a of anchors) {
         const local = rng.fork(`landmark:${a.id}`);
         if (a.category === 'lake' || a.wet) continue;
         const kind = a.category === 'sea' || a.category === 'river'
             ? (/港|码头|渡口/.test(a.name) ? 'pier' : 'shore') : a.category;
-        const angle = kind === 'station' ? (scene.rails[0]?.angle ?? 0) : roadAngleNear(scene, a.x, a.y, local.range(0, Math.PI));
-        const landmark = { kind, id: a.id, x: a.x, y: a.y, angle, variant: local.int(0, 2) };
+        const angle = kind === 'station' ? (scene.rails[0]?.angle ?? 0) : field.angle(a.x, a.y);
+        const landmark = { kind, id: a.id, x: a.x, y: a.y, angle: Math.round(angle * 1000) / 1000, variant: local.int(0, 2) };
         if (kind === 'pier') landmark.angle = pierAngle(grid, a.x, a.y);
         scene.landmarks.push(landmark);
         const clearance = LANDMARK_CLEARANCE[a.category] ?? LANDMARK_CLEARANCE.generic;
@@ -379,290 +577,20 @@ function pierAngle(grid, x, y) {
     return best.angle;
 }
 
-// ---------- 街区 ----------
-
-function planDistricts(anchors, grid, rng, noise, scene, W, H) {
-    const seeds = [];
-    for (const a of anchors) {
-        if (a.wet) continue;
-        const kind = PARK_CATEGORIES.includes(a.category) ? 'park' : DENSE_CATEGORIES.includes(a.category) ? 'dense' : 'residential';
-        seeds.push({ key: `a:${a.id}`, x: a.x, y: a.y, kind, angle: roadAngleNear(scene, a.x, a.y, noise(a.x * 0.0015, a.y * 0.0015) * Math.PI * 0.5) });
-    }
-    // 填充种子取自只依赖随机种子的抖动网格：新增锚点只会剔除它附近的填充点，远处街区保持不变。
-    const step = 190;
-    for (let gy = 0; gy * step < H + step; gy++) {
-        for (let gx = 0; gx * step < W + step; gx++) {
-            const local = rng.fork(`filler:${gx}:${gy}`);
-            const x = (gx + local.range(0.15, 0.85)) * step - step * 0.3;
-            const y = (gy + local.range(0.15, 0.85)) * step - step * 0.3;
-            if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
-            if (flagAt(grid, clamp(x, 1, W - 1), clamp(y, 1, H - 1)) & F_WATER) continue;
-            if (anchors.some(a => dist(a.x, a.y, x, y) < 120)) continue;
-            const green = noise(x * 0.0022 + 17, y * 0.0022 - 4);
-            const central = dist(x, y, W / 2, H / 2) < Math.min(W, H) * 0.32;
-            const kind = green > 0.5 ? 'park' : central && local.chance(0.55) ? 'dense' : 'residential';
-            seeds.push({ key: `f:${gx}:${gy}`, x, y, kind, angle: noise(x * 0.0015, y * 0.0015) * Math.PI * 0.5 + local.range(-0.1, 0.1) });
-        }
-    }
-    const half = MAP_GEN_CELL / 2;
-    for (let r = 0; r < grid.rows; r++) {
-        for (let c = 0; c < grid.cols; c++) {
-            const index = r * grid.cols + c;
-            if (grid.flags[index] & F_WATER) continue;
-            const x = c * MAP_GEN_CELL + half;
-            const y = r * MAP_GEN_CELL + half;
-            const wx = x + noise(x * 0.012, y * 0.012 + 50) * 24;
-            const wy = y + noise(x * 0.012 - 50, y * 0.012) * 24;
-            let best = -1;
-            let bestD = Infinity;
-            for (let s = 0; s < seeds.length; s++) {
-                const d = (seeds[s].x - wx) ** 2 + (seeds[s].y - wy) ** 2;
-                if (d < bestD) { bestD = d; best = s; }
-            }
-            grid.district[index] = best;
-        }
-    }
-    return seeds.map((seed, index) => {
-        const local = rng.fork(`district:${seed.key}`);
-        const dense = seed.kind === 'dense';
-        return {
-            ...seed, index, rng: local,
-            sx: dense ? local.range(66, 86) : local.range(58, 74),
-            sy: dense ? local.range(46, 60) : local.range(40, 50),
-            cos: Math.cos(seed.angle), sin: Math.sin(seed.angle),
-        };
-    });
-}
-
-function districtCells(grid, index) {
-    const cells = [];
-    for (let i = 0; i < grid.district.length; i++) if (grid.district[i] === index) cells.push(i);
-    return cells;
-}
-
-const toWorld = (d, u, v) => [d.x + u * d.cos - v * d.sin, d.y + u * d.sin + v * d.cos];
-
-function frameBounds(d, grid, cells) {
-    const half = MAP_GEN_CELL / 2;
-    let umin = Infinity; let umax = -Infinity; let vmin = Infinity; let vmax = -Infinity;
-    for (const index of cells) {
-        const x = (index % grid.cols) * MAP_GEN_CELL + half - d.x;
-        const y = Math.floor(index / grid.cols) * MAP_GEN_CELL + half - d.y;
-        const u = x * d.cos + y * d.sin;
-        const v = -x * d.sin + y * d.cos;
-        umin = Math.min(umin, u); umax = Math.max(umax, u); vmin = Math.min(vmin, v); vmax = Math.max(vmax, v);
-    }
-    return { umin: umin - MAP_GEN_CELL, umax: umax + MAP_GEN_CELL, vmin: vmin - MAP_GEN_CELL, vmax: vmax + MAP_GEN_CELL };
-}
-
-function streetRuns(d, grid, fixed, isU, from, to) {
-    const runs = [];
-    let run = [];
-    for (let t = from; t <= to + 0.001; t += 6) {
-        const [x, y] = isU ? toWorld(d, fixed, t) : toWorld(d, t, fixed);
-        const ok = districtAt(grid, x, y) === d.index && !(flagAt(grid, x, y) & (F_WATER | F_RAIL | F_CLEAR));
-        if (ok) run.push([Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
-        if (!ok || t + 6 > to + 0.001) {
-            if (run.length >= 5) runs.push(run);
-            run = [];
-        }
-    }
-    return runs;
-}
-
-function lotFits(grid, d, u, v, w, h) {
-    for (const [du, dv] of [[0, 0], [-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) {
-        const [x, y] = toWorld(d, u + du * w, v + dv * h);
-        if (districtAt(grid, x, y) !== d.index || (flagAt(grid, x, y) & (BLOCKED | F_OUT))) return false;
-    }
-    return true;
-}
-
-function addTree(scene, grid, x, y, r, tone) {
-    if (flagAt(grid, x, y) & (BLOCKED | F_OUT | F_PATH)) return false;
-    scene.trees.push({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, r: Math.round(r * 10) / 10, tone });
-    const index = cellIndex(grid, x, y);
-    if (index >= 0) grid.flags[index] |= F_BUILT;
-    return true;
-}
-
-function planStreetsAndBuildings(scene, districts, grid, root) {
-    for (const d of districts) {
-        if (d.kind === 'park') continue;
-        const cells = districtCells(grid, d.index);
-        if (!cells.length) continue;
-        const b = frameBounds(d, grid, cells);
-        const rng = root.fork(`blocks:${d.key}`);
-        const i0 = Math.floor(b.umin / d.sx);
-        const i1 = Math.ceil(b.umax / d.sx);
-        const j0 = Math.floor(b.vmin / d.sy);
-        const j1 = Math.ceil(b.vmax / d.sy);
-        for (let i = i0; i <= i1; i++) for (const run of streetRuns(d, grid, i * d.sx, true, b.vmin, b.vmax)) scene.streets.push({ points: run });
-        for (let j = j0; j <= j1; j++) for (const run of streetRuns(d, grid, j * d.sy, false, b.umin, b.umax)) scene.streets.push({ points: run });
-        const inset = STREET_WIDTH / 2 + 3;
-        for (let i = i0; i < i1; i++) {
-            for (let j = j0; j < j1; j++) {
-                const u0 = i * d.sx + inset;
-                const u1 = (i + 1) * d.sx - inset;
-                const v0 = j * d.sy + inset;
-                const v1 = (j + 1) * d.sy - inset;
-                const bw = u1 - u0;
-                const bh = v1 - v0;
-                const roll = rng.next();
-                if (d.kind === 'residential' && roll < 0.09) {
-                    for (let k = rng.int(2, 4); k > 0; k--) {
-                        const [x, y] = toWorld(d, rng.range(u0 + 6, u1 - 6), rng.range(v0 + 6, v1 - 6));
-                        if (districtAt(grid, x, y) === d.index) addTree(scene, grid, x, y, rng.range(5, 8), rng.int(0, 2));
-                    }
-                    continue;
-                }
-                if (d.kind === 'dense' && roll < 0.3) {
-                    const w = bw - 2;
-                    const h = bh - 2;
-                    const cu = (u0 + u1) / 2;
-                    const cv = (v0 + v1) / 2;
-                    if (lotFits(grid, d, cu, cv, w, h)) {
-                        pushBuilding(scene, grid, d, cu, cv, w, h, 'flat', rng);
-                        pushPad(scene, d, [[cu - w / 2, cv - h / 2, cu + w / 2, cv + h / 2]]);
-                    }
-                    continue;
-                }
-                const cols = d.kind === 'dense' ? rng.int(2, 4) : rng.int(3, 5);
-                const placed = [];
-                const lotW = bw / cols;
-                const lotH = bh / 2;
-                for (let row = 0; row < 2; row++) {
-                    for (let col = 0; col < cols; col++) {
-                        if (d.kind === 'residential' && rng.chance(0.06)) continue;
-                        const gap = d.kind === 'dense' ? rng.range(1.2, 2.4) : rng.range(1.8, 3.2);
-                        const w = (lotW - gap) * rng.range(0.86, 1);
-                        const h = (lotH - gap) * (d.kind === 'dense' ? rng.range(0.9, 1) : rng.range(0.78, 0.96));
-                        const cu = u0 + (col + 0.5) * lotW;
-                        const cv = row === 0 ? v0 + h / 2 + 0.5 : v1 - h / 2 - 0.5;
-                        if (w > 6 && h > 6 && lotFits(grid, d, cu, cv, w, h)) {
-                            pushBuilding(scene, grid, d, cu, cv, w, h, 'house', rng);
-                            placed.push([cu - w / 2, cv - h / 2, cu + w / 2, cv + h / 2]);
-                        }
-                    }
-                }
-                if (placed.length) pushPad(scene, d, placed);
-                if (d.kind === 'residential' && rng.chance(0.5)) {
-                    const [x, y] = toWorld(d, (u0 + u1) / 2 + rng.range(-bw / 4, bw / 4), (v0 + v1) / 2);
-                    if (districtAt(grid, x, y) === d.index) addTree(scene, grid, x, y, rng.range(4.5, 7), rng.int(0, 2));
-                }
-            }
-        }
-    }
-}
-
-// 地块底：取本街区已落成建筑的包围盒外扩 2px，让同一街区读作一个整体。
-function pushPad(scene, d, rects) {
-    const u0 = Math.min(...rects.map(r => r[0])) - 2;
-    const v0 = Math.min(...rects.map(r => r[1])) - 2;
-    const u1 = Math.max(...rects.map(r => r[2])) + 2;
-    const v1 = Math.max(...rects.map(r => r[3])) + 2;
-    const [x, y] = toWorld(d, (u0 + u1) / 2, (v0 + v1) / 2);
-    scene.pads.push({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, w: Math.round((u1 - u0) * 10) / 10, h: Math.round((v1 - v0) * 10) / 10, angle: Math.round(d.angle * 1000) / 1000 });
-}
-
-function pushBuilding(scene, grid, d, u, v, w, h, kind, rng) {
-    const [x, y] = toWorld(d, u, v);
-    scene.buildings.push({
-        x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10,
-        angle: Math.round(d.angle * 1000) / 1000, kind, tone: rng.int(0, 5), shade: Math.round(rng.range(-1, 1) * 100) / 100,
-        dense: d.kind === 'dense',
-    });
-    const index = cellIndex(grid, x, y);
-    if (index >= 0) grid.flags[index] |= F_BUILT;
-}
-
-// ---------- 绿地 ----------
-
-function planParks(scene, districts, grid, root, noise) {
-    const half = MAP_GEN_CELL / 2;
-    for (const d of districts) {
-        if (d.kind !== 'park') continue;
-        const cells = districtCells(grid, d.index).filter(index => !(grid.flags[index] & (F_WATER | F_ROAD | F_RAIL)));
-        if (!cells.length) continue;
-        const rng = root.fork(`park:${d.key}`);
-        scene.lawn.push(...cells);
-        let cx = 0; let cy = 0;
-        for (const index of cells) { cx += (index % grid.cols) * MAP_GEN_CELL + half; cy += Math.floor(index / grid.cols) * MAP_GEN_CELL + half; }
-        cx /= cells.length; cy /= cells.length;
-        const extent = Math.sqrt(cells.length) * MAP_GEN_CELL;
-        const rx = extent * rng.range(0.28, 0.36);
-        const ry = rx * rng.range(0.55, 0.8);
-        const tilt = rng.range(0, Math.PI);
-        const loop = [];
-        for (let k = 0; k <= 64; k++) {
-            const t = (k / 64) * Math.PI * 2;
-            const ex = Math.cos(t) * rx;
-            const ey = Math.sin(t) * ry;
-            loop.push([cx + ex * Math.cos(tilt) - ey * Math.sin(tilt), cy + ex * Math.sin(tilt) + ey * Math.cos(tilt)]);
-        }
-        const cross = [];
-        for (let k = -8; k <= 8; k++) cross.push([cx + Math.cos(tilt + 1.2) * extent * 0.05 * k, cy + Math.sin(tilt + 1.2) * extent * 0.05 * k]);
-        for (const path of [loop, cross]) {
-            let run = [];
-            for (const point of path) {
-                const ok = districtAt(grid, point[0], point[1]) === d.index && !(flagAt(grid, point[0], point[1]) & (F_WATER | F_RAIL | F_CLEAR));
-                if (ok) run.push(point.map(value => Math.round(value * 10) / 10));
-                if (!ok || point === path[path.length - 1]) {
-                    if (run.length >= 4) { scene.paths.push({ points: run }); stampPath(grid, run, 3, F_PATH); }
-                    run = [];
-                }
-            }
-        }
-        if (rng.chance(0.55)) scene.plazas.push({ x: Math.round(cx), y: Math.round(cy), r: Math.round(rng.range(12, 20)) });
-        if (rng.chance(0.55)) stamp(grid, cx, cy, 20, F_PATH);
-        for (const index of cells) {
-            const x = (index % grid.cols) * MAP_GEN_CELL + half + rng.range(-3, 3);
-            const y = Math.floor(index / grid.cols) * MAP_GEN_CELL + half + rng.range(-3, 3);
-            const clump = noise(x * 0.02 + 31, y * 0.02);
-            if (clump > 0.02 && rng.chance(0.34 + clump * 0.4)) addTree(scene, grid, x, y, rng.range(5.5, 9.5), rng.int(0, 2));
-        }
-    }
-}
-
-function planStreetTrees(scene, grid, rng) {
-    for (const road of scene.mainRoads) {
-        for (let i = 0; i < road.points.length; i += 3) {
-            const angle = polylineAngle(road.points, i);
-            for (const side of [-1, 1]) {
-                const off = road.width / 2 + 8;
-                const x = road.points[i][0] - Math.sin(angle) * off * side;
-                const y = road.points[i][1] + Math.cos(angle) * off * side;
-                if (!(flagAt(grid, x, y) & F_BUILT) && rng.chance(0.8)) addTree(scene, grid, x, y, rng.range(4.5, 6), 0);
-            }
-        }
-    }
-    for (const river of scene.rivers) {
-        for (let i = 0; i < river.points.length; i += 2) {
-            const angle = polylineAngle(river.points, i);
-            for (const side of [-1, 1]) {
-                const off = river.halfs[i] + 13;
-                const x = river.points[i][0] - Math.sin(angle) * off * side;
-                const y = river.points[i][1] + Math.cos(angle) * off * side;
-                if (!(flagAt(grid, x, y) & F_BUILT) && rng.chance(0.85)) addTree(scene, grid, x, y, rng.range(5, 7), 1);
-            }
-        }
-    }
-}
-
 // ---------- 灯光（供夜间光照层使用） ----------
 
 function planLights(scene, rng) {
     const push = (x, y, r, a) => scene.lights.push({ x: Math.round(x), y: Math.round(y), r, a });
     for (const road of scene.mainRoads) {
-        for (let i = 0; i < road.points.length; i += 4) {
+        for (let i = 0; i < road.points.length; i += road.kind === 'link' ? 5 : 3) {
             const angle = polylineAngle(road.points, i);
-            const side = (i / 4) % 2 ? 1 : -1;
+            const side = (i % 2) ? 1 : -1;
             const off = road.width / 2 + 1;
             push(road.points[i][0] - Math.sin(angle) * off * side, road.points[i][1] + Math.cos(angle) * off * side, 14, 0.75);
         }
     }
     for (const street of scene.streets) {
-        for (let i = 3; i < street.points.length; i += 9) push(street.points[i][0], street.points[i][1], 10, 0.5);
+        for (let i = 3; i < street.points.length; i += 8) push(street.points[i][0], street.points[i][1], 10, 0.5);
     }
     for (const bridge of scene.bridges) {
         for (let i = 0; i < bridge.points.length; i += 3) {
@@ -674,7 +602,7 @@ function planLights(scene, rng) {
         }
     }
     for (const building of scene.buildings) {
-        if (rng.chance(building.dense ? 0.45 : 0.22)) push(building.x + rng.range(-2, 2), building.y + rng.range(-2, 2), rng.range(4, 7), building.dense ? 0.7 : 0.55);
+        if (rng.chance(building.dense ? 0.5 : 0.28)) push(building.x + rng.range(-2, 2), building.y + rng.range(-2, 2), rng.range(4, 7), building.dense ? 0.7 : 0.55);
     }
     for (const landmark of scene.landmarks) {
         for (let k = 0; k < 4; k++) {
@@ -683,6 +611,5 @@ function planLights(scene, rng) {
         }
     }
 }
-
 
 export { generateCitySteps };

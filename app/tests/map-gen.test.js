@@ -236,3 +236,77 @@ test('gate:map-gen:light-layers-respect-own-time-art', () => {
     assert.match(mapBasemapFilter(night), /brightness\([\d.]+\) saturate\([\d.]+\)/);
     assert.doesNotMatch(mapLightLayersHtml(night, { lightsUrl: '"><script>' }), /<script>/);
 });
+
+test('gate:map-gen:green-cover-and-restrained-housing', () => {
+    for (let seed = 1; seed <= 4; seed++) {
+        const scene = generateCityScene({ seed, width: W, height: H, points: PRESETS.campus });
+        const green = scene.ground.zone.filter(z => z >= 3 && z <= 5).length / scene.ground.zone.length;
+        assert.ok(green > 0.12, `#${seed} parks and woods cover a real share of the map (${green.toFixed(2)})`);
+        assert.ok(scene.trees.length > scene.buildings.length * 3, `#${seed} trees outnumber buildings`);
+        assert.ok(scene.buildings.length < 1400, `#${seed} the map is not wall-to-wall houses (${scene.buildings.length})`);
+    }
+});
+
+test('gate:map-gen:parks-have-no-crop-circles', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+        const scene = generateCityScene({ seed, width: W, height: H, points: PRESETS.campus });
+        for (const path of scene.paths) {
+            const [a, b] = [path.points[0], path.points[path.points.length - 1]];
+            const length = path.points.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - path.points[i][0], p[1] - path.points[i][1]), 0);
+            assert.ok(!(length > 60 && Math.hypot(a[0] - b[0], a[1] - b[1]) < 12), `#${seed} park paths are not closed rings`);
+        }
+    }
+});
+
+test('gate:map-gen:nothing-spills-into-rivers', () => {
+    for (let seed = 1; seed <= 8; seed++) {
+        const scene = generateCityScene({ seed, width: W, height: H, points: PRESETS.campus });
+        for (const river of scene.rivers) {
+            for (const item of [...scene.buildings, ...scene.trees, ...scene.fields, ...scene.parking]) {
+                const near = nearestOnPolyline(item.x, item.y, river.points);
+                assert.ok(near.distance >= river.halfs[near.index] + 2, `#${seed} ${item.w ? 'lot' : 'tree'} at ${item.x},${item.y} sits in the river`);
+            }
+            for (let i = 1; i < river.halfs.length; i++) {
+                assert.ok(Math.abs(river.halfs[i] - river.halfs[i - 1]) < 4, `#${seed} river width changes smoothly (no notches)`);
+            }
+        }
+        for (const street of [...scene.streets, ...scene.lanes]) {
+            for (const [x, y] of street.points) assert.ok(!isWet(scene, x, y), `#${seed} streets stop at the bank instead of running into water`);
+        }
+    }
+});
+
+test('gate:map-gen:streets-follow-one-coherent-grid', () => {
+    const angle = (points, i) => Math.atan2(points[i + 1][1] - points[i][1], points[i + 1][0] - points[i][0]);
+    for (let seed = 1; seed <= 4; seed++) {
+        const scene = generateCityScene({ seed, width: W, height: H, points: PRESETS.campus });
+        let sharp = 0;
+        let turns = 0;
+        for (const street of scene.streets) {
+            assert.ok(street.points.length >= 5, `#${seed} no stubby street fragments`);
+            for (let i = 1; i < street.points.length - 1; i++) {
+                const d = Math.abs(Math.sin(angle(street.points, i) - angle(street.points, i - 1)));
+                turns++;
+                if (d > 0.5) sharp++;
+            }
+        }
+        assert.ok(sharp / turns < 0.03, `#${seed} streets bend gently (${sharp}/${turns} sharp kinks)`);
+        const lots = [...scene.buildings, ...scene.fields, ...scene.parking];
+        for (let i = 0; i < lots.length; i++) {
+            for (let j = i + 1; j < lots.length; j++) {
+                const a = lots[i];
+                const b = lots[j];
+                if (Math.hypot(a.x - b.x, a.y - b.y) > 3) continue;
+                assert.fail(`#${seed} two lots are stacked at ${a.x},${a.y}`);
+            }
+        }
+    }
+});
+
+test('gate:map-gen:scene-carries-ground-zones-and-details', () => {
+    const scene = generateCityScene({ seed: 4, width: W, height: H, points: PRESETS.seaside });
+    assert.equal(scene.ground.zone.length, scene.ground.cols * scene.ground.rows);
+    assert.ok(scene.boats.length > 0, 'boats on the sea');
+    assert.ok(scene.cars.length > 20, 'traffic on the arterials');
+    assert.ok(scene.buildings.some(b => b.kind === 'flat') && scene.buildings.some(b => b.kind === 'house'));
+});
