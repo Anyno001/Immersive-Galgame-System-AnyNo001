@@ -135,6 +135,19 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 .igs-scene-preset-bar{display:flex;align-items:center;gap:6px;min-width:0}
 .igs-scene-preset-bar .igs-scene-preset-select{flex:1;min-width:0}
 .igs-source-filter textarea{min-height:76px}
+details.igs-settings-sub>summary{cursor:pointer;font-size:12px;color:var(--igs-settings-ink);opacity:.78;user-select:none}
+details.igs-settings-sub[open]>summary{margin-bottom:4px}
+details[data-image-feature="llm-prompts"] textarea{min-height:220px}
+.igs-image-log-list{display:flex;flex-direction:column;gap:2px;max-height:420px;overflow:auto;padding:6px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5;user-select:text}
+.igs-image-log-item{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:8px;padding:3px 4px;border-radius:4px;color:var(--igs-settings-ink)}
+.igs-image-log-time{opacity:.6;white-space:nowrap}
+.igs-image-log-level{white-space:nowrap;font-weight:600}
+.igs-image-log-msg{overflow-wrap:anywhere;white-space:pre-wrap}
+.igs-image-log-item.is-success .igs-image-log-level{color:#3f9a5b}
+.igs-image-log-item.is-warn .igs-image-log-level{color:#c08a1e}
+.igs-image-log-item.is-error{background:rgba(214,69,69,.08)}
+.igs-image-log-item.is-error .igs-image-log-level{color:#d64545}
+.igs-image-log-empty{padding:10px 4px;opacity:.6}
 .igs-body-format textarea[data-path="bridge.virtualRegex.replacement"]{min-height:132px}
 .igs-settings-row{display:flex;gap:10px;align-items:center;min-width:0}
 .igs-settings-row > *{flex:1;min-width:0}

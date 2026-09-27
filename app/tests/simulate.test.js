@@ -6061,3 +6061,33 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     assert.equal(saved.dialogSkin, 'cute-pink');
     vn.destroy();
 });
+
+test('gate:illustration:image-log-subtab-renders-and-clears', async () => {
+    const { createImageJobLog } = await import('../src/generated-images/image-job-log.js');
+    const storage = createMemoryStorage();
+    const imageJobLog = createImageJobLog({ storage });
+    const vn = bootstrapIGS({
+        imageJobLog,
+        global: { localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => null,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        imageJobLog.add('error', '第 3 楼插图规划失败，未发送生图请求：副 LLM 请求失败：<CORS>');
+        const opened = vn.openSettings({ tab: 'image', mode: 'pc' });
+        const logs = opened.controller.switchImageSubTab('logs').snapshot;
+        assert.match(logs.html, /data-image-pane="logs"/);
+        assert.match(logs.html, /data-path="bridge\.imageJobLog\.retainDays"/);
+        assert.match(logs.html, /data-action="image-log-clear"/);
+        assert.match(logs.html, /未发送生图请求/);
+        assert.match(logs.html, /&lt;CORS&gt;/);
+        await opened.controller.invoke('image-log-clear');
+        assert.equal(imageJobLog.list().length, 0);
+        assert.match(opened.controller.getSnapshot().html, /已清空 1 条日志/);
+    } finally {
+        vn.destroy();
+    }
+});

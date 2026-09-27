@@ -39,24 +39,33 @@ export function looksLikeRefusal(text) {
 export const NSFW_NEGATIVE_GUARD = 'loli, shota, child, young child, underage, toddler, aged down';
 
 // 统一的「请求 → 解析 → 拒答/失败时温和重试」流程；parse 返回 { ok, ... }。
+// 失败时 error 带上真实原因（HTTP 状态、网络/CORS、超时、拒答原文片段），方便用户排查。
+const describeError = (error) => (error && error.message) || String(error || '未知错误');
+const snippet = (text) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+
 export async function requestWithSoftRetry(llm, { system, user, softSystem, softUser, parse }, llmSettings) {
     let first = '';
+    let firstError = '';
     try {
         first = await llm.request({ system, user }, llmSettings);
         const parsed = parse(first);
         if (parsed.ok) return { ...parsed, soft: false };
     } catch (error) {
         first = '';
+        firstError = describeError(error);
     }
-    if (!softSystem || (!looksLikeRefusal(first) && first)) {
-        return { ok: false, error: '副 LLM 输出中没有可用字段', soft: false };
+    if (!softSystem || (!looksLikeRefusal(first) && first) || firstError) {
+        const error = firstError
+            ? `副 LLM 请求失败：${firstError}`
+            : (first ? `副 LLM 输出中没有可用字段：${snippet(first)}` : '副 LLM 返回为空');
+        return { ok: false, error, soft: false };
     }
     try {
         const second = await llm.request({ system: softSystem, user: softUser || user }, llmSettings);
         const parsed = parse(second);
-        return parsed.ok ? { ...parsed, soft: true } : { ok: false, error: '副 LLM 拒绝生成标签', soft: true };
+        return parsed.ok ? { ...parsed, soft: true } : { ok: false, error: `副 LLM 拒绝生成标签：${snippet(second) || '返回为空'}`, soft: true };
     } catch (error) {
-        return { ok: false, error: '副 LLM 规划失败', soft: true };
+        return { ok: false, error: `副 LLM 请求失败：${describeError(error)}`, soft: true };
     }
 }
 

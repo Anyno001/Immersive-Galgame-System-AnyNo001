@@ -64,6 +64,23 @@ const IMAGE_OTHER_TEMPLATE = `
 </div>
 `.trim();
 
+const IMAGE_LOGS_TEMPLATE = `
+<div class="igs-settings-grid" data-image-pane="logs">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">生图日志</div>
+    <div class="igs-source-filter-note">记录自动插图与素材补全每一步的进度和失败原因（副 LLM 请求、NAI 请求、跳过原因）。</div>
+    <div class="igs-source-filter-grid">{{imageLogRetainDaysField}}{{imageLogMaxEntriesField}}</div>
+    <div class="igs-settings-row">
+      <button class="igs-settings-action" data-action="image-log-refresh" type="button">刷新</button>
+      <button class="igs-settings-action" data-action="image-log-copy" type="button">复制全部</button>
+      <button class="igs-settings-action" data-action="image-log-clear" type="button">清空日志</button>
+    </div>
+    <div class="igs-settings-result" data-result="image-log">{{imageLogStatus}}</div>
+    <div class="igs-image-log-list" data-image-log-list>{{imageLogList}}</div>
+  </div>
+</div>
+`.trim();
+
 const IMAGE_AUTO_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="auto">
   <div class="igs-source-filter">
@@ -103,6 +120,13 @@ const IMAGE_AUTO_TEMPLATE = `
         {{autoLlmModelField}}
       </div>
     </div>
+    <details class="igs-settings-sub" data-image-feature="llm-prompts"{{autoLlmPromptsOpen}}>
+      <summary>副 LLM 提示词（系统提示词，清空即恢复内置）</summary>
+      <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptAssetSoftField}}</div>
+    </details>
   </div>
   <div class="igs-source-filter" data-image-feature="nai"{{autoSharedHidden}}>
     <div class="igs-source-filter-title">NovelAI · 生成图片</div>
@@ -253,6 +277,7 @@ export const SCENE_SUBTAB_DEFS = Object.freeze([
 export const IMAGE_SUBTAB_DEFS = Object.freeze([
     ['auto', '自动插图'],
     ['other', '其他生图'],
+    ['logs', '日志'],
 ]);
 
 export const READER_SUBTAB_DEFS = Object.freeze([
@@ -326,7 +351,10 @@ export function normalizeImageSubTab(subTab) {
 }
 
 export function getImageSubTabTemplate(subTab) {
-    return normalizeImageSubTab(subTab) === 'other' ? IMAGE_OTHER_TEMPLATE : IMAGE_AUTO_TEMPLATE;
+    const id = normalizeImageSubTab(subTab);
+    if (id === 'other') return IMAGE_OTHER_TEMPLATE;
+    if (id === 'logs') return IMAGE_LOGS_TEMPLATE;
+    return IMAGE_AUTO_TEMPLATE;
 }
 
 export function getSettingsTabTemplate(tab) {

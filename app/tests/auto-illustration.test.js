@@ -473,3 +473,69 @@ test('gate:illustration:settings-value-types', async () => {
     assert.equal(normalizeSettingsValue('bridge.autoIllustration.nai.scale', '5.5'), 5.5);
     assert.equal(normalizeSettingsValue('bridge.autoIllustration.llm.source', 'openai'), 'openai');
 });
+
+test('gate:illustration:failed-floor-retries-and-reports-real-error', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createSecondaryLlm } = await import('../src/host/secondary-llm.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const chat = [{ is_user: true, mes: 'hi' }, { mes: '[igs-scene:卧室|夜晚|晴|nsfw]\n她走进房间。', swipe_id: 0 }];
+    const host = {
+        readFloor: (id) => ({ chatId: 'c', messageId: id, swipeId: 0, isAi: true, isLatest: id === chat.length - 1, text: chat[id].mes }),
+        readPreviousAiTexts: () => [], writeFloor: async (id, text) => { chat[id].mes = text; return { ok: true }; },
+        ensureMarkerRegexes: async () => ({ ok: true }), getChatId: () => 'c',
+    };
+    let online = false;
+    const fetch = async () => {
+        if (!online) throw new TypeError('Failed to fetch');
+        return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'slot: 1\nat: 1\nscene: 1girl, bedroom' } }] }) };
+    };
+    const reports = [];
+    const naiCalls = [];
+    const svc = createAutoIllustrationService({
+        messageHost: host, llm: createSecondaryLlm({}, { fetch }), store: createMemoryIllustrationStore(),
+        nai: { generate: async (slot) => { naiCalls.push(slot); return { ok: true, dataUrl: 'data:image/png;base64,x' }; } },
+        getSettings: () => ({ nsfwEnabled: true, llm: { source: 'openai', endpoint: 'https://llm.example/v1', model: 'm', prompts: { illustration: 'CUSTOM' } } }),
+        report: (level, message) => reports.push({ level, message }),
+    });
+    const first = await svc.processMessage(1);
+    assert.equal(first.reason, 'plan-failed');
+    assert.match(first.error, /CORS/);
+    assert.ok(reports.some((r) => r.level === 'error' && /未发送生图请求/.test(r.message)));
+    online = true;
+    const second = await svc.processMessage(1);
+    assert.equal(second.reason, 'done');
+    assert.equal(naiCalls.length, 1);
+    assert.equal((await svc.processMessage(1)).reason, 'already-decided');
+});
+
+test('gate:illustration:custom-llm-prompt-used-and-empty-falls-back', async () => {
+    const { normalizeAutoIllustrationSettings, DEFAULT_LLM_PROMPTS } = await import('../src/generated-images/illustration/auto-illustration-settings.js');
+    const s = normalizeAutoIllustrationSettings({ llm: { prompts: { illustration: ' mine ', asset: '   ' } } });
+    assert.equal(s.llm.prompts.illustration, 'mine');
+    assert.equal(s.llm.prompts.asset, DEFAULT_LLM_PROMPTS.asset);
+    assert.equal(s.llm.prompts.illustrationSoft, DEFAULT_LLM_PROMPTS.illustrationSoft);
+});
+
+test('gate:illustration:image-job-log-retention-and-clear', async () => {
+    const { createImageJobLog, IMAGE_JOB_LOG_STORAGE_KEY } = await import('../src/generated-images/image-job-log.js');
+    const store = new Map();
+    const storage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };
+    let clock = Date.UTC(2026, 0, 10);
+    let settings = { retainDays: 1, maxEntries: 50 };
+    const log = createImageJobLog({ storage, now: () => clock, getSettings: () => settings });
+    let changes = 0;
+    log.onChange(() => { changes += 1; });
+    log.add('error', 'old');
+    clock += 2 * 24 * 60 * 60 * 1000;
+    log.add('info', 'new');
+    assert.deepEqual(log.list().map((e) => e.message), ['new']);
+    for (let i = 0; i < 60; i += 1) log.add('info', `n${i}`);
+    assert.equal(log.list().length, 50);
+    assert.equal(log.list()[0].message, 'n59');
+    const reloaded = createImageJobLog({ storage, now: () => clock, getSettings: () => settings });
+    assert.equal(reloaded.list().length, 50);
+    settings = { retainDays: 0, maxEntries: 50 };
+    assert.equal(log.clear().removed, 50);
+    assert.equal(JSON.parse(store.get(IMAGE_JOB_LOG_STORAGE_KEY)).length, 0);
+    assert.ok(changes > 0);
+});

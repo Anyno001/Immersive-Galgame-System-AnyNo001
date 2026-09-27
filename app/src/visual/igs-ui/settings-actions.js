@@ -8,6 +8,7 @@ import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
+import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry } from '../../scene/asset-match.js';
 
 const STATUS_AVATAR_MAX_BYTES = 512 * 1024;
@@ -376,6 +377,38 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.asyncState.imageModelsMessage = String(result.message || `已拉取 ${settingsState.draft.bridge.imageApi.availableModels.length} 个模型。`);
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'image-log-refresh' || normalizedAction === 'image-log-clear' || normalizedAction === 'image-log-copy') {
+        const log = options.imageJobLog;
+        if (!log || typeof log.list !== 'function') {
+            settingsState.asyncState.imageLogStatus = '当前未接入生图日志。';
+            return rerenderSettings();
+        }
+        if (normalizedAction === 'image-log-clear') {
+            const result = log.clear();
+            settingsState.asyncState.imageLogStatus = `已清空 ${result.removed} 条日志。`;
+        } else if (normalizedAction === 'image-log-copy') {
+            const text = formatImageJobLogText(log.list());
+            const root = options.global || globalThis;
+            const clipboard = root && root.navigator && root.navigator.clipboard;
+            if (!text) {
+                settingsState.asyncState.imageLogStatus = '暂无日志可复制。';
+            } else if (clipboard && typeof clipboard.writeText === 'function') {
+                try {
+                    await clipboard.writeText(text);
+                    settingsState.asyncState.imageLogStatus = '已复制全部日志到剪贴板。';
+                } catch (error) {
+                    settingsState.asyncState.imageLogStatus = '复制失败：浏览器拒绝访问剪贴板，可手动选中日志复制。';
+                }
+            } else {
+                settingsState.asyncState.imageLogStatus = '当前环境不支持剪贴板，可手动选中日志复制。';
+            }
+        } else {
+            const pruned = typeof log.prune === 'function' ? log.prune().removed : 0;
+            settingsState.asyncState.imageLogStatus = pruned ? `已按自动清理规则移除 ${pruned} 条旧日志。` : '';
+        }
         return rerenderSettings();
     }
 

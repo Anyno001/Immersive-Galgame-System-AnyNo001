@@ -39,14 +39,23 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
         if (!fetchImpl) throw new Error('当前环境无法发起网络请求');
         const headers = { 'Content-Type': 'application/json' };
         if (llm.apiKey) headers.Authorization = `Bearer ${llm.apiKey}`;
-        const response = await fetchImpl(url, {
-            method: 'POST', headers,
-            body: JSON.stringify({
-                model: llm.model, stream: false, temperature: 0.7,
-                messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-            }),
-        });
-        if (!response.ok) throw new Error(`副 LLM 返回 HTTP ${response.status}`);
+        let response;
+        try {
+            response = await fetchImpl(url, {
+                method: 'POST', headers,
+                body: JSON.stringify({
+                    model: llm.model, stream: false, temperature: 0.7,
+                    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+                }),
+            });
+        } catch (error) {
+            throw new Error(`无法连接 ${url}（网络不通或该地址不允许浏览器跨域 CORS）`);
+        }
+        if (!response.ok) {
+            let body = '';
+            try { body = String(await response.text()).replace(/\s+/g, ' ').slice(0, 160); } catch (error) { body = ''; }
+            throw new Error(`HTTP ${response.status}（${url}）${body ? `：${body}` : ''}`);
+        }
         const data = await response.json();
         return String(data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '');
     }

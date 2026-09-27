@@ -1,5 +1,5 @@
 import { numberParagraphs } from './marker-placer.js';
-import { ASSET_PLANNER_SYSTEM_PROMPT, ASSET_PLANNER_SOFT_SYSTEM_PROMPT, buildAssetPlannerUserPrompt, parseAssetPlan, buildAssetSlot, buildDictionaryAssetItems } from './asset-prompt.js';
+import { buildAssetPlannerUserPrompt, parseAssetPlan, buildAssetSlot, buildDictionaryAssetItems } from './asset-prompt.js';
 import { requestWithSoftRetry } from './prompt-kit.js';
 import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './auto-illustration-settings.js';
 import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-builder.js';
@@ -20,6 +20,7 @@ export function createAssetGenerationService(deps) {
     const { messageHost, llm, nai, store, getSettings, events } = deps;
     const matte = deps.matte || (async (dataUrl) => dataUrl);
     const now = deps.now || (() => new Date().toISOString());
+    const report = deps.report || (() => {});
     const newId = deps.newId || (() => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
     const locks = new Map();
     const images = new Map();
@@ -123,7 +124,7 @@ export function createAssetGenerationService(deps) {
         const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
         const size = isSprite ? s.auto.assets.spriteSize : s.auto.assets.backgroundSize;
         let result;
-        try { result = await nai.generate(slot, { ...s.auto.nai, size }); } catch (error) { result = { ok: false, error: 'NAI 生成失败' }; }
+        try { result = await nai.generate(slot, { ...s.auto.nai, size }); } catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
         const key = tempAssetKeyOf(floor.chatId, item.need);
         const base = {
             key, chatId: floor.chatId, floorKey, messageId: floor.messageId, swipeId: floor.swipeId,
@@ -139,6 +140,7 @@ export function createAssetGenerationService(deps) {
             record = { ...base, imageId, status: 'review' };
         } else {
             record = { ...base, imageId: '', status: 'failed', error: (result && result.error) || 'NAI 生成失败' };
+            report('error', `素材「${item.need.name}」生成失败：${record.error}`);
         }
         await store.putAsset(record);
         if (tempChatId === floor.chatId) tempRecords.set(key, record);
@@ -147,7 +149,9 @@ export function createAssetGenerationService(deps) {
     }
 
     async function run(messageId, floor, key, s) {
-        if (await store.getFloor(key)) return { ok: true, reason: 'already-decided' };
+        // 失败或中途刷新残留的 planning 不算处理完，下次渲染时重试。
+        const previous = await store.getFloor(key);
+        if (previous && previous.status === 'done') return { ok: true, reason: 'already-decided' };
         await loadTempRecords(floor.chatId);
         const numbered = numberParagraphs(floor.text);
         const needs = collectAssetNeeds(
@@ -160,13 +164,14 @@ export function createAssetGenerationService(deps) {
             return { ok: true, reason: 'nothing-missing' };
         }
         await store.putFloor(key, { status: 'planning', updatedAt: now() });
+        report('info', `第 ${messageId} 楼缺少 ${needs.length} 项素材，正在请求副 LLM…`);
         let plan;
         try {
             const previousText = messageHost.readPreviousAiTexts(messageId, s.auto.llm.contextFloors)
                 .map(toReadableText).join('\n').slice(-1500);
             plan = await requestWithSoftRetry(llm, {
-                system: ASSET_PLANNER_SYSTEM_PROMPT,
-                softSystem: ASSET_PLANNER_SOFT_SYSTEM_PROMPT,
+                system: s.auto.llm.prompts.asset,
+                softSystem: s.auto.llm.prompts.assetSoft,
                 user: buildAssetPlannerUserPrompt({ needs, readableText: toReadableText(floor.text).slice(0, 6000), previousText }),
                 parse: (reply) => parseAssetPlan(reply, needs),
             }, s.auto.llm);
@@ -175,10 +180,12 @@ export function createAssetGenerationService(deps) {
         }
         if (!plan.ok) {
             const items = buildDictionaryAssetItems(needs);
+            report('warn', `第 ${messageId} 楼素材规划失败：${plan.error}${items.length ? '，改用内置词典兜底' : ''}`);
             if (items.length) plan = { ok: true, items, fromDictionary: true };
         }
         if (!plan.ok) {
             await store.putFloor(key, { status: 'failed', error: plan.error, updatedAt: now() });
+            report('error', `第 ${messageId} 楼素材未发送生图请求：${plan.error}`);
             return { ok: false, reason: 'plan-failed', error: plan.error };
         }
         let count = 0;
@@ -187,6 +194,7 @@ export function createAssetGenerationService(deps) {
             if (record.status === 'review') count += 1;
         }
         await store.putFloor(key, { status: 'done', count, updatedAt: now() });
+        if (count) report('success', `第 ${messageId} 楼已生成 ${count} 项素材，待确认`);
         return { ok: true, reason: 'done', count };
     }
 
@@ -201,7 +209,10 @@ export function createAssetGenerationService(deps) {
         const key = floorKeyOf(floor);
         if (locks.has(key)) return locks.get(key);
         const job = run(Number(messageId), floor, key, s)
-            .catch(() => ({ ok: false, reason: 'error', error: '素材生成失败' }))
+            .catch((error) => {
+                report('error', `素材生成异常：${(error && error.message) || error}`);
+                return { ok: false, reason: 'error', error: '素材生成失败' };
+            })
             .finally(() => locks.delete(key));
         locks.set(key, job);
         return job;

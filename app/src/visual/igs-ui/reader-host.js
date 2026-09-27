@@ -148,6 +148,7 @@ import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildStatusHudModel, listStatusHudTables, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
 import { handleSettingsAction as runSettingsAction } from './settings-actions.js';
+import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { loadScenePresets } from '../../scene/scene-preset-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
 import {
@@ -213,6 +214,17 @@ export function createIgsReaderHost(options = {}) {
         ? options.onGeneratedAssetUpdated(() => {
             if (state.activeReader) rerenderActiveReader();
             if (state.activeSettings && state.activeSettings.asyncState.sceneSubTab === 'generated') rerenderSettings();
+        })
+        : () => {};
+    // 日志更新时只替换列表 DOM，不整页重渲染，避免打断正在输入的设置项。
+    const offImageJobLog = options.imageJobLog && typeof options.imageJobLog.onChange === 'function'
+        ? options.imageJobLog.onChange(() => {
+            const current = state.activeSettings;
+            if (!current || current.tab !== 'image' || normalizeImageSubTab(current.asyncState.imageSubTab) !== 'logs') return;
+            const list = current.dom && current.dom.root && current.dom.root.querySelector
+                ? current.dom.root.querySelector('[data-image-log-list]') : null;
+            if (list) list.innerHTML = renderImageJobLogList();
+            else rerenderSettings();
         })
         : () => {};
     const offIllustrationUpdated = typeof options.onIllustrationUpdated === 'function'
@@ -587,6 +599,7 @@ export function createIgsReaderHost(options = {}) {
         if (closed.ok === false) return closed;
         offIllustrationUpdated();
         offGeneratedAssetUpdated();
+        offImageJobLog();
         teardownStatusHudSubscription();
         closeReader();
         streamObserver.stop();
@@ -1136,6 +1149,13 @@ export function createIgsReaderHost(options = {}) {
             syncModeFromSettings: optionsForPersist.syncActiveModeFromSettings === true,
         });
         return result;
+    }
+
+    function renderImageJobLogList() {
+        const log = options.imageJobLog;
+        const list = log && typeof log.list === 'function' ? log.list() : [];
+        if (!list.length) return '<div class="igs-image-log-empty">暂无日志。开启自动插图或素材补全后，新回复的处理过程会记录在这里。</div>';
+        return list.map((e) => `<div class="igs-image-log-item is-${esc(e.level)}"><span class="igs-image-log-time">${esc(formatImageJobLogTime(e.at))}</span><span class="igs-image-log-level">${esc(imageJobLogLevelLabel(e.level))}</span><span class="igs-image-log-msg">${esc(e.message)}</span></div>`).join('');
     }
 
     async function handleSettingsAction(action) {
@@ -2132,7 +2152,12 @@ export function createIgsReaderHost(options = {}) {
             const openaiDisabled = auto.llm.source !== 'openai';
             const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
             const imageSubTab = normalizeImageSubTab(asyncState.imageSubTab);
+            const logSettings = normalizeImageJobLogSettings(bridge.imageJobLog);
             const imageFields = {
+                imageLogRetainDaysField: field('bridge.imageJobLog.retainDays', '自动清理：保留天数（0 为不按时间清理）', numberInput('bridge.imageJobLog.retainDays', logSettings.retainDays, 0, 30)),
+                imageLogMaxEntriesField: field('bridge.imageJobLog.maxEntries', '自动清理：最多保留条数', numberInput('bridge.imageJobLog.maxEntries', logSettings.maxEntries, 50, 1000)),
+                imageLogStatus: esc(asyncState.imageLogStatus || ''),
+                imageLogList: imageSubTab === 'logs' ? renderImageJobLogList() : '',
                 imageModeField: field('bridge.imageApi.mode', '图像模式', selectInput('bridge.imageApi.mode', imageApi.mode, [['extension', '使用现有插图扩展'], ['nai', 'IGS 内置 NAI API']])),
                 adapterField: field('bridge.imageApi.externalAdapter', '插图扩展', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', 'st-chatu8 / chatu8'], ['chami', 'chami_tavern-scene-plugin']], imageApi.mode === 'nai')),
                 extensionHidden: hiddenAttr(!apiDisabled),
@@ -2186,6 +2211,11 @@ export function createIgsReaderHost(options = {}) {
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
                 autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '留空则不发送 Authorization', openaiDisabled)),
                 autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', textInput('bridge.autoIllustration.llm.model', auto.llm.model, 'gpt-4o-mini', 'text', openaiDisabled)),
+                autoLlmPromptsOpen: asyncState.llmPromptsOpen ? ' open' : '',
+                autoLlmPromptIllustrationField: field('bridge.autoIllustration.llm.prompts.illustration', 'CG 插图规划', autoTextarea('bridge.autoIllustration.llm.prompts.illustration', auto.llm.prompts.illustration, '清空即恢复内置提示词')),
+                autoLlmPromptIllustrationSoftField: field('bridge.autoIllustration.llm.prompts.illustrationSoft', 'CG 插图规划 · 温和重试（NSFW 被拒后使用）', autoTextarea('bridge.autoIllustration.llm.prompts.illustrationSoft', auto.llm.prompts.illustrationSoft, '清空即恢复内置提示词')),
+                autoLlmPromptAssetField: field('bridge.autoIllustration.llm.prompts.asset', '素材补全规划', autoTextarea('bridge.autoIllustration.llm.prompts.asset', auto.llm.prompts.asset, '清空即恢复内置提示词')),
+                autoLlmPromptAssetSoftField: field('bridge.autoIllustration.llm.prompts.assetSoft', '素材补全规划 · 温和重试', autoTextarea('bridge.autoIllustration.llm.prompts.assetSoft', auto.llm.prompts.assetSoft, '清空即恢复内置提示词')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
                 autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆 CORS 代理（需开启 enableCorsProxy）']])),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'NAI Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, 'pst-...')),
@@ -2762,6 +2792,12 @@ export function createIgsReaderHost(options = {}) {
             if (!path) return;
             controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
         });
+        // toggle 不冒泡，用捕获阶段记住提示词折叠区的展开状态，避免重渲染后被收起。
+        root.addEventListener('toggle', (event) => {
+            const target = event.target;
+            if (!target || !target.getAttribute || target.getAttribute('data-image-feature') !== 'llm-prompts') return;
+            if (state.activeSettings && state.activeSettings.asyncState) state.activeSettings.asyncState.llmPromptsOpen = target.open === true;
+        }, true);
         root.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
                 event.preventDefault();

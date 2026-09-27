@@ -25,6 +25,7 @@ import { createPromptInjector } from '../host/prompt-injector.js';
 import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
 import { createSecondaryLlm } from '../host/secondary-llm.js';
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
+import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
 import { createAutoIllustrationService, ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
 import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
@@ -32,10 +33,24 @@ import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-sto
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.28.8';
+const IGS_VERSION = '0.28.9';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
+
+// 自动插图 / 素材补全的进度与失败原因：始终写控制台，失败与成功再按「显示提示 toast」弹出。
+function createImageJobReporter(globalObject, getBridge, log) {
+    return (level, message) => {
+        if (log && typeof log.add === 'function') log.add(level, message);
+        const logger = level === 'error' ? console.warn : console.info;
+        logger('[IGS 生图]', message);
+        if (level === 'info') return;
+        if ((getBridge() || {}).showToasts === false) return;
+        const toastr = globalObject && globalObject.toastr;
+        const type = level === 'success' ? 'success' : (level === 'warn' ? 'warning' : 'error');
+        if (toastr && typeof toastr[type] === 'function') toastr[type](message, 'IGS 生图');
+    };
+}
 
 export function bootstrapIGS(options = {}) {
     const globalObject = options.global || globalThis.window || globalThis;
@@ -59,6 +74,11 @@ export function bootstrapIGS(options = {}) {
     const illustrationMessageHost = options.illustrationMessageHost || createIllustrationMessageHost(globalObject);
     const secondaryLlm = options.secondaryLlm || createSecondaryLlm(globalObject, { fetch: options.fetch });
     const naiOfficialClient = options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch });
+    const imageJobLog = options.imageJobLog || createImageJobLog({
+        storage: storageLike,
+        getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).imageJobLog,
+    });
+    const reportImageJob = options.reportImageJob || createImageJobReporter(globalObject, () => (getUnifiedSettingsSnapshot() || {}).bridge || {}, imageJobLog);
     const illustrationService = options.illustrationService || createAutoIllustrationService({
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
@@ -67,6 +87,7 @@ export function bootstrapIGS(options = {}) {
         getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration,
         events,
         random: options.random,
+        report: reportImageJob,
     });
     const assetGenerationService = options.assetGenerationService || createAssetGenerationService({
         messageHost: illustrationMessageHost,
@@ -79,6 +100,7 @@ export function bootstrapIGS(options = {}) {
             return { autoIllustration: bridge.autoIllustration, sceneAssets: bridge.sceneAssets };
         },
         events,
+        report: reportImageJob,
     });
     const state = {
         status: 'booting',
@@ -95,6 +117,7 @@ export function bootstrapIGS(options = {}) {
         events,
         illustrations: illustrationService,
         generatedAssets: assetGenerationService,
+        imageJobLog,
         hostAdapter,
         storage: storageLike,
         presetRegistry,
@@ -123,6 +146,7 @@ export function bootstrapIGS(options = {}) {
         onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),
         generatedAssets: assetGenerationService,
         onGeneratedAssetUpdated: (handler) => events.on(GENERATED_ASSET_UPDATED_EVENT, handler),
+        imageJobLog,
         getUnifiedSettings: getUnifiedSettingsSnapshot,
         saveUnifiedSettings,
         typeAndSend,
@@ -219,6 +243,8 @@ export function bootstrapIGS(options = {}) {
         }
     }
     state.status = 'ready';
+    // 设置就绪后再按保留规则清理一次启动前遗留的旧日志。
+    if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();
     illustrationService.start();
     assetGenerationService.start();
     scheduleSceneAssetsInjection(SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS, 1);
@@ -390,6 +416,8 @@ export function bootstrapIGS(options = {}) {
             ...cloneData(nextBridge),
         };
         events.emit('igs:legacy-settings-updated', cloneData(state.legacyIgs));
+        // 用户改了日志保留天数 / 条数后立即按新规则清理。
+        if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();
         syncSceneAssetsInjectionWithRetry(1);
         return {
             ok: true,
