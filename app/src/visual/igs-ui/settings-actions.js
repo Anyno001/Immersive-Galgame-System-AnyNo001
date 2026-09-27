@@ -4,6 +4,7 @@ import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-consta
 import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { loadScenePresets, saveScenePresets } from '../../scene/scene-preset-store.js';
+import { clearMoodReview, loadMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
@@ -1114,6 +1115,45 @@ export async function handleSettingsAction(action, ctx) {
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
         }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('mood-review-accept:') || normalizedAction.startsWith('mood-review-assign:')) {
+        const accept = normalizedAction.startsWith('mood-review-accept:');
+        const word = decodeSeg(normalizedAction.slice(normalizedAction.indexOf(':') + 1));
+        const globalObj = options.global || globalThis;
+        const storage = globalObj.localStorage;
+        const item = loadMoodReview(storage).find((entry) => entry.word === word);
+        const groups = ensureMoodGroups(settingsState);
+        let label = accept && item ? item.group : '';
+        if (!accept) {
+            const names = groups.map((g) => g.label).join('、');
+            label = (globalObj.prompt && globalObj.prompt(`把「${word}」加入哪个情绪组？
+可选：${names}`, item && item.group || '') || '').trim();
+            if (!label) return rerenderSettings();
+        }
+        const group = groups.find((g) => g.label === label);
+        if (!group) {
+            if (globalObj.alert) globalObj.alert(`情绪组「${label}」不存在`);
+            return rerenderSettings();
+        }
+        for (const other of groups) {
+            if (other !== group && Array.isArray(other.words)) other.words = other.words.filter((w) => w !== word);
+        }
+        if (!group.words.includes(word)) group.words.push(word);
+        removeMoodReview(storage, word);
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('mood-review-dismiss:')) {
+        removeMoodReview((options.global || globalThis).localStorage, decodeSeg(normalizedAction.slice('mood-review-dismiss:'.length)));
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'mood-review-clear') {
+        clearMoodReview((options.global || globalThis).localStorage);
         return rerenderSettings();
     }
 

@@ -181,6 +181,9 @@ details[data-image-feature="llm-prompts"] textarea{min-height:220px}
 .igs-mood-word-tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 6px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-highlight);border:0;color:var(--igs-settings-ink-2)}
 .igs-mood-word-del{border:0;background:transparent;color:var(--igs-settings-ink-3);cursor:pointer;font-size:14px;line-height:1;padding:0}
 .igs-mood-word-del:hover{color:var(--igs-settings-danger)}
+.igs-mood-review{margin:6px 0 10px}
+.igs-mood-review-row{flex-wrap:wrap;gap:6px}
+.igs-mood-review-row .igs-source-filter-note{flex:1 1 140px}
 .igs-sprite-slot{min-width:0;max-width:100%;border-bottom:1px solid var(--igs-settings-line)}
 .igs-sprite-slot:last-child{border-bottom:0}
 .igs-sprite-slot-body{display:flex;gap:10px;min-width:0;max-width:100%;box-sizing:border-box;padding:6px 4px 10px;align-items:flex-start}

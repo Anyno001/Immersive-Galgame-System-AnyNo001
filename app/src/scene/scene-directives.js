@@ -1,4 +1,4 @@
-import { resolveMoodGroup } from './mood-groups.js';
+import { resolveMoodGroup, fuzzyResolveMoodGroup } from './mood-groups.js';
 import { resolveSceneTimeAsset } from './scene-time.js';
 
 // 指令可独占整行，也可紧跟在正文之后（同一行内混排），因此不做行首锚定。
@@ -202,15 +202,17 @@ export function lookupSceneAssetUrls(sceneState, sceneAssets) {
 
     let spriteUrl = null;
     let spriteSlot = '';
+    let spriteQuality = 'none';
     const characters = sceneAssets.characters || {};
     const spriteCharacter = resolveCharacterKey(characters, sceneAssets.characterAliases, sceneState.character);
     if (spriteCharacter) {
-        const hit = lookupAssetValue(characters[spriteCharacter], sceneState.mood, sceneAssets.moodGroups);
+        const hit = lookupAssetValue(characters[spriteCharacter], sceneState.mood, sceneAssets.moodGroups, sceneAssets.moodFuzzyMatch === true);
         spriteUrl = hit.url;
         spriteSlot = hit.slot;
+        spriteQuality = hit.quality;
     }
 
-    return { backgroundUrl, spriteUrl, spriteSlot, spriteCharacter: spriteCharacter || '' };
+    return { backgroundUrl, spriteUrl, spriteSlot, spriteQuality, spriteCharacter: spriteCharacter || '' };
 }
 
 export function resolveCharacterKey(characters, characterAliases, characterName) {
@@ -336,13 +338,18 @@ function resolveSceneEntryUrl(raw, time, weather, sceneAssets) {
     return resolveSceneTimeAsset(entry.url || '', time);
 }
 
-function lookupAssetValue(record, requestedKey, moodGroups) {
-    if (!record || typeof record !== 'object') return { url: null, slot: '' };
-    if (requestedKey && record[requestedKey]) return { url: record[requestedKey], slot: requestedKey };
+// quality：exact（槽位名）/ group（组词）/ fuzzy（模糊兜底，可能错配）/ default / none。
+function lookupAssetValue(record, requestedKey, moodGroups, fuzzy = false) {
+    if (!record || typeof record !== 'object') return { url: null, slot: '', quality: 'none' };
+    if (requestedKey && record[requestedKey]) return { url: record[requestedKey], slot: requestedKey, quality: 'exact' };
     const groupLabel = resolveMoodGroup(requestedKey, moodGroups);
-    if (groupLabel && record[groupLabel]) return { url: record[groupLabel], slot: groupLabel };
-    if (record['默认']) return { url: record['默认'], slot: '默认' };
-    return { url: null, slot: '' };
+    if (groupLabel && record[groupLabel]) return { url: record[groupLabel], slot: groupLabel, quality: 'group' };
+    if (fuzzy && !groupLabel) {
+        const fuzzyLabel = fuzzyResolveMoodGroup(requestedKey, moodGroups);
+        if (fuzzyLabel && record[fuzzyLabel]) return { url: record[fuzzyLabel], slot: fuzzyLabel, quality: 'fuzzy' };
+    }
+    if (record['默认']) return { url: record['默认'], slot: '默认', quality: 'default' };
+    return { url: null, slot: '', quality: 'none' };
 }
 
 function normalizeSegmentIndex(value) {

@@ -11,7 +11,7 @@ import { parseHtmlCardMarker } from '../../scene/html-cards.js';
 import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
-import { normalizeMoodGroups } from '../../scene/mood-groups.js';
+import { normalizeMoodGroups, resolveMoodGroup } from '../../scene/mood-groups.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import {
     getOriginalReaderHtml,
@@ -71,6 +71,7 @@ import {
     colorInput,
     field,
     renderCharacterAssetList,
+    renderMoodReviewList,
     renderPinnedButtons,
     renderSceneAssetList,
     renderGeneratedAssetPane,
@@ -150,6 +151,7 @@ import { readOptionItems } from '../../choices/option-table.js';
 import { handleSettingsAction as runSettingsAction } from './settings-actions.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { loadScenePresets } from '../../scene/scene-preset-store.js';
+import { loadMoodReview, recordMoodReview } from '../../scene/mood-review-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
 import {
     CLASSIC_DIALOG_HEIGHT,
@@ -1600,6 +1602,18 @@ export function createIgsReaderHost(options = {}) {
         }
     }
 
+    function noteUnlistedMood(spriteHit, mood, sceneAssets) {
+        const word = String(mood || '').trim();
+        const quality = spriteHit && spriteHit.quality;
+        if (!word || !['fuzzy', 'default', 'none'].includes(quality)) return;
+        if (resolveMoodGroup(word, sceneAssets.moodGroups)) return;
+        const slots = sceneAssets.characters && sceneAssets.characters[spriteHit.character];
+        if (slots && Object.prototype.hasOwnProperty.call(slots, word)) return;
+        const storage = (options.global || globalThis).localStorage;
+        if (!storage) return;
+        recordMoodReview(storage, { word, character: spriteHit.character, quality, group: spriteHit.slot });
+    }
+
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
         const scene = cloneData(payload.scene || (payload.render && payload.render.scene) || {});
         const buildStatusHudForSnapshot = (settings, speaker, emotion, sceneInfo, isNarration) => {
@@ -1925,8 +1939,10 @@ export function createIgsReaderHost(options = {}) {
                 spriteChar = sceneStateForBg.character;
                 spriteMood = sceneStateForBg.mood || '';
             }
-            if (!slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
+            // HTML 卡片独占舞台前景：不继承上一段角色的立绘，也不发起素材解析。
+            if (htmlCardIndex < 0 && !slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
                 const spriteHit = resolveSpriteAsset(spriteChar, spriteMood, assetMatchCtx);
+                noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
                 spriteImage = resolveGenerated(spriteHit.url) || null;
                 if (spriteImage) {
                     spriteCharacter = spriteHit.character || spriteChar;
@@ -2276,6 +2292,9 @@ export function createIgsReaderHost(options = {}) {
           <button class="igs-btn-mgr-icon" data-action="scene-add-char" type="button" title="添加角色">+</button>
         </div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
+        ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
+        <div class="igs-source-filter-note">词库里没有的情绪词，按只属于某一组的字归到该组（如词库有「嘲讽」，则「嘲弄」「嘲笑」归入同组）。两字词容易错配，建议配合下方「待确认情绪词」核对。</div>
+        ${renderMoodReviewList(loadMoodReview((options.global || globalThis).localStorage), sceneAssets.moodGroups || [])}
         ${charsHtml}
         <div class="igs-settings-row"><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认词库</button></div>
       </div>`;
@@ -3167,6 +3186,7 @@ export function createIgsReaderHost(options = {}) {
             }
         }
         normalized.unifiedSpriteLayout = normalizeBoolean(normalized.unifiedSpriteLayout, false);
+        normalized.moodFuzzyMatch = normalizeBoolean(normalized.moodFuzzyMatch, false);
         return normalized;
     }
 

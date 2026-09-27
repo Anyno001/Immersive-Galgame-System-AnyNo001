@@ -12,6 +12,7 @@
 - `[igs-img:N]` 只由插件写入；原文保留标记以定位插图，显示正文与主模型上下文隐藏标记。解析时记录原文偏移，不计入 scene/char/thought 的可见段索引；新场景指令终止此前插图。
 
 - 素材匹配分级（`scene-directives.js` 的 `classifySceneKey`）：exact / alias / fuzzy-strong / fuzzy-weak / none，「默认」兜底记为 default。
+- 立绘情绪匹配分级（`lookupSceneAssetUrls` 的 `spriteQuality`）：exact（槽位名）/ group（组词）/ fuzzy / default / none。fuzzy 仅在 `bridge.sceneAssets.moodFuzzyMatch` 开启（默认关）时启用，由 `mood-groups.js` 的 `fuzzyResolveMoodGroup` 判定：只认在整个词库中只属于一组的字，跨组字忽略，有效字指向多组视为冲突不命中。词库外的情绪词（fuzzy / default / none 且不在任何组）记入 `mood-review-store.js`（localStorage `igs:mood-review:v1`，按词去重、最多 50 条，不进设置与场景预设），供设置页「待确认情绪词」一键入组；可删除条件：情绪词改为由模型严格从固定池输出且不再出现池外词。
 - `asset-match.js` 决定背景 / 立绘取哪一区：用户上传区 → 生成区素材库（`bridge.sceneAssets.generated`）→ 本聊天临时生成素材 → 占位；「精准生图优先」下弱模糊与默认只当占位并触发生成。生成区图片地址统一为 `igs-gen:<imageId>`，由调用方解析。
 
 ## 场景来源优先级

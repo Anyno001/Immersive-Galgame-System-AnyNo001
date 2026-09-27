@@ -121,16 +121,16 @@ export function resolveSpriteAsset(character, mood, ctx = {}) {
     const userAssets = ctx.sceneAssets || {};
     const user = lookupSceneAssetUrls({ character: name, mood }, userAssets);
     if (user.spriteUrl) {
-        return { url: user.spriteUrl, slot: user.spriteSlot, character: user.spriteCharacter || name, source: 'user', needsGeneration: false };
+        return { url: user.spriteUrl, slot: user.spriteSlot, character: user.spriteCharacter || name, source: 'user', quality: user.spriteQuality, needsGeneration: false };
     }
     // 用户已登记该角色（哪怕槽位空着）就不是「无名角色」，不替用户生成。
     if (resolveCharacterKey(userAssets.characters, userAssets.characterAliases, name)) {
-        return { url: '', slot: '', character: name, source: 'none', needsGeneration: false };
+        return { url: '', slot: '', character: name, source: 'none', quality: user.spriteQuality, needsGeneration: false };
     }
     const library = normalizeGeneratedLibrary(ctx.generatedAssets);
-    const generated = lookupSceneAssetUrls({ character: name, mood }, { characters: library.characters, characterAliases: library.characterAliases, moodGroups: userAssets.moodGroups });
+    const generated = lookupSceneAssetUrls({ character: name, mood }, { characters: library.characters, characterAliases: library.characterAliases, moodGroups: userAssets.moodGroups, moodFuzzyMatch: userAssets.moodFuzzyMatch });
     if (generated.spriteUrl) {
-        return { url: generated.spriteUrl, slot: generated.spriteSlot, character: generated.spriteCharacter || name, source: 'library', needsGeneration: false };
+        return { url: generated.spriteUrl, slot: generated.spriteSlot, character: generated.spriteCharacter || name, source: 'library', quality: generated.spriteQuality, needsGeneration: false };
     }
     const temp = typeof ctx.tempSprite === 'function' ? ctx.tempSprite(name) : '';
     if (temp) return { url: temp, slot: '默认', character: name, source: 'temp', needsGeneration: false };

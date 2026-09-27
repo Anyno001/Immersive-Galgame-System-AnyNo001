@@ -60,7 +60,10 @@ import {
     buildMoodGroupsText,
     normalizeMoodGroups,
     resolveMoodGroup,
+    fuzzyResolveMoodGroup,
 } from '../src/scene/mood-groups.js';
+import { loadMoodReview, recordMoodReview, MOOD_REVIEW_LIMIT } from '../src/scene/mood-review-store.js';
+import { renderMoodReviewList } from '../src/visual/igs-ui/settings-fields.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from '../src/visual/igs-ui/settings-theme.js';
 import { renderCharacterAssetList, renderSceneAssetList, tableMultiSelect } from '../src/visual/igs-ui/settings-fields.js';
@@ -1236,7 +1239,7 @@ test('gate:scene:scene-assets-resolves-by-exact-match-and-default-key-only', () 
         scenes: { 'B班教室': { url: 'https://example.com/classroom.png', times: {} } },
         characters: { '小林海斗': { '平静': 'https://example.com/kaito.png' } },
     });
-    assert.deepEqual(assets1, { backgroundUrl: 'https://example.com/classroom.png', spriteUrl: 'https://example.com/kaito.png', spriteSlot: '平静', spriteCharacter: '小林海斗' });
+    assert.deepEqual(assets1, { backgroundUrl: 'https://example.com/classroom.png', spriteUrl: 'https://example.com/kaito.png', spriteSlot: '平静', spriteQuality: 'exact', spriteCharacter: '小林海斗' });
 
     // '默认' fallback when scene name doesn't match
     const assets2 = lookupSceneAssetUrls({
@@ -1246,7 +1249,7 @@ test('gate:scene:scene-assets-resolves-by-exact-match-and-default-key-only', () 
         scenes: { '默认': { url: 'https://example.com/default.png', times: {} } },
         characters: { '小林海斗': { '默认': 'https://example.com/kaito.png' } },
     });
-    assert.deepEqual(assets2, { backgroundUrl: 'https://example.com/default.png', spriteUrl: 'https://example.com/kaito.png', spriteSlot: '默认', spriteCharacter: '小林海斗' });
+    assert.deepEqual(assets2, { backgroundUrl: 'https://example.com/default.png', spriteUrl: 'https://example.com/kaito.png', spriteSlot: '默认', spriteQuality: 'default', spriteCharacter: '小林海斗' });
 
     // no scene fallback when only non-matching named key exists, but character still matches exactly
     const assets3 = lookupSceneAssetUrls({
@@ -1256,7 +1259,7 @@ test('gate:scene:scene-assets-resolves-by-exact-match-and-default-key-only', () 
         scenes: { '场景1': { url: 'https://example.com/classroom.png', times: {} } },
         characters: { '小林海斗': { '随和': 'https://example.com/kaito.png' } },
     });
-    assert.deepEqual(assets3, { backgroundUrl: null, spriteUrl: 'https://example.com/kaito.png', spriteSlot: '随和', spriteCharacter: '小林海斗' });
+    assert.deepEqual(assets3, { backgroundUrl: null, spriteUrl: 'https://example.com/kaito.png', spriteSlot: '随和', spriteQuality: 'exact', spriteCharacter: '小林海斗' });
 });
 
 test('gate:scene:scene-and-character-aliases-reuse-original-assets', () => {
@@ -1272,6 +1275,7 @@ test('gate:scene:scene-and-character-aliases-reuse-original-assets', () => {
         backgroundUrl: 'https://example.com/old-city.png',
         spriteUrl: 'https://example.com/alice.png',
         spriteSlot: '平和',
+        spriteQuality: 'exact',
         spriteCharacter: '爱丽丝',
     });
 });
@@ -1282,6 +1286,67 @@ test('gate:scene:mood-groups-resolve-fine-word-to-group-label', () => {
     assert.equal(resolveMoodGroup('慌张', DEFAULT_MOOD_GROUPS), '紧张');
     assert.equal(resolveMoodGroup('不存在的词', DEFAULT_MOOD_GROUPS), null);
     assert.equal(resolveMoodGroup('', DEFAULT_MOOD_GROUPS), null);
+});
+
+test('gate:scene:mood-fuzzy-uses-only-group-distinctive-chars', () => {
+    const groups = [
+        { label: '嫌弃', words: ['嫌弃', '嘲讽', '冷漠'] },
+        { label: '平和', words: ['平静', '冷静'] },
+        { label: '悲伤', words: ['心酸', '心痛'] },
+        { label: '爱恋', words: ['心动'] },
+    ];
+    assert.equal(fuzzyResolveMoodGroup('嘲弄', groups), '嫌弃');
+    assert.equal(fuzzyResolveMoodGroup('嘲笑', groups), '嫌弃');
+    // 「冷」「心」跨组出现，不作依据
+    assert.equal(fuzzyResolveMoodGroup('冷笑', groups), null);
+    assert.equal(fuzzyResolveMoodGroup('心碎', groups), null);
+    // 有效字指向不同组视为冲突
+    assert.equal(fuzzyResolveMoodGroup('嘲静', groups), null);
+    assert.equal(fuzzyResolveMoodGroup('', groups), null);
+});
+
+test('gate:scene:mood-fuzzy-sprite-lookup-is-opt-in-and-graded', () => {
+    const assets = {
+        characters: { '爱丽丝': { '嫌弃': 'https://example.com/scorn.png', '默认': 'https://example.com/default.png' } },
+        moodGroups: [{ label: '嫌弃', words: ['嫌弃', '嘲讽'] }, { label: '平和', words: ['平静'] }],
+    };
+    const off = lookupSceneAssetUrls({ character: '爱丽丝', mood: '嘲弄' }, assets);
+    assert.equal(off.spriteSlot, '默认');
+    assert.equal(off.spriteQuality, 'default');
+    const on = lookupSceneAssetUrls({ character: '爱丽丝', mood: '嘲弄' }, { ...assets, moodFuzzyMatch: true });
+    assert.equal(on.spriteUrl, 'https://example.com/scorn.png');
+    assert.equal(on.spriteQuality, 'fuzzy');
+    const group = lookupSceneAssetUrls({ character: '爱丽丝', mood: '嘲讽' }, { ...assets, moodFuzzyMatch: true });
+    assert.equal(group.spriteQuality, 'group');
+});
+
+function memoryStorage() {
+    const map = new Map();
+    return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => { map.set(k, String(v)); }, writes: () => map.size };
+}
+
+test('gate:scene:mood-review-dedupes-by-word-and-caps-length', () => {
+    const storage = memoryStorage();
+    assert.equal(recordMoodReview(storage, { word: '嘲弄', character: '爱丽丝', quality: 'fuzzy', group: '嫌弃' }), true);
+    assert.equal(recordMoodReview(storage, { word: '嘲弄', character: '爱丽丝', quality: 'fuzzy', group: '嫌弃' }), false);
+    recordMoodReview(storage, { word: '冷笑', character: '爱丽丝', quality: 'default', group: '默认' });
+    const items = loadMoodReview(storage);
+    assert.deepEqual(items.map((i) => i.word), ['冷笑', '嘲弄']);
+    assert.equal(items[0].group, '');
+    for (let i = 0; i < MOOD_REVIEW_LIMIT + 5; i += 1) recordMoodReview(storage, { word: `词${i}`, quality: 'default' });
+    assert.equal(loadMoodReview(storage).length, MOOD_REVIEW_LIMIT);
+});
+
+test('gate:scene:mood-review-list-renders-accept-only-for-live-fuzzy-group', () => {
+    const html = renderMoodReviewList([
+        { word: '嘲弄', character: '爱丽丝', quality: 'fuzzy', group: '嫌弃' },
+        { word: '冷笑', character: '', quality: 'default', group: '' },
+    ], [{ label: '嫌弃', words: ['嘲讽'] }]);
+    assert.match(html, /mood-review-accept:%E5%98%B2%E5%BC%84/);
+    assert.match(html, /确认加入「嫌弃」/);
+    assert.match(html, /未命中，显示默认立绘/);
+    assert.doesNotMatch(html, /mood-review-accept:%E5%86%B7/);
+    assert.match(renderMoodReviewList([], []), /暂无/);
 });
 
 test('gate:scene:mood-groups-build-text-renders-label-and-words', () => {
@@ -1409,6 +1474,31 @@ test('gate:scene:settings-action-set-time-url-survives-colon-in-time-name', asyn
     assert.equal(result.ok, true);
     assert.equal(draft.bridge.sceneAssets.scenes['便利店'].times['19:45'].url, 'https://example.com/a.png?x=1:2');
     assert.equal(persistCount, 1);
+});
+
+test('gate:scene:mood-review-accept-moves-word-into-group-and-clears-entry', async () => {
+    const storage = memoryStorage();
+    recordMoodReview(storage, { word: '嘲弄', character: '爱丽丝', quality: 'fuzzy', group: '嫌弃' });
+    recordMoodReview(storage, { word: '冷笑', character: '爱丽丝', quality: 'default' });
+    const draft = {
+        bridge: { sceneAssets: { enabled: true, characters: {}, moodGroups: [{ label: '嫌弃', words: ['嘲讽'] }, { label: '平和', words: ['平静'] }] } },
+        readerSettings: {},
+    };
+    let persistCount = 0;
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
+        options: { global: { localStorage: storage, prompt: () => '平和', alert: () => {} } },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    await handleSettingsAction(`mood-review-accept:${encodeURIComponent('嘲弄')}`, ctx);
+    assert.deepEqual(draft.bridge.sceneAssets.moodGroups[0].words, ['嘲讽', '嘲弄']);
+    await handleSettingsAction(`mood-review-assign:${encodeURIComponent('冷笑')}`, ctx);
+    assert.deepEqual(draft.bridge.sceneAssets.moodGroups[1].words, ['平静', '冷笑']);
+    assert.equal(persistCount, 2);
+    assert.deepEqual(loadMoodReview(storage), []);
 });
 
 test('gate:scene:prompt-rule-draft-only-persists-on-explicit-save', async () => {

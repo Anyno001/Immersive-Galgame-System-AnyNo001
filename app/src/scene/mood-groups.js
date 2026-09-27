@@ -43,6 +43,37 @@ export function resolveMoodGroup(word, groups) {
     return null;
 }
 
+// 情绪词模糊兜底：两字词共用字太多（心动/心酸、冷静/冷漠），不能按字直接比。
+// 只认「有辨识度的字」——在整个词库里只出现在同一组的字（组名与组词都算）；
+// 跨组字一律忽略。目标词的有效字全部指向同一组才返回该组，否则视为冲突返回 null。
+export function fuzzyResolveMoodGroup(word, groups) {
+    const target = String(word || '').trim();
+    if (!target) return null;
+    const list = Array.isArray(groups) && groups.length ? groups : DEFAULT_MOOD_GROUPS;
+    const charGroups = new Map();
+    for (const group of list) {
+        if (!group || typeof group !== 'object') continue;
+        const label = String(group.label || '').trim();
+        if (!label) continue;
+        const words = Array.isArray(group.words) ? group.words : [];
+        for (const entry of [label, ...words]) {
+            for (const ch of Array.from(String(entry || '').trim())) {
+                if (!charGroups.has(ch)) charGroups.set(ch, new Set());
+                charGroups.get(ch).add(label);
+            }
+        }
+    }
+    let hit = null;
+    for (const ch of new Set(Array.from(target))) {
+        const labels = charGroups.get(ch);
+        if (!labels || labels.size !== 1) continue;
+        const [label] = labels;
+        if (hit && hit !== label) return null;
+        hit = label;
+    }
+    return hit;
+}
+
 export function buildMoodGroupsText(groups) {
     const list = Array.isArray(groups) && groups.length ? groups : DEFAULT_MOOD_GROUPS;
     return list.map((group) => {
