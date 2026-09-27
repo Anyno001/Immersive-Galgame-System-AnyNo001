@@ -102,6 +102,7 @@ import { buildReaderSourceSignature, createReaderSourceCache } from './reader-so
 import { createImageResourceCache } from '../../media/resource-cache.js';
 import { createChatStreamObserver } from '../../host/chat-stream-observer.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
+import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
 import {
     applyImageCountOverride,
     buildImageActionContext,
@@ -1000,13 +1001,14 @@ export function createIgsReaderHost(options = {}) {
         for (const item of items) {
             const display = (item && typeof item === 'object') ? String(item.display || '') : String(item || '');
             const send = (item && typeof item === 'object') ? String(item.send || item.display || '') : String(item || '');
+            const dice = (item && typeof item === 'object') ? String(item.dice || '').trim() : '';
             const bubble = doc.createElement('button');
             bubble.type = 'button';
             bubble.className = 'igs-option-bubble igs-bubble';
             bubble.textContent = display;
             bubble.addEventListener('click', (event) => {
                 if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-                onOptionBubbleClick(container, send, cfg);
+                onOptionBubbleClick(container, send, cfg, dice ? { display, dice } : null);
             });
             container.appendChild(bubble);
         }
@@ -1014,8 +1016,25 @@ export function createIgsReaderHost(options = {}) {
         syncStatusHudOptionSuppression(container, true);
     }
 
-    async function onOptionBubbleClick(container, text, cfg) {
+    // 骰子命令在点击时才判定（fill 模式重点一次即重掷一次）；判定不可用时按原命令文本降级发送。
+    async function resolveOptionSendText(fallback, check) {
+        if (!check) return fallback;
+        const global = options.global || globalThis;
+        const context = getSillyTavernContext(global);
+        const result = await resolveDiceCommand(check.dice, findAcuDice(global), {
+            random: options.random,
+            userName: context && context.name1 ? String(context.name1) : '',
+        });
+        if (!result || !result.ok) {
+            writeToastSafe(`检定未执行：${result && result.reason || '未知原因'}，已按原命令发送`);
+            return fallback;
+        }
+        return formatCheckMessage(check.display, result.line);
+    }
+
+    async function onOptionBubbleClick(container, rawText, cfg, check = null) {
         hideOptionBubbles(container);
+        const text = await resolveOptionSendText(rawText, check);
         if (cfg.clickAction === 'fill') {
             if (state.activeReader && isEmbeddedReaderMode(state.activeReader.mode)) {
                 const fill = typeof options.setInputText === 'function'

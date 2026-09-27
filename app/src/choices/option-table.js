@@ -30,7 +30,7 @@ function findDiceCommandColumn(columns) {
 
 // 从一张表里提取选项：返回 {display, send}[]。
 // 若表含「展示文本」+「骰子命令」两列（检定建议表），display=展示文本，
-// send=展示文本+空格+骰子命令（骰子系统前端凭 DSL 短命令触发数值判定）。
+// send=展示文本+空格+骰子命令（判定不可用时的降级文本），dice=原始骰子命令供前端判定。
 // 只有「展示文本」时，display===send===展示文本；普通宽表取全部非 row_id 列，
 // display===send===列值，与旧行为完全兼容。
 export function extractOptionTexts(table) {
@@ -58,7 +58,7 @@ export function extractOptionTexts(table) {
             seen.add(key);
             if (displayCol >= 0 && diceCol >= 0) {
                 const dice = String((Array.isArray(row) ? row[diceCol] : '') ?? '').trim();
-                out.push({ display, send: dice ? `${display} ${dice}` : display });
+                out.push({ display, send: dice ? `${display} ${dice}` : display, dice });
             } else {
                 out.push({ display, send: display });
             }

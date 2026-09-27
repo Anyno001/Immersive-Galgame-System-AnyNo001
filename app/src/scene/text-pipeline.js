@@ -27,7 +27,7 @@ export function extractTagBlocks(raw, tags, options = {}) {
     const blocks = [];
 
     for (const tag of tagList) {
-        const regex = new RegExp(`<${escapeRegex(tag)}\\b[^>]*>([\\s\\S]*?)<\\/${escapeRegex(tag)}>`, 'gi');
+        const regex = new RegExp(`<${escapeRegex(tag)}(?=[\\s/>])[^>]*>([\\s\\S]*?)<\\/${escapeRegex(tag)}>`, 'gi');
         for (const match of text.matchAll(regex)) {
             const block = options.trim === false ? match[1] : normalizeMultiline(match[1]);
             if (block) blocks.push(block);
@@ -41,7 +41,7 @@ export function removeTagBlocks(raw, tags) {
     let text = String(raw || '');
 
     for (const tag of parseTagList(tags)) {
-        const regex = new RegExp(`<${escapeRegex(tag)}\\b[^>]*>([\\s\\S]*?)<\\/${escapeRegex(tag)}>`, 'gi');
+        const regex = new RegExp(`<${escapeRegex(tag)}(?=[\\s/>])[^>]*>([\\s\\S]*?)<\\/${escapeRegex(tag)}>`, 'gi');
         text = text.replace(regex, '');
     }
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createInputChannel } from '../src/host/input-channel.js';
 import { createPresetRegistry } from '../src/presets/preset-registry.js';
 import { findOptionTable, extractOptionTexts, readOptionItems, OPTION_TABLE_NAMES } from '../src/choices/option-table.js';
+import { parseDiceCommand, successLevel, rollD100, resolveDiceCommand, formatCheckMessage, findAcuDice } from '../src/choices/dice-check.js';
 import {
     buildIgsTextPayload,
     cleanNarrativeSource,
@@ -3036,10 +3037,126 @@ test('gate:choices:option-table 检定建议表 appends 骰子命令 to send', (
     };
     // 有骰子命令列时 send = 展示文本 + 空格 + 骰子命令；骰子命令为空时 send===display。
     assert.deepEqual(extractOptionTexts(table), [
-        { display: '力量对抗试试看', send: '力量对抗试试看 对抗 哪吒 力量 vs 白墨 力量' },
-        { display: '用话术周旋', send: '用话术周旋 检定 白墨 话术 [难度=困难]' },
-        { display: '静观其变', send: '静观其变' },
+        { display: '力量对抗试试看', send: '力量对抗试试看 对抗 哪吒 力量 vs 白墨 力量', dice: '对抗 哪吒 力量 vs 白墨 力量' },
+        { display: '用话术周旋', send: '用话术周旋 检定 白墨 话术 [难度=困难]', dice: '检定 白墨 话术 [难度=困难]' },
+        { display: '静观其变', send: '静观其变', dice: '' },
     ]);
+});
+
+function createAcuDiceMock(attributes, rolls = []) {
+    const calls = [];
+    const queue = [...rolls];
+    const lookup = (name, attribute) => {
+        const key = `${name}.${attribute}`;
+        return Object.prototype.hasOwnProperty.call(attributes, key) ? attributes[key] : null;
+    };
+    return {
+        calls,
+        getAttributeValue(name, attribute) { calls.push(['getAttributeValue', name, attribute]); return lookup(name, attribute); },
+        async checkByCharacter(params) {
+            calls.push(['checkByCharacter', params]);
+            return { success: true, roll: queue.shift(), target: lookup(params.name, params.attribute) };
+        },
+        async contest(params) {
+            calls.push(['contest', params]);
+            return { left: { roll: queue.shift() }, right: { roll: queue.shift() }, winner: 'left' };
+        },
+    };
+}
+
+test('gate:choices:dice parses 检定/对抗/必成/必败/无 with bracketed params', () => {
+    assert.deepEqual(parseDiceCommand('检定 <user> 照顾'), { kind: 'check', name: '<user>', attribute: '照顾', difficulty: 0, bonus: 0, penalty: 0 });
+    assert.deepEqual(parseDiceCommand('检定 白墨 话术 [难度=困难]'), { kind: 'check', name: '白墨', attribute: '话术', difficulty: 1, bonus: 0, penalty: 0 });
+    assert.deepEqual(parseDiceCommand('检定：<user> 话术 奖惩=惩罚1'), { kind: 'check', name: '<user>', attribute: '话术', difficulty: 0, bonus: 0, penalty: 1 });
+    assert.deepEqual(parseDiceCommand('检定　<user>　沟通　难度=极难　奖惩=奖励2'), { kind: 'check', name: '<user>', attribute: '沟通', difficulty: 2, bonus: 2, penalty: 0 });
+    const contest = parseDiceCommand('对抗 <user> 理智 VS 林夏 察言观色');
+    assert.equal(contest.kind, 'contest');
+    assert.deepEqual(contest.left, { name: '<user>', attribute: '理智' });
+    assert.deepEqual(contest.right, { name: '林夏', attribute: '察言观色' });
+    assert.equal(contest.tieRule, 'initiator_lose');
+    assert.deepEqual(parseDiceCommand('必成'), { kind: 'fixed', success: true });
+    assert.deepEqual(parseDiceCommand('必败'), { kind: 'fixed', success: false });
+    assert.deepEqual(parseDiceCommand('无'), { kind: 'none' });
+    assert.equal(parseDiceCommand('检定 <user>').kind, 'invalid');
+    assert.equal(parseDiceCommand('对抗 <user> 理智 vs 她').kind, 'invalid');
+    assert.equal(parseDiceCommand('随便写的').kind, 'invalid');
+});
+
+test('gate:choices:dice success levels match AcuDice d100 tiers', () => {
+    assert.equal(successLevel(3, 60).name, '大成功');
+    assert.equal(successLevel(12, 60).name, '极难成功');
+    assert.equal(successLevel(30, 60).name, '困难成功');
+    assert.equal(successLevel(60, 60).name, '普通成功');
+    assert.equal(successLevel(61, 60).name, '失败');
+    assert.equal(successLevel(96, 90).name, '大失败');
+});
+
+test('gate:choices:dice bonus/penalty dice pick min/max tens', () => {
+    // unit=7，十位依次 2、5 → 27 / 57
+    const seq = (values) => { const q = [...values]; return () => q.shift() / 10; };
+    assert.deepEqual(rollD100({ bonus: 1 }, seq([7, 2, 5])), { value: 27, totals: [27, 57] });
+    assert.deepEqual(rollD100({ penalty: 1 }, seq([7, 2, 5])), { value: 57, totals: [27, 57] });
+    assert.deepEqual(rollD100({}, seq([0, 0])), { value: 100, totals: [100] });
+});
+
+test('gate:choices:dice normal check rolls through AcuDice and applies difficulty', async () => {
+    const acu = createAcuDiceMock({ '<user>.沟通': 60 }, [40]);
+    const result = await resolveDiceCommand('检定 <user> 沟通 难度=困难', acu, { userName: '陈屿' });
+    assert.equal(result.ok, true);
+    assert.equal(result.success, false);
+    assert.equal(result.line, '元叙事：陈屿发起了【沟通】检定，1d100=40，需≤30，【失败（普通成功，未达困难）】。');
+    assert.deepEqual(acu.calls[1], ['checkByCharacter', { name: '<user>', attribute: '沟通', diceType: '1d100', successCriteria: 'lte' }]);
+
+    const easy = await resolveDiceCommand('检定 <user> 沟通', createAcuDiceMock({ '<user>.沟通': 60 }, [25]), { userName: '陈屿' });
+    assert.equal(easy.success, true);
+    assert.match(easy.line, /1d100=25，需≤60，【困难成功】/);
+});
+
+test('gate:choices:dice 奖惩 uses AcuDice attribute but local roll', async () => {
+    const acu = createAcuDiceMock({ '<user>.话术': 50 });
+    const seq = [0.7, 0.2, 0.5];
+    const result = await resolveDiceCommand('检定 <user> 话术 奖惩=惩罚1', acu, { random: () => seq.shift(), userName: '陈屿' });
+    assert.equal(result.ok, true);
+    assert.match(result.line, /1d100\(惩罚骰1\)=57，需≤50，【失败】/);
+    assert.equal(acu.calls.some((call) => call[0] === 'checkByCharacter'), false);
+});
+
+test('gate:choices:dice contest compares tiers through AcuDice', async () => {
+    const acu = createAcuDiceMock({ '<user>.理智': 44, '林夏.察言观色': 70 }, [38, 12]);
+    const result = await resolveDiceCommand('对抗 <user> 理智 vs 林夏 察言观色', acu, { userName: '陈屿' });
+    assert.equal(result.ok, true);
+    assert.equal(result.winner, 'right');
+    assert.equal(result.line, '元叙事：陈屿以【理智】对抗林夏的【察言观色】，1d100=38/12，目标=44/70，结果：林夏胜出（普通成功 vs 极难成功）。');
+    assert.equal(acu.calls.find((call) => call[0] === 'contest')[1].rule, 'initiator_lose');
+});
+
+test('gate:choices:dice fixed/none/missing data never fabricate rolls', async () => {
+    assert.deepEqual(await resolveDiceCommand('必成', null), { ok: true, success: true, line: '元叙事：无需投骰，【必定成功】。' });
+    assert.deepEqual(await resolveDiceCommand('无', null), { ok: true, line: '' });
+    assert.deepEqual(await resolveDiceCommand('检定 <user> 照顾', null), { ok: false, reason: '骰子系统未就绪' });
+    const missing = await resolveDiceCommand('检定 林夏 厨艺', createAcuDiceMock({}), {});
+    assert.equal(missing.ok, false);
+    assert.match(missing.reason, /未找到 林夏 的属性「厨艺」/);
+    assert.equal((await resolveDiceCommand('乱写', createAcuDiceMock({}))).ok, false);
+});
+
+test('gate:choices:dice formats message like AcuDice and finds it on top window', () => {
+    assert.equal(formatCheckMessage('把伞往她那边偏了一点', '元叙事：X'), '把伞往她那边偏了一点。 <meta:检定结果>\n元叙事：X\n</meta:检定结果>');
+    assert.equal(formatCheckMessage('静观其变！', ''), '静观其变！');
+    const acu = createAcuDiceMock({});
+    assert.equal(findAcuDice({ top: { AcuDice: acu } }), acu);
+    assert.equal(findAcuDice({ AcuDice: { getAttributeValue() {} } }), null);
+    const crossOrigin = {};
+    Object.defineProperty(crossOrigin, 'top', { get() { throw new Error('SecurityError'); } });
+    assert.equal(findAcuDice(crossOrigin), null);
+});
+
+test('gate:scene:tag filters match CJK-named tags such as meta:检定结果', () => {
+    const payload = buildIgsTextPayload('<content>正文<meta:检定结果>\n骰点\n</meta:检定结果>结束</content>', {
+        sourceFilter: { textIncludeTags: 'content', textExcludeTags: 'meta:检定结果' },
+    });
+    assert.equal(payload.hasExcludedTextBlocks, true);
+    assert.equal(payload.textSource, '正文结束');
 });
 
 test('gate:choices:option-table accepts 选项/行动选项 aliases', () => {

@@ -32,7 +32,7 @@ import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-sto
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.28.7';
+const IGS_VERSION = '0.28.8';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -117,6 +117,7 @@ export function bootstrapIGS(options = {}) {
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
         version: app.version,
+        random: options.random,
         getIllustrationSource: (messageId) => illustrationMessageHost.readFloor(messageId),
         getIllustrationUrl: (query) => illustrationService.getIllustrationUrl(query),
         onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),

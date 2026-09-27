@@ -581,7 +581,7 @@ function extractTagBlocks(raw, tags, keepWrapper = false) {
     const source = String(raw || '');
     const parts = [];
     for (const tag of parseTagList(tags)) {
-        const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*>([\\s\\S]*?)<\\/${escapeRegExp(tag)}>`, 'gi');
+        const regex = new RegExp(`<${escapeRegExp(tag)}(?=[\\s/>])[^>]*>([\\s\\S]*?)<\\/${escapeRegExp(tag)}>`, 'gi');
         let match = null;
         while ((match = regex.exec(source)) !== null) {
             parts.push(keepWrapper ? (match[0] || '') : (match[1] || ''));
@@ -593,7 +593,7 @@ function extractTagBlocks(raw, tags, keepWrapper = false) {
 function removeTagBlocks(raw, tags) {
     let output = String(raw || '');
     for (const tag of parseTagList(tags)) {
-        const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'gi');
+        const regex = new RegExp(`<${escapeRegExp(tag)}(?=[\\s/>])[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'gi');
         output = output.replace(regex, '');
     }
     return output;
@@ -602,7 +602,7 @@ function removeTagBlocks(raw, tags) {
 function hasTagBlocks(raw, tags) {
     const source = String(raw || '');
     return parseTagList(tags).some((tag) => {
-        const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'i');
+        const regex = new RegExp(`<${escapeRegExp(tag)}(?=[\\s/>])[^>]*>[\\s\\S]*?<\\/${escapeRegExp(tag)}>`, 'i');
         return regex.test(source);
     });
 }

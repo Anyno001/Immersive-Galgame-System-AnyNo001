@@ -25,8 +25,8 @@ export function extractHtmlCards(raw, tags = []) {
     };
     for (const tag of tagList) {
         const name = escapeRegExp(tag);
-        text = text.replace(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}\\s*>`, 'gi'), replaceBlock);
-        text = text.replace(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*)$`, 'i'), replaceBlock);
+        text = text.replace(new RegExp(`<${name}(?=[\\s/>])[^>]*>([\\s\\S]*?)<\\/${name}\\s*>`, 'gi'), replaceBlock);
+        text = text.replace(new RegExp(`<${name}(?=[\\s/>])[^>]*>([\\s\\S]*)$`, 'i'), replaceBlock);
     }
     return { text, cards };
 }

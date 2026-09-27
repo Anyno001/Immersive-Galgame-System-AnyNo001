@@ -1448,6 +1448,71 @@ test('gate:simulation:igs-ui-option-bubble-trigger-excludes-dialog-toolbar-and-i
     vn.destroy();
 });
 
+test('gate:simulation:igs-ui-option-bubble-dice-command-resolves-through-acudice', async () => {
+    const document = createFakeDocument();
+    const latestMessage = { id: 7, text: '[角色: 林夏]\n林夏: 最后一段。' };
+    const diceCalls = [];
+    const vn = bootstrapIGS({
+        global: {
+            document,
+            SillyTavern: { getContext: () => ({ name1: '陈屿', chat: [] }) },
+            AcuDice: {
+                getAttributeValue: (name, attribute) => ({ '<user>.照顾': 62, '<user>.理智': 44, '林夏.察言观色': 70 })[`${name}.${attribute}`] ?? null,
+                async checkByCharacter(params) { diceCalls.push(['check', params]); return { roll: 17 }; },
+                async contest(params) { diceCalls.push(['contest', params]); return { left: { roll: 38 }, right: { roll: 12 } }; },
+            },
+            AutoCardUpdaterAPI: {
+                exportTableAsJson() {
+                    return {
+                        sheet_check: {
+                            uid: 'sheet_check',
+                            name: '检定建议表',
+                            orderNo: 1,
+                            content: [
+                                ['row_id', '展示文本', '骰子命令'],
+                                ['1', '把伞往她那边偏了一点', '检定 <user> 照顾 难度=困难'],
+                                ['2', '假装没听出她话里的试探', '对抗 <user> 理智 vs 林夏 察言观色'],
+                                ['3', '陪她走到街口', '无'],
+                                ['4', '替她整理被风吹乱的围巾', '检定 <user> 厨艺'],
+                            ],
+                        },
+                    };
+                },
+            },
+        },
+        autoAttachMagicWand: false,
+        config: { optionBubble: { enabled: true, position: 'top-left', clickAction: 'fill' } },
+        hostAdapter: {
+            getCurrentMessage: async () => latestMessage,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const optionBubbles = overlay.querySelector('#igs-option-bubbles');
+    const input = overlay.querySelector('#igs-input');
+    const clickBubble = async (index) => {
+        optionBubbles.setAttribute('hidden', '');
+        overlay.querySelector('#igs-click-layer').click();
+        const bubbles = optionBubbles.querySelectorAll('.igs-option-bubble');
+        assert.equal(bubbles.length, 4);
+        bubbles[index].click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return input.value;
+    };
+
+    assert.equal(await clickBubble(0), '把伞往她那边偏了一点。 <meta:检定结果>\n元叙事：陈屿发起了【照顾】检定，1d100=17，需≤31，【困难成功】。\n</meta:检定结果>');
+    assert.deepEqual(diceCalls[0], ['check', { name: '<user>', attribute: '照顾', diceType: '1d100', successCriteria: 'lte' }]);
+    assert.match(await clickBubble(1), /结果：林夏胜出（普通成功 vs 极难成功）/);
+    assert.equal(await clickBubble(2), '陪她走到街口。');
+    // 属性不存在时不编造骰点，按原命令文本降级。
+    assert.equal(await clickBubble(3), '替她整理被风吹乱的围巾 检定 <user> 厨艺');
+    assert.match(overlay.querySelector('#igs-toast').textContent, /未找到 陈屿 的属性「厨艺」/);
+
+    vn.destroy();
+});
+
 test('gate:simulation:igs-ui-option-bubble-width-follows-text-and-top-right-position', async () => {
     const document = createFakeDocument();
     const latestMessage = { id: 7, text: '[角色: 艾莉]\n艾莉: 最后一段。' };
