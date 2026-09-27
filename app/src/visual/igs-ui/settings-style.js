@@ -1,7 +1,6 @@
 import {
     IGS_UI_BLUR, IGS_UI_EDGE_DAY, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FONT_SANS, IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, IGS_UI_THICKNESS, igsUiLiquidRule, igsUiSurface,
 } from '../../styles/ui-material.js';
-import { IGS_RIPPLE_ART } from '../../styles/ui-ripple-art.js';
 
 // 霜夜 / 素白两套配色共用同一材质：遮罩层做唯一一层模糊，面板是半透明厚材质，
 // 面板内控件用半透明填充叠加，底色随场景透出一点色温；不支持模糊时回退为实心。
@@ -16,8 +15,8 @@ const SETTINGS_STYLE_TEXT = `
 #igs-unified-settings ::-webkit-scrollbar{display:none;width:0;height:0}
 .igs-settings-shell{width:var(--igs-settings-width);height:var(--igs-settings-height);max-height:none;background:var(--igs-settings-shell-bg);border:0;border-radius:var(--igs-settings-radius-shell);box-shadow:none;display:flex;flex-direction:column;overflow:hidden;-webkit-backdrop-filter:none;backdrop-filter:none}
 #igs-unified-settings .igs-settings-shell{position:relative;z-index:1;box-shadow:var(--igs-settings-shell-shadow)}
-#igs-unified-settings{--igs-ui-ripple:${IGS_RIPPLE_ART.settings}}
-${igsUiLiquidRule('#igs-unified-settings::before', .8)}
+#igs-unified-settings{--igs-ui-caustic-size:900px}
+${igsUiLiquidRule('#igs-unified-settings::before', .45, { tile: true })}
 #igs-unified-settings[data-igs-settings-theme="day"]::before{opacity:.5;mix-blend-mode:multiply;filter:invert(1) hue-rotate(180deg)}
 ${IGS_UI_LIQUID_KEYFRAMES}
 .igs-settings-head{height:54px;display:flex;align-items:center;gap:10px;padding:0 14px 0 20px;flex-shrink:0}

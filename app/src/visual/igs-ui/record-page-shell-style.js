@@ -2,7 +2,6 @@ import {
     IGS_UI_BLUR, IGS_UI_BLUR_VIVID, IGS_UI_FILL, IGS_UI_PANE, IGS_UI_PANE_EDGE, IGS_UI_FONT_SANS, IGS_UI_FONT_SERIF, IGS_UI_INK, IGS_UI_NIGHT_RGB,
     IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, IGS_UI_THICKNESS, IGS_UI_WARM, igsUiLiquidRule, igsUiSurface,
 } from '../../styles/ui-material.js';
-import { IGS_RIPPLE_ART } from '../../styles/ui-ripple-art.js';
 
 // 四类资料页共用外壳：整页一层「通透艳丽」的模糊（薄色罩 + 高饱和 + 压暗），
 // 其上是水纹流光，再上是悬浮薄玻璃片（半透明填充 + 顶边 1px 反光，不描边）。
@@ -48,10 +47,10 @@ export const RECORD_PAGE_SHELL_STYLE_TEXT = `
   background:${igsUiSurface(IGS_UI_THICKNESS.airy)};
   -webkit-backdrop-filter:${IGS_UI_BLUR_VIVID};backdrop-filter:${IGS_UI_BLUR_VIVID};
 }
-${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .4)}
-#igs-record-panel[data-record-category="diary"]{--igs-ui-ripple:${IGS_RIPPLE_ART.diary};}
-#igs-record-panel[data-record-category="inventory"]{--igs-ui-ripple:${IGS_RIPPLE_ART.inventory};}
-#igs-record-panel[data-record-category="relationships"]{--igs-ui-ripple:${IGS_RIPPLE_ART.relationships};}
+${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .5)}
+#igs-record-panel[data-record-category="diary"]{--igs-ui-caustic-size:760px;}
+#igs-record-panel[data-record-category="inventory"]{--igs-ui-caustic-size:460px;}
+#igs-record-panel[data-record-category="relationships"]{--igs-ui-caustic-size:600px;}
 ${IGS_UI_LIQUID_KEYFRAMES}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
   #igs-record-panel .igs-rp-page::before{background:rgba(${IGS_UI_NIGHT_RGB},.95);}

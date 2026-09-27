@@ -228,13 +228,18 @@ export function resolveCharacterKey(characters, characterAliases, characterName)
 // 场景别名沿用 scenes[名].words 存储；先精确命中主名称，再按别名归约。
 // 角色别名则由 characterAliases 映射到原角色，避免复制整套立绘槽。
 function resolveSceneKey(scenes, sceneName) {
+    return classifySceneKey(scenes, sceneName).key;
+}
+
+// quality 供「精准生图优先」判断命中是否可信：exact / alias / fuzzy-strong / fuzzy-weak / none。
+export function classifySceneKey(scenes, sceneName) {
     const target = String(sceneName || '').trim();
-    if (!target) return null;
-    if (scenes[target] != null) return target;
+    if (!target || !scenes || typeof scenes !== 'object') return { key: null, quality: 'none' };
+    if (scenes[target] != null) return { key: target, quality: 'exact' };
     for (const key of Object.keys(scenes)) {
         const entry = scenes[key];
         const words = entry && typeof entry === 'object' && Array.isArray(entry.words) ? entry.words : [];
-        if (words.some((w) => String(w || '').trim() === target)) return key;
+        if (words.some((w) => String(w || '').trim() === target)) return { key, quality: 'alias' };
     }
     // 按字模糊匹配兜底：候选词（场景名与别名）全部字都命中目标优先，
     // 其次命中字数多者优先，再次候选字数多者优先；全不中返回 null。
@@ -252,7 +257,10 @@ function resolveSceneKey(scenes, sceneName) {
             }
         }
     }
-    return bestKey;
+    if (bestKey == null) return { key: null, quality: 'none' };
+    // 强命中：候选字全部落在目标里、至少两个字，且覆盖目标一半以上字数（如「天台」对「学校天台」）。
+    const strong = bestScore[0] === 1 && bestScore[1] >= 2 && bestScore[1] * 2 >= Array.from(target).length;
+    return { key: bestKey, quality: strong ? 'fuzzy-strong' : 'fuzzy-weak' };
 }
 
 function scoreSceneFuzzyCandidate(target, candidate) {
@@ -287,10 +295,22 @@ function resolveLayerKey(record, requestedKey, groups) {
 }
 
 function lookupSceneUrl(scenes, sceneName, time, weather, sceneAssets) {
-    const sceneKey = resolveSceneKey(scenes, sceneName);
-    const raw = sceneKey != null ? scenes[sceneKey]
-        : (scenes['默认'] != null ? scenes['默认'] : null);
-    if (!raw) return null;
+    return lookupSceneBackground({ scene: sceneName, time, weather }, { ...sceneAssets, scenes }).url;
+}
+
+export function lookupSceneBackground(sceneState, sceneAssets) {
+    const scenes = (sceneAssets && sceneAssets.scenes) || {};
+    const state = sceneState || {};
+    const match = classifySceneKey(scenes, state.scene);
+    const useDefault = match.key == null && scenes['默认'] != null;
+    const raw = match.key != null ? scenes[match.key] : (useDefault ? scenes['默认'] : null);
+    const quality = useDefault ? 'default' : match.quality;
+    const key = match.key != null ? match.key : (useDefault ? '默认' : null);
+    if (!raw) return { url: null, key, quality };
+    return { url: resolveSceneEntryUrl(raw, state.time, state.weather, sceneAssets) || null, key, quality };
+}
+
+function resolveSceneEntryUrl(raw, time, weather, sceneAssets) {
     const entry = typeof raw === 'string' ? { url: raw } : raw;
     const timeGroups = sceneAssets && sceneAssets.timeGroups;
     const weatherGroups = sceneAssets && sceneAssets.weatherGroups;

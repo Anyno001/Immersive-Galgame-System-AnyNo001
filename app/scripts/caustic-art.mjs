@@ -35,68 +35,88 @@ function periodicNoise(cells, seed) {
     };
 }
 
-function periodicWorley(cells, seed) {
-    const random = rng(seed);
-    const size = SIZE / cells;
-    const points = Array.from({ length: cells * cells }, () => [0.15 + random() * 0.7, 0.15 + random() * 0.7]);
-    return (x, y) => {
-        const ci = Math.floor(x / size);
-        const cj = Math.floor(y / size);
-        let f1 = Infinity;
-        let f2 = Infinity;
-        for (let dj = -2; dj <= 2; dj++) {
-            for (let di = -2; di <= 2; di++) {
-                const i = ci + di;
-                const j = cj + dj;
-                const p = points[((j % cells) + cells) % cells * cells + ((i % cells) + cells) % cells];
-                const d = Math.hypot((i + p[0]) * size - x, (j + p[1]) * size - y);
-                if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
+// 经典水底焦散迭代：多次正余弦干涉叠加，亮处收窄成有机光网；分子用常数代替坐标，保证严格可平铺。
+function causticLayer(periods, time, seed, ridgeRadius, ridgeGain) {
+    const TAU = Math.PI * 2;
+    const offset = -250 + seed;
+    const out = new Float32Array(SIZE * SIZE);
+    for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+            const px = (x / SIZE) * TAU * periods + offset;
+            const py = (y / SIZE) * TAU * periods + offset;
+            let ix = px;
+            let iy = py;
+            let c = 1;
+            const inten = 0.005;
+            for (let n = 0; n < 5; n++) {
+                const t = time * (1 - 3.5 / (n + 1));
+                const nx = px + Math.cos(t - ix) + Math.sin(t + iy);
+                const ny = py + Math.sin(t - iy) + Math.cos(t + ix);
+                ix = nx;
+                iy = ny;
+                c += 1 / Math.hypot(offset / (Math.sin(ix + t) / inten), offset / (Math.cos(iy + t) / inten));
             }
+            c /= 5;
+            c = 1.17 - Math.pow(c, 1.4);
+            out[y * SIZE + x] = Math.min(1, Math.pow(Math.abs(c), 8));
         }
-        return f2 - f1;
-    };
+    }
+    return ridge(out, ridgeRadius, ridgeGain);
+}
+
+function blur(src, radius) {
+    const tmp = new Float32Array(SIZE * SIZE);
+    const out = new Float32Array(SIZE * SIZE);
+    const span = radius * 2 + 1;
+    for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+            let sum = 0;
+            for (let d = -radius; d <= radius; d++) sum += src[y * SIZE + ((x + d + SIZE) % SIZE)];
+            tmp[y * SIZE + x] = sum / span;
+        }
+    }
+    for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+            let sum = 0;
+            for (let d = -radius; d <= radius; d++) sum += tmp[((y + d + SIZE) % SIZE) * SIZE + x];
+            out[y * SIZE + x] = sum / span;
+        }
+    }
+    return out;
+}
+
+// 高通取脊：场减去自身模糊只剩细亮线；再乘原亮度，亮处线粗、暗处线细且淡。
+function ridge(field, radius, gain) {
+    const soft = blur(blur(field, radius), radius);
+    return field.map((v, k) => Math.min(1, Math.max(0, v - soft[k]) * gain * (0.35 + v)));
 }
 
 function caustic() {
-    const warpX = periodicNoise(4, 11);
-    const warpY = periodicNoise(4, 12);
-    const fineWarpX = periodicNoise(10, 13);
-    const fineWarpY = periodicNoise(10, 14);
-    const main = periodicWorley(5, 21);
-    const fine = periodicWorley(11, 22);
-    const widthNoise = periodicNoise(8, 31);
+    const broad = causticLayer(1, 1.7, 0, 5, 4.2);
+    const fine = causticLayer(2, 4.1, 3, 3, 3.2);
     const mask = periodicNoise(3, 41);
-    const alpha = new Float32Array(SIZE * SIZE);
     const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    const alpha = new Float32Array(SIZE * SIZE);
     for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
-            const wx = x + (warpX(x, y) - 0.5) * 70 + (fineWarpX(x, y) - 0.5) * 16;
-            const wy = y + (warpY(x, y) - 0.5) * 70 + (fineWarpY(x, y) - 0.5) * 16;
-            const sx = ((wx % SIZE) + SIZE) % SIZE;
-            const sy = ((wy % SIZE) + SIZE) % SIZE;
-            const w = 0.7 + 4.6 * Math.pow(widthNoise(x, y), 2.2);
-            const edge = main(sx, sy);
-            const line = Math.pow(Math.max(0, 1 - edge / w), 1.6);
-            const glow = Math.exp(-edge / (w * 3.2)) * 0.22;
-            const fineEdge = fine(sx, sy);
-            const fineLine = Math.pow(Math.max(0, 1 - fineEdge / (0.5 + w * 0.3)), 1.4) * 0.42;
-            const presence = 0.3 + 0.7 * smoothstep(0.28, 0.72, mask(x, y));
-            alpha[y * SIZE + x] = Math.min(1, (line + glow + fineLine) * presence);
+            const k = y * SIZE + x;
+            const presence = 0.25 + 0.75 * smoothstep(0.25, 0.7, mask(x, y));
+            alpha[k] = Math.min(1, (broad[k] + fine[k] * 0.5) * presence);
         }
     }
+    const halo = blur(blur(alpha, 5), 5);
+    for (let k = 0; k < alpha.length; k++) alpha[k] = Math.min(1, alpha[k] * 1.25 + halo[k] * 0.9);
     const random = rng(51);
-    for (let n = 0; n < 90; n++) {
-        const cx = random() * SIZE;
-        const cy = random() * SIZE;
-        if (alpha[Math.floor(cy) * SIZE + Math.floor(cx)] < 0.35) continue;
-        const r = 0.8 + random() * 2.2;
-        for (let dy = -8; dy <= 8; dy++) {
-            for (let dx = -8; dx <= 8; dx++) {
-                const x = ((Math.floor(cx) + dx) % SIZE + SIZE) % SIZE;
-                const y = ((Math.floor(cy) + dy) % SIZE + SIZE) % SIZE;
+    for (let n = 0; n < 70; n++) {
+        const cx = Math.floor(random() * SIZE);
+        const cy = Math.floor(random() * SIZE);
+        if (alpha[cy * SIZE + cx] < 0.4) continue;
+        const r = 0.7 + random() * 1.8;
+        for (let dy = -7; dy <= 7; dy++) {
+            for (let dx = -7; dx <= 7; dx++) {
+                const k = ((cy + dy + SIZE) % SIZE) * SIZE + ((cx + dx + SIZE) % SIZE);
                 const d = Math.hypot(dx, dy);
-                const k = y * SIZE + x;
-                alpha[k] = Math.min(1, alpha[k] + Math.exp(-((d / r) ** 2)) * 0.9 + Math.exp(-d / (r * 2.5)) * 0.12);
+                alpha[k] = Math.min(1, alpha[k] + Math.exp(-((d / r) ** 2)) * 0.85 + Math.exp(-d / (r * 2.5)) * 0.1);
             }
         }
     }

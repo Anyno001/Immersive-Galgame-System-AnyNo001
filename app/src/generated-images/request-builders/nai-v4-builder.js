@@ -31,6 +31,13 @@ function joinTags(...parts) {
     return parts.map((p) => String(p || '').trim().replace(/^,+|,+$/g, '').trim()).filter(Boolean).join(', ');
 }
 
+// 仅 V5 支持原生透明底；4.5 的模型名含「-5-full」子串，必须先排除。
+export function supportsNaiTransparentBackground(model) {
+    const m = String(model || '').toLowerCase();
+    if (m.includes('4-5') || m.includes('4.5')) return false;
+    return m.includes('diffusion-5');
+}
+
 function parseSize(size) {
     const m = String(size || '').match(/(\d+)\s*[x×*]\s*(\d+)/i);
     const w = m ? Number(m[1]) : 832;
@@ -54,6 +61,7 @@ export function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) 
     }));
     const useCoords = posChars.length > 0;
     const { width, height } = parseSize(settings.size);
+    const transparent = slot && slot.transparent === true && supportsNaiTransparentBackground(settings.model);
     return {
         input: base,
         model: String(settings.model || NAI_DEFAULT_SETTINGS.model),
@@ -75,6 +83,7 @@ export function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) 
             ucPreset: 0,
             sm: false,
             sm_dyn: false,
+            ...(transparent && { straight_alpha: true, tag_hint_transparent_background: true }),
             negative_prompt: negBase,
             use_coords: useCoords,
             v4_prompt: {

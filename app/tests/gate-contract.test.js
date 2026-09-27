@@ -582,7 +582,7 @@ test('gate:igs-compat:api-shape', async () => {
     try {
         const settingsResult = vn.openSettings({ tab: 'basic' });
         assert.equal(settingsResult.ok, true);
-        assert.equal(settingsResult.snapshot.tabs.length, 5);
+        assert.equal(settingsResult.snapshot.tabs.length, 4);
         assert.equal(settingsResult.snapshot.tabs[0].label, '基础');
         const generated = await vn.generateImage({ prompt: 'moon' });
         assert.equal(generated.ok, false);
@@ -703,7 +703,7 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(readerHostText, /normalizedAction === 'toggle-status-hud'/);
     assert.match(readerHostText, /readerSettings\.statusHud\.barColor/);
     assert.match(readerHostText, /data-status-avatar-char/);
-    assert.match(readerHostText, /status-avatar-set-url:/);
+    assert.match(readerHostText, /renderCharacterAssetList/);
     const settingsFieldsText = readText('src/visual/igs-ui/settings-fields.js');
     const settingsActionsText = readText('src/visual/igs-ui/settings-actions.js');
     assert.match(settingsFieldsText, /data-status-avatar-char=/);
@@ -758,33 +758,30 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     }
 
     const dialogTemplate = getReaderSubTabTemplate('dialog');
-    const visualTemplate = getReaderSubTabTemplate('visual');
+    const textTemplate = getReaderSubTabTemplate('text');
     const performanceTemplate = getReaderSubTabTemplate('performance');
-    const optionsTemplate = getReaderSubTabTemplate('options');
     const interfaceTemplate = getReaderSubTabTemplate('interface');
-    assert.match(dialogTemplate, /对话框样式/);
+    const visualAliasTemplate = getReaderSubTabTemplate('visual');
+    const optionsAliasTemplate = getReaderSubTabTemplate('options');
+    assert.match(dialogTemplate, /data-reader-pane="dialog"/);
     const dialogHierarchy = [
-        '对话框样式', 'dialogSkinField', 'gradientVeilFields',
-        '文字排版', 'fontSizeField', 'dialogFontWeightField',
-        '尺寸与显示', 'dialogWidthField', 'classicDialogWidthPercentField',
-        'dialogHeightField', 'inputScaleField', 'dialogToggles',
-        '外观细节', 'dialogBgField', 'nameFontField', 'textFontField',
-        'narrationFontField', 'thoughtFontField', 'dividerField',
+        '风格', 'dialogSkinField', 'gradientVeilFields', 'statusLineToggle',
+        '尺寸', 'dialogWidthField', 'classicDialogWidthPercentField',
+        'dialogHeightField', 'inputScaleField',
+        '背景', 'glassOpacityField', 'dialogBgOpacityField', 'dialogBgField',
+        'backdropFilterToggle',
     ];
     for (const [index, item] of dialogHierarchy.entries()) {
         assert.equal(dialogTemplate.split(item).length - 1, 1, `${item} must appear exactly once`);
         if (index > 0) assert.ok(dialogTemplate.indexOf(dialogHierarchy[index - 1]) < dialogTemplate.indexOf(item), `${item} must follow ${dialogHierarchy[index - 1]}`);
     }
-    assert.match(dialogTemplate, /igs-reader-dialog-details/);
     const settingsStyle = getSettingsStyleText();
     assert.match(settingsStyle, /\.igs-settings-grid\[data-reader-pane="dialog"\] \.igs-gradient-veil-settings\{display:grid/);
-    assert.match(settingsStyle, /\.igs-reader-dialog-details>\.igs-source-filter\{background:var\(--igs-settings-paper\)/);
     const publishedBundle = fs.readFileSync(path.join(appRoot, 'dist', 'igs.bundle.js'), 'utf8');
     assert.ok(publishedBundle.includes('.igs-gradient-veil-settings{display:grid'));
-    assert.ok(publishedBundle.includes('.igs-reader-dialog-details>.igs-source-filter{background:var(--igs-settings-paper)'));
-    assert.doesNotMatch(dialogTemplate, /dialogFontField/);
-    assert.match(dialogTemplate, /dialogFontWeightField/);
-    assert.match(dialogTemplate, /fontSizeField/);
+    assert.doesNotMatch(dialogTemplate, /dialogFontField|dialogFontWeightField|fontSizeField|nameFontField|textFontField|narrationFontField|thoughtFontField|dividerField|dividerColorField/);
+    assert.match(textTemplate, /dialogFontWeightField/);
+    assert.match(textTemplate, /fontSizeField/);
     assert.match(dialogTemplate, /dialogWidthField/);
     assert.match(dialogTemplate, /dialogSkinField/);
     const rounded = DIALOG_FONT_OPTIONS.find(([, label]) => label === '有爱圆体（内置）');
@@ -792,14 +789,10 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(rounded[0], /IGS Rounded/);
     assert.equal(DIALOG_FONT_OPTIONS[0][0], 'inherit');
     assert.doesNotMatch(getOriginalReaderStyleText(), /__IGS_FONT__/);
-    assert.match(dialogTemplate, /nameFontField/);
-    assert.match(dialogTemplate, /dividerColorField/);
+    assert.match(textTemplate, /nameFontField/);
+    assert.match(textTemplate, /dividerColorField/);
     assert.match(dialogTemplate, /dialogBgField/);
     assert.doesNotMatch(dialogTemplate, /optionBubbleToggle|pinnedButtonsField|typewriterToggle/);
-    assert.match(visualTemplate, /imageCountField/);
-    assert.match(visualTemplate, /imgModeField/);
-    assert.match(visualTemplate, /imgBrightnessField/);
-    assert.doesNotMatch(visualTemplate, /dialogWidthField|typewriterToggle|statusHudSection/);
     assert.match(performanceTemplate, /typewriterToggle/);
     assert.match(performanceTemplate, /typewriterControls/);
     assert.match(performanceTemplate, /stageShakeToggle/);
@@ -808,13 +801,19 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(performanceTemplate, /weatherFxSettings/);
     assert.match(performanceTemplate, /performanceToggles/);
     assert.match(performanceTemplate, /nsfwVeilLevelField/);
-    assert.match(optionsTemplate, /optionFontSizeField/);
-    assert.match(optionsTemplate, /optionBubbleToggle/);
     assert.match(interfaceTemplate, /toolbarScaleField/);
     assert.match(interfaceTemplate, /pinnedButtonsField/);
     assert.match(interfaceTemplate, /statusHudSection/);
+    assert.match(interfaceTemplate, /imageCountField/);
+    assert.match(interfaceTemplate, /imgModeField/);
+    assert.match(interfaceTemplate, /imgBrightnessField/);
+    assert.match(interfaceTemplate, /optionFontSizeField/);
+    assert.match(interfaceTemplate, /optionBubbleToggle/);
+    assert.doesNotMatch(interfaceTemplate, /dialogWidthField|typewriterToggle/);
+    assert.equal(visualAliasTemplate, interfaceTemplate);
+    assert.equal(optionsAliasTemplate, interfaceTemplate);
     assert.equal(normalizeReaderSubTab('display'), 'dialog');
-    assert.equal(normalizeReaderSubTab('theme'), 'dialog');
+    assert.equal(normalizeReaderSubTab('theme'), 'text');
     assert.equal(normalizeReaderSubTab('toolbar'), 'interface');
 });
 
@@ -852,10 +851,10 @@ test('gate:igs-ui:status-hud-table-picker-has-separated-note-and-selected-state'
     const styleText = getSettingsStyleText();
     assert.match(styleText, /\.igs-status-hud-tables\{[^}]*flex-wrap:wrap;[^}]*gap:8px;[^}]*min-width:0/);
     assert.match(styleText, /\.igs-status-hud-tables>em\{[^}]*flex-basis:100%;[^}]*margin-top:2px/);
-    assert.match(styleText, /\.igs-table-pick\.is-on\{[^}]*background:var\(--igs-settings-accent\);[^}]*color:var\(--igs-settings-paper\)/);
+    assert.match(styleText, /\.igs-table-pick\.is-on\{[^}]*background:var\(--igs-settings-accent\);[^}]*color:var\(--igs-settings-on-accent\)/);
 });
 
-test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
+test('gate:igs-ui:settings-style-keeps-material-language', () => {
     const fixture = readJson('fixtures/igs-ui/settings-panel-snapshot.json');
     const styleText = getSettingsStyleText();
     const checks = fixture.styleChecks;
@@ -884,8 +883,8 @@ test('gate:igs-ui:settings-style-keeps-flat-frost-night-language', () => {
     }
     const shadows = Array.from(styleText.matchAll(/box-shadow:([^;}]+)/g), (match) => match[1].trim());
     assert.ok(shadows.length > 0);
-    assert.deepEqual(Array.from(new Set(shadows)), ['none']);
-    assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(|blur\(|saturate\(/);
+    assert.deepEqual(Array.from(new Set(shadows)), ['none', 'var(--igs-settings-shell-shadow)']);
+    assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(/);
     assert.doesNotMatch(styleText, /border-radius:999px/);
 });
 
@@ -900,7 +899,7 @@ test('gate:igs-ui:settings-style-uses-soft-radius-tokens', () => {
     assert.doesNotMatch(styleText, /border-radius:999px/);
     assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(/);
     const shadows = Array.from(styleText.matchAll(/box-shadow:([^;}]+)/g), (match) => match[1].trim());
-    assert.deepEqual(Array.from(new Set(shadows)), ['none']);
+    assert.deepEqual(Array.from(new Set(shadows)), ['none', 'var(--igs-settings-shell-shadow)']);
 });
 
 test('gate:igs-ui:reader-speaker-keeps-dialog-top-padding', () => {

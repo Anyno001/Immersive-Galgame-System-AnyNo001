@@ -2329,33 +2329,26 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     const dialogView = settings.switchReaderSubTab('dialog');
     assert.equal(dialogView.snapshot.readerSubTab, 'dialog');
     assert.match(dialogView.snapshot.html, /data-reader-pane="dialog"/);
-    assert.match(dialogView.snapshot.html, /对话框样式/);
-    assert.match(dialogView.snapshot.html, /文字排版/);
-    assert.match(dialogView.snapshot.html, /尺寸与显示/);
-    assert.match(dialogView.snapshot.html, /外观细节/);
+    assert.match(dialogView.snapshot.html, /风格/);
+    assert.match(dialogView.snapshot.html, /尺寸/);
+    assert.match(dialogView.snapshot.html, /背景/);
     assert.match(dialogView.snapshot.html, /对话框宽度/);
     assert.match(dialogView.snapshot.html, /对话框风格/);
-    const dialogHeadings = ['对话框样式', '文字排版', '尺寸与显示', '外观细节', '对话框背景', '角色名', '台词', '旁白', '心里话', '分隔线'];
-    for (let index = 1; index < dialogHeadings.length; index += 1) {
-        assert.ok(dialogView.snapshot.html.indexOf(dialogHeadings[index - 1]) < dialogView.snapshot.html.indexOf(dialogHeadings[index]), `${dialogHeadings[index]} must follow ${dialogHeadings[index - 1]}`);
-    }
-    assert.doesNotMatch(dialogView.snapshot.html, /对话框字体/);
-    assert.ok(dialogView.snapshot.html.indexOf('对话框字重') < dialogView.snapshot.html.indexOf('对话框宽度'));
-    assert.match(dialogView.snapshot.html, /角色名/);
-    assert.match(dialogView.snapshot.html, /分隔线/);
+    assert.doesNotMatch(dialogView.snapshot.html, /文字排版|外观细节|角色名|分隔线/);
     assert.doesNotMatch(dialogView.snapshot.html, /按钮管理|启用打字机演出/);
 
     settings.setValue('readerSettings.dialogSkin', 'gradient-veil');
     const gradientDialogView = settings.switchReaderSubTab('dialog');
     assert.ok(gradientDialogView.snapshot.html.indexOf('对话框风格') < gradientDialogView.snapshot.html.indexOf('黑幕颜色'));
-    assert.ok(gradientDialogView.snapshot.html.indexOf('黑幕颜色') < gradientDialogView.snapshot.html.indexOf('文字排版'));
     assert.match(gradientDialogView.snapshot.html, /igs-gradient-veil-settings/);
 
-    const visualView = settings.switchReaderSubTab('visual');
-    assert.match(visualView.snapshot.html, /data-reader-pane="visual"/);
-    assert.match(visualView.snapshot.html, /检测图像数量/);
-    assert.match(visualView.snapshot.html, /图像显示模式/);
-    assert.match(visualView.snapshot.html, /图片亮度/);
+    const textView = settings.switchReaderSubTab('text');
+    assert.match(textView.snapshot.html, /data-reader-pane="text"/);
+    assert.match(textView.snapshot.html, /角色名/);
+    assert.match(textView.snapshot.html, /台词/);
+    assert.match(textView.snapshot.html, /旁白/);
+    assert.match(textView.snapshot.html, /心里话/);
+    assert.match(textView.snapshot.html, /分隔线/);
 
     const performanceView = settings.switchReaderSubTab('performance');
     assert.match(performanceView.snapshot.html, /data-reader-pane="performance"/);
@@ -2365,14 +2358,15 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.match(performanceView.snapshot.html, /启用人物过场滤镜（仅旁白）/);
     assert.match(performanceView.snapshot.html, /显示NSFW场景下的人物立绘/);
 
-    const optionsView = settings.switchReaderSubTab('options');
-    assert.match(optionsView.snapshot.html, /data-reader-pane="options"/);
-    assert.match(optionsView.snapshot.html, /选项字体大小/);
-    assert.match(optionsView.snapshot.html, /启用选项气泡/);
-
     const interfaceView = settings.switchReaderSubTab('interface');
     assert.match(interfaceView.snapshot.html, /data-reader-pane="interface"/);
-    assert.match(interfaceView.snapshot.html, /顶部工具栏/);
+    assert.match(interfaceView.snapshot.html, /背景图/);
+    assert.match(interfaceView.snapshot.html, /检测图像数量/);
+    assert.match(interfaceView.snapshot.html, /图像显示模式/);
+    assert.match(interfaceView.snapshot.html, /图片亮度/);
+    assert.match(interfaceView.snapshot.html, /选项字体大小/);
+    assert.match(interfaceView.snapshot.html, /启用选项气泡/);
+    assert.match(interfaceView.snapshot.html, /工具栏位置/);
     assert.match(interfaceView.snapshot.html, /工具栏大小/);
     assert.match(interfaceView.snapshot.html, /按钮管理/);
     assert.match(interfaceView.snapshot.html, /显示左上角状态栏/);
@@ -2386,20 +2380,20 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.match(enabledView.snapshot.html, /打字机速度/);
     assert.match(enabledView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
     assert.match(enabledView.snapshot.html, /演出方式/);
-    assert.doesNotMatch(enabledView.snapshot.html, /启用打字音效|台词音效音量|旁白音效音量/);
+    assert.doesNotMatch(enabledView.snapshot.html, /启用打字音效|台词音效（嘟嘟嘟）|旁白音效（键盘）/);
 
     settings.setValue('readerSettings.typewriter.mode', 'classic');
     const classicView = settings.switchReaderSubTab('performance');
     assert.match(classicView.snapshot.html, /启用打字音效/);
-    assert.match(classicView.snapshot.html, /台词音效音量/);
-    assert.match(classicView.snapshot.html, /旁白音效音量/);
+    assert.match(classicView.snapshot.html, /台词音效（嘟嘟嘟）/);
+    assert.match(classicView.snapshot.html, /旁白音效（键盘）/);
     assert.match(classicView.snapshot.html, /type="range" min="0" max="1" step="0\.05"/);
     assert.match(classicView.snapshot.html, />50%</);
 
     settings.setValue('readerSettings.typewriter.sound.enabled', false);
     const mutedView = settings.switchReaderSubTab('performance');
     assert.match(mutedView.snapshot.html, /启用打字音效/);
-    assert.doesNotMatch(mutedView.snapshot.html, /台词音效音量|旁白音效音量/);
+    assert.doesNotMatch(mutedView.snapshot.html, /台词音效（嘟嘟嘟）|旁白音效（键盘）/);
     assert.equal(settings.getSnapshot().draft.readerSettings.typewriter.sound.enabled, false);
 
     settings.setValue('readerSettings.typewriter.sound.enabled', true);
@@ -2408,7 +2402,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
 
     settings.setValue('readerSettings.typewriter.mode', 'soft');
     const softView = settings.switchReaderSubTab('performance');
-    assert.doesNotMatch(softView.snapshot.html, /启用打字音效|台词音效音量|旁白音效音量/);
+    assert.doesNotMatch(softView.snapshot.html, /启用打字音效|台词音效（嘟嘟嘟）|旁白音效（键盘）/);
     assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter.sound, { enabled: true, volume: 0.5, dialogueVolume: 0.35, narrationVolume: 0.5 });
 
     settings.setValue('readerSettings.dialogSkin', 'western-classic');
@@ -2417,8 +2411,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.ok(classicDialogView.snapshot.html.indexOf('对话框宽度') < classicDialogView.snapshot.html.indexOf('电脑端宽度'));
     assert.ok(classicDialogView.snapshot.html.indexOf('电脑端宽度') < classicDialogView.snapshot.html.indexOf('对话框高度'));
     assert.doesNotMatch(classicDialogView.snapshot.html, /西欧古典请在「主题」页按比例调整|当前风格使用固定 184px|按阅读器可用宽度自动计算|不影响素材对话框，仍作用于工具栏、选项和数据库。|当前编辑西欧古典风格的文字外观；默认风格配置会保留。|姓名牌风格不显示额外分隔线。/);
-    assert.match(classicDialogView.snapshot.html, /data-path="readerSettings\.dialogFontWeight"/);
-    assert.match(classicDialogView.snapshot.html, /跟随当前样式/);
+
     settings.setValue('readerSettings.dialogFontWeight', '700');
     assert.equal(settings.getSnapshot().draft.readerSettings.dialogFontWeight, 700);
     assert.notEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default') || '{}').dialogFontWeight, 700);
@@ -2429,7 +2422,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.match(classicDialogView.snapshot.html, /data-path="readerSettings\.classicDialogWidthPercent"/);
     assert.match(classicDialogView.snapshot.html, /60%/);
     const roundedFont = '"IGS Rounded","Microsoft YaHei",sans-serif';
-    assert.match(classicDialogView.snapshot.html, /有爱圆体（内置）/);
+
     settings.setValue('readerSettings.classicVnTheme.nameFont', roundedFont);
     assert.equal(settings.getSnapshot().draft.readerSettings.classicVnTheme.nameFont, roundedFont);
     assert.equal(settings.close().ok, true);
@@ -2958,7 +2951,7 @@ test('gate:simulation:igs-ui-settings-follows-visual-viewport-in-web-and-fullscr
         assert.ok(overlay, `${mode} should mount settings overlay`);
         assert.ok(overlay.querySelector('.igs-settings-shell'));
         assert.ok(overlay.querySelector('.igs-settings-head'));
-        assert.equal(overlay.querySelectorAll('.igs-settings-tab').length, 5);
+        assert.equal(overlay.querySelectorAll('.igs-settings-tab').length, 4);
         assert.ok(overlay.querySelector('.igs-settings-body'));
         assert.equal(overlay.style['--igs-settings-vleft'], '36px');
         assert.equal(overlay.style['--igs-settings-vtop'], '22px');
@@ -4385,13 +4378,13 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     assert.equal(overlay.classList.contains('igs-record-screen-open'), true);
     const recordCss = getOriginalReaderStyleText();
     // 液态磨玻璃：资料页整页只有一层 backdrop 模糊，格位/卡片无描边，标题两侧不再画线。
-    assert.match(recordCss, /#igs-record-panel,#igs-map-panel\{[^}]*--igs-rp-text:#ece8e1/);
-    assert.match(recordCss, /#igs-record-panel \.igs-rp-page::before\{[^}]*backdrop-filter:blur\(var\(--igs-rp-blur\)\)/);
+    assert.match(recordCss, /#igs-record-panel,#igs-map-panel\{[^}]*--igs-rp-text:#eceae6/);
+    assert.match(recordCss, /#igs-record-panel \.igs-rp-page::before\{[^}]*backdrop-filter:[^;}]*blur\(/);
     assert.match(recordCss, /prefers-reduced-transparency:reduce/);
     assert.doesNotMatch(recordCss, /\.igs-rp-title::before/);
     assert.match(recordCss, /#igs-record-panel \.igs-rp-back,#igs-map-panel \.igs-rp-back\{[^}]*min-width:44px;min-height:44px/);
-    assert.match(recordCss, /\.igs-record-slots button\{[^}]*border:0;[^}]*background:var\(--igs-rp-sheen\)/);
-    assert.match(recordCss, /\.igs-record-slot-icon svg\{[^}]*stroke-width:1\.15/);
+    assert.match(recordCss, /\.igs-record-slots button\{[^}]*border:0;[^}]*background:var\(--igs-rp-pane\)/);
+    assert.match(recordCss, /\.igs-record-slot-icon svg\{[^}]*stroke-width:1\.3/);
     assert.match(recordCss, /\.igs-record-slot-name\{[^}]*font-size:12px/);
     assert.doesNotMatch(recordCss, /125,92,54|57,39,27/);
     assert.match(recordCss, /\.igs-record-slot-quantity\{position:absolute;/);

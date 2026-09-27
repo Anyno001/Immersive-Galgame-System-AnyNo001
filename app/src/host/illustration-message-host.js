@@ -29,6 +29,11 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         };
     }
 
+    function getUserName() {
+        const ctx = context();
+        return ctx && typeof ctx.name1 === 'string' ? ctx.name1 : '';
+    }
+
     function readPreviousAiTexts(messageId, count) {
         const ctx = context();
         const chat = ctx && Array.isArray(ctx.chat) ? ctx.chat : [];
@@ -124,7 +129,7 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
     }
 
     return {
-        getChatId, readFloor, readPreviousAiTexts, writeFloor, on, attachPromptStrip, ensureMarkerRegexes,
+        getChatId, getUserName, readFloor, readPreviousAiTexts, writeFloor, on, attachPromptStrip, ensureMarkerRegexes,
         destroy() { while (cleanups.length) cleanups.pop()(); },
     };
 }

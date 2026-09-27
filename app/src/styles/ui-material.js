@@ -1,3 +1,4 @@
+import { IGS_CAUSTIC_ART } from './ui-caustic-art.js';
 import { IGS_FROST_NIGHT_RGB } from './glass-material.js';
 
 // 霜夜材质：设置、资料页、地图卡片、toast 共用同一底色与同一套厚度/圆角/墨色，
@@ -34,11 +35,16 @@ export function igsUiSurface(thickness, theme = 'night') {
         : `${IGS_UI_GRAIN_NIGHT},rgba(${IGS_UI_NIGHT_RGB},${thickness})`;
 }
 
-// 水纹流光：预生成的变宽笔触（scripts/ripple-art.mjs），放在唯一模糊层与内容之间缓慢漂移，只动 transform。
-export const IGS_UI_LIQUID_KEYFRAMES = '@keyframes igs-ui-liquid{0%,100%{transform:translate3d(-1.2%,-.8%,0) rotate(0deg)}50%{transform:translate3d(1.2%,.8%,0) rotate(.8deg)}}';
+// 水底焦散：scripts/caustic-art.mjs 预生成。设置器允许平铺；其余界面只放一张，
+// 从左上向右下渐隐，避免规则纹路铺满整页。各界面只调尺度与浓度。
+export const IGS_UI_LIQUID_KEYFRAMES = '@keyframes igs-ui-liquid{0%,100%{transform:translate3d(-1.5%,-1%,0)}50%{transform:translate3d(1.5%,1%,0)}}';
 
-export function igsUiLiquidRule(selector, opacity = 1) {
-    return `${selector}{content:"";position:absolute;inset:-5%;z-index:0;pointer-events:none;background:var(--igs-ui-ripple,none) center/cover no-repeat;opacity:${opacity};animation:igs-ui-liquid 48s ease-in-out infinite;will-change:transform;}
+export function igsUiLiquidRule(selector, opacity = 1, { tile = false } = {}) {
+    const artwork = `background-image:${IGS_CAUSTIC_ART};background-position:left top;background-size:var(--igs-ui-caustic-size,640px) var(--igs-ui-caustic-size,640px);background-repeat:${tile ? 'repeat' : 'no-repeat'};`;
+    const fade = tile
+        ? ''
+        : '-webkit-mask-image:linear-gradient(135deg,#000 0%,rgba(0,0,0,.82) 42%,transparent 88%);mask-image:linear-gradient(135deg,#000 0%,rgba(0,0,0,.82) 42%,transparent 88%);';
+    return `${selector}{content:"";position:absolute;inset:-4%;z-index:0;pointer-events:none;${artwork}${fade}opacity:${opacity};animation:igs-ui-liquid 60s ease-in-out infinite;will-change:transform;}
 @media (prefers-reduced-motion:reduce){${selector}{animation:none;}}
 @media (prefers-reduced-transparency:reduce){${selector}{display:none;}}`;
 }

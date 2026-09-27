@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { igsUiLiquidRule } from '../src/styles/ui-material.js';
 import { recordPageLayoutClass } from '../src/visual/igs-ui/record-page-shell.js';
 
 test('record-page-shell:layout-class-follows-container-breakpoints', () => {
@@ -32,4 +34,28 @@ test('record-page-shell:head-html-escapes-nothing-but-keeps-back-hit-target', as
     const mapHtml = recordPageHeadHtml('地点地图', { closeAttr: 'data-map-act', backAriaLabel: '关闭地图' });
     assert.match(mapHtml, /data-map-act="close"/);
     assert.match(mapHtml, /aria-label="关闭地图"/);
+});
+
+test('record-page-shell:caustic-tiles-only-in-settings', () => {
+    const pageRule = igsUiLiquidRule('.record-page::after', 0.5);
+    assert.match(pageRule, /background-position:left top/);
+    assert.match(pageRule, /background-repeat:no-repeat/);
+    assert.match(pageRule, /mask-image:linear-gradient\(135deg/);
+
+    const settingsRule = igsUiLiquidRule('.settings::before', 0.45, { tile: true });
+    assert.match(settingsRule, /background-position:left top/);
+    assert.match(settingsRule, /background-repeat:repeat/);
+    assert.doesNotMatch(settingsRule, /mask-image:/);
+
+    const settingsSource = readFileSync(
+        new URL('../src/visual/igs-ui/settings-style.js', import.meta.url),
+        'utf8',
+    );
+    const recordSource = readFileSync(
+        new URL('../src/visual/igs-ui/record-page-shell-style.js', import.meta.url),
+        'utf8',
+    );
+    assert.match(settingsSource, /igsUiLiquidRule\('#igs-unified-settings::before', \.45, \{ tile: true \}\)/);
+    assert.match(recordSource, /igsUiLiquidRule\('#igs-record-panel \.igs-rp-page::after', \.5\)/);
+    assert.doesNotMatch(recordSource, /tile: true/);
 });
