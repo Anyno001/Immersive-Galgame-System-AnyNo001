@@ -4593,7 +4593,8 @@ test('gate:simulation:record-panel-follows-settings-theme-and-trims-repeated-det
         },
     };
     const saved = [];
-    const panel = createRecordPanelController(document, { AutoCardUpdaterAPI: api }, null, { getTheme: () => 'cream', setTheme: theme => saved.push(theme) });
+    const localStorage = createMemoryStorage({});
+    const panel = createRecordPanelController(document, { AutoCardUpdaterAPI: api, localStorage }, null, { getTheme: () => 'cream', setTheme: theme => saved.push(theme) });
     let root = null;
     const act = async (action, id = '') => {
         const target = document.createElement('button');
@@ -4614,6 +4615,20 @@ test('gate:simulation:record-panel-follows-settings-theme-and-trims-repeated-det
     assert.deepEqual(saved, ['dark']);
     assert.match(root.innerHTML, /igs-rp-theme-option is-active"[^>]*data-record-id="dark"/);
 
+    // 每页各记一种字体：选中即写到外壳字体变量，“默认”恢复黑体界面 + 宋体正文。
+    assert.match(root.innerHTML, /<select data-record-input="font" aria-label="日记字体"><option value="inherit" selected>默认<\/option>/);
+    const fontSelect = { value: '"KaiTi","STKaiti",serif', getAttribute: name => (name === 'data-record-input' ? 'font' : null) };
+    await root.dispatchEvent({ type: 'change', target: fontSelect });
+    assert.equal(root.style['--igs-rp-font-body'], '"KaiTi","STKaiti",serif');
+    assert.equal(root.style['--igs-rp-font-ui'], '"KaiTi","STKaiti",serif');
+    assert.deepEqual(JSON.parse(localStorage.getItem('igs_record_fonts')), { diary: '"KaiTi","STKaiti",serif' });
+    await act('diary-view', 'books');
+    assert.match(root.innerHTML, /<option value="&quot;KaiTi&quot;,&quot;STKaiti&quot;,serif" selected>楷体<\/option>/);
+    await root.dispatchEvent({ type: 'change', target: { ...fontSelect, value: 'not-a-font' } });
+    assert.equal(root.style['--igs-rp-font-body'], '');
+    assert.equal(panel.getState().font, 'inherit');
+    await root.dispatchEvent({ type: 'change', target: fontSelect });
+
     // 无篇名：首句升为标题，正文从第二句开始，不再重复首句。
     await act('select', 'sheet_diary:0');
     assert.match(root.innerHTML, /<h3>今天下雨了<\/h3><p class="igs-record-body">我在书店等到很晚，他没有来。<\/p>/);
@@ -4632,6 +4647,8 @@ test('gate:simulation:record-panel-follows-settings-theme-and-trims-repeated-det
     assert.equal(panel.open(overlay, {}, 'inventory').ok, true);
     root = document.getElementById('igs-record-panel');
     assert.equal(root.getAttribute('data-rp-theme'), 'cream');
+    assert.equal(panel.getState().font, 'inherit');
+    assert.equal(root.style['--igs-rp-font-body'], '');
     await act('select', 'sheet_items:0');
     assert.match(root.innerHTML, /<span>数量：×1<\/span><span class="igs-record-tag">已使用<\/span>/);
     assert.doesNotMatch(root.innerHTML, /igs-record-slot-quantity">×1</);

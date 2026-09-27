@@ -12,12 +12,10 @@ const RECORD_THEME_TOKENS = Object.freeze({
     pane: 'shell-bg', 'pane-edge': 'shell-shadow', reading: 'shell-bg', solid: 'panel',
     accent: 'accent', 'on-ink': 'on-accent', warm: 'accent', ripple: 'ripple',
 });
-// 设置器的水纹大半被面板盖住，资料页后景整屏露出，浓度减半才与设置器观感一致。
-const RECORD_RIPPLE_SCALE = .5;
 const recordThemeRule = (selector, theme) => {
     const palette = getSettingsThemePalette(theme);
     const vars = Object.entries(RECORD_THEME_TOKENS).map(([key, token]) => `--igs-rp-${key}:${palette.tokens[token]};`).join('');
-    return `${selector}{${vars}--igs-rp-backdrop:${palette.backdrop};--igs-rp-backdrop-solid:${palette.backdropSolid};--igs-rp-ripple-opacity:${+(palette.ripple * RECORD_RIPPLE_SCALE).toFixed(3)};color-scheme:${palette.scheme};}`;
+    return `${selector}{${vars}--igs-rp-backdrop:${palette.backdrop};--igs-rp-backdrop-solid:${palette.backdropSolid};--igs-rp-ripple-opacity:${palette.ripple};color-scheme:${palette.scheme};}`;
 };
 const RECORD_THEME_RULES = [
     recordThemeRule('#igs-record-panel', SETTINGS_THEME_BASE),
@@ -138,7 +136,16 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 #igs-record-panel .igs-rp-switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:3px;background:var(--igs-rp-text-soft);transition:transform .2s var(--igs-rp-ease),background .2s var(--igs-rp-ease);}
 #igs-record-panel [aria-pressed="true"] .igs-rp-switch{background:var(--igs-rp-accent);}
 #igs-record-panel [aria-pressed="true"] .igs-rp-switch::after{transform:translateX(12px);background:var(--igs-rp-on-ink);}
-#igs-record-panel .igs-rp-head-end{justify-self:end;display:flex;align-items:center;min-width:0;}
+#igs-record-panel .igs-rp-head-end{justify-self:end;display:flex;align-items:center;gap:8px;min-width:0;}
+#igs-record-panel .igs-rp-font-select{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;transition:background .18s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-font-select:hover,#igs-record-panel .igs-rp-font-select:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+#igs-record-panel .igs-rp-font-select b{font-weight:600;font-family:var(--igs-rp-font-body);}
+#igs-record-panel .igs-rp-font-select select{
+  max-width:7.5em;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
+  background:transparent!important;box-shadow:none!important;color:inherit;font:inherit;font-size:13px;cursor:pointer;
+  -webkit-appearance:none;appearance:none;text-overflow:ellipsis;
+}
+#igs-record-panel .igs-rp-font-select select option{color:var(--igs-rp-text);background:var(--igs-rp-solid);}
 #igs-record-panel .igs-rp-theme-switch{display:inline-flex;align-items:center;gap:5px;padding:4px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
 #igs-record-panel .igs-rp-theme-option{display:inline-flex;width:20px;height:20px;flex:none;padding:0;border:0;border-radius:var(--igs-rp-radius-s);background:transparent;outline:1.5px solid transparent;outline-offset:1.5px;transition:transform .14s ease,outline-color .14s ease;}
 #igs-record-panel .igs-rp-theme-option svg{display:block;width:20px;height:20px;}
@@ -149,6 +156,7 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 }
 #igs-record-panel.igs-rp-narrow .igs-rp-head{padding-left:8px;padding-right:12px;column-gap:8px;}
 #igs-record-panel.igs-rp-narrow .igs-rp-theme-switch{gap:4px;padding:3px;}
+#igs-record-panel.igs-rp-narrow .igs-rp-font-select select{max-width:4.5em;}
 #igs-record-panel.igs-rp-narrow .igs-rp-theme-option,#igs-record-panel.igs-rp-narrow .igs-rp-theme-option svg{width:18px;height:18px;}
 #igs-record-panel.igs-rp-short .igs-rp-head,#igs-map-panel.igs-rp-short .igs-rp-head{min-height:50px;padding-top:calc(4px + env(safe-area-inset-top,0px));}
 @media (prefers-reduced-motion:reduce){

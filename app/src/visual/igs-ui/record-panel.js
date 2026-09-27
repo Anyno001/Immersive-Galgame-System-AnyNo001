@@ -4,6 +4,7 @@ import { createCharacterMetricsLookup } from '../../data/shujuku/character-metri
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from './record-icons.js';
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
+import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 
@@ -16,6 +17,10 @@ const INVENTORY_SORTS = Object.freeze([['default', '默认'], ['name', '名称']
 const DIARY_PREFS_KEY = 'igs_record_diary_prefs';
 const DIARY_READ_KEY = 'igs_record_diary_read';
 const DIARY_READ_LIMIT = 2000;
+// 三页各自记一种字体；“默认”即沿用外壳的黑体界面 + 宋体正文。
+const RECORD_FONTS_KEY = 'igs_record_fonts';
+const RECORD_FONT_DEFAULT = 'inherit';
+const normalizeRecordFont = value => DIALOG_FONT_OPTIONS.some(([font]) => font === value) ? value : RECORD_FONT_DEFAULT;
 const DIARY_PREFS = Object.freeze([
     ['pageTurn', '翻页动画', '切换篇章时轻翻入场'],
     ['typewriter', '打字机', '打开篇章时逐字浮现，点击正文立即显示'],
@@ -100,6 +105,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     const loadJson = (key, fallback) => { try { const raw = storage()?.getItem?.(key); return raw ? JSON.parse(raw) : fallback; } catch (_) { return fallback; } };
     const saveJson = (key, value) => { try { storage()?.setItem?.(key, JSON.stringify(value)); } catch (_) { /* Storage may be full or blocked. */ } };
     let prefs = { ...DIARY_PREF_DEFAULTS };
+    let font = RECORD_FONT_DEFAULT;
     const table = () => model?.tables?.find(item => item.uid === activeUid);
     const relationshipPeople = () => model?.people?.filter(item => item.uid === activeUid) || [];
     const relationshipEdges = () => model?.edges?.filter(item => item.uid === activeUid) || [];
@@ -163,6 +169,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         prefs = { ...DIARY_PREF_DEFAULTS, ...loadJson(DIARY_PREFS_KEY, {}) };
         prefs.fontSize = clampDiaryFontSize(prefs.fontSize);
         diaryView = loadJson(DIARY_PREFS_KEY, {})?.view === 'timeline' ? 'timeline' : 'books';
+        font = normalizeRecordFont(loadJson(RECORD_FONTS_KEY, {})?.[type]);
         theme = normalizeSettingsTheme(readTheme());
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
@@ -175,10 +182,12 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         root.setAttribute('data-rp-theme', theme);
         root.addEventListener('click', onClick);
         root.addEventListener('input', onInput);
+        root.addEventListener('change', onChange);
         overlay.classList?.toggle('igs-record-screen-open', true);
         (overlay.querySelector?.('#igs-db-layer') || overlay).appendChild(root);
         unwatchLayout = watchRecordPageLayout(root, doc);
         applyDiaryFontSize();
+        applyRecordFont();
         applyTransparentGlassMaterial(root, settings?.glassOpacity, { backdropFilter: settings?.glassBackdropFilter });
         client = createShujukuClient((global || globalThis).AutoCardUpdaterAPI || null);
         try { client.registerCallback(callback); } catch (_) { /* Optional subscription. */ }
@@ -195,6 +204,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         if (body) cancelTypewriter(body);
         root.removeEventListener('click', onClick);
         root.removeEventListener('input', onInput);
+        root.removeEventListener('change', onChange);
         root.remove();
         root = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
@@ -260,6 +270,26 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
 
     function savePrefs() { saveJson(DIARY_PREFS_KEY, { ...prefs, view: diaryView }); }
     function applyDiaryFontSize() { root?.style?.setProperty?.('--igs-rp-diary-size', `${prefs.fontSize}px`); }
+
+    function applyRecordFont() {
+        const style = root?.style;
+        if (!style) return;
+        if (font === RECORD_FONT_DEFAULT) {
+            style.removeProperty?.('--igs-rp-font-ui');
+            style.removeProperty?.('--igs-rp-font-body');
+            return;
+        }
+        style.setProperty?.('--igs-rp-font-ui', font);
+        style.setProperty?.('--igs-rp-font-body', font);
+    }
+
+    function onChange(event) {
+        const input = event.target;
+        if (!root || input?.getAttribute?.('data-record-input') !== 'font') return;
+        font = normalizeRecordFont(String(input.value ?? ''));
+        saveJson(RECORD_FONTS_KEY, { ...loadJson(RECORD_FONTS_KEY, {}), [category]: font });
+        applyRecordFont();
+    }
 
     function onInput(event) {
         const input = event.target;
@@ -516,7 +546,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         }
         const themeSwitch = `<div class="igs-rp-theme-switch" role="radiogroup" aria-label="界面配色">${renderSettingsThemeSwitch(theme, {
             optionClass: 'igs-rp-theme-option', attrs: value => `data-record-act="theme" data-record-id="${value}"` })}</div>`;
-        root.innerHTML = `<div class="igs-rp-page igs-record-window">${recordPageHeadHtml(pageTitles[category], { trailing: themeSwitch })}` +
+        const fontSelect = `<label class="igs-rp-font-select" title="字体"><b aria-hidden="true">Aa</b><select data-record-input="font" aria-label="${labels[category]}字体">${DIALOG_FONT_OPTIONS.map(([value, label]) =>
+            `<option value="${escapeHtml(value)}"${value === font ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select></label>`;
+        root.innerHTML = `<div class="igs-rp-page igs-record-window">${recordPageHeadHtml(pageTitles[category], { trailing: fontSelect + themeSwitch })}` +
             tabs + `<div class="igs-rp-body"><div class="igs-record-scroll">` +
             (error ? `<p class="igs-rp-notice" role="status">${escapeHtml(error)}</p>` : '') +
             (diagnostics.length ? `<p class="igs-rp-notice" role="status">${escapeHtml(diagnostics.join('；'))}</p>` : '') +
@@ -539,5 +571,5 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         applyTypewriterEffect(body, { enabled: true, mode: 'classic', speed: typewriter.speed, sound: { enabled: false }, key: `diary:${selectedId}` });
     }
 
-    return { open, close, reload, isOpen: () => Boolean(root), getState: () => ({ category, model, activeUid, selectedId, relationshipPersonId, diaryView, prefs: { ...prefs }, invGroup, invSort, invQuery, message }) };
+    return { open, close, reload, isOpen: () => Boolean(root), getState: () => ({ category, model, activeUid, selectedId, relationshipPersonId, diaryView, prefs: { ...prefs }, font, invGroup, invSort, invQuery, message }) };
 }
