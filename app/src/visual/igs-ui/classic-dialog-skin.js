@@ -1,9 +1,14 @@
 import { CLASSIC_DIALOG_ASSETS } from './classic-dialog-assets.js';
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
 import {
+    DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
     DIALOG_SKIN_CUTE_PINK,
+    DIALOG_SKIN_DAY_MINIMAL,
+    DIALOG_SKIN_ELEGANT_EUROPEAN,
     DIALOG_SKIN_PLANT_COFFEE,
+    DIALOG_SKIN_RETRO_JAPANESE,
+    DIALOG_SKIN_WARM_PICTUREBOOK,
     ILLUSTRATED_DIALOG_SKINS,
     ILLUSTRATED_DIALOG_STYLE_TEXT,
     buildSlicedDialogSkinCss,
@@ -14,9 +19,14 @@ export const DIALOG_SKIN_DEFAULT = 'default';
 export const DIALOG_SKIN_WESTERN_CLASSIC = 'western-classic';
 export { DIALOG_SKIN_GRADIENT_VEIL };
 export {
+    DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
     DIALOG_SKIN_CUTE_PINK,
+    DIALOG_SKIN_DAY_MINIMAL,
+    DIALOG_SKIN_ELEGANT_EUROPEAN,
     DIALOG_SKIN_PLANT_COFFEE,
+    DIALOG_SKIN_RETRO_JAPANESE,
+    DIALOG_SKIN_WARM_PICTUREBOOK,
     ILLUSTRATED_DIALOG_SKINS,
     ILLUSTRATED_DIALOG_STYLE_TEXT,
     isIllustratedDialogSkin,
@@ -89,10 +99,10 @@ export function applyDialogSkinAssets(dialog, readerSettings) {
 // 姓名牌素材 65×68，可见牌面在上方 0–57px；按 52px 高等比缩放后两端 50px，牌面约 44px。
 export const CLASSIC_DIALOG_SPEC = Object.freeze({
     dialog: { height: CLASSIC_DIALOG_HEIGHT, left: CLASSIC_DIALOG_EDGE_WIDTH, right: CLASSIC_DIALOG_EDGE_WIDTH },
-    text: { top: 26, speakerTop: 38, right: 50, bottom: 22, left: 50 },
+    text: { top: 24, speakerTop: 34, right: 44, bottom: 20, left: 44 },
     plate: { height: CLASSIC_NAMEPLATE_HEIGHT, left: CLASSIC_NAMEPLATE_EDGE_WIDTH, right: CLASSIC_NAMEPLATE_EDGE_WIDTH, x: CLASSIC_NAMEPLATE_LEFT, rise: -CLASSIC_NAMEPLATE_TOP, lineHeight: 44, padding: '0 42px', minWidth: 150 },
     nameCss: 'font-size:15px;font-weight:600;letter-spacing:.22em;text-indent:.22em;text-shadow:0 1px 0 rgba(255,236,190,.42);',
-    textCss: 'letter-spacing:.06em;',
+    textCss: 'letter-spacing:.06em;text-shadow:0 1px 2px rgba(0,0,0,.75),0 0 4px rgba(20,22,14,.6);',
 });
 
 export const CLASSIC_DIALOG_STYLE_TEXT = buildSlicedDialogSkinCss(DIALOG_SKIN_WESTERN_CLASSIC, CLASSIC_DIALOG_SPEC, CLASSIC_DIALOG_ASSETS);

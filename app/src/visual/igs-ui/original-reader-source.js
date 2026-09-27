@@ -1,9 +1,12 @@
 import { CLASSIC_DIALOG_STYLE_TEXT } from './classic-dialog-skin.js';
 import { DIALOG_THEME_CHOICE_STYLE_TEXT } from './dialog-theme-choices.js';
+import { DIALOG_THEME_HUD_STYLE_TEXT } from './dialog-theme-hud.js';
 import { ILLUSTRATED_DIALOG_STYLE_TEXT } from './dialog-theme-skins.js';
 import { GRADIENT_VEIL_STYLE_TEXT } from './gradient-veil-dialog-skin.js';
 import { MAP_PANEL_STYLE_TEXT } from './map-panel-style.js';
+import { MAP_LIGHT_LAYER_STYLE_TEXT } from './map-light-layers.js';
 import { WEATHER_FX_STYLE_TEXT } from './weather-fx-style.js';
+import { ASSET_REVIEW_STYLE_TEXT } from './asset-review-panel.js';
 import { RECORD_PANEL_STYLE_TEXT } from './record-panel-style.js';
 import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
 import {
@@ -226,13 +229,16 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-stage-motion.igs-stage-shake-active[data-igs-stage-shake-intensity="strong"]{animation:igs-stage-shake-strong .38s ease-out both}
 @media (prefers-reduced-motion: reduce){#igs-stage-motion.igs-stage-shake-active{animation:none!important;transform:none!important;}}
 ${WEATHER_FX_STYLE_TEXT}
+${ASSET_REVIEW_STYLE_TEXT}
 ${MAP_PANEL_STYLE_TEXT}
+${MAP_LIGHT_LAYER_STYLE_TEXT}
 ${RECORD_PAGE_SHELL_STYLE_TEXT}
 ${RECORD_PANEL_STYLE_TEXT}
 ${GRADIENT_VEIL_STYLE_TEXT}
 ${ILLUSTRATED_DIALOG_STYLE_TEXT}
 ${CLASSIC_DIALOG_STYLE_TEXT}
 ${DIALOG_THEME_CHOICE_STYLE_TEXT}
+${DIALOG_THEME_HUD_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `

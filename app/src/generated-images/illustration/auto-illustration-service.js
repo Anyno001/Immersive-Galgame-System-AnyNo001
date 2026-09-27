@@ -1,5 +1,6 @@
 import { numberParagraphs, formatNumberedParagraphs, insertMarkers } from './marker-placer.js';
-import { PLANNER_SYSTEM_PROMPT, buildPlannerUserPrompt } from './planner-prompt.js';
+import { PLANNER_SYSTEM_PROMPT, PLANNER_SOFT_SYSTEM_PROMPT, buildPlannerUserPrompt } from './planner-prompt.js';
+import { requestWithSoftRetry, DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
 import { parseIllustrationPlan } from './planner-parser.js';
 import { normalizeAutoIllustrationSettings } from './auto-illustration-settings.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -61,15 +62,22 @@ export function createAutoIllustrationService(deps) {
         try {
             const previousText = messageHost.readPreviousAiTexts(messageId, s.llm.contextFloors)
                 .map(toReadableText).join('\n').slice(-1500);
-            const reply = await llm.request({
+            const user = buildPlannerUserPrompt({
+                numberedText: formatNumberedParagraphs(numbered.paragraphs),
+                scenes: numbered.scenes, characters: numbered.characters,
+                previousText, want: decision.want, exact: decision.exact, isNsfw: numbered.isNsfw,
+            });
+            plan = await requestWithSoftRetry(llm, {
                 system: PLANNER_SYSTEM_PROMPT,
-                user: buildPlannerUserPrompt({
-                    numberedText: formatNumberedParagraphs(numbered.paragraphs),
-                    scenes: numbered.scenes, characters: numbered.characters,
-                    previousText, want: decision.want, exact: decision.exact, isNsfw: numbered.isNsfw,
-                }),
+                softSystem: numbered.isNsfw ? PLANNER_SOFT_SYSTEM_PROMPT : '',
+                user,
+                parse: (reply) => parseIllustrationPlan(reply, { maxSlots: decision.want, paragraphCount: numbered.paragraphs.length }),
             }, s.llm);
-            plan = parseIllustrationPlan(reply, { maxSlots: decision.want, paragraphCount: numbered.paragraphs.length });
+            // 温和模式下 LLM 只给了构图，露骨 tag 在本地补上，不经过 LLM。
+            if (plan.ok && plan.soft) {
+                const extra = s.assets.templates.nsfwExtra || DEFAULT_ASSET_TEMPLATES.nsfwExtra;
+                plan.slots = plan.slots.map((slot) => ({ ...slot, scene: [extra, slot.scene].filter(Boolean).join(', ') }));
+            }
         } catch (error) {
             plan = { ok: false, error: '副 LLM 规划失败' };
         }

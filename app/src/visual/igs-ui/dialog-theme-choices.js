@@ -1,14 +1,14 @@
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
 import {
+    DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
     DIALOG_SKIN_CUTE_PINK,
+    DIALOG_SKIN_DAY_MINIMAL,
+    DIALOG_SKIN_ELEGANT_EUROPEAN,
     DIALOG_SKIN_PLANT_COFFEE,
+    DIALOG_SKIN_RETRO_JAPANESE,
+    DIALOG_SKIN_WARM_PICTUREBOOK,
 } from './dialog-theme-skins.js';
-import {
-    DIALOG_FONT_ROUNDED,
-    DIALOG_FONT_SANS,
-    DIALOG_FONT_SERIF,
-} from './dialog-theme-typography.js';
 
 const CLASSIC = 'western-classic';
 
@@ -23,39 +23,73 @@ function bubbleRules(skin, rules) {
         .join('\n');
 }
 
+// 构建脚本按字面占位符内联 PNG，这里必须保留完整字面量。
+const CHOICE_ASSETS = Object.freeze({
+    [DIALOG_SKIN_CUTE_PINK]: ['__IGS_ASSET__cute-pink/choice.png__', '__IGS_ASSET__cute-pink/choice-hover.png__', '__IGS_ASSET__cute-pink/choice-active.png__'],
+    [DIALOG_SKIN_BLACK_WHITE_MANGA]: ['__IGS_ASSET__black-white-manga/choice.png__', '__IGS_ASSET__black-white-manga/choice-hover.png__', null],
+    [CLASSIC]: ['__IGS_ASSET__western-classic/choice.png__', '__IGS_ASSET__western-classic/choice-hover.png__', '__IGS_ASSET__western-classic/choice-active.png__'],
+    [DIALOG_SKIN_PLANT_COFFEE]: ['__IGS_ASSET__plant-coffee/choice.png__', '__IGS_ASSET__plant-coffee/choice-hover.png__', '__IGS_ASSET__plant-coffee/choice-active.png__'],
+    [DIALOG_SKIN_RETRO_JAPANESE]: ['__IGS_ASSET__retro-japanese/choice.png__', '__IGS_ASSET__retro-japanese/choice-hover.png__', '__IGS_ASSET__retro-japanese/choice-active.png__'],
+    [DIALOG_SKIN_ADVENTURE_JOURNEY]: ['__IGS_ASSET__adventure-journey/choice.png__', '__IGS_ASSET__adventure-journey/choice-hover.png__', '__IGS_ASSET__adventure-journey/choice-active.png__'],
+});
+
+// 作者选项按钮素材的九宫格：source 为原图高度，slice 为原图切线（上右下左），height 为渲染高度；
+// 两端装饰按 height/source 等比缩放，中段随文字宽度拉伸，多行选项时上下切线之间纵向拉伸。
+const IMAGE_CHOICE_SPECS = Object.freeze({
+    [DIALOG_SKIN_CUTE_PINK]: { source: 56, slice: [18, 64, 22, 48], height: 46, padding: '0 40px 0 46px', css: `color:#6b4454;font-weight:500;letter-spacing:.08em;`, hover: 'color:#fff;text-shadow:0 1px 0 rgba(184,52,92,.45);', active: 'color:#fff;' },
+    [DIALOG_SKIN_BLACK_WHITE_MANGA]: { source: 66, slice: [22, 48, 22, 48], height: 50, padding: '0 44px', css: `color:#1f1b19;font-weight:700;letter-spacing:.1em;`, hover: 'color:#171412;' },
+    [CLASSIC]: { source: 62, slice: [20, 40, 22, 40], height: 48, padding: '0 40px', css: `color:#eadfbf;letter-spacing:.1em;text-shadow:0 1px 2px rgba(0,0,0,.55);`, hover: 'color:#fff0c4;', active: 'color:#fff0c4;' },
+    [DIALOG_SKIN_PLANT_COFFEE]: { source: 57, slice: [18, 30, 20, 30], height: 46, padding: '0 34px', css: `color:#5b4643;letter-spacing:.08em;`, hover: 'color:#fff;text-shadow:0 1px 0 rgba(70,96,36,.45);', active: 'color:#fff;' },
+    [DIALOG_SKIN_RETRO_JAPANESE]: { source: 64, slice: [20, 96, 24, 40], height: 52, padding: '0 64px 6px 48px', css: `color:#4a3527;letter-spacing:.14em;`, hover: 'color:#f6e7c8;', active: 'color:#f6e7c8;' },
+    [DIALOG_SKIN_ADVENTURE_JOURNEY]: { source: 78, slice: [24, 80, 24, 80], height: 54, padding: '0 60px', css: `color:#efdfc3;letter-spacing:.12em;text-shadow:0 1px 2px rgba(0,0,0,.5);`, hover: 'color:#3f3027;text-shadow:none;', active: 'color:#fff4dc;' },
+});
+
+function borderImage(url, spec) {
+    const scale = spec.height / spec.source;
+    const widths = spec.slice.map((value) => `${Math.round(value * scale)}px`).join(' ');
+    return `border-image:url("${url}") ${spec.slice.join(' ')} fill / ${widths} stretch;`;
+}
+
+function imageChoiceRules(skin) {
+    const spec = IMAGE_CHOICE_SPECS[skin];
+    const [normal, hover, active] = CHOICE_ASSETS[skin];
+    const rules = {
+        '': `box-sizing:border-box;min-height:${spec.height}px;padding:${spec.padding};border:0 solid transparent;border-radius:0;background:transparent;box-shadow:none;${borderImage(normal, spec)}${spec.css}`,
+        ':hover': `border-color:transparent;background:transparent;${borderImage(hover, spec)}${spec.hover || ''}`,
+    };
+    if (active) rules[':active'] = `transform:none;${borderImage(active, spec)}${spec.active || ''}`;
+    return bubbleRules(skin, rules);
+}
+
+const DAY_STRIPES = 'linear-gradient(90deg,#e0826c 0 3px,transparent 3px 5px,#d8d3bf 5px 8px,transparent 8px 10px,#b9c4a2 10px 13px)';
+const WARM_DOTS = 'linear-gradient(#a6dcd4 0 0) 0 0/5px 5px,linear-gradient(#a6dcd4 0 0) 7px 0/5px 5px,linear-gradient(#a6dcd4 0 0) 0 7px/5px 5px,linear-gradient(#a6dcd4 0 0) 7px 7px/5px 5px';
+const ELEGANT_LINE = 'linear-gradient(90deg,rgba(236,232,244,0),rgba(236,232,244,.5) 18%,rgba(236,232,244,.5) 82%,rgba(236,232,244,0))';
+
 // 选项跟随对话框皮肤：只改外观，位置、宽度模式与字号仍由选项设置控制；默认皮肤保持霜夜选项。
 export const DIALOG_THEME_CHOICE_STYLE_TEXT = [
     '#igs-overlay[data-igs-dialog-skin] #igs-option-bubbles{margin-bottom:var(--igs-skin-plate-rise,0px);}',
     '#igs-overlay[data-igs-dialog-skin] .igs-option-bubble{position:relative;-webkit-backdrop-filter:none;backdrop-filter:none;transition:background-color .18s,border-color .18s,color .18s,box-shadow .18s,transform .12s;}',
     '#igs-overlay[data-igs-dialog-skin] .igs-option-bubble:focus-visible{outline:2px solid currentColor;outline-offset:3px;}',
-    bubbleRules(CLASSIC, {
-        '': `padding:10px 42px;border:1px solid #b8903f;border-radius:4px;background:linear-gradient(180deg,rgba(63,67,50,.95),rgba(42,45,33,.95));box-shadow:inset 0 0 0 2px rgba(38,31,23,.92),inset 0 0 0 3px rgba(255,214,128,.26),0 3px 10px rgba(0,0,0,.35);color:#f2e5c4;font-family:${DIALOG_FONT_SERIF};letter-spacing:.08em;`,
-        '::before': 'content:"";position:absolute;left:18px;top:50%;width:6px;height:6px;border:1px solid #d9b061;transform:translateY(-50%) rotate(45deg);transition:background-color .18s;',
-        '::after': 'content:"";position:absolute;right:18px;top:50%;width:6px;height:6px;border:1px solid #d9b061;transform:translateY(-50%) rotate(45deg);transition:background-color .18s;',
-        ':hover': 'border-color:#e8c170;background:linear-gradient(180deg,rgba(78,82,60,.96),rgba(52,55,40,.96));color:#ffe9b0;box-shadow:inset 0 0 0 2px rgba(38,31,23,.92),inset 0 0 0 3px rgba(255,214,128,.42),0 0 14px rgba(232,193,112,.28);',
-        ':hover::before': 'background:#d9b061;',
-        ':hover::after': 'background:#d9b061;',
-    }),
-    bubbleRules(DIALOG_SKIN_PLANT_COFFEE, {
-        '': `padding:10px 40px;border:1.5px solid #5c4949;border-radius:999px;background:#f6f1eb;box-shadow:0 3px 0 rgba(92,73,73,.2);color:#5b4643;font-family:${DIALOG_FONT_ROUNDED};letter-spacing:.06em;`,
-        '::before': 'content:"";position:absolute;left:19px;top:50%;width:10px;height:10px;border-radius:0 100% 0 100%;background:#a5bf6b;transform:translateY(-50%) rotate(-12deg);transition:background-color .18s;',
-        ':hover': 'border-color:#5c4949;background:#5c4949;color:#f6ecd9;',
-        ':hover::before': 'background:#c9dd8f;',
-        ':active': 'transform:translateY(2px);box-shadow:0 1px 0 rgba(92,73,73,.2);',
-    }),
-    `${scope(DIALOG_SKIN_BLACK_WHITE_MANGA)} #igs-option-bubbles{box-sizing:border-box;padding:0 5px 5px 0;}`,
+    ...Object.keys(IMAGE_CHOICE_SPECS).map(imageChoiceRules),
+    // 漫画例图里选中项左侧带一枚四角星。
     bubbleRules(DIALOG_SKIN_BLACK_WHITE_MANGA, {
-        '': `padding:10px 24px;border:2.5px solid #171412;border-radius:2px;background:radial-gradient(rgba(23,20,18,.09) 1px,transparent 1.3px) 0 0/5px 5px,#f3eee4;box-shadow:4px 4px 0 #171412;color:#1f1b19;font-family:${DIALOG_FONT_SANS};font-weight:700;letter-spacing:.08em;`,
-        ':hover': 'border-color:#171412;background:#171412;color:#f7f3ea;box-shadow:2px 2px 0 #171412;transform:translate(2px,2px);',
-        ':active': 'box-shadow:0 0 0 #171412;transform:translate(4px,4px);',
+        ':hover::before': 'content:"\\2726";position:absolute;left:34px;top:50%;transform:translateY(-50%);font-size:1.05em;color:#171412;',
     }),
-    `${scope(DIALOG_SKIN_CUTE_PINK)} #igs-option-bubbles{box-sizing:border-box;padding-bottom:5px;}`,
-    bubbleRules(DIALOG_SKIN_CUTE_PINK, {
-        '': `padding:10px 28px;border:2px solid #5e5356;border-radius:999px;background:#fff;box-shadow:0 4px 0 #d9416f;color:#5d3a4a;font-family:${DIALOG_FONT_ROUNDED};font-weight:500;letter-spacing:.06em;`,
-        '::before': 'content:"\\2665";margin-right:.45em;color:#e97c9d;font-size:.9em;transition:color .18s;',
-        ':hover': 'border-color:#5e5356;background:linear-gradient(180deg,#f29ab5,#e5779a);box-shadow:0 2px 0 #b8345c;color:#fff;transform:translateY(2px);',
-        ':hover::before': 'color:#fff;',
-        ':active': 'box-shadow:0 0 0 #b8345c;transform:translateY(4px);',
+    bubbleRules(DIALOG_SKIN_DAY_MINIMAL, {
+        '': `box-sizing:border-box;min-height:42px;padding:9px 40px 9px 44px;border:0;border-radius:0;background:linear-gradient(90deg,rgba(51,51,51,.9),rgba(62,62,58,.84) 70%,rgba(90,89,78,.78));box-shadow:0 1px 0 rgba(255,255,255,.35) inset;color:#f3f1ea;letter-spacing:.12em;`,
+        '::before': `content:"";position:absolute;left:14px;top:50%;width:13px;height:14px;margin-top:-7px;background:${DAY_STRIPES};`,
+        ':hover': 'background:linear-gradient(90deg,#c9604c,#d27560 70%,#d98b74);color:#fff;',
+        ':active': 'transform:translateX(2px);',
+    }),
+    bubbleRules(DIALOG_SKIN_WARM_PICTUREBOOK, {
+        '': `box-sizing:border-box;min-height:44px;padding:9px 44px 9px 50px;border:2px solid #4f4a45;border-radius:999px;background:#f1ede9;box-shadow:0 3px 0 rgba(79,74,69,.28);color:#4f4a45;font-weight:500;letter-spacing:.1em;`,
+        '::before': `content:"";position:absolute;left:22px;top:50%;width:12px;height:12px;margin-top:-6px;background:${WARM_DOTS};background-repeat:no-repeat;`,
+        ':hover': 'border-color:#4f4a45;background:repeating-linear-gradient(135deg,#5b5650 0 5px,#4f4a45 5px 10px);box-shadow:0 0 0 3px #f1ede9,0 0 0 5px #4f4a45;color:#f4efe9;',
+        ':active': 'transform:translateY(2px);box-shadow:0 0 0 3px #f1ede9,0 0 0 5px #4f4a45;',
+    }),
+    bubbleRules(DIALOG_SKIN_ELEGANT_EUROPEAN, {
+        '': `box-sizing:border-box;min-height:44px;padding:10px 40px;border:0;border-radius:0;background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(8,8,16,0),rgba(8,8,16,.55) 20%,rgba(8,8,16,.55) 80%,rgba(8,8,16,0));box-shadow:none;color:#eeeaf3;letter-spacing:.12em;text-shadow:0 1px 3px rgba(0,0,0,.8);`,
+        ':hover': `background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(96,78,168,0),rgba(96,78,168,.72) 22%,rgba(112,92,186,.78) 50%,rgba(96,78,168,.72) 78%,rgba(96,78,168,0));color:#fff;text-shadow:0 0 8px rgba(196,176,255,.6);`,
     }),
     bubbleRules(DIALOG_SKIN_GRADIENT_VEIL, {
         '': 'padding:11px 32px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.6) 18%,rgba(0,0,0,.6) 82%,transparent);box-shadow:none;color:rgba(255,255,255,.88);text-shadow:0 1px 3px rgba(0,0,0,.85);letter-spacing:.1em;',

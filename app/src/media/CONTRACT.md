@@ -6,6 +6,8 @@
 - 管理本地文件、URL 图片、生成图片、Blob URL 和资源生命周期。
 - 为 `backgrounds`、`characters`、`generated-images` 提供统一资源句柄。
 - 自动插图的 tag 与图片持久化（`illustration-store.js`，IndexedDB，键 `chatId|messageId|swipeId[|slot]`）。
+- 素材补全的图片与临时素材持久化（`generated-asset-store.js`，IndexedDB `igs-generated-assets`：`images` 存图片本体、`assets` 存本聊天临时素材、`floors` 记录楼层是否已处理）。
+- 立绘抠图（`alpha-matte.js`）：从四边洪泛抠除与边缘连通的浅灰纯色底，边缘羽化 + 去溢色，并裁掉透明留白；无 canvas 时原样返回。
 
 ## 子能力
 

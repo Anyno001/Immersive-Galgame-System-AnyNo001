@@ -381,7 +381,7 @@ test('gate:simulation:igs-ui-open-settings-renders-five-tabs', () => {
     const result = vn.openSettings({ tab: 'basic', mode: 'pc' });
 
     assert.equal(result.ok, true);
-    assert.deepEqual(result.snapshot.tabs.map((item) => item.label), ['基础', '正文替换', '图像', '场景', '阅读器']);
+    assert.deepEqual(result.snapshot.tabs.map((item) => item.label), ['基础', '阅读器', '场景', '生图']);
     assert.equal(result.snapshot.tabs[0].active, true);
     assert.ok(result.snapshot.selectors.includes('#igs-unified-settings'));
 
@@ -1166,9 +1166,10 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(initial.imageSubTab, 'auto');
         assert.match(initial.html, /data-image-subtab="auto"[^>]*aria-selected="true"/);
         assert.match(initial.html, /data-image-subtab="other"/);
-        assert.match(initial.html, /data-image-fold="nsfw"(?! open)/);
-        assert.match(initial.html, /data-image-fold="interlude"(?! open)/);
-        assert.match(initial.html, /data-image-fold="shared"(?! open)/);
+        assert.match(initial.html, /data-image-feature="nsfw" hidden/);
+        assert.match(initial.html, /data-image-feature="interlude" hidden/);
+        assert.match(initial.html, /data-image-feature="llm" hidden/);
+        assert.match(initial.html, /data-image-feature="nai" hidden/);
         for (const path of initial.activeContract.requiredPaths.filter((item) => item.startsWith('bridge.autoIllustration.'))) {
             assert.ok(initial.html.includes(`data-path="${path}"`) || initial.html.includes(`data-switch="${path}"`), `Missing image field: ${path}`);
         }
@@ -1181,11 +1182,12 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.doesNotMatch(other.html, /data-switch="bridge\.autoIllustration\.nsfwEnabled"/);
         assert.equal(opened.controller.switchImageSubTab('auto').snapshot.imageSubTab, 'auto');
         assert.equal(opened.controller.toggle('bridge.autoIllustration.nsfwEnabled').ok, true);
-        assert.match(opened.controller.getSnapshot().html, /data-image-fold="nsfw" open/);
+        assert.match(opened.controller.getSnapshot().html, /data-image-feature="nsfw"(?![^>]*\shidden)/);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nsfwCount', '2').ok, true);
         assert.equal(opened.controller.toggle('bridge.autoIllustration.interludeEnabled').ok, true);
-        assert.match(opened.controller.getSnapshot().html, /data-image-fold="interlude" open/);
-        assert.match(opened.controller.getSnapshot().html, /data-image-fold="shared" open/);
+        assert.match(opened.controller.getSnapshot().html, /data-image-feature="interlude"(?![^>]*\shidden)/);
+        assert.match(opened.controller.getSnapshot().html, /data-image-feature="llm"(?![^>]*\shidden)/);
+        assert.match(opened.controller.getSnapshot().html, /data-image-feature="nai"(?![^>]*\shidden)/);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.interludeProbability', '45').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.source', 'openai').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1').ok, true);
@@ -2281,7 +2283,7 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     vn.destroy();
 });
 
-test('gate:simulation:settings-theme-toggle-persists-day-mode', async () => {
+test('gate:simulation:settings-theme-cycle-persists-all-four-themes', async () => {
     const storage = createMemoryStorage();
     const vn = bootstrapIGS({
         global: { localStorage: storage },
@@ -2294,21 +2296,29 @@ test('gate:simulation:settings-theme-toggle-persists-day-mode', async () => {
     const opened = await vn.openLatestAvailable('pc');
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     const initial = settings.getSnapshot();
-    assert.equal(initial.settingsTheme, 'night');
-    assert.match(initial.html, /data-igs-settings-theme="night"/);
-    assert.match(initial.html, /切换到日间模式/);
+    assert.equal(initial.settingsTheme, 'landmine');
+    assert.match(initial.html, /data-igs-settings-theme="landmine"/);
+    assert.match(initial.html, /切换到奶油风/);
 
-    const toggled = await settings.invoke('toggle-settings-theme');
-    assert.equal(toggled.snapshot.settingsTheme, 'day');
-    assert.match(toggled.snapshot.html, /data-igs-settings-theme="day"/);
-    assert.match(toggled.snapshot.html, /切换到夜间模式/);
-    assert.equal(JSON.parse(storage.getItem('igs_bridge_config') || '{}').settingsTheme, undefined);
+    const expected = [
+        ['cream', '浅色'],
+        ['light', '深色'],
+        ['dark', '地雷色'],
+        ['landmine', '奶油风'],
+    ];
+    for (const [theme, nextLabel] of expected) {
+        const toggled = await settings.invoke('toggle-settings-theme');
+        assert.equal(toggled.snapshot.settingsTheme, theme);
+        assert.match(toggled.snapshot.html, new RegExp(`data-igs-settings-theme="${theme}"`));
+        assert.match(toggled.snapshot.html, new RegExp(`切换到${nextLabel}`));
+        assert.equal(JSON.parse(storage.getItem('igs_bridge_config') || '{}').settingsTheme, theme);
+    }
     assert.equal(settings.close().ok, true);
     const bridge = JSON.parse(storage.getItem('igs_bridge_config'));
-    assert.equal(bridge.settingsTheme, 'day');
+    assert.equal(bridge.settingsTheme, 'landmine');
 
     const reopened = opened.reader.controller.openSettings('basic');
-    assert.equal(reopened.snapshot.settingsTheme, 'day');
+    assert.equal(reopened.snapshot.settingsTheme, 'landmine');
     vn.destroy();
 });
 
@@ -3962,7 +3972,7 @@ function readText(relativePath) {
     return fs.readFileSync(path.join(appRoot, relativePath), 'utf8');
 }
 
-test('gate:simulation:map-viewport-uses-bundled-city-map-for-scene-time', () => {
+test('gate:simulation:map-viewport-uses-bundled-city-map-when-demo-source-is-chosen', () => {
     const document = createFakeDocument();
     const loaded = [];
     let failImage = false;
@@ -3980,7 +3990,9 @@ test('gate:simulation:map-viewport-uses-bundled-city-map-for-scene-time', () => 
     const api = { exportTableAsJson: () => ({ sheet_map: { uid: 'sheet_map', name: '城市地图', content: [
         ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序', '地图底图'], ...rows,
     ] } }) };
-    const panel = createMapPanelController(document, { AutoCardUpdaterAPI: api }, async () => ({ ok: true }));
+    const store = new Map([['igs-map-basemap-source', 'demo']]);
+    const localStorage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, String(value)) };
+    const panel = createMapPanelController(document, { AutoCardUpdaterAPI: api, localStorage }, async () => ({ ok: true }));
     const html = () => document.getElementById('igs-map-panel').innerHTML;
     const basemap = () => html().match(/<img class="igs-map-basemap" src="([^"]+)"/)?.[1];
     for (const [time, file] of [
@@ -4030,6 +4042,120 @@ test('gate:simulation:map-viewport-uses-bundled-city-map-for-scene-time', () => 
     assert.equal(panel.getState().basemapState, 'none');
     assert.equal(basemap(), undefined);
     panel.close();
+});
+
+test('gate:simulation:map-viewport-generates-a-per-chat-city-and-lights-it-by-time-and-weather', async () => {
+    const document = createFakeDocument();
+    document.defaultView.Image = class {
+        naturalWidth = 1600;
+        naturalHeight = 900;
+        set src(value) { this.onload?.(); }
+    };
+    const canvasOps = { count: 0 };
+    const ctx = new Proxy({}, {
+        get(target, key) {
+            if (key in target) return target[key];
+            if (key === 'createLinearGradient' || key === 'createRadialGradient') return () => ({ addColorStop() {} });
+            if (key === 'createPattern') return () => ({});
+            return () => { canvasOps.count++; };
+        },
+        set(target, key, value) { target[key] = value; return true; },
+    });
+    const baseCreate = document.createElement.bind(document);
+    let canvases = 0;
+    document.createElement = tag => {
+        if (String(tag).toLowerCase() !== 'canvas') return baseCreate(tag);
+        canvases++;
+        return { width: 0, height: 0, getContext: () => ctx, toDataURL: () => `data:image/png;base64,generated-${canvases}` };
+    };
+    const overlay = document.createElement('div');
+    document.body.appendChild(overlay);
+    const rows = [
+        ['street', '', '临河街道', '.5', '.5', '沿河的主路', '', '1', ''],
+        ['school', '', '樱丘高中', '.3', '.3', '', '', '2', ''],
+        ['home', '', '我家', '.2', '.7', '', '', '3', ''],
+        ['floor', 'home', '一楼', '.5', '.5', '', '', '1', ''],
+        ['floor2', 'home', '二楼', '.5', '.3', '', '', '2', ''],
+    ];
+    const api = { exportTableAsJson: () => ({ sheet_map: { uid: 'sheet_map', name: '城市地图', content: [
+        ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序', '地图底图'], ...rows,
+    ] } }) };
+    const store = new Map();
+    const localStorage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, String(value)) };
+    let chatId = 'chat-a';
+    const panel = createMapPanelController(document, { AutoCardUpdaterAPI: api, localStorage }, async () => ({ ok: true }), { getChatId: () => chatId });
+    const html = () => document.getElementById('igs-map-panel').innerHTML;
+    const basemap = () => html().match(/<img class="igs-map-basemap" src="([^"]+)"/)?.[1];
+    const settle = async () => { for (let i = 0; i < 600 && panel.getState().generation.status === 'pending'; i++) await new Promise(r => setTimeout(r, 5)); };
+    const act = async action => {
+        assert.match(html(), new RegExp(`data-map-act="${action}"`), `${action} control should be rendered`);
+        const target = document.createElement('button');
+        target.setAttribute('data-map-act', action);
+        const root = document.getElementById('igs-map-panel');
+        root.appendChild(target);
+        await root.dispatchEvent({ type: 'click', target });
+        target.remove();
+    };
+
+    panel.open(overlay, { weatherFx: { enabled: true } }, '临河街道', '21:30', '小雨');
+    assert.equal(panel.getState().basemapSource, 'auto', 'generated maps are the default when the table has no basemap');
+    assert.equal(panel.getState().generation.status, 'pending');
+    assert.match(html(), /正在生成地图/);
+    await settle();
+    const first = panel.getState().generation;
+    assert.equal(first.status, 'ready');
+    assert.equal(first.scale, 'city');
+    assert.match(basemap(), /^data:image\/png;base64,generated-/);
+    assert.match(html(), /自动生成的示意地图/);
+    assert.match(html(), /igs-map-light-tint/, 'night tints the generated map');
+    assert.match(html(), /igs-map-light-lamps/, 'night turns on generated street lights');
+    assert.match(html(), /igs-map-light-clouds/, 'rain adds cloud shadows');
+    assert.match(html(), /class="igs-map-basemap"[^>]*style="filter:brightness/);
+    assert.ok(canvasOps.count > 1000, 'the city is drawn on canvas');
+    panel.close();
+
+    panel.open(overlay, {}, '临河街道', '12:00', '');
+    assert.equal(panel.getState().generation.status, 'ready', 'reopening reuses the cached map immediately');
+    assert.equal(panel.getState().generation.key, first.key);
+    assert.doesNotMatch(html(), /igs-map-light-lamps|igs-map-light-tint/, 'noon has no night grading');
+    await act('reroll');
+    await settle();
+    const rerolled = panel.getState().generation.key;
+    assert.notEqual(rerolled, first.key, 'reroll produces another city for this chat');
+    panel.close();
+
+    chatId = 'chat-b';
+    panel.open(overlay, {}, '临河街道', '12:00', '');
+    await settle();
+    assert.notEqual(panel.getState().generation.key, rerolled, 'another conversation gets its own city');
+    assert.notEqual(panel.getState().generation.key, first.key);
+    panel.close();
+
+    chatId = 'chat-a';
+    panel.open(overlay, {}, '临河街道', '12:00', '');
+    assert.equal(panel.getState().generation.key, rerolled, 'the reroll is remembered per conversation');
+    await act('basemap-source');
+    assert.equal(panel.getState().basemapSource, 'demo');
+    assert.ok(basemap().endsWith('/map-demo-day.png'), 'the bundled demo map follows a clock time');
+    assert.doesNotMatch(html(), /igs-map-light-tint/, 'bundled time art is not graded twice');
+    await act('basemap-source');
+    assert.equal(panel.getState().basemapSource, 'auto');
+    panel.close();
+
+    panel.open(overlay, {}, '一楼', '12:00', '');
+    assert.equal(panel.getState().generation.scale, 'interior');
+    assert.equal(panel.getState().generation.status, 'skipped', 'interior floors keep the neutral plane');
+    assert.equal(basemap(), undefined);
+    panel.close();
+
+    rows[0][8] = rows[1][8] = rows[2][8] = 'https://example.com/day.webp';
+    panel.open(overlay, {}, '临河街道', '深夜', '');
+    for (let i = 0; i < 50 && !/igs-map-light-lamps/.test(html()); i++) await new Promise(r => setTimeout(r, 5));
+    assert.equal(basemap(), 'https://example.com/day.webp', 'a table basemap still wins over generation');
+    assert.match(html(), /igs-map-light-tint/, 'user day art is graded to night');
+    assert.match(html(), /igs-map-light-lamps/, 'user art gets lights around the pins');
+    panel.dispose();
+    assert.equal(panel.isOpen(), false);
 });
 
 
@@ -5340,6 +5466,10 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     assert.equal(host.hasAttribute('hidden'), false);
     assert.equal(host.classList.contains('igs-hud-bg-dialog'), true);
     assert.equal(host.classList.contains('igs-hud-character-emotion-with-metrics'), true);
+    const entry = host.querySelector('.igs-hud-entry-arrow');
+    const menu = host.querySelector('#igs-hud-record-menu');
+    assert.equal(entry.getAttribute('aria-expanded'), 'true');
+    assert.equal(menu.hasAttribute('hidden'), false);
 
     const avatar = host.querySelector('.igs-hud-avatar');
     assert.ok(avatar, 'avatar node should exist');
@@ -5364,6 +5494,14 @@ test('gate:simulation:status-hud-dom-renders-avatar-emotion-and-caps-at-four', a
     const overlay = document.getElementById('igs-overlay');
     const readerRoot = overlay.parentNode;
     assert.ok(readerRoot);
+    await readerRoot.dispatchEvent({ type: 'click', target: entry,
+        stopPropagation() {} });
+    assert.equal(entry.getAttribute('aria-expanded'), 'false');
+    assert.equal(menu.hasAttribute('hidden'), true);
+    await readerRoot.dispatchEvent({ type: 'click', target: entry,
+        stopPropagation() {} });
+    assert.equal(entry.getAttribute('aria-expanded'), 'true');
+    assert.equal(menu.hasAttribute('hidden'), false);
     let hudToggle = host.querySelector('[data-act="toggle-status-hud"]');
     assert.ok(hudToggle);
 
@@ -5710,6 +5848,7 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     assert.match(dialogView.snapshot.html, /植物咖啡/);
     assert.match(dialogView.snapshot.html, /黑白漫画/);
     assert.match(dialogView.snapshot.html, /超可爱粉/);
+    for (const label of ['复古日式', '冒险旅途', '日间简约', '温暖绘本', '优雅欧式']) assert.match(dialogView.snapshot.html, new RegExp(label));
     settings.setValue('readerSettings.dialogSkin', 'black-white-manga');
     commit();
     assert.equal(dialog.getAttribute('data-igs-dialog-skin'), 'black-white-manga');

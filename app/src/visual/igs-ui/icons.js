@@ -16,5 +16,5 @@ export function getReaderModeIcon(mode) {
 }
 
 export function getSettingsThemeIcon(theme) {
-    return SETTINGS_THEME_ICONS[theme === 'day' ? 'day' : 'night'];
+    return SETTINGS_THEME_ICONS[theme === 'day' || theme === 'cream' || theme === 'light' ? 'day' : 'night'];
 }

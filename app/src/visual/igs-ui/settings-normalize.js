@@ -31,7 +31,7 @@ export function normalizeSettingsValue(path, value) {
             return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.5;
         }
         if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
-        if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|toolbarScale|inputScale|imageCountOverride|imgBrightness|gradientVeil\.(heightPercent|opacity)/.test(path)) {
+        if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|skinDialogScale|toolbarScale|inputScale|imageCountOverride|imgBrightness|gradientVeil\.(heightPercent|opacity)/.test(path)) {
             return Number(value);
         }
         if (/glassOpacity/.test(path)) {
@@ -41,10 +41,13 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
     }
-    if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled)$/.test(path)) {
+    if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|assets\.(spriteEnabled|backgroundEnabled|strictMatch))$/.test(path)) {
         return value === true || value === 'true' || value === 1 || value === '1';
     }
-    if (/^bridge\.autoIllustration\.(nsfwCount|interludeProbability|interludeMaxCount|llm\.contextFloors|llm\.timeoutMs|nai\.steps|nai\.scale|nai\.timeoutMs)$/.test(path)) {
+    if (/^bridge\.autoIllustration\.assets\.(spriteSize|backgroundSize|templates\.(background|sprite))$/.test(path)) {
+        return String(value || '');
+    }
+    if (/^bridge\.autoIllustration\.(nsfwCount|interludeProbability|interludeMaxCount|assets\.maxPerFloor|llm\.contextFloors|llm\.timeoutMs|nai\.steps|nai\.scale|nai\.timeoutMs)$/.test(path)) {
         return Number(value);
     }
     if (path === 'bridge.autoIllustration.llm.source' || path === 'bridge.autoIllustration.nai.transport') {

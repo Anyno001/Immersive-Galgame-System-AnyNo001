@@ -16,6 +16,22 @@ if (!compiled.includes(mapSourcePath)) throw new Error('Map image path is missin
 const bundle = inlineTypewriterAudio(inlineDialogThemeAssets(compiled.replace(mapSourcePath, './maps/map-demo-clean-night.png')));
 
 const roundedFontWeights = [300, 400, 500, 700];
+const dialogFontAssets = [
+    { family: 'LXGW WenKai', file: 'LXGWWenKai-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'LXGW WenKai', file: 'LXGWWenKai-Light.ttf', weight: 300, style: 'normal', format: 'truetype' },
+    { family: 'LXGW Neo ZhiSong', file: 'LXGWNeoZhiSong.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'LXGW Neo XiHei', file: 'LXGWNeoXiHei.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'Huiwen Mincho', file: 'HuiwenMincho.otf', weight: 400, style: 'normal', format: 'opentype' },
+    { family: 'Tsanger YuYang', file: 'TsangerYuYangT-W05.woff2', weight: 400, style: 'normal', format: 'woff2' },
+    { family: 'Smiley Sans', file: 'SmileySans-Oblique.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'ZCOOL KuaiLe', file: 'ZCOOLKuaiLe-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'Cinzel', file: 'Cinzel-Variable.ttf', weight: '100 900', style: 'normal', format: 'truetype' },
+    { family: 'Great Vibes', file: 'GreatVibes-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'Pinyon Script', file: 'PinyonScript-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'Quicksand', file: 'Quicksand-Variable.ttf', weight: '300 700', style: 'normal', format: 'truetype' },
+    { family: 'Caveat', file: 'Caveat-Variable.ttf', weight: '400 700', style: 'normal', format: 'truetype' },
+    { family: 'IM Fell English SC', file: 'IMFellEnglishSC-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
+];
 const classicFontAssets = [
     { family: 'Source Han Serif CN', file: 'SourceHanSerifCN-Regular.otf', weight: 400, style: 'normal', format: 'opentype' },
     { family: 'Cormorant Garamond', file: 'CormorantGaramond-Regular.woff2', weight: 400, style: 'normal', format: 'woff2' },
@@ -23,6 +39,7 @@ const classicFontAssets = [
 ];
 const css = [
     ...roundedFontWeights.map((weight) => `@font-face { font-family: "IGS Rounded"; font-style: normal; font-weight: ${weight}; font-display: swap; src: url("./fonts/nowar-rounded-bliz-${weight}.ttf") format("truetype"); }`),
+    ...dialogFontAssets.map(({ family, file, weight, style, format }) => `@font-face { font-family: "${family}"; font-style: ${style}; font-weight: ${weight}; font-display: swap; src: url("./fonts/${file}") format("${format}"); }`),
     ...classicFontAssets.map(({ family, file, weight, style, format }) => `@font-face { font-family: "${family}"; font-style: ${style}; font-weight: ${weight}; font-display: swap; src: url("./fonts/${file}") format("${format}"); }`),
     '.igs-stage { position: relative; width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: #0b0d12; }',
     '.igs-background-layer, .igs-generated-layer, .igs-effect-layer, .igs-character-layer, .igs-avatar-layer, .igs-dialogue-layer, .igs-hud-layer, .igs-choice-layer, .igs-system-layer { position: absolute; inset: 0; }',
@@ -49,6 +66,13 @@ for (const weight of roundedFontWeights) {
         throw new Error(`Bundled font is missing or invalid: ${source}`);
     }
     fs.copyFileSync(source, path.join(fontTargetDir, name));
+}
+for (const asset of dialogFontAssets) {
+    const source = path.join(fontSourceDir, asset.file);
+    if (!fs.existsSync(source)) throw new Error(`Bundled dialog font is missing: ${source}`);
+    const signature = fs.readFileSync(source).subarray(0, 4).toString('ascii');
+    if (!['OTTO', 'wOF2', '\0\x01\0\0'].includes(signature)) throw new Error(`Bundled dialog font is invalid: ${source}`);
+    fs.copyFileSync(source, path.join(fontTargetDir, asset.file));
 }
 for (const asset of classicFontAssets) {
     const source = path.join(fontSourceDir, asset.file);
@@ -182,7 +206,7 @@ function inlineTypewriterAudio(bundle) {
 
 function inlineDialogThemeAssets(bundle) {
     const cache = new Map();
-    return bundle.replace(/__IGS_ASSET__([a-z0-9-]+)\/(dialog-left|dialog-center|dialog-right|name-left|name-center|name-right)\.png__/g, (_match, theme, part) => {
+    return bundle.replace(/__IGS_ASSET__([a-z0-9-]+)\/([a-z-]+)\.png__/g, (_match, theme, part) => {
         const key = `${theme}/${part}`;
         if (!cache.has(key)) {
             const file = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'dialog-themes', theme, `${part}.png`);

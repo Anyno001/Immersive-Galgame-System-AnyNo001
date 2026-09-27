@@ -1,0 +1,70 @@
+export const ASSET_REVIEW_STYLE_TEXT = `
+#igs-asset-review{position:absolute;right:16px;bottom:calc(var(--igs-dialog-h,180px) + 16px);z-index:40;width:min(360px,calc(100% - 32px));max-height:60%;overflow:auto;padding:12px;border-radius:12px;background:rgba(20,22,30,.86);color:#fff;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.35);backdrop-filter:blur(8px);}
+#igs-asset-review[hidden]{display:none;}
+.igs-asset-review-title{font-weight:600;margin-bottom:8px;}
+.igs-asset-review-item{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid rgba(255,255,255,.12);}
+.igs-asset-review-thumb{width:72px;height:72px;flex:none;border-radius:8px;background:rgba(255,255,255,.08);object-fit:contain;}
+.igs-asset-review-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
+.igs-asset-review-body input{width:100%;box-sizing:border-box;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);color:inherit;}
+.igs-asset-review-actions{display:flex;gap:6px;flex-wrap:wrap;}
+.igs-asset-review-actions button,.igs-asset-review-later{padding:3px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:transparent;color:inherit;cursor:pointer;font-size:12px;}
+.igs-asset-review-later{margin-top:8px;}
+`;
+
+const TYPE_LABEL = { sprite: '立绘', background: '背景' };
+
+export function renderAssetReviewPanel(container, items = [], handlers = {}) {
+    if (!container || !container.ownerDocument) return;
+    const doc = container.ownerDocument;
+    while (container.firstChild) container.removeChild(container.firstChild);
+    if (!items.length) {
+        container.setAttribute('hidden', '');
+        return;
+    }
+    const title = doc.createElement('div');
+    title.className = 'igs-asset-review-title';
+    title.textContent = `本层生成了 ${items.length} 个新素材，是否加入素材库？`;
+    container.appendChild(title);
+    for (const item of items) {
+        const row = doc.createElement('div');
+        row.className = 'igs-asset-review-item';
+        const thumb = doc.createElement('img');
+        thumb.className = 'igs-asset-review-thumb';
+        thumb.alt = `${TYPE_LABEL[item.type] || '素材'}${item.time ? ` · ${item.time}` : ''}`;
+        thumb.src = String(item.previewUrl || '');
+        const body = doc.createElement('div');
+        body.className = 'igs-asset-review-body';
+        const label = doc.createElement('div');
+        label.textContent = thumb.alt;
+        const input = doc.createElement('input');
+        input.type = 'text';
+        input.value = String(item.name || '');
+        input.setAttribute('aria-label', '素材名称');
+        input.addEventListener('keydown', (event) => event.stopPropagation());
+        const actions = doc.createElement('div');
+        actions.className = 'igs-asset-review-actions';
+        for (const [act, text] of [['library', '加入素材库'], ['chat', '仅本聊天'], ['discarded', '丢弃']]) {
+            const button = doc.createElement('button');
+            button.type = 'button';
+            button.textContent = text;
+            button.addEventListener('click', (event) => {
+                event.stopPropagation();
+                if (typeof handlers.onResolve === 'function') handlers.onResolve(item, act, input.value.trim());
+            });
+            actions.appendChild(button);
+        }
+        body.append(label, input, actions);
+        row.append(thumb, body);
+        container.appendChild(row);
+    }
+    const later = doc.createElement('button');
+    later.type = 'button';
+    later.className = 'igs-asset-review-later';
+    later.textContent = '稍后再说';
+    later.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (typeof handlers.onLater === 'function') handlers.onLater();
+    });
+    container.appendChild(later);
+    container.removeAttribute('hidden');
+}

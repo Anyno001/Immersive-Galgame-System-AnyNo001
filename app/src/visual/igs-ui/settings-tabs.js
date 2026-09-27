@@ -76,6 +76,19 @@ const IMAGE_AUTO_TEMPLATE = `
       <div class="igs-source-filter-grid">{{autoInterludeProbabilityField}}{{autoInterludeMaxField}}</div>
     </div>
   </div>
+  <div class="igs-source-filter" data-image-feature="assets">
+    <div class="igs-source-filter-title">素材补全（需开启场景素材模式）</div>
+    <div class="igs-source-filter-grid">
+      {{autoAssetSpriteField}}{{autoAssetBackgroundField}}
+      {{autoAssetStrictField}}{{autoAssetMaxField}}
+      {{autoAssetSpriteSizeField}}{{autoAssetBackgroundSizeField}}
+    </div>
+    <div class="igs-settings-sub">
+      <div class="igs-settings-full">{{autoAssetBackgroundTemplateField}}</div>
+      <div class="igs-settings-full">{{autoAssetSpriteTemplateField}}</div>
+      {{autoAssetNsfwExtraField}}
+    </div>
+  </div>
   <div class="igs-source-filter" data-image-feature="llm"{{autoSharedHidden}}>
     <div class="igs-source-filter-title">副 LLM · 生成标签</div>
     <div class="igs-source-filter-grid">
@@ -122,6 +135,7 @@ const READER_DIALOG_TEMPLATE = `
     <div class="igs-source-filter-grid">
       {{dialogWidthField}}
       {{classicDialogWidthPercentField}}
+      {{skinDialogScaleField}}
       {{dialogHeightField}}
       {{inputScaleField}}
     </div>
@@ -227,6 +241,12 @@ export const SCENE_SETTINGS_SUBTAB_DEFS = Object.freeze([
     ['rules', '规则'],
 ]);
 
+export const SCENE_SUBTAB_DEFS = Object.freeze([
+    ['scenes', '场景素材'],
+    ['characters', '角色立绘'],
+    ['generated', '生成素材'],
+]);
+
 export const IMAGE_SUBTAB_DEFS = Object.freeze([
     ['auto', '自动插图'],
     ['other', '其他生图'],
@@ -253,6 +273,11 @@ export const SETTINGS_TAB_ALIASES = Object.freeze({
 export function normalizeSceneSettingsSubTab(subTab) {
     const normalized = String(subTab || 'assets').trim();
     return SCENE_SETTINGS_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'assets';
+}
+
+export function normalizeSceneSubTab(subTab) {
+    const normalized = String(subTab || 'scenes').trim();
+    return SCENE_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'scenes';
 }
 
 export function getSceneSettingsSubTabTemplate(subTab) {

@@ -1,3 +1,4 @@
+import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
 import {
     ORIGINAL_READER_ICONS,
@@ -330,7 +331,7 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     const overlay = doc.createElement('div');
     overlay.id = 'igs-unified-settings';
     overlay.setAttribute('data-igs-igs-ui', 'true');
-    overlay.setAttribute('data-igs-settings-theme', snapshot.settingsTheme || 'night');
+    overlay.setAttribute('data-igs-settings-theme', snapshot.settingsTheme || 'landmine');
 
     const shell = doc.createElement('div');
     shell.className = 'igs-settings-shell';
@@ -354,7 +355,6 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     themeToggle.setAttribute('data-action', 'toggle-settings-theme');
     themeToggle.setAttribute('aria-label', snapshot.settingsThemeLabel || '切换设置配色');
     themeToggle.setAttribute('title', snapshot.settingsThemeLabel || '切换设置配色');
-    themeToggle.setAttribute('aria-pressed', snapshot.settingsThemePressed || 'false');
     themeToggle.innerHTML = snapshot.settingsThemeIcon || '';
     head.appendChild(themeToggle);
 
@@ -555,6 +555,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         backdropFilter: readerSettings.glassBackdropFilter,
     });
     applyDialogBgOverride(root, snapshot, materialDialog);
+    if (root.style) root.style.setProperty('--igs-skin-scale', String(normalizeSkinDialogScale(readerSettings.skinDialogScale)));
     applyGradientVeilToDom(root, dialog, readerSettings);
 
     if (textEl) {
@@ -710,6 +711,10 @@ export function applyStatusHudToDom(root, snapshot) {
     const radius = STATUS_HUD_RADIUS[hud && hud.avatarRadius] != null ? STATUS_HUD_RADIUS[hud && hud.avatarRadius] : '50%';
     const scale = snapshot && snapshot.readerSettings && snapshot._statusHudScale;
     host.style.setProperty('--igs-hud-scale', String(Number(scale) > 0 ? Number(scale) : 1));
+    const previousRecordEntry = host.querySelector?.('.igs-hud-entry-arrow');
+    const previousRecordMenuOpen = previousRecordEntry?.getAttribute('aria-expanded') === 'true';
+    const previousHadMetricsRecord = host.classList?.contains('igs-hud-character-emotion-with-metrics');
+    const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     host.className = '';
     const hasEmotion = Boolean(hud && hud.emotion);
     const hasLocation = Boolean(hud && hud.location);
@@ -732,9 +737,9 @@ export function applyStatusHudToDom(root, snapshot) {
     host.classList.toggle('igs-hud-no-metrics', !hasMetrics);
     host.classList.toggle('igs-hud-character-emotion-only', Boolean(hud && hud.character && hasEmotion && !hasLocation && !hasMetrics));
     host.classList.toggle('igs-hud-character-emotion-with-metrics', Boolean(hud && hud.character && hasEmotion && hasMetrics));
-    const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     if (hudSettings && hudSettings.collapsed) host.classList.add('igs-hud-collapsed');
     host.classList.toggle('igs-hud-size-large', hudSettings?.size === 'large');
+    host.classList.toggle('igs-hud-bars-grayscale', grayscaleBars);
     while (host.firstChild) host.removeChild(host.firstChild);
 
     const identity = doc.createElement('div');
@@ -788,7 +793,12 @@ export function applyStatusHudToDom(root, snapshot) {
     arrow.setAttribute('data-act', 'toggle-record-menu');
     arrow.setAttribute('aria-label', '打开资料菜单');
     arrow.setAttribute('aria-haspopup', 'true');
-    arrow.setAttribute('aria-expanded', 'false');
+    const hasCharacterEmotionMetrics = Boolean(hud && hud.character && hasEmotion && hasMetrics);
+    const recordMenuOpen = hasCharacterEmotionMetrics
+        && !hudSettings?.collapsed
+        && !(root.classList && root.classList.contains('igs-options-visible'))
+        && (!previousRecordEntry || !previousHadMetricsRecord || previousRecordMenuOpen);
+    arrow.setAttribute('aria-expanded', String(recordMenuOpen));
     arrow.setAttribute('aria-controls', 'igs-hud-record-menu');
     arrow.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 10 5 5 5-5"/></svg>';
     entryAnchor.appendChild(arrow);
@@ -796,7 +806,7 @@ export function applyStatusHudToDom(root, snapshot) {
     menu.id = 'igs-hud-record-menu';
     menu.className = 'igs-hud-entry-menu';
     menu.setAttribute('aria-label', '资料入口');
-    menu.setAttribute('hidden', '');
+    if (!recordMenuOpen) menu.setAttribute('hidden', '');
     const items = ['map', 'diary', 'inventory', 'relationships'];
     for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系' })[name]])) {
         const button = doc.createElement('button');
@@ -830,6 +840,8 @@ export function applyStatusHudToDom(root, snapshot) {
             ? 'linear-gradient(90deg, rgba(255,255,255,.46), rgba(255,255,255,.86))'
             : `linear-gradient(90deg, color-mix(in srgb, ${color} 42%, #ffffff), ${color})`;
         fill.style.width = `${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%`;
+        // 主题 HUD 用这个变量重绘填充；灰白模式交给主题自己的中性色。
+        fill.style.setProperty('--igs-hud-fill-color', grayscaleBars ? 'var(--igs-hud-fill-neutral,rgba(255,255,255,.8))' : color);
         track.appendChild(fill);
         const value = doc.createElement('span');
         value.className = 'igs-hud-metric-value';

@@ -27,9 +27,12 @@ import { createSecondaryLlm } from '../host/secondary-llm.js';
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
 import { createAutoIllustrationService, ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
+import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
+import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-store.js';
+import { createAlphaMatte } from '../media/alpha-matte.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.27.10';
+const IGS_VERSION = '0.28.0';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -54,14 +57,28 @@ export function bootstrapIGS(options = {}) {
     });
     const promptInjector = options.promptInjector || createPromptInjector(globalObject);
     const illustrationMessageHost = options.illustrationMessageHost || createIllustrationMessageHost(globalObject);
+    const secondaryLlm = options.secondaryLlm || createSecondaryLlm(globalObject, { fetch: options.fetch });
+    const naiOfficialClient = options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch });
     const illustrationService = options.illustrationService || createAutoIllustrationService({
         messageHost: illustrationMessageHost,
-        llm: options.secondaryLlm || createSecondaryLlm(globalObject, { fetch: options.fetch }),
-        nai: options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch }),
+        llm: secondaryLlm,
+        nai: naiOfficialClient,
         store: options.illustrationStore || createIndexedDbIllustrationStore(globalObject),
         getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration,
         events,
         random: options.random,
+    });
+    const assetGenerationService = options.assetGenerationService || createAssetGenerationService({
+        messageHost: illustrationMessageHost,
+        llm: secondaryLlm,
+        nai: naiOfficialClient,
+        store: options.generatedAssetStore || createIndexedDbGeneratedAssetStore(globalObject),
+        matte: options.alphaMatte || createAlphaMatte(globalObject),
+        getSettings: () => {
+            const bridge = (getUnifiedSettingsSnapshot() || {}).bridge || {};
+            return { autoIllustration: bridge.autoIllustration, sceneAssets: bridge.sceneAssets };
+        },
+        events,
     });
     const state = {
         status: 'booting',
@@ -77,6 +94,7 @@ export function bootstrapIGS(options = {}) {
         global: globalObject,
         events,
         illustrations: illustrationService,
+        generatedAssets: assetGenerationService,
         hostAdapter,
         storage: storageLike,
         presetRegistry,
@@ -102,6 +120,8 @@ export function bootstrapIGS(options = {}) {
         getIllustrationSource: (messageId) => illustrationMessageHost.readFloor(messageId),
         getIllustrationUrl: (query) => illustrationService.getIllustrationUrl(query),
         onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),
+        generatedAssets: assetGenerationService,
+        onGeneratedAssetUpdated: (handler) => events.on(GENERATED_ASSET_UPDATED_EVENT, handler),
         getUnifiedSettings: getUnifiedSettingsSnapshot,
         saveUnifiedSettings,
         typeAndSend,
@@ -199,6 +219,7 @@ export function bootstrapIGS(options = {}) {
     }
     state.status = 'ready';
     illustrationService.start();
+    assetGenerationService.start();
     scheduleSceneAssetsInjection(SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS, 1);
     attachChatChangedReinjection();
     events.emit('igs:ready', publicApi);
@@ -485,6 +506,7 @@ export function bootstrapIGS(options = {}) {
         detachChatChangedReinjection();
         promptInjector.clear();
         illustrationService.stop();
+        assetGenerationService.stop();
         if (app.igsUi && typeof app.igsUi.destroy === 'function') {
             app.igsUi.destroy();
         }

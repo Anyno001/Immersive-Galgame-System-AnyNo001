@@ -47,7 +47,8 @@ document.head.appendChild(style);
 // fake 数据客户端：只读导出，写接口全部计数并拒绝。
 const stats = { writes: 0, sends: 0 };
 // 底图契约只收 http(s)/data：预览把相对资产路径解析成绝对 URL，验证真实底图加载链。
-const basemapUrl = mapFixture.basemap ? new URL(mapFixture.basemap, location.href).href : '';
+// ?basemap=none 模拟表格未填底图，走自动生成地图。
+const basemapUrl = mapFixture.basemap && new URLSearchParams(location.search).get('basemap') !== 'none' ? new URL(mapFixture.basemap, location.href).href : '';
 const mapSheet = {
 
   uid: mapFixture.uid, name: mapFixture.tableName,
@@ -87,12 +88,12 @@ const api = {
   registerTableUpdateCallback() {}, unregisterTableUpdateCallback() {},
   updateCell() { stats.writes++; }, insertRow() { stats.writes++; }, deleteRow() { stats.writes++; }, updateRow() { stats.writes++; return { ok: false }; },
 };
-const globalShim = { AutoCardUpdaterAPI: api };
+const globalShim = { AutoCardUpdaterAPI: api, localStorage: window.localStorage };
 
 const overlay = document.getElementById('igs-overlay');
 const stage = document.getElementById('stage');
 const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }));
-const map = createMapPanelController(document, globalShim, async () => ({ ok: true }));
+const map = createMapPanelController(document, globalShim, async () => ({ ok: true }), { getChatId: () => 'preview-chat' });
 const SIZES = {
   desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768],
   mobile: [390, 844], short: [390, 500], tiny: [320, 568],
@@ -100,7 +101,7 @@ const SIZES = {
 let current = null;
 function openPage(page) {
   current?.close?.();
-  if (page === 'map') current = map, map.open(overlay, {}, '临河街道', new URLSearchParams(location.search).get('time') || '');
+  if (page === 'map') current = map, map.open(overlay, { weatherFx: { enabled: true } }, '临河街道', new URLSearchParams(location.search).get('time') || '', new URLSearchParams(location.search).get('weather') || '');
   else current = record, record.open(overlay, {}, page);
   document.querySelectorAll('#hud button').forEach(btn =>
     btn.toggleAttribute('aria-current', btn.dataset.page === page));

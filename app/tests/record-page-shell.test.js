@@ -55,7 +55,7 @@ test('record-page-shell:caustic-tiles-only-in-settings', () => {
         new URL('../src/visual/igs-ui/record-page-shell-style.js', import.meta.url),
         'utf8',
     );
-    assert.match(settingsSource, /igsUiLiquidRule\('#igs-unified-settings::before', \.45, \{ tile: true \}\)/);
-    assert.match(recordSource, /igsUiLiquidRule\('#igs-record-panel \.igs-rp-page::after', \.5\)/);
+    assert.match(settingsSource, /igsUiLiquidRule\('#igs-unified-settings::before', \.225, \{ tile: true \}\)/);
+    assert.match(recordSource, /igsUiLiquidRule\('#igs-record-panel \.igs-rp-page::after', \.25\)/);
     assert.doesNotMatch(recordSource, /tile: true/);
 });

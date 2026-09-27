@@ -1,12 +1,14 @@
 import { DEFAULT_VIRTUAL_REGEX } from '../../scene/message-source.js';
 import { cloneData } from './reader-value-utils.js';
 import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-constants.js';
+import { getNextSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { loadScenePresets, saveScenePresets } from '../../scene/scene-preset-store.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
+import { addGeneratedAssetToLibrary, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry } from '../../scene/asset-match.js';
 
 const STATUS_AVATAR_MAX_BYTES = 512 * 1024;
 const STATUS_AVATAR_MIME = /^image\/(?:png|jpeg|jpg|webp|gif|bmp|svg\+xml)$/i;
@@ -14,6 +16,33 @@ const STATUS_AVATAR_MIME = /^image\/(?:png|jpeg|jpg|webp|gif|bmp|svg\+xml)$/i;
 function decodeSeg(value) {
     try { return decodeURIComponent(String(value == null ? '' : value)); }
     catch (error) { return String(value == null ? '' : value); }
+}
+
+function operationFailed(result) {
+    return result === false || Boolean(result && typeof result === 'object' && result.ok === false);
+}
+
+function persistGeneratedLibrary(persistSettingsDraft) {
+    try {
+        return persistSettingsDraft();
+    } catch (error) {
+        return { ok: false, reason: 'generated-asset-persist-failed' };
+    }
+}
+
+function restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft) {
+    sceneAssets.generated = previousLibrary;
+    try {
+        const rollback = persistSettingsDraft();
+        return !operationFailed(rollback);
+    } catch (error) {
+        return false;
+    }
+}
+
+function generatedOperationFailure(globalObj, message, reason) {
+    if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
+    return { ok: false, reason };
 }
 
 export async function handleSettingsAction(action, ctx) {
@@ -32,7 +61,7 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'toggle-settings-theme') {
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        bridge.settingsTheme = bridge.settingsTheme === 'day' ? 'night' : 'day';
+        bridge.settingsTheme = getNextSettingsTheme(bridge.settingsTheme);
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -40,6 +69,144 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'close') {
         return closeSettings();
+    }
+
+    if (normalizedAction.startsWith('gen-lib-rename:')) {
+        const rest = normalizedAction.slice('gen-lib-rename:'.length);
+        const colon = rest.indexOf(':');
+        if (colon < 0) return rerenderSettings();
+        const type = decodeSeg(rest.slice(0, colon));
+        const oldName = decodeSeg(rest.slice(colon + 1));
+        if (type !== 'background' && type !== 'sprite') return rerenderSettings();
+        const globalObj = options.global || globalThis;
+        const newName = (globalObj.prompt && globalObj.prompt(`生成素材「${oldName}」的新名称：`, oldName) || '').trim();
+        if (!newName || newName === oldName) return rerenderSettings();
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const previousLibrary = normalizeGeneratedLibrary(sceneAssets.generated);
+        const result = renameGeneratedLibraryEntry(sceneAssets.generated, type, oldName, newName);
+        if (!result.ok) {
+            if (globalObj.alert) globalObj.alert(result.reason === 'name-exists' ? `生成素材「${newName}」已存在。` : '生成素材改名失败。');
+            return rerenderSettings();
+        }
+        sceneAssets.generated = result.library;
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        if (operationFailed(persisted)) {
+            if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
+                return generatedOperationFailure(globalObj, '生成素材改名失败，且无法恢复原设置。', 'generated-asset-rename-rollback-failed');
+            }
+            return persisted;
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('gen-lib-remove:')) {
+        const rest = normalizedAction.slice('gen-lib-remove:'.length);
+        const colon = rest.indexOf(':');
+        if (colon < 0) return rerenderSettings();
+        const type = decodeSeg(rest.slice(0, colon));
+        const name = decodeSeg(rest.slice(colon + 1));
+        if (type !== 'background' && type !== 'sprite') return rerenderSettings();
+        const globalObj = options.global || globalThis;
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const library = normalizeGeneratedLibrary(sceneAssets.generated);
+        const previousLibrary = library;
+        const bucket = type === 'background' ? library.scenes : library.characters;
+        if (!Object.prototype.hasOwnProperty.call(bucket, name)) return rerenderSettings();
+        const confirmed = typeof globalObj.confirm === 'function'
+            ? globalObj.confirm(`删除生成素材「${name}」及其图片？`) : true;
+        if (!confirmed) return rerenderSettings();
+        const result = removeGeneratedLibraryEntry(library, type, name);
+        sceneAssets.generated = result.library;
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        if (operationFailed(persisted)) {
+            if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
+                return generatedOperationFailure(globalObj, '删除生成素材失败，且无法恢复原设置。', 'generated-asset-remove-rollback-failed');
+            }
+            return persisted;
+        }
+        const service = options.generatedAssets;
+        if (service && typeof service.deleteImages === 'function') {
+            try {
+                const deleted = await service.deleteImages(result.imageIds);
+                if (operationFailed(deleted)) {
+                    if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
+                        return generatedOperationFailure(globalObj, '删除生成素材失败，且无法恢复原设置。', 'generated-asset-remove-rollback-failed');
+                    }
+                    return generatedOperationFailure(globalObj, '生成素材图片删除失败，已恢复素材库记录。', 'generated-asset-remove-images-failed');
+                }
+            } catch (error) {
+                if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
+                    return generatedOperationFailure(globalObj, '删除生成素材失败，且无法恢复原设置。', 'generated-asset-remove-rollback-failed');
+                }
+                return generatedOperationFailure(globalObj, '生成素材图片删除失败，已恢复素材库记录。', 'generated-asset-remove-images-failed');
+            }
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('gen-temp-accept:')) {
+        const key = decodeSeg(normalizedAction.slice('gen-temp-accept:'.length));
+        const service = options.generatedAssets;
+        if (!service || typeof service.getRecord !== 'function' || typeof service.setStatus !== 'function') {
+            return { ok: false, reason: 'generated-assets-unavailable' };
+        }
+        const record = service.getRecord(key);
+        if (!record || !record.imageId) return rerenderSettings();
+        const globalObj = options.global || globalThis;
+        const suggestedName = String(record.name || '').trim();
+        const requestedName = typeof globalObj.prompt === 'function'
+            ? globalObj.prompt(`生成素材「${suggestedName}」的入库名称：`, suggestedName)
+            : suggestedName;
+        const name = String(requestedName == null ? '' : requestedName).trim();
+        if (!name) return rerenderSettings();
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const previousLibrary = normalizeGeneratedLibrary(sceneAssets.generated);
+        const added = addGeneratedAssetToLibrary(previousLibrary, record, name);
+        if (!added.ok) return rerenderSettings();
+        sceneAssets.generated = added.library;
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        if (operationFailed(persisted)) {
+            if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
+                return generatedOperationFailure(globalObj, '生成素材入库失败，且无法恢复原设置。', 'generated-asset-accept-rollback-failed');
+            }
+            return persisted;
+        }
+        let status;
+        try {
+            status = await service.setStatus(key, 'library');
+        } catch (error) {
+            status = { ok: false, reason: 'generated-asset-status-failed' };
+        }
+        if (operationFailed(status)) {
+            if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
+                return generatedOperationFailure(options.global || globalThis, '生成素材入库失败，且无法恢复原设置。', 'generated-asset-accept-rollback-failed');
+            }
+            return status;
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('gen-temp-discard:')) {
+        const key = decodeSeg(normalizedAction.slice('gen-temp-discard:'.length));
+        const globalObj = options.global || globalThis;
+        const confirmed = typeof globalObj.confirm === 'function'
+            ? globalObj.confirm('丢弃这份临时生成素材及其图片？') : true;
+        if (!confirmed) return rerenderSettings();
+        const service = options.generatedAssets;
+        if (!service || typeof service.setStatus !== 'function') {
+            return { ok: false, reason: 'generated-assets-unavailable' };
+        }
+        let status;
+        try {
+            status = await service.setStatus(key, 'discarded');
+        } catch (error) {
+            status = { ok: false, reason: 'generated-asset-status-failed' };
+        }
+        if (operationFailed(status)) return status;
+        return rerenderSettings();
     }
 
     if (normalizedAction.startsWith('status-hud-toggle-table:')) {
@@ -1330,7 +1497,13 @@ function pickStatusAvatarFile(doc) {
         input.type = 'file';
         input.accept = 'image/*';
         let done = false;
-        const finish = (val) => { if (!done) { done = true; resolve(val); } };
+        let timeoutId = null;
+        const finish = (val) => {
+            if (done) return;
+            done = true;
+            if (timeoutId !== null) clearTimeout(timeoutId);
+            resolve(val);
+        };
         input.onchange = () => {
             const file = input.files && input.files[0];
             if (!file) { finish(null); return; }
@@ -1347,7 +1520,7 @@ function pickStatusAvatarFile(doc) {
             fr.readAsDataURL(file);
         };
         input.click();
-        setTimeout(() => finish(null), 300000);
+        timeoutId = setTimeout(() => finish(null), 300000);
     });
 }
 
@@ -1357,7 +1530,13 @@ function pickPresetFile(doc) {
         input.type = 'file';
         input.accept = '.json';
         let done = false;
-        const finish = (val) => { if (!done) { done = true; resolve(val); } };
+        let timeoutId = null;
+        const finish = (val) => {
+            if (done) return;
+            done = true;
+            if (timeoutId !== null) clearTimeout(timeoutId);
+            resolve(val);
+        };
         input.onchange = () => {
             const file = input.files && input.files[0];
             if (!file) { finish(null); return; }
@@ -1368,7 +1547,7 @@ function pickPresetFile(doc) {
             fr.readAsText(file);
         };
         input.click();
-        setTimeout(() => finish(null), 300000);
+        timeoutId = setTimeout(() => finish(null), 300000);
     });
 }
 

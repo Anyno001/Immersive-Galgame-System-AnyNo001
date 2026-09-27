@@ -1,4 +1,5 @@
 import { NAI_DEFAULT_SETTINGS } from '../request-builders/nai-v4-builder.js';
+import { DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
 
 const clampInt = (v, min, max, d) => {
     const n = Math.round(Number(v));
@@ -10,6 +11,18 @@ const clampNum = (v, min, max, d) => {
 };
 const bool = (v) => v === true || v === 'true' || v === 1 || v === '1';
 const str = (v, d = '') => (typeof v === 'string' ? v : d);
+
+// 模板留空视为恢复内置模板；背景/立绘正向模板必须含 {tags}，否则 LLM 的内容会被丢掉。
+function normalizeTemplates(value) {
+    const src = value && typeof value === 'object' ? value : {};
+    const out = {};
+    for (const [key, fallback] of Object.entries(DEFAULT_ASSET_TEMPLATES)) {
+        const text = typeof src[key] === 'string' ? src[key].trim() : '';
+        const needsTags = key === 'background' || key === 'sprite';
+        out[key] = text && (!needsTags || text.includes('{tags}')) ? text : fallback;
+    }
+    return out;
+}
 
 export function normalizeAutoIllustrationSettings(value) {
     const src = value && typeof value === 'object' ? value : {};
@@ -29,6 +42,7 @@ export function normalizeAutoIllustrationSettings(value) {
             maxPerFloor: clampInt(assets.maxPerFloor, 1, 4, 2),
             spriteSize: str(assets.spriteSize, '832x1216') || '832x1216',
             backgroundSize: str(assets.backgroundSize, '1216x832') || '1216x832',
+            templates: normalizeTemplates(assets.templates),
         },
         llm: {
             source: llm.source === 'openai' ? 'openai' : 'tavern',

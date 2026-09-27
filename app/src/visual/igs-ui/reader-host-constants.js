@@ -66,7 +66,7 @@ export const VN_THEME_PRESETS = Object.freeze({
     }),
 });
 
-// 分类字体选项沿用原持久化值；内置字体只新增一个可选值，不改变历史设置。
+// 分类字体选项沿用原持久化值；主题默认字体也必须能从这里手动改回或替换。
 export const DIALOG_FONT_OPTIONS = Object.freeze([
     ['inherit', '默认'],
     ['"KaiTi","STKaiti",serif', '楷体'],
@@ -74,6 +74,22 @@ export const DIALOG_FONT_OPTIONS = Object.freeze([
     ['"FangSong","STFangsong",serif', '仿宋'],
     ['"Microsoft YaHei",sans-serif', '微软雅黑'],
     ['"IGS Rounded","Microsoft YaHei",sans-serif', '有爱圆体（内置）'],
+    ['"LXGW WenKai","Source Han Serif CN",serif', '霞鹜文楷'],
+    ['"LXGW Neo ZhiSong","Source Han Serif CN",serif', '霞鹜新致宋'],
+    ['"LXGW Neo XiHei","Source Han Sans CN","Microsoft YaHei",sans-serif', '霞鹜新晰黑'],
+    ['"Source Han Sans CN","LXGW Neo XiHei","Microsoft YaHei",sans-serif', '思源黑体'],
+    ['"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif', '思源宋体'],
+    ['"Huiwen Mincho","Source Han Serif CN",serif', '汇文明朝体'],
+    ['"Tsanger YuYang","LXGW WenKai",serif', '仓耳渔阳体'],
+    ['"Smiley Sans","Source Han Sans CN","Microsoft YaHei",sans-serif', '得意黑'],
+    ['"ZCOOL KuaiLe","Microsoft YaHei",sans-serif', '站酷快乐体'],
+    ['"Cinzel","LXGW Neo ZhiSong","Source Han Serif CN",serif', 'Cinzel'],
+    ['"Cormorant Garamond","LXGW Neo ZhiSong","Source Han Serif CN",serif', 'Cormorant Garamond'],
+    ['"Great Vibes","Pinyon Script","Source Han Serif CN",serif', 'Great Vibes'],
+    ['"Pinyon Script","Source Han Serif CN",serif', 'Pinyon Script'],
+    ['"Quicksand","Caveat","Tsanger YuYang",sans-serif', 'Quicksand'],
+    ['"Caveat","Quicksand","Tsanger YuYang",sans-serif', 'Caveat'],
+    ['"IM Fell English SC","Cinzel","Source Han Serif CN",serif', 'IM Fell English'],
 ]);
 
 export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
@@ -85,6 +101,7 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.gradientVeil.opacity',
     'readerSettings.gradientVeil.speakerStyle',
     'readerSettings.classicDialogWidthPercent',
+    'readerSettings.skinDialogScale',
     'readerSettings.optionFontSize',
     'readerSettings.dialogWidth',
     'readerSettings.dialogHeight',
@@ -167,6 +184,14 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.interludeEnabled',
             'bridge.autoIllustration.interludeProbability',
             'bridge.autoIllustration.interludeMaxCount',
+            'bridge.autoIllustration.assets.spriteEnabled',
+            'bridge.autoIllustration.assets.backgroundEnabled',
+            'bridge.autoIllustration.assets.strictMatch',
+            'bridge.autoIllustration.assets.maxPerFloor',
+            'bridge.autoIllustration.assets.spriteSize',
+            'bridge.autoIllustration.assets.backgroundSize',
+            'bridge.autoIllustration.assets.templates.background',
+            'bridge.autoIllustration.assets.templates.sprite',
             'bridge.autoIllustration.llm.source',
             'bridge.autoIllustration.llm.endpoint',
             'bridge.autoIllustration.llm.apiKey',

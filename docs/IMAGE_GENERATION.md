@@ -62,3 +62,31 @@ ComfyUI 这类工作流型 provider 应使用 `workflow-preset` 或 provider 专
 | `nai.timeoutMs` | `120000` | 图片请求超时毫秒（暂不在面板编辑） |
 
 验证边界：本地 fake host、fake provider 和模拟阅读器只检查契约；实际 TavernHelper `generateRaw` / 正则 API、NAI 直连及代理 CORS、真实 IndexedDB、刷新后的宿主聊天 DOM、swipe 切换和手机大图性能须在酒馆中验证，不以本地测试替代。
+
+
+## 素材补全（无名角色立绘 / 缺失场景背景）
+
+自动素材补全独立于既有用户上传素材区。当前实现支持在阅读器解析到缺失场景背景或无名角色立绘时，根据设置规划生成任务；所有相关开关默认关闭，关闭时服务在规划、写回和网络请求前返回 `disabled`，不会向副 LLM 或 NovelAI 发请求。
+
+素材解析优先级为：用户上传区 → 生成区素材库 → 本聊天临时素材 → 占位。普通匹配允许弱模糊结果；开启 `bridge.autoIllustration.assets.strictMatch` 后，弱模糊结果按未命中处理，但生成期间仍保留弱命中或默认占位，避免阅读器出现空白。场景名、别名和强模糊命中可以直接使用，不重复生成。
+
+生成素材分为本聊天临时记录和生成区素材库：楼层完成后，阅读器可以显示审核卡片；用户可确认入库、改名、删除或丢弃。入库条目写入 `bridge.sceneAssets.generated`，与手动上传的 `bridge.sceneAssets` 素材分开保存；设置页的「场景 → 生成素材」子标签管理生成区条目和本聊天未入库条目。
+
+立绘透明底策略为：provider 返回原生透明图时直接保留 alpha；非透明图使用本地浅灰底连通区域抠图兜底。该抠图策略只移除与画面边缘连通的浅灰区域，不保证对浅灰或银色角色服饰、头发在真实模型输出下完全无误，需在真实酒馆中复验。
+
+生成图不把二进制数据写入设置。IndexedDB 使用数据库 `igs-generated-assets`、版本 `1`，store 为 `images`、`assets`、`floors`；阅读器和设置页使用 `igs-gen:<id>` 形式的图片地址，再由生成素材服务解析为本地对象 URL。楼层身份同时包含 `chatId`、`messageId` 和 `swipeId`，格式为 `${chatId}|${messageId}|${swipeId}`。
+
+为降低请求被拦截的概率，生成流程使用温和模式，并在本地组合 `nsfwExtra`；背景生成失败时可以回退到内置场景词典，避免因单次请求失败清空阅读器背景。API Key 只用于实际请求，不应进入日志、异常文本、快照或聊天输出。
+
+相关设置路径为：
+
+| 设置路径 | 作用 |
+| --- | --- |
+| `bridge.autoIllustration.assets.spriteEnabled` | 开启无名角色透明/抠图立绘补全 |
+| `bridge.autoIllustration.assets.backgroundEnabled` | 开启缺失场景背景补全 |
+| `bridge.autoIllustration.assets.strictMatch` | 将弱模糊场景命中视为未命中并允许生成 |
+| `bridge.autoIllustration.assets.maxPerFloor` | 单个楼层最多生成的素材数量 |
+| `bridge.autoIllustration.assets.spriteSize` / `backgroundSize` | 立绘和背景生成尺寸 |
+| `bridge.autoIllustration.assets.templates.background` / `templates.sprite` | 背景和立绘提示词模板 |
+
+本地 `npm test`、`npm run simulate`、`npm run structure`、`npm run static` 与 `npm run perf` 已通过；真实 TavernHelper、NovelAI/provider、真实酒馆 DOM、IndexedDB 迁移、跨设备 `igs-gen:` 失效回退和真实视觉质量仍需在目标环境中验证。

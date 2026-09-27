@@ -245,6 +245,7 @@ export function classifySceneKey(scenes, sceneName) {
     // 其次命中字数多者优先，再次候选字数多者优先；全不中返回 null。
     let bestKey = null;
     let bestScore = null;
+    let bestCandidate = '';
     for (const key of Object.keys(scenes)) {
         const entry = scenes[key];
         const words = entry && typeof entry === 'object' && Array.isArray(entry.words) ? entry.words : [];
@@ -254,12 +255,18 @@ export function classifySceneKey(scenes, sceneName) {
             if (!bestScore || compareSceneFuzzyScore(score, bestScore) > 0) {
                 bestScore = score;
                 bestKey = key;
+                bestCandidate = String(candidate).trim();
             }
         }
     }
     if (bestKey == null) return { key: null, quality: 'none' };
-    // 强命中：候选字全部落在目标里、至少两个字，且覆盖目标一半以上字数（如「天台」对「学校天台」）。
-    const strong = bestScore[0] === 1 && bestScore[1] >= 2 && bestScore[1] * 2 >= Array.from(target).length;
+    // 强命中（至少两个字）：候选字全部落在目标里且覆盖目标一半以上（「天台」查「学校天台」），
+    // 或目标字全部落在候选里（「天台」对素材「学校天台」）。
+    const targetChars = Array.from(target);
+    const candidateSet = new Set(Array.from(bestCandidate));
+    const candidateInTarget = bestScore[0] === 1 && bestScore[1] * 2 >= targetChars.length;
+    const targetInCandidate = targetChars.every((c) => candidateSet.has(c));
+    const strong = bestScore[1] >= 2 && (candidateInTarget || targetInCandidate);
     return { key: bestKey, quality: strong ? 'fuzzy-strong' : 'fuzzy-weak' };
 }
 

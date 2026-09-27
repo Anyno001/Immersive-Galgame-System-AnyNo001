@@ -24,3 +24,20 @@ local-data/
 
 # 参考资料只作实现证据，不进入仓库
 /参考文件/
+
+# 过程日志与临时产物
+*.log
+.tmp-*/
+tmp/
+__pycache__/
+*.pyc
+
+# AI 工具的过程、计划与缓存
+.kilo/
+.limcode/
+.claude/
+.playwright/
+
+# 设计稿与素材原稿（运行时资源放在 app/src/**/assets 下，照常入库）
+/设计稿/
+/素材/

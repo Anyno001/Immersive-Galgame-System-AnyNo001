@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>程序地图生成预览</title>
+<style>
+body{margin:0;background:#15171b;color:#ddd;font:13px/1.5 system-ui,sans-serif;}
+#bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 12px;}
+#bar label{display:flex;gap:6px;align-items:center;}
+#igs-map-panel{position:relative;}
+.stage{position:relative;width:1600px;height:900px;overflow:hidden;}
+.igs-map-world{position:absolute;left:0;top:0;width:1600px;height:900px;isolation:isolate;}
+.igs-map-basemap{position:absolute;left:0;top:0;width:1600px;height:900px;}
+.pin{position:absolute;z-index:2;transform:translate(-50%,-100%);padding:2px 8px;border-radius:6px;background:rgba(18,20,23,.8);color:#eee;font-size:12px;white-space:nowrap;}
+.pin::after{content:"";position:absolute;left:50%;bottom:-6px;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:#f2d49b;}
+#stats{opacity:.7;}
+</style>
+</head>
+<body>
+<div id="bar">
+  <label>预设 <select id="preset"></select></label>
+  <label>种子 <input id="seed" type="number" value="1" style="width:70px"></label>
+  <label>主题 <select id="theme"><option value="">自动</option><option>modern</option><option>wafu</option><option>fantasy</option><option>ancient</option><option>scifi</option></select></label>
+  <label>时间 <input id="time" type="range" min="0" max="23.9" step="0.1" value="12"><span id="timeText"></span></label>
+  <label>天气 <select id="weather"><option value="">无</option><option>晴</option><option>多云</option><option>小雨</option><option>暴雨</option><option>大雪</option><option>浓雾</option><option>沙尘</option></select></label>
+  <label><input id="pins" type="checkbox" checked> 指针</label>
+  <span id="stats"></span>
+</div>
+<div id="igs-map-panel"><div class="stage"><div class="igs-map-world is-lit" id="world"></div></div></div>
+<script type="module">
+import { buildMapGenInput, createMapBasemapGenerator } from '../../src/visual/map-gen/index.js';
+import { resolveMapLighting } from '../../src/visual/map-gen/lighting.js';
+import { MAP_LIGHT_LAYER_STYLE_TEXT, mapLightLayersHtml, mapBasemapFilter } from '../../src/visual/igs-ui/map-light-layers.js';
+
+const style = document.createElement('style');
+style.textContent = MAP_LIGHT_LAYER_STYLE_TEXT;
+document.head.appendChild(style);
+
+const PRESETS = {
+    '校园日常': [
+        { id: '1', name: '我家', x: 0.2, y: 0.7 }, { id: '2', name: '樱丘高中', x: 0.55, y: 0.3 }, { id: '3', name: '站前商店街', x: 0.4, y: 0.58 },
+        { id: '4', name: '车站', x: 0.33, y: 0.42 }, { id: '5', name: '河边公园', x: 0.72, y: 0.66 }, { id: '6', name: '神社', x: 0.86, y: 0.2 }, { id: '7', name: '咖啡馆', x: 0.6, y: 0.82 },
+    ],
+    '海边小镇': [
+        { id: '1', name: '海滩', x: 0.5, y: 0.86 }, { id: '2', name: '渔港码头', x: 0.2, y: 0.8 }, { id: '3', name: '灯塔', x: 0.88, y: 0.78 },
+        { id: '4', name: '民宿', x: 0.4, y: 0.55 }, { id: '5', name: '小镇学校', x: 0.62, y: 0.35 }, { id: '6', name: '山上神社', x: 0.2, y: 0.18 },
+    ],
+    '奇幻王都': [
+        { id: '1', name: '王城城堡', x: 0.5, y: 0.25 }, { id: '2', name: '冒险者公会', x: 0.35, y: 0.55 }, { id: '3', name: '酒馆', x: 0.6, y: 0.6 },
+        { id: '4', name: '圣殿', x: 0.78, y: 0.4 }, { id: '5', name: '集市', x: 0.45, y: 0.78 }, { id: '6', name: '魔法学院', x: 0.2, y: 0.35 }, { id: '7', name: '湖', x: 0.85, y: 0.8 },
+    ],
+    '单点': [{ id: '1', name: '我家', x: 0.5, y: 0.5 }],
+    '空': [],
+};
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+for (const name of Object.keys(PRESETS)) $('preset').add(new Option(name, name));
+for (const key of ['preset', 'seed', 'theme', 'time', 'weather']) if (params.has(key)) $(key).value = params.get(key);
+if (params.get('pins') === '0') $('pins').checked = false;
+
+const generator = createMapBasemapGenerator({ doc: document, budgetMs: 1000 });
+let current = null;
+
+async function regenerate() {
+    const points = PRESETS[$('preset').value];
+    const input = buildMapGenInput({ chatId: 'preview', tableUid: 'sheet', parentId: '', salt: Number($('seed').value), points, theme: $('theme').value || undefined });
+    const t0 = performance.now();
+    const entry = generator.request(input);
+    await entry.promise;
+    current = { entry, points, input, ms: Math.round(performance.now() - t0) };
+    paint();
+}
+
+function paint() {
+    if (!current) return;
+    const hour = Number($('time').value);
+    const hh = Math.floor(hour);
+    const time = `${hh}:${String(Math.round((hour - hh) * 60)).padStart(2, '0')}`;
+    $('timeText').textContent = time;
+    const lighting = resolveMapLighting({ time, weather: $('weather').value });
+    const { result, status, error } = current.entry;
+    $('stats').textContent = `${status}${error ? ' ' + error : ''} · ${current.ms}ms · 主题 ${current.input.theme} · 尺度 ${current.input.scale}`;
+    if (status !== 'ready') return;
+    $('world').innerHTML = `<img class="igs-map-basemap" src="${result.url}" style="filter:${mapBasemapFilter(lighting)}">`
+        + mapLightLayersHtml(lighting, { lightsUrl: result.lightsUrl })
+        + ($('pins').checked ? current.points.map(p => `<span class="pin" style="left:${p.x * 1600}px;top:${p.y * 900 - 6}px">${p.name}</span>`).join('') : '');
+    document.body.dataset.ready = '1';
+}
+
+for (const id of ['preset', 'seed', 'theme']) $(id).addEventListener('change', regenerate);
+for (const id of ['time', 'weather', 'pins']) $(id).addEventListener('input', paint);
+regenerate();
+</script>
+</body>
+</html>

@@ -61,6 +61,7 @@ import {
     resolveMoodGroup,
 } from '../src/scene/mood-groups.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
+import { getNextSettingsTheme, normalizeSettingsTheme } from '../src/visual/igs-ui/settings-theme.js';
 import { renderCharacterAssetList, renderSceneAssetList, tableMultiSelect } from '../src/visual/igs-ui/settings-fields.js';
 import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule } from '../src/visual/igs-ui/reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normalizePublicReaderMode } from '../src/schemas/reader-mode.js';
@@ -1456,7 +1457,14 @@ test('gate:scene:legacy-default-prompt-upgrades-without-touching-custom-rule', (
     assert.match(DEFAULT_SCENE_PROMPT_RULE, /禁止描述家具/);
 });
 
-test('gate:settings:theme-toggle-persists-through-settings-action', async () => {
+test('gate:settings:theme-cycle-persists-through-settings-action-and-migrates-legacy-values', async () => {
+    assert.equal(normalizeSettingsTheme(), 'landmine');
+    assert.equal(normalizeSettingsTheme('night'), 'landmine');
+    assert.equal(normalizeSettingsTheme('day'), 'cream');
+    assert.equal(getNextSettingsTheme('landmine'), 'cream');
+    assert.equal(getNextSettingsTheme('cream'), 'light');
+    assert.equal(getNextSettingsTheme('light'), 'dark');
+    assert.equal(getNextSettingsTheme('dark'), 'landmine');
     const draft = { bridge: { settingsTheme: 'night' }, readerSettings: {} };
     let persistCount = 0;
     const ctx = {
@@ -1468,11 +1476,178 @@ test('gate:settings:theme-toggle-persists-through-settings-action', async () => 
         buildRegexPreview: () => '',
     };
     await handleSettingsAction('toggle-settings-theme', ctx);
-    assert.equal(draft.bridge.settingsTheme, 'day');
+    assert.equal(draft.bridge.settingsTheme, 'cream');
     assert.equal(persistCount, 1);
     await handleSettingsAction('toggle-settings-theme', ctx);
-    assert.equal(draft.bridge.settingsTheme, 'night');
+    assert.equal(draft.bridge.settingsTheme, 'light');
     assert.equal(persistCount, 2);
+});
+
+test('gate:settings:generated-asset-actions-manage-library-and-temp-status', async () => {
+    const enc = (value) => encodeURIComponent(value);
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                generated: {
+                    scenes: { '夜景': { url: 'igs-gen:bg-old', words: [], times: {} } },
+                    characters: {},
+                    characterAliases: {},
+                },
+            },
+        },
+        readerSettings: {},
+    };
+    const persisted = [];
+    const deleted = [];
+    const statuses = [];
+    let promptValue = '';
+    let confirmed = true;
+    const service = {
+        getRecord: (key) => key === 'temp/bg' ? {
+            key,
+            imageId: 'bg-temp',
+            type: 'background',
+            name: '临时夜景',
+            time: '夜晚',
+        } : null,
+        setStatus: async (key, status) => {
+            statuses.push({ key, status });
+            return { ok: true };
+        },
+        deleteImages: async (ids) => {
+            deleted.push(ids);
+            return { ok: true };
+        },
+    };
+    let rerenders = 0;
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
+        options: {
+            generatedAssets: service,
+            global: {
+                prompt: () => promptValue,
+                confirm: () => confirmed,
+            },
+        },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => {
+            persisted.push(JSON.parse(JSON.stringify(draft.bridge.sceneAssets.generated)));
+            return { ok: true };
+        },
+        rerenderSettings: () => { rerenders += 1; return { ok: true }; },
+        buildRegexPreview: () => '',
+    };
+
+    // prompt 取消不得修改库；随后改名必须保留 URL，并用编码名称正确寻址。
+    await handleSettingsAction(`gen-lib-rename:background:${enc('夜景')}`, ctx);
+    assert.equal(draft.bridge.sceneAssets.generated.scenes['夜景'].url, 'igs-gen:bg-old');
+    assert.equal(persisted.length, 0);
+    promptValue = '新夜景';
+    await handleSettingsAction(`gen-lib-rename:background:${enc('夜景')}`, ctx);
+    assert.equal(draft.bridge.sceneAssets.generated.scenes['新夜景'].url, 'igs-gen:bg-old');
+    assert.equal(draft.bridge.sceneAssets.generated.scenes['夜景'], undefined);
+
+    // confirm 取消不得删除；确认后先持久化库，再删除其 IndexedDB 图片。
+    confirmed = false;
+    await handleSettingsAction(`gen-lib-remove:background:${enc('新夜景')}`, ctx);
+    assert.equal(draft.bridge.sceneAssets.generated.scenes['新夜景'].url, 'igs-gen:bg-old');
+    assert.equal(deleted.length, 0);
+    confirmed = true;
+    await handleSettingsAction(`gen-lib-remove:background:${enc('新夜景')}`, ctx);
+    assert.equal(draft.bridge.sceneAssets.generated.scenes['新夜景'], undefined);
+    assert.deepEqual(deleted, [['bg-old']]);
+
+    // 临时背景入库必须同步 sceneAssets.generated 与服务状态；丢弃只写回临时状态。
+    promptValue = '临时夜景';
+    await handleSettingsAction(`gen-temp-accept:${enc('temp/bg')}`, ctx);
+    assert.equal(draft.bridge.sceneAssets.generated.scenes['临时夜景'].times['夜晚'].url, 'igs-gen:bg-temp');
+    await handleSettingsAction(`gen-temp-discard:${enc('temp/bg')}`, ctx);
+    assert.deepEqual(statuses, [
+        { key: 'temp/bg', status: 'library' },
+        { key: 'temp/bg', status: 'discarded' },
+    ]);
+    assert.ok(rerenders >= 6);
+});
+
+test('gate:settings:generated-asset-actions-rollback-on-persist-and-service-failure', async () => {
+    const enc = (value) => encodeURIComponent(value);
+    const makeDraft = () => ({
+        bridge: {
+            sceneAssets: {
+                generated: {
+                    scenes: { 旧景: { url: 'igs-gen:old', words: [], times: {} } },
+                    characters: {},
+                    characterAliases: {},
+                },
+            },
+        },
+        readerSettings: {},
+    });
+    const makeContext = (draft, global, persistSettingsDraft, generatedAssets) => ({
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
+        options: { global, generatedAssets },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft,
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    });
+
+    {
+        const draft = makeDraft();
+        let persistCount = 0;
+        const result = await handleSettingsAction(`gen-lib-rename:background:${enc('旧景')}`, makeContext(
+            draft,
+            { prompt: () => '新景', alert: () => {} },
+            () => { persistCount += 1; return { ok: false, reason: 'persist-failed' }; },
+            null,
+        ));
+        assert.equal(result.reason, 'generated-asset-rename-rollback-failed');
+        assert.equal(persistCount, 2);
+        assert.equal(draft.bridge.sceneAssets.generated.scenes['旧景'].url, 'igs-gen:old');
+        assert.equal(draft.bridge.sceneAssets.generated.scenes['新景'], undefined);
+    }
+
+    {
+        const draft = makeDraft();
+        let persistCount = 0;
+        const result = await handleSettingsAction(`gen-lib-remove:background:${enc('旧景')}`, makeContext(
+            draft,
+            { confirm: () => true, alert: () => {} },
+            () => { persistCount += 1; return { ok: true }; },
+            { deleteImages: async () => ({ ok: false, reason: 'delete-failed' }) },
+        ));
+        assert.equal(result.reason, 'generated-asset-remove-images-failed');
+        assert.equal(persistCount, 2);
+        assert.equal(draft.bridge.sceneAssets.generated.scenes['旧景'].url, 'igs-gen:old');
+    }
+
+    {
+        const draft = makeDraft();
+        let persistCount = 0;
+        const result = await handleSettingsAction('gen-temp-accept:temp', makeContext(
+            draft,
+            { alert: () => {} },
+            () => { persistCount += 1; return { ok: true }; },
+            {
+                getRecord: () => ({ imageId: 'temp-image', type: 'background', name: '临时景' }),
+                setStatus: async () => ({ ok: false, reason: 'status-failed' }),
+            },
+        ));
+        assert.equal(result.reason, 'status-failed');
+        assert.equal(persistCount, 2);
+        assert.equal(draft.bridge.sceneAssets.generated.scenes['临时景'], undefined);
+    }
+
+    {
+        const draft = makeDraft();
+        const result = await handleSettingsAction('gen-temp-discard:temp', makeContext(
+            draft,
+            { confirm: () => true },
+            () => ({ ok: true }),
+            { setStatus: async () => { throw new Error('status failed'); } },
+        ));
+        assert.equal(result.reason, 'generated-asset-status-failed');
+    }
 });
 
 test('gate:scene:asset-alias-actions-and-presets-reuse-existing-entries', async () => {
@@ -3402,10 +3577,15 @@ test('gate:igs-ui:illustrated-dialog-skins-normalize-and-share-default-theme', (
 
 test('gate:igs-ui:reference-typography-applies-to-material-themes-only', () => {
     const expected = {
-        'western-classic': { nameColor: '#2e2218', textColor: '#f2e5c4', nameAlign: 'center', textFont: /Source Han Serif CN/ },
-        'plant-coffee': { nameColor: '#f6ecd9', textColor: '#5b4643', nameAlign: 'center', textFont: /IGS Rounded/ },
-        'black-white-manga': { nameColor: '#171412', textColor: '#231f1c', nameAlign: 'left', textFont: /PingFang SC/ },
-        'cute-pink': { nameColor: '#ffffff', textColor: '#5d3a4a', nameAlign: 'center', textFont: /IGS Rounded/ },
+        'western-classic': { nameColor: '#2e2218', textColor: '#f2e5c4', nameAlign: 'center', textFont: /^"Source Han Serif CN"/ },
+        'plant-coffee': { nameColor: '#f6ecd9', textColor: '#5b4643', nameAlign: 'center', textFont: /^"Tsanger YuYang"/ },
+        'black-white-manga': { nameColor: '#171412', textColor: '#231f1c', nameAlign: 'left', textFont: /^"Source Han Sans CN"/ },
+        'cute-pink': { nameColor: '#ffffff', textColor: '#5d3a4a', nameAlign: 'center', textFont: /^"IGS Rounded"/ },
+        'retro-japanese': { nameColor: '#f6e6c4', textColor: '#46322a', nameAlign: 'center', textFont: /^"LXGW WenKai"/ },
+        'adventure-journey': { nameColor: '#f0dcb8', textColor: '#45372d', nameAlign: 'center', textFont: /^"LXGW Neo ZhiSong"/ },
+        'day-minimal': { nameColor: '#f7f5ee', textColor: '#3a3935', nameAlign: 'left', textFont: /^"LXGW Neo XiHei"/ },
+        'warm-picturebook': { nameColor: '#f4efe9', textColor: '#4f4a45', nameAlign: 'center', textFont: /^"LXGW WenKai"/ },
+        'elegant-european': { nameColor: '#ffffff', textColor: '#eeeaf3', nameAlign: 'left', textFont: /^"Source Han Serif CN"/ },
     };
     for (const [skin, values] of Object.entries(expected)) {
         const theme = resolveActiveTheme({ readerSettings: { dialogSkin: skin } });

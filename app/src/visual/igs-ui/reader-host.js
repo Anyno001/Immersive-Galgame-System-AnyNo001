@@ -5,8 +5,11 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore, lookupSceneAssetUrls } from '../../scene/scene-directives.js';
+import { resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
+import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
+import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { floorKeyOf } from '../../media/illustration-store.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import {
@@ -25,13 +28,16 @@ import {
     getSettingsTabTemplate,
     normalizeImageSubTab,
     normalizeSceneSettingsSubTab,
+    normalizeSceneSubTab,
     normalizeReaderSubTab,
     IMAGE_SUBTAB_DEFS,
     SCENE_SETTINGS_SUBTAB_DEFS,
+    SCENE_SUBTAB_DEFS,
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
 } from './settings-tabs.js';
 import { getReaderModeIcon, getSettingsThemeIcon } from './icons.js';
+import { getNextSettingsTheme, getSettingsThemeLabel, normalizeSettingsTheme } from './settings-theme.js';
 import {
     DEFAULT_IMAGE_API,
     DIALOG_FONT_OPTIONS,
@@ -66,6 +72,7 @@ import {
     renderCharacterAssetList,
     renderPinnedButtons,
     renderSceneAssetList,
+    renderGeneratedAssetPane,
     renderScenePresetBar,
     renderStageShakeSettings,
     renderWeatherFxSettings,
@@ -82,6 +89,7 @@ import {
     modelPicker,
     tableMultiSelect,
 } from './settings-fields.js';
+import { renderAssetReviewPanel } from './asset-review-panel.js';
 import {
     ensureEmbeddedHost,
     findEmbeddedHost,
@@ -92,6 +100,7 @@ import {
 import { buildReaderSourceSignature, createReaderSourceCache } from './reader-source-cache.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
 import { createChatStreamObserver } from '../../host/chat-stream-observer.js';
+import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import {
     applyImageCountOverride,
     buildImageActionContext,
@@ -143,16 +152,22 @@ import {
     CLASSIC_DIALOG_HEIGHT,
     CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
     CLASSIC_DIALOG_THEME_DEFAULTS,
+    DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
     DIALOG_SKIN_CUTE_PINK,
+    DIALOG_SKIN_DAY_MINIMAL,
+    DIALOG_SKIN_ELEGANT_EUROPEAN,
     DIALOG_SKIN_GRADIENT_VEIL,
     DIALOG_SKIN_PLANT_COFFEE,
+    DIALOG_SKIN_RETRO_JAPANESE,
+    DIALOG_SKIN_WARM_PICTUREBOOK,
     DIALOG_SKIN_WESTERN_CLASSIC,
     isIllustratedDialogSkin,
     normalizeClassicDialogWidthPercent,
     normalizeDialogSkin,
 } from './classic-dialog-skin.js';
 import { normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
+import { SKIN_DIALOG_SCALE_OPTIONS, SKIN_DIALOG_SCALE_DEFAULT, normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import {
@@ -176,6 +191,7 @@ export function createIgsReaderHost(options = {}) {
         activeReader: null,
         activeSettings: null,
     };
+    const dismissedReviewFloors = new Set();
     const sourceCache = createReaderSourceCache({
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
@@ -191,6 +207,12 @@ export function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
         },
     });
+    const offGeneratedAssetUpdated = typeof options.onGeneratedAssetUpdated === 'function'
+        ? options.onGeneratedAssetUpdated(() => {
+            if (state.activeReader) rerenderActiveReader();
+            if (state.activeSettings && state.activeSettings.asyncState.sceneSubTab === 'generated') rerenderSettings();
+        })
+        : () => {};
     const offIllustrationUpdated = typeof options.onIllustrationUpdated === 'function'
         ? options.onIllustrationUpdated((payload) => {
             const current = state.activeReader;
@@ -259,9 +281,7 @@ export function createIgsReaderHost(options = {}) {
         );
         const unified = resolveBridgeConfigSnapshot({ mode: nextMode });
         const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
-        readerSettings._sceneAssets = unified.bridge.sceneAssets || null;
-        readerSettings._sentencePaging = Boolean(unified.bridge.sentencePaging);
-        readerSettings._vnTheme = readerSettings.vnTheme || null;
+        attachBridgeReaderExtras(readerSettings, unified.bridge);
         const snapshot = buildReaderSnapshot(
             payload,
             nextMode,
@@ -368,9 +388,7 @@ export function createIgsReaderHost(options = {}) {
     function applyReaderPayloadToState(current, mode, optionsForRender = {}) {
         const unified = resolveBridgeConfigSnapshot({ mode });
         const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
-        readerSettings._sceneAssets = unified.bridge.sceneAssets || null;
-        readerSettings._sentencePaging = Boolean(unified.bridge.sentencePaging);
-        readerSettings._vnTheme = readerSettings.vnTheme || null;
+        attachBridgeReaderExtras(readerSettings, unified.bridge);
         return buildReaderSnapshot(optionsForRender.payload || current.payload, mode, readerSettings,
             optionsForRender.index ?? current.index);
     }
@@ -566,6 +584,7 @@ export function createIgsReaderHost(options = {}) {
         const closed = closeSettings();
         if (closed.ok === false) return closed;
         offIllustrationUpdated();
+        offGeneratedAssetUpdated();
         teardownStatusHudSubscription();
         closeReader();
         streamObserver.stop();
@@ -860,7 +879,7 @@ export function createIgsReaderHost(options = {}) {
             },
             switchSceneSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-                state.activeSettings.asyncState.sceneSubTab = subTab === 'characters' ? 'characters' : 'scenes';
+                state.activeSettings.asyncState.sceneSubTab = normalizeSceneSubTab(subTab);
                 return rerenderSettings();
             },
             setValue(path, value, editOptions) {
@@ -1151,7 +1170,7 @@ export function createIgsReaderHost(options = {}) {
                 arrow?.focus?.();
             }
             return normalizedAction === 'map'
-                ? current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation, current.snapshot?.content?.sceneTime)
+                ? current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation, current.snapshot?.content?.sceneTime, current.snapshot?.content?.sceneWeather)
                 : current.dom.recordController.open(overlay, settings, normalizedAction);
         }
         if (normalizedAction === 'toggle-status-hud') {
@@ -1270,9 +1289,7 @@ export function createIgsReaderHost(options = {}) {
             : normalizeReaderMode(state.activeReader.mode, baseSnapshot.bridge);
         const unified = resolveBridgeConfigSnapshot({ mode: nextMode });
         const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
-        readerSettings._sceneAssets = unified.bridge.sceneAssets || null;
-        readerSettings._sentencePaging = Boolean(unified.bridge.sentencePaging);
-        readerSettings._vnTheme = readerSettings.vnTheme || null;
+        attachBridgeReaderExtras(readerSettings, unified.bridge);
         const snapshot = buildReaderSnapshot(state.activeReader.payload, nextMode, readerSettings, state.activeReader.index);
         if (!snapshot.content.segments.length) {
             closeReader({ keepSettings: true });
@@ -1652,6 +1669,17 @@ export function createIgsReaderHost(options = {}) {
             '',
         );
         const sceneAssets = readerSettings._sceneAssets || null;
+        const generatedAssets = options.generatedAssets || null;
+        const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
+            ? (generatedAssets ? generatedAssets.resolveUrl(url) : '')
+            : (url || ''));
+        const assetMatchCtx = {
+            sceneAssets,
+            generatedAssets: sceneAssets && sceneAssets.generated,
+            strict: readerSettings._strictBackgroundMatch === true,
+            tempBackground: generatedAssets ? generatedAssets.tempBackground : null,
+            tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
+        };
         const sceneDirectives = Array.isArray(extracted.sceneDirectives) ? extracted.sceneDirectives
             : Array.isArray(payload.sceneDirectives) ? payload.sceneDirectives : [];
         const hasIgsDirectives = sceneDirectives.length > 0;
@@ -1713,8 +1741,7 @@ export function createIgsReaderHost(options = {}) {
             spriteImage = null;
         } else if (sceneAssets && sceneAssets.enabled) {
             if (sceneStateForBg && sceneStateForBg.scene) {
-                const bgUrls = lookupSceneAssetUrls(sceneStateForBg, sceneAssets);
-                finalBackgroundImage = bgUrls.backgroundUrl || '';
+                finalBackgroundImage = resolveGenerated(resolveBackgroundAsset(sceneStateForBg, assetMatchCtx).url);
             } else {
                 finalBackgroundImage = '';
             }
@@ -1855,14 +1882,14 @@ export function createIgsReaderHost(options = {}) {
                 spriteMood = sceneStateForBg.mood || '';
             }
             if (!slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
-                const spriteUrls = lookupSceneAssetUrls({ character: spriteChar, mood: spriteMood }, sceneAssets);
-                spriteImage = spriteUrls.spriteUrl || null;
+                const spriteHit = resolveSpriteAsset(spriteChar, spriteMood, assetMatchCtx);
+                spriteImage = resolveGenerated(spriteHit.url) || null;
                 if (spriteImage) {
-                    spriteCharacter = spriteUrls.spriteCharacter || spriteChar;
+                    spriteCharacter = spriteHit.character || spriteChar;
                     // Position keys follow the resolved image slot (exact mood / group /
                     // 默认), not the raw mood word, so every mood that maps to the same
                     // sprite image shares one position across pages.
-                    spriteMood = spriteUrls.spriteSlot || spriteMood;
+                    spriteMood = spriteHit.slot || spriteMood;
                 }
             }
         }
@@ -1964,10 +1991,10 @@ export function createIgsReaderHost(options = {}) {
         const imageSubTab = tab === 'image' ? normalizeImageSubTab(settingsState.asyncState.imageSubTab) : null;
         const readerSubTab = tab === 'reader' ? normalizeReaderSubTab(settingsState.asyncState.readerSubTab) : null;
         const sceneSettingsSubTab = tab === 'scene' ? normalizeSceneSettingsSubTab(settingsState.asyncState.sceneSettingsSubTab) : null;
-        const sceneSubTab = tab === 'scene' ? (settingsState.asyncState.sceneSubTab === 'characters' ? 'characters' : 'scenes') : null;
-        const settingsTheme = draft.bridge.settingsTheme === 'day' ? 'day' : 'night';
-        const nextSettingsTheme = settingsTheme === 'day' ? 'night' : 'day';
-        const settingsThemeLabel = nextSettingsTheme === 'day' ? '切换到日间模式' : '切换到夜间模式';
+        const sceneSubTab = tab === 'scene' ? normalizeSceneSubTab(settingsState.asyncState.sceneSubTab) : null;
+        const settingsTheme = normalizeSettingsTheme(draft.bridge.settingsTheme);
+        const nextSettingsTheme = getNextSettingsTheme(settingsTheme);
+        const settingsThemeLabel = getSettingsThemeLabel(settingsTheme);
         const body = renderSettingsBody(tab, draft, settingsState.asyncState);
         const tabsHtml = SETTINGS_TAB_DEFS.map(([id, label]) => {
             return `<button type="button" class="igs-settings-tab${tab === id ? ' is-active' : ''}" data-tab="${id}">${label}</button>`;
@@ -1982,7 +2009,6 @@ export function createIgsReaderHost(options = {}) {
             settingsTheme,
             settingsThemeIcon: getSettingsThemeIcon(nextSettingsTheme),
             settingsThemeLabel,
-            settingsThemePressed: settingsTheme === 'day' ? 'true' : 'false',
             selectors: Array.from(SETTINGS_PANEL_REQUIRED_SELECTORS),
             tabs: SETTINGS_TAB_DEFS.map(([id, label]) => ({
                 id,
@@ -1998,7 +2024,6 @@ export function createIgsReaderHost(options = {}) {
                 body,
                 settingsThemeIcon: getSettingsThemeIcon(nextSettingsTheme),
                 settingsThemeLabel,
-                settingsThemePressed: settingsTheme === 'day' ? 'true' : 'false',
             })}</div>`,
             resultText: {
                 image: settingsState.asyncState.imageResult || '',
@@ -2106,11 +2131,28 @@ export function createIgsReaderHost(options = {}) {
                 autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW 自动生图'),
                 autoNsfwHidden: hiddenAttr(!auto.nsfwEnabled),
                 autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', '每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, 4)),
+                autoAssetSpriteField: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '自动补全无名角色立绘'),
+                autoAssetBackgroundField: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '自动补全缺失场景背景'),
+                autoAssetStrictField: checkbox('bridge.autoIllustration.assets.strictMatch', auto.assets.strictMatch, '精准场景匹配'),
+                autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多生成数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 4)),
+                autoAssetSpriteSizeField: field('bridge.autoIllustration.assets.spriteSize', '立绘尺寸', textInput('bridge.autoIllustration.assets.spriteSize', auto.assets.spriteSize, '832x1216')),
+                autoAssetBackgroundSizeField: field('bridge.autoIllustration.assets.backgroundSize', '背景尺寸', textInput('bridge.autoIllustration.assets.backgroundSize', auto.assets.backgroundSize, '1216x832')),
+                autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '背景模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '{tags}')),
+                autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '立绘模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '{tags}')),
+                autoAssetNsfwExtraField: '',
                 autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图'),
                 autoInterludeHidden: hiddenAttr(!auto.interludeEnabled),
                 autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
                 autoInterludeMaxField: field('bridge.autoIllustration.interludeMaxCount', '每层最多张数', numberInput('bridge.autoIllustration.interludeMaxCount', auto.interludeMaxCount, 1, 4)),
-                autoSharedHidden: hiddenAttr(!auto.nsfwEnabled && !auto.interludeEnabled),
+                autoAssetSpriteField: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '自动生成角色立绘'),
+                autoAssetBackgroundField: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '自动生成场景背景'),
+                autoAssetStrictField: checkbox('bridge.autoIllustration.assets.strictMatch', auto.assets.strictMatch, '严格匹配背景素材'),
+                autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多素材数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 4)),
+                autoAssetSpriteSizeField: field('bridge.autoIllustration.assets.spriteSize', '立绘尺寸', textInput('bridge.autoIllustration.assets.spriteSize', auto.assets.spriteSize, '832x1216')),
+                autoAssetBackgroundSizeField: field('bridge.autoIllustration.assets.backgroundSize', '背景尺寸', textInput('bridge.autoIllustration.assets.backgroundSize', auto.assets.backgroundSize, '1216x832')),
+                autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '背景提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '必须包含 {tags}')),
+                autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '立绘提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
+                autoSharedHidden: hiddenAttr(!auto.nsfwEnabled && !auto.interludeEnabled && !auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
                 autoLlmApiHidden: hiddenAttr(openaiDisabled),
                 autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API（消耗主模型额度）'], ['openai', '独立 OpenAI 兼容 API']])),
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
@@ -2137,7 +2179,7 @@ export function createIgsReaderHost(options = {}) {
             const sceneAssets = bridge.sceneAssets || {};
             const disabled = !sceneAssets.enabled;
             const sceneSettingsSubTab = normalizeSceneSettingsSubTab(asyncState.sceneSettingsSubTab);
-            const subTab = asyncState.sceneSubTab === 'characters' ? 'characters' : 'scenes';
+            const subTab = normalizeSceneSubTab(asyncState.sceneSubTab);
             const scenesHtml = renderSceneAssetList(sceneAssets.scenes || {}, {
                 expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
                 timeGroups: sceneAssets.timeGroups || [],
@@ -2151,9 +2193,17 @@ export function createIgsReaderHost(options = {}) {
             });
             const scenePresets = loadScenePresets((options.global || globalThis).localStorage);
             const scenePresetBarHtml = renderScenePresetBar(scenePresets, asyncState.scenePresetName || '');
+            const generatedService = options.generatedAssets || null;
+            const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
+                ? (generatedService && typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '')
+                : (url || ''));
+            const generatedPane = renderGeneratedAssetPane({
+                library: normalizeGeneratedLibrary(sceneAssets.generated),
+                temp: generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
+                resolveUrl: resolveGenerated,
+            });
             const subTabsHtml = `<div class="igs-scene-subtabs" role="tablist">`
-                + `<button type="button" class="igs-scene-subtab${subTab === 'scenes' ? ' is-active' : ''}" data-scene-subtab="scenes">场景素材</button>`
-                + `<button type="button" class="igs-scene-subtab${subTab === 'characters' ? ' is-active' : ''}" data-scene-subtab="characters">角色立绘</button>`
+                + SCENE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-scene-subtab${subTab === id ? ' is-active' : ''}" data-scene-subtab="${id}" role="tab" aria-selected="${subTab === id ? 'true' : 'false'}">${label}</button>`).join('')
                 + `</div>`;
             const scenesPane = `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
@@ -2182,7 +2232,7 @@ export function createIgsReaderHost(options = {}) {
                 promptRuleStatus: esc(asyncState.promptRuleStatus || ''),
                 scenePresetBar: scenePresetBarHtml,
                 sceneSubTabs: subTabsHtml,
-                sceneSubPane: subTab === 'characters' ? charactersPane : scenesPane,
+                sceneSubPane: subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane),
             };
             return renderTemplate(getSettingsTabTemplate('scene'), {
                 sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
@@ -2218,12 +2268,13 @@ export function createIgsReaderHost(options = {}) {
         const readerValues = {
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
             dialogFontWeightField: field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])),
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
+            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
             gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : '',
+            skinDialogScaleField: classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]))) : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
-            dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog)),
-            dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, dialogHeightItems, classicDialog)),
+            dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog || illustratedDialog)),
+            dialogHeightField: field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, dialogHeightItems, classicDialog || illustratedDialog)),
             glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`]))),
             imageCountField: field('readerSettings.imageCountOverride', '检测图像数量', selectInput('readerSettings.imageCountOverride', reader.imageCountOverride === null ? 'null' : reader.imageCountOverride, [['null', '自动']].concat(Array.from({ length: 20 }, (_, index) => [index + 1, `${index + 1}张`])))),
             inputScaleField: field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
@@ -2464,7 +2515,12 @@ export function createIgsReaderHost(options = {}) {
             return { ok: true };
         };
         const recordController = createRecordPanelController(doc, options.global, fillRecordDraft);
-        const mapController = createMapPanelController(doc, options.global, fillRecordDraft);
+        const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
+            getChatId: () => {
+                const ctx = getSillyTavernContext(options.global || globalThis);
+                return ctx && (typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId) || '';
+            },
+        });
         const domState = {
             root,
             doc,
@@ -2476,7 +2532,7 @@ export function createIgsReaderHost(options = {}) {
                 if (typeof doc.removeEventListener === 'function') {
                     doc.removeEventListener('keydown', keydownHandler, true);
                 }
-                mapController.close();
+                mapController.dispose();
                 recordController.close();
                 dbController.close();
                 teardownEmbeddedMount(domState.embeddedMount);
@@ -2721,6 +2777,86 @@ export function createIgsReaderHost(options = {}) {
             current.dom.progress.textContent = formatReaderProgress(snapshot);
         }
         syncOptionBubblesAfterRender(current, snapshot);
+        syncAssetReviewAfterRender(current, snapshot);
+    }
+
+    function currentFloorKey(current) {
+        const identity = current && current.illustrationIdentity;
+        const messageId = current && (current.contentMessageId != null
+            ? current.contentMessageId
+            : current.snapshot && current.snapshot.messageId);
+        if (!identity || !identity.chatId || messageId == null) return '';
+        return floorKeyOf({ chatId: identity.chatId, messageId, swipeId: identity.swipeId });
+    }
+
+    function syncAssetReviewAfterRender(current, snapshot) {
+        const overlay = current && current.dom && current.dom.overlay;
+        const service = options.generatedAssets;
+        if (!overlay || !overlay.querySelector || !service || typeof service.listReview !== 'function') return;
+        let container = overlay.querySelector('#igs-asset-review');
+        const floorKey = currentFloorKey(current);
+        const items = floorKey && isReaderLastPage(snapshot) && !dismissedReviewFloors.has(floorKey)
+            ? service.listReview(floorKey)
+            : [];
+        if (!items.length) {
+            if (container) container.setAttribute('hidden', '');
+            return;
+        }
+        if (!container) {
+            container = overlay.ownerDocument.createElement('div');
+            container.id = 'igs-asset-review';
+            container.addEventListener('click', (event) => event.stopPropagation());
+            overlay.appendChild(container);
+        }
+        renderAssetReviewPanel(container, items.map((item) => ({
+            ...item,
+            previewUrl: typeof service.resolveUrl === 'function' ? service.resolveUrl(item.url) : item.url,
+        })), {
+            onResolve: (item, status, name) => { void resolveGeneratedReview(item, status, name); },
+            onLater: () => {
+                dismissedReviewFloors.add(floorKey);
+                container.setAttribute('hidden', '');
+            },
+        });
+    }
+
+    function mutateGeneratedLibrary(mutator) {
+        if (state.activeSettings) {
+            const bridge = state.activeSettings.draft.bridge = state.activeSettings.draft.bridge || {};
+            const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+            const result = mutator(sceneAssets.generated);
+            if (!result || result.ok === false) return result || { ok: false };
+            sceneAssets.generated = result.library;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok !== false) rerenderSettings();
+            return persisted.ok === false ? persisted : result;
+        }
+        const save = typeof options.saveUnifiedSettings === 'function' ? options.saveUnifiedSettings : null;
+        if (!save) return { ok: false, reason: 'missing-save-handler' };
+        const unified = resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' });
+        const result = mutator(unified.bridge.sceneAssets && unified.bridge.sceneAssets.generated);
+        if (!result || result.ok === false) return result || { ok: false };
+        const bridge = {
+            ...unified.bridge,
+            sceneAssets: { ...(unified.bridge.sceneAssets || {}), generated: result.library },
+        };
+        const saved = save({ bridge, readerMode: unified.readerMode, readerSettings: unified.readerSettings });
+        return saved && saved.ok !== false ? result : (saved || { ok: false, reason: 'save-failed' });
+    }
+
+    async function resolveGeneratedReview(item, status, name) {
+        const service = options.generatedAssets;
+        if (!service || !item) return;
+        if (status === 'library') {
+            const added = mutateGeneratedLibrary((library) => addGeneratedAssetToLibrary(library, item, name || item.name));
+            if (!added || added.ok === false) {
+                writeToastSafe('加入素材库失败：名称不能为空');
+                return;
+            }
+            writeToastSafe(`已加入素材库「${added.name}」`);
+        }
+        if (typeof service.setStatus === 'function') await service.setStatus(item.key, status);
+        if (state.activeReader) rerenderActiveReader();
     }
 
     function syncOptionBubblesAfterRender(current, snapshot) {
@@ -2807,6 +2943,14 @@ export function createIgsReaderHost(options = {}) {
     }
 
 
+    function attachBridgeReaderExtras(readerSettings, bridge) {
+        readerSettings._sceneAssets = bridge.sceneAssets || null;
+        readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
+        readerSettings._vnTheme = readerSettings.vnTheme || null;
+        readerSettings._strictBackgroundMatch = isStrictBackgroundMatch(bridge.autoIllustration);
+        return readerSettings;
+    }
+
     function resolveBridgeConfigSnapshot(optionsForSnapshot = {}) {
         const getter = typeof options.getUnifiedSettings === 'function'
             ? options.getUnifiedSettings
@@ -2833,7 +2977,7 @@ export function createIgsReaderHost(options = {}) {
         const normalized = cloneData(bridge || {});
         normalized.openMode = normalizeReaderMode(normalized.openMode, normalized);
         normalized.showToasts = normalizeBoolean(normalized.showToasts, true);
-        normalized.settingsTheme = normalized.settingsTheme === 'day' ? 'day' : 'night';
+        normalized.settingsTheme = normalizeSettingsTheme(normalized.settingsTheme);
         normalized.debug = normalizeBoolean(normalized.debug, false);
         normalized.sourceFilter = normalizeSourceFilter(normalized.sourceFilter);
         normalized.virtualRegex = normalizeVirtualRegex(normalized.virtualRegex);
@@ -2881,6 +3025,7 @@ export function createIgsReaderHost(options = {}) {
     function normalizeSceneAssets(value) {
         const normalized = cloneData(value || {});
         normalized.enabled = normalizeBoolean(normalized.enabled, false);
+        normalized.generated = normalizeGeneratedLibrary(normalized.generated);
         normalized.promptRule = normalizeScenePromptRule(normalized.promptRule);
         if (!normalized.scenes || typeof normalized.scenes !== 'object' || Array.isArray(normalized.scenes)) {
             normalized.scenes = {};
@@ -2988,6 +3133,7 @@ export function createIgsReaderHost(options = {}) {
             dialogSkin: 'default',
             gradientVeil: normalizeGradientVeil(null),
             classicDialogWidthPercent: CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
+            skinDialogScale: SKIN_DIALOG_SCALE_DEFAULT,
             fontSize: 18,
             dialogFontWeight: null,
             optionFontSize: 14,
@@ -3015,6 +3161,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.dialogSkin = normalizeDialogSkin(normalized.dialogSkin);
         normalized.gradientVeil = normalizeGradientVeil(normalized.gradientVeil);
         normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
+        normalized.skinDialogScale = normalizeSkinDialogScale(normalized.skinDialogScale);
         normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
         normalized.dialogFontWeight = normalized.dialogFontWeight != null
             && [300, 400, 500, 700].includes(Number(normalized.dialogFontWeight))
@@ -3129,9 +3276,7 @@ export function createIgsReaderHost(options = {}) {
         if (!result || result.ok === false) return result || { ok: false, reason: 'save-failed' };
         const refreshed = resolveBridgeConfigSnapshot({ mode });
         const readerSettings = normalizeReaderSettings(refreshed.readerSettings, refreshed.bridge.vnTheme);
-        readerSettings._sceneAssets = refreshed.bridge.sceneAssets || null;
-        readerSettings._sentencePaging = Boolean(refreshed.bridge.sentencePaging);
-        readerSettings._vnTheme = readerSettings.vnTheme || null;
+        attachBridgeReaderExtras(readerSettings, refreshed.bridge);
         state.activeReader.snapshot = buildReaderSnapshot(state.activeReader.payload, mode, readerSettings, state.activeReader.index);
         updateMountedReader(state.activeReader.snapshot);
         return result;

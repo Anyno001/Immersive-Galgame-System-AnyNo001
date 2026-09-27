@@ -10,6 +10,9 @@
 - 按句分页启用时，场景指令索引必须重映射到最终可见分页坐标，不得沿用分页前的原始行号计数。
 - `[igs-img:N]` 只由插件写入；原文保留标记以定位插图，显示正文与主模型上下文隐藏标记。解析时记录原文偏移，不计入 scene/char/thought 的可见段索引；新场景指令终止此前插图。
 
+- 素材匹配分级（`scene-directives.js` 的 `classifySceneKey`）：exact / alias / fuzzy-strong / fuzzy-weak / none，「默认」兜底记为 default。
+- `asset-match.js` 决定背景 / 立绘取哪一区：用户上传区 → 生成区素材库（`bridge.sceneAssets.generated`）→ 本聊天临时生成素材 → 占位；「精准生图优先」下弱模糊与默认只当占位并触发生成。生成区图片地址统一为 `igs-gen:<imageId>`，由调用方解析。
+
 ## 场景来源优先级
 
 1. 当前楼层正文显式标签或正则解析结果。

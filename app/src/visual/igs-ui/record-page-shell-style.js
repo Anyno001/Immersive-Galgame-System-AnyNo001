@@ -47,7 +47,7 @@ export const RECORD_PAGE_SHELL_STYLE_TEXT = `
   background:${igsUiSurface(IGS_UI_THICKNESS.airy)};
   -webkit-backdrop-filter:${IGS_UI_BLUR_VIVID};backdrop-filter:${IGS_UI_BLUR_VIVID};
 }
-${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .5)}
+${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .25)}
 #igs-record-panel[data-record-category="diary"]{--igs-ui-caustic-size:760px;}
 #igs-record-panel[data-record-category="inventory"]{--igs-ui-caustic-size:460px;}
 #igs-record-panel[data-record-category="relationships"]{--igs-ui-caustic-size:600px;}
