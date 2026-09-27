@@ -78,6 +78,7 @@ import {
     textareaInput,
     numberInput,
     disabledAttr,
+    hiddenAttr,
     modelPicker,
     tableMultiSelect,
 } from './settings-fields.js';
@@ -2013,26 +2014,27 @@ export function createIgsReaderHost(options = {}) {
     function renderSettingsBody(tab, draft, asyncState) {
         function buildStatusHudSettingsHtml(reader, options) {
             const statusHud = normalizeStatusHudSettings(reader && reader.statusHud);
-            const sectionClass = 'igs-settings-section igs-settings-full igs-status-hud-section';
-            const toggle = `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.enabled', statusHud.enabled, '显示左上角状态栏')}</div>`;
+            const sectionClass = 'igs-settings-section igs-status-hud-section';
+            const toggle = checkbox('readerSettings.statusHud.enabled', statusHud.enabled, '显示左上角状态栏');
             if (!statusHud.enabled) {
                 return `<div class="${sectionClass}" data-status-hud>${toggle}</div>`;
             }
             const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
             const listed = api ? listStatusHudTables(createShujukuClient(api).readTables()) : { ok: false, reason: 'missing-api', tables: [] };
-            const catalogNote = listed.ok
-                ? '勾选后额外显示当前角色匹配到的 HUD 条；留空则只显示已开启的人物信息与旁白场景信息。'
-                : '数据库插件未就绪，人物信息与旁白场景信息仍可显示；已保存的表格选择会保留。';
             const body = [
                 toggle,
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签')}</div>`,
-                `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏（仅旁白）')}</div>`,
-                statusHud.showLocation ? `<div class="igs-settings-row">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示更多的场景信息')}</div>` : '',
-                `<div class="igs-settings-row">${field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']]))}</div>`,
-                `<div class="igs-settings-row">${field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小'))}</div>`,
-                `<div class="igs-settings-row">${field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景'))}</div>`,
-                `<div class="igs-settings-row">${field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色'))}</div>`,
-                `<div class="igs-settings-row igs-settings-full"><div class="igs-settings-field"><span>读取表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: catalogNote })}</div></div>`,
+                '<div class="igs-settings-sub">',
+                checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签'),
+                checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏（仅旁白）'),
+                statusHud.showLocation ? `<div class="igs-settings-sub">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示更多的场景信息')}</div>` : '',
+                '<div class="igs-source-filter-grid">',
+                field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']])),
+                field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小')),
+                field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景')),
+                field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色')),
+                '</div>',
+                `<div class="igs-settings-field"><span>读取表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: listed.ok ? '' : '数据库插件未就绪' })}</div>`,
+                '</div>',
             ].join('');
             return `<div class="${sectionClass}" data-status-hud>${body}</div>`;
         }
@@ -2044,45 +2046,39 @@ export function createIgsReaderHost(options = {}) {
 
         if (tab === 'basic') {
             return renderTemplate(getSettingsTabTemplate('basic'), {
-                openModeField: `<div class="igs-settings-full igs-segmented-field">${field(
+                openModeField: `<div class="igs-segmented-field">${field(
                     'bridge.openMode',
-                    '切换模式',
+                    '打开方式',
                     segmentedInput(
                         'bridge.openMode',
                         bridge.openMode,
                         PUBLIC_READER_MODES.map((id) => [id, getReaderModeLabel(id), getReaderModeIcon(id)]),
-                        '切换模式',
+                        '打开方式',
                     ),
                 )}</div>`,
                 settingsToggles: checkbox('bridge.showToasts', bridge.showToasts, '显示提示 toast'),
-            });
-        }
-
-        if (tab === 'regex') {
-            return renderTemplate(getSettingsTabTemplate('regex'), {
-                filterToggles: checkbox('bridge.sourceFilter.enabled', sourceFilter.enabled, '启用标签筛选')
-                    + checkbox('bridge.sourceFilter.stripHtmlComments', sourceFilter.stripHtmlComments, '排除 HTML 注释'),
-                untaggedToggle: checkbox(
-                    'bridge.sourceFilter.allowUntaggedFallback',
-                    sourceFilter.allowUntaggedFallback,
-                    '正文保留标签为空时读取清洗全文',
-                ),
+                filterToggle: checkbox('bridge.sourceFilter.enabled', sourceFilter.enabled, '启用标签筛选'),
+                filterHidden: hiddenAttr(!sourceFilter.enabled),
+                filterOptionToggles: checkbox('bridge.sourceFilter.stripHtmlComments', sourceFilter.stripHtmlComments, '排除 HTML 注释')
+                    + checkbox(
+                        'bridge.sourceFilter.allowUntaggedFallback',
+                        sourceFilter.allowUntaggedFallback,
+                        '正文保留标签为空时读取清洗全文',
+                    ),
                 textIncludeField: field('bridge.sourceFilter.textIncludeTags', '正文保留标签', textareaInput('bridge.sourceFilter.textIncludeTags', sourceFilter.textIncludeTags, 'content')),
                 textExcludeField: field('bridge.sourceFilter.textExcludeTags', '正文排除标签', textareaInput('bridge.sourceFilter.textExcludeTags', sourceFilter.textExcludeTags)),
                 imageIncludeField: field('bridge.sourceFilter.imageIncludeTags', '图片保留标签', textareaInput('bridge.sourceFilter.imageIncludeTags', sourceFilter.imageIncludeTags, 'image&#10;text_to_image')),
                 regexToggle: checkbox('bridge.virtualRegex.enabled', bridge.virtualRegex.enabled, '启用正文格式化'),
+                regexHidden: hiddenAttr(!bridge.virtualRegex.enabled),
                 regexPatternField: field('bridge.virtualRegex.pattern', '查找表达式', textareaInput('bridge.virtualRegex.pattern', bridge.virtualRegex.pattern, '^@bubble:([^|\\n]+)\\|[^|\\n]*\\|\\[?([^\\n]*?)\\]?$')),
-                regexFlagsField: field('bridge.virtualRegex.flags', 'flags', textInput('bridge.virtualRegex.flags', bridge.virtualRegex.flags, 'i'), '例如 i、g、s、m；留空表示无 flags。'),
+                regexFlagsField: field('bridge.virtualRegex.flags', 'flags', textInput('bridge.virtualRegex.flags', bridge.virtualRegex.flags, 'i')),
                 regexReplacementField: field('bridge.virtualRegex.replacement', '替换文本', textareaInput('bridge.virtualRegex.replacement', bridge.virtualRegex.replacement, '[$1]：$2')),
-                regexPreview: esc(asyncState.virtualRegexPreview || '点击“测试当前楼层”预览最终 IGS 正文。'),
+                regexPreview: esc(asyncState.virtualRegexPreview || ''),
             });
         }
 
         if (tab === 'image') {
             const apiDisabled = imageApi.mode !== 'nai';
-            const imageModeNote = imageApi.mode === 'nai'
-                ? '内置模式会直接调用图像 API，不再依赖外部插图扩展。'
-                : '外部扩展模式会优先按适配器检测 chatu8 / chami。';
             const promptPrefixInput = `<textarea data-path="bridge.imageApi.promptPrefix" placeholder="可选，生成图片时追加到正文前"${disabledAttr(apiDisabled)}>${esc(imageApi.promptPrefix || '')}</textarea>`;
             const auto = normalizeAutoIllustrationSettings(bridge.autoIllustration);
             const openaiDisabled = auto.llm.source !== 'openai';
@@ -2090,9 +2086,11 @@ export function createIgsReaderHost(options = {}) {
             const imageSubTab = normalizeImageSubTab(asyncState.imageSubTab);
             const imageFields = {
                 imageModeField: field('bridge.imageApi.mode', '图像模式', selectInput('bridge.imageApi.mode', imageApi.mode, [['extension', '使用现有插图扩展'], ['nai', 'IGS 内置 NAI API']])),
-                adapterField: field('bridge.imageApi.externalAdapter', '插图扩展', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', 'st-chatu8 / chatu8'], ['chami', 'chami_tavern-scene-plugin']], imageApi.mode === 'nai'), imageModeNote),
-                apiGroupClass: 'igs-settings-api-group' + (apiDisabled ? ' is-disabled' : ''),
-                endpointField: field('bridge.imageApi.endpoint', '图像 API 地址', textInput('bridge.imageApi.endpoint', imageApi.endpoint, 'https://...', 'text', apiDisabled), apiDisabled ? '内置 NAI API 模式启用时可编辑。' : ''),
+                adapterField: field('bridge.imageApi.externalAdapter', '插图扩展', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', 'st-chatu8 / chatu8'], ['chami', 'chami_tavern-scene-plugin']], imageApi.mode === 'nai')),
+                extensionHidden: hiddenAttr(!apiDisabled),
+                apiGroupClass: 'igs-settings-api-group igs-settings-sub',
+                apiHidden: hiddenAttr(apiDisabled),
+                endpointField: field('bridge.imageApi.endpoint', '图像 API 地址', textInput('bridge.imageApi.endpoint', imageApi.endpoint, 'https://...', 'text', apiDisabled)),
                 apiKeyField: field('bridge.imageApi.apiKey', 'API Key', secretInput('bridge.imageApi.apiKey', imageApi.apiKey, '留空则不发送 Authorization', apiDisabled)),
                 modelField: field('bridge.imageApi.model', '模型', modelPicker('bridge.imageApi.model', imageApi.model, imageApi.availableModels, 'fetch-image-models', 'nai-diffusion-3', apiDisabled)),
                 sizeField: field('bridge.imageApi.size', '尺寸', textInput('bridge.imageApi.size', imageApi.size, '832x1216', 'text', apiDisabled)),
@@ -2102,15 +2100,19 @@ export function createIgsReaderHost(options = {}) {
                 pollIntervalField: field('bridge.imageApi.pollIntervalMs', '轮询间隔 ms', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000, apiDisabled)),
                 pollAttemptsField: field('bridge.imageApi.pollAttempts', '轮询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240, apiDisabled)),
                 promptPrefixField: field('bridge.imageApi.promptPrefix', '图像提示词前缀', promptPrefixInput),
-                imageModelsMessage: esc(asyncState.imageModelsMessage || (apiDisabled ? '使用现有插图扩展时无需拉取内置 API 模型；检测插件会检查 chatu8 / chami 链路。' : '可手填模型，也可点击拉取模型获取候选列表。')),
+                imageModelsMessage: esc(asyncState.imageModelsMessage || ''),
                 imageTestActionLabel: imageApi.mode === 'nai' ? '测试生成' : '检测插件',
-                imageTestHelp: esc(asyncState.imageResult || (imageApi.mode === 'nai' ? '测试会对当前内置 API 发起真实生成请求；建议先填写 endpoint、模型和 key。' : '检测当前页面可用的外部插图扩展与图片/按钮链路。')),
-                autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW 自动生图（代替黑幕；图未就绪或失败时仍用黑幕）'),
-                autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', 'NSFW 每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, 4)),
-                autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图（每个 AI 楼层按概率自动插入）'),
+                imageTestHelp: esc(asyncState.imageResult || ''),
+                autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW 自动生图'),
+                autoNsfwHidden: hiddenAttr(!auto.nsfwEnabled),
+                autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', '每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, 4)),
+                autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图'),
+                autoInterludeHidden: hiddenAttr(!auto.interludeEnabled),
                 autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
                 autoInterludeMaxField: field('bridge.autoIllustration.interludeMaxCount', '每层最多张数', numberInput('bridge.autoIllustration.interludeMaxCount', auto.interludeMaxCount, 1, 4)),
-                autoLlmSourceField: field('bridge.autoIllustration.llm.source', '副 LLM 来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API'], ['openai', '独立 OpenAI 兼容 API']])),
+                autoSharedHidden: hiddenAttr(!auto.nsfwEnabled && !auto.interludeEnabled),
+                autoLlmApiHidden: hiddenAttr(openaiDisabled),
+                autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API（消耗主模型额度）'], ['openai', '独立 OpenAI 兼容 API']])),
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
                 autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '留空则不发送 Authorization', openaiDisabled)),
                 autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', textInput('bridge.autoIllustration.llm.model', auto.llm.model, 'gpt-4o-mini', 'text', openaiDisabled)),
@@ -2124,13 +2126,6 @@ export function createIgsReaderHost(options = {}) {
                 autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', auto.nai.sampler, 'k_euler_ancestral')),
                 autoNaiArtistField: field('bridge.autoIllustration.nai.artistPrefix', '画师串 / 固定前缀', autoTextarea('bridge.autoIllustration.nai.artistPrefix', auto.nai.artistPrefix, '可选，拼在每张图的正向提示词最前面')),
                 autoNaiNegativeField: field('bridge.autoIllustration.nai.negativePrompt', '负面提示词', autoTextarea('bridge.autoIllustration.nai.negativePrompt', auto.nai.negativePrompt, '')),
-                autoIllustrationNote: esc('正文里只写入 [igs-img:N] 定位标记，酒馆界面和发给模型的上下文中都会隐藏。两个开关都关闭时不会发出任何请求。副 LLM 选「酒馆当前 API」会消耗主模型额度。'),
-                autoNsfwOpen: auto.nsfwEnabled ? ' open' : '',
-                autoInterludeOpen: auto.interludeEnabled ? ' open' : '',
-                autoSharedOpen: auto.nsfwEnabled || auto.interludeEnabled ? ' open' : '',
-                autoNsfwStatus: auto.nsfwEnabled ? '已开启' : '未开启',
-                autoInterludeStatus: auto.interludeEnabled ? '已开启' : '未开启',
-                autoSharedStatus: auto.nsfwEnabled || auto.interludeEnabled ? '生成配置' : '启用功能后配置',
             };
             return renderTemplate(getSettingsTabTemplate('image'), {
                 imageSubTabs: IMAGE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-image-subtab${imageSubTab === id ? ' is-active' : ''}" data-image-subtab="${id}" role="tab" aria-selected="${imageSubTab === id}">${label}</button>`).join(''),
@@ -2160,21 +2155,19 @@ export function createIgsReaderHost(options = {}) {
                 + `<button type="button" class="igs-scene-subtab${subTab === 'scenes' ? ' is-active' : ''}" data-scene-subtab="scenes">场景素材</button>`
                 + `<button type="button" class="igs-scene-subtab${subTab === 'characters' ? ' is-active' : ''}" data-scene-subtab="characters">角色立绘</button>`
                 + `</div>`;
-            const scenesPane = `<div class="igs-source-filter">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div class="igs-source-filter-title">背景场景</div>
+            const scenesPane = `<div class="igs-settings-section">
+        <div class="igs-settings-section-head">
+          <div class="igs-settings-subhead">背景场景</div>
           <button class="igs-btn-mgr-icon" data-action="scene-add-bg" type="button" title="添加背景图">+</button>
         </div>
-        <div class="igs-source-filter-note">场景名及其别名共用同一套背景；名为「默认」的条目在无匹配时兜底。子层级（时间→天气）优先级依次升高。</div>
         ${scenesHtml}
       </div>`;
-            const charactersPane = `<div class="igs-source-filter">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div class="igs-source-filter-title">角色立绘</div>
+            const charactersPane = `<div class="igs-settings-section">
+        <div class="igs-settings-section-head">
+          <div class="igs-settings-subhead">角色立绘</div>
           <button class="igs-btn-mgr-icon" data-action="scene-add-char" type="button" title="添加角色">+</button>
         </div>
-        <div class="igs-source-filter-note">角色名及其别名共用同一套情绪立绘与位置；展开情绪槽可预览立绘并编辑情绪词库。</div>
-        <div class="igs-settings-row">${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置（各情绪共用一套位置）')}</div>
+        ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${charsHtml}
         <div class="igs-settings-row"><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认词库</button></div>
       </div>`;
@@ -2185,15 +2178,15 @@ export function createIgsReaderHost(options = {}) {
                 ? asyncState.promptRuleDraft
                 : String(sceneAssets.promptRule || '');
             const sceneValues = {
-                sceneGroupClass: `igs-settings-section igs-settings-full${disabled ? ' igs-settings-api-group is-disabled' : ''}`,
-                promptRuleField: field('bridge.sceneAssets.promptRule', '注入提示词', `<textarea data-prompt-rule-draft="1" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea>`),
-                promptRuleStatus: esc(asyncState.promptRuleStatus || '修改后点击右侧“保存提示词”才会覆盖当前规则。'),
+                promptRuleField: `<div class="igs-settings-field"><textarea data-prompt-rule-draft="1" aria-label="注入提示词" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea></div>`,
+                promptRuleStatus: esc(asyncState.promptRuleStatus || ''),
                 scenePresetBar: scenePresetBarHtml,
                 sceneSubTabs: subTabsHtml,
                 sceneSubPane: subTab === 'characters' ? charactersPane : scenesPane,
             };
             return renderTemplate(getSettingsTabTemplate('scene'), {
                 sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
+                sceneHidden: hiddenAttr(disabled),
                 sceneSettingsSubTabs,
                 sceneSettingsSubPane: renderTemplate(getSceneSettingsSubTabTemplate(sceneSettingsSubTab), sceneValues),
             });
@@ -2211,6 +2204,7 @@ export function createIgsReaderHost(options = {}) {
         // 对话主题已取消预设选择，恒为自定义：自定义项始终可编辑（仅受场景素材开关 themeDisabled 控制）。
         const themeCustom = true;
         const displayTheme = classicDialog ? classicVnTheme : vnTheme;
+        const dialogBgEditable = !themeDisabled && !classicDialog;
         const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
         const typewriter = normalizeTypewriterSettings(reader.typewriter);
         const stageShake = normalizeStageShakeSettings(reader.stageShake);
@@ -2237,35 +2231,40 @@ export function createIgsReaderHost(options = {}) {
             toolbarDockField: field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'float', [['float', '悬浮'], ['top', '顶部固定']])),
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            dialogToggles: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜')
-                + checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
+            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
+            backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜'),
             typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '启用打字机演出'),
-            typewriterControls: [
-                typewriter.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度'))}</div>` : '',
-                typewriter.enabled ? `<div class="igs-settings-row">${field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式'))}</div>` : '',
-                typewriter.enabled && typewriter.mode === 'classic' ? `<div class="igs-settings-row">${checkbox('readerSettings.typewriter.sound.enabled', typewriter.sound.enabled, '启用打字音效')}</div>` : '',
-                typewriter.enabled && typewriter.mode === 'classic' && typewriter.sound.enabled
-                    ? `<div class="igs-settings-row">${field('readerSettings.typewriter.sound.dialogueVolume', '台词音效音量（嘟嘟嘟）', rangeInput('readerSettings.typewriter.sound.dialogueVolume', typewriter.sound.dialogueVolume ?? typewriter.sound.volume ?? 0.5))}</div>`
-                        + `<div class="igs-settings-row">${field('readerSettings.typewriter.sound.narrationVolume', '旁白音效音量（键盘）', rangeInput('readerSettings.typewriter.sound.narrationVolume', typewriter.sound.narrationVolume ?? typewriter.sound.volume ?? 0.5))}</div>`
+            typewriterControls: typewriter.enabled ? `<div class="igs-settings-sub">${[
+                `<div class="igs-source-filter-grid">`,
+                field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度')),
+                field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式')),
+                `</div>`,
+                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.sound.enabled', typewriter.sound.enabled, '启用打字音效') : '',
+                typewriter.mode === 'classic' && typewriter.sound.enabled
+                    ? `<div class="igs-settings-sub igs-source-filter-grid">`
+                        + field('readerSettings.typewriter.sound.dialogueVolume', '台词音效（嘟嘟嘟）', rangeInput('readerSettings.typewriter.sound.dialogueVolume', typewriter.sound.dialogueVolume ?? typewriter.sound.volume ?? 0.5))
+                        + field('readerSettings.typewriter.sound.narrationVolume', '旁白音效（键盘）', rangeInput('readerSettings.typewriter.sound.narrationVolume', typewriter.sound.narrationVolume ?? typewriter.sound.volume ?? 0.5))
+                        + `</div>`
                     : '',
-            ].join(''),
+            ].join('')}</div>` : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '启用震动演出'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
-            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '启用天气演出（雨/雷/雪/雾/阴/风/沙尘/晴，区分室内外并随时段变色）'),
+            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '启用天气演出'),
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
             performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
                 + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
                 + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘'),
-            nsfwVeilLevelField: `<div class="igs-settings-row">${field('readerSettings.statusHud.nsfwVeilLevel', 'NSFW黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) ||'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], 'NSFW黑幕强度'), '开启「图像 → 自动插图 → NSFW 自动生图」后，有插图的段落显示 CG，不加黑幕。')}</div>`,
+            nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', 'NSFW黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], 'NSFW黑幕强度')),
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
+            optionBubbleHidden: hiddenAttr(!(bridge.optionBubble && bridge.optionBubble.enabled)),
             optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
             optionBubbleActionField: field('bridge.optionBubble.clickAction', '点击选项', segmentedInput('bridge.optionBubble.clickAction', (bridge.optionBubble && bridge.optionBubble.clickAction) || 'send', [['send', '自动发送'], ['fill', '填入输入框']], '点击行为')),
             optionBubbleWidthToggle: checkbox('bridge.optionBubble.widthFollowsText', Boolean(bridge.optionBubble && bridge.optionBubble.widthFollowsText), '气泡宽度随文本变化'),
             pinnedButtonsField: renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder),
-            themeGroupClass: `igs-source-filter igs-settings-full${themeDisabled ? ' igs-settings-api-group is-disabled' : ''}`,
-            themeNote: classicDialog ? '' : '仅在启用场景素材模式时可用；默认风格配置独立保存。',
-            themePresetField: '',
+            themeNoteHidden: hiddenAttr(!themeDisabled),
+            themeHidden: hiddenAttr(themeDisabled),
+            dividerHidden: hiddenAttr(themeDisabled || classicDialog),
             nameAlignField: field(`${themePath}.nameAlign`, '对齐', selectInput(`${themePath}.nameAlign`, displayTheme.nameAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
             textAlignField: field(`${themePath}.textAlign`, '对齐', selectInput(`${themePath}.textAlign`, displayTheme.textAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
             narrationAlignField: field(`${themePath}.narrationAlign`, '对齐', selectInput(`${themePath}.narrationAlign`, displayTheme.narrationAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
@@ -2280,9 +2279,8 @@ export function createIgsReaderHost(options = {}) {
             narrationFontField: field(`${themePath}.narrationFont`, '字体', selectInput(`${themePath}.narrationFont`, displayTheme.narrationFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
             narrationColorField: field(`${themePath}.narrationColor`, '颜色', colorInput(`${themePath}.narrationColor`, toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
             dividerColorField: field(`${themePath}.dividerColor`, '颜色', colorInput(`${themePath}.dividerColor`, toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || classicDialog || !themeCustom)),
-            dialogBgField: field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), themeDisabled || classicDialog || !themeCustom)),
-            dialogBgOpacityField: field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随玻璃'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], themeDisabled || classicDialog || !themeCustom)),
-            themeAdvancedClass: themeCustom ? '' : 'igs-settings-api-group is-disabled',
+            dialogBgField: dialogBgEditable ? field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), !themeCustom)) : '',
+            dialogBgOpacityField: !dialogBgEditable ? '' : field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随玻璃'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], !themeCustom)),
         };
         return renderTemplate(getSettingsTabTemplate('reader'), {
             readerSubTabs,

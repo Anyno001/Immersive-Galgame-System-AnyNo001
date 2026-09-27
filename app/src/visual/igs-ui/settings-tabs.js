@@ -1,108 +1,103 @@
 const BASIC_TAB_TEMPLATE = `
 <div class="igs-settings-grid">
-  {{openModeField}}
-  <div class="igs-settings-section">{{settingsToggles}}</div>
-</div>
-`.trim();
-
-const REGEX_TAB_TEMPLATE = `
-<div class="igs-settings-grid">
   <div class="igs-source-filter">
-    <div>
-      <div class="igs-source-filter-title">标签解析</div>
-      <div class="igs-source-filter-note">先筛出 IGS 正文和图片来源；严格解析未命中时阅读器仍会使用兜底文本打开。</div>
-    </div>
-    <div class="igs-settings-row">{{filterToggles}}</div>
-    <div class="igs-settings-row">{{untaggedToggle}}</div>
-    <div class="igs-source-filter-grid">
-      {{textIncludeField}}
-      {{textExcludeField}}
-      <div class="igs-settings-full">{{imageIncludeField}}</div>
+    <div class="igs-source-filter-title">通用</div>
+    {{openModeField}}
+    <div class="igs-settings-row">{{settingsToggles}}</div>
+  </div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">标签解析</div>
+    {{filterToggle}}
+    <div class="igs-settings-sub"{{filterHidden}}>
+      <div class="igs-settings-section">{{filterOptionToggles}}</div>
+      <div class="igs-source-filter-grid">
+        {{textIncludeField}}
+        {{textExcludeField}}
+        <div class="igs-settings-full">{{imageIncludeField}}</div>
+      </div>
     </div>
   </div>
   <div class="igs-source-filter igs-body-format">
-    <div>
-      <div class="igs-source-filter-title">正文格式化</div>
-      <div class="igs-source-filter-note">对标签解析后的正文执行正则替换；不修改酒馆楼层原文。</div>
+    <div class="igs-source-filter-title">正文格式化</div>
+    {{regexToggle}}
+    <div class="igs-settings-sub"{{regexHidden}}>
+      <div class="igs-source-filter-grid">
+        {{regexPatternField}}
+        {{regexFlagsField}}
+        <div class="igs-settings-full">{{regexReplacementField}}</div>
+      </div>
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="reset-virtual-regex" type="button">恢复默认</button>
+        <button class="igs-settings-action" data-action="test-virtual-regex" type="button">测试当前楼层</button>
+      </div>
+      <div class="igs-settings-preview" data-result="virtual-regex">{{regexPreview}}</div>
     </div>
-    <div class="igs-settings-row">{{regexToggle}}</div>
-    <div class="igs-source-filter-grid">
-      {{regexPatternField}}
-      {{regexFlagsField}}
-      <div class="igs-settings-full">{{regexReplacementField}}</div>
-    </div>
-    <div class="igs-settings-row">
-      <button class="igs-settings-action" data-action="reset-virtual-regex" type="button">恢复默认正文替换</button>
-      <button class="igs-settings-action" data-action="test-virtual-regex" type="button">测试当前楼层</button>
-    </div>
-    <div class="igs-settings-preview" data-result="virtual-regex">{{regexPreview}}</div>
   </div>
 </div>
 `.trim();
 
 const IMAGE_TAB_TEMPLATE = `
 <div class="igs-image-settings">
-  <div class="igs-image-subtabs" role="tablist" aria-label="图像设置分类">{{imageSubTabs}}</div>
+  <div class="igs-image-subtabs" role="tablist" aria-label="生图设置分类">{{imageSubTabs}}</div>
   <div class="igs-image-subpane">{{imageSubPane}}</div>
 </div>
 `.trim();
 
 const IMAGE_OTHER_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="other">
-  <div class="igs-source-filter igs-settings-full">
-    <div class="igs-source-filter-title">其他生图</div>
-    <div class="igs-source-filter-note">现有插图扩展与旧版内置图像 API，独立于自动插图。</div>
-    <div class="igs-source-filter-grid">{{imageModeField}}{{adapterField}}</div>
-    <div class="{{apiGroupClass}}">
-      {{endpointField}}{{apiKeyField}}{{modelField}}{{sizeField}}
-      {{stepsField}}{{samplerField}}{{timeoutField}}
-      {{pollIntervalField}}{{pollAttemptsField}}{{promptPrefixField}}
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">图像来源</div>
+    {{imageModeField}}
+    <div class="igs-settings-sub"{{extensionHidden}}>{{adapterField}}</div>
+    <div class="{{apiGroupClass}}"{{apiHidden}}>
+      {{endpointField}}{{apiKeyField}}
+      <div class="igs-settings-full">{{modelField}}</div>
+      {{sizeField}}{{stepsField}}{{samplerField}}{{timeoutField}}
+      {{pollIntervalField}}{{pollAttemptsField}}
+      <div class="igs-settings-full">{{promptPrefixField}}</div>
+      <div class="igs-settings-result igs-settings-full" data-result="image-models">{{imageModelsMessage}}</div>
     </div>
-    <div class="igs-settings-result" data-result="image-models">{{imageModelsMessage}}</div>
-    <div>
-      <button class="igs-settings-action" data-action="test-image">{{imageTestActionLabel}}</button>
-      <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
-    </div>
+    <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button></div>
+    <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
 </div>
 `.trim();
 
 const IMAGE_AUTO_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="auto">
-  <div class="igs-source-filter igs-settings-full">
+  <div class="igs-source-filter">
     <div class="igs-source-filter-title">自动插图</div>
-    <div class="igs-source-filter-note">{{autoIllustrationNote}}</div>
-    <div class="igs-image-feature">
-      {{autoNsfwField}}
-      <details class="igs-image-fold" data-image-fold="nsfw"{{autoNsfwOpen}}>
-        <summary>NSFW 生图参数<span>{{autoNsfwStatus}}</span></summary>
-        <div class="igs-source-filter-grid">{{autoNsfwCountField}}</div>
-      </details>
+    {{autoNsfwField}}
+    <div class="igs-settings-sub" data-image-feature="nsfw"{{autoNsfwHidden}}>
+      <div class="igs-source-filter-grid">{{autoNsfwCountField}}</div>
     </div>
-    <div class="igs-image-feature">
-      {{autoInterludeField}}
-      <details class="igs-image-fold" data-image-fold="interlude"{{autoInterludeOpen}}>
-        <summary>过场插图参数<span>{{autoInterludeStatus}}</span></summary>
-        <div class="igs-source-filter-grid">{{autoInterludeProbabilityField}}{{autoInterludeMaxField}}</div>
-      </details>
+    {{autoInterludeField}}
+    <div class="igs-settings-sub" data-image-feature="interlude"{{autoInterludeHidden}}>
+      <div class="igs-source-filter-grid">{{autoInterludeProbabilityField}}{{autoInterludeMaxField}}</div>
     </div>
-    <details class="igs-image-fold igs-image-shared" data-image-fold="shared"{{autoSharedOpen}}>
-      <summary>生成配置 · 副 LLM 与 NovelAI<span>{{autoSharedStatus}}</span></summary>
-      <div class="igs-image-config">
-        <div class="igs-source-filter-title">副 LLM · 生成图像标签</div>
-        <div class="igs-source-filter-grid">
-          {{autoLlmSourceField}}{{autoLlmEndpointField}}{{autoLlmKeyField}}
-          {{autoLlmModelField}}{{autoLlmContextField}}
-        </div>
-        <div class="igs-source-filter-title">NovelAI · 生成图片</div>
-        <div class="igs-source-filter-grid">
-          {{autoNaiTransportField}}{{autoNaiKeyField}}{{autoNaiModelField}}
-          {{autoNaiSizeField}}{{autoNaiStepsField}}{{autoNaiScaleField}}
-          {{autoNaiSamplerField}}{{autoNaiArtistField}}
-          <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
-        </div>
+  </div>
+  <div class="igs-source-filter" data-image-feature="llm"{{autoSharedHidden}}>
+    <div class="igs-source-filter-title">副 LLM · 生成标签</div>
+    <div class="igs-source-filter-grid">
+      {{autoLlmSourceField}}{{autoLlmContextField}}
+    </div>
+    <div class="igs-settings-sub"{{autoLlmApiHidden}}>
+      <div class="igs-source-filter-grid">
+        {{autoLlmEndpointField}}{{autoLlmKeyField}}
+        {{autoLlmModelField}}
       </div>
-    </details>
+    </div>
+  </div>
+  <div class="igs-source-filter" data-image-feature="nai"{{autoSharedHidden}}>
+    <div class="igs-source-filter-title">NovelAI · 生成图片</div>
+    <div class="igs-source-filter-grid">
+      {{autoNaiTransportField}}{{autoNaiKeyField}}
+      {{autoNaiModelField}}{{autoNaiSizeField}}
+      {{autoNaiStepsField}}{{autoNaiScaleField}}
+      {{autoNaiSamplerField}}
+      <div class="igs-settings-full">{{autoNaiArtistField}}</div>
+      <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
+    </div>
   </div>
 </div>
 `.trim();
@@ -116,122 +111,113 @@ const READER_TAB_TEMPLATE = `
 
 const READER_DIALOG_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="dialog">
-  <div class="igs-source-filter igs-settings-full">
-    <div class="igs-source-filter-title">对话框样式</div>
-    <div class="igs-settings-row">{{dialogSkinField}}</div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">风格</div>
+    {{dialogSkinField}}
     {{gradientVeilFields}}
+    <div class="igs-settings-row">{{statusLineToggle}}</div>
   </div>
-  <div class="igs-source-filter igs-settings-full">
-    <div class="igs-source-filter-title">文字排版</div>
-    <div class="igs-source-filter-grid">
-      {{fontSizeField}}
-      {{dialogFontWeightField}}
-    </div>
-  </div>
-  <div class="igs-source-filter igs-settings-full">
-    <div class="igs-source-filter-title">尺寸与显示</div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">尺寸</div>
     <div class="igs-source-filter-grid">
       {{dialogWidthField}}
       {{classicDialogWidthPercentField}}
       {{dialogHeightField}}
       {{inputScaleField}}
     </div>
-    <div class="igs-settings-section">{{dialogToggles}}</div>
   </div>
-  <div class="{{themeGroupClass}}">
-    <div>
-      <div class="igs-source-filter-title">外观细节</div>
-      <div class="igs-source-filter-note">{{themeNote}}</div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">背景</div>
+    <div class="igs-source-filter-grid">
+      {{glassOpacityField}}
+      {{dialogBgOpacityField}}
+      {{dialogBgField}}
     </div>
-    <div class="igs-reader-dialog-details {{themeAdvancedClass}}" style="display:flex;flex-direction:column;gap:12px">
-      <div class="igs-source-filter"><div class="igs-source-filter-title">对话框背景</div><div class="igs-settings-row">{{dialogBgField}}{{dialogBgOpacityField}}{{glassOpacityField}}</div></div>
-      <div class="igs-source-filter"><div class="igs-source-filter-title">角色名</div><div class="igs-settings-row">{{nameFontField}}{{nameColorField}}{{nameAlignField}}</div></div>
-      <div class="igs-source-filter"><div class="igs-source-filter-title">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}{{textAlignField}}</div></div>
-      <div class="igs-source-filter"><div class="igs-source-filter-title">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}{{narrationAlignField}}</div></div>
-      <div class="igs-source-filter"><div class="igs-source-filter-title">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}{{thoughtAlignField}}</div></div>
-      <div class="igs-source-filter"><div class="igs-source-filter-title">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
-    </div>
+    <div class="igs-settings-row">{{backdropFilterToggle}}</div>
   </div>
 </div>
 `.trim();
 
-const READER_VISUAL_TEMPLATE = `
-<div class="igs-settings-grid" data-reader-pane="visual">
-  <div class="igs-source-filter igs-settings-full"><div><div class="igs-source-filter-title">背景与图像</div><div class="igs-source-filter-note">控制阅读器中的背景图呈现与图像检测数量。</div></div><div class="igs-source-filter-grid">{{imageCountField}}{{imgModeField}}{{imgBrightnessField}}</div></div>
+const READER_TEXT_TEMPLATE = `
+<div class="igs-settings-grid" data-reader-pane="text">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">排版</div>
+    <div class="igs-source-filter-grid">
+      {{fontSizeField}}
+      {{dialogFontWeightField}}
+    </div>
+  </div>
+  <div class="igs-source-filter igs-text-style">
+    <div class="igs-source-filter-title">文字样式</div>
+    <div class="igs-source-filter-note"{{themeNoteHidden}}>开启「场景」素材模式后可自定义</div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">角色名</div><div class="igs-settings-row">{{nameFontField}}{{nameColorField}}{{nameAlignField}}</div></div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}{{textAlignField}}</div></div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}{{narrationAlignField}}</div></div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}{{thoughtAlignField}}</div></div>
+    <div class="igs-settings-group"{{dividerHidden}}><div class="igs-settings-subhead">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
+  </div>
 </div>
 `.trim();
 
 const READER_PERFORMANCE_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="performance">
-  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">文字演出</div><div class="igs-settings-row">{{typewriterToggle}}</div>{{typewriterControls}}</div>
-  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">震动演出</div><div class="igs-settings-row">{{stageShakeToggle}}</div>{{stageShakeSettings}}</div>
-  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">天气演出</div><div class="igs-settings-row">{{weatherFxToggle}}</div>{{weatherFxSettings}}</div>
-  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">场景演出</div><div class="igs-settings-section">{{performanceToggles}}</div>{{nsfwVeilLevelField}}</div>
-</div>
-`.trim();
-
-const READER_OPTIONS_TEMPLATE = `
-<div class="igs-settings-grid" data-reader-pane="options">
-  <div class="igs-source-filter igs-settings-full">
-    <div>
-      <div class="igs-source-filter-title">选项气泡</div>
-      <div class="igs-source-filter-note">在最后一页点击对话框空白处显示选项（取自数据库「选项 / 选项表 / 行动选项 / 检定建议表」表的文本列），再点空白处隐藏。需安装数据库插件。</div>
-    </div>
-    <div class="igs-source-filter-grid">
-      {{optionFontSizeField}}
-      <div class="igs-settings-section">{{optionBubbleToggle}}{{optionBubbleWidthToggle}}</div>
-    </div>
-    <div class="igs-settings-row">{{optionBubblePositionField}}{{optionBubbleActionField}}</div>
-  </div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">打字机</div>{{typewriterToggle}}{{typewriterControls}}</div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">震动</div>{{stageShakeToggle}}{{stageShakeSettings}}</div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">天气</div>{{weatherFxToggle}}{{weatherFxSettings}}</div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">场景演出</div><div class="igs-settings-section">{{performanceToggles}}</div>{{nsfwVeilLevelField}}</div>
 </div>
 `.trim();
 
 const READER_INTERFACE_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="interface">
-  <div class="igs-source-filter igs-settings-full"><div class="igs-source-filter-title">顶部工具栏</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}</div><div class="igs-settings-section">{{pinnedButtonsField}}</div></div>
-  {{statusHudSection}}
+  <div class="igs-source-filter"><div class="igs-source-filter-title">背景图</div><div class="igs-source-filter-grid">{{imgModeField}}{{imgBrightnessField}}{{imageCountField}}</div></div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">状态栏</div>{{statusHudSection}}</div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">选项气泡</div>
+    {{optionBubbleToggle}}
+    <div class="igs-settings-sub"{{optionBubbleHidden}}>
+      <div class="igs-source-filter-grid">{{optionFontSizeField}}{{optionBubbleWidthToggle}}</div>
+      {{optionBubblePositionField}}
+      {{optionBubbleActionField}}
+    </div>
+  </div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}</div>{{pinnedButtonsField}}</div>
 </div>
 `.trim();
 
 const SCENE_TAB_TEMPLATE = `
 <div class="igs-scene-settings">
-  <div class="igs-settings-section">{{sceneToggle}}</div>
-  <div class="igs-scene-settings-subtabs" role="tablist" aria-label="场景设置分类">{{sceneSettingsSubTabs}}</div>
-  <div class="igs-scene-settings-subpane">{{sceneSettingsSubPane}}</div>
+  <div class="igs-settings-row">{{sceneToggle}}</div>
+  <div class="igs-scene-settings-content"{{sceneHidden}}>
+    <div class="igs-scene-settings-subtabs" role="tablist" aria-label="场景设置分类">{{sceneSettingsSubTabs}}</div>
+    <div class="igs-scene-settings-subpane">{{sceneSettingsSubPane}}</div>
+  </div>
 </div>
 `.trim();
 
 const SCENE_RULES_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="rules">
-  <div class="{{sceneGroupClass}}">
-    <div class="igs-source-filter igs-settings-full">
-      <div>
-        <div class="igs-source-filter-title">格式规则注入</div>
-        <div class="igs-source-filter-note">开启后将通过酒馆 API 向 AI 注入以下系统提示，让 AI 输出 [igs-scene:] 等标签。</div>
-      </div>
-      {{promptRuleField}}
-      <div class="igs-settings-row">
-        <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认提示词</button>
-        <button class="igs-settings-action" data-action="save-prompt-rule" type="button">保存提示词</button>
-      </div>
-      <div class="igs-settings-result" data-result="prompt-rule">{{promptRuleStatus}}</div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">格式规则注入</div>
+    {{promptRuleField}}
+    <div class="igs-settings-row">
+      <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认提示词</button>
+      <button class="igs-settings-action" data-action="save-prompt-rule" type="button">保存提示词</button>
     </div>
+    <div class="igs-settings-result" data-result="prompt-rule">{{promptRuleStatus}}</div>
   </div>
 </div>
 `.trim();
 
 const SCENE_ASSETS_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="assets">
-  <div class="{{sceneGroupClass}}">
-    <div class="igs-source-filter igs-settings-full">
-      <div>
-        <div class="igs-source-filter-title">场景素材</div>
-        <div class="igs-source-filter-note">使用 [igs-scene:场景|时间|天气|可选标签] 切换场景，第四栏填写 NSFW 时隐藏人物视觉并启用暗角柔焦帷幕；[igs-char:角色|情绪|对白] 标记对白，[igs-thought:角色|情绪|心里话] 标记心理描写。扫描图优先显示。</div>
-      </div>
-      {{scenePresetBar}}
-      {{sceneSubTabs}}
-      {{sceneSubPane}}
-    </div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">预设</div>
+    {{scenePresetBar}}
+  </div>
+  <div class="igs-source-filter">
+    {{sceneSubTabs}}
+    {{sceneSubPane}}
   </div>
 </div>
 `.trim();
@@ -248,19 +234,21 @@ export const IMAGE_SUBTAB_DEFS = Object.freeze([
 
 export const READER_SUBTAB_DEFS = Object.freeze([
     ['dialog', '对话框'],
-    ['visual', '画面'],
+    ['text', '文字'],
     ['performance', '演出'],
-    ['options', '选项'],
-    ['interface', '顶部UI'],
+    ['interface', '界面'],
 ]);
 
 export const SETTINGS_TAB_DEFS = Object.freeze([
     ['basic', '基础'],
-    ['regex', '正文替换'],
-    ['image', '图像'],
-    ['scene', '场景'],
     ['reader', '阅读器'],
+    ['scene', '场景'],
+    ['image', '生图'],
 ]);
+
+export const SETTINGS_TAB_ALIASES = Object.freeze({
+    regex: 'basic',
+});
 
 export function normalizeSceneSettingsSubTab(subTab) {
     const normalized = String(subTab || 'assets').trim();
@@ -279,8 +267,10 @@ export function getSceneSettingsSubTabTemplate(subTab) {
 
 const READER_SUBTAB_ALIASES = Object.freeze({
     display: 'dialog',
-    theme: 'dialog',
+    theme: 'text',
     toolbar: 'interface',
+    visual: 'interface',
+    options: 'interface',
 });
 
 export function normalizeReaderSubTab(subTab) {
@@ -291,12 +281,10 @@ export function normalizeReaderSubTab(subTab) {
 
 export function getReaderSubTabTemplate(subTab) {
     switch (normalizeReaderSubTab(subTab)) {
-        case 'visual':
-            return READER_VISUAL_TEMPLATE;
+        case 'text':
+            return READER_TEXT_TEMPLATE;
         case 'performance':
             return READER_PERFORMANCE_TEMPLATE;
-        case 'options':
-            return READER_OPTIONS_TEMPLATE;
         case 'interface':
             return READER_INTERFACE_TEMPLATE;
         case 'dialog':
@@ -314,17 +302,14 @@ export function getImageSubTabTemplate(subTab) {
 }
 
 export function getSettingsTabTemplate(tab) {
-    switch (tab) {
-        case 'basic':
-            return BASIC_TAB_TEMPLATE;
-        case 'regex':
-            return REGEX_TAB_TEMPLATE;
+    switch (SETTINGS_TAB_ALIASES[tab] || tab) {
         case 'image':
             return IMAGE_TAB_TEMPLATE;
         case 'scene':
             return SCENE_TAB_TEMPLATE;
         case 'reader':
             return READER_TAB_TEMPLATE;
+        case 'basic':
         default:
             return BASIC_TAB_TEMPLATE;
     }

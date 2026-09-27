@@ -133,11 +133,6 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.openMode',
             'bridge.showToasts',
             'bridge.settingsTheme',
-        ]),
-    }),
-    regex: Object.freeze({
-        label: '正文替换',
-        requiredPaths: Object.freeze([
             'bridge.sourceFilter.enabled',
             'bridge.sourceFilter.textIncludeTags',
             'bridge.sourceFilter.textExcludeTags',
@@ -153,7 +148,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
         ]),
     }),
     image: Object.freeze({
-        label: '图像',
+        label: '生图',
         requiredPaths: Object.freeze([
             'bridge.imageApi.mode',
             'bridge.imageApi.externalAdapter',

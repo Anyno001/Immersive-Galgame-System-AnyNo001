@@ -1,6 +1,6 @@
 import { LEGACY_READER_MODES, resolveLegacyReaderMode } from '../../storage/legacy-igs.js';
 import { buildNarrativeSegments } from '../../scene/image-slots.js';
-import { SETTINGS_TAB_DEFS } from './settings-tabs.js';
+import { SETTINGS_TAB_ALIASES, SETTINGS_TAB_DEFS } from './settings-tabs.js';
 import { TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { esc, normalizeFiniteNumber } from './reader-value-utils.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS, isClassicDialogSkin, normalizeDialogSkin } from './classic-dialog-skin.js';
@@ -14,7 +14,8 @@ export function normalizeReaderMode(mode, bridge) {
 }
 
 export function normalizeSettingsTab(tab) {
-    const normalized = String(tab || 'basic').trim();
+    const raw = String(tab || 'basic').trim();
+    const normalized = SETTINGS_TAB_ALIASES[raw] || raw;
     return SETTINGS_TAB_DEFS.some(([id]) => id === normalized) ? normalized : 'basic';
 }
 

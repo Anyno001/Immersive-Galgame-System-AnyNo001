@@ -21,6 +21,10 @@ export function disabledAttr(disabled) {
     return disabled ? ' disabled aria-disabled="true"' : '';
 }
 
+export function hiddenAttr(hidden) {
+    return hidden ? ' hidden' : '';
+}
+
 export function textInput(path, value, placeholder, type = 'text', disabled = false) {
     return `<input data-path="${esc(path)}" type="${esc(type)}" value="${esc(value || '')}" placeholder="${esc(placeholder || '')}"${disabledAttr(disabled)}>`;
 }
@@ -107,7 +111,7 @@ export function renderStageShakeSettings(settings) {
         '震动强度',
     ));
     const tags = emotions.map((emotion) => `<span class="igs-mood-word-tag">${esc(emotion)}<button type="button" class="igs-mood-word-del" data-action="stage-shake-remove-emotion:${encSeg(emotion)}" title="删除触发情绪">×</button></span>`).join('');
-    return `<div class="igs-settings-section igs-stage-shake-settings"><div class="igs-settings-row">${intensityField}</div><div class="igs-source-filter-note">触发情绪（只匹配当前人物指令，不扫描台词正文）</div><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无触发情绪</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="stage-shake-add-emotion" title="添加触发情绪">+</button></div></div>`;
+    return `<div class="igs-settings-sub igs-stage-shake-settings">${intensityField}<div class="igs-settings-field"><span>触发情绪</span><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无触发情绪</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="stage-shake-add-emotion" title="添加触发情绪">+</button></div></div></div>`;
 }
 
 export function renderWeatherFxSettings(settings) {
@@ -123,7 +127,7 @@ export function renderWeatherFxSettings(settings) {
         const tags = (Array.isArray(words) ? words : []).map((word) => `<span class="igs-mood-word-tag">${esc(word)}<button type="button" class="igs-mood-word-del" data-action="weather-fx-remove-${scene}:${encSeg(word)}" title="删除${label}">×</button></span>`).join('');
         return `<div class="igs-mood-word-list">${tags || `<div class="igs-scene-empty">暂无${label}</div>`}<button type="button" class="igs-btn-mgr-icon" data-action="weather-fx-add-${scene}" title="添加${label}">+</button></div>`;
     };
-    return `<div class="igs-settings-section igs-weather-fx-settings"><div class="igs-settings-row">${intensityField}</div><div class="igs-source-filter-note">室内地点词（命中后不下雨雪粒子，只保留隔窗的压暗、水痕光影、窗光与闪电侧光）</div>${wordList('indoor', '室内地点词', source.indoorWords)}<div class="igs-source-filter-note">室外地点词（与室内词同时命中时，取地点末尾的词，如「图书馆门口」算室外、「山间小屋」算室内）</div>${wordList('outdoor', '室外地点词', source.outdoorWords)}</div>`;
+    return `<div class="igs-settings-sub igs-weather-fx-settings">${intensityField}<div class="igs-settings-field"><span>室内地点词</span>${wordList('indoor', '室内地点词', source.indoorWords)}</div><div class="igs-settings-field"><span>室外地点词</span>${wordList('outdoor', '室外地点词', source.outdoorWords)}</div></div>`;
 }
 
 export function modelPicker(path, value, models, action, placeholder, disabled) {
@@ -301,7 +305,7 @@ export function renderScenePresetBar(presets, selectedName) {
     const save = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
     const download = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>';
     const upload = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>';
-    return `<div class="igs-source-filter"><div style="display:flex;align-items:center;gap:6px"><select class="igs-scene-preset-select" data-preset-select style="flex:1;min-width:0">${opts}</select><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-save" title="保存当前配置为预设">${save}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-rename"${dis} title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-import" title="导入">${upload}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-export"${dis} title="导出">${download}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-delete"${dis} title="删除">${trash}</button></div></div>`;
+    return `<div class="igs-scene-preset-bar"><select class="igs-scene-preset-select" data-preset-select>${opts}</select><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-save" title="保存当前配置为预设">${save}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-rename"${dis} title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-import" title="导入">${upload}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-export"${dis} title="导出">${download}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-preset-delete"${dis} title="删除">${trash}</button></div>`;
 }
 
 export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue) {
@@ -321,7 +325,7 @@ export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue) {
         const eyeBtn = canHide
             ? `<button type="button" class="igs-btn-mgr-icon${isHidden ? '' : ' is-on'}" data-action="toolbar-toggle-visible:${esc(id)}" title="显示/隐藏">${isHidden ? eyeOff : eyeOn}</button>`
             : `<span class="igs-btn-mgr-icon" title="此按钮不可隐藏" style="opacity:.3;cursor:default">${eyeOn}</span>`;
-        return `<div class="igs-btn-mgr-row${isHidden ? ' is-hidden-btn' : ''}"><span class="igs-btn-mgr-handle" data-action="toolbar-move-up:${esc(id)}">☰</span><span class="igs-btn-mgr-label">${esc(label)}</span>${eyeBtn}<button type="button" class="igs-btn-mgr-icon${isPinned ? ' is-on' : ''}" data-action="toggle-toolbar-pin:${esc(id)}" title="常驻">${pinIcon}</button></div>`;
+        return `<div class="igs-btn-mgr-row${isHidden ? ' is-hidden-btn' : ''}"><span class="igs-btn-mgr-handle" data-action="toolbar-move-up:${esc(id)}" title="上移">☰</span><span class="igs-btn-mgr-label">${esc(label)}</span>${eyeBtn}<button type="button" class="igs-btn-mgr-icon${isPinned ? ' is-on' : ''}" data-action="toggle-toolbar-pin:${esc(id)}" title="常驻">${pinIcon}</button></div>`;
     }).join('');
-    return `<div class="igs-settings-field"><span>按钮管理</span><div class="igs-btn-mgr-list">${rows}</div><em>☰ 上移排序 · 眼睛切换显隐 · 星切换常驻。隐藏的按钮自动解除常驻。</em></div>`;
+    return `<div class="igs-settings-field"><span>按钮管理</span><div class="igs-btn-mgr-list">${rows}</div></div>`;
 }

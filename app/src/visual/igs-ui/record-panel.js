@@ -21,7 +21,12 @@ const DIARY_PREFS = Object.freeze([
     ['unread', '未读标记', '新写入的日记显示小圆点'],
     ['scroll', '连续阅读', '同一列表的篇章上下连成长卷'],
 ]);
-const DIARY_PREF_DEFAULTS = Object.freeze({ pageTurn: true, typewriter: false, unread: true, scroll: false });
+const DIARY_FONT_SIZE = Object.freeze({ min: 14, max: 24, fallback: 17 });
+const DIARY_PREF_DEFAULTS = Object.freeze({ pageTurn: true, typewriter: false, unread: true, scroll: false, fontSize: DIARY_FONT_SIZE.fallback });
+const clampDiaryFontSize = value => {
+    const size = Math.round(Number(value));
+    return Number.isFinite(size) ? Math.min(DIARY_FONT_SIZE.max, Math.max(DIARY_FONT_SIZE.min, size)) : DIARY_FONT_SIZE.fallback;
+};
 
 // 心事视图日期：只有整册均为合法 YYYY-MM-DD 才按最新在前排序，否则保留原表顺序。
 const isCanonicalDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -134,6 +139,7 @@ export function createRecordPanelController(doc, global, fillDraft) {
         invQuery = '';
         message = '';
         prefs = { ...DIARY_PREF_DEFAULTS, ...loadJson(DIARY_PREFS_KEY, {}) };
+        prefs.fontSize = clampDiaryFontSize(prefs.fontSize);
         diaryView = loadJson(DIARY_PREFS_KEY, {})?.view === 'timeline' ? 'timeline' : 'books';
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
@@ -148,6 +154,7 @@ export function createRecordPanelController(doc, global, fillDraft) {
         overlay.classList?.toggle('igs-record-screen-open', true);
         (overlay.querySelector?.('#igs-db-layer') || overlay).appendChild(root);
         unwatchLayout = watchRecordPageLayout(root, doc);
+        applyDiaryFontSize();
         applyTransparentGlassMaterial(root, settings?.glassOpacity, { backdropFilter: settings?.glassBackdropFilter });
         client = createShujukuClient((global || globalThis).AutoCardUpdaterAPI || null);
         try { client.registerCallback(callback); } catch (_) { /* Optional subscription. */ }
@@ -220,6 +227,7 @@ export function createRecordPanelController(doc, global, fillDraft) {
     }
 
     function savePrefs() { saveJson(DIARY_PREFS_KEY, { ...prefs, view: diaryView }); }
+    function applyDiaryFontSize() { root?.style?.setProperty?.('--igs-rp-diary-size', `${prefs.fontSize}px`); }
 
     function onInput(event) {
         const input = event.target;
@@ -255,7 +263,7 @@ export function createRecordPanelController(doc, global, fillDraft) {
         const previousSelected = selectedId;
         turn = '';
         if (action === 'use') { useItem(); return; }
-        if (action !== 'toggle-prefs' && action !== 'pref') message = '';
+        if (action !== 'toggle-prefs' && action !== 'pref' && action !== 'font-size') message = '';
         if (action === 'table' && model.tables.some(item => item.uid === id)) {
             activeUid = id;
             if (category === 'relationships') relationshipPersonId = relationshipPeople()[0]?.id || '';
@@ -267,7 +275,12 @@ export function createRecordPanelController(doc, global, fillDraft) {
         }
         if (action === 'diary-view' && (id === 'books' || id === 'timeline')) { diaryView = id; savePrefs(); }
         if (action === 'toggle-prefs') prefsOpen = !prefsOpen;
-        if (action === 'pref' && Object.hasOwn(DIARY_PREF_DEFAULTS, id)) { prefs[id] = !prefs[id]; savePrefs(); }
+        if (action === 'pref' && typeof DIARY_PREF_DEFAULTS[id] === 'boolean') { prefs[id] = !prefs[id]; savePrefs(); }
+        if (action === 'font-size' && (id === 'up' || id === 'down')) {
+            prefs.fontSize = clampDiaryFontSize(prefs.fontSize + (id === 'up' ? 1 : -1));
+            savePrefs();
+            applyDiaryFontSize();
+        }
         if (action === 'select') {
             const entry = entries().find(item => item.id === id);
             if (entry) {
@@ -357,7 +370,8 @@ export function createRecordPanelController(doc, global, fillDraft) {
         const dot = entry => isUnread(entry) ? '<i class="igs-rp-dot" aria-label="未读"></i>' : '';
         const viewSwitch = `<div class="igs-rp-segment" role="group" aria-label="浏览方式"><button type="button" data-record-act="diary-view" data-record-id="books" aria-pressed="${diaryView === 'books'}">${RECORD_ICONS.people}<span>按人物</span></button><button type="button" data-record-act="diary-view" data-record-id="timeline" aria-pressed="${diaryView === 'timeline'}">${RECORD_ICONS.timeline}<span>时间线</span></button></div>`;
         const prefsButton = `<button type="button" class="igs-rp-icon-btn" data-record-act="toggle-prefs" aria-expanded="${prefsOpen}" aria-label="阅读设置">${RECORD_ICONS.sliders}</button>`;
-        const prefsPanel = prefsOpen ? `<div class="igs-record-prefs" role="group" aria-label="阅读设置">${DIARY_PREFS.map(([key, label, hint]) =>
+        const fontSizeRow = `<div class="igs-record-font-size"><span><strong>正文字号</strong><small>日记正文与篇名，${DIARY_FONT_SIZE.min}–${DIARY_FONT_SIZE.max}</small></span><span class="igs-record-stepper" role="group" aria-label="正文字号"><button type="button" data-record-act="font-size" data-record-id="down" aria-label="减小字号" ${prefs.fontSize <= DIARY_FONT_SIZE.min ? 'disabled' : ''}>−</button><output aria-live="polite">${prefs.fontSize}</output><button type="button" data-record-act="font-size" data-record-id="up" aria-label="增大字号" ${prefs.fontSize >= DIARY_FONT_SIZE.max ? 'disabled' : ''}>+</button></span></div>`;
+        const prefsPanel = prefsOpen ? `<div class="igs-record-prefs" role="group" aria-label="阅读设置">${fontSizeRow}${DIARY_PREFS.map(([key, label, hint]) =>
             `<button type="button" data-record-act="pref" data-record-id="${key}" aria-pressed="${prefs[key] ? 'true' : 'false'}"><span class="igs-rp-switch" aria-hidden="true"></span><span><strong>${label}</strong><small>${hint}</small></span></button>`).join('')}</div>` : '';
         let nav = '';
         if (diaryView === 'books') {

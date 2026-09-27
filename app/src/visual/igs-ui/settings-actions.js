@@ -477,6 +477,8 @@ export async function handleSettingsAction(action, ctx) {
                     const t = scene.times[timeName];
                     if (typeof t === 'object') t.url = url;
                     else scene.times[timeName] = { url, weathers: {} };
+                    const persisted = persistSettingsDraft();
+                    if (persisted.ok === false) return persisted;
                 }
             }
         }

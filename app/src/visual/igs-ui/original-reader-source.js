@@ -6,6 +6,9 @@ import { MAP_PANEL_STYLE_TEXT } from './map-panel-style.js';
 import { WEATHER_FX_STYLE_TEXT } from './weather-fx-style.js';
 import { RECORD_PANEL_STYLE_TEXT } from './record-panel-style.js';
 import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
+import {
+    IGS_UI_BLUR, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FONT_SANS, IGS_UI_INK, IGS_UI_RADIUS, IGS_UI_THICKNESS, igsUiSurface,
+} from '../../styles/ui-material.js';
 
 export const ORIGINAL_READER_ICONS = Object.freeze({
     db: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="display:block"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
@@ -175,7 +178,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-image-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:1;font-size:13px;color:rgba(255,255,255,.4);letter-spacing:.5px;}
 #igs-send-status{display:none;flex:1;align-items:center;gap:8px;padding:8px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;font-size:13px;color:rgba(255,255,255,.55);letter-spacing:.3px;}
 #igs-settings{display:none;position:absolute;right:0;bottom:calc(100% + 10px);min-width:232px;background:rgba(16,16,20,.92);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(40px) saturate(180%);border-radius:18px;padding:16px 18px 14px;box-shadow:0 10px 40px rgba(0,0,0,.6);z-index:30;}
-#igs-toast{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;min-width:200px;max-width:min(420px,calc(100vw - 32px));padding:10px 14px;border-radius:12px;background:rgba(16,16,20,.88);border:1px solid rgba(255,255,255,.12);font-size:12px;line-height:1.45;opacity:0;pointer-events:none;}
+#igs-toast{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;min-width:180px;max-width:min(400px,calc(100vw - 32px));box-sizing:border-box;padding:11px 16px;border:0;border-radius:${IGS_UI_RADIUS.card};background:${igsUiSurface(IGS_UI_THICKNESS.thick)};-webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};box-shadow:${IGS_UI_ELEVATION},${IGS_UI_EDGE_NIGHT};color:${IGS_UI_INK.primary};font-family:${IGS_UI_FONT_SANS};font-size:13px;font-weight:500;line-height:1.5;letter-spacing:.02em;text-align:center;text-shadow:none;-webkit-font-smoothing:antialiased;opacity:0;pointer-events:none;transition:opacity .2s ease;}
+#igs-toast:empty{visibility:hidden;}
 /* 楼层内嵌：容器固定高度、不可拖动、不锁页面滚动，全部层约束在容器内。 */
 .igs-embedded-host{position:relative;display:block;width:100%;margin:8px 0;border-radius:8px;overflow:hidden;isolation:isolate;background:#16181a;}
 .igs-embedded-root{position:relative;width:100%;height:100%;overflow:hidden;}
