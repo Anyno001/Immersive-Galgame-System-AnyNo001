@@ -29,8 +29,8 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 .igs-settings-head-spacer{flex:1}
 .igs-settings-badge{font-family:ui-monospace,Consolas,monospace;font-size:10px;color:var(--igs-settings-ink-4);border:0;border-radius:0;padding:3px 0;letter-spacing:.04em}
 .igs-settings-theme-switch{display:inline-flex;align-items:center;gap:5px;margin-left:2px;padding:4px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field)}
-.igs-settings-theme-option{position:relative;width:20px;height:20px;flex:0 0 auto;padding:0;border:1px solid rgba(128,128,128,.3);border-radius:var(--igs-settings-radius-small);background:var(--igs-swatch-base);cursor:pointer;outline:1.5px solid transparent;outline-offset:1.5px;transition:transform .14s ease,outline-color .14s ease}
-.igs-settings-theme-option::after{content:"";position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-radius:2px;background:var(--igs-swatch-accent)}
+.igs-settings-theme-option{position:relative;width:20px;height:20px;flex:0 0 auto;display:inline-flex;padding:0;border:0;border-radius:var(--igs-settings-radius-small);background:transparent;cursor:pointer;outline:1.5px solid transparent;outline-offset:1.5px;transition:transform .14s ease,outline-color .14s ease}
+.igs-settings-theme-option svg{display:block;width:20px;height:20px}
 .igs-settings-theme-option:hover,.igs-settings-theme-option:focus-visible{transform:translateY(-1px)}
 .igs-settings-theme-option.is-active{outline-color:var(--igs-settings-accent)}
 .igs-settings-close,.igs-settings-action{border:0;background:var(--igs-settings-field);color:var(--igs-settings-ink-2);border-radius:var(--igs-settings-radius-control);height:34px;padding:0 12px;font:inherit;font-size:12px;letter-spacing:.04em;cursor:pointer;transition:background-color .14s ease,color .14s ease}

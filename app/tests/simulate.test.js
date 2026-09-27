@@ -2302,6 +2302,7 @@ test('gate:simulation:settings-theme-cycle-persists-all-four-themes', async () =
         assert.match(initial.html, new RegExp(`data-action="set-settings-theme:${theme}"`));
     }
     assert.match(initial.html, /igs-settings-theme-option is-active"[^>]*data-theme="cream"/);
+    assert.match(initial.html, /data-theme="landmine"[^>]*><svg[^>]*viewBox="0 0 20 20"[^>]*><rect[^>]*fill="#2b2b2b"[^>]*\/><rect[^>]*fill="#ffc4d4"/);
 
     for (const theme of ['landmine', 'dark', 'light', 'cream', 'landmine']) {
         const picked = await settings.invoke(`set-settings-theme:${theme}`);
