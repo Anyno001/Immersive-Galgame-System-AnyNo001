@@ -138,7 +138,8 @@ export function cleanNarrativeSource(text) {
     cleaned = cleaned.replace(/<style[\s\S]*?<\/style>/gi, '');
     cleaned = cleaned.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
     cleaned = cleaned.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '');
-    cleaned = cleaned.replace(/【[^】\n]{0,100}】/g, '');
+    // igs 标签的名字栏（如 [igs-char:【系统】|…]）不是状态批注，不能删。
+    cleaned = cleaned.replace(/(?<!\[igs-(?:char|thought|msg):)【[^】\n]{0,100}】/g, '');
     cleaned = cleaned.replace(/<[^>]+>/g, '');
     cleaned = cleaned.replace(/\r/g, '');
     return cleaned;

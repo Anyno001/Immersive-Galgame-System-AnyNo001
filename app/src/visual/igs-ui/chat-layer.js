@@ -83,6 +83,11 @@ function renderRow(doc, m) {
         row.appendChild(el(doc, 'span', 'igs-chat-time', m.text));
         return row;
     }
+    if (m.kind === 'system') {
+        const row = el(doc, 'div', 'igs-chat-row is-note is-system');
+        row.appendChild(el(doc, 'span', 'igs-chat-note igs-chat-system', m.text));
+        return row;
+    }
     if (m.kind !== 'msg') {
         const row = el(doc, 'div', 'igs-chat-row is-note');
         row.appendChild(el(doc, 'span', 'igs-chat-note', m.text));
@@ -183,7 +188,7 @@ function revealTo(state, count, { animate = true, sound = true } = {}) {
     const settings = state.settings;
     if (sound && settings.sound.enabled) {
         const last = state.chat.messages.slice(from, target).reverse().find((m) => m.kind === 'msg');
-        if (last) playChatSfx(chatSfxKindForSide(last.side), { volume: settings.sound.volume });
+        if (last) playChatSfx(chatSfxKindForSide(last.side), { volume: settings.sound.volume, preset: settings.sound.preset });
     }
     if (target >= state.rows.length) markSeen(state.root, state.key);
     return true;
@@ -196,9 +201,9 @@ function scheduleAuto(state) {
     const schedule = state.schedule || setTimeout;
     const previous = state.revealed > 0 ? state.chat.messages[state.revealed - 1] : null;
     const next = state.chat.messages[state.revealed];
-    const typing = state.settings.typingIndicator && next.kind === 'msg' && next.side === 'left' && !hasReducedMotion();
+    const typing = state.settings.typingIndicator && !state.replay && next.kind === 'msg' && next.side === 'left' && !hasReducedMotion();
     const delay = previous
-        ? chatRevealDelayMs(previous.text, state.settings.autoSpeed)
+        ? chatRevealDelayMs(state.replay ? '' : previous.text, state.settings.autoSpeed)
         : typing ? FIRST_TYPING_DELAY_MS : FIRST_AUTO_DELAY_MS;
     const fire = () => {
         state.timer = null;
@@ -221,9 +226,13 @@ function scheduleAuto(state) {
 function bindLayer(layer, ctx) {
     if (boundLayers.has(layer)) return;
     boundLayers.add(layer);
+    // 与对话框、卡片页一致：左半区上一页，右半区推进气泡/下一页。
     layer.addEventListener('click', (event) => {
         if (event && typeof event.preventDefault === 'function') event.preventDefault();
-        if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction('next');
+        const rect = typeof layer.getBoundingClientRect === 'function' ? layer.getBoundingClientRect() : { left: 0, width: 0 };
+        const clientX = Number(event && event.clientX);
+        const action = Number.isFinite(clientX) && rect.width > 0 && clientX < rect.left + rect.width / 2 ? 'prev' : 'next';
+        if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction(action);
     });
 }
 
@@ -282,14 +291,22 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
         revealed: 0,
         timer: null,
         typingRow: null,
+        auto: settings.revealMode === 'auto',
+        replay: false,
         schedule: ctx.setTimeout,
         clear: ctx.clearTimeout,
     };
     states.set(layer, state);
+    // 返回看过的聊天页：一次平铺 / 自动逐条重播 / 按冒泡节奏重新来一遍。
     const seen = seenByRoot.get(root);
-    if (seen && seen.has(key)) {
+    const returning = Boolean(seen && seen.has(key));
+    if (returning && settings.returnMode === 'full') {
         revealTo(state, state.rows.length, { animate: false, sound: false });
-    } else if (settings.revealMode === 'auto') {
+    } else if (returning && settings.returnMode === 'replay') {
+        state.auto = true;
+        state.replay = true;
+        scheduleAuto(state);
+    } else if (state.auto) {
         scheduleAuto(state);
     } else {
         revealTo(state, 1);
@@ -301,7 +318,7 @@ export function advanceChatReveal(root) {
     const layer = root && root.querySelector && root.querySelector('#igs-chat-layer');
     const state = layer && !layer.hidden && states.get(layer);
     if (!state || state.revealed >= state.rows.length) return false;
-    if (state.settings.revealMode === 'auto') {
+    if (state.auto) {
         clearTimer(state);
         return revealTo(state, state.rows.length);
     }
@@ -354,6 +371,7 @@ export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer .igs-chat-dot:nth-child(3){animation-delay:.32s;}
 @keyframes igs-chat-dot{0%,80%,100%{opacity:.3;transform:translateY(0);}40%{opacity:.85;transform:translateY(-3px);}}
 #igs-chat-layer .igs-chat-note{padding:3px 10px;border-radius:8px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.78);font-size:12px;line-height:1.5;text-align:center;}
+#igs-chat-layer .igs-chat-system{font-weight:600;letter-spacing:.02em;}
 #igs-chat-layer .igs-chat-time{color:rgba(255,255,255,.7);font-size:12px;line-height:1.5;text-shadow:0 1px 2px rgba(0,0,0,.5);}
 #igs-chat-layer .igs-chat-row.is-left.igs-chat-pop{transform-origin:left bottom;animation:igs-chat-pop .24s cubic-bezier(.34,1.56,.64,1) both;}
 #igs-chat-layer .igs-chat-row.is-right.igs-chat-pop{transform-origin:right bottom;animation:igs-chat-pop .24s cubic-bezier(.34,1.56,.64,1) both;}

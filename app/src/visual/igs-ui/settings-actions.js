@@ -8,7 +8,9 @@ import { clearMoodReview, loadMoodReview, removeMoodReview } from '../../scene/m
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
-import { isValidChatContactName, normalizeChatShowSettings } from './chat-show-runtime.js';
+import { CHAT_SHOW_PROMPT_RULE, isValidChatContactName, normalizeChatPromptRule, normalizeChatShowSettings } from './chat-show-runtime.js';
+import { normalizeSystemRoleSettings, stripRoleBrackets } from './system-role.js';
+import { playChatSfx } from './chat-sfx.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry } from '../../scene/asset-match.js';
@@ -265,6 +267,27 @@ export async function handleSettingsAction(action, ctx) {
         const [verb, ...args] = normalizedAction.slice('chat-show-'.length).split(':');
         const [name, alias] = args.map(decodeSeg);
         let changed = false;
+        if (verb === 'preview-sound') {
+            const sound = { volume: current.sound.volume, preset: current.sound.preset, audioScheduler: options.chatSfxScheduler };
+            playChatSfx('receive', sound);
+            playChatSfx('send', { ...sound, delay: 0.45 });
+            return { ok: true, previewed: current.sound.preset };
+        }
+        if (verb === 'save-prompt' || verb === 'reset-prompt') {
+            const draft = typeof settingsState.asyncState.chatPromptDraft === 'string' ? settingsState.asyncState.chatPromptDraft : '';
+            current.promptRule = verb === 'reset-prompt' ? '' : normalizeChatPromptRule(draft);
+            readerDraft.chatShow = current;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) {
+                settingsState.asyncState.chatPromptStatus = '保存失败，请重试。';
+                return rerenderSettings();
+            }
+            settingsState.asyncState.chatPromptDraft = current.promptRule || CHAT_SHOW_PROMPT_RULE;
+            settingsState.asyncState.chatPromptStatus = verb === 'reset-prompt'
+                ? '已恢复默认提示词并保存。'
+                : current.promptRule ? '自定义提示词已保存并更新注入规则。' : '内容为空或与默认一致，已使用默认提示词。';
+            return rerenderSettings();
+        }
         if (verb === 'add-contact') {
             const next = ask('新增联系人（角色主名，不能含 . | [ ]）：');
             if (isValidChatContactName(next) && !current.contacts[next]) {
@@ -289,6 +312,32 @@ export async function handleSettingsAction(action, ctx) {
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
         }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'system-role-follow-color') {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        readerDraft.systemRole = { ...normalizeSystemRoleSettings(readerDraft.systemRole), color: '' };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'system-role-add-word' || normalizedAction.startsWith('system-role-remove-word:')) {
+        const globalObj = options.global || globalThis;
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeSystemRoleSettings(readerDraft.systemRole);
+        if (normalizedAction === 'system-role-add-word') {
+            const word = stripRoleBrackets(globalObj.prompt ? globalObj.prompt('新增系统类角色名（如 系统、公告、旁白君）：', '') : '');
+            if (!word || current.words.some((w) => w.toLowerCase() === word.toLowerCase())) return rerenderSettings();
+            current.words.push(word);
+        } else {
+            const word = decodeSeg(normalizedAction.slice('system-role-remove-word:'.length));
+            current.words = current.words.filter((w) => w !== word);
+        }
+        readerDraft.systemRole = current;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 

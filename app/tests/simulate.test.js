@@ -6031,6 +6031,17 @@ test('gate:simulation:chat-show-pops-bubbles-per-click-then-pages-and-replays-fu
         await reader.invokeAction('prev');
         assert.equal(content().chatPage, true);
         assert.equal(visible(), 3);
+        layer.getBoundingClientRect = () => ({ left: 0, width: 1000 });
+        layer.dispatchEvent({ type: 'click', target: layer, clientX: 100 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.equal(content().chatPage, false);
+        assert.equal(content().currentIndex, 0);
+        await reader.invokeAction('next');
+        assert.equal(content().chatPage, true);
+        layer.dispatchEvent({ type: 'click', target: layer, clientX: 900 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.equal(content().chatPage, false);
+        assert.equal(content().currentIndex, 2);
     } finally {
         vn.destroy();
     }
@@ -6107,12 +6118,27 @@ test('gate:simulation:chat-show-settings-edit-contacts-and-inject-prompt-rule', 
         assert.match(disabled, /启用线上交流演出/);
         assert.doesNotMatch(disabled, /聊天外框/);
         settings.setValue('readerSettings.chatShow.enabled', true);
-        settings.invoke('chat-show-add-contact');
-        settings.invoke(`chat-show-add-alias:${encodeURIComponent('爱丽丝')}`);
+        await settings.invoke('chat-show-add-contact');
+        await settings.invoke(`chat-show-add-alias:${encodeURIComponent('爱丽丝')}`);
         settings.setValue('readerSettings.chatShow.contacts.爱丽丝.side', 'right');
         const enabled = settings.switchReaderSubTab('performance').snapshot.html;
         assert.match(enabled, /聊天外框/);
         assert.match(enabled, /alice_cat/);
+        assert.match(enabled, /data-chat-prompt-draft/);
+        assert.match(enabled, /返回看过的聊天页/);
+        assert.match(enabled, /水泡/);
+        settings.setValue('readerSettings.chatShow.sound.preset', 'water');
+        assert.equal((await settings.invoke('chat-show-preview-sound')).previewed, 'water');
+        assert.match(enabled, /正在使用默认提示词/);
+        const draftBox = { tagName: 'TEXTAREA', value: '  自定义聊天规则：用 [igs-msg] 输出消息  ', getAttribute: (name) => (name === 'data-chat-prompt-draft' ? '1' : null) };
+        document.getElementById('igs-unified-settings').parentNode.dispatchEvent({ type: 'input', target: draftBox });
+        await settings.invoke('chat-show-save-prompt');
+        assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).chatShow.promptRule, '自定义聊天规则：用 [igs-msg] 输出消息');
+        assert.match(String(injected[injected.length - 1][1]), /自定义聊天规则/);
+        assert.doesNotMatch(String(injected[injected.length - 1][1]), /\[igs-chat:会话标题\]/);
+        assert.match(settings.switchReaderSubTab('performance').snapshot.html, /自定义提示词已保存/);
+        await settings.invoke('chat-show-reset-prompt');
+        assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).chatShow.promptRule, '');
         assert.equal(settings.close().ok, true);
         const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
         assert.equal(persisted.chatShow.enabled, true);
@@ -6190,6 +6216,90 @@ test('gate:simulation:chat-layer-typing-indicator-message-types-and-theme-vars',
     assert.equal(visible()[4].children[0].textContent, 'A撤回了一条消息');
     assert.equal(getChatRevealState(root).typing, false);
     assert.equal(cancelChatShow(root), true);
+});
+
+
+test('gate:simulation:system-role-lines-use-own-style-and-hide-speaker-and-sprite', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ systemRole: { color: '#33ccff', align: 'center' } }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage, prompt: () => '【公告】' },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 95, text: '[igs-scene:Room|晚上|晴天]\n[igs-char:Alice|平和|你好。]\n[igs-char:【系统】|平静|任务已更新。]\n[igs-msg:系统|获得道具：钥匙]' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+        config: {
+            sceneAssets: { enabled: true, scenes: {}, characters: { Alice: { 平和: 'https://example.com/alice.png' } }, characterAliases: {}, moodGroups: [] },
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        const content = () => vn.getState().igsUi.activeReader.snapshot.content;
+        assert.equal(content().textType, 'dialogue');
+        assert.equal(content().speaker, 'Alice');
+        await opened.reader.controller.invokeAction('next');
+        assert.equal(content().textType, 'system');
+        assert.equal(content().speaker, '');
+        assert.equal(content().displayText, '任务已更新。');
+        assert.match(String(content().spriteImage || ''), /alice\.png/);
+        assert.equal(content().statusHud.character || '', '');
+        const overlay = document.getElementById('igs-overlay');
+        assert.equal(overlay.querySelector('.igs-dialog').getAttribute('data-igs-text-type'), 'system');
+        assert.equal(overlay.querySelector('#igs-text').style.color, '#33ccff');
+        await opened.reader.controller.invokeAction('next');
+        assert.equal(content().chatPage, false);
+        assert.equal(content().textType, 'system');
+        assert.equal(content().displayText, '获得道具：钥匙');
+        await opened.reader.controller.invokeAction('prev');
+
+        const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+        settings.switchTab('reader');
+        const html = settings.switchReaderSubTab('text').snapshot.html;
+        assert.match(html, /系统角色/);
+        assert.match(html, /角色词池/);
+        await settings.invoke('system-role-add-word');
+        await settings.invoke(`system-role-remove-word:${encodeURIComponent('系统')}`);
+        settings.setValue('readerSettings.systemRole.showName', true);
+        await settings.invoke('system-role-follow-color');
+        assert.equal(settings.close().ok, true);
+        const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default')).systemRole;
+        assert.equal(persisted.words.includes('公告'), true);
+        assert.equal(persisted.words.includes('系统'), false);
+        assert.equal(persisted.showName, true);
+        assert.equal(persisted.color, '');
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:chat-return-modes-full-replay-restart', () => {
+    for (const [returnMode, expectVisible, expectTimer] of [['full', 3, false], ['replay', 0, true], ['restart', 1, false]]) {
+        const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+        const root = document.createElement('div');
+        root.id = 'igs-overlay';
+        document.body.appendChild(root);
+        const timers = [];
+        const ctx = { setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: () => {} };
+        const settings = normalizeChatShowSettings({ enabled: true, returnMode, sound: { enabled: false } });
+        const chat = buildChatPageModel({ messages: ['1', '2', '3'].map((text) => ({ kind: 'msg', sender: 'A', text })) }, settings, {});
+        const page = (index) => ({ messageId: 7, content: index === 0 ? { chatPage: true, chat, currentIndex: 0 } : { chatPage: false, currentIndex: 1 }, readerSettings: { chatShow: settings } });
+        applyChatToDom(root, page(0), ctx);
+        advanceChatReveal(root);
+        advanceChatReveal(root);
+        applyChatToDom(root, page(1), ctx);
+        applyChatToDom(root, page(0), ctx);
+        const state = getChatRevealState(root);
+        assert.equal(state.revealed, expectVisible, returnMode);
+        assert.equal(state.pending, expectTimer, returnMode);
+        if (returnMode === 'replay') {
+            while (timers.length) timers.shift().fn();
+            assert.equal(getChatRevealState(root).revealed, 3);
+            assert.equal(getChatRevealState(root).typing, false);
+        }
+        cancelChatShow(root);
+    }
 });
 
 

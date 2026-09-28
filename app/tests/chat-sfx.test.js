@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    CHAT_SFX_PRESETS,
+    CHAT_SFX_PRESET_LABELS,
+    normalizeChatSfxPreset,
     CHAT_SFX_PARTIALS,
     chatSfxDuration,
     chatSfxKindForSide,
@@ -54,4 +57,27 @@ test('gate: chat sfx hands partials to an injected scheduler', () => {
 
 test('gate: chat sfx returns null without WebAudio', () => {
     assert.equal(playChatSfx('receive', { volume: 0.5 }), null);
+});
+
+test('gate: every chat sfx preset renders both kinds audibly without clipping', () => {
+    assert.deepEqual(CHAT_SFX_PRESET_LABELS.map(([id]) => id), Object.keys(CHAT_SFX_PRESETS));
+    for (const preset of Object.keys(CHAT_SFX_PRESETS)) {
+        for (const kind of ['receive', 'send']) {
+            const samples = renderChatSfx(kind, { sampleRate: 22050, preset });
+            assert.ok(chatSfxDuration(kind, preset) <= 0.5, `${preset}/${kind} short`);
+            assert.ok(peak(samples) > 0.08, `${preset}/${kind} audible`);
+            assert.ok(peak(samples) <= 1, `${preset}/${kind} no clip`);
+            assert.ok(samples.every(Number.isFinite));
+        }
+    }
+    assert.equal(normalizeChatSfxPreset('nope'), 'cute');
+    assert.equal(normalizeChatSfxPreset('water'), 'water');
+    assert.notDeepEqual(renderChatSfx('send', { preset: 'water' }), renderChatSfx('send', { preset: 'cute' }));
+});
+
+test('gate: chat sfx preset reaches the injected scheduler', () => {
+    const jobs = [];
+    playChatSfx('receive', { preset: 'soft', audioScheduler: (job) => { jobs.push(job); return {}; } });
+    assert.equal(jobs[0].preset, 'soft');
+    assert.equal(jobs[0].partials, CHAT_SFX_PRESETS.soft.receive);
 });

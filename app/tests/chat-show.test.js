@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildChatMarker, extractChatBlocks, formatChatBlockAsText, parseChatMarker } from '../src/scene/chat-blocks.js';
 import {
     CHAT_SHOW_DEFAULTS,
+    CHAT_SHOW_PROMPT_RULE,
     buildChatPageModel,
     chatRevealDelayMs,
     chatVoiceSeconds,
@@ -11,8 +12,10 @@ import {
     normalizeChatShowSettings,
     readableTextColor,
     resolveChatSender,
+    resolveChatShowPromptRule,
 } from '../src/visual/igs-ui/chat-show-runtime.js';
 import { CHAT_THEME_PALETTES, resolveChatTheme } from '../src/visual/igs-ui/chat-themes.js';
+import { isSystemRole, normalizeSystemRoleSettings, stripRoleBrackets } from '../src/visual/igs-ui/system-role.js';
 
 test('gate: chat blocks collapse to one marker line and keep surrounding text', () => {
     const { text, chats } = extractChatBlocks('前文。\n[igs-chat:群聊]\n[igs-msg:爱丽丝|在吗？]\n[igs-msg:小明|在。]\n[igs-chat-end]\n后文。');
@@ -71,7 +74,7 @@ test('gate: chat show settings normalize defaults, clamps and contacts', () => {
     });
     assert.equal(s.frame, 'phone');
     assert.equal(s.dim, 0.8);
-    assert.deepEqual(s.sound, { enabled: false, volume: 1 });
+    assert.deepEqual(s.sound, { enabled: false, volume: 1, preset: 'cute' });
     assert.equal(s.unknownSide, 'right');
     assert.deepEqual(s.defaultColors, { left: '#ffffff', right: '#aabbcc' });
     assert.deepEqual(s.contacts, { 爱丽丝: { aliases: ['小爱'], color: '#ff00aa', side: 'right' } });
@@ -193,4 +196,49 @@ test('gate: chat themes cover every dialog skin and fall back to default', () =>
     }
     assert.equal(resolveChatTheme('nope').key, 'default');
     assert.equal(Object.keys(CHAT_THEME_PALETTES).length, 11);
+});
+
+test('gate: chat prompt rule stores empty for default and resolves custom text', () => {
+    assert.equal(normalizeChatShowSettings({}).promptRule, '');
+    assert.equal(normalizeChatShowSettings({ promptRule: `  ${CHAT_SHOW_PROMPT_RULE}\n` }).promptRule, '');
+    assert.equal(normalizeChatShowSettings({ promptRule: '  自定义  ' }).promptRule, '自定义');
+    assert.equal(normalizeChatShowSettings({ promptRule: 42 }).promptRule, '');
+    assert.equal(resolveChatShowPromptRule({}), CHAT_SHOW_PROMPT_RULE);
+    assert.equal(resolveChatShowPromptRule({ promptRule: '自定义' }), '自定义');
+});
+
+test('gate: system roles share one word pool, ignore brackets and render as chat notes', () => {
+    assert.equal(stripRoleBrackets('【系统】'), '系统');
+    assert.equal(stripRoleBrackets(' (System) '), 'System');
+    assert.equal(isSystemRole('【系统】', {}), true);
+    assert.equal(isSystemRole('system', {}), true);
+    assert.equal(isSystemRole('系统之子', {}), false);
+    assert.equal(isSystemRole('公告', { words: ['【公告】'] }), true);
+    assert.equal(isSystemRole('系统', { words: [] }), false);
+    const s = normalizeSystemRoleSettings({ words: ['系统', '【系统】', ''], font: 'inherit', color: 'red', align: 'x', showName: 'yes' });
+    assert.deepEqual(s, { words: ['系统'], showName: false, font: '', color: '', align: 'center' });
+    const model = buildChatPageModel({ title: '群', messages: [
+        { kind: 'msg', sender: '【系统】', text: '爱丽丝 加入了群聊' },
+        { kind: 'msg', sender: 'A', text: 'hi' },
+        { kind: 'msg', sender: 'B', text: 'yo' },
+    ] }, normalizeChatShowSettings({}), { systemRole: {} });
+    assert.deepEqual(model.messages.map((m) => m.kind), ['system', 'msg', 'msg']);
+    assert.equal(model.messages[0].text, '爱丽丝 加入了群聊');
+    assert.equal(model.group, false);
+    assert.equal(normalizeChatShowSettings({}).returnMode, 'full');
+    assert.equal(normalizeChatShowSettings({ returnMode: 'replay' }).returnMode, 'replay');
+    assert.equal(normalizeChatShowSettings({ returnMode: 'x' }).returnMode, 'full');
+});
+
+test('gate: a contact color stays fixed regardless of theme and group palette', () => {
+    const settings = normalizeChatShowSettings({ followTheme: true, contacts: { 爱丽丝: { color: '#123456' } } });
+    const model = buildChatPageModel({ messages: ['爱丽丝', 'B', 'C'].map((s) => ({ kind: 'msg', sender: s, text: s })) }, settings, { theme: resolveChatTheme('cute-pink') });
+    assert.equal(model.messages[0].color, '#123456');
+    assert.notEqual(model.messages[1].color, '#123456');
+});
+
+test('gate: system roles written as igs-msg senders become notes end to end', () => {
+    const { chats } = extractChatBlocks('[igs-chat:群]\n[igs-msg:【系统】|A 加入了群聊]\n[igs-msg:System|欢迎]\n[igs-msg:A|大家好]');
+    const model = buildChatPageModel(chats[0], normalizeChatShowSettings({}), { systemRole: {} });
+    assert.deepEqual(model.messages.map((m) => [m.kind, m.text]), [['system', 'A 加入了群聊'], ['system', '欢迎'], ['msg', '大家好']]);
 });

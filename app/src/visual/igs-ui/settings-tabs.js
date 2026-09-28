@@ -195,6 +195,7 @@ const READER_TEXT_TEMPLATE = `
     <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}{{textAlignField}}</div></div>
     <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}{{narrationAlignField}}</div></div>
     <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}{{thoughtAlignField}}</div></div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">系统角色</div>{{systemRoleFields}}</div>
     <div class="igs-settings-group"{{dividerHidden}}><div class="igs-settings-subhead">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
   </div>
 </div>

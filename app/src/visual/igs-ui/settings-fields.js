@@ -1,7 +1,8 @@
 import { esc } from './reader-value-utils.js';
 import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
-import { CHAT_SHOW_DIM_LEVELS } from './chat-show-runtime.js';
+import { CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } from './chat-show-runtime.js';
+import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -115,7 +116,7 @@ export function renderStageShakeSettings(settings) {
     return `<div class="igs-settings-sub igs-stage-shake-settings">${intensityField}<div class="igs-settings-field"><span>触发情绪</span><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无触发情绪</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="stage-shake-add-emotion" title="添加触发情绪">+</button></div></div></div>`;
 }
 
-export function renderChatShowSettings(settings) {
+export function renderChatShowSettings(settings, options = {}) {
     const s = settings;
     const p = 'readerSettings.chatShow';
     const segment = (key, label, items) => field(`${p}.${key}`, label, segmentedInput(`${p}.${key}`, s[key], items, label));
@@ -125,6 +126,7 @@ export function renderChatShowSettings(settings) {
         segment('frame', '聊天外框', [['phone', '手机框'], ['none', '无框']]),
         segment('revealMode', '冒泡节奏', [['click', '点击逐条'], ['auto', '自动连发']]),
         s.revealMode === 'auto' ? segment('autoSpeed', '连发速度', [['fast', '快'], ['medium', '中'], ['slow', '慢']]) : '',
+        segment('returnMode', '返回看过的聊天页', [['full', '一次平铺'], ['replay', '逐条重播'], ['restart', '重新点击']]),
         field(`${p}.dim`, '背景压暗', selectInput(`${p}.dim`, s.dim, dimItems.map((n) => [n, `${Math.round(n * 100)}%`]))),
         field(`${p}.selfName`, '自己的名字', textInput(`${p}.selfName`, s.selfName, '留空使用 {{user}}')),
         segment('unknownSide', '未登记发送者', [['left', '左'], ['right', '右']]),
@@ -137,7 +139,7 @@ export function renderChatShowSettings(settings) {
         + (s.revealMode === 'auto' ? checkbox(`${p}.typingIndicator`, s.typingIndicator, '对方消息前显示「正在输入」') : '')
         + checkbox(`${p}.hideSprites`, s.hideSprites, '聊天时隐藏立绘')
         + checkbox(`${p}.sound.enabled`, s.sound.enabled, '启用收发音效')
-        + (s.sound.enabled ? `<div class="igs-settings-sub">${field(`${p}.sound.volume`, '音效音量', rangeInput(`${p}.sound.volume`, s.sound.volume))}</div>` : '');
+        + (s.sound.enabled ? `<div class="igs-settings-sub">${field(`${p}.sound.preset`, '音色', selectInput(`${p}.sound.preset`, s.sound.preset, CHAT_SFX_PRESET_LABELS))}${field(`${p}.sound.volume`, '音效音量', rangeInput(`${p}.sound.volume`, s.sound.volume))}<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-preview-sound">试听</button></div>` : '');
     const contacts = Object.entries(s.contacts).map(([name, c]) => {
         const n = encSeg(name);
         const aliasTags = c.aliases.map((alias) => `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="chat-show-remove-alias:${n}:${encSeg(alias)}" title="删除别名">×</button></span>`).join('');
@@ -145,7 +147,28 @@ export function renderChatShowSettings(settings) {
         return `<div class="igs-chat-contact"><div class="igs-chat-contact-head"><b>${esc(name)}</b>${colorInput(`${p}.contacts.${name}.color`, c.color || s.defaultColors.left)}${side}<button type="button" class="igs-mood-word-del" data-action="chat-show-remove-contact:${n}" title="删除联系人">×</button></div><div class="igs-mood-word-list"><span class="igs-chat-contact-label">别名</span>${aliasTags}<button type="button" class="igs-btn-mgr-icon" data-action="chat-show-add-alias:${n}" title="添加别名">+</button></div></div>`;
     }).join('');
     const contactList = `<div class="igs-settings-field"><span>联系人（别名把 AI 的各种叫法归到同一人；固定左/右后 AI 无法改变位置）</span><div class="igs-chat-contacts">${contacts || '<div class="igs-scene-empty">暂无联系人</div>'}<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-add-contact">添加联系人</button></div></div>`;
-    return `<div class="igs-settings-sub igs-chat-show-settings">${grid}${toggles}${contactList}</div>`;
+    const promptDraft = typeof options.promptDraft === 'string' ? options.promptDraft : (s.promptRule || CHAT_SHOW_PROMPT_RULE);
+    const promptStatus = options.promptStatus || (s.promptRule ? '正在使用自定义提示词。' : '正在使用默认提示词。');
+    const promptField = `<div class="igs-settings-field"><span>注入提示词（开启线上交流时追加给 AI）</span><textarea class="igs-chat-prompt" data-chat-prompt-draft="1" aria-label="线上交流注入提示词" placeholder="聊天标签规则...">${esc(promptDraft)}</textarea><div class="igs-chat-prompt-actions"><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-save-prompt">保存提示词</button><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-reset-prompt">恢复默认</button></div><div class="igs-settings-result" data-result="chat-prompt">${esc(promptStatus)}</div></div>`;
+    return `<div class="igs-settings-sub igs-chat-show-settings">${grid}${toggles}${contactList}${promptField}</div>`;
+}
+
+export function renderSystemRoleSettings(settings, options = {}) {
+    const s = settings;
+    const p = 'readerSettings.systemRole';
+    const disabled = options.disabled === true;
+    const fontItems = [['', '跟随旁白']].concat((options.fontOptions || []).filter(([value]) => value !== 'inherit'));
+    const tags = s.words.map((word) => `<span class="igs-mood-word-tag">${esc(word)}<button type="button" class="igs-mood-word-del" data-action="system-role-remove-word:${encSeg(word)}" title="删除">×</button></span>`).join('');
+    const colorNote = s.color ? '<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="system-role-follow-color">跟随旁白</button>' : '<em>跟随旁白</em>';
+    return [
+        '<div class="igs-settings-row">',
+        field(`${p}.font`, '字体', selectInput(`${p}.font`, s.font, fontItems, disabled)),
+        `<label class="igs-settings-field"><span>颜色</span>${colorInput(`${p}.color`, s.color || options.narrationColor, disabled)}${colorNote}</label>`,
+        field(`${p}.align`, '对齐', selectInput(`${p}.align`, s.align, [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], disabled)),
+        '</div>',
+        checkbox(`${p}.showName`, s.showName, '显示角色名'),
+        `<div class="igs-settings-field"><span>角色词池（这些发送者的台词用本样式；线上交流里显示为居中提示条；自动忽略【】等括号）</span><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="system-role-add-word" title="添加系统类角色">+</button></div></div>`,
+    ].join('');
 }
 
 export function renderWeatherFxSettings(settings) {

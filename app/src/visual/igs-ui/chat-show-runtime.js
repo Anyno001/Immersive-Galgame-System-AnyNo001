@@ -1,5 +1,9 @@
+import { isSystemRole } from './system-role.js';
+import { normalizeChatSfxPreset } from './chat-sfx.js';
+
 export const CHAT_SHOW_FRAMES = Object.freeze(['phone', 'none']);
 export const CHAT_SHOW_REVEAL_MODES = Object.freeze(['click', 'auto']);
+export const CHAT_SHOW_RETURN_MODES = Object.freeze(['full', 'replay', 'restart']);
 export const CHAT_SHOW_SPEEDS = Object.freeze({ fast: 0.6, medium: 1, slow: 1.5 });
 export const CHAT_SHOW_SIDES = Object.freeze(['auto', 'left', 'right']);
 export const CHAT_SHOW_DIM_LEVELS = Object.freeze([0, 0.2, 0.35, 0.45, 0.6, 0.8]);
@@ -12,13 +16,14 @@ export const CHAT_SHOW_DEFAULTS = Object.freeze({
     autoSpeed: 'medium',
     dim: 0.45,
     hideSprites: true,
-    sound: Object.freeze({ enabled: true, volume: 0.6 }),
+    sound: Object.freeze({ enabled: true, volume: 0.6, preset: 'cute' }),
     selfName: '',
     unknownSide: 'left',
     defaultColors: Object.freeze({ left: '#ffffff', right: '#95ec69' }),
     followTheme: false,
     typingIndicator: true,
     showAvatars: false,
+    returnMode: 'full',
     contacts: Object.freeze({}),
 });
 
@@ -44,9 +49,19 @@ export const CHAT_SHOW_PROMPT_RULE = `[igs线上聊天标签]
 2. 会话标题填写群名或对方名字
 3. 每条消息使用一个[igs-msg]；发送者填写完整角色名，{{user}}发送的消息发送者填写{{user}}
 4. 普通文字消息只写两栏；特殊消息在第三栏填写类型：图片（内容写画面描述）、语音（内容写语音说的话）、表情包（内容写表情描述）、撤回（内容可留空）
-5. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:昨天 22:14]
+5. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:昨天 22:14]；系统通知、入群提示等非角色消息的发送者填写「系统」
 6. 消息内容不得换行，不得含 | 或 ]
 7. 仅用于线上消息；当面对话仍使用[igs-char]`;
+
+// 空串代表内置默认：与默认一致的保存值也归为空，默认规则升级时未改过的用户自动跟随。
+export function normalizeChatPromptRule(value) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text === CHAT_SHOW_PROMPT_RULE ? '' : text;
+}
+
+export function resolveChatShowPromptRule(settings) {
+    return normalizeChatShowSettings(settings).promptRule || CHAT_SHOW_PROMPT_RULE;
+}
 
 export function normalizeChatMessageType(value) {
     const key = String(value == null ? '' : value).trim().toLowerCase();
@@ -115,6 +130,7 @@ export function normalizeChatShowSettings(value) {
         sound: {
             enabled: sound.enabled !== false,
             volume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : CHAT_SHOW_DEFAULTS.sound.volume,
+            preset: normalizeChatSfxPreset(sound.preset),
         },
         selfName: normalizeName(source.selfName),
         unknownSide: source.unknownSide === 'right' ? 'right' : 'left',
@@ -125,6 +141,8 @@ export function normalizeChatShowSettings(value) {
         followTheme: source.followTheme === true,
         typingIndicator: source.typingIndicator !== false,
         showAvatars: source.showAvatars === true,
+        promptRule: normalizeChatPromptRule(source.promptRule),
+        returnMode: CHAT_SHOW_RETURN_MODES.includes(source.returnMode) ? source.returnMode : CHAT_SHOW_DEFAULTS.returnMode,
         contacts: normalizeContacts(source.contacts),
     };
 }
@@ -184,7 +202,7 @@ export function resolveChatSender(name, settings, ctx = {}) {
     return { key: key || displayName, displayName, side, self, color: contact && contact.color ? contact.color : '' };
 }
 
-// ctx.theme：跟随对话框主题时的配色；ctx.avatarFor：按联系人主名取头像地址。
+// ctx.theme：跟随对话框主题时的配色；ctx.avatarFor：按联系人主名取头像地址；ctx.systemRole：系统角色词池。
 export function buildChatPageModel(chat, settings, ctx = {}) {
     const normalized = normalizeChatShowSettings(settings);
     const theme = normalized.followTheme && ctx.theme ? ctx.theme : null;
@@ -193,6 +211,7 @@ export function buildChatPageModel(chat, settings, ctx = {}) {
     const items = chat && Array.isArray(chat.messages) ? chat.messages : [];
     const messages = items.map((item) => {
         if (item.kind === 'note' || item.kind === 'time') return { kind: item.kind, text: item.text };
+        if (isSystemRole(item.sender, ctx.systemRole)) return { kind: 'system', text: item.text };
         const sender = resolveChatSender(item.sender, normalized, ctx);
         const type = normalizeChatMessageType(item.type);
         if (type === 'recall') {

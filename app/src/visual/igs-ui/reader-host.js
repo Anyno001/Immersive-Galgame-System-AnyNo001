@@ -78,6 +78,7 @@ import {
     renderScenePresetBar,
     renderStageShakeSettings,
     renderChatShowSettings,
+    renderSystemRoleSettings,
     renderWeatherFxSettings,
     renderTemplate,
     rangeInput,
@@ -185,6 +186,7 @@ import { cancelStageShakeEffect } from './stage-shake-runtime.js';
 import { advanceChatReveal, cancelChatShow } from './chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { resolveChatTheme } from './chat-themes.js';
+import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import {
     applyReaderSnapshotToDom,
@@ -1739,12 +1741,15 @@ export function createIgsReaderHost(options = {}) {
         const chatIndex = parseChatMarker(currentText);
         const chatBlock = chatIndex >= 0 && Array.isArray(extracted.chats) ? extracted.chats[chatIndex] || null : null;
         const chatSettings = normalizeChatShowSettings(readerSettings.chatShow);
-        const chatPage = Boolean(chatBlock) && chatSettings.enabled;
+        // AI 把系统角色写成 [igs-msg] 且整段没有真人消息时，不开聊天页，按系统角色旁白显示。
+        const systemOnlyChat = Boolean(chatBlock) && chatBlock.messages.every((m) => m.kind !== 'msg' || isSystemRole(m.sender, readerSettings.systemRole));
+        const chatPage = Boolean(chatBlock) && chatSettings.enabled && !systemOnlyChat;
         const chatContext = chatPage ? getSillyTavernContext(options.global || globalThis) : null;
         const chat = chatPage ? buildChatPageModel(chatBlock, chatSettings, {
             userName: chatContext && chatContext.name1 ? String(chatContext.name1) : '',
             characterAliases: sceneAssets && sceneAssets.characterAliases,
             theme: resolveChatTheme(readerSettings.dialogSkin),
+            systemRole: readerSettings.systemRole,
             avatarFor: (key) => resolveStatusAvatar(sceneAssets && sceneAssets.statusAvatars, key),
         }) : null;
         const hideChatSprite = chatPage && chatSettings.hideSprites;
@@ -1837,6 +1842,7 @@ export function createIgsReaderHost(options = {}) {
         let segmentBody = currentText;
         let bubbleMood = '';
         let spriteMood = '';
+        let systemSpeaker = '';
         if (sceneAssetsEnabled) {
             const charThoughtDirectives = sceneDirectives.filter((d) => d.type === 'char' || d.type === 'thought');
             // Match this bubble back to its directive by speaker + dialogue/thought text
@@ -1922,6 +1928,13 @@ export function createIgsReaderHost(options = {}) {
                     bubbleMood = matchedDirective.mood || '';
                 }
             }
+            // 系统类角色的台词按独立旁白样式渲染：不显示立绘与状态栏角色，名字按设置决定。
+            if (textType === 'dialogue' && isSystemRole(bubbleSpeaker, readerSettings.systemRole)) {
+                textType = 'system';
+                systemSpeaker = bubbleSpeaker;
+                bubbleSpeaker = '';
+                bubbleMood = '';
+            }
             resolvedSpeaker = bubbleSpeaker;
             // Sprite resolves from the bubble's own speaker/mood, not the row-counted
             // segmentIndex (which desyncs once char/thought tags are reformatted into
@@ -1974,6 +1987,13 @@ export function createIgsReaderHost(options = {}) {
                 }
             }
         }
+        if (systemSpeaker && normalizeSystemRoleSettings(readerSettings.systemRole).showName) resolvedSpeaker = systemSpeaker;
+        if (systemOnlyChat) {
+            textType = 'system';
+            resolvedSpeaker = normalizeSystemRoleSettings(readerSettings.systemRole).showName
+                ? (chatBlock.messages.find((m) => m.kind === 'msg') || {}).sender || '' : '';
+            bubbleMood = '';
+        }
         if (chatPage) {
             textType = 'chat';
             resolvedSpeaker = '';
@@ -1985,8 +2005,8 @@ export function createIgsReaderHost(options = {}) {
             time: firstDefined(sceneStateForBg && sceneStateForBg.time, scene.time, ''),
             weather: firstDefined(sceneStateForBg && sceneStateForBg.weather, scene.weather, ''),
         };
-        const isDialogueText = textType === 'dialogue' || (!sceneAssetsEnabled && Boolean(scene.speaker) && Boolean(currentText));
-        const displayText = htmlCardIndex >= 0 || chatPage ? '' : chatBlock ? formatChatBlockAsText(chatBlock) : (!sceneAssetsEnabled && scene.speaker && currentText)
+        const isDialogueText = textType === 'dialogue' || textType === 'system' || (!sceneAssetsEnabled && Boolean(scene.speaker) && Boolean(currentText));
+        const displayText = htmlCardIndex >= 0 || chatPage ? '' : systemOnlyChat ? chatBlock.messages.map((m) => m.text).filter(Boolean).join('\n') : chatBlock ? formatChatBlockAsText(chatBlock) : (!sceneAssetsEnabled && scene.speaker && currentText)
             ? `${scene.speaker}: ${stripWrappingQuotes(currentText)}`
             : (sceneAssetsEnabled
                 ? (isDialogueText ? stripWrappingQuotes(segmentBody) : segmentBody)
@@ -2063,7 +2083,7 @@ export function createIgsReaderHost(options = {}) {
                 sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
-                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
+                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
             },
             readerSettings: cloneData(readerSettings),
             input: {
@@ -2365,6 +2385,7 @@ export function createIgsReaderHost(options = {}) {
         const typewriter = normalizeTypewriterSettings(reader.typewriter);
         const stageShake = normalizeStageShakeSettings(reader.stageShake);
         const chatShow = normalizeChatShowSettings(reader.chatShow);
+        const systemRole = normalizeSystemRoleSettings(reader.systemRole);
         const weatherFx = normalizeWeatherFxSettings(reader.weatherFx);
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
             dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（旧设置保留）`]);
@@ -2407,8 +2428,16 @@ export function createIgsReaderHost(options = {}) {
             ].join('')}</div>` : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '启用震动演出'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
+            systemRoleFields: renderSystemRoleSettings(systemRole, {
+                fontOptions: DIALOG_FONT_OPTIONS,
+                narrationColor: toHex(displayTheme.narrationColor || '#f4f4f6'),
+                disabled: themeDisabled,
+            }),
             chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '启用线上交流演出'),
-            chatShowSettings: chatShow.enabled ? renderChatShowSettings(chatShow) : '',
+            chatShowSettings: chatShow.enabled ? renderChatShowSettings(chatShow, {
+                promptDraft: asyncState.chatPromptDraft,
+                promptStatus: asyncState.chatPromptStatus,
+            }) : '',
             weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '启用天气演出'),
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
             performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
@@ -2776,6 +2805,13 @@ export function createIgsReaderHost(options = {}) {
             const target = event.target;
             if (!target || !target.getAttribute) return;
             if (target.tagName === 'SELECT') return; // change handles dependent fields once
+            if (target.getAttribute('data-chat-prompt-draft') !== null) {
+                state.activeSettings.asyncState.chatPromptDraft = target.value;
+                state.activeSettings.asyncState.chatPromptStatus = '有未保存的修改。';
+                const status = root.querySelector('[data-result="chat-prompt"]');
+                if (status) status.textContent = state.activeSettings.asyncState.chatPromptStatus;
+                return;
+            }
             if (target.getAttribute('data-prompt-rule-draft') !== null) {
                 state.activeSettings.asyncState.promptRuleDraft = target.value;
                 state.activeSettings.asyncState.promptRuleStatus = '有未保存的修改。';
@@ -3277,6 +3313,7 @@ export function createIgsReaderHost(options = {}) {
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),
             chatShow: normalizeChatShowSettings(null),
+            systemRole: normalizeSystemRoleSettings(null),
             weatherFx: normalizeWeatherFxSettings(null),
             imageCountOverride: null,
             pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
@@ -3316,6 +3353,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
         normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);
         normalized.chatShow = normalizeChatShowSettings(normalized.chatShow);
+        normalized.systemRole = normalizeSystemRoleSettings(normalized.systemRole);
         normalized.weatherFx = normalizeWeatherFxSettings(normalized.weatherFx);
         normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);

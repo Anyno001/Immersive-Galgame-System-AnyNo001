@@ -28,6 +28,7 @@ import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyWeatherFx } from './weather-fx-runtime.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
+import { normalizeSystemRoleSettings } from './system-role.js';
 import {
     applyDialogSkinAssets,
     isClassicDialogSkin,
@@ -988,7 +989,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         ? null
         : resolveAssetUrl(snapshot.content.spriteImage);
     if (spriteEl && spriteAssetUrl) {
-        const spriteNarration = (snapshot.content.textType === 'narration' || snapshot.content.textType === 'chat') && spriteSettings.dimSpriteOnNarration !== false;
+        const spriteNarration = ['narration', 'chat', 'system'].includes(snapshot.content.textType) && spriteSettings.dimSpriteOnNarration !== false;
         const spriteFilter = spriteNarration ? 'brightness(0.86) saturate(0.86)' : '';
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
         spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;
@@ -1024,7 +1025,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const renderedHtml = renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled);
         const textRenderKey = [snapshot.messageId, snapshot.content.currentIndex, textType, renderedHtml].join(':');
 
-        typewriterTextType = textType;
+        typewriterTextType = textType === 'system' ? 'narration' : textType;
         typewriterRenderKey = textRenderKey;
         const sameTextRender = Boolean(textEl.dataset && textEl.dataset.igsTextRenderKey === textRenderKey);
         if (!sameTextRender) {
@@ -1039,9 +1040,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const isNarration = textType === 'narration';
         const isThought = textType === 'thought';
         if (dialog) dialog.setAttribute('data-igs-text-type', textType);
-        const segFont = isThought ? theme.thoughtFont : isNarration ? theme.narrationFont : theme.textFont;
-        const segColor = isThought ? theme.thoughtColor : isNarration ? theme.narrationColor : theme.textColor;
-        const segAlign = isThought ? theme.thoughtAlign : isNarration ? theme.narrationAlign : theme.textAlign;
+        const systemRole = textType === 'system' ? normalizeSystemRoleSettings(snapshot.readerSettings.systemRole) : null;
+        const segFont = systemRole ? systemRole.font || theme.narrationFont : isThought ? theme.thoughtFont : isNarration ? theme.narrationFont : theme.textFont;
+        const segColor = systemRole ? systemRole.color || theme.narrationColor : isThought ? theme.thoughtColor : isNarration ? theme.narrationColor : theme.textColor;
+        const segAlign = systemRole ? systemRole.align : isThought ? theme.thoughtAlign : isNarration ? theme.narrationAlign : theme.textAlign;
         const themeEnabled = sceneAssetsEnabled || materialDialog;
         applyAlignStyle(textEl, themeEnabled ? segAlign : '');
         if (themeEnabled && segFont && segFont !== 'inherit') {

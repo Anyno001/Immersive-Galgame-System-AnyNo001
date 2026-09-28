@@ -185,6 +185,8 @@ details[data-image-feature="llm-prompts"] textarea{min-height:220px}
 .igs-chat-contact-head input[type="color"]{width:32px;height:28px;padding:2px;border-radius:var(--igs-settings-radius-small);cursor:pointer}
 .igs-chat-contact-head .igs-segmented{flex:1;min-width:180px}
 .igs-chat-contact-label{font-size:11px;color:var(--igs-settings-ink-3)}
+.igs-chat-prompt{min-height:180px;font-size:12px;line-height:1.55}
+.igs-chat-prompt-actions{display:flex;flex-wrap:wrap;gap:8px}
 .igs-mood-word-tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 6px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-highlight);border:0;color:var(--igs-settings-ink-2)}
 .igs-mood-word-del{border:0;background:transparent;color:var(--igs-settings-ink-3);cursor:pointer;font-size:14px;line-height:1;padding:0}
 .igs-mood-word-del:hover{color:var(--igs-settings-danger)}

@@ -17,7 +17,7 @@ import { createStageRenderer } from '../visual/stage-renderer.js';
 import { resolveVisualMode } from '../visual/visual-mode.js';
 import { normalizeScenePromptRule } from '../visual/igs-ui/reader-host-constants.js';
 import { createIgsReaderHost } from '../visual/igs-ui/reader-host.js';
-import { CHAT_SHOW_PROMPT_RULE, normalizeChatShowSettings } from '../visual/igs-ui/chat-show-runtime.js';
+import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/igs-ui/chat-show-runtime.js';
 import { createEventBus } from './event-bus.js';
 import { createMagicWandEntry } from '../host/magic-wand-entry.js';
 import { createExtensionPanel } from '../host/extension-panel.js';
@@ -34,7 +34,7 @@ import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-sto
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.28.12';
+const IGS_VERSION = '0.28.13';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -432,7 +432,8 @@ export function bootstrapIGS(options = {}) {
         const sceneAssets = unified.bridge && unified.bridge.sceneAssets;
         const rules = [];
         if (sceneAssets && sceneAssets.enabled && sceneAssets.promptRule) rules.push(resolvePromptRuleContent(sceneAssets));
-        if (normalizeChatShowSettings(unified.readerSettings && unified.readerSettings.chatShow).enabled) rules.push(CHAT_SHOW_PROMPT_RULE);
+        const chatShow = unified.readerSettings && unified.readerSettings.chatShow;
+        if (normalizeChatShowSettings(chatShow).enabled) rules.push(resolveChatShowPromptRule(chatShow));
         if (rules.length) return promptInjector.inject(rules.join('\n\n'));
         promptInjector.clear();
         return { ok: true, reason: 'scene-assets-disabled' };
