@@ -45,7 +45,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'save', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
     { id: 'hide', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
     { id: 'sprite-edit', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
-    { id: 'rescan', title: '刷新', html: ORIGINAL_READER_ICONS.rescan },
+    { id: 'rescan', title: '重新加载', html: ORIGINAL_READER_ICONS.rescan },
     { id: 'settings', title: '设置', html: ORIGINAL_READER_ICONS.settings },
 ]);
 

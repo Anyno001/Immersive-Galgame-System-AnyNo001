@@ -15,6 +15,11 @@ function withTimeout(promise, ms) {
     ]).finally(() => clearTimeout(timer));
 }
 
+function modelsUrl(endpoint) {
+    const completions = chatCompletionsUrl(endpoint);
+    return completions ? completions.replace(/\/chat\/completions$/i, '/models') : '';
+}
+
 export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
     const fetchImpl = deps.fetch || (typeof globalObject.fetch === 'function' ? globalObject.fetch.bind(globalObject) : null);
 
@@ -60,7 +65,29 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
         return String(data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '');
     }
 
+    async function fetchModels(llm = {}) {
+        const url = modelsUrl(llm.endpoint);
+        if (!url) throw new Error('请先填写副 LLM 地址');
+        if (!fetchImpl) throw new Error('当前环境无法发起网络请求');
+        const headers = llm.apiKey ? { Authorization: `Bearer ${llm.apiKey}` } : {};
+        let response;
+        try {
+            response = await withTimeout(fetchImpl(url, { method: 'GET', headers }), 30000);
+        } catch (error) {
+            throw new Error('副 LLM 模型拉取失败：请检查网络与浏览器跨域设置');
+        }
+        if (!response.ok) throw new Error(`副 LLM 模型拉取失败（HTTP ${response.status}）`);
+        const data = await response.json();
+        const entries = Array.isArray(data && data.data) ? data.data : data && data.models;
+        const models = [...new Set((Array.isArray(entries) ? entries : [])
+            .map((item) => typeof item === 'string' ? item : item && (item.id || item.name))
+            .filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))];
+        if (!models.length) throw new Error('副 LLM 接口未返回可用模型');
+        return { ok: true, models, message: `已拉取 ${models.length} 个副 LLM 模型` };
+    }
+
     return {
+        fetchModels,
         async request({ system, user }, llm = {}) {
             const timeoutMs = Number(llm.timeoutMs) || 90000;
             const job = llm.source === 'openai' ? viaOpenAi(system, user, llm) : viaTavern(system, user);

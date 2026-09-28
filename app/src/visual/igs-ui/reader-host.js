@@ -1256,7 +1256,7 @@ export function createIgsReaderHost(options = {}) {
             return regenerateCurrentImage();
         }
         if (normalizedAction === 'rescan') {
-            return rescanCurrentImages();
+            return reloadActiveReader();
         }
         if (normalizedAction === 'save') {
             return saveCurrentImage();
@@ -1486,6 +1486,32 @@ export function createIgsReaderHost(options = {}) {
         }
         if (!element) return '';
         return getVisibleMessageTextFromElement(element);
+    }
+
+    // 工具栏「重新加载」：清缓存后按当前楼层走完整打开流程重建阅读器，近似插件重载。
+    async function reloadActiveReader() {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        if (typeof options.openViewerFromMessage !== 'function') return rescanCurrentImages();
+        const messageId = isEmbeddedReaderMode(current.mode)
+            ? current.mountMessageId
+            : current.snapshot && current.snapshot.messageId;
+        if (messageId == null) return rescanCurrentImages();
+        const keepIndex = isEmbeddedReaderMode(current.mode) && current.turnOffset > 0 ? 0 : current.index;
+        sourceCache.invalidate();
+        const result = await options.openViewerFromMessage(messageId, current.mode, { startAtEnd: false });
+        if (!result || result.ok === false) {
+            writeToast('重新加载失败。');
+            return result || { ok: false, reason: 'reload-failed' };
+        }
+        const next = state.activeReader;
+        if (next && keepIndex > 0) {
+            const segments = next.snapshot && next.snapshot.content ? next.snapshot.content.segments || [] : [];
+            next.index = Math.min(keepIndex, Math.max(0, segments.length - 1));
+            rerenderActiveReader();
+        }
+        writeToast('已重新加载。');
+        return { ok: true, reloaded: true, messageId };
     }
 
     async function rescanCurrentImages() {
@@ -2275,7 +2301,7 @@ export function createIgsReaderHost(options = {}) {
                 autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API（消耗主模型额度）'], ['openai', '独立 OpenAI 兼容 API']])),
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
                 autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '留空则不发送 Authorization', openaiDisabled)),
-                autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', textInput('bridge.autoIllustration.llm.model', auto.llm.model, 'gpt-4o-mini', 'text', openaiDisabled)),
+                autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', modelPicker('bridge.autoIllustration.llm.model', auto.llm.model, asyncState.llmModels, 'fetch-llm-models', 'gpt-4o-mini', openaiDisabled)),
                 autoLlmPromptsOpen: asyncState.llmPromptsOpen ? ' open' : '',
                 autoLlmPromptIllustrationField: field('bridge.autoIllustration.llm.prompts.illustration', 'CG 插图规划', autoTextarea('bridge.autoIllustration.llm.prompts.illustration', auto.llm.prompts.illustration, '清空即恢复内置提示词')),
                 autoLlmPromptIllustrationSoftField: field('bridge.autoIllustration.llm.prompts.illustrationSoft', 'CG 插图规划 · 温和重试（NSFW 被拒后使用）', autoTextarea('bridge.autoIllustration.llm.prompts.illustrationSoft', auto.llm.prompts.illustrationSoft, '清空即恢复内置提示词')),

@@ -442,6 +442,25 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'fetch-llm-models') {
+        if (typeof options.fetchLlmModels !== 'function') {
+            settingsState.asyncState.llmModelsMessage = '当前未接入副 LLM 模型拉取能力。';
+            return rerenderSettings();
+        }
+        try {
+            const result = await options.fetchLlmModels({ settings: cloneData(settingsState.draft) });
+            if (!result || result.ok === false || !Array.isArray(result.models) || !result.models.length) {
+                settingsState.asyncState.llmModelsMessage = String(result && (result.reason || result.error) || '副 LLM 模型拉取失败。');
+                return rerenderSettings();
+            }
+            settingsState.asyncState.llmModels = result.models;
+            settingsState.asyncState.llmModelsMessage = String(result.message || `已拉取 ${result.models.length} 个副 LLM 模型。`);
+        } catch (error) {
+            settingsState.asyncState.llmModelsMessage = String(error && error.message || '副 LLM 模型拉取失败。');
+        }
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'fetch-image-models') {
         if (typeof options.fetchImageModels !== 'function') {
             settingsState.asyncState.imageModelsMessage = '当前未接入内置图像模型拉取能力。';
