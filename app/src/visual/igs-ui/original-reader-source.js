@@ -43,6 +43,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'last-page', title: '最后一页', html: ORIGINAL_READER_ICONS.lastPage },
     { id: 'next-turn', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
     { id: 'regen', title: '重新生图', html: ORIGINAL_READER_ICONS.regen },
+    { id: 'generate-assets', title: '手动生图（补全最新楼层背景和立绘）', html: '生图' },
     { id: 'save', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
     { id: 'hide', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
     { id: 'sprite-edit', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },

@@ -280,6 +280,7 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['last-page', '最后一页'],
     ['next-turn', '下一轮'],
     ['regen', '重新生图'],
+    ['generate-assets', '手动生图'],
     ['save', '保存图片'],
     ['hide', '隐藏对话框'],
     ['sprite-edit', '调整立绘'],

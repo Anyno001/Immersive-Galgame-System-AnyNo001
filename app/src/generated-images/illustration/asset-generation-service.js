@@ -148,10 +148,10 @@ export function createAssetGenerationService(deps) {
         return record;
     }
 
-    async function run(messageId, floor, key, s) {
+    async function run(messageId, floor, key, s, manual) {
         // 失败或中途刷新残留的 planning 不算处理完，下次渲染时重试。
         const previous = await store.getFloor(key);
-        if (previous && previous.status === 'done') return { ok: true, reason: 'already-decided' };
+        if (!manual && previous && previous.status === 'done') return { ok: true, reason: 'already-decided' };
         await loadTempRecords(floor.chatId);
         const numbered = numberParagraphs(floor.text);
         const needs = collectAssetNeeds(
@@ -193,12 +193,13 @@ export function createAssetGenerationService(deps) {
             const record = await generateItem(item, s, floor, key);
             if (record.status === 'review') count += 1;
         }
-        await store.putFloor(key, { status: 'done', count, updatedAt: now() });
+        const failedCount = plan.items.length - count;
+        await store.putFloor(key, { status: failedCount ? 'failed' : 'done', count, updatedAt: now() });
         if (count) report('success', `第 ${messageId} 楼已生成 ${count} 项素材，待确认`);
-        return { ok: true, reason: 'done', count };
+        return { ok: failedCount === 0, reason: failedCount ? 'generation-failed' : 'done', count, failedCount };
     }
 
-    async function processMessage(messageId) {
+    async function processMessage(messageId, { manual = false } = {}) {
         const s = readSettings();
         if (!s.auto.assets.spriteEnabled && !s.auto.assets.backgroundEnabled) return { ok: true, reason: 'disabled' };
         if (!s.sceneAssets.enabled) return { ok: true, reason: 'scene-assets-disabled' };
@@ -208,7 +209,7 @@ export function createAssetGenerationService(deps) {
         }
         const key = floorKeyOf(floor);
         if (locks.has(key)) return locks.get(key);
-        const job = run(Number(messageId), floor, key, s)
+        const job = run(Number(messageId), floor, key, s, manual)
             .catch((error) => {
                 report('error', `素材生成异常：${(error && error.message) || error}`);
                 return { ok: false, reason: 'error', error: '素材生成失败' };

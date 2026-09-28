@@ -242,6 +242,7 @@ test('gate:assets:service-disabled-makes-no-requests', async () => {
         getSettings: () => ({ autoIllustration: {}, sceneAssets: USER_ASSETS }),
     });
     assert.equal((await service.processMessage(3)).reason, 'disabled');
+    assert.equal((await service.processMessage(3, { manual: true })).reason, 'disabled');
     const off = createAssetGenerationService({
         messageHost: fakeHost(FLOOR_TEXT),
         llm: { async request() { requested = true; return ''; } },
@@ -250,6 +251,7 @@ test('gate:assets:service-disabled-makes-no-requests', async () => {
         getSettings: () => ({ autoIllustration: { assets: { spriteEnabled: true } }, sceneAssets: { ...USER_ASSETS, enabled: false } }),
     });
     assert.equal((await off.processMessage(3)).reason, 'scene-assets-disabled');
+    assert.equal((await off.processMessage(3, { manual: true })).reason, 'scene-assets-disabled');
     assert.equal(requested, false);
 });
 
@@ -265,4 +267,50 @@ test('gate:assets:service-falls-back-to-dictionary-for-backgrounds', async () =>
     const result = await service.processMessage(3);
     assert.equal(result.count, 1);
     assert.ok(naiCalls[0].scene.includes('classroom') && naiCalls[0].scene.includes('no humans'));
+});
+
+test('gate:assets:failed-generation-does-not-settle-floor', async () => {
+    let calls = 0;
+    const store = createMemoryGeneratedAssetStore();
+    const service = createAssetGenerationService({
+        messageHost: fakeHost('[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。'),
+        llm: { async request() { return 'id: bg1\ntags: factory, night'; } },
+        nai: { async generate() {
+            calls += 1;
+            return calls === 1 ? { ok: false, error: 'NAI 请求失败' }
+                : { ok: true, dataUrl: 'data:image/png;base64,AAA' };
+        } },
+        store,
+        getSettings: () => ({ autoIllustration: { assets: { backgroundEnabled: true } }, sceneAssets: USER_ASSETS }),
+    });
+    const first = await service.processMessage(3);
+    assert.equal(first.ok, false);
+    assert.equal((await store.getFloor('chat-1|3|0')).status, 'failed');
+    const retry = await service.processMessage(3);
+    assert.equal(retry.count, 1);
+    assert.equal(calls, 2);
+});
+
+test('gate:assets:manual-retries-settled-floor-without-regenerating-existing-assets', async () => {
+    let calls = 0;
+    const store = createMemoryGeneratedAssetStore();
+    await store.putFloor('chat-1|3|0', { status: 'done', count: 0 });
+    const service = createAssetGenerationService({
+        messageHost: fakeHost('[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。'),
+        llm: { async request() { return 'id: bg1\ntags: factory, night'; } },
+        nai: { async generate() {
+            calls += 1;
+            return { ok: true, dataUrl: 'data:image/png;base64,AAA' };
+        } },
+        store,
+        getSettings: () => ({ autoIllustration: { assets: { backgroundEnabled: true } }, sceneAssets: USER_ASSETS }),
+    });
+    assert.equal((await service.processMessage(3)).reason, 'already-decided');
+    assert.equal(calls, 0);
+    const retry = await service.processMessage(3, { manual: true });
+    assert.deepEqual([retry.ok, retry.reason, retry.count], [true, 'done', 1]);
+    assert.equal(calls, 1);
+    assert.equal((await store.getFloor('chat-1|3|0')).status, 'done');
+    assert.equal((await service.processMessage(3, { manual: true })).reason, 'nothing-missing');
+    assert.equal(calls, 1);
 });

@@ -35,7 +35,7 @@ import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-sto
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.29.2';
+const IGS_VERSION = '0.29.3';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;

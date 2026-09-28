@@ -1191,6 +1191,60 @@ export function createIgsReaderHost(options = {}) {
         const normalizedAction = String(action || '').trim();
         state.activeReader.lastAction = normalizedAction;
 
+        if (normalizedAction === 'generate-assets') {
+            const current = state.activeReader;
+            const feedback = (level, message) => {
+                if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
+                if (state.activeReader === current) writeToastSafe(message);
+            };
+            const service = options.generatedAssets;
+            if (!service || typeof service.processMessage !== 'function') {
+                feedback('error', '手动生图不可用：素材生成服务未就绪');
+                return { ok: false, reason: 'service-unavailable' };
+            }
+            const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
+            const floor = messageId != null && typeof options.getIllustrationSource === 'function'
+                ? options.getIllustrationSource(messageId) : null;
+            if (!floor || !floor.isAi || !floor.isLatest || !floor.chatId || !String(floor.text || '').trim()) {
+                feedback('warn', '手动生图已跳过：请打开当前聊天最新的非空 AI 楼层');
+                return { ok: true, reason: 'not-eligible' };
+            }
+            const identity = current.illustrationIdentity;
+            if (!identity || floor.chatId !== identity.chatId || floor.swipeId !== identity.swipeId
+                || Number(floor.messageId) !== Number(messageId)) {
+                feedback('warn', '手动生图已跳过：聊天或回复版本已变化，请重新打开最新楼层');
+                return { ok: true, reason: 'stale-floor' };
+            }
+            if (current.assetGenerationPending) {
+                feedback('info', '手动生图处理中，请等待当前任务完成');
+                return { ok: true, reason: 'busy' };
+            }
+            current.assetGenerationPending = true;
+            feedback('info', `第 ${messageId} 楼手动生图：正在检查缺失的背景和立绘…`);
+            try {
+                const result = await service.processMessage(Number(messageId), { manual: true });
+                const skipped = {
+                    disabled: '请在设置中开启自动背景或自动立绘并保存',
+                    'scene-assets-disabled': '请在设置中开启场景素材并保存',
+                    'not-eligible': '当前楼层不是最新的非空 AI 回复',
+                    'nothing-missing': '没有缺失的背景或立绘，不会重复生成已有素材',
+                    'already-decided': '当前楼层已处理，请等待当前任务完成后重试',
+                };
+                if (!result || !result.ok) {
+                    feedback('error', `手动生图失败：${result && result.error || '部分或全部素材生成失败，请查看图像设置中的生图日志'}`);
+                } else if (skipped[result.reason]) {
+                    feedback('warn', `手动生图已跳过：${skipped[result.reason]}`);
+                } else {
+                    feedback('success', `手动生图完成：已生成 ${result.count || 0} 项素材，待确认`);
+                }
+                return result || { ok: false, reason: 'error' };
+            } catch (error) {
+                feedback('error', '手动生图异常，请查看生图日志后重试');
+                return { ok: false, reason: 'error' };
+            } finally {
+                current.assetGenerationPending = false;
+            }
+        }
         if (normalizedAction === 'settings') {
             return state.activeReader.controller.openSettings('basic');
         }

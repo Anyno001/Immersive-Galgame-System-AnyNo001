@@ -523,6 +523,121 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     vn.destroy();
 });
 
+test('gate:assets:reader-manual-generation-feedback', async () => {
+    const document = createFakeDocument();
+    const raw = '[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。';
+    const calls = [];
+    const logs = [];
+    let result = { ok: true, reason: 'done', count: 1 };
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({ bridge: { sceneAssets: { enabled: true, scenes: {}, characters: {} } }, readerSettings: {} }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 39, swipeId: 0, isAi: true, isLatest: true, text: raw }),
+        generatedAssets: { async processMessage(...args) { calls.push(args); return result; } },
+        imageJobLog: { add: (level, message) => logs.push({ level, message }) },
+    });
+    try {
+        const opened = host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
+        assert.equal(opened.ok, true);
+        const overlay = document.getElementById('igs-overlay');
+        const button = overlay.querySelector('[data-act="generate-assets"]');
+        assert.ok(button, '阅读器必须有可点击的手动生图按钮');
+        await overlay.parentNode.dispatchEvent({ type: 'click', target: button });
+        assert.deepEqual(calls, [[39, { manual: true }]]);
+        assert.match(host.getState().activeReader.toastMessage, /已生成 1 项/);
+        assert.equal(logs.at(-1).level, 'success');
+        for (const [next, text, level] of [
+            [{ ok: false, reason: 'generation-failed' }, /生图失败/, 'error'],
+            [{ ok: false, reason: 'plan-failed', error: '副 LLM 规划失败' }, /副 LLM 规划失败/, 'error'],
+            [{ ok: true, reason: 'disabled' }, /开启自动背景或自动立绘/, 'warn'],
+            [{ ok: true, reason: 'scene-assets-disabled' }, /开启场景素材/, 'warn'],
+            [{ ok: true, reason: 'nothing-missing' }, /没有缺失/, 'warn'],
+        ]) {
+            result = next;
+            assert.equal(await opened.controller.invokeAction('generate-assets'), next);
+            assert.match(host.getState().activeReader.toastMessage, text);
+            assert.equal(logs.at(-1).level, level);
+        }
+    } finally { host.destroy(); }
+});
+
+test('gate:assets:reader-manual-retries-settled-floor', async () => {
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
+    const document = createFakeDocument();
+    const raw = '[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。';
+    const floor = { chatId: 'chat-1', messageId: 39, swipeId: 0, isAi: true, isLatest: true, text: raw };
+    const store = createMemoryGeneratedAssetStore();
+    await store.putFloor('chat-1|39|0', { status: 'done', count: 0 });
+    let calls = 0;
+    const logs = [];
+    const bridge = { autoIllustration: { assets: { backgroundEnabled: true } }, sceneAssets: { enabled: true, scenes: {}, characters: {} } };
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => floor.chatId, readFloor: () => floor, readPreviousAiTexts: () => [] },
+        llm: { async request() { return 'id: bg1\ntags: factory, night'; } },
+        nai: { async generate() {
+            calls += 1;
+            return calls === 1 ? { ok: false, error: '模拟 NAI 请求失败' } : { ok: true, dataUrl: 'data:image/png;base64,AAA' };
+        } },
+        store,
+        getSettings: () => bridge,
+        report: (level, message) => logs.push({ level, message }),
+    });
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({ bridge, readerSettings: {} }),
+        getIllustrationSource: () => floor,
+        generatedAssets: service,
+        imageJobLog: { add: (level, message) => logs.push({ level, message }) },
+    });
+    try {
+        assert.equal((await service.processMessage(39)).reason, 'already-decided');
+        assert.equal(calls, 0);
+        const opened = host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
+        assert.equal(opened.ok, true);
+        const overlay = document.getElementById('igs-overlay');
+        const button = overlay.querySelector('[data-act="generate-assets"]');
+        await overlay.parentNode.dispatchEvent({ type: 'click', target: button });
+        assert.equal(calls, 1);
+        assert.equal((await store.getFloor('chat-1|39|0')).status, 'failed');
+        assert.match(host.getState().activeReader.toastMessage, /生图失败/);
+        assert.ok(logs.some((entry) => entry.message.includes('模拟 NAI 请求失败')));
+        const retry = await opened.controller.invokeAction('generate-assets');
+        assert.deepEqual([retry.ok, retry.count, calls], [true, 1, 2]);
+        assert.equal((await store.getFloor('chat-1|39|0')).status, 'done');
+        assert.equal(service.listReview('chat-1|39|0').length, 1);
+        assert.match(host.getState().activeReader.toastMessage, /已生成 1 项/);
+    } finally { host.destroy(); }
+});
+
+test('gate:assets:reader-manual-rejects-ineligible-or-changed-floor', async () => {
+    const document = createFakeDocument();
+    const raw = '最新回复。';
+    const initial = { chatId: 'chat-1', messageId: 39, swipeId: 0, isAi: true, isLatest: true, text: raw };
+    let floor = initial;
+    let calls = 0;
+    const host = createIgsReaderHost({
+        global: { document },
+        getIllustrationSource: () => floor,
+        generatedAssets: { async processMessage() { calls += 1; return { ok: true, reason: 'done', count: 1 }; } },
+    });
+    try {
+        const opened = host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
+        for (const [change, reason] of [
+            [{ isLatest: false }, 'not-eligible'],
+            [{ isAi: false }, 'not-eligible'],
+            [{ chatId: 'chat-2' }, 'stale-floor'],
+            [{ swipeId: 1 }, 'stale-floor'],
+            [{ messageId: 40 }, 'stale-floor'],
+        ]) {
+            floor = { ...initial, ...change };
+            assert.equal((await opened.controller.invokeAction('generate-assets')).reason, reason);
+            assert.match(host.getState().activeReader.toastMessage, /已跳过/);
+        }
+        assert.equal(calls, 0);
+    } finally { host.destroy(); }
+});
+
 test('gate:simulation:html-card-page-hides-inherited-sprite-and-restores-it-after-paging', () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     const raw = `<content>

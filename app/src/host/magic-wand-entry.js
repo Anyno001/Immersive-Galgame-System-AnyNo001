@@ -19,6 +19,7 @@ export function createMagicWandEntry(options = {}) {
     const notify = typeof options.notify === 'function' ? options.notify : defaultNotify;
 
     let observer = null;
+    let observerIncomplete = false;
     let retryTimer = null;
     let delegatedDocs = [];
     let attached = false;
@@ -73,6 +74,7 @@ export function createMagicWandEntry(options = {}) {
 
     function destroy() {
         attached = false;
+        observerIncomplete = false;
         if (observer) {
             observer.disconnect();
             observer = null;
@@ -166,18 +168,46 @@ export function createMagicWandEntry(options = {}) {
         handleMagicEntryClick(event, target);
     }
 
+    function isMenuMutation(records) {
+        const selector = menuSelectors.join(', ');
+        const containsMenu = (node) => {
+            try {
+                return Boolean(node && (node.matches?.(selector) || node.querySelector?.(selector)));
+            } catch (error) {
+                return false;
+            }
+        };
+        for (const record of records || []) {
+            // Changes inside an existing menu may remove or replace our entry.
+            if (record.target?.closest?.(selector)) return true;
+            for (const node of record.addedNodes || []) if (containsMenu(node)) return true;
+            for (const node of record.removedNodes || []) if (containsMenu(node)) return true;
+        }
+        return false;
+    }
+
     function attachObserver() {
         if (observer) return;
+        observerIncomplete = false;
         const MutationObserverCtor = resolveMutationObserver();
         if (!MutationObserverCtor) return;
-        observer = new MutationObserverCtor(() => {
-            ensure();
+        const nextObserver = new MutationObserverCtor((records) => {
+            if (attached && isMenuMutation(records)) ensure();
         });
+        let watching = false;
         for (const doc of getCandidateDocuments()) {
-            if (doc && doc.body) {
-                observer.observe(doc.body, { childList: true, subtree: true });
+            if (doc) {
+                if (!doc.body) { observerIncomplete = true; continue; }
+                try {
+                    nextObserver.observe(doc.body, { childList: true, subtree: true });
+                    watching = true;
+                } catch (error) {
+                    observerIncomplete = true;
+                }
             }
         }
+        if (watching) observer = nextObserver;
+        else nextObserver.disconnect();
     }
 
     function attachDelegatedClicks() {
@@ -189,7 +219,8 @@ export function createMagicWandEntry(options = {}) {
     }
 
     function attachRetryTimer() {
-        if (retryTimer || !retryIntervalMs) return;
+        // Poll only when at least one candidate document has no active observer.
+        if (retryTimer || !retryIntervalMs || (observer && !observerIncomplete)) return;
         retryTimer = setHostInterval(() => {
             ensure();
         }, retryIntervalMs);

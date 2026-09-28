@@ -89,4 +89,14 @@ ComfyUI 这类工作流型 provider 应使用 `workflow-preset` 或 provider 专
 | `bridge.autoIllustration.assets.spriteSize` / `backgroundSize` | 立绘和背景生成尺寸 |
 | `bridge.autoIllustration.assets.templates.background` / `templates.sprite` | 背景和立绘提示词模板 |
 
-本地 `npm test`、`npm run simulate`、`npm run structure`、`npm run static` 与 `npm run perf` 已通过；真实 TavernHelper、NovelAI/provider、真实酒馆 DOM、IndexedDB 迁移、跨设备 `igs-gen:` 失效回退和真实视觉质量仍需在目标环境中验证。
+### 手动补全与失败重试
+
+阅读器工具栏新增「生图」（手动生图）按钮，仅补全当前聊天最新 AI 楼层缺失的背景和立绘。先在设置中开启场景素材、自动背景或自动立绘，并配置自动插图区的 NovelAI Key；保存设置后打开最新 AI 楼层、展开工具栏即可点击，不必等待下一条 AI 回复。
+
+按钮复用 `generatedAssets.processMessage(messageId, { manual: true })`，仍使用 `bridge.autoIllustration` 的副 LLM、NAI 和素材存储；不走旧 `bridge.imageApi`，也不重试自动 CG 插图。手动操作仅绕过楼层 `done` 去重，不绕过功能开关、楼层身份和素材匹配；已有素材不重复生成。
+
+生成失败的楼层保存为 `failed` 并返回失败结果，后续可重新处理，不再因误标 `done` 永久跳过。按钮开始、完成、失败及跳过原因会显示在阅读器提示和现有生图日志中；聊天或 swipe 已切换时提示重新打开最新楼层。
+
+升号前素材测试 15/15、手动入口模拟 3/3、完整 `npm test` 390/390、`npm run simulate` 135/135、`npm run build` 和 `npm run perf` 均通过（退出码 0）。合并魔法棒改动并升至 `v0.29.3` 后，重新构建 bundle、版本化自动更新 loader，完整 `npm run gate` 通过（退出码 0，含魔法棒独立回归，模拟 135/135）。真实 TavernHelper 事件、NovelAI Key/额度、直连或代理 CORS、IndexedDB 与酒馆视觉均未验收，不打 tag；下一步在目标酒馆点击最新 AI 楼层的「生图」，结合日志与网络面板确认请求及结果。
+
+此前版本的本地 `npm test`、`npm run simulate`、`npm run structure`、`npm run static` 与 `npm run perf` 通过记录不代表本轮验证；本轮结果以上述记录为准。真实 TavernHelper、NovelAI/provider、真实酒馆 DOM、IndexedDB 迁移、跨设备 `igs-gen:` 失效回退和真实视觉质量仍需在目标环境中验证。
