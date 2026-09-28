@@ -119,6 +119,7 @@ const IMAGE_AUTO_TEMPLATE = `
         {{autoLlmEndpointField}}{{autoLlmKeyField}}
         {{autoLlmModelField}}
       </div>
+      <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
     </div>
     <details class="igs-settings-sub" data-image-feature="llm-prompts"{{autoLlmPromptsOpen}}>
       <summary>副 LLM 提示词（系统提示词，清空即恢复内置）</summary>

@@ -101,7 +101,7 @@ try {
             return true;
         })()`);
         await sleep(100);
-        const feedback = await evaluate(`document.querySelector('.igs-map-feedback')?.textContent || ''`);
+        const feedback = await evaluate(`document.querySelector('.igs-map-status')?.textContent || ''`);
         const stats = await evaluate(`window.__preview?.stats || null`);
         return {
             before, afterZoom, afterDrag,

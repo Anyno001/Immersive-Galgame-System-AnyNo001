@@ -188,6 +188,24 @@ test('gate:illustration:secondary-llm-openai-url-and-body', async () => {
     assert.equal(body.messages[0].role, 'system');
 });
 
+test('gate:illustration:secondary-llm-fetch-models', async () => {
+    const { createSecondaryLlm } = await import('../src/host/secondary-llm.js');
+    const calls = [];
+    const llm = createSecondaryLlm({}, { fetch: async (url, init) => {
+        calls.push({ url, method: init.method, auth: init.headers.Authorization });
+        return new Response(JSON.stringify({ data: [{ id: 'model-a' }, { id: 'model-b' }, { id: 'model-a' }] }), { status: 200 });
+    } });
+    const result = await llm.fetchModels({ endpoint: 'https://example.com/v1', apiKey: 'fake-key' });
+    assert.deepEqual(result.models, ['model-a', 'model-b']);
+    assert.deepEqual(calls, [{ url: 'https://example.com/v1/models', method: 'GET', auth: 'Bearer fake-key' }]);
+    const empty = createSecondaryLlm({}, { fetch: async () => new Response(JSON.stringify({ data: [] }), { status: 200 }) });
+    await assert.rejects(empty.fetchModels({ endpoint: 'https://example.com/v1' }), /未返回可用模型/);
+    let count = 0;
+    const missing = createSecondaryLlm({}, { fetch: async () => { count += 1; throw new Error('unexpected'); } });
+    await assert.rejects(missing.fetchModels({}), /填写副 LLM 地址/);
+    assert.equal(count, 0);
+});
+
 test('gate:illustration:secondary-llm-prefers-tavernhelper', async () => {
     const { createSecondaryLlm } = await import('../src/host/secondary-llm.js');
     let captured;

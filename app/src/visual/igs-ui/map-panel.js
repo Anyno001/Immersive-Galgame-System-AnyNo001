@@ -20,6 +20,7 @@ const GEN_SALT_KEY = 'igs-map-gen-salt:';
 const OWN_TIME_ART = /map-demo-(?:clean|day)/i;
 // 「17:40」等钟点也归入五档时段，内置分时段底图才能跟着切换。
 const timeBucket = time => resolveWeatherFxTime(time) || time;
+const CLOSE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 
 export function createMapPanelController(doc, global, fillDraft, options = {}) {
     let root = null;
@@ -37,6 +38,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
     let weatherLayer = null;
     let sceneAssets = null;
     let message = '';
+    let sourceOpen = false;
     let pageOverlay = null;
     let unwatchLayout = null;
     // 视口状态：世界尺寸（底图自然像素或中性平面）、相机与底图加载令牌。
@@ -89,6 +91,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
         if (root) return { ok: true, reason: 'already-open' };
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-map-container' };
         message = '';
+        sourceOpen = false;
         const container = overlay.querySelector?.('#igs-db-layer') || overlay;
         previousFocus = doc.activeElement || null;
         sceneName = String(scene || '').trim();
@@ -164,6 +167,9 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
         const action = control.getAttribute('data-map-act');
         const id = control.getAttribute('data-map-id');
         if (action === 'close') return close();
+        if (action === 'toggle-source') { sourceOpen = !sourceOpen; render(); return; }
+        if (!['basemap-source', 'basemap-style', 'reroll', 'reroll-back'].includes(action)) sourceOpen = false;
+        if (action === 'deselect') selectedId = null;
         if (action === 'refresh') return reload();
         if (action === 'table') {
             if (!model.tables.some(table => table.uid === id)) return;
@@ -373,7 +379,6 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
         const lightsUrl = generated?.status === 'ready' ? generated.result.lightsUrl : resolution.status === 'ok' && !ownTimeArt ? requestMarkerLights(markers) : '';
         const lit = basemapState === 'ready' && Boolean(basemapUrl);
         const basemapFilter = lit ? mapBasemapFilter(lighting, { ownTimeArt }) : '';
-        const hint = generated?.status === 'pending' ? '正在生成地图…' : '拖动浏览 · 点击定位针查看';
         const sourceHtml = table && baseResolution.status === 'none' ? basemapSourceHtml(generated) : '';
         const pinsHtml = markers.map(({ loc, x, y, auto }) => {
             const pt = mapPinWorldPoint(x, y, world.width, world.height);
@@ -402,19 +407,25 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
             ? `<button class="igs-map-card-secondary" type="button" data-map-act="enter" data-map-id="${escapeHtml(detailLocation.id)}">查看子地点</button>` : '';
         const travelButton = place && place.name && place.rowId && !place.issues.includes('地点ID重复')
             ? '<button class="igs-map-card-travel" type="button" data-map-act="travel">前往</button><small class="igs-map-card-note">将地点填入草稿，不会自动发送</small>' : '';
-        const card = detailLocation ? `<section class="igs-map-card"><p class="igs-map-card-kicker">${detailKicker}</p><h3>${escapeHtml(detailLocation.name || '未命名地点')}</h3>` +
+        const dismiss = place ? `<button type="button" class="igs-map-card-close" data-map-act="deselect" aria-label="收起详情">${CLOSE_ICON}</button>` : '';
+        const card = detailLocation ? `<section class="igs-map-card">${dismiss}<p class="igs-map-card-kicker">${detailKicker}</p><h3>${escapeHtml(detailLocation.name || '未命名地点')}</h3>` +
             `<p class="igs-map-card-description">${escapeHtml(detailLocation.description || '暂无地点说明')}</p>${detailAuto ? '<p class="igs-map-card-note igs-map-card-auto">表格未记录坐标，图上位置仅为示意</p>' : ''}${peopleHtml}<div class="igs-map-card-actions">${childButton}${travelButton}</div></section>` : '';
-        const notes = [notice, basemapNotice, table && !children.length ? '这一层没有子地点' : ''].filter(Boolean);
-        root.innerHTML = `<div class="igs-rp-page igs-map-window">${recordPageHeadHtml('地点地图', { closeAttr: 'data-map-act', backAriaLabel: '关闭地图' })}` +
-            tabs + `<div class="igs-rp-body igs-map-body"><div class="igs-map-main"><div class="igs-map-overlay-top">${sourceHtml}` +
-            notes.map(text => `<p class="igs-rp-notice" role="status">${escapeHtml(text)}</p>`).join('') + '</div>' +
+        // 提示、生成进度与操作反馈合并成页头下方一行，地图上不再叠多块浮层。
+        const status = [message, generated?.status === 'pending' ? '正在生成地图…' : '', notice, basemapNotice,
+            table && !children.length ? '这一层没有子地点' : ''].filter(Boolean);
+        const tool = (act, label, icon, extra = '') => `<button type="button" data-map-act="${act}" aria-label="${label}" title="${label}"${extra}>${icon}</button>`;
+        const tools = `<div class="igs-map-tools">${tool('zoom-out', '缩小', RECORD_ICONS.zoomOut, ' class="igs-map-zoom"')}${tool('zoom-in', '放大', RECORD_ICONS.zoomIn, ' class="igs-map-zoom"')}` +
+            tool('reset-view', '归位', RECORD_ICONS.locate) +
+            (sourceHtml ? tool('toggle-source', '底图', RECORD_ICONS.layers, ` aria-expanded="${sourceOpen ? 'true' : 'false'}"`) : '') + '</div>';
+        const levels = levelsHtml(table);
+        root.innerHTML = `<div class="igs-rp-page igs-map-window">${recordPageHeadHtml('地点地图', { closeAttr: 'data-map-act', backAriaLabel: '关闭地图', trailing: tools })}` +
+            (sourceHtml ? `<div class="igs-map-source-menu"${sourceOpen ? '' : ' hidden'}>${sourceHtml}</div>` : '') +
+            `<div class="igs-map-top">${tabs}<p class="igs-map-status" role="status" aria-live="polite">${escapeHtml(status.join(' · '))}</p></div>` +
+            '<div class="igs-rp-body igs-map-body"><div class="igs-map-main">' +
             `<div class="igs-map-viewport" aria-label="地图视口"><div class="igs-map-world${lit && !ownTimeArt ? ' is-lit' : ''}" style="width:${world.width}px;height:${world.height}px">` +
             (lit ? `<img class="igs-map-basemap" src="${escapeHtml(basemapUrl)}" alt="" draggable="false" referrerpolicy="no-referrer" width="${world.width}" height="${world.height}"${basemapFilter ? ` style="filter:${basemapFilter}"` : ''}>` + mapLightLayersHtml(lighting, { ownTimeArt, lightsUrl }) : '') +
-            pinsHtml + `</div><div class="igs-map-controls"><button type="button" data-map-act="zoom-in" aria-label="放大">${RECORD_ICONS.zoomIn}</button><button type="button" data-map-act="zoom-out" aria-label="缩小">${RECORD_ICONS.zoomOut}</button><button type="button" data-map-act="reset-view" aria-label="归位">${RECORD_ICONS.locate}</button></div>` +
-            `<p class="igs-map-hint">${hint}</p></div>` +
-            `<p class="igs-map-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p>` +
-            '</div>' +
-            `<aside class="igs-map-detail${card ? '' : ' is-empty'}">${levelsHtml(table)}${detailArtHtml}${card || '<p class="igs-map-detail-empty">选择地点查看详情</p>'}` +
+            pinsHtml + '</div></div></div>' +
+            `<aside class="igs-map-detail${card ? '' : ' is-empty'}${place ? '' : ' is-passive'}${levels ? ' has-levels' : ''}">${levels}${detailArtHtml}${card || '<p class="igs-map-detail-empty">点击地点查看详情</p>'}` +
             (diagnostics.length ? `<details><summary>地图数据提示（${diagnostics.length}）</summary><ul>${diagnostics.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>` : '') + '</aside></div></div>';
         const viewport = root.querySelector?.('.igs-map-viewport');
         bindViewportGestures(viewport);

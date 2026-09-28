@@ -2161,6 +2161,7 @@ export function createIgsReaderHost(options = {}) {
             resultText: {
                 image: settingsState.asyncState.imageResult || '',
                 imageModels: settingsState.asyncState.imageModelsMessage || '',
+                llmModels: settingsState.asyncState.llmModelsMessage || '',
                 virtualRegex: settingsState.asyncState.virtualRegexPreview || '',
                 promptRule: settingsState.asyncState.promptRuleStatus || '',
                 promptRuleDraft: settingsState.asyncState.promptRuleDraft,
@@ -2302,6 +2303,7 @@ export function createIgsReaderHost(options = {}) {
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
                 autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '留空则不发送 Authorization', openaiDisabled)),
                 autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', modelPicker('bridge.autoIllustration.llm.model', auto.llm.model, asyncState.llmModels, 'fetch-llm-models', 'gpt-4o-mini', openaiDisabled)),
+                autoLlmModelsMessage: esc(asyncState.llmModelsMessage || ''),
                 autoLlmPromptsOpen: asyncState.llmPromptsOpen ? ' open' : '',
                 autoLlmPromptIllustrationField: field('bridge.autoIllustration.llm.prompts.illustration', 'CG 插图规划', autoTextarea('bridge.autoIllustration.llm.prompts.illustration', auto.llm.prompts.illustration, '清空即恢复内置提示词')),
                 autoLlmPromptIllustrationSoftField: field('bridge.autoIllustration.llm.prompts.illustrationSoft', 'CG 插图规划 · 温和重试（NSFW 被拒后使用）', autoTextarea('bridge.autoIllustration.llm.prompts.illustrationSoft', auto.llm.prompts.illustrationSoft, '清空即恢复内置提示词')),

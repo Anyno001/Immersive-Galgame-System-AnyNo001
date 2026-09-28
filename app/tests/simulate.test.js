@@ -1234,6 +1234,7 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(other.imageSubTab, 'other');
         assert.match(other.html, /data-image-pane="other"/);
         assert.match(other.html, /data-path="bridge\.imageApi\.mode"/);
+        assert.match(other.html, /data-action="fetch-image-models"/);
         assert.doesNotMatch(other.html, /data-switch="bridge\.autoIllustration\.nsfwEnabled"/);
         assert.equal(opened.controller.switchImageSubTab('auto').snapshot.imageSubTab, 'auto');
         assert.equal(opened.controller.toggle('bridge.autoIllustration.nsfwEnabled').ok, true);
@@ -1279,6 +1280,39 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(reopened.draft.bridge.autoIllustration.nai.scale, 5.5);
         assert.ok(/data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*value="https:\/\/example\.com\/v1"/.test(reopened.html));
         assert.ok(/data-path="bridge\.autoIllustration\.llm\.apiKey"[^>]*type="password"/.test(reopened.html));
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:auto-illustration-llm-fetch-models-and-select', async () => {
+    const calls = [];
+    const vn = bootstrapIGS({
+        global: { fetch: async (url, init) => {
+            calls.push({ url, init });
+            return new Response(JSON.stringify({ data: [{ id: 'planner-a' }, { id: 'planner-b' }] }), { status: 200 });
+        } },
+        autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    try {
+        const controller = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
+        controller.toggle('bridge.autoIllustration.nsfwEnabled');
+        controller.setValue('bridge.autoIllustration.llm.source', 'openai');
+        controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1');
+        controller.setValue('bridge.autoIllustration.llm.apiKey', 'fake-key');
+        assert.match(controller.getSnapshot().html, /data-action="fetch-llm-models"/);
+        const fetched = await controller.invoke('fetch-llm-models');
+        assert.equal(fetched.ok, true);
+        assert.deepEqual(calls.map(({ url }) => url), ['https://example.com/v1/models']);
+        assert.equal(calls[0].init.method, 'GET');
+        assert.equal(calls[0].init.headers.Authorization, 'Bearer fake-key');
+        const snapshot = controller.getSnapshot();
+        assert.match(snapshot.resultText.llmModels, /已拉取 2 个/);
+        assert.match(snapshot.html, /<option value="planner-b"/);
+        controller.setValue('bridge.autoIllustration.llm.model', 'planner-b');
+        controller.close();
+        assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration.llm.model, 'planner-b');
     } finally {
         vn.destroy();
     }
@@ -3327,6 +3361,41 @@ test('gate:simulation:igs-ui-regen-polls-external-provider-and-updates-backgroun
     vn.destroy();
 });
 
+test('gate:simulation:igs-ui-auto-illustration-llm-models-fetch-and-select', async () => {
+    const calls = [];
+    const vn = bootstrapIGS({
+        global: {
+            document: createFakeDocument(),
+            fetch: async (url, options) => {
+                calls.push({ url, method: options.method, auth: options.headers.Authorization });
+                return new Response(JSON.stringify({ data: [{ id: 'model-a' }, { id: 'model-b' }] }), { status: 200 });
+            },
+        },
+        autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    try {
+        const { controller } = vn.openSettings({ tab: 'image', mode: 'pc' });
+        controller.toggle('bridge.autoIllustration.nsfwEnabled');
+        controller.setValue('bridge.autoIllustration.llm.source', 'openai');
+        controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1');
+        controller.setValue('bridge.autoIllustration.llm.apiKey', 'fake-key');
+        const fetched = await controller.invoke('fetch-llm-models');
+        assert.equal(fetched.ok, true);
+        const snapshot = controller.getSnapshot();
+        assert.match(snapshot.html, /data-action="fetch-llm-models"/);
+        assert.match(snapshot.html, /data-model-sync="bridge\.autoIllustration\.llm\.model"/);
+        assert.match(snapshot.html, /<option value="model-b">model-b<\/option>/);
+        assert.match(snapshot.resultText.llmModels, /已拉取 2 个副 LLM 模型/);
+        assert.deepEqual(calls, [{ url: 'https://example.com/v1/models', method: 'GET', auth: 'Bearer fake-key' }]);
+        controller.setValue('bridge.autoIllustration.llm.model', 'model-b');
+        controller.close();
+        assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration.llm.model, 'model-b');
+    } finally {
+        vn.destroy();
+    }
+});
+
 test('gate:simulation:igs-ui-image-settings-fetch-models-and-test-nai-use-real-service-chain', async () => {
     const document = createFakeDocument();
     const message = {
@@ -3380,6 +3449,7 @@ test('gate:simulation:igs-ui-image-settings-fetch-models-and-test-nai-use-real-s
     });
 
     const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
+    settings.controller.switchImageSubTab('other');
     const modelsResult = await settings.controller.invoke('fetch-image-models');
     const testResult = await settings.controller.invoke('test-image');
     const snapshot = settings.controller.getSnapshot();
@@ -3390,12 +3460,60 @@ test('gate:simulation:igs-ui-image-settings-fetch-models-and-test-nai-use-real-s
         'nai-diffusion-3',
         'nai-diffusion-4-curated-preview',
     ]);
+    assert.match(snapshot.html, /data-action="fetch-image-models"/);
+    assert.match(snapshot.html, /<option value="nai-diffusion-4-curated-preview">nai-diffusion-4-curated-preview<\/option>/);
     assert.match(snapshot.resultText.imageModels, /已拉取 2 个模型/);
     assert.match(snapshot.resultText.image, /图像 API 真实生成测试成功/);
     assert.equal(calls[0].url, 'https://example.com/v1/models');
     assert.equal(calls[1].url, 'https://example.com/v1/images/generations');
+    settings.controller.setValue('bridge.imageApi.model', 'nai-diffusion-4-curated-preview');
+    settings.controller.close();
+    assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).bridge.imageApi.model, 'nai-diffusion-4-curated-preview');
 
     vn.destroy();
+});
+
+test('gate:simulation:igs-ui-auto-llm-fetch-models-and-select', async () => {
+    const calls = [];
+    let fail = false;
+    const vn = bootstrapIGS({
+        global: { document: createFakeDocument(), fetch: async (url, init) => {
+            calls.push({ url, init });
+            return fail
+                ? new Response('unauthorized', { status: 401 })
+                : new Response(JSON.stringify({ data: [{ id: 'model-a' }, { id: 'model-b' }] }), { status: 200 });
+        } },
+        autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    try {
+        const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
+        const controller = settings.controller;
+        controller.toggle('bridge.autoIllustration.nsfwEnabled');
+        controller.setValue('bridge.autoIllustration.llm.source', 'openai');
+        controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1');
+        controller.setValue('bridge.autoIllustration.llm.apiKey', 'fake-secret');
+        assert.match(controller.getSnapshot().html, /data-action="fetch-llm-models"/);
+        const result = await controller.invoke('fetch-llm-models');
+        assert.equal(result.ok, true);
+        assert.equal(calls[0].url, 'https://example.com/v1/models');
+        assert.equal(calls[0].init.method, 'GET');
+        assert.equal(calls[0].init.headers.Authorization, 'Bearer fake-secret');
+        assert.match(result.snapshot.html, /data-model-sync="bridge\.autoIllustration\.llm\.model"/);
+        assert.match(result.snapshot.html, /<option value="model-b">model-b<\/option>/);
+        assert.match(result.snapshot.resultText.llmModels, /已拉取 2 个/);
+        controller.setValue('bridge.autoIllustration.llm.model', 'model-b');
+        fail = true;
+        const failed = await controller.invoke('fetch-llm-models');
+        assert.equal(failed.ok, true);
+        assert.match(failed.snapshot.resultText.llmModels, /401/);
+        assert.equal(failed.snapshot.resultText.llmModels.includes('fake-secret'), false);
+        assert.match(failed.snapshot.html, /<option value="model-b" selected>/);
+        controller.close();
+        assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration.llm.model, 'model-b');
+    } finally {
+        vn.destroy();
+    }
 });
 
 test('gate:simulation:igs-ui-external-adapter-filter-and-detection-use-real-provider-counts', async () => {

@@ -34,11 +34,7 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-map-panel .igs-rp-head>*{pointer-events:auto;}
 #igs-map-panel .igs-rp-body.igs-map-body{position:relative;display:block;height:100%;overflow:hidden;}
 #igs-map-panel .igs-map-main{position:absolute;inset:0;z-index:1;}
-#igs-map-panel .igs-map-tabs{position:absolute;top:58px;left:50%;z-index:5;display:flex;gap:2px;max-width:calc(100% - 32px);overflow-x:auto;padding:2px;transform:translateX(-50%);border-radius:var(--igs-rp-radius-m);background:var(--igs-map-chrome);}
 #igs-map-panel .igs-map-tabs .igs-rp-chip{border-radius:calc(var(--igs-rp-radius-m) - 2px);}
-#igs-map-panel .igs-map-overlay-top{position:absolute;top:70px;left:20px;z-index:4;display:flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:min(420px,calc(100% - 40px));pointer-events:none;}
-#igs-map-panel .igs-map-overlay-top>*{pointer-events:auto;}
-#igs-map-panel .igs-map-overlay-top .igs-rp-notice{margin:0;background:var(--igs-map-chrome);}
 #igs-map-panel .igs-map-source{display:flex;flex-direction:column;gap:6px;padding:6px;border-radius:var(--igs-rp-radius-m);background:var(--igs-map-chrome);-webkit-backdrop-filter:var(--igs-rp-blur);backdrop-filter:var(--igs-rp-blur);}
 #igs-map-panel .igs-map-source-switch{display:flex;gap:2px;padding:2px;border-radius:calc(var(--igs-rp-radius-m) - 2px);background:var(--igs-rp-fill);}
 #igs-map-panel .igs-map-source-switch button{flex:1;min-height:30px;padding:5px 14px;border:0;border-radius:calc(var(--igs-rp-radius-m) - 4px);background:transparent;color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.08em;white-space:nowrap;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
@@ -90,13 +86,6 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-map-panel .igs-map-marker.igs-map-current button::after{content:"";position:absolute;left:50%;top:50%;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:rgba(242,212,155,.45);animation:igs-map-pulse 2.4s ease-out infinite;}
 @keyframes igs-map-pulse{from{transform:scale(1);opacity:.7;}to{transform:scale(3.4);opacity:0;}}
 #igs-map-panel .igs-map-here{max-width:160px;overflow:hidden;text-overflow:ellipsis;margin-bottom:-8px;padding:2px 7px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-warm);color:#1b1d21;font-size:11px;font-weight:600;line-height:1.45;letter-spacing:.1em;white-space:nowrap;text-shadow:none;}
-#igs-map-panel .igs-map-controls{position:absolute;right:calc(clamp(300px,30%,400px) + 40px);bottom:22px;z-index:3;display:flex;flex-direction:column;gap:2px;padding:2px;border-radius:var(--igs-rp-radius-m);background:var(--igs-map-chrome);}
-#igs-map-panel .igs-map-controls button{display:grid;place-items:center;width:38px;height:38px;min-width:38px;min-height:38px;padding:0;border:0;border-radius:calc(var(--igs-rp-radius-m) - 2px);background:transparent;color:var(--igs-rp-text);transition:background .18s var(--igs-rp-ease);}
-#igs-map-panel .igs-map-controls button:hover{background:var(--igs-rp-fill-hover);}
-#igs-map-panel .igs-map-controls svg{width:18px;height:18px;stroke-width:1.6;}
-#igs-map-panel .igs-map-hint{position:absolute;left:20px;bottom:20px;z-index:3;margin:0;padding:5px 10px;border-radius:var(--igs-rp-radius-m);background:var(--igs-map-chrome);color:var(--igs-rp-text-soft);font-size:12px;letter-spacing:.04em;pointer-events:none;}
-#igs-map-panel .igs-map-feedback{position:absolute;left:50%;bottom:24px;z-index:4;margin:0;padding:8px 14px;transform:translateX(-50%);border-radius:var(--igs-rp-radius-m);background:var(--igs-map-chrome);color:var(--igs-rp-warm);font-size:13px;font-weight:500;white-space:nowrap;}
-#igs-map-panel .igs-map-feedback:empty{display:none;}
 #igs-map-panel .igs-map-detail{position:absolute;top:72px;right:20px;z-index:3;width:clamp(300px,30%,400px);max-height:calc(100% - 92px);overflow:auto;box-sizing:border-box;padding:22px 22px 20px;border-radius:var(--igs-rp-radius-l);background:${igsUiSurface(IGS_UI_THICKNESS.thick)};-webkit-backdrop-filter:var(--igs-rp-blur);backdrop-filter:var(--igs-rp-blur);box-shadow:${IGS_UI_ELEVATION},${IGS_UI_EDGE_NIGHT};}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){#igs-map-panel .igs-map-detail{background:rgba(${IGS_UI_NIGHT_RGB},.95);}}
 @media (prefers-reduced-transparency:reduce){#igs-map-panel .igs-map-detail{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(${IGS_UI_NIGHT_RGB},.97);}}
@@ -127,15 +116,37 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-map-panel .igs-map-card-auto{margin-top:10px;}
 #igs-map-panel details{margin-top:16px;color:var(--igs-rp-text-faint);font-size:12px;}
 #igs-map-panel details summary{cursor:pointer;}
-#igs-map-panel.igs-rp-narrow .igs-map-tabs{top:52px;}
-#igs-map-panel.igs-rp-narrow .igs-map-overlay-top{top:60px;left:10px;}
 #igs-map-panel.igs-rp-narrow .igs-map-detail{top:auto;left:10px;right:10px;bottom:10px;width:auto;max-height:46%;padding:18px 18px 14px;}
-#igs-map-panel.igs-rp-narrow .igs-map-detail.is-empty{left:50%;right:auto;bottom:14px;padding:8px 14px;transform:translateX(-50%);}
-#igs-map-panel.igs-rp-narrow .igs-map-controls{top:112px;right:10px;bottom:auto;}
-#igs-map-panel.igs-rp-narrow .igs-map-controls button{width:38px;height:38px;min-width:38px;min-height:38px;}
-#igs-map-panel.igs-rp-narrow .igs-map-hint{display:none;}
-#igs-map-panel.igs-rp-narrow .igs-map-feedback{bottom:auto;top:64px;}
 #igs-map-panel.igs-rp-narrow .igs-map-marker svg{width:24px;height:24px;}
 #igs-map-panel.igs-rp-narrow .igs-map-card h3{font-size:19px;margin:6px 0 8px;}
 #igs-map-panel.igs-rp-narrow .igs-map-card-actions{margin-top:16px;}
+#igs-map-panel .igs-rp-head .igs-rp-back{background:var(--igs-map-chrome);}
+#igs-map-panel .igs-rp-head .igs-rp-back:hover{background:var(--igs-map-chrome-hover);}
+#igs-map-panel .igs-rp-head .igs-rp-title{text-shadow:0 1px 2px rgba(0,0,0,.7),0 0 12px rgba(0,0,0,.45);}
+#igs-map-panel .igs-rp-head-end{justify-self:end;display:flex;align-items:center;min-width:0;}
+#igs-map-panel .igs-map-tools{display:flex;align-items:center;gap:2px;padding:2px;border-radius:var(--igs-rp-radius-m);background:var(--igs-map-chrome);}
+#igs-map-panel .igs-map-tools button{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:calc(var(--igs-rp-radius-m) - 2px);background:transparent;color:var(--igs-rp-text-soft);transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+#igs-map-panel .igs-map-tools button:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+#igs-map-panel .igs-map-tools button[aria-expanded="true"]{background:var(--igs-rp-fill-active,var(--igs-rp-fill-hover));color:var(--igs-rp-text);}
+#igs-map-panel .igs-map-tools svg{width:18px;height:18px;stroke-width:1.6;}
+#igs-map-panel .igs-map-source-menu{position:absolute;top:calc(58px + env(safe-area-inset-top,0px));right:16px;z-index:6;}
+#igs-map-panel .igs-map-source-menu[hidden]{display:none;}
+#igs-map-panel .igs-map-top{position:absolute;top:calc(62px + env(safe-area-inset-top,0px));left:50%;z-index:4;display:flex;flex-direction:column;align-items:center;gap:6px;max-width:calc(100% - 32px);transform:translateX(-50%);pointer-events:none;}
+#igs-map-panel .igs-map-top>*{pointer-events:auto;}
+#igs-map-panel .igs-map-tabs{display:flex;gap:2px;max-width:100%;overflow-x:auto;padding:2px;border-radius:var(--igs-rp-radius-m);background:var(--igs-map-chrome);}
+#igs-map-panel .igs-map-status{margin:0;padding:5px 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-map-chrome);color:var(--igs-rp-text-soft);font-size:12px;line-height:1.5;letter-spacing:.04em;text-align:center;overflow-wrap:anywhere;pointer-events:none;}
+#igs-map-panel .igs-map-status:empty{display:none;}
+#igs-map-panel .igs-map-card{position:relative;}
+#igs-map-panel .igs-map-card-close{position:absolute;top:-10px;right:-10px;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-faint);transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+#igs-map-panel .igs-map-card-close:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+#igs-map-panel .igs-map-card-close svg{width:16px;height:16px;}
+#igs-map-panel .igs-map-card h3{padding-right:24px;}
+#igs-map-panel.igs-rp-narrow .igs-rp-head{padding-left:8px;padding-right:10px;column-gap:8px;}
+#igs-map-panel.igs-rp-narrow .igs-map-zoom{display:none;}
+#igs-map-panel.igs-rp-narrow .igs-map-source-menu{left:10px;right:10px;}
+#igs-map-panel.igs-rp-narrow .igs-map-top{top:calc(56px + env(safe-area-inset-top,0px));}
+#igs-map-panel.igs-rp-narrow .igs-map-detail.is-passive{display:none;}
+#igs-map-panel.igs-rp-narrow .igs-map-detail.is-passive.has-levels{display:flex;left:50%;right:auto;bottom:14px;width:auto;max-width:calc(100% - 20px);padding:4px 10px 4px 4px;border-radius:var(--igs-rp-radius-m);transform:translateX(-50%);}
+#igs-map-panel.igs-rp-narrow .igs-map-detail.is-passive .igs-map-levels{margin:0;}
+#igs-map-panel.igs-rp-narrow .igs-map-detail.is-passive>:not(.igs-map-levels){display:none;}
 `;

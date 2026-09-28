@@ -243,6 +243,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
         ]),
         requiredActions: Object.freeze([
             'fetch-image-models',
+            'fetch-llm-models',
             'test-image',
             'image-log-refresh',
             'image-log-copy',
