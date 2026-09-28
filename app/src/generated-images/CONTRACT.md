@@ -5,7 +5,7 @@
 - 管理生图 provider。
 - 内置 provider 放在 `generated-images/providers/`。
 - 模型专属请求构建器放在 `generated-images/request-builders/`。
-- st-chatu8 和 chami 必须作为可拆卸内置 provider，而不是写死在核心逻辑里。
+- st-chatu8 必须作为可拆卸内置 provider，而不是写死在核心逻辑里。
 - 兼容 Immersive Galgame System 既有的外部插图扩展适配能力。
 - 支持内置生图 API、提示词预设、轮询和失败反馈。
 - 生成图持久化和图片池统一交给 `media`。

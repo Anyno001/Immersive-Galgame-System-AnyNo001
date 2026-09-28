@@ -34,6 +34,22 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         return ctx && typeof ctx.name1 === 'string' ? ctx.name1 : '';
     }
 
+    // 当前角色卡与群聊成员都是已登记角色，不该被当作路人生成立绘。
+    function getCharacterNames() {
+        const ctx = context();
+        if (!ctx) return [];
+        const names = [];
+        if (typeof ctx.name2 === 'string') names.push(ctx.name2);
+        const characters = Array.isArray(ctx.characters) ? ctx.characters : [];
+        const group = ctx.groupId != null && Array.isArray(ctx.groups)
+            ? ctx.groups.find((g) => g && String(g.id) === String(ctx.groupId)) : null;
+        for (const avatar of (group && Array.isArray(group.members) ? group.members : [])) {
+            const hit = characters.find((c) => c && c.avatar === avatar);
+            if (hit && hit.name) names.push(hit.name);
+        }
+        return Array.from(new Set(names.map((n) => String(n || '').trim()).filter(Boolean)));
+    }
+
     function readPreviousAiTexts(messageId, count) {
         const ctx = context();
         const chat = ctx && Array.isArray(ctx.chat) ? ctx.chat : [];
@@ -129,7 +145,7 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
     }
 
     return {
-        getChatId, getUserName, readFloor, readPreviousAiTexts, writeFloor, on, attachPromptStrip, ensureMarkerRegexes,
+        getChatId, getUserName, getCharacterNames, readFloor, readPreviousAiTexts, writeFloor, on, attachPromptStrip, ensureMarkerRegexes,
         destroy() { while (cleanups.length) cleanups.pop()(); },
     };
 }

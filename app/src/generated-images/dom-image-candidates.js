@@ -11,29 +11,6 @@ const ADAPTER_SELECTORS = Object.freeze({
             'button[class*="st-chatu8-image"]',
         ]),
     }),
-    chami: Object.freeze({
-        images: Object.freeze([
-            '.tsp-generated-image',
-            '.tsp-inline-image',
-            '.tsp-image-slot img',
-            'img[src*="tsp-images"]',
-        ]),
-        buttons: Object.freeze([
-            '.tsp-inline-gen-btn',
-            '.tsp-regenerate-btn',
-        ]),
-        metadata: Object.freeze([
-            '[data-image-id]',
-            '[data-location-hash]',
-            '[data-slot-index]',
-            '[data-image-index]',
-            '[data-igs-image-slot]',
-            'img[data-image-id]',
-            'img[data-location-hash]',
-            '[data-image-id] img',
-            '[data-location-hash] img',
-        ]),
-    }),
     generic: Object.freeze({
         images: Object.freeze([
             '.mes_text img[src]',
@@ -96,52 +73,33 @@ export function getGlobalDetectionRoots(globalObject = globalThis.window || glob
 
 export function detectExternalImageAdapter(context = {}) {
     const roots = resolveDomRoots(context);
-    const globalObject = context.global || globalThis.window || globalThis;
     const selectors = getAdapterSelectors();
     const chatu8Images = countMatches(roots, selectors.chatu8.images);
     const chatu8Buttons = countMatches(roots, selectors.chatu8.buttons);
-    const chamiImages = countMatches(roots, selectors.chami.images);
-    const chamiButtons = countMatches(roots, selectors.chami.buttons);
-    const chamiMetadata = countMatches(roots, selectors.chami.metadata);
-    const topWindow = resolveTopWindow(globalObject);
-    const hasEventSource = Boolean(topWindow && topWindow.eventSource && typeof topWindow.eventSource.emit === 'function');
-    const hasChamiApi = Boolean(topWindow && (topWindow.TSP || topWindow.tsp || topWindow.tspPlugin || topWindow.TavernScenePlugin));
     const requested = normalizeAdapterSelection(context.imageApi && context.imageApi.externalAdapter);
 
     let adapter = 'none';
-    if (requested === 'chami') {
-        adapter = chamiImages || chamiButtons || chamiMetadata || hasEventSource || hasChamiApi ? 'chami' : 'none';
-    } else if (requested === 'chatu8') {
+    if (requested === 'chatu8') {
         adapter = chatu8Images || chatu8Buttons ? 'chatu8' : 'none';
-    } else if (chamiImages || chamiButtons || chamiMetadata || hasEventSource || hasChamiApi) {
-        adapter = 'chami';
     } else if (chatu8Images || chatu8Buttons) {
         adapter = 'chatu8';
     }
 
     const summary = [];
-    if (chamiImages || chamiButtons || chamiMetadata || hasEventSource || hasChamiApi) {
-        summary.push(`chami: 图片 ${chamiImages}，按钮 ${chamiButtons}，元数据 ${chamiMetadata}${hasEventSource ? '，事件可用' : ''}${hasChamiApi ? '，页面对象可见' : ''}`);
-    }
     if (chatu8Images || chatu8Buttons) {
-        summary.push(`chatu8: 图片 ${chatu8Images}，按钮 ${chatu8Buttons}`);
+        summary.push(`智绘姬: 图片 ${chatu8Images}，按钮 ${chatu8Buttons}`);
     }
 
     return {
         ok: adapter !== 'none',
         adapter,
         details: {
-            chamiImages,
-            chamiButtons,
-            chamiMetadata,
             chatu8Images,
             chatu8Buttons,
-            hasEventSource,
-            hasChamiApi,
         },
         message: adapter === 'none'
-            ? `未检测到可用插图扩展。${summary.length ? ` 当前探测：${summary.join('；')}` : ''}`
-            : `已检测到 ${adapter} 插图扩展。${summary.length ? ` ${summary.join('；')}` : ''}`,
+            ? `未检测到智绘姬等插图插件，未安装时请改用「IGS 内置 NAI API」。${summary.length ? ` 当前探测：${summary.join('；')}` : ''}`
+            : `已检测到${adapter === 'chatu8' ? '智绘姬（st-chatu8）' : ` ${adapter} `}插图插件。${summary.length ? ` ${summary.join('；')}` : ''}`,
     };
 }
 
@@ -202,7 +160,6 @@ export function findDomRegenerateButtons(roots) {
 export function collectDomRegenerateButtonCandidates(roots) {
     const selectors = [
         ...ADAPTER_SELECTORS.chatu8.buttons.map((selector) => ({ selector, adapterKey: 'chatu8', requireHint: false })),
-        ...ADAPTER_SELECTORS.chami.buttons.map((selector) => ({ selector, adapterKey: 'chami', requireHint: false })),
         { selector: 'button', adapterKey: 'generic', requireHint: true },
         { selector: '[role="button"]', adapterKey: 'generic', requireHint: true },
         { selector: 'input[type="button"]', adapterKey: 'generic', requireHint: true },
@@ -251,14 +208,14 @@ export function normalizeImageUrl(value, key) {
 
 function normalizeAdapterKeyList(value) {
     const keys = Array.isArray(value) ? value : [];
-    if (!keys.length) return ['chatu8', 'chami', 'generic'];
+    if (!keys.length) return ['chatu8', 'generic'];
     const output = [];
     for (const key of keys) {
         const normalized = normalizeAdapterSelection(key);
         if (!normalized || output.includes(normalized)) continue;
         output.push(normalized);
     }
-    return output.length ? output : ['chatu8', 'chami', 'generic'];
+    return output.length ? output : ['chatu8', 'generic'];
 }
 
 function buildCandidateSelectorList(adapterKeys) {
@@ -268,11 +225,6 @@ function buildCandidateSelectorList(adapterKeys) {
         if (!config) continue;
         for (const selector of config.images || []) {
             output.push({ adapterKey: key, selector });
-        }
-        if (key === 'chami') {
-            for (const selector of config.metadata || []) {
-                output.push({ adapterKey: key, selector });
-            }
         }
     }
     return output;
@@ -334,8 +286,6 @@ function imageCandidateGroupKey(sourceNode, imageNode, url, order) {
         || safeGetAttribute(metadataNode, 'data-image-id')
         || '';
     if (imageId) return `id:${imageId}`;
-    const isChami = Boolean(safeClosest(source, '[class*="tsp-"],[data-location-hash],[data-image-id]'));
-    if (isChami) return `chami-url:${url}`;
     return `node:${order}`;
 }
 
@@ -411,7 +361,7 @@ function imageKeyHint(key) {
 
 function normalizeAdapterSelection(value) {
     const normalized = String(value || 'auto').trim().toLowerCase();
-    if (normalized === 'chatu8' || normalized === 'chami' || normalized === 'generic') return normalized;
+    if (normalized === 'chatu8' || normalized === 'generic') return normalized;
     return normalized === 'auto' ? 'auto' : normalized;
 }
 
@@ -515,14 +465,6 @@ function safeDocument(target) {
         return target && target.document ? target.document : null;
     } catch (error) {
         return null;
-    }
-}
-
-function resolveTopWindow(globalObject) {
-    try {
-        return globalObject && globalObject.top ? globalObject.top : globalObject;
-    } catch (error) {
-        return globalObject;
     }
 }
 

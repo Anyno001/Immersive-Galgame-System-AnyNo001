@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from './reduced-motion.js';
 import { chatRevealDelayMs, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { chatSfxKindForSide, playChatSfx } from './chat-sfx.js';
 
@@ -12,8 +13,7 @@ const seenByRoot = new WeakMap();
 const boundLayers = new WeakSet();
 
 function hasReducedMotion() {
-    return typeof globalThis.matchMedia === 'function'
-        && globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return prefersReducedMotion();
 }
 
 function el(doc, tag, className, text) {

@@ -19,6 +19,7 @@ import { isStrictBackgroundMatch } from '../../generated-images/illustration/aut
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { normalizeMoodGroups, resolveMoodGroup } from '../../scene/mood-groups.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { normalizeImageSourceMode, mergeLegacyNaiSettings } from '../../generated-images/image-backend.js';
 import {
     getOriginalReaderHtml,
     getOriginalReaderSource,
@@ -431,6 +432,10 @@ export function createIgsReaderHost(options = {}) {
         }
 
         const initialSnapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
+        // 旧版「其他生图」的 NAI Key 在打开设置时并入统一的 NAI 设置，保存后即完成迁移。
+        if (initialSnapshot.bridge) {
+            initialSnapshot.bridge.autoIllustration = mergeLegacyNaiSettings(initialSnapshot.bridge.autoIllustration, initialSnapshot.bridge.imageApi);
+        }
         const controller = createSettingsController();
         const settingsState = {
             tab: normalizedTab,
@@ -1192,58 +1197,7 @@ export function createIgsReaderHost(options = {}) {
         state.activeReader.lastAction = normalizedAction;
 
         if (normalizedAction === 'generate-assets') {
-            const current = state.activeReader;
-            const feedback = (level, message) => {
-                if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
-                if (state.activeReader === current) writeToastSafe(message);
-            };
-            const service = options.generatedAssets;
-            if (!service || typeof service.processMessage !== 'function') {
-                feedback('error', '手动生图不可用：素材生成服务未就绪');
-                return { ok: false, reason: 'service-unavailable' };
-            }
-            const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
-            const floor = messageId != null && typeof options.getIllustrationSource === 'function'
-                ? options.getIllustrationSource(messageId) : null;
-            if (!floor || !floor.isAi || !floor.isLatest || !floor.chatId || !String(floor.text || '').trim()) {
-                feedback('warn', '手动生图已跳过：请打开当前聊天最新的非空 AI 楼层');
-                return { ok: true, reason: 'not-eligible' };
-            }
-            const identity = current.illustrationIdentity;
-            if (!identity || floor.chatId !== identity.chatId || floor.swipeId !== identity.swipeId
-                || Number(floor.messageId) !== Number(messageId)) {
-                feedback('warn', '手动生图已跳过：聊天或回复版本已变化，请重新打开最新楼层');
-                return { ok: true, reason: 'stale-floor' };
-            }
-            if (current.assetGenerationPending) {
-                feedback('info', '手动生图处理中，请等待当前任务完成');
-                return { ok: true, reason: 'busy' };
-            }
-            current.assetGenerationPending = true;
-            feedback('info', `第 ${messageId} 楼手动生图：正在检查缺失的背景和立绘…`);
-            try {
-                const result = await service.processMessage(Number(messageId), { manual: true });
-                const skipped = {
-                    disabled: '请在设置中开启自动背景或自动立绘并保存',
-                    'scene-assets-disabled': '请在设置中开启场景素材并保存',
-                    'not-eligible': '当前楼层不是最新的非空 AI 回复',
-                    'nothing-missing': '没有缺失的背景或立绘，不会重复生成已有素材',
-                    'already-decided': '当前楼层已处理，请等待当前任务完成后重试',
-                };
-                if (!result || !result.ok) {
-                    feedback('error', `手动生图失败：${result && result.error || '部分或全部素材生成失败，请查看图像设置中的生图日志'}`);
-                } else if (skipped[result.reason]) {
-                    feedback('warn', `手动生图已跳过：${skipped[result.reason]}`);
-                } else {
-                    feedback('success', `手动生图完成：已生成 ${result.count || 0} 项素材，待确认`);
-                }
-                return result || { ok: false, reason: 'error' };
-            } catch (error) {
-                feedback('error', '手动生图异常，请查看生图日志后重试');
-                return { ok: false, reason: 'error' };
-            } finally {
-                current.assetGenerationPending = false;
-            }
+            return runManualAssetGeneration();
         }
         if (normalizedAction === 'settings') {
             return state.activeReader.controller.openSettings('basic');
@@ -1314,7 +1268,7 @@ export function createIgsReaderHost(options = {}) {
             return jumpReaderSegment(Number.MAX_SAFE_INTEGER);
         }
         if (normalizedAction === 'regen') {
-            return regenerateCurrentImage();
+            return generateOrRegenerate();
         }
         if (normalizedAction === 'rescan') {
             return reloadActiveReader();
@@ -1508,6 +1462,142 @@ export function createIgsReaderHost(options = {}) {
         return snapshot && snapshot.content ? snapshot.content.progress : '';
     }
 
+    // 工具栏「画 CG」：先补画本楼的过场 / NSFW 插图（含重试失败的张），没有可补的再重画当前图。
+    // 素材补全是单独的「补全素材」按钮，不在这里顺带触发。
+    async function generateOrRegenerate() {
+        const hasCg = options.illustrations && typeof options.illustrations.processMessage === 'function';
+        if (!hasCg) return regenerateCurrentImage();
+        const cg = await runManualIllustration({ deferSkip: true });
+        if (!cg || !cg.skipMessage) return cg;
+        const regen = await regenerateCurrentImage();
+        if (regen && regen.reason === 'provider-not-enabled') {
+            writeToastSafe(cg.skipMessage);
+            return cg;
+        }
+        return regen;
+    }
+
+    function readManualFloor(current) {
+        const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
+        const floor = messageId != null && typeof options.getIllustrationSource === 'function'
+            ? options.getIllustrationSource(messageId) : null;
+        if (!floor || !floor.isAi || !floor.isLatest || !floor.chatId || !String(floor.text || '').trim()) {
+            return { messageId, reason: 'not-eligible', message: '请打开当前聊天最新的非空 AI 楼层' };
+        }
+        const identity = current.illustrationIdentity;
+        if (!identity || floor.chatId !== identity.chatId || floor.swipeId !== identity.swipeId
+            || Number(floor.messageId) !== Number(messageId)) {
+            return { messageId, reason: 'stale-floor', message: '聊天或回复版本已变化，请重新打开最新楼层' };
+        }
+        return { messageId, floor };
+    }
+
+    // 过场 / NSFW 插图：手动时跳过过场概率，并重试之前失败的张。
+    async function runManualIllustration({ deferSkip = false } = {}) {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const feedback = (level, message) => {
+            if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
+            if (state.activeReader === current) writeToastSafe(message);
+        };
+        const skip = (result, message) => {
+            if (!deferSkip) {
+                feedback('warn', message);
+                return result;
+            }
+            return { ...result, skipMessage: message };
+        };
+        const service = options.illustrations;
+        if (!service || typeof service.processMessage !== 'function') {
+            return skip({ ok: false, reason: 'service-unavailable' }, '插图已跳过：插图服务未就绪');
+        }
+        const target = readManualFloor(current);
+        if (!target.floor) return skip({ ok: true, reason: target.reason }, `插图已跳过：${target.message}`);
+        if (current.illustrationPending) {
+            feedback('info', '插图处理中，请等待当前任务完成');
+            return { ok: true, reason: 'busy' };
+        }
+        current.illustrationPending = true;
+        feedback('info', `第 ${target.messageId} 楼插图：正在检查过场 / NSFW 插图…`);
+        try {
+            const result = await service.processMessage(Number(target.messageId), { manual: true });
+            const skipped = {
+                disabled: '请在设置「生图 → 生图内容」开启 NSFW 或过场插图并保存',
+                'not-eligible': '当前楼层不是最新的非空 AI 回复',
+                'nothing-missing': '本楼插图都已生成',
+                'not-selected': (result && result.why) || '本楼不需要插图',
+            };
+            if (!result || !result.ok) {
+                feedback('error', `插图生成失败：${(result && result.error) || '未返回具体原因'}`);
+            } else if (skipped[result.reason]) {
+                return skip(result, `插图已跳过：${skipped[result.reason]}`);
+            } else {
+                feedback('success', `插图完成：已生成 ${result.count || 0} 张`);
+            }
+            return result || { ok: false, reason: 'error' };
+        } catch (error) {
+            feedback('error', `插图异常：${(error && error.message) || error || '未知错误'}`);
+            return { ok: false, reason: 'error' };
+        } finally {
+            current.illustrationPending = false;
+        }
+    }
+
+    async function runManualAssetGeneration({ deferSkip = false } = {}) {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const feedback = (level, message) => {
+            if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
+            if (state.activeReader === current) writeToastSafe(message);
+        };
+        // 没有可补全素材时交给重画当前图，这类跳过不必单独提示。
+        const skip = (result, message) => {
+            if (!deferSkip) {
+                feedback('warn', message);
+                return result;
+            }
+            return { ...result, skipMessage: message };
+        };
+        const service = options.generatedAssets;
+        if (!service || typeof service.processMessage !== 'function') {
+            feedback('error', '补全素材不可用：素材生成服务未就绪');
+            return { ok: false, reason: 'service-unavailable' };
+        }
+        const target = readManualFloor(current);
+        const messageId = target.messageId;
+        if (!target.floor) return skip({ ok: true, reason: target.reason }, `补全素材已跳过：${target.message}`);
+        if (current.assetGenerationPending) {
+            feedback('info', '补全素材处理中，请等待当前任务完成');
+            return { ok: true, reason: 'busy' };
+        }
+        current.assetGenerationPending = true;
+        feedback('info', `第 ${messageId} 楼补全素材：正在检查未登记的人物和场景…`);
+        try {
+            const result = await service.processMessage(Number(messageId), { manual: true });
+            const skipped = {
+                disabled: '请在设置中开启自动背景或自动立绘并保存',
+                'scene-assets-disabled': '请在设置中开启场景素材并保存',
+                'not-eligible': '当前楼层不是最新的非空 AI 回复',
+                'nothing-missing': '本楼没有未登记的人物或场景，已登记的素材不会重复生成',
+            };
+            if (!result || !result.ok) {
+                feedback('error', `补全素材失败：${result && result.error || '素材生成失败（未返回具体原因）'}`);
+            } else if (result.reason === 'already-decided') {
+                feedback('warn', '补全素材已跳过：当前楼层已处理，请等待当前任务完成后重试');
+            } else if (skipped[result.reason]) {
+                return skip(result || { ok: false, reason: 'error' }, `补全素材已跳过：${skipped[result.reason]}`);
+            } else {
+                feedback('success', `补全素材完成：已生成 ${result.count || 0} 项素材，待确认`);
+            }
+            return result || { ok: false, reason: 'error' };
+        } catch (error) {
+            feedback('error', `补全素材异常：${(error && error.message) || error || '未知错误'}`);
+            return { ok: false, reason: 'error' };
+        } finally {
+            current.assetGenerationPending = false;
+        }
+    }
+
     async function regenerateCurrentImage() {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
@@ -1563,7 +1653,16 @@ export function createIgsReaderHost(options = {}) {
             element = current.payload.message.element || null;
         }
         if (!element) return '';
-        return getVisibleMessageTextFromElement(element);
+        // 取可见正文要深克隆整条消息 DOM，翻页时每次都做代价不小；宿主回写正文必然改变
+        // textContent，所以同一节点且 textContent 未变时复用上次结果。
+        const fingerprint = typeof element.textContent === 'string' ? element.textContent : null;
+        const memo = current.liveTextMemo;
+        if (fingerprint !== null && memo && memo.element === element && memo.fingerprint === fingerprint) {
+            return memo.text;
+        }
+        const text = getVisibleMessageTextFromElement(element);
+        current.liveTextMemo = fingerprint === null ? null : { element, fingerprint, text };
+        return text;
     }
 
     // 工具栏「重新加载」：清缓存后按当前楼层走完整打开流程重建阅读器，近似插件重载。
@@ -1684,6 +1783,8 @@ export function createIgsReaderHost(options = {}) {
         const attempts = normalizePollAttempts(imageApi.initialPollAttempts);
         let previousSignature = String(current.snapshot && current.snapshot.content && current.snapshot.content.imageSignature || '');
         let previousBoundCount = Number(current.snapshot && current.snapshot.content && current.snapshot.content.imageBoundCount || 0) || 0;
+        // 只在拿到新的图片地址时重渲染；同一地址反复命中不再整页重绘。
+        let previousUrl = '';
 
         for (let attempt = 0; attempt < attempts; attempt += 1) {
             await waitForReaderImagePoll(intervalMs, options.global);
@@ -1700,11 +1801,12 @@ export function createIgsReaderHost(options = {}) {
             const nextBoundCount = countBoundImageSlots(result);
             const nextSignature = String(result.signature || '');
             const currentUrl = String(result.currentUrl || result.displayUrl || '').trim();
-            if (nextSignature !== previousSignature || nextBoundCount > previousBoundCount || currentUrl) {
+            if (nextSignature !== previousSignature || nextBoundCount > previousBoundCount || (currentUrl && currentUrl !== previousUrl)) {
                 current.payload.imageState = cloneData(result);
                 rerenderActiveReader();
                 previousSignature = nextSignature;
                 previousBoundCount = nextBoundCount;
+                previousUrl = currentUrl;
                 if (!shouldPollReaderImages(current.snapshot && current.snapshot.content)) {
                     current.imagePolling = false;
                     return;
@@ -2296,8 +2398,12 @@ export function createIgsReaderHost(options = {}) {
         const sourceFilter = bridge.sourceFilter;
         const reader = draft.readerSettings;
 
+        const advancedOpen = (key) => (asyncState.advancedOpen && asyncState.advancedOpen[key] ? ' open' : '');
+
         if (tab === 'basic') {
             return renderTemplate(getSettingsTabTemplate('basic'), {
+                advancedFilterOpen: advancedOpen('source-filter'),
+                advancedRegexOpen: advancedOpen('virtual-regex'),
                 openModeField: `<div class="igs-segmented-field">${field(
                     'bridge.openMode',
                     '打开方式',
@@ -2308,7 +2414,7 @@ export function createIgsReaderHost(options = {}) {
                         '打开方式',
                     ),
                 )}</div>`,
-                settingsToggles: checkbox('bridge.showToasts', bridge.showToasts, '显示提示 toast'),
+                settingsToggles: checkbox('bridge.showToasts', bridge.showToasts, '显示提示弹窗'),
                 filterToggle: checkbox('bridge.sourceFilter.enabled', sourceFilter.enabled, '启用标签筛选'),
                 filterHidden: hiddenAttr(!sourceFilter.enabled),
                 filterOptionToggles: checkbox('bridge.sourceFilter.stripHtmlComments', sourceFilter.stripHtmlComments, '排除 HTML 注释')
@@ -2331,9 +2437,18 @@ export function createIgsReaderHost(options = {}) {
         }
 
         if (tab === 'image') {
-            const apiDisabled = imageApi.mode !== 'nai';
-            const promptPrefixInput = `<textarea data-path="bridge.imageApi.promptPrefix" placeholder="可选，生成图片时追加到正文前"${disabledAttr(apiDisabled)}>${esc(imageApi.promptPrefix || '')}</textarea>`;
-            const auto = normalizeAutoIllustrationSettings(bridge.autoIllustration);
+            const sourceMode = normalizeImageSourceMode(imageApi.mode);
+            const auto = normalizeAutoIllustrationSettings(mergeLegacyNaiSettings(bridge.autoIllustration, imageApi));
+            const sourceNotes = {
+                nai: '剧情 CG、素材和重画都由 IGS 直接请求 NovelAI；副 LLM 负责规划画面并写标签。',
+                dbgen: '剧情 CG、素材和重画都交给数据库生图插件：提示词、画师串和 NAI Key 在该插件里设置，IGS 只决定画哪一段、画什么。',
+                extension: '智绘姬自己在楼层里出图，IGS 负责读取展示、重画时代点它的按钮。智绘姬无法按需生成剧情 CG 和素材，这两项仍用下方内置 NAI（未填 Key 则不生成）。',
+            };
+            const contentNotes = {
+                nai: '当前图像来源：IGS 内置 NAI。',
+                dbgen: '当前图像来源：数据库生图插件（提示词由插件书写，下方副 LLM 仅用于剧情 CG 选段落）。',
+                extension: '当前图像来源：智绘姬。剧情 CG 与素材改用内置 NAI 生成，请在「图像来源」填写 NAI Key。',
+            };
             const openaiDisabled = auto.llm.source !== 'openai';
             const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
             const imageSubTab = normalizeImageSubTab(asyncState.imageSubTab);
@@ -2343,24 +2458,23 @@ export function createIgsReaderHost(options = {}) {
                 imageLogMaxEntriesField: field('bridge.imageJobLog.maxEntries', '自动清理：最多保留条数', numberInput('bridge.imageJobLog.maxEntries', logSettings.maxEntries, 50, 1000)),
                 imageLogStatus: esc(asyncState.imageLogStatus || ''),
                 imageLogList: imageSubTab === 'logs' ? renderImageJobLogList() : '',
-                imageModeField: field('bridge.imageApi.mode', '图像模式', selectInput('bridge.imageApi.mode', imageApi.mode, [['extension', '使用现有插图扩展'], ['nai', 'IGS 内置 NAI API']])),
-                adapterField: field('bridge.imageApi.externalAdapter', '插图扩展', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', 'st-chatu8 / chatu8'], ['chami', 'chami_tavern-scene-plugin']], imageApi.mode === 'nai')),
-                extensionHidden: hiddenAttr(!apiDisabled),
-                apiGroupClass: 'igs-settings-api-group igs-settings-sub',
-                apiHidden: hiddenAttr(apiDisabled),
-                endpointField: field('bridge.imageApi.endpoint', '图像 API 地址', textInput('bridge.imageApi.endpoint', imageApi.endpoint, '留空使用 NAI 官方接口；也可填第三方地址', 'text', apiDisabled)),
-                transportField: field('bridge.imageApi.transport', '传输方式（NAI 原生接口）', selectInput('bridge.imageApi.transport', imageApi.transport === 'st-proxy' ? 'st-proxy' : 'direct', [['direct', '浏览器直连'], ['st-proxy', '酒馆 CORS 代理（需开启 enableCorsProxy）']], apiDisabled)),
-                apiKeyField: field('bridge.imageApi.apiKey', 'API Key', secretInput('bridge.imageApi.apiKey', imageApi.apiKey, '留空则不发送 Authorization', apiDisabled)),
-                modelField: field('bridge.imageApi.model', '模型', modelPicker('bridge.imageApi.model', imageApi.model, imageApi.availableModels, 'fetch-image-models', 'nai-diffusion-4-5-full', apiDisabled)),
-                sizeField: field('bridge.imageApi.size', '尺寸', textInput('bridge.imageApi.size', imageApi.size, '832x1216', 'text', apiDisabled)),
-                stepsField: field('bridge.imageApi.steps', '步数', numberInput('bridge.imageApi.steps', imageApi.steps, 1, 100, apiDisabled)),
-                samplerField: field('bridge.imageApi.sampler', '采样器', textInput('bridge.imageApi.sampler', imageApi.sampler, 'k_euler_ancestral', 'text', apiDisabled)),
-                timeoutField: field('bridge.imageApi.requestTimeoutMs', '请求超时 ms', numberInput('bridge.imageApi.requestTimeoutMs', imageApi.requestTimeoutMs, 5000, 300000, apiDisabled)),
-                pollIntervalField: field('bridge.imageApi.pollIntervalMs', '轮询间隔 ms', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000, apiDisabled)),
-                pollAttemptsField: field('bridge.imageApi.pollAttempts', '轮询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240, apiDisabled)),
-                promptPrefixField: field('bridge.imageApi.promptPrefix', '图像提示词前缀', promptPrefixInput),
-                imageModelsMessage: esc(asyncState.imageModelsMessage || ''),
-                imageTestActionLabel: imageApi.mode === 'nai' ? '测试生成' : '检测插件',
+                imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS 内置 NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬']], '图像来源')),
+                imageSourceNote: esc(sourceNotes[sourceMode]),
+                imageContentNote: esc(contentNotes[sourceMode]),
+                sourceNaiHidden: hiddenAttr(sourceMode === 'dbgen'),
+                sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
+                sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
+                advancedNaiOpen: advancedOpen('nai'),
+                advancedExtensionOpen: advancedOpen('extension'),
+                advancedNsfwOpen: advancedOpen('nsfw'),
+                advancedAssetTemplatesOpen: advancedOpen('asset-templates'),
+                autoAssetOptionsHidden: hiddenAttr(!auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
+                assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
+                autoLlmNote: esc(sourceMode === 'dbgen' ? '数据库生图插件自己写提示词；副 LLM 只用来给剧情 CG 选插图位置，素材不经过副 LLM。' : '为剧情 CG 选插图位置并写标签；素材缺失时写人物 / 场景标签。'),
+                adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
+                pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：轮询间隔 ms', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
+                pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：轮询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
+                imageTestActionLabel: sourceMode === 'extension' ? '检测智绘姬' : (sourceMode === 'dbgen' ? '检测并测试生成' : '测试生成'),
                 imageTestHelp: esc(asyncState.imageResult || ''),
                 autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW 自动生图'),
                 autoNsfwHidden: hiddenAttr(!auto.nsfwEnabled),
@@ -2391,14 +2505,18 @@ export function createIgsReaderHost(options = {}) {
                 autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
                 autoAssetSpriteNegativeTemplateField: field('bridge.autoIllustration.assets.templates.spriteNegative', '人物负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.spriteNegative', auto.assets.templates.spriteNegative, '不希望人物立绘出现的 tag')),
                 autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, '温和重试模式下追加到 CG 场景')),
-                autoSharedHidden: hiddenAttr(!auto.nsfwEnabled && !auto.interludeEnabled && !auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
+                autoSharedHidden: hiddenAttr((!auto.nsfwEnabled && !auto.interludeEnabled && !auto.assets.spriteEnabled && !auto.assets.backgroundEnabled)
+                    || (sourceMode === 'dbgen' && !auto.nsfwEnabled && !auto.interludeEnabled)),
                 autoLlmApiHidden: hiddenAttr(openaiDisabled),
                 autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API（消耗主模型额度）'], ['openai', '独立 OpenAI 兼容 API']])),
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
                 autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '留空则不发送 Authorization', openaiDisabled)),
                 autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', modelPicker('bridge.autoIllustration.llm.model', auto.llm.model, asyncState.llmModels, 'fetch-llm-models', 'gpt-4o-mini', openaiDisabled)),
                 autoLlmModelsMessage: esc(asyncState.llmModelsMessage || ''),
-                autoLlmPromptsOpen: asyncState.llmPromptsOpen ? ' open' : '',
+                autoLlmPromptsOpen: advancedOpen('llm-prompts'),
+                advancedJailbreakOpen: advancedOpen('llm-jailbreak'),
+                autoLlmJailbreakHeadField: field('bridge.autoIllustration.llm.jailbreakHead', '头部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakHead', auto.llm.jailbreakHead, '留空不附加')),
+                autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '留空不附加')),
                 autoLlmPromptIllustrationField: field('bridge.autoIllustration.llm.prompts.illustration', 'CG 插图规划', autoTextarea('bridge.autoIllustration.llm.prompts.illustration', auto.llm.prompts.illustration, '清空即恢复内置提示词')),
                 autoLlmPromptIllustrationSoftField: field('bridge.autoIllustration.llm.prompts.illustrationSoft', 'CG 插图规划 · 温和重试（NSFW 被拒后使用）', autoTextarea('bridge.autoIllustration.llm.prompts.illustrationSoft', auto.llm.prompts.illustrationSoft, '清空即恢复内置提示词')),
                 autoLlmPromptAssetField: field('bridge.autoIllustration.llm.prompts.asset', '素材补全规划', autoTextarea('bridge.autoIllustration.llm.prompts.asset', auto.llm.prompts.asset, '清空即恢复内置提示词')),
@@ -3004,11 +3122,13 @@ export function createIgsReaderHost(options = {}) {
             if (!path) return;
             controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
         });
-        // toggle 不冒泡，用捕获阶段记住提示词折叠区的展开状态，避免重渲染后被收起。
+        // toggle 不冒泡，用捕获阶段记住「高级」折叠区的展开状态，避免重渲染后被收起。
         root.addEventListener('toggle', (event) => {
             const target = event.target;
-            if (!target || !target.getAttribute || target.getAttribute('data-image-feature') !== 'llm-prompts') return;
-            if (state.activeSettings && state.activeSettings.asyncState) state.activeSettings.asyncState.llmPromptsOpen = target.open === true;
+            const key = target && target.getAttribute ? target.getAttribute('data-advanced') : '';
+            if (!key || !state.activeSettings || !state.activeSettings.asyncState) return;
+            const asyncState = state.activeSettings.asyncState;
+            asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}), [key]: target.open === true };
         }, true);
         root.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
@@ -3553,7 +3673,7 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         if (!current) return;
         const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
-        applyToastToReader(current, bridge.showToasts !== false, message);
+        applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme));
     }
 
     function buildSpriteEditContext() {
@@ -3601,12 +3721,13 @@ function showSpritePreviewOverlay(root, url) {
     host.appendChild(overlay);
 }
 
-function applyToastToReader(current, allowed, message) {
+function applyToastToReader(current, allowed, message, theme) {
     if (!current || !message || allowed === false) return;
     clearReaderToast(current);
     current.toastMessage = String(message);
     const toast = current.dom && current.dom.overlay ? current.dom.overlay.querySelector("#igs-toast") : null;
     if (toast) {
+        if (theme) toast.setAttribute("data-igs-toast-theme", theme);
         toast.textContent = current.toastMessage;
         toast.style.opacity = "1";
     }
@@ -3636,9 +3757,11 @@ function clearReaderToast(current) {
 }
 
 const REGEN_FAILURE_TEXT = Object.freeze({
-    'provider-not-enabled': '未启用生图，请在设置「生图 → 其他」选择图像模式',
+    'provider-not-enabled': '当前图像来源无法重画，请在设置「生图 → 图像来源」选择 IGS 内置 NAI 或数据库生图插件并填好配置',
     'invalid-message-id': '找不到当前楼层',
     'regen-failed': '请求出错',
+    'regen-button-not-found': '当前楼层没有找到插图插件的生图按钮。若未安装智绘姬，请在设置「生图 → 图像来源」改选 IGS 内置 NAI 或数据库生图插件',
+    'image-poll-timeout': '已点击插图插件的生图按钮，但等待超时仍没有新图片，请检查该插件是否正常工作',
 });
 
 function describeRegenFailure(reason) {

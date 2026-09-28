@@ -31,7 +31,7 @@ export default {
 
 ## 可拆卸内置能力
 
-- st-chatu8 和 chami 作为内置 `image-provider` 注册。
+- st-chatu8 作为内置 `image-provider` 注册（chami 适配已于 v0.29.x 移除）。
 - 内置 provider 必须能在生图插件页启用、禁用、替换。
 - provider 的选择器、轮询和按钮匹配配置属于 `image-provider-preset`，不是核心硬编码。
 - 关闭某个 provider 后，不应继续扫描它对应的 DOM 或触发它的按钮。

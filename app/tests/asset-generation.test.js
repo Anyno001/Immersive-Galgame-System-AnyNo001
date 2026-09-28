@@ -314,3 +314,152 @@ test('gate:assets:manual-retries-settled-floor-without-regenerating-existing-ass
     assert.equal((await service.processMessage(3, { manual: true })).reason, 'nothing-missing');
     assert.equal(calls, 1);
 });
+
+test('gate:assets:registered-characters-and-scenes-are-not-generated', async () => {
+    const { collectAssetNeeds } = await import('../src/scene/asset-match.js');
+    const ctx = {
+        sceneAssets: { scenes: { 学校天台: { url: '', times: {} } }, characters: { 雪之下雪乃: {} }, characterAliases: {} },
+        knownCharacters: ['比企谷八幡'],
+        userName: '我',
+    };
+    const needs = collectAssetNeeds({
+        scenes: [{ scene: '天台', time: '夜晚' }, { scene: '废弃工厂', time: '' }],
+        characters: ['雪乃', '八幡', '比企谷八幡', '路人少女'],
+    }, ctx, { background: true, sprite: true });
+    assert.deepEqual(needs.map((n) => n.name), ['废弃工厂', '路人少女']);
+});
+
+test('gate:assets:nai-500-retries-and-reports-server-detail', async () => {
+    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
+    let calls = 0;
+    const sleeps = [];
+    const client = createNaiOfficialClient({
+        fetch: async () => {
+            calls += 1;
+            return { ok: false, status: 500, headers: { get: () => null }, text: async () => '{"statusCode":500,"message":"Internal server error"}' };
+        },
+        sleep: async (ms) => { sleeps.push(ms); },
+    });
+    const result = await client.generate({ scene: '1girl' }, { apiKey: 'k' });
+    assert.equal(calls, 3);
+    assert.deepEqual(sleeps, [2000, 4000]);
+    assert.match(result.error, /HTTP 500.*Internal server error/);
+});
+
+test('gate:assets:nai-request-drops-smea-and-invalid-sampler', async () => {
+    const { buildNaiV4Request } = await import('../src/generated-images/request-builders/nai-v4-builder.js');
+    const body = buildNaiV4Request({ scene: '1girl' }, { model: 'nai-diffusion-5-full', sampler: 'euler a', noiseSchedule: 'native' });
+    assert.equal('sm' in body.parameters, false);
+    assert.equal(body.parameters.sampler, 'k_euler_ancestral');
+    assert.equal(body.parameters.noise_schedule, 'karras');
+});
+
+test('gate:assets:secondary-llm-accepts-sse-reply', async () => {
+    const { createSecondaryLlm } = await import('../src/host/secondary-llm.js');
+    const llm = createSecondaryLlm({}, { fetch: async () => ({
+        ok: true, status: 200,
+        text: async () => 'data: {"choices":[{"delta":{"content":"id: "}}]}\n\ndata: {"choices":[{"delta":{"content":"bg1"}}]}\n\ndata: [DONE]\n',
+    }) });
+    assert.equal(await llm.request({ system: 's', user: 'u' }, { source: 'openai', endpoint: 'https://x/v1', model: 'm' }), 'id: bg1');
+});
+
+test('gate:assets:tavern-secondary-llm-does-not-arm-stream-observer', async () => {
+    const { createSecondaryLlm } = await import('../src/host/secondary-llm.js');
+    const { isBackgroundGenerationActive } = await import('../src/host/background-generation.js');
+    let seen = null;
+    let during = null;
+    const llm = createSecondaryLlm({ TavernHelper: { generateRaw: async (req) => { seen = req; during = isBackgroundGenerationActive(); return 'ok'; } } });
+    assert.equal(await llm.request({ system: 's', user: 'u' }, {}), 'ok');
+    assert.equal(seen.should_silence, true);
+    assert.equal(during, true);
+    assert.equal(isBackgroundGenerationActive(), false);
+});
+
+test('gate:image-backend:dbgen-writes-prompt-and-generates', async () => {
+    const { createImageBackend } = await import('../src/generated-images/image-backend.js');
+    const calls = [];
+    const globalObject = {
+        btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
+        NaiDbGen: {
+            async generateSinglePrompt(req) { calls.push(['prompt', req]); return { ok: true, value: { caption: { v4_prompt: { caption: { base_caption: 'x', char_captions: [] } }, v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } } } } }; },
+            async generate(req) { calls.push(['gen', req]); return { ok: true, value: [{ blob: new Blob([Uint8Array.from([1, 2, 3])], { type: 'image/png' }), mimeType: 'image/png' }] }; },
+        },
+    };
+    const nai = { generate: async () => { throw new Error('不应走内置 NAI'); } };
+    const backend = createImageBackend({ nai, global: globalObject, getBridge: () => ({ imageApi: { mode: 'dbgen' } }) });
+    assert.deepEqual([backend.describe().ready.ok, backend.describe().ownPrompts], [true, true]);
+    const result = await backend.generate({ scene: 'ignored' }, {}, { messageId: 7, description: '她推开门', size: '1216x832' });
+    assert.equal(result.ok, true);
+    assert.equal(result.dataUrl, 'data:image/png;base64,AQID');
+    assert.deepEqual(calls[0], ['prompt', { description: '她推开门', messageId: 7 }]);
+    assert.equal(calls[1][1].replaceCharacterKeywords, true);
+    assert.deepEqual(calls[1][1].params, { width: 1216, height: 832 });
+});
+
+test('gate:image-backend:dbgen-missing-and-errors-are-readable', async () => {
+    const { createImageBackend } = await import('../src/generated-images/image-backend.js');
+    const missing = createImageBackend({ nai: {}, global: {}, getBridge: () => ({ imageApi: { mode: 'dbgen' } }) });
+    assert.match(missing.describe().ready.error, /未检测到数据库生图插件/);
+    const failing = createImageBackend({
+        nai: {},
+        global: { NaiDbGen: { generate: async () => ({}), generateSinglePrompt: async () => ({ ok: false, error: { message: '召回失败', hint: '请检查预设' } }) } },
+        getBridge: () => ({ imageApi: { mode: 'dbgen' } }),
+    });
+    const result = await failing.generate({}, {}, { description: '一段' });
+    assert.match(result.error, /写提示词失败：召回失败：请检查预设/);
+});
+
+test('gate:image-backend:extension-mode-falls-back-to-builtin-nai', async () => {
+    const { createImageBackend } = await import('../src/generated-images/image-backend.js');
+    let bridge = { imageApi: { mode: 'extension' }, autoIllustration: {} };
+    const calls = [];
+    const backend = createImageBackend({ nai: { generate: async (slot, s) => { calls.push(s.apiKey); return { ok: true, dataUrl: 'data:,' }; } }, global: {}, getBridge: () => bridge });
+    assert.match(backend.describe().ready.error, /智绘姬无法按需生成/);
+    bridge = { imageApi: { mode: 'extension' }, autoIllustration: { nai: { apiKey: 'pst-a' } } };
+    assert.equal(backend.describe().ready.ok, true);
+    assert.equal((await backend.generate({ scene: 'room' }, { apiKey: 'pst-a' })).ok, true);
+    assert.deepEqual(calls, ['pst-a']);
+});
+
+test('gate:image-backend:legacy-nai-key-merges-into-unified-settings', async () => {
+    const { mergeLegacyNaiSettings } = await import('../src/generated-images/image-backend.js');
+    const merged = mergeLegacyNaiSettings({ nsfwEnabled: true }, { apiKey: 'pst-old', endpoint: '', transport: 'st-proxy', model: 'nai-diffusion-4-5-full' });
+    assert.deepEqual([merged.nai.apiKey, merged.nai.transport, merged.nai.model, merged.nsfwEnabled], ['pst-old', 'st-proxy', 'nai-diffusion-4-5-full', true]);
+    assert.equal(mergeLegacyNaiSettings({ nai: { apiKey: 'pst-new' } }, { apiKey: 'pst-old' }).nai.apiKey, 'pst-new');
+    assert.equal(mergeLegacyNaiSettings({}, { apiKey: 'sk-openai', endpoint: 'https://api.example.com/v1' }).nai, undefined, 'OpenAI 兼容接口的 Key 不能当 NAI Key');
+});
+
+test('gate:assets:dbgen-source-skips-secondary-llm', async () => {
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
+    const floor = { chatId: 'c', messageId: 3, swipeId: 0, isAi: true, isLatest: true, text: '[igs-scene:废弃工厂|夜晚|雨]\n雨声。' };
+    let llmCalls = 0;
+    const metas = [];
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'c', readFloor: () => floor, readPreviousAiTexts: () => [] },
+        llm: { async request() { llmCalls += 1; return ''; } },
+        nai: {
+            describe: () => ({ mode: 'dbgen', ownPrompts: true, ready: { ok: true } }),
+            async generate(slot, settings, meta) { metas.push(meta); return { ok: true, dataUrl: 'data:image/png;base64,AAA' }; },
+        },
+        store: createMemoryGeneratedAssetStore(),
+        getSettings: () => ({ autoIllustration: { assets: { backgroundEnabled: true } }, sceneAssets: { enabled: true, scenes: {}, characters: {} } }),
+    });
+    const result = await service.processMessage(3, { manual: true });
+    assert.deepEqual([result.ok, result.count, llmCalls], [true, 1, 0]);
+    assert.match(metas[0].description, /废弃工厂.*夜晚.*不要出现任何人物/);
+});
+
+test('gate:llm:user-head-and-tail-wrap-requests-and-default-empty', async () => {
+    const { createSecondaryLlm } = await import('../src/host/secondary-llm.js');
+    const { normalizeAutoIllustrationSettings } = await import('../src/generated-images/illustration/auto-illustration-settings.js');
+    const defaults = normalizeAutoIllustrationSettings({}).llm;
+    assert.deepEqual([defaults.jailbreakHead, defaults.jailbreakTail], ['', ''], '插件不内置任何附加词');
+    const bodies = [];
+    const llm = createSecondaryLlm({}, { fetch: async (url, init) => { bodies.push(JSON.parse(init.body)); return { ok: true, status: 200, text: async () => '{"choices":[{"message":{"content":"ok"}}]}' }; } });
+    const base = { source: 'openai', endpoint: 'https://x/v1', model: 'm' };
+    await llm.request({ system: 'SYS', user: 'USR' }, base);
+    await llm.request({ system: 'SYS', user: 'USR' }, { ...base, jailbreakHead: 'HEAD', jailbreakTail: 'TAIL' });
+    assert.deepEqual(bodies[0].messages.map((m) => m.content), ['SYS', 'USR']);
+    assert.deepEqual(bodies[1].messages.map((m) => m.content), ['HEAD\n\nSYS', 'USR\n\nTAIL']);
+});

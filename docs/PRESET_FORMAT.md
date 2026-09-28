@@ -43,7 +43,7 @@
 
 - 用于保存 provider 配置，不保存 JS 代码。
 - 可配置选择器、优先级、轮询间隔、超时、按钮匹配规则。
-- st-chatu8 / chami 的默认配置也应按该格式保存和导出。
+- st-chatu8 的默认配置也应按该格式保存和导出。
 
 ## Image Request Builder / Workflow 预设要求
 

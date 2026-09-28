@@ -547,11 +547,11 @@ test('gate:assets:reader-manual-generation-feedback', async () => {
         assert.match(host.getState().activeReader.toastMessage, /已生成 1 项/);
         assert.equal(logs.at(-1).level, 'success');
         for (const [next, text, level] of [
-            [{ ok: false, reason: 'generation-failed' }, /生图失败/, 'error'],
+            [{ ok: false, reason: 'generation-failed' }, /补全素材失败/, 'error'],
             [{ ok: false, reason: 'plan-failed', error: '副 LLM 规划失败' }, /副 LLM 规划失败/, 'error'],
             [{ ok: true, reason: 'disabled' }, /开启自动背景或自动立绘/, 'warn'],
             [{ ok: true, reason: 'scene-assets-disabled' }, /开启场景素材/, 'warn'],
-            [{ ok: true, reason: 'nothing-missing' }, /没有缺失/, 'warn'],
+            [{ ok: true, reason: 'nothing-missing' }, /没有未登记/, 'warn'],
         ]) {
             result = next;
             assert.equal(await opened.controller.invokeAction('generate-assets'), next);
@@ -600,7 +600,7 @@ test('gate:assets:reader-manual-retries-settled-floor', async () => {
         await overlay.parentNode.dispatchEvent({ type: 'click', target: button });
         assert.equal(calls, 1);
         assert.equal((await store.getFloor('chat-1|39|0')).status, 'failed');
-        assert.match(host.getState().activeReader.toastMessage, /生图失败/);
+        assert.match(host.getState().activeReader.toastMessage, /补全素材失败/);
         assert.ok(logs.some((entry) => entry.message.includes('模拟 NAI 请求失败')));
         const retry = await opened.controller.invokeAction('generate-assets');
         assert.deepEqual([retry.ok, retry.count, calls], [true, 1, 2]);
@@ -804,6 +804,96 @@ test('gate:simulation:nsfw-scene-keeps-sprite-when-hide-toggle-off', async () =>
     assert.equal(sprite.style.display, 'block');
     assert.match(sprite.style.backgroundImage, /alice\.png/);
     vn.destroy();
+});
+test('gate:simulation:page-turn-skips-unchanged-root-class-and-background-writes', () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const raw = [
+        '[igs-scene:Room|night|rain|NSFW]',
+        '[igs-char:Alice|calm|One.]',
+        '[igs-char:Alice|calm|Two.]',
+        '[igs-char:Alice|calm|Three.]',
+    ].join('\n');
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({
+            bridge: {
+                sceneAssets: {
+                    enabled: true,
+                    scenes: { Room: { url: 'https://example.com/room.png', times: {} } },
+                    characters: { Alice: { calm: 'https://example.com/alice.png' } },
+                    characterAliases: { Alice: [] },
+                    moodGroups: [],
+                },
+            },
+            readerSettings: { statusHud: { enabled: false } },
+        }),
+    });
+    const opened = host.openReader({ messageId: 42, message: { id: 42, text: raw }, raw }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const overlay = document.getElementById('igs-overlay');
+    const sprite = overlay.querySelector('#igs-sprite');
+    const bg = overlay.querySelector('#igs-bg');
+    assert.match(sprite.style.backgroundImage, /alice\.png/);
+    assert.match(bg.style.backgroundImage, /room\.png/);
+    // 类名只统计改变了值的写入（同值不引起样式失效，先删后加才会）；背景图同值重写也要解析整段地址，全部计数。
+    const writes = { className: 0, sprite: 0, bg: 0 };
+    const trap = (target, prop, counter, changesOnly = false) => {
+        let value = target[prop];
+        Object.defineProperty(target, prop, {
+            configurable: true,
+            get: () => value,
+            set: (next) => { if (!changesOnly || next !== value) writes[counter] += 1; value = next; },
+        });
+    };
+    trap(overlay, 'className', 'className', true);
+    trap(sprite.style, 'backgroundImage', 'sprite');
+    trap(bg.style, 'backgroundImage', 'bg');
+
+    opened.controller.invokeAction('next');
+    opened.controller.invokeAction('next');
+    opened.controller.invokeAction('prev');
+    assert.equal(host.getState().activeReader.index, 1);
+    // 同一场景同一立绘翻页：最终值不变就不应重写，避免反复样式失效与大图地址重解析
+    assert.deepEqual(writes, { className: 0, sprite: 0, bg: 0 });
+    assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
+    host.destroy();
+});
+
+test('gate:simulation:page-turn-reuses-live-visible-text-until-host-rewrites-it', () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const raw = '第一段。\n\n第二段。\n\n第三段。';
+    let clones = 0;
+    const mesText = {
+        textContent: raw,
+        cloneNode() {
+            clones += 1;
+            return { textContent: mesText.textContent, querySelectorAll: () => [] };
+        },
+    };
+    const element = {
+        get textContent() { return mesText.textContent; },
+        querySelector: (selector) => (selector === '.mes_text' ? mesText : null),
+    };
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({ bridge: {}, readerSettings: { statusHud: { enabled: false } } }),
+    });
+    const opened = host.openReader({ messageId: 43, message: { id: 43, text: raw, element }, raw }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    opened.controller.invokeAction('next');
+    const clonesAfterFirstTurn = clones;
+    assert.ok(clonesAfterFirstTurn >= 1);
+    opened.controller.invokeAction('next');
+    opened.controller.invokeAction('prev');
+    // 正文未变：翻页不再深克隆消息 DOM
+    assert.equal(clones, clonesAfterFirstTurn);
+
+    // 模拟 Veridis 等插件异步回写正文：下一次翻页必须读到新文本
+    mesText.textContent = '第一段。\n\n第二段已替换。\n\n第三段。';
+    opened.controller.invokeAction('next');
+    assert.equal(clones, clonesAfterFirstTurn + 1);
+    assert.ok(host.getState().activeReader.snapshot.content.segments.some((segment) => segment.includes('第二段已替换')));
+    host.destroy();
 });
 test('gate:simulation:nsfw-veil-level-strong-applies-and-clears-on-safe-scene', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
@@ -1333,32 +1423,32 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(auto.interludeEnabled, false);
         assert.equal(auto.llm.source, 'tavern');
         assert.equal(auto.nai.transport, 'direct');
-        assert.equal(initial.imageSubTab, 'auto');
-        assert.match(initial.html, /data-image-subtab="auto"[^>]*aria-selected="true"/);
-        assert.match(initial.html, /data-image-subtab="other"/);
-        assert.match(initial.html, /data-image-feature="nsfw" hidden/);
-        assert.match(initial.html, /data-image-feature="interlude" hidden/);
-        assert.match(initial.html, /data-image-feature="llm" hidden/);
-        assert.match(initial.html, /data-image-feature="nai" hidden/);
-        for (const path of initial.activeContract.requiredPaths.filter((item) => item.startsWith('bridge.autoIllustration.'))) {
-            assert.ok(initial.html.includes(`data-path="${path}"`) || initial.html.includes(`data-switch="${path}"`), `Missing image field: ${path}`);
-        }
+        assert.equal(initial.imageSubTab, 'source');
+        assert.match(initial.html, /data-image-subtab="source"[^>]*aria-selected="true"/);
+        assert.match(initial.html, /data-segment-path="bridge\.imageApi\.mode" data-segment-value="nai"/);
+        assert.match(initial.html, /data-segment-value="dbgen"[^>]*>[\s\S]*?数据库生图插件/);
+        assert.match(initial.html, /data-segment-value="extension"[^>]*>[\s\S]*?智绘姬/);
         assert.match(initial.html, /data-path="bridge\.autoIllustration\.nai\.scale"[^>]*step="any"/);
-        assert.match(initial.html, /data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*disabled/);
-        const other = opened.controller.switchImageSubTab('other').snapshot;
-        assert.equal(other.imageSubTab, 'other');
-        assert.match(other.html, /data-image-pane="other"/);
-        assert.match(other.html, /data-path="bridge\.imageApi\.mode"/);
-        assert.match(other.html, /data-action="fetch-image-models"/);
-        assert.doesNotMatch(other.html, /data-switch="bridge\.autoIllustration\.nsfwEnabled"/);
-        assert.equal(opened.controller.switchImageSubTab('auto').snapshot.imageSubTab, 'auto');
+        assert.doesNotMatch(initial.html, /data-path="bridge\.imageApi\.apiKey"/, '不再有第二套 NAI Key');
+        assert.doesNotMatch(initial.html, /data-switch="bridge\.autoIllustration\.nsfwEnabled"/);
+        const content = opened.controller.switchImageSubTab('auto').snapshot;
+        assert.equal(content.imageSubTab, 'auto');
+        assert.match(content.html, /data-image-feature="nsfw" hidden/);
+        assert.match(content.html, /data-image-feature="interlude" hidden/);
+        assert.match(content.html, /data-image-feature="llm" hidden/);
+        assert.match(content.html, /data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*disabled/);
+        const rendered = initial.html + content.html;
+        for (const path of initial.activeContract.requiredPaths.filter((item) => item.startsWith('bridge.autoIllustration.'))) {
+            assert.ok(rendered.includes(`data-path="${path}"`) || rendered.includes(`data-switch="${path}"`), `Missing image field: ${path}`);
+        }
+        assert.equal(opened.controller.switchImageSubTab('other').snapshot.imageSubTab, 'source', '旧的「其他生图」子页并入图像来源');
+        opened.controller.switchImageSubTab('auto');
         assert.equal(opened.controller.toggle('bridge.autoIllustration.nsfwEnabled').ok, true);
         assert.match(opened.controller.getSnapshot().html, /data-image-feature="nsfw"(?![^>]*\shidden)/);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nsfwCount', '2').ok, true);
         assert.equal(opened.controller.toggle('bridge.autoIllustration.interludeEnabled').ok, true);
         assert.match(opened.controller.getSnapshot().html, /data-image-feature="interlude"(?![^>]*\shidden)/);
         assert.match(opened.controller.getSnapshot().html, /data-image-feature="llm"(?![^>]*\shidden)/);
-        assert.match(opened.controller.getSnapshot().html, /data-image-feature="nai"(?![^>]*\shidden)/);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.interludeProbability', '45').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.source', 'openai').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1').ok, true);
@@ -1390,7 +1480,9 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.ok(saved.nai.apiKey === 'test-nai-secret');
         assert.equal(saved.nai.scale, 5.5);
         assert.equal(saved.nai.transport, 'st-proxy');
-        const reopened = vn.openSettings({ tab: 'image', mode: 'pc' }).controller.getSnapshot();
+        const reopenedController = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
+        reopenedController.switchImageSubTab('auto');
+        const reopened = reopenedController.getSnapshot();
         assert.equal(reopened.draft.bridge.autoIllustration.nsfwCount, 2);
         assert.equal(reopened.draft.bridge.autoIllustration.nai.scale, 5.5);
         assert.ok(/data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*value="https:\/\/example\.com\/v1"/.test(reopened.html));
@@ -1412,6 +1504,7 @@ test('gate:simulation:auto-illustration-llm-fetch-models-and-select', async () =
     });
     try {
         const controller = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
+        controller.switchImageSubTab('auto');
         controller.toggle('bridge.autoIllustration.nsfwEnabled');
         controller.setValue('bridge.autoIllustration.llm.source', 'openai');
         controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1');
@@ -3548,7 +3641,7 @@ test('gate:simulation:igs-ui-regen-gives-pending-feedback-and-reports-thrown-err
     await Promise.resolve();
     release.resolve({ ok: false, reason: 'provider-not-enabled' });
     await retry;
-    assert.match(host.getState().activeReader.toastMessage, /未启用生图/);
+    assert.match(host.getState().activeReader.toastMessage, /当前图像来源无法重画/);
     host.destroy();
 });
 
@@ -3614,6 +3707,7 @@ test('gate:simulation:igs-ui-auto-illustration-llm-models-fetch-and-select', asy
     });
     try {
         const { controller } = vn.openSettings({ tab: 'image', mode: 'pc' });
+        controller.switchImageSubTab('auto');
         controller.toggle('bridge.autoIllustration.nsfwEnabled');
         controller.setValue('bridge.autoIllustration.llm.source', 'openai');
         controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1');
@@ -3712,26 +3806,14 @@ test('gate:simulation:igs-ui-image-settings-fetch-models-and-test-nai-use-real-s
     });
 
     const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
-    settings.controller.switchImageSubTab('other');
-    const modelsResult = await settings.controller.invoke('fetch-image-models');
     const testResult = await settings.controller.invoke('test-image');
     const snapshot = settings.controller.getSnapshot();
 
-    assert.equal(modelsResult.ok, true);
     assert.equal(testResult.ok, true);
-    assert.deepEqual(snapshot.draft.bridge.imageApi.availableModels, [
-        'nai-diffusion-3',
-        'nai-diffusion-4-curated-preview',
-    ]);
-    assert.match(snapshot.html, /data-action="fetch-image-models"/);
-    assert.match(snapshot.html, /<option value="nai-diffusion-4-curated-preview">nai-diffusion-4-curated-preview<\/option>/);
-    assert.match(snapshot.resultText.imageModels, /已拉取 2 个模型/);
+    assert.doesNotMatch(snapshot.html, /data-action="fetch-image-models"/);
     assert.match(snapshot.resultText.image, /图像 API 真实生成测试成功/);
-    assert.equal(calls[0].url, 'https://example.com/v1/models');
-    assert.equal(calls[1].url, 'https://example.com/v1/images/generations');
-    settings.controller.setValue('bridge.imageApi.model', 'nai-diffusion-4-curated-preview');
+    assert.equal(calls[0].url, 'https://example.com/v1/images/generations');
     settings.controller.close();
-    assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).bridge.imageApi.model, 'nai-diffusion-4-curated-preview');
 
     vn.destroy();
 });
@@ -3776,11 +3858,7 @@ test('gate:simulation:igs-ui-builtin-nai-empty-endpoint-tests-and-regenerates-vi
     });
     try {
         const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
-        settings.controller.switchImageSubTab('other');
-        const models = await settings.controller.invoke('fetch-image-models');
-        assert.equal(models.ok, true);
-        assert.equal(server.calls.length, 0, 'NAI 原生接口没有 /models，不应发请求');
-        assert.ok(settings.controller.getSnapshot().draft.bridge.imageApi.availableModels.includes('nai-diffusion-4-5-full'));
+        assert.ok(settings.controller.getSnapshot().draft.bridge.autoIllustration.nai.apiKey === 'pst-fake', '旧「其他生图」的 NAI Key 迁移到统一设置');
         const tested = await settings.controller.invoke('test-image');
         assert.equal(tested.ok, true);
         assert.match(settings.controller.getSnapshot().resultText.image, /真实生成测试成功/);
@@ -3815,12 +3893,11 @@ test('gate:simulation:igs-ui-builtin-nai-reports-auth-failure-and-relay-endpoint
     });
     try {
         const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
-        settings.controller.switchImageSubTab('other');
         await settings.controller.invoke('test-image');
         assert.match(settings.controller.getSnapshot().resultText.image, /鉴权失败（401）/);
         assert.equal(server.calls[0].url, relay);
-        settings.controller.setValue('bridge.imageApi.apiKey', 'pst-fake');
-        settings.controller.setValue('bridge.imageApi.transport', 'st-proxy');
+        settings.controller.setValue('bridge.autoIllustration.nai.apiKey', 'pst-fake');
+        settings.controller.setValue('bridge.autoIllustration.nai.transport', 'st-proxy');
         await settings.controller.invoke('test-image');
         assert.equal(server.calls[1].url, `/proxy/${relay}`);
         assert.equal(server.calls[1].init.headers.Authorization, 'Bearer pst-fake', '面板里刚改的 Key 要立即生效');
@@ -3854,6 +3931,7 @@ test('gate:simulation:igs-ui-auto-llm-fetch-models-and-select', async () => {
     try {
         const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
         const controller = settings.controller;
+        controller.switchImageSubTab('auto');
         controller.toggle('bridge.autoIllustration.nsfwEnabled');
         controller.setValue('bridge.autoIllustration.llm.source', 'openai');
         controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1');
@@ -3881,45 +3959,6 @@ test('gate:simulation:igs-ui-auto-llm-fetch-models-and-select', async () => {
     }
 });
 
-test('gate:simulation:igs-ui-external-adapter-filter-and-detection-use-real-provider-counts', async () => {
-    const document = createFakeDocument();
-    const message = {
-        id: 35,
-        text: '[角色: 玉子]\n玉子: 看看当前插图。',
-        element: createFakeMessageElement(document, {
-            imageUrls: ['https://example.com/chatu8-scene.png'],
-            chamiImageUrls: ['https://example.com/chami-scene.png'],
-            chamiButtons: [createFakeRegenerateButton(() => {})],
-        }),
-    };
-    const vn = bootstrapIGS({
-        global: { document },
-        autoAttachMagicWand: false,
-        config: {
-            imageApi: {
-                mode: 'extension',
-                externalAdapter: 'chami',
-            },
-        },
-        hostAdapter: {
-            getCurrentMessage: async () => message,
-            typeAndSend: async () => ({ ok: true }),
-        },
-    });
-
-    const opened = await vn.openLatestAvailable('pc');
-    const settings = opened.reader.controller.openSettings('image');
-    await settings.controller.invoke('test-image');
-    const snapshot = settings.controller.getSnapshot();
-
-    assert.equal(opened.reader.snapshot.content.imageCount, 1);
-    assert.equal(opened.reader.snapshot.content.currentImageUrl, 'https://example.com/chami-scene.png');
-    assert.match(snapshot.resultText.image, /已检测到 chami 插图扩展/);
-    assert.match(snapshot.resultText.image, /图片 1/);
-
-    vn.destroy();
-});
-
 test('gate:simulation:igs-ui-collects-iframe-data-src-images-and-finds-regen-buttons', async () => {
     const document = createFakeDocument();
     const frameImage = createFakeMediaNode({
@@ -3932,7 +3971,7 @@ test('gate:simulation:igs-ui-collects-iframe-data-src-images-and-finds-regen-but
     });
     const iframeDoc = createFakeScopedRoot({
         'img[data-src]': [frameImage],
-        '.tsp-regenerate-btn': [frameButton],
+        'button.image-tag-button': [frameButton],
     });
     const message = {
         id: 36,
@@ -4009,8 +4048,8 @@ test('gate:simulation:igs-ui-image-slot-binding-keeps-third-image-on-third-segme
         id: 37,
         text: source,
         element: createFakeMessageElement(document, {
-            chamiImageNodes: [providerImage],
-            chamiButtons: [button],
+            imageNodes: [providerImage],
+            regenButtons: [button],
         }),
     };
     const vn = bootstrapIGS({
@@ -4026,7 +4065,7 @@ test('gate:simulation:igs-ui-image-slot-binding-keeps-third-image-on-third-segme
         config: {
             imageApi: {
                 mode: 'extension',
-                externalAdapter: 'chami',
+                externalAdapter: 'chatu8',
                 pollIntervalMs: 1,
                 pollAttempts: 3,
             },
@@ -4228,7 +4267,7 @@ test('gate:simulation:igs-ui-image-slot-binding-falls-back-to-scan-order-when-im
         id: 38,
         text: source,
         element: createFakeMessageElement(document, {
-            chamiImageNodes: [
+            imageNodes: [
                 createFakeMediaNode({
                     ownerDocument: document,
                     tagName: 'IMG',
@@ -4246,7 +4285,7 @@ test('gate:simulation:igs-ui-image-slot-binding-falls-back-to-scan-order-when-im
             },
             imageApi: {
                 mode: 'extension',
-                externalAdapter: 'chami',
+                externalAdapter: 'chatu8',
             },
         },
         hostAdapter: {
@@ -5693,26 +5732,14 @@ function readNumeric(value) {
 }
 
 function createFakeMessageElement(ownerDocument, options = {}) {
-    const images = (options.imageUrls || []).map((url) => createFakeMediaNode({
+    const images = Array.isArray(options.imageNodes) ? options.imageNodes : (options.imageUrls || []).map((url) => createFakeMediaNode({
         ownerDocument,
         tagName: 'IMG',
         src: url,
     }));
-    const chamiImages = Array.isArray(options.chamiImageNodes)
-        ? options.chamiImageNodes
-        : (options.chamiImageUrls || []).map((url, index) => createFakeMediaNode({
-            ownerDocument,
-            tagName: 'IMG',
-            src: url,
-            attributes: {
-                'data-image-id': `image-${Math.random().toString(36).slice(2, 8)}`,
-                ...(Array.isArray(options.chamiImageAttributes) ? options.chamiImageAttributes[index] || {} : {}),
-            },
-        }));
     const genericNodes = Array.isArray(options.genericNodes) ? options.genericNodes : [];
     const outsideGenericNodes = Array.isArray(options.outsideGenericNodes) ? options.outsideGenericNodes : [];
     const regenButtons = Array.isArray(options.regenButtons) ? options.regenButtons : [];
-    const chamiButtons = Array.isArray(options.chamiButtons) ? options.chamiButtons : [];
     const frameDocuments = Array.isArray(options.frameDocuments) ? options.frameDocuments : [];
     const messageRoot = createFakeElement('div', ownerDocument);
     const mesText = createFakeElement('div', ownerDocument);
@@ -5729,10 +5756,8 @@ function createFakeMessageElement(ownerDocument, options = {}) {
     messageRoot.appendChild(mesText);
 
     for (const node of images) attachNodeToFakeParent(node, mesText, ownerDocument);
-    for (const node of chamiImages) attachNodeToFakeParent(node, mesText, ownerDocument);
     for (const node of genericNodes) attachNodeToFakeParent(node, mesText, ownerDocument);
     for (const node of regenButtons) attachNodeToFakeParent(node, mesText, ownerDocument);
-    for (const node of chamiButtons) attachNodeToFakeParent(node, mesText, ownerDocument);
     for (const node of outsideGenericNodes) attachNodeToFakeParent(node, messageRoot, ownerDocument);
 
     const frameNodes = frameDocuments.map((doc) => ({
@@ -5752,23 +5777,6 @@ function createFakeMessageElement(ownerDocument, options = {}) {
         }
         if (selector === 'button.image-tag-button' || selector === 'button[class*="image-tag-button"]' || selector === 'button[class*="st-chatu8-image"]') {
             return regenButtons;
-        }
-        if (
-            selector === '.tsp-generated-image'
-            || selector === '.tsp-inline-image'
-            || selector === '.tsp-image-slot img'
-            || selector === 'img[src*="tsp-images"]'
-            || selector === '[data-image-id]'
-            || selector === '[data-location-hash]'
-            || selector === 'img[data-image-id]'
-            || selector === 'img[data-location-hash]'
-            || selector === '[data-image-id] img'
-            || selector === '[data-location-hash] img'
-        ) {
-            return chamiImages;
-        }
-        if (selector === '.tsp-regenerate-btn' || selector === '.tsp-inline-gen-btn') {
-            return chamiButtons;
         }
         if (
             selector === '.mes_text img[src]'
@@ -5791,11 +5799,9 @@ function createFakeMessageElement(ownerDocument, options = {}) {
     };
 
     messageRoot.__images = images;
-    messageRoot.__chamiImages = chamiImages;
     messageRoot.__genericNodes = genericNodes;
     messageRoot.__outsideGenericNodes = outsideGenericNodes;
     messageRoot.__regenButtons = regenButtons;
-    messageRoot.__chamiButtons = chamiButtons;
     messageRoot.__frameDocuments = frameDocuments;
     messageRoot.__mesText = mesText;
     messageRoot.querySelectorAll = function querySelectorAll(selector) {
@@ -6983,4 +6989,52 @@ test('gate:simulation:igs-fx-tags-stay-out-of-text-and-drive-page-fx', () => {
     assert.equal(third.fx.flashback, false);
     assert.equal(motion.getAttribute('data-igs-fx-flashback'), null);
     host.destroy();
+});
+
+test('gate:assets:reader-cg-and-asset-buttons-are-independent', async () => {
+    const document = createFakeDocument();
+    const raw = '[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。';
+    const assetCalls = [];
+    const cgCalls = [];
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({ bridge: {}, readerSettings: {} }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 39, swipeId: 0, isAi: true, isLatest: true, text: raw }),
+        generatedAssets: { async processMessage(...args) { assetCalls.push(args); return { ok: true, reason: 'done', count: 1 }; } },
+        illustrations: { async processMessage(...args) { cgCalls.push(args); return { ok: true, reason: 'done', count: 2 }; } },
+    });
+    try {
+        const opened = host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
+        const overlay = document.getElementById('igs-overlay');
+        assert.ok(overlay.querySelector('[data-act="regen"]'));
+        assert.ok(overlay.querySelector('[data-act="generate-assets"]'));
+        assert.equal((await opened.controller.invokeAction('regen')).count, 2);
+        assert.deepEqual([cgCalls.length, assetCalls.length], [1, 0], '画 CG 不应顺带补素材');
+        assert.match(host.getState().activeReader.toastMessage, /插图完成：已生成 2 张/);
+        await opened.controller.invokeAction('generate-assets');
+        assert.deepEqual([cgCalls.length, assetCalls.length], [1, 1], '补全素材不应顺带画 CG');
+    } finally { host.destroy(); }
+});
+
+test('gate:settings:advanced-fields-collapse-and-remember-open-state', () => {
+    const document = createFakeDocument();
+    const vn = bootstrapIGS({ global: { document }, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const controller = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
+        controller.setValue('bridge.imageApi.mode', 'nai');
+        const root = document.getElementById('igs-unified-settings').parentNode;
+        let html = controller.getSnapshot().html;
+        assert.match(html, /<details[^>]*data-advanced="nai"(?![^>]*\sopen)[^>]*>[\s\S]*?data-path="bridge\.autoIllustration\.nai\.steps"/, '采样参数默认收在高级里');
+        assert.match(html, /data-path="bridge\.autoIllustration\.nai\.apiKey"/);
+        root.dispatchEvent({ type: 'toggle', target: { open: true, getAttribute: (name) => (name === 'data-advanced' ? 'nai' : null) } });
+        controller.setValue('bridge.autoIllustration.nai.model', 'nai-diffusion-4-full');
+        assert.match(controller.getSnapshot().html, /data-advanced="nai" open/, '重渲染后保持展开');
+        controller.switchImageSubTab('auto');
+        html = controller.getSnapshot().html;
+        assert.match(html, /data-image-feature="asset-options" hidden/, '素材开关都关着时不显示数量与尺寸');
+        controller.toggle('bridge.autoIllustration.assets.backgroundEnabled');
+        html = controller.getSnapshot().html;
+        assert.doesNotMatch(html, /data-image-feature="asset-options" hidden/);
+        assert.match(html, /需要先在「素材」页开启场景素材模式/);
+    } finally { vn.destroy(); }
 });

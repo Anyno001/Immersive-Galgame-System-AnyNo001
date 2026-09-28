@@ -62,6 +62,25 @@ export function supportsNaiTransparentBackground(model) {
     return m.includes('diffusion-5');
 }
 
+// 请求体里的采样器与噪声计划必须在 NAI 支持范围内，手填错值或 V5 用非 Karras 都会直接回 500。
+export const NAI_SAMPLERS = Object.freeze(['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m', 'k_dpmpp_sde', 'ddim_v3']);
+export const NAI_NOISE_SCHEDULES = Object.freeze(['karras', 'native', 'exponential', 'polyexponential']);
+
+function isNaiV5(model) {
+    return supportsNaiTransparentBackground(model);
+}
+
+function resolveSampler(value) {
+    const v = String(value || '').trim();
+    return NAI_SAMPLERS.includes(v) ? v : NAI_DEFAULT_SETTINGS.sampler;
+}
+
+function resolveNoiseSchedule(value, model) {
+    const v = String(value || '').trim();
+    if (isNaiV5(model)) return 'karras';
+    return NAI_NOISE_SCHEDULES.includes(v) ? v : NAI_DEFAULT_SETTINGS.noiseSchedule;
+}
+
 function parseSize(size) {
     const m = String(size || '').match(/(\d+)\s*[x×*]\s*(\d+)/i);
     const w = m ? Number(m[1]) : 832;
@@ -85,28 +104,29 @@ export function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) 
     }));
     const useCoords = posChars.length > 0;
     const { width, height } = parseSize(settings.size);
-    const transparent = slot && slot.transparent === true && supportsNaiTransparentBackground(settings.model);
+    const model = String(settings.model || NAI_DEFAULT_SETTINGS.model);
+    const transparent = slot && slot.transparent === true && supportsNaiTransparentBackground(model);
     return {
         input: base,
-        model: String(settings.model || NAI_DEFAULT_SETTINGS.model),
+        model,
         action: 'generate',
         parameters: {
             params_version: 4,
             width,
             height,
             scale: Number(settings.scale) || 5,
-            sampler: String(settings.sampler || 'k_euler_ancestral'),
+            sampler: resolveSampler(settings.sampler),
             steps: Math.max(1, Math.min(50, Number(settings.steps) || 28)),
             n_samples: 1,
             seed: Math.floor(random() * 4294967295),
-            noise_schedule: String(settings.noiseSchedule || 'karras'),
+            noise_schedule: resolveNoiseSchedule(settings.noiseSchedule, model),
             cfg_rescale: 0,
             skip_cfg_above_sigma: null,
             image_format: 'png',
             qualityToggle: true,
+            tag_hint_qt: true,
             ucPreset: 0,
-            sm: false,
-            sm_dyn: false,
+            tag_hint_uc_preset: true,
             ...(transparent && { straight_alpha: true, tag_hint_transparent_background: true }),
             negative_prompt: negBase,
             use_coords: useCoords,

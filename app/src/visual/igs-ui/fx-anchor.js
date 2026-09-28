@@ -20,6 +20,8 @@ export const SYMBOL_OFFSETS = Object.freeze({
 
 const headCache = new Map();
 const pending = new Map();
+// 加载失败的地址也记下来，避免每次渲染都重新下载一张打不开的立绘。
+const failed = new Set();
 
 function finite(value, fallback) {
     const n = Number(value);
@@ -185,7 +187,12 @@ function loadImage(url, doc, cors) {
         const img = new ImageCtor();
         if (cors) img.crossOrigin = 'anonymous';
         img.decoding = 'async';
-        img.onload = () => resolve(img.naturalWidth > 0 ? img : null);
+        // 先异步解码，避免随后 drawImage 在主线程同步解码整张大图。
+        img.onload = () => {
+            if (!(img.naturalWidth > 0)) return resolve(null);
+            if (typeof img.decode !== 'function') return resolve(img);
+            img.decode().then(() => resolve(img), () => resolve(img));
+        };
         img.onerror = () => resolve(null);
         img.src = url;
     });
@@ -206,6 +213,7 @@ export function probeSpriteHead(url, doc) {
     if (!url || !doc) return Promise.resolve(null);
     const cached = headCache.get(url);
     if (cached) return Promise.resolve(cached);
+    if (failed.has(url)) return Promise.resolve(null);
     if (pending.has(url)) return pending.get(url);
     const job = (async () => {
         const cross = isCrossOrigin(url, doc);
@@ -216,7 +224,11 @@ export function probeSpriteHead(url, doc) {
         } else if (cross) {
             img = await loadImage(url, doc, false);
         }
-        if (!img) return null;
+        if (!img) {
+            failed.add(url);
+            if (failed.size > HEAD_CACHE_LIMIT) failed.delete(failed.values().next().value);
+            return null;
+        }
         return remember(url, { naturalW: img.naturalWidth, naturalH: img.naturalHeight, head: head || FALLBACK_HEAD });
     })().finally(() => pending.delete(url));
     pending.set(url, job);
@@ -237,4 +249,5 @@ export function waitSpriteHead(url, doc, schedule) {
 export function clearSpriteHeadCache() {
     headCache.clear();
     pending.clear();
+    failed.clear();
 }

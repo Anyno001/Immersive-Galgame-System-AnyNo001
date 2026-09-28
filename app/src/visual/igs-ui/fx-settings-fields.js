@@ -46,10 +46,12 @@ export function renderFxPerformanceSections(reader) {
     const soundOn = s.heartbeatFx.enabled || s.flashFx.enabled || s.fxTags.enabled;
     const sound = soundOn ? group('音效', checkbox(`${p}.fxSound.enabled`, s.fxSound.enabled, '启用演出音效（铃声、心跳、耳鸣等）')
         + (s.fxSound.enabled ? sub(field(`${p}.fxSound.volume`, '音量', rangeInput(`${p}.fxSound.volume`, s.fxSound.volume))) : '')) : '';
+    // 先选要哪些效果，再调整体风格；一个效果都没开时不显示风格设置。
+    const anyOn = s.mangaFx.enabled || s.heartbeatFx.enabled || s.flashFx.enabled || s.titleCard.enabled || s.favorToast.enabled || s.fxTags.enabled;
     return `<div class="igs-source-filter igs-fx-settings"><div class="igs-source-filter-title">漫画演出</div>${[
-        group('通用', style),
         group('情绪特效', manga + heartbeat + flash),
         group('剧情提示', title + favor + tags),
+        anyOn ? group('演出风格', style) : '',
         sound,
     ].join('')}</div>`;
 }

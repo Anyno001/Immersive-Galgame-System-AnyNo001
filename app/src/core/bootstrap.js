@@ -26,6 +26,7 @@ import { createReaderImageService } from '../generated-images/reader-image-servi
 import { createPromptInjector } from '../host/prompt-injector.js';
 import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
 import { createSecondaryLlm } from '../host/secondary-llm.js';
+import { createImageBackend, mergeLegacyNaiSettings } from '../generated-images/image-backend.js';
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
 import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
@@ -35,12 +36,12 @@ import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-sto
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.29.3';
+const IGS_VERSION = '0.29.4';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
 
-// 自动插图 / 素材补全的进度与失败原因：始终写控制台，失败与成功再按「显示提示 toast」弹出。
+// 自动插图 / 素材补全的进度与失败原因：始终写控制台，失败与成功再按「显示提示弹窗」弹出。
 function createImageJobReporter(globalObject, getBridge, log) {
     return (level, message) => {
         if (log && typeof log.add === 'function') log.add(level, message);
@@ -68,14 +69,28 @@ export function bootstrapIGS(options = {}) {
     const readerImageService = options.readerImageService || createReaderImageService({
         global: globalObject,
         hostAdapter,
-        imageGenerator: options.imageGenerator,
+        imageGenerator: options.imageGenerator || ((request, opts) => imageBackend.generateForReader(request, {
+            ...opts,
+            unifiedSettings: {
+                ...(opts && opts.unifiedSettings),
+                bridge: (() => {
+                    const bridge = (opts && opts.unifiedSettings && opts.unifiedSettings.bridge) || {};
+                    return { ...bridge, autoIllustration: mergeLegacyNaiSettings(bridge.autoIllustration, bridge.imageApi) };
+                })(),
+            },
+        })),
         providers: options.imageProviders,
         fetch: options.fetch,
     });
     const promptInjector = options.promptInjector || createPromptInjector(globalObject);
     const illustrationMessageHost = options.illustrationMessageHost || createIllustrationMessageHost(globalObject);
     const secondaryLlm = options.secondaryLlm || createSecondaryLlm(globalObject, { fetch: options.fetch });
-    const naiOfficialClient = options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch });
+    const naiOfficialClient = options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch || (typeof globalObject.fetch === 'function' ? globalObject.fetch.bind(globalObject) : undefined) });
+    const readImageBridge = () => {
+        const bridge = (getUnifiedSettingsSnapshot() || {}).bridge || {};
+        return { ...bridge, autoIllustration: mergeLegacyNaiSettings(bridge.autoIllustration, bridge.imageApi) };
+    };
+    const imageBackend = options.imageBackend || createImageBackend({ nai: naiOfficialClient, getBridge: readImageBridge, global: globalObject });
     const imageJobLog = options.imageJobLog || createImageJobLog({
         storage: storageLike,
         getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).imageJobLog,
@@ -84,9 +99,9 @@ export function bootstrapIGS(options = {}) {
     const illustrationService = options.illustrationService || createAutoIllustrationService({
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
-        nai: naiOfficialClient,
+        nai: imageBackend,
         store: options.illustrationStore || createIndexedDbIllustrationStore(globalObject),
-        getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration,
+        getSettings: () => readImageBridge().autoIllustration,
         events,
         random: options.random,
         report: reportImageJob,
@@ -94,11 +109,11 @@ export function bootstrapIGS(options = {}) {
     const assetGenerationService = options.assetGenerationService || createAssetGenerationService({
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
-        nai: naiOfficialClient,
+        nai: imageBackend,
         store: options.generatedAssetStore || createIndexedDbGeneratedAssetStore(globalObject),
         matte: options.alphaMatte || createAlphaMatte(globalObject),
         getSettings: () => {
-            const bridge = (getUnifiedSettingsSnapshot() || {}).bridge || {};
+            const bridge = readImageBridge();
             return { autoIllustration: bridge.autoIllustration, sceneAssets: bridge.sceneAssets };
         },
         events,
@@ -145,6 +160,7 @@ export function bootstrapIGS(options = {}) {
         random: options.random,
         getIllustrationSource: (messageId) => illustrationMessageHost.readFloor(messageId),
         getIllustrationUrl: (query) => illustrationService.getIllustrationUrl(query),
+        illustrations: illustrationService,
         onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),
         generatedAssets: assetGenerationService,
         onGeneratedAssetUpdated: (handler) => events.on(GENERATED_ASSET_UPDATED_EVENT, handler),

@@ -5,7 +5,7 @@
 - 存放内置生图 provider 适配器。
 - 为外部 provider Mod 提供参考实现。
 - 将不同 provider 的响应归一化为统一生成结果。
-- `st-chatu8-provider.js` 和 `chami-provider.js` 是内置可拆卸 provider 的默认落点。
+- `st-chatu8-provider.js` 是内置可拆卸 provider 的默认落点。
 
 ## Provider 契约
 

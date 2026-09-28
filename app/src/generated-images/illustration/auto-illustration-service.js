@@ -4,6 +4,9 @@ import { requestWithSoftRetry, DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
 import { parseIllustrationPlan } from './planner-parser.js';
 import { normalizeAutoIllustrationSettings } from './auto-illustration-settings.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
+import { stripIllustrationMarkers } from '../../scene/scene-directives.js';
+
+const MARKER_RE = /\[igs-img:\s*(\d+)\s*\]/g;
 
 export const ILLUSTRATION_UPDATED_EVENT = 'igs:illustration-updated';
 const CACHE_LIMIT = 40;
@@ -39,9 +42,14 @@ export function createAutoIllustrationService(deps) {
         }
     }
 
-    function decide(s, isNsfw) {
+    // 手动触发跳过过场概率，但仍尊重 NSFW / 过场开关。
+    function backendReady() {
+        return nai && typeof nai.describe === 'function' ? nai.describe() : { ready: { ok: true } };
+    }
+
+    function decide(s, isNsfw, manual = false) {
         if (isNsfw) return s.nsfwEnabled ? { kind: 'nsfw', want: s.nsfwCount, exact: true } : null;
-        if (s.interludeEnabled && random() * 100 < s.interludeProbability) {
+        if (s.interludeEnabled && (manual || random() * 100 < s.interludeProbability)) {
             return { kind: 'interlude', want: s.interludeMaxCount, exact: false };
         }
         return null;
@@ -52,21 +60,38 @@ export function createAutoIllustrationService(deps) {
         try { regexesEnsured = (await messageHost.ensureMarkerRegexes()).ok === true; } catch (error) { regexesEnsured = false; }
     }
 
-    async function run(messageId, floor, key, s) {
+    async function run(messageId, floor, key, s, manual) {
         const previous = await store.getFloor(key);
-        if (previous && SETTLED_STATUSES.has(previous.status)) return { ok: true, reason: 'already-decided' };
+        const marked = await markedSlots(key, floor.text);
+        if (marked.retry.length) {
+            const base = { kind: (previous && previous.kind) || 'interlude', want: (previous && previous.want) || marked.all.length };
+            report('info', `第 ${messageId} 楼重试 ${marked.retry.length} 张未成功的插图…`);
+            return generateSlots(messageId, floor, key, s, base, marked.retry);
+        }
+        if (marked.all.length) return { ok: true, reason: manual ? 'nothing-missing' : 'already-decided' };
+        if (!manual && previous && SETTLED_STATUSES.has(previous.status)) return { ok: true, reason: 'already-decided' };
+        // 标记还在但记录丢了（换设备、清缓存）时先去掉旧标记再规划，避免重复插入；写回时仍按原文校验。
+        const expected = floor;
+        if (/\[igs-img:\s*\d+\s*\]/.test(floor.text)) floor = { ...floor, text: stripIllustrationMarkers(floor.text) };
         const numbered = numberParagraphs(floor.text);
-        const decision = numbered.paragraphs.length ? decide(s, numbered.isNsfw) : null;
+        const decision = numbered.paragraphs.length ? decide(s, numbered.isNsfw, manual) : null;
         if (!decision) {
             await store.putFloor(key, { kind: 'none', status: 'done', updatedAt: now() });
             const why = !numbered.paragraphs.length ? '本楼没有可读正文'
                 : (!numbered.isNsfw && !s.interludeEnabled ? '本楼未标记 NSFW 场景（需正文含 [igs-scene:场景|时间|天气|nsfw]），且未开启过场插图'
                     : '过场插图本次未触发（按触发概率随机）');
             report('info', `第 ${messageId} 楼跳过：${why}`);
-            return { ok: true, reason: 'not-selected' };
+            return { ok: true, reason: 'not-selected', why };
+        }
+        const base = { kind: decision.kind, want: decision.want };
+        // 出图端没就绪（没填 Key、插件未安装）时不再白白请求副 LLM。
+        const backend = backendReady();
+        if (!backend.ready.ok) {
+            await store.putFloor(key, { ...base, status: 'failed', error: backend.ready.error, updatedAt: now() });
+            report('error', `第 ${messageId} 楼插图未开始：${backend.ready.error}`);
+            return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
         }
         report('info', `第 ${messageId} 楼开始规划插图（${decision.kind === 'nsfw' ? 'NSFW' : '过场'}），正在请求副 LLM…`);
-        const base = { kind: decision.kind, want: decision.want };
         await store.putFloor(key, { ...base, status: 'planning', updatedAt: now() });
         let plan;
         try {
@@ -91,8 +116,10 @@ export function createAutoIllustrationService(deps) {
         } catch (error) {
             plan = { ok: false, error: `副 LLM 规划失败：${(error && error.message) || error}` };
         }
+        // 张数不符时多则截断、少则照用，不再整层作废（NSFW 楼层副 LLM 常少给一张）。
         if (plan.ok && decision.exact && plan.slots.length !== decision.want) {
-            plan = { ok: false, error: `副 LLM 返回了 ${plan.slots.length} 张，与设定的 ${decision.want} 张不符` };
+            report('warn', `第 ${messageId} 楼副 LLM 返回了 ${plan.slots.length} 张，与设定的 ${decision.want} 张不符，按 ${Math.min(plan.slots.length, decision.want)} 张生成`);
+            plan.slots = plan.slots.slice(0, decision.want);
         }
         if (!plan.ok) {
             await store.putFloor(key, { ...base, status: 'failed', error: plan.error, updatedAt: now() });
@@ -101,13 +128,13 @@ export function createAutoIllustrationService(deps) {
         }
 
         const latest = messageHost.readFloor(messageId);
-        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || latest.text !== floor.text) {
+        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || latest.text !== expected.text) {
             await store.putFloor(key, { ...base, status: 'stale', updatedAt: now() });
             report('warn', `第 ${messageId} 楼在规划期间被修改或已不是最新楼层（可能有其他插件改写了正文），本次放弃生图，下次渲染时重试`);
             return { ok: false, reason: 'stale' };
         }
         await ensureRegexesOnce();
-        const written = await messageHost.writeFloor(messageId, insertMarkers(floor.text, numbered.paragraphs, plan.slots), floor);
+        const written = await messageHost.writeFloor(messageId, insertMarkers(floor.text, numbered.paragraphs, plan.slots), expected);
         if (!written || !written.ok) {
             const stale = written && written.reason === 'stale';
             await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });
@@ -115,31 +142,65 @@ export function createAutoIllustrationService(deps) {
             return { ok: false, reason: stale ? 'stale' : 'write-failed' };
         }
 
-        for (const slot of plan.slots) {
-            await store.putSlot(key, { ...slot, status: 'pending', updatedAt: now() });
-            remember(`${key}|${slot.slot}`, { status: 'pending', dataUrl: '' });
-        }
-        report('info', `第 ${messageId} 楼规划完成，正在向 NAI 请求 ${plan.slots.length} 张插图…`);
-        let succeeded = 0;
-        for (const slot of plan.slots) {
-            let result;
-            try { result = await nai.generate(slot, s.nai); }
-            catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
-            if (result && result.ok) succeeded += 1;
-            else report('error', `第 ${messageId} 楼第 ${slot.slot} 张插图生成失败：${(result && result.error) || 'NAI 生成失败'}`);
-            const record = result && result.ok
-                ? { ...slot, status: 'done', dataUrl: result.dataUrl }
-                : { ...slot, status: 'failed', error: result && result.error || 'NAI 生成失败' };
-            await store.putSlot(key, { ...record, updatedAt: now() });
-            remember(`${key}|${slot.slot}`, { status: record.status, dataUrl: record.dataUrl || '' });
-            emit(floor, slot.slot);
-        }
-        await store.putFloor(key, { ...base, status: 'done', count: plan.slots.length, updatedAt: now() });
-        if (succeeded) report('success', `第 ${messageId} 楼已生成 ${succeeded} 张插图`);
-        return { ok: true, reason: 'done', count: plan.slots.length };
+        // 数据库生图插件自己写提示词，这里交给它插图位置附近的正文作为画面描述。
+        plan.slots = plan.slots.map((slot) => ({
+            ...slot,
+            description: numbered.paragraphs.slice(Math.max(0, slot.at - 2), slot.at).map((p) => p.text).join('\n'),
+        }));
+        report('info', `第 ${messageId} 楼规划完成，正在请求 ${plan.slots.length} 张插图…`);
+        return generateSlots(messageId, floor, key, s, base, plan.slots);
     }
 
-    async function processMessage(messageId) {
+    // 有任一张失败时楼层记为 failed；下次渲染或手动生图只补失败的那几张，不重新规划、不重复写标记。
+    async function generateSlots(messageId, floor, key, s, base, slots) {
+        const backend = backendReady();
+        if (!backend.ready.ok) {
+            await store.putFloor(key, { ...base, status: 'failed', error: backend.ready.error, updatedAt: now() });
+            report('error', `第 ${messageId} 楼插图未开始：${backend.ready.error}`);
+            return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
+        }
+        const requests = slots.map(({ status, error, dataUrl, floorKey, key: slotKey, updatedAt, ...request }) => request);
+        for (const request of requests) {
+            await store.putSlot(key, { ...request, status: 'pending', updatedAt: now() });
+            remember(`${key}|${request.slot}`, { status: 'pending', dataUrl: '' });
+        }
+        let succeeded = 0;
+        const errors = [];
+        for (const request of requests) {
+            let result;
+            const meta = { messageId, description: request.description || request.scene, size: s.nai.size };
+            try { result = await nai.generate(request, s.nai, meta); }
+            catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
+            if (result && result.ok) succeeded += 1;
+            else {
+                errors.push((result && result.error) || 'NAI 生成失败');
+                report('error', `第 ${messageId} 楼第 ${request.slot} 张插图生成失败：${(result && result.error) || 'NAI 生成失败'}`);
+            }
+            const record = result && result.ok
+                ? { ...request, status: 'done', dataUrl: result.dataUrl }
+                : { ...request, status: 'failed', error: result && result.error || 'NAI 生成失败' };
+            await store.putSlot(key, { ...record, updatedAt: now() });
+            remember(`${key}|${request.slot}`, { status: record.status, dataUrl: record.dataUrl || '' });
+            emit(floor, request.slot);
+        }
+        const failedCount = requests.length - succeeded;
+        await store.putFloor(key, { ...base, status: failedCount ? 'failed' : 'done', count: requests.length, updatedAt: now() });
+        if (succeeded) report('success', `第 ${messageId} 楼已生成 ${succeeded} 张插图`);
+        if (!failedCount) return { ok: true, reason: 'done', count: succeeded };
+        return {
+            ok: false, reason: 'generation-failed', count: succeeded, failedCount,
+            error: `${failedCount} 张插图失败${succeeded ? `（成功 ${succeeded} 张）` : ''}：${Array.from(new Set(errors)).join('；')}`,
+        };
+    }
+
+    // 正文里仍有标记的槽位，以及其中还没成功出图的。
+    async function markedSlots(key, text) {
+        const present = new Set(Array.from(String(text || '').matchAll(MARKER_RE), (m) => Number(m[1])));
+        const all = (await store.getSlots(key)).filter((slot) => present.has(Number(slot.slot)));
+        return { all, retry: all.filter((slot) => slot.status !== 'done') };
+    }
+
+    async function processMessage(messageId, { manual = false } = {}) {
         const s = settings();
         if (!s.nsfwEnabled && !s.interludeEnabled) return { ok: true, reason: 'disabled' };
         const floor = messageHost.readFloor(messageId);
@@ -148,7 +209,7 @@ export function createAutoIllustrationService(deps) {
         }
         const key = floorKeyOf(floor);
         if (locks.has(key)) return locks.get(key);
-        const job = run(Number(messageId), floor, key, s)
+        const job = run(Number(messageId), floor, key, s, manual)
             .catch((error) => {
                 report('error', `自动插图处理异常：${(error && error.message) || error}`);
                 return { ok: false, reason: 'error', error: '自动插图处理失败' };

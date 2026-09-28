@@ -78,3 +78,16 @@ test('stage shake respects reduced motion and animation cleanup', () => {
     assert.equal(stage.classList.contains('igs-stage-shake-active'), false);
     assert.equal(cancelStageShakeEffect(stage), false);
 });
+
+test('stage shake ignores animationend bubbling up from fx children', () => {
+    const stage = makeStage();
+    const clock = scheduler();
+    let listener = null;
+    stage.addEventListener = (name, fn) => { if (name === 'animationend') listener = fn; };
+    const settings = { enabled: true, intensity: 'medium', emotions: ['震惊'] };
+    applyStageShakeEffect(stage, { settings, emotion: '震惊', key: 'k', schedule: clock.schedule, clear: clock.clear, reducedMotion: false });
+    listener({ target: { className: 'igs-fx-symbol' } });
+    assert.equal(stage.classList.contains('igs-stage-shake-active'), true, 'child animation must not end the shake');
+    listener({ target: stage });
+    assert.equal(stage.classList.contains('igs-stage-shake-active'), false);
+});

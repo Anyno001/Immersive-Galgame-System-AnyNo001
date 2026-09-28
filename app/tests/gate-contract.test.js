@@ -791,7 +791,7 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(textTemplate, /fontSizeField/);
     assert.match(dialogTemplate, /dialogWidthField/);
     assert.match(dialogTemplate, /dialogSkinField/);
-    const rounded = DIALOG_FONT_OPTIONS.find(([, label]) => label === '有爱圆体（内置）');
+    const rounded = DIALOG_FONT_OPTIONS.find(([, label]) => label === '有爱圆体');
     assert.ok(rounded);
     assert.match(rounded[0], /IGS Rounded/);
     assert.equal(DIALOG_FONT_OPTIONS[0][0], 'inherit');

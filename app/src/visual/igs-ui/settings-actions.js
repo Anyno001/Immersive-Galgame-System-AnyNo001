@@ -1,6 +1,7 @@
 import { DEFAULT_VIRTUAL_REGEX } from '../../scene/message-source.js';
 import { cloneData } from './reader-value-utils.js';
 import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-constants.js';
+import { findDbgenApi } from '../../generated-images/image-backend.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { loadScenePresets, saveScenePresets, saveActiveScenePresetName } from '../../scene/scene-preset-store.js';
@@ -562,6 +563,16 @@ export async function handleSettingsAction(action, ctx) {
             settingsState.asyncState.imageLogStatus = pruned ? `已按自动清理规则移除 ${pruned} 条旧日志。` : '';
         }
         return rerenderSettings();
+    }
+
+    if (normalizedAction === 'open-dbgen-settings') {
+        const api = findDbgenApi(options.global || globalThis);
+        if (!api || typeof api.openManagement !== 'function') {
+            settingsState.asyncState.imageResult = '未检测到数据库生图插件，请确认已安装并启用。';
+            return rerenderSettings();
+        }
+        await api.openManagement();
+        return { ok: true };
     }
 
     if (normalizedAction === 'test-image') {

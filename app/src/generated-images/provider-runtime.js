@@ -1,11 +1,9 @@
-import { chamiProvider } from './providers/chami-provider.js';
 import { domGenericProvider } from './providers/dom-generic-provider.js';
 import { naiProvider } from './providers/nai-provider.js';
 import { stChatu8Provider } from './providers/st-chatu8-provider.js';
 
 const BUILTIN_IMAGE_PROVIDERS = Object.freeze([
     stChatu8Provider,
-    chamiProvider,
     domGenericProvider,
     naiProvider,
 ]);

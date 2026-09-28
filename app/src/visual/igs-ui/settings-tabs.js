@@ -9,24 +9,33 @@ const BASIC_TAB_TEMPLATE = `
     <div class="igs-source-filter-title">标签解析</div>
     {{filterToggle}}
     <div class="igs-settings-sub"{{filterHidden}}>
-      <div class="igs-settings-section">{{filterOptionToggles}}</div>
       <div class="igs-source-filter-grid">
         {{textIncludeField}}
         {{textExcludeField}}
-        <div class="igs-settings-full">{{imageIncludeField}}</div>
-        <div class="igs-settings-full">{{htmlCardField}}</div>
       </div>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="source-filter"{{advancedFilterOpen}}>
+        <summary>高级：图片标签、HTML 卡片与注释处理</summary>
+        <div class="igs-settings-section">{{filterOptionToggles}}</div>
+        <div class="igs-source-filter-grid">
+          <div class="igs-settings-full">{{imageIncludeField}}</div>
+          <div class="igs-settings-full">{{htmlCardField}}</div>
+        </div>
+      </details>
     </div>
   </div>
   <div class="igs-source-filter igs-body-format">
     <div class="igs-source-filter-title">正文格式化</div>
     {{regexToggle}}
     <div class="igs-settings-sub"{{regexHidden}}>
-      <div class="igs-source-filter-grid">
-        {{regexPatternField}}
-        {{regexFlagsField}}
-        <div class="igs-settings-full">{{regexReplacementField}}</div>
-      </div>
+      <div class="igs-source-filter-note">把正文里的自定义格式（如 @bubble:…）转成阅读器能识别的台词。一般保持默认即可。</div>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="virtual-regex"{{advancedRegexOpen}}>
+        <summary>高级：查找表达式与替换文本</summary>
+        <div class="igs-source-filter-grid">
+          {{regexPatternField}}
+          {{regexFlagsField}}
+          <div class="igs-settings-full">{{regexReplacementField}}</div>
+        </div>
+      </details>
       <div class="igs-settings-row">
         <button class="igs-settings-action" data-action="reset-virtual-regex" type="button">恢复默认</button>
         <button class="igs-settings-action" data-action="test-virtual-regex" type="button">测试当前楼层</button>
@@ -44,22 +53,36 @@ const IMAGE_TAB_TEMPLATE = `
 </div>
 `.trim();
 
-const IMAGE_OTHER_TEMPLATE = `
-<div class="igs-settings-grid" data-image-pane="other">
+const IMAGE_SOURCE_TEMPLATE = `
+<div class="igs-settings-grid" data-image-pane="source">
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">图像来源</div>
-    {{imageModeField}}
-    <div class="igs-settings-sub"{{extensionHidden}}>{{adapterField}}</div>
-    <div class="{{apiGroupClass}}"{{apiHidden}}>
-      {{endpointField}}{{transportField}}
-      {{apiKeyField}}
-      <div class="igs-settings-full">{{modelField}}</div>
-      {{sizeField}}{{stepsField}}{{samplerField}}{{timeoutField}}
-      {{pollIntervalField}}{{pollAttemptsField}}
-      <div class="igs-settings-full">{{promptPrefixField}}</div>
-      <div class="igs-settings-result igs-settings-full" data-result="image-models">{{imageModelsMessage}}</div>
+    {{imageSourceField}}
+    <div class="igs-source-filter-note">{{imageSourceNote}}</div>
+    <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
+      <div class="igs-source-filter-grid">
+        {{autoNaiKeyField}}
+        {{autoNaiModelField}}{{autoNaiSizeField}}
+        <div class="igs-settings-full">{{autoNaiArtistField}}</div>
+      </div>
+      <div class="igs-settings-result" data-result="nai-models">{{autoNaiModelsMessage}}</div>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai"{{advancedNaiOpen}}>
+        <summary>高级：连接方式与采样参数</summary>
+        <div class="igs-source-filter-grid">
+          {{autoNaiTransportField}}{{autoNaiEndpointField}}
+          {{autoNaiStepsField}}{{autoNaiScaleField}}
+          {{autoNaiSamplerField}}
+          <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
+        </div>
+      </details>
     </div>
-    <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button></div>
+    <div class="igs-settings-sub" data-image-source="extension"{{sourceExtensionHidden}}>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="extension"{{advancedExtensionOpen}}>
+        <summary>高级：识别范围与等待时间</summary>
+        <div class="igs-source-filter-grid">{{adapterField}}{{pollIntervalField}}{{pollAttemptsField}}</div>
+      </details>
+    </div>
+    <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>打开数据库生图插件设置</button></div>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
 </div>
@@ -84,11 +107,16 @@ const IMAGE_LOGS_TEMPLATE = `
 
 const IMAGE_AUTO_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="auto">
+  <div class="igs-source-filter-note">{{imageContentNote}}</div>
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">自动插图</div>
+    <div class="igs-source-filter-title">剧情 CG</div>
     {{autoNsfwField}}
     <div class="igs-settings-sub" data-image-feature="nsfw"{{autoNsfwHidden}}>
       <div class="igs-source-filter-grid">{{autoNsfwCountField}}</div>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="nsfw"{{advancedNsfwOpen}}>
+        <summary>高级：NSFW 附加提示词</summary>
+        <div class="igs-settings-full">{{autoAssetNsfwExtraField}}</div>
+      </details>
     </div>
     {{autoInterludeField}}
     <div class="igs-settings-sub" data-image-feature="interlude"{{autoInterludeHidden}}>
@@ -96,22 +124,26 @@ const IMAGE_AUTO_TEMPLATE = `
     </div>
   </div>
   <div class="igs-source-filter" data-image-feature="assets">
-    <div class="igs-source-filter-title">素材补全（需开启场景素材模式）</div>
-    <div class="igs-source-filter-grid">
-      {{autoAssetSpriteField}}{{autoAssetBackgroundField}}
-      {{autoAssetStrictField}}{{autoAssetMaxField}}
-      {{autoAssetSpriteSizeField}}{{autoAssetBackgroundSizeField}}
-    </div>
-    <div class="igs-settings-sub">
-      <div class="igs-settings-full">{{autoAssetBackgroundTemplateField}}</div>
-      <div class="igs-settings-full">{{autoAssetBackgroundNegativeTemplateField}}</div>
-      <div class="igs-settings-full">{{autoAssetSpriteTemplateField}}</div>
-      <div class="igs-settings-full">{{autoAssetSpriteNegativeTemplateField}}</div>
-      <div class="igs-settings-full">{{autoAssetNsfwExtraField}}</div>
+    <div class="igs-source-filter-title">素材（未登记的人物与场景）</div>
+    <div class="igs-source-filter-note"{{assetSceneWarnHidden}}>需要先在「素材」页开启场景素材模式，下面的开关才会生效。</div>
+    <div class="igs-source-filter-grid">{{autoAssetSpriteField}}{{autoAssetBackgroundField}}</div>
+    <div class="igs-settings-sub" data-image-feature="asset-options"{{autoAssetOptionsHidden}}>
+      <div class="igs-source-filter-grid">
+        {{autoAssetMaxField}}{{autoAssetStrictField}}
+        {{autoAssetSpriteSizeField}}{{autoAssetBackgroundSizeField}}
+      </div>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="asset-templates"{{advancedAssetTemplatesOpen}}>
+        <summary>高级：素材提示词模板</summary>
+        <div class="igs-settings-full">{{autoAssetBackgroundTemplateField}}</div>
+        <div class="igs-settings-full">{{autoAssetBackgroundNegativeTemplateField}}</div>
+        <div class="igs-settings-full">{{autoAssetSpriteTemplateField}}</div>
+        <div class="igs-settings-full">{{autoAssetSpriteNegativeTemplateField}}</div>
+      </details>
     </div>
   </div>
   <div class="igs-source-filter" data-image-feature="llm"{{autoSharedHidden}}>
-    <div class="igs-source-filter-title">副 LLM · 生成标签</div>
+    <div class="igs-source-filter-title">副 LLM · 规划画面与标签</div>
+    <div class="igs-source-filter-note">{{autoLlmNote}}</div>
     <div class="igs-source-filter-grid">
       {{autoLlmSourceField}}{{autoLlmContextField}}
     </div>
@@ -122,26 +154,19 @@ const IMAGE_AUTO_TEMPLATE = `
       </div>
       <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
     </div>
-    <details class="igs-settings-sub" data-image-feature="llm-prompts"{{autoLlmPromptsOpen}}>
-      <summary>副 LLM 提示词（系统提示词，清空即恢复内置）</summary>
+    <details class="igs-settings-sub igs-settings-advanced" data-image-feature="llm-prompts" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
+      <summary>高级：副 LLM 系统提示词（清空即恢复内置）</summary>
       <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
       <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
       <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
       <div class="igs-settings-full">{{autoLlmPromptAssetSoftField}}</div>
     </details>
-  </div>
-  <div class="igs-source-filter" data-image-feature="nai"{{autoSharedHidden}}>
-    <div class="igs-source-filter-title">NovelAI · 生成图片</div>
-    <div class="igs-source-filter-grid">
-      {{autoNaiTransportField}}{{autoNaiEndpointField}}
-      {{autoNaiKeyField}}
-      {{autoNaiModelField}}{{autoNaiSizeField}}
-      {{autoNaiStepsField}}{{autoNaiScaleField}}
-      {{autoNaiSamplerField}}
-      <div class="igs-settings-full">{{autoNaiArtistField}}</div>
-      <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
-    </div>
-    <div class="igs-settings-result" data-result="nai-models">{{autoNaiModelsMessage}}</div>
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-jailbreak"{{advancedJailbreakOpen}}>
+      <summary>高级：自定义附加词（头部 / 尾部）</summary>
+      <div class="igs-source-filter-note">插件不提供任何内容，留空即不附加。头部加在系统提示词最前，尾部加在请求内容最后，对剧情 CG 和素材的副 LLM 请求都生效。</div>
+      <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
+      <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
+    </details>
   </div>
 </div>
 `.trim();
@@ -282,8 +307,8 @@ export const SCENE_SUBTAB_DEFS = Object.freeze([
 ]);
 
 export const IMAGE_SUBTAB_DEFS = Object.freeze([
-    ['auto', '自动插图'],
-    ['other', '其他生图'],
+    ['source', '图像来源'],
+    ['auto', '生图内容'],
     ['logs', '日志'],
 ]);
 
@@ -354,12 +379,13 @@ export function getReaderSubTabTemplate(subTab) {
 }
 
 export function normalizeImageSubTab(subTab) {
-    return IMAGE_SUBTAB_DEFS.some(([id]) => id === subTab) ? subTab : 'auto';
+    if (subTab === 'other') return 'source';
+    return IMAGE_SUBTAB_DEFS.some(([id]) => id === subTab) ? subTab : 'source';
 }
 
 export function getImageSubTabTemplate(subTab) {
     const id = normalizeImageSubTab(subTab);
-    if (id === 'other') return IMAGE_OTHER_TEMPLATE;
+    if (id === 'source') return IMAGE_SOURCE_TEMPLATE;
     if (id === 'logs') return IMAGE_LOGS_TEMPLATE;
     return IMAGE_AUTO_TEMPLATE;
 }

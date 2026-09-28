@@ -178,6 +178,8 @@ export function createMagicWandEntry(options = {}) {
             }
         };
         for (const record of records || []) {
+            // Reader overlay churn (FX, HUD, typewriter) never touches host menus.
+            if (record.target?.closest?.('#igs-overlay')) continue;
             // Changes inside an existing menu may remove or replace our entry.
             if (record.target?.closest?.(selector)) return true;
             for (const node of record.addedNodes || []) if (containsMenu(node)) return true;

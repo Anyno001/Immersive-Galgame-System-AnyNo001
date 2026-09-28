@@ -16,6 +16,14 @@ function toReadableText(raw) {
     return numberParagraphs(raw).paragraphs.map((p) => p.text).join('\n');
 }
 
+function describeAssetNeed(need) {
+    if (need.type === 'background') {
+        const when = [need.time, need.weather].filter(Boolean).join('、');
+        return `画场景「${need.name}」${when ? `（${when}）` : ''}的空镜背景图：只画环境，画面中不要出现任何人物。`;
+    }
+    return `画角色「${need.name}」的立绘：单人、全身、正面站立，纯白背景，不要其他人物和场景。`;
+}
+
 export function createAssetGenerationService(deps) {
     const { messageHost, llm, nai, store, getSettings, events } = deps;
     const matte = deps.matte || (async (dataUrl) => dataUrl);
@@ -107,7 +115,7 @@ export function createAssetGenerationService(deps) {
         return '';
     }
 
-    function matchContext(s, userName) {
+    function matchContext(s, userName, knownCharacters = []) {
         return {
             sceneAssets: s.sceneAssets,
             generatedAssets: s.sceneAssets.generated,
@@ -115,6 +123,7 @@ export function createAssetGenerationService(deps) {
             tempBackground,
             tempSprite,
             userName,
+            knownCharacters,
         };
     }
 
@@ -123,8 +132,9 @@ export function createAssetGenerationService(deps) {
         const transparent = isSprite && supportsNaiTransparentBackground(s.auto.nai.model);
         const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
         const size = isSprite ? s.auto.assets.spriteSize : s.auto.assets.backgroundSize;
+        const meta = { messageId: floor.messageId, size, description: describeAssetNeed(item.need) };
         let result;
-        try { result = await nai.generate(slot, { ...s.auto.nai, size }); } catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
+        try { result = await nai.generate(slot, { ...s.auto.nai, size }, meta); } catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
         const key = tempAssetKeyOf(floor.chatId, item.need);
         const base = {
             key, chatId: floor.chatId, floorKey, messageId: floor.messageId, swipeId: floor.swipeId,
@@ -156,27 +166,43 @@ export function createAssetGenerationService(deps) {
         const numbered = numberParagraphs(floor.text);
         const needs = collectAssetNeeds(
             { scenes: numbered.scenes, characters: numbered.characters },
-            matchContext(s, messageHost.getUserName ? messageHost.getUserName() : ''),
+            matchContext(
+                s,
+                messageHost.getUserName ? messageHost.getUserName() : '',
+                messageHost.getCharacterNames ? messageHost.getCharacterNames() : [],
+            ),
             { background: s.auto.assets.backgroundEnabled, sprite: s.auto.assets.spriteEnabled, limit: s.auto.assets.maxPerFloor },
         );
         if (!needs.length) {
             await store.putFloor(key, { status: 'done', count: 0, updatedAt: now() });
             return { ok: true, reason: 'nothing-missing' };
         }
+        const backend = nai && typeof nai.describe === 'function' ? nai.describe() : { ready: { ok: true } };
+        if (!backend.ready.ok) {
+            await store.putFloor(key, { status: 'failed', error: backend.ready.error, updatedAt: now() });
+            report('error', `第 ${messageId} 楼素材未开始：${backend.ready.error}`);
+            return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
+        }
         await store.putFloor(key, { status: 'planning', updatedAt: now() });
-        report('info', `第 ${messageId} 楼缺少 ${needs.length} 项素材，正在请求副 LLM…`);
         let plan;
-        try {
-            const previousText = messageHost.readPreviousAiTexts(messageId, s.auto.llm.contextFloors)
-                .map(toReadableText).join('\n').slice(-1500);
-            plan = await requestWithSoftRetry(llm, {
-                system: s.auto.llm.prompts.asset,
-                softSystem: s.auto.llm.prompts.assetSoft,
-                user: buildAssetPlannerUserPrompt({ needs, readableText: toReadableText(floor.text).slice(0, 6000), previousText }),
-                parse: (reply) => parseAssetPlan(reply, needs),
-            }, s.auto.llm);
-        } catch (error) {
-            plan = { ok: false, error: '副 LLM 规划失败' };
+        if (backend.ownPrompts) {
+            // 数据库生图插件自己按楼层写提示词，不需要副 LLM 出标签。
+            report('info', `第 ${messageId} 楼缺少 ${needs.length} 项素材，正在交给数据库生图插件…`);
+            plan = { ok: true, items: needs.map((need) => ({ need, tags: '' })) };
+        } else {
+            report('info', `第 ${messageId} 楼缺少 ${needs.length} 项素材，正在请求副 LLM…`);
+            try {
+                const previousText = messageHost.readPreviousAiTexts(messageId, s.auto.llm.contextFloors)
+                    .map(toReadableText).join('\n').slice(-1500);
+                plan = await requestWithSoftRetry(llm, {
+                    system: s.auto.llm.prompts.asset,
+                    softSystem: s.auto.llm.prompts.assetSoft,
+                    user: buildAssetPlannerUserPrompt({ needs, readableText: toReadableText(floor.text).slice(0, 6000), previousText }),
+                    parse: (reply) => parseAssetPlan(reply, needs),
+                }, s.auto.llm);
+            } catch (error) {
+                plan = { ok: false, error: '副 LLM 规划失败' };
+            }
         }
         if (!plan.ok) {
             const items = buildDictionaryAssetItems(needs);
@@ -189,14 +215,22 @@ export function createAssetGenerationService(deps) {
             return { ok: false, reason: 'plan-failed', error: plan.error };
         }
         let count = 0;
+        const errors = [];
         for (const item of plan.items) {
             const record = await generateItem(item, s, floor, key);
             if (record.status === 'review') count += 1;
+            else errors.push(`「${record.name}」${record.error}`);
         }
         const failedCount = plan.items.length - count;
         await store.putFloor(key, { status: failedCount ? 'failed' : 'done', count, updatedAt: now() });
         if (count) report('success', `第 ${messageId} 楼已生成 ${count} 项素材，待确认`);
-        return { ok: failedCount === 0, reason: failedCount ? 'generation-failed' : 'done', count, failedCount };
+        const result = { ok: failedCount === 0, reason: failedCount ? 'generation-failed' : 'done', count, failedCount };
+        if (failedCount) {
+            // 同一原因（如 NAI 500）只说一次，避免按钮提示被重复内容撑长。
+            const unique = Array.from(new Set(errors.map((e) => e.replace(/^「[^」]*」/, ''))));
+            result.error = `${failedCount} 项失败${count ? `（成功 ${count} 项）` : ''}：${unique.length === 1 ? unique[0] : errors.join('；')}`;
+        }
+        return result;
     }
 
     async function processMessage(messageId, { manual = false } = {}) {

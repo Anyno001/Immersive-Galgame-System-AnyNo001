@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from './reduced-motion.js';
 export const STAGE_SHAKE_EMOTIONS = Object.freeze([
     '惊讶', '吃惊', '惊异', '惊诧', '诧异', '惊愕', '错愕', '愕然',
     '惊呆', '惊住', '目瞪口呆', '瞠目结舌', '震惊', '震撼', '震动', '惊骇', '骇然',
@@ -53,8 +54,7 @@ export function isStageShakeEmotion(emotion, settings) {
 function hasReducedMotion(options = {}) {
     return options.reducedMotion === true
         || (options.reducedMotion !== false
-            && typeof globalThis.matchMedia === 'function'
-            && globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches);
+            && prefersReducedMotion());
 }
 
 function clearState(stage, state) {
@@ -93,14 +93,17 @@ export function applyStageShakeEffect(stage, options = {}) {
     const clear = typeof options.clear === 'function' ? options.clear : (timer) => clearTimeout(timer);
     const state = { key, clear, timer: null, listener: null };
     const finish = () => clearState(stage, state);
-    state.listener = finish;
+    // 演出层里的漫画符号等子元素的 animationend 会冒泡上来，只认舞台自身的震动结束。
+    state.listener = (event) => {
+        if (!event || event.target === stage) finish();
+    };
     activeStates.set(stage, state);
     if (stage.setAttribute) {
         stage.setAttribute('data-igs-stage-shake', '1');
         stage.setAttribute('data-igs-stage-shake-intensity', settings.intensity);
     }
     if (stage.classList && typeof stage.classList.add === 'function') stage.classList.add('igs-stage-shake-active');
-    if (typeof stage.addEventListener === 'function') stage.addEventListener('animationend', state.listener, { once: true });
+    if (typeof stage.addEventListener === 'function') stage.addEventListener('animationend', state.listener);
     state.timer = schedule(finish, params.duration + 40);
     return { played: true, intensity: settings.intensity, params, cancel: finish };
 }

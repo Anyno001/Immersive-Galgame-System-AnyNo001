@@ -17,6 +17,9 @@ import {
 import { FX_SFX_PARTIALS, playFxSfx } from '../src/visual/igs-ui/fx-sfx.js';
 import { headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanHeadFromAlpha, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
 import { spriteGeometry } from '../src/visual/igs-ui/fx-runtime.js';
+import { MANGA_SYMBOL_SVG, pickFxAccent } from '../src/visual/igs-ui/fx-symbols.js';
+import { MANGA_SYMBOL_KINDS } from '../src/visual/igs-ui/fx-settings.js';
+import { clearSpriteHeadCache, probeSpriteHead } from '../src/visual/igs-ui/fx-anchor.js';
 import { exitSpriteEditMode } from '../src/visual/igs-ui/sprite-edit.js';
 
 class FakeNode {
@@ -341,4 +344,57 @@ test('gate:sprite-edit:save-writes-head-per-character-and-clears-mood-override',
     current.spriteEditMode = { ...current.spriteEditMode };
     exitSpriteEditMode(overlay, current, { posX: 50, posY: 100, scale: 40, head: null }, ctx);
     assert.equal('spriteHeads' in saved[2], false);
+});
+
+test('gate:fx-runtime:page-flip-clears-previous-page-transients', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const settings = { mangaFx: { enabled: true }, heartbeatFx: { enabled: true } };
+    const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, audioScheduler: () => null };
+    applyFxToDom(root, snapshot({ statusEmotion: '心动', currentIndex: 0 }, settings), opts);
+    const stage = motion.querySelector('#igs-fx-stage');
+    assert.equal(stage.querySelectorAll('.igs-fx-transient').length, 2);
+    applyFxToDom(root, snapshot({ statusEmotion: '平静', currentIndex: 1 }, settings), opts);
+    assert.equal(stage.querySelectorAll('.igs-fx-transient').length, 0);
+    assert.equal(timers.queue.length, 0, 'timers of the previous page are cleared');
+});
+
+test('gate:fx-runtime:full-screen-fx-flag-busy-until-they-end', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const settings = { mangaFx: { enabled: true, speedLines: ['震惊'] }, fxTags: { enabled: true } };
+    const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false };
+    applyFxToDom(root, snapshot({ statusEmotion: '震惊' }, settings), opts);
+    assert.equal(motion.getAttribute('data-igs-fx-busy'), '1');
+    timers.flush();
+    assert.equal(motion.getAttribute('data-igs-fx-busy'), null);
+    const fx = { instants: [], call: null, flashback: true, letterbox: false };
+    applyFxToDom(root, snapshot({ fx, currentIndex: 2 }, settings), opts);
+    assert.equal(motion.getAttribute('data-igs-fx-busy'), '1', 'flashback range keeps backdrop blur paused');
+    cancelFxEffects(root);
+    assert.equal(motion.getAttribute('data-igs-fx-busy'), null);
+});
+
+test('gate:fx-symbols:every-kind-has-svg-and-accent-follows-vivid-theme-color', () => {
+    for (const kind of MANGA_SYMBOL_KINDS) assert.match(MANGA_SYMBOL_SVG[kind], /^<svg class="igs-fx-svg"/, kind);
+    assert.match(MANGA_SYMBOL_SVG.gloom, /igs-fx-wave/);
+    const { root, motion } = makeRoot();
+    applyFxToDom(root, snapshot({ statusEmotion: '生气' }, { mangaFx: { enabled: true } }), { schedule: () => 0, clear() {}, reducedMotion: false });
+    assert.equal(motion.querySelector('.igs-fx-symbol').innerHTML, MANGA_SYMBOL_SVG.anger);
+    assert.equal(pickFxAccent({ nameColor: '#ffffff', textColor: '#5d3a4a', thoughtColor: '#c65f86' }), 'hsl(337 88% 60%)');
+    assert.equal(pickFxAccent({ nameColor: '#b3b3b3', textColor: '#f4f4f6', dividerColor: '#404040' }), '');
+    assert.equal(pickFxAccent(null), '');
+});
+
+test('gate:fx-anchor:failed-sprite-probe-is-not-retried-every-render', async () => {
+    clearSpriteHeadCache();
+    let loads = 0;
+    class FailingImage {
+        set src(value) { loads += 1; queueMicrotask(() => this.onerror()); }
+    }
+    const doc = { defaultView: { Image: FailingImage, location: { href: 'http://host/' } } };
+    assert.equal(await probeSpriteHead('/broken.png', doc), null);
+    assert.equal(await probeSpriteHead('/broken.png', doc), null);
+    assert.equal(loads, 1);
+    clearSpriteHeadCache();
 });

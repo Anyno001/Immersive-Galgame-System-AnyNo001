@@ -2,7 +2,9 @@ import { parseImageResponse } from './image-api-client.js';
 import { buildNaiV4Request, validateNaiV4Request, NAI_DEFAULT_SETTINGS, NAI_OFFICIAL_ENDPOINT } from './request-builders/nai-v4-builder.js';
 
 export { NAI_OFFICIAL_ENDPOINT };
-const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const MAX_BACKOFF_MS = 30000;
 
 export function resolveNaiEndpoint(endpoint) {
     return String(endpoint || '').trim() || NAI_OFFICIAL_ENDPOINT;
@@ -12,11 +14,34 @@ function toProxyUrl(url) {
     return `/proxy/${url}`;
 }
 
-function describeStatus(status) {
+function describeStatus(status, detail = '') {
+    const suffix = detail ? `：${detail}` : '';
     if (status === 401) return 'NAI 鉴权失败（401）：请检查 NAI Key';
     if (status === 402) return 'NAI 余额/订阅不足（402）';
-    if (status === 429) return 'NAI 请求过于频繁（429）';
-    return `NAI 返回 HTTP ${status}`;
+    if (status === 429) return `NAI 请求过于频繁（429），已自动重试仍失败，请稍后再试或降低同时生成数量${suffix}`;
+    if (status >= 500) return `NAI 服务端错误（HTTP ${status}），已自动重试 ${MAX_ATTEMPTS - 1} 次仍失败${suffix || '，多为 NAI 繁忙或参数不被当前模型支持'}`;
+    return `NAI 返回 HTTP ${status}${suffix}`;
+}
+
+// NAI 出错时返回 {statusCode, message}；中转可能返回纯文本或 HTML，只截一小段。
+async function readErrorDetail(response) {
+    let text = '';
+    try { text = String(await response.text()); } catch (error) { return ''; }
+    try {
+        const data = JSON.parse(text);
+        if (data && (data.message || data.error)) text = String(data.message || data.error);
+    } catch (error) { /* 非 JSON */ }
+    if (/<html|<!doctype/i.test(text)) return '';
+    return text.replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+function retryDelayMs(response, attempt) {
+    const header = response && response.headers && typeof response.headers.get === 'function'
+        ? response.headers.get('retry-after') : null;
+    const seconds = Number(header);
+    if (header != null && Number.isFinite(seconds) && seconds > 0) return Math.min(MAX_BACKOFF_MS, seconds * 1000);
+    const base = response && response.status === 429 ? 5000 : 2000;
+    return Math.min(MAX_BACKOFF_MS, base * (2 ** attempt));
 }
 
 export function createNaiOfficialClient(deps = {}) {
@@ -55,7 +80,7 @@ export function createNaiOfficialClient(deps = {}) {
         const body = buildNaiV4Request(slot, settings, random);
         const valid = validateNaiV4Request(body);
         if (!valid.ok) return { ok: false, error: `生图请求无效：${valid.reason}` };
-        for (let attempt = 0; attempt < 2; attempt += 1) {
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
             let response;
             try {
                 response = await send(body, settings);
@@ -77,11 +102,12 @@ export function createNaiOfficialClient(deps = {}) {
                 }
                 return { ok: false, error: 'NAI 返回中没有图片' };
             }
-            if (RETRYABLE.has(response.status) && attempt === 0) {
-                await sleep(response.status === 429 ? 5000 : 2000);
+            if (RETRYABLE.has(response.status) && attempt < MAX_ATTEMPTS - 1) {
+                await sleep(retryDelayMs(response, attempt));
                 continue;
             }
-            return { ok: false, error: describeStatus(response.status), status: response.status };
+            const detail = await readErrorDetail(response);
+            return { ok: false, error: describeStatus(response.status, detail), status: response.status };
         }
         return { ok: false, error: 'NAI 请求失败' };
     }

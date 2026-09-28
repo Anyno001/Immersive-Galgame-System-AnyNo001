@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from './reduced-motion.js';
 import { measureClassicReveal } from './typewriter-classic.js';
 import { scheduleTypewriterAudio } from './typewriter-audio.js';
 
@@ -130,8 +131,7 @@ export function applyTypewriterEffect(target, options = {}) {
         : settings.sound.narrationVolume;
     const reducedMotion = options.reducedMotion === true
         || (options.reducedMotion !== false
-            && typeof globalThis.matchMedia === 'function'
-            && globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches);
+            && prefersReducedMotion());
     if (!settings.enabled || reducedMotion) {
         cancelTypewriter(target, { finish: true });
         setRunningState(target, false);

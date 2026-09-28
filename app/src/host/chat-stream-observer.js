@@ -1,4 +1,5 @@
 import { getSillyTavernContext } from './tavern-helper-adapter.js';
+import { isBackgroundGenerationActive } from './background-generation.js';
 
 // 楼层内嵌的流式生命周期：仅在 embedded 阅读器打开时创建，
 // 官方生成事件负责起止，#chat mutation 只在生成期间同步活动，不做解析。
@@ -96,6 +97,7 @@ export function createChatStreamObserver(opts = {}) {
         // 若据此武装，会让之后任意 #chat 变更长期卡在“正在生成”。
         if (dryRun === true) return;
         if (type === 'quiet' && !(params && params.quietToLoud)) return;
+        if (isBackgroundGenerationActive()) return;
         generationActive = true;
         manualArmed = false;
         // 酒馆生成事件是全局信号，插件自身的 API 请求也会触发它。
@@ -169,9 +171,10 @@ export function createChatStreamObserver(opts = {}) {
         const chat = doc && typeof doc.querySelector === 'function' ? doc.querySelector('#chat') : null;
         if (MutationObserverCtor && chat) {
             observer = new MutationObserverCtor((records) => {
+                // 先做廉价的生成状态判断：非生成期间（阅读器演出、HUD 更新等）直接返回，不逐条检查节点归属。
+                if (lifecycleAvailable && !generationActive && !manualArmed) return;
                 const external = Array.isArray(records) && records.some((record) => !isInternalRecord(record));
                 if (!external) return;
-                if (lifecycleAvailable && !generationActive && !manualArmed) return;
                 scheduleActivity();
             });
             try {

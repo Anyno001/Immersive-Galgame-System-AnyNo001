@@ -580,3 +580,40 @@ test('gate:illustration:nai-client-uses-custom-endpoint-or-official', async () =
     await client.generate(slot, { apiKey: 'fake-key', endpoint: 'https://nai.example.com/x', transport: 'st-proxy' });
     assert.deepEqual(urls, [NAI_OFFICIAL_ENDPOINT, 'https://nai.example.com/custom/generate', '/proxy/https://nai.example.com/x']);
 });
+
+test('gate:illustration:failed-slot-retries-without-replanning', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: NSFW_TEXT, settings: { nsfwEnabled: true, nsfwCount: 1 }, naiResult: { ok: false, error: 'NAI 服务端错误（HTTP 500）' } });
+    const store = createMemoryIllustrationStore();
+    const service = createAutoIllustrationService({ ...fake, store });
+    const first = await service.processMessage(5);
+    assert.equal(first.reason, 'generation-failed');
+    assert.match(first.error, /HTTP 500/);
+    assert.equal((await store.getFloor('c1|5|0')).status, 'failed');
+    fake.nai.generate = async () => { fake.calls.nai++; return { ok: true, dataUrl: 'data:image/png;base64,BBBB' }; };
+    const retry = await service.processMessage(5, { manual: true });
+    assert.deepEqual([retry.reason, fake.calls.llm, fake.calls.writes.length], ['done', 1, 1]);
+    assert.equal(service.getIllustrationUrl({ messageId: 5, slot: 1 }), 'data:image/png;base64,BBBB');
+    assert.equal((await service.processMessage(5, { manual: true })).reason, 'nothing-missing');
+});
+
+test('gate:illustration:manual-interlude-ignores-probability', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: SFW_TEXT, settings: { interludeEnabled: true, interludeProbability: 0 } });
+    const store = createMemoryIllustrationStore();
+    const service = createAutoIllustrationService({ ...fake, store, random: () => 0.99 });
+    assert.equal((await service.processMessage(5)).reason, 'not-selected');
+    assert.equal((await service.processMessage(5, { manual: true })).reason, 'done');
+    assert.equal(fake.calls.llm, 1);
+});
+
+test('gate:illustration:slot-count-mismatch-still-generates', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: NSFW_TEXT, settings: { nsfwEnabled: true, nsfwCount: 2 } });
+    const result = await createAutoIllustrationService({ ...fake, store: createMemoryIllustrationStore() }).processMessage(5);
+    assert.equal(result.reason, 'done');
+    assert.equal(fake.calls.nai, 1);
+});

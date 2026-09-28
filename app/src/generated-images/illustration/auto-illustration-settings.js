@@ -70,6 +70,8 @@ export function normalizeAutoIllustrationSettings(value) {
             contextFloors: clampInt(llm.contextFloors, 0, 3, 1),
             timeoutMs: clampInt(llm.timeoutMs, 10000, 300000, 90000),
             prompts: normalizePrompts(llm.prompts),
+            jailbreakHead: str(llm.jailbreakHead),
+            jailbreakTail: str(llm.jailbreakTail),
         },
         nai: {
             transport: nai.transport === 'st-proxy' ? 'st-proxy' : 'direct',

@@ -656,7 +656,10 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     if (bg) {
         bg.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'contain' : 'cover';
         const brightness = Number(readerSettings.imgBrightness);
-        bg.style.filter = `brightness(${(Number.isFinite(brightness) ? brightness : 88) / 100})`;
+        const level = (Number.isFinite(brightness) ? brightness : 88) / 100;
+        bg.style.filter = `brightness(${level})`;
+        // 回忆滤镜需要在用户亮度基础上叠加，而不是覆盖它。
+        if (typeof bg.style.setProperty === 'function') bg.style.setProperty('--igs-bg-brightness', String(level));
     }
     if (bgBlur) {
         bgBlur.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'cover' : 'cover';
@@ -701,6 +704,19 @@ function findStatusHudHost(root) {
     return typeof root.querySelector === 'function' ? root.querySelector('#igs-status-hud') : null;
 }
 
+// 状态栏按输入内容签名跳过重建：图片轮询、素材加载等与 HUD 无关的重渲染不再销毁重建整块 DOM。
+const statusHudKeys = new WeakMap();
+
+function statusHudKey(root, snapshot, hud, radius) {
+    const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
+    const optionsVisible = Boolean(root.classList && root.classList.contains('igs-options-visible'));
+    try {
+        return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size] : null, optionsVisible, radius]);
+    } catch {
+        return '';
+    }
+}
+
 export function applyStatusHudToDom(root, snapshot) {
     const host = findStatusHudHost(root);
     if (!host) return;
@@ -709,6 +725,9 @@ export function applyStatusHudToDom(root, snapshot) {
     const radius = STATUS_HUD_RADIUS[hud && hud.avatarRadius] != null ? STATUS_HUD_RADIUS[hud && hud.avatarRadius] : '50%';
     const scale = snapshot && snapshot.readerSettings && snapshot._statusHudScale;
     host.style.setProperty('--igs-hud-scale', String(Number(scale) > 0 ? Number(scale) : 1));
+    const key = statusHudKey(root, snapshot, hud, radius);
+    if (key && statusHudKeys.get(host) === key && (host.firstChild || host.hasAttribute?.('hidden'))) return;
+    statusHudKeys.set(host, key);
     const previousRecordEntry = host.querySelector?.('.igs-hud-entry-arrow');
     const previousRecordMenuOpen = previousRecordEntry?.getAttribute('aria-expanded') === 'true';
     const previousHadMetricsRecord = host.classList?.contains('igs-hud-character-emotion-with-metrics');
@@ -899,8 +918,30 @@ function applyAlignStyleImpl(element, align) {
     }
 }
 
+// 背景与立绘图地址可能是数 MB 的 data: URL；同值重写仍要重新解析整段 CSS，所以只在变化时写入。
+// 这三个节点的 backgroundImage 只由本文件写，记住上次写入值即可，不必回读样式。
+const backgroundImageKeys = new WeakMap();
+
+function writeBackgroundImage(element, url) {
+    const value = url ? `url("${url.replace(/"/g, '&quot;')}")` : '';
+    if (backgroundImageKeys.get(element) === value) return;
+    backgroundImageKeys.set(element, value);
+    element.style.backgroundImage = value;
+}
+
+const ROOT_TOGGLED_CLASSES = new Set(['igs-default-reader-chrome', 'igs-gradient-veil-active', 'igs-scene-nsfw']);
+
 export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
-    root.className = snapshot.classes.join(' ');
+    const materialDialog = isMaterialDialogSkin(snapshot.readerSettings);
+    const gradientVeilDialog = isGradientVeilDialogSkin(snapshot.readerSettings);
+    const nsfwVeilActive = snapshot.content.sceneNsfw === true && snapshot.content.illustrationActive !== true;
+    // 先算出最终类名再整串比较：覆盖后再 toggle 会让同一组类每次渲染都先删后加，反复触发样式失效。
+    const rootClasses = snapshot.classes.filter((name) => !ROOT_TOGGLED_CLASSES.has(name));
+    if (!materialDialog) rootClasses.push('igs-default-reader-chrome');
+    if (gradientVeilDialog) rootClasses.push('igs-gradient-veil-active');
+    if (nsfwVeilActive) rootClasses.push('igs-scene-nsfw');
+    const rootClassName = rootClasses.join(' ');
+    if (root.className !== rootClassName) root.className = rootClassName;
     root.setAttribute('data-igs-igs-ui', 'true');
     const stageMotion = root.querySelector('#igs-stage-motion') || root;
     let typewriterTextType = '';
@@ -912,12 +953,6 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const input = root.querySelector('#igs-input');
     const send = root.querySelector('#igs-send-btn');
     const dialog = root.querySelector('#igs-dialog');
-    const materialDialog = isMaterialDialogSkin(snapshot.readerSettings);
-    const gradientVeilDialog = isGradientVeilDialogSkin(snapshot.readerSettings);
-    if (root.classList) {
-        root.classList.toggle('igs-default-reader-chrome', !materialDialog);
-        root.classList.toggle('igs-gradient-veil-active', gradientVeilDialog);
-    }
     // 根节点同步皮肤标记，供对话框之外的选项气泡跟随皮肤。
     applyDialogSkinAssets(root, snapshot.readerSettings);
     const toolbar = root.querySelector('#igs-ctrl-bar');
@@ -928,10 +963,6 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const resolveAssetUrl = typeof ctx.resolveAssetUrl === 'function'
         ? ctx.resolveAssetUrl
         : (url) => String(url || '').trim();
-    const nsfwVeilActive = snapshot.content.sceneNsfw === true && snapshot.content.illustrationActive !== true;
-    if (root.classList) {
-        root.classList.toggle('igs-scene-nsfw', nsfwVeilActive);
-    }
     // NSFW 黑幕强度：档位写入 CSS 变量驱动 veil 与背景亮度；非 NSFW 场景清除，回落 CSS 内默认值。
     const nsfwVeilLevel = nsfwVeilActive
         ? (((snapshot.readerSettings || {}).statusHud) || {}).nsfwVeilLevel
@@ -949,12 +980,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const backgroundAssetUrl = resolveAssetUrl(snapshot.content.backgroundImage);
 
     if (bg && backgroundAssetUrl) {
-        bg.style.backgroundImage = `url("${backgroundAssetUrl.replace(/"/g, '&quot;')}")`;
+        writeBackgroundImage(bg, backgroundAssetUrl);
         bg.setAttribute('data-igs-has-image', '1');
         removeImageLoadingSpinner(bg);
         removeImageEmptyPlaceholder(bg);
     } else if (bg) {
-        bg.style.backgroundImage = '';
+        writeBackgroundImage(bg, '');
         bg.removeAttribute('data-igs-has-image');
         const expectsImage = snapshot.content.imageExpectedCount > 0
             && snapshot.content.imageBoundCount < snapshot.content.imageExpectedCount;
@@ -973,10 +1004,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         }
     }
     if (bgBlur && backgroundAssetUrl) {
-        bgBlur.style.backgroundImage = `url("${backgroundAssetUrl.replace(/"/g, '&quot;')}")`;
+        writeBackgroundImage(bgBlur, backgroundAssetUrl);
         bgBlur.style.opacity = '0.72';
     } else if (bgBlur) {
-        bgBlur.style.backgroundImage = '';
+        writeBackgroundImage(bgBlur, '');
         bgBlur.style.opacity = '0';
     }
     const spriteEl = root.querySelector('#igs-sprite');
@@ -990,7 +1021,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const spriteNarration = ['narration', 'chat', 'system'].includes(snapshot.content.textType) && spriteSettings.dimSpriteOnNarration !== false;
         const spriteFilter = spriteNarration ? 'brightness(0.86) saturate(0.86)' : '';
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
-        spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;
+        writeBackgroundImage(spriteEl, spriteAssetUrl);
         spriteEl.style.display = 'block';
         spriteEl.style.position = 'absolute';
         spriteEl.style.inset = '0';
@@ -1012,7 +1043,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         }
     } else if (spriteEl) {
         spriteEl.classList.remove('igs-sprite-narration');
-        spriteEl.style.backgroundImage = '';
+        writeBackgroundImage(spriteEl, '');
         spriteEl.style.display = 'none';
         spriteEl.style.filter = '';
         spriteEl.style.setProperty('-webkit-filter', '');
@@ -1071,6 +1102,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const fxResult = applyFxToDom(root, snapshot, {
         sprite: fxSprite,
         resolveAssetUrl,
+        theme: resolveActiveTheme(snapshot),
     });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);

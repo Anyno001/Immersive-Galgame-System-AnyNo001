@@ -138,6 +138,8 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 details.igs-settings-sub>summary{cursor:pointer;font-size:12px;color:var(--igs-settings-ink);opacity:.78;user-select:none}
 details.igs-settings-sub[open]>summary{margin-bottom:4px}
 details[data-image-feature="llm-prompts"] textarea{min-height:220px}
+details.igs-settings-advanced{border-top:1px dashed var(--igs-settings-line,rgba(128,128,128,.25));padding-top:8px;margin-top:4px}
+details.igs-settings-advanced>summary{font-size:12px;opacity:.7}
 .igs-image-log-list{display:flex;flex-direction:column;gap:2px;max-height:420px;overflow:auto;padding:6px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5;user-select:text}
 .igs-image-log-item{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:8px;padding:3px 4px;border-radius:4px;color:var(--igs-settings-ink)}
 .igs-image-log-time{opacity:.6;white-space:nowrap}

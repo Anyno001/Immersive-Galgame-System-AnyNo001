@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from './reduced-motion.js';
 import { startWeatherParticles } from './weather-fx-particles.js';
 
 export const WEATHER_FX_INTENSITIES = Object.freeze(['weak', 'medium', 'strong']);
@@ -157,8 +158,7 @@ export function resolveWeatherFxPlan(options = {}) {
 function hasReducedMotion(options = {}) {
     return options.reducedMotion === true
         || (options.reducedMotion !== false
-            && typeof globalThis.matchMedia === 'function'
-            && globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches);
+            && prefersReducedMotion());
 }
 
 function clearLayer(layer) {

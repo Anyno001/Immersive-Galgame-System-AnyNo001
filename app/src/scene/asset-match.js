@@ -105,6 +105,10 @@ export function resolveBackgroundAsset(sceneState, ctx = {}) {
     if (user.url && isTrustedUserMatch(user.quality, ctx.strict === true)) {
         return { url: user.url, source: 'user', quality: user.quality, needsGeneration: false };
     }
+    // 用户已登记的场景（精确/别名/强模糊命中）哪怕该时段没图，也不替用户生成。
+    if (TRUSTED.has(user.quality)) {
+        return { url: user.url || '', source: user.url ? 'user' : 'none', quality: user.quality, needsGeneration: false };
+    }
     const library = normalizeGeneratedLibrary(ctx.generatedAssets);
     const generated = lookupSceneBackground(state, { ...ctx.sceneAssets, scenes: library.scenes });
     if (generated.url && TRUSTED.has(generated.quality)) {
@@ -134,7 +138,19 @@ export function resolveSpriteAsset(character, mood, ctx = {}) {
     }
     const temp = typeof ctx.tempSprite === 'function' ? ctx.tempSprite(name) : '';
     if (temp) return { url: temp, slot: '默认', character: name, source: 'temp', needsGeneration: false };
-    return { url: '', slot: '', character: name, source: 'none', needsGeneration: !isNonSpriteSpeaker(name, ctx.userName) };
+    return { url: '', slot: '', character: name, source: 'none', needsGeneration: !isNonSpriteSpeaker(name, ctx.userName) && !isKnownCharacterName(name, userAssets, ctx.knownCharacters) };
+}
+
+// 正文常用简称/全名互指（「雪乃」↔「雪之下雪乃」）：至少两个字且互为子串即视为同一已登记角色。
+function isKnownCharacterName(name, userAssets, knownCharacters) {
+    if (Array.from(name).length < 2) return false;
+    const aliases = userAssets.characterAliases && typeof userAssets.characterAliases === 'object' ? userAssets.characterAliases : {};
+    const candidates = [
+        ...Object.keys(userAssets.characters || {}),
+        ...Object.values(aliases).flat(),
+        ...(Array.isArray(knownCharacters) ? knownCharacters : []),
+    ].map((c) => String(c || '').trim()).filter((c) => Array.from(c).length >= 2);
+    return candidates.some((c) => c === name || c.includes(name) || name.includes(c));
 }
 
 function isNonSpriteSpeaker(name, userName) {

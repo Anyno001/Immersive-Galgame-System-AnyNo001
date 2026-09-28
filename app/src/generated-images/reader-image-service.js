@@ -133,7 +133,8 @@ export function createReaderImageService(options = {}) {
                         unifiedSettings,
                         imageApi,
                     });
-                    return normalizeGeneratedResult(generated, request);
+                    // delegate：统一 NAI 没配 Key 时退回旧的 imageApi 通道（兼容旧设置与 OpenAI 兼容接口）。
+                    if (!generated || !generated.delegate) return normalizeGeneratedResult(generated, request);
                 } catch (error) {
                     return buildErrorResult(error, 'provider-not-enabled', { request });
                 }
@@ -194,7 +195,10 @@ export function createReaderImageService(options = {}) {
             const message = context.message || null;
             const unifiedSettings = context.unifiedSettings || context.settings || {};
             const imageApi = resolveImageApi(unifiedSettings);
-            if (imageApi.mode === 'nai') {
+            if (imageApi.mode === 'dbgen' && typeof imageGenerator !== 'function') {
+                return { ok: false, reason: 'provider-not-enabled' };
+            }
+            if (imageApi.mode === 'nai' || imageApi.mode === 'dbgen') {
                 const result = await this.generate({
                     ...context,
                     message,
@@ -205,7 +209,7 @@ export function createReaderImageService(options = {}) {
                 if (result.ok === false) return result;
                 return {
                     ok: true,
-                    message: '图像 API 真实生成测试成功',
+                    message: imageApi.mode === 'dbgen' ? '数据库生图插件真实生成测试成功' : '图像 API 真实生成测试成功',
                     url: result.url,
                     providerId: result.providerId,
                 };
@@ -242,7 +246,7 @@ export function createReaderImageService(options = {}) {
                 providers: context.providers,
             });
 
-            if (imageApi.mode === 'nai') {
+            if (imageApi.mode === 'nai' || imageApi.mode === 'dbgen') {
                 const generated = await this.generate({
                     ...context,
                     messageId,
@@ -462,10 +466,10 @@ function resolveActiveProviders(explicitProviders, builtinProviders, imageApi = 
         ? normalizeProviders(explicitProviders)
         : builtinProviders;
     const mode = String(imageApi.mode || 'extension').trim();
-    const requestedAdapter = String(imageApi.externalAdapter || 'auto').trim().toLowerCase();
+    const requestedAdapter = String(imageApi.externalAdapter || 'auto').trim().toLowerCase() === 'chatu8' ? 'chatu8' : 'auto';
     return sourceProviders.filter((provider) => {
         if (!provider || typeof provider !== 'object') return false;
-        if (mode === 'nai') {
+        if (mode === 'nai' || mode === 'dbgen') {
             return String(provider.providerType || '').trim() === 'nai';
         }
         if (String(provider.providerType || '').trim() === 'nai') {
@@ -985,7 +989,6 @@ function buildImageDiagnostics(images = [], placeholderState = null) {
     const output = {
         providerCounts: {
             chatu8: 0,
-            chami: 0,
             generic: 0,
             other: 0,
         },
@@ -1000,7 +1003,6 @@ function buildImageDiagnostics(images = [], placeholderState = null) {
     for (const image of Array.isArray(images) ? images : []) {
         const providerId = String(image && image.providerId || '').trim();
         if (providerId === 'builtin.st-chatu8') output.providerCounts.chatu8 += 1;
-        else if (providerId === 'builtin.chami') output.providerCounts.chami += 1;
         else if (providerId === 'builtin.dom-generic') output.providerCounts.generic += 1;
         else output.providerCounts.other += 1;
     }

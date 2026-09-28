@@ -39,7 +39,6 @@ import { createStageModel } from '../src/visual/stage-model.js';
 import { resolveVisualMode, VISUAL_MODES } from '../src/visual/visual-mode.js';
 import { createPromptAdapter } from '../src/prompts/adapters/prompt-adapter.js';
 import { naiRequestBuilder } from '../src/generated-images/request-builders/nai-builder.js';
-import { chamiProvider } from '../src/generated-images/providers/chami-provider.js';
 import { fetchModels as fetchImageModels, generateImage as generateImageFromApi } from '../src/generated-images/image-api-client.js';
 import { createReaderImageService } from '../src/generated-images/reader-image-service.js';
 import { createPublicApi, attachPublicApi } from '../src/api/public-api.js';
@@ -3020,54 +3019,6 @@ function createTestElement() {
         },
     };
 }
-
-test('gate:generated-images:chami-provider-extracts-images-from-indexeddb-by-id-order', async () => {
-    function fakeImg(id, hash) {
-        const attrs = { 'data-image-id': String(id), 'data-location-hash': hash, 'data-is-loaded': 'false', class: 'tsp-generated-image' };
-        return { getAttribute: (name) => (name in attrs ? attrs[name] : null) };
-    }
-    // DOM order scrambled: 70, 69, 71
-    const nodes = [fakeImg(70, 'hash70'), fakeImg(69, 'hash69'), fakeImg(71, 'hash71')];
-    const root = { querySelectorAll: (sel) => (sel === '.tsp-generated-image' ? nodes.slice() : []) };
-    const records = {
-        69: { id: 69, locationHash: 'hash69', imageData: 'data:image/png;base64,AAA69' },
-        70: { id: 70, locationHash: 'hash70', imageData: 'data:image/png;base64,AAA70' },
-        71: { id: 71, locationHash: 'hash71', imageData: 'data:image/png;base64,AAA71' },
-    };
-    const requestedBatches = [];
-    const globalObject = {
-        TavernScenePlugin: {
-            db: {
-                async getImageDataBatch(ids) {
-                    requestedBatches.push(ids.slice());
-                    return ids.map((id) => records[id]).filter(Boolean);
-                },
-            },
-        },
-    };
-
-    const images = await chamiProvider.extractImages({ roots: [root], global: globalObject, scopePolicy: {} });
-
-    assert.equal(images.length, 3);
-    // batch requested in ascending id order regardless of scrambled DOM order
-    assert.deepEqual(requestedBatches[0], [69, 70, 71]);
-    // order field equals imageId so downstream sorts correctly
-    assert.deepEqual(images.map((i) => i.order), [69, 70, 71]);
-    assert.deepEqual(images.map((i) => i.url), [
-        'data:image/png;base64,AAA69',
-        'data:image/png;base64,AAA70',
-        'data:image/png;base64,AAA71',
-    ]);
-    assert.equal(images[0].source, 'provider-db');
-    assert.equal(images[0].locationHash, 'hash69');
-});
-
-test('gate:generated-images:chami-provider-falls-back-to-dom-when-db-unavailable', async () => {
-    const root = { querySelectorAll: () => [] };
-    const images = await chamiProvider.extractImages({ roots: [root], global: {}, scopePolicy: {} });
-    assert.ok(Array.isArray(images));
-    assert.equal(images.length, 0);
-});
 
 test('gate:choices:option-table finds 同名表 and extracts text column', () => {
     const tables = [
