@@ -1,9 +1,10 @@
 const CHAT_MARKER_RE = /^\s*\[igs-chat#(\d+)\]\s*$/;
 const CHAT_OPEN_RE = /^\[igs-chat:([^|\]\n]*)\]/;
 const CHAT_END_RE = /^\[igs-chat-end\]/;
-// 与 igs-char 一致：字段不跨行，漏写 "]" 时以行尾收口；第三栏为预留的消息类型。
+const CHAT_TIME_RE = /^\[igs-chat-time:([^|\]\n]+)\]/;
+// 与 igs-char 一致：字段不跨行，漏写 "]" 时以行尾收口；第三栏为消息类型。
 const MSG_RE = /^\[igs-msg:([^|\]\n]+)\|([^|\]\n]*)(?:\|([^\]\n]*))?(?:\]|$)/;
-const CHAT_TAG_RE = /\[igs-(?:chat-end\]|chat:|msg:)/g;
+const CHAT_TAG_RE = /\[igs-(?:chat-end\]|chat:|chat-time:|msg:)/g;
 const CLOSING_DIRECTIVE_RE = /^\[igs-(?:scene|char|thought|img):/;
 
 export function buildChatMarker(index) {
@@ -16,7 +17,7 @@ export function parseChatMarker(segment) {
 }
 
 export function hasChatTags(text) {
-    return /\[igs-(?:chat-end\]|chat:|msg:)/.test(String(text || ''));
+    return /\[igs-(?:chat-end\]|chat:|chat-time:|msg:)/.test(String(text || ''));
 }
 
 // 标签可能与正文同行：先把每条聊天标签断到行首，并把标签后的残留文字断到下一行。
@@ -26,7 +27,7 @@ function isolateChatTags(text) {
         .split('\n')
         .flatMap((line) => {
             const trimmed = line.trim();
-            const m = trimmed.match(CHAT_OPEN_RE) || trimmed.match(CHAT_END_RE) || trimmed.match(MSG_RE);
+            const m = trimmed.match(CHAT_OPEN_RE) || trimmed.match(CHAT_END_RE) || trimmed.match(CHAT_TIME_RE) || trimmed.match(MSG_RE);
             if (!m) return [line];
             const rest = trimmed.slice(m[0].length).trim();
             return rest ? [m[0], rest] : [m[0]];
@@ -43,6 +44,7 @@ export function extractChatBlocks(raw) {
     const chats = [];
     const out = [];
     let block = null;
+    const open = () => block || (block = { title: '', explicit: false, messages: [] });
     const close = () => {
         if (!block) return;
         if (block.messages.some((m) => m.kind === 'msg')) {
@@ -61,10 +63,12 @@ export function extractChatBlocks(raw) {
             block = { title: m[1].trim(), explicit: true, messages: [] };
         } else if (CHAT_END_RE.test(trimmed)) {
             close();
+        } else if ((m = trimmed.match(CHAT_TIME_RE))) {
+            open().messages.push({ kind: 'time', text: m[1].trim() });
         } else if ((m = trimmed.match(MSG_RE))) {
-            if (!block) block = { title: '', explicit: false, messages: [] };
             const text = m[2].trim();
-            if (text) block.messages.push({ kind: 'msg', sender: m[1].trim(), text, type: String(m[3] || '').trim() });
+            const type = String(m[3] || '').trim();
+            if (text || type) open().messages.push({ kind: 'msg', sender: m[1].trim(), text, type });
         } else if (!block) {
             out.push(line);
         } else if (!trimmed) {
@@ -82,5 +86,5 @@ export function extractChatBlocks(raw) {
 
 export function formatChatBlockAsText(chat) {
     const messages = chat && Array.isArray(chat.messages) ? chat.messages : [];
-    return messages.map((m) => (m.kind === 'note' ? m.text : `${m.sender}：${m.text}`)).join('\n');
+    return messages.map((m) => (m.kind === 'msg' ? `${m.sender}：${m.text}` : m.text)).join('\n');
 }

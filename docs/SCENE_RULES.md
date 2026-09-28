@@ -90,9 +90,13 @@
 
 ```
 [igs-chat:会话标题]
+[igs-chat-time:昨天 22:14]
 [igs-msg:发送者|消息内容]
+[igs-msg:发送者|消息内容|类型]
 [igs-chat-end]
 ```
+
+- 类型栏可填 图片 / 语音 / 表情包 / 撤回（或 img / voice / sticker / recall），省略即文字消息；撤回的内容可留空。
 
 - 一段聊天单独成页；「阅读器 → 演出 → 线上交流」开启时渲染为左右气泡，关闭时降级为「发送者：内容」文字页。
 - 缺 `[igs-chat-end]` 时遇到 `igs-scene` / `igs-char` / `igs-thought` / `igs-img` 或楼层末自动收口；孤立的 `[igs-msg]` 隐式开启无标题会话，遇到旁白即收口；显式会话内的旁白显示为居中注释。

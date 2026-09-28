@@ -10,6 +10,9 @@ import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel
 import { createImageResourceCache, createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
+import { advanceChatReveal, applyChatToDom, cancelChatShow, getChatRevealState } from '../src/visual/igs-ui/chat-layer.js';
+import { buildChatPageModel, normalizeChatShowSettings } from '../src/visual/igs-ui/chat-show-runtime.js';
+import { resolveChatTheme } from '../src/visual/igs-ui/chat-themes.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { createMapPanelController } from '../src/visual/igs-ui/map-panel.js';
 import { createRecordPanelController } from '../src/visual/igs-ui/record-panel.js';
@@ -6016,7 +6019,7 @@ test('gate:simulation:chat-show-pops-bubbles-per-click-then-pages-and-replays-fu
         const visible = () => rows().filter((row) => !row.hidden).length;
         assert.equal(rows().length, 3);
         assert.equal(visible(), 1);
-        assert.equal(rows()[0].children[0].style.background, '#ffb3d1');
+        assert.equal(rows()[0].children[0].children[0].style.background, '#ffb3d1');
         assert.equal((await reader.invokeAction('next')).reason, 'chat-revealed');
         assert.equal(visible(), 2);
         await reader.invokeAction('next');
@@ -6118,6 +6121,75 @@ test('gate:simulation:chat-show-settings-edit-contacts-and-inject-prompt-rule', 
     } finally {
         vn.destroy();
     }
+});
+
+
+test('gate:simulation:chat-layer-typing-indicator-message-types-and-theme-vars', () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const root = document.createElement('div');
+    root.id = 'igs-overlay';
+    document.body.appendChild(root);
+    const timers = [];
+    const ctx = {
+        setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+        clearTimeout: () => {},
+    };
+    const runNext = () => timers.shift().fn();
+    const settings = normalizeChatShowSettings({ enabled: true, revealMode: 'auto', showAvatars: true, followTheme: true, sound: { enabled: false } });
+    const chat = buildChatPageModel({ title: 'A', messages: [
+        { kind: 'time', text: '昨天 22:14' },
+        { kind: 'msg', sender: 'A', text: '看！', type: '图片' },
+        { kind: 'msg', sender: 'A', text: '晚安晚安晚安晚安', type: '语音' },
+        { kind: 'msg', sender: '{{user}}', text: '（猫猫点头）', type: '表情包' },
+        { kind: 'msg', sender: 'A', text: '', type: '撤回' },
+    ] }, settings, { userName: '小明', theme: resolveChatTheme('cute-pink') });
+    applyChatToDom(root, { messageId: 1, content: { chatPage: true, chat, currentIndex: 0 }, readerSettings: { chatShow: settings } }, ctx);
+    const layer = root.querySelector('#igs-chat-layer');
+    const list = layer.querySelector('.igs-chat-list');
+    const visible = () => list.children.filter((row) => !row.hidden && !row.className.includes('is-typing'));
+    const typing = () => list.children.some((row) => row.className.includes('is-typing'));
+
+    assert.equal(layer.getAttribute('data-igs-chat-theme'), 'cute-pink');
+    assert.equal(layer.style['--igs-chat-shell'], '#fff0f5');
+    assert.ok(layer.style['--igs-chat-font']);
+    assert.equal(timers[0].ms, 250);
+    runNext();
+    assert.equal(visible().length, 1);
+    assert.equal(visible()[0].className.includes('is-time'), true);
+
+    assert.equal(timers[0].ms < 900, true);
+    runNext();
+    assert.equal(typing(), true);
+    assert.equal(visible().length, 1);
+    runNext();
+    assert.equal(typing(), false);
+    assert.equal(visible().length, 2);
+    const imageRow = visible()[1];
+    assert.equal(imageRow.className.includes('has-avatar'), true);
+    assert.equal(imageRow.children[0].className, 'igs-chat-avatar is-initial');
+    const imageBubble = imageRow.children[1].children[0];
+    assert.equal(imageBubble.className, 'igs-chat-bubble is-image');
+    assert.equal(imageBubble.children[1].textContent, '看！');
+
+    assert.equal(timers[0].ms, 570);
+    runNext();
+    assert.equal(typing(), false);
+    const voiceBody = visible()[2].children[1];
+    assert.equal(voiceBody.children[0].className, 'igs-chat-bubble is-voice');
+    assert.equal(voiceBody.children[0].children[1].textContent, "2''");
+    assert.equal(voiceBody.children[1].textContent, '晚安晚安晚安晚安');
+
+    runNext();
+    assert.equal(typing(), false);
+    const stickerRow = visible()[3];
+    assert.equal(stickerRow.className.includes('is-right'), true);
+    assert.equal(stickerRow.children[1].children[0].className, 'igs-chat-sticker');
+
+    assert.equal(advanceChatReveal(root), true);
+    assert.equal(visible().length, 5);
+    assert.equal(visible()[4].children[0].textContent, 'A撤回了一条消息');
+    assert.equal(getChatRevealState(root).typing, false);
+    assert.equal(cancelChatShow(root), true);
 });
 
 

@@ -184,6 +184,7 @@ import {
 import { cancelStageShakeEffect } from './stage-shake-runtime.js';
 import { advanceChatReveal, cancelChatShow } from './chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from './chat-show-runtime.js';
+import { resolveChatTheme } from './chat-themes.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import {
     applyReaderSnapshotToDom,
@@ -1743,6 +1744,8 @@ export function createIgsReaderHost(options = {}) {
         const chat = chatPage ? buildChatPageModel(chatBlock, chatSettings, {
             userName: chatContext && chatContext.name1 ? String(chatContext.name1) : '',
             characterAliases: sceneAssets && sceneAssets.characterAliases,
+            theme: resolveChatTheme(readerSettings.dialogSkin),
+            avatarFor: (key) => resolveStatusAvatar(sceneAssets && sceneAssets.statusAvatars, key),
         }) : null;
         const hideChatSprite = chatPage && chatSettings.hideSprites;
         const generatedAssets = options.generatedAssets || null;

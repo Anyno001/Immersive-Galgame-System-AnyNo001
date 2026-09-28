@@ -5,11 +5,14 @@ import {
     CHAT_SHOW_DEFAULTS,
     buildChatPageModel,
     chatRevealDelayMs,
+    chatVoiceSeconds,
+    normalizeChatMessageType,
     findChatContact,
     normalizeChatShowSettings,
     readableTextColor,
     resolveChatSender,
 } from '../src/visual/igs-ui/chat-show-runtime.js';
+import { CHAT_THEME_PALETTES, resolveChatTheme } from '../src/visual/igs-ui/chat-themes.js';
 
 test('gate: chat blocks collapse to one marker line and keep surrounding text', () => {
     const { text, chats } = extractChatBlocks('前文。\n[igs-chat:群聊]\n[igs-msg:爱丽丝|在吗？]\n[igs-msg:小明|在。]\n[igs-chat-end]\n后文。');
@@ -131,4 +134,63 @@ test('gate: chat reveal delay scales with text length and speed, within bounds',
     assert.ok(chatRevealDelayMs('一二三', 'fast') < chatRevealDelayMs('一二三', 'slow'));
     assert.equal(readableTextColor('#ffffff'), '#1f1f1f');
     assert.equal(readableTextColor('#000000'), '#ffffff');
+});
+
+test('gate: chat time tag and message types parse inside blocks', () => {
+    const { chats } = extractChatBlocks('[igs-chat:A]\n[igs-chat-time:昨天 22:14]\n[igs-msg:A|海边的照片|图片]\n[igs-msg:A||撤回]\n[igs-msg:B|晚安]');
+    assert.deepEqual(chats[0].messages.map((m) => [m.kind, m.type || '']), [['time', ''], ['msg', '图片'], ['msg', '撤回'], ['msg', '']]);
+    const timeOnly = extractChatBlocks('[igs-chat-time:10:00]\n正文');
+    assert.equal(timeOnly.chats.length, 0);
+    assert.equal(timeOnly.text, '10:00\n正文');
+});
+
+test('gate: chat message types accept chinese and english aliases', () => {
+    assert.equal(normalizeChatMessageType('图片'), 'image');
+    assert.equal(normalizeChatMessageType('IMG'), 'image');
+    assert.equal(normalizeChatMessageType('语音'), 'voice');
+    assert.equal(normalizeChatMessageType('表情包'), 'sticker');
+    assert.equal(normalizeChatMessageType('撤回'), 'recall');
+    assert.equal(normalizeChatMessageType('红包'), 'text');
+    assert.equal(normalizeChatMessageType(''), 'text');
+    assert.equal(chatVoiceSeconds(''), 1);
+    assert.equal(chatVoiceSeconds('一'.repeat(20)), 5);
+    assert.equal(chatVoiceSeconds('一'.repeat(999)), 60);
+});
+
+test('gate: chat model turns recalls into notes and fills voice, avatar and theme fields', () => {
+    const settings = normalizeChatShowSettings({ showAvatars: true, followTheme: true });
+    const theme = resolveChatTheme('cute-pink');
+    const model = buildChatPageModel({ title: '', messages: [
+        { kind: 'time', text: '10:00' },
+        { kind: 'msg', sender: '爱丽丝', text: '好想你呀', type: '语音' },
+        { kind: 'msg', sender: '爱丽丝', text: '', type: '撤回' },
+        { kind: 'msg', sender: '{{user}}', text: '？', type: '撤回' },
+        { kind: 'msg', sender: '{{user}}', text: '嗯' },
+    ] }, settings, { userName: '小明', theme, avatarFor: (key) => (key === '爱丽丝' ? 'https://example.com/a.png' : '') });
+    assert.deepEqual(model.messages.map((m) => m.kind), ['time', 'msg', 'recall', 'recall', 'msg']);
+    assert.equal(model.messages[1].type, 'voice');
+    assert.equal(model.messages[1].seconds, 1);
+    assert.equal(model.messages[1].avatar, 'https://example.com/a.png');
+    assert.equal(model.messages[2].text, '爱丽丝撤回了一条消息');
+    assert.equal(model.messages[3].text, '你撤回了一条消息');
+    assert.equal(model.messages[4].avatar, '');
+    assert.equal(model.messages[4].initial, '小');
+    assert.equal(model.messages[1].color, theme.left);
+    assert.equal(model.messages[4].color, theme.right);
+    assert.equal(model.theme, theme);
+    const plain = buildChatPageModel({ messages: [{ kind: 'msg', sender: 'A', text: 'x' }] }, normalizeChatShowSettings({}), { theme });
+    assert.equal(plain.theme, null);
+    assert.equal(plain.messages[0].initial, undefined);
+    assert.equal(plain.messages[0].color, CHAT_SHOW_DEFAULTS.defaultColors.left);
+});
+
+test('gate: chat themes cover every dialog skin and fall back to default', () => {
+    for (const key of Object.keys(CHAT_THEME_PALETTES)) {
+        const theme = resolveChatTheme(key);
+        assert.equal(theme.key, key);
+        assert.ok(theme.font);
+        for (const color of [theme.shell, theme.head, theme.left, theme.right]) assert.match(color, /^#[0-9a-f]{6}$/);
+    }
+    assert.equal(resolveChatTheme('nope').key, 'default');
+    assert.equal(Object.keys(CHAT_THEME_PALETTES).length, 11);
 });

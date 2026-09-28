@@ -128,11 +128,14 @@ export function renderChatShowSettings(settings) {
         field(`${p}.dim`, '背景压暗', selectInput(`${p}.dim`, s.dim, dimItems.map((n) => [n, `${Math.round(n * 100)}%`]))),
         field(`${p}.selfName`, '自己的名字', textInput(`${p}.selfName`, s.selfName, '留空使用 {{user}}')),
         segment('unknownSide', '未登记发送者', [['left', '左'], ['right', '右']]),
-        field(`${p}.defaultColors.left`, '对方气泡色', colorInput(`${p}.defaultColors.left`, s.defaultColors.left)),
-        field(`${p}.defaultColors.right`, '自己气泡色', colorInput(`${p}.defaultColors.right`, s.defaultColors.right)),
+        s.followTheme ? '' : field(`${p}.defaultColors.left`, '对方气泡色', colorInput(`${p}.defaultColors.left`, s.defaultColors.left)),
+        s.followTheme ? '' : field(`${p}.defaultColors.right`, '自己气泡色', colorInput(`${p}.defaultColors.right`, s.defaultColors.right)),
         '</div>',
     ].join('');
-    const toggles = checkbox(`${p}.hideSprites`, s.hideSprites, '聊天时隐藏立绘')
+    const toggles = checkbox(`${p}.followTheme`, s.followTheme, '气泡跟随对话框主题')
+        + checkbox(`${p}.showAvatars`, s.showAvatars, '显示头像（取状态栏头像，没有则显示首字）')
+        + (s.revealMode === 'auto' ? checkbox(`${p}.typingIndicator`, s.typingIndicator, '对方消息前显示「正在输入」') : '')
+        + checkbox(`${p}.hideSprites`, s.hideSprites, '聊天时隐藏立绘')
         + checkbox(`${p}.sound.enabled`, s.sound.enabled, '启用收发音效')
         + (s.sound.enabled ? `<div class="igs-settings-sub">${field(`${p}.sound.volume`, '音效音量', rangeInput(`${p}.sound.volume`, s.sound.volume))}</div>` : '');
     const contacts = Object.entries(s.contacts).map(([name, c]) => {
