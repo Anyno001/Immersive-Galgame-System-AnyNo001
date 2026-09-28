@@ -2,15 +2,18 @@ import { filterFxByKinds } from '../../scene/fx-directives.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import {
+    FX_FEATURE_KEYS,
+    FX_HOLD_SCALE,
     enabledFxTagKinds,
-    matchFlash,
-    matchHeartbeat,
-    matchMangaSymbol,
-    matchSpeedLines,
     normalizeFxReaderSettings,
+    pickFlash,
+    pickHeartbeat,
+    pickMangaSymbol,
+    pickSpeedLines,
 } from './fx-settings.js';
 import { ensureFxLayers, findFxLayers } from './fx-layer.js';
 import { playFxSfx } from './fx-sfx.js';
+import { peekSpriteHead, probeSpriteHead, resolveSymbolPlacement, waitSpriteHead } from './fx-anchor.js';
 
 export const FX_LIFETIME_MS = Object.freeze({
     symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 800, title: 2700,
@@ -19,14 +22,17 @@ export const FX_LIFETIME_MS = Object.freeze({
 const SEEN_LIMIT = 256;
 const FAVOR_LIMIT = 256;
 const MIN_FAVOR_DELTA = 1;
-const RANGE_ATTRS = Object.freeze(['data-igs-fx-flashback', 'data-igs-fx-letterbox', 'data-igs-fx-call']);
+// 停留时间只拉长「出现—停留—消失」类演出；心跳、闪白、睁眼与来电跟音效节奏绑定，不随档位变化。
+const HOLDABLE = new Set(['symbol', 'speedLines', 'title', 'favor', 'notify', 'sfx', 'call-end']);
+const RANGE_ATTRS = Object.freeze(['data-igs-fx-flashback', 'data-igs-fx-letterbox', 'data-igs-fx-call', 'data-igs-fx-motion']);
 const EMPTY_FX = Object.freeze({ instants: [], call: null, flashback: false, letterbox: false });
 
 const states = new WeakMap();
+const layeredRoots = new WeakSet();
 const favorBaseline = new Map();
 
 export function createFxMemory() {
-    return { seen: new Set(), lastLocation: '', lastTime: '' };
+    return { seen: new Set(), lastLocation: '', lastTime: '', visitKey: '', visitSeen: new Set() };
 }
 
 function markOnce(memory, key) {
@@ -34,6 +40,20 @@ function markOnce(memory, key) {
     memory.seen.add(key);
     if (memory.seen.size > SEEN_LIMIT) memory.seen.delete(memory.seen.values().next().value);
     return true;
+}
+
+function enterPage(memory, pageKey) {
+    if (memory.visitKey === pageKey) return;
+    memory.visitKey = pageKey;
+    memory.visitSeen = new Set();
+}
+
+// 同一次停留内的重绘永不重播；replay 开启时离开再翻回该页会重新播放。
+function markPage(memory, key, replay) {
+    const fresh = markOnce(memory, key);
+    if (memory.visitSeen.has(key)) return false;
+    memory.visitSeen.add(key);
+    return replay || fresh;
 }
 
 function text(value) {
@@ -80,23 +100,26 @@ function planTitle(content, settings, memory, effects) {
 }
 
 // 纯规划：根据快照与记忆决定本次渲染要播放的瞬时演出和需要保持的区间状态。
-export function planPageFx(snapshot, memory, baseline = favorBaseline) {
+export function planPageFx(snapshot, memory, baseline = favorBaseline, normalized = null) {
     const content = (snapshot && snapshot.content) || {};
-    const settings = normalizeFxReaderSettings(snapshot && snapshot.readerSettings);
+    const settings = normalized || normalizeFxReaderSettings(snapshot && snapshot.readerSettings);
     const messageId = snapshot && snapshot.messageId;
     const pageKey = `${messageId}:${content.currentIndex}`;
     const special = content.chatPage === true || content.htmlCardPage === true;
     const effects = [];
     const emotion = content.sceneNsfw ? '' : text(content.statusEmotion);
     const emotionKey = `${pageKey}:${emotion}:${content.displayText || ''}`;
+    const replay = settings.fxStyle.replay;
+    enterPage(memory, pageKey);
+    const once = (key) => markPage(memory, key, replay);
 
     if (emotion && !special) {
-        const symbol = matchMangaSymbol(emotion, settings.mangaFx);
-        if (symbol && markOnce(memory, `symbol:${emotionKey}`)) effects.push({ type: 'symbol', kind: symbol });
-        if (matchSpeedLines(emotion, settings.mangaFx) && markOnce(memory, `speed:${emotionKey}`)) effects.push({ type: 'speedLines' });
-        const tone = matchHeartbeat(emotion, settings.heartbeatFx);
-        if (tone && markOnce(memory, `heart:${emotionKey}`)) effects.push({ type: 'heartbeat', tone });
-        if (matchFlash(emotion, settings.flashFx) && markOnce(memory, `flash:${emotionKey}`)) effects.push({ type: 'flash' });
+        const symbol = pickMangaSymbol(emotion, settings.mangaFx);
+        if (symbol && once(`symbol:${emotionKey}`)) effects.push({ type: 'symbol', kind: symbol });
+        if (pickSpeedLines(emotion, settings.mangaFx) && once(`speed:${emotionKey}`)) effects.push({ type: 'speedLines' });
+        const tone = pickHeartbeat(emotion, settings.heartbeatFx);
+        if (tone && once(`heart:${emotionKey}`)) effects.push({ type: 'heartbeat', tone });
+        if (pickFlash(emotion, settings.flashFx) && once(`flash:${emotionKey}`)) effects.push({ type: 'flash' });
     }
     if (!special) planTitle({ ...content, messageId }, settings.titleCard, memory, effects);
 
@@ -110,7 +133,7 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline) {
     let eyeHold = false;
     for (const item of fx.instants) {
         if (item.kind === 'eye' && item.mode === 'close') eyeHold = true;
-        if (markOnce(memory, `fx:${pageKey}:${item.kind}:${JSON.stringify(item)}`)) effects.push({ ...item, type: item.kind });
+        if (once(`fx:${pageKey}:${item.kind}:${JSON.stringify(item)}`)) effects.push({ ...item, type: item.kind });
     }
     return {
         pageKey,
@@ -118,6 +141,7 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline) {
         ranges: { flashback: fx.flashback, letterbox: fx.letterbox, call: fx.call },
         eyeHold,
         sound: settings.fxSound,
+        style: settings.fxStyle,
     };
 }
 
@@ -162,6 +186,7 @@ function getState(root, options) {
 
 function spawn(state, layer, el, lifeMs) {
     el.classList.add('igs-fx-transient');
+    if (el.style && typeof el.style.setProperty === 'function') el.style.setProperty('--igs-fx-life', `${lifeMs}ms`);
     layer.appendChild(el);
     const timer = state.schedule(() => {
         state.timers.delete(timer);
@@ -194,21 +219,65 @@ function renderCallScreen(doc, name, avatar) {
         face.src = avatar;
         face.alt = name;
     }
-    screen.appendChild(face);
+    const ring = node(doc, 'igs-fx-call-ring');
+    ring.appendChild(face);
+    screen.appendChild(ring);
     screen.appendChild(node(doc, 'igs-fx-call-name', name));
     screen.appendChild(node(doc, 'igs-fx-call-state', '来电'));
     screen.appendChild(node(doc, 'igs-fx-call-hint', '点击接听'));
     return screen;
 }
 
+function measureStage(motion) {
+    const stageW = Number(motion.clientWidth);
+    const stageH = Number(motion.clientHeight);
+    if (!(stageW > 0) || !(stageH > 0)) return null;
+    let dialogTop = stageH;
+    const dialog = motion.querySelector('#igs-dialog-layer .igs-dialog');
+    if (dialog && typeof dialog.getBoundingClientRect === 'function' && typeof motion.getBoundingClientRect === 'function') {
+        const d = dialog.getBoundingClientRect();
+        const m = motion.getBoundingClientRect();
+        // 舞台可能被外层 transform 缩放：矩形差值换回舞台自身的 CSS 像素。
+        if (d.height > 0 && m.height > 0) dialogTop = (d.top - m.top) * (stageH / m.height);
+    }
+    return { stageW, stageH, dialogTop };
+}
+
+function placeSymbol(el, kind, motion, sprite, head) {
+    const geo = measureStage(motion);
+    if (!geo) return;
+    const placement = resolveSymbolPlacement(kind, { ...geo, sprite: sprite && head ? { ...sprite, ...head } : null });
+    if (!placement) return;
+    el.style.left = `${placement.x}px`;
+    el.style.top = `${placement.y}px`;
+    el.style.setProperty('--igs-fx-size', `${placement.size}px`);
+    if (placement.flip) el.setAttribute('data-flip', '1');
+}
+
+function playSymbol(effect, ctx, life) {
+    const { state, layers, doc, options, plan, root } = ctx;
+    const el = node(doc, 'igs-fx-symbol');
+    el.setAttribute('data-kind', effect.kind);
+    const sprite = options.sprite && options.sprite.url ? options.sprite : null;
+    const cached = sprite ? peekSpriteHead(sprite.url) : null;
+    if (!sprite || cached) {
+        placeSymbol(el, effect.kind, layers.motion, sprite, cached);
+        spawn(state, layers.stage, el, life);
+        return;
+    }
+    waitSpriteHead(sprite.url, doc, state.schedule).then((head) => {
+        if (states.get(root) !== state || state.pageKey !== plan.pageKey) return;
+        placeSymbol(el, effect.kind, layers.motion, sprite, head);
+        spawn(state, layers.stage, el, life);
+    });
+}
+
 function playEffect(effect, ctx) {
     const { state, layers, doc, snapshot, options, reduced, plan } = ctx;
-    const life = FX_LIFETIME_MS[effect.type] || 1000;
+    const base = FX_LIFETIME_MS[effect.type] || 1000;
+    const life = HOLDABLE.has(effect.type) ? Math.round(base * (FX_HOLD_SCALE[plan.style.hold] || 1)) : base;
     if (effect.type === 'symbol') {
-        const el = node(doc, 'igs-fx-symbol');
-        el.setAttribute('data-kind', effect.kind);
-        if (Number.isFinite(options.anchorX)) el.style.left = `${Math.max(8, Math.min(88, options.anchorX + 9))}%`;
-        spawn(state, layers.stage, el, life);
+        playSymbol(effect, ctx, life);
     } else if (effect.type === 'speedLines') {
         spawn(state, layers.stage, node(doc, 'igs-fx-speedlines'), life);
     } else if (effect.type === 'heartbeat') {
@@ -255,18 +324,24 @@ function playEffect(effect, ctx) {
 
 export function applyFxToDom(root, snapshot, options = {}) {
     if (!root || !snapshot) return { played: [] };
-    const settingsPreview = normalizeFxReaderSettings(snapshot.readerSettings);
-    const anyEnabled = Object.entries(settingsPreview).some(([key, value]) => key !== 'fxSound' && value.enabled);
-    if (!anyEnabled) {
-        cancelFxEffects(root);
+    const settings = normalizeFxReaderSettings(snapshot.readerSettings);
+    if (!FX_FEATURE_KEYS.some((key) => settings[key].enabled)) {
+        // 全关时只在曾经挂过演出层的舞台上清理一次，避免每次渲染都查 DOM。
+        if (states.has(root) || layeredRoots.has(root)) {
+            cancelFxEffects(root);
+            layeredRoots.delete(root);
+        }
         return { played: [] };
     }
     const layers = ensureFxLayers(root);
     if (!layers) return { played: [] };
+    layeredRoots.add(root);
     const state = getState(root, options);
-    const plan = planPageFx(snapshot, state.memory);
+    const plan = planPageFx(snapshot, state.memory, favorBaseline, settings);
     const reduced = hasReducedMotion(options);
     const { motion, stage, front, doc } = layers;
+    if (settings.mangaFx.enabled && options.sprite && options.sprite.url) probeSpriteHead(options.sprite.url, doc).catch(() => null);
+    setFlag(motion, 'data-igs-fx-motion', plan.style.motion === 'snappy', 'snappy');
     setFlag(motion, 'data-igs-fx-flashback', plan.ranges.flashback);
     setFlag(motion, 'data-igs-fx-letterbox', plan.ranges.letterbox);
     setFlag(motion, 'data-igs-fx-call', Boolean(plan.ranges.call));
@@ -275,7 +350,7 @@ export function applyFxToDom(root, snapshot, options = {}) {
     badge.hidden = !plan.ranges.call;
     persistent(stage, doc, 'igs-fx-eye-hold').hidden = !plan.eyeHold;
     state.pageKey = plan.pageKey;
-    const ctx = { state, layers, doc, snapshot, options, reduced, plan };
+    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root };
     for (const effect of plan.effects) playEffect(effect, ctx);
     return { played: plan.effects.map((effect) => effect.type), phone: Boolean(plan.ranges.call) };
 }

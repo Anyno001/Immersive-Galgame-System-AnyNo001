@@ -15,6 +15,7 @@ import {
     normalizeMangaFxSettings,
 } from '../src/visual/igs-ui/fx-settings.js';
 import { FX_SFX_PARTIALS, playFxSfx } from '../src/visual/igs-ui/fx-sfx.js';
+import { resolveSymbolPlacement, scanHeadFromAlpha } from '../src/visual/igs-ui/fx-anchor.js';
 
 class FakeNode {
     constructor(doc, tag) {
@@ -84,9 +85,11 @@ function makeRoot() {
 
 function clock() {
     const queue = [];
+    const lives = [];
     return {
         queue,
-        schedule(fn) { queue.push(fn); return fn; },
+        lives,
+        schedule(fn, ms) { queue.push(fn); lives.push(ms); return fn; },
         clear(timer) { const i = queue.indexOf(timer); if (i >= 0) queue.splice(i, 1); },
         flush() { while (queue.length) queue.shift()(); },
     };
@@ -170,7 +173,7 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     const settings = { mangaFx: { enabled: true }, fxTags: { enabled: true } };
     const fx = { instants: [{ kind: 'call', name: '爱丽丝' }], call: { name: '爱丽丝' }, flashback: true, letterbox: false };
     const result = applyFxToDom(root, snapshot({ statusEmotion: '生气', fx }, settings), {
-        schedule: timers.schedule, clear: timers.clear, reducedMotion: false, anchorX: 50,
+        schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
         audioScheduler: (job) => { sounds.push(job.kind); return { stop() {} }; },
     });
     assert.deepEqual(result.played, ['symbol', 'call']);
@@ -184,7 +187,7 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     assert.equal(front.parentNode.children.indexOf(front), motion.children.indexOf(motion.querySelector('#igs-dialog-layer')) + 1);
     const symbol = stage.querySelector('.igs-fx-symbol');
     assert.equal(symbol.getAttribute('data-kind'), 'anger');
-    assert.equal(symbol.style.left, '59%');
+    assert.equal(symbol.style.left, undefined);
     assert.equal(front.querySelector('.igs-fx-call-badge').textContent, '通话中 · 爱丽丝');
     assert.ok(front.querySelector('.igs-fx-call-screen'));
     timers.flush();
@@ -223,4 +226,72 @@ test('gate:fx-sfx:respects-sound-switch-and-known-kinds', () => {
     playFxSfx('hangup', { enabled: true, volume: 0.4 }, { audioScheduler });
     assert.equal(jobs[0].partials, FX_SFX_PARTIALS.hangup);
     assert.equal(jobs[0].volume, 0.4);
+});
+
+test('gate:fx-runtime:replay-on-return-but-never-on-same-page-rerender', () => {
+    const settings = (replay) => ({ mangaFx: { enabled: true }, fxStyle: { replay } });
+    for (const replay of [false, true]) {
+        const memory = createFxMemory();
+        const page = (index) => planPageFx(snapshot({ statusEmotion: '生气', currentIndex: index }, settings(replay)), memory, new Map()).effects.length;
+        assert.equal(page(0), 1);
+        assert.equal(page(0), 0, 'same-page rerender');
+        assert.equal(page(1), 1);
+        assert.equal(page(0), replay ? 1 : 0, `return replay=${replay}`);
+        assert.equal(page(0), 0);
+    }
+});
+
+test('gate:fx-runtime:hold-scales-lifetime-and-snappy-flags-stage', () => {
+    const lives = {};
+    for (const hold of ['short', 'medium', 'long']) {
+        const { root, motion } = makeRoot();
+        const timers = clock();
+        applyFxToDom(root, snapshot({ statusEmotion: '生气' }, { mangaFx: { enabled: true }, fxStyle: { hold, motion: 'snappy' } }), {
+            schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
+        });
+        lives[hold] = timers.lives[0];
+        assert.equal(motion.getAttribute('data-igs-fx-motion'), 'snappy');
+        cancelFxEffects(root);
+        assert.equal(motion.getAttribute('data-igs-fx-motion'), null);
+    }
+    assert.ok(lives.short < lives.medium && lives.medium < lives.long, JSON.stringify(lives));
+    assert.equal(normalizeFxReaderSettings({ fxStyle: { motion: 'x', hold: 'y' } }).fxStyle.motion, 'smooth');
+});
+
+test('gate:fx-anchor:symbol-follows-sprite-head-across-desktop-and-phone', () => {
+    const head = { x: 0.5, top: 0.05, w: 0.3 };
+    const portrait = { naturalW: 600, naturalH: 1200, head };
+    const pc = resolveSymbolPlacement('anger', { stageW: 1280, stageH: 720, dialogTop: 520, sprite: { ...portrait, posX: 50, posY: 100, scale: 40 } });
+    // 立绘宽 512、高 1024、底对齐：头顶 y = (720-1024) + 51 ≈ -253，被夹到舞台内；x 在头部中心右侧。
+    assert.ok(pc.x > 640 && pc.x < 800, JSON.stringify(pc));
+    assert.ok(pc.y >= pc.size * 0.55 && pc.y < 520, JSON.stringify(pc));
+    const fit = resolveSymbolPlacement('anger', { stageW: 1280, stageH: 720, dialogTop: 520, sprite: { ...portrait, posX: 20, posY: 100, scale: 25 } });
+    const imgW = 320;
+    const left = (1280 - imgW) * 0.2;
+    const top = 720 - imgW * 2;
+    assert.ok(Math.abs(fit.x - (left + imgW * 0.5 + 0.45 * imgW * 0.3)) <= 1, JSON.stringify(fit));
+    assert.ok(Math.abs(fit.y - (top + imgW * 0.05 * 2 + 0.15 * imgW * 0.3 * 1.1)) <= 1, JSON.stringify(fit));
+    const phone = resolveSymbolPlacement('sweat', { stageW: 390, stageH: 780, dialogTop: 560, sprite: { ...portrait, posX: 50, posY: 100, scale: 90 } });
+    assert.ok(phone.x > 195 && phone.x < 390 - phone.size * 0.55, JSON.stringify(phone));
+    assert.ok(phone.y + phone.size * 0.55 <= 560, JSON.stringify(phone));
+    const edge = resolveSymbolPlacement('anger', { stageW: 1280, stageH: 720, sprite: { ...portrait, posX: 100, posY: 100, scale: 25 } });
+    assert.equal(edge.flip, true);
+    assert.ok(edge.x < 1280 - 320 * 0.5);
+    const none = resolveSymbolPlacement('heart', { stageW: 800, stageH: 450 });
+    assert.ok(none.x > 400 && none.y < 225);
+    assert.equal(resolveSymbolPlacement('heart', { stageW: 0, stageH: 0 }), null);
+});
+
+test('gate:fx-anchor:alpha-scan-finds-head-top-and-width', () => {
+    const w = 10;
+    const h = 20;
+    const data = new Uint8ClampedArray(w * h * 4);
+    const fill = (x, y) => { data[(y * w + x) * 4 + 3] = 255; };
+    for (let y = 4; y < 20; y += 1) for (let x = 3; x < 7; x += 1) fill(x, y);
+    const head = scanHeadFromAlpha(data, w, h);
+    assert.equal(head.top, 4 / 20);
+    assert.equal(head.x, 0.5);
+    assert.equal(head.w, 0.4);
+    assert.equal(scanHeadFromAlpha(new Uint8ClampedArray(w * h * 4), w, h), null);
+    assert.equal(scanHeadFromAlpha(new Uint8ClampedArray(w * h * 4).fill(255), w, h), null);
 });

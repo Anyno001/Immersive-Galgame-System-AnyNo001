@@ -67,6 +67,19 @@ export function normalizeFxTagsSettings(value) {
     return out;
 }
 
+export const FX_MOTION_STYLES = Object.freeze(['smooth', 'snappy']);
+export const FX_HOLD_LEVELS = Object.freeze(['short', 'medium', 'long']);
+export const FX_HOLD_SCALE = Object.freeze({ short: 0.65, medium: 1, long: 1.6 });
+
+export function normalizeFxStyleSettings(value) {
+    const src = plain(value);
+    return {
+        motion: FX_MOTION_STYLES.includes(src.motion) ? src.motion : 'smooth',
+        hold: FX_HOLD_LEVELS.includes(src.hold) ? src.hold : 'medium',
+        replay: src.replay === true,
+    };
+}
+
 export function normalizeFxSoundSettings(value) {
     const src = plain(value);
     const volume = Number(src.volume);
@@ -81,7 +94,10 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     favorToast: normalizeFavorToastSettings,
     fxTags: normalizeFxTagsSettings,
     fxSound: normalizeFxSoundSettings,
+    fxStyle: normalizeFxStyleSettings,
 });
+
+export const FX_FEATURE_KEYS = Object.freeze(['titleCard', 'mangaFx', 'heartbeatFx', 'flashFx', 'favorToast', 'fxTags']);
 
 export function normalizeFxReaderSettings(reader) {
     const src = plain(reader);
@@ -108,30 +124,39 @@ function emotionOf(value) {
     return String(value == null ? '' : value).trim();
 }
 
-export function matchMangaSymbol(emotion, settings) {
-    const target = emotionOf(emotion);
-    const manga = normalizeMangaFxSettings(settings);
+// 以下 pick* 接收已规范化的设置，供每次渲染只规范化一次的运行时直接调用。
+export function pickMangaSymbol(target, manga) {
     if (!manga.enabled || !target) return '';
     return MANGA_SYMBOL_KINDS.find((kind) => manga.symbols[kind].includes(target)) || '';
 }
 
-export function matchSpeedLines(emotion, settings) {
-    const target = emotionOf(emotion);
-    const manga = normalizeMangaFxSettings(settings);
+export function pickSpeedLines(target, manga) {
     return manga.enabled && Boolean(target) && manga.speedLines.includes(target);
 }
 
-export function matchHeartbeat(emotion, settings) {
-    const target = emotionOf(emotion);
-    const heartbeat = normalizeHeartbeatFxSettings(settings);
+export function pickHeartbeat(target, heartbeat) {
     if (!heartbeat.enabled || !target) return '';
     if (heartbeat.love.includes(target)) return 'love';
     if (heartbeat.tense.includes(target)) return 'tense';
     return '';
 }
 
-export function matchFlash(emotion, settings) {
-    const target = emotionOf(emotion);
-    const flash = normalizeFlashFxSettings(settings);
+export function pickFlash(target, flash) {
     return flash.enabled && Boolean(target) && flash.emotions.includes(target);
+}
+
+export function matchMangaSymbol(emotion, settings) {
+    return pickMangaSymbol(emotionOf(emotion), normalizeMangaFxSettings(settings));
+}
+
+export function matchSpeedLines(emotion, settings) {
+    return pickSpeedLines(emotionOf(emotion), normalizeMangaFxSettings(settings));
+}
+
+export function matchHeartbeat(emotion, settings) {
+    return pickHeartbeat(emotionOf(emotion), normalizeHeartbeatFxSettings(settings));
+}
+
+export function matchFlash(emotion, settings) {
+    return pickFlash(emotionOf(emotion), normalizeFlashFxSettings(settings));
 }

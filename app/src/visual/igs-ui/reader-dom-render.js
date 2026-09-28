@@ -979,7 +979,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         bgBlur.style.opacity = '0';
     }
     const spriteEl = root.querySelector('#igs-sprite');
-    let spriteAnchorX = null;
+    let fxSprite = null;
     const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
     const hideSpriteNsfw = snapshot.content.sceneNsfw === true && spriteSettings.showSpriteOnNsfw === false;
     const spriteAssetUrl = hideSpriteNsfw || snapshot.content.htmlCardPage === true
@@ -1006,7 +1006,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const layout = resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood);
             spriteEl.style.backgroundSize = `${layout.scale}%`;
             spriteEl.style.backgroundPosition = `${layout.posX}% ${layout.posY}%`;
-            spriteAnchorX = Number(layout.posX);
+            fxSprite = { url: spriteAssetUrl, posX: Number(layout.posX), posY: Number(layout.posY), scale: Number(layout.scale) };
             igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, index: snapshot.content.currentIndex, layoutKey: spriteKey ? `${snapshot.mode}::${spriteKey}::${spriteMood}` : snapshot.mode, layout: { ...layout } });
         }
     } else if (spriteEl) {
@@ -1068,7 +1068,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         key: stageShakeKey,
     });
     const fxResult = applyFxToDom(root, snapshot, {
-        anchorX: spriteAnchorX,
+        sprite: fxSprite,
         resolveAssetUrl,
     });
     applyHtmlCardToDom(root, snapshot.content, ctx);
