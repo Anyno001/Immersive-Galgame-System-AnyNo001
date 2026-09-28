@@ -6684,6 +6684,7 @@ const TOOLBAR_ACTIONS = Object.freeze([
     ['last-page', '最后一页'],
     ['next-turn', '下一轮'],
     ['regen', '画 CG'],
+    ['clear-cg', '清扫当前 CG'],
     ['generate-assets', '补全素材'],
     ['save', '保存图片'],
     ['hide', '隐藏对话框'],
@@ -6956,6 +6957,7 @@ const { normalizeSpriteHeads } = require("src/visual/igs-ui/fx-anchor.js");
 const { parseHtmlCardMarker } = require("src/scene/html-cards.js");
 const { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary } = require("src/scene/asset-match.js");
 const { isStrictBackgroundMatch } = require("src/generated-images/illustration/auto-illustration-settings.js");
+const { clearCurrentCg } = require("src/generated-images/illustration/clear-current-cg.js");
 const { floorKeyOf } = require("src/media/illustration-store.js");
 const { normalizeMoodGroups, resolveMoodGroup } = require("src/scene/mood-groups.js");
 const { normalizeAutoIllustrationSettings } = require("src/generated-images/illustration/auto-illustration-settings.js");
@@ -8051,16 +8053,20 @@ function createIgsReaderHost(options = {}) {
             return moveReaderSegment(-1);
         }
         if (normalizedAction === 'next') {
-            if (cancelTypewriter(state.activeReader.dom && state.activeReader.dom.text, { finish: true })) {
+            const current = state.activeReader;
+            if (cancelTypewriter(current.dom && current.dom.text, { finish: true })) {
                 return {
                     ok: true,
                     moved: false,
                     reason: 'typewriter-completed',
-                    index: state.activeReader.index,
+                    index: current.index,
                 };
             }
-            if (advanceChatReveal(state.activeReader.dom && state.activeReader.dom.overlay)) {
-                return { ok: true, moved: false, reason: 'chat-revealed', index: state.activeReader.index };
+            if (advanceChatReveal(current.dom && current.dom.overlay)) {
+                return { ok: true, moved: false, reason: 'chat-revealed', index: current.index };
+            }
+            if (isReaderLastPage(current.snapshot) && handleOptionBubbleBlankClick(current, current.snapshot)) {
+                return { ok: true, moved: false, reason: 'option-bubbles-toggled', index: current.index };
             }
             return moveReaderSegment(1);
         }
@@ -8069,6 +8075,9 @@ function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'last-page') {
             return jumpReaderSegment(Number.MAX_SAFE_INTEGER);
+        }
+        if (normalizedAction === 'clear-cg') {
+            return clearCurrentIllustration();
         }
         if (normalizedAction === 'regen') {
             return generateOrRegenerate();
@@ -8263,6 +8272,47 @@ function createIgsReaderHost(options = {}) {
     function formatReaderProgress(snapshot) {
         if (!snapshot || !snapshot.readerSettings || !snapshot.readerSettings.showStatusLine) return '';
         return snapshot && snapshot.content ? snapshot.content.progress : '';
+    }
+
+    async function clearCurrentIllustration() {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const content = current.snapshot && current.snapshot.content || {};
+        if (!content.illustrationActive || !content.illustrationUrl || !content.illustrationSlot) {
+            writeToastSafe('当前页没有可清扫的 CG。');
+            return { ok: true, reason: 'no-current-cg', removed: false, rendered: false };
+        }
+        const service = options.illustrations;
+        if (!service || typeof service.clearIllustration !== 'function') {
+            writeToastSafe('当前未接入 CG 清扫能力。');
+            return { ok: false, reason: 'clear-unavailable', removed: false, rendered: false };
+        }
+        const globalObj = options.global || globalThis;
+        if (typeof globalObj.confirm === 'function'
+            && !globalObj.confirm('清扫当前显示的 CG？只会删除这一张，其他 CG 不受影响。')) {
+            return { ok: true, reason: 'cancelled', removed: false, rendered: false };
+        }
+        const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
+        const result = await clearCurrentCg({
+            identity: { ...(current.illustrationIdentity || {}), messageId },
+            slot: content.illustrationSlot,
+            url: content.illustrationUrl,
+            clear: (query) => service.clearIllustration(query),
+            forceRender: () => {
+                if (state.activeReader !== current) return { ok: true, reason: 'reader-changed' };
+                const rendered = rerenderActiveReader();
+                if (rendered && rendered.ok === false) throw new Error(rendered.reason || 'render-failed');
+                return rendered;
+            },
+        });
+        if (result.ok) {
+            writeToastSafe(result.removed ? '当前 CG 已清扫。' : '当前页没有可清扫的 CG。');
+        } else if (result.removed) {
+            writeToastSafe('当前 CG 已删除，但界面重绘失败，请重新加载。');
+        } else {
+            writeToastSafe(`清扫当前 CG 失败：${result.reason || '未知错误'}`);
+        }
+        return result;
     }
 
     // 工具栏「画 CG」：先补画本楼的过场 / NSFW 插图（含重试失败的张），没有可补的再重画当前图。
@@ -9106,6 +9156,8 @@ function createIgsReaderHost(options = {}) {
                 sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
+                illustrationSlot: illustrationHit ? illustrationHit.slot : null,
+                illustrationUrl,
                 statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
             },
             readerSettings: cloneData(readerSettings),
@@ -10080,13 +10132,8 @@ function createIgsReaderHost(options = {}) {
         if (container.style && typeof container.style.setProperty === 'function') {
             container.style.setProperty('--igs-option-font-size', `${cfg.fontSize}px`);
         }
-        const isLastPage = isReaderLastPage(snapshot);
-        // 翻页离开最后一页 / 重渲染（如新回复到来）一律收起气泡，避免错页残留。
-        if (!cfg.enabled || !isLastPage) {
-            hideOptionBubbles(container);
-        } else if (container.hasAttribute('hidden')) {
-            showOptionBubbles(container, cfg, { silent: true });
-        }
+        // 每次渲染都收起旧气泡；最后一页需由随后一次未被页内演出消费的推进显式打开。
+        hideOptionBubbles(container);
         // 把对话框实际高度/宽度写入 CSS 变量，供气泡定位在对话框正上方、宽度跟随对话框。
         const dialog = overlay.querySelector('#igs-dialog');
         if (dialog && typeof dialog.getBoundingClientRect === 'function') {
@@ -14505,6 +14552,43 @@ __igsDefine(exports, "buildAssetSlot", () => buildAssetSlot);
 __igsDefine(exports, "ASSET_PLANNER_SYSTEM_PROMPT", () => ASSET_PLANNER_SYSTEM_PROMPT);
 __igsDefine(exports, "ASSET_PLANNER_SOFT_SYSTEM_PROMPT", () => ASSET_PLANNER_SOFT_SYSTEM_PROMPT);
 });
+__igsRegister("src/generated-images/illustration/clear-current-cg.js", function(module, exports, require) {
+function normalizeIdentity(identity = {}) {
+    const chatId = String(identity.chatId == null ? '' : identity.chatId).trim();
+    const messageId = Number(identity.messageId);
+    const swipeId = Number(identity.swipeId || 0);
+    if (!chatId || !Number.isInteger(messageId) || messageId < 0 || !Number.isInteger(swipeId) || swipeId < 0) return null;
+    return { chatId, messageId, swipeId };
+}
+async function clearCurrentCg({ identity, slot, url, clear, forceRender } = {}) {
+    const normalizedIdentity = normalizeIdentity(identity);
+    const normalizedSlot = Number(slot);
+    if (!normalizedIdentity || !Number.isInteger(normalizedSlot) || normalizedSlot < 1 || !String(url || '').trim()) {
+        return { ok: true, reason: 'no-current-cg', removed: false, rendered: false };
+    }
+    if (typeof clear !== 'function') return { ok: false, reason: 'clear-unavailable', removed: false, rendered: false };
+    if (typeof forceRender !== 'function') return { ok: false, reason: 'render-unavailable', removed: false, rendered: false };
+
+    let cleared;
+    try {
+        cleared = await clear({ ...normalizedIdentity, slot: normalizedSlot });
+    } catch (error) {
+        return { ok: false, reason: 'clear-failed', error, removed: false, rendered: false };
+    }
+    if (cleared && cleared.ok === false) {
+        return { ...cleared, ok: false, reason: cleared.reason || 'clear-failed', removed: false, rendered: false };
+    }
+
+    try {
+        await forceRender({ force: true, reason: 'clear-current-cg' });
+    } catch (error) {
+        return { ok: false, reason: 'render-failed', error, removed: true, rendered: false };
+    }
+    return { ok: true, reason: 'cleared', removed: true, rendered: true };
+}
+
+__igsDefine(exports, "clearCurrentCg", () => clearCurrentCg);
+});
 __igsRegister("src/media/illustration-store.js", function(module, exports, require) {
 const DB_NAME = 'igs-illustrations';
 const DB_VERSION = 1;
@@ -14525,6 +14609,7 @@ function createMemoryIllustrationStore() {
             return Array.from(slots.values()).filter((s) => s.floorKey === floorKey).map(clone).sort((a, b) => a.slot - b.slot);
         },
         async putSlot(floorKey, value) { slots.set(`${floorKey}|${value.slot}`, clone({ ...value, floorKey })); },
+        async deleteSlot(floorKey, slot) { return slots.delete(`${floorKey}|${slot}`); },
     };
 }
 function createIndexedDbIllustrationStore(globalObject = globalThis) {
@@ -14567,6 +14652,10 @@ function createIndexedDbIllustrationStore(globalObject = globalThis) {
         },
         async putSlot(floorKey, value) {
             await run('slots', 'readwrite', (s) => s.put({ ...value, floorKey, key: `${floorKey}|${value.slot}` }));
+        },
+        async deleteSlot(floorKey, slot) {
+            await run('slots', 'readwrite', (s) => s.delete(`${floorKey}|${slot}`));
+            return true;
         },
     };
 }
@@ -14770,6 +14859,7 @@ const ORIGINAL_READER_ICONS = Object.freeze({
     next: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="9 18 15 12 9 6"/></svg>',
     assets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="9" cy="7" r="3.2"/><path d="M3.5 20v-1.5A4.5 4.5 0 0 1 8 14h2"/><path d="M13 20l3.2-4.2 2 2.5 1.3-1.6L22 20z"/><path d="M18 4v5M15.5 6.5h5"/></svg>',
     regen: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M4 16l4.5-4.5a1.5 1.5 0 0 1 2.1 0L16 17"/><path d="M14 15l1.5-1.5a1.5 1.5 0 0 1 2.1 0L20 16"/><path d="M18.5 2.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor"/></svg>',
+    clearCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 10v6M14 10v6"/></svg>',
     rescan: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>',
     save: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
     settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 5 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 5a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.4.6.8 1 1 .3.2.7.3 1.1.3H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>',
@@ -14791,6 +14881,7 @@ const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'last-page', title: '最后一页', html: ORIGINAL_READER_ICONS.lastPage },
     { id: 'next-turn', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
     { id: 'regen', title: '画 CG（补画本楼剧情插图；没有可补的就重画当前图）', html: ORIGINAL_READER_ICONS.regen },
+    { id: 'clear-cg', title: '清扫当前 CG', html: ORIGINAL_READER_ICONS.clearCg },
     { id: 'generate-assets', title: '补全素材（为未登记的人物和场景生成立绘 / 背景）', html: ORIGINAL_READER_ICONS.assets },
     { id: 'save', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
     { id: 'hide', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
@@ -15032,7 +15123,7 @@ const ORIGINAL_READER_HTML = `
   <div class="igs-ctrl-bar igs-toolbar" id="igs-ctrl-bar" data-igs-toolbar-dock="float">
     <div id="igs-bar-btns">
       ${ORIGINAL_READER_TOOLBAR_BUTTONS.map((button) => (
-        `<button class="igs-icon-btn" id="igs-btn-${button.id}" data-act="${button.id}" title="${button.title}" type="button">${button.html}</button>`
+        `<button class="igs-icon-btn" id="igs-btn-${button.id}" data-act="${button.id}" title="${button.title}" aria-label="${button.title}" type="button">${button.html}</button>`
       )).join('')}
     </div>
     <div id="igs-settings" aria-hidden="true"></div>
@@ -30540,6 +30631,7 @@ function createReaderButton(doc, id, title, html) {
     button.type = 'button';
     button.setAttribute('data-act', id);
     button.setAttribute('title', title);
+    button.setAttribute('aria-label', title);
     button.innerHTML = html;
     return button;
 }
@@ -30909,6 +31001,14 @@ function applyToolbarState(root, current) {
     const order = Array.isArray(readerSettings.btnOrder) && readerSettings.btnOrder.length
         ? readerSettings.btnOrder
         : TOOLBAR_ACTIONS.map(([id]) => id);
+
+    const clearCgButton = root.querySelector('#igs-btn-clear-cg');
+    if (clearCgButton) {
+        const content = current.snapshot && current.snapshot.content || {};
+        const clearCgDisabled = !(content.illustrationActive && content.illustrationUrl);
+        clearCgButton.disabled = clearCgDisabled;
+        clearCgButton.setAttribute('aria-disabled', String(clearCgDisabled));
+    }
 
     for (const id of order) {
         const button = root.querySelector(`#igs-btn-${id}`);
@@ -35221,8 +35321,34 @@ function createAutoIllustrationService(deps) {
         return '';
     }
 
+    async function clearIllustration({ chatId, messageId, swipeId, slot } = {}) {
+        const floor = {
+            chatId: String(chatId == null ? '' : chatId).trim(),
+            messageId: Number(messageId),
+            swipeId: Number(swipeId || 0),
+        };
+        const normalizedSlot = Number(slot);
+        if (!floor.chatId || !Number.isInteger(floor.messageId) || floor.messageId < 0
+            || !Number.isInteger(floor.swipeId) || floor.swipeId < 0
+            || !Number.isInteger(normalizedSlot) || normalizedSlot < 1) {
+            return { ok: false, reason: 'invalid-identity' };
+        }
+        if (!store || typeof store.deleteSlot !== 'function') {
+            return { ok: false, reason: 'delete-unavailable' };
+        }
+        const key = floorKeyOf(floor);
+        try {
+            await store.deleteSlot(key, normalizedSlot);
+            cache.delete(`${key}|${normalizedSlot}`);
+            emit(floor, normalizedSlot);
+            return { ok: true, reason: 'cleared', slot: normalizedSlot };
+        } catch (error) {
+            return { ok: false, reason: 'delete-failed', error };
+        }
+    }
+
     return {
-        processMessage, getIllustrationUrl,
+        processMessage, getIllustrationUrl, clearIllustration,
         start() {
             if (offRendered) return;
             messageHost.attachPromptStrip();

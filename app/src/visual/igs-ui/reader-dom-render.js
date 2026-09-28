@@ -47,6 +47,7 @@ export function createReaderButton(doc, id, title, html) {
     button.type = 'button';
     button.setAttribute('data-act', id);
     button.setAttribute('title', title);
+    button.setAttribute('aria-label', title);
     button.innerHTML = html;
     return button;
 }
@@ -420,6 +421,14 @@ export function applyToolbarState(root, current) {
     const order = Array.isArray(readerSettings.btnOrder) && readerSettings.btnOrder.length
         ? readerSettings.btnOrder
         : TOOLBAR_ACTIONS.map(([id]) => id);
+
+    const clearCgButton = root.querySelector('#igs-btn-clear-cg');
+    if (clearCgButton) {
+        const content = current.snapshot && current.snapshot.content || {};
+        const clearCgDisabled = !(content.illustrationActive && content.illustrationUrl);
+        clearCgButton.disabled = clearCgDisabled;
+        clearCgButton.setAttribute('aria-disabled', String(clearCgDisabled));
+    }
 
     for (const id of order) {
         const button = root.querySelector(`#igs-btn-${id}`);

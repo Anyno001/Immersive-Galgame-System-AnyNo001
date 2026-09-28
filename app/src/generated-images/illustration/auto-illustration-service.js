@@ -244,8 +244,34 @@ export function createAutoIllustrationService(deps) {
         return '';
     }
 
+    async function clearIllustration({ chatId, messageId, swipeId, slot } = {}) {
+        const floor = {
+            chatId: String(chatId == null ? '' : chatId).trim(),
+            messageId: Number(messageId),
+            swipeId: Number(swipeId || 0),
+        };
+        const normalizedSlot = Number(slot);
+        if (!floor.chatId || !Number.isInteger(floor.messageId) || floor.messageId < 0
+            || !Number.isInteger(floor.swipeId) || floor.swipeId < 0
+            || !Number.isInteger(normalizedSlot) || normalizedSlot < 1) {
+            return { ok: false, reason: 'invalid-identity' };
+        }
+        if (!store || typeof store.deleteSlot !== 'function') {
+            return { ok: false, reason: 'delete-unavailable' };
+        }
+        const key = floorKeyOf(floor);
+        try {
+            await store.deleteSlot(key, normalizedSlot);
+            cache.delete(`${key}|${normalizedSlot}`);
+            emit(floor, normalizedSlot);
+            return { ok: true, reason: 'cleared', slot: normalizedSlot };
+        } catch (error) {
+            return { ok: false, reason: 'delete-failed', error };
+        }
+    }
+
     return {
-        processMessage, getIllustrationUrl,
+        processMessage, getIllustrationUrl, clearIllustration,
         start() {
             if (offRendered) return;
             messageHost.attachPromptStrip();

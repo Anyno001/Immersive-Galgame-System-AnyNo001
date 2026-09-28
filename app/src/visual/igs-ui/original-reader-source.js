@@ -29,6 +29,7 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
     next: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="9 18 15 12 9 6"/></svg>',
     assets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="9" cy="7" r="3.2"/><path d="M3.5 20v-1.5A4.5 4.5 0 0 1 8 14h2"/><path d="M13 20l3.2-4.2 2 2.5 1.3-1.6L22 20z"/><path d="M18 4v5M15.5 6.5h5"/></svg>',
     regen: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M4 16l4.5-4.5a1.5 1.5 0 0 1 2.1 0L16 17"/><path d="M14 15l1.5-1.5a1.5 1.5 0 0 1 2.1 0L20 16"/><path d="M18.5 2.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor"/></svg>',
+    clearCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 10v6M14 10v6"/></svg>',
     rescan: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>',
     save: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
     settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 5 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 5a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.4.6.8 1 1 .3.2.7.3 1.1.3H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>',
@@ -51,6 +52,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'last-page', title: '最后一页', html: ORIGINAL_READER_ICONS.lastPage },
     { id: 'next-turn', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
     { id: 'regen', title: '画 CG（补画本楼剧情插图；没有可补的就重画当前图）', html: ORIGINAL_READER_ICONS.regen },
+    { id: 'clear-cg', title: '清扫当前 CG', html: ORIGINAL_READER_ICONS.clearCg },
     { id: 'generate-assets', title: '补全素材（为未登记的人物和场景生成立绘 / 背景）', html: ORIGINAL_READER_ICONS.assets },
     { id: 'save', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
     { id: 'hide', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
@@ -292,7 +294,7 @@ const ORIGINAL_READER_HTML = `
   <div class="igs-ctrl-bar igs-toolbar" id="igs-ctrl-bar" data-igs-toolbar-dock="float">
     <div id="igs-bar-btns">
       ${ORIGINAL_READER_TOOLBAR_BUTTONS.map((button) => (
-        `<button class="igs-icon-btn" id="igs-btn-${button.id}" data-act="${button.id}" title="${button.title}" type="button">${button.html}</button>`
+        `<button class="igs-icon-btn" id="igs-btn-${button.id}" data-act="${button.id}" title="${button.title}" aria-label="${button.title}" type="button">${button.html}</button>`
       )).join('')}
     </div>
     <div id="igs-settings" aria-hidden="true"></div>

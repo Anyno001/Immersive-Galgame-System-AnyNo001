@@ -20,6 +20,7 @@ export function createMemoryIllustrationStore() {
             return Array.from(slots.values()).filter((s) => s.floorKey === floorKey).map(clone).sort((a, b) => a.slot - b.slot);
         },
         async putSlot(floorKey, value) { slots.set(`${floorKey}|${value.slot}`, clone({ ...value, floorKey })); },
+        async deleteSlot(floorKey, slot) { return slots.delete(`${floorKey}|${slot}`); },
     };
 }
 
@@ -63,6 +64,10 @@ export function createIndexedDbIllustrationStore(globalObject = globalThis) {
         },
         async putSlot(floorKey, value) {
             await run('slots', 'readwrite', (s) => s.put({ ...value, floorKey, key: `${floorKey}|${value.slot}` }));
+        },
+        async deleteSlot(floorKey, slot) {
+            await run('slots', 'readwrite', (s) => s.delete(`${floorKey}|${slot}`));
+            return true;
         },
     };
 }

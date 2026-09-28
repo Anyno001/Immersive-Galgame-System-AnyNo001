@@ -16,6 +16,7 @@ import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
 import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { normalizeMoodGroups, resolveMoodGroup } from '../../scene/mood-groups.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
@@ -1248,16 +1249,20 @@ export function createIgsReaderHost(options = {}) {
             return moveReaderSegment(-1);
         }
         if (normalizedAction === 'next') {
-            if (cancelTypewriter(state.activeReader.dom && state.activeReader.dom.text, { finish: true })) {
+            const current = state.activeReader;
+            if (cancelTypewriter(current.dom && current.dom.text, { finish: true })) {
                 return {
                     ok: true,
                     moved: false,
                     reason: 'typewriter-completed',
-                    index: state.activeReader.index,
+                    index: current.index,
                 };
             }
-            if (advanceChatReveal(state.activeReader.dom && state.activeReader.dom.overlay)) {
-                return { ok: true, moved: false, reason: 'chat-revealed', index: state.activeReader.index };
+            if (advanceChatReveal(current.dom && current.dom.overlay)) {
+                return { ok: true, moved: false, reason: 'chat-revealed', index: current.index };
+            }
+            if (isReaderLastPage(current.snapshot) && handleOptionBubbleBlankClick(current, current.snapshot)) {
+                return { ok: true, moved: false, reason: 'option-bubbles-toggled', index: current.index };
             }
             return moveReaderSegment(1);
         }
@@ -1266,6 +1271,9 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'last-page') {
             return jumpReaderSegment(Number.MAX_SAFE_INTEGER);
+        }
+        if (normalizedAction === 'clear-cg') {
+            return clearCurrentIllustration();
         }
         if (normalizedAction === 'regen') {
             return generateOrRegenerate();
@@ -1460,6 +1468,47 @@ export function createIgsReaderHost(options = {}) {
     function formatReaderProgress(snapshot) {
         if (!snapshot || !snapshot.readerSettings || !snapshot.readerSettings.showStatusLine) return '';
         return snapshot && snapshot.content ? snapshot.content.progress : '';
+    }
+
+    async function clearCurrentIllustration() {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const content = current.snapshot && current.snapshot.content || {};
+        if (!content.illustrationActive || !content.illustrationUrl || !content.illustrationSlot) {
+            writeToastSafe('当前页没有可清扫的 CG。');
+            return { ok: true, reason: 'no-current-cg', removed: false, rendered: false };
+        }
+        const service = options.illustrations;
+        if (!service || typeof service.clearIllustration !== 'function') {
+            writeToastSafe('当前未接入 CG 清扫能力。');
+            return { ok: false, reason: 'clear-unavailable', removed: false, rendered: false };
+        }
+        const globalObj = options.global || globalThis;
+        if (typeof globalObj.confirm === 'function'
+            && !globalObj.confirm('清扫当前显示的 CG？只会删除这一张，其他 CG 不受影响。')) {
+            return { ok: true, reason: 'cancelled', removed: false, rendered: false };
+        }
+        const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
+        const result = await clearCurrentCg({
+            identity: { ...(current.illustrationIdentity || {}), messageId },
+            slot: content.illustrationSlot,
+            url: content.illustrationUrl,
+            clear: (query) => service.clearIllustration(query),
+            forceRender: () => {
+                if (state.activeReader !== current) return { ok: true, reason: 'reader-changed' };
+                const rendered = rerenderActiveReader();
+                if (rendered && rendered.ok === false) throw new Error(rendered.reason || 'render-failed');
+                return rendered;
+            },
+        });
+        if (result.ok) {
+            writeToastSafe(result.removed ? '当前 CG 已清扫。' : '当前页没有可清扫的 CG。');
+        } else if (result.removed) {
+            writeToastSafe('当前 CG 已删除，但界面重绘失败，请重新加载。');
+        } else {
+            writeToastSafe(`清扫当前 CG 失败：${result.reason || '未知错误'}`);
+        }
+        return result;
     }
 
     // 工具栏「画 CG」：先补画本楼的过场 / NSFW 插图（含重试失败的张），没有可补的再重画当前图。
@@ -2303,6 +2352,8 @@ export function createIgsReaderHost(options = {}) {
                 sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
+                illustrationSlot: illustrationHit ? illustrationHit.slot : null,
+                illustrationUrl,
                 statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
             },
             readerSettings: cloneData(readerSettings),
@@ -3277,13 +3328,8 @@ export function createIgsReaderHost(options = {}) {
         if (container.style && typeof container.style.setProperty === 'function') {
             container.style.setProperty('--igs-option-font-size', `${cfg.fontSize}px`);
         }
-        const isLastPage = isReaderLastPage(snapshot);
-        // 翻页离开最后一页 / 重渲染（如新回复到来）一律收起气泡，避免错页残留。
-        if (!cfg.enabled || !isLastPage) {
-            hideOptionBubbles(container);
-        } else if (container.hasAttribute('hidden')) {
-            showOptionBubbles(container, cfg, { silent: true });
-        }
+        // 每次渲染都收起旧气泡；最后一页需由随后一次未被页内演出消费的推进显式打开。
+        hideOptionBubbles(container);
         // 把对话框实际高度/宽度写入 CSS 变量，供气泡定位在对话框正上方、宽度跟随对话框。
         const dialog = overlay.querySelector('#igs-dialog');
         if (dialog && typeof dialog.getBoundingClientRect === 'function') {

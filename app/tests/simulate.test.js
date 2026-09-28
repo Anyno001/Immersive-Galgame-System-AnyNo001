@@ -727,6 +727,103 @@ test('gate:illustration:reader-rerenders-after-marker-write-and-keeps-veil-until
     host.destroy();
 });
 
+
+test('gate:illustration:reader-clear-cg-removes-only-current-slot-and-rerenders', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const raw = '[igs-img:1]\n当前 CG。';
+    const slots = new Map([[1, 'data:image/png;base64,CURRENT'], [2, 'data:image/png;base64,OTHER']]);
+    const clearCalls = [];
+    let urlReads = 0;
+    const host = createIgsReaderHost({
+        global: { document, confirm: () => true },
+        getUnifiedSettings: () => ({ bridge: {}, readerSettings: {} }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 39, swipeId: 0, text: raw }),
+        getIllustrationUrl: ({ slot }) => {
+            urlReads += 1;
+            return slots.get(slot) || '';
+        },
+        illustrations: {
+            async clearIllustration(query) {
+                clearCalls.push(query);
+                slots.delete(query.slot);
+                return { ok: true };
+            },
+        },
+    });
+    try {
+        const opened = host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
+        assert.equal(opened.ok, true);
+        assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, true);
+        const readsBeforeClear = urlReads;
+
+        const result = await opened.controller.invokeAction('clear-cg');
+
+        assert.deepEqual(clearCalls, [{ chatId: 'chat-1', messageId: 39, swipeId: 0, slot: 1 }]);
+        assert.deepEqual(result, { ok: true, reason: 'cleared', removed: true, rendered: true });
+        assert.equal(slots.has(1), false);
+        assert.equal(slots.get(2), 'data:image/png;base64,OTHER');
+        assert.ok(urlReads > readsBeforeClear, '清扫成功后必须重新读取并渲染当前阅读器');
+        const content = host.getState().activeReader.snapshot.content;
+        assert.equal(content.illustrationActive, false);
+        assert.equal(content.illustrationUrl, '');
+        assert.equal(document.getElementById('igs-btn-clear-cg').disabled, true);
+        assert.match(host.getState().activeReader.toastMessage, /当前 CG 已清扫/);
+    } finally {
+        host.destroy();
+    }
+});
+
+test('gate:illustration:reader-clear-cg-no-current-does-not-delete', async () => {
+    const document = createFakeDocument();
+    const raw = '[igs-img:1]\n尚未生成。';
+    let clearCalls = 0;
+    const host = createIgsReaderHost({
+        global: { document, confirm: () => true },
+        getUnifiedSettings: () => ({ bridge: {}, readerSettings: {} }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 40, swipeId: 0, text: raw }),
+        getIllustrationUrl: () => '',
+        illustrations: { async clearIllustration() { clearCalls += 1; return { ok: true }; } },
+    });
+    try {
+        const opened = host.openReader({ messageId: 40, message: { id: 40, text: raw }, raw }, { mode: 'pc' });
+        const result = await opened.controller.invokeAction('clear-cg');
+        assert.equal(clearCalls, 0);
+        assert.deepEqual(result, { ok: true, reason: 'no-current-cg', removed: false, rendered: false });
+        assert.match(host.getState().activeReader.toastMessage, /没有可清扫的 CG/);
+    } finally {
+        host.destroy();
+    }
+});
+
+test('gate:illustration:reader-clear-cg-delete-failure-keeps-current-and-reports-failure', async () => {
+    const document = createFakeDocument();
+    const raw = '[igs-img:1]\n当前 CG。';
+    let urlReads = 0;
+    const host = createIgsReaderHost({
+        global: { document, confirm: () => true },
+        getUnifiedSettings: () => ({ bridge: {}, readerSettings: {} }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 41, swipeId: 0, text: raw }),
+        getIllustrationUrl: () => {
+            urlReads += 1;
+            return 'data:image/png;base64,CURRENT';
+        },
+        illustrations: { async clearIllustration() { return { ok: false, reason: 'storage-failed' }; } },
+    });
+    try {
+        const opened = host.openReader({ messageId: 41, message: { id: 41, text: raw }, raw }, { mode: 'pc' });
+        const readsBeforeClear = urlReads;
+        const result = await opened.controller.invokeAction('clear-cg');
+        assert.equal(result.ok, false);
+        assert.equal(result.reason, 'storage-failed');
+        assert.equal(urlReads, readsBeforeClear, '删除失败不得触发成功路径重绘');
+        assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, true);
+        assert.match(host.getState().activeReader.toastMessage, /清扫当前 CG 失败：storage-failed/);
+        assert.doesNotMatch(host.getState().activeReader.toastMessage, /已清扫/);
+    } finally {
+        host.destroy();
+    }
+});
+
 test('gate:illustration:reader-activates-only-after-marker-and-keeps-veil-without-image', () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     const raw = '[igs-scene:Room|night|rain|NSFW]\n一段。\n[igs-img:1]\n二段。\n[igs-scene:Garden|day|sun]\n三段。';
@@ -1673,7 +1770,7 @@ test('gate:simulation:typewriter-first-forward-completes-text-and-second-forward
     vn.destroy();
 });
 
-test('gate:simulation:igs-ui-option-bubble-trigger-excludes-dialog-toolbar-and-input', async () => {
+test('gate:simulation:igs-ui-option-bubble-waits-for-final-page-forward-click-and-excludes-toolbar-and-input', async () => {
     const document = createFakeDocument();
     const storage = createMemoryStorage();
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ optionFontSize: 20 }));
@@ -1725,22 +1822,22 @@ test('gate:simulation:igs-ui-option-bubble-trigger-excludes-dialog-toolbar-and-i
     const optionBubbles = overlay.querySelector('#igs-option-bubbles');
 
     assert.equal(opened.reader.snapshot.content.progress, '1 / 1');
-    optionBubbles.setAttribute('hidden', '');
-    dialog.dispatchEvent({ type: 'click', target: input, clientX: 120 });
     assert.equal(optionBubbles.hasAttribute('hidden'), true);
-
-    dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 120 });
+    dialog.dispatchEvent({ type: 'click', target: input, clientX: 120 });
     assert.equal(optionBubbles.hasAttribute('hidden'), true);
 
     toolbar.dispatchEvent({ type: 'click', target: toolbar, clientX: 120 });
     assert.equal(optionBubbles.hasAttribute('hidden'), true);
 
-    clickLayer.click();
+    dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 120 });
     assert.equal(optionBubbles.hasAttribute('hidden'), false);
     assert.equal(optionBubbles.style['--igs-option-font-size'], '20px');
     assert.equal(optionBubbles.querySelectorAll('.igs-option-bubble').length, 2);
     // 默认（未开启随文本）气泡宽度跟随对话框。
     assert.equal(optionBubbles.getAttribute('data-igs-width'), 'dialog');
+
+    clickLayer.click();
+    assert.equal(optionBubbles.hasAttribute('hidden'), true);
 
     vn.destroy();
 });
@@ -6536,6 +6633,69 @@ test('gate:simulation:chat-show-pops-bubbles-per-click-then-pages-and-replays-fu
     }
 });
 
+test('gate:simulation:chat-show-options-wait-for-an-extra-forward-action-after-the-final-message', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ chatShow: { enabled: true, frame: 'none' } }));
+    const vn = bootstrapIGS({
+        global: {
+            document,
+            localStorage: storage,
+            AutoCardUpdaterAPI: {
+                exportTableAsJson() {
+                    return {
+                        sheet_options: {
+                            uid: 'sheet_options',
+                            name: '选项表',
+                            orderNo: 1,
+                            content: [['row_id', '选项'], ['1', '回复她']],
+                        },
+                    };
+                },
+            },
+        },
+        autoAttachMagicWand: false,
+        config: {
+            optionBubble: {
+                enabled: true,
+                position: 'top-left',
+                clickAction: 'fill',
+            },
+        },
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 911,
+                text: '[igs-chat:爱丽丝]\n[igs-msg:爱丽丝|在吗？]\n[igs-msg:<user>|在。]\n[igs-chat-end]',
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        const reader = opened.reader.controller;
+        const overlay = document.getElementById('igs-overlay');
+        const rows = overlay.querySelector('#igs-chat-layer').querySelector('.igs-chat-list').children;
+        const optionBubbles = overlay.querySelector('#igs-option-bubbles');
+        const visibleCount = () => rows.filter((row) => !row.hidden).length;
+
+        assert.equal(opened.reader.snapshot.content.progress, '1 / 1');
+        assert.equal(visibleCount(), 1);
+        assert.equal(optionBubbles.hasAttribute('hidden'), true);
+
+        const completedChat = await reader.invokeAction('next');
+        assert.equal(completedChat.reason, 'chat-revealed');
+        assert.equal(visibleCount(), 2);
+        assert.equal(optionBubbles.hasAttribute('hidden'), true);
+
+        const revealedOptions = await reader.invokeAction('next');
+        assert.equal(revealedOptions.reason, 'option-bubbles-toggled');
+        assert.equal(optionBubbles.hasAttribute('hidden'), false);
+        assert.equal(optionBubbles.querySelectorAll('.igs-option-bubble').length, 1);
+    } finally {
+        vn.destroy();
+    }
+});
+
 test('gate:simulation:chat-show-disabled-falls-back-to-plain-transcript-page', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     const vn = bootstrapIGS({
@@ -7007,6 +7167,9 @@ test('gate:assets:reader-cg-and-asset-buttons-are-independent', async () => {
         const opened = host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
         const overlay = document.getElementById('igs-overlay');
         assert.ok(overlay.querySelector('[data-act="regen"]'));
+        const clearCgButton = overlay.querySelector('[data-act="clear-cg"]');
+        assert.ok(clearCgButton);
+        assert.equal(clearCgButton.disabled, true, '没有当前 CG 时清扫按钮必须禁用');
         assert.ok(overlay.querySelector('[data-act="generate-assets"]'));
         assert.equal((await opened.controller.invokeAction('regen')).count, 2);
         assert.deepEqual([cgCalls.length, assetCalls.length], [1, 0], '画 CG 不应顺带补素材');
