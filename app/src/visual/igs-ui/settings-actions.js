@@ -14,6 +14,7 @@ import { playChatSfx } from './chat-sfx.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry } from '../../scene/asset-match.js';
+import { NAI_OFFICIAL_MODELS } from '../../generated-images/request-builders/nai-v4-builder.js';
 
 const STATUS_AVATAR_MAX_BYTES = 512 * 1024;
 const STATUS_AVATAR_MIME = /^image\/(?:png|jpeg|jpg|webp|gif|bmp|svg\+xml)$/i;
@@ -439,6 +440,12 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'test-virtual-regex') {
         settingsState.asyncState.virtualRegexPreview = buildRegexPreview(settingsState.draft.bridge);
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'fetch-nai-models') {
+        settingsState.asyncState.naiModels = NAI_OFFICIAL_MODELS.slice();
+        settingsState.asyncState.naiModelsMessage = `NAI 官方没有模型列表接口，已载入内置 ${NAI_OFFICIAL_MODELS.length} 个 V4 / V4.5 模型。`;
         return rerenderSettings();
     }
 

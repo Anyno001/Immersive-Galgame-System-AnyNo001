@@ -19,6 +19,14 @@ export const NAI_DEFAULT_SETTINGS = Object.freeze({
     timeoutMs: 120000,
 });
 
+// NAI 官方没有模型列表接口；请求体是 V4 结构，只列 V4 / V4.5 模型。
+export const NAI_OFFICIAL_MODELS = Object.freeze([
+    'nai-diffusion-4-5-full',
+    'nai-diffusion-4-5-curated',
+    'nai-diffusion-4-full',
+    'nai-diffusion-4-curated-preview',
+]);
+
 const GRID = [0.1, 0.3, 0.5, 0.7, 0.9];
 
 export function snapToNaiGrid(value) {

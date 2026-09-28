@@ -2,6 +2,11 @@ import {
     fetchModels as fetchImageModelsFromApi,
     generateImage as generateImageFromApi,
 } from '../image-api-client.js';
+import { NAI_OFFICIAL_MODELS } from '../request-builders/nai-v4-builder.js';
+
+function isNovelAiOfficialUrl(url) {
+    try { return /(^|\.)novelai\.net$/i.test(new URL(String(url || '').trim()).hostname); } catch (error) { return false; }
+}
 
 export const naiProvider = {
     id: 'vn.provider.nai',
@@ -16,6 +21,15 @@ export const naiProvider = {
 
     async fetchModels(_request = {}, context = {}) {
         const imageApi = resolveImageApiSettings(context);
+        if (isNovelAiOfficialUrl(imageApi.apiUrl || imageApi.endpoint)) {
+            return {
+                ok: true,
+                models: NAI_OFFICIAL_MODELS.slice(),
+                count: NAI_OFFICIAL_MODELS.length,
+                modelsFetchedAt: new Date().toISOString(),
+                message: `NAI 官方没有模型列表接口，已载入内置 ${NAI_OFFICIAL_MODELS.length} 个模型`,
+            };
+        }
         return fetchImageModelsFromApi(imageApi, buildNetworkDependencies(context));
     },
 

@@ -3396,6 +3396,31 @@ test('gate:simulation:igs-ui-auto-illustration-llm-models-fetch-and-select', asy
     }
 });
 
+test('gate:simulation:auto-illustration-nai-fetch-models-and-select', async () => {
+    let calls = 0;
+    const vn = bootstrapIGS({
+        global: { fetch: async () => { calls += 1; throw new Error('unexpected'); } },
+        autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    try {
+        const controller = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
+        controller.toggle('bridge.autoIllustration.nsfwEnabled');
+        assert.match(controller.getSnapshot().html, /data-action="fetch-nai-models"/);
+        const fetched = await controller.invoke('fetch-nai-models');
+        assert.equal(fetched.ok, true);
+        assert.equal(calls, 0);
+        const snapshot = controller.getSnapshot();
+        assert.match(snapshot.resultText.naiModels, /已载入内置 4 个/);
+        assert.match(snapshot.html, /<option value="nai-diffusion-4-full">/);
+        controller.setValue('bridge.autoIllustration.nai.model', 'nai-diffusion-4-full');
+        controller.close();
+        assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration.nai.model, 'nai-diffusion-4-full');
+    } finally {
+        vn.destroy();
+    }
+});
+
 test('gate:simulation:igs-ui-image-settings-fetch-models-and-test-nai-use-real-service-chain', async () => {
     const document = createFakeDocument();
     const message = {

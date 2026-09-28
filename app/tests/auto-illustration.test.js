@@ -557,3 +557,15 @@ test('gate:illustration:image-job-log-retention-and-clear', async () => {
     assert.equal(JSON.parse(store.get(IMAGE_JOB_LOG_STORAGE_KEY)).length, 0);
     assert.ok(changes > 0);
 });
+
+test('gate:illustration:nai-provider-official-url-uses-builtin-models', async () => {
+    const { naiProvider } = await import('../src/generated-images/providers/nai-provider.js');
+    const { NAI_OFFICIAL_MODELS } = await import('../src/generated-images/request-builders/nai-v4-builder.js');
+    let count = 0;
+    const result = await naiProvider.fetchModels({}, {
+        unifiedSettings: { bridge: { imageApi: { mode: 'nai', apiUrl: 'https://image.novelai.net/ai/generate-image' } } },
+        fetch: async () => { count += 1; throw new Error('unexpected'); },
+    });
+    assert.equal(count, 0);
+    assert.deepEqual(result.models, [...NAI_OFFICIAL_MODELS]);
+});

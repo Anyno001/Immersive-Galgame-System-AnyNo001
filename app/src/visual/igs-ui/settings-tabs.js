@@ -139,6 +139,7 @@ const IMAGE_AUTO_TEMPLATE = `
       <div class="igs-settings-full">{{autoNaiArtistField}}</div>
       <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
     </div>
+    <div class="igs-settings-result" data-result="nai-models">{{autoNaiModelsMessage}}</div>
   </div>
 </div>
 `.trim();
