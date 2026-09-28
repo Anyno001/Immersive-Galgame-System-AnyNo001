@@ -6,6 +6,7 @@ import {
 import { extractSceneDirectives, stripIllustrationMarkers } from './scene-directives.js';
 import { parseSceneText } from './text-parser.js';
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards } from './html-cards.js';
+import { extractChatBlocks } from './chat-blocks.js';
 
 export const DEFAULT_SOURCE_FILTER = Object.freeze({
     enabled: true,
@@ -313,8 +314,10 @@ export function buildIgsTextPayload(message, options = {}) {
     const originalRaw = getMessagePrimaryText(message);
     const sourceFilter = normalizeSourceFilter(options.sourceFilter);
     const htmlCardResult = extractHtmlCards(originalRaw, parseTagList(sourceFilter.htmlCardTags));
-    const raw = htmlCardResult.text;
+    const chatResult = extractChatBlocks(htmlCardResult.text);
+    const raw = chatResult.text;
     const htmlCards = htmlCardResult.cards;
+    const chats = chatResult.chats;
     const virtualRegex = normalizeVirtualRegex(options.virtualRegex);
     const visibleText = resolveVisibleText(message, options.visibleText);
     const hasExcludedBlocks = sourceFilter.enabled && hasTagBlocks(raw, sourceFilter.textExcludeTags);
@@ -392,6 +395,7 @@ export function buildIgsTextPayload(message, options = {}) {
         : cleanedRaw;
     // 宿主把卡片渲染成了纯文本，DOM 覆盖会让卡片以散文字出现在正文里。
     if (!htmlCards.length
+        && !chats.length
         && domVisibleText
         && !looksLikeHostUiHtml(domVisibleText)
         && localizedTextDiffers(domCompareBase, domVisibleText)) {
@@ -458,6 +462,7 @@ export function buildIgsTextPayload(message, options = {}) {
     return {
         raw: originalRaw,
         htmlCards,
+        chats,
         hasExcludedTextBlocks: Boolean(hasExcludedBlocks),
         cleanedRaw,
         visibleText: safeVisibleText,

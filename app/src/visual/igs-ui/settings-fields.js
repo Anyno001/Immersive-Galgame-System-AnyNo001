@@ -1,6 +1,7 @@
 import { esc } from './reader-value-utils.js';
 import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
+import { CHAT_SHOW_DIM_LEVELS } from './chat-show-runtime.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -112,6 +113,36 @@ export function renderStageShakeSettings(settings) {
     ));
     const tags = emotions.map((emotion) => `<span class="igs-mood-word-tag">${esc(emotion)}<button type="button" class="igs-mood-word-del" data-action="stage-shake-remove-emotion:${encSeg(emotion)}" title="删除触发情绪">×</button></span>`).join('');
     return `<div class="igs-settings-sub igs-stage-shake-settings">${intensityField}<div class="igs-settings-field"><span>触发情绪</span><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无触发情绪</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="stage-shake-add-emotion" title="添加触发情绪">+</button></div></div></div>`;
+}
+
+export function renderChatShowSettings(settings) {
+    const s = settings;
+    const p = 'readerSettings.chatShow';
+    const segment = (key, label, items) => field(`${p}.${key}`, label, segmentedInput(`${p}.${key}`, s[key], items, label));
+    const dimItems = CHAT_SHOW_DIM_LEVELS.includes(s.dim) ? CHAT_SHOW_DIM_LEVELS : CHAT_SHOW_DIM_LEVELS.concat(s.dim).sort((a, b) => a - b);
+    const grid = [
+        '<div class="igs-source-filter-grid">',
+        segment('frame', '聊天外框', [['phone', '手机框'], ['none', '无框']]),
+        segment('revealMode', '冒泡节奏', [['click', '点击逐条'], ['auto', '自动连发']]),
+        s.revealMode === 'auto' ? segment('autoSpeed', '连发速度', [['fast', '快'], ['medium', '中'], ['slow', '慢']]) : '',
+        field(`${p}.dim`, '背景压暗', selectInput(`${p}.dim`, s.dim, dimItems.map((n) => [n, `${Math.round(n * 100)}%`]))),
+        field(`${p}.selfName`, '自己的名字', textInput(`${p}.selfName`, s.selfName, '留空使用 {{user}}')),
+        segment('unknownSide', '未登记发送者', [['left', '左'], ['right', '右']]),
+        field(`${p}.defaultColors.left`, '对方气泡色', colorInput(`${p}.defaultColors.left`, s.defaultColors.left)),
+        field(`${p}.defaultColors.right`, '自己气泡色', colorInput(`${p}.defaultColors.right`, s.defaultColors.right)),
+        '</div>',
+    ].join('');
+    const toggles = checkbox(`${p}.hideSprites`, s.hideSprites, '聊天时隐藏立绘')
+        + checkbox(`${p}.sound.enabled`, s.sound.enabled, '启用收发音效')
+        + (s.sound.enabled ? `<div class="igs-settings-sub">${field(`${p}.sound.volume`, '音效音量', rangeInput(`${p}.sound.volume`, s.sound.volume))}</div>` : '');
+    const contacts = Object.entries(s.contacts).map(([name, c]) => {
+        const n = encSeg(name);
+        const aliasTags = c.aliases.map((alias) => `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="chat-show-remove-alias:${n}:${encSeg(alias)}" title="删除别名">×</button></span>`).join('');
+        const side = segmentedInput(`${p}.contacts.${name}.side`, c.side, [['auto', '自动'], ['left', '固定左'], ['right', '固定右']], '气泡位置');
+        return `<div class="igs-chat-contact"><div class="igs-chat-contact-head"><b>${esc(name)}</b>${colorInput(`${p}.contacts.${name}.color`, c.color || s.defaultColors.left)}${side}<button type="button" class="igs-mood-word-del" data-action="chat-show-remove-contact:${n}" title="删除联系人">×</button></div><div class="igs-mood-word-list"><span class="igs-chat-contact-label">别名</span>${aliasTags}<button type="button" class="igs-btn-mgr-icon" data-action="chat-show-add-alias:${n}" title="添加别名">+</button></div></div>`;
+    }).join('');
+    const contactList = `<div class="igs-settings-field"><span>联系人（别名把 AI 的各种叫法归到同一人；固定左/右后 AI 无法改变位置）</span><div class="igs-chat-contacts">${contacts || '<div class="igs-scene-empty">暂无联系人</div>'}<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-add-contact">添加联系人</button></div></div>`;
+    return `<div class="igs-settings-sub igs-chat-show-settings">${grid}${toggles}${contactList}</div>`;
 }
 
 export function renderWeatherFxSettings(settings) {

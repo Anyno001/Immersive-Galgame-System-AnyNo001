@@ -204,6 +204,7 @@ const READER_PERFORMANCE_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="performance">
   <div class="igs-source-filter"><div class="igs-source-filter-title">打字机</div>{{typewriterToggle}}{{typewriterControls}}</div>
   <div class="igs-source-filter"><div class="igs-source-filter-title">震动</div>{{stageShakeToggle}}{{stageShakeSettings}}</div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">线上交流</div>{{chatShowToggle}}{{chatShowSettings}}</div>
   <div class="igs-source-filter"><div class="igs-source-filter-title">天气</div>{{weatherFxToggle}}{{weatherFxSettings}}</div>
   <div class="igs-source-filter"><div class="igs-source-filter-title">场景演出</div><div class="igs-settings-section">{{performanceToggles}}</div>{{nsfwVeilLevelField}}</div>
 </div>

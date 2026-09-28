@@ -17,6 +17,7 @@ import { createStageRenderer } from '../visual/stage-renderer.js';
 import { resolveVisualMode } from '../visual/visual-mode.js';
 import { normalizeScenePromptRule } from '../visual/igs-ui/reader-host-constants.js';
 import { createIgsReaderHost } from '../visual/igs-ui/reader-host.js';
+import { CHAT_SHOW_PROMPT_RULE, normalizeChatShowSettings } from '../visual/igs-ui/chat-show-runtime.js';
 import { createEventBus } from './event-bus.js';
 import { createMagicWandEntry } from '../host/magic-wand-entry.js';
 import { createExtensionPanel } from '../host/extension-panel.js';
@@ -33,7 +34,7 @@ import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-sto
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.28.10';
+const IGS_VERSION = '0.28.11';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -429,9 +430,10 @@ export function bootstrapIGS(options = {}) {
     function syncSceneAssetsInjection() {
         const unified = getUnifiedSettingsSnapshot();
         const sceneAssets = unified.bridge && unified.bridge.sceneAssets;
-        if (sceneAssets && sceneAssets.enabled && sceneAssets.promptRule) {
-            return promptInjector.inject(resolvePromptRuleContent(sceneAssets));
-        }
+        const rules = [];
+        if (sceneAssets && sceneAssets.enabled && sceneAssets.promptRule) rules.push(resolvePromptRuleContent(sceneAssets));
+        if (normalizeChatShowSettings(unified.readerSettings && unified.readerSettings.chatShow).enabled) rules.push(CHAT_SHOW_PROMPT_RULE);
+        if (rules.length) return promptInjector.inject(rules.join('\n\n'));
         promptInjector.clear();
         return { ok: true, reason: 'scene-assets-disabled' };
     }

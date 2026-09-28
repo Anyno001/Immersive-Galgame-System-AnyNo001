@@ -10,6 +10,7 @@ import { ASSET_REVIEW_STYLE_TEXT } from './asset-review-panel.js';
 import { RECORD_PANEL_STYLE_TEXT } from './record-panel-style.js';
 import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
 import { HTML_CARD_LAYER_STYLE_TEXT } from './html-card-layer.js';
+import { CHAT_LAYER_STYLE_TEXT } from './chat-layer.js';
 import {
     IGS_UI_BLUR, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FONT_SANS, IGS_UI_INK, IGS_UI_RADIUS, IGS_UI_THICKNESS, igsUiSurface,
 } from '../../styles/ui-material.js';
@@ -241,6 +242,7 @@ ${CLASSIC_DIALOG_STYLE_TEXT}
 ${DIALOG_THEME_CHOICE_STYLE_TEXT}
 ${DIALOG_THEME_HUD_STYLE_TEXT}
 ${HTML_CARD_LAYER_STYLE_TEXT}
+${CHAT_LAYER_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `

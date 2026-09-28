@@ -520,6 +520,58 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     vn.destroy();
 });
 
+test('gate:simulation:html-card-page-hides-inherited-sprite-and-restores-it-after-paging', () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const raw = `<content>
+[igs-scene:Room|night|clear]
+[igs-char:Alice|calm|Before the card.]
+<htm1fenge><span style="display:none;">（一句话: 物件状态/材质/核心视觉/情绪基调）</span><div style="width:100%;box-sizing:border-box;padding:8px;font-size:13px;word-break:break-word;"><!-- 按载体类型选择渲染范式 --></div></htm1fenge>
+[igs-char:Alice|calm|After the card.]
+</content>`;
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({
+            bridge: {
+                sceneAssets: {
+                    enabled: true,
+                    scenes: { Room: { url: 'https://example.com/room.png', times: {} } },
+                    characters: { Alice: { calm: 'https://example.com/alice.png' } },
+                    moodGroups: [],
+                },
+            },
+            readerSettings: {},
+        }),
+    });
+    const opened = host.openReader({ messageId: 49, message: { id: 49, text: raw }, raw }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    try {
+        const overlay = document.getElementById('igs-overlay');
+        const sprite = overlay.querySelector('#igs-sprite');
+        const current = () => host.getState().activeReader.snapshot.content;
+        assert.match(current().spriteImage, /alice\.png/);
+        assert.equal(sprite.style.display, 'block');
+
+        opened.controller.invokeAction('next');
+        assert.equal(current().htmlCardPage, true);
+        assert.equal(current().spriteImage, null);
+        assert.equal(sprite.style.display, 'none');
+        assert.equal(sprite.style.backgroundImage, '');
+        assert.equal(overlay.classList.contains('igs-html-card-page'), true);
+
+        opened.controller.invokeAction('next');
+        assert.equal(current().htmlCardPage, false);
+        assert.match(current().spriteImage, /alice\.png/);
+        assert.equal(sprite.style.display, 'block');
+        assert.equal(overlay.classList.contains('igs-html-card-page'), false);
+
+        opened.controller.invokeAction('prev');
+        assert.equal(current().htmlCardPage, true);
+        assert.equal(sprite.style.display, 'none');
+    } finally {
+        host.destroy();
+    }
+});
+
 test('gate:illustration:reader-rerenders-after-marker-write-and-keeps-veil-until-image-ready', () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     const original = '[igs-scene:Room|night|rain|NSFW]\n一段。\n二段。';
@@ -5922,6 +5974,150 @@ test('gate:simulation:stage-shake-settings-and-raw-emotion-drive-igs-stage-only'
     assert.equal(overlay.getAttribute('data-igs-stage-shake'), null);
 
     vn.destroy();
+});
+
+
+test('gate:simulation:chat-show-pops-bubbles-per-click-then-pages-and-replays-fully-on-return', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        chatShow: { enabled: true, frame: 'none', contacts: { 爱丽丝: { aliases: ['alice_cat'], side: 'left', color: '#ffb3d1' } } },
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage, SillyTavern: { getContext: () => ({ name1: '小明' }) } },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({
+                id: 91,
+                text: '<content>\n[igs-scene:教室|下午|晴天]\n她低头看手机。\n[igs-chat:爱丽丝]\n[igs-msg:alice_cat|在吗？]\n[igs-msg:小明|在的。放学后见。]\n[igs-msg:alice_cat|好！]\n[igs-chat-end]\n她笑了。\n</content>',
+            }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+        config: {
+            sceneAssets: { enabled: true, scenes: {}, characters: {}, characterAliases: {}, moodGroups: [] },
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        const reader = opened.reader.controller;
+        const overlay = document.getElementById('igs-overlay');
+        const content = () => vn.getState().igsUi.activeReader.snapshot.content;
+        assert.equal(content().chatPage, false);
+        await reader.invokeAction('next');
+        assert.equal(content().chatPage, true);
+        assert.equal(content().textType, 'chat');
+        assert.equal(content().displayText, '');
+        assert.deepEqual(content().chat.messages.map((m) => [m.displayName, m.side]), [['爱丽丝', 'left'], ['小明', 'right'], ['爱丽丝', 'left']]);
+        assert.equal(overlay.classList.contains('igs-chat-page'), true);
+        const layer = overlay.querySelector('#igs-chat-layer');
+        assert.equal(layer.hidden, false);
+        assert.equal(layer.getAttribute('data-igs-chat-frame'), 'none');
+        const rows = () => layer.querySelector('.igs-chat-list').children;
+        const visible = () => rows().filter((row) => !row.hidden).length;
+        assert.equal(rows().length, 3);
+        assert.equal(visible(), 1);
+        assert.equal(rows()[0].children[0].style.background, '#ffb3d1');
+        assert.equal((await reader.invokeAction('next')).reason, 'chat-revealed');
+        assert.equal(visible(), 2);
+        await reader.invokeAction('next');
+        assert.equal(visible(), 3);
+        await reader.invokeAction('next');
+        assert.equal(content().chatPage, false);
+        assert.equal(overlay.classList.contains('igs-chat-page'), false);
+        assert.equal(layer.hidden, true);
+        await reader.invokeAction('prev');
+        assert.equal(content().chatPage, true);
+        assert.equal(visible(), 3);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:chat-show-disabled-falls-back-to-plain-transcript-page', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: createMemoryStorage() },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 92, text: '[igs-chat:A]\n[igs-msg:A|hi]\n[igs-msg:B|yo]\n[igs-chat-end]' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        await vn.openLatestAvailable('pc');
+        const content = vn.getState().igsUi.activeReader.snapshot.content;
+        assert.equal(content.chatPage, false);
+        assert.equal(content.displayText, 'A：hi\nB：yo');
+        assert.doesNotMatch(content.displayText, /igs-/);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:chat-show-auto-mode-schedules-and-next-reveals-all', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ chatShow: { enabled: true, revealMode: 'auto' } }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 93, text: '[igs-msg:A|1]\n[igs-msg:B|2]\n[igs-msg:A|3]' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        const overlay = document.getElementById('igs-overlay');
+        const rows = overlay.querySelector('#igs-chat-layer').querySelector('.igs-chat-list').children;
+        assert.equal(rows.filter((row) => !row.hidden).length, 0);
+        assert.equal((await opened.reader.controller.invokeAction('next')).reason, 'chat-revealed');
+        assert.equal(rows.filter((row) => !row.hidden).length, 3);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:chat-show-settings-edit-contacts-and-inject-prompt-rule', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    const injected = [];
+    const answers = ['爱丽丝', 'alice_cat'];
+    const vn = bootstrapIGS({
+        global: {
+            document,
+            localStorage: storage,
+            prompt: () => answers.shift() || '',
+            SillyTavern: { getContext: () => ({ setExtensionPrompt: (id, text) => injected.push([id, text]) }) },
+        },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 94, text: '正文' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+        settings.switchTab('reader');
+        const disabled = settings.switchReaderSubTab('performance').snapshot.html;
+        assert.match(disabled, /启用线上交流演出/);
+        assert.doesNotMatch(disabled, /聊天外框/);
+        settings.setValue('readerSettings.chatShow.enabled', true);
+        settings.invoke('chat-show-add-contact');
+        settings.invoke(`chat-show-add-alias:${encodeURIComponent('爱丽丝')}`);
+        settings.setValue('readerSettings.chatShow.contacts.爱丽丝.side', 'right');
+        const enabled = settings.switchReaderSubTab('performance').snapshot.html;
+        assert.match(enabled, /聊天外框/);
+        assert.match(enabled, /alice_cat/);
+        assert.equal(settings.close().ok, true);
+        const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+        assert.equal(persisted.chatShow.enabled, true);
+        assert.deepEqual(persisted.chatShow.contacts, { 爱丽丝: { aliases: ['alice_cat'], color: '', side: 'right' } });
+        assert.ok(injected.some(([, text]) => /\[igs-chat:会话标题\]/.test(String(text))));
+    } finally {
+        vn.destroy();
+    }
 });
 
 

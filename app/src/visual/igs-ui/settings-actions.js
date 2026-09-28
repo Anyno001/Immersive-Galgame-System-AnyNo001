@@ -8,6 +8,7 @@ import { clearMoodReview, loadMoodReview, removeMoodReview } from '../../scene/m
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
+import { isValidChatContactName, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry } from '../../scene/asset-match.js';
@@ -250,6 +251,41 @@ export async function handleSettingsAction(action, ctx) {
                 delete avatars[charName];
             }
             sceneAssets.statusAvatars = avatars;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('chat-show-')) {
+        const globalObj = options.global || globalThis;
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeChatShowSettings(readerDraft.chatShow);
+        const ask = (message) => String((globalObj.prompt ? globalObj.prompt(message, '') : '') || '').trim();
+        const [verb, ...args] = normalizedAction.slice('chat-show-'.length).split(':');
+        const [name, alias] = args.map(decodeSeg);
+        let changed = false;
+        if (verb === 'add-contact') {
+            const next = ask('新增联系人（角色主名，不能含 . | [ ]）：');
+            if (isValidChatContactName(next) && !current.contacts[next]) {
+                current.contacts[next] = { aliases: [], color: '', side: 'auto' };
+                changed = true;
+            }
+        } else if (verb === 'remove-contact' && current.contacts[name]) {
+            delete current.contacts[name];
+            changed = true;
+        } else if (verb === 'add-alias' && current.contacts[name]) {
+            const next = ask(`为「${name}」新增别名（网名、昵称等）：`);
+            if (next && next !== name && !current.contacts[name].aliases.includes(next)) {
+                current.contacts[name].aliases.push(next);
+                changed = true;
+            }
+        } else if (verb === 'remove-alias' && current.contacts[name]) {
+            current.contacts[name].aliases = current.contacts[name].aliases.filter((item) => item !== alias);
+            changed = true;
+        }
+        if (changed) {
+            readerDraft.chatShow = current;
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
         }

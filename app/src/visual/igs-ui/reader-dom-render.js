@@ -27,6 +27,7 @@ import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyWeatherFx } from './weather-fx-runtime.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
+import { applyChatToDom } from './chat-layer.js';
 import {
     applyDialogSkinAssets,
     isClassicDialogSkin,
@@ -983,11 +984,11 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const spriteEl = root.querySelector('#igs-sprite');
     const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
     const hideSpriteNsfw = snapshot.content.sceneNsfw === true && spriteSettings.showSpriteOnNsfw === false;
-    const spriteAssetUrl = hideSpriteNsfw
+    const spriteAssetUrl = hideSpriteNsfw || snapshot.content.htmlCardPage === true
         ? null
         : resolveAssetUrl(snapshot.content.spriteImage);
     if (spriteEl && spriteAssetUrl) {
-        const spriteNarration = snapshot.content.textType === 'narration' && spriteSettings.dimSpriteOnNarration !== false;
+        const spriteNarration = (snapshot.content.textType === 'narration' || snapshot.content.textType === 'chat') && spriteSettings.dimSpriteOnNarration !== false;
         const spriteFilter = spriteNarration ? 'brightness(0.86) saturate(0.86)' : '';
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
         spriteEl.style.backgroundImage = `url("${spriteAssetUrl.replace(/"/g, '&quot;')}")`;
@@ -1067,6 +1068,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         key: stageShakeKey,
     });
     applyHtmlCardToDom(root, snapshot.content, ctx);
+    applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');
     const effectFrontLayer = root.querySelector('#igs-effect-front-layer');
     applyWeatherFx(effectLayer, {

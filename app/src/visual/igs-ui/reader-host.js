@@ -77,6 +77,7 @@ import {
     renderGeneratedAssetPane,
     renderScenePresetBar,
     renderStageShakeSettings,
+    renderChatShowSettings,
     renderWeatherFxSettings,
     renderTemplate,
     rangeInput,
@@ -181,6 +182,9 @@ import {
     normalizeTypewriterSettings,
 } from './typewriter-runtime.js';
 import { cancelStageShakeEffect } from './stage-shake-runtime.js';
+import { advanceChatReveal, cancelChatShow } from './chat-layer.js';
+import { buildChatPageModel, normalizeChatShowSettings } from './chat-show-runtime.js';
+import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import {
     applyReaderSnapshotToDom,
     applyToolbarState,
@@ -545,6 +549,7 @@ export function createIgsReaderHost(options = {}) {
             ? current.dom.overlay.querySelector('#igs-stage-motion')
             : null;
         cancelStageShakeEffect(stageMotion);
+        if (current.dom && current.dom.overlay) cancelChatShow(current.dom.overlay);
         clearReaderModeRuntime(current);
         if (closeOptions.keepFullscreen !== true) {
             exitDocumentFullscreen(getRootDocument(options.global));
@@ -1233,6 +1238,9 @@ export function createIgsReaderHost(options = {}) {
                     index: state.activeReader.index,
                 };
             }
+            if (advanceChatReveal(state.activeReader.dom && state.activeReader.dom.overlay)) {
+                return { ok: true, moved: false, reason: 'chat-revealed', index: state.activeReader.index };
+            }
             return moveReaderSegment(1);
         }
         if (normalizedAction === 'first-page') {
@@ -1727,6 +1735,16 @@ export function createIgsReaderHost(options = {}) {
             '',
         );
         const sceneAssets = readerSettings._sceneAssets || null;
+        const chatIndex = parseChatMarker(currentText);
+        const chatBlock = chatIndex >= 0 && Array.isArray(extracted.chats) ? extracted.chats[chatIndex] || null : null;
+        const chatSettings = normalizeChatShowSettings(readerSettings.chatShow);
+        const chatPage = Boolean(chatBlock) && chatSettings.enabled;
+        const chatContext = chatPage ? getSillyTavernContext(options.global || globalThis) : null;
+        const chat = chatPage ? buildChatPageModel(chatBlock, chatSettings, {
+            userName: chatContext && chatContext.name1 ? String(chatContext.name1) : '',
+            characterAliases: sceneAssets && sceneAssets.characterAliases,
+        }) : null;
+        const hideChatSprite = chatPage && chatSettings.hideSprites;
         const generatedAssets = options.generatedAssets || null;
         const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
             ? (generatedAssets ? generatedAssets.resolveUrl(url) : '')
@@ -1940,7 +1958,7 @@ export function createIgsReaderHost(options = {}) {
                 spriteMood = sceneStateForBg.mood || '';
             }
             // HTML 卡片独占舞台前景：不继承上一段角色的立绘，也不发起素材解析。
-            if (htmlCardIndex < 0 && !slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
+            if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
                 const spriteHit = resolveSpriteAsset(spriteChar, spriteMood, assetMatchCtx);
                 noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
                 spriteImage = resolveGenerated(spriteHit.url) || null;
@@ -1953,13 +1971,19 @@ export function createIgsReaderHost(options = {}) {
                 }
             }
         }
+        if (chatPage) {
+            textType = 'chat';
+            resolvedSpeaker = '';
+            bubbleMood = '';
+            if (hideChatSprite) spriteImage = null;
+        }
         const statusSceneInfo = {
             location: firstDefined(sceneStateForBg && sceneStateForBg.scene, scene.location, ''),
             time: firstDefined(sceneStateForBg && sceneStateForBg.time, scene.time, ''),
             weather: firstDefined(sceneStateForBg && sceneStateForBg.weather, scene.weather, ''),
         };
         const isDialogueText = textType === 'dialogue' || (!sceneAssetsEnabled && Boolean(scene.speaker) && Boolean(currentText));
-        const displayText = htmlCardIndex >= 0 ? '' : (!sceneAssetsEnabled && scene.speaker && currentText)
+        const displayText = htmlCardIndex >= 0 || chatPage ? '' : chatBlock ? formatChatBlockAsText(chatBlock) : (!sceneAssetsEnabled && scene.speaker && currentText)
             ? `${scene.speaker}: ${stripWrappingQuotes(currentText)}`
             : (sceneAssetsEnabled
                 ? (isDialogueText ? stripWrappingQuotes(segmentBody) : segmentBody)
@@ -2008,6 +2032,8 @@ export function createIgsReaderHost(options = {}) {
                 displayText,
                 htmlCard,
                 htmlCardPage: htmlCardIndex >= 0,
+                chatPage,
+                chat,
                 segments: cloneData(segments),
                 currentIndex: normalizedIndex,
                 progress: buildProgressText(normalizedIndex, segments.length, displayImageState),
@@ -2034,7 +2060,7 @@ export function createIgsReaderHost(options = {}) {
                 sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
-                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
+                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
             },
             readerSettings: cloneData(readerSettings),
             input: {
@@ -2335,6 +2361,7 @@ export function createIgsReaderHost(options = {}) {
         const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
         const typewriter = normalizeTypewriterSettings(reader.typewriter);
         const stageShake = normalizeStageShakeSettings(reader.stageShake);
+        const chatShow = normalizeChatShowSettings(reader.chatShow);
         const weatherFx = normalizeWeatherFxSettings(reader.weatherFx);
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
             dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（旧设置保留）`]);
@@ -2377,6 +2404,8 @@ export function createIgsReaderHost(options = {}) {
             ].join('')}</div>` : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '启用震动演出'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
+            chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '启用线上交流演出'),
+            chatShowSettings: chatShow.enabled ? renderChatShowSettings(chatShow) : '',
             weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '启用天气演出'),
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
             performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
@@ -3244,6 +3273,7 @@ export function createIgsReaderHost(options = {}) {
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),
+            chatShow: normalizeChatShowSettings(null),
             weatherFx: normalizeWeatherFxSettings(null),
             imageCountOverride: null,
             pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
@@ -3282,6 +3312,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
         normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
         normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);
+        normalized.chatShow = normalizeChatShowSettings(normalized.chatShow);
         normalized.weatherFx = normalizeWeatherFxSettings(normalized.weatherFx);
         normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
