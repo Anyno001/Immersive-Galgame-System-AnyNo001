@@ -4,7 +4,8 @@ const HEAD_CACHE_LIMIT = 48;
 const PROBE_W = 48;
 const ALPHA_MIN = 40;
 const PROBE_TIMEOUT_MS = 160;
-const FALLBACK_HEAD = Object.freeze({ x: 0.5, top: 0.04, w: 0.3 });
+export const FALLBACK_HEAD = Object.freeze({ x: 0.5, top: 0.04, w: 0.3 });
+export const HEAD_ASPECT = 1.1;
 
 // 头部单位偏移：dx 以头宽、dy 以头高为单位，原点在头顶中心。
 export const SYMBOL_OFFSETS = Object.freeze({
@@ -29,6 +30,76 @@ function clamp(value, min, max) {
     return max < min ? (min + max) / 2 : Math.max(min, Math.min(max, value));
 }
 
+// 立绘在舞台里的绘制矩形：background-size 单值百分比只定宽度，高度按原图比例。
+export function spriteDrawRect(stageW, stageH, sprite) {
+    if (!sprite || !(sprite.naturalW > 0) || !(sprite.naturalH > 0)) return null;
+    const w = stageW * finite(sprite.scale, 100) / 100;
+    if (!(w > 0)) return null;
+    const h = w * sprite.naturalH / sprite.naturalW;
+    return { left: (stageW - w) * finite(sprite.posX, 50) / 100, top: (stageH - h) * finite(sprite.posY, 100) / 100, w, h };
+}
+
+// 头部标定：{ x, top, w } 均相对立绘原图（x 为头部中心、top 为头顶、w 为头宽），与阅读模式无关；aspect 为原图高宽比。
+export function headToMarker(head, rect) {
+    const d = head.w * rect.w;
+    return { cx: rect.left + head.x * rect.w, cy: rect.top + head.top * rect.h + d * HEAD_ASPECT / 2, d };
+}
+
+export function markerToHead(marker, rect) {
+    return {
+        x: clamp((marker.cx - rect.left) / rect.w, -0.5, 1.5),
+        top: clamp((marker.cy - marker.d * HEAD_ASPECT / 2 - rect.top) / rect.h, -0.5, 1.5),
+        w: clamp(marker.d / rect.w, 0.02, 1),
+    };
+}
+
+export function normalizeSpriteHead(value) {
+    if (!value || typeof value !== 'object') return null;
+    const x = Number(value.x);
+    const top = Number(value.top);
+    const w = Number(value.w);
+    if (![x, top, w].every(Number.isFinite) || !(w > 0)) return null;
+    const out = { x: clamp(x, -0.5, 1.5), top: clamp(top, -0.5, 1.5), w: clamp(w, 0.02, 1) };
+    const aspect = Number(value.aspect);
+    if (Number.isFinite(aspect) && aspect > 0) out.aspect = aspect;
+    return out;
+}
+
+export function normalizeSpriteHeads(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const out = {};
+    for (const [key, head] of Object.entries(value)) {
+        const normalized = normalizeSpriteHead(head);
+        if (key && normalized) out[key] = normalized;
+    }
+    return out;
+}
+
+export function spriteHeadKey(character, mood) {
+    return mood ? `${character}::${mood}` : String(character || '');
+}
+
+// 表情单独标定优先，其次角色标定；都没有返回 null 走自动识别。
+export function resolveSpriteHead(heads, character, mood) {
+    if (!heads || !character) return null;
+    return (mood && heads[spriteHeadKey(character, mood)]) || heads[character] || null;
+}
+
+export function measureStage(motion) {
+    const stageW = Number(motion && motion.clientWidth);
+    const stageH = Number(motion && motion.clientHeight);
+    if (!(stageW > 0) || !(stageH > 0)) return null;
+    let dialogTop = stageH;
+    const dialog = motion.querySelector('#igs-dialog-layer .igs-dialog');
+    if (dialog && typeof dialog.getBoundingClientRect === 'function' && typeof motion.getBoundingClientRect === 'function') {
+        const d = dialog.getBoundingClientRect();
+        const m = motion.getBoundingClientRect();
+        // 舞台可能被外层 transform 缩放：矩形差值换回舞台自身的 CSS 像素。
+        if (d.height > 0 && m.height > 0) dialogTop = (d.top - m.top) * (stageH / m.height);
+    }
+    return { stageW, stageH, dialogTop };
+}
+
 // 纯函数：返回符号中心点（舞台像素）与符号边长；没有立绘时落在舞台右上方。
 export function resolveSymbolPlacement(kind, geo) {
     const stageW = finite(geo && geo.stageW, 0);
@@ -41,18 +112,15 @@ export function resolveSymbolPlacement(kind, geo) {
     let headX = stageW * 0.62;
     let headTop = stageH * 0.1;
     let headW = minSide * 0.22;
-    if (sprite && sprite.naturalW > 0 && sprite.naturalH > 0) {
-        const imgW = stageW * finite(sprite.scale, 100) / 100;
-        const imgH = imgW * sprite.naturalH / sprite.naturalW;
-        const left = (stageW - imgW) * finite(sprite.posX, 50) / 100;
-        const top = (stageH - imgH) * finite(sprite.posY, 100) / 100;
+    const rect = spriteDrawRect(stageW, stageH, sprite);
+    if (rect) {
         const head = sprite.head || FALLBACK_HEAD;
-        headX = left + imgW * head.x;
-        headTop = top + imgH * head.top;
-        headW = imgW * head.w;
+        headX = rect.left + rect.w * head.x;
+        headTop = rect.top + rect.h * head.top;
+        headW = rect.w * head.w;
     }
     headW = clamp(headW, minSide * 0.08, minSide * 0.6);
-    const headH = headW * 1.1;
+    const headH = headW * HEAD_ASPECT;
     const size = clamp(headW * offset.size, 22, Math.max(22, minSide * 0.16));
     const flip = headX > stageW * 0.72 && offset.dx > 0;
     const pad = size * 0.55 + 4;

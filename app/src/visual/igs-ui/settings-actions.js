@@ -13,6 +13,7 @@ import { normalizeSystemRoleSettings, stripRoleBrackets } from './system-role.js
 import { playChatSfx } from './chat-sfx.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import { FX_SETTINGS_NORMALIZERS, FX_WORD_LIST_PATHS } from './fx-settings.js';
+import { normalizeSpriteHeads } from './fx-anchor.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry } from '../../scene/asset-match.js';
 import { NAI_OFFICIAL_MODELS } from '../../generated-images/request-builders/nai-v4-builder.js';
@@ -1380,6 +1381,7 @@ export async function handleSettingsAction(action, ctx) {
             timeGroups: cloneData(sa.timeGroups || []),
             weatherGroups: cloneData(sa.weatherGroups || []),
             spriteLayouts: cloneData((settingsState.draft.readerSettings && settingsState.draft.readerSettings.spriteLayouts) || {}),
+            spriteHeads: cloneData((settingsState.draft.readerSettings && settingsState.draft.readerSettings.spriteHeads) || {}),
         };
         saveScenePresets(storage, presets);
         settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, name);
@@ -1411,6 +1413,10 @@ export async function handleSettingsAction(action, ctx) {
                 if (preset.spriteLayouts && typeof preset.spriteLayouts === 'object') {
                     settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
                     settingsState.draft.readerSettings.spriteLayouts = cloneData(preset.spriteLayouts);
+                }
+                if (preset.spriteHeads && typeof preset.spriteHeads === 'object') {
+                    settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+                    settingsState.draft.readerSettings.spriteHeads = cloneData(preset.spriteHeads);
                 }
                 const persisted = persistSettingsDraft();
                 if (persisted.ok === false) return persisted;
@@ -1458,6 +1464,7 @@ export async function handleSettingsAction(action, ctx) {
             timeGroups: fileResult.data.timeGroups || [],
             weatherGroups: fileResult.data.weatherGroups || [],
             spriteLayouts: (fileResult.data.spriteLayouts && typeof fileResult.data.spriteLayouts === 'object') ? fileResult.data.spriteLayouts : {},
+            spriteHeads: normalizeSpriteHeads(fileResult.data.spriteHeads),
         };
         saveScenePresets(storage, presets);
         settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, name);
@@ -1471,6 +1478,7 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(presets[name].weatherGroups || []);
         settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
         settingsState.draft.readerSettings.spriteLayouts = cloneData(presets[name].spriteLayouts);
+        settingsState.draft.readerSettings.spriteHeads = cloneData(presets[name].spriteHeads);
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -1485,7 +1493,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!preset) return rerenderSettings();
         const doc = globalObj.document;
         if (!doc) return { ok: false, reason: 'no-document' };
-        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], spriteLayouts: preset.spriteLayouts || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
+        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = doc.createElement('a');

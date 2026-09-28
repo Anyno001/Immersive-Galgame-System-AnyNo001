@@ -12,6 +12,7 @@ import { extractFxDirectives, resolveFxAtPage } from '../../scene/fx-directives.
 import { cancelFxEffects } from './fx-runtime.js';
 import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
 import { renderFxPerformanceSections } from './fx-settings-fields.js';
+import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
 import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
@@ -3393,6 +3394,7 @@ export function createIgsReaderHost(options = {}) {
             hiddenBtns: [],
             btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
             spriteLayouts: {},
+            spriteHeads: {},
         };
         const normalized = { ...base, ...src, _v: currentVersion };
         delete normalized.emptyBackgroundColor;
@@ -3434,6 +3436,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
         normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
         normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);
+        normalized.spriteHeads = normalizeSpriteHeads(normalized.spriteHeads);
         // 对话主题（vnTheme）按模式存进 readerSettings。独立于 _v 门控处理，避免 schema 版本
         // 不符时被清空。settings.vnTheme 缺失时回退到旧的全局 bridge.vnTheme（legacyTheme），
         // 实现从全局存储到按模式存储的平滑迁移。旧的全局 dialogFont 只在读取时迁移为

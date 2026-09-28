@@ -13,7 +13,7 @@ import {
 } from './fx-settings.js';
 import { ensureFxLayers, findFxLayers } from './fx-layer.js';
 import { playFxSfx } from './fx-sfx.js';
-import { peekSpriteHead, probeSpriteHead, resolveSymbolPlacement, waitSpriteHead } from './fx-anchor.js';
+import { measureStage, peekSpriteHead, probeSpriteHead, resolveSymbolPlacement, waitSpriteHead } from './fx-anchor.js';
 
 export const FX_LIFETIME_MS = Object.freeze({
     symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 800, title: 2700,
@@ -228,25 +228,20 @@ function renderCallScreen(doc, name, avatar) {
     return screen;
 }
 
-function measureStage(motion) {
-    const stageW = Number(motion.clientWidth);
-    const stageH = Number(motion.clientHeight);
-    if (!(stageW > 0) || !(stageH > 0)) return null;
-    let dialogTop = stageH;
-    const dialog = motion.querySelector('#igs-dialog-layer .igs-dialog');
-    if (dialog && typeof dialog.getBoundingClientRect === 'function' && typeof motion.getBoundingClientRect === 'function') {
-        const d = dialog.getBoundingClientRect();
-        const m = motion.getBoundingClientRect();
-        // 舞台可能被外层 transform 缩放：矩形差值换回舞台自身的 CSS 像素。
-        if (d.height > 0 && m.height > 0) dialogTop = (d.top - m.top) * (stageH / m.height);
-    }
-    return { stageW, stageH, dialogTop };
+// 手动标定的头部优先于透明通道探测；原图尺寸优先取探测值，探测失败时用标定时记下的高宽比。
+export function spriteGeometry(sprite, probed) {
+    if (!sprite) return null;
+    const manual = sprite.head || null;
+    const naturalW = probed ? probed.naturalW : 1;
+    const naturalH = probed ? probed.naturalH : manual && manual.aspect;
+    if (!(naturalW > 0) || !(naturalH > 0)) return null;
+    return { posX: sprite.posX, posY: sprite.posY, scale: sprite.scale, naturalW, naturalH, head: manual || (probed && probed.head) || null };
 }
 
-function placeSymbol(el, kind, motion, sprite, head) {
+function placeSymbol(el, kind, motion, sprite, probed) {
     const geo = measureStage(motion);
     if (!geo) return;
-    const placement = resolveSymbolPlacement(kind, { ...geo, sprite: sprite && head ? { ...sprite, ...head } : null });
+    const placement = resolveSymbolPlacement(kind, { ...geo, sprite: spriteGeometry(sprite, probed) });
     if (!placement) return;
     el.style.left = `${placement.x}px`;
     el.style.top = `${placement.y}px`;
@@ -260,7 +255,7 @@ function playSymbol(effect, ctx, life) {
     el.setAttribute('data-kind', effect.kind);
     const sprite = options.sprite && options.sprite.url ? options.sprite : null;
     const cached = sprite ? peekSpriteHead(sprite.url) : null;
-    if (!sprite || cached) {
+    if (!sprite || cached || (sprite.head && sprite.head.aspect)) {
         placeSymbol(el, effect.kind, layers.motion, sprite, cached);
         spawn(state, layers.stage, el, life);
         return;

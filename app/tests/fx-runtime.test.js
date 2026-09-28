@@ -15,7 +15,9 @@ import {
     normalizeMangaFxSettings,
 } from '../src/visual/igs-ui/fx-settings.js';
 import { FX_SFX_PARTIALS, playFxSfx } from '../src/visual/igs-ui/fx-sfx.js';
-import { resolveSymbolPlacement, scanHeadFromAlpha } from '../src/visual/igs-ui/fx-anchor.js';
+import { headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanHeadFromAlpha, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
+import { spriteGeometry } from '../src/visual/igs-ui/fx-runtime.js';
+import { exitSpriteEditMode } from '../src/visual/igs-ui/sprite-edit.js';
 
 class FakeNode {
     constructor(doc, tag) {
@@ -294,4 +296,49 @@ test('gate:fx-anchor:alpha-scan-finds-head-top-and-width', () => {
     assert.equal(head.w, 0.4);
     assert.equal(scanHeadFromAlpha(new Uint8ClampedArray(w * h * 4), w, h), null);
     assert.equal(scanHeadFromAlpha(new Uint8ClampedArray(w * h * 4).fill(255), w, h), null);
+});
+
+test('gate:fx-anchor:manual-head-round-trips-and-overrides-probe', () => {
+    const rect = spriteDrawRect(1280, 720, { naturalW: 600, naturalH: 1200, posX: 30, posY: 100, scale: 30 });
+    const head = { x: 0.42, top: 0.07, w: 0.28 };
+    const back = markerToHead(headToMarker(head, rect), rect);
+    for (const key of ['x', 'top', 'w']) assert.ok(Math.abs(back[key] - head[key]) < 1e-9, key);
+    // 同一份标定在手机尺寸下换算出的落点仍贴着同一张脸。
+    const phoneRect = spriteDrawRect(390, 844, { naturalW: 600, naturalH: 1200, posX: 50, posY: 100, scale: 90 });
+    const phoneMarker = headToMarker(head, phoneRect);
+    assert.ok(Math.abs(phoneMarker.cx - (phoneRect.left + 0.42 * phoneRect.w)) < 1e-9);
+
+    const heads = normalizeSpriteHeads({ 爱丽丝: head, '爱丽丝::害羞': { x: 0.3, top: 0.2, w: 0.2, aspect: 2 }, bad: { x: 'a' } });
+    assert.deepEqual(Object.keys(heads), ['爱丽丝', '爱丽丝::害羞']);
+    assert.equal(resolveSpriteHead(heads, '爱丽丝', '害羞').x, 0.3);
+    assert.equal(resolveSpriteHead(heads, '爱丽丝', '生气').x, 0.42);
+    assert.equal(resolveSpriteHead(heads, '鲍勃', ''), null);
+
+    const probed = { naturalW: 600, naturalH: 1200, head: { x: 0.5, top: 0.02, w: 0.4 } };
+    assert.equal(spriteGeometry({ posX: 50, posY: 100, scale: 40, head }, probed).head, head);
+    assert.equal(spriteGeometry({ posX: 50, posY: 100, scale: 40, head: null }, probed).head, probed.head);
+    const noProbe = spriteGeometry({ posX: 50, posY: 100, scale: 40, head: heads['爱丽丝::害羞'] }, null);
+    assert.deepEqual([noProbe.naturalW, noProbe.naturalH], [1, 2]);
+    assert.equal(spriteGeometry({ posX: 50, posY: 100, scale: 40, head }, null), null);
+});
+
+test('gate:sprite-edit:save-writes-head-per-character-and-clears-mood-override', () => {
+    const saved = [];
+    const current = {
+        spriteEditMode: { mode: 'pc', character: '爱丽丝', mood: '害羞', orig: { posX: 50, posY: 100, scale: 40 }, editBar: null, clickLayer: null, headEdit: null },
+    };
+    const overlay = { querySelector: () => null };
+    const ctx = {
+        resolveUnifiedSettings: () => ({ bridge: {}, readerSettings: { spriteLayouts: {}, spriteHeads: { '爱丽丝::害羞': { x: 0.1, top: 0.1, w: 0.1 }, 鲍勃: { x: 0.5, top: 0.1, w: 0.3 } } } }),
+        saveReaderSettingsPatch: (patch) => saved.push(patch),
+    };
+    const value = { x: 0.4, top: 0.05, w: 0.3, aspect: 2 };
+    exitSpriteEditMode(overlay, current, { posX: 50, posY: 100, scale: 40, head: { key: '爱丽丝', value, clearKey: '爱丽丝::害羞' } }, ctx);
+    assert.deepEqual(saved[0].spriteHeads, { 鲍勃: { x: 0.5, top: 0.1, w: 0.3 }, 爱丽丝: value });
+    current.spriteEditMode = { ...current.spriteEditMode };
+    exitSpriteEditMode(overlay, current, { posX: 50, posY: 100, scale: 40, head: { key: '鲍勃', value: null, clearKey: '' } }, ctx);
+    assert.equal('鲍勃' in saved[1].spriteHeads, false);
+    current.spriteEditMode = { ...current.spriteEditMode };
+    exitSpriteEditMode(overlay, current, { posX: 50, posY: 100, scale: 40, head: null }, ctx);
+    assert.equal('spriteHeads' in saved[2], false);
 });

@@ -1,5 +1,27 @@
 import { resolveSpriteLayout } from './settings-normalize.js';
 import { igsDebug } from './reader-value-utils.js';
+import { probeSpriteHead, resolveSpriteHead, spriteHeadKey } from './fx-anchor.js';
+import { startHeadEdit } from './sprite-head-edit.js';
+
+const MAIN_BAR = '<span class="igs-se-hint">拖动调整，滚轮/双指缩放</span>'
+    + '<button data-se="head" type="button">标定头部</button>'
+    + '<button data-se="reset" type="button">还原</button>'
+    + '<button data-se="cancel" type="button">取消</button>'
+    + '<button data-se="save" class="igs-se-save" type="button">保存</button>';
+
+function headBar(mood, moodOnly) {
+    return '<span class="igs-se-hint">拖动/轻点圆圈对准脸，滚轮/双指调大小</span>'
+        + (mood ? `<button data-se="head-mood" type="button" aria-pressed="${moodOnly ? 'true' : 'false'}"${moodOnly ? ' class="is-on"' : ''}>仅当前表情</button>` : '')
+        + '<button data-se="head-auto" type="button">自动识别</button>'
+        + '<button data-se="head-back" type="button">返回</button>'
+        + '<button data-se="save" class="igs-se-save" type="button">保存</button>';
+}
+
+function spriteUrlOf(spriteEl) {
+    const raw = String(spriteEl.style.backgroundImage || '').trim();
+    if (!raw.startsWith('url(')) return '';
+    return raw.slice(4, -1).trim().replace(/^["']|["']$/g, '').replace(/\\"/g, '"');
+}
 
 export function enterSpriteEditMode(overlay, current, ctx = {}) {
     if (current.spriteEditMode) return;
@@ -35,12 +57,58 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     const doc = overlay.ownerDocument;
     const editBar = doc.createElement('div');
     editBar.id = 'igs-sprite-edit-bar';
-    editBar.innerHTML = '<span class="igs-se-hint">拖动调整，滚轮/双指缩放</span>'
-        + '<button data-se="reset" type="button">还原</button>'
-        + '<button data-se="cancel" type="button">取消</button>'
-        + '<button data-se="save" class="igs-se-save" type="button">保存</button>';
+    editBar.innerHTML = MAIN_BAR;
     overlay.appendChild(editBar);
-    current.spriteEditMode = { orig, editBar, clickLayer, mode, character, mood, origSpriteStyle };
+    const em = { orig, editBar, clickLayer, mode, character, mood, origSpriteStyle, headEdit: null, headPending: null };
+    current.spriteEditMode = em;
+    const storedHead = resolveSpriteHead(rs.spriteHeads, character, mood);
+    const head = { moodOnly: Boolean(mood && rs.spriteHeads && rs.spriteHeads[spriteHeadKey(character, mood)]), dirty: false, info: null };
+
+    // 按角色保存时顺带清掉当前表情的单独标定，否则表情键会继续覆盖角色键、改动看不到。
+    function headTarget(value) {
+        const key = spriteHeadKey(character, head.moodOnly ? mood : '');
+        return { key, value, clearKey: !head.moodOnly && mood ? spriteHeadKey(character, mood) : '' };
+    }
+
+    function pendingHead() {
+        if (em.headEdit && head.dirty) {
+            const value = em.headEdit.getHead();
+            if (value && head.info) value.aspect = head.info.naturalH / head.info.naturalW;
+            return headTarget(value);
+        }
+        return em.headPending;
+    }
+
+    function leaveHead() {
+        if (!em.headEdit) return;
+        em.headPending = pendingHead();
+        em.headEdit.destroy();
+        em.headEdit = null;
+        editBar.innerHTML = MAIN_BAR;
+    }
+
+    async function enterHead() {
+        if (!character) {
+            if (typeof ctx.writeToast === 'function') ctx.writeToast('当前立绘没有角色名，无法按角色标定头部');
+            return;
+        }
+        const info = await probeSpriteHead(spriteUrlOf(spriteEl), doc);
+        if (current.spriteEditMode !== em || em.headEdit) return;
+        if (!info || !(scale > 0)) {
+            if (typeof ctx.writeToast === 'function') ctx.writeToast('读不到立绘尺寸，暂时无法标定头部');
+            return;
+        }
+        head.info = info;
+        head.dirty = Boolean(em.headPending);
+        const start = (em.headPending && em.headPending.value) || storedHead || info.head;
+        em.headEdit = startHeadEdit({
+            motion: spriteEl.parentNode,
+            sprite: { posX, posY, scale, naturalW: info.naturalW, naturalH: info.naturalH },
+            head: start,
+            onChange: () => { head.dirty = true; },
+        });
+        editBar.innerHTML = headBar(mood, head.moodOnly);
+    }
 
     function apply() {
         spriteEl.style.backgroundSize = `${scale}%`;
@@ -54,7 +122,20 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
         const act = btn.getAttribute('data-se');
         if (act === 'reset') { posX = 50; posY = 100; scale = 100; apply(); }
         else if (act === 'cancel') { exitSpriteEditMode(overlay, current, null, ctx); }
-        else if (act === 'save') { exitSpriteEditMode(overlay, current, { posX, posY, scale }, ctx); }
+        else if (act === 'save') { exitSpriteEditMode(overlay, current, { posX, posY, scale, head: pendingHead() }, ctx); }
+        else if (act === 'head') { enterHead(); }
+        else if (act === 'head-back') { leaveHead(); }
+        else if (act === 'head-mood') {
+            head.moodOnly = !head.moodOnly;
+            head.dirty = true;
+            editBar.innerHTML = headBar(mood, head.moodOnly);
+        } else if (act === 'head-auto') {
+            // 清除当前键的手动标定，保存后回到透明通道自动识别。
+            head.dirty = false;
+            em.headPending = headTarget(null);
+            leaveHead();
+            if (typeof ctx.writeToast === 'function') ctx.writeToast('已改回自动识别，保存后生效');
+        }
     });
 
     const pointers = new Map();
@@ -110,6 +191,7 @@ export function exitSpriteEditMode(overlay, current, save, ctx = {}) {
     const em = current.spriteEditMode;
     if (!em) return;
     current.spriteEditMode = null;
+    if (em.headEdit) em.headEdit.destroy();
     const spriteEl = overlay.querySelector('#igs-sprite');
     if (spriteEl) {
         spriteEl.classList.remove('igs-sprite-editing', 'is-dragging');
@@ -148,8 +230,16 @@ export function exitSpriteEditMode(overlay, current, save, ctx = {}) {
                 layouts[`${em.mode}::${em.character}`] = value;
             }
         }
+        const patch = { spriteLayouts: layouts };
+        if (save.head && save.head.key) {
+            const heads = { ...(unified.readerSettings.spriteHeads || {}) };
+            if (save.head.value) heads[save.head.key] = save.head.value;
+            else delete heads[save.head.key];
+            if (save.head.clearKey) delete heads[save.head.clearKey];
+            patch.spriteHeads = heads;
+        }
         if (typeof ctx.saveReaderSettingsPatch === 'function') {
-            ctx.saveReaderSettingsPatch({ spriteLayouts: layouts });
+            ctx.saveReaderSettingsPatch(patch);
         }
     } else {
         if (spriteEl) Object.assign(spriteEl.style, em.origSpriteStyle);
