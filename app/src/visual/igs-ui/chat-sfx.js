@@ -137,6 +137,15 @@ export function playChatSfx(kind, { volume = 0.6, preset, audioScheduler, delay 
     if (typeof audioScheduler === 'function') {
         try { return audioScheduler({ kind, volume, preset: normalizeChatSfxPreset(preset), partials }) || null; } catch { return null; }
     }
+    return playSynthPartials(partials, { volume, delay });
+}
+
+export function createSynthPartial(wave, from, to, start, duration, gain, extra) {
+    return p(wave, from, to, start, duration, gain, extra);
+}
+
+export function playSynthPartials(partials, { volume = 0.6, delay = 0 } = {}) {
+    if (!Array.isArray(partials) || !partials.length || !(volume > 0)) return null;
     const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (!Context) return null;
     const nodes = [];

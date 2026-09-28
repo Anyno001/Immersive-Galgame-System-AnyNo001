@@ -182,7 +182,7 @@ export function applyTypewriterEffect(target, options = {}) {
     setRunningState(target, true);
     if (classic && settings.sound.enabled && jobVolume > 0) {
         job.audio = scheduleTypewriterAudio(classic.events, {
-            textType: options.textType, volume: jobVolume, audioScheduler: options.audioScheduler,
+            textType: options.textType, volume: jobVolume, audioScheduler: options.audioScheduler, phone: options.phone === true,
         });
     }
     const settle = () => settleVisualJob(target, job);

@@ -1,8 +1,12 @@
 import { parseImageResponse } from './image-api-client.js';
-import { buildNaiV4Request, validateNaiV4Request, NAI_DEFAULT_SETTINGS } from './request-builders/nai-v4-builder.js';
+import { buildNaiV4Request, validateNaiV4Request, NAI_DEFAULT_SETTINGS, NAI_OFFICIAL_ENDPOINT } from './request-builders/nai-v4-builder.js';
 
-export const NAI_OFFICIAL_ENDPOINT = 'https://image.novelai.net/ai/generate-image';
+export { NAI_OFFICIAL_ENDPOINT };
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+
+export function resolveNaiEndpoint(endpoint) {
+    return String(endpoint || '').trim() || NAI_OFFICIAL_ENDPOINT;
+}
 
 function toProxyUrl(url) {
     return `/proxy/${url}`;
@@ -22,7 +26,8 @@ export function createNaiOfficialClient(deps = {}) {
 
     async function send(body, settings) {
         const direct = settings.transport !== 'st-proxy';
-        const url = direct ? NAI_OFFICIAL_ENDPOINT : toProxyUrl(NAI_OFFICIAL_ENDPOINT);
+        const target = resolveNaiEndpoint(settings.endpoint);
+        const url = direct ? target : toProxyUrl(target);
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
         const timer = controller ? setTimeout(() => controller.abort(), Number(settings.timeoutMs) || 120000) : null;
         try {

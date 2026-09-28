@@ -73,6 +73,7 @@ export function normalizeAutoIllustrationSettings(value) {
         },
         nai: {
             transport: nai.transport === 'st-proxy' ? 'st-proxy' : 'direct',
+            endpoint: str(nai.endpoint),
             apiKey: str(nai.apiKey),
             model: str(nai.model, NAI_DEFAULT_SETTINGS.model) || NAI_DEFAULT_SETTINGS.model,
             size: str(nai.size, NAI_DEFAULT_SETTINGS.size) || NAI_DEFAULT_SETTINGS.size,

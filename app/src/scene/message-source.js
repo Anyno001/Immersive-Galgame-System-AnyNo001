@@ -7,6 +7,7 @@ import { extractSceneDirectives, stripIllustrationMarkers } from './scene-direct
 import { parseSceneText } from './text-parser.js';
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards } from './html-cards.js';
 import { extractChatBlocks } from './chat-blocks.js';
+import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags } from './directive-tags.js';
 
 export const DEFAULT_SOURCE_FILTER = Object.freeze({
     enabled: true,
@@ -40,12 +41,6 @@ const THOUGHT_RE_GLOBAL = /\[igs-thought:([^|\]\n]+)\|(?:[^|\]\n]*\|)?([^\]\n]+)
 // 数据层正文里是否含 IGS 场景标签（给 AI 看的格式标记）。宿主前端会用正则把这些
 // 标签从渲染层 .mes_text 隐藏，所以「数据层有标签、DOM 无标签」是渲染清洗造成的
 // 结构性差异，绝不能当成关键词插件改词而用 DOM 覆盖数据层。
-const IGS_DIRECTIVE_TAG_RE = /\[igs-(?:scene|char|thought|img):/;
-const IGS_DIRECTIVE_LINE_RE = /^\[igs-(?:scene|char|thought|img):[^\]]*\]/;
-
-function hasIgsDirectiveTags(text) {
-    return IGS_DIRECTIVE_TAG_RE.test(String(text || ''));
-}
 
 const HOST_UI_HTML_MARKERS = Object.freeze([
     'api connections',
@@ -225,7 +220,7 @@ export function applyImmersiveGalgameSystemBodyFormat(raw, rule) {
 // "]" 之后残留的旁白会被替换结果粘在同一行，随后被当成台词一起渲染进对话框。
 // 这里严格以 "]" 为分界，在指令闭合符后补一个换行，让旁白独立成段。
 // 只对 igs 指令标签生效，不改动其他方括号文本；已有换行时不重复插入。
-const IGS_DIRECTIVE_CLOSE_RE = /\[\s*igs-(?:scene|char|thought|img)\s*:[^\]\n]*\]([^\n]*)/gi;
+const IGS_DIRECTIVE_CLOSE_RE = new RegExp(IGS_DIRECTIVE_CLOSE_SOURCE, 'gi');
 
 function breakAfterIgsDirectiveClose(text) {
     return String(text || '').replace(

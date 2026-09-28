@@ -1,5 +1,6 @@
 import { resolveMoodGroup, fuzzyResolveMoodGroup } from './mood-groups.js';
 import { resolveSceneTimeAsset } from './scene-time.js';
+import { IGS_DIRECTIVE_START_RE } from './directive-tags.js';
 
 // 指令可独占整行，也可紧跟在正文之后（同一行内混排），因此不做行首锚定。
 const SCENE_RE = /\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
@@ -11,6 +12,7 @@ const SCENE_AT_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?
 const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const IMG_AT_RE = /^\[igs-img:\s*(\d+)\s*\]/;
+const FX_AT_RE = /^\[igs-fx:[^\]\n]*(?:\]|$)/;
 export const IGS_IMG_MARKER_SOURCE = '\\[igs-img:\\s*(\\d+)\\s*\\]';
 
 export function stripIllustrationMarkers(text) {
@@ -20,7 +22,7 @@ export function stripIllustrationMarkers(text) {
 }
 // 找出当前位置之后最近一条 igs 指令的起始下标；没有则返回 -1。
 function nextDirectiveIndex(text) {
-    const m = String(text || '').match(/\[igs-(?:scene|char|thought|img):/);
+    const m = String(text || '').match(IGS_DIRECTIVE_START_RE);
     return m ? m.index : -1;
 }
 
@@ -72,6 +74,8 @@ export function extractSceneDirectives(text) {
                 directives.push({ type: 'thought', character: m[1].trim(), mood: String(m[2] || '').trim(), thought: m[3].trim(),segmentIndex: segmentCount, lineIndex: i, offset: cursor });
             } else if ((m = rest.match(IMG_AT_RE))) {
                 illustrationMarkers.push({ slot: Number(m[1]), lineIndex: i, offset: cursor });
+            } else if ((m = rest.match(FX_AT_RE))) {
+                // igs-fx 由 fx-directives 单独解析，这里只跳过、不计入正文。
             } else {
                 // 当前位置不是指令：把到「下一条指令之前」的文本计入正文。
                 // 残缺指令（缺 "]" 或缺字段）停在当前位置时 nextAt 为 0，须越过其 "[" 当正文，否则死循环。

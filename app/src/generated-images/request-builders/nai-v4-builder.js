@@ -1,3 +1,5 @@
+export const NAI_OFFICIAL_ENDPOINT = 'https://image.novelai.net/ai/generate-image';
+
 export const NAI_FIXED_STRUCTURE = Object.freeze({
     v4_prompt: Object.freeze({ use_coords: true, use_order: true }),
     v4_negative_prompt: Object.freeze({ legacy_uc: false }),
@@ -7,6 +9,7 @@ export const NAI_DEFAULT_NEGATIVE = 'lowres, artistic error, film grain, scan ar
 
 export const NAI_DEFAULT_SETTINGS = Object.freeze({
     transport: 'direct',
+    endpoint: '',
     apiKey: '',
     model: 'nai-diffusion-4-5-full',
     size: '832x1216',
@@ -19,13 +22,26 @@ export const NAI_DEFAULT_SETTINGS = Object.freeze({
     timeoutMs: 120000,
 });
 
-// NAI 官方没有模型列表接口；请求体是 V4 结构，只列 V4 / V4.5 模型。
+// NAI 官方没有模型列表接口；请求体是 V4 结构，只列 V4 及以后的模型。
 export const NAI_OFFICIAL_MODELS = Object.freeze([
+    'nai-diffusion-5-full',
+    'nai-diffusion-5-curated',
     'nai-diffusion-4-5-full',
     'nai-diffusion-4-5-curated',
     'nai-diffusion-4-full',
     'nai-diffusion-4-curated-preview',
 ]);
+
+// 地址留空、填 novelai.net 官方域名、或以 /ai/generate-image 结尾的第三方中转走 NAI 原生格式；其余地址返回空串。
+export function resolveNaiNativeEndpoint(endpoint) {
+    const trimmed = String(endpoint || '').trim();
+    if (!trimmed) return NAI_OFFICIAL_ENDPOINT;
+    let parsed;
+    try { parsed = new URL(trimmed); } catch (error) { return ''; }
+    const path = parsed.pathname.replace(/\/+$/, '');
+    if (/(^|\.)novelai\.net$/i.test(parsed.hostname)) return path ? trimmed : NAI_OFFICIAL_ENDPOINT;
+    return /\/ai\/generate-image$/i.test(path) ? trimmed : '';
+}
 
 const GRID = [0.1, 0.3, 0.5, 0.7, 0.9];
 

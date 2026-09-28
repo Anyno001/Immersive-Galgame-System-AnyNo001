@@ -7,7 +7,7 @@ const SOURCES = Object.freeze({
 let audioContext = null;
 const decoded = new Map();
 
-export function scheduleTypewriterAudio(events, { textType, volume, audioScheduler } = {}) {
+export function scheduleTypewriterAudio(events, { textType, volume, audioScheduler, phone = false } = {}) {
     const url = SOURCES[textType];
     if (!url || !(volume > 0)) return null;
     // Short samples overlap badly at character rate: skip spaces and punctuation,
@@ -22,7 +22,7 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
     }
     if (!notes.length) return null;
     if (typeof audioScheduler === 'function') {
-        try { return audioScheduler({ textType, volume, timesMs: notes, url }) || null; } catch { return null; }
+        try { return audioScheduler({ textType, volume, timesMs: notes, url, phone }) || null; } catch { return null; }
     }
     const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (!Context || !url.startsWith('data:audio/ogg;base64,')) return null;
@@ -55,10 +55,21 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
                 voice.buffer = buffer;
                 gain.gain.value = volume;
                 voice.connect(gain);
-                gain.connect(context.destination);
+                // 通话态：带通滤波模拟听筒音色。
+                const band = phone ? context.createBiquadFilter() : null;
+                if (band) {
+                    band.type = 'bandpass';
+                    band.frequency.value = 1100;
+                    band.Q.value = 0.7;
+                    gain.connect(band);
+                    band.connect(context.destination);
+                } else {
+                    gain.connect(context.destination);
+                }
                 voice.onended = () => {
                     voice.disconnect();
                     gain.disconnect();
+                    if (band) band.disconnect();
                     const index = voices.indexOf(voice);
                     if (index >= 0) voices.splice(index, 1);
                 };

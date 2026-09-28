@@ -34,6 +34,13 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
         if (/^readerSettings\.chatShow\.(dim|sound\.volume)$/.test(path)) return Number(value);
+        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|letterbox|sfx|eye)$/.test(path)) {
+            return value === true || value === 'true' || value === 1 || value === '1';
+        }
+        if (path === 'readerSettings.fxSound.volume') {
+            const volume = Number(value);
+            return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.5;
+        }
         if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
         if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|skinDialogScale|toolbarScale|inputScale|imageCountOverride|imgBrightness|gradientVeil\.(heightPercent|opacity)/.test(path)) {
             return Number(value);

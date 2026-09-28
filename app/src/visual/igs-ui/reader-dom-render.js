@@ -25,6 +25,7 @@ import {
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
+import { applyFxToDom } from './fx-runtime.js';
 import { applyWeatherFx } from './weather-fx-runtime.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
@@ -275,11 +276,6 @@ export function buildFallbackReaderOverlay(doc) {
     text.id = 'igs-text';
     text.className = 'igs-text';
     dialog.appendChild(text);
-
-    const statusLine = doc.createElement('div');
-    statusLine.id = 'igs-status-line';
-    statusLine.className = 'igs-status-line';
-    dialog.appendChild(statusLine);
 
     const controls = doc.createElement('div');
     controls.className = 'igs-controls';
@@ -983,6 +979,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         bgBlur.style.opacity = '0';
     }
     const spriteEl = root.querySelector('#igs-sprite');
+    let spriteAnchorX = null;
     const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
     const hideSpriteNsfw = snapshot.content.sceneNsfw === true && spriteSettings.showSpriteOnNsfw === false;
     const spriteAssetUrl = hideSpriteNsfw || snapshot.content.htmlCardPage === true
@@ -1009,6 +1006,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const layout = resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood);
             spriteEl.style.backgroundSize = `${layout.scale}%`;
             spriteEl.style.backgroundPosition = `${layout.posX}% ${layout.posY}%`;
+            spriteAnchorX = Number(layout.posX);
             igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, index: snapshot.content.currentIndex, layoutKey: spriteKey ? `${snapshot.mode}::${spriteKey}::${spriteMood}` : snapshot.mode, layout: { ...layout } });
         }
     } else if (spriteEl) {
@@ -1069,6 +1067,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         emotion: snapshot.content && snapshot.content.statusEmotion,
         key: stageShakeKey,
     });
+    const fxResult = applyFxToDom(root, snapshot, {
+        anchorX: spriteAnchorX,
+        resolveAssetUrl,
+    });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');
@@ -1116,16 +1118,6 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             }
         } else {
             dividerEl.style.display = 'none';
-        }
-    }
-    const statusLine = root.querySelector('#igs-status-line');
-    if (statusLine) {
-        // 居中显示在气泡底部；最后一页不显示；仍受「显示状态行」开关控制。
-        if (snapshot.readerSettings.showStatusLine && !isLastPage) {
-            statusLine.textContent = snapshot.content.progress;
-            statusLine.style.display = 'block';
-        } else {
-            statusLine.style.display = 'none';
         }
     }
     const controls = root.querySelector('.igs-controls');
@@ -1227,6 +1219,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             sound: typewriterSettings.sound,
             textType: typewriterTextType,
             key: typewriterRenderKey,
+            phone: fxResult.phone === true,
         });
     }
     if (toast) {

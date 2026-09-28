@@ -3,7 +3,7 @@ import { cloneData } from './reader-value-utils.js';
 import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
-import { loadScenePresets, saveScenePresets } from '../../scene/scene-preset-store.js';
+import { loadScenePresets, saveScenePresets, saveActiveScenePresetName } from '../../scene/scene-preset-store.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
@@ -12,9 +12,17 @@ import { CHAT_SHOW_PROMPT_RULE, isValidChatContactName, normalizeChatPromptRule,
 import { normalizeSystemRoleSettings, stripRoleBrackets } from './system-role.js';
 import { playChatSfx } from './chat-sfx.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
+import { FX_SETTINGS_NORMALIZERS, FX_WORD_LIST_PATHS } from './fx-settings.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry } from '../../scene/asset-match.js';
 import { NAI_OFFICIAL_MODELS } from '../../generated-images/request-builders/nai-v4-builder.js';
+
+// 草稿深拷贝后顶层 imageApi 与 bridge.imageApi 不再是同一对象，面板只改后者；生图读取优先顶层，这里对齐为面板当前值。
+function cloneImageDraft(draft) {
+    const settings = cloneData(draft);
+    if (settings && settings.bridge && settings.bridge.imageApi) settings.imageApi = settings.bridge.imageApi;
+    return settings;
+}
 
 const STATUS_AVATAR_MAX_BYTES = 512 * 1024;
 const STATUS_AVATAR_MIME = /^image\/(?:png|jpeg|jpg|webp|gif|bmp|svg\+xml)$/i;
@@ -368,6 +376,37 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    const fxWordAction = normalizedAction.match(/^fx-word-(add|remove):([^:]+)(?::(.*))?$/);
+    if (fxWordAction) {
+        const path = decodeSeg(fxWordAction[2]);
+        if (!FX_WORD_LIST_PATHS.includes(path)) return rerenderSettings();
+        const [top, ...rest] = path.split('.');
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = FX_SETTINGS_NORMALIZERS[top](readerDraft[top]);
+        const parent = rest.slice(0, -1).reduce((obj, key) => obj[key], current);
+        const leaf = rest[rest.length - 1];
+        let changed = false;
+        if (fxWordAction[1] === 'add') {
+            const globalObj = options.global || globalThis;
+            const raw = globalObj.prompt ? globalObj.prompt('新增触发情绪（中文）：', '') : '';
+            const emotion = String(raw == null ? '' : raw).trim();
+            if (emotion && !parent[leaf].includes(emotion) && !/[A-Za-z]/u.test(emotion) && /[\u3400-\u9fff]/u.test(emotion)) {
+                parent[leaf].push(emotion);
+                changed = true;
+            }
+        } else {
+            const emotion = decodeSeg(fxWordAction[3] || '');
+            parent[leaf] = parent[leaf].filter((item) => item !== emotion);
+            changed = true;
+        }
+        if (changed) {
+            readerDraft[top] = current;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+        }
+        return rerenderSettings();
+    }
+
     const weatherWordAdd = normalizedAction.match(/^weather-fx-add-(indoor|outdoor)$/);
     if (weatherWordAdd) {
         const scene = weatherWordAdd[1];
@@ -445,7 +484,7 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'fetch-nai-models') {
         settingsState.asyncState.naiModels = NAI_OFFICIAL_MODELS.slice();
-        settingsState.asyncState.naiModelsMessage = `NAI 官方没有模型列表接口，已载入内置 ${NAI_OFFICIAL_MODELS.length} 个 V4 / V4.5 模型。`;
+        settingsState.asyncState.naiModelsMessage = `NAI 官方没有模型列表接口，已载入内置 ${NAI_OFFICIAL_MODELS.length} 个模型（V5 / V4.5 / V4）。`;
         return rerenderSettings();
     }
 
@@ -474,7 +513,7 @@ export async function handleSettingsAction(action, ctx) {
             return rerenderSettings();
         }
         const result = await options.fetchImageModels({
-            settings: cloneData(settingsState.draft),
+            settings: cloneImageDraft(settingsState.draft),
             message: state.activeReader && state.activeReader.payload && state.activeReader.payload.message || null,
             mode: settingsState.readerMode,
         });
@@ -530,7 +569,7 @@ export async function handleSettingsAction(action, ctx) {
             return rerenderSettings();
         }
         const result = await options.testImageApi({
-            settings: cloneData(settingsState.draft),
+            settings: cloneImageDraft(settingsState.draft),
             message: state.activeReader && state.activeReader.payload && state.activeReader.payload.message || null,
             mode: settingsState.readerMode,
         });
@@ -1343,7 +1382,7 @@ export async function handleSettingsAction(action, ctx) {
             spriteLayouts: cloneData((settingsState.draft.readerSettings && settingsState.draft.readerSettings.spriteLayouts) || {}),
         };
         saveScenePresets(storage, presets);
-        settingsState.asyncState.scenePresetName = name;
+        settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, name);
         return rerenderSettings();
     }
 
@@ -1360,7 +1399,7 @@ export async function handleSettingsAction(action, ctx) {
                 if (confirmFn && !confirmFn(`切换到预设「${name}」会用该预设的场景、角色立绘和位置覆盖当前配置，未保存到预设的改动将丢失。是否继续？`)) {
                     return rerenderSettings();
                 }
-                settingsState.asyncState.scenePresetName = name;
+                settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, name);
                 settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
                 settingsState.draft.bridge.sceneAssets.scenes = cloneData(preset.scenes || {});
                 settingsState.draft.bridge.sceneAssets.characters = cloneData(preset.characters || {});
@@ -1376,10 +1415,10 @@ export async function handleSettingsAction(action, ctx) {
                 const persisted = persistSettingsDraft();
                 if (persisted.ok === false) return persisted;
             } else {
-                settingsState.asyncState.scenePresetName = name;
+                settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, name);
             }
         } else {
-            settingsState.asyncState.scenePresetName = name;
+            settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, name);
         }
         return rerenderSettings();
     }
@@ -1396,7 +1435,7 @@ export async function handleSettingsAction(action, ctx) {
         presets[newName] = presets[oldName];
         delete presets[oldName];
         saveScenePresets(storage, presets);
-        settingsState.asyncState.scenePresetName = newName;
+        settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, newName);
         return rerenderSettings();
     }
 
@@ -1421,7 +1460,7 @@ export async function handleSettingsAction(action, ctx) {
             spriteLayouts: (fileResult.data.spriteLayouts && typeof fileResult.data.spriteLayouts === 'object') ? fileResult.data.spriteLayouts : {},
         };
         saveScenePresets(storage, presets);
-        settingsState.asyncState.scenePresetName = name;
+        settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, name);
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         settingsState.draft.bridge.sceneAssets.scenes = cloneData(presets[name].scenes);
         settingsState.draft.bridge.sceneAssets.characters = cloneData(presets[name].characters);
@@ -1468,7 +1507,7 @@ export async function handleSettingsAction(action, ctx) {
         const presets = loadScenePresets(storage);
         delete presets[name];
         saveScenePresets(storage, presets);
-        settingsState.asyncState.scenePresetName = '';
+        settingsState.asyncState.scenePresetName = saveActiveScenePresetName((options.global || globalThis).localStorage, '');
         return rerenderSettings();
     }
 

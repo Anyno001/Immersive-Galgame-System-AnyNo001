@@ -51,7 +51,8 @@ const IMAGE_OTHER_TEMPLATE = `
     {{imageModeField}}
     <div class="igs-settings-sub"{{extensionHidden}}>{{adapterField}}</div>
     <div class="{{apiGroupClass}}"{{apiHidden}}>
-      {{endpointField}}{{apiKeyField}}
+      {{endpointField}}{{transportField}}
+      {{apiKeyField}}
       <div class="igs-settings-full">{{modelField}}</div>
       {{sizeField}}{{stepsField}}{{samplerField}}{{timeoutField}}
       {{pollIntervalField}}{{pollAttemptsField}}
@@ -132,7 +133,8 @@ const IMAGE_AUTO_TEMPLATE = `
   <div class="igs-source-filter" data-image-feature="nai"{{autoSharedHidden}}>
     <div class="igs-source-filter-title">NovelAI · 生成图片</div>
     <div class="igs-source-filter-grid">
-      {{autoNaiTransportField}}{{autoNaiKeyField}}
+      {{autoNaiTransportField}}{{autoNaiEndpointField}}
+      {{autoNaiKeyField}}
       {{autoNaiModelField}}{{autoNaiSizeField}}
       {{autoNaiStepsField}}{{autoNaiScaleField}}
       {{autoNaiSamplerField}}
@@ -209,6 +211,7 @@ const READER_PERFORMANCE_TEMPLATE = `
   <div class="igs-source-filter"><div class="igs-source-filter-title">震动</div>{{stageShakeToggle}}{{stageShakeSettings}}</div>
   <div class="igs-source-filter"><div class="igs-source-filter-title">线上交流</div>{{chatShowToggle}}{{chatShowSettings}}</div>
   <div class="igs-source-filter"><div class="igs-source-filter-title">天气</div>{{weatherFxToggle}}{{weatherFxSettings}}</div>
+  {{fxSections}}
   <div class="igs-source-filter"><div class="igs-source-filter-title">场景演出</div><div class="igs-settings-section">{{performanceToggles}}</div>{{nsfwVeilLevelField}}</div>
 </div>
 `.trim();
@@ -294,7 +297,7 @@ export const READER_SUBTAB_DEFS = Object.freeze([
 export const SETTINGS_TAB_DEFS = Object.freeze([
     ['basic', '基础'],
     ['reader', '阅读器'],
-    ['scene', '场景'],
+    ['scene', '素材'],
     ['image', '生图'],
 ]);
 

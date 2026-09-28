@@ -25,7 +25,7 @@ function normalizeEmotion(value) {
     return text;
 }
 
-function normalizeEmotionList(value, fallback) {
+export function normalizeEmotionList(value, fallback) {
     if (!Array.isArray(value)) return Array.from(fallback);
     const output = [];
     for (const item of value) {

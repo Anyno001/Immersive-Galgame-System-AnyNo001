@@ -569,3 +569,14 @@ test('gate:illustration:nai-provider-official-url-uses-builtin-models', async ()
     assert.equal(count, 0);
     assert.deepEqual(result.models, [...NAI_OFFICIAL_MODELS]);
 });
+
+test('gate:illustration:nai-client-uses-custom-endpoint-or-official', async () => {
+    const { createNaiOfficialClient, NAI_OFFICIAL_ENDPOINT } = await import('../src/generated-images/nai-official-client.js');
+    const urls = [];
+    const client = createNaiOfficialClient({ fetch: async (url) => { urls.push(url); return new Response('', { status: 401 }); } });
+    const slot = { scene: 'room' };
+    await client.generate(slot, { apiKey: 'fake-key' });
+    await client.generate(slot, { apiKey: 'fake-key', endpoint: ' https://nai.example.com/custom/generate ' });
+    await client.generate(slot, { apiKey: 'fake-key', endpoint: 'https://nai.example.com/x', transport: 'st-proxy' });
+    assert.deepEqual(urls, [NAI_OFFICIAL_ENDPOINT, 'https://nai.example.com/custom/generate', '/proxy/https://nai.example.com/x']);
+});

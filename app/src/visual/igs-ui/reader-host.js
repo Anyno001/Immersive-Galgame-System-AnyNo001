@@ -7,6 +7,11 @@ import {
 } from '../../scene/message-source.js';
 import { resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
+import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
+import { extractFxDirectives, resolveFxAtPage } from '../../scene/fx-directives.js';
+import { cancelFxEffects } from './fx-runtime.js';
+import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
+import { renderFxPerformanceSections } from './fx-settings-fields.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
 import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
@@ -152,7 +157,7 @@ import { buildStatusHudModel, listStatusHudTables, normalizeStatusHudSettings, r
 import { readOptionItems } from '../../choices/option-table.js';
 import { handleSettingsAction as runSettingsAction } from './settings-actions.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
-import { loadScenePresets } from '../../scene/scene-preset-store.js';
+import { loadScenePresets, loadActiveScenePresetName } from '../../scene/scene-preset-store.js';
 import { loadMoodReview, recordMoodReview } from '../../scene/mood-review-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
 import {
@@ -430,7 +435,7 @@ export function createIgsReaderHost(options = {}) {
             tab: normalizedTab,
             draft: cloneData(initialSnapshot),
             initialOpenMode: initialSnapshot.bridge.openMode,
-            asyncState: {},
+            asyncState: { scenePresetName: loadActiveScenePresetName((options.global || globalThis).localStorage) },
             controller,
             dom: null,
         };
@@ -553,6 +558,7 @@ export function createIgsReaderHost(options = {}) {
             : null;
         cancelStageShakeEffect(stageMotion);
         if (current.dom && current.dom.overlay) cancelChatShow(current.dom.overlay);
+        if (current.dom && current.dom.overlay) cancelFxEffects(current.dom.overlay);
         clearReaderModeRuntime(current);
         if (closeOptions.keepFullscreen !== true) {
             exitDocumentFullscreen(getRootDocument(options.global));
@@ -1443,7 +1449,7 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function formatReaderProgress(snapshot) {
-        if (isEmbeddedReaderMode(snapshot && snapshot.mode)) return '';
+        if (!snapshot || !snapshot.readerSettings || !snapshot.readerSettings.showStatusLine) return '';
         return snapshot && snapshot.content ? snapshot.content.progress : '';
     }
 
@@ -1454,19 +1460,36 @@ export function createIgsReaderHost(options = {}) {
             writeToast('当前未接入图片重画能力。');
             return { ok: false, reason: 'provider-not-enabled' };
         }
-
-        const result = await options.regenerateImage(buildImageActionContext(
-            current,
-            resolveBridgeConfigSnapshot({ mode: current.mode }),
-        ));
-        if (result && result.imageState && state.activeReader) {
-            state.activeReader.payload.imageState = cloneData(result.imageState);
+        if (current.regenPending) {
+            writeToast('正在重新生图，请稍候…');
+            return { ok: false, reason: 'regen-pending' };
+        }
+        // 生图可能要几十秒：先给转圈和提示，结束（含异常）时一定收回。
+        current.regenPending = true;
+        const overlay = current.dom && current.dom.root;
+        const bgContainer = overlay && overlay.querySelector ? overlay.querySelector('#igs-bg') : null;
+        ensureImageLoadingSpinner(bgContainer);
+        writeToast('正在重新生图…');
+        let result;
+        try {
+            result = await options.regenerateImage(buildImageActionContext(
+                current,
+                resolveBridgeConfigSnapshot({ mode: current.mode }),
+            ));
+        } catch (error) {
+            result = { ok: false, reason: error && error.message || 'regen-failed' };
+        } finally {
+            current.regenPending = false;
+            removeImageLoadingSpinner(bgContainer);
+        }
+        if (state.activeReader !== current) return result;
+        if (result && result.ok !== false && result.imageState) {
+            current.payload.imageState = cloneData(result.imageState);
             rerenderActiveReader();
         }
-        writeToast(resolveReaderActionToast(result, {
-            success: '背景图已更新。',
-            fallback: '当前未检测到新的背景图。',
-        }));
+        writeToast(result && result.ok !== false
+            ? '背景图已更新。'
+            : `重新生图失败：${describeRegenFailure(result && result.reason)}`);
         return result;
     }
 
@@ -1826,6 +1849,19 @@ export function createIgsReaderHost(options = {}) {
                 : resolveSceneStateAtIndex(sceneDirectives, normalizedIndex))
             : null;
         const sceneStateForBg = (ownSceneState && ownSceneState.scene) ? ownSceneState : inheritedSceneState;
+        const fxDirectives = extractFxDirectives(sceneSourceForOffset);
+        let fxOffset = !fxDirectives.length ? -1
+            : currentOffset >= 0 ? currentOffset : locateTextOffsetInSource(sceneSourceForOffset, currentText);
+        let fxPrevOffset = -1;
+        // 聊天/卡片占位页在原文中定位不到，向前找最近一个可定位的页作为起点。
+        for (let i = normalizedIndex - 1; fxDirectives.length && i >= 0 && fxPrevOffset < 0; i -= 1) {
+            fxPrevOffset = locateTextOffsetInSource(sceneSourceForOffset, segments[i]);
+        }
+        if (fxDirectives.length && fxOffset < 0 && chatIndex >= 0) {
+            const chatStart = sceneSourceForOffset.slice(fxPrevOffset + 1).search(/\[igs-(?:chat:|msg:)/);
+            if (chatStart >= 0) fxOffset = fxPrevOffset + 1 + chatStart;
+        }
+        const pageFx = resolveFxAtPage(fxDirectives, fxOffset, fxPrevOffset);
         const illustrationOffset = currentOffset >= 0
             ? currentOffset
             : (sceneSourceForOffset.includes('[igs-img:') ? locateTextOffsetInSource(sceneSourceForOffset, currentText) : -1);
@@ -2083,6 +2119,7 @@ export function createIgsReaderHost(options = {}) {
                 htmlCardPage: htmlCardIndex >= 0,
                 chatPage,
                 chat,
+                fx: pageFx,
                 segments: cloneData(segments),
                 currentIndex: normalizedIndex,
                 progress: buildProgressText(normalizedIndex, segments.length, displayImageState),
@@ -2256,9 +2293,10 @@ export function createIgsReaderHost(options = {}) {
                 extensionHidden: hiddenAttr(!apiDisabled),
                 apiGroupClass: 'igs-settings-api-group igs-settings-sub',
                 apiHidden: hiddenAttr(apiDisabled),
-                endpointField: field('bridge.imageApi.endpoint', '图像 API 地址', textInput('bridge.imageApi.endpoint', imageApi.endpoint, 'https://...', 'text', apiDisabled)),
+                endpointField: field('bridge.imageApi.endpoint', '图像 API 地址', textInput('bridge.imageApi.endpoint', imageApi.endpoint, '留空使用 NAI 官方接口；也可填第三方地址', 'text', apiDisabled)),
+                transportField: field('bridge.imageApi.transport', '传输方式（NAI 原生接口）', selectInput('bridge.imageApi.transport', imageApi.transport === 'st-proxy' ? 'st-proxy' : 'direct', [['direct', '浏览器直连'], ['st-proxy', '酒馆 CORS 代理（需开启 enableCorsProxy）']], apiDisabled)),
                 apiKeyField: field('bridge.imageApi.apiKey', 'API Key', secretInput('bridge.imageApi.apiKey', imageApi.apiKey, '留空则不发送 Authorization', apiDisabled)),
-                modelField: field('bridge.imageApi.model', '模型', modelPicker('bridge.imageApi.model', imageApi.model, imageApi.availableModels, 'fetch-image-models', 'nai-diffusion-3', apiDisabled)),
+                modelField: field('bridge.imageApi.model', '模型', modelPicker('bridge.imageApi.model', imageApi.model, imageApi.availableModels, 'fetch-image-models', 'nai-diffusion-4-5-full', apiDisabled)),
                 sizeField: field('bridge.imageApi.size', '尺寸', textInput('bridge.imageApi.size', imageApi.size, '832x1216', 'text', apiDisabled)),
                 stepsField: field('bridge.imageApi.steps', '步数', numberInput('bridge.imageApi.steps', imageApi.steps, 1, 100, apiDisabled)),
                 samplerField: field('bridge.imageApi.sampler', '采样器', textInput('bridge.imageApi.sampler', imageApi.sampler, 'k_euler_ancestral', 'text', apiDisabled)),
@@ -2312,6 +2350,7 @@ export function createIgsReaderHost(options = {}) {
                 autoLlmPromptAssetSoftField: field('bridge.autoIllustration.llm.prompts.assetSoft', '素材补全规划 · 温和重试', autoTextarea('bridge.autoIllustration.llm.prompts.assetSoft', auto.llm.prompts.assetSoft, '清空即恢复内置提示词')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
                 autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆 CORS 代理（需开启 enableCorsProxy）']])),
+                autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', '接口地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方 image.novelai.net')),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'NAI Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, 'pst-...')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
                 autoNaiModelsMessage: esc(asyncState.naiModelsMessage || ''),
@@ -2470,6 +2509,7 @@ export function createIgsReaderHost(options = {}) {
             }) : '',
             weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '启用天气演出'),
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
+            fxSections: renderFxPerformanceSections(reader),
             performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
                 + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
                 + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘'),
@@ -2958,7 +2998,9 @@ export function createIgsReaderHost(options = {}) {
             resolveAssetUrl: (url) => resolveReaderAssetUrl(url, current),
         });
         if (current.dom.progress) {
-            current.dom.progress.textContent = formatReaderProgress(snapshot);
+            const progressText = formatReaderProgress(snapshot);
+            current.dom.progress.textContent = progressText;
+            current.dom.progress.style.display = progressText ? 'block' : 'none';
         }
         syncOptionBubblesAfterRender(current, snapshot);
         syncAssetReviewAfterRender(current, snapshot);
@@ -3345,6 +3387,7 @@ export function createIgsReaderHost(options = {}) {
             chatShow: normalizeChatShowSettings(null),
             systemRole: normalizeSystemRoleSettings(null),
             weatherFx: normalizeWeatherFxSettings(null),
+            ...normalizeFxReaderSettings(null),
             imageCountOverride: null,
             pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
             hiddenBtns: [],
@@ -3385,6 +3428,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.chatShow = normalizeChatShowSettings(normalized.chatShow);
         normalized.systemRole = normalizeSystemRoleSettings(normalized.systemRole);
         normalized.weatherFx = normalizeWeatherFxSettings(normalized.weatherFx);
+        for (const [key, normalize] of Object.entries(FX_SETTINGS_NORMALIZERS)) normalized[key] = normalize(normalized[key]);
         normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
         normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
@@ -3534,6 +3578,19 @@ function clearReaderToast(current) {
     }
 }
 
+const REGEN_FAILURE_TEXT = Object.freeze({
+    'provider-not-enabled': '未启用生图，请在设置「生图 → 其他」选择图像模式',
+    'invalid-message-id': '找不到当前楼层',
+    'regen-failed': '请求出错',
+});
+
+function describeRegenFailure(reason) {
+    const text = String(reason || '').trim();
+    if (!text) return '没有拿到新图片';
+    if (REGEN_FAILURE_TEXT[text]) return REGEN_FAILURE_TEXT[text];
+    return /^[a-z0-9-]+$/i.test(text) ? `没有拿到新图片（${text}）` : text;
+}
+
 function resolveReaderActionToast(result, messages) {
     if (!result) return messages.fallback;
     if (result.ok === false) {
@@ -3550,19 +3607,15 @@ function cloneReaderPayload(payload = {}) {
     return clone;
 }
 
-const SCENE_TAG_LINE_RE = /^\[igs-scene:[^\]]*\]/;
-
 function stripSceneDirectivesInline(rawText) {
-    return stripIllustrationMarkers(rawText)
-        .replace(/\[igs-scene:[^\]]*\]/g, '')
-        .trim();
+    return stripMarkerDirectives(stripIllustrationMarkers(rawText)).trim();
 }
 
-// 逐行剥离 [igs-scene:] 标签，丢弃剥离后为空的行，供兜底分段使用。
+// 逐行剥离 [igs-scene:] / [igs-fx:] 标签，丢弃剥离后为空的行，供兜底分段使用。
 function stripSceneDirectiveLines(rawText) {
     return stripIllustrationMarkers(rawText).split('\n')
-        .map((line) => line.replace(/\[igs-scene:[^\]]*\]/g, '').trim())
-        .filter((line) => line.length > 0 && !SCENE_TAG_LINE_RE.test(line))
+        .map((line) => stripMarkerDirectives(line).trim())
+        .filter((line) => line.length > 0 && !isMarkerDirectiveLine(line))
         .join('\n');
 }
 

@@ -1,11 +1,14 @@
-const CHAT_MARKER_RE = /^\s*\[igs-chat#(\d+)\]\s*$/;
+import { IGS_DIRECTIVE_START_RE } from './directive-tags.js';
+
+const CHAT_MARKER_RE =/^\s*\[igs-chat#(\d+)\]\s*$/;
 const CHAT_OPEN_RE = /^\[igs-chat:([^|\]\n]*)\]/;
 const CHAT_END_RE = /^\[igs-chat-end\]/;
 const CHAT_TIME_RE = /^\[igs-chat-time:([^|\]\n]+)\]/;
 // 与 igs-char 一致：字段不跨行，漏写 "]" 时以行尾收口；第三栏为消息类型。
 const MSG_RE = /^\[igs-msg:([^|\]\n]+)\|([^|\]\n]*)(?:\|([^\]\n]*))?(?:\]|$)/;
 const CHAT_TAG_RE = /\[igs-(?:chat-end\]|chat:|chat-time:|msg:)/g;
-const CLOSING_DIRECTIVE_RE = /^\[igs-(?:scene|char|thought|img):/;
+const CLOSING_DIRECTIVE_RE = new RegExp(`^${IGS_DIRECTIVE_START_RE.source}`);
+const FX_LINE_RE = /^\[igs-fx:/;
 
 export function buildChatMarker(index) {
     return `[igs-chat#${index}]`;
@@ -73,6 +76,9 @@ export function extractChatBlocks(raw) {
             out.push(line);
         } else if (!trimmed) {
             continue;
+        } else if (FX_LINE_RE.test(trimmed)) {
+            // 演出标签不属于聊天内容：移到块前，由分页按偏移归属到聊天页。
+            out.push(line);
         } else if (block.explicit && !CLOSING_DIRECTIVE_RE.test(trimmed)) {
             block.messages.push({ kind: 'note', text: trimmed });
         } else {

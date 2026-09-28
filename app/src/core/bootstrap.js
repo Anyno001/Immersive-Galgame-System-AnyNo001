@@ -18,6 +18,7 @@ import { resolveVisualMode } from '../visual/visual-mode.js';
 import { normalizeScenePromptRule } from '../visual/igs-ui/reader-host-constants.js';
 import { createIgsReaderHost } from '../visual/igs-ui/reader-host.js';
 import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/igs-ui/chat-show-runtime.js';
+import { resolveFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
 import { createEventBus } from './event-bus.js';
 import { createMagicWandEntry } from '../host/magic-wand-entry.js';
 import { createExtensionPanel } from '../host/extension-panel.js';
@@ -34,7 +35,7 @@ import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-sto
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
 
-const IGS_VERSION = '0.28.16';
+const IGS_VERSION = '0.29.0';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -438,6 +439,8 @@ export function bootstrapIGS(options = {}) {
         if (sceneAssets && sceneAssets.enabled && sceneAssets.promptRule) rules.push(resolvePromptRuleContent(sceneAssets));
         const chatShow = unified.readerSettings && unified.readerSettings.chatShow;
         if (normalizeChatShowSettings(chatShow).enabled) rules.push(resolveChatShowPromptRule(chatShow));
+        const fxRule = resolveFxPromptRule(unified.readerSettings && unified.readerSettings.fxTags);
+        if (fxRule) rules.push(fxRule);
         if (rules.length) return promptInjector.inject(rules.join('\n\n'));
         promptInjector.clear();
         return { ok: true, reason: 'scene-assets-disabled' };

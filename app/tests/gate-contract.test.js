@@ -591,7 +591,8 @@ test('gate:igs-compat:api-shape', async () => {
         assert.equal(settingsResult.snapshot.tabs[0].label, '基础');
         const generated = await vn.generateImage({ prompt: 'moon' });
         assert.equal(generated.ok, false);
-        assert.equal(generated.reason, '请先在设置中填写图像 API 地址');
+        // 地址留空走 NAI 官方接口，缺的是 Key。
+        assert.equal(generated.reason, '请先在设置中填写 NAI 的 API Key');
     } finally {
         vn.destroy();
     }
@@ -650,11 +651,12 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.styleText, /#igs-overlay,#igs-overlay \*\{scrollbar-width:none;-ms-overflow-style:none;\}/);
     assert.match(source.styleText, /#igs-overlay ::-webkit-scrollbar\{display:none;width:0;height:0;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating \.igs-progress\{flex-shrink:0;\}/);
+    assert.match(source.styleText, /\.igs-progress\{display:none;/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-floating \.igs-controls\{flex-shrink:0;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-mode-web \.igs-dialog,#igs-overlay\.igs-mode-fullscreen \.igs-dialog\{[^}]*display:flex;flex-direction:column[^}]*overflow:hidden;\}/);
     assert.match(source.styleText, /#igs-overlay\.igs-mode-web \.igs-text,#igs-overlay\.igs-mode-fullscreen \.igs-text\{min-height:0;overflow-y:auto;flex:1 1 auto;\}/);
-    assert.match(source.styleText, /\.igs-mode-embedded \.igs-progress\{display:none;\}/);
+    assert.doesNotMatch(source.styleText, /\.igs-mode-embedded \.igs-progress\{display:none;\}/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-dialog\{[^}]*width:auto[^}]*height:auto[^}]*min-height:0[^}]*max-height:calc\(100% - 28px\)[^}]*overflow:hidden[^}]*padding:9px 18px 14px/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-text\{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;\}/);
     assert.match(source.styleText, /\.igs-mode-embedded \.igs-controls\{display:none;\}/);

@@ -6,6 +6,7 @@ import { GRADIENT_VEIL_STYLE_TEXT } from './gradient-veil-dialog-skin.js';
 import { MAP_PANEL_STYLE_TEXT } from './map-panel-style.js';
 import { MAP_LIGHT_LAYER_STYLE_TEXT } from './map-light-layers.js';
 import { WEATHER_FX_STYLE_TEXT } from './weather-fx-style.js';
+import { FX_STYLE_TEXT } from './fx-style.js';
 import { ASSET_REVIEW_STYLE_TEXT } from './asset-review-panel.js';
 import { RECORD_PANEL_STYLE_TEXT } from './record-panel-style.js';
 import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
@@ -158,8 +159,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-icon-btn:active{transform:scale(.96);}
 #igs-bar-btns{display:none;gap:6px;align-items:center;}
 #igs-bar-pinned{display:flex;gap:6px;align-items:center;}
-.igs-progress{font-size:11px;color:rgba(255,255,255,.55);margin-bottom:0;letter-spacing:1px;}
-.igs-status-line{font-size:10px;color:rgba(255,255,255,.35);letter-spacing:1px;margin:2px 0 8px;text-align:center;display:none;}
+.igs-progress{display:none;font-size:11px;color:rgba(255,255,255,.55);margin-bottom:0;letter-spacing:1px;}
 .igs-speaker{font-size:14px;font-weight:600;letter-spacing:1px;margin-top:0;margin-bottom:4px;display:none;text-shadow:none;}
 .igs-divider{font-size:11px;letter-spacing:4px;text-align:center;margin-bottom:4px;opacity:.6;display:none;}
 .igs-thought{font-style:italic;opacity:.72;font-size:.98em;}
@@ -190,7 +190,6 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-embedded-root{position:relative;width:100%;height:100%;overflow:hidden;}
 .igs-embedded-host[data-igs-embedded-loading="1"]{display:flex;align-items:center;justify-content:center;}
 #igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;}
-.igs-mode-embedded .igs-progress{display:none;}
 .igs-mode-embedded .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;height:auto;min-height:0;max-height:calc(100% - 28px);transform:none;display:flex;flex-direction:column;overflow:hidden;padding:9px 18px 14px;}
 .igs-mode-embedded .igs-dialog[data-igs-narration="1"]{padding-top:14px;}
 .igs-mode-embedded .igs-text{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;}
@@ -243,6 +242,7 @@ ${DIALOG_THEME_CHOICE_STYLE_TEXT}
 ${DIALOG_THEME_HUD_STYLE_TEXT}
 ${HTML_CARD_LAYER_STYLE_TEXT}
 ${CHAT_LAYER_STYLE_TEXT}
+${FX_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `
@@ -261,7 +261,6 @@ const ORIGINAL_READER_HTML = `
   <div class="igs-speaker" id="igs-speaker"></div>
   <div class="igs-divider" id="igs-divider"></div>
   <div class="igs-text" id="igs-text"></div>
-  <div class="igs-status-line" id="igs-status-line"></div>
   <div class="igs-controls" id="igs-controls-shujuku_v120-guard">
     <div id="igs-send-status" aria-live="polite"><span class="igs-spinner"></span><span id="igs-send-status-text">已发送，等待 AI 回复…</span></div>
     <input class="igs-input" id="igs-input" type="text" placeholder="输入内容后按 Enter 发送">

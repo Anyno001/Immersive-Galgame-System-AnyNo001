@@ -384,7 +384,7 @@ test('gate:simulation:igs-ui-open-settings-renders-five-tabs', () => {
     const result = vn.openSettings({ tab: 'basic', mode: 'pc' });
 
     assert.equal(result.ok, true);
-    assert.deepEqual(result.snapshot.tabs.map((item) => item.label), ['基础', '阅读器', '场景', '生图']);
+    assert.deepEqual(result.snapshot.tabs.map((item) => item.label), ['基础', '阅读器', '素材', '生图']);
     assert.equal(result.snapshot.tabs[0].active, true);
     assert.ok(result.snapshot.selectors.includes('#igs-unified-settings'));
 
@@ -2925,9 +2925,100 @@ test('gate:simulation:igs-ui-embedded-turn-navigation-keeps-latest-host-and-does
     assert.equal(overlayAfter, overlayBefore);
     assert.deepEqual(jumped, []);
     assert.equal(overlayAfter.querySelector('#igs-progress').textContent, '');
-    assert.match(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-progress\{display:none;\}/);
+    assert.equal(overlayAfter.querySelector('#igs-progress').style.display, 'none');
+    assert.doesNotMatch(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-progress\{display:none;\}/);
 
     vn.destroy();
+});
+
+test('gate:simulation:igs-ui-embedded-inline-progress-toggle-shows-pages-and-hides-again', async () => {
+    const storage = createMemoryStorage();
+    const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
+    const globalObject = document.defaultView;
+    globalObject.localStorage = storage;
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const text = Array.from({ length: 11 }, (_, index) => `第${index + 1}段。`).join('\n');
+    const element = createFakeMessageElement(document, { messageId: 62, textContent: text });
+    chat.appendChild(element);
+    const message = { id: 62, text, element };
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => message,
+            getMessageById: async () => message,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('embedded');
+        assert.equal(opened.ok, true);
+        assert.equal(opened.reader.snapshot.readerSettings.showStatusLine, false);
+        const progress = document.getElementById('igs-progress');
+        assert.equal(progress.style.display, 'none');
+        assert.equal(progress.textContent, '');
+
+        let settings = opened.reader.controller.openSettings('reader').controller;
+        settings.setValue('readerSettings.showStatusLine', true);
+        assert.equal(settings.close().ok, true);
+        assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).showStatusLine, true);
+        assert.equal(progress.style.display, 'block');
+        assert.match(progress.textContent, /^1\s*\/\s*11(?:\s|$)/);
+
+        for (let index = 1; index < 11; index += 1) {
+            assert.equal((await opened.reader.controller.invokeAction('next')).ok, true);
+        }
+        assert.match(progress.textContent, /^11\s*\/\s*11(?:\s|$)/);
+        assert.equal(progress.style.display, 'block');
+
+        settings = opened.reader.controller.openSettings('reader').controller;
+        settings.setValue('readerSettings.showStatusLine', false);
+        assert.equal(settings.close().ok, true);
+        assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).showStatusLine, false);
+        assert.equal(progress.style.display, 'none');
+        assert.equal(progress.textContent, '');
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:igs-ui-pc-inline-progress-uses-same-default-off-toggle', async () => {
+    const storage = createMemoryStorage();
+    const document = createFakeDocument({ innerWidth: 1200, innerHeight: 800 });
+    const globalObject = document.defaultView;
+    globalObject.localStorage = storage;
+    const message = { id: 63, text: '第一页。\n第二页。' };
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => message,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        assert.equal(opened.ok, true);
+        const progress = document.getElementById('igs-progress');
+        assert.equal(progress.style.display, 'none');
+        assert.equal(progress.textContent, '');
+
+        let settings = opened.reader.controller.openSettings('reader').controller;
+        settings.setValue('readerSettings.showStatusLine', true);
+        assert.equal(settings.close().ok, true);
+        assert.equal(progress.style.display, 'block');
+        assert.equal(progress.textContent, '1 / 2');
+
+        settings = opened.reader.controller.openSettings('reader').controller;
+        settings.setValue('readerSettings.showStatusLine', false);
+        assert.equal(settings.close().ok, true);
+        assert.equal(progress.style.display, 'none');
+        assert.equal(progress.textContent, '');
+    } finally {
+        vn.destroy();
+    }
 });
 
 test('gate:simulation:igs-ui-floating-window-drag', async () => {
@@ -3314,6 +3405,38 @@ test('gate:simulation:igs-ui-collects-provider-images-and-save-returns-downloada
     vn.destroy();
 });
 
+test('gate:simulation:igs-ui-regen-gives-pending-feedback-and-reports-thrown-errors', async () => {
+    const document = createFakeDocument();
+    let release;
+    let calls = 0;
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({ bridge: {}, readerSettings: {} }),
+        regenerateImage: () => {
+            calls += 1;
+            return new Promise((resolve, reject) => { release = { resolve, reject }; });
+        },
+    });
+    const opened = host.openReader({ messageId: 7, message: { id: 7, text: '一段。' }, raw: '一段。' }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const pending = opened.controller.invokeAction('regen');
+    await Promise.resolve();
+    assert.match(host.getState().activeReader.toastMessage, /正在重新生图/);
+    const again = await opened.controller.invokeAction('regen');
+    assert.equal(again.reason, 'regen-pending');
+    assert.equal(calls, 1);
+    release.reject(new Error('NAI 鉴权失败（401）'));
+    const result = await pending;
+    assert.equal(result.ok, false);
+    assert.match(host.getState().activeReader.toastMessage, /重新生图失败：NAI 鉴权失败/);
+    const retry = opened.controller.invokeAction('regen');
+    await Promise.resolve();
+    release.resolve({ ok: false, reason: 'provider-not-enabled' });
+    await retry;
+    assert.match(host.getState().activeReader.toastMessage, /未启用生图/);
+    host.destroy();
+});
+
 test('gate:simulation:igs-ui-regen-polls-external-provider-and-updates-background', async () => {
     const document = createFakeDocument();
     const messageRoot = createFakeMessageElement(document, {
@@ -3411,7 +3534,7 @@ test('gate:simulation:auto-illustration-nai-fetch-models-and-select', async () =
         assert.equal(fetched.ok, true);
         assert.equal(calls, 0);
         const snapshot = controller.getSnapshot();
-        assert.match(snapshot.resultText.naiModels, /已载入内置 4 个/);
+        assert.match(snapshot.resultText.naiModels, /已载入内置 6 个/);
         assert.match(snapshot.html, /<option value="nai-diffusion-4-full">/);
         controller.setValue('bridge.autoIllustration.nai.model', 'nai-diffusion-4-full');
         controller.close();
@@ -3496,6 +3619,108 @@ test('gate:simulation:igs-ui-image-settings-fetch-models-and-test-nai-use-real-s
     assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).bridge.imageApi.model, 'nai-diffusion-4-curated-preview');
 
     vn.destroy();
+});
+
+// 严格仿 NAI 官方：只认 /ai/generate-image、Bearer Key 与 V4 请求体，返回 zip 包的 PNG。
+function createStrictNaiServer(expectedUrl) {
+    const calls = [];
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c63f8ffff3f0005fe02fea57d7fa60000000049454e44ae426082', 'hex');
+    const name = Buffer.from('image_0.png');
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt32LE(png.length, 18);
+    header.writeUInt32LE(png.length, 22);
+    header.writeUInt16LE(name.length, 26);
+    const zip = Buffer.concat([header, name, png]);
+    async function fetch(url, init = {}) {
+        calls.push({ url, init });
+        if (url !== expectedUrl) return new Response('not found', { status: 404 });
+        if (init.method !== 'POST' || init.headers.Authorization !== 'Bearer pst-fake') return new Response('unauthorized', { status: 401 });
+        const body = JSON.parse(init.body);
+        const p = body.parameters || {};
+        const valid = body.action === 'generate' && /^nai-diffusion-[45]/.test(body.model) && String(body.input || '').trim()
+            && p.v4_prompt && String(p.v4_prompt.caption.base_caption || '').trim() && p.v4_negative_prompt
+            && p.width % 64 === 0 && p.height % 64 === 0 && p.steps >= 1 && p.steps <= 50;
+        if (!valid) return new Response('{"statusCode":400,"message":"invalid body"}', { status: 400 });
+        return new Response(zip, { status: 200, headers: { 'content-type': 'application/x-zip-compressed' } });
+    }
+    return { calls, fetch };
+}
+
+test('gate:simulation:igs-ui-builtin-nai-empty-endpoint-tests-and-regenerates-via-official-api', async () => {
+    const official = 'https://image.novelai.net/ai/generate-image';
+    const server = createStrictNaiServer(official);
+    const document = createFakeDocument();
+    const message = { id: 30, text: '[角色: 玉子]\n玉子: 画一张。', element: createFakeMessageElement(document, { imageUrls: [] }) };
+    const vn = bootstrapIGS({
+        global: { document, fetch: server.fetch },
+        autoAttachMagicWand: false,
+        config: { imageApi: { mode: 'nai', endpoint: '', apiKey: 'pst-fake', model: '', size: '830x1210' } },
+        hostAdapter: { getCurrentMessage: async () => message, getMessageById: async () => message, typeAndSend: async () => ({ ok: true }) },
+    });
+    try {
+        const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
+        settings.controller.switchImageSubTab('other');
+        const models = await settings.controller.invoke('fetch-image-models');
+        assert.equal(models.ok, true);
+        assert.equal(server.calls.length, 0, 'NAI 原生接口没有 /models，不应发请求');
+        assert.ok(settings.controller.getSnapshot().draft.bridge.imageApi.availableModels.includes('nai-diffusion-4-5-full'));
+        const tested = await settings.controller.invoke('test-image');
+        assert.equal(tested.ok, true);
+        assert.match(settings.controller.getSnapshot().resultText.image, /真实生成测试成功/);
+        settings.controller.close();
+
+        const opened = await vn.openLatestAvailable('pc');
+        assert.equal(opened.ok, true);
+        const regen = await opened.reader.controller.invokeAction('regen');
+        assert.equal(regen.ok, true, regen.reason);
+        const reader = vn.getState().igsUi.activeReader;
+        assert.match(reader.snapshot.content.backgroundImage, /^data:image\/png;base64,/);
+        assert.match(reader.toastMessage, /背景图已更新/);
+        assert.equal(server.calls.length, 2);
+        assert.ok(server.calls.every(({ url }) => url === official));
+        const body = JSON.parse(server.calls[1].init.body);
+        assert.equal(body.model, 'nai-diffusion-4-5-full');
+        assert.equal(body.parameters.width, 832);
+        assert.equal(body.parameters.height, 1216);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:igs-ui-builtin-nai-reports-auth-failure-and-relay-endpoint', async () => {
+    const relay = 'https://relay.example.com/ai/generate-image';
+    const server = createStrictNaiServer(relay);
+    const vn = bootstrapIGS({
+        global: { document: createFakeDocument(), fetch: server.fetch },
+        autoAttachMagicWand: false,
+        config: { imageApi: { mode: 'nai', endpoint: relay, apiKey: 'pst-wrong' } },
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    try {
+        const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
+        settings.controller.switchImageSubTab('other');
+        await settings.controller.invoke('test-image');
+        assert.match(settings.controller.getSnapshot().resultText.image, /鉴权失败（401）/);
+        assert.equal(server.calls[0].url, relay);
+        settings.controller.setValue('bridge.imageApi.apiKey', 'pst-fake');
+        settings.controller.setValue('bridge.imageApi.transport', 'st-proxy');
+        await settings.controller.invoke('test-image');
+        assert.equal(server.calls[1].url, `/proxy/${relay}`);
+        assert.equal(server.calls[1].init.headers.Authorization, 'Bearer pst-fake', '面板里刚改的 Key 要立即生效');
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:auto-illustration-nai-client-passes-strict-official-server', async () => {
+    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
+    const server = createStrictNaiServer('https://image.novelai.net/ai/generate-image');
+    const client = createNaiOfficialClient({ fetch: server.fetch });
+    const result = await client.generate({ scene: '1girl, classroom', chars: [{ tags: 'girl, smile', x: 0.4, y: 0.5 }] }, { apiKey: 'pst-fake', model: 'nai-diffusion-5-full' });
+    assert.equal(result.ok, true, result.error);
+    assert.match(result.dataUrl, /^data:image\/png;base64,/);
 });
 
 test('gate:simulation:igs-ui-auto-llm-fetch-models-and-select', async () => {
@@ -6611,4 +6836,36 @@ test('gate:illustration:image-log-subtab-renders-and-clears', async () => {
     } finally {
         vn.destroy();
     }
+});
+
+test('gate:simulation:igs-fx-tags-stay-out-of-text-and-drive-page-fx', () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const raw = '[igs-scene:Room|night|clear]\n[igs-fx:flashback]\n[igs-fx:sfx|砰]一段。\n[igs-fx:call|Alice]\n二段。\n[igs-fx:flashback-end][igs-fx:call-end]\n三段。';
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({
+            bridge: { sceneAssets: { enabled: true, scenes: {}, characters: {} } },
+            readerSettings: { fxTags: { enabled: true }, fxSound: { enabled: false } },
+        }),
+    });
+    const opened = host.openReader({ messageId: 41, message: { id: 41, text: raw }, raw }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const first = host.getState().activeReader.snapshot.content;
+    assert.ok(first.segments.length >= 3);
+    assert.ok(first.segments.every((segment) => !segment.includes('[igs-fx')));
+    assert.deepEqual(first.fx.instants, [{ kind: 'sfx', text: '砰' }]);
+    assert.equal(first.fx.flashback, true);
+    const motion = document.getElementById('igs-stage-motion');
+    assert.equal(motion.getAttribute('data-igs-fx-flashback'), '1');
+    opened.controller.invokeAction('next');
+    const second = host.getState().activeReader.snapshot.content;
+    assert.deepEqual(second.fx.instants, [{ kind: 'call', name: 'Alice' }]);
+    assert.deepEqual(second.fx.call, { name: 'Alice' });
+    assert.equal(motion.getAttribute('data-igs-fx-call'), '1');
+    opened.controller.invokeAction('next');
+    const third = host.getState().activeReader.snapshot.content;
+    assert.deepEqual(third.fx.instants, [{ kind: 'call-end' }]);
+    assert.equal(third.fx.flashback, false);
+    assert.equal(motion.getAttribute('data-igs-fx-flashback'), null);
+    host.destroy();
 });

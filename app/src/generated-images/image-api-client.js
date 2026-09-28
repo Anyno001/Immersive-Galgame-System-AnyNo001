@@ -1,7 +1,9 @@
+import { NAI_DEFAULT_SETTINGS, buildNaiV4Request, resolveNaiNativeEndpoint } from './request-builders/nai-v4-builder.js';
+
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const DEFAULT_POLL_ATTEMPTS = 60;
-const DEFAULT_MODEL = 'nai-diffusion-3';
+const DEFAULT_MODEL = NAI_DEFAULT_SETTINGS.model;
 const DEFAULT_STEPS = 28;
 const DEFAULT_SAMPLER = 'k_euler_ancestral';
 const DEFAULT_SIZE = '832x1216';
@@ -168,7 +170,8 @@ export async function generateImage(request, settings = {}, deps = {}) {
     if (mode !== 'nai') {
         throw new Error('内置图像 API 未启用');
     }
-    if (!imageApi.endpoint) throw new Error('请先在设置中填写图像 API 地址');
+    const nativeEndpoint = resolveNaiNativeEndpoint(imageApi.endpoint);
+    if (nativeEndpoint) return generateNaiNativeImage(request, imageApi, nativeEndpoint, deps);
     const endpoint = imageGenerationUrl(imageApi.endpoint);
     if (!endpoint) throw new Error('请先在设置中填写图像 API 地址');
 
@@ -225,6 +228,55 @@ export async function generateImage(request, settings = {}, deps = {}) {
         }
     }
     throw new Error(`图像 API 未返回可识别图片。${describeImagePayload(parsed.raw)}`);
+}
+
+const NAI_STATUS_TEXT = Object.freeze({
+    400: 'NAI 拒绝了请求参数（400），请检查模型、尺寸与步数',
+    401: 'NAI 鉴权失败（401）：请检查 API Key',
+    402: 'NAI 余额或订阅不足（402）',
+    429: 'NAI 请求过于频繁或已有任务在生成（429）',
+});
+
+// NovelAI 原生接口：V4 请求体、Bearer Key、返回 zip；与 OpenAI 兼容格式互不相通。
+async function generateNaiNativeImage(request, imageApi, endpoint, deps) {
+    const apiKey = String(imageApi.apiKey || '').trim();
+    if (!apiKey) throw new Error('请先在设置中填写 NAI 的 API Key');
+    const requestObject = isPlainObject(request) ? request : {};
+    const prompt = String(requestObject.input || requestObject.prompt || (typeof request === 'string' ? request : '') || '').trim();
+    if (!prompt) throw new Error('没有可用于生图的提示词');
+    const body = buildNaiV4Request({ scene: prompt }, {
+        model: String(imageApi.model || '').trim() || NAI_DEFAULT_SETTINGS.model,
+        size: imageApi.size || NAI_DEFAULT_SETTINGS.size,
+        steps: Number(imageApi.steps) || NAI_DEFAULT_SETTINGS.steps,
+        sampler: String(imageApi.sampler || '').trim() || NAI_DEFAULT_SETTINGS.sampler,
+        artistPrefix: imageApi.promptPrefix || '',
+    });
+    const proxied = imageApi.transport === 'st-proxy';
+    const url = proxied ? `/proxy/${endpoint}` : endpoint;
+    let response;
+    try {
+        response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/zip, application/octet-stream, application/json, image/png',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(body),
+        }, Math.max(60000, Number(imageApi.requestTimeoutMs) || NAI_DEFAULT_SETTINGS.timeoutMs), deps);
+    } catch (error) {
+        const message = error && error.message ? error.message : String(error);
+        throw new Error(proxied
+            ? `经酒馆代理请求 NAI 失败：请确认酒馆 config.yaml 中 enableCorsProxy 为 true（${message}）；地址：${endpoint}`
+            : `浏览器直连 NAI 失败（可能是跨域 CORS 或网络不通），可把传输方式改为「酒馆 CORS 代理」（${message}）；地址：${endpoint}`);
+    }
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${NAI_STATUS_TEXT[response.status] || `NAI 返回 HTTP ${response.status}`}；地址：${endpoint}；响应：${text.slice(0, 180)}`);
+    }
+    const parsed = await parseImageResponse(response);
+    if (parsed.url) return { url: parsed.url, raw: parsed.raw };
+    throw new Error(`NAI 未返回可识别图片。${describeImagePayload(parsed.raw)}`);
 }
 
 function withPromptPrefix(text, prefix) {

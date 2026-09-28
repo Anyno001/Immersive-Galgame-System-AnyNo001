@@ -75,7 +75,7 @@
     },
     {
       "id": "scene",
-      "label": "场景",
+      "label": "素材",
       "requiredPaths": [
         "bridge.sceneAssets.enabled",
         "bridge.sceneAssets.promptRule"
