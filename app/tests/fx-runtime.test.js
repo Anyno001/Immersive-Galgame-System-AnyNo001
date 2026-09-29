@@ -15,11 +15,11 @@ import {
     normalizeMangaFxSettings,
     normalizeTitleCardSettings,
 } from '../src/visual/igs-ui/fx-settings.js';
-import { renderFxPerformanceSections } from '../src/visual/igs-ui/fx-settings-fields.js';
+import { renderFxFeatureFields } from '../src/visual/igs-ui/fx-settings-fields.js';
 import { FX_SFX_PARTIALS, playFxSfx } from '../src/visual/igs-ui/fx-sfx.js';
-import { headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanHeadFromAlpha, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
+import { SYMBOL_OFFSETS, headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanHeadFromAlpha, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
 import { spriteGeometry } from '../src/visual/igs-ui/fx-runtime.js';
-import { MANGA_SYMBOL_SVG, pickFxAccent } from '../src/visual/igs-ui/fx-symbols.js';
+import { ANCIENT_SYMBOL_PLACEMENT, ANCIENT_SYMBOL_SVG, MANGA_SYMBOL_SVG, pickFxAccent } from '../src/visual/igs-ui/fx-symbols.js';
 import { MANGA_SYMBOL_KINDS } from '../src/visual/igs-ui/fx-settings.js';
 import { clearSpriteHeadCache, probeSpriteHead } from '../src/visual/igs-ui/fx-anchor.js';
 import { exitSpriteEditMode, spriteDragPosition } from '../src/visual/igs-ui/sprite-edit.js';
@@ -118,7 +118,7 @@ test('gate:fx-runtime:settings-default-off-and-keep-explicit-empty-lists', () =>
     assert.equal(normalizeTitleCardSettings({}).speed, 'medium');
     assert.equal(normalizeTitleCardSettings({ speed: 'fast' }).speed, 'fast');
     assert.equal(normalizeTitleCardSettings({ speed: 'invalid' }).speed, 'medium');
-    const titleFields = renderFxPerformanceSections({ titleCard: { enabled: true, speed: 'fast' } });
+    const titleFields = renderFxFeatureFields({ titleCard: { enabled: true, speed: 'fast' } }).title;
     assert.match(titleFields, /data-segment-path="readerSettings\.titleCard\.speed"[^>]*data-segment-value="fast"/);
 });
 
@@ -211,16 +211,18 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     const sounds = [];
     const settings = { mangaFx: { enabled: true }, fxTags: { enabled: true } };
     const fx = { instants: [{ kind: 'call', name: '爱丽丝' }], call: { name: '爱丽丝' }, flashback: true, dream: true, letterbox: false };
-    const result = applyFxToDom(root, snapshot({ statusEmotion: '生气', fx }, settings), {
+    const result = applyFxToDom(root, snapshot({ statusEmotion: '生气', speaker: '爱丽丝', fx }, settings), {
         schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
         audioScheduler: (job) => { sounds.push(job.kind); return { stop() {} }; },
     });
     assert.deepEqual(result.played, ['symbol', 'call']);
+    assert.deepEqual(result.ranges, { flashback: true, dream: true, letterbox: false });
     assert.equal(result.phone, true);
     assert.deepEqual(sounds, ['ring']);
     assert.equal(motion.getAttribute('data-igs-fx-flashback'), '1');
     assert.equal(motion.getAttribute('data-igs-fx-dream'), '1');
-    assert.equal(motion.getAttribute('data-igs-fx-call'), '1');
+    assert.equal(motion.getAttribute('data-igs-fx-call'), 'voice');
+    assert.equal(motion.getAttribute('data-igs-fx-call-remote'), '1');
     const stage = motion.querySelector('#igs-fx-stage');
     const front = motion.querySelector('#igs-fx-front');
     assert.equal(stage.parentNode.children.indexOf(stage), motion.children.indexOf(motion.querySelector('#igs-sprite')) + 1);
@@ -229,7 +231,7 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     assert.equal(symbol.getAttribute('data-kind'), 'anger');
     assert.equal(symbol.style.left, undefined);
     assert.ok(stage.querySelector('.igs-fx-dream-mist'));
-    assert.equal(front.querySelector('.igs-fx-call-badge').textContent, '通话中 · 爱丽丝');
+    assert.equal(front.querySelector('.igs-fx-call-label').textContent, '通话中 · 爱丽丝');
     assert.ok(front.querySelector('.igs-fx-call-screen'));
     timers.flush();
     assert.equal(stage.querySelector('.igs-fx-symbol'), null);
@@ -238,7 +240,250 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     assert.equal(stage.querySelector('.igs-fx-symbol'), null);
     assert.equal(cancelFxEffects(root), true);
     assert.equal(motion.getAttribute('data-igs-fx-flashback'), null);
+    assert.equal(motion.getAttribute('data-igs-fx-call-remote'), null);
     assert.equal(front.querySelector('.igs-fx-call-badge').hidden, true);
+    assert.equal(stage.querySelector('.igs-fx-call-pip').hidden, true);
+});
+
+test('gate:fx-runtime:call-timer-duration-and-end-reasons', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const sounds = [];
+    let now = 1000;
+    const settings = { fxTags: { enabled: true } };
+    const opts = {
+        schedule: timers.schedule, clear: timers.clear, reducedMotion: false, now: () => now,
+        audioScheduler: (job) => { sounds.push(job.kind); return null; },
+    };
+    const call = { name: '爱丽丝', dir: 'out', mode: 'voice', at: 3 };
+    applyFxToDom(root, snapshot({ fx: { instants: [{ kind: 'call', ...call }], call } }, settings), opts);
+    const front = motion.querySelector('#igs-fx-front');
+    const screen = front.querySelector('.igs-fx-call-screen');
+    assert.equal(screen.getAttribute('data-dir'), 'out');
+    assert.equal(front.querySelector('.igs-fx-call-state').textContent, '正在呼叫…');
+    assert.equal(front.querySelector('.igs-fx-call-hint').textContent, '点击跳过');
+    assert.deepEqual(sounds, ['ringback']);
+    // 响铃期间计时停在 00:00：起点记在来电屏播完的那一刻。
+    timers.flush();
+    now = 30000;
+    applyFxToDom(root, snapshot({ currentIndex: 1, fx: { instants: [], call } }, settings), opts);
+    now = 65400;
+    const end = { kind: 'call-end', reason: 'end', name: '爱丽丝', dir: 'out', mode: 'voice' };
+    applyFxToDom(root, snapshot({ currentIndex: 2, fx: { instants: [end], call: null } }, settings), opts);
+    const log = front.querySelector('.igs-fx-call-end');
+    assert.equal(log.textContent, '爱丽丝 · 通话结束 01:02');
+    assert.equal(log.getAttribute('data-fresh'), 'badge');
+    assert.equal(front.querySelector('.igs-fx-call-badge').hidden, true);
+    assert.deepEqual(sounds, ['ringback', 'hangup']);
+
+    // 挂断记录常驻挂断所在页：翻走即收起，翻回来不重播也不重算时长。
+    now = 90000;
+    applyFxToDom(root, snapshot({ currentIndex: 3, fx: { instants: [], call: null } }, settings), opts);
+    assert.equal(front.querySelector('.igs-fx-call-end'), null);
+    applyFxToDom(root, snapshot({ currentIndex: 2, fx: { instants: [end], call: null } }, settings), opts);
+    const again = front.querySelector('.igs-fx-call-end');
+    assert.equal(again.textContent, '爱丽丝 · 通话结束 01:02');
+    assert.equal(again.getAttribute('data-fresh'), null);
+    assert.deepEqual(sounds, ['ringback', 'hangup']);
+
+    // 同页来电又未接：没有接听按钮，响铃更久；挂断记录先藏着，等来电屏播完掐掉铃声再出现。
+    timers.flush();
+    const missedCall = { name: '爱丽丝', dir: 'in', mode: 'voice', at: 9 };
+    const missed = { kind: 'call-end', reason: 'missed', name: '爱丽丝', dir: 'in', mode: 'voice' };
+    applyFxToDom(root, snapshot({ currentIndex: 4, fx: { instants: [{ kind: 'call', ...missedCall }, missed], call: null } }, settings), opts);
+    const screen2 = front.querySelector('.igs-fx-call-screen');
+    assert.equal(screen2.getAttribute('data-outcome'), 'missed');
+    assert.equal(screen2.getAttribute('data-press'), null, 'nobody pressed the button on a missed incoming call');
+    assert.equal(front.querySelector('.igs-fx-call-hint'), null);
+    assert.equal(front.querySelector('.igs-fx-call-outcome').textContent, '未接来电');
+    assert.ok(front.querySelector('.igs-fx-call-decline'));
+    assert.equal(sounds.at(-1), 'ring-long');
+    const pill = front.querySelector('.igs-fx-call-end');
+    assert.equal(pill.getAttribute('data-wait'), '1');
+    assert.ok(timers.lives.includes(3400));
+    timers.queue.splice(0, timers.queue.length - 1);
+    timers.queue.pop()();
+    assert.equal(pill.textContent, '爱丽丝 · 未接来电');
+    assert.equal(pill.getAttribute('data-reason'), 'missed');
+    assert.equal(pill.getAttribute('data-wait'), null);
+    assert.equal(pill.getAttribute('data-fresh'), 'screen');
+    assert.equal(sounds.at(-1), 'missed');
+    cancelFxEffects(root);
+    assert.equal(front.querySelector('.igs-fx-call-end'), null);
+});
+
+test('gate:fx-runtime:reject-cuts-the-ring-and-presses-decline', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const sounds = [];
+    const stopped = [];
+    const opts = {
+        schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
+        audioScheduler: (job) => { sounds.push(job.kind); return { stop() { stopped.push(job.kind); } }; },
+    };
+    const settings = { fxTags: { enabled: true } };
+    const call = { name: '爱丽丝', dir: 'in', mode: 'voice', at: 1 };
+    const reject = { kind: 'call-end', reason: 'reject', name: '爱丽丝', dir: 'in', mode: 'voice' };
+    applyFxToDom(root, snapshot({ fx: { instants: [{ kind: 'call', ...call }, reject], call: null } }, settings), opts);
+    const front = motion.querySelector('#igs-fx-front');
+    const screen = front.querySelector('.igs-fx-call-screen');
+    assert.equal(screen.getAttribute('data-press'), '1');
+    assert.equal(front.querySelector('.igs-fx-call-outcome').textContent, '已拒接');
+    assert.ok(timers.lives.includes(1700));
+    timers.flush();
+    assert.deepEqual(sounds, ['ring-long', 'reject']);
+    assert.deepEqual(stopped, ['ring-long']);
+    assert.equal(front.querySelector('.igs-fx-call-end').textContent, '爱丽丝 · 已拒接');
+
+    // 拨出后对方拒接：挂断键不是主角按的。
+    const dial = { name: '爱丽丝', dir: 'out', mode: 'voice', at: 5 };
+    const rejected = { ...reject, dir: 'out' };
+    applyFxToDom(root, snapshot({ currentIndex: 1, fx: { instants: [{ kind: 'call', ...dial }, rejected], call: null } }, settings), opts);
+    assert.equal(front.querySelector('.igs-fx-call-screen').getAttribute('data-press'), null);
+    assert.equal(front.querySelector('.igs-fx-call-outcome').textContent, '对方已拒接');
+    assert.equal(sounds.at(-1), 'ringback-long');
+    cancelFxEffects(root);
+});
+
+test('gate:fx-runtime:answering-stops-ring-and-pip-leaves-with-a-ghost', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const stopped = [];
+    const opts = {
+        schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
+        audioScheduler: (job) => ({ stop() { stopped.push(job.kind); } }),
+    };
+    const settings = { fxTags: { enabled: true } };
+    const call = { name: '爱丽丝', dir: 'in', mode: 'voice', at: 1 };
+    applyFxToDom(root, snapshot({ fx: { instants: [{ kind: 'call', ...call }], call } }, settings), opts);
+    const front = motion.querySelector('#igs-fx-front');
+    front.querySelector('.igs-fx-call-screen').listeners.click({ stopPropagation() {} });
+    assert.deepEqual(stopped, ['ring']);
+    const stage = motion.querySelector('#igs-fx-stage');
+    assert.equal(stage.querySelector('.igs-fx-call-pip').hidden, false);
+    const end = { kind: 'call-end', reason: 'cut', name: '爱丽丝', dir: 'in', mode: 'voice' };
+    applyFxToDom(root, snapshot({ currentIndex: 1, fx: { instants: [end], call: null } }, settings), opts);
+    assert.equal(stage.querySelector('.igs-fx-call-pip').hidden, true);
+    const ghost = stage.querySelector('.igs-fx-call-pip-out');
+    assert.ok(ghost);
+    assert.equal(ghost.children[1].textContent, '爱丽丝');
+    assert.ok(timers.lives.includes(320));
+    cancelFxEffects(root);
+    assert.equal(stage.querySelector('.igs-fx-call-pip-out'), null);
+});
+
+test('gate:fx-runtime:ancient-era-notify-is-a-servant-report', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const sounds = [];
+    const fx = { instants: [{ kind: 'notify', sender: '小厮', text: '老爷回府了' }], call: null, flashback: false, dream: false, letterbox: false };
+    const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, audioScheduler: (job) => { sounds.push(job.kind); return null; } };
+    applyFxToDom(root, snapshot({ fx }, { fxTags: { enabled: true }, _ancientEra: true }), opts);
+    const el = motion.querySelector('#igs-fx-front').querySelector('.igs-fx-notify');
+    assert.equal(el.className.includes('is-ancient'), true);
+    assert.equal(el.children[0].textContent, '禀');
+    assert.equal(el.children[1].textContent, '小厮');
+    assert.equal(motion.getAttribute('data-igs-fx-era'), 'ancient');
+    assert.deepEqual(sounds, ['notify-ancient']);
+    assert.ok(FX_SFX_PARTIALS['notify-ancient'].length);
+    assert.match(FX_STYLE_TEXT, /\.igs-fx-notify\.is-ancient\{[^}]*writing-mode:vertical-rl/);
+    cancelFxEffects(root);
+    assert.equal(motion.getAttribute('data-igs-fx-era'), null);
+});
+
+test('gate:fx-runtime:ancient-era-swaps-lamp-ink-snot-symbols-and-scroll-title', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false };
+    const ancient = { mangaFx: { enabled: true }, titleCard: { enabled: true }, _ancientEra: true };
+    applyFxToDom(root, snapshot({ statusEmotion: '灵光一闪', sceneLocation: '醉仙楼', sceneTime: '戌时' }, ancient), opts);
+    const symbol = motion.querySelector('.igs-fx-symbol');
+    assert.equal(symbol.getAttribute('data-era'), 'ancient');
+    assert.equal(symbol.innerHTML, ANCIENT_SYMBOL_SVG.bulb);
+    assert.match(symbol.innerHTML, /igs-fx-lamp/);
+    const title = motion.querySelector('.igs-fx-title-card');
+    assert.equal(title.className.includes('is-ancient'), true);
+    applyFxToDom(root, snapshot({ currentIndex: 1, statusEmotion: '开心', sceneLocation: '醉仙楼', sceneTime: '亥时' }, ancient), opts);
+    assert.match(motion.querySelector('.igs-fx-symbol').innerHTML, /igs-fx-inkdot-1/);
+    assert.equal(motion.querySelector('.igs-fx-title-sub').textContent, '亥时', 'no leading dash in vertical scroll');
+    // 其余符号在古代背景下保持原样，不打 data-era。
+    applyFxToDom(root, snapshot({ currentIndex: 2, statusEmotion: '生气' }, ancient), opts);
+    const anger = motion.querySelector('.igs-fx-symbol');
+    assert.equal(anger.getAttribute('data-era'), null);
+    assert.equal(anger.innerHTML, MANGA_SYMBOL_SVG.anger);
+    for (const kind of Object.keys(ANCIENT_SYMBOL_SVG)) assert.ok(MANGA_SYMBOL_SVG[kind], kind);
+    assert.ok(SYMBOL_OFFSETS[ANCIENT_SYMBOL_PLACEMENT.zzz]);
+    assert.match(FX_STYLE_TEXT, /\.igs-fx-title-card\.is-ancient\{[^}]*writing-mode:vertical-rl/);
+    cancelFxEffects(root);
+});
+
+test('gate:fx-runtime:call-timer-style-uses-css-counters', () => {
+    assert.match(FX_STYLE_TEXT, /@property --igs-fx-ss/);
+    assert.match(FX_STYLE_TEXT, /\.igs-fx-call-timer::after\{counter-reset:igs-fx-mm var\(--igs-fx-mm\)/);
+    assert.match(FX_STYLE_TEXT, /data-igs-fx-call="video"\] #igs-sprite/);
+    assert.match(FX_STYLE_TEXT, /mask:url\("data:image\/svg\+xml,/);
+});
+
+test('gate:fx-runtime:remote-speaker-drives-pip-video-and-phone-audio', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, sprite: { url: '/alice.png', posX: 50, posY: 100, scale: 100 } };
+    const assets = { characters: { 爱丽丝: {} }, characterAliases: { 爱丽丝: ['小爱'] } };
+    const voice = { name: '爱丽丝', dir: 'in', mode: 'voice', at: 0 };
+    const settings = (callSprite) => ({ fxTags: { enabled: true, callSprite }, _sceneAssets: assets });
+    let result = applyFxToDom(root, snapshot({ speaker: '小爱', fx: { instants: [], call: voice } }, settings()), opts);
+    assert.equal(result.phone, true, 'alias resolves to the caller');
+    const stage = motion.querySelector('#igs-fx-stage');
+    const pip = stage.querySelector('.igs-fx-call-pip');
+    assert.equal(pip.hidden, false);
+    assert.equal(pip.getAttribute('data-speaking'), '1');
+    assert.equal(motion.getAttribute('data-igs-fx-call-sprite'), 'avatar');
+    result = applyFxToDom(root, snapshot({ currentIndex: 1, speaker: '我', fx: { instants: [], call: voice } }, settings()), opts);
+    assert.equal(result.phone, false, 'local speaker keeps normal typewriter audio');
+    assert.equal(motion.getAttribute('data-igs-fx-call-remote'), null);
+    assert.equal(pip.getAttribute('data-speaking'), null);
+    applyFxToDom(root, snapshot({ currentIndex: 2, speaker: '爱丽丝', fx: { instants: [], call: voice } }, settings('show')), opts);
+    assert.equal(pip.hidden, true);
+    assert.equal(motion.getAttribute('data-igs-fx-call-sprite'), 'show');
+
+    const video = { name: '爱丽丝', dir: 'in', mode: 'video', at: 40 };
+    applyFxToDom(root, snapshot({ currentIndex: 3, speaker: '我', fx: { instants: [], call: video } }, settings()), opts);
+    const win = stage.querySelector('.igs-fx-video');
+    assert.equal(motion.getAttribute('data-igs-fx-call'), 'video');
+    assert.equal(win.hidden, false);
+    assert.equal(win.getAttribute('data-feed'), null, 'no feed before the caller speaks');
+    assert.ok(win.querySelector('.igs-fx-video-face').querySelector('.igs-fx-call-avatar'));
+    applyFxToDom(root, snapshot({ currentIndex: 4, speaker: '爱丽丝', fx: { instants: [], call: video } }, settings()), opts);
+    assert.equal(win.getAttribute('data-feed'), '1');
+    assert.equal(win.querySelector('.igs-fx-video-feed').style.backgroundImage, 'url("/alice.png")');
+    assert.equal(motion.querySelector('#igs-fx-front').querySelector('.igs-fx-call-label').textContent, '视频通话 · 爱丽丝');
+    const end = { kind: 'call-end', reason: 'cut', dir: 'in', mode: 'video' };
+    applyFxToDom(root, snapshot({ currentIndex: 5, fx: { instants: [end], call: null } }, settings()), opts);
+    assert.equal(win.hidden, true);
+    assert.ok(stage.querySelector('.igs-fx-video-close'));
+    assert.match(motion.querySelector('#igs-fx-front').querySelector('.igs-fx-call-end').textContent, /^对方已挂断/);
+    cancelFxEffects(root);
+});
+
+test('gate:fx-settings:new-symbols-have-words-offsets-and-call-sprite-mode', () => {
+    assert.equal(matchMangaSymbol('困倦', { enabled: true }), 'zzz');
+    assert.equal(matchMangaSymbol('灵光一闪', { enabled: true }), 'bulb');
+    assert.equal(matchMangaSymbol('心碎', { enabled: true }), 'heartbreak');
+    assert.equal(matchMangaSymbol('毛骨悚然', { enabled: true }), 'frost');
+    for (const kind of MANGA_SYMBOL_KINDS) {
+        assert.ok(SYMBOL_OFFSETS[kind], kind);
+        assert.ok(MANGA_FX_DEFAULT_SYMBOLS[kind].length, kind);
+        assert.match(FX_STYLE_TEXT, new RegExp(`data-kind="${kind}"\\]\\{--igs-fx-hue:`), kind);
+    }
+    // 默认词表之间不重复，保证每个词只落到一个符号上。
+    const words = MANGA_SYMBOL_KINDS.flatMap((kind) => MANGA_FX_DEFAULT_SYMBOLS[kind]);
+    assert.equal(new Set(words).size, words.length);
+    assert.equal(normalizeFxReaderSettings({}).fxTags.callSprite, 'avatar');
+    assert.equal(normalizeFxReaderSettings({ fxTags: { callSprite: 'hide' } }).fxTags.callSprite, 'hide');
+    assert.equal(normalizeFxReaderSettings({ fxTags: { callSprite: 'bogus' } }).fxTags.callSprite, 'avatar');
+    const html = renderFxFeatureFields({ fxTags: { enabled: true } }).tags;
+    assert.match(html, /readerSettings\.fxTags\.callSprite/);
+    assert.doesNotMatch(renderFxFeatureFields({ fxTags: { enabled: true, call: false } }).tags, /fxTags\.callSprite/);
 });
 
 test('gate:fx-runtime:all-disabled-creates-no-layers', () => {
@@ -459,5 +704,83 @@ test('gate:sprite-edit:drag-follows-finger-when-sprite-larger-than-stage', () =>
     const unknown = spriteDragPosition({ posX: 50, posY: 100, scale: 200, ...stage, dx: -40, dy: -60 });
     assert.equal(unknown.posX, 60);
     assert.equal(unknown.posY, 90);
+});
+
+
+test('gate:fx-runtime:onomatopoeia-plays-sound-without-big-text', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const jobs = [];
+    const fx = { instants: [{ kind: 'sfx', text: '砰！' }], call: null, flashback: false, dream: false, letterbox: false };
+    const result = applyFxToDom(root, snapshot({ fx }, { fxTags: { enabled: true } }), {
+        schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
+        audioScheduler: (job) => { jobs.push(job); return { stop() {} }; },
+    });
+    assert.deepEqual(result.played, ['sfx']);
+    assert.deepEqual(result.ranges, { flashback: false, dream: false, letterbox: false });
+    assert.deepEqual(jobs.map((job) => job.kind), ['onomatopoeia:impact']);
+    assert.ok(jobs[0].partials.length > 0);
+    assert.equal(motion.querySelector('.igs-fx-sfx'), null, 'no onomatopoeia text node');
+    assert.equal(timers.queue.length, 0, 'nothing to expire');
+    cancelFxEffects(root);
+});
+
+
+test('gate:fx-runtime:cast-react-symbol-lands-on-cast-once-per-page', () => {
+    const { root, motion } = makeRoot();
+    const cast = [{ character: 'Bob', url: '/bob.png', posX: 18, posY: 100, scale: 100, head: { x: 0.5, top: 0.1, w: 0.3, aspect: 2 } }];
+    const opts = { schedule: () => 0, clear() {}, reducedMotion: false, cast, castMarks: [{ character: 'Bob', kind: 'anger' }, { character: 'Zed', kind: 'sweat' }] };
+    // 漫画演出等总开关全关：陪衬反应符号照常播放。
+    const settings = { stageCast: { enabled: true, castReact: true } };
+    const castPlayed = (result) => result.played.filter((p) => String(p).startsWith('castSymbol:'));
+    const first = applyFxToDom(root, snapshot({}, settings), opts);
+    assert.deepEqual(castPlayed(first), ['castSymbol:Bob:anger']);
+    const symbols = motion.querySelectorAll('.igs-fx-symbol');
+    assert.equal(symbols.length, 1);
+    assert.equal(symbols[0].getAttribute('data-kind'), 'anger');
+    assert.equal(symbols[0].getAttribute('data-igs-fx-cast'), 'Bob');
+    // 同页重绘不重播；换页再播。
+    assert.deepEqual(castPlayed(applyFxToDom(root, snapshot({}, settings), opts)), []);
+    assert.deepEqual(castPlayed(applyFxToDom(root, snapshot({ currentIndex: 1 }, settings), opts)), ['castSymbol:Bob:anger']);
+    // 没有 castMarks 且总开关全关：不挂演出层。
+    const bare = makeRoot();
+    assert.deepEqual(applyFxToDom(bare.root, snapshot({}, settings), { schedule: () => 0, clear() {}, reducedMotion: false }).played, []);
+    cancelFxEffects(root);
+});
+
+test('gate:fx-runtime:ancient-era-light-off-blows-out-a-candle', () => {
+    const fx = { instants: [{ kind: 'light', mode: 'off' }], call: null, flashback: false, dream: false, letterbox: false, lightsOff: true };
+    const run = (readerSettings, reducedMotion) => {
+        const { root, motion } = makeRoot();
+        const timers = clock();
+        const sounds = [];
+        applyFxToDom(root, snapshot({ fx }, readerSettings), {
+            schedule: timers.schedule, clear: timers.clear, reducedMotion,
+            audioScheduler: (job) => { sounds.push(job.kind); return null; },
+        });
+        return { root, motion, sounds, candle: motion.querySelector('.igs-fx-candle') };
+    };
+    const tags = { enabled: true, light: true };
+    // 古代背景：舞台层出一支蜡烛（青烟、烛火、烛身），音效为吹气风声，区间压暗照旧。
+    const ancient = run({ fxTags: tags, _ancientEra: true }, false);
+    assert.ok(ancient.candle, 'ancient era spawns a candle');
+    assert.equal(ancient.candle.getAttribute('aria-hidden'), 'true');
+    assert.deepEqual(ancient.candle.children.map((c) => c.className), ['igs-fx-candle-smoke', 'igs-fx-candle-flame', 'igs-fx-candle-body']);
+    assert.ok(ancient.motion.getAttribute('data-igs-fx-lightsoff') !== null, 'dimming still driven by the range flag');
+    assert.deepEqual(ancient.sounds, ['onomatopoeia:whoosh']);
+    cancelFxEffects(ancient.root);
+    assert.equal(ancient.motion.querySelector('.igs-fx-candle'), null, 'candle cleaned up on cancel');
+    // 现代背景：不出蜡烛，保持原来的开关声。
+    const modern = run({ fxTags: tags }, false);
+    assert.ok(!modern.candle, 'modern era has no candle');
+    assert.deepEqual(modern.sounds, ['onomatopoeia:crack']);
+    cancelFxEffects(modern.root);
+    // 减少动态效果：古代也不出蜡烛，只留压暗与音效。
+    const reduced = run({ fxTags: tags, _ancientEra: true }, true);
+    assert.ok(!reduced.candle, 'reduced motion skips the candle');
+    assert.deepEqual(reduced.sounds, ['onomatopoeia:whoosh']);
+    cancelFxEffects(reduced.root);
+    assert.match(FX_STYLE_TEXT, /\.igs-fx-candle-flame\{[^}]*animation:igs-fx-candle-blow/);
+    assert.match(FX_STYLE_TEXT, /prefers-reduced-motion: reduce\)\{\.igs-fx-candle\{display:none/);
 });
 

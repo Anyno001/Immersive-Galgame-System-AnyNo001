@@ -1,6 +1,10 @@
 // Synthesized at runtime: no audio assets. The same partial tables drive both
 // WebAudio playback and the offline renderer used by tests and previews.
 // Partial fields: attack (s, default 5ms) and sweep (share of duration spent gliding, default 0.6).
+// wave 'noise' plays filtered white noise: from/to glide the filter frequency, filter/q pick the band.
+import { busInput, resumeAudioBus } from './audio-bus.js';
+import { duckSceneAudio } from './scene-audio.js';
+
 const p = (wave, from, to, start, duration, gain, extra = {}) => Object.freeze({ wave, from, to, start, duration, gain, ...extra });
 
 export const CHAT_SFX_PRESETS = Object.freeze({
@@ -47,6 +51,16 @@ export const CHAT_SFX_PRESETS = Object.freeze({
             p('sine', 2638, 2638, 0, 0.1, 0.16, { attack: 0.002 }),
         ]),
     }),
+    // 纸张沙沙：带通白噪声扫频，收信是展开信纸的两下，寄信是折起的一下；古代背景的书信往来固定用它。
+    paper: Object.freeze({
+        receive: Object.freeze([
+            p('noise', 2600, 4200, 0, 0.16, 0.9, { attack: 0.01, sweep: 1, q: 0.9 }),
+            p('noise', 3400, 2200, 0.14, 0.22, 0.75, { attack: 0.015, sweep: 1, q: 0.8 }),
+        ]),
+        send: Object.freeze([
+            p('noise', 3800, 1900, 0, 0.2, 0.85, { attack: 0.008, sweep: 1, q: 0.8 }),
+        ]),
+    }),
     tap: Object.freeze({
         receive: Object.freeze([
             p('triangle', 880, 700, 0, 0.045, 0.9, { attack: 0.001, sweep: 1 }),
@@ -62,6 +76,7 @@ export const CHAT_SFX_PRESET_LABELS = Object.freeze([
     ['soft', '柔和'],
     ['water', '水泡'],
     ['chime', '音盒'],
+    ['paper', '纸张沙沙'],
     ['tap', '木鱼轻敲'],
 ]);
 export const CHAT_SFX_PARTIALS = CHAT_SFX_PRESETS.cute;
@@ -71,7 +86,7 @@ const ATTACK_S = 0.005;
 const SWEEP_RATIO = 0.6;
 const FLOOR = 0.001;
 
-let audioContext = null;
+let noiseCache = null;
 
 export function normalizeChatSfxPreset(value) {
     return Object.hasOwn(CHAT_SFX_PRESETS, value) ? value : 'cute';
@@ -144,10 +159,20 @@ export function createSynthPartial(wave, from, to, start, duration, gain, extra)
     return p(wave, from, to, start, duration, gain, extra);
 }
 
+function noiseBuffer(context) {
+    if (noiseCache && noiseCache.context === context) return noiseCache.buffer;
+    const rate = context.sampleRate || 44100;
+    const buffer = context.createBuffer(1, rate, rate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    noiseCache = { context, buffer };
+    return buffer;
+}
+
 export function playSynthPartials(partials, { volume = 0.6, delay = 0 } = {}) {
     if (!Array.isArray(partials) || !partials.length || !(volume > 0)) return null;
-    const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
-    if (!Context) return null;
+    const output = busInput('sfx');
+    if (!output) return null;
     const nodes = [];
     const stop = () => {
         for (const node of nodes) {
@@ -157,30 +182,47 @@ export function playSynthPartials(partials, { volume = 0.6, delay = 0 } = {}) {
         nodes.length = 0;
     };
     try {
-        if (!audioContext) audioContext = new Context();
-        const context = audioContext;
-        Promise.resolve(context.resume()).then(() => {
+        const context = output.context;
+        resumeAudioBus().then(() => {
             if (context.state !== 'running') return;
             const base = context.currentTime + 0.01 + delay;
             for (const q of partials) {
                 const at = base + q.start;
                 const peak = q.gain * MASTER_GAIN * volume;
                 const attack = q.attack == null ? ATTACK_S : q.attack;
-                const osc = context.createOscillator();
                 const gain = context.createGain();
-                osc.type = q.wave;
-                osc.frequency.setValueAtTime(q.from, at);
-                if (q.from !== q.to) osc.frequency.exponentialRampToValueAtTime(q.to, at + sweepOf(q));
                 gain.gain.setValueAtTime(0, at);
                 gain.gain.linearRampToValueAtTime(peak, at + attack);
                 gain.gain.exponentialRampToValueAtTime(peak * FLOOR, at + q.duration);
-                osc.connect(gain);
-                gain.connect(context.destination);
-                osc.onended = () => { osc.disconnect(); gain.disconnect(); };
-                nodes.push(osc, gain);
+                gain.connect(output);
+                let osc;
+                if (q.wave === 'noise') {
+                    osc = context.createBufferSource();
+                    osc.buffer = noiseBuffer(context);
+                    osc.loop = true;
+                    const filter = context.createBiquadFilter();
+                    filter.type = q.filter || 'bandpass';
+                    filter.Q.setValueAtTime(q.q == null ? 1 : q.q, at);
+                    filter.frequency.setValueAtTime(q.from, at);
+                    if (q.from !== q.to) filter.frequency.exponentialRampToValueAtTime(q.to, at + sweepOf(q));
+                    osc.connect(filter);
+                    filter.connect(gain);
+                    osc.onended = () => { osc.disconnect(); filter.disconnect(); gain.disconnect(); };
+                    nodes.push(osc, filter, gain);
+                } else {
+                    osc = context.createOscillator();
+                    osc.type = q.wave;
+                    osc.frequency.setValueAtTime(q.from, at);
+                    if (q.from !== q.to) osc.frequency.exponentialRampToValueAtTime(q.to, at + sweepOf(q));
+                    osc.connect(gain);
+                    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+                    nodes.push(osc, gain);
+                }
                 osc.start(at);
                 osc.stop(at + q.duration + 0.02);
             }
+            const end = Math.max(...partials.map((q) => q.start + q.duration));
+            duckSceneAudio({ durationMs: (delay + end) * 1000 + 150 });
         }).catch(stop);
         return { stop };
     } catch {

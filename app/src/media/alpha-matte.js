@@ -169,20 +169,48 @@ export function preservePngTextChunks(sourceDataUrl, outputDataUrl, globalObject
     }
 }
 
-// 返回 async (dataUrl, { alreadyTransparent }) => dataUrl；环境没有 canvas 时原样返回。
+// 单通道语义的 Alpha 遮罩像素：RGB 取原 alpha、自身不透明；与透明结果同尺寸。
+export function buildAlphaMaskPixels(sourceData) {
+    const out = new Uint8ClampedArray(sourceData.length);
+    for (let i = 0; i < sourceData.length; i += 4) {
+        const a = sourceData[i + 3];
+        out[i] = a; out[i + 1] = a; out[i + 2] = a; out[i + 3] = 255;
+    }
+    return out;
+}
+
+function buildAlphaMaskDataUrl(doc, ctx, width, height) {
+    try {
+        const src = ctx.getImageData(0, 0, width, height);
+        const mask = doc.createElement('canvas');
+        mask.width = width;
+        mask.height = height;
+        const mctx = mask.getContext('2d');
+        const img = mctx.createImageData(width, height);
+        img.data.set(buildAlphaMaskPixels(src.data));
+        mctx.putImageData(img, 0, 0);
+        return mask.toDataURL('image/png');
+    } catch (error) {
+        return '';
+    }
+}
+
+// 返回 async (dataUrl, { alreadyTransparent, detailed }) => dataUrl；detailed 为 true 时返回
+// { dataUrl, alphaMaskDataUrl, diagnostics }。无 canvas 或处理失败时 fail-open 返回原图、遮罩为空。
 // 裁边重编码后保留原图 PNG 文本块（NAI 元数据）。
 export function createAlphaMatte(globalObject = globalThis) {
     const doc = globalObject && globalObject.document;
     const canUseCanvas = Boolean(doc && typeof doc.createElement === 'function' && typeof globalObject.Image === 'function');
-    return async function applyAlphaMatte(dataUrl, { alreadyTransparent = false } = {}) {
-        if (!canUseCanvas || !/^data:image\//i.test(String(dataUrl || ''))) return dataUrl;
+    const passthrough = (dataUrl, reason) => ({ dataUrl, alphaMaskDataUrl: '', diagnostics: { fallback: reason } });
+    async function matteWithMask(dataUrl, alreadyTransparent) {
+        if (!canUseCanvas || !/^data:image\//i.test(String(dataUrl || ''))) return passthrough(dataUrl, 'no-canvas');
         try {
             const img = await loadImage(globalObject, dataUrl);
             const canvas = doc.createElement('canvas');
             canvas.width = img.naturalWidth || img.width;
             canvas.height = img.naturalHeight || img.height;
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            if (!ctx || !canvas.width || !canvas.height) return dataUrl;
+            if (!ctx || !canvas.width || !canvas.height) return passthrough(dataUrl, 'no-context');
             ctx.drawImage(img, 0, 0);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             if (!alreadyTransparent) {
@@ -190,14 +218,23 @@ export function createAlphaMatte(globalObject = globalThis) {
                 ctx.putImageData(imageData, 0, 0);
             }
             const bounds = findOpaqueBounds(imageData);
-            if (!bounds) return dataUrl;
+            if (!bounds) return passthrough(dataUrl, 'empty-alpha');
             const out = doc.createElement('canvas');
             out.width = bounds.width;
             out.height = bounds.height;
-            out.getContext('2d').drawImage(canvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
-            return preservePngTextChunks(dataUrl, out.toDataURL('image/png'), globalObject);
+            const outCtx = out.getContext('2d', { willReadFrequently: true });
+            outCtx.drawImage(canvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+            return {
+                dataUrl: preservePngTextChunks(dataUrl, out.toDataURL('image/png'), globalObject),
+                alphaMaskDataUrl: buildAlphaMaskDataUrl(doc, outCtx, bounds.width, bounds.height),
+                diagnostics: { sourceWidth: canvas.width, sourceHeight: canvas.height, crop: bounds, alreadyTransparent },
+            };
         } catch (error) {
-            return dataUrl;
+            return passthrough(dataUrl, 'error');
         }
+    }
+    return async function applyAlphaMatte(dataUrl, { alreadyTransparent = false, detailed = false } = {}) {
+        const result = await matteWithMask(dataUrl, alreadyTransparent);
+        return detailed ? result : result.dataUrl;
     };
 }

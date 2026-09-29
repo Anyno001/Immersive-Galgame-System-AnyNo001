@@ -146,7 +146,8 @@ async function resolveNormalCheck(command, acuDice, context) {
     const outcome = success ? tier.name : (tier.level >= 0 ? `失败（${tier.name}，未达${command.difficulty === 2 ? '极难' : '困难'}）` : tier.name);
     const extra = bonusLabel(command);
     const line = `元叙事：${who}发起了【${command.attribute}】检定，1d100${extra ? `(${extra})` : ''}=${roll}，需≤${threshold}，【${outcome}】。`;
-    return { ok: true, success, roll, target, line };
+    const detail = { kind: 'check', actor: who, attribute: command.attribute, roll, target, threshold, tier: tier.name, outcome, success };
+    return { ok: true, success, roll, target, line, detail };
 }
 
 async function resolveContest(command, acuDice, context) {
@@ -181,7 +182,14 @@ async function resolveContest(command, acuDice, context) {
     const verdict = winner === 'left' ? `${leftName}胜出` : winner === 'right' ? `${rightName}胜出` : '双方平局';
     const extra = bonusLabel(command);
     const line = `元叙事：${leftName}以【${command.left.attribute}】对抗${rightName}的【${command.right.attribute}】，1d100${extra ? `(${extra})` : ''}=${leftRoll}/${rightRoll}，目标=${leftTarget}/${rightTarget}，结果：${verdict}（${leftTier.name} vs ${rightTier.name}）。`;
-    return { ok: true, success: winner === 'left', winner, line };
+    const detail = {
+        kind: 'contest',
+        left: { name: leftName, attribute: command.left.attribute, roll: leftRoll, target: leftTarget, tier: leftTier.name },
+        right: { name: rightName, attribute: command.right.attribute, roll: rightRoll, target: rightTarget, tier: rightTier.name },
+        winner,
+        verdict,
+    };
+    return { ok: true, success: winner === 'left', winner, line, detail };
 }
 
 // 返回 { ok, line }：line 为空表示无需检定。ok=false 时 reason 说明原因，调用方按原命令降级。

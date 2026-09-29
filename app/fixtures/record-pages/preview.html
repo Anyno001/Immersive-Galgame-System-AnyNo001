@@ -24,6 +24,7 @@ html,body{margin:0;height:100%;background:#0b0d10;color:#d8d5cf;font-family:"Sou
   <button data-page="diary">心事</button>
   <button data-page="inventory">背包</button>
   <button data-page="relationships">关系</button>
+  <button data-page="settings-scene">素材设置</button>
 </div>
 <div id="stage"><div id="igs-overlay"><div id="igs-db-layer"></div></div></div>
 <script type="module">
@@ -38,6 +39,7 @@ import { mapFixture } from './fixtures/map.fixture.js';
 import { diaryFixture } from './fixtures/diary.fixture.js';
 import { inventoryFixture } from './fixtures/inventory.fixture.js';
 import { relationshipsFixture } from './fixtures/relationships.fixture.js';
+import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 
 const style = document.createElement('style');
 style.id = 'igs-overlay-style';
@@ -99,9 +101,45 @@ const SIZES = {
   mobile: [390, 844], short: [390, 500], tiny: [320, 568],
 };
 let current = null;
+// 设置器素材页截图入口：真实设置器 + 内存存储（不写浏览器 localStorage）+ 示例素材与本地文件夹归类。
+// 可选参数：?subtab=scenes|characters、?view=grid|list。
+let settingsVn = null;
+function openSettingsScene() {
+  const q = new URLSearchParams(location.search);
+  const img = new URL('./assets/scene-demo-clean-night.png', location.href).href;
+  const mem = createMemoryStorage();
+  mem.setItem('igs_bridge_config', JSON.stringify({ sceneAssets: {
+    enabled: true, promptRule: '规则', characterAliases: {}, moodGroups: [],
+    scenes: { 教室: { url: img, times: {} }, 走廊: { url: img, times: {} }, 海边: { url: img, times: {} }, 天台: { url: '', times: {} } },
+    characters: { 林夏: { 普通: img, 微笑: img }, 陈屿: { 普通: img }, 路人: { 普通: '' } },
+  } }));
+  const view = q.get('view') === 'list' ? 'list' : 'grid';
+  mem.setItem('igs-asset-folders-v1', JSON.stringify({ scopes: { '': {
+    scenes: { view, folders: ['学校', '户外'], collapsed: [], assign: { 教室: '学校', 走廊: '学校', 海边: '户外' } },
+    characters: { view, folders: ['主角'], collapsed: [], assign: { 林夏: '主角' } },
+  } } }));
+  // 只替换 localStorage，其余全局能力沿用真实 window；小写方法绑定到 window，避免 Illegal invocation。
+  const globalProxy = new Proxy(window, { get(target, key) {
+    if (key === 'localStorage') return mem;
+    const value = Reflect.get(target, key, target);
+    return typeof value === 'function' && typeof key === 'string' && /^[a-z]/.test(key) ? value.bind(target) : value;
+  } });
+  settingsVn = settingsVn || bootstrapIGS({
+    global: globalProxy,
+    autoAttachMagicWand: false,
+    hostAdapter: { getCurrentMessage: async () => ({ id: 1, text: '素材设置预览。' }), typeAndSend: async () => ({ ok: true }) },
+  });
+  const mode = (q.get('size') || 'desktop').match(/^(mobile|short|tiny)$/) ? 'mobile' : 'pc';
+  const opened = settingsVn.openSettings({ tab: 'scene', mode });
+  if (!opened || opened.ok === false) throw new Error('settings-scene: openSettings failed ' + JSON.stringify(opened));
+  const subtab = q.get('subtab');
+  if (subtab) document.querySelector(`[data-scene-subtab="${CSS.escape(subtab)}"]`)?.click();
+  return { close: () => opened.controller?.close?.() };
+}
 function openPage(page) {
   current?.close?.();
-  if (page === 'map') current = map, map.open(overlay, { weatherFx: { enabled: true } }, '临河街道', new URLSearchParams(location.search).get('time') || '', new URLSearchParams(location.search).get('weather') || '');
+  if (page === 'settings-scene') current = openSettingsScene();
+  else if (page === 'map') current = map, map.open(overlay, { weatherFx: { enabled: true } }, '临河街道', new URLSearchParams(location.search).get('time') || '', new URLSearchParams(location.search).get('weather') || '');
   else current = record, record.open(overlay, {}, page);
   document.querySelectorAll('#hud button').forEach(btn =>
     btn.toggleAttribute('aria-current', btn.dataset.page === page));

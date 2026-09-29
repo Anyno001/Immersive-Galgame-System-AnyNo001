@@ -107,3 +107,67 @@ export function buildSceneGroupsText(scenes) {
 function cloneDefaultMoodGroups() {
     return DEFAULT_MOOD_GROUPS.map((group) => ({ label: group.label, words: group.words.slice() }));
 }
+
+export const VOCAB_CHAR_LIMIT = 400;
+
+// 超出上限按条截断并注明「等」；单条本身超长时也截断，保证整段不超过上限。
+export function capVocabItems(items, limit = VOCAB_CHAR_LIMIT, separator = '、') {
+    const list = (Array.isArray(items) ? items : []).map((item) => String(item || '').trim()).filter(Boolean);
+    const out = [];
+    let used = 0;
+    for (const item of list) {
+        const cost = Array.from(item).length + (out.length ? Array.from(separator).length : 0);
+        if (used + cost > limit) {
+            if (!out.length) out.push(`${Array.from(item).slice(0, Math.max(1, limit - 1)).join('')}`);
+            out.push('等');
+            return out;
+        }
+        out.push(item);
+        used += cost;
+    }
+    return out;
+}
+
+function joinCapped(items, limit, separator = '、') {
+    const capped = capVocabItems(items, limit, separator);
+    const tail = capped[capped.length - 1] === '等' ? capped.pop() : '';
+    return capped.join(separator) + tail;
+}
+
+// 表情池精简：组名 + 代表词。立绘里单独建了槽位的词全部保留（否则 AI 写不出、精确槽永远命中不到），
+// 不足 3 个再按原顺序补足；其余词仍留在词库里，AI 写出时照样由 resolveMoodGroup 归组。
+export function buildCompactMoodGroupsText(groups, slotWords = [], { perGroup = 3, limit = VOCAB_CHAR_LIMIT } = {}) {
+    const list = Array.isArray(groups) && groups.length ? groups : DEFAULT_MOOD_GROUPS;
+    const slots = new Set((Array.isArray(slotWords) ? slotWords : Array.from(slotWords || [])).map((w) => String(w || '').trim()));
+    const lines = [];
+    for (const group of list) {
+        const label = String(group && group.label || '').trim();
+        if (!label) continue;
+        const words = Array.isArray(group.words) ? group.words.map((w) => String(w || '').trim()).filter((w) => w && w !== label) : [];
+        const picked = words.filter((w) => slots.has(w));
+        for (const w of words) {
+            if (picked.length >= perGroup) break;
+            if (!picked.includes(w)) picked.push(w);
+        }
+        lines.push(picked.length ? `${label}：${picked.join('、')}` : label);
+    }
+    return joinCapped(lines, limit, '；');
+}
+
+export function buildCompactGroupsText(groups, limit = VOCAB_CHAR_LIMIT) {
+    const list = Array.isArray(groups) ? groups : [];
+    const lines = list.map((group) => {
+        const label = String(group && group.label || '').trim();
+        const words = Array.isArray(group && group.words) ? group.words.filter(Boolean) : [];
+        return label ? `${label}（${words.join('、')}）` : '';
+    }).filter(Boolean);
+    return joinCapped(lines, limit, '；');
+}
+
+// 场景只列主名，别名交给 classifySceneKey 的别名与模糊匹配兜底。
+export function buildCompactSceneNamesText(scenes, limit = VOCAB_CHAR_LIMIT) {
+    if (!scenes || typeof scenes !== 'object') return '';
+    const names = Object.keys(scenes).filter((name) => name && name !== '默认');
+    if (!names.length) return '';
+    return `场景名优先用已有场景：${joinCapped(names, limit)}`;
+}

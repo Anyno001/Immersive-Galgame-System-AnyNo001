@@ -20,6 +20,7 @@ export const WEATHER_FX_DEFAULTS = Object.freeze({
 });
 export const SUNBURST_DURATION_MS = 1500;
 export const LIGHTNING_DURATION_MS = 900;
+export const WEATHER_FLASH_EVENT = 'igs-weather-flash';
 
 // 天气词 → 演出类型，按顺序子串匹配，先命中者为主类型（雨夹雪归雪、雾霾归雾、晴转多云归阴）。
 const WEATHER_KIND_RULES = Object.freeze([
@@ -221,12 +222,20 @@ function scheduleLightning(state, target, plan, first) {
         if (!hidden) {
             if (target.setAttribute) target.setAttribute('data-igs-weather-fx-flash', state.random() < 0.5 ? 'a' : 'b');
             toggleClass(target, 'igs-fx-lightning-active', true);
+            dispatchFlash(target, plan);
         }
         later(state, () => {
             toggleClass(target, 'igs-fx-lightning-active', false);
             scheduleLightning(state, target, plan, false);
         }, LIGHTNING_DURATION_MS);
     }, min + state.random() * (max - min));
+}
+
+// 通知场景音频按闪屏节奏补雷声；事件冒泡到阅读器根节点。
+function dispatchFlash(target, plan) {
+    const Event = globalThis.CustomEvent;
+    if (typeof target.dispatchEvent !== 'function' || typeof Event !== 'function') return;
+    try { target.dispatchEvent(new Event(WEATHER_FLASH_EVENT, { bubbles: true, detail: { level: plan.level } })); } catch { /* ignore */ }
 }
 
 function playSunburst(state, target) {
@@ -247,7 +256,8 @@ export function applyWeatherFx(layer, options = {}) {
     }
     const motion = !hasReducedMotion(options);
     const signature = [plan.kind, plan.level, plan.scene, plan.time, plan.thunder, plan.wind, settings.intensity, motion].join('|');
-    const result = (replayed) => ({ active: true, kind: plan.kind, intensity: settings.intensity, plan, replayed });
+    const lightning = Boolean(motion && plan.thunder);
+    const result = (replayed) => ({ active: true, kind: plan.kind, intensity: settings.intensity, plan, replayed, lightning });
     const previous = activeStates.get(layer);
     if (previous && previous.signature === signature && previous.front === front) return result(false);
     if (previous) clearState(layer, previous);

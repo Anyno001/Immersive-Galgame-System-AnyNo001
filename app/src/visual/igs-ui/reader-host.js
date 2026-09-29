@@ -5,16 +5,48 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
-import { resolveCharacterKey } from '../../scene/scene-directives.js';
+import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
+import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
+import { loadOutfitReview, recordOutfitReview } from '../../scene/outfit-review-store.js';
+import { renderOutfitReviewList } from './settings-outfit-fields.js';
+
+
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
 import { extractFxDirectives, resolveFxAtPage } from '../../scene/fx-directives.js';
+import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
+import { parseTables } from '../../shujuku-panel/panel-model.js';
+import { applyDiceToHits } from '../../scene/battle-context.js';
+import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
+import { createCgGalleryPanel } from './cg-gallery-panel.js';
 import { cancelFxEffects } from './fx-runtime.js';
+import { cancelStageDirection } from './stage-direction-runtime.js';
+import { cancelSceneGrade } from './scene-grade.js';
+import { closeRomanceFx } from './romance-runtime.js';
+import { closeMetaFx } from './meta-runtime.js';
+import { normalizeRomanceFxSettings, resolveNsfwSpan } from './romance-settings.js';
+import { cancelDailyFx } from './fx-daily.js';
+import { cancelSceneAudio } from './scene-audio.js';
+import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
+import { setStagePauseReason, watchStagePause } from './stage-pause.js';
+import { playUiSfx } from './ui-sfx.js';
 import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
-import { renderFxPerformanceSections } from './fx-settings-fields.js';
+import { renderPerformancePresetBar, renderPerformanceSettings } from './performance-settings-layout.js';
+import { renderQualityRow } from './render-quality-fields.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
-import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
+import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary, isNonSpriteSpeaker } from '../../scene/asset-match.js';
+import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveStageCast } from '../../scene/stage-cast.js';
+import { normalizeStageCastSettings } from './stage-direction-settings.js';
+import { resolveRomanceRivalTarget } from './romance-settings.js';
+import { clearCastDom } from './stage-cast-render.js';
+import { CHARACTER_DNA_FIELDS, normalizeCharacterDnaMap, resolveCharacterDna } from '../../scene/character-dna.js';
+import { createOutfitResolver, normalizeCharacterOutfits, resolveSpriteOutfit } from '../../scene/character-outfits.js';
+import { collectOutfitClues } from '../../data/shujuku/outfit-clues.js';
+import { renderDnaCandidateBar, renderDnaOnlyCharacterList } from './settings-fields.js';
+import { loadMatteEditor } from './sprite-matte-editor.js';
+import { mountMatteEditor } from './sprite-matte-editor-mount.js';
+import { createCanvasImageCodec } from './sprite-matte-editor-view.js';
+import { createInpaintTransaction } from '../../generated-images/illustration/inpaint-transaction.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -53,6 +85,8 @@ import {
     DEFAULT_PINNED_TOOLBAR_BUTTONS,
     DEFAULT_SCENE_PROMPT_RULE,
     normalizeScenePromptRule,
+    PROMPT_RULE_OUTFIT_HINT,
+    scenePromptRuleOutfitHint,
     READER_SETTINGS_SCHEMA_VERSION,
     SETTINGS_PANEL_REQUIRED_SELECTORS,
     SETTINGS_PANEL_TAB_CONTRACT,
@@ -114,6 +148,9 @@ import { createImageResourceCache } from '../../media/resource-cache.js';
 import { createChatStreamObserver } from '../../host/chat-stream-observer.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
+import { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } from './fx-result-model.js';
+import { cancelResultFx, playResultFx } from './fx-result.js';
+import { prefersReducedMotion } from './reduced-motion.js';
 import {
     applyImageCountOverride,
     buildImageActionContext,
@@ -143,6 +180,7 @@ import {
     getPath,
     normalizeBtnOrder,
     normalizeHiddenButtons,
+    normalizePerformanceSettings,
     normalizePinnedButtons,
     normalizeReaderMode,
     normalizeSettingsTab,
@@ -152,6 +190,7 @@ import {
 } from './settings-normalize.js';
 import { clearReaderModeRuntime, exitDocumentFullscreen } from './reader-runtime.js';
 import { enterSpriteEditMode } from './sprite-edit.js';
+import { enterCastSlotEdit } from './cast-slot-edit.js';
 import { createDbPanelController } from '../../shujuku-panel/panel-controller.js';
 import { createMapPanelController } from './map-panel.js';
 import { createRecordPanelController } from './record-panel.js';
@@ -159,8 +198,15 @@ import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildStatusHudModel, listStatusHudTables, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
 import { handleSettingsAction as runSettingsAction } from './settings-actions.js';
+import { SETTINGS_NOTICE_MS, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, settingsBusyLabel } from './settings-notice.js';
+import { createSettingsDialogs } from './settings-dialog.js';
+import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
+import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { loadScenePresets, loadActiveScenePresetName } from '../../scene/scene-preset-store.js';
+import { applyFxEra, isAncientEra } from '../../scene/fx-era.js';
+import { loadAssetFolders } from './asset-folders.js';
+import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview, recordMoodReview } from '../../scene/mood-review-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
 import {
@@ -190,12 +236,14 @@ import {
     cancelTypewriter,
     normalizeTypewriterSettings,
 } from './typewriter-runtime.js';
+import { TYPEWRITER_VOICE_LABELS } from './typewriter-audio.js';
 import { cancelStageShakeEffect } from './stage-shake-runtime.js';
 import { advanceChatReveal, cancelChatShow } from './chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { resolveChatTheme } from './chat-themes.js';
 import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
+import { normalizePromptPlacement } from './tag-grammar.js';
 import {
     applyReaderSnapshotToDom,
     applyToolbarState,
@@ -211,6 +259,10 @@ export function createIgsReaderHost(options = {}) {
         activeReader: null,
         activeSettings: null,
     };
+    const settingsDialogs = createSettingsDialogs({
+        getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
+        global: options.global || globalThis,
+    });
     const dismissedReviewFloors = new Set();
     const sourceCache = createReaderSourceCache({
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
@@ -227,6 +279,11 @@ export function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
         },
     });
+    // 物品图到达后重绘阅读器：演出占位与背包格位据此替换为生图。
+    const offItemImageUpdatedRaw = typeof options.onItemImageUpdated === 'function'
+        ? options.onItemImageUpdated(() => { if (state.activeReader) rerenderActiveReader(); })
+        : null;
+    const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
     const offGeneratedAssetUpdated = typeof options.onGeneratedAssetUpdated === 'function'
         ? options.onGeneratedAssetUpdated(() => {
             if (state.activeReader) rerenderActiveReader();
@@ -301,6 +358,7 @@ export function createIgsReaderHost(options = {}) {
 
     function openReader(payload = {}, openOptions = {}) {
         closeReader({ keepFullscreen: true });
+        unparkAudioBus();
         const nextMode = normalizeReaderMode(
             firstDefined(
                 openOptions.mode,
@@ -357,6 +415,10 @@ export function createIgsReaderHost(options = {}) {
         };
         updateMountedReader(snapshot);
         startReaderImagePolling(state.activeReader);
+        if (domState && domState.overlay) {
+            state.activeReader.stopStagePause = watchStagePause(domState.overlay, { offscreen: isEmbeddedReaderMode(nextMode), root: domState.root });
+        }
+        syncSettingsStagePause();
         syncStatusHudSubscription();
         if (isEmbeddedReaderMode(nextMode)) {
             streamObserver.start();
@@ -448,7 +510,15 @@ export function createIgsReaderHost(options = {}) {
         };
         state.activeSettings = settingsState;
         settingsState.dom = mountSettingsDom(controller);
+        syncSettingsStagePause();
+        playReaderUiSfx('open');
         return rerenderSettings();
+    }
+
+    // 设置面板盖住整个舞台（遮罩带全屏模糊），打开期间舞台动画与粒子暂停。
+    function syncSettingsStagePause() {
+        const overlay = state.activeReader && state.activeReader.dom && state.activeReader.dom.overlay;
+        if (overlay) setStagePauseReason(overlay, 'panel:settings', Boolean(state.activeSettings));
     }
 
     function rerenderSettings() {
@@ -520,11 +590,18 @@ export function createIgsReaderHost(options = {}) {
             emotion: content && !content.sceneNsfw ? content.statusEmotion : '',
             isNarration: Boolean(content && (content.textType === 'narration' || content.textType === 'thought')) || showSceneHud,
             readResult: readStatusHudTablesSafe(),
+            outfitFor: { character: content && content.spriteCharacter, outfit: content && content.spriteOutfit },
+
         });
         current.snapshot.content.statusHud = next;
         applyReaderSnapshotToDom(current.dom.overlay, current.snapshot, current, {
             hasActiveSettings: () => Boolean(state.activeSettings),
             resolveAssetUrl: (url) => resolveReaderAssetUrl(url, current),
+            // 获得物品演出：只读本聊天物品图本地缓存。
+            resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
+            chatId: typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '',
+            onDailyPhoto: saveDailyPhoto,
+            onRomanceMemory: saveRomanceMemory,
         });
     }
 
@@ -555,7 +632,10 @@ export function createIgsReaderHost(options = {}) {
         if (!current) return { ok: true, reason: 'reader-not-open' };
         if (closeOptions.keepSettings !== true) {
             const closed = closeSettings();
-            if (closed.ok === false) return closed;
+            if (closed.ok === false) {
+                reportSettingsFailure(closed);
+                return closed;
+            }
         }
         teardownStatusHudSubscription();
         clearReaderToast(current);
@@ -566,6 +646,17 @@ export function createIgsReaderHost(options = {}) {
         cancelStageShakeEffect(stageMotion);
         if (current.dom && current.dom.overlay) cancelChatShow(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelFxEffects(current.dom.overlay);
+        if (current.dom && current.dom.overlay) cancelStageDirection(current.dom.overlay);
+        if (current.dom && current.dom.overlay) clearCastDom(current.dom.overlay);
+        current.castCollapsedFrom = null;
+        if (current.dom && current.dom.overlay) cancelSceneGrade(current.dom.overlay);
+        if (current.dom && current.dom.overlay) closeRomanceFx(current.dom.overlay);
+        if (current.dom && current.dom.overlay) closeMetaFx(current.dom.overlay);
+        if (current.dom && current.dom.overlay) cancelDailyFx(current.dom.overlay);
+        if (current.dom && current.dom.overlay) cancelResultFx(current.dom.overlay);
+        if (current.dom && current.dom.overlay) cancelSceneAudio(current.dom.overlay);
+        parkAudioBus();
+        if (typeof current.stopStagePause === 'function') current.stopStagePause();
         clearReaderModeRuntime(current);
         if (closeOptions.keepFullscreen !== true) {
             exitDocumentFullscreen(getRootDocument(options.global));
@@ -588,11 +679,14 @@ export function createIgsReaderHost(options = {}) {
             syncActiveModeFromSettings: current.initialOpenMode !== current.draft.bridge.openMode,
         });
         if (saved.ok === false) return saved;
+        settingsDialogs.cancel();
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
         }
         unmountNode(current.dom && current.dom.root);
         state.activeSettings = null;
+        syncSettingsStagePause();
+        playReaderUiSfx('close');
         return { ok: true };
     }
 
@@ -622,6 +716,7 @@ export function createIgsReaderHost(options = {}) {
         if (closed.ok === false) return closed;
         offIllustrationUpdated();
         offGeneratedAssetUpdated();
+        offItemImageUpdated();
         offImageJobLog();
         teardownStatusHudSubscription();
         closeReader();
@@ -652,16 +747,29 @@ export function createIgsReaderHost(options = {}) {
 
     function resolveLatestLiveAiMessage(doc) {
         const chat = doc && typeof doc.querySelector === 'function' ? doc.querySelector('#chat') : null;
-        const children = chat && chat.children ? Array.from(chat.children) : [];
+        if (!chat) return null;
+        // 从末尾往前找，不复制整份 children（长对话有上千个楼层节点）；不支持 lastElementChild 的环境退回数组遍历。
+        if ('lastElementChild' in chat) {
+            for (let element = chat.lastElementChild; element; element = element.previousElementSibling) {
+                const found = readLiveAiMessage(element);
+                if (found) return found;
+            }
+            return null;
+        }
+        const children = chat.children ? Array.from(chat.children) : [];
         for (let index = children.length - 1; index >= 0; index -= 1) {
-            const element = children[index];
-            if (!element || !element.classList || !element.classList.contains('mes')) continue;
-            if (readHostBooleanAttribute(element, ['is_user', 'data-is-user'])) continue;
-            if (readHostBooleanAttribute(element, ['is_system', 'data-is-system'])) continue;
-            const messageId = readLiveMessageId(element);
-            if (messageId != null) return { id: messageId, element };
+            const found = readLiveAiMessage(children[index]);
+            if (found) return found;
         }
         return null;
+    }
+
+    function readLiveAiMessage(element) {
+        if (!element || !element.classList || !element.classList.contains('mes')) return null;
+        if (readHostBooleanAttribute(element, ['is_user', 'data-is-user'])) return null;
+        if (readHostBooleanAttribute(element, ['is_system', 'data-is-system'])) return null;
+        const messageId = readLiveMessageId(element);
+        return messageId != null ? { id: messageId, element } : null;
     }
 
     function readHostBooleanAttribute(element, names) {
@@ -928,10 +1036,19 @@ export function createIgsReaderHost(options = {}) {
                 return updateSettingsValue(path, !current);
             },
             async invoke(action) {
-                return handleSettingsAction(action);
+                let result;
+                try {
+                    result = await handleSettingsAction(action);
+                } catch (error) {
+                    result = { ok: false, reason: 'action-threw', thrown: error };
+                }
+                reportSettingsFailure(result);
+                return result;
             },
             close() {
-                return closeSettings();
+                const result = closeSettings();
+                reportSettingsFailure(result);
+                return result;
             },
         };
     }
@@ -1042,8 +1159,10 @@ export function createIgsReaderHost(options = {}) {
             bubble.type = 'button';
             bubble.className = 'igs-option-bubble igs-bubble';
             bubble.textContent = display;
+            bubble.addEventListener('pointerenter', () => playReaderUiSfx('hover'));
             bubble.addEventListener('click', (event) => {
                 if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+                playReaderUiSfx('confirm');
                 onOptionBubbleClick(container, send, cfg, dice ? { display, dice } : null);
             });
             container.appendChild(bubble);
@@ -1065,7 +1184,25 @@ export function createIgsReaderHost(options = {}) {
             writeToastSafe(`检定未执行：${result && result.reason || '未知原因'}，已按原命令发送`);
             return fallback;
         }
+        await playOptionResultFx(result);
         return formatCheckMessage(check.display, result.line);
+    }
+
+    // 掷骰展示默认关闭；开启后等结论定格再发送，被关闭阅读器等取消时立即继续，不阻塞发送。
+    async function playOptionResultFx(result) {
+        const current = state.activeReader;
+        const readerSettings = current && current.snapshot && current.snapshot.readerSettings;
+        if (!readerSettings || !normalizeResultFxSettings(readerSettings.resultFx).enabled) return;
+        const overlay = current.dom && current.dom.overlay;
+        const plan = buildResultFxPlan(resultDetailOf(result));
+        if (!overlay || !plan) return;
+        let played = null;
+        try {
+            played = playResultFx(overlay, plan, { reducedMotion: prefersReducedMotion(), random: options.random });
+        } catch (error) {
+            played = null;
+        }
+        if (played && played.settled) await played.settled;
     }
 
     async function onOptionBubbleClick(container, rawText, cfg, check = null) {
@@ -1086,6 +1223,12 @@ export function createIgsReaderHost(options = {}) {
             return;
         }
         await submitReaderInput(text);
+    }
+
+    // 界面音效只在阅读器打开时发声，设置读自当前阅读器快照。
+    function playReaderUiSfx(kind) {
+        const readerSettings = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+        if (readerSettings) playUiSfx(kind, readerSettings);
     }
 
     function writeToastSafe(message) {
@@ -1145,10 +1288,10 @@ export function createIgsReaderHost(options = {}) {
                 readerSettings: draft.readerSettings,
             });
         } catch (error) {
-            return { ok: false, reason: 'save-failed' };
+            return { ok: false, reason: 'save-failed', saveError: error };
         }
         if (!result || result.ok === false) {
-            return { ok: false, reason: 'save-failed' };
+            return { ok: false, reason: 'save-failed', saveError: result && (result.message || result.reason) };
         }
 
         const snapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
@@ -1184,12 +1327,57 @@ export function createIgsReaderHost(options = {}) {
     async function handleSettingsAction(action) {
         return runSettingsAction(action, {
             state,
-            options,
+            options: { ...options, openMatteEditor },
             closeSettings,
             persistSettingsDraft,
             rerenderSettings,
             buildRegexPreview,
+            dialogs: settingsDialogs,
+            getDefaultSettings: () => normalizeUnifiedSettings({}),
+            normalizeImportedSettings: (imported) => normalizeUnifiedSettings(imported),
         });
+    }
+
+    // 打开遮罩修复编辑器：只编辑 igs-gen: 生成立绘；取消/关闭不写任何资产，保存按 revision 提交。
+    async function openMatteEditor(imageId) {
+        const globalObj = options.global || globalThis;
+        const doc = globalObj && globalObj.document;
+        if (!doc || !doc.body) return { ok: false, reason: 'no-document' };
+        const codec = createCanvasImageCodec(globalObj);
+        if (!codec.available) return { ok: false, reason: 'no-canvas' };
+        // AI 局部重绘只在后端协商支持时启用；否则按钮置灰并给出原因，绝不退化为整张重画。
+        const backend = options.imageEditBackend;
+        const capability = backend && typeof backend.describeEdit === 'function'
+            ? backend.describeEdit()
+            : { supported: false, message: '当前图像来源不支持局部重绘' };
+        const inpaint = capability.supported && typeof options.alphaMatte === 'function'
+            ? createInpaintTransaction({ service: options.generatedAssets, backend, matte: options.alphaMatte })
+            : null;
+        const editor = await loadMatteEditor(options.generatedAssets, imageId, {
+            decodeImage: codec.decodeImage,
+            encodePixels: codec.encodePixels,
+            inpaint,
+            aiUnavailableReason: inpaint ? '' : (capability.message || '当前图像来源不支持局部重绘'),
+            dna: findDnaForGeneratedImage(imageId),
+        });
+        mountMatteEditor(doc, editor, {
+            onSaved: () => {
+                if (state.activeSettings) rerenderSettings();
+                if (state.activeReader) rerenderActiveReader();
+            },
+        });
+        return { ok: true, mode: editor.mode, reason: editor.reason || '' };
+    }
+
+    // 按生成素材库里引用该图片的角色名取 DNA（经 DNA 主名/原名匹配）；找不到时不注入。
+    function findDnaForGeneratedImage(imageId) {
+        const draft = state.activeSettings && state.activeSettings.draft;
+        const sa = (draft && draft.bridge && draft.bridge.sceneAssets) || {};
+        const chars = normalizeGeneratedLibrary(sa.generated).characters;
+        const token = `igs-gen:${imageId}`;
+        const name = Object.keys(chars).find((n) => JSON.stringify(chars[n] || {}).includes(token));
+        const hit = name ? resolveCharacterDna(sa.characterDna, name) : null;
+        return hit ? hit.dna : null;
     }
 
     async function handleReaderAction(action) {
@@ -1275,6 +1463,12 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'clear-cg') {
             return clearCurrentIllustration();
         }
+        if (normalizedAction === 'cg-gallery') {
+            return openCgGallery();
+        }
+        if (normalizedAction === 'fill-item-images') {
+            return runFillItemImages();
+        }
         if (normalizedAction === 'regen') {
             return generateOrRegenerate();
         }
@@ -1289,7 +1483,7 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'sprite-edit') {
             const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
-            if (overlay) enterSpriteEditMode(overlay, state.activeReader, buildSpriteEditContext());
+            if (overlay && !enterCastSlotEdit(overlay, state.activeReader, buildSpriteEditContext())) enterSpriteEditMode(overlay, state.activeReader, buildSpriteEditContext());
             return { ok: true };
         }
         if (normalizedAction === 'db-panel') {
@@ -1324,6 +1518,7 @@ export function createIgsReaderHost(options = {}) {
         }
         state.activeReader.index = nextIndex;
         rerenderActiveReader();
+        playReaderUiSfx('page');
         return {
             ok: true,
             moved: true,
@@ -1468,6 +1663,65 @@ export function createIgsReaderHost(options = {}) {
     function formatReaderProgress(snapshot) {
         if (!snapshot || !snapshot.readerSettings || !snapshot.readerSettings.showStatusLine) return '';
         return snapshot && snapshot.content ? snapshot.content.progress : '';
+    }
+
+    // 日常演出拍照：合成当前背景与立绘存入相册（CG 库中的照片），失败静默。
+    function saveDailyPhoto(photo) {
+        const album = options.cgGallery;
+        if (!album || typeof album.capturePhoto !== 'function') return;
+        const chatId = typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '';
+        Promise.resolve(album.capturePhoto({ ...photo, chatId })).catch(() => null);
+    }
+
+    // 亲密演出的恋爱回忆：与日常演出拍照共用相册；同一聊天同一楼层同一名称只存一次（跨阅读器会话，记在 localStorage）。
+    const ROMANCE_MEMORY_KEYS = 'igs-romance-memory-keys';
+    const ROMANCE_MEMORY_KEYS_LIMIT = 300;
+    function saveRomanceMemory(photo) {
+        const album = options.cgGallery;
+        if (!album || typeof album.capturePhoto !== 'function' || !photo) return;
+        const chatId = typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '';
+        const key = [chatId, photo.messageId, photo.caption].join('|');
+        const storage = (options.global || globalThis).localStorage;
+        let keys = [];
+        try { keys = JSON.parse((storage && storage.getItem(ROMANCE_MEMORY_KEYS)) || '[]'); } catch { keys = []; }
+        if (!Array.isArray(keys)) keys = [];
+        if (keys.includes(key)) return;
+        keys.push(key);
+        try { if (storage) storage.setItem(ROMANCE_MEMORY_KEYS, JSON.stringify(keys.slice(-ROMANCE_MEMORY_KEYS_LIMIT))); } catch { /* 存储满时只影响去重 */ }
+        Promise.resolve(album.capturePhoto({ ...photo, chatId })).catch(() => null);
+    }
+
+    // CG 库面板：只展示 IGS 已出图的 CG；删除二次确认后走 clearIllustration，跳转只限当前聊天。
+    function openCgGallery() {
+        const current = state.activeReader;
+        const overlay = current && current.dom && current.dom.overlay;
+        if (!overlay || !overlay.ownerDocument || !options.cgGallery) return { ok: false, reason: 'cg-gallery-unavailable' };
+        const globalObj = options.global || globalThis;
+        const panel = createCgGalleryPanel(overlay.ownerDocument, {
+            service: options.cgGallery,
+            getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
+            confirm: (message) => (globalObj && typeof globalObj.confirm === 'function' ? globalObj.confirm(message) : false),
+            onJump: (entry) => {
+                panel.close();
+                if (typeof options.jumpToMessage === 'function') {
+                    try { options.jumpToMessage(entry.messageId); } catch (error) { /* 跳转失败不影响面板 */ }
+                }
+            },
+        });
+        return panel.open(overlay);
+    }
+
+    // 手动「补全物品图」：只补表格里缺图的物品；物品图未开启时直接提示，不联网。
+    async function runFillItemImages() {
+        const service = options.itemImages;
+        if (!service || typeof service.fillMissing !== 'function') return { ok: false, reason: 'item-images-unavailable' };
+        const result = await service.fillMissing();
+        const toast = typeof writeToastSafe === 'function' ? writeToastSafe : () => {};
+        if (result && result.reason === 'disabled') toast('物品图未开启，请先在设置里打开');
+        else if (result && result.reason === 'nothing-missing') toast('物品都已有图');
+        else if (result && result.ok) toast(`已补全 ${result.count} 张物品图`);
+        else toast(`物品图补全失败：${(result && result.error) || '未知原因'}`);
+        return result;
     }
 
     async function clearCurrentIllustration() {
@@ -1880,15 +2134,26 @@ export function createIgsReaderHost(options = {}) {
         recordMoodReview(storage, { word, character: spriteHit.character, quality, group: spriteHit.slot });
     }
 
+    // 服装栏写了该角色没登记的服装名：记入待确认服装词，供设置页一键归入或新建。
+    function noteUnlistedOutfits(directives, sceneAssets) {
+        const storage = (options.global || globalThis).localStorage;
+        if (!storage) return;
+        for (const d of directives) {
+            if (!d || !d.unknownOutfit || !d.character) continue;
+            const character = resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, d.character) || d.character;
+            recordOutfitReview(storage, { character, word: d.unknownOutfit });
+        }
+    }
+
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
         const scene = cloneData(payload.scene || (payload.render && payload.render.scene) || {});
-        const buildStatusHudForSnapshot = (settings, speaker, emotion, sceneInfo, isNarration) => {
+        const buildStatusHudForSnapshot = (settings, speaker, emotion, sceneInfo, isNarration, outfitFor) => {
             const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
             if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '', location: '' });
             const sceneAssets = (settings && settings._sceneAssets) || {};
             const readResult = statusHud.tables.length ? readStatusHudTables() : null;
             const info = sceneInfo && typeof sceneInfo === 'object' ? sceneInfo : {};
-            return buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult });
+            return buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor });
         };
         const readStatusHudTables = () => {
             const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
@@ -2027,6 +2292,9 @@ export function createIgsReaderHost(options = {}) {
         let spriteImage = null;
         let resolvedSpeaker = scene.speaker || '';
         let spriteCharacter = '';
+        let spriteOutfit = '';
+        let castSprites = [];
+        let speakerCastOrder = null;
         const extractedSegmentImageSlots = Array.isArray(extracted.segmentImageSlots) ? extracted.segmentImageSlots : [];
         const rawSegmentSlotValue = extractedSegmentImageSlots[normalizedIndex];
         const segmentHasBoundSlot = rawSegmentSlotValue != null
@@ -2055,19 +2323,56 @@ export function createIgsReaderHost(options = {}) {
                 : resolveSceneStateAtIndex(sceneDirectives, normalizedIndex))
             : null;
         const sceneStateForBg = (ownSceneState && ownSceneState.scene) ? ownSceneState : inheritedSceneState;
+        // 亲密演出的 NSFW 强度曲线：只在开启且当前页为 NSFW 时，按与当前页相同的规则判定本楼每页是否 NSFW，
+        // 得出当前页在 NSFW 连续段中的位置；上一楼层末尾的场景为 NSFW 时视为延续，不再渐强。
+        const romanceForSpan = normalizeRomanceFxSettings(readerSettings.romanceFx);
+        const nsfwSpan = romanceForSpan.enabled && romanceForSpan.nsfwCurve && sceneStateForBg && sceneStateForBg.nsfw
+            ? resolveNsfwSpan(segments.map((segment, index) => {
+                if (index === normalizedIndex) return true;
+                const offset = sceneDirectives.length ? locateTextOffsetInSource(sceneSourceForOffset, segment) : -1;
+                const own = sceneDirectives.length
+                    ? (offset >= 0 ? resolveSceneAtSourceOffset(sceneSourceForOffset, offset) : resolveSceneStateAtIndex(sceneDirectives, index))
+                    : null;
+                const pageState = own && own.scene ? own : inheritedSceneState;
+                return Boolean(pageState && pageState.nsfw);
+            }), normalizedIndex, Boolean(payload.inheritedSceneState && payload.inheritedSceneState.nsfw))
+            : null;
         const fxDirectives = extractFxDirectives(sceneSourceForOffset);
+        // 对白页正文带「[名字]：」前缀、心里话页另包 *…*，原文里是「名字|表情|对白」：原样定位不到时去掉前缀再定位，否则紧挨对白的演出标签整页失效。
+        const locateFxSegment = (segment) => {
+            const exact = locateTextOffsetInSource(sceneSourceForOffset, segment);
+            return exact >= 0 ? exact : locateTextOffsetInSource(sceneSourceForOffset, stripSegmentSpeaker(segment));
+        };
         let fxOffset = !fxDirectives.length ? -1
-            : currentOffset >= 0 ? currentOffset : locateTextOffsetInSource(sceneSourceForOffset, currentText);
+            : currentOffset >= 0 ? currentOffset : locateFxSegment(currentText);
         let fxPrevOffset = -1;
         // 聊天/卡片占位页在原文中定位不到，向前找最近一个可定位的页作为起点。
         for (let i = normalizedIndex - 1; fxDirectives.length && i >= 0 && fxPrevOffset < 0; i -= 1) {
-            fxPrevOffset = locateTextOffsetInSource(sceneSourceForOffset, segments[i]);
+            fxPrevOffset = locateFxSegment(segments[i]);
         }
         if (fxDirectives.length && fxOffset < 0 && chatIndex >= 0) {
             const chatStart = sceneSourceForOffset.slice(fxPrevOffset + 1).search(/\[igs-(?:chat:|msg:)/);
             if (chatStart >= 0) fxOffset = fxPrevOffset + 1 + chatStart;
         }
-        const pageFx = resolveFxAtPage(fxDirectives, fxOffset, fxPrevOffset);
+        // 战斗演出开启时 payload 才带 battleContext：跨楼继承未结束的战斗，并把上一条用户消息的检定等级套到主角第一招。
+        const battleContext = payload.battleContext || null;
+        const battleUserName = battleContext ? String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '') : '';
+        const pageFx = resolveFxAtPage(
+            battleContext ? applyDiceToHits(fxDirectives, battleContext.dice, battleUserName) : fxDirectives,
+            fxOffset, fxPrevOffset, battleContext,
+        );
+        if (battleContext) pageFx.userName = battleUserName;
+        // 约定到期：payload 带近楼约定时（仅「约定」标签开启），按表名含「全局」的表的当前时间判定当天到期项；读不到则不提醒。
+        if (Array.isArray(payload.promiseHistory) && payload.promiseHistory.length) {
+            const promiseTables = readStatusHudTablesSafe();
+            const storyNow = promiseTables && promiseTables.ok !== false ? readStoryNow(parseTables(promiseTables.data)) : null;
+            pageFx.promiseDue = resolveDuePromises(payload.promiseHistory, storyNow);
+        }
+        // 对手立绘：素材模式下按对手名取默认立绘，供遭遇演出与打对手的出招使用；找不到就不显示。
+        const battleFoe = pageFx.battle && pageFx.battle.foe;
+        if (battleContext && battleFoe && sceneAssets && sceneAssets.enabled) {
+            pageFx.foeImage = resolveGenerated(resolveSpriteAsset(battleFoe, '', assetMatchCtx).url) || '';
+        }
         const illustrationOffset = currentOffset >= 0
             ? currentOffset
             : (/(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset) ? locateTextOffsetInSource(sceneSourceForOffset, currentText) : -1);
@@ -2249,15 +2554,66 @@ export function createIgsReaderHost(options = {}) {
             }
             // HTML 卡片独占舞台前景：不继承上一段角色的立绘，也不发起素材解析。
             if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
-                const spriteHit = resolveSpriteAsset(spriteChar, spriteMood, assetMatchCtx);
+                // 服装按当前页在原文中的位置取该角色最近一次服装栏，本楼没写时取跨楼继承，再按表格 / 装备 / DNA 兜底；指令与偏移同源于原文。
+                const outfitMap = sceneAssets.characterOutfits;
+                // 对白页正文带「[名字]：」前缀，原文里是「名字|表情|服装|对白」，去掉前缀再定位，避免取到整楼最后一条服装。
+                const outfitOffset = currentOffset >= 0 ? currentOffset
+                    : locateTextOffsetInSource(sceneSourceForOffset, String(currentText || '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, ''));
+                const outfitDirectives = extractSceneDirectives(sceneSourceForOffset, { outfitResolver: createOutfitResolver(sceneAssets) }).directives;
+                noteUnlistedOutfits(outfitDirectives, sceneAssets);
+                const sceneRaw = String((sceneStateForBg && sceneStateForBg.scene) || '').trim();
+                const outfitFor = (character) => (outfitMap && Object.keys(outfitMap).length
+                    ? resolveSpriteOutfit({
+                        directives: outfitDirectives,
+                        character,
+                        offset: outfitOffset >= 0 ? outfitOffset : Number.NaN,
+                        inheritedOutfits: payload.inheritedOutfits,
+                        sceneAssets,
+                        scene: [classifySceneKey(sceneAssets.scenes, sceneRaw).key || '', sceneRaw],
+                        readClues: (names) => collectOutfitClues(readStatusHudTables(), names),
+                        resolveDna: (name) => { const hit = resolveCharacterDna(sceneAssets.characterDna, name); return hit ? hit.dna : null; },
+                    }).outfit
+                    : '');
+                const wantedOutfit = outfitFor(spriteChar);
+                const spriteHit = resolveSpriteAsset(spriteChar, spriteMood, assetMatchCtx, wantedOutfit);
                 noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
                 spriteImage = resolveGenerated(spriteHit.url) || null;
                 if (spriteImage) {
                     spriteCharacter = spriteHit.character || spriteChar;
+                    spriteOutfit = spriteHit.outfit || '';
                     // Position keys follow the resolved image slot (exact mood / group /
                     // 默认), not the raw mood word, so every mood that maps to the same
                     // sprite image shares one position across pages.
                     spriteMood = spriteHit.slot || spriteMood;
+                }
+                if (!chatPage && normalizeStageCastSettings(readerSettings.stageCast).enabled) {
+                    const castUser = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
+                    const castKeyOf = (name) => resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, name) || name;
+                    const speakerKey = castKeyOf(spriteChar);
+                    // 修罗场：恋爱对象先于最近开口的人入选，保证对象在台上（romanceDuo 关闭时不钉）。
+                    const castPin = normalizeStageCastSettings(readerSettings.stageCast).romanceDuo
+                        ? resolveRomanceRivalTarget(pageFx, speakerKey, castKeyOf) : '';
+                    const cast = resolveStageCast({
+                        directives: outfitDirectives,
+                        offset: outfitOffset,
+                        keyOf: castKeyOf,
+                        isEligible: (name) => !isNonSpriteSpeaker(name, castUser) && !isSystemRole(name, readerSettings.systemRole),
+                        limit: STAGE_CAST_SCAN_LIMIT,
+                        // 站位「离开」（castStage 开启时）：离开后没再开口的人不进名单，再次开口即回台。
+                        goneAt: normalizeStageCastSettings(readerSettings.stageCast).castStage ? pageFx.goneAt : null,
+                    });
+                    const picked = pickCastMembers(cast, {
+                        speakerKey,
+                        pin: castPin,
+                        seats: STAGE_CAST_MAX_SEATS - (spriteImage ? 1 : 0),
+                        resolve: (m) => {
+                            const hit = resolveSpriteAsset(m.character, m.mood, assetMatchCtx, outfitFor(m.character));
+                            const image = resolveGenerated(hit.url);
+                            return image ? { character: hit.character || m.character, mood: hit.slot || m.mood, outfit: hit.outfit || '', image } : null;
+                        },
+                    });
+                    if (spriteImage && picked.speakerOrder != null) speakerCastOrder = picked.speakerOrder;
+                    castSprites.push(...picked.members);
                 }
             }
         }
@@ -2273,6 +2629,8 @@ export function createIgsReaderHost(options = {}) {
             resolvedSpeaker = '';
             bubbleMood = '';
             if (hideChatSprite) spriteImage = null;
+            castSprites = [];
+            speakerCastOrder = null;
         }
         const statusSceneInfo = {
             location: firstDefined(sceneStateForBg && sceneStateForBg.scene, scene.location, ''),
@@ -2322,6 +2680,7 @@ export function createIgsReaderHost(options = {}) {
                 speaker: resolvedSpeaker,
                 spriteCharacter,
                 spriteMood,
+                spriteOutfit,
                 statusEmotion: bubbleMood,
                 textType,
                 text: currentText,
@@ -2332,11 +2691,14 @@ export function createIgsReaderHost(options = {}) {
                 chatPage,
                 chat,
                 fx: pageFx,
+                nsfwSpan,
                 segments: cloneData(segments),
                 currentIndex: normalizedIndex,
                 progress: buildProgressText(normalizedIndex, segments.length, displayImageState),
                 backgroundImage: finalBackgroundImage,
                 spriteImage,
+                castSprites,
+                speakerCastOrder,
                 images: cloneData(displayImageState.images),
                 imageSlots: cloneData(displayImageState.slots),
                 unboundImages: cloneData(displayImageState.unboundImages),
@@ -2360,7 +2722,7 @@ export function createIgsReaderHost(options = {}) {
                 illustrationActive: Boolean(illustrationUrl),
                 illustrationSlot: illustrationHit ? illustrationHit.slot : null,
                 illustrationUrl,
-                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)),
+                statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw), { character: spriteCharacter, outfit: spriteOutfit }),
             },
             readerSettings: cloneData(readerSettings),
             input: {
@@ -2439,12 +2801,15 @@ export function createIgsReaderHost(options = {}) {
                 checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏（仅旁白）'),
                 statusHud.showLocation ? `<div class="igs-settings-sub">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示更多的场景信息')}</div>` : '',
                 '<div class="igs-source-filter-grid">',
-                field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']])),
                 field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小')),
-                field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景')),
-                field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色')),
                 '</div>',
                 `<div class="igs-settings-field"><span>读取表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: listed.ok ? '' : '数据库插件未就绪' })}</div>`,
+                `<details class="igs-settings-sub igs-settings-advanced" data-advanced="status-hud-look"${asyncState.advancedOpen && asyncState.advancedOpen['status-hud-look'] ? ' open' : ''}><summary>高级：头像圆角、背景与配色</summary>`,
+                '<div class="igs-source-filter-grid">',
+                field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']])),
+                field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景')),
+                field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色')),
+                '</div></details>',
                 '</div>',
             ].join('');
             return `<div class="${sectionClass}" data-status-hud>${body}</div>`;
@@ -2459,6 +2824,7 @@ export function createIgsReaderHost(options = {}) {
 
         if (tab === 'basic') {
             return renderTemplate(getSettingsTabTemplate('basic'), {
+                performancePresetBar: renderPerformancePresetBar(reader, { home: true, extraRows: renderQualityRow(reader) }),
                 advancedFilterOpen: advancedOpen('source-filter'),
                 advancedRegexOpen: advancedOpen('virtual-regex'),
                 openModeField: `<div class="igs-segmented-field">${field(
@@ -2472,6 +2838,7 @@ export function createIgsReaderHost(options = {}) {
                     ),
                 )}</div>`,
                 settingsToggles: checkbox('bridge.showToasts', bridge.showToasts, '显示提示弹窗'),
+                resetBasicSourceFilter: renderSectionResetButton('basic-source-filter'),
                 filterToggle: checkbox('bridge.sourceFilter.enabled', sourceFilter.enabled, '启用标签筛选'),
                 filterHidden: hiddenAttr(!sourceFilter.enabled),
                 filterOptionToggles: checkbox('bridge.sourceFilter.stripHtmlComments', sourceFilter.stripHtmlComments, '排除 HTML 注释')
@@ -2492,7 +2859,7 @@ export function createIgsReaderHost(options = {}) {
                 regexExtraRules: (() => {
                     const rules = Array.isArray(bridge.virtualRegex.rules) ? bridge.virtualRegex.rules : [];
                     return `<div class="igs-settings-full igs-settings-sub igs-regex-extra-rules">
-                        <div class="igs-settings-row"><strong>手动追加规则（按顺序执行）</strong><button class="igs-settings-action" data-action="add-virtual-regex" type="button">新增一条</button></div>
+                        <div class="igs-settings-section-head"><div class="igs-settings-subhead">自定义规则（依上下顺序生效）</div><button class="igs-settings-action" data-action="add-virtual-regex" type="button">新增一条</button></div>
                         ${rules.map((rule, index) => `<div class="igs-settings-sub igs-regex-extra-rule">
                             <div class="igs-settings-row"><strong>追加规则 ${index + 1}</strong><button class="igs-settings-action" data-action="remove-virtual-regex:${index}" type="button">删除</button></div>
                             <div class="igs-source-filter-grid">
@@ -2511,14 +2878,14 @@ export function createIgsReaderHost(options = {}) {
             const sourceMode = normalizeImageSourceMode(imageApi.mode);
             const auto = normalizeAutoIllustrationSettings(mergeLegacyNaiSettings(bridge.autoIllustration, imageApi));
             const sourceNotes = {
-                nai: '剧情 CG、素材和重画都由 IGS 直接请求 NovelAI；副 LLM 负责规划画面并写标签。',
-                dbgen: '剧情 CG、素材和重画都交给数据库生图插件：提示词、画师串和 NAI Key 在该插件里设置，IGS 只决定画哪一段、画什么。',
-                extension: '智绘姬自己在楼层里出图，IGS 负责读取展示、重画时代点它的按钮。智绘姬无法按需生成剧情 CG 和素材，这两项仍用下方内置 NAI（未填 Key 则不生成）。',
+                nai: '使用你的 NAI Key 直接生成剧情 CG、素材和重画。',
+                dbgen: '提示词、画师串和 NAI Key 在数据库生图插件里设置。',
+                extension: '剧情 CG、素材和物品图交给智绘姬出图，画师串与质量词沿用智绘姬的设置；下方 NAI Key 可选，填了会在智绘姬不可用或出图失败时兜底。',
             };
             const contentNotes = {
                 nai: '当前图像来源：IGS 内置 NAI。',
-                dbgen: '当前图像来源：数据库生图插件（提示词由插件书写，下方副 LLM 仅用于剧情 CG 选段落）。',
-                extension: '当前图像来源：智绘姬。剧情 CG 与素材改用内置 NAI 生成，请在「图像来源」填写 NAI Key。',
+                dbgen: '当前图像来源：数据库生图插件。',
+                extension: '当前图像来源：智绘姬。剧情 CG 与素材由智绘姬出图；在「图像来源」填写 NAI Key 可作兜底。',
             };
             const openaiDisabled = auto.llm.source !== 'openai';
             const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
@@ -2541,7 +2908,7 @@ export function createIgsReaderHost(options = {}) {
                 advancedAssetTemplatesOpen: advancedOpen('asset-templates'),
                 autoAssetOptionsHidden: hiddenAttr(!auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
                 assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
-                autoLlmNote: esc(sourceMode === 'dbgen' ? '数据库生图插件自己写提示词；副 LLM 只用来给剧情 CG 选插图位置，素材不经过副 LLM。' : '为剧情 CG 选插图位置并写标签；素材缺失时写人物 / 场景标签。'),
+                autoLlmNote: esc('用于规划剧情 CG 的画面，可沿用酒馆 API 或单独配置。'),
                 adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
                 pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：轮询间隔 ms', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
                 pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：轮询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
@@ -2560,7 +2927,7 @@ export function createIgsReaderHost(options = {}) {
                 autoAssetBackgroundNegativeTemplateField: field('bridge.autoIllustration.assets.templates.backgroundNegative', '场景负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.backgroundNegative', auto.assets.templates.backgroundNegative, '不希望场景出现的 tag')),
                 autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
                 autoAssetSpriteNegativeTemplateField: field('bridge.autoIllustration.assets.templates.spriteNegative', '人物负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.spriteNegative', auto.assets.templates.spriteNegative, '不希望人物立绘出现的 tag')),
-                autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, '温和重试模式下追加到 CG 场景')),
+                autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, 'NSFW 被拒后重试时追加的提示词')),
                 autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图'),
                 autoInterludeHidden: hiddenAttr(!auto.interludeEnabled),
                 autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
@@ -2575,13 +2942,16 @@ export function createIgsReaderHost(options = {}) {
                 autoAssetBackgroundNegativeTemplateField: field('bridge.autoIllustration.assets.templates.backgroundNegative', '场景负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.backgroundNegative', auto.assets.templates.backgroundNegative, '不希望场景出现的 tag')),
                 autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
                 autoAssetSpriteNegativeTemplateField: field('bridge.autoIllustration.assets.templates.spriteNegative', '人物负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.spriteNegative', auto.assets.templates.spriteNegative, '不希望人物立绘出现的 tag')),
-                autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, '温和重试模式下追加到 CG 场景')),
+                autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, 'NSFW 被拒后重试时追加的提示词')),
                 autoSharedHidden: hiddenAttr((!auto.nsfwEnabled && !auto.interludeEnabled && !auto.assets.spriteEnabled && !auto.assets.backgroundEnabled)
                     || (sourceMode === 'dbgen' && !auto.nsfwEnabled && !auto.interludeEnabled)),
+                // 物品图：独立开关（默认关闭，关闭时不读表、不联网）；背包格子图标是用户显示偏好。
+                itemImageFields: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '自动生成物品图（读取物品表与 igs-fx:item 标签）')
+                    + field('bridge.itemImages.inventoryIcon', '背包格子图标', selectInput('bridge.itemImages.inventoryIcon', normalizeItemImageSettings(bridge.itemImages).inventoryIcon, [['image', '生图'], ['svg', 'SVG']])),
                 autoLlmApiHidden: hiddenAttr(openaiDisabled),
                 autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API（消耗主模型额度）'], ['openai', '独立 OpenAI 兼容 API']])),
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
-                autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '留空则不发送 Authorization', openaiDisabled)),
+                autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '无需 Key 可留空', openaiDisabled)),
                 autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', modelPicker('bridge.autoIllustration.llm.model', auto.llm.model, asyncState.llmModels, 'fetch-llm-models', 'gpt-4o-mini', openaiDisabled)),
                 autoLlmModelsMessage: esc(asyncState.llmModelsMessage || ''),
                 autoLlmPromptsOpen: advancedOpen('llm-prompts'),
@@ -2616,16 +2986,35 @@ export function createIgsReaderHost(options = {}) {
             const disabled = !sceneAssets.enabled;
             const sceneSettingsSubTab = normalizeSceneSettingsSubTab(asyncState.sceneSettingsSubTab);
             const subTab = normalizeSceneSubTab(asyncState.sceneSubTab);
-            const scenesHtml = renderSceneAssetList(sceneAssets.scenes || {}, {
+            // 文件夹只是本地界面归类：按当前预设读取，素材数据原样传给原有列表渲染器。
+            const assetFolders = loadAssetFolders((options.global || globalThis).localStorage, asyncState.scenePresetName || '');
+            const firstUrl = (values) => (values.map((v) => String(v || '').trim()).find(Boolean) || '');
+            const sceneListOptions = {
                 expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
                 timeGroups: sceneAssets.timeGroups || [],
                 weatherGroups: sceneAssets.weatherGroups || [],
+                folderSelect: (name) => renderAssetFolderSelect('scenes', name, assetFolders.scenes),
+            };
+            const scenesHtml = renderAssetFolderView('scenes', sceneAssets.scenes || {}, {
+                state: assetFolders,
+                renderList: (subset) => renderSceneAssetList(subset, sceneListOptions),
+                thumbOf: (name, value) => (typeof value === 'string' ? value : firstUrl([value && value.url].concat(Object.values((value && value.times) || {}).map((t) => (typeof t === 'string' ? t : t && t.url))))),
             });
-            const charsHtml = renderCharacterAssetList(sceneAssets.characters || {}, {
+            const charListOptions = {
                 aliases: sceneAssets.characterAliases || {},
+                characterDna: sceneAssets.characterDna || {},
+                characterOutfits: sceneAssets.characterOutfits || {},
+                outfitTabs: asyncState.outfitTabs || {},
+                sceneAssets,
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
                 statusAvatars: sceneAssets.statusAvatars || {},
+                folderSelect: (name) => renderAssetFolderSelect('characters', name, assetFolders.characters),
+            };
+            const charsHtml = renderAssetFolderView('characters', sceneAssets.characters || {}, {
+                state: assetFolders,
+                renderList: (subset) => renderCharacterAssetList(subset, charListOptions),
+                thumbOf: (name, moods) => firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]])),
             });
             const scenePresets = loadScenePresets((options.global || globalThis).localStorage);
             const scenePresetBarHtml = renderScenePresetBar(scenePresets, asyncState.scenePresetName || '');
@@ -2655,9 +3044,12 @@ export function createIgsReaderHost(options = {}) {
         </div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
-        <div class="igs-source-filter-note">词库里没有的情绪词，按只属于某一组的字归到该组（如词库有「嘲讽」，则「嘲弄」「嘲笑」归入同组）。两字词容易错配，建议配合下方「待确认情绪词」核对。</div>
+        <div class="igs-source-filter-note">词库里没有的相近情绪词也会自动归组（如「嘲弄」归入「嘲讽」）。可能归错，可在下方「待确认情绪词」里核对。</div>
         ${renderMoodReviewList(loadMoodReview((options.global || globalThis).localStorage), sceneAssets.moodGroups || [])}
+        ${renderOutfitReviewList(loadOutfitReview((options.global || globalThis).localStorage), sceneAssets.characterOutfits || {}, sceneAssets.characters || {})}
+        ${renderDnaCandidateBar(asyncState.dnaCandidate)}
         ${charsHtml}
+        ${renderDnaOnlyCharacterList(sceneAssets.characterDna || {}, sceneAssets.characters || {})}
         <div class="igs-settings-row"><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认词库</button></div>
       </div>`;
             const sceneSettingsSubTabs = SCENE_SETTINGS_SUBTAB_DEFS.map(([id, label]) => (
@@ -2669,7 +3061,16 @@ export function createIgsReaderHost(options = {}) {
             const sceneValues = {
                 promptRuleField: `<div class="igs-settings-field"><textarea data-prompt-rule-draft="1" aria-label="注入提示词" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea></div>`,
                 promptRuleStatus: esc(asyncState.promptRuleStatus || ''),
+                promptRuleOutfitHint: scenePromptRuleOutfitHint(sceneAssets.promptRule)
+                    ? `<div class="igs-source-filter-note" data-result="prompt-rule-outfit">${esc(PROMPT_RULE_OUTFIT_HINT)}</div>` : '',
+                promptAdvanced: `<details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-injection"${asyncState.advancedOpen && asyncState.advancedOpen['prompt-injection'] ? ' open' : ''}><summary>高级：注入位置与按需注入</summary>`
+                    + field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区（推荐，可命中缓存）'], ['depth0', '聊天末尾 depth 0（旧版）']]),
+                        'AI 不太按标签输出时可以改回聊天末尾。')
+                    + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入（精简写法，聊天/日常/战斗/亲密只在用得上时附完整说明）')
+                    + '<div class="igs-source-filter-note">关闭后每轮发送全部已开启演出的完整说明，与旧版一致。</div></details>',
                 scenePresetBar: scenePresetBarHtml,
+                sceneEraToggle: checkbox('bridge.sceneAssets.ancient', isAncientEra(sceneAssets), '适配古代背景')
+                    + `<div class="igs-source-filter-note">随预设保存。开启后不再给 AI 提供来电、通知、线上聊天、拍照、电视、广播等现代演出，已开启的演出里的时间和器物也会按古代的说法写；通知换成家仆通报，线上聊天换成书信往来。</div>`,
                 sceneSubTabs: subTabsHtml,
                 sceneSubPane: subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane),
             };
@@ -2701,12 +3102,13 @@ export function createIgsReaderHost(options = {}) {
         const systemRole = normalizeSystemRoleSettings(reader.systemRole);
         const weatherFx = normalizeWeatherFxSettings(reader.weatherFx);
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
-            dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px（旧设置保留）`]);
+            dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px`]);
         }
         const readerSubTabs = READER_SUBTAB_DEFS.map(([id, label]) => (
             `<button type="button" class="igs-reader-subtab${readerSubTab === id ? ' is-active' : ''}" data-reader-subtab="${id}" role="tab" aria-selected="${readerSubTab === id ? 'true' : 'false'}">${label}</button>`
         )).join('');
         const readerValues = {
+            ...sectionResetPlaceholders(),
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
             dialogFontWeightField: field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])),
             dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
@@ -2725,38 +3127,49 @@ export function createIgsReaderHost(options = {}) {
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
             statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
             backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜'),
-            typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '启用打字机演出'),
+            advancedDialogSizeOpen: advancedOpen('dialog-size'),
+            advancedDialogBackgroundOpen: advancedOpen('dialog-background'),
+            typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '打字机（逐字显示）'),
             typewriterControls: typewriter.enabled ? `<div class="igs-settings-sub">${[
                 `<div class="igs-source-filter-grid">`,
                 field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度')),
                 field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式')),
                 `</div>`,
+                typewriter.mode === 'classic' ? `<details class="igs-settings-sub igs-settings-advanced" data-advanced="typewriter-classic"${advancedOpen('typewriter-classic')}><summary>高级：标点停顿与打字音效</summary>` : '',
+                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.punctuationPause', typewriter.punctuationPause, '标点处停顿（逗号顿一下、句末停一拍）') : '',
+                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.prosody', typewriter.prosody === true, '说话韵律（按词断句、句尾拖长、问句上扬、感叹加重，随情绪变化）') : '',
                 typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.sound.enabled', typewriter.sound.enabled, '启用打字音效') : '',
                 typewriter.mode === 'classic' && typewriter.sound.enabled
                     ? `<div class="igs-settings-sub igs-source-filter-grid">`
-                        + field('readerSettings.typewriter.sound.dialogueVolume', '台词音效（嘟嘟嘟）', rangeInput('readerSettings.typewriter.sound.dialogueVolume', typewriter.sound.dialogueVolume ?? typewriter.sound.volume ?? 0.5))
-                        + field('readerSettings.typewriter.sound.narrationVolume', '旁白音效（键盘）', rangeInput('readerSettings.typewriter.sound.narrationVolume', typewriter.sound.narrationVolume ?? typewriter.sound.volume ?? 0.5))
+                        + field('readerSettings.typewriter.sound.dialoguePreset', '台词音色', selectInput('readerSettings.typewriter.sound.dialoguePreset', typewriter.sound.dialoguePreset, TYPEWRITER_VOICE_LABELS))
+                        + field('readerSettings.typewriter.sound.dialogueVolume', '台词音量', rangeInput('readerSettings.typewriter.sound.dialogueVolume', typewriter.sound.dialogueVolume ?? typewriter.sound.volume ?? 0.5, '台词音量'))
+                        + field('readerSettings.typewriter.sound.narrationPreset', '旁白音色', selectInput('readerSettings.typewriter.sound.narrationPreset', typewriter.sound.narrationPreset, TYPEWRITER_VOICE_LABELS))
+                        + field('readerSettings.typewriter.sound.narrationVolume', '旁白音量', rangeInput('readerSettings.typewriter.sound.narrationVolume', typewriter.sound.narrationVolume ?? typewriter.sound.volume ?? 0.5, '旁白音量'))
+                        + field('readerSettings.typewriter.sound.thoughtPreset', '心里话音色', selectInput('readerSettings.typewriter.sound.thoughtPreset', typewriter.sound.thoughtPreset, [['follow', '跟随台词']].concat(TYPEWRITER_VOICE_LABELS)))
                         + `</div>`
+                        + checkbox('readerSettings.typewriter.sound.speakerPitch', typewriter.sound.speakerPitch, '按角色区分音高（同一角色固定，随情绪微调；台词按立绘位置分左右声道）')
+                        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="typewriter-preview-sound">试听</button>`
                     : '',
+                typewriter.mode === 'classic' ? '</details>' : '',
             ].join('')}</div>` : '',
-            stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '启用震动演出'),
+            stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '震动（按情绪抖动画面）'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             systemRoleFields: renderSystemRoleSettings(systemRole, {
                 fontOptions: DIALOG_FONT_OPTIONS,
                 narrationColor: toHex(displayTheme.narrationColor || '#f4f4f6'),
                 disabled: themeDisabled,
             }),
-            chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '启用线上交流演出'),
+            chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '线上交流（手机聊天气泡）'),
             chatShowSettings: chatShow.enabled ? renderChatShowSettings(chatShow, {
                 promptDraft: asyncState.chatPromptDraft,
                 promptStatus: asyncState.chatPromptStatus,
             }) : '',
-            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '启用天气演出'),
+            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '天气（雨、雪、雾等粒子）'),
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
-            fxSections: renderFxPerformanceSections(reader),
-            performanceToggles: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '启用人物过场滤镜（仅旁白）')
-                + checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按照句号自动分页（仅旁白）')
-                + checkbox('readerSettings.statusHud.showSpriteOnNsfw', !reader.statusHud || reader.statusHud.showSpriteOnNsfw !== false, '显示NSFW场景下的人物立绘'),
+            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '人物过场滤镜（旁白时压暗立绘）'),
+            sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按句号自动分页（仅旁白）'),
+            nsfwSpriteModeField: field('readerSettings.statusHud.nsfwSpriteMode', 'NSFW场景立绘', segmentedInput('readerSettings.statusHud.nsfwSpriteMode', normalizeStatusHudSettings(reader.statusHud).nsfwSpriteMode, [['show', '显示'], ['hide', '隐藏'], ['shade', '仅露脸剪影']], 'NSFW场景立绘'))
+                + '<div class="igs-source-filter-note">仅露脸剪影：头部以下压成剪影。需要先在立绘编辑里标定头部，未标定的立绘整张显示为剪影。</div>',
             nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', 'NSFW黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], 'NSFW黑幕强度')),
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
@@ -2785,6 +3198,17 @@ export function createIgsReaderHost(options = {}) {
             dialogBgField: dialogBgEditable ? field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), !themeCustom)) : '',
             dialogBgOpacityField: !dialogBgEditable ? '' : field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随玻璃'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], !themeCustom)),
         };
+        if (readerSubTab === 'performance') {
+            readerValues.performanceSections = renderPerformanceSettings(reader, {
+                typewriter: readerValues.typewriterToggle + readerValues.typewriterControls,
+                stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
+                weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
+                chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],
+                narrationFilter: readerValues.narrationFilterToggle,
+                sentencePaging: readerValues.sentencePagingToggle,
+                nsfw: readerValues.nsfwSpriteModeField + readerValues.nsfwVeilLevelField,
+            }, (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]));
+        }
         return renderTemplate(getSettingsTabTemplate('reader'), {
             readerSubTabs,
             readerSubPane: renderTemplate(getReaderSubTabTemplate(readerSubTab), readerValues),
@@ -2967,6 +3391,10 @@ export function createIgsReaderHost(options = {}) {
             return { ok: true };
         };
         const recordController = createRecordPanelController(doc, options.global, fillRecordDraft, {
+            // 背包格位图标是用户选择：生图 / SVG；物品图只读本聊天本地缓存。
+            getItemIconMode: () => normalizeItemImageSettings(resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.itemImages).inventoryIcon,
+            resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
+            subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
             getTheme: () => resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.settingsTheme,
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
@@ -3111,6 +3539,19 @@ export function createIgsReaderHost(options = {}) {
                     return;
                 }
                 event.preventDefault();
+                const busyLabel = settingsBusyLabel(actName);
+                if (busyLabel) {
+                    if (settingsBusyActions.has(actName)) return;
+                    settingsBusyActions.add(actName);
+                    const restore = markSettingsButtonBusy(action, busyLabel);
+                    try {
+                        await controller.invoke(actName);
+                    } finally {
+                        settingsBusyActions.delete(actName);
+                        restore();
+                    }
+                    return;
+                }
                 await controller.invoke(actName);
                 return;
             }
@@ -3154,6 +3595,19 @@ export function createIgsReaderHost(options = {}) {
                 }
                 return;
             }
+            const dnaChar = target.getAttribute('data-dna-char');
+            const dnaField = target.getAttribute('data-dna-field');
+            if (dnaChar && dnaField) {
+                // 角色 DNA 输入只更新草稿，关闭设置时统一保存；不重绘，避免丢焦点。
+                if (!CHARACTER_DNA_FIELDS.includes(dnaField) || ['__proto__', 'constructor', 'prototype'].includes(dnaChar)) return;
+                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                const dnaMap = assets.characterDna && typeof assets.characterDna === 'object' && !Array.isArray(assets.characterDna)
+                    ? assets.characterDna : (assets.characterDna = {});
+                const entry = Object.hasOwn(dnaMap, dnaChar) && dnaMap[dnaChar] && typeof dnaMap[dnaChar] === 'object' ? dnaMap[dnaChar] : (dnaMap[dnaChar] = {});
+                entry[dnaField] = target.value;
+                state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
+                return;
+            }
             const sceneBg = target.getAttribute('data-scene-bg');
             if (sceneBg) {
                 controller.invoke('scene-set-bg-url:' + encodeURIComponent(sceneBg) + ':' + target.value);
@@ -3171,6 +3625,16 @@ export function createIgsReaderHost(options = {}) {
                 controller.invoke('scene-set-time-url:' + encodeURIComponent(sceneTimeBg) + ':' + encodeURIComponent(sceneTime) + ':' + target.value);
                 return;
             }
+            const outfitAvatarChar = target.getAttribute('data-scene-outfit-avatar-char');
+            if (outfitAvatarChar) {
+                controller.invoke('scene-set-outfit-avatar-url:' + [outfitAvatarChar, target.getAttribute('data-scene-outfit-avatar')].map((v) => encodeURIComponent(v || '')).join(':') + ':' + target.value);
+                return;
+            }
+            const outfitChar = target.getAttribute('data-scene-outfit-char');
+            if (outfitChar) {
+                controller.invoke('scene-set-outfit-mood-url:' + [outfitChar, target.getAttribute('data-scene-outfit'), target.getAttribute('data-scene-outfit-mood')].map((v) => encodeURIComponent(v || '')).join(':') + ':' + target.value);
+                return;
+            }
             const sceneChar = target.getAttribute('data-scene-char');
             const sceneMood = target.getAttribute('data-scene-mood');
             if (sceneChar && sceneMood) {
@@ -3181,6 +3645,13 @@ export function createIgsReaderHost(options = {}) {
             const modelSync = event.target && event.target.getAttribute ? event.target.getAttribute('data-model-sync') : '';
             if (modelSync) {
                 controller.setValue(modelSync, event.target.value);
+                return;
+            }
+            // 素材「移到文件夹」只改本地界面归类，不写入设置草稿。
+            const folderMoveKind = event.target && event.target.getAttribute ? event.target.getAttribute('data-asset-folder-move') : '';
+            if (folderMoveKind) {
+                const assetName = event.target.getAttribute('data-asset-name') || '';
+                controller.invoke(`asset-folder-move:${folderMoveKind}:${encodeURIComponent(assetName)}:${encodeURIComponent(event.target.value)}`);
                 return;
             }
             if (event.target && event.target.getAttribute && event.target.getAttribute('data-preset-select') !== null) {
@@ -3242,6 +3713,11 @@ export function createIgsReaderHost(options = {}) {
             isActiveReader: (reader) => state.activeReader === reader,
             closeReader,
             resolveAssetUrl: (url) => resolveReaderAssetUrl(url, current),
+            // 获得物品演出：只读本聊天物品图本地缓存。
+            resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
+            chatId: typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '',
+            onDailyPhoto: saveDailyPhoto,
+            onRomanceMemory: saveRomanceMemory,
         });
         if (current.dom.progress) {
             const progressText = formatReaderProgress(snapshot);
@@ -3327,16 +3803,32 @@ export function createIgsReaderHost(options = {}) {
     async function resolveGeneratedReview(item, status, name) {
         const service = options.generatedAssets;
         if (!service || !item) return;
+        // 「加入素材库并编辑 DNA」= 先按普通入库处理，成功后再打开 DNA 候选确认；候选不自动写入。
+        const withDna = status === 'library-dna' && item.type === 'sprite';
+        if (status === 'library-dna') status = 'library';
+        let addedName = '';
         if (status === 'library') {
             const added = mutateGeneratedLibrary((library) => addGeneratedAssetToLibrary(library, item, name || item.name));
             if (!added || added.ok === false) {
                 writeToastSafe('加入素材库失败：名称不能为空');
                 return;
             }
+            addedName = added.name;
             writeToastSafe(`已加入素材库「${added.name}」`);
         }
         if (typeof service.setStatus === 'function') await service.setStatus(item.key, status);
         if (state.activeReader) rerenderActiveReader();
+        if (withDna && addedName) openDnaCandidate(addedName, item.tags);
+    }
+
+    function openDnaCandidate(characterName, tags) {
+        if (!state.activeSettings) openSettings({ tab: 'scene', mode: state.activeReader ? state.activeReader.mode : 'pc' });
+        if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+        state.activeSettings.tab = 'scene';
+        state.activeSettings.tab = 'scene';
+        state.activeSettings.asyncState.sceneSubTab = 'characters';
+        state.activeSettings.asyncState.dnaCandidate = { name: String(characterName || ''), tags: String(tags || '') };
+        return rerenderSettings();
     }
 
     function syncOptionBubblesAfterRender(current, snapshot) {
@@ -3400,6 +3892,7 @@ export function createIgsReaderHost(options = {}) {
         const container = current.dom.root;
         const prevBody = container.querySelector('.igs-settings-body');
         const scrollTop = prevBody ? prevBody.scrollTop : 0;
+        const focus = captureSettingsFocus(container);
         clearChildren(container);
         container.innerHTML = snapshot.html;
         current.dom.overlay = container.querySelector('#igs-unified-settings');
@@ -3415,10 +3908,35 @@ export function createIgsReaderHost(options = {}) {
         }
         const nextBody = container.querySelector('.igs-settings-body');
         if (nextBody && scrollTop) nextBody.scrollTop = scrollTop;
+        restoreSettingsFocus(container, focus);
+        remountSettingsNotice(container, current.notice);
+        settingsDialogs.remount(container);
+    }
+
+    // 保存失败或动作抛异常时在面板内提示原因；面板重绘时由 updateMountedSettings 补回。
+    const settingsBusyActions = new Set();
+
+    function reportSettingsFailure(result) {
+        const current = state.activeSettings;
+        const message = describeSettingsFailure(result);
+        if (!current || !message) return;
+        if (result && result.thrown) console.warn('[IGS] 设置操作失败', result.thrown);
+        const notice = { message, until: Date.now() + SETTINGS_NOTICE_MS };
+        current.notice = notice;
+        remountSettingsNotice(current.dom && current.dom.root, notice);
+        setTimeout(() => {
+            if (state.activeSettings !== current || current.notice !== notice) return;
+            current.notice = null;
+            remountSettingsNotice(current.dom && current.dom.root, null);
+        }, SETTINGS_NOTICE_MS);
     }
 
 
     function attachBridgeReaderExtras(readerSettings, bridge) {
+        // readerSettings 是每次新克隆的快照，按时代拨掉现代专属演出不会写回存档。
+        Object.assign(readerSettings, applyFxEra(readerSettings, isAncientEra(bridge.sceneAssets)));
+        // 演出与聊天层据此切换古风画面（家仆通报、书信往来）。
+        readerSettings._ancientEra = isAncientEra(bridge.sceneAssets);
         readerSettings._sceneAssets = bridge.sceneAssets || null;
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
         readerSettings._vnTheme = readerSettings.vnTheme || null;
@@ -3502,6 +4020,8 @@ export function createIgsReaderHost(options = {}) {
         normalized.enabled = normalizeBoolean(normalized.enabled, false);
         normalized.generated = normalizeGeneratedLibrary(normalized.generated);
         normalized.promptRule = normalizeScenePromptRule(normalized.promptRule);
+        normalized.promptPlacement = normalizePromptPlacement(normalized.promptPlacement);
+        normalized.promptAdaptive = normalized.promptAdaptive !== false;
         if (!normalized.scenes || typeof normalized.scenes !== 'object' || Array.isArray(normalized.scenes)) {
             normalized.scenes = {};
         }
@@ -3541,6 +4061,8 @@ export function createIgsReaderHost(options = {}) {
             }
             normalized.characterAliases[characterName] = nextAliases;
         }
+        normalized.characterDna = normalizeCharacterDnaMap(normalized.characterDna);
+        normalized.characterOutfits = normalizeCharacterOutfits(normalized.characterOutfits);
         normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
         // init group arrays
         if (!Array.isArray(normalized.timeGroups)) normalized.timeGroups = [];
@@ -3635,6 +4157,7 @@ export function createIgsReaderHost(options = {}) {
             btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
             spriteLayouts: {},
             spriteHeads: {},
+            castSlotLayouts: {},
         };
         const normalized = { ...base, ...src, _v: currentVersion };
         delete normalized.emptyBackgroundColor;
@@ -3670,6 +4193,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.chatShow = normalizeChatShowSettings(normalized.chatShow);
         normalized.systemRole = normalizeSystemRoleSettings(normalized.systemRole);
         normalized.weatherFx = normalizeWeatherFxSettings(normalized.weatherFx);
+        normalized.performance = normalizePerformanceSettings(normalized.performance);
         for (const [key, normalize] of Object.entries(FX_SETTINGS_NORMALIZERS)) normalized[key] = normalize(normalized[key]);
         normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
@@ -3677,6 +4201,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
         normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);
         normalized.spriteHeads = normalizeSpriteHeads(normalized.spriteHeads);
+        normalized.castSlotLayouts = normalizeSpriteLayouts(normalized.castSlotLayouts);
         // 对话主题（vnTheme）按模式存进 readerSettings。独立于 _v 门控处理，避免 schema 版本
         // 不符时被清空。settings.vnTheme 缺失时回退到旧的全局 bridge.vnTheme（legacyTheme），
         // 实现从全局存储到按模式存储的平滑迁移。旧的全局 dialogFont 只在读取时迁移为
@@ -3891,6 +4416,10 @@ function locateTextOffsetInSource(source, segText, from = 0) {
         if (end < map.length) return map[hit];
     }
     return -1;
+}
+
+function stripSegmentSpeaker(text) {
+    return String(text || '').trim().replace(/^\*+|\*+$/g, '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, '');
 }
 
 function resolveIllustrationMarkerImageUrl(imageState, slot) {

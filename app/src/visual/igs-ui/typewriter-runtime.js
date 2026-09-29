@@ -1,6 +1,7 @@
 import { prefersReducedMotion } from './reduced-motion.js';
 import { measureClassicReveal } from './typewriter-classic.js';
-import { scheduleTypewriterAudio } from './typewriter-audio.js';
+import { TYPEWRITER_VOICE_DEFAULTS, normalizeTypewriterVoice, resolveTypewriterVoice, scheduleTypewriterAudio } from './typewriter-audio.js';
+import { duckSceneAudio } from './scene-audio.js';
 
 export const TYPEWRITER_SPEED_IDS = Object.freeze(['fast', 'medium', 'slow']);
 export const TYPEWRITER_SPEED_MS = Object.freeze({
@@ -12,7 +13,15 @@ export const TYPEWRITER_DEFAULTS = Object.freeze({
     enabled: false,
     speed: 'medium',
     mode: 'soft',
-    sound: Object.freeze({ enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 }),
+    punctuationPause: false,
+    prosody: false,
+    sound: Object.freeze({
+        enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5,
+        dialoguePreset: TYPEWRITER_VOICE_DEFAULTS.dialogue,
+        thoughtPreset: TYPEWRITER_VOICE_DEFAULTS.thought,
+        narrationPreset: TYPEWRITER_VOICE_DEFAULTS.narration,
+        speakerPitch: false,
+    }),
 });
 
 const activeJobs = new WeakMap();
@@ -55,6 +64,21 @@ function getVisualDuration(text, speed) {
     );
 }
 
+// 柔和模式的遮罩从左向右整体推进（ease-out），元素左缘被扫到的时刻即其揭开时刻。
+function withDelay(revealAt, delay) {
+    return delay ? (element) => delay + (Number(revealAt(element)) || 0) : revealAt;
+}
+
+function softRevealAt(target, duration) {
+    return (element) => {
+        if (!element || typeof element.getBoundingClientRect !== 'function' || typeof target.getBoundingClientRect !== 'function') return 0;
+        const bounds = target.getBoundingClientRect();
+        if (!bounds || !(bounds.width > 0)) return 0;
+        const fraction = Math.min(1, Math.max(0, (element.getBoundingClientRect().left - bounds.left) / bounds.width));
+        return duration * (1 - Math.sqrt(1 - fraction));
+    };
+}
+
 function setRunningState(target, running) {
     if (!target) return;
     if (target.dataset) target.dataset.igsTypewriter = running ? 'running' : 'complete';
@@ -68,11 +92,19 @@ export function normalizeTypewriterSettings(value) {
         enabled: source.enabled === true,
         speed: TYPEWRITER_SPEED_IDS.includes(source.speed) ? source.speed : TYPEWRITER_DEFAULTS.speed,
         mode: source.mode === 'classic' ? 'classic' : 'soft',
+        punctuationPause: source.punctuationPause === true,
+        // 说话韵律（仅经典模式生效）：节奏、语调与文字演出联动共用这一个开关，默认关闭。
+        prosody: source.prosody === true,
         sound: {
             enabled: sound.enabled === undefined ? true : sound.enabled === true,
             volume: legacyVolume,
             dialogueVolume: clampVolume(sound.dialogueVolume, legacyVolume),
             narrationVolume: clampVolume(sound.narrationVolume, legacyVolume),
+            dialoguePreset: normalizeTypewriterVoice(sound.dialoguePreset, TYPEWRITER_VOICE_DEFAULTS.dialogue),
+            // 'follow' plays thoughts with the dialogue voice.
+            thoughtPreset: sound.thoughtPreset === 'follow' ? 'follow' : normalizeTypewriterVoice(sound.thoughtPreset, TYPEWRITER_VOICE_DEFAULTS.thought),
+            narrationPreset: normalizeTypewriterVoice(sound.narrationPreset, TYPEWRITER_VOICE_DEFAULTS.narration),
+            speakerPitch: sound.speakerPitch === true,
         },
     };
 }
@@ -91,6 +123,7 @@ export function cancelTypewriter(target, { finish = true } = {}) {
     // cancel path leaves the underlying DOM complete and immediately visible.
     void finish;
     job.audio?.stop?.();
+    job.releaseDuck?.();
     if (job.animation && typeof job.animation.cancel === 'function') {
         job.animation.cancel();
     }
@@ -102,6 +135,7 @@ function settleVisualJob(target, job) {
     if (activeJobs.get(target) !== job) return;
     activeJobs.delete(target);
     job.audio?.stop?.();
+    job.releaseDuck?.();
     if (job.animation && typeof job.animation.cancel === 'function') {
         job.animation.cancel();
     }
@@ -126,9 +160,11 @@ export function applyTypewriterEffect(target, options = {}) {
     if (!target) return { animated: false, finish() {} };
     const settings = normalizeTypewriterSettings(options);
     const key = String(options.key || '');
-    const jobVolume = options.textType === 'dialogue' || options.textType === 'thought'
-        ? settings.sound.dialogueVolume
-        : settings.sound.narrationVolume;
+    const spoken = options.textType === 'dialogue' || options.textType === 'thought';
+    const jobVolume = spoken ? settings.sound.dialogueVolume : settings.sound.narrationVolume;
+    // 说话韵律：情绪与句调只给台词和心里话；旁白只分拍，不带角色情绪、不起伏。
+    const emotion = spoken ? String(options.emotion || '') : '';
+    const voice = resolveTypewriterVoice(settings.sound, options.textType, options.speaker, { emotion: options.emotion, posX: options.posX, prosody: settings.prosody });
     const reducedMotion = options.reducedMotion === true
         || (options.reducedMotion !== false
             && prefersReducedMotion());
@@ -140,8 +176,14 @@ export function applyTypewriterEffect(target, options = {}) {
     const activeJob = activeJobs.get(target);
     if (activeJob && key && activeJob.key === key) {
         const sameSettings = activeJob.mode === settings.mode
+            && activeJob.punctuationPause === settings.punctuationPause
+            && activeJob.prosody === settings.prosody
+            && (!settings.prosody || activeJob.emotion === emotion)
             && activeJob.soundEnabled === settings.sound.enabled
-            && activeJob.volume === jobVolume;
+            && activeJob.volume === jobVolume
+            && activeJob.voice.preset === voice.preset
+            && activeJob.voice.pitch === voice.pitch
+            && activeJob.voice.pan === voice.pan;
         if (!sameSettings) {
             cancelTypewriter(target, { finish: true });
             return { animated: false, finish() {} };
@@ -159,17 +201,22 @@ export function applyTypewriterEffect(target, options = {}) {
         return { animated: false, finish() {} };
     }
 
-    const classic = settings.mode === 'classic' ? measureClassicReveal(target, TYPEWRITER_SPEED_MS[settings.speed]) : null;
+    const classic = settings.mode === 'classic'
+        ? measureClassicReveal(target, TYPEWRITER_SPEED_MS[settings.speed], { punctuationPause: settings.punctuationPause, prosody: settings.prosody, intonation: spoken, emotion })
+        : null;
     const duration = settings.mode === 'classic' ? classic?.duration : getVisualDuration(readText(target), settings.speed);
     if (!duration) {
         setRunningState(target, false);
         return { animated: false, finish() {} };
     }
 
+    // delay：文字出现前的空白停顿（亲密演出的「回答前停顿一拍」），打字音与行内文字效果同步后移。
+    const delay = Math.max(0, Math.min(3000, Number(options.delay) || 0));
     const animation = createVisualAnimation(target, options, classic ? classic.frames : VISUAL_REVEAL_KEYFRAMES, {
         duration,
         easing: classic ? 'linear' : 'ease-out',
         fill: 'both',
+        ...(delay ? { delay } : {}),
     });
     if (!animation || typeof animation.cancel !== 'function') {
         setRunningState(target, false);
@@ -177,13 +224,15 @@ export function applyTypewriterEffect(target, options = {}) {
     }
     if (key) renderedKeys.set(target, key);
 
-    const job = { animation, key, mode: settings.mode, soundEnabled: settings.sound.enabled, volume: jobVolume, audio: null };
+    const job = { animation, key, mode: settings.mode, punctuationPause: settings.punctuationPause, prosody: settings.prosody, emotion, soundEnabled: settings.sound.enabled, volume: jobVolume, voice, audio: null };
     activeJobs.set(target, job);
     setRunningState(target, true);
     if (classic && settings.sound.enabled && jobVolume > 0) {
-        job.audio = scheduleTypewriterAudio(classic.events, {
+        job.audio = scheduleTypewriterAudio(delay ? classic.events.map((event) => ({ ...event, timeMs: event.timeMs + delay })) : classic.events, {
             textType: options.textType, volume: jobVolume, audioScheduler: options.audioScheduler, phone: options.phone === true,
+            preset: voice.preset, pitch: voice.pitch, pan: voice.pan, prosody: settings.prosody, emotion,
         });
+        if (job.audio) job.releaseDuck = duckSceneAudio();
     }
     const settle = () => settleVisualJob(target, job);
     if (typeof animation.addEventListener === 'function') {
@@ -196,6 +245,7 @@ export function applyTypewriterEffect(target, options = {}) {
 
     return {
         animated: true,
+        revealDelay: withDelay(classic ? classic.revealAt : softRevealAt(target, duration), delay),
         finish() {
             cancelTypewriter(target, { finish: true });
         },

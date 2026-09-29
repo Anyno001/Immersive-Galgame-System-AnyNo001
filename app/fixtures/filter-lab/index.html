@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>IGS 环境滤镜试看</title>
+<link rel="icon" href="data:,">
+<!-- 本地调色工具：在 app/ 下起静态服务（如 python -m http.server 8123），打开 /fixtures/filter-lab/。加 ?grid=1 看全部时段 × 天气。不进 bundle。 -->
+<style>
+body{font:14px/1.5 system-ui,sans-serif;margin:20px;background:#16161a;color:#e8e8ee;}
+h1{font-size:20px;margin:0 0 4px;}
+.hint{color:#8a8a96;font-size:12px;}
+.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:12px 0;}
+select,input[type=text]{background:#22222a;color:#e8e8ee;border:1px solid #3c3c48;border-radius:6px;padding:4px 8px;}
+button{background:#2a2a33;color:#e8e8ee;border:1px solid #3c3c48;border-radius:6px;padding:5px 10px;cursor:pointer;}
+label{display:inline-flex;gap:6px;align-items:center;}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.pair figcaption,.cell figcaption{font-size:12px;color:#9fb4ff;margin-bottom:4px;}
+figure{margin:0;}
+.stage{position:relative;aspect-ratio:16/9;overflow:hidden;border-radius:8px;background:#000;}
+.stage #igs-stage-motion{position:absolute;inset:0;}
+.stage #igs-bg{position:absolute;inset:0;background-size:cover;background-position:center;}
+.stage #igs-sprite{position:absolute;inset:0;background-repeat:no-repeat;background-size:auto 92%;background-position:50% 100%;z-index:2;}
+.stage .igs-effect-layer,.stage .igs-effect-front-layer{position:absolute;inset:0;pointer-events:none;}
+.stage .igs-effect-front-layer{z-index:3;}
+.grid{display:grid;grid-template-columns:repeat(var(--cols),1fr);gap:8px;}
+#plan{white-space:pre-wrap;margin-top:12px;background:#0e0e12;border-radius:6px;padding:8px;font:12px/1.4 monospace;color:#8fd18f;max-height:220px;overflow:auto;}
+</style>
+<style id="igs-styles"></style>
+</head>
+<body>
+<h1>IGS 环境滤镜试看</h1>
+<div class="hint">左边关闭滤镜，右边开启；默认两边都用白天底图，看「时段全靠滤镜」的效果。调色逻辑直接引用 src/visual/igs-ui/scene-grade.js，与 bundle 一致。</div>
+<div class="controls">
+  <label>时段 <select id="time"><option>清晨</option><option>中午</option><option selected>黄昏</option><option>夜晚</option><option>深夜</option></select></label>
+  <label>天气 <select id="weather"><option value="">（无）</option><option>晴</option><option>多云</option><option>小雨</option><option>雨</option><option>雷阵雨</option><option>暴雨</option><option>小雪</option><option>大雪</option><option>浓雾</option><option>沙尘暴</option></select></label>
+  <label>地点 <input id="location" type="text" value="河边公园"></label>
+  <label>强度 <select id="strength"><option value="light">弱</option><option value="medium" selected>中</option><option value="strong">强</option></select></label>
+  <label><input id="tint" type="checkbox" checked> 环境滤镜（时段）</label>
+  <label><input id="weatherOn" type="checkbox" checked> 天气演出</label>
+  <label><input id="timedArt" type="checkbox"> 用分时段原画</label>
+  <label>叙事 <select id="range"><option value="">无</option><option value="flashback">回忆</option><option value="dream">梦境</option></select></label>
+  <label>立绘系数 <input id="ratio" type="range" min="0" max="1" step="0.05" value="0.55"> <span id="ratio-text">0.55</span></label>
+  <button id="flash">模拟闪电</button>
+  <label>背景 <input id="bg-file" type="file" accept="image/*"></label>
+  <label>立绘 <input id="sprite-file" type="file" accept="image/*"></label>
+  <a href="?grid=1" style="color:#9fb4ff">全部组合 →</a>
+</div>
+<div id="view"></div>
+<div id="plan"></div>
+<script type="module">
+import { SCENE_GRADE_STYLE_TEXT, SPRITE_GRADE_RATIO, applySceneGrade, resolveSceneGradePlan } from '../../src/visual/igs-ui/scene-grade.js';
+import { FX_STYLE_TEXT } from '../../src/visual/igs-ui/fx-style.js';
+import { WEATHER_FLASH_EVENT, applyWeatherFx } from '../../src/visual/igs-ui/weather-fx-runtime.js';
+import { WEATHER_FX_STYLE_TEXT } from '../../src/visual/igs-ui/weather-fx-style.js';
+
+document.getElementById('igs-styles').textContent = `${WEATHER_FX_STYLE_TEXT}\n${FX_STYLE_TEXT}\n${SCENE_GRADE_STYLE_TEXT}`;
+
+const BGS = { 清晨: 'dawn', 中午: 'day', 黄昏: 'dusk', 夜晚: 'night', 深夜: 'minight' };
+const bgFor = (time) => `../record-pages/assets/scene-demo-clean-${BGS[time] || 'day'}.png`;
+// 占位立绘：肤色、发色、白衣与深色裙，便于看色偏。
+const SPRITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 400"><defs><linearGradient id="h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b4636"/><stop offset="1" stop-color="#3e2921"/></linearGradient></defs><path d="M52 120c-6 90 4 170 12 230h72c8-60 18-140 12-230z" fill="url(#h)"/><path d="M60 196c-8 40-14 100-18 204h116c-4-104-10-164-18-204z" fill="#2e3a5c"/><path d="M62 150c-4 22-6 40-4 58h84c2-18 0-36-4-58z" fill="#f4f1ea"/><path d="M92 128h16v24H92z" fill="#f2cdb5"/><ellipse cx="100" cy="98" rx="36" ry="42" fill="#f6d7c3"/><ellipse cx="86" cy="102" rx="4" ry="6" fill="#4a3a8c"/><ellipse cx="114" cy="102" rx="4" ry="6" fill="#4a3a8c"/><ellipse cx="80" cy="116" rx="7" ry="3" fill="#f3a5a0" opacity=".6"/><ellipse cx="120" cy="116" rx="7" ry="3" fill="#f3a5a0" opacity=".6"/><path d="M94 124q6 4 12 0" stroke="#b25a5a" stroke-width="2" fill="none"/><path d="M62 96c0-40 18-58 38-58s40 18 40 58c-10-20-26-30-40-28-14-2-28 8-38 28z" fill="url(#h)"/><path d="M142 160l18 70-10 4-20-66z M58 160l-18 70 10 4 20-66z" fill="#f6d7c3"/><path d="M124 150l6 8-6 8-6-8z" fill="#c23b4a"/></svg>`;
+let spriteUrl = `url("data:image/svg+xml,${encodeURIComponent(SPRITE_SVG)}")`;
+let customBg = '';
+
+function makeStage(caption) {
+    const figure = document.createElement('figure');
+    figure.className = 'cell';
+    figure.innerHTML = `<figcaption>${caption}</figcaption><div class="stage" id="igs-overlay"><div id="igs-stage-motion"><div id="igs-bg"></div><div class="igs-effect-layer"></div><div id="igs-sprite"></div><div class="igs-effect-front-layer"></div></div></div>`;
+    // 多个舞台共用 #igs-overlay：样式按 id 选择器匹配全部，脚本只在各自舞台内查询。
+    return { figure, root: figure.querySelector('.stage') };
+}
+
+function paint(stage, state, graded) {
+    const { root } = stage;
+    const motion = root.querySelector('#igs-stage-motion');
+    root.querySelector('#igs-bg').style.backgroundImage = customBg || `url("${bgFor(state.timedArt ? state.time : '中午')}")`;
+    root.querySelector('#igs-sprite').style.backgroundImage = spriteUrl;
+    for (const name of ['flashback', 'dream']) {
+        if (state.range === name) motion.setAttribute(`data-igs-fx-${name}`, '1');
+        else motion.removeAttribute(`data-igs-fx-${name}`);
+    }
+    const weatherSettings = { enabled: state.weatherOn };
+    if (state.weatherOn) {
+        applyWeatherFx(root.querySelector('.igs-effect-layer'), { settings: weatherSettings, weather: state.weather, location: state.location, time: state.time, front: root.querySelector('.igs-effect-front-layer') });
+    }
+    if (!graded) return null;
+    return applySceneGrade(root, {
+        settings: { enabled: state.tint, strength: state.strength }, weatherSettings,
+        time: state.time, weather: state.weather, location: state.location,
+        ranges: state.range ? { [state.range]: true } : {}, spriteRatio: state.ratio, instant: state.instant,
+    });
+}
+
+const read = () => ({
+    time: document.getElementById('time').value,
+    weather: document.getElementById('weather').value,
+    location: document.getElementById('location').value,
+    strength: document.getElementById('strength').value,
+    tint: document.getElementById('tint').checked,
+    weatherOn: document.getElementById('weatherOn').checked,
+    range: document.getElementById('range').value,
+    ratio: Number(document.getElementById('ratio').value),
+    timedArt: document.getElementById('timedArt').checked,
+});
+
+const view = document.getElementById('view');
+const grid = new URLSearchParams(location.search).get('grid');
+if (grid) {
+    document.querySelector('.controls').style.display = 'none';
+    const times = ['清晨', '中午', '黄昏', '夜晚', '深夜'];
+    const weathers = grid === 'indoor' ? ['', '雨', '大雪'] : ['', '晴', '多云', '雨', '暴雨', '大雪', '浓雾', '沙尘暴'];
+    const place = grid === 'indoor' ? '卧室' : '河边公园';
+    view.className = 'grid';
+    view.style.setProperty('--cols', String(weathers.length + 1));
+    for (const time of times) {
+        const off = makeStage(`${time}｜分时段原画（对照）`);
+        view.appendChild(off.figure);
+        paint(off, { time, weather: '', location: place, weatherOn: false, timedArt: true }, false);
+        for (const weather of weathers) {
+            const stage = makeStage(`${time}｜${weather || '无天气'}`);
+            view.appendChild(stage.figure);
+            paint(stage, { time, weather, location: place, strength: 'medium', tint: true, weatherOn: true, ratio: SPRITE_GRADE_RATIO, instant: true }, true);
+        }
+    }
+} else {
+    view.className = 'pair';
+    const off = makeStage('关闭');
+    const on = makeStage('开启');
+    view.append(off.figure, on.figure);
+    const update = () => {
+        const state = read();
+        document.getElementById('ratio-text').textContent = state.ratio.toFixed(2);
+        paint(off, { ...state, weather: state.weather }, false);
+        const plan = paint(on, state, true);
+        document.getElementById('plan').textContent = JSON.stringify(plan || resolveSceneGradePlan({}), null, 1);
+    };
+    for (const el of document.querySelectorAll('.controls select, .controls input:not([type=file])')) el.addEventListener('input', update);
+    document.getElementById('flash').addEventListener('click', () => on.root.querySelector('.igs-effect-layer').dispatchEvent(new Event(WEATHER_FLASH_EVENT, { bubbles: true })));
+    const loadFile = (input, apply) => input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        apply(`url("${URL.createObjectURL(file)}")`);
+        update();
+    });
+    loadFile(document.getElementById('bg-file'), (url) => { customBg = url; });
+    loadFile(document.getElementById('sprite-file'), (url) => { spriteUrl = url; });
+    update();
+}
+window.__filterLabReady = true;
+</script>
+</body>
+</html>

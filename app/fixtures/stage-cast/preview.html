@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IGS 多角色同屏截图入口</title>
+<style>
+html,body{margin:0;height:100%;background:#0b0d10;}
+#stage{position:relative;margin:0 auto;overflow:hidden;background:linear-gradient(#3a4a63,#1c2230);}
+#igs-overlay{position:absolute;inset:0;overflow:hidden;}
+#igs-stage-motion{position:absolute;inset:0;}
+#igs-sprite{position:absolute;inset:0;z-index:2;background-repeat:no-repeat;pointer-events:none;}
+#caption{position:absolute;left:0;right:0;bottom:0;z-index:5;padding:10px 16px;font:16px sans-serif;color:#eee;background:rgba(0,0,0,.55);}
+</style>
+</head>
+<body>
+<div id="errlog" style="position:fixed;top:0;left:0;z-index:999;max-width:100%;font:12px monospace;color:#f88;background:#300;white-space:pre-wrap;"></div>
+<div id="stage"><div id="igs-overlay"><div id="igs-stage-motion"><div id="igs-cast"></div><div id="igs-sprite"></div></div><div id="caption"></div></div></div>
+<script type="module">
+// 开发截图入口：只用生产模块渲染陪衬层与说话人，调用顺序与 reader-dom-render.js 的多人分支一致。
+// 参数：?size=desktop|mobile|…、?step=<页号>、?align=0 关闭头部对齐、?reduced=1 模拟减弱动效。
+import { STAGE_CAST_STYLE_TEXT, applyCastToDom, clearCastDom, layoutCastSlots, resolveCastCapacity } from '../../src/visual/igs-ui/stage-cast-render.js';
+import { planCastLayouts, playSpeakerCastMotion, resolveCastHandoff } from '../../src/visual/igs-ui/stage-cast-motion.js';
+import { peekSpriteHead, probeSpriteHead, spriteDrawRect } from '../../src/visual/igs-ui/fx-anchor.js';
+import { spriteGeometry } from '../../src/visual/igs-ui/fx-runtime.js';
+import { prefersReducedMotion } from '../../src/visual/igs-ui/reduced-motion.js';
+
+const errors = [];
+const showErrors = () => { document.getElementById('errlog').textContent = errors.join('\n'); };
+window.addEventListener('error', (e) => { errors.push(String(e.message || e.error)); showErrors(); });
+window.addEventListener('unhandledrejection', (e) => { errors.push('rejection: ' + String((e.reason && e.reason.message) || e.reason)); showErrors(); });
+
+const style = document.createElement('style');
+style.textContent = STAGE_CAST_STYLE_TEXT;
+document.head.appendChild(style);
+const params = new URLSearchParams(location.search);
+const SIZES = { desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768], mobile: [390, 844], short: [390, 500], tiny: [320, 568] };
+const [W, H] = SIZES[params.get('size') || 'desktop'] || SIZES.desktop;
+const mode = W < 768 ? 'mobile' : 'pc';
+const align = params.get('align') !== '0';
+const reduced = params.get('reduced') === '1' || prefersReducedMotion();
+const stage = document.getElementById('stage');
+stage.style.width = W + 'px';
+stage.style.height = H + 'px';
+const root = document.getElementById('igs-overlay');
+const spriteEl = document.getElementById('igs-sprite');
+const caption = document.getElementById('caption');
+
+// 三张透明立绘：头的大小与高度各不相同，用来检验头部对齐。
+const FIGURES = {
+    甲: { color: '#e8a0a0', headR: 92, headTop: 40 },
+    乙: { color: '#9cc4ea', headR: 64, headTop: 150 },
+    丙: { color: '#b4dc9c', headR: 78, headTop: 96 },
+};
+const ORDER = { 甲: 0, 乙: 1, 丙: 2 };
+function drawFigure(name, { color, headR, headTop }) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 600;
+    canvas.height = 1200;
+    const g = canvas.getContext('2d');
+    const cy = headTop + headR;
+    const shoulder = cy + headR + 30;
+    g.fillStyle = color;
+    g.beginPath();
+    g.arc(300, cy, headR, 0, Math.PI * 2);
+    g.fill();
+    g.fillRect(300 - headR * 0.35, cy + headR - 4, headR * 0.7, 40);
+    g.beginPath();
+    g.roundRect(120, shoulder, 360, 1200 - shoulder, 60);
+    g.fill();
+    g.fillStyle = 'rgba(0,0,0,.55)';
+    g.font = 'bold 160px sans-serif';
+    g.textAlign = 'center';
+    g.fillText(name, 300, shoulder + 260);
+    return canvas.toDataURL('image/png');
+}
+const urls = Object.fromEntries(Object.entries(FIGURES).map(([name, fig]) => [name, drawFigure(name, fig)]));
+const lines = (params.get('lines') || '甲,乙,丙,甲').split(',').filter((name) => FIGURES[name]);
+const baseLayout = { scale: mode === 'pc' ? 30 : 55, posY: 100 };
+
+let castStage = null;
+let lastPlan = null;
+let lastSpeaker = '';
+let lastPlayed = [];
+
+// 在场名单：同一场景内开过口的人，最近开口的在前；人数与槽位交给生产的 layoutCastSlots。
+function planFor(step) {
+    const speaker = lines[step];
+    const recent = [];
+    for (let i = step; i >= 0; i -= 1) {
+        if (lines[i] !== speaker && !recent.includes(lines[i])) recent.push(lines[i]);
+    }
+    const layout = layoutCastSlots({
+        members: recent.map((name) => ({ character: name, image: urls[name], order: ORDER[name] })),
+        speakerOrder: ORDER[speaker],
+        hasSpeaker: true,
+        capacity: resolveCastCapacity(mode, { width: W, height: H }),
+    });
+    if (!layout.multi) return { speaker, plan: null };
+    const input = {
+        stageW: W,
+        stageH: H,
+        align,
+        speaker: { ...baseLayout, posX: layout.speakerPosX, url: urls[speaker], order: ORDER[speaker], head: null },
+        members: layout.members.map((m) => ({ character: m.character, url: m.image, order: m.order, posX: m.posX, posY: baseLayout.posY, scale: baseLayout.scale, head: null })),
+        peek: peekSpriteHead,
+    };
+    return { speaker, plan: planCastLayouts(input) };
+}
+
+function applyStep(step) {
+    const { speaker, plan } = planFor(step);
+    const sp = plan && plan.speaker ? plan.speaker : { ...baseLayout, posX: 50, url: urls[speaker] };
+    spriteEl.style.backgroundImage = `url("${urls[speaker]}")`;
+    spriteEl.style.backgroundSize = `${sp.scale}%`;
+    spriteEl.style.backgroundPosition = `${sp.posX}% ${sp.posY}%`;
+    let motion = null;
+    if (plan && plan.members.length) {
+        const prevStage = castStage;
+        const handoff = resolveCastHandoff(prevStage, { speaker, members: plan.members.map((m) => m.character) });
+        applyCastToDom(root, plan.members, { reduced, handoff });
+        if (prevStage && !reduced) motion = { prevStage, handoff, speaker: { key: speaker, posX: sp.posX, posY: sp.posY } };
+        castStage = {
+            speaker,
+            speakerX: sp.posX,
+            members: plan.members.map((m) => m.character),
+            memberX: Object.fromEntries(plan.members.map((m) => [m.character, m.posX])),
+        };
+    } else {
+        castStage = null;
+        applyCastToDom(root, [], { reduced });
+    }
+    lastPlayed = motion ? playSpeakerCastMotion(spriteEl, motion.prevStage, motion.speaker, motion.handoff) : [];
+    lastPlan = { speaker: sp, members: plan ? plan.members : [] };
+    lastSpeaker = speaker;
+    caption.textContent = `第 ${step + 1} 页 · ${speaker} 开口 · 头部对齐${align ? '开' : '关'}${reduced ? ' · 减弱动效' : ''}`;
+}
+
+function finishAll() {
+    for (const a of document.getAnimations()) {
+        try { a.finish(); } catch { a.cancel(); }
+    }
+    for (const el of Array.from(root.querySelectorAll('[data-igs-cast-leaving]'))) el.remove();
+}
+
+// 重放到第 n 页：之前各页的动画立即结束，只保留第 n 页的动画，供截图脚本暂停在中段。
+function goto(target) {
+    const n = Math.max(0, Math.min(lines.length - 1, Number(target) || 0));
+    for (const a of document.getAnimations()) a.cancel();
+    clearCastDom(root);
+    castStage = null;
+    for (let i = 0; i < n; i += 1) {
+        applyStep(i);
+        finishAll();
+    }
+    applyStep(n);
+    return n;
+}
+
+const round = (v) => Math.round(v * 10) / 10;
+function measure(entry) {
+    const geo = spriteGeometry({ posX: entry.posX, posY: entry.posY, scale: entry.scale, head: null }, peekSpriteHead(entry.url));
+    const rect = geo ? spriteDrawRect(W, H, geo) : null;
+    if (!rect || !geo.head) return { headTop: null, headW: null };
+    return { headTop: round(rect.top + rect.h * geo.head.top), headW: round(rect.w * geo.head.w) };
+}
+const SKIP = ['offset', 'easing', 'composite', 'computedOffset'];
+function probe() {
+    const sp = lastPlan ? lastPlan.speaker : null;
+    const layoutOf = (e) => ({ posX: e.posX, posY: round(e.posY), scale: round(e.scale), ...measure(e) });
+    return {
+        mode, align, reduced, speaker: lastSpeaker, played: lastPlayed,
+        speakerLayout: sp ? layoutOf(sp) : null,
+        members: (lastPlan ? lastPlan.members : []).map((m) => ({ character: m.character, ...layoutOf(m) })),
+        castEls: Array.from(root.querySelectorAll('#igs-cast .igs-cast-sprite')).map((el) => ({
+            character: el.getAttribute('data-igs-cast-char'),
+            leaving: el.hasAttribute('data-igs-cast-leaving'),
+            backgroundPosition: el.style.backgroundPosition,
+        })),
+        animations: document.getAnimations().map((a) => {
+            const t = a.effect && a.effect.target;
+            const kf = a.effect && a.effect.getKeyframes ? a.effect.getKeyframes() : [];
+            const pick = (k) => (k ? Object.fromEntries(Object.entries(k).filter(([p]) => !SKIP.includes(p))) : null);
+            return {
+                target: t ? (t.id || t.getAttribute('data-igs-cast-char') || '') : '',
+                from: pick(kf[0]),
+                to: pick(kf[kf.length - 1]),
+                duration: a.effect ? a.effect.getTiming().duration : null,
+                currentTime: a.currentTime == null ? null : Math.round(a.currentTime),
+                playState: a.playState,
+            };
+        }),
+        errors: errors.slice(),
+    };
+}
+
+window.__stageCast = { ready: false, goto, probe, finishAll };
+Promise.all(Object.values(urls).map((url) => probeSpriteHead(url, document))).then(() => {
+    goto(params.has('step') ? Number(params.get('step')) : lines.length - 1);
+    finishAll();
+    window.__stageCast.ready = true;
+}).catch((e) => { errors.push('init: ' + e.message); showErrors(); });
+</script>
+</body>
+</html>

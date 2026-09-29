@@ -47,3 +47,24 @@ test('gate: html card sanitizer strips scripts, handlers and script urls', () =>
     assert.doesNotMatch(html, /script|onclick|javascript|iframe/i);
     assert.match(html, /<svg><rect width="10%"\/><\/svg>/);
 });
+
+const LEGACY_EXCLUDE = 'thinking\nSubtext_think\nStatus_block\ntext_to_image\nparallel_world\naftertalk\nimage';
+
+test('gate:scene:source-filter default excludes meta:检定结果 and migrates legacy default only', () => {
+    assert.match(normalizeSourceFilter({}).textExcludeTags, /(^|\n)meta:检定结果$/);
+    assert.equal(normalizeSourceFilter({ textExcludeTags: LEGACY_EXCLUDE }).textExcludeTags, normalizeSourceFilter({}).textExcludeTags);
+    assert.equal(normalizeSourceFilter({ textExcludeTags: LEGACY_EXCLUDE.replace(/\n/g, '\r\n') }).textExcludeTags, normalizeSourceFilter({}).textExcludeTags);
+    assert.equal(normalizeSourceFilter({ textExcludeTags: 'thinking' }).textExcludeTags, 'thinking');
+    assert.equal(normalizeSourceFilter({ textExcludeTags: '' }).textExcludeTags, '');
+});
+
+test('gate:scene:source-filter default filter hides option check result block from reader text', () => {
+    const payload = buildIgsTextPayload('<content>我撑开伞。<meta:检定结果>\n元叙事：1d100=17\n</meta:检定结果>雨还在下。</content>', {
+        sourceFilter: normalizeSourceFilter({ textExcludeTags: LEGACY_EXCLUDE }),
+    });
+    assert.equal(payload.hasExcludedTextBlocks, true);
+    assert.doesNotMatch(payload.textSource, /检定结果|1d100/);
+    assert.match(payload.textSource, /我撑开伞。/);
+    assert.match(payload.textSource, /雨还在下。/);
+});
+

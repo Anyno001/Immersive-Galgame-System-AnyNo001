@@ -4,7 +4,8 @@ import { requestWithSoftRetry, DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
 import { parseIllustrationPlan } from './planner-parser.js';
 import { normalizeAutoIllustrationSettings } from './auto-illustration-settings.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
-import { stripIllustrationMarkers } from '../../scene/scene-directives.js';
+import { resolveCharacterKey, stripIllustrationMarkers } from '../../scene/scene-directives.js';
+import { buildCharacterDnaPromptParts, isCharacterDnaEmpty, mergePromptTags, resolveCharacterDna } from '../../scene/character-dna.js';
 
 const MARKER_RE = /(?:\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>)/gi;
 
@@ -18,6 +19,65 @@ function toReadableText(raw) {
     return numberParagraphs(raw).paragraphs.map((p) => p.text).join('\n');
 }
 
+// 按既有别名归约取主名 DNA；没有 DNA 映射时返回 null，调用方保持旧行为。
+function createDnaResolver(sceneAssets) {
+    const dnaMap = sceneAssets && sceneAssets.characterDna;
+    if (!dnaMap || typeof dnaMap !== 'object' || Array.isArray(dnaMap)) return null;
+    const canonical = (name) => resolveCharacterKey(sceneAssets.characters || {}, sceneAssets.characterAliases || {}, name) || '';
+    const resolve = (name) => {
+        const hit = resolveCharacterDna(dnaMap, name, canonical);
+        return hit && !isCharacterDnaEmpty(hit.dna) ? hit : null;
+    };
+    return { canonical, resolve };
+}
+
+export function summarizeCharacterDna(characters, sceneAssets) {
+    const resolver = createDnaResolver(sceneAssets);
+    if (!resolver) return [];
+    const seen = new Set();
+    const out = [];
+    for (const name of Array.isArray(characters) ? characters : []) {
+        const hit = resolver.resolve(name);
+        if (!hit || seen.has(hit.name)) continue;
+        seen.add(hit.name);
+        out.push({ name: hit.name, identity: hit.dna.identity, defaultAppearance: hit.dna.defaultAppearance });
+    }
+    return out;
+}
+
+// CG 顺序：triggerWords → identity → 规划得到的当前外观/动作；defaultAppearance 只交给 planner，不在这里追加。
+// 具名 char 直接绑定；旧格式无名 char 只在「本张单人且上下文只有一个角色」时绑定，否则不注入并给出 warning。
+export function bindCharacterDnaToSlots(slots, sceneAssets, contextCharacters = []) {
+    const resolver = createDnaResolver(sceneAssets);
+    const warnings = [];
+    if (!resolver || !Array.isArray(slots)) return { slots, warnings };
+    const contextNames = new Set((Array.isArray(contextCharacters) ? contextCharacters : [])
+        .map((name) => resolver.canonical(name) || String(name || '').trim())
+        .filter(Boolean));
+    const onlyContextName = contextNames.size === 1 ? Array.from(contextNames)[0] : '';
+    const next = slots.map((slot) => {
+        const chars = Array.isArray(slot.chars) ? slot.chars : [];
+        let ambiguous = false;
+        const bound = chars.map((char) => {
+            const named = char.name && char.name !== '未知' ? char.name : '';
+            let hit = null;
+            if (named) hit = resolver.resolve(named);
+            else if (chars.length === 1 && onlyContextName) hit = resolver.resolve(onlyContextName);
+            else ambiguous = true;
+            if (!hit) return char;
+            const parts = buildCharacterDnaPromptParts(hit.dna);
+            return {
+                ...char,
+                tags: parts.positive ? mergePromptTags(parts.positive, char.tags) : char.tags,
+                uc: parts.negative ? mergePromptTags(parts.negative, char.uc) : char.uc,
+            };
+        });
+        if (ambiguous) warnings.push(`第 ${slot.slot || '?'} 张插图有角色未写名字且无法唯一确定，未注入角色 DNA`);
+        return { ...slot, chars: bound };
+    });
+    return { slots: next, warnings };
+}
+
 export function createAutoIllustrationService(deps) {
     const { messageHost, llm, nai, store, getSettings, events } = deps;
     const random = deps.random || Math.random;
@@ -29,6 +89,10 @@ export function createAutoIllustrationService(deps) {
     let offRendered = null;
     let regexesEnsured = false;
     const settings = () => normalizeAutoIllustrationSettings(getSettings ? getSettings() : null);
+    const readSceneAssets = () => {
+        const value = typeof deps.getSceneAssets === 'function' ? deps.getSceneAssets() : null;
+        return value && typeof value === 'object' ? value : {};
+    };
 
     function remember(key, value) {
         cache.delete(key);
@@ -101,6 +165,7 @@ export function createAutoIllustrationService(deps) {
                 numberedText: formatNumberedParagraphs(numbered.paragraphs),
                 scenes: numbered.scenes, characters: numbered.characters,
                 previousText, want: decision.want, exact: decision.exact, isNsfw: numbered.isNsfw,
+                characterDna: summarizeCharacterDna(numbered.characters, readSceneAssets()),
             });
             plan = await requestWithSoftRetry(llm, {
                 system: s.llm.prompts.illustration,
@@ -125,6 +190,11 @@ export function createAutoIllustrationService(deps) {
             await store.putFloor(key, { ...base, status: 'failed', error: plan.error, updatedAt: now() });
             report('error', `第 ${messageId} 楼插图规划失败，未发送生图请求：${plan.error}`);
             return { ok: false, reason: 'plan-failed', error: plan.error };
+        }
+        {
+            const bound = bindCharacterDnaToSlots(plan.slots, readSceneAssets(), numbered.characters);
+            plan.slots = bound.slots;
+            for (const warning of bound.warnings) report('warn', `第 ${messageId} 楼${warning}`);
         }
 
         const latest = messageHost.readFloor(messageId);

@@ -126,3 +126,53 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
 export function getReferenceDialogTypography(dialogSkin) {
     return REFERENCE_DIALOG_TYPOGRAPHY[dialogSkin] || null;
 }
+
+// 同一字号下各字体的字面大小与字形疏密差异明显：手写/楷体字面偏小、笔画密，需略放大并加行距，
+// 否则切换主题时正文忽大忽小。按字体栈首个字体取值，用户在主题页自选字体时同样生效。
+const DIALOG_FONT_METRICS = Object.freeze({
+    'LXGW WenKai': Object.freeze({ scale: 1.04, leading: 1.06 }),
+    'LXGW WenKai Lite': Object.freeze({ scale: 1.04, leading: 1.06 }),
+    'LXGW Neo ZhiSong': Object.freeze({ scale: 1, leading: 1.04 }),
+    'Source Han Serif CN': Object.freeze({ scale: 1, leading: 1.04 }),
+    'Huiwen Mincho': Object.freeze({ scale: 1.02, leading: 1.05 }),
+    'Tsanger YuYang': Object.freeze({ scale: 1.04, leading: 1.06 }),
+    Yozai: Object.freeze({ scale: 1.07, leading: 1.06 }),
+    'Smiley Sans': Object.freeze({ scale: 1.06, leading: 1.02 }),
+    'ZCOOL KuaiLe': Object.freeze({ scale: 1.03, leading: 1.04 }),
+});
+const NEUTRAL_FONT_METRICS = Object.freeze({ scale: 1, leading: 1 });
+
+export function primaryFontFamily(fontStack) {
+    const first = String(fontStack || '').split(',')[0].trim().replace(/^["']|["']$/g, '');
+    return first && first !== 'inherit' ? first : '';
+}
+
+export function resolveDialogFontMetrics(fontStack) {
+    return DIALOG_FONT_METRICS[primaryFontFamily(fontStack)] || NEUTRAL_FONT_METRICS;
+}
+
+const GENERIC_FAMILIES = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
+const preloadedFamilies = new Set();
+
+// font-display:swap 下首句会先用回退字体排版，经典打字机按回退字形测量后遮罩会错位；
+// 渲染时提前请求本主题用到的字体，之后切换台词/心声/旁白不再闪字。
+export function preloadDialogFonts(doc, fontStacks) {
+    const fonts = doc && doc.fonts;
+    if (!fonts || typeof fonts.load !== 'function') return;
+    for (const stack of fontStacks) {
+        const family = primaryFontFamily(stack);
+        if (!family || GENERIC_FAMILIES.has(family) || preloadedFamilies.has(family)) continue;
+        preloadedFamilies.add(family);
+        try {
+            const pending = fonts.load(`16px "${family}"`, '字');
+            if (pending && typeof pending.catch === 'function') pending.catch(() => preloadedFamilies.delete(family));
+        } catch {
+            preloadedFamilies.delete(family);
+        }
+    }
+}
+
+// 中文正文排版：严格避头尾、中西文自动间距、字距微调；不支持的浏览器按原样渲染。
+export const DIALOG_TYPESETTING_STYLE_TEXT = `
+#igs-overlay #igs-text{line-break:strict;overflow-wrap:break-word;text-autospace:normal;font-kerning:normal;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+`;

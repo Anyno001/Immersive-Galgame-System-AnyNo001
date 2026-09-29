@@ -43,7 +43,10 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
         input.addEventListener('keydown', (event) => event.stopPropagation());
         const actions = doc.createElement('div');
         actions.className = 'igs-asset-review-actions';
-        for (const [act, text] of [['library', '加入素材库'], ['chat', '仅本聊天'], ['discarded', '丢弃']]) {
+        // 立绘额外提供「加入素材库并编辑 DNA」：先完成入库，再把 tags 作为 DNA 候选交给设置页，由用户确认后才写入。
+        const acts = [['library', '加入素材库'], ['chat', '仅本聊天'], ['discarded', '丢弃']];
+        if (item.type === 'sprite') acts.splice(1, 0, ['library-dna', '加入素材库并编辑 DNA']);
+        for (const [act, text] of acts) {
             const button = doc.createElement('button');
             button.type = 'button';
             button.textContent = text;

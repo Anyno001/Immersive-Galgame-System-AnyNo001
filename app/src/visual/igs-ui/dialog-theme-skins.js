@@ -1,6 +1,6 @@
 import {
     CSS_DIALOG_SKINS,
-    CSS_DIALOG_STYLE_TEXT,
+    CSS_DIALOG_STYLE_BY_SKIN,
     DIALOG_SKIN_DAY_MINIMAL,
     DIALOG_SKIN_ELEGANT_EUROPEAN,
     DIALOG_SKIN_WARM_PICTUREBOOK,
@@ -30,7 +30,7 @@ export function isIllustratedDialogSkin(value) {
     return ILLUSTRATED_DIALOG_SKINS.includes(skin);
 }
 
-// 构建脚本按字面占位符内联 PNG，这里必须保留完整字面量。
+// 构建脚本按字面占位符把素材外置到 dist/skins/，这里必须保留完整字面量。
 const DIALOG_THEME_ASSETS = Object.freeze({
     [DIALOG_SKIN_PLANT_COFFEE]: Object.freeze({
         dialog: '__IGS_ASSET__plant-coffee/dialog.png__',
@@ -120,12 +120,18 @@ export function buildSlicedDialogSkinCss(skin, spec, assets) {
     });
 }
 
-export const ILLUSTRATED_DIALOG_STYLE_TEXT = SLICED_DIALOG_SKINS
-    .map((skin) => {
-        const spec = ILLUSTRATED_DIALOG_SPECS[skin];
-        const css = buildSlicedDialogSkinCss(skin, spec, DIALOG_THEME_ASSETS[skin]);
-        if (!spec.compact) return css;
-        return `${css}\n@media (max-width:640px){\n${buildSlicedDialogSkinCss(skin, spec.compact, DIALOG_THEME_ASSETS[skin])}\n}`;
-    })
-    .concat(CSS_DIALOG_STYLE_TEXT)
+function slicedSkinCss(skin) {
+    const spec = ILLUSTRATED_DIALOG_SPECS[skin];
+    const css = buildSlicedDialogSkinCss(skin, spec, DIALOG_THEME_ASSETS[skin]);
+    if (!spec.compact) return css;
+    return `${css}\n@media (max-width:640px){\n${buildSlicedDialogSkinCss(skin, spec.compact, DIALOG_THEME_ASSETS[skin])}\n}`;
+}
+
+export const ILLUSTRATED_DIALOG_STYLE_BY_SKIN = Object.freeze({
+    ...Object.fromEntries(SLICED_DIALOG_SKINS.map((skin) => [skin, slicedSkinCss(skin)])),
+    ...CSS_DIALOG_STYLE_BY_SKIN,
+});
+
+export const ILLUSTRATED_DIALOG_STYLE_TEXT = ILLUSTRATED_DIALOG_SKINS
+    .map((skin) => ILLUSTRATED_DIALOG_STYLE_BY_SKIN[skin])
     .join('\n');

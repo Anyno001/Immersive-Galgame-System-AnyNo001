@@ -59,8 +59,35 @@ export function normalizeChatPromptRule(value) {
     return text === CHAT_SHOW_PROMPT_RULE ? '' : text;
 }
 
-export function resolveChatShowPromptRule(settings) {
-    return normalizeChatShowSettings(settings).promptRule || CHAT_SHOW_PROMPT_RULE;
+// 古代背景：线上聊天换成书信往来，标签不变，只换说法；不提图片、语音等现代消息类型。
+export const CHAT_SHOW_ANCIENT_PROMPT_RULE = `[igs书信往来标签]
+角色之间以书信往来时，用以下标签输出往来的信件（属于允许使用的igs标签）：
+
+[igs-chat:书信标题]
+[igs-chat-time:时间]
+[igs-msg:写信人|信的内容]
+[igs-chat-end]
+
+语法要求：
+1. 每条标签独立成行；一段书信往来以[igs-chat]开始、以[igs-chat-end]结束
+2. 书信标题写「致某某」「某某家书」这类说法
+3. 每封信或回信使用一个[igs-msg]；写信人填写完整角色名，{{user}}写的信填写{{user}}
+4. 信的内容用书面语，每封不超过80字，不得换行，不得含 | 或 ]
+5. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:三日后]
+6. 仅用于书信；当面对话仍使用[igs-char]`;
+
+// 用户自定义的提示词优先，两个时代都不覆盖。
+export function resolveChatShowPromptRule(settings, { ancient = false } = {}) {
+    return normalizeChatShowSettings(settings).promptRule || (ancient ? CHAT_SHOW_ANCIENT_PROMPT_RULE : CHAT_SHOW_PROMPT_RULE);
+}
+
+const CHAT_SHOW_GRAMMAR = `【线上聊天】角色通过手机、网络发消息时，整段聊天用 [igs-chat:会话标题] 开始、[igs-chat-end] 结束；会话标题写群名或对方名字；每条消息一行 [igs-msg:发送者|内容]，发送者写完整角色名，{{user}}发的写{{user}}，系统通知写「系统」；特殊消息加第3栏类型：图片（内容写画面）、语音（内容写说的话）、表情包、撤回（内容可空）；时间间隔单独一行 [igs-chat-time:昨天 22:14]。当面对话仍用 igs-char`;
+
+const CHAT_SHOW_ANCIENT_GRAMMAR = `【书信往来】角色以书信往来时，用 [igs-chat:书信标题] 开始、[igs-chat-end] 结束；标题写「致某某」「某某家书」；每封信一行 [igs-msg:写信人|信的内容]，写信人写完整角色名，{{user}}写的写{{user}}，内容用书面语，不超过80字；时间间隔单独一行 [igs-chat-time:三日后]。当面对话仍用 igs-char`;
+
+// 自定义提示词原样使用；精简写法只替换内置默认。
+export function resolveChatShowGrammar(settings, { ancient = false } = {}) {
+    return normalizeChatShowSettings(settings).promptRule || (ancient ? CHAT_SHOW_ANCIENT_GRAMMAR : CHAT_SHOW_GRAMMAR);
 }
 
 export function normalizeChatMessageType(value) {

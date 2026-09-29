@@ -28,10 +28,6 @@ export function getNextSettingsTheme(theme) {
     return SETTINGS_THEME_OPTIONS[(index + 1) % SETTINGS_THEME_OPTIONS.length].value;
 }
 
-export function getSettingsThemeOption(theme) {
-    return SETTINGS_THEME_OPTIONS.find((option) => option.value === normalizeSettingsTheme(theme)) || SETTINGS_THEME_OPTIONS[0];
-}
-
 function renderSettingsThemeSwatch({ base, accent }) {
     return `<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><rect x=".5" y=".5" width="19" height="19" rx="4" fill="${base}" stroke="rgba(128,128,128,.34)"/><rect x="10.5" y="10.5" width="6" height="6" rx="1.5" fill="${accent}"/></svg>`;
 }

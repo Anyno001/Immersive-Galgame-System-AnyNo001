@@ -1,0 +1,221 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { bootstrapIGS, createMemoryStorage } from '../src/index.js';
+import { buildTagGrammar, collectGrammarBlocks, DEPTH0_REMINDER, normalizePromptPlacement } from '../src/visual/igs-ui/tag-grammar.js';
+import { detectPromptTriggers, estimatePromptTokens } from '../src/scene/prompt-triggers.js';
+import { buildCompactMoodGroupsText, capVocabItems, DEFAULT_MOOD_GROUPS, resolveMoodGroup } from '../src/scene/mood-groups.js';
+import { buildScopedOutfitGroupsText } from '../src/scene/character-outfits.js';
+import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 } from '../src/visual/igs-ui/reader-host-constants.js';
+import { resolveChatShowPromptRule } from '../src/visual/igs-ui/chat-show-runtime.js';
+import { resolveFxPromptRule, resolveItemFxPromptRule } from '../src/visual/igs-ui/fx-prompt.js';
+import { resolveTextFxPromptRule } from '../src/visual/igs-ui/text-fx.js';
+
+const MAIN = 'igs-scene-assets-format-rule';
+const DEPTH0 = 'igs-scene-assets-depth0';
+
+const ALL_ON = Object.freeze({
+    textFx: { enabled: true },
+    fxTags: { enabled: true, call: true, notify: true, flashback: true, dream: true, letterbox: true, sfx: true, eye: true },
+    itemFx: { enabled: true },
+    chatShow: { enabled: true },
+    dailyFx: { enabled: true, timeskip: true, photo: true, letter: true, note: true, bell: true, broadcast: true, fireworks: true, touch: true, alarm: true, omikuji: true, receipt: true, tv: true },
+    battleFx: { enabled: true },
+    romanceFx: { enabled: true, rival: true, confess: true, memories: true },
+});
+
+const len = (text) => Array.from(String(text || '')).length;
+
+function sceneRuleWithMoods() {
+    return DEFAULT_SCENE_PROMPT_RULE
+        .replace('{{mood_groups}}', buildCompactMoodGroupsText(DEFAULT_MOOD_GROUPS))
+        .replace('{{outfit_groups}}', '（暂无登记服装，省略服装栏）')
+        .replace(/\{\{(time|weather|scene)_groups\}\}\n?/g, '');
+}
+
+test('gate:prompt-budget:all-on-fixed-part-stays-under-3000-chars-with-one-shared-header', () => {
+    const { system, depth0 } = buildTagGrammar({ readerSettings: ALL_ON, sceneRule: sceneRuleWithMoods() });
+    assert.ok(len(system) < 3000, `system ${len(system)}`);
+    assert.equal(depth0, '');
+    assert.equal(system.split('[igs标签语法]').length - 1, 1);
+    assert.equal(system.split('通用规则：').length - 1, 1);
+    assert.doesNotMatch(system, /语法要求：/);
+    assert.equal(system.split('示例：').length - 1, 1);
+    // 按需块只列索引行，不出现完整说明。
+    assert.match(system, /【按需】.*线上聊天 igs-chat\/igs-msg\/igs-chat-end/);
+    assert.doesNotMatch(system, /【线上聊天】/);
+    assert.match(system, /效果只有以下9种/);
+});
+
+test('gate:prompt-budget:expanding-adaptive-blocks-only-changes-depth0', () => {
+    const base = buildTagGrammar({ readerSettings: ALL_ON, sceneRule: sceneRuleWithMoods(), budgetTokens: 5000 });
+    const expanded = buildTagGrammar({ readerSettings: ALL_ON, sceneRule: sceneRuleWithMoods(), expand: new Set(['chat', 'battle']), budgetTokens: 5000 });
+    assert.equal(expanded.system, base.system);
+    assert.match(expanded.depth0, /【线上聊天】/);
+    assert.match(expanded.depth0, /【战斗】/);
+    assert.doesNotMatch(expanded.depth0, /【日常演出】/);
+    assert.deepEqual(expanded.expanded.sort(), ['battle', 'chat']);
+});
+
+test('gate:prompt-budget:budget-downgrades-lower-priority-blocks-to-index-lines', () => {
+    const sceneRule = sceneRuleWithMoods();
+    const sceneCost = estimatePromptTokens(sceneRule);
+    const { system, indexed } = buildTagGrammar({
+        readerSettings: ALL_ON,
+        sceneRule,
+        expand: new Set(['chat', 'daily', 'battle', 'romance']),
+        budgetTokens: sceneCost + 450,
+    });
+    assert.match(system, /【场景与台词】/);
+    assert.match(system, /【文字演出】/);
+    assert.ok(indexed.includes('romance'), indexed.join(','));
+    assert.match(system, /亲密 igs-fx:romance/);
+    const full = buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set(['chat', 'daily', 'battle', 'romance']) });
+    assert.ok(estimatePromptTokens(full.system + full.depth0) <= 1500 + estimatePromptTokens(DEPTH0_REMINDER));
+});
+
+test('gate:prompt-budget:custom-chat-rule-is-always-sent-in-full', () => {
+    const blocks = collectGrammarBlocks({ chatShow: { enabled: true, promptRule: '自定义聊天规则' } });
+    assert.equal(blocks.find((b) => b.key === 'chat').adaptive, false);
+    const { system } = buildTagGrammar({ readerSettings: { chatShow: { enabled: true, promptRule: '自定义聊天规则' } } });
+    assert.match(system, /自定义聊天规则/);
+});
+
+test('gate:prompt-budget:triggers-follow-recent-tags-user-words-and-unclosed-pairs', () => {
+    assert.deepEqual([...detectPromptTriggers({})], []);
+    assert.deepEqual([...detectPromptTriggers({ userText: '拿出手机给她发消息' })], ['chat']);
+    assert.deepEqual([...detectPromptTriggers({ userText: '拔剑迎战' })], ['battle']);
+    assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-fx:photo|合影]'] })], ['daily']);
+    // 超出回看层数的标签不算。
+    assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-fx:photo|合影]', '一', '二', '三'] })], []);
+    // 未闭合的成对标签即使在回看范围外也要展开。
+    assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-fx:romance|暧昧]\n正文', '一', '二', '三'], lookback: 3 })], ['romance']);
+    assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-chat:群聊]\n[igs-msg:A|hi]'] })], ['chat']);
+    assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-fx:battle|哥布林]', '战斗继续'], lookback: 1 })], ['battle']);
+    assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-fx:battle|哥布林]', '[igs-fx:battle-end|胜利]', '一', '二', '三'] })], []);
+});
+
+test('gate:prompt-budget:compact-vocab-keeps-slot-words-and-unlisted-words-still-resolve', () => {
+    const compact = buildCompactMoodGroupsText(DEFAULT_MOOD_GROUPS, new Set(['狂喜']));
+    assert.match(compact, /喜悦：狂喜、开心、欢喜/);
+    for (const group of DEFAULT_MOOD_GROUPS) {
+        for (const word of group.words) {
+            assert.equal(resolveMoodGroup(word, DEFAULT_MOOD_GROUPS), group.label, word);
+        }
+    }
+    const capped = capVocabItems(Array.from({ length: 200 }, (_, i) => `词${i}`), 40);
+    assert.equal(capped.at(-1), '等');
+    assert.ok(len(capped.join('、')) <= 42);
+});
+
+test('gate:prompt-budget:outfit-vocab-lists-only-present-characters-or-falls-back-capped', () => {
+    const outfits = { 林小雨: { 校服: {}, 睡衣: {} }, 王老师: { 西装: {} } };
+    assert.equal(buildScopedOutfitGroupsText(outfits, { presentText: '林小雨走进教室' }), '林小雨：校服 / 睡衣');
+    assert.equal(buildScopedOutfitGroupsText(outfits, { presentText: '小雨走进教室', characterAliases: { 林小雨: ['小雨'] } }), '林小雨：校服 / 睡衣');
+    assert.equal(buildScopedOutfitGroupsText(outfits, { presentText: null }), '林小雨：校服 / 睡衣\n王老师：西装');
+    assert.equal(buildScopedOutfitGroupsText(outfits, { presentText: null, limit: 12 }), '林小雨：校服 / 睡衣\n等');
+    assert.equal(normalizePromptPlacement('depth0'), 'depth0');
+    assert.equal(normalizePromptPlacement('bogus'), 'system');
+});
+
+function mountWithHost({ sceneAssets = {}, readerSettings = {}, chat = [] } = {}) {
+    const extensionPrompts = {};
+    const handlers = new Map();
+    const context = {
+        chat,
+        name2: '林小雨',
+        extensionPrompts,
+        event_types: { CHAT_CHANGED: 'chat_changed', GENERATION_STARTED: 'generation_started', GENERATION_ENDED: 'generation_ended' },
+        eventSource: {
+            on(name, fn) { handlers.set(name, [...(handlers.get(name) || []), fn]); },
+            removeListener(name, fn) { handlers.set(name, (handlers.get(name) || []).filter((h) => h !== fn)); },
+        },
+        setExtensionPrompt(key, value, position, depth, scan, role) {
+            extensionPrompts[key] = { value, position, depth, scan, role };
+        },
+    };
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({ sceneAssets: { enabled: true, promptRule: DEFAULT_SCENE_PROMPT_RULE, scenes: {}, characters: {}, ...sceneAssets } }),
+        'igs-reader-settings-v9-default': JSON.stringify(readerSettings),
+    });
+    const vn = bootstrapIGS({
+        global: { localStorage: storage, SillyTavern: { getContext: () => context }, setTimeout: () => 0, clearTimeout() {} },
+        autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    const emit = (name, ...args) => { for (const fn of handlers.get(name) || []) fn(...args); };
+    return { vn, extensionPrompts, emit, context };
+}
+
+test('gate:prompt-budget:generation-start-reinjects-with-triggers-and-skips-impersonate', () => {
+    const { vn, extensionPrompts, emit, context } = mountWithHost({ readerSettings: { chatShow: { enabled: true } } });
+    try {
+        emit('generation_started', 'normal', {}, false);
+        assert.equal(extensionPrompts[MAIN].position, 0);
+        assert.match(extensionPrompts[MAIN].value, /线上聊天 igs-chat/);
+        assert.equal(extensionPrompts[DEPTH0].value, DEPTH0_REMINDER);
+        const systemBefore = extensionPrompts[MAIN].value;
+
+        context.chat.push({ is_user: true, mes: '掏出手机给她发了条微信' });
+        emit('generation_started', 'normal', {}, false);
+        assert.equal(extensionPrompts[MAIN].value, systemBefore);
+        assert.match(extensionPrompts[DEPTH0].value, /【线上聊天】/);
+
+        emit('generation_started', 'impersonate', {}, false);
+        assert.equal(Object.hasOwn(extensionPrompts, MAIN), false);
+        assert.equal(Object.hasOwn(extensionPrompts, DEPTH0), false);
+        emit('generation_ended');
+        assert.equal(extensionPrompts[MAIN].value, systemBefore);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:prompt-budget:depth0-placement-merges-into-one-in-chat-prompt', () => {
+    const { vn, extensionPrompts, emit } = mountWithHost({ sceneAssets: { promptPlacement: 'depth0' } });
+    try {
+        emit('chat_changed');
+        assert.equal(extensionPrompts[MAIN].position, 1);
+        assert.equal(Object.hasOwn(extensionPrompts, DEPTH0), false);
+        assert.doesNotMatch(extensionPrompts[MAIN].value, /本轮按系统说明/);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:prompt-budget:adaptive-off-sends-the-old-full-concatenation', () => {
+    const readerSettings = { chatShow: { enabled: true }, fxTags: ALL_ON.fxTags, itemFx: { enabled: true }, textFx: { enabled: true } };
+    const { vn, extensionPrompts, emit } = mountWithHost({ sceneAssets: { promptAdaptive: false, promptPlacement: 'depth0' }, readerSettings });
+    try {
+        emit('generation_started', 'impersonate', {}, false);
+        const expectedScene = LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3;
+        const value = extensionPrompts[MAIN].value;
+        assert.equal(extensionPrompts[MAIN].position, 1);
+        assert.ok(value.startsWith('[igs标签语法]'), value.slice(0, 40));
+        assert.ok(value.endsWith([
+            resolveChatShowPromptRule({ enabled: true }),
+            resolveFxPromptRule(ALL_ON.fxTags),
+            resolveItemFxPromptRule(true),
+            resolveTextFxPromptRule(true),
+        ].join('\n\n')));
+        assert.ok(expectedScene.includes('{{mood_groups}}'));
+        assert.doesNotMatch(value, /\{\{mood_groups\}\}/);
+        assert.doesNotMatch(value, /【按需】/);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:prompt-budget:ancient-era-applies-to-adaptive-grammar', () => {
+    const { vn, extensionPrompts, emit } = mountWithHost({ sceneAssets: { ancient: true }, readerSettings: { fxTags: ALL_ON.fxTags, chatShow: { enabled: true }, dailyFx: ALL_ON.dailyFx } });
+    try {
+        emit('chat_changed');
+        const value = extensionPrompts[MAIN].value;
+        assert.match(value, /igs时代背景/);
+        assert.match(value, /书信往来 igs-chat/);
+        assert.match(value, /notify\|来人\|/);
+        assert.doesNotMatch(value, /\bcall\|/);
+        assert.doesNotMatch(value, /photo/);
+    } finally {
+        vn.destroy();
+    }
+});

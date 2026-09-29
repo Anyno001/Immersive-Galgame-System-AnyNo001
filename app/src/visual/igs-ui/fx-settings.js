@@ -1,13 +1,35 @@
 import { normalizeEmotionList } from './stage-shake-runtime.js';
 import { FX_TAG_KINDS } from '../../scene/fx-directives.js';
+import { normalizeItemFxSettings } from './fx-item-model.js';
+import { STAGE_DIRECTION_NORMALIZERS, STAGE_DIRECTION_WORD_LIST_PATHS } from './stage-direction-settings.js';
+import { normalizeUiSoundSettings } from './ui-sfx.js';
+import { normalizeAudioMasterSettings } from './audio-bus.js';
+import { normalizeAmbientSoundSettings, normalizeBgmSettings } from './scene-audio.js';
+import { normalizeTextFxSettings } from './text-fx.js';
+import { normalizeClickWaitMarkSettings } from './click-wait-mark.js';
+import { normalizeDailyFxSettings } from './fx-daily-model.js';
+import { normalizeBattleFxSettings } from './fx-battle-model.js';
+import { normalizeRomanceFxSettings } from './romance-settings.js';
+import { normalizeMetaFxSettings } from './meta-settings.js';
+import { normalizeResultFxSettings } from './fx-result-model.js';
 
-export const MANGA_SYMBOL_KINDS = Object.freeze(['anger', 'sweat', 'heart', 'surprise', 'silence', 'gloom', 'sparkle']);
+// 情绪命中按此顺序取第一个符号：同一个词出现在多个词表里时，排在前面的符号优先。
+export const MANGA_SYMBOL_KINDS = Object.freeze([
+    'anger', 'sweat', 'heart', 'surprise', 'silence', 'gloom', 'sparkle',
+    'bulb', 'note', 'zzz', 'heartbreak', 'sigh', 'dizzy', 'fire', 'frost',
+]);
 export const MANGA_SYMBOL_LABELS = Object.freeze({
     anger: '青筋（怒）', sweat: '汗滴', heart: '爱心', surprise: '!?', silence: '……', gloom: '阴沉竖线', sparkle: '闪光',
+    bulb: '灯泡（灵光）', note: '音符', zzz: 'Zzz（困）', heartbreak: '心碎', sigh: '叹气白烟', dizzy: '晕眩螺旋', fire: '火焰（燃）', frost: '寒气（发凉）',
 });
+export const FX_CALL_SPRITE_MODES = Object.freeze(['avatar', 'hide', 'show']);
 export const FX_TAG_LABELS = Object.freeze({
-    call: '来电 / 通话', notify: '通知横幅', flashback: '回忆滤镜', dream: '梦境滤镜', letterbox: '电影黑边', sfx: '拟声词', eye: '睁眼 / 闭眼',
+    call: '来电 / 通话', notify: '通知横幅', flashback: '回忆滤镜', dream: '梦境滤镜', letterbox: '电影黑边', sfx: '拟声音效', eye: '睁眼 / 闭眼',
+    whisper: '悄悄话', nickname: '称呼变化', voicemail: '语音留言', contact: '交换联系方式', cutin: '脸部特写切入', promise: '约定',
+    movie: '看电影', light: '关灯', umbrella: '撑伞',
 });
+// 后加的标签类型需显式勾选：旧存档里「演出标签」已开启的用户不会突然收到新语法。
+const FX_TAG_OPT_IN = new Set(['whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
 
 const freezeList = (list) => Object.freeze(list.slice());
 
@@ -19,6 +41,14 @@ export const MANGA_FX_DEFAULT_SYMBOLS = Object.freeze({
     silence: freezeList(['无语', '沉默', '语塞', '冷淡', '呆滞', '发呆']),
     gloom: freezeList(['阴沉', '郁闷', '沮丧', '失落', '绝望', '消沉', '黑脸']),
     sparkle: freezeList(['兴奋', '期待', '得意', '雀跃', '憧憬', '自豪']),
+    bulb: freezeList(['恍然大悟', '灵光一闪', '灵机一动', '想到了', '明白了', '顿悟', '豁然开朗']),
+    note: freezeList(['开心', '愉快', '高兴', '欢快', '轻快', '哼歌', '心情好']),
+    zzz: freezeList(['困倦', '犯困', '困', '睡着', '打瞌睡', '睡意', '迷糊']),
+    heartbreak: freezeList(['伤心', '心碎', '心痛', '难过', '悲伤', '失恋', '委屈']),
+    sigh: freezeList(['叹气', '疲惫', '心累', '无力', '泄气', '放弃', '累']),
+    dizzy: freezeList(['头晕', '头昏', '混乱', '晕乎乎', '懵', '转晕', '脑子一团乱']),
+    fire: freezeList(['燃起来', '斗志', '热血', '干劲十足', '好胜', '嫉妒', '吃醋']),
+    frost: freezeList(['冷汗', '发凉', '背脊发凉', '毛骨悚然', '胆寒', '吓僵', '冷场']),
 });
 export const MANGA_FX_DEFAULT_SPEED_LINES = freezeList(['震惊', '震撼', '惊骇', '骇然', '决然', '坚决', '激昂']);
 export const HEARTBEAT_FX_DEFAULT_LOVE = freezeList(['心动', '害羞', '脸红', '羞涩', '心跳加速', '小鹿乱撞']);
@@ -66,7 +96,8 @@ export function normalizeFavorToastSettings(value) {
 export function normalizeFxTagsSettings(value) {
     const src = plain(value);
     const out = { enabled: src.enabled === true };
-    for (const kind of FX_TAG_KINDS) out[kind] = src[kind] !== false;
+    for (const kind of FX_TAG_KINDS) out[kind] = FX_TAG_OPT_IN.has(kind) ? src[kind] === true : src[kind] !== false;
+    out.callSprite = FX_CALL_SPRITE_MODES.includes(src.callSprite) ? src.callSprite : 'avatar';
     return out;
 }
 
@@ -98,6 +129,25 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     fxTags: normalizeFxTagsSettings,
     fxSound: normalizeFxSoundSettings,
     fxStyle: normalizeFxStyleSettings,
+    // 获得物品演出独立渲染（fx-item-render），不进入 FX_FEATURE_KEYS。
+    itemFx: normalizeItemFxSettings,
+    // 战斗演出同样独立渲染（fx-battle-render）。
+    battleFx: normalizeBattleFxSettings,
+    // 亲密演出独立渲染（romance-runtime）。
+    romanceFx: normalizeRomanceFxSettings,
+    // Meta 互动独立渲染（meta-runtime），不参与一键档位。
+    metaFx: normalizeMetaFxSettings,
+    // 舞台调度、场景声音与文字演出各自独立运行，同样不进入 FX_FEATURE_KEYS。
+    ...STAGE_DIRECTION_NORMALIZERS,
+    bgm: normalizeBgmSettings,
+    ambientSound: normalizeAmbientSoundSettings,
+    uiSound: normalizeUiSoundSettings,
+    audioMaster: normalizeAudioMasterSettings,
+    textFx: normalizeTextFxSettings,
+    clickWaitMark: normalizeClickWaitMarkSettings,
+    dailyFx: normalizeDailyFxSettings,
+    // 结果展示（选项检定掷骰卡）独立渲染（fx-result），不进入 FX_FEATURE_KEYS。
+    resultFx: normalizeResultFxSettings,
 });
 
 export const FX_FEATURE_KEYS = Object.freeze(['titleCard', 'mangaFx', 'heartbeatFx', 'flashFx', 'favorToast', 'fxTags']);
@@ -121,6 +171,8 @@ export const FX_WORD_LIST_PATHS = Object.freeze([
     'heartbeatFx.love',
     'heartbeatFx.tense',
     'flashFx.emotions',
+    ...STAGE_DIRECTION_WORD_LIST_PATHS,
+    'romanceFx.favorWords',
 ]);
 
 function emotionOf(value) {

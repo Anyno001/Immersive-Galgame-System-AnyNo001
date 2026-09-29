@@ -1,7 +1,11 @@
+import { collectLatestOutfits, createOutfitResolver, normalizeCharacterOutfits, outfitsOfCharacter } from '../scene/character-outfits.js';
+
 import { resolveLegacyReaderMode } from '../storage/legacy-igs.js';
 import { parseSceneText } from '../scene/text-parser.js';
 import { buildIgsTextPayload, getMessagePrimaryText } from '../scene/message-source.js';
 import { extractSceneDirectives, resolveLatestSceneDirective } from '../scene/scene-directives.js';
+import { BATTLE_CHAIN_MAX_FLOORS, createBattleHistoryScanner } from '../scene/battle-context.js';
+import { collectPromises } from '../scene/promise-reminder.js';
 import { PUBLIC_READER_MODES } from '../schemas/reader-mode.js';
 
 export function createIgsCompatApi(app) {
@@ -210,6 +214,79 @@ async function resolveInheritedSceneState(app, visualNovelText, messageId) {
     return null;
 }
 
+// 战斗跨楼继承与骰子联动：只在战斗演出开启时读宿主；逐条交给扫描器，一有结论就停（没有战斗的聊天通常读 2~3 条）。
+async function resolveBattleContext(app, messageId) {
+    if (!app || !app.hostAdapter || typeof app.hostAdapter.getAdjacentMessage !== 'function') return null;
+    let cursor = Number(messageId);
+    if (!Number.isFinite(cursor) || cursor < 0) return null;
+    const scanner = createBattleHistoryScanner();
+    for (let step = 0; step < BATTLE_CHAIN_MAX_FLOORS * 2 + 1; step += 1) {
+        let previous = null;
+        try {
+            previous = await app.hostAdapter.getAdjacentMessage(cursor, -1);
+        } catch (error) {
+            break;
+        }
+        if (!previous || previous.id == null || Number(previous.id) === cursor) break;
+        cursor = Number(previous.id);
+        if (scanner.push({ isUser: previous.isUser === true, text: getMessagePrimaryText(previous) })) break;
+    }
+    return scanner.result();
+}
+
+// 约定到期提醒：只在「约定」标签开启时读宿主原文，向前最多 PROMISE_LOOKBACK_FLOORS 层收集 promise 标签；
+// 来源永远是当前聊天楼层原文，楼层删除或 swipe 切换后自然失效，不写任何存储。
+export const PROMISE_LOOKBACK_FLOORS = 40;
+async function resolvePromiseHistory(app, message, messageId) {
+    const texts = [{ id: messageId, text: getMessagePrimaryText(message) }];
+    if (app && app.hostAdapter && typeof app.hostAdapter.getAdjacentMessage === 'function') {
+        let cursor = Number(messageId);
+        for (let step = 0; Number.isFinite(cursor) && cursor >= 0 && step < PROMISE_LOOKBACK_FLOORS; step += 1) {
+            let previous = null;
+            try {
+                previous = await app.hostAdapter.getAdjacentMessage(cursor, -1);
+            } catch (error) {
+                break;
+            }
+            if (!previous || previous.id == null || Number(previous.id) === cursor) break;
+            cursor = Number(previous.id);
+            texts.unshift({ id: previous.id, text: getMessagePrimaryText(previous) });
+        }
+    }
+    return collectPromises(texts);
+}
+
+// 服装跨楼继承：同一 3 楼窗口内按角色取最近一次服装栏，较近楼层优先；无登记服装时不追溯。
+async function resolveInheritedOutfits(app, sceneAssets, messageId) {
+    const outfits = normalizeCharacterOutfits(sceneAssets && sceneAssets.characterOutfits);
+    if (!Object.keys(outfits).length) return {};
+    if (!app || !app.hostAdapter || typeof app.hostAdapter.getAdjacentMessage !== 'function') return {};
+    const normalizedId = Number(messageId);
+    if (!Number.isFinite(normalizedId) || normalizedId < 0) return {};
+    const assets = { ...sceneAssets, characterOutfits: outfits };
+    const outfitResolver = createOutfitResolver(assets);
+    const resolveKey = (name) => outfitsOfCharacter(outfits, assets.characterAliases, name).key || name;
+    const result = {};
+    let cursor = normalizedId;
+    for (let depth = 0; depth < INHERITED_SCENE_MAX_FLOORS; depth += 1) {
+        let previous = null;
+        try {
+            previous = await app.hostAdapter.getAdjacentMessage(cursor, -1);
+        } catch (error) {
+            return result;
+        }
+        if (!previous || previous.id == null || Number(previous.id) === cursor) return result;
+        cursor = Number(previous.id);
+        const latest = collectLatestOutfits(
+            extractSceneDirectives(getMessagePrimaryText(previous), { outfitResolver }).directives,
+            resolveKey,
+        );
+        for (const [key, value] of Object.entries(latest)) {
+            if (!Object.prototype.hasOwnProperty.call(result, key)) result[key] = value;
+        }
+    }
+    return result;
+}
 
 async function buildReaderPayload(app, message, messageId, readerMode) {
     const unifiedSettings = typeof app.getUnifiedSettingsSnapshot === 'function'
@@ -232,6 +309,17 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     const inheritedSceneState = sceneAssetsEnabled
         ? await resolveInheritedSceneState(app, visualNovelText, messageId)
         : null;
+    const inheritedOutfits = sceneAssetsEnabled
+        ? await resolveInheritedOutfits(app, bridge.sceneAssets, messageId)
+        : {};
+    const battleFxSettings = unifiedSettings && unifiedSettings.readerSettings && unifiedSettings.readerSettings.battleFx;
+    const battleContext = battleFxSettings && battleFxSettings.enabled === true
+        ? await resolveBattleContext(app, messageId)
+        : null;
+    const fxTagSettings = unifiedSettings && unifiedSettings.readerSettings && unifiedSettings.readerSettings.fxTags;
+    const promiseHistory = fxTagSettings && fxTagSettings.enabled === true && fxTagSettings.promise === true
+        ? await resolvePromiseHistory(app, message, messageId)
+        : null;
     const textScene = parseSceneText(
         visualNovelText.formattedText || visualNovelText.visibleText || visualNovelText.cleanedRaw || '',
         { messageId },
@@ -243,6 +331,9 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     return {
         ...visualNovelText,
         inheritedSceneState,
+        inheritedOutfits,
+        battleContext,
+        promiseHistory,
         message,
         messageId,
         mode: readerMode,

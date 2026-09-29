@@ -18,8 +18,8 @@ Immersive Galgame System 是一个 SillyTavern（酒馆）的酒馆助手脚本�
 
 ```bash
 npm run gate    # 完整验收：structure + static + test + simulate + perf + build
-npm test        # 单元测试（53 个）
-npm run simulate # 模拟测试（37 个）
+npm test        # 单元测试（tests/ 下除 simulate 外的全部 *.test.js）
+npm run simulate # 模拟测试（tests/simulate.test.js）
 npm run build   # 构建 bundle
 ```
 

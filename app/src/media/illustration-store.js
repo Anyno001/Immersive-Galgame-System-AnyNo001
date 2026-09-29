@@ -9,6 +9,21 @@ export function slotKeyOf(floor, slot) {
     return `${floorKeyOf(floor)}|${slot}`;
 }
 
+// floorKey = chatId|messageId|swipeId；chatId 可能含 '|'，只从右侧取两段。
+export function parseFloorKey(floorKey) {
+    const parts = String(floorKey || '').split('|');
+    if (parts.length < 3) return null;
+    const swipeId = Number(parts.pop());
+    const messageId = Number(parts.pop());
+    const chatId = parts.join('|');
+    if (!chatId || !Number.isInteger(messageId) || messageId < 0 || !Number.isInteger(swipeId) || swipeId < 0) return null;
+    return { chatId, messageId, swipeId };
+}
+
+// CG 库分页上限：slots 记录内嵌 dataUrl，单页必须有界，避免一次读入全部图片。
+const PAGE_LIMIT_MAX = 48;
+const pageLimitOf = (limit) => Math.max(1, Math.min(Math.trunc(Number(limit)) || 24, PAGE_LIMIT_MAX));
+
 export function createMemoryIllustrationStore() {
     const floors = new Map();
     const slots = new Map();
@@ -21,6 +36,18 @@ export function createMemoryIllustrationStore() {
         },
         async putSlot(floorKey, value) { slots.set(`${floorKey}|${value.slot}`, clone({ ...value, floorKey })); },
         async deleteSlot(floorKey, slot) { return slots.delete(`${floorKey}|${slot}`); },
+        // CG 库：按 key 升序只读分页，只返回已出图（done）的槽位；不修改任何记录。
+        async listDoneSlotsPage({ after = '', limit = 24 } = {}) {
+            const size = pageLimitOf(limit);
+            const keys = Array.from(slots.keys()).filter((k) => !after || k > after).sort();
+            const items = [];
+            for (const k of keys) {
+                const v = slots.get(k);
+                if (v && v.status === 'done' && v.dataUrl) items.push(clone({ ...v, key: k }));
+                if (items.length >= size) return { items, next: k };
+            }
+            return { items, next: '' };
+        },
     };
 }
 
@@ -68,6 +95,29 @@ export function createIndexedDbIllustrationStore(globalObject = globalThis) {
         async deleteSlot(floorKey, slot) {
             await run('slots', 'readwrite', (s) => s.delete(`${floorKey}|${slot}`));
             return true;
+        },
+        // CG 库只读游标分页：不升 DB_VERSION、不建新索引；按主键升序，只收 done 槽位。
+        async listDoneSlotsPage({ after = '', limit = 24 } = {}) {
+            const size = pageLimitOf(limit);
+            const db = await open();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('slots', 'readonly');
+                const KeyRange = globalObject.IDBKeyRange;
+                const range = after && KeyRange ? KeyRange.lowerBound(after, true) : null;
+                const req = tx.objectStore('slots').openCursor(range);
+                const items = [];
+                let next = '';
+                req.onsuccess = () => {
+                    const cursor = req.result;
+                    if (!cursor) return;
+                    const value = cursor.value;
+                    if (value && value.status === 'done' && value.dataUrl) items.push(value);
+                    if (items.length >= size) { next = String(cursor.key); return; }
+                    cursor.continue();
+                };
+                tx.oncomplete = () => resolve({ items, next });
+                tx.onerror = () => reject(tx.error);
+            });
         },
     };
 }

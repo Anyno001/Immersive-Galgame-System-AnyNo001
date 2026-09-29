@@ -146,6 +146,10 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.typewriter.sound.volume',
     'readerSettings.typewriter.sound.dialogueVolume',
     'readerSettings.typewriter.sound.narrationVolume',
+    'readerSettings.typewriter.sound.dialoguePreset',
+    'readerSettings.typewriter.sound.thoughtPreset',
+    'readerSettings.typewriter.sound.narrationPreset',
+    'readerSettings.typewriter.sound.speakerPitch',
     'readerSettings.pinnedBtns',
     'readerSettings.hiddenBtns',
     'readerSettings.btnOrder',
@@ -211,6 +215,8 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.assets.strictMatch',
             'bridge.autoIllustration.assets.maxPerFloor',
             'bridge.autoIllustration.assets.spriteSize',
+            'bridge.itemImages.enabled',
+            'bridge.itemImages.inventoryIcon',
             'bridge.autoIllustration.assets.backgroundSize',
             'bridge.autoIllustration.assets.templates.background',
             'bridge.autoIllustration.assets.templates.backgroundNegative',
@@ -277,6 +283,8 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['regen', '画 CG'],
     ['clear-cg', '清扫当前 CG'],
     ['generate-assets', '补全素材'],
+    ['cg-gallery', 'CG 库'],
+    ['fill-item-images', '补全物品图'],
     ['save', '保存图片'],
     ['hide', '隐藏对话框'],
     ['sprite-edit', '调整立绘'],
@@ -289,7 +297,69 @@ export const READER_SETTINGS_SCHEMA_VERSION = '0.5.6';
 export const INITIAL_IMAGE_POLL_ATTEMPTS = 8;
 export const INITIAL_IMAGE_POLL_INTERVAL_MS = 250;
 
-export const DEFAULT_SCENE_PROMPT_RULE = `[igs标签语法]
+// 通用规则（每行一条、| 分隔、不发明新标签等）由 tag-grammar 统一写在最前，这里只写场景与台词本身。
+export const DEFAULT_SCENE_PROMPT_RULE = `【场景与台词】
+[igs-scene:场景名|时间|天气]：本轮开头输出一次（即使与上轮相同），换场景时再输出；NSFW场景加第4栏大写NSFW，其他场景不写第4栏
+[igs-char:角色名|表情|服装|对白]：角色开口时使用
+[igs-thought:角色名|表情|服装|心里话]：角色内心独白
+角色名写完整全名；不知名角色写「？？？」，路人写「男路人A」「女同学B」；场景名写空间概念（教室、走廊），不写家具摆设。
+表情：角色外在可见的神态，不是语气；只从下列词中选，不自造：
+{{mood_groups}}
+服装：只用下列已登记名称，不自造；每轮角色首次出现时写，之后未换装可省略该栏（写成 角色名|表情|对白），换装时重写，换回原外观写「默认」；未列出的角色省略服装栏。
+{{outfit_groups}}
+时间：只用笼统时间段 早晨/上午/中午/下午/傍晚/晚上/深夜
+{{time_groups}}
+天气：只用天气类型词 晴天/多云/小雨/大雨/雷雨/小雪/大雪等
+{{weather_groups}}
+{{scene_groups}}`.trim();
+
+// 旧默认 V3（v0.30.0，含服装栏的长版）原文冻结：逐字一致视为未自定义；关闭精简注入时也用它还原旧输出。
+export const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 = `[igs标签语法]
+以下标签供前端渲染系统读取，是附加在正文上的元数据注释，不改变正文本身的写法。
+
+[igs-scene:场景名|时间|天气]
+[igs-scene:场景名|时间|天气|NSFW]（仅NSFW场景使用）
+[igs-char:角色名|表情|服装|对白]
+[igs-thought:角色名|表情|服装|心里话]
+
+语法要求：
+1. 每条标签独立成行，头尾用方括号包裹
+2. 字段之间用 | 分隔
+3. [igs-scene] 在本轮场景首次出现、以及任何场景切换时各输出一次；即使与上一轮场景相同，新一轮开头也要重新输出一次
+4. 场景属于NSFW内容时，[igs-scene]第四栏必须填写大写NSFW；其他场景保持三栏，禁止输出第四栏
+5. [igs-char] 在角色开口时使用
+6. [igs-thought] 在需要表现角色内心独白时使用
+7. 角色名必须输出完整全名
+8. 场景名必须定位到空间概念（如教室、走廊），禁止描述家具
+9. 不知名角色用「？？？」；路人用「男路人A」「女同学B」等
+10. 禁止发明新标签
+
+[表情词约束]
+表情字段从固定池选取（2-3字词），禁止自造：
+{{mood_groups}}
+
+[服装字段约束]
+服装只从该角色已登记的名称中选取，禁止自造；每轮回复中角色首次出现时必须写服装栏，之后未换装可省略该栏（写成 角色名|表情|对白）；换装时重新写；换回原有外观写「默认」。
+未列出的角色省略服装栏。
+{{outfit_groups}}
+
+[时间字段约束]
+仅使用笼统时间段：早晨/上午/中午/下午/傍晚/晚上/深夜
+{{time_groups}}
+
+[天气字段约束]
+仅使用天气类型词：晴天/多云/小雨/大雨/雷雨/小雪/大雪等
+{{weather_groups}}
+
+[场景字段约束]
+仅定位空间概念，禁止定位家具摆设。
+{{scene_groups}}
+
+[核心原则]
+igs标签是透明的元数据层。正文的文风、叙事密度、修辞手法、段落节奏完全由其他文风指令决定，不受标签存在的影响。标签插在段落之间，读者略去所有标签后，剩余正文应当是一篇完整的、符合当前文风要求的文章。其中，表情字段为角色可外在观察的神态表情，禁止理解成语气或说话方式。`.trim();
+
+// 旧默认 V2（v0.30.0 前）原文冻结：与它逐字一致的规则视为未自定义，可静默升级。
+export const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V2 = `[igs标签语法]
 以下标签供前端渲染系统读取，是附加在正文上的元数据注释，不改变正文本身的写法。
 
 [igs-scene:场景名|时间|天气]
@@ -365,9 +435,19 @@ export const LEGACY_DEFAULT_SCENE_PROMPT_RULE = `[igs标签语法]
 [核心原则]
 igs标签是透明的元数据层。正文的文风、叙事密度、修辞手法、段落节奏完全由其他文风指令决定，不受标签存在的影响。标签插在段落之间，如同脚注——读者略去所有标签后，剩余正文应当是一篇完整的、符合当前文风要求的文章。情绪字段是机械索引值，不替代也不影响正文中的情感表达。`.trim();
 
+// 只升级空值与逐字等于旧默认的规则；自定义规则原样保留，不覆盖、不备份。
+const LEGACY_DEFAULT_SCENE_PROMPT_RULES = Object.freeze([LEGACY_DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V2, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3]);
+
 export function normalizeScenePromptRule(value) {
     const rule = String(value || '');
-    return !rule || rule === LEGACY_DEFAULT_SCENE_PROMPT_RULE
+    return !rule || LEGACY_DEFAULT_SCENE_PROMPT_RULES.includes(rule)
         ? DEFAULT_SCENE_PROMPT_RULE
         : rule;
+}
+
+// 自定义规则缺服装占位符时 AI 不会写服装栏；只提示，不改写用户规则。
+export const PROMPT_RULE_OUTFIT_HINT = '当前为自定义规则，未包含服装栏说明；如需服装差分可恢复默认或手动添加 {{outfit_groups}}';
+
+export function scenePromptRuleOutfitHint(rule) {
+    return String(rule || '').includes('{{outfit_groups}}') ? '' : PROMPT_RULE_OUTFIT_HINT;
 }

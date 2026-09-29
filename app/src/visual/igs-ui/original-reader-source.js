@@ -1,17 +1,32 @@
-import { CLASSIC_DIALOG_STYLE_TEXT } from './classic-dialog-skin.js';
-import { DIALOG_THEME_CHOICE_STYLE_TEXT } from './dialog-theme-choices.js';
-import { DIALOG_THEME_HUD_STYLE_TEXT } from './dialog-theme-hud.js';
-import { ILLUSTRATED_DIALOG_STYLE_TEXT } from './dialog-theme-skins.js';
+import { DIALOG_THEME_CHOICE_BASE_STYLE_TEXT } from './dialog-theme-choices.js';
 import { GRADIENT_VEIL_STYLE_TEXT } from './gradient-veil-dialog-skin.js';
 import { MAP_PANEL_STYLE_TEXT } from './map-panel-style.js';
 import { MAP_LIGHT_LAYER_STYLE_TEXT } from './map-light-layers.js';
 import { WEATHER_FX_STYLE_TEXT } from './weather-fx-style.js';
 import { FX_STYLE_TEXT } from './fx-style.js';
+import { STAGE_DIRECTION_STYLE_TEXT } from './stage-direction-style.js';
+import { STAGE_CAST_STYLE_TEXT } from './stage-cast-render.js';
+import { SCENE_GRADE_STYLE_TEXT } from './scene-grade.js';
+import { ROMANCE_STYLE_TEXT } from './romance-style.js';
+import { META_STYLE_TEXT } from './meta-style.js';
+import { TEXT_FX_STYLE_TEXT } from './text-fx.js';
+import { DIALOG_TYPESETTING_STYLE_TEXT } from './dialog-theme-typography.js';
+import { CLICK_WAIT_MARK_STYLE_TEXT } from './click-wait-mark.js';
+import { DAILY_FX_STYLE_TEXT } from './fx-daily-style.js';
+import { ITEM_FX_STYLE_TEXT } from './fx-item.js';
+import { BATTLE_FX_STYLE_TEXT } from './fx-battle.js';
+import { RESULT_FX_STYLE_TEXT } from './fx-result.js';
+import { CG_GALLERY_STYLE_TEXT } from './cg-gallery-panel.js';
+import { INVENTORY_IMAGE_STYLE_TEXT } from './inventory-slot-image.js';
+import { ITEM_CG_ICONS } from './item-cg-icons.js';
 import { ASSET_REVIEW_STYLE_TEXT } from './asset-review-panel.js';
 import { RECORD_PANEL_STYLE_TEXT } from './record-panel-style.js';
 import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
 import { HTML_CARD_LAYER_STYLE_TEXT } from './html-card-layer.js';
 import { CHAT_LAYER_STYLE_TEXT } from './chat-layer.js';
+import { SPRITE_OUTFIT_SWAP_STYLE_TEXT } from './sprite-outfit-swap.js';
+import { STAGE_PAUSE_STYLE_TEXT } from './stage-pause.js';
+
 import { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } from './settings-theme.js';
 import {
     IGS_UI_BLUR, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FONT_SANS, IGS_UI_INK, IGS_UI_RADIUS, IGS_UI_THICKNESS, igsUiSurface,
@@ -54,6 +69,8 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'regen', title: '画 CG（补画本楼剧情插图；没有可补的就重画当前图）', html: ORIGINAL_READER_ICONS.regen },
     { id: 'clear-cg', title: '清扫当前 CG', html: ORIGINAL_READER_ICONS.clearCg },
     { id: 'generate-assets', title: '补全素材（为未登记的人物和场景生成立绘 / 背景）', html: ORIGINAL_READER_ICONS.assets },
+    { id: 'fill-item-images', title: '补全物品图（为背包里还没有图的物品生成图）', html: ITEM_CG_ICONS.fillItemImages },
+    { id: 'cg-gallery', title: 'CG 库（查看、收藏、隐藏已生成的剧情 CG）', html: ITEM_CG_ICONS.cgGallery },
     { id: 'save', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
     { id: 'hide', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
     { id: 'sprite-edit', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
@@ -68,12 +85,12 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay.igs-floating,#igs-overlay.igs-mode-web,#igs-overlay.igs-mode-fullscreen{z-index:2147483000;}
 #igs-overlay.igs-fading{opacity:0;transition:opacity .25s;}
 #igs-bg{position:absolute;inset:0;background-color:var(--igs-empty-bg,#16181a);background-position:center;background-size:cover;background-repeat:no-repeat;transition:opacity .3s ease;filter:brightness(.88);}
-#igs-bg-blur{position:absolute;inset:0;background-position:center;background-size:cover;background-repeat:no-repeat;transition:opacity .3s ease;filter:blur(40px) brightness(.55) saturate(1.3);transform:scale(1.12);opacity:0;pointer-events:none;}
+#igs-bg-blur{position:absolute;inset:0;background-position:center;background-size:cover;background-repeat:no-repeat;transition:opacity .3s ease;filter:blur(40px) brightness(.55) saturate(1.3);transform:scale(1.12);opacity:0;pointer-events:none;display:none;}
 #igs-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.6) 0%,rgba(0,0,0,.1) 50%,rgba(0,0,0,0) 80%);pointer-events:none;}
 #igs-bg:not([data-igs-has-image="1"])::after{display:none;}
 #igs-overlay.igs-scene-nsfw #igs-bg::after{display:block;background:radial-gradient(ellipse at center,rgba(12,14,18,var(--igs-nsfw-veil-center,.30)) 20%,rgba(12,14,18,var(--igs-nsfw-veil-edge,.72)) 100%);}
 #igs-sprite{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:40%;height:85%;background-size:100%;background-repeat:no-repeat;background-position:50% 100%;pointer-events:none;z-index:2;display:none;}
-#igs-overlay.igs-mode-embedded #igs-sprite.igs-sprite-narration{filter:brightness(.86) saturate(.86)!important;-webkit-filter:brightness(.86) saturate(.86)!important;}
+#igs-overlay.igs-mode-embedded #igs-sprite.igs-sprite-narration{filter:brightness(.86) saturate(.86) var(--igs-grade-sprite,)!important;-webkit-filter:brightness(.86) saturate(.86) var(--igs-grade-sprite,)!important;}
 
 #igs-sprite.igs-sprite-editing{pointer-events:all;cursor:grab;outline:2px dashed rgba(255,255,255,.5);outline-offset:-2px;}
 #igs-sprite.igs-sprite-editing.is-dragging{cursor:grabbing;}
@@ -236,6 +253,7 @@ ${TOAST_THEME_STYLE_TEXT}
 #igs-overlay.igs-default-reader-chrome .igs-ctrl-bar .igs-icon-btn{width:32px;height:32px;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.32);}
 #igs-overlay.igs-default-reader-chrome .igs-ctrl-bar .igs-icon-btn svg{width:11px;height:11px;transform:scale(1.2);transform-origin:center;}
 #igs-overlay.igs-default-reader-chrome .igs-ctrl-bar .igs-icon-btn:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.52);}
+.igs-mode-embedded .igs-ctrl-bar,.igs-mode-embedded #igs-bar-btns,#igs-overlay.igs-default-reader-chrome:not(.igs-toolbar-top) .igs-ctrl-bar,#igs-overlay.igs-default-reader-chrome:not(.igs-toolbar-top) #igs-bar-btns{justify-content:flex-end;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-pos]{top:calc(14px + var(--igs-toolbar-h,32px) + 8px);bottom:calc(14px + var(--igs-dialog-h,220px) + 10px);max-height:none;overflow-y:auto;overscroll-behavior:contain;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}
 .igs-embedded-host{aspect-ratio:8 / 5;max-height:760px;}
@@ -262,13 +280,26 @@ ${MAP_LIGHT_LAYER_STYLE_TEXT}
 ${RECORD_PAGE_SHELL_STYLE_TEXT}
 ${RECORD_PANEL_STYLE_TEXT}
 ${GRADIENT_VEIL_STYLE_TEXT}
-${ILLUSTRATED_DIALOG_STYLE_TEXT}
-${CLASSIC_DIALOG_STYLE_TEXT}
-${DIALOG_THEME_CHOICE_STYLE_TEXT}
-${DIALOG_THEME_HUD_STYLE_TEXT}
+${DIALOG_THEME_CHOICE_BASE_STYLE_TEXT}
 ${HTML_CARD_LAYER_STYLE_TEXT}
 ${CHAT_LAYER_STYLE_TEXT}
+${SPRITE_OUTFIT_SWAP_STYLE_TEXT}
 ${FX_STYLE_TEXT}
+${STAGE_DIRECTION_STYLE_TEXT}
+${STAGE_CAST_STYLE_TEXT}
+${SCENE_GRADE_STYLE_TEXT}
+${ROMANCE_STYLE_TEXT}
+${META_STYLE_TEXT}
+${DIALOG_TYPESETTING_STYLE_TEXT}
+${TEXT_FX_STYLE_TEXT}
+${CLICK_WAIT_MARK_STYLE_TEXT}
+${DAILY_FX_STYLE_TEXT}
+${ITEM_FX_STYLE_TEXT}
+${BATTLE_FX_STYLE_TEXT}
+${RESULT_FX_STYLE_TEXT}
+${CG_GALLERY_STYLE_TEXT}
+${INVENTORY_IMAGE_STYLE_TEXT}
+${STAGE_PAUSE_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `

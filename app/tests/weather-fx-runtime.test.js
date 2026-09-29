@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     LIGHTNING_DURATION_MS,
+    WEATHER_FLASH_EVENT,
     SUNBURST_DURATION_MS,
     WEATHER_FX_DEFAULTS,
     applyWeatherFx,
@@ -347,4 +348,52 @@ test('gate: weather style is a single consolidated block wired into the reader s
     for (const scene of ['indoor', 'outdoor']) assert.match(WEATHER_FX_STYLE_TEXT, new RegExp(`data-igs-weather-fx-scene="${scene}"`));
     for (const time of ['dawn', 'dusk', 'night', 'midnight']) assert.match(WEATHER_FX_STYLE_TEXT, new RegExp(`data-igs-weather-fx-time="${time}"`));
     assert.match(WEATHER_FX_STYLE_TEXT, /data-igs-weather-fx-motion="off"/);
+});
+
+test('gate: lightning flash dispatches a bubbling event for scene audio and reports lightning in the result', () => {
+    const layer = makeLayer();
+    const front = makeLayer();
+    const events = [];
+    front.dispatchEvent = (event) => { events.push(event); return true; };
+    const clock = scheduler();
+    const result = applyWeatherFx(layer, { settings: on(), weather: '雷暴', front, particles: false, reducedMotion: false, schedule: clock.schedule, clear: clock.clear, random: () => 0 });
+    assert.equal(result.lightning, true);
+    clock.runNext();
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, WEATHER_FLASH_EVENT);
+    assert.equal(events[0].bubbles, true);
+    assert.equal(events[0].detail.level, 'heavy');
+    cancelWeatherFx(layer, front);
+
+    // 页面隐藏时不闪屏，也不派发事件；无闪电演出时 lightning 为 false。
+    const hiddenFront = makeLayer();
+    hiddenFront.ownerDocument = { hidden: true };
+    hiddenFront.dispatchEvent = (event) => { events.push(event); return true; };
+    applyWeatherFx(layer, { settings: on(), weather: '雷雨', front: hiddenFront, particles: false, reducedMotion: false, schedule: clock.schedule, clear: clock.clear, random: () => 0 });
+    clock.runNext();
+    assert.equal(events.length, 1);
+    cancelWeatherFx(layer, hiddenFront);
+    assert.equal(applyWeatherFx(layer, { settings: on(), weather: '雷雨', front, particles: false, reducedMotion: true }).lightning, false);
+    assert.equal(applyWeatherFx(layer, { settings: on(), weather: '小雨', front, particles: false, reducedMotion: false }).lightning, false);
+    cancelWeatherFx(layer, front);
+});
+
+test('gate:perf:weather-particles-stop-scheduling-while-page-hidden', () => {
+    const env = fakeCanvasEnv();
+    const doc = env.back.ownerDocument;
+    const listeners = new Map();
+    doc.addEventListener = (name, fn) => listeners.set(name, fn);
+    doc.removeEventListener = (name) => listeners.delete(name);
+    const plan = { kind: 'rain', level: 'medium', scene: 'outdoor', time: '', thunder: false, wind: false, particles: true };
+    const controller = startWeatherParticles({ back: env.back, front: env.front, plan });
+    env.tick(1000);
+    assert.equal(env.frames.length, 1);
+    doc.hidden = true;
+    env.tick(1034);
+    assert.equal(env.frames.length, 0, 'no frame requested while hidden');
+    doc.hidden = false;
+    listeners.get('visibilitychange')();
+    assert.equal(env.frames.length, 1, 'visible again restarts the loop');
+    controller.stop();
+    assert.ok(!listeners.has('visibilitychange'));
 });

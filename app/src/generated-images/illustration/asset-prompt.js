@@ -6,6 +6,7 @@ import {
     MATTE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, applyTemplate,
     buildDictionaryBackgroundTags,
 } from './prompt-kit.js';
+import { buildCharacterDnaPromptParts, mergePromptTags } from '../../scene/character-dna.js';
 
 const ASSET_TASK = [
     '任务：阅读视觉小说正文，为「需要生成的素材」清单里的每一项写英文 tag。素材分两类：',
@@ -44,7 +45,12 @@ export function describeAssetNeed(need, index) {
         if (need.weather) parts.push(`天气：${need.weather}`);
         return { id: `bg${index + 1}`, line: `背景｜${parts.join('｜')}` };
     }
-    return { id: `ch${index + 1}`, line: `立绘｜角色：${need.name}` };
+    // DNA 固定的身份与默认外观会由程序在出图前合并，这里只让副 LLM 知道、避免写出冲突 tag。
+    const flat = (text) => String(text || '').replace(/\s*\n\s*/g, ' ').trim();
+    const dnaNotes = [];
+    if (need.dna && flat(need.dna.identity)) dnaNotes.push(`固定身份：${flat(need.dna.identity)}`);
+    if (need.dna && flat(need.dna.defaultAppearance)) dnaNotes.push(`默认外观：${flat(need.dna.defaultAppearance)}`);
+    return { id: `ch${index + 1}`, line: [`立绘｜角色：${need.name}`, ...dnaNotes].join('｜') };
 }
 
 export function buildAssetPlannerUserPrompt({ needs = [], readableText = '', previousText = '' } = {}) {
@@ -54,6 +60,8 @@ export function buildAssetPlannerUserPrompt({ needs = [], readableText = '', pre
     });
     return [
         `【需要生成的素材】\n${listed.join('\n')}`,
+        needs.some((need) => need.type === 'sprite' && need.dna)
+            ? '【角色 DNA】标注了固定身份或默认外观的立绘，tags 不得改变这些特征，只补充正文中额外交代的内容。' : '',
         previousText ? `【前文摘要】\n${previousText}` : '',
         `【本楼正文】\n${readableText}`,
         '请直接按输出格式给出字段。',
@@ -114,9 +122,12 @@ export function buildAssetSlot(item, { transparent = false, templates = {} } = {
             chars: [],
         };
     }
+    // 立绘 DNA 固定顺序：triggerWords → identity → defaultAppearance → 副 LLM tag；无 DNA 时输出与旧版一致。
+    const dnaParts = item.need.dna ? buildCharacterDnaPromptParts(item.need.dna, { includeDefaultAppearance: true }) : null;
+    const tags = dnaParts && dnaParts.positive ? mergePromptTags(dnaParts.positive, item.tags) : item.tags;
     return {
-        scene: applyTemplate(t.sprite, { tags: item.tags, matte: transparent ? TRANSPARENT_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS }),
-        sceneUc: joinTags(t.spriteNegative, NSFW_NEGATIVE_GUARD, item.uc),
+        scene: applyTemplate(t.sprite, { tags, matte: transparent ? TRANSPARENT_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS }),
+        sceneUc: joinTags(t.spriteNegative, dnaParts ? dnaParts.negative : '', NSFW_NEGATIVE_GUARD, item.uc),
         chars: [],
         transparent,
     };

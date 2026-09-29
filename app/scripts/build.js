@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { contentHash, fontSliceName, JSDELIVR_FILE_LIMIT_BYTES, readSliceManifest, renderSliceFontFaces } from './font-slices.js';
+import { externalizeSkinAssets, verifySkinAssets } from './skin-assets.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
 const srcRoot = path.join(appRoot, 'src');
@@ -23,7 +25,8 @@ const mapped = compiled.replace(MAP_ASSET_RE, (_match, dir, file) => {
     return `./maps/${file}`;
 });
 if (!mapAssets.has('map-demo-clean-night.png')) throw new Error('Map image path is missing from bundle.');
-const bundle = inlineTypewriterAudio(inlineDialogThemeAssets(mapped));
+const skinAssets = await externalizeSkinAssets(mapped, { srcRoot, distRoot });
+const bundle = inlineTypewriterAudio(skinAssets.bundle);
 
 const roundedFontWeights = [300, 400, 500, 700];
 const dialogFontAssets = [
@@ -51,10 +54,20 @@ const classicFontAssets = [
     { family: 'Cormorant Garamond', file: 'CormorantGaramond-Regular.woff2', weight: 400, style: 'normal', format: 'woff2' },
     { family: 'Cormorant Garamond', file: 'CormorantGaramond-Italic.woff2', weight: 400, style: 'italic', format: 'woff2' },
 ];
+const fontSliceManifestDir = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'font-slices');
+const bundledFontAssets = [
+    ...roundedFontWeights.map((weight) => ({ family: 'IGS Rounded', file: `nowar-rounded-bliz-${weight}.ttf`, weight, style: 'normal', format: 'truetype' })),
+    ...dialogFontAssets,
+    ...classicFontAssets,
+];
+const slicedFonts = new Map();
+for (const asset of bundledFontAssets) {
+    const sliceManifest = readSliceManifest(fontSliceManifestDir, asset.file);
+    if (sliceManifest) slicedFonts.set(asset.file, { manifest: sliceManifest, css: renderSliceFontFaces(asset, sliceManifest.slices) });
+}
 const css = [
-    ...roundedFontWeights.map((weight) => `@font-face { font-family: "IGS Rounded"; font-style: normal; font-weight: ${weight}; font-display: swap; src: url("./fonts/nowar-rounded-bliz-${weight}.ttf") format("truetype"); }`),
-    ...dialogFontAssets.map(({ family, file, weight, style, format }) => `@font-face { font-family: "${family}"; font-style: ${style}; font-weight: ${weight}; font-display: swap; src: url("./fonts/${file}") format("${format}"); }`),
-    ...classicFontAssets.map(({ family, file, weight, style, format }) => `@font-face { font-family: "${family}"; font-style: ${style}; font-weight: ${weight}; font-display: swap; src: url("./fonts/${file}") format("${format}"); }`),
+    ...[...slicedFonts].map(([file, sliced]) => `@import url("./fonts/${fontSliceName(file)}/font.css?v=${contentHash(sliced.css)}");`),
+    ...bundledFontAssets.filter(({ file }) => !slicedFonts.has(file)).map(({ family, file, weight, style, format }) => `@font-face { font-family: "${family}"; font-style: ${style}; font-weight: ${weight}; font-display: swap; src: url("./fonts/${file}") format("${format}"); }`),
     '.igs-stage { position: relative; width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: #0b0d12; }',
     '.igs-background-layer, .igs-generated-layer, .igs-effect-layer, .igs-character-layer, .igs-avatar-layer, .igs-dialogue-layer, .igs-hud-layer, .igs-choice-layer, .igs-system-layer { position: absolute; inset: 0; }',
     '.igs-dialogue-layer { left: 0; right: 0; bottom: 0; width: 100%; min-height: 96px; padding: 24px; }',
@@ -85,14 +98,14 @@ for (const weight of roundedFontWeights) {
     if (!fs.existsSync(source) || fs.readFileSync(source).subarray(0, 4).toString('hex') !== '00010000') {
         throw new Error(`Bundled font is missing or invalid: ${source}`);
     }
-    fs.copyFileSync(source, path.join(fontTargetDir, name));
+    publishFont(source, name);
 }
 for (const asset of dialogFontAssets) {
     const source = path.join(fontSourceDir, asset.file);
     if (!fs.existsSync(source)) throw new Error(`Bundled dialog font is missing: ${source}`);
     const signature = fs.readFileSync(source).subarray(0, 4).toString('ascii');
     if (!['OTTO', 'wOF2', '\0\x01\0\0'].includes(signature)) throw new Error(`Bundled dialog font is invalid: ${source}`);
-    fs.copyFileSync(source, path.join(fontTargetDir, asset.file));
+    publishFont(source, asset.file);
 }
 for (const asset of classicFontAssets) {
     const source = path.join(fontSourceDir, asset.file);
@@ -101,7 +114,7 @@ for (const asset of classicFontAssets) {
     }
     const signature = fs.readFileSync(source).subarray(0, 4).toString('ascii');
     if (!['OTTO', 'wOF2', '\0\x01\0\0'].includes(signature)) throw new Error(`Bundled classic font is missing or invalid: ${source}`);
-    fs.copyFileSync(source, path.join(fontTargetDir, asset.file));
+    publishFont(source, asset.file);
 }
 for (const licenseName of fontLicenseFiles) {
     const source = path.join(fontSourceDir, licenseName);
@@ -124,14 +137,16 @@ for (const [file, source] of mapAssets) {
     if (!fs.existsSync(source)) throw new Error(`Bundled map image is missing: ${source}`);
     fs.copyFileSync(source, path.join(mapTargetDir, file));
 }
-fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), bundle, 'utf8');
+fs.writeFileSync(path.join(distRoot, 'igs.bundle.debug.js'), bundle, 'utf8');
+fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), await minifyBundle(bundle), 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-if (bundle.includes('__IGS_ASSET__') || bundle.includes('__IGS_TYPEWRITER_AUDIO__')) {
+if (bundle.includes('__IGS_TYPEWRITER_AUDIO__')) {
     throw new Error('Build output contains unresolved asset placeholders.');
 }
+verifySkinAssets(bundle, distRoot);
 
-for (const name of ['igs.bundle.js', 'igs.bundle.css', 'manifest.json']) {
+for (const name of ['igs.bundle.js', 'igs.bundle.debug.js', 'igs.bundle.css', 'manifest.json']) {
     const file = path.join(distRoot, name);
     if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
         throw new Error(`Build output is missing or empty: ${name}`);
@@ -211,6 +226,34 @@ function renderBundle(graph, entryId) {
     ].join('\n');
 }
 
+function publishFont(source, name) {
+    const sliced = slicedFonts.get(name);
+    if (!sliced) {
+        if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Bundled font exceeds the jsDelivr file limit; run \`npm run build:fonts ${name}\`: ${source}`);
+        fs.copyFileSync(source, path.join(fontTargetDir, name));
+        return;
+    }
+    if (contentHash(fs.readFileSync(source), 64) !== sliced.manifest.sourceSha256) throw new Error(`Font slices are stale; run \`npm run build:fonts ${name}\`.`);
+    const sliceDir = path.join(fontTargetDir, fontSliceName(name));
+    for (const slice of sliced.manifest.slices) {
+        if (!fs.existsSync(path.join(sliceDir, slice.file))) throw new Error(`Font slice is missing; run \`npm run build:fonts ${name}\`: ${slice.file}`);
+    }
+    fs.writeFileSync(path.join(sliceDir, 'font.css'), sliced.css, 'utf8');
+    fs.rmSync(path.join(fontTargetDir, name), { force: true });
+}
+
+async function minifyBundle(source) {
+    let esbuild;
+    try {
+        esbuild = await import('esbuild');
+    } catch (error) {
+        throw new Error('Build needs the esbuild dev dependency; run `pnpm install` in app/ first.');
+    }
+    const result = await esbuild.transform(source, { minify: true, format: 'esm', legalComments: 'none', charset: 'utf8' });
+    const header = source.split('\n').slice(0, 2).join('\n');
+    return `${header}\n${result.code}`;
+}
+
 function inlineTypewriterAudio(bundle) {
     const names = ['dududu.ogg', 'keyboard.ogg'];
     let result = bundle;
@@ -226,19 +269,6 @@ function inlineTypewriterAudio(bundle) {
         result = result.replaceAll(placeholder, `data:audio/ogg;base64,${bytes.toString('base64')}`);
     }
     return result;
-}
-
-function inlineDialogThemeAssets(bundle) {
-    const cache = new Map();
-    return bundle.replace(/__IGS_ASSET__([a-z0-9-]+)\/([a-z-]+)\.png__/g, (_match, theme, part) => {
-        const key = `${theme}/${part}`;
-        if (!cache.has(key)) {
-            const file = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'dialog-themes', theme, `${part}.png`);
-            if (!fs.existsSync(file)) throw new Error(`Dialog theme asset is missing: ${file}`);
-            cache.set(key, `data:image/png;base64,${fs.readFileSync(file).toString('base64')}`);
-        }
-        return cache.get(key);
-    });
 }
 
 function transformModule(module) {

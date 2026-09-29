@@ -72,12 +72,6 @@ export function pointInPolygon(x, y, polygon) {
     return inside;
 }
 
-export function polylineLength(points) {
-    let total = 0;
-    for (let i = 0; i < points.length - 1; i++) total += dist(points[i][0], points[i][1], points[i + 1][0], points[i + 1][1]);
-    return total;
-}
-
 // 折线在第 i 点的切线方向角。
 export function polylineAngle(points, i) {
     const a = points[Math.max(0, i - 1)];

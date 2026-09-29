@@ -5,6 +5,7 @@ import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { lookupSceneAssetUrls } from '../../scene/scene-directives.js';
 import { RECORD_ICONS } from './record-icons.js';
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
+import { setStagePauseReason } from './stage-pause.js';
 import { MAP_FALLBACK_WORLD, autoPlaceMapPoints, centerMapCamera, fitMapCamera, mapPinWorldPoint, panMapCamera, zoomMapCamera } from './map-viewport.js';
 import { buildMapGenInput, buildMarkerLightsInput, createMapBasemapGenerator } from '../map-gen/index.js';
 import { resolveMapLighting } from '../map-gen/lighting.js';
@@ -113,6 +114,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
         root.addEventListener('click', onClick);
         container.appendChild(root);
         overlay.classList?.toggle('igs-record-screen-open', true);
+        setStagePauseReason(overlay, 'panel:map', true);
         unwatchLayout = watchRecordPageLayout(root, doc);
         applyTransparentGlassMaterial(root, settings?.glassOpacity, { backdropFilter: settings?.glassBackdropFilter });
         client = createShujukuClient((global || globalThis).AutoCardUpdaterAPI || null);
@@ -146,6 +148,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
         root.remove();
         root = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
+        setStagePauseReason(pageOverlay, 'panel:map', false);
         pageOverlay = null;
         sceneAssets = null;
         try { client?.unregisterCallback(callback); } catch (error) { /* Host may already be gone. */ }

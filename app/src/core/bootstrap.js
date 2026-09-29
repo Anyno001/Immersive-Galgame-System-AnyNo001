@@ -15,10 +15,15 @@ import { createPresetStore } from '../storage/preset-store.js';
 import { createLayerController } from '../visual/layer-controller.js';
 import { createStageRenderer } from '../visual/stage-renderer.js';
 import { resolveVisualMode } from '../visual/visual-mode.js';
-import { normalizeScenePromptRule } from '../visual/igs-ui/reader-host-constants.js';
+import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3, normalizeScenePromptRule } from '../visual/igs-ui/reader-host-constants.js';
 import { createIgsReaderHost } from '../visual/igs-ui/reader-host.js';
 import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/igs-ui/chat-show-runtime.js';
-import { resolveFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
+import { resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
+import { resolveTextFxPromptRule } from '../visual/igs-ui/text-fx.js';
+import { resolveDailyFxPromptRule } from '../visual/igs-ui/fx-daily-prompt.js';
+import { beginMetaDigestSend, clearMetaDigest, finishMetaDigestSend, onMetaDigestChange, resolveMetaDigestRule } from '../visual/igs-ui/meta-digest.js';
+import { ANCIENT_ERA_PROMPT_RULE, applyFxEra, isAncientEra } from '../scene/fx-era.js';
+import { resolveBattleFxPromptRule } from '../visual/igs-ui/fx-battle-model.js';
 import { createEventBus } from './event-bus.js';
 import { createMagicWandEntry } from '../host/magic-wand-entry.js';
 import { createExtensionPanel } from '../host/extension-panel.js';
@@ -32,11 +37,16 @@ import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
 import { createAutoIllustrationService, ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
 import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
+import { createItemAndCgServices } from './item-cg-services.js';
 import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-store.js';
 import { createAlphaMatte } from '../media/alpha-matte.js';
-import { buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
+import { buildCompactGroupsText, buildCompactMoodGroupsText, buildCompactSceneNamesText, buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
+import { buildOutfitGroupsText, buildScopedOutfitGroupsText, normalizeCharacterOutfits, OUTFIT_GROUPS_PLACEHOLDER } from '../scene/character-outfits.js';
+import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
+import { detectPromptTriggers } from '../scene/prompt-triggers.js';
+import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.29.7';
+const IGS_VERSION = '0.32.0';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -96,21 +106,26 @@ export function bootstrapIGS(options = {}) {
         getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).imageJobLog,
     });
     const reportImageJob = options.reportImageJob || createImageJobReporter(globalObject, () => (getUnifiedSettingsSnapshot() || {}).bridge || {}, imageJobLog);
+    // CG 库与自动插图共用同一个插图存储实例。
+    const illustrationStore = options.illustrationStore || createIndexedDbIllustrationStore(globalObject);
     const illustrationService = options.illustrationService || createAutoIllustrationService({
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
         nai: imageBackend,
-        store: options.illustrationStore || createIndexedDbIllustrationStore(globalObject),
+        store: illustrationStore,
         getSettings: () => readImageBridge().autoIllustration,
+        getSceneAssets: () => readImageBridge().sceneAssets,
         events,
         random: options.random,
         report: reportImageJob,
     });
+    // 物品图与素材补全共用 igs-generated-assets 存储实例。
+    const generatedAssetStore = options.generatedAssetStore || createIndexedDbGeneratedAssetStore(globalObject);
     const assetGenerationService = options.assetGenerationService || createAssetGenerationService({
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
         nai: imageBackend,
-        store: options.generatedAssetStore || createIndexedDbGeneratedAssetStore(globalObject),
+        store: generatedAssetStore,
         matte: options.alphaMatte || createAlphaMatte(globalObject),
         getSettings: () => {
             const bridge = readImageBridge();
@@ -118,6 +133,22 @@ export function bootstrapIGS(options = {}) {
         },
         events,
         report: reportImageJob,
+    });
+    const itemCg = createItemAndCgServices({
+        globalObject,
+        messageHost: illustrationMessageHost,
+        llm: secondaryLlm,
+        nai: imageBackend,
+        generatedAssetStore,
+        illustrationStore,
+        clearIllustration: (query) => illustrationService.clearIllustration(query),
+        getBridge: readImageBridge,
+        events,
+        matte: options.alphaMatte || createAlphaMatte(globalObject),
+        report: reportImageJob,
+        itemImageService: options.itemImageService,
+        cgGalleryService: options.cgGalleryService,
+        cgGalleryStore: options.cgGalleryStore,
     });
     const state = {
         status: 'booting',
@@ -136,6 +167,8 @@ export function bootstrapIGS(options = {}) {
         generatedAssets: assetGenerationService,
         imageJobLog,
         hostAdapter,
+        itemImages: itemCg.itemImages,
+        cgGallery: itemCg.cgGallery,
         storage: storageLike,
         presetRegistry,
         refresh,
@@ -163,7 +196,14 @@ export function bootstrapIGS(options = {}) {
         illustrations: illustrationService,
         onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),
         generatedAssets: assetGenerationService,
+        // 遮罩修复编辑器的 AI 局部重绘：只经 describeEdit/edit 显式调用，不影响普通生成。
+        imageEditBackend: imageBackend,
+        alphaMatte: options.alphaMatte || createAlphaMatte(globalObject),
         onGeneratedAssetUpdated: (handler) => events.on(GENERATED_ASSET_UPDATED_EVENT, handler),
+        itemImages: itemCg.itemImages,
+        cgGallery: itemCg.cgGallery,
+        onItemImageUpdated: itemCg.onItemImageUpdated,
+        getCurrentChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
         imageJobLog,
         getUnifiedSettings: getUnifiedSettingsSnapshot,
         saveUnifiedSettings,
@@ -269,8 +309,10 @@ export function bootstrapIGS(options = {}) {
     if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();
     illustrationService.start();
     assetGenerationService.start();
+    itemCg.itemImages.start();
     scheduleSceneAssetsInjection(SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS, 1);
     attachChatChangedReinjection();
+    attachMetaDigestSync();
     events.emit('igs:ready', publicApi);
 
     return publicApi;
@@ -448,35 +490,111 @@ export function bootstrapIGS(options = {}) {
         };
     }
 
-    function syncSceneAssetsInjection() {
+    function syncSceneAssetsInjection(generationType = null) {
         const unified = getUnifiedSettingsSnapshot();
         const sceneAssets = unified.bridge && unified.bridge.sceneAssets;
-        const rules = [];
-        if (sceneAssets && sceneAssets.enabled && sceneAssets.promptRule) rules.push(resolvePromptRuleContent(sceneAssets));
-        const chatShow = unified.readerSettings && unified.readerSettings.chatShow;
-        if (normalizeChatShowSettings(chatShow).enabled) rules.push(resolveChatShowPromptRule(chatShow));
-        const fxRule = resolveFxPromptRule(unified.readerSettings && unified.readerSettings.fxTags);
-        if (fxRule) rules.push(fxRule);
-        if (rules.length) return promptInjector.inject(rules.join('\n\n'));
-        promptInjector.clear();
-        return { ok: true, reason: 'scene-assets-disabled' };
+        // 古代背景：现代专属演出的开关在这里拨成关，AI 不会收到它们的语法说明。
+        const ancient = isAncientEra(sceneAssets);
+        const readerSettings = applyFxEra(unified.readerSettings, ancient);
+        const placement = normalizePromptPlacement(sceneAssets && sceneAssets.promptPlacement);
+        // 交互摘要：只在有待送出的事件时注入，生成结束后清空（见 attachMetaDigestSync）。
+        const metaDigestRule = resolveMetaDigestRule(readerSettings && readerSettings.metaFx);
+        if (sceneAssets && sceneAssets.promptAdaptive === false) {
+            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, placement, metaDigestRule });
+        }
+        if (generationType === 'impersonate' || generationType === 'quiet') {
+            promptInjector.clear();
+            return { ok: true, reason: 'generation-type-skipped' };
+        }
+        const promptContext = collectPromptContext(resolveTavernContext(), { document: globalObject.document });
+        const sceneOn = Boolean(sceneAssets && sceneAssets.enabled && sceneAssets.promptRule);
+        const grammar = buildTagGrammar({
+            readerSettings,
+            sceneRule: sceneOn ? resolvePromptRuleContent(sceneAssets, { compact: true, presentText: promptContext.presentText }) : '',
+            ancient,
+            expand: detectPromptTriggers(promptContext),
+            tailRules: ancient ? [ANCIENT_ERA_PROMPT_RULE] : [],
+            dynamicRules: metaDigestRule ? [metaDigestRule] : [],
+            moodWord: firstMoodWord(sceneAssets),
+        });
+        if (!grammar.system) {
+            promptInjector.clear();
+            return { ok: true, reason: 'scene-assets-disabled' };
+        }
+        const depth0Content = [placement === 'system' ? DEPTH0_REMINDER : '', grammar.depth0].filter(Boolean).join('\n\n');
+        return promptInjector.inject(grammar.system, { placement, depth0Content });
     }
 
-    function resolvePromptRuleContent(sceneAssets) {
+    // 关闭按需注入时的旧行为：各块完整拼接；未自定义的场景规则用改版前的长版原文。
+    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, placement, metaDigestRule }) {
+        const rules = [];
+        if (sceneAssets && sceneAssets.enabled && sceneAssets.promptRule) {
+            const promptRule = sceneAssets.promptRule === DEFAULT_SCENE_PROMPT_RULE ? LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 : sceneAssets.promptRule;
+            rules.push(resolvePromptRuleContent({ ...sceneAssets, promptRule }));
+        }
+        const chatShow = readerSettings && readerSettings.chatShow;
+        if (normalizeChatShowSettings(chatShow).enabled) rules.push(resolveChatShowPromptRule(chatShow, { ancient }));
+        const fxRule = resolveFxPromptRule(readerSettings && readerSettings.fxTags, { ancient });
+        if (fxRule) rules.push(fxRule);
+        const itemFxRule = resolveItemFxPromptRule(Boolean(readerSettings && readerSettings.itemFx && readerSettings.itemFx.enabled));
+        if (itemFxRule) rules.push(itemFxRule);
+        const textFxRule = resolveTextFxPromptRule(Boolean(readerSettings && readerSettings.textFx && readerSettings.textFx.enabled));
+        if (textFxRule) rules.push(textFxRule);
+        const dailyFxRule = resolveDailyFxPromptRule(readerSettings && readerSettings.dailyFx);
+        if (dailyFxRule) rules.push(dailyFxRule);
+        const battleFxRule = resolveBattleFxPromptRule(Boolean(readerSettings && readerSettings.battleFx && readerSettings.battleFx.enabled));
+        if (battleFxRule) rules.push(battleFxRule);
+        const romanceFxRule = resolveRomanceFxPromptRule(readerSettings && readerSettings.romanceFx);
+        if (romanceFxRule) rules.push(romanceFxRule);
+        const stageCastFxRule = resolveStageCastFxPromptRule(readerSettings && readerSettings.stageCast);
+        if (stageCastFxRule) rules.push(stageCastFxRule);
+        const split = placement === 'system';
+        if (metaDigestRule && !split) rules.push(metaDigestRule);
+        if (rules.length && ancient) rules.push(ANCIENT_ERA_PROMPT_RULE);
+        if (!rules.length) {
+            promptInjector.clear();
+            return { ok: true, reason: 'scene-assets-disabled' };
+        }
+        const depth0Content = split ? [DEPTH0_REMINDER, metaDigestRule].filter(Boolean).join('\n\n') : '';
+        return promptInjector.inject(rules.join('\n\n'), { placement, depth0Content });
+    }
+
+    function firstMoodWord(sceneAssets) {
+        const groups = sceneAssets && Array.isArray(sceneAssets.moodGroups) ? sceneAssets.moodGroups : [];
+        const group = groups.find((g) => g && Array.isArray(g.words) && g.words.some(Boolean));
+        return group ? String(group.words.find(Boolean)) : '';
+    }
+
+    function moodSlotWords(sceneAssets) {
+        const words = new Set();
+        for (const moods of Object.values((sceneAssets && sceneAssets.characters) || {})) {
+            if (moods && typeof moods === 'object') for (const word of Object.keys(moods)) words.add(word);
+        }
+        return words;
+    }
+
+    function resolvePromptRuleContent(sceneAssets, { compact = false, presentText = null } = {}) {
         let rule = String(sceneAssets.promptRule || '');
         if (rule.includes(MOOD_GROUPS_PLACEHOLDER)) {
-            rule = rule.split(MOOD_GROUPS_PLACEHOLDER).join(buildMoodGroupsText(sceneAssets.moodGroups));
+            const moods = compact ? buildCompactMoodGroupsText(sceneAssets.moodGroups, moodSlotWords(sceneAssets)) : buildMoodGroupsText(sceneAssets.moodGroups);
+            rule = rule.split(MOOD_GROUPS_PLACEHOLDER).join(moods);
         }
         if (rule.includes(SCENE_GROUPS_PLACEHOLDER)) {
-            rule = rule.split(SCENE_GROUPS_PLACEHOLDER).join(buildSceneGroupsText(sceneAssets.scenes));
+            rule = rule.split(SCENE_GROUPS_PLACEHOLDER).join(compact ? buildCompactSceneNamesText(sceneAssets.scenes) : buildSceneGroupsText(sceneAssets.scenes));
         }
         if (rule.includes(TIME_GROUPS_PLACEHOLDER)) {
-            rule = rule.split(TIME_GROUPS_PLACEHOLDER).join(buildGroupsText(sceneAssets.timeGroups));
+            rule = rule.split(TIME_GROUPS_PLACEHOLDER).join(compact ? buildCompactGroupsText(sceneAssets.timeGroups) : buildGroupsText(sceneAssets.timeGroups));
         }
         if (rule.includes(WEATHER_GROUPS_PLACEHOLDER)) {
-            rule = rule.split(WEATHER_GROUPS_PLACEHOLDER).join(buildGroupsText(sceneAssets.weatherGroups));
+            rule = rule.split(WEATHER_GROUPS_PLACEHOLDER).join(compact ? buildCompactGroupsText(sceneAssets.weatherGroups) : buildGroupsText(sceneAssets.weatherGroups));
         }
-        return rule;
+        if (rule.includes(OUTFIT_GROUPS_PLACEHOLDER)) {
+            const outfits = normalizeCharacterOutfits(sceneAssets.characterOutfits);
+            rule = rule.split(OUTFIT_GROUPS_PLACEHOLDER).join(compact
+                ? buildScopedOutfitGroupsText(outfits, { presentText, characterAliases: sceneAssets.characterAliases })
+                : buildOutfitGroupsText(outfits));
+        }
+        return compact ? rule.replace(/\n{2,}/g, '\n').trim() : rule;
     }
 
     function syncSceneAssetsInjectionWithRetry(attempt) {
@@ -525,24 +643,76 @@ export function bootstrapIGS(options = {}) {
         return null;
     }
 
+    // 换聊天时重算；生成开始时按本轮上下文重算（按需块与在场角色服装），代写与静默生成期间清空，结束后恢复。
     function attachChatChangedReinjection() {
         const context = resolveTavernContext();
         const eventSource = context && context.eventSource;
-        const eventTypes = context && (context.event_types || context.eventTypes);
-        const eventName = eventTypes && eventTypes.CHAT_CHANGED;
-        if (!eventSource || !eventName || typeof eventSource.on !== 'function') return;
-        const handler = () => {
+        const eventTypes = (context && (context.event_types || context.eventTypes)) || {};
+        if (!eventSource || typeof eventSource.on !== 'function') return;
+        const resync = () => {
             if (state.destroyed) return;
             syncSceneAssetsInjectionWithRetry(1);
         };
-        try {
-            eventSource.on(eventName, handler);
-        } catch (error) { return; }
-        state.chatChangedCleanup = () => {
+        const onGenerationStarted = (type) => {
+            if (state.destroyed) return;
+            syncSceneAssetsInjection(typeof type === 'string' ? type : null);
+        };
+        const bindings = [
+            [eventTypes.CHAT_CHANGED, resync],
+            [eventTypes.GENERATION_STARTED, onGenerationStarted],
+            [eventTypes.GENERATION_ENDED, resync],
+            [eventTypes.GENERATION_STOPPED, resync],
+        ].filter(([name]) => name);
+        const bound = [];
+        for (const [name, handler] of bindings) {
             try {
-                if (typeof eventSource.removeListener === 'function') eventSource.removeListener(eventName, handler);
-                else if (typeof eventSource.off === 'function') eventSource.off(eventName, handler);
+                eventSource.on(name, handler);
+                bound.push([name, handler]);
             } catch (error) { /* */ }
+        }
+        state.chatChangedCleanup = () => {
+            for (const [name, handler] of bound) {
+                try {
+                    if (typeof eventSource.removeListener === 'function') eventSource.removeListener(name, handler);
+                    else if (typeof eventSource.off === 'function') eventSource.off(name, handler);
+                } catch (error) { /* */ }
+            }
+        };
+    }
+
+    // 交互摘要：事件变化后 1 秒内合并重注入；生成开始时记下已送出的事件，结束后只清掉这部分；换聊天时全部清空。
+    function attachMetaDigestSync() {
+        let timer = null;
+        const offChange = onMetaDigestChange(() => {
+            if (timer != null) clearTimeout(timer);
+            timer = setTimeout(() => {
+                timer = null;
+                if (!state.destroyed) syncSceneAssetsInjectionWithRetry(1);
+            }, 1000);
+        });
+        const context = resolveTavernContext();
+        const eventSource = context && context.eventSource;
+        const eventTypes = (context && (context.event_types || context.eventTypes)) || {};
+        const bindings = [
+            [eventTypes.GENERATION_STARTED, (type, params, dryRun) => { if (dryRun !== true) beginMetaDigestSend(); }],
+            [eventTypes.GENERATION_ENDED, finishMetaDigestSend],
+            [eventTypes.CHAT_CHANGED, clearMetaDigest],
+        ].filter(([name]) => name);
+        if (eventSource && typeof eventSource.on === 'function') {
+            for (const [name, handler] of bindings) {
+                try { eventSource.on(name, handler); } catch (error) { /* */ }
+            }
+        }
+        state.metaDigestCleanup = () => {
+            if (timer != null) clearTimeout(timer);
+            offChange();
+            if (!eventSource) return;
+            for (const [name, handler] of bindings) {
+                try {
+                    if (typeof eventSource.removeListener === 'function') eventSource.removeListener(name, handler);
+                    else if (typeof eventSource.off === 'function') eventSource.off(name, handler);
+                } catch (error) { /* */ }
+            }
         };
     }
 
@@ -559,9 +729,12 @@ export function bootstrapIGS(options = {}) {
         state.status = 'destroyed';
         clearSceneAssetsInjectionTimer();
         detachChatChangedReinjection();
+        if (typeof state.metaDigestCleanup === 'function') state.metaDigestCleanup();
+        state.metaDigestCleanup = null;
         promptInjector.clear();
         illustrationService.stop();
         assetGenerationService.stop();
+        itemCg.itemImages.stop();
         if (app.igsUi && typeof app.igsUi.destroy === 'function') {
             app.igsUi.destroy();
         }

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>IGS 音效试听</title>
+<link rel="icon" href="data:,">
+<!-- 本地调音工具：在 app/ 下起静态服务（如 python -m http.server 8123），打开 /fixtures/sound-lab/。不进 bundle。 -->
+<style>
+body{font:14px/1.5 system-ui,sans-serif;margin:24px;background:#16161a;color:#e8e8ee;}
+h1{font-size:20px;margin:0 0 4px;}
+h2{font-size:15px;margin:22px 0 8px;color:#9fb4ff;}
+.hint{color:#8a8a96;font-size:12px;}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+button{background:#2a2a33;color:#e8e8ee;border:1px solid #3c3c48;border-radius:6px;padding:5px 10px;cursor:pointer;}
+button:hover{background:#353542;}
+button.on{background:#3d5afe;border-color:#3d5afe;}
+input[type=text]{background:#22222a;color:#e8e8ee;border:1px solid #3c3c48;border-radius:6px;padding:4px 8px;width:140px;}
+label{display:inline-flex;gap:6px;align-items:center;}
+code{background:#22222a;padding:2px 6px;border-radius:4px;}
+#log{white-space:pre-wrap;margin-top:18px;height:120px;overflow:auto;background:#0e0e12;border-radius:6px;padding:8px;font:12px/1.4 monospace;color:#8fd18f;}
+</style>
+</head>
+<body>
+<h1>IGS 音效试听</h1>
+<div class="hint">所有声音直接引用 src 下的模块，与 bundle 一致。浏览器要求先点一次页面才能出声。</div>
+<p><label>单项音量 <input id="volume" type="range" min="0" max="1" step="0.05" value="0.6"> <span id="volume-text">60%</span></label>
+  <label>总线总音量 <input id="master" type="range" min="0" max="1" step="0.05" value="1"> <span id="master-text">100%</span></label></p>
+
+<h2>拟声音效 <span class="hint">[igs-fx:sfx|…]</span></h2>
+<div class="row" id="onomatopoeia"></div>
+<div class="row" style="margin-top:6px"><input id="onomatopoeia-text" type="text" value="咔嚓！"><button id="onomatopoeia-play">试听输入</button><span id="onomatopoeia-family" class="hint"></span></div>
+
+<h2>演出音效 <span class="hint">fx-sfx</span></h2>
+<div class="row" id="fx"></div>
+
+<h2>战斗音效 <span class="hint">fx-battle-sfx</span></h2>
+<div class="row" id="battle"></div>
+
+<h2>日常音效 <span class="hint">fx-daily-sfx（只读引用）</span></h2>
+<div class="row" id="daily"></div>
+
+<h2>聊天提示音 <span class="hint">chat-sfx 各预设</span></h2>
+<div class="row" id="chat"></div>
+
+<h2>界面音效 <span class="hint">ui-sfx，按皮肤音色族</span></h2>
+<div class="row" id="ui"></div>
+
+<h2>环境音 <span class="hint">scene-audio</span></h2>
+<div class="row">
+  <label>地点 <input id="amb-location" type="text" value="森林"></label>
+  <label>时段 <input id="amb-time" type="text" value="清晨"></label>
+  <label>天气 <input id="amb-weather" type="text" value="小雨"></label>
+  <label><input id="amb-sync" type="checkbox"> 闪电由天气演出驱动</label>
+  <label>色调 <select style="background:#22222a;color:#e8e8ee;border:1px solid #3c3c48;border-radius:6px;padding:3px 6px"  id="amb-tone"><option value="">无</option><option value="dream">梦境</option><option value="flashback">回忆</option><option value="thought">内心</option><option value="letterbox">黑边</option></select></label>
+</div>
+<div class="row" style="margin-top:6px">
+  <button id="amb-apply">应用场景</button><button id="amb-stop">停止</button><button id="amb-flash">模拟闪电</button><button id="amb-duck">闪避 1.5s</button>
+  <span class="hint">计划：<code id="amb-plan">—</code></span>
+</div>
+<div class="row" style="margin-top:6px" id="amb-presets"></div>
+
+<h2>打字音 <span class="hint">typewriter ogg</span></h2>
+<div class="row">
+  <button data-tw="dududu">嘟嘟声</button><button data-tw="keyboard">键盘声</button>
+  <label>音高倍率 <input id="tw-rate" type="range" min="0.7" max="1.4" step="0.01" value="1"> <span id="tw-rate-text">1.00</span></label>
+</div>
+<div class="row">
+  <label>角色声线 <input id="tw-voice" type="checkbox" checked></label>
+  <label>说话人 <input id="tw-speaker" value="爱丽丝" size="6"></label>
+  <label>情绪 <input id="tw-emotion" value="开心" size="6"></label>
+  <label>立绘位置 <input id="tw-posx" type="range" min="0" max="100" step="5" value="50"> <span id="tw-posx-text">50</span></label>
+  <span id="tw-voice-text" class="hint"></span>
+</div>
+<div class="row" id="tw-synth"></div>
+
+<h2>说话韵律 <span class="hint">speech-prosody · 用上方说话人 / 情绪，合成音色「泡泡」</span></h2>
+<div class="row">
+  <label>说话韵律 <input id="tw-prosody" type="checkbox" checked></label>
+  <label>标点处停顿 <input id="tw-pause" type="checkbox" checked></label>
+</div>
+<div class="row" id="tw-prosody-samples"></div>
+
+<div id="log"></div>
+
+<script type="module">
+import { FX_SFX_PARTIALS, ONOMATOPOEIA_PARTIALS, playFxSfx, resolveOnomatopoeia } from '../../src/visual/igs-ui/fx-sfx.js';
+import { BATTLE_SFX_PARTIALS, playBattleSfx } from '../../src/visual/igs-ui/fx-battle-sfx.js';
+import { CHAT_SFX_PRESET_LABELS, playChatSfx } from '../../src/visual/igs-ui/chat-sfx.js';
+import { UI_SFX_KINDS, playUiSfx } from '../../src/visual/igs-ui/ui-sfx.js';
+import { busInput, resumeAudioBus, setAudioMasterVolume } from '../../src/visual/igs-ui/audio-bus.js';
+import { TYPEWRITER_VOICE_LABELS, TYPEWRITER_VOICES, resolveTypewriterVoice, scheduleTypewriterAudio } from '../../src/visual/igs-ui/typewriter-audio.js';
+import { buildProsody } from '../../src/visual/igs-ui/speech-prosody.js';
+import { AMBIENT_LABELS, applySceneAudio, cancelSceneAudio, duckSceneAudio, resolveAmbientPlan } from '../../src/visual/igs-ui/scene-audio.js';
+
+const $ = (id) => document.getElementById(id);
+const volume = () => Number($('volume').value);
+const sound = () => ({ enabled: true, volume: volume() });
+const log = (text) => { const el = $('log'); el.textContent += `${text}\n`; el.scrollTop = el.scrollHeight; };
+$('volume').addEventListener('input', () => { $('volume-text').textContent = `${Math.round(volume() * 100)}%`; });
+
+function buttons(host, items, play) {
+    for (const [key, label] of items) {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.addEventListener('click', () => { play(key); log(`▶ ${host.id}: ${key}`); });
+        $(host.id || host).appendChild(b);
+    }
+}
+
+const SAMPLE_WORDS = { impact: '砰', crack: '咔嚓', ring: '叮', whoosh: '唰', thud: '噗' };
+buttons($('onomatopoeia'), Object.keys(ONOMATOPOEIA_PARTIALS).map((f) => [f, `${f} · ${SAMPLE_WORDS[f]}`]),
+    (f) => playFxSfx('onomatopoeia', sound(), { text: SAMPLE_WORDS[f] }));
+$('onomatopoeia-play').addEventListener('click', () => {
+    const text = $('onomatopoeia-text').value;
+    $('onomatopoeia-family').textContent = `→ ${resolveOnomatopoeia(text)}`;
+    playFxSfx('onomatopoeia', sound(), { text });
+});
+buttons($('fx'), [...Object.keys(FX_SFX_PARTIALS), 'notify'].map((k) => [k, k]), (k) => playFxSfx(k, sound()));
+buttons($('battle'), Object.keys(BATTLE_SFX_PARTIALS).map((k) => [k, k]), (k) => playBattleSfx(k, sound()));
+buttons($('chat'), CHAT_SFX_PRESET_LABELS.flatMap(([id, name]) => [[`${id}:receive`, `${name} 收`], [`${id}:send`, `${name} 发`]]), (key) => {
+    const [preset, kind] = key.split(':');
+    playChatSfx(kind, { volume: volume(), preset });
+});
+
+for (const [family, skin] of [['wood', 'retro-japanese'], ['paper', 'black-white-manga'], ['soft', 'cute-pink'], ['glass', 'elegant-european']]) {
+    buttons($('ui'), UI_SFX_KINDS.map((kind) => [`${family}:${kind}`, `${family} · ${kind}`]).filter(([key]) => key.startsWith(family)), (key) => {
+        playUiSfx(key.split(':')[1], { dialogSkin: skin, uiSound: { enabled: true, volume: volume() } }, { now: Date.now() + 1000 });
+    });
+}
+
+// 日常音效由另一条开发线维护，模块缺失时只隐藏该组。
+import('../../src/visual/igs-ui/fx-daily-sfx.js').then(({ DAILY_SFX_KINDS, playDailySfx }) => {
+    buttons($('daily'), DAILY_SFX_KINDS.map((k) => [k, k]), (k) => playDailySfx(k, sound()));
+}).catch(() => { $('daily').textContent = '（未找到 fx-daily-sfx.js）'; });
+
+// 环境音：阅读器根节点用 body 代替，闪电事件直接派发到 body。
+const ambientRoot = document.body;
+function context() {
+    const tone = $('amb-tone').value;
+    return {
+        location: $('amb-location').value, time: $('amb-time').value, weather: $('amb-weather').value, lightningSynced: $('amb-sync').checked,
+        fxRanges: { dream: tone === 'dream', flashback: tone === 'flashback', letterbox: tone === 'letterbox' }, textType: tone === 'thought' ? 'thought' : 'dialogue',
+    };
+}
+function applyAmbient() {
+    const result = applySceneAudio(ambientRoot, { ambient: { enabled: true, volume: volume() }, context: context() });
+    const text = result.ambient.map((l) => `${AMBIENT_LABELS[l.kind]}(${l.level}${l.muffled ? '·闷' : ''}${l.synced ? '·随闪电' : ''})`).join(' + ') || '（无）';
+    $('amb-plan').textContent = `${text}${result.tone ? ` ｜色调 ${result.tone}` : ''}${result.space ? ` ｜空间 ${result.space}` : ''}`;
+    log(`环境音 → ${text}`);
+}
+$('amb-apply').addEventListener('click', applyAmbient);
+$('amb-stop').addEventListener('click', () => { cancelSceneAudio(ambientRoot); $('amb-plan').textContent = '—'; log('环境音停止'); });
+$('amb-flash').addEventListener('click', () => { ambientRoot.dispatchEvent(new CustomEvent('igs-weather-flash', { bubbles: true, detail: { level: 'heavy' } })); log('⚡ 闪电事件'); });
+$('amb-duck').addEventListener('click', () => { duckSceneAudio({ durationMs: 1500 }); log('闪避 1.5s'); });
+$('amb-tone').addEventListener('change', applyAmbient);
+for (const input of ['amb-location', 'amb-time', 'amb-weather']) {
+    $(input).addEventListener('input', () => { $('amb-plan').textContent = resolveAmbientPlan(context(), { enabled: true }).map((l) => l.kind).join(' + ') || '（无）'; });
+}
+const PRESETS = [
+    ['雷雨森林', '森林', '下午', '雷暴'], ['卧室听雨', '卧室', '夜晚', '中雨'], ['夏夜公园', '公园', '夜晚', '晴'],
+    ['海边大风', '海边', '下午', '大风'], ['溪边清晨', '溪边树林', '清晨', '晴'], ['壁炉', '壁炉旁', '夜晚', '大雪'],
+    ['雪原', '雪原', '夜晚', '小雪'], ['商业街', '商业街', '下午', '晴'],
+];
+buttons($('amb-presets'), PRESETS.map(([name]) => [name, name]), (name) => {
+    const [, location, time, weather] = PRESETS.find((p) => p[0] === name);
+    $('amb-location').value = location; $('amb-time').value = time; $('amb-weather').value = weather;
+    applyAmbient();
+});
+
+$('master').addEventListener('input', () => {
+    setAudioMasterVolume(Number($('master').value));
+    $('master-text').textContent = `${Math.round(Number($('master').value) * 100)}%`;
+});
+
+// 打字音：角色声线按 说话人 / 情绪 / 立绘位置 解析音高与声道（与阅读器同一函数）；ogg 样本构建时才内联，这里直接解码连播 12 声。
+const twVoice = () => resolveTypewriterVoice({ speakerPitch: $('tw-voice').checked }, 'dialogue', $('tw-speaker').value, { emotion: $('tw-emotion').value, posX: Number($('tw-posx').value) });
+const showVoice = () => {
+    $('tw-posx-text').textContent = $('tw-posx').value;
+    const v = twVoice();
+    $('tw-voice-text').textContent = `音高 ×${v.pitch.toFixed(3)}　声道 ${v.pan.toFixed(2)}`;
+};
+for (const id of ['tw-voice', 'tw-speaker', 'tw-emotion', 'tw-posx']) $(id).addEventListener('input', showVoice);
+showVoice();
+for (const [id, label] of TYPEWRITER_VOICE_LABELS) {
+    if (TYPEWRITER_VOICES[id].sample) continue;
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.addEventListener('click', () => {
+        const v = twVoice();
+        const events = Array.from({ length: 12 }, (_, i) => ({ text: '字', timeMs: 50 + i * 90 }));
+        scheduleTypewriterAudio(events, { textType: 'dialogue', volume: volume(), preset: id, pitch: v.pitch, pan: v.pan });
+        log(`打字音 ${label} ×${v.pitch.toFixed(3)} 声道 ${v.pan.toFixed(2)}`);
+    });
+    $('tw-synth').append(b);
+}
+// 说话韵律样例：勾选 / 取消「说话韵律」对比同一句的节奏与语调（与阅读器同一纯函数）。
+const PROSODY_SAMPLES = ['你真的要走吗？', '笨蛋！', '我……我其实……', '好啦～', '我、我才没有！', '今天天气不错。'];
+for (const text of PROSODY_SAMPLES) {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.addEventListener('click', () => {
+        const prosody = $('tw-prosody').checked;
+        const emotion = $('tw-emotion').value;
+        const chars = Array.from(text);
+        const notes = buildProsody(chars.map((ch) => ({ text: ch })), { speed: 48, punctuationPause: $('tw-pause').checked, rhythm: prosody, intonation: prosody, emotion });
+        const events = notes.map((note, i) => ({ ...note, text: chars[i], timeMs: note.timeMs + 50 }));
+        const v = twVoice();
+        scheduleTypewriterAudio(events, { textType: 'dialogue', volume: volume(), preset: 'pop', pitch: v.pitch, pan: v.pan, prosody, emotion });
+        log(`韵律 ${prosody ? '开' : '关'} ｜${text}｜总时长 ${Math.round(notes.at(-1).timeMs)}ms`);
+    });
+    $('tw-prosody-samples').append(b);
+}
+const twBuffers = {};
+$('tw-rate').addEventListener('input', () => { $('tw-rate-text').textContent = Number($('tw-rate').value).toFixed(2); });
+for (const b of document.querySelectorAll('[data-tw]')) {
+    b.addEventListener('click', async () => {
+        const output = busInput('voice');
+        const tw = output.context;
+        await resumeAudioBus();
+        const name = b.dataset.tw;
+        if (!twBuffers[name]) {
+            const bytes = await (await fetch(`../../src/visual/igs-ui/assets/audio/typewriter-${name}.ogg`)).arrayBuffer();
+            twBuffers[name] = await tw.decodeAudioData(bytes);
+        }
+        const v = twVoice();
+        const rate = Number($('tw-rate').value) * v.pitch;
+        const gain = tw.createGain();
+        const panner = tw.createStereoPanner();
+        panner.pan.value = v.pan;
+        gain.gain.value = volume();
+        gain.connect(panner);
+        panner.connect(output);
+        for (let i = 0; i < 12; i++) {
+            const src = tw.createBufferSource();
+            src.buffer = twBuffers[name];
+            src.playbackRate.value = rate * (1 + (Math.random() * 2 - 1) * 0.04);
+            src.connect(gain);
+            src.start(tw.currentTime + 0.05 + i * 0.09);
+        }
+        log(`打字音 ${name} ×${rate.toFixed(2)}`);
+    });
+}
+window.addEventListener('error', (e) => log(`✖ ${e.message}`));
+</script>
+</body>
+</html>

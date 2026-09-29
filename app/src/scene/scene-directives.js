@@ -1,6 +1,6 @@
 import { resolveMoodGroup, fuzzyResolveMoodGroup } from './mood-groups.js';
 import { resolveSceneTimeAsset } from './scene-time.js';
-import { IGS_DIRECTIVE_START_RE } from './directive-tags.js';
+import { IGS_DIRECTIVE_START_RE, matchOutfitDirectiveAt } from './directive-tags.js';
 
 // 指令可独占整行，也可紧跟在正文之后（同一行内混排），因此不做行首锚定。
 const SCENE_RE = /\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?\]/;
@@ -30,8 +30,9 @@ function nextDirectiveIndex(text) {
     return indexes.length ? Math.min(...indexes) : -1;
 }
 
-export function extractSceneDirectives(text) {
+export function extractSceneDirectives(text, options = {}) {
     const source = String(text || '');
+    const outfitResolver = options && typeof options.outfitResolver === 'function' ? options.outfitResolver : null;
     if (!source.trim()) return { directives: [], illustrationMarkers: [], strippedText: source };
 
     const directives = [];
@@ -70,6 +71,13 @@ export function extractSceneDirectives(text) {
                     lineIndex: i,
                     offset: cursor,
                 });
+            } else if ((m = matchOutfitDirectiveAt(rest, outfitResolver))) {
+                if (pending.trim()) { segmentCount += 1; pending = ''; }
+                const textKey = m.type === 'thought' ? 'thought' : 'dialogue';
+                directives.push({ type: m.type, character: m.character, mood: m.mood, outfit: m.outfit, ...(m.unknownOutfit ? { unknownOutfit: m.unknownOutfit } : {}), [textKey]: m.text, segmentIndex: segmentCount, lineIndex: i, offset: cursor });
+                rest = rest.slice(m.raw.length);
+                cursor += m.raw.length;
+                continue;
             } else if ((m = rest.match(CHAR_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'char', character: m[1].trim(), mood: String(m[2] || '').trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex: i, offset: cursor });
@@ -349,7 +357,7 @@ function resolveSceneEntryUrl(raw, time, weather, sceneAssets) {
 }
 
 // quality：exact（槽位名）/ group（组词）/ fuzzy（模糊兜底，可能错配）/ default / none。
-function lookupAssetValue(record, requestedKey, moodGroups, fuzzy = false) {
+export function lookupAssetValue(record, requestedKey, moodGroups, fuzzy = false, allowDefault = true) {
     if (!record || typeof record !== 'object') return { url: null, slot: '', quality: 'none' };
     if (requestedKey && record[requestedKey]) return { url: record[requestedKey], slot: requestedKey, quality: 'exact' };
     const groupLabel = resolveMoodGroup(requestedKey, moodGroups);
@@ -358,7 +366,7 @@ function lookupAssetValue(record, requestedKey, moodGroups, fuzzy = false) {
         const fuzzyLabel = fuzzyResolveMoodGroup(requestedKey, moodGroups);
         if (fuzzyLabel && record[fuzzyLabel]) return { url: record[fuzzyLabel], slot: fuzzyLabel, quality: 'fuzzy' };
     }
-    if (record['默认']) return { url: record['默认'], slot: '默认', quality: 'default' };
+    if (allowDefault && record['默认']) return { url: record['默认'], slot: '默认', quality: 'default' };
     return { url: null, slot: '', quality: 'none' };
 }
 

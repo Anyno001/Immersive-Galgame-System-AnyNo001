@@ -4,9 +4,11 @@ import { createCharacterMetricsLookup } from '../../data/shujuku/character-metri
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from './record-icons.js';
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
+import { setStagePauseReason } from './stage-pause.js';
 import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
+import { inventoryIconHtml } from './inventory-slot-image.js';
 
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系' });
 const pageTitles = Object.freeze({ diary: '珍藏心事', inventory: '你的背包', relationships: '人际关系' });
@@ -108,6 +110,21 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     let font = RECORD_FONT_DEFAULT;
     const table = () => model?.tables?.find(item => item.uid === activeUid);
     const relationshipPeople = () => model?.people?.filter(item => item.uid === activeUid) || [];
+    // 背包格位与详情头图标：设置为「生图」且本聊天已有物品图时显示图片，否则保留 SVG。
+    let unsubscribeItemImages = null;
+    const readItemIconMode = () => { try { return options.getItemIconMode?.() || 'image'; } catch (_) { return 'image'; } };
+    const itemIcon = name => inventoryIconHtml(name, RECORD_ICONS[inventoryIconKey(name)], options.resolveItemImage, readItemIconMode());
+    const onItemImagesChanged = () => {
+        if (!root || category !== 'inventory') return;
+        // 正在输入搜索词时不重绘，避免打断输入；图片在下一次渲染时出现。
+        const active = doc.activeElement;
+        if (active && String(active.tagName || '').toUpperCase() === 'INPUT' && root.contains?.(active)) return;
+        const scroller = root.querySelector?.('.igs-record-scroll');
+        const top = scroller ? scroller.scrollTop : 0;
+        render();
+        const next = root.querySelector?.('.igs-record-scroll');
+        if (next) next.scrollTop = top;
+    };
     const relationshipEdges = () => model?.edges?.filter(item => item.uid === activeUid) || [];
     const entries = () => category === 'diary' || category === 'inventory'
         ? (model?.entries || [])
@@ -184,6 +201,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         root.addEventListener('input', onInput);
         root.addEventListener('change', onChange);
         overlay.classList?.toggle('igs-record-screen-open', true);
+        setStagePauseReason(overlay, 'panel:record', true);
         (overlay.querySelector?.('#igs-db-layer') || overlay).appendChild(root);
         unwatchLayout = watchRecordPageLayout(root, doc);
         applyDiaryFontSize();
@@ -191,6 +209,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         applyTransparentGlassMaterial(root, settings?.glassOpacity, { backdropFilter: settings?.glassBackdropFilter });
         client = createShujukuClient((global || globalThis).AutoCardUpdaterAPI || null);
         try { client.registerCallback(callback); } catch (_) { /* Optional subscription. */ }
+        try { unsubscribeItemImages = options.subscribeItemImages?.(onItemImagesChanged) || null; } catch (_) { unsubscribeItemImages = null; }
         reload();
         root.querySelector?.('[data-record-act="close"]')?.focus?.();
         return { ok: true };
@@ -205,9 +224,12 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         root.removeEventListener('click', onClick);
         root.removeEventListener('input', onInput);
         root.removeEventListener('change', onChange);
+        unsubscribeItemImages?.();
+        unsubscribeItemImages = null;
         root.remove();
         root = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
+        setStagePauseReason(pageOverlay, 'panel:record', false);
         pageOverlay = null;
         try { client?.unregisterCallback(callback); } catch (_) { /* Host may have disappeared. */ }
         client = null;
@@ -394,7 +416,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const quantity = String(item.quantity ?? '').trim();
             const badge = quantity && quantity !== '1';
             const selected = item.id === selectedId;
-            return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}" ${selected ? 'aria-current="true"' : ''}><span class="igs-record-slot-icon" aria-hidden="true">${RECORD_ICONS[inventoryIconKey(item.title)]}</span><span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}</span>${badge ? `<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small>` : ''}</button>`;
+            return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}" ${selected ? 'aria-current="true"' : ''}><span class="igs-record-slot-icon" aria-hidden="true">${itemIcon(item.title)}</span><span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}</span>${badge ? `<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small>` : ''}</button>`;
         }).join('');
     }
 
@@ -414,7 +436,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const quantity = String(chosen.quantity ?? '').trim();
             const useButton = typeof fillDraft === 'function' && quantity !== '0'
                 ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button><small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small></div>` : '';
-            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head"><div class="igs-record-item-detail-icon" aria-hidden="true">${RECORD_ICONS[inventoryIconKey(chosen.title)]}</div><div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemGroup(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
+            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head"><div class="igs-record-item-detail-icon" aria-hidden="true">${itemIcon(chosen.title)}</div><div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemGroup(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
         }
         return `<div class="igs-record-inventory"><section class="igs-record-inventory-main">${tools}<div class="igs-record-slots" aria-label="物品栏">${slotsHtml(items)}</div></section><aside class="igs-record-item-pane">${detail}</aside></div>`;
     }

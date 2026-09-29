@@ -1,0 +1,6 @@
+allowBuilds:
+  cn-font-split: set this to true or false
+  esbuild: false
+  koffi: set this to true or false
+  protobufjs: set this to true or false
+  sharp: false

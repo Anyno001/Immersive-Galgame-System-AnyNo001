@@ -1,4 +1,4 @@
-// 开发工具：生成 src/styles/ui-caustic-art.js（不进 bundle）。用法：node scripts/caustic-art.mjs
+// 开发工具：生成 src/styles/assets/caustic-art.png 与 src/styles/ui-caustic-art.js（不进 bundle）。用法：node scripts/caustic-art.mjs
 // 水底焦散：域扭曲后的 Voronoi 细胞边缘 = 光网；大网主纹 + 小网副纹，线宽随噪声粗细交错，
 // 低频遮罩让部分区域自然暗下去，再加柔光晕与少量闪点。整张图按周期生成，可无缝平铺。
 import fs from 'node:fs';
@@ -157,7 +157,10 @@ function png(alpha) {
 }
 
 const image = png(caustic());
-const out = path.resolve(import.meta.dirname, '..', 'src', 'styles', 'ui-caustic-art.js');
-fs.writeFileSync(out, `// 由 scripts/caustic-art.mjs 生成，勿手改；调参数改脚本后重新生成。\nexport const IGS_CAUSTIC_TILE_SIZE = ${SIZE};\nexport const IGS_CAUSTIC_ART = 'url("data:image/png;base64,${image.toString('base64')}")';\n`);
+const stylesDir = path.resolve(import.meta.dirname, '..', 'src', 'styles');
+fs.mkdirSync(path.join(stylesDir, 'assets'), { recursive: true });
+fs.writeFileSync(path.join(stylesDir, 'assets', 'caustic-art.png'), image);
+const artExpression = "`url(\"${new URL('./assets/caustic-art.png', import.meta.url).href}\")`";
+fs.writeFileSync(path.join(stylesDir, 'ui-caustic-art.js'), `// 由 scripts/caustic-art.mjs 生成，勿手改；调参数改脚本后重新生成。纹理在 assets/caustic-art.png，构建时外置到 dist/ui/。\nexport const IGS_CAUSTIC_TILE_SIZE = ${SIZE};\nexport const IGS_CAUSTIC_ART = ${artExpression};\n`);
 if (process.argv.includes('--png')) fs.writeFileSync(path.resolve(import.meta.dirname, '..', '.tmp', 'restyle', 'caustic.png'), image);
 console.log('caustic art written', `${(image.length / 1024).toFixed(1)}KB png`);

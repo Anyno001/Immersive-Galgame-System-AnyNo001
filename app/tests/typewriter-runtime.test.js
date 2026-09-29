@@ -6,7 +6,8 @@ import {
     normalizeTypewriterSettings,
 } from '../src/visual/igs-ui/typewriter-runtime.js';
 import { measureClassicReveal } from '../src/visual/igs-ui/typewriter-classic.js';
-import { scheduleTypewriterAudio } from '../src/visual/igs-ui/typewriter-audio.js';
+import { TYPEWRITER_VOICES, TYPEWRITER_VOICE_LABELS, emotionPitch, resolveTypewriterVoice, scheduleTypewriterAudio, speakerPitch, spritePan } from '../src/visual/igs-ui/typewriter-audio.js';
+import { DUCK_RATIO, applySceneAudio, cancelSceneAudio } from '../src/visual/igs-ui/scene-audio.js';
 
 function text(value) {
     return { nodeType: 3, nodeValue: value, childNodes: [] };
@@ -52,16 +53,82 @@ function createAnimator() {
 }
 
 test('typewriter settings default to disabled medium and reject invalid speed', () => {
-    assert.deepEqual(normalizeTypewriterSettings(null), { enabled: false, speed: 'medium', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
-    assert.deepEqual(normalizeTypewriterSettings({ enabled: true, speed: 'fast' }), { enabled: true, speed: 'fast', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
-    assert.deepEqual(normalizeTypewriterSettings({ enabled: 'true', speed: 'instant' }), { enabled: false, speed: 'medium', mode: 'soft', sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5 } });
+    assert.deepEqual(normalizeTypewriterSettings(null), { enabled: false, speed: 'medium', mode: 'soft', punctuationPause: false, prosody: false, sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5, dialoguePreset: 'dududu', thoughtPreset: 'follow', narrationPreset: 'keyboard', speakerPitch: false } });
+    assert.deepEqual(normalizeTypewriterSettings({ enabled: true, speed: 'fast' }), { enabled: true, speed: 'fast', mode: 'soft', punctuationPause: false, prosody: false, sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5, dialoguePreset: 'dududu', thoughtPreset: 'follow', narrationPreset: 'keyboard', speakerPitch: false } });
+    assert.deepEqual(normalizeTypewriterSettings({ enabled: 'true', speed: 'instant' }), { enabled: false, speed: 'medium', mode: 'soft', punctuationPause: false, prosody: false, sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5, dialoguePreset: 'dududu', thoughtPreset: 'follow', narrationPreset: 'keyboard', speakerPitch: false } });
     assert.deepEqual(normalizeTypewriterSettings({ enabled: true, mode: 'classic', sound: { enabled: false, volume: 0 } }),
-        { enabled: true, speed: 'medium', mode: 'classic', sound: { enabled: false, volume: 0, dialogueVolume: 0, narrationVolume: 0 } });
+        { enabled: true, speed: 'medium', mode: 'classic', punctuationPause: false, prosody: false, sound: { enabled: false, volume: 0, dialogueVolume: 0, narrationVolume: 0, dialoguePreset: 'dududu', thoughtPreset: 'follow', narrationPreset: 'keyboard', speakerPitch: false } });
     assert.equal(normalizeTypewriterSettings({ sound: { volume: 4 } }).sound.volume, 1);
     assert.equal(normalizeTypewriterSettings({ sound: { volume: 'bad' } }).sound.volume, 0.5);
     const splitVolumes = normalizeTypewriterSettings({ sound: { volume: 0.8, dialogueVolume: 0.2 } }).sound;
     assert.equal(splitVolumes.dialogueVolume, 0.2);
     assert.equal(splitVolumes.narrationVolume, 0.8);
+});
+
+test('typewriter voice presets normalize, resolve per text type and pitch by speaker', () => {
+    const sound = normalizeTypewriterSettings({ sound: { dialoguePreset: 'blip', thoughtPreset: 'nope', narrationPreset: 'pencil', speakerPitch: 'yes' } }).sound;
+    assert.equal(sound.dialoguePreset, 'blip');
+    assert.equal(sound.thoughtPreset, 'follow');
+    assert.equal(sound.narrationPreset, 'pencil');
+    assert.equal(sound.speakerPitch, false);
+    assert.equal(normalizeTypewriterSettings({ sound: { dialoguePreset: 'bogus' } }).sound.dialoguePreset, 'dududu');
+    assert.deepEqual(resolveTypewriterVoice(sound, 'dialogue', '甲'), { preset: 'blip', pitch: 1, pan: 0 });
+    assert.deepEqual(resolveTypewriterVoice(sound, 'thought', '甲'), { preset: 'blip', pitch: 1, pan: 0 });
+    assert.deepEqual(resolveTypewriterVoice({ ...sound, thoughtPreset: 'whisper' }, 'thought'), { preset: 'whisper', pitch: 1, pan: 0 });
+    assert.deepEqual(resolveTypewriterVoice(sound, 'narration', '甲'), { preset: 'pencil', pitch: 1, pan: 0 });
+    const pitched = { ...sound, speakerPitch: true };
+    assert.equal(resolveTypewriterVoice(pitched, 'dialogue', '甲').pitch, speakerPitch('甲'));
+    assert.equal(resolveTypewriterVoice(pitched, 'narration', '甲').pitch, 1);
+    assert.equal(speakerPitch(''), 1);
+    assert.equal(speakerPitch('爱丽丝'), speakerPitch('爱丽丝'));
+    assert.ok(new Set(['甲', '乙', '丙', '丁', '戊', '己'].map(speakerPitch)).size > 1);
+    assert.deepEqual(TYPEWRITER_VOICE_LABELS.map(([id]) => id).sort(), Object.keys(TYPEWRITER_VOICES).sort());
+});
+
+test('typewriter audio passes the chosen voice and pitch to the scheduler', () => {
+    const events = [{ text: '甲', timeMs: 0 }, { text: '，', timeMs: 30 }, { text: '乙', timeMs: 100 }];
+    const calls = [];
+    const audioScheduler = (info) => { calls.push(info); return { stop() {} }; };
+    scheduleTypewriterAudio(events, { textType: 'dialogue', volume: 0.5, audioScheduler, preset: 'chime', pitch: 1.12 });
+    scheduleTypewriterAudio(events, { textType: 'narration', volume: 0.5, audioScheduler });
+    scheduleTypewriterAudio(events, { textType: 'dialogue', volume: 0.5, audioScheduler, preset: 'bogus' });
+    assert.deepEqual(calls.map(({ preset, pitch, timesMs }) => [preset, pitch, timesMs]),
+        [['chime', 1.12, [0, 100]], ['keyboard', 1, [0, 100]], ['dududu', 1, [0, 100]]]);
+    assert.equal(calls[0].url, '');
+    assert.match(calls[1].url, /keyboard/);
+});
+
+test('classic hands speaker voice settings to the audio scheduler', () => {
+    const { root } = classicRoot();
+    const sounds = [];
+    applyTypewriterEffect(root, {
+        enabled: true, mode: 'classic', reducedMotion: false, animate: createAnimator().animate,
+        sound: { enabled: true, dialoguePreset: 'pop', speakerPitch: true }, textType: 'dialogue', speaker: '爱丽丝',
+        audioScheduler(info) { sounds.push(info); return { stop() {} }; },
+    });
+    cancelTypewriter(root);
+    assert.equal(sounds[0].preset, 'pop');
+    assert.equal(sounds[0].pitch, speakerPitch('爱丽丝'));
+});
+
+test('prosody applies emotion pitch once and leaves narration flat', () => {
+    const play = (textType) => {
+        const { root } = classicRoot();
+        const sounds = [];
+        applyTypewriterEffect(root, {
+            enabled: true, mode: 'classic', prosody: true, reducedMotion: false, animate: createAnimator().animate,
+            sound: { enabled: true, speakerPitch: true }, textType, speaker: '爱丽丝', emotion: '开心',
+            audioScheduler(info) { sounds.push(info); return { stop() {} }; },
+        });
+        cancelTypewriter(root);
+        return sounds[0];
+    };
+    const dialogue = play('dialogue');
+    // 整页音高只含说话人；情绪 ×1.06 只在逐音符里出现一次。
+    assert.equal(dialogue.pitch, speakerPitch('爱丽丝'));
+    assert.ok(Math.abs(dialogue.notes[0].pitch - speakerPitch('爱丽丝') * 1.06) < 1e-9);
+    const narration = play('narration');
+    assert.ok(narration.notes.every((note) => note.pitch === 1 && note.gain === 1));
 });
 
 test('typewriter uses one visual animation without mutating fully rendered nested text', () => {
@@ -306,4 +373,62 @@ test('classic skips audio for mute, zero volume, reduced motion and unavailable 
     const result = applyTypewriterEffect(root, { enabled: true, mode: 'classic', textType: 'dialogue', reducedMotion: false, audioScheduler: scheduler });
     assert.equal(result.animated, false);
     assert.equal(root.dataset.igsTypewriter, 'complete');
+});
+
+test('classic sound ducks scene audio while playing and releases on cancel', () => {
+    const queue = [];
+    const timers = {
+        schedule(fn, delay) { const timer = { fn, delay }; queue.push(timer); return timer; },
+        clear(timer) { const i = queue.indexOf(timer); if (i >= 0) queue.splice(i, 1); },
+    };
+    const settle = () => { for (let i = 0; i < 400 && queue.length; i++) queue.shift().fn(); };
+    const bgmAudio = { volume: 1, play() { return Promise.resolve(); }, pause() {} };
+    const sceneRoot = { ownerDocument: { addEventListener() {}, removeEventListener() {} } };
+    applySceneAudio(sceneRoot, {
+        bgm: { enabled: true, volume: 0.6, tracks: [{ url: 'https://x/calm.mp3', keywords: [] }] },
+        audioFactory: () => bgmAudio, schedule: timers.schedule, clear: timers.clear,
+    });
+    settle();
+    assert.ok(Math.abs(bgmAudio.volume - 0.6) < 1e-9);
+    const { root } = classicRoot();
+    const options = {
+        enabled: true, mode: 'classic', speed: 'slow', reducedMotion: false, sound: { enabled: true, volume: 0.5 },
+        textType: 'dialogue', animate: createAnimator().animate, audioScheduler: () => ({ stop() {} }),
+    };
+    assert.equal(applyTypewriterEffect(root, options).animated, true);
+    settle();
+    assert.ok(Math.abs(bgmAudio.volume - 0.6 * DUCK_RATIO) < 1e-9);
+    cancelTypewriter(root, { finish: true });
+    settle();
+    assert.ok(Math.abs(bgmAudio.volume - 0.6) < 1e-9);
+    cancelSceneAudio(sceneRoot);
+});
+
+test('gate: character voice tunes pitch by emotion and pans dialogue by sprite position', () => {
+    assert.deepEqual(['开心地笑', '有点难过', '平静', ''].map(emotionPitch), [1.06, 0.92, 1, 1]);
+    assert.deepEqual([0, 20, 50, 80, 100, undefined, 'x'].map(spritePan), [-0.5, -0.3, 0, 0.3, 0.5, 0, 0]);
+    const on = { speakerPitch: true };
+    const happy = resolveTypewriterVoice(on, 'dialogue', '甲', { emotion: '兴奋', posX: 80 });
+    assert.ok(Math.abs(happy.pitch - speakerPitch('甲') * 1.06) < 1e-9);
+    assert.equal(happy.pan, 0.3);
+    assert.equal(resolveTypewriterVoice(on, 'thought', '甲', { emotion: '低落', posX: 80 }).pan, 0, '心里话居中');
+    assert.ok(Math.abs(resolveTypewriterVoice(on, 'thought', '甲', { emotion: '低落' }).pitch - speakerPitch('甲') * 0.92) < 1e-9);
+    assert.deepEqual(resolveTypewriterVoice({}, 'dialogue', '甲', { emotion: '开心', posX: 0 }), { preset: 'dududu', pitch: 1, pan: 0 }, '关闭时统一音高、居中');
+    assert.deepEqual(resolveTypewriterVoice(on, 'narration', '甲', { emotion: '开心', posX: 0 }).pan, 0);
+    const calls = [];
+    const audioScheduler = (info) => { calls.push(info); return { stop() {} }; };
+    const events = [{ text: '甲', timeMs: 0 }];
+    scheduleTypewriterAudio(events, { textType: 'dialogue', volume: 0.5, audioScheduler, pan: -0.3 });
+    scheduleTypewriterAudio(events, { textType: 'dialogue', volume: 0.5, audioScheduler, pan: -0.3, phone: true });
+    assert.deepEqual(calls.map((c) => c.pan), [-0.3, 0], '通话听筒不分声道');
+    const { root } = classicRoot();
+    const sounds = [];
+    applyTypewriterEffect(root, {
+        enabled: true, mode: 'classic', reducedMotion: false, animate: createAnimator().animate,
+        sound: { enabled: true, speakerPitch: true }, textType: 'dialogue', speaker: '甲', emotion: '开心', posX: 20,
+        audioScheduler(info) { sounds.push(info); return { stop() {} }; },
+    });
+    cancelTypewriter(root);
+    assert.equal(sounds[0].pan, -0.3);
+    assert.ok(Math.abs(sounds[0].pitch - speakerPitch('甲') * 1.06) < 1e-9);
 });

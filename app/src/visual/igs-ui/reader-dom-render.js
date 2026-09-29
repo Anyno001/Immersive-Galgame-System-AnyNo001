@@ -15,7 +15,7 @@ import {
     removeImageLoadingSpinner,
 } from './reader-dom-utils.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
-import { resolveStatusHudScale, resolveStatusHudLocationScale, NSFW_VEIL_LEVEL_STYLE } from '../../data/shujuku/status-hud-model.js';
+import { resolveStatusHudScale, resolveStatusHudLocationScale, NSFW_VEIL_LEVEL_STYLE, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import {
     renderDialogueHtml,
@@ -26,8 +26,25 @@ import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyFxToDom } from './fx-runtime.js';
-import { resolveSpriteHead } from './fx-anchor.js';
+import { renderItemFx } from './fx-item-render.js';
+import { renderBattleFx } from './fx-battle-render.js';
+import { renderDailyFx } from './fx-daily.js';
+import { peekSpriteHead, probeSpriteHead, resolveSpriteHead } from './fx-anchor.js';
 import { applyWeatherFx } from './weather-fx-runtime.js';
+import { applySceneGrade } from './scene-grade.js';
+import { applyStageDirection } from './stage-direction-runtime.js';
+import { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances } from './stage-cast-render.js';
+import { spriteIdentity } from '../../scene/character-outfits.js';
+import { planCastLayouts, playSpeakerCastMotion, playSpeakerMove, resolveCastHandoff } from './stage-cast-motion.js';
+import { prefersReducedMotion } from './reduced-motion.js';
+import { applyRenderQualityToDom } from './render-quality.js';
+import { applyRomanceToDom } from './romance-runtime.js';
+import { applyMetaFx } from './meta-runtime.js';
+import { applySceneAudio } from './scene-audio.js';
+import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
+import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
+import { clearSpriteOutfitSwap, isOutfitSwap, playSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
+import { applyClickWaitMark } from './click-wait-mark.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
 import { normalizeSystemRoleSettings } from './system-role.js';
@@ -38,6 +55,7 @@ import {
     isMaterialDialogSkin,
     normalizeClassicDialogWidthPercent,
 } from './classic-dialog-skin.js';
+import { syncDialogSkinStyle } from './dialog-skin-style.js';
 import { gradientVeilColorToRgba, normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
 
 export function createReaderButton(doc, id, title, html) {
@@ -90,7 +108,7 @@ export function normalizeReaderStableLayers(overlay) {
         const firstChild = overlay.firstChild || null;
         if (firstChild && typeof overlay.insertBefore === 'function') overlay.insertBefore(motionLayer, firstChild);
         else if (typeof overlay.appendChild === 'function') overlay.appendChild(motionLayer);
-        const movableIds = ['igs-bg-blur', 'igs-bg', 'igs-sprite', 'igs-effect-layer', 'igs-effect-front-layer', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
+        const movableIds = ['igs-bg-blur', 'igs-bg', 'igs-cast', 'igs-sprite', 'igs-effect-layer', 'igs-effect-front-layer', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
         for (const id of movableIds) {
             const node = overlay.querySelector ? overlay.querySelector(`#${id}`) : null;
             if (node && node !== motionLayer && node.parentNode === overlay && typeof motionLayer.appendChild === 'function') motionLayer.appendChild(node);
@@ -110,7 +128,7 @@ export function normalizeReaderStableLayers(overlay) {
     ensureReaderLayer(doc, fxParent, 'igs-effect-front-layer', 'igs-effect-front-layer', fxBefore);
 
     if (motionLayer) {
-        const movableIds =['igs-bg-blur', 'igs-bg', 'igs-sprite', 'igs-effect-layer', 'igs-effect-front-layer', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
+        const movableIds =['igs-bg-blur', 'igs-bg', 'igs-cast', 'igs-sprite', 'igs-effect-layer', 'igs-effect-front-layer', 'igs-click-layer', 'igs-option-layer', 'igs-dialog-layer', 'igs-toolbar-layer', 'igs-db-layer', 'igs-status-hud'];
         for (const id of movableIds) {
             const node = overlay.querySelector ? overlay.querySelector(`#${id}`) : null;
             if (node && node !== motionLayer && node.parentNode === overlay && typeof motionLayer.appendChild === 'function') {
@@ -118,6 +136,7 @@ export function normalizeReaderStableLayers(overlay) {
             }
         }
     }
+    if (sprite && sprite.parentNode) ensureReaderLayer(doc, sprite.parentNode, 'igs-cast', 'igs-cast-layer', sprite);
 
     const optionBubbles = overlay.querySelector ? overlay.querySelector('#igs-option-bubbles') : null;
     const dialog = overlay.querySelector ? overlay.querySelector('#igs-dialog') : null;
@@ -666,8 +685,8 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         bg.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'contain' : 'cover';
         const brightness = Number(readerSettings.imgBrightness);
         const level = (Number.isFinite(brightness) ? brightness : 88) / 100;
-        bg.style.filter = `brightness(${level})`;
-        // 回忆滤镜需要在用户亮度基础上叠加，而不是覆盖它。
+        // 亮度、环境滤镜与回忆滤镜都由样式表按变量合成（见 scene-grade.js），这里不写行内 filter。
+        bg.style.filter = '';
         if (typeof bg.style.setProperty === 'function') bg.style.setProperty('--igs-bg-brightness', String(level));
     }
     if (bgBlur) {
@@ -679,10 +698,17 @@ export function applyAlignStyle(element, align) {
     applyAlignStyleImpl(element, align);
 }
 
-// 字号仍由用户设置决定；皮肤只通过 --igs-skin-text-scale 按比例微调，不改变用户档位。
+// 字号仍由用户设置决定；皮肤只通过 --igs-skin-text-scale、字体只通过 --igs-font-optical/--igs-font-leading 按比例微调，不改变用户档位。
 function applyDialogTextSize(textEl, fontSize) {
-    textEl.style.fontSize = `calc(${fontSize}px * var(--igs-skin-text-scale, 1))`;
-    textEl.style.lineHeight = computeLineHeight(fontSize);
+    textEl.style.fontSize = `calc(${fontSize}px * var(--igs-skin-text-scale, 1) * var(--igs-font-optical, 1))`;
+    textEl.style.lineHeight = `calc(${computeLineHeight(fontSize)} * var(--igs-font-leading, 1))`;
+}
+
+function applyDialogFontMetrics(textEl, fontStack) {
+    const metrics = resolveDialogFontMetrics(fontStack);
+    if (typeof textEl.style.setProperty !== 'function') return;
+    textEl.style.setProperty('--igs-font-optical', String(metrics.scale));
+    textEl.style.setProperty('--igs-font-leading', String(metrics.leading));
 }
 
 const STATUS_HUD_PLACEHOLDER = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
@@ -952,6 +978,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const rootClassName = rootClasses.join(' ');
     if (root.className !== rootClassName) root.className = rootClassName;
     root.setAttribute('data-igs-igs-ui', 'true');
+    // 粒子模块在本轮渲染里读取档位，必须先于天气、日常演出写入。
+    applyRenderQualityToDom(root, snapshot.readerSettings && snapshot.readerSettings.performance && snapshot.readerSettings.performance.quality);
     const stageMotion = root.querySelector('#igs-stage-motion') || root;
     let typewriterTextType = '';
     let typewriterRenderKey = '';
@@ -964,6 +992,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const dialog = root.querySelector('#igs-dialog');
     // 根节点同步皮肤标记，供对话框之外的选项气泡跟随皮肤。
     applyDialogSkinAssets(root, snapshot.readerSettings);
+    syncDialogSkinStyle(root, snapshot.readerSettings);
     const toolbar = root.querySelector('#igs-ctrl-bar');
     const clickLayer = root.querySelector('#igs-click-layer');
     const toast = root.querySelector('#igs-toast');
@@ -1020,16 +1049,80 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         bgBlur.style.opacity = '0';
     }
     const spriteEl = root.querySelector('#igs-sprite');
+    let stageSprite = null;
     let fxSprite = null;
     const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
-    const hideSpriteNsfw = snapshot.content.sceneNsfw === true && spriteSettings.showSpriteOnNsfw === false;
+    const hideSpriteNsfw = snapshot.content.sceneNsfw === true && normalizeStatusHudSettings(spriteSettings).nsfwSpriteMode === 'hide';
     const spriteAssetUrl = hideSpriteNsfw || snapshot.content.htmlCardPage === true
         ? null
         : resolveAssetUrl(snapshot.content.spriteImage);
+    const castEnabled = isStageCastEnabled(snapshot);
+    const castOn = castEnabled && !hideSpriteNsfw && !isCastCollapsed(snapshot, { spriteEditMode: Boolean(current.spriteEditMode) });
+    // 恋爱演出同屏：暧昧档陪衬整层退到背景（recede），修罗场钉住并提亮恋爱对象（rival）。
+    const castRomanceMode = castOn ? resolveCastRomanceMode(snapshot) : 'none';
+    const castRomancePin = castRomanceMode === 'rival' ? resolveCastRomanceTarget(snapshot) : '';
+    // 恋爱演出收成单人（romanceDuo 开启时）：记住说话人站位，进出单人时平移而不瞬移。
+    const castRomanceCollapse = castEnabled && !hideSpriteNsfw && !current.spriteEditMode && isCastRomanceDuoEnabled(snapshot) && resolveCastRomanceMode(snapshot) === 'collapse';
+    const castView = (root.ownerDocument && root.ownerDocument.defaultView) || {};
+    const castLayout = layoutCastSlots({
+        members: castOn && Array.isArray(snapshot.content.castSprites) ? snapshot.content.castSprites : [],
+        pin: castRomancePin,
+        speakerOrder: snapshot.content.speakerCastOrder,
+        hasSpeaker: Boolean(spriteAssetUrl),
+        capacity: resolveCastCapacity(snapshot.mode, {
+            width: stageMotion.clientWidth || castView.innerWidth,
+            height: stageMotion.clientHeight || castView.innerHeight,
+        }),
+    });
+    const speakerSlotX = castLayout.multi && castLayout.speakerPosX != null ? castLayout.speakerPosX : null;
+    const castSpeakerKey = snapshot.content.spriteCharacter || snapshot.content.speaker || '';
+    const castSpeakerMood = snapshot.content.spriteMood || '';
+    const castSpeakerOutfit = snapshot.content.spriteOutfit || '';
+    const castSlotLayouts = snapshot.readerSettings.castSlotLayouts || {};
+    const withCastSlot = (entry, character, outfit, slotIndex) => {
+        const slotKey = slotIndex == null ? '' : castSlotKey(snapshot.mode, castLayout.count, slotIndex, spriteIdentity(character, outfit));
+        const saved = slotKey ? castSlotLayouts[slotKey] : null;
+        const auto = { posX: entry.posX, posY: entry.posY, scale: entry.scale };
+        return saved
+            ? { ...entry, posX: saved.posX, posY: saved.posY, scale: saved.scale, slotKey, auto, locked: true }
+            : { ...entry, slotKey, auto };
+    };
+    const castPlanInput = castLayout.multi && !current.spriteEditMode ? {
+        stageW: stageMotion.clientWidth,
+        stageH: stageMotion.clientHeight,
+        align: isCastAlignEnabled(snapshot),
+        speaker: spriteAssetUrl ? withCastSlot({
+            ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
+            ...(speakerSlotX != null ? { posX: speakerSlotX } : {}),
+            url: spriteAssetUrl,
+            order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
+            head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
+        }, castSpeakerKey, castSpeakerOutfit, castLayout.speakerSlot) : null,
+        members: castLayout.members.map((m) => {
+            const layout = resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, m.character, m.mood, m.outfit);
+            return withCastSlot({
+                character: m.character,
+                url: resolveAssetUrl(m.image),
+                order: m.order,
+                posX: m.posX == null ? layout.posX : m.posX,
+                posY: layout.posY,
+                scale: layout.scale,
+                head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, m.character, m.mood, m.outfit),
+            }, m.character, m.outfit, m.slotIndex);
+        }).filter((m) => m.url),
+        peek: peekSpriteHead,
+    } : null;
+    // 站位姿态（castStage）只作用于多人布局：收成单人或槽位编辑时 castPlanInput 为空，姿态自然暂停。
+    const castPlan = castPlanInput ? resolveCastPosePlan(snapshot, planCastLayouts(castPlanInput), castSpeakerKey) : null;
+    const castFocus = castRomancePin;
+    const castFxTargets = castPlan ? castPlan.members.map((m) => ({ character: m.character, url: m.url, posX: m.posX, posY: m.posY, scale: m.scale, head: m.head, flip: m.flip === true })) : [];
     if (spriteEl && spriteAssetUrl) {
         const spriteNarration = ['narration', 'chat', 'system'].includes(snapshot.content.textType) && spriteSettings.dimSpriteOnNarration !== false;
-        const spriteFilter = spriteNarration ? 'brightness(0.86) saturate(0.86)' : '';
+        // 旁白压暗由 .igs-sprite-narration 写入 --igs-sprite-dim，与环境滤镜在样式表里合成。
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
+        const look = spriteLookOf(snapshot.content, spriteAssetUrl);
+        if (!current.spriteEditMode && isOutfitSwap(current.spriteLook, look)) playSpriteOutfitSwap(spriteEl);
+        current.spriteLook = look;
         writeBackgroundImage(spriteEl, spriteAssetUrl);
         spriteEl.style.display = 'block';
         spriteEl.style.position = 'absolute';
@@ -1037,31 +1130,126 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         spriteEl.style.width = '100%';
         spriteEl.style.height = '100%';
         spriteEl.style.transform = 'none';
+        // 立绘编辑时显示基础站位：先清翻转，非编辑时在下方按姿态重新写入。
+        applySpeakerFlip(spriteEl, false);
         spriteEl.style.bottom = 'auto';
         spriteEl.style.left = 'auto';
-        spriteEl.style.filter = spriteFilter;
-        spriteEl.style.setProperty('-webkit-filter', spriteFilter);
+        spriteEl.style.filter = '';
+        spriteEl.style.setProperty('-webkit-filter', '');
         if (!current.spriteEditMode) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
             const spriteMood = snapshot.content.spriteMood || '';
-            const layout = resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood);
+            const spriteOutfit = snapshot.content.spriteOutfit || '';
+            const layout = { ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood, spriteOutfit) };
+            if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
+            else if (speakerSlotX != null) layout.posX = speakerSlotX;
             spriteEl.style.backgroundSize = `${layout.scale}%`;
             spriteEl.style.backgroundPosition = `${layout.posX}% ${layout.posY}%`;
-            fxSprite = { url: spriteAssetUrl, posX: Number(layout.posX), posY: Number(layout.posY), scale: Number(layout.scale), head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, spriteKey, spriteMood) };
-            igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, index: snapshot.content.currentIndex, layoutKey: spriteKey ? `${snapshot.mode}::${spriteKey}::${spriteMood}` : snapshot.mode, layout: { ...layout } });
+            stageSprite = { url: spriteAssetUrl, key: spriteKey, posX: Number(layout.posX) };
+            fxSprite = { url: spriteAssetUrl, posX: Number(layout.posX), posY: Number(layout.posY), scale: Number(layout.scale), head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, spriteKey, spriteMood, spriteOutfit), multi: Boolean(castPlan && castPlan.members.length), flip: Boolean(castPlan && castPlan.speaker && castPlan.speaker.flip) };
+            applySpeakerFlip(spriteEl, fxSprite.flip, layout.posX, layout.scale);
+            igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, outfit: spriteOutfit, index: snapshot.content.currentIndex, layout: { ...layout } });
         }
     } else if (spriteEl) {
+        current.spriteLook = null;
+        clearSpriteOutfitSwap(spriteEl);
+        applySpeakerFlip(spriteEl, false);
         spriteEl.classList.remove('igs-sprite-narration');
+        applySpeakerFlip(spriteEl, false);
+
         writeBackgroundImage(spriteEl, '');
         spriteEl.style.display = 'none';
         spriteEl.style.filter = '';
         spriteEl.style.setProperty('-webkit-filter', '');
     }
+    const castReduced = prefersReducedMotion();
+    // 陪衬朝向说话人：减少动效、暧昧退场或开关关闭时不倾；旁白页（无说话人槽位）保持上一页朝向。
+    const castLean = !castReduced && castRomanceMode !== 'recede' && isCastLeanEnabled(snapshot)
+        ? { speakerX: speakerSlotX, keep: speakerSlotX == null }
+        : null;
+    let castSpeakerMotion = null;
+    let castCollapseMove = null;
+    let castReactMarks = [];
+    current.castAlignToken = null;
+    const castEditing = Boolean(current.spriteEditMode && current.spriteEditMode.kind === 'cast');
+    if (!castEditing && castPlan && castPlan.members.length) {
+        const collapsedFrom = current.castCollapsedFrom && current.castCollapsedFrom.messageId === snapshot.messageId ? current.castCollapsedFrom : null;
+        const prevStage = current.castStage || (collapsedFrom ? { speaker: collapsedFrom.speaker, speakerX: collapsedFrom.speakerX, members: [], memberX: {} } : null);
+        current.castCollapsedFrom = null;
+        const speakerKey = stageSprite ? stageSprite.key : '';
+        const handoff = resolveCastHandoff(prevStage, { speaker: speakerKey, members: castPlan.members.map((m) => m.character) });
+        // 陪衬反应：点名提亮每次渲染都带上；动作只在进入新页时播一次，同页重绘不重播。
+        const castReact = resolveCastReactPage(snapshot, castPlan.members);
+        castReactMarks = castReact.marks;
+        applyCastToDom(root, markCalledCast(castPlan.members, castReact.called), { reduced: castReduced, handoff, focus: castFocus, lean: castLean, entrances: castStageEntrances(snapshot) });
+        const castReactKey = `${snapshot.messageId}:${snapshot.content.currentIndex}`;
+        if (current.castReactKey !== castReactKey) {
+            current.castReactKey = castReactKey;
+            playCastBeats(root, castReact.beats, { reduced: castReduced });
+        }
+        if (stageSprite && fxSprite && prevStage && !castReduced) {
+            castSpeakerMotion = { prevStage, handoff, speaker: { key: speakerKey, posX: stageSprite.posX, posY: fxSprite.posY } };
+        }
+        current.castStage = {
+            speaker: speakerKey,
+            speakerX: stageSprite ? stageSprite.posX : null,
+            members: castPlan.members.map((m) => m.character),
+            memberX: Object.fromEntries(castPlan.members.map((m) => [m.character, m.posX])),
+            entries: [
+                ...(castPlan.speaker && stageSprite ? [{ character: speakerKey, speaker: true, key: castPlan.speaker.slotKey, url: castPlan.speaker.url, posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale, auto: castPlan.speaker.auto }] : []),
+                ...castPlan.members.map((m) => ({ character: m.character, speaker: false, key: m.slotKey, url: m.url, posX: m.posX, posY: m.posY, scale: m.scale, auto: m.auto })),
+            ],
+        };
+        if (castPlan.pending.length) {
+            const token = {};
+            current.castAlignToken = token;
+            Promise.all(castPlan.pending.map((url) => probeSpriteHead(url, root.ownerDocument).catch(() => null))).then(() => {
+                if (current.castAlignToken !== token || current.spriteEditMode) return;
+                const again = resolveCastPosePlan(snapshot, planCastLayouts(castPlanInput), castSpeakerKey);
+                if (again.speaker && spriteEl) {
+                    spriteEl.style.backgroundSize = `${again.speaker.scale}%`;
+                    spriteEl.style.backgroundPosition = `${again.speaker.posX}% ${again.speaker.posY}%`;
+                    if (fxSprite) Object.assign(fxSprite, { posY: Number(again.speaker.posY), scale: Number(again.speaker.scale) });
+                }
+                applyCastToDom(root, markCalledCast(again.members, castReact.called), { reduced: true, focus: castFocus, lean: castLean });
+                const fxTargetOf = new Map(castFxTargets.map((t) => [t.character, t]));
+                for (const m of again.members) {
+                    const t = fxTargetOf.get(m.character);
+                    if (t) Object.assign(t, { posX: m.posX, posY: m.posY, scale: m.scale });
+                }
+                // 对齐改了大小和高度，槽位编辑的起点要跟着更新，否则拖动从旧值开始。
+                if (current.castStage && Array.isArray(current.castStage.entries)) {
+                    const byChar = new Map(again.members.map((m) => [m.character, m]));
+                    current.castStage.entries = current.castStage.entries.map((e) => {
+                        const next = e.speaker ? again.speaker : byChar.get(e.character);
+                        return next ? { ...e, posX: next.posX, posY: next.posY, scale: next.scale } : e;
+                    });
+                }
+            });
+        }
+    } else if (!castEditing) {
+        const prevStage = current.castStage || null;
+        if (castRomanceCollapse && prevStage && stageSprite && fxSprite && !castReduced && prevStage.speaker === stageSprite.key && prevStage.speakerX != null) {
+            castCollapseMove = { fromX: prevStage.speakerX, toX: stageSprite.posX, posY: fxSprite.posY };
+        }
+        current.castCollapsedFrom = castRomanceCollapse && stageSprite
+            ? { messageId: snapshot.messageId, speaker: stageSprite.key, speakerX: stageSprite.posX, posY: fxSprite ? fxSprite.posY : null }
+            : null;
+        current.castStage = null;
+        if (castEnabled) applyCastToDom(root, [], { reduced: castReduced });
+        else clearCastDom(root);
+    }
+    const castRomanceMark = !castEditing && castPlan && castPlan.members.length ? castRomanceAttr(snapshot.mode, castRomanceMode) : '';
+    if (stageMotion && typeof stageMotion.setAttribute === 'function') {
+        if (castRomanceMark) stageMotion.setAttribute('data-igs-cast-romance', castRomanceMark);
+        else if (typeof stageMotion.removeAttribute === 'function') stageMotion.removeAttribute('data-igs-cast-romance');
+    }
     if (textEl) {
         const theme = resolveActiveTheme(snapshot);
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
         const textType = snapshot.content.textType || 'narration';
-        const renderedHtml = renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled);
+        const textFxOn = Boolean(snapshot.readerSettings.textFx && snapshot.readerSettings.textFx.enabled);
+        const renderedHtml = applyTextFxMarkup(renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled), textFxOn);
         const textRenderKey = [snapshot.messageId, snapshot.content.currentIndex, textType, renderedHtml].join(':');
 
         typewriterTextType = textType === 'system' ? 'narration' : textType;
@@ -1069,6 +1257,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const sameTextRender = Boolean(textEl.dataset && textEl.dataset.igsTextRenderKey === textRenderKey);
         if (!sameTextRender) {
             cancelTypewriter(textEl, { finish: false });
+            disarmTextFx(textEl);
             textEl.innerHTML = renderedHtml;
             if (textEl.dataset) textEl.dataset.igsTextRenderKey = textRenderKey;
         }
@@ -1087,9 +1276,11 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         applyAlignStyle(textEl, themeEnabled ? segAlign : '');
         if (themeEnabled && segFont && segFont !== 'inherit') {
             textEl.style.fontFamily = segFont;
+            preloadDialogFonts(textEl.ownerDocument, [theme.nameFont, theme.textFont, theme.thoughtFont, theme.narrationFont]);
         } else {
             textEl.style.fontFamily = '';
         }
+        applyDialogFontMetrics(textEl, themeEnabled ? segFont : '');
         if (themeEnabled && segColor) {
             textEl.style.color = segColor;
         } else {
@@ -1108,21 +1299,78 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         emotion: snapshot.content && snapshot.content.statusEmotion,
         key: stageShakeKey,
     });
+    const fxTheme = resolveActiveTheme(snapshot);
     const fxResult = applyFxToDom(root, snapshot, {
         sprite: fxSprite,
+        cast: castFxTargets,
+        castMarks: castReactMarks,
         resolveAssetUrl,
-        theme: resolveActiveTheme(snapshot),
+        theme: fxTheme,
     });
+    // 获得物品演出：默认关闭；图片只读本聊天本地缓存，同页重绘不重播。
+    renderItemFx(root, snapshot, { resolveItemImage: ctx.resolveItemImage, chatId: ctx.chatId, theme: fxTheme });
+    // 战斗演出：默认关闭；只读 igs-fx:battle / hit 标签，不显示数值。
+    renderBattleFx(root, snapshot, {
+        chatId: ctx.chatId,
+        theme: fxTheme,
+        sprite: fxSprite,
+        cast: castFxTargets,
+        resolveAssetUrl,
+    });
+    renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');
     const effectFrontLayer = root.querySelector('#igs-effect-front-layer');
-    applyWeatherFx(effectLayer, {
+    const weatherFx = applyWeatherFx(effectLayer, {
         settings: snapshot.readerSettings && snapshot.readerSettings.weatherFx,
         weather: snapshot.content && snapshot.content.sceneWeather,
         location: snapshot.content && snapshot.content.sceneLocation,
         time: snapshot.content && snapshot.content.sceneTime,
         front: effectFrontLayer,
+    });
+    applySceneGrade(root, {
+        settings: snapshot.readerSettings && snapshot.readerSettings.timeTint,
+        weatherSettings: snapshot.readerSettings && snapshot.readerSettings.weatherFx,
+        weather: snapshot.content && snapshot.content.sceneWeather,
+        location: snapshot.content && snapshot.content.sceneLocation,
+        time: snapshot.content && snapshot.content.sceneTime,
+        ranges: fxResult && fxResult.ranges,
+    });
+    applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
+    const stageDirection = applyStageDirection(root, snapshot, {
+        bgUrl: backgroundAssetUrl,
+        spriteUrl: stageSprite ? stageSprite.url : '',
+        spriteKey: stageSprite ? stageSprite.key : '',
+        spritePosX: stageSprite ? stageSprite.posX : 50,
+        spriteEditMode: Boolean(current.spriteEditMode),
+        castKeys: stageSprite && castPlan ? [stageSprite.key, ...castPlan.members.map((m) => m.character)] : [],
+    });
+    if (castCollapseMove) playSpeakerMove(spriteEl, castCollapseMove.fromX, castCollapseMove.toX, castCollapseMove.posY);
+    if (castSpeakerMotion) {
+        playSpeakerCastMotion(spriteEl, castSpeakerMotion.prevStage, castSpeakerMotion.speaker, castSpeakerMotion.handoff, {
+            skipEnter: stageDirection.played.some((kind) => kind.startsWith('sprite:') && kind.includes('enter')),
+        });
+    }
+    // 亲密演出与 NSFW 仅露脸剪影：复用 fxSprite（布局 + 手动头部标定），编辑立绘时 fxSprite 为 null、不逼近不剪影。
+    const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory });
+    // Meta 互动：头部热区在亲密演出之后同步，心形快捷按钮已在前层时热区插到它下面。
+    applyMetaFx(root, snapshot, { sprite: fxSprite, chatId: ctx.chatId, cast: castFxTargets });
+    applySceneAudio(root, {
+        master: snapshot.readerSettings && snapshot.readerSettings.audioMaster,
+        bgm: snapshot.readerSettings && snapshot.readerSettings.bgm,
+        ambient: snapshot.readerSettings && snapshot.readerSettings.ambientSound,
+        weatherSettings: snapshot.readerSettings && snapshot.readerSettings.weatherFx,
+        context: {
+            location: snapshot.content && snapshot.content.sceneLocation,
+            time: snapshot.content && snapshot.content.sceneTime,
+            weather: snapshot.content && snapshot.content.sceneWeather,
+            emotion: snapshot.content && snapshot.content.statusEmotion,
+            lightningSynced: Boolean(weatherFx && weatherFx.lightning),
+            fxRanges: fxResult && fxResult.ranges,
+            textType: typewriterTextType,
+        },
+        active: true,
     });
     const speakerEl = root.querySelector('#igs-speaker');
     if (speakerEl) {
@@ -1254,15 +1502,24 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     });
     if (textEl && typewriterRenderKey) {
         const typewriterSettings = snapshot.readerSettings.typewriter || {};
-        applyTypewriterEffect(textEl, {
+        const typewriter = applyTypewriterEffect(textEl, {
             enabled: typewriterSettings.enabled === true,
-            speed: typewriterSettings.speed,
+            // 告白段打字机降一档、回答页文字出现前停顿（romance-moments）。
+            speed: (romanceResult.typewriter && romanceResult.typewriter.speed) || typewriterSettings.speed,
+            delay: romanceResult.typewriter && romanceResult.typewriter.delay,
             mode: typewriterSettings.mode,
+            punctuationPause: typewriterSettings.punctuationPause === true,
+            prosody: typewriterSettings.prosody === true,
             sound: typewriterSettings.sound,
             textType: typewriterTextType,
+            speaker: snapshot.content.speaker || '',
+            // 角色声线：情绪微调音高；立绘就是说话人本人时才按其位置分声道。
+            emotion: snapshot.content.statusEmotion || '',
+            posX: stageSprite && (!snapshot.content.spriteCharacter || snapshot.content.spriteCharacter === snapshot.content.speaker) ? stageSprite.posX : undefined,
             key: typewriterRenderKey,
             phone: fxResult.phone === true,
         });
+        armTextFx(textEl, typewriter && typewriter.animated ? typewriter.revealDelay : null);
     }
     if (toast) {
         toast.textContent = current.toastMessage || '';

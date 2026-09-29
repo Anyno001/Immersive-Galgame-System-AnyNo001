@@ -23,7 +23,7 @@ function bubbleRules(skin, rules) {
         .join('\n');
 }
 
-// 构建脚本按字面占位符内联 PNG，这里必须保留完整字面量。
+// 构建脚本按字面占位符把素材外置到 dist/skins/，这里必须保留完整字面量。
 const CHOICE_ASSETS = Object.freeze({
     [DIALOG_SKIN_CUTE_PINK]: ['__IGS_ASSET__cute-pink/choice.png__', '__IGS_ASSET__cute-pink/choice-hover.png__', '__IGS_ASSET__cute-pink/choice-active.png__'],
     [DIALOG_SKIN_BLACK_WHITE_MANGA]: ['__IGS_ASSET__black-white-manga/choice.png__', '__IGS_ASSET__black-white-manga/choice-hover.png__', null],
@@ -66,35 +66,43 @@ const WARM_DOTS = 'linear-gradient(#a6dcd4 0 0) 0 0/5px 5px,linear-gradient(#a6d
 const ELEGANT_LINE = 'linear-gradient(90deg,rgba(236,232,244,0),rgba(236,232,244,.5) 18%,rgba(236,232,244,.5) 82%,rgba(236,232,244,0))';
 
 // 选项跟随对话框皮肤：只改外观，位置、宽度模式与字号仍由选项设置控制；默认皮肤保持霜夜选项。
-export const DIALOG_THEME_CHOICE_STYLE_TEXT = [
+export const DIALOG_THEME_CHOICE_BASE_STYLE_TEXT = [
     '#igs-overlay[data-igs-dialog-skin] #igs-option-bubbles{margin-bottom:var(--igs-skin-plate-rise,0px);}',
     '#igs-overlay[data-igs-dialog-skin] .igs-option-bubble{position:relative;-webkit-backdrop-filter:none;backdrop-filter:none;transition:background-color .18s,border-color .18s,color .18s,box-shadow .18s,transform .12s;}',
     '#igs-overlay[data-igs-dialog-skin] .igs-option-bubble:focus-visible{outline:2px solid currentColor;outline-offset:3px;}',
-    ...Object.keys(IMAGE_CHOICE_SPECS).map(imageChoiceRules),
+].join('\n');
+
+export const DIALOG_THEME_CHOICE_STYLE_BY_SKIN = Object.freeze({
+    ...Object.fromEntries(Object.keys(IMAGE_CHOICE_SPECS).map((skin) => [skin, imageChoiceRules(skin)])),
     // 漫画例图里选中项左侧带一枚四角星。
-    bubbleRules(DIALOG_SKIN_BLACK_WHITE_MANGA, {
+    [DIALOG_SKIN_BLACK_WHITE_MANGA]: [imageChoiceRules(DIALOG_SKIN_BLACK_WHITE_MANGA), bubbleRules(DIALOG_SKIN_BLACK_WHITE_MANGA, {
         ':hover::before': 'content:"\\2726";position:absolute;left:34px;top:50%;transform:translateY(-50%);font-size:1.05em;color:#171412;',
-    }),
-    bubbleRules(DIALOG_SKIN_DAY_MINIMAL, {
+    })].join('\n'),
+    [DIALOG_SKIN_DAY_MINIMAL]: bubbleRules(DIALOG_SKIN_DAY_MINIMAL, {
         '': `box-sizing:border-box;min-height:42px;padding:9px 40px 9px 44px;border:0;border-radius:0;background:linear-gradient(90deg,rgba(51,51,51,.9),rgba(62,62,58,.84) 70%,rgba(90,89,78,.78));box-shadow:0 1px 0 rgba(255,255,255,.35) inset;color:#f3f1ea;letter-spacing:.12em;`,
         '::before': `content:"";position:absolute;left:14px;top:50%;width:13px;height:14px;margin-top:-7px;background:${DAY_STRIPES};`,
         ':hover': 'background:linear-gradient(90deg,#c9604c,#d27560 70%,#d98b74);color:#fff;',
         ':active': 'transform:translateX(2px);',
     }),
-    bubbleRules(DIALOG_SKIN_WARM_PICTUREBOOK, {
+    [DIALOG_SKIN_WARM_PICTUREBOOK]: bubbleRules(DIALOG_SKIN_WARM_PICTUREBOOK, {
         '': `box-sizing:border-box;min-height:44px;padding:9px 44px 9px 50px;border:2px solid #4f4a45;border-radius:999px;background:#f1ede9;box-shadow:0 3px 0 rgba(79,74,69,.28);color:#4f4a45;font-weight:500;letter-spacing:.1em;`,
         '::before': `content:"";position:absolute;left:22px;top:50%;width:12px;height:12px;margin-top:-6px;background:${WARM_DOTS};background-repeat:no-repeat;`,
         ':hover': 'border-color:#4f4a45;background:repeating-linear-gradient(135deg,#5b5650 0 5px,#4f4a45 5px 10px);box-shadow:0 0 0 3px #f1ede9,0 0 0 5px #4f4a45;color:#f4efe9;',
         ':active': 'transform:translateY(2px);box-shadow:0 0 0 3px #f1ede9,0 0 0 5px #4f4a45;',
     }),
-    bubbleRules(DIALOG_SKIN_ELEGANT_EUROPEAN, {
+    [DIALOG_SKIN_ELEGANT_EUROPEAN]: bubbleRules(DIALOG_SKIN_ELEGANT_EUROPEAN, {
         '': `box-sizing:border-box;min-height:44px;padding:10px 40px;border:0;border-radius:0;background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(8,8,16,0),rgba(8,8,16,.55) 20%,rgba(8,8,16,.55) 80%,rgba(8,8,16,0));box-shadow:none;color:#eeeaf3;letter-spacing:.12em;text-shadow:0 1px 3px rgba(0,0,0,.8);`,
         ':hover': `background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(96,78,168,0),rgba(96,78,168,.72) 22%,rgba(112,92,186,.78) 50%,rgba(96,78,168,.72) 78%,rgba(96,78,168,0));color:#fff;text-shadow:0 0 8px rgba(196,176,255,.6);`,
     }),
-    bubbleRules(DIALOG_SKIN_GRADIENT_VEIL, {
+    [DIALOG_SKIN_GRADIENT_VEIL]: bubbleRules(DIALOG_SKIN_GRADIENT_VEIL, {
         '': 'padding:11px 32px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.6) 18%,rgba(0,0,0,.6) 82%,transparent);box-shadow:none;color:rgba(255,255,255,.88);text-shadow:0 1px 3px rgba(0,0,0,.85);letter-spacing:.1em;',
         '::after': 'content:"";position:absolute;left:20%;right:20%;bottom:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);transition:background .18s;',
         ':hover': 'border:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.78) 14%,rgba(0,0,0,.78) 86%,transparent);color:#fff;',
         ':hover::after': 'background:linear-gradient(90deg,transparent,rgba(255,238,184,.85),transparent);',
     }),
+});
+
+export const DIALOG_THEME_CHOICE_STYLE_TEXT = [
+    DIALOG_THEME_CHOICE_BASE_STYLE_TEXT,
+    ...Object.values(DIALOG_THEME_CHOICE_STYLE_BY_SKIN),
 ].join('\n');

@@ -7,6 +7,7 @@ import { isBackgroundGenerationActive } from './background-generation.js';
 export const DEFAULT_STABLE_MS = 800;
 export const DEFAULT_HARD_TIMEOUT_MS = 120000;
 export const DEFAULT_IDLE_MS = 10000;
+export const DEFAULT_ACTIVITY_THROTTLE_MS = 150;
 
 const FALLBACK_GENERATION_EVENTS = Object.freeze({
     started: 'generation_started',
@@ -22,6 +23,11 @@ export function createChatStreamObserver(opts = {}) {
     const stableMs = Number(opts.stableMs) > 0 ? Number(opts.stableMs) : DEFAULT_STABLE_MS;
     const hardTimeoutMs = Number(opts.hardTimeoutMs) > 0 ? Number(opts.hardTimeoutMs) : DEFAULT_HARD_TIMEOUT_MS;
     const idleMs = Number(opts.idleMs) > 0 ? Number(opts.idleMs) : DEFAULT_IDLE_MS;
+    const activityThrottleMs = opts.activityThrottleMs != null && Number(opts.activityThrottleMs) >= 0
+        ? Number(opts.activityThrottleMs)
+        : DEFAULT_ACTIVITY_THROTTLE_MS;
+    let activityTimer = null;
+    let activityPending = false;
     let observer = null;
     let stableTimer = null;
     let hardTimer = null;
@@ -82,9 +88,34 @@ export function createChatStreamObserver(opts = {}) {
         }, hardTimeoutMs);
     };
 
+    const clearActivity = () => {
+        if (activityTimer != null) getClearer()(activityTimer);
+        activityTimer = null;
+        activityPending = false;
+    };
+
+    // 流式输出时每几十毫秒一批变更：onActivity 首次立即执行，之后窗口内的合并成窗口末尾一次；稳定判定仍逐批重置。
+    const emitActivity = () => {
+        if (activityTimer != null) {
+            activityPending = true;
+            return;
+        }
+        try { onActivity(); } catch (error) { /* */ }
+        if (!activityThrottleMs) return;
+        activityTimer = getSetter()(() => {
+            activityTimer = null;
+            if (!activityPending || !active) {
+                activityPending = false;
+                return;
+            }
+            activityPending = false;
+            emitActivity();
+        }, activityThrottleMs);
+    };
+
     const scheduleActivity = () => {
         if (!active) return;
-        try { onActivity(); } catch (error) { /* */ }
+        emitActivity();
         ensureHard();
         // 生成期间结束事件可能缺失（宿主报错、版本差异），#chat 静默 idleMs 即先收尾；
         // 仍在生成时下一次变更会重新进入载入态，避免只能等硬超时。
@@ -191,6 +222,7 @@ export function createChatStreamObserver(opts = {}) {
         manualArmed = false;
         clearStable();
         clearHard();
+        clearActivity();
     };
 
     const stop = () => {

@@ -12,7 +12,7 @@ import {
 
 const CLASSIC = 'western-classic';
 
-// 构建脚本按字面占位符内联 PNG，这里必须保留完整字面量。
+// 构建脚本按字面占位符把素材外置到 dist/skins/，这里必须保留完整字面量。
 const RETRO_TAG = '__IGS_ASSET__retro-japanese/tag.png__';
 const ADVENTURE_TAG = '__IGS_ASSET__adventure-journey/tag.png__';
 
@@ -186,3 +186,32 @@ function hudThemeRules(skin, theme) {
 export const DIALOG_THEME_HUD_STYLE_TEXT = Object.entries(HUD_THEMES)
     .map(([skin, theme]) => hudThemeRules(skin, theme))
     .join('\n');
+
+// 物品演出卡片与重要物品大演出沿用同一主题的 HUD 面板、墨色与占位底；间距与动画仍由 fx-item 决定。
+// 主题面板会盖掉卡片自带的稀有光晕，这里改用描边强调。
+function itemFxThemeRules(skin, theme) {
+    const scope = `#igs-overlay[data-igs-dialog-skin="${skin}"]`;
+    const ink = theme.ink ? `color:${theme.ink};text-shadow:none;` : '';
+    const rules = [
+        `${scope} .igs-fx-item-card{${theme.panel}${ink}padding:8px 14px 8px 12px;}`,
+        `${scope} .igs-fx-item-card[data-igs-item-rare]{outline:1.5px solid var(--igs-item-accent-c);outline-offset:2px;}`,
+        `${scope} .igs-fx-item-showcase-plate{${theme.panel}${ink}padding:18px 26px 16px;outline:2px solid var(--igs-item-accent-c);outline-offset:4px;}`,
+        `${scope} .igs-fx-item-icon[data-igs-item-placeholder]{${theme.placeholder}}`,
+    ];
+    if (theme.ink) rules.push(`${scope} .igs-fx-item-more,${scope} .igs-fx-item-flyer{color:${theme.ink};}`);
+    return rules.join('\n');
+}
+
+export const DIALOG_THEME_ITEM_FX_STYLE_TEXT = Object.entries(HUD_THEMES)
+    .map(([skin, theme]) => itemFxThemeRules(skin, theme))
+    .join('\n');
+
+export function getDialogThemeHudStyleText(skin) {
+    const theme = HUD_THEMES[skin];
+    return theme ? hudThemeRules(skin, theme) : '';
+}
+
+export function getDialogThemeItemFxStyleText(skin) {
+    const theme = HUD_THEMES[skin];
+    return theme ? itemFxThemeRules(skin, theme) : '';
+}

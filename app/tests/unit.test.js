@@ -1216,7 +1216,7 @@ test('gate:host:prompt-injector-registers-scene-rule-as-in-chat-extension-prompt
     const injector = createPromptInjector(globalObject);
     const result = injector.inject('rule: @igs-scene');
 
-    assert.deepEqual(result, { ok: true, method: 'extension-prompt', verified: true });
+    assert.deepEqual(result, { ok: true, method: 'extension-prompt', verified: true, placement: 'depth0' });
     assert.equal(calls.length, 1);
     assert.equal(calls[0].position, 1);
     assert.equal(calls[0].role, 0);
@@ -1540,11 +1540,11 @@ test('gate:scene:prompt-rule-draft-only-persists-on-explicit-save', async () => 
 test('gate:scene:legacy-default-prompt-upgrades-without-touching-custom-rule', () => {
     assert.equal(normalizeScenePromptRule(LEGACY_DEFAULT_SCENE_PROMPT_RULE), DEFAULT_SCENE_PROMPT_RULE);
     assert.equal(normalizeScenePromptRule('自定义规则'), '自定义规则');
-    assert.match(DEFAULT_SCENE_PROMPT_RULE, /\[igs-scene:场景名\|时间\|天气\|NSFW\]/);
+    assert.match(DEFAULT_SCENE_PROMPT_RULE, /NSFW场景加第4栏大写NSFW/);
     // NSFW 只规定格式与触发条件，不解释前端用途。
     assert.doesNotMatch(DEFAULT_SCENE_PROMPT_RULE, /前端隐藏人物视觉/);
-    assert.match(DEFAULT_SCENE_PROMPT_RULE, /\[igs-char:角色名\|表情\|对白\]/);
-    assert.match(DEFAULT_SCENE_PROMPT_RULE, /禁止描述家具/);
+    assert.match(DEFAULT_SCENE_PROMPT_RULE, /\[igs-char:角色名\|表情\|服装\|对白\]/);
+    assert.match(DEFAULT_SCENE_PROMPT_RULE, /不写家具摆设/);
 });
 
 test('gate:settings:theme-cycle-persists-through-settings-action-and-migrates-legacy-values', async () => {
@@ -3695,6 +3695,7 @@ test('gate:scene:scene-preset-round-trip-keeps-status-avatars', async () => {
     draft.bridge.sceneAssets.statusAvatars = {};
     await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('头像预设'), ctx);
     assert.equal(draft.bridge.sceneAssets.statusAvatars['爱丽丝'], 'data:image/png;base64,AAA');
+});
 
 test('gate:igs-ui:gradient-veil-normalizes-values-and-shares-default-theme', () => {
     assert.equal(normalizeDialogSkin(DIALOG_SKIN_GRADIENT_VEIL), DIALOG_SKIN_GRADIENT_VEIL);
@@ -3823,9 +3824,6 @@ test('gate:igs-scene-inheritance:does-not-reach-beyond-three-ai-floors', async (
     assert.equal(app.captured.payload.inheritedSceneState, null);
 });
 
-
-});
-
 test('gate:igs-ui:illustrated-dialog-skins-normalize-and-share-default-theme', () => {
     for (const skin of [DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK]) {
         assert.equal(normalizeDialogSkin(skin), skin);
@@ -3865,4 +3863,978 @@ test('gate:igs-ui:reference-typography-applies-to-material-themes-only', () => {
     const veilTheme = resolveActiveTheme({ readerSettings: { dialogSkin: 'gradient-veil' } });
     assert.equal(defaultTheme.nameColor, '#ffeeb8');
     assert.equal(veilTheme.nameColor, '#ffeeb8');
+});
+
+
+test('character dna: normalize map rejects prototype keys and keeps only known fields', async () => {
+    const { normalizeCharacterDnaMap } = await import('../src/scene/character-dna.js');
+    assert.deepEqual(normalizeCharacterDnaMap(null), {});
+    assert.deepEqual(normalizeCharacterDnaMap(['x']), {});
+    const raw = JSON.parse('{"__proto__":{"identity":"x"},"爱丽丝":{"identity":"  银发 ","extra":1},"白墨":{}}');
+    const map = normalizeCharacterDnaMap(raw);
+    assert.deepEqual(Object.keys(map), ['爱丽丝', '白墨']);
+    assert.deepEqual(map['爱丽丝'], { identity: '银发', defaultAppearance: '', negative: '', triggerWords: '' });
+    assert.equal(Object.prototype.hasOwnProperty.call(map, '__proto__'), false);
+    assert.equal({}.identity, undefined);
+});
+
+test('character dna: resolve via injected alias resolver, rename guard and remove', async () => {
+    const { resolveCharacterDna, renameCharacterDna, removeCharacterDna } = await import('../src/scene/character-dna.js');
+    const map = { 爱丽丝: { identity: '银发' }, 白墨: { identity: '黑发' } };
+    const alias = (n) => (n === '爱丽' ? '爱丽丝' : n);
+    assert.equal(resolveCharacterDna(map, '爱丽', alias).name, '爱丽丝');
+    assert.equal(resolveCharacterDna(map, '爱丽', alias).dna.identity, '银发');
+    assert.equal(resolveCharacterDna(map, '路人', alias), null);
+    const blocked = renameCharacterDna(map, '爱丽丝', '白墨');
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.reason, 'name-exists');
+    const renamed = renameCharacterDna(map, '爱丽丝', '艾莉西亚');
+    assert.equal(renamed.ok, true);
+    assert.deepEqual(Object.keys(renamed.map), ['艾莉西亚', '白墨']);
+    assert.equal(renameCharacterDna(map, '爱丽丝', '__proto__').ok, false);
+    assert.deepEqual(Object.keys(removeCharacterDna(map, '白墨')), ['爱丽丝']);
+    assert.deepEqual(Object.keys(map), ['爱丽丝', '白墨']);
+});
+
+test('character dna: prompt tags keep weight groups, dedupe case-insensitively and follow fixed order', async () => {
+    const { splitPromptTags, mergePromptTags, buildCharacterDnaPromptParts } = await import('../src/scene/character-dna.js');
+    assert.deepEqual(splitPromptTags('(silver hair, long:1.2), blue eyes，smile\nsolo'), ['(silver hair, long:1.2)', 'blue eyes', 'smile', 'solo']);
+    assert.equal(mergePromptTags('Blue Eyes, solo', 'blue  eyes, 1girl', ''), 'Blue Eyes, solo, 1girl');
+    const dna = { triggerWords: 'alice_v2', identity: 'silver hair, blue eyes', defaultAppearance: 'school uniform', negative: 'glasses' };
+    assert.deepEqual(buildCharacterDnaPromptParts(dna), { positive: 'alice_v2, silver hair, blue eyes', negative: 'glasses' });
+    assert.equal(buildCharacterDnaPromptParts(dna, { includeDefaultAppearance: true }).positive, 'alice_v2, silver hair, blue eyes, school uniform');
+    assert.deepEqual(buildCharacterDnaPromptParts({}), { positive: '', negative: '' });
+});
+
+
+test('gate:scene:character-dna-lifecycle-and-preset-round-trip', async () => {
+    const storage = createMemoryStorage();
+    const dnaAlice = { identity: 'silver hair', defaultAppearance: 'uniform', negative: 'glasses', triggerWords: 'alice_v2' };
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                scenes: {},
+                characters: { '爱丽丝': { '平和': 'sprite-a' }, '白墨': { '平和': 'sprite-b' } },
+                characterAliases: { '爱丽丝': ['爱丽'], '白墨': [] },
+                characterDna: { '爱丽丝': dnaAlice, '白墨': { identity: 'black hair' }, '路人甲': { identity: 'brown hair' } },
+                moodGroups: [],
+            },
+        },
+        readerSettings: {},
+    };
+    const prompts = [];
+    let alerts = 0;
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: { scenePresetName: 'DNA预设', expandedSpriteSlots: new Set() } } },
+        options: { global: { localStorage: storage, prompt: () => prompts.shift() || '', confirm: () => true, alert: () => { alerts += 1; } } },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    const sa = () => draft.bridge.sceneAssets;
+
+    await handleSettingsAction('scene-preset-save', ctx);
+    const stored = JSON.parse(storage.getItem('igs:scene-presets:v1'));
+    assert.equal(stored.presets['DNA预设'].characterDna['爱丽丝'].triggerWords, 'alice_v2');
+    assert.equal(stored.presets['DNA预设'].characterDna['路人甲'].identity, 'brown hair');
+
+    sa().characterDna = {};
+    await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('DNA预设'), ctx);
+    assert.equal(sa().characterDna['爱丽丝'].identity, 'silver hair');
+
+    // 旧预设没有 characterDna 字段：应用后保留当前 DNA，不静默清空。
+    stored.presets['旧预设'] = { scenes: {}, characters: cloneForTest(sa().characters), characterAliases: { '爱丽丝': ['爱丽'], '白墨': [] } };
+    storage.setItem('igs:scene-presets:v1', JSON.stringify(stored));
+    await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('旧预设'), ctx);
+    assert.equal(sa().characterDna['爱丽丝'].identity, 'silver hair');
+    assert.deepEqual(Object.keys(sa().characterDna), ['爱丽丝', '白墨', '路人甲']);
+
+    prompts.push('艾莉西亚');
+    await handleSettingsAction('scene-rename-char:' + encodeURIComponent('爱丽丝'), ctx);
+    assert.equal(sa().characterDna['艾莉西亚'].identity, 'silver hair');
+    assert.equal(sa().characterDna['爱丽丝'], undefined);
+    assert.deepEqual(Object.keys(sa().characterDna), ['艾莉西亚', '白墨', '路人甲']);
+
+    // 目标名已是 DNA-only 角色：阻止改名，角色与 DNA 均不变。
+    const alertsBefore = alerts;
+    prompts.push('路人甲');
+    await handleSettingsAction('scene-rename-char:' + encodeURIComponent('白墨'), ctx);
+    assert.equal(alerts, alertsBefore + 1);
+    assert.ok(sa().characters['白墨']);
+    assert.equal(sa().characters['路人甲'], undefined);
+    assert.equal(sa().characterDna['路人甲'].identity, 'brown hair');
+    assert.equal(sa().characterDna['白墨'].identity, 'black hair');
+
+    await handleSettingsAction('scene-remove-char:' + encodeURIComponent('白墨'), ctx);
+    assert.equal(sa().characterDna['白墨'], undefined);
+    assert.equal(sa().characterDna['路人甲'].identity, 'brown hair');
+});
+
+function cloneForTest(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+
+test('gate:igs-ui:character-dna-editor-renders-escaped-name-and-values', async () => {
+    const { renderCharacterAssetList, renderCharacterDnaEditor } = await import('../src/visual/igs-ui/settings-fields.js');
+    const empty = renderCharacterDnaEditor('白墨', null);
+    assert.ok(empty.includes('角色 DNA（未填写）'));
+    assert.equal((empty.match(/data-dna-field="/g) || []).length, 4);
+    const html = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
+        characterDna: { 'A.<b>': { identity: 'silver hair', triggerWords: 'alice_v2' } },
+    });
+    assert.ok(html.includes('data-dna-char="A.&lt;b&gt;"'));
+    assert.ok(!html.includes('data-dna-char="A.<b>"'));
+    assert.ok(html.includes('data-dna-field="identity" placeholder='));
+    assert.ok(html.includes('>silver hair</textarea>'));
+    assert.ok(html.includes('>alice_v2</textarea>'));
+    assert.ok(!html.includes('角色 DNA（未填写）'));
+    assert.ok(!/data-path="[^"]*characterDna/.test(html));
+});
+
+
+test('gate:scene:dna-only-character-add-rename-remove-and-list', async () => {
+    const { renderDnaOnlyCharacterList } = await import('../src/visual/igs-ui/settings-fields.js');
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                scenes: {},
+                characters: { '爱丽丝': { '平和': 'sprite-a' } },
+                characterAliases: { '爱丽丝': ['爱丽'] },
+                characterDna: { '爱丽丝': { identity: 'silver hair' } },
+                moodGroups: [],
+            },
+        },
+        readerSettings: {},
+    };
+    const prompts = [];
+    let alerts = 0;
+    let persistCount = 0;
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState: { expandedSpriteSlots: new Set() } } },
+        options: { global: { prompt: () => prompts.shift() || '', confirm: () => true, alert: () => { alerts += 1; } } },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    const sa = () => draft.bridge.sceneAssets;
+
+    prompts.push('路人甲');
+    await handleSettingsAction('scene-add-dna-char', ctx);
+    assert.deepEqual(sa().characterDna['路人甲'], { identity: '', defaultAppearance: '', negative: '', triggerWords: '' });
+    assert.equal(sa().characters['路人甲'], undefined);
+    assert.equal(persistCount, 1);
+
+    // 别名与已有 DNA 均拒绝，且不落盘。
+    prompts.push('爱丽');
+    await handleSettingsAction('scene-add-dna-char', ctx);
+    prompts.push('路人甲');
+    await handleSettingsAction('scene-add-dna-char', ctx);
+    assert.equal(alerts, 2);
+    assert.equal(persistCount, 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(sa().characterDna, '爱丽'), false);
+
+    // 改名撞上已有立绘的角色被拒绝；正常改名保序迁移。
+    prompts.push('爱丽丝');
+    await handleSettingsAction('scene-rename-dna-char:' + encodeURIComponent('路人甲'), ctx);
+    assert.equal(alerts, 3);
+    assert.ok(sa().characterDna['路人甲']);
+    prompts.push('路人乙');
+    await handleSettingsAction('scene-rename-dna-char:' + encodeURIComponent('路人甲'), ctx);
+    assert.deepEqual(Object.keys(sa().characterDna), ['爱丽丝', '路人乙']);
+
+    // 有立绘的角色不能走 DNA-only 改名入口。
+    prompts.push('新名');
+    await handleSettingsAction('scene-rename-dna-char:' + encodeURIComponent('爱丽丝'), ctx);
+    assert.ok(sa().characterDna['爱丽丝']);
+    assert.equal(sa().characterDna['新名'], undefined);
+
+    const html = renderDnaOnlyCharacterList(sa().characterDna, sa().characters);
+    assert.ok(html.includes('data-action="scene-rename-dna-char:' + encodeURIComponent('路人乙') + '"'));
+    assert.ok(!html.includes('scene-remove-dna-char:' + encodeURIComponent('爱丽丝')));
+    assert.ok(html.includes('data-action="scene-add-dna-char"'));
+
+    await handleSettingsAction('scene-remove-dna-char:' + encodeURIComponent('路人乙'), ctx);
+    assert.deepEqual(Object.keys(sa().characterDna), ['爱丽丝']);
+    assert.ok(renderDnaOnlyCharacterList(sa().characterDna, sa().characters).includes('igs-scene-empty'));
+});
+
+
+test('gate:generated-images:sprite-slot-merges-character-dna-in-fixed-order', async () => {
+    const { buildAssetSlot, buildAssetPlannerUserPrompt } = await import('../src/generated-images/illustration/asset-prompt.js');
+    const { attachCharacterDna } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const templates = { sprite: '{tags}, {matte}', spriteNegative: 'NEG_TPL' };
+    const base = { need: { type: 'sprite', name: '爱丽丝' }, tags: '1girl, Blue Eyes, smile', uc: 'extra arms' };
+
+    // 无 DNA：与旧版逐字一致。
+    const plain = buildAssetSlot(base, { templates });
+    assert.equal(plain.scene.startsWith('1girl, Blue Eyes, smile, '), true);
+    assert.equal(plain.sceneUc.startsWith('NEG_TPL, '), true);
+
+    const dna = { triggerWords: 'alice_v2', identity: 'silver hair, blue eyes', defaultAppearance: 'school uniform', negative: 'zz_no_glasses' };
+    const withDna = buildAssetSlot({ ...base, need: { ...base.need, dna } }, { templates });
+    assert.equal(withDna.scene.startsWith('alice_v2, silver hair, blue eyes, school uniform, 1girl, smile, '), true);
+    assert.equal((withDna.scene.match(/blue eyes/gi) || []).length, 1);
+    assert.equal(withDna.sceneUc.startsWith('NEG_TPL, zz_no_glasses, '), true);
+    assert.equal(withDna.sceneUc.replace(', zz_no_glasses', ''), plain.sceneUc);
+    assert.equal(withDna.sceneUc.endsWith('extra arms'), true);
+
+    // 别名归约到主名；空 DNA 不挂；背景不受影响；无 DNA 映射时原样返回。
+    const sceneAssets = {
+        characters: { '爱丽丝': { '默认': '' } },
+        characterAliases: { '爱丽丝': ['爱丽'] },
+        characterDna: { '爱丽丝': dna, '白墨': { identity: '  ' }, '路人甲': { identity: 'brown hair' } },
+    };
+    const needs = [
+        { type: 'sprite', name: '爱丽' },
+        { type: 'sprite', name: '白墨' },
+        { type: 'sprite', name: '路人甲' },
+        { type: 'background', name: '爱丽丝' },
+    ];
+    attachCharacterDna(needs, sceneAssets);
+    assert.equal(needs[0].dna.identity, 'silver hair, blue eyes');
+    assert.equal(Object.prototype.hasOwnProperty.call(needs[1], 'dna'), false);
+    assert.equal(needs[2].dna.identity, 'brown hair');
+    assert.equal(Object.prototype.hasOwnProperty.call(needs[3], 'dna'), false);
+    const untouched = [{ type: 'sprite', name: '爱丽' }];
+    assert.equal(attachCharacterDna(untouched, { characters: {} }), untouched);
+    assert.equal(Object.prototype.hasOwnProperty.call(untouched[0], 'dna'), false);
+
+    const prompt = buildAssetPlannerUserPrompt({ needs: [needs[0], needs[3]], readableText: '正文' });
+    assert.ok(prompt.includes('固定身份：silver hair, blue eyes'));
+    assert.ok(prompt.includes('默认外观：school uniform'));
+    assert.ok(prompt.includes('【角色 DNA】'));
+    const plainPrompt = buildAssetPlannerUserPrompt({ needs: [{ type: 'sprite', name: '爱丽' }], readableText: '正文' });
+    assert.ok(!plainPrompt.includes('【角色 DNA】'));
+    assert.ok(!plainPrompt.includes('固定身份'));
+});
+
+
+test('gate:generated-images:cg-planner-binds-character-dna-safely', async () => {
+    const { parseIllustrationPlan } = await import('../src/generated-images/illustration/planner-parser.js');
+    const { buildPlannerUserPrompt, PLANNER_SYSTEM_PROMPT } = await import('../src/generated-images/illustration/planner-prompt.js');
+    const { bindCharacterDnaToSlots, summarizeCharacterDna } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    assert.ok(PLANNER_SYSTEM_PROMPT.includes('char: 角色名 | x,y |'));
+
+    // 具名格式带 name；旧格式解析结果与旧版一致、不带 name。
+    const plan = parseIllustrationPlan('slot: 1\nat: 1\nscene: 2girls, classroom\nchar: 爱丽 | 0.3,0.5 | smile, waving\nchar_uc: frown\nchar: 0.7,0.5 | 1girl, sitting', { maxSlots: 1, paragraphCount: 3 });
+    assert.equal(plan.ok, true);
+    const [named, legacy] = plan.slots[0].chars;
+    assert.equal(named.name, '爱丽');
+    assert.equal(named.tags, 'smile, waving');
+    assert.equal(named.uc, 'frown');
+    assert.equal(Number(named.x), 0.3);
+    assert.equal(Object.prototype.hasOwnProperty.call(legacy, 'name'), false);
+    assert.equal(legacy.tags, '1girl, sitting');
+    assert.equal(Number(legacy.x), 0.7);
+
+    const dna = { triggerWords: 'alice_v2', identity: 'silver hair, blue eyes', defaultAppearance: 'school uniform', negative: 'zz_no_glasses' };
+    const sceneAssets = {
+        characters: { '爱丽丝': { '默认': '' }, '白墨': { '默认': '' } },
+        characterAliases: { '爱丽丝': ['爱丽'], '白墨': [] },
+        characterDna: { '爱丽丝': dna, '白墨': { identity: 'black hair' } },
+    };
+    const slots = [
+        { slot: 1, scene: 'x', chars: [{ name: '爱丽', x: 0.5, y: 0.5, tags: 'smile, Silver Hair', uc: 'frown' }] },
+        { slot: 2, scene: 'y', chars: [{ x: 0.5, y: 0.5, tags: 'sitting', uc: '' }] },
+        { slot: 3, scene: 'z', chars: [{ x: 0.3, y: 0.5, tags: 'a', uc: '' }, { x: 0.7, y: 0.5, tags: 'b', uc: '' }] },
+    ];
+    const single = bindCharacterDnaToSlots(slots, sceneAssets, ['爱丽']);
+    assert.equal(single.slots[0].chars[0].tags, 'alice_v2, silver hair, blue eyes, smile');
+    assert.equal(single.slots[0].chars[0].uc, 'zz_no_glasses, frown');
+    assert.ok(!single.slots[0].chars[0].tags.includes('school uniform'));
+    assert.equal(single.slots[1].chars[0].tags, 'alice_v2, silver hair, blue eyes, sitting');
+    assert.deepEqual(single.slots[2].chars, slots[2].chars);
+    assert.equal(single.warnings.length, 1);
+    assert.equal(slots[0].chars[0].tags, 'smile, Silver Hair');
+
+    // 上下文多人时无名单人角色不猜人。
+    const multi = bindCharacterDnaToSlots([slots[1]], sceneAssets, ['爱丽', '白墨']);
+    assert.equal(multi.slots[0].chars[0].tags, 'sitting');
+    assert.equal(multi.warnings.length, 1);
+
+    // 无 DNA 映射：原样返回，无 warning。
+    const none = bindCharacterDnaToSlots(slots, { characters: {} }, ['爱丽']);
+    assert.equal(none.slots, slots);
+    assert.equal(none.warnings.length, 0);
+
+    const summary = summarizeCharacterDna(['爱丽', '爱丽丝', '路人'], sceneAssets);
+    assert.deepEqual(summary, [{ name: '爱丽丝', identity: 'silver hair, blue eyes', defaultAppearance: 'school uniform' }]);
+    const withDna = buildPlannerUserPrompt({ numberedText: '1. 正文', scenes: [], characters: ['爱丽'], want: 1, exact: false, characterDna: summary });
+    assert.ok(withDna.includes('【角色 DNA】'));
+    assert.ok(withDna.includes('爱丽丝｜固定身份：silver hair, blue eyes｜默认外观：school uniform'));
+    const plain = buildPlannerUserPrompt({ numberedText: '1. 正文', scenes: [], characters: ['爱丽'], want: 1, exact: false });
+    assert.ok(!plain.includes('【角色 DNA】'));
+});
+
+test('gate:scene:dna-candidate-accept-does-not-overwrite-and-dismiss-clears', async () => {
+    const { renderDnaCandidateBar } = await import('../src/visual/igs-ui/settings-fields.js');
+    assert.equal(renderDnaCandidateBar(null), '');
+    assert.equal(renderDnaCandidateBar({ name: '  ' }), '');
+    const bar = renderDnaCandidateBar({ name: 'A<b>', tags: '1girl, <x>' });
+    assert.ok(bar.includes('data-dna-candidate="A&lt;b&gt;"'));
+    assert.ok(bar.includes('1girl, &lt;x&gt;'));
+    assert.ok(bar.includes('data-action="scene-accept-dna-candidate"'));
+    assert.ok(bar.includes('data-action="scene-dismiss-dna-candidate"'));
+
+    const draft = {
+        bridge: { sceneAssets: { enabled: true, scenes: {}, characters: { '爱丽丝': { '默认': 'igs-gen:a' } }, characterAliases: { '爱丽丝': [] }, characterDna: { '爱丽丝': { defaultAppearance: 'user uniform' } } } },
+        readerSettings: {},
+    };
+    const asyncState = { expandedSpriteSlots: new Set(), dnaCandidate: { name: '爱丽丝', tags: '1girl, maid outfit' } };
+    let persistCount = 0;
+    const ctx = {
+        state: { activeSettings: { draft, readerMode: 'pc', asyncState } },
+        options: { global: { alert: () => {} } },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    const sa = () => draft.bridge.sceneAssets;
+
+    // 已填写的默认外观不被候选覆盖。
+    await handleSettingsAction('scene-accept-dna-candidate', ctx);
+    assert.equal(sa().characterDna['爱丽丝'].defaultAppearance, 'user uniform');
+    assert.equal(asyncState.dnaCandidate, null);
+    assert.equal(persistCount, 1);
+
+    // 新角色：采用时才建 DNA 并写入候选 tag。
+    asyncState.dnaCandidate = { name: '路人甲', tags: '1boy, black coat' };
+    assert.equal(Object.prototype.hasOwnProperty.call(sa().characterDna, '路人甲'), false);
+    await handleSettingsAction('scene-accept-dna-candidate', ctx);
+    assert.equal(sa().characterDna['路人甲'].defaultAppearance, '1boy, black coat');
+    assert.equal(sa().characterDna['路人甲'].identity, '');
+
+    // 忽略：不写 DNA、不落盘。
+    asyncState.dnaCandidate = { name: '白墨', tags: 'x' };
+    await handleSettingsAction('scene-dismiss-dna-candidate', ctx);
+    assert.equal(asyncState.dnaCandidate, null);
+    assert.equal(Object.prototype.hasOwnProperty.call(sa().characterDna, '白墨'), false);
+    assert.equal(persistCount, 2);
+
+    // 原型污染名被丢弃。
+    asyncState.dnaCandidate = { name: '__proto__', tags: 'x' };
+    await handleSettingsAction('scene-accept-dna-candidate', ctx);
+    assert.equal(asyncState.dnaCandidate, null);
+    assert.equal(persistCount, 2);
+});
+
+
+test('gate:igs-ui:image-settings-open-character-dna-jumps-without-copying-data', async () => {
+    const tabsSource = fs.readFileSync(new URL('../src/visual/igs-ui/settings-tabs.js', import.meta.url), 'utf8');
+    assert.ok(tabsSource.includes('data-action="open-character-dna"'));
+    const dna = { '爱丽丝': { identity: 'silver hair' } };
+    const draft = { bridge: { sceneAssets: { enabled: true, characters: {}, characterAliases: {}, characterDna: dna } }, readerSettings: {} };
+    const settingsState = { tab: 'image', draft, readerMode: 'pc', asyncState: { sceneSubTab: 'scenes' } };
+    let persistCount = 0;
+    const ctx = {
+        state: { activeSettings: settingsState },
+        options: { global: {} },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    await handleSettingsAction('open-character-dna', ctx);
+    assert.equal(settingsState.tab, 'scene');
+    assert.equal(settingsState.asyncState.sceneSubTab, 'characters');
+    assert.equal(draft.bridge.sceneAssets.characterDna, dna);
+    assert.equal(persistCount, 0);
+});
+
+
+test('gate:media:generated-image-record-normalize-legacy-and-mask-pixels', async () => {
+    const { normalizeGeneratedImageRecord, isLegacyGeneratedImage, isQuotaError, GENERATED_IMAGE_SCHEMA_VERSION } = await import('../src/media/generated-asset-store.js');
+    const { buildAlphaMaskPixels, createAlphaMatte } = await import('../src/media/alpha-matte.js');
+    assert.equal(normalizeGeneratedImageRecord(null), null);
+    assert.equal(normalizeGeneratedImageRecord({ dataUrl: 'x' }), null);
+
+    // 旧记录只有 dataUrl：按 legacy 读取，不伪造原图。
+    const legacy = normalizeGeneratedImageRecord({ id: 'a', dataUrl: 'data:image/png;base64,AAA', type: 'sprite' });
+    assert.equal(legacy.schemaVersion, 1);
+    assert.equal(legacy.originalDataUrl, '');
+    assert.equal(legacy.dataUrl, 'data:image/png;base64,AAA');
+    assert.equal(isLegacyGeneratedImage(legacy), true);
+    assert.equal(legacy.revision, 1);
+
+    const v2 = normalizeGeneratedImageRecord({ id: 'b', dataUrl: 'cut', originalDataUrl: 'orig', revision: 3 });
+    assert.equal(v2.schemaVersion, GENERATED_IMAGE_SCHEMA_VERSION);
+    assert.equal(v2.originalDataUrl, 'orig');
+    assert.equal(v2.revision, 3);
+    assert.equal(isLegacyGeneratedImage(v2), false);
+    assert.equal(normalizeGeneratedImageRecord({ id: 'c', originalDataUrl: 'o', revision: -2 }).revision, 1);
+
+    assert.equal(isQuotaError({ name: 'QuotaExceededError' }), true);
+    assert.equal(isQuotaError({ code: 22 }), true);
+    assert.equal(isQuotaError(new Error('boom')), false);
+    assert.equal(isQuotaError(null), false);
+
+    const mask = buildAlphaMaskPixels(new Uint8ClampedArray([10, 20, 30, 0, 1, 2, 3, 128, 4, 5, 6, 255]));
+    assert.deepEqual(Array.from(mask), [0, 0, 0, 255, 128, 128, 128, 255, 255, 255, 255, 255]);
+
+    // 无 canvas：fail-open，字符串调用保持旧契约，detailed 返回空遮罩与诊断。
+    const matte = createAlphaMatte({});
+    assert.equal(await matte('data:image/png;base64,AAA'), 'data:image/png;base64,AAA');
+    const detailed = await matte('data:image/png;base64,AAA', { detailed: true });
+    assert.equal(detailed.dataUrl, 'data:image/png;base64,AAA');
+    assert.equal(detailed.alphaMaskDataUrl, '');
+    assert.equal(detailed.diagnostics.fallback, 'no-canvas');
+});
+
+
+test('gate:media:matte-brush-modes-compose-mapping-and-bounded-history', async () => {
+    const { applyBrushDab, applyBrushStroke, composeMattedPixels, readAlphaFromMaskPixels, mapPointerToImage, createBoundedHistory } = await import('../src/media/matte-brush.js');
+    const w = 9; const h = 9;
+    const at = (a, x, y) => a[y * w + x];
+
+    const keep = new Uint8ClampedArray(w * h);
+    applyBrushDab(keep, w, h, 4, 4, { mode: 'keep', radius: 2 });
+    assert.equal(at(keep, 4, 4), 255);
+    assert.equal(at(keep, 6, 4), 255);
+    assert.equal(at(keep, 7, 4), 0);
+    assert.equal(at(keep, 0, 0), 0);
+
+    const erase = new Uint8ClampedArray(w * h).fill(255);
+    applyBrushDab(erase, w, h, 4, 4, { mode: 'erase', radius: 1 });
+    assert.equal(at(erase, 4, 4), 0);
+    assert.equal(at(erase, 4, 6), 255);
+
+    // soft：中心接近满值，边缘只部分提升，不越界。
+    const soft = new Uint8ClampedArray(w * h);
+    applyBrushDab(soft, w, h, 4, 4, { mode: 'soft', radius: 4, strength: 1 });
+    assert.equal(at(soft, 4, 4), 255);
+    assert.ok(at(soft, 6, 4) > 0 && at(soft, 6, 4) < 255);
+    assert.equal(at(soft, 0, 0), 0);
+
+    // 未知模式不改像素；画布外坐标不抛错。
+    const same = new Uint8ClampedArray(w * h);
+    applyBrushDab(same, w, h, 4, 4, { mode: 'bogus', radius: 3 });
+    assert.ok(same.every((v) => v === 0));
+    applyBrushDab(same, w, h, -20, 50, { mode: 'keep', radius: 2 });
+    assert.ok(same.every((v) => v === 0));
+
+    // 快速拖动：两端点之间插值，笔画连续。
+    const line = new Uint8ClampedArray(w * h);
+    applyBrushStroke(line, w, h, [{ x: 0, y: 4 }, { x: 8, y: 4 }], { mode: 'keep', radius: 1 });
+    for (let x = 0; x < w; x += 1) assert.equal(at(line, x, 4), 255);
+
+    const rgba = new Uint8ClampedArray([10, 20, 30, 99, 40, 50, 60, 99]);
+    assert.deepEqual(Array.from(composeMattedPixels(rgba, new Uint8ClampedArray([0, 200]))), [10, 20, 30, 0, 40, 50, 60, 200]);
+    assert.deepEqual(Array.from(readAlphaFromMaskPixels(new Uint8ClampedArray([7, 7, 7, 255, 250, 250, 250, 255]))), [7, 250]);
+
+    // 显示尺寸与原像素分离。
+    assert.deepEqual(mapPointerToImage(150, 60, { left: 100, top: 10, width: 100, height: 200 }, 1000, 2000), { x: 500, y: 500 });
+    assert.equal(mapPointerToImage(90, 60, { left: 100, top: 10, width: 100, height: 200 }, 1000, 2000), null);
+    assert.equal(mapPointerToImage(1, 1, { left: 0, top: 0, width: 0, height: 0 }, 10, 10), null);
+
+    const history = createBoundedHistory('s0', 2);
+    history.push('s1'); history.push('s2'); history.push('s3');
+    assert.equal(history.size(), 2);
+    assert.equal(history.undo(), 's2');
+    assert.equal(history.undo(), 's1');
+    assert.equal(history.canUndo(), false);
+    assert.equal(history.undo(), 's1');
+    assert.equal(history.redo(), 's2');
+    history.push('s4');
+    assert.equal(history.canRedo(), false);
+    assert.equal(history.current, 's4');
+});
+
+
+test('gate:media:matte-edit-session-history-dirty-and-reset', async () => {
+    const { createMatteEditSession } = await import('../src/media/matte-edit-session.js');
+    assert.equal(createMatteEditSession({ width: 0, height: 4, alpha: new Uint8ClampedArray(0) }), null);
+    assert.equal(createMatteEditSession({ width: 4, height: 4, alpha: new Uint8ClampedArray(3) }), null);
+
+    const w = 5; const h = 5;
+    const opened = new Uint8ClampedArray(w * h);
+    const auto = new Uint8ClampedArray(w * h).fill(9);
+    const session = createMatteEditSession({ width: w, height: h, alpha: opened, autoAlpha: auto, historyLimit: 3 });
+    assert.equal(session.isDirty(), false);
+    assert.equal(session.canUndo(), false);
+
+    // 一次拖动一条历史；传入的遮罩不被修改。
+    session.stroke([{ x: 2, y: 2 }, { x: 3, y: 2 }], { mode: 'keep', radius: 1 });
+    assert.equal(session.alpha[2 * w + 2], 255);
+    assert.equal(opened[2 * w + 2], 0);
+    assert.equal(session.isDirty(), true);
+    assert.equal(session.canUndo(), true);
+
+    // 无改动的笔画不进历史。
+    session.stroke([{ x: 2, y: 2 }], { mode: 'keep', radius: 1 });
+    session.undo();
+    assert.equal(session.alpha[2 * w + 2], 0);
+    assert.equal(session.isDirty(), false);
+    assert.equal(session.canUndo(), false);
+    session.redo();
+    assert.equal(session.alpha[2 * w + 2], 255);
+
+    session.resetToAuto();
+    assert.ok(Array.from(session.alpha).every((v) => v === 9));
+    session.undo();
+    assert.equal(session.alpha[2 * w + 2], 255);
+
+    // 无自动结果时恢复打开时的遮罩。
+    const plain = createMatteEditSession({ width: w, height: h, alpha: opened });
+    plain.stroke([{ x: 1, y: 1 }], { mode: 'keep', radius: 1 });
+    plain.resetToAuto();
+    assert.equal(plain.isDirty(), false);
+});
+
+
+test('gate:igs-ui:sprite-matte-editor-mode-and-save-errors', async () => {
+    const { resolveMatteEditorMode, describeMatteSaveError } = await import('../src/visual/igs-ui/sprite-matte-editor-state.js');
+    assert.equal(resolveMatteEditorMode(null).mode, 'missing');
+    assert.equal(resolveMatteEditorMode({ ok: false, reason: 'not-found' }).mode, 'missing');
+
+    // legacy：只读，不提供恢复入口。
+    const legacy = resolveMatteEditorMode({ ok: true, editable: false, record: { dataUrl: 'cut' } });
+    assert.equal(legacy.mode, 'readonly');
+    assert.equal(legacy.reason, 'source-unavailable');
+    assert.equal(Boolean(legacy.canRematte), false);
+
+    const noMask = resolveMatteEditorMode({ ok: true, editable: true, record: { originalDataUrl: 'o', alphaMaskDataUrl: '' } });
+    assert.equal(noMask.reason, 'mask-missing');
+    assert.equal(noMask.canRematte, true);
+
+    const record = { originalDataUrl: 'o', alphaMaskDataUrl: 'm', matteCrop: { x: 10, y: 20, width: 30, height: 40 } };
+    const fit = resolveMatteEditorMode({ ok: true, editable: true, record }, { maskSize: { width: 30, height: 40 }, originalSize: { width: 100, height: 100 } });
+    assert.equal(fit.mode, 'edit');
+    assert.deepEqual(fit.crop, { x: 10, y: 20, width: 30, height: 40 });
+    const mismatch = resolveMatteEditorMode({ ok: true, editable: true, record }, { maskSize: { width: 31, height: 40 }, originalSize: { width: 100, height: 100 } });
+    assert.equal(mismatch.reason, 'mask-size-mismatch');
+    const overflow = resolveMatteEditorMode({ ok: true, editable: true, record }, { maskSize: { width: 30, height: 40 }, originalSize: { width: 35, height: 100 } });
+    assert.equal(overflow.reason, 'mask-size-mismatch');
+    // 无裁边信息：遮罩须与原图同尺寸。
+    const noCrop = { originalDataUrl: 'o', alphaMaskDataUrl: 'm' };
+    assert.equal(resolveMatteEditorMode({ ok: true, editable: true, record: noCrop }, { maskSize: { width: 50, height: 50 }, originalSize: { width: 50, height: 50 } }).mode, 'edit');
+    assert.equal(resolveMatteEditorMode({ ok: true, editable: true, record: noCrop }, { maskSize: { width: 40, height: 50 }, originalSize: { width: 50, height: 50 } }).mode, 'readonly');
+
+    assert.ok(describeMatteSaveError('stale-revision').includes('已在别处被修改'));
+    assert.ok(describeMatteSaveError('unknown').includes('仍保留在编辑器中'));
+
+    const { renderGeneratedAssetPane } = await import('../src/visual/igs-ui/settings-fields.js');
+    const pane = renderGeneratedAssetPane({
+        library: { scenes: { '旧城': { url: 'igs-gen:bg1' } }, characters: { '爱丽丝': { '默认': 'igs-gen:sp1' } } },
+        temp: [{ key: 'k1', type: 'sprite', name: '路人', imageId: 'sp2' }, { key: 'k2', type: 'background', name: '街道', imageId: 'bg2' }],
+        resolveUrl: () => '',
+    });
+    assert.ok(pane.includes('data-action="gen-matte-edit:sp1"'));
+    assert.ok(pane.includes('data-action="gen-matte-edit:sp2"'));
+    assert.ok(!pane.includes('gen-matte-edit:bg1'));
+    assert.ok(!pane.includes('gen-matte-edit:bg2'));
+});
+
+test('gate:igs-ui:sprite-matte-editor-load-align-preview-and-save', async () => {
+    const { loadMatteEditor } = await import('../src/visual/igs-ui/sprite-matte-editor.js');
+    const orig = { width: 4, height: 4, data: new Uint8ClampedArray(64) };
+    for (let y = 0; y < 4; y += 1) for (let x = 0; x < 4; x += 1) orig.data.set([x * 10, y * 10, 7, 255], (y * 4 + x) * 4);
+    const mask = { width: 2, height: 2, data: new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255]) };
+    const decodeImage = async (url) => { if (url === 'orig') return orig; if (url === 'mask') return mask; throw new Error('bad'); };
+    const encoded = [];
+    const encodePixels = async (img) => { encoded.push(img); return `enc:${img.width}x${img.height}:${encoded.length}`; };
+    const record = { originalDataUrl: 'orig', workingDataUrl: '', alphaMaskDataUrl: 'mask', matteCrop: { x: 1, y: 1, width: 2, height: 2 }, revision: 3 };
+    const saves = [];
+    let nextResult = { ok: true, revision: 4 };
+    const service = {
+        getEditableImage: async () => ({ ok: true, editable: true, record }),
+        saveMatteEdit: async (id, revision, patch) => { saves.push({ id, revision, patch }); return nextResult; },
+    };
+
+    const editor = await loadMatteEditor(service, 'sp1', { decodeImage, encodePixels });
+    assert.equal(editor.mode, 'edit');
+    // 预览按裁边对齐原图：遮罩 (0,0) 对应原图 (1,1)。
+    const before = editor.preview().data;
+    assert.deepEqual(Array.from(before.subarray(0, 8)), [10, 10, 7, 0, 20, 10, 7, 255]);
+    editor.session.stroke([{ x: 0, y: 0 }], { mode: 'keep', radius: 0.5 });
+    assert.equal(editor.preview().data[3], 255);
+    assert.equal(editor.session.isDirty(), true);
+
+    // 重复点击复用同一次提交。
+    const p1 = editor.save();
+    const p2 = editor.save();
+    assert.equal(p1, p2);
+    assert.deepEqual(await p1, { ok: true, revision: 4 });
+    assert.equal(saves.length, 1);
+    assert.equal(saves[0].id, 'sp1');
+    assert.equal(saves[0].revision, 3);
+    assert.ok(saves[0].patch.dataUrl.startsWith('enc:2x2:'));
+    assert.ok(saves[0].patch.alphaMaskDataUrl.startsWith('enc:2x2:'));
+    assert.equal(editor.revision, 4);
+    // 遮罩编码只存 alpha：RGB 等于 alpha、自身不透明。
+    assert.deepEqual(Array.from(encoded[1].data.subarray(0, 4)), [255, 255, 255, 255]);
+
+    nextResult = { ok: false, reason: 'stale-revision' };
+    const stale = await editor.save();
+    assert.equal(stale.ok, false);
+    assert.ok(stale.message.includes('已在别处被修改'));
+    assert.equal(saves[1].revision, 4);
+    assert.equal(editor.revision, 4);
+
+    const legacy = await loadMatteEditor({ getEditableImage: async () => ({ ok: true, editable: false, record: { dataUrl: 'cut' } }) }, 'old', { decodeImage, encodePixels });
+    assert.equal(legacy.mode, 'readonly');
+    assert.equal(legacy.reason, 'source-unavailable');
+    assert.equal(legacy.save, undefined);
+
+    const broken = await loadMatteEditor({ getEditableImage: async () => ({ ok: true, editable: true, record: { ...record, alphaMaskDataUrl: 'nope' } }) }, 'x', { decodeImage, encodePixels });
+    assert.equal(broken.reason, 'decode-failed');
+    assert.equal((await loadMatteEditor(null, 'x', {})).reason, 'no-service');
+
+    // 设置页动作：未注入编辑器时明确失败；注入后按 imageId 打开。
+    const opened = [];
+    const baseCtx = (extra) => ({
+        state: { activeSettings: { draft: { bridge: { sceneAssets: {} }, readerSettings: {} }, readerMode: 'pc', asyncState: {} } },
+        options: { global: { alert: () => {} }, ...extra },
+        closeSettings: () => ({ ok: true }), persistSettingsDraft: () => ({ ok: true }), rerenderSettings: () => ({ ok: true }), buildRegexPreview: () => '',
+    });
+    const missing = await handleSettingsAction('gen-matte-edit:' + encodeURIComponent('sp1'), baseCtx({}));
+    assert.equal(missing.reason, 'matte-editor-unavailable');
+    const ok = await handleSettingsAction('gen-matte-edit:' + encodeURIComponent('sp1'), baseCtx({ openMatteEditor: async (id) => { opened.push(id); return { ok: true }; } }));
+    assert.equal(ok.ok, true);
+    assert.deepEqual(opened, ['sp1']);
+});
+
+function createFakeMatteDom() {
+    const fakeEl = (tag) => {
+        const n = {
+            tagName: String(tag).toUpperCase(), children: [], attrs: {}, listeners: {}, parentNode: null, textContent: '', disabled: false, id: '',
+            classList: { set: new Set(), toggle(c, on) { if (on) this.set.add(c); else this.set.delete(c); } },
+            appendChild(c) { c.parentNode = n; n.children.push(c); return c; },
+            append(...cs) { cs.forEach((c) => n.appendChild(c)); },
+            removeChild(c) { n.children = n.children.filter((x) => x !== c); c.parentNode = null; },
+            setAttribute(k, v) { n.attrs[k] = String(v); },
+            getAttribute(k) { return Object.prototype.hasOwnProperty.call(n.attrs, k) ? n.attrs[k] : null; },
+            addEventListener(t, f) { (n.listeners[t] = n.listeners[t] || []).push(f); },
+            fire(t, e = {}) { for (const f of n.listeners[t] || []) f({ stopPropagation() {}, preventDefault() {}, ...e }); },
+        };
+        if (n.tagName === 'CANVAS') {
+            n.getContext = () => ({ createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData(img) { n.lastImage = img; } });
+            n.getBoundingClientRect = () => ({ left: 0, top: 0, width: n.width, height: n.height });
+            n.setPointerCapture = () => {};
+        }
+        return n;
+    };
+    const find = (node, id) => {
+        if (node.id === id) return node;
+        for (const c of node.children) { const hit = find(c, id); if (hit) return hit; }
+        return null;
+    };
+    const win = { confirmAnswer: true, confirm() { return win.confirmAnswer; } };
+    const doc = { head: fakeEl('head'), body: fakeEl('body'), createElement: fakeEl, defaultView: win };
+    doc.getElementById = (id) => find(doc.head, id) || find(doc.body, id);
+    return { doc, win };
+}
+
+test('gate:igs-ui:sprite-matte-editor-mount-readonly-draw-cancel-and-save', async () => {
+    const { mountMatteEditor } = await import('../src/visual/igs-ui/sprite-matte-editor-mount.js');
+    const { createMatteEditSession } = await import('../src/media/matte-edit-session.js');
+    const { composeMattedPixels } = await import('../src/media/matte-brush.js');
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const button = (root, label) => root.children[0].children.find((c) => c.tagName === 'BUTTON' && c.textContent === label);
+
+    // 只读：只显示说明与关闭；关闭不写资产，只移除弹层。
+    const { doc, win } = createFakeMatteDom();
+    let closedCount = 0;
+    const ro = mountMatteEditor(doc, { mode: 'readonly', message: '旧版本立绘无法恢复' }, { onClose: () => { closedCount += 1; } });
+    assert.equal(doc.body.children.includes(ro.root), true);
+    assert.equal(ro.root.children[1].textContent, '旧版本立绘无法恢复');
+    assert.deepEqual(ro.root.children[0].children.map((c) => c.textContent), ['关闭']);
+    button(ro.root, '关闭').fire('click');
+    assert.equal(doc.body.children.includes(ro.root), false);
+    assert.equal(closedCount, 1);
+
+    const makeEditor = (saveResult, saves) => {
+        const session = createMatteEditSession({ width: 2, height: 2, alpha: new Uint8ClampedArray(4) });
+        const src = new Uint8ClampedArray(16).fill(100);
+        return {
+            mode: 'edit', session,
+            preview: () => ({ width: 2, height: 2, data: composeMattedPixels(src, session.alpha) }),
+            save: async () => { saves.push(1); return saveResult(); },
+        };
+    };
+
+    // 画笔：指针坐标映射回原像素，一次拖动写一条历史。
+    const saves = [];
+    let result = { ok: false, reason: 'stale-revision', message: '已在别处被修改' };
+    const editor = makeEditor(() => result, saves);
+    const saved = [];
+    const mounted = mountMatteEditor(doc, editor, { onSaved: (r) => saved.push(r) });
+    assert.equal(doc.head.children.filter((c) => c.id === 'igs-matte-editor-style').length, 1);
+    const canvas = mounted.root.children[2].children[0];
+    assert.equal(canvas.tagName, 'CANVAS');
+    assert.equal(button(mounted.root, '撤销').disabled, true);
+    canvas.fire('pointerdown', { clientX: 0.5, clientY: 0.5, pointerId: 1 });
+    canvas.fire('pointerup', {});
+    assert.ok(Array.from(editor.session.alpha).every((v) => v === 255));
+    assert.equal(button(mounted.root, '撤销').disabled, false);
+    assert.equal(canvas.lastImage.data[3], 255);
+
+    // 取消：有改动且用户不确认时不关闭；确认后关闭，不调用保存。
+    win.confirmAnswer = false;
+    button(mounted.root, '取消').fire('click');
+    assert.equal(doc.body.children.includes(mounted.root), true);
+
+    // 保存失败：保留编辑内容与弹层，按钮恢复可用。
+    button(mounted.root, '保存').fire('click');
+    await flush(); await flush();
+    assert.equal(saves.length, 1);
+    assert.equal(mounted.root.children[1].textContent, '已在别处被修改');
+    assert.equal(doc.body.children.includes(mounted.root), true);
+    assert.equal(button(mounted.root, '保存').disabled, false);
+    assert.equal(editor.session.isDirty(), true);
+
+    // 保存成功：通知并关闭。
+    result = { ok: true, revision: 2 };
+    button(mounted.root, '保存').fire('click');
+    await flush(); await flush();
+    assert.deepEqual(saved, [{ ok: true, revision: 2 }]);
+    assert.equal(doc.body.children.includes(mounted.root), false);
+
+    // 另一个会话：确认取消后关闭，未发生保存。
+    const saves2 = [];
+    const other = mountMatteEditor(doc, makeEditor(() => ({ ok: true }), saves2));
+    other.root.children[2].children[0].fire('pointerdown', { clientX: 1, clientY: 1, pointerId: 2 });
+    other.root.children[2].children[0].fire('pointerup', {});
+    win.confirmAnswer = true;
+    button(other.root, '取消').fire('click');
+    assert.equal(doc.body.children.includes(other.root), false);
+    assert.equal(saves2.length, 0);
+});
+
+test('gate:generated-images:image-edit-capability-never-falls-back-to-generate', async () => {
+    const { createImageBackend } = await import('../src/generated-images/image-backend.js');
+    let generateCalls = 0;
+    const edits = [];
+    const naiWithEdit = {
+        async generate() { generateCalls += 1; return { ok: true, dataUrl: 'whole' }; },
+        async edit(request) { edits.push(request); return { ok: true, dataUrl: 'data:image/png;base64,EDIT' }; },
+    };
+    const naiNoEdit = { async generate() { generateCalls += 1; return { ok: true, dataUrl: 'whole' }; } };
+    const bridge = (mode, apiKey = 'k') => ({ imageApi: { mode }, autoIllustration: { nai: { apiKey } } });
+
+    const backend = createImageBackend({ nai: naiWithEdit, getBridge: () => bridge('nai') });
+    assert.equal(backend.describeEdit(bridge('extension')).reason, 'image-edit-unsupported');
+    assert.equal(backend.describeEdit(bridge('dbgen')).reason, 'image-edit-unsupported');
+    assert.equal(backend.describeEdit(bridge('nai', '')).reason, 'backend-unavailable');
+    assert.equal(backend.describeEdit(bridge('nai')).supported, true);
+    assert.equal(createImageBackend({ nai: naiNoEdit, getBridge: () => bridge('nai') }).describeEdit().reason, 'image-edit-unsupported');
+
+    const unsupported = await createImageBackend({ nai: naiNoEdit, getBridge: () => bridge('nai') }).edit({ sourceDataUrl: 's', maskDataUrl: 'm' });
+    assert.equal(unsupported.ok, false);
+    assert.equal(unsupported.reason, 'image-edit-unsupported');
+    assert.equal((await backend.edit({ sourceDataUrl: 's', maskDataUrl: 'm' }, bridge('dbgen'))).reason, 'image-edit-unsupported');
+    assert.equal((await backend.edit({ sourceDataUrl: 's' })).reason, 'invalid-edit-request');
+
+    const ok = await backend.edit({ sourceDataUrl: 's', maskDataUrl: 'm', prompt: 'silver hair' });
+    assert.deepEqual(ok, { ok: true, dataUrl: 'data:image/png;base64,EDIT' });
+    assert.equal(edits.length, 1);
+    assert.equal(edits[0].maskDataUrl, 'm');
+
+    const throwing = createImageBackend({ nai: { ...naiWithEdit, async edit() { throw new Error('timeout'); } }, getBridge: () => bridge('nai') });
+    const failed = await throwing.edit({ sourceDataUrl: 's', maskDataUrl: 'm' });
+    assert.equal(failed.reason, 'edit-failed');
+    assert.ok(!('dataUrl' in failed));
+    assert.equal(generateCalls, 0);
+});
+
+test('gate:generated-images:nai-inpaint-request-shape-and-unsupported-models', async () => {
+    const { buildNaiInpaintRequest, resolveNaiInpaintModel } = await import('../src/generated-images/request-builders/nai-inpaint-builder.js');
+    assert.equal(resolveNaiInpaintModel('nai-diffusion-4-5-full'), 'nai-diffusion-4-5-full-inpainting');
+    assert.equal(resolveNaiInpaintModel('nai-diffusion-5-full'), '');
+    assert.equal(resolveNaiInpaintModel('__proto__'), '');
+    const req = { sourceDataUrl: 'data:image/png;base64,SRC', maskDataUrl: 'data:image/png;base64,MSK', prompt: 'silver hair', negative: 'glasses', width: 832, height: 1216 };
+    const settings = { model: 'nai-diffusion-4-5-full', apiKey: 'SECRET-KEY', artistPrefix: 'artist:x' };
+    const built = buildNaiInpaintRequest(req, settings, () => 0.5);
+    assert.equal(built.ok, true);
+    const body = built.body;
+    assert.equal(body.action, 'infill');
+    assert.equal(body.model, 'nai-diffusion-4-5-full-inpainting');
+    assert.equal(body.parameters.image, 'SRC');
+    assert.equal(body.parameters.mask, 'MSK');
+    assert.equal(body.parameters.width, 832);
+    assert.equal(body.parameters.height, 1216);
+    assert.equal(body.parameters.strength, 0.7);
+    assert.equal(body.parameters.add_original_image, true);
+    assert.ok(body.input.includes('silver hair'));
+    assert.ok(body.parameters.negative_prompt.includes('glasses'));
+    // 请求体不携带 Key。
+    assert.equal(JSON.stringify(body).includes('SECRET-KEY'), false);
+
+    assert.equal(buildNaiInpaintRequest(req, { model: 'nai-diffusion-5-full' }).reason, 'image-edit-unsupported');
+    assert.equal(buildNaiInpaintRequest({ ...req, maskDataUrl: 'not-a-data-url' }, settings).reason, 'invalid-edit-request');
+    assert.equal(buildNaiInpaintRequest({ ...req, width: 830 }, settings).reason, 'invalid-size');
+    assert.equal(buildNaiInpaintRequest({ ...req, prompt: '  ' }, settings).reason, 'empty-prompt');
+    assert.equal(buildNaiInpaintRequest({ ...req, strength: 5 }, settings).body.parameters.strength, 1);
+});
+
+test('gate:generated-images:nai-client-edit-uses-infill-and-hides-key', async () => {
+    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
+    const { createImageBackend } = await import('../src/generated-images/image-backend.js');
+    const calls = [];
+    const fetch = async (url, init) => {
+        calls.push({ url, init });
+        return { ok: false, status: 400, text: async () => 'bad request', headers: { get: () => null } };
+    };
+    const client = createNaiOfficialClient({ fetch, sleep: async () => {}, random: () => 0.5 });
+    const req = { sourceDataUrl: 'data:image/png;base64,SRC', maskDataUrl: 'data:image/png;base64,MSK', prompt: 'silver hair', width: 832, height: 1216 };
+
+    assert.equal(client.supportsEdit({ model: 'nai-diffusion-4-5-full' }), true);
+    assert.equal(client.supportsEdit({ model: 'nai-diffusion-5-full' }), false);
+    assert.equal((await client.edit(req, { model: 'nai-diffusion-4-5-full', apiKey: '' })).ok, false);
+    assert.equal((await client.edit(req, { model: 'nai-diffusion-5-full', apiKey: 'SECRET-KEY' })).reason, 'image-edit-unsupported');
+    assert.equal(calls.length, 0);
+
+    const failed = await client.edit(req, { model: 'nai-diffusion-4-5-full', apiKey: 'SECRET-KEY' });
+    assert.equal(failed.ok, false);
+    assert.equal(failed.status, 400);
+    assert.equal(calls.length, 1);
+    const sent = JSON.parse(calls[0].init.body);
+    assert.equal(sent.action, 'infill');
+    assert.equal(sent.model, 'nai-diffusion-4-5-full-inpainting');
+    assert.equal(calls[0].init.body.includes('SECRET-KEY'), false);
+    assert.equal(String(failed.error).includes('SECRET-KEY'), false);
+
+    // 后端能力协商：V5 模型判定为不支持，不发请求。
+    const bridge = (model) => ({ imageApi: { mode: 'nai' }, autoIllustration: { nai: { apiKey: 'SECRET-KEY', model } } });
+    const backend = createImageBackend({ nai: client, getBridge: () => bridge('nai-diffusion-5-full') });
+    assert.equal(backend.describeEdit().reason, 'image-edit-unsupported');
+    assert.equal((await backend.edit(req)).reason, 'image-edit-unsupported');
+    assert.equal(calls.length, 1);
+    assert.equal(backend.describeEdit(bridge('nai-diffusion-4-5-full')).supported, true);
+});
+
+test('gate:generated-images:inpaint-transaction-preview-accept-cancel-and-stale', async () => {
+    const { createInpaintTransaction, buildInpaintPrompt } = await import('../src/generated-images/illustration/inpaint-transaction.js');
+    const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const store = createMemoryGeneratedAssetStore();
+    await store.putImage({ id: 'sp', schemaVersion: 2, type: 'sprite', originalDataUrl: 'data:image/png;base64,ORIG', workingDataUrl: '', dataUrl: 'cut0', alphaMaskDataUrl: 'mask0', revision: 1 });
+    await store.putImage({ id: 'old', type: 'sprite', dataUrl: 'legacy' });
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'chat', readFloor: () => null, readPreviousAiTexts: () => [], on: () => () => {} },
+        llm: {}, nai: {}, store, getSettings: () => ({}), now: () => 't',
+    });
+    const edits = [];
+    let supported = true;
+    let editResult = { ok: false, reason: 'edit-failed', error: 'timeout' };
+    const backend = {
+        describeEdit: () => (supported ? { supported: true } : { supported: false, reason: 'image-edit-unsupported', message: '不支持' }),
+        async edit(req) { edits.push(req); return editResult; },
+    };
+    const matte = async (url) => ({ dataUrl: `${url}#cut`, alphaMaskDataUrl: `mask:${url}`, diagnostics: { crop: { x: 0, y: 0, width: 64, height: 64 } } });
+    const tx = createInpaintTransaction({ service, backend, matte });
+    const opts = { maskDataUrl: 'data:image/png;base64,M', width: 64, height: 64, prompt: 'fix hair', dna: { identity: 'silver hair', negative: 'glasses' } };
+
+    supported = false;
+    assert.equal((await tx.preview('sp', opts)).reason, 'image-edit-unsupported');
+    supported = true;
+    assert.equal((await tx.preview('old', opts)).reason, 'source-unavailable');
+    assert.equal(edits.length, 0);
+
+    assert.equal((await tx.preview('sp', opts)).ok, false);
+    assert.equal((await tx.accept()).reason, 'no-candidate');
+
+    // 重复点击只发一次；预览不写存储。
+    editResult = { ok: true, dataUrl: 'data:image/png;base64,AI1' };
+    const p1 = tx.preview('sp', opts);
+    const p2 = tx.preview('sp', opts);
+    assert.equal(p1, p2);
+    assert.deepEqual(await p1, { ok: true, candidateDataUrl: 'data:image/png;base64,AI1' });
+    assert.equal(edits.length, 2);
+    assert.equal(edits[1].sourceDataUrl, 'data:image/png;base64,ORIG');
+    assert.ok(edits[1].prompt.startsWith('silver hair, fix hair, same character'));
+    assert.equal(edits[1].negative, 'glasses');
+    let current = await store.getImage('sp');
+    assert.equal(current.revision, 1);
+    assert.equal(current.dataUrl, 'cut0');
+
+    tx.cancel();
+    assert.equal((await tx.accept()).reason, 'no-candidate');
+    assert.equal((await store.getImage('sp')).revision, 1);
+
+    await tx.preview('sp', opts);
+    assert.deepEqual(await tx.accept(), { ok: true, revision: 2 });
+    current = await store.getImage('sp');
+    assert.equal(current.workingDataUrl, 'data:image/png;base64,AI1');
+    assert.equal(current.dataUrl, 'data:image/png;base64,AI1#cut');
+    assert.equal(current.alphaMaskDataUrl, 'mask:data:image/png;base64,AI1');
+    assert.equal(current.originalDataUrl, 'data:image/png;base64,ORIG');
+    assert.deepEqual(current.matteCrop, { x: 0, y: 0, width: 64, height: 64 });
+
+    // 后续预览基于最近接受的工作原图；期间另一会话保存导致过期，接受被拒绝且不覆盖。
+    editResult = { ok: true, dataUrl: 'data:image/png;base64,AI2' };
+    await tx.preview('sp', opts);
+    assert.equal(edits[edits.length - 1].sourceDataUrl, 'data:image/png;base64,AI1');
+    await service.saveMatteEdit('sp', 2, { dataUrl: 'manual' });
+    assert.equal((await tx.accept()).reason, 'stale-revision');
+    current = await store.getImage('sp');
+    assert.equal(current.dataUrl, 'manual');
+    assert.equal(current.workingDataUrl, 'data:image/png;base64,AI1');
+    assert.equal((await tx.accept()).reason, 'no-candidate');
+
+    const restored = await tx.restoreOriginal('sp');
+    assert.deepEqual(restored, { ok: true, revision: 4 });
+    current = await store.getImage('sp');
+    assert.equal(current.workingDataUrl, '');
+    assert.equal(current.dataUrl, 'data:image/png;base64,ORIG#cut');
+    assert.equal(current.originalDataUrl, 'data:image/png;base64,ORIG');
+    assert.equal((await tx.restoreOriginal('old')).reason, 'source-unavailable');
+    assert.deepEqual(buildInpaintPrompt({ prompt: 'x' }).negative, '');
+});
+
+test('gate:igs-ui:matte-editor-ai-repair-maps-selection-by-crop', async () => {
+    const { loadMatteEditor } = await import('../src/visual/igs-ui/sprite-matte-editor.js');
+    const orig = { width: 4, height: 4, data: new Uint8ClampedArray(64).fill(200) };
+    const mask = { width: 2, height: 2, data: new Uint8ClampedArray(16).fill(255) };
+    const decodeImage = async (url) => (url === 'mask' ? mask : orig);
+    const encoded = [];
+    const encodePixels = async (img) => { encoded.push(img); return `enc${encoded.length}`; };
+    const record = { originalDataUrl: 'orig', workingDataUrl: '', alphaMaskDataUrl: 'mask', matteCrop: { x: 1, y: 1, width: 2, height: 2 }, revision: 5 };
+    const service = { getEditableImage: async () => ({ ok: true, editable: true, record }), saveMatteEdit: async () => ({ ok: true, revision: 6 }) };
+    const previews = [];
+    let acceptResult = { ok: true, revision: 6 };
+    const inpaint = {
+        preview: async (id, opts) => { previews.push({ id, opts }); return { ok: true, candidateDataUrl: 'cand' }; },
+        accept: async () => acceptResult,
+        cancel() { this.cancelled = true; },
+    };
+    const dna = { identity: 'silver hair' };
+    const editor = await loadMatteEditor(service, 'sp', { decodeImage, encodePixels, inpaint, dna });
+    assert.equal(editor.aiAvailable, true);
+    const selection = new Uint8ClampedArray([255, 0, 0, 0]);
+    assert.deepEqual(await editor.aiRepair(selection, 'fix hair'), { ok: true, candidateDataUrl: 'cand' });
+    assert.equal(previews.length, 1);
+    assert.equal(previews[0].id, 'sp');
+    assert.equal(previews[0].opts.width, 4);
+    assert.equal(previews[0].opts.height, 4);
+    assert.equal(previews[0].opts.prompt, 'fix hair');
+    assert.equal(previews[0].opts.dna, dna);
+    const m = encoded[encoded.length - 1];
+    assert.equal(m.width, 4);
+    const white = (x, y) => m.data[(y * 4 + x) * 4] === 255;
+    assert.equal(white(1, 1), true);
+    assert.equal(white(0, 0), false);
+    assert.equal(white(2, 1), false);
+    assert.ok(Array.from(m.data).every((v, i) => i % 4 !== 3 || v === 255));
+
+    assert.deepEqual(await editor.acceptAi(), { ok: true, revision: 6 });
+    assert.equal(editor.revision, 6);
+    acceptResult = { ok: false, reason: 'no-candidate' };
+    assert.ok((await editor.acceptAi()).message.includes('没有可接受'));
+    acceptResult = { ok: false, reason: 'stale-revision' };
+    assert.ok((await editor.acceptAi()).message.includes('已在别处被修改'));
+    editor.cancelAi();
+    assert.equal(inpaint.cancelled, true);
+
+    const noAi = await loadMatteEditor(service, 'sp', { decodeImage, encodePixels, aiUnavailableReason: '智绘姬不支持局部重绘' });
+    assert.equal(noAi.aiAvailable, false);
+    assert.equal(noAi.aiUnavailableReason, '智绘姬不支持局部重绘');
+    const blocked = await noAi.aiRepair(selection, '');
+    assert.equal(blocked.reason, 'image-edit-unsupported');
+    assert.equal(blocked.message, '智绘姬不支持局部重绘');
 });

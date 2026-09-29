@@ -32,6 +32,7 @@ import {
     normalizeDialogSkin,
 } from '../src/visual/igs-ui/classic-dialog-skin.js';
 import { GRADIENT_VEIL_STYLE_TEXT } from '../src/visual/igs-ui/gradient-veil-dialog-skin.js';
+import { getDialogSkinStyleText, listDialogSkinAssetUrls, watchDialogSkinAssets } from '../src/visual/igs-ui/dialog-skin-style.js';
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import { DIALOG_FONT_OPTIONS } from '../src/visual/igs-ui/reader-host-constants.js';
@@ -52,19 +53,6 @@ const projectRoot = path.resolve(appRoot, '..');
 const unscaleSkinCss = (css) => css.replace(/calc\((-?[\d.]+)px \* var\(--igs-skin-scale,1\)\)/g, '$1px');
 const CLASSIC_SKIN_CSS = unscaleSkinCss(CLASSIC_DIALOG_STYLE_TEXT);
 const ILLUSTRATED_SKIN_CSS = unscaleSkinCss(ILLUSTRATED_DIALOG_STYLE_TEXT);
-
-test('gate:loader:versioned-release-matches-source-and-internal-entry', () => {
-    const { version } = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
-    const source = fs.readFileSync(path.join(projectRoot, 'loader/igs-loader.js'), 'utf8');
-    const internal = JSON.parse(fs.readFileSync(path.join(projectRoot, 'loader/igs-loader.json'), 'utf8'));
-    const releasePath = path.join(projectRoot, 'loader', `酒馆助手脚本-沉浸式Galgame系统（自动更新） v${version}.json`);
-    const release = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
-
-    assert.equal(internal.type, 'script');
-    assert.equal(internal.content, source);
-    assert.ok(source.includes('igs.bundle.js'));
-    assert.deepEqual(release, internal);
-});
 
 test('gate:import-contract:dispatches allowed types and rejects forbidden types', () => {
     const bundle = readJson('fixtures/imports/sample-bundle.json');
@@ -177,6 +165,9 @@ test('gate:loader-json:matches loader source and references public bundle', () =
     });
     assert.match(loaderJson.content, /QR_BUTTON_NAME = 'Gal模拟'/);
     assert.match(loaderJson.content, /getButtonEvent\(QR_BUTTON_NAME\)/);
+    const version = readJson('package.json').version;
+    const releasePath = path.join(projectRoot, 'loader', `酒馆助手脚本-沉浸式Galgame系统（自动更新） v${version}.json`);
+    assert.deepEqual(JSON.parse(fs.readFileSync(releasePath, 'utf8')), loaderJson);
 
     // 固定版 loader：锁定具体 tag、注入 IGS_LOADER_REF、不自动更新。按需生成（--pin），
     // 不随升号自动产出。固定版是历史产物，只校验它仍锁定自己的 ref 且是可导入脚本体，
@@ -482,7 +473,100 @@ test('gate:loader-json:loads-main-commit-by-default-with-main-fallback', async (
     assert.equal(scripts.length, 1);
     assert.match(scripts[0], /@1234567890abcdef1234567890abcdef12345678\/app\/dist\/igs\.bundle\.js/);
     assert.ok(fetched.some((url) => url.includes('/branches/main')));
-    assert.ok(fetched.some((url) => url.includes('@1234567890abcdef1234567890abcdef12345678/app/dist/igs.bundle.js')));
+    assert.ok(!fetched.some((url) => url.includes('/app/dist/igs.bundle.js')), 'auto-discovered commit is not HEAD-probed');
+});
+
+async function runLoaderScenario({ rootExtras = {}, branchResponse, bundleOk = () => true } = {}) {
+    const loaderJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'loader', 'igs-loader.json'), 'utf8'));
+    const scripts = [];
+    const fetched = [];
+    const store = new Map(Object.entries(rootExtras.storage || {}));
+    const documentLike = createLoaderDocumentLike({
+        onAppend(element) {
+            if (element.tagName !== 'SCRIPT') return;
+            scripts.push(element.src);
+            setTimeout(() => (bundleOk(element.src) ? element.onload() : element.onerror()), 0);
+        },
+    });
+    const root = {
+        document: documentLike,
+        parent: null,
+        alert: () => {},
+        console: { ...console, info() {}, warn() {} },
+        setTimeout,
+        localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) },
+        fetch: async (url) => {
+            const text = String(url);
+            fetched.push(text);
+            if (text.includes('/branches/main')) return branchResponse ? branchResponse() : { ok: false, status: 403 };
+            return { ok: true, status: 200 };
+        },
+        ...rootExtras,
+    };
+    delete root.storage;
+    root.parent = root;
+    const context = vm.createContext({ window: root, document: documentLike, console: root.console, setTimeout, fetch: root.fetch });
+    vm.runInContext(loaderJson.content, context);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return { scripts, fetched, store };
+}
+
+const LOADER_SHA_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const LOADER_SHA_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const branchOk = (sha) => () => ({ ok: true, status: 200, json: async () => ({ commit: { sha } }) });
+
+test('gate:loader-cache:fresh-sha-cache-skips-github-api', async () => {
+    const storage = { 'igs:loader:latest-ref': JSON.stringify({ ref: LOADER_SHA_A, at: Date.now() - 5 * 60 * 1000 }) };
+    const { scripts, fetched } = await runLoaderScenario({ rootExtras: { storage }, branchResponse: branchOk(LOADER_SHA_B) });
+    assert.ok(!fetched.some((url) => url.includes('/branches/main')));
+    assert.equal(scripts.length, 1);
+    assert.ok(scripts[0].includes(`@${LOADER_SHA_A}/app/dist/igs.bundle.js`));
+});
+
+test('gate:loader-cache:stale-cache-refetches-and-remembers-after-load', async () => {
+    const storage = { 'igs:loader:latest-ref': JSON.stringify({ ref: LOADER_SHA_A, at: Date.now() - 2 * 60 * 60 * 1000 }) };
+    const { scripts, fetched, store } = await runLoaderScenario({ rootExtras: { storage }, branchResponse: branchOk(LOADER_SHA_B) });
+    assert.ok(fetched.some((url) => url.includes('/branches/main')));
+    assert.ok(scripts[0].includes(`@${LOADER_SHA_B}/`));
+    assert.equal(JSON.parse(store.get('igs:loader:latest-ref')).ref, LOADER_SHA_B);
+});
+
+test('gate:loader-cache:api-failure-reuses-stale-sha', async () => {
+    const storage = { 'igs:loader:latest-ref': JSON.stringify({ ref: LOADER_SHA_A, at: Date.now() - 3 * 60 * 60 * 1000 }) };
+    const { scripts } = await runLoaderScenario({ rootExtras: { storage } });
+    assert.equal(scripts.length, 1);
+    assert.ok(scripts[0].includes(`@${LOADER_SHA_A}/`));
+});
+
+test('gate:loader-cache:main-fallback-cache-bust-is-hourly', async () => {
+    const { scripts, store } = await runLoaderScenario();
+    assert.equal(scripts.length, 1);
+    const mark = scripts[0].match(/@main\/app\/dist\/igs\.bundle\.js\?igs_t=(\d+)$/);
+    assert.ok(mark, scripts[0]);
+    assert.equal(Number(mark[1]), Math.floor(Date.now() / 3600000));
+    assert.equal(store.has('igs:loader:latest-ref'), false);
+});
+
+test('gate:loader-cache:unavailable-sha-falls-back-to-main-without-caching', async () => {
+    const { scripts, store } = await runLoaderScenario({
+        branchResponse: branchOk(LOADER_SHA_B),
+        bundleOk: (src) => !src.includes(`@${LOADER_SHA_B}/`),
+    });
+    assert.equal(scripts.length, 2);
+    assert.match(scripts[1], /@main\/app\/dist\/igs\.bundle\.js/);
+    assert.equal(store.has('igs:loader:latest-ref'), false);
+});
+
+test('gate:loader-cache:debug-loader-bypasses-cache-and-prefers-debug-bundle', async () => {
+    const storage = { 'igs:loader:latest-ref': JSON.stringify({ ref: LOADER_SHA_A, at: Date.now() }) };
+    const { scripts, fetched } = await runLoaderScenario({
+        rootExtras: { storage, IGS_DEBUG: true },
+        branchResponse: branchOk(LOADER_SHA_B),
+        bundleOk: (src) => !src.includes('igs.bundle.debug.js'),
+    });
+    assert.ok(fetched.some((url) => url.includes('/branches/main')));
+    assert.ok(scripts[0].includes(`@${LOADER_SHA_B}/app/dist/igs.bundle.debug.js`));
+    assert.ok(scripts[1].includes(`@${LOADER_SHA_B}/app/dist/igs.bundle.js`), 'old refs without the debug bundle fall back to the minified one');
 });
 
 test('gate:loader-json:explicit-fixed-ref-falls-back-to-main-when-cdn-is-missing', async () => {
@@ -800,14 +884,8 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(textTemplate, /dividerColorField/);
     assert.match(dialogTemplate, /dialogBgField/);
     assert.doesNotMatch(dialogTemplate, /optionBubbleToggle|pinnedButtonsField|typewriterToggle/);
-    assert.match(performanceTemplate, /typewriterToggle/);
-    assert.match(performanceTemplate, /typewriterControls/);
-    assert.match(performanceTemplate, /stageShakeToggle/);
-    assert.match(performanceTemplate, /stageShakeSettings/);
-    assert.match(performanceTemplate, /weatherFxToggle/);
-    assert.match(performanceTemplate, /weatherFxSettings/);
-    assert.match(performanceTemplate, /performanceToggles/);
-    assert.match(performanceTemplate, /nsfwVeilLevelField/);
+    assert.match(performanceTemplate, /data-reader-pane="performance"/);
+    assert.match(performanceTemplate, /performanceSections/);
     assert.match(interfaceTemplate, /toolbarScaleField/);
     assert.match(interfaceTemplate, /pinnedButtonsField/);
     assert.match(interfaceTemplate, /statusHudSection/);
@@ -996,24 +1074,60 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
         name: [374, 68],
     };
     for (const [key, [width, height]] of Object.entries(expected)) {
-        const dataUrl = CLASSIC_DIALOG_ASSETS[key];
+        // 素材不再内联：源码里是构建占位符，构建时外置到 dist/skins/，运行时按 bundle 地址取址。
+        const token = CLASSIC_DIALOG_ASSETS[key];
         const meta = CLASSIC_DIALOG_ASSET_META[key];
-        assert.ok(dataUrl.startsWith('data:image/png;base64,'), key);
+        assert.equal(token, `__IGS_ASSET__western-classic/${key}.png__`, key);
         assert.deepEqual(meta, { width, height });
-        const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+        const bytes = fs.readFileSync(path.join(appRoot, 'src', 'visual', 'igs-ui', 'assets', 'dialog-themes', 'western-classic', `${key}.png`));
         assert.deepEqual(Array.from(bytes.subarray(0, 8)), [137, 80, 78, 71, 13, 10, 26, 10]);
         assert.equal(bytes.readUInt32BE(16), width);
         assert.equal(bytes.readUInt32BE(20), height);
     }
     assert.match(CLASSIC_SKIN_CSS, /data-igs-dialog-skin="western-classic"/);
-    assert.match(CLASSIC_SKIN_CSS, /border-image:url\("data:image\/png;base64,[^"]+"\) 0 110 0 110 fill \/ 0 110px 0 110px \/ 0 stretch/);
+    assert.match(CLASSIC_SKIN_CSS, /border-image:url\("__IGS_ASSET__western-classic\/dialog\.png__"\) 0 110 0 110 fill \/ 0 110px 0 110px \/ 0 stretch/);
     assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*left:60px;top:-22px;width:max-content;min-width:150px;max-width:calc\(100% - 120px\);height:52px;line-height:44px/);
-    assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*border-image:url\("data:image\/png;base64,[^"]+"\) 0 65 0 65 fill \/ 0 50px 0 50px \/ 0 stretch/);
+    assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*border-image:url\("__IGS_ASSET__western-classic\/name\.png__"\) 0 65 0 65 fill \/ 0 50px 0 50px \/ 0 stretch/);
     assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px;font-weight:600/);
     assert.match(CLASSIC_SKIN_CSS, /data-igs-has-speaker="1"\]\{padding:34px 44px 20px 44px;\}/);
     assert.match(CLASSIC_SKIN_CSS, /overflow:visible/);
-    assert.match(CLASSIC_SKIN_CSS, /data:image\/png;base64,/);
-    assert.match(CLASSIC_SKIN_CSS, /CLASSIC_DIALOG_ASSETS|iVBORw0KGgo/);
+    assert.doesNotMatch(CLASSIC_SKIN_CSS, /data:image\/png;base64,/);
+    // 皮肤 CSS 不进主样式，按当前皮肤单独注入；占位符解析为相对素材基址的外置 URL。
+    assert.doesNotMatch(getOriginalReaderStyleText(), /__IGS_ASSET__|data-igs-dialog-skin="western-classic"\] \.igs-speaker/);
+    const skinCss = getDialogSkinStyleText('western-classic', { base: 'https://cdn.example/app/dist/skins/' });
+    assert.doesNotMatch(skinCss, /__IGS_ASSET__|data:image/);
+    assert.deepEqual(listDialogSkinAssetUrls(skinCss).slice(0, 2), [
+        'https://cdn.example/app/dist/skins/western-classic/dialog.png',
+        'https://cdn.example/app/dist/skins/western-classic/name.png',
+    ]);
+    assert.doesNotMatch(skinCss, /data-igs-dialog-skin="plant-coffee"/);
+    assert.equal(getDialogSkinStyleText('default'), '');
+    // 素材加载失败或超时：根节点挂降级标记，对话框、姓名牌与选项改用纯色底。
+    assert.match(skinCss, /#igs-overlay\[data-igs-skin-fallback\] \.igs-dialog\[data-igs-dialog-skin="western-classic"\]\{border-image:none!important;background:linear-gradient/);
+    assert.match(skinCss, /\.igs-speaker\{border-image:none!important;background:#cdb88a!important/);
+    const images = [];
+    const timers = [];
+    class FakeImage { constructor() { images.push(this); } }
+    const env = { Image: FakeImage, setTimeout: (fn) => { timers.push(fn); return timers.length; }, clearTimeout: () => {} };
+    const fakeRoot = () => {
+        const attrs = new Map();
+        return { attrs, setAttribute: (k, v) => attrs.set(k, v), removeAttribute: (k) => attrs.delete(k) };
+    };
+    const failed = fakeRoot();
+    watchDialogSkinAssets(failed, 'western-classic', skinCss, env);
+    assert.equal(images.length, listDialogSkinAssetUrls(skinCss).length);
+    images[0].onerror();
+    assert.equal(failed.attrs.get('data-igs-skin-fallback'), '1');
+    const slow = fakeRoot();
+    watchDialogSkinAssets(slow, 'western-classic', skinCss, env);
+    timers[timers.length - 1]();
+    assert.equal(slow.attrs.get('data-igs-skin-fallback'), '1');
+    const loaded = fakeRoot();
+    const start = images.length;
+    watchDialogSkinAssets(loaded, 'western-classic', skinCss, env);
+    images.slice(start).forEach((image) => image.onload());
+    timers[timers.length - 1]();
+    assert.equal(loaded.attrs.has('data-igs-skin-fallback'), false);
     assert.doesNotMatch(CLASSIC_SKIN_CSS, /\.igs-ctrl-bar|#igs-toolbar-layer/);
     assert.equal(normalizeClassicDialogWidthPercent(undefined), 100);
     assert.equal(normalizeClassicDialogWidthPercent(40), 60);
@@ -1073,37 +1187,52 @@ test('gate:igs-ui:skin-dialog-scale-drives-theme-geometry', () => {
 });
 
 test('gate:igs-ui:hud-and-emotion-follow-dialog-skin', () => {
-    const css = getOriginalReaderStyleText();
+    // HUD 换装随皮肤单独注入：主样式不含主题 HUD 规则，当前皮肤的 style 只带本主题。
+    const main = getOriginalReaderStyleText();
+    assert.ok(!main.includes('[data-igs-dialog-skin="western-classic"] #igs-status-hud'));
     const skins = ['western-classic', 'plant-coffee', 'black-white-manga', 'cute-pink', 'gradient-veil',
         'retro-japanese', 'adventure-journey', 'day-minimal', 'warm-picturebook', 'elegant-european'];
     for (const skin of skins) {
+        const css = getDialogSkinStyleText(skin, { base: 'https://cdn.example/dist/skins/' });
         const hud = `#igs-overlay[data-igs-dialog-skin="${skin}"] #igs-status-hud`;
         for (const part of ['.igs-hud-bg-dialog{', ' .igs-hud-emotion{', ' .igs-hud-avatar{', ' .igs-hud-avatar-empty{', ' .igs-hud-track{', ' .igs-hud-fill{']) {
             assert.ok(css.includes(`${hud}${part}`), `${skin}${part}`);
         }
         assert.ok(css.includes(`${hud}{--igs-hud-fill-neutral:`), skin);
+        assert.ok(!/data-igs-dialog-skin="[^"]+"\] #igs-status-hud[^{]*igs-hud-entry-(menu|item|arrow)/.test(css), skin);
+        for (const other of skins) {
+            if (other !== skin) assert.ok(!css.includes(`[data-igs-dialog-skin="${other}"] #igs-status-hud`), `${skin} leaks ${other}`);
+        }
     }
-    assert.ok(css.includes('border-image:url("__IGS_ASSET__retro-japanese/tag.png__")'));
-    assert.ok(css.includes('border-image:url("__IGS_ASSET__adventure-journey/tag.png__")'));
-    assert.ok(!/data-igs-dialog-skin="[^"]+"\] #igs-status-hud[^{]*igs-hud-entry-(menu|item|arrow)/.test(css));
+    for (const skin of ['retro-japanese', 'adventure-journey']) {
+        const css = getDialogSkinStyleText(skin, { base: 'https://cdn.example/dist/skins/' });
+        assert.ok(css.includes(`border-image:url("https://cdn.example/dist/skins/${skin}/tag.png")`), skin);
+        assert.ok(!css.includes('__IGS_ASSET__'), skin);
+    }
 });
 
 test('gate:igs-ui:options-follow-dialog-skin', () => {
-    const css = getOriginalReaderStyleText();
+    // 选项公共规则留在主样式；各主题选项按当前皮肤注入，素材占位符解析为外置 URL。
+    const main = getOriginalReaderStyleText();
+    assert.ok(main.includes('#igs-overlay[data-igs-dialog-skin] #igs-option-bubbles{margin-bottom:var(--igs-skin-plate-rise,0px);}'));
+    assert.ok(!main.includes('[data-igs-dialog-skin="western-classic"] .igs-option-bubble'));
+    const skinCss = (skin) => getDialogSkinStyleText(skin, { base: 'https://cdn.example/dist/skins/' });
     const skins = ['western-classic', 'plant-coffee', 'black-white-manga', 'cute-pink', 'gradient-veil',
         'retro-japanese', 'adventure-journey', 'day-minimal', 'warm-picturebook', 'elegant-european'];
     for (const skin of skins) {
+        const css = skinCss(skin);
         assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-option-bubble{`), skin);
         assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-option-bubble:hover{`), skin);
     }
     for (const skin of ['western-classic', 'plant-coffee', 'black-white-manga', 'cute-pink', 'retro-japanese', 'adventure-journey']) {
+        const css = skinCss(skin);
         const rule = css.split('\n').find((line) => line.startsWith(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-option-bubble{`));
-        assert.match(rule, new RegExp(`border-image:url\\("__IGS_ASSET__${skin}/choice\\.png__"\\) [0-9 ]+ fill / `), skin);
+        assert.match(rule, new RegExp(`border-image:url\\("https://cdn\\.example/dist/skins/${skin}/choice\\.png"\\) [0-9 ]+ fill / `), skin);
         const hover = css.split('\n').find((line) => line.startsWith(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-option-bubble:hover{`));
-        assert.ok(hover.includes(`__IGS_ASSET__${skin}/choice-hover.png__`), skin);
+        assert.ok(hover.includes(`https://cdn.example/dist/skins/${skin}/choice-hover.png`), skin);
     }
-    assert.ok(!css.includes('[data-igs-dialog-skin="default"] .igs-option-bubble'));
-    assert.ok(css.includes('#igs-overlay[data-igs-dialog-skin] #igs-option-bubbles{margin-bottom:var(--igs-skin-plate-rise,0px);}'));
+    assert.equal(skinCss('default'), '');
+    assert.ok(!main.includes('[data-igs-dialog-skin="default"] .igs-option-bubble'));
 });
 
 test('gate:api:public-api-exposes-text-preset-groups', () => {

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IGS 多角色同屏阅读器验收入口</title>
+<style>
+html,body{margin:0;height:100%;background:#0b0d10;}
+</style>
+</head>
+<body>
+<div id="errlog" style="position:fixed;top:0;left:0;z-index:99999;max-width:100%;font:12px monospace;color:#f88;background:#300;white-space:pre-wrap;"></div>
+<script type="module">
+// 开发验收入口：用真实阅读器（bootstrapIGS + 内存存储）打开多角色同屏，供截图脚本经 CDP 驱动槽位编辑、拍照与战斗。
+// 参数：?size=desktop|mobile、?script=cast|photo|battle|single、?align=0。
+import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
+import { extractFxDirectives } from '../../src/scene/fx-directives.js';
+
+const errors = [];
+const showErrors = () => { document.getElementById('errlog').textContent = errors.join('\n'); };
+window.addEventListener('error', (e) => { errors.push(String(e.message || e.error)); showErrors(); });
+window.addEventListener('unhandledrejection', (e) => { errors.push('rejection: ' + String((e.reason && e.reason.message) || e.reason)); showErrors(); });
+
+const params = new URLSearchParams(location.search);
+const mode = /^(mobile|short|tiny)$/.test(params.get('size') || '') ? 'mobile' : 'pc';
+const script = params.get('script') || 'cast';
+
+// 三张透明立绘：头的大小与高度各不相同。
+const FIGURES = {
+    甲: { color: '#e8a0a0', headR: 92, headTop: 40 },
+    乙: { color: '#9cc4ea', headR: 64, headTop: 150 },
+    丙: { color: '#b4dc9c', headR: 78, headTop: 96 },
+};
+function drawFigure(name, { color, headR, headTop }) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 600;
+    canvas.height = 1200;
+    const g = canvas.getContext('2d');
+    const cy = headTop + headR;
+    const shoulder = cy + headR + 30;
+    g.fillStyle = color;
+    g.beginPath();
+    g.arc(300, cy, headR, 0, Math.PI * 2);
+    g.fill();
+    g.fillRect(300 - headR * 0.35, cy + headR - 4, headR * 0.7, 40);
+    g.beginPath();
+    g.roundRect(120, shoulder, 360, 1200 - shoulder, 60);
+    g.fill();
+    g.fillStyle = 'rgba(0,0,0,.55)';
+    g.font = 'bold 160px sans-serif';
+    g.textAlign = 'center';
+    g.fillText(name, 300, shoulder + 260);
+    return canvas.toDataURL('image/png');
+}
+function drawBackground() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 900;
+    const g = canvas.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, 900);
+    grad.addColorStop(0, '#3a4a63');
+    grad.addColorStop(1, '#1c2230');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 1600, 900);
+    return canvas.toDataURL('image/png');
+}
+const urls = Object.fromEntries(Object.entries(FIGURES).map(([name, fig]) => [name, drawFigure(name, fig)]));
+const bgUrl = drawBackground();
+
+const SCRIPTS = {
+    cast: ['[igs-scene:Room|day|clear]', '[igs-char:甲|默认|第一句。]', '[igs-char:乙|默认|第二句。]', '[igs-char:丙|默认|第三句。]', '[igs-char:甲|默认|第四句。]'],
+    photo: ['[igs-scene:Room|day|clear]', '[igs-char:甲|默认|第一句。]', '[igs-char:乙|默认|第二句。]', '[igs-char:丙|默认|来拍一张。]', '[igs-fx:photo|三人合影]', '[igs-char:丙|默认|好了。]'],
+    battle: ['[igs-scene:Room|day|clear]', '[igs-char:甲|默认|第一句。]', '[igs-char:乙|默认|第二句。]', '[igs-char:丙|默认|小心！]', '[igs-fx:battle|魔王]', '[igs-fx:hit|魔王|乙|横扫|命中][igs-char:丙|默认|乙！]'],
+    single: ['[igs-scene:Room|day|clear]', '[igs-char:甲|默认|只有我一个人。]'],
+    photo2: ['[igs-scene:Room|day|clear]', '[igs-char:甲|默认|第一句。]', '[igs-char:乙|默认|第二句。]', '[igs-char:丙|默认|来拍一张。]', '[igs-fx:photo|三人合影]咔嚓一声，快门落下。'],
+    battle2: ['[igs-scene:Room|day|clear]', '[igs-char:甲|默认|第一句。]', '[igs-char:乙|默认|第二句。]', '[igs-char:丙|默认|小心！]', '[igs-fx:battle|魔王][igs-fx:hit|魔王|乙|横扫|命中]魔王的横扫直冲乙而去。'],
+};
+const lines = SCRIPTS[script] || SCRIPTS.cast;
+
+const mem = createMemoryStorage({
+    igs_bridge_config: JSON.stringify({
+        sceneAssets: {
+            enabled: true, promptRule: '规则', characterAliases: {}, moodGroups: [],
+            scenes: { Room: { url: bgUrl, times: {} } },
+            characters: Object.fromEntries(Object.entries(urls).map(([name, url]) => [name, { 默认: url }])),
+        },
+    }),
+});
+mem.setItem('igs-reader-settings-v9-default', JSON.stringify({
+    stageCast: { enabled: true, alignHeads: params.get('align') !== '0' },
+    fxTags: { enabled: true },
+    dailyFx: { enabled: true },
+    battleFx: { enabled: true },
+}));
+// 只替换 localStorage，其余全局能力沿用真实 window；小写方法绑定到 window，避免 Illegal invocation。
+const globalProxy = new Proxy(window, { get(target, key) {
+    if (key === 'localStorage') return mem;
+    const value = Reflect.get(target, key, target);
+    return typeof value === 'function' && typeof key === 'string' && /^[a-z]/.test(key) ? value.bind(target) : value;
+} });
+const vn = bootstrapIGS({
+    global: globalProxy,
+    autoAttachMagicWand: false,
+    hostAdapter: {
+        getCurrentMessage: async () => ({ id: 51, text: (params.get('wrap') === '0' ? lines : ['<now_plot>', '<content>', ...lines, '</content>', '</now_plot>']).join('\n') }),
+        typeAndSend: async () => ({ ok: true }),
+    },
+});
+
+let ctrl = null;
+const snap = () => vn.getState().igsUi.activeReader.snapshot;
+const overlay = () => document.getElementById('igs-overlay');
+// 诊断：记录陪衬元素的增删（含调用栈）与每次翻页后的陪衬层，只在本验收页生效。
+const castLog = [];
+const trail = [];
+const animLog = [];
+const origAnimate = Element.prototype.animate;
+Element.prototype.animate = function (frames, options) {
+    const who = this.id || this.getAttribute('data-igs-cast-char') || '';
+    if (who === 'igs-sprite' || this.getAttribute('data-igs-cast-char') != null) {
+        const first = Array.isArray(frames) ? frames[0] : frames;
+        animLog.push({ who, props: first ? Object.keys(first).filter((k) => !['offset', 'easing', 'composite'].includes(k)) : [], composite: options && options.composite || '', page: pageNow() });
+    }
+    return origAnimate.call(this, frames, options);
+};
+const pageNow = () => { try { return snap().content.currentIndex; } catch { return -1; } };
+const castKids = () => Array.from(document.querySelectorAll('#igs-cast .igs-cast-sprite')).map((el) => el.getAttribute('data-igs-cast-char') + (el.hasAttribute('data-igs-cast-leaving') ? '(leaving)' : ''));
+const isCastEl = (n) => n && n.getAttribute && n.getAttribute('data-igs-cast-char') != null;
+const logRemove = (op, n) => castLog.push({ op, char: n.getAttribute('data-igs-cast-char'), page: pageNow(), stack: String(new Error().stack).split('\n').slice(2, 7).map((s) => s.trim()) });
+const origRemoveChild = Element.prototype.removeChild;
+Element.prototype.removeChild = function (child) {
+    if (isCastEl(child)) logRemove('removeChild', child);
+    return origRemoveChild.call(this, child);
+};
+const origRemove = Element.prototype.remove;
+Element.prototype.remove = function () {
+    if (isCastEl(this)) logRemove('remove', this);
+    return origRemove.call(this);
+};
+new MutationObserver((records) => {
+    for (const r of records) {
+        for (const n of r.addedNodes) if (isCastEl(n)) castLog.push({ op: 'add', char: n.getAttribute('data-igs-cast-char'), page: pageNow() });
+        for (const n of r.removedNodes) if (isCastEl(n)) castLog.push({ op: 'detached', char: n.getAttribute('data-igs-cast-char'), page: pageNow() });
+    }
+}).observe(document.documentElement, { childList: true, subtree: true });
+async function next() {
+    await ctrl.invokeAction('next');
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const s = snap();
+    trail.push({ page: s.content.currentIndex, speaker: s.content.speaker, castSprites: (s.content.castSprites || []).map((m) => m.character), kids: castKids() });
+    return snap().content.currentIndex;
+}
+async function toEnd() {
+    let guard = 0;
+    const stopAt = params.has('stop') ? Number(params.get('stop')) : Infinity;
+    while (guard < 30 && snap().content.currentIndex < snap().content.segments.length - 1 && snap().content.currentIndex < stopAt) {
+        await next();
+        guard += 1;
+    }
+    return snap().content.currentIndex;
+}
+// 相册核对：直接统计 IndexedDB 里与照片 / CG 相关的库，拍照前后各读一次比对增量。
+async function album() {
+    const dbs = typeof indexedDB.databases === 'function' ? await indexedDB.databases() : [];
+    const out = {};
+    for (const { name } of dbs) {
+        if (!/photo|cg/i.test(name || '')) continue;
+        out[name] = await new Promise((resolve) => {
+            const req = indexedDB.open(name);
+            req.onerror = () => resolve('open-error');
+            req.onsuccess = () => {
+                const db = req.result;
+                const stores = Array.from(db.objectStoreNames);
+                const counts = {};
+                if (!stores.length) { db.close(); resolve(counts); return; }
+                const tx = db.transaction(stores, 'readonly');
+                let left = stores.length;
+                const done = () => { left -= 1; if (left === 0) { db.close(); resolve(counts); } };
+                for (const name2 of stores) {
+                    const c = tx.objectStore(name2).count();
+                    c.onsuccess = () => { counts[name2] = c.result; done(); };
+                    c.onerror = () => { counts[name2] = 'err'; done(); };
+                }
+            };
+        });
+    }
+    return out;
+}
+async function action(name) {
+    const result = await ctrl.invokeAction(name);
+    return result && typeof result === 'object' ? { ok: result.ok !== false, reason: result.reason || '' } : { ok: true };
+}
+function clickBar(act) {
+    const btn = document.querySelector(`#igs-sprite-edit-bar [data-cse="${act}"]`);
+    if (btn) btn.click();
+    return Boolean(btn);
+}
+function finishAnimations() {
+    for (const a of document.getAnimations()) {
+        try { a.finish(); } catch { a.cancel(); }
+    }
+}
+
+const round = (v) => Math.round(v * 10) / 10;
+function rectOf(el) {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { left: round(r.left), top: round(r.top), width: round(r.width), height: round(r.height) };
+}
+function probe() {
+    const ov = overlay();
+    const s = snap();
+    const sprite = ov && ov.querySelector('#igs-sprite');
+    const motion = ov && ov.querySelector('#igs-stage-motion');
+    const castEls = ov ? Array.from(ov.querySelectorAll('#igs-cast .igs-cast-sprite')) : [];
+    const layer = (el) => ({
+        size: el.style.backgroundSize,
+        position: el.style.backgroundPosition,
+        opacity: getComputedStyle(el).opacity,
+        editing: el.classList.contains('igs-cast-editing'),
+    });
+    const bar = document.querySelector('#igs-sprite-edit-bar');
+    const polaroid = document.querySelector('.igs-dfx-photo-img');
+    const impact = document.querySelector('.igs-fx-battle-impact');
+    return {
+        mode,
+        script,
+        page: s.content.currentIndex,
+        speaker: s.content.speaker,
+        castSprites: (s.content.castSprites || []).map((m) => m.character),
+        sprite: sprite ? { display: sprite.style.display, ...layer(sprite) } : null,
+        cast: castEls.map((el) => ({ character: el.getAttribute('data-igs-cast-char'), leaving: el.hasAttribute('data-igs-cast-leaving'), ...layer(el), rect: rectOf(el) })),
+        editing: Boolean(motion && motion.hasAttribute('data-igs-cast-editing')),
+        editKind: motion && motion.hasAttribute('data-igs-cast-editing') ? 'cast' : (bar ? 'single' : ''),
+        editBar: bar ? Array.from(bar.querySelectorAll('button')).map((b) => (b.getAttribute('aria-pressed') === 'true' ? `[${b.textContent}]` : b.textContent)) : null,
+        editBarRect: rectOf(bar),
+        editSurface: Boolean(document.querySelector('#igs-cast-edit-surface')),
+        castSlotLayouts: s.readerSettings.castSlotLayouts || {},
+        spriteLayouts: s.readerSettings.spriteLayouts || {},
+        polaroid: polaroid ? Array.from(polaroid.children).map((el) => el.className + ' ' + (el.style.backgroundImage ? 'img' : '') + ' ' + (el.style.backgroundPosition || '')) : null,
+        impact: impact ? rectOf(impact) : null,
+        layers: Array.from(document.querySelectorAll('#igs-cast')).map((l) => ({
+            parent: l.parentNode ? l.parentNode.id : '',
+            display: l.style.display,
+            kids: Array.from(l.children).map((c) => [c.getAttribute('data-igs-cast-char'), c.hasAttribute('data-igs-cast-leaving')]),
+        })),
+        castOrder: (s.content.castSprites || []).map((m) => [m.character, m.order]),
+        fx: s.content.fx || null,
+        textType: s.content.textType,
+        settingsFx: { fxTags: s.readerSettings.fxTags || null, dailyFx: s.readerSettings.dailyFx || null, battleFx: s.readerSettings.battleFx || null, stageCast: s.readerSettings.stageCast || null },
+        fxParse: extractFxDirectives(lines.join('\n')).map((d) => [d.kind || d.type, d.offset]),
+        dfxNodes: Array.from(document.querySelectorAll('.igs-dfx')).map((el) => el.className),
+        battleNodes: Array.from(document.querySelectorAll('[class*="igs-fx-battle"]')).slice(0, 8).map((el) => el.className),
+        speakerOrder: s.content.speakerCastOrder,
+        castLog: castLog.slice(),
+        animLog: animLog.slice(),
+        trail: trail.slice(),
+        kidsNow: castKids(),
+        animations: document.getAnimations().map((a) => {
+            const t = a.effect && a.effect.target;
+            return { target: t ? (t.id || t.getAttribute('data-igs-cast-char') || t.className || '') : '', playState: a.playState, duration: a.effect ? a.effect.getTiming().duration : null };
+        }),
+        errors: errors.slice(),
+    };
+}
+
+window.__stageCast = { ready: false, next, toEnd, action, clickBar, finishAnimations, probe, album, vn, get ctrl() { return ctrl; } };
+vn.openLatestAvailable(mode).then(async (opened) => {
+    if (!opened || opened.ok === false) throw new Error('openLatestAvailable failed ' + JSON.stringify(opened && opened.reason));
+    ctrl = opened.reader.controller;
+    await toEnd();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    finishAnimations();
+    window.__stageCast.ready = true;
+}).catch((e) => { errors.push('init: ' + e.message); showErrors(); });
+</script>
+</body>
+</html>

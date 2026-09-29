@@ -9,8 +9,14 @@ function readStore(storage) {
     } catch { return {}; }
 }
 
+// 写失败（多半是 localStorage 满了）把错误交给上层提示，不再静默丢掉。
 function writeStore(storage, presets, active) {
-    try { storage.setItem(KEY, JSON.stringify({ version: 1, presets, active: active || '' })); } catch {}
+    try {
+        storage.setItem(KEY, JSON.stringify({ version: 1, presets, active: active || '' }));
+        return { ok: true };
+    } catch (error) {
+        return { ok: false, reason: 'store-write-failed', saveError: error };
+    }
 }
 
 export function loadScenePresets(storage) {
@@ -20,7 +26,7 @@ export function loadScenePresets(storage) {
 }
 
 export function saveScenePresets(storage, presets) {
-    writeStore(storage, presets, readStore(storage).active);
+    return writeStore(storage, presets, readStore(storage).active);
 }
 
 // 当前选中的预设名需要跨设置面板开关保留，否则关掉再打开会回到「选择预设」、保存时要重新输名字

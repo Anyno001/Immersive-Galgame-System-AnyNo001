@@ -1,3 +1,5 @@
+import { stripOutfitFields } from '../../scene/directive-tags.js';
+
 const SCENE_RE = /\[igs-scene:([^|\]\n]+)\|([^|\]\n]+)\|([^|\]\n]+)(?:\|([^\]\n]*))?\]/g;
 const CHAR_RE = /\[igs-char:([^|\]\n]+)\|(?:([^|\]\n]*)\|)?([^|\]\n]+)\]?/g;
 const THOUGHT_RE = /\[igs-thought:([^|\]\n]+)\|(?:([^|\]\n]*)\|)?([^|\]\n]+)\]?/g;
@@ -24,14 +26,14 @@ function readableLine(line) {
         .trim();
 }
 
-export function numberParagraphs(raw) {
+export function numberParagraphs(raw, options = {}) {
     const lines = String(raw || '').split('\n');
     const [from, to] = contentRange(lines);
     const paragraphs = [];
     const scenes = [];
     const characters = new Set();
     for (let i = from; i <= to; i += 1) {
-        const line = lines[i];
+        const line = stripOutfitFields(lines[i], options && options.outfitResolver);
         for (const m of line.matchAll(SCENE_RE)) {
             scenes.push({ scene: m[1].trim(), time: m[2].trim(), weather: m[3].trim(), nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw' });
         }

@@ -93,22 +93,3 @@ function restoreDisplayStyle(style, value, priority) {
     if (!value && typeof style.removeProperty === 'function') style.removeProperty('display');
     else setDisplayStyle(style, value || '', priority || '');
 }
-
-export function buildEmbeddedLoadingHtml() {
-    return `<div class="igs-embedded-loading" role="status" aria-live="polite"><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-text">正在生成…</span></div>`;
-}
-
-export function resolveEmbeddedStreamPhase(previousPhase, event, constants = {}) {
-    const phase = previousPhase || 'idle';
-    const generationStart = constants.generationStart || 'generation-start';
-    const generationComplete = constants.generationComplete || 'generation-complete';
-    const generationAbort = constants.generationAbort || 'generation-abort';
-    if (event === generationStart) return 'streaming';
-    if (event === generationComplete) return 'finalizing';
-    if (event === generationAbort) return 'aborted';
-    return phase;
-}
-
-export function shouldShowEmbeddedLoading(phase) {
-    return phase === 'streaming' || phase === 'finalizing';
-}

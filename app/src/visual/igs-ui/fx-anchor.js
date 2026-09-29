@@ -1,3 +1,6 @@
+import { spriteIdentity } from '../../scene/character-outfits.js';
+
+
 // 漫画符号定位：按立绘在舞台里的实际绘制矩形（background-size 宽度百分比 + background-position）
 // 与立绘透明通道探测出的头部位置换算落点，电脑/窄屏/全屏/内嵌各模式统一按真实像素计算。
 const HEAD_CACHE_LIMIT = 48;
@@ -16,6 +19,16 @@ export const SYMBOL_OFFSETS = Object.freeze({
     silence: { dx: 0.7, dy: -0.05, size: 0.4 },
     gloom: { dx: 0, dy: 0.4, size: 0.8 },
     sparkle: { dx: 0.62, dy: 0.32, size: 0.38 },
+    bulb: { dx: 0, dy: -0.4, size: 0.46 },
+    note: { dx: 0.6, dy: 0.05, size: 0.38 },
+    zzz: { dx: 0.6, dy: -0.12, size: 0.44 },
+    heartbreak: { dx: 0.55, dy: 0.1, size: 0.4 },
+    sigh: { dx: 0.62, dy: 0.72, size: 0.42 },
+    dizzy: { dx: 0, dy: -0.28, size: 0.5 },
+    fire: { dx: 0.58, dy: 0.12, size: 0.44 },
+    frost: { dx: 0.6, dy: 0.22, size: 0.4 },
+    // 古代背景的鼻涕泡：贴在鼻尖一侧。
+    snot: { dx: 0.2, dy: 0.62, size: 0.36 },
 });
 
 const headCache = new Map();
@@ -77,13 +90,18 @@ export function normalizeSpriteHeads(value) {
     return out;
 }
 
-export function spriteHeadKey(character, mood) {
-    return mood ? `${character}::${mood}` : String(character || '');
+export function spriteHeadKey(character, mood, outfit = '') {
+    const identity = spriteIdentity(character, outfit);
+    return mood ? `${identity}::${mood}` : identity;
 }
 
-// 表情单独标定优先，其次角色标定；都没有返回 null 走自动识别。
-export function resolveSpriteHead(heads, character, mood) {
+// 表情单独标定优先，其次角色（或「角色|服装」）标定；服装未标定时回落到角色标定；都没有返回 null 走自动识别。
+export function resolveSpriteHead(heads, character, mood, outfit = '') {
     if (!heads || !character) return null;
+    const identity = spriteIdentity(character, outfit);
+    if (identity !== character) {
+        return (mood && heads[spriteHeadKey(character, mood, outfit)]) || heads[identity] || heads[character] || null;
+    }
     return (mood && heads[spriteHeadKey(character, mood)]) || heads[character] || null;
 }
 

@@ -11,16 +11,17 @@ export function renderWordListField(path, label, words) {
     return `<div class="igs-settings-field"><span>${esc(label)}</span><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无触发情绪</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="fx-word-add:${encSeg(path)}" title="添加触发情绪">+</button></div></div>`;
 }
 
-function group(title, body) {
-    return `<div class="igs-settings-group"><div class="igs-settings-subhead">${esc(title)}</div>${body}</div>`;
-}
-
 function sub(body) {
     return `<div class="igs-settings-sub">${body}</div>`;
 }
 
-// 「演出」页里的漫画演出整合卡：通用风格 → 情绪特效 → 剧情提示 → 音效，只移动展示位置，持久化路径不变。
-export function renderFxPerformanceSections(reader) {
+// 「演出」页的折叠区：词表与少用的细项默认收起，展开状态由 data-advanced 记住。
+export function collapsible(key, label, body, open = false) {
+    return `<details class="igs-settings-advanced igs-perf-more" data-advanced="perf-${esc(key)}"${open ? ' open' : ''}><summary>${esc(label)}</summary>${body}</details>`;
+}
+
+// 漫画演出各项的设置片段，由「演出」页按分类重新编排；持久化路径不变。
+export function renderFxFeatureFields(reader, more = collapsible) {
     const s = normalizeFxReaderSettings(reader);
     const p = 'readerSettings';
     const style = `<div class="igs-source-filter-grid">`
@@ -28,31 +29,29 @@ export function renderFxPerformanceSections(reader) {
         + field(`${p}.fxStyle.hold`, '停留时间', segmentedInput(`${p}.fxStyle.hold`, s.fxStyle.hold, [['short', '短'], ['medium', '中'], ['long', '长']], '停留时间'))
         + `</div>`
         + checkbox(`${p}.fxStyle.replay`, s.fxStyle.replay, '翻回已看过的页时重播演出')
-        + `<div class="igs-source-filter-note">渐变演出为柔和缓动；灵动演出按关键帧定格，更有漫画分镜的一拍一拍卡顿感。</div>`;
+        + `<div class="igs-source-filter-note">渐变演出为柔和缓动；灵动演出按关键帧定格，更有漫画分镜的一拍一拍卡顿感。作用于情绪符号、心跳、闪白、标题卡与演出标签。</div>`;
     const manga = checkbox(`${p}.mangaFx.enabled`, s.mangaFx.enabled, '情绪符号与集中线')
-        + (s.mangaFx.enabled ? sub(MANGA_SYMBOL_KINDS.map((kind) => renderWordListField(`mangaFx.symbols.${kind}`, MANGA_SYMBOL_LABELS[kind], s.mangaFx.symbols[kind])).join('')
-            + renderWordListField('mangaFx.speedLines', '集中线', s.mangaFx.speedLines)) : '');
+        + (s.mangaFx.enabled ? sub(more('manga-words', '自定义触发情绪', MANGA_SYMBOL_KINDS.map((kind) => renderWordListField(`mangaFx.symbols.${kind}`, MANGA_SYMBOL_LABELS[kind], s.mangaFx.symbols[kind])).join('')
+            + renderWordListField('mangaFx.speedLines', '集中线', s.mangaFx.speedLines))) : '');
     const heartbeat = checkbox(`${p}.heartbeatFx.enabled`, s.heartbeatFx.enabled, '心跳脉动')
-        + (s.heartbeatFx.enabled ? sub(renderWordListField('heartbeatFx.love', '心动（粉色）', s.heartbeatFx.love)
-            + renderWordListField('heartbeatFx.tense', '紧张（暗红）', s.heartbeatFx.tense)) : '');
+        + (s.heartbeatFx.enabled ? sub(more('heartbeat-words', '自定义触发情绪', renderWordListField('heartbeatFx.love', '心动（粉色）', s.heartbeatFx.love)
+            + renderWordListField('heartbeatFx.tense', '紧张（暗红）', s.heartbeatFx.tense))) : '');
     const flash = checkbox(`${p}.flashFx.enabled`, s.flashFx.enabled, '闪白与耳鸣')
-        + (s.flashFx.enabled ? sub(renderWordListField('flashFx.emotions', '触发情绪', s.flashFx.emotions)) : '');
+        + (s.flashFx.enabled ? sub(more('flash-words', '自定义触发情绪', renderWordListField('flashFx.emotions', '触发情绪', s.flashFx.emotions))) : '');
     const title = checkbox(`${p}.titleCard.enabled`, s.titleCard.enabled, '地点/时间标题卡')
         + (s.titleCard.enabled ? sub(field(`${p}.titleCard.speed`, '报幕速度', segmentedInput(`${p}.titleCard.speed`, s.titleCard.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '报幕速度'))
-            + checkbox(`${p}.titleCard.onLocation`, s.titleCard.onLocation, '切换地点时显示')
-            + checkbox(`${p}.titleCard.onTime`, s.titleCard.onTime, '时间变化时显示')) : '');
+            + more('title-card', '显示时机', checkbox(`${p}.titleCard.onLocation`, s.titleCard.onLocation, '切换地点时显示')
+                + checkbox(`${p}.titleCard.onTime`, s.titleCard.onTime, '时间变化时显示'))) : '');
     const favor = checkbox(`${p}.favorToast.enabled`, s.favorToast.enabled, '数值变化提示（读取状态栏已选表格）');
-    const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '演出标签')
-        + (s.fxTags.enabled ? sub(`<div class="igs-source-filter-grid">${FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('')}</div>`) : '');
-    const soundOn = s.heartbeatFx.enabled || s.flashFx.enabled || s.fxTags.enabled;
-    const sound = soundOn ? group('音效', checkbox(`${p}.fxSound.enabled`, s.fxSound.enabled, '启用演出音效（铃声、心跳、耳鸣等）')
-        + (s.fxSound.enabled ? sub(field(`${p}.fxSound.volume`, '音量', rangeInput(`${p}.fxSound.volume`, s.fxSound.volume))) : '')) : '';
-    // 先选要哪些效果，再调整体风格；一个效果都没开时不显示风格设置。
-    const anyOn = s.mangaFx.enabled || s.heartbeatFx.enabled || s.flashFx.enabled || s.titleCard.enabled || s.favorToast.enabled || s.fxTags.enabled;
-    return `<div class="igs-source-filter igs-fx-settings"><div class="igs-source-filter-title">漫画演出</div>${[
-        group('情绪特效', manga + heartbeat + flash),
-        group('剧情提示', title + favor + tags),
-        anyOn ? group('演出风格', style) : '',
-        sound,
-    ].join('')}</div>`;
+    const itemFx = checkbox(`${p}.itemFx.enabled`, s.itemFx.enabled, '获得物品演出');
+    const battleFx = checkbox(`${p}.battleFx.enabled`, s.battleFx.enabled, '战斗演出')
+        + (s.battleFx.enabled ? sub(checkbox(`${p}.battleFx.letterbox`, s.battleFx.letterbox, '战斗时加电影黑边')) : '');
+    const resultFx = checkbox(`${p}.resultFx.enabled`, s.resultFx.enabled, '选项检定掷骰展示（点检定选项时先播放骰点与结果）');
+    const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '演出标签（来电、通知、回忆、梦境等）')
+        + (s.fxTags.enabled ? sub(more('fx-tags', '选择标签类型', `<div class="igs-source-filter-grid">${FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('')}</div>`)
+            + (s.fxTags.call ? more('fx-call', '通话设置', field(`${p}.fxTags.callSprite`, '语音通话时对方立绘', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话时对方立绘'))
+                + `<div class="igs-source-filter-note">通话支持来电、拨出与视频通话；对方说话时名字后显示听筒，打字音效带听筒质感。视频通话时对方立绘装进手机视频框。</div>`) : '')) : '');
+    const sound = checkbox(`${p}.fxSound.enabled`, s.fxSound.enabled, '演出音效（铃声、心跳、耳鸣、日常与战斗音效）')
+        + (s.fxSound.enabled ? sub(field(`${p}.fxSound.volume`, '音量', rangeInput(`${p}.fxSound.volume`, s.fxSound.volume, '音量'))) : '');
+    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, resultFx, tags, sound };
 }

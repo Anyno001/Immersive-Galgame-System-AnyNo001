@@ -5,7 +5,10 @@ import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './au
 import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-builder.js';
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
+import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
 import { buildDbgenAssetDescription } from '../dbgen-prompt.js';
+import { resolveCharacterKey } from '../../scene/scene-directives.js';
+import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
 
 export const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
 const IMAGE_CACHE_LIMIT = 60;
@@ -15,6 +18,19 @@ const ACTIVE_TEMP_STATUSES = new Set(['review', 'chat']);
 
 function toReadableText(raw) {
     return numberParagraphs(raw).paragraphs.map((p) => p.text).join('\n');
+}
+
+// 按既有别名归约为立绘需求挂上主名 DNA；空 DNA 不挂，保持无 DNA 时的旧行为。
+export function attachCharacterDna(needs, sceneAssets) {
+    const dnaMap = sceneAssets && sceneAssets.characterDna;
+    if (!dnaMap || typeof dnaMap !== 'object' || Array.isArray(dnaMap)) return needs;
+    const canonical = (name) => resolveCharacterKey(sceneAssets.characters || {}, sceneAssets.characterAliases || {}, name) || '';
+    for (const need of needs) {
+        if (!need || need.type !== 'sprite') continue;
+        const hit = resolveCharacterDna(dnaMap, need.name, canonical);
+        if (hit && !isCharacterDnaEmpty(hit.dna)) need.dna = hit.dna;
+    }
+    return needs;
 }
 
 export function createAssetGenerationService(deps) {
@@ -120,9 +136,47 @@ export function createAssetGenerationService(deps) {
         };
     }
 
+    // 立绘图片记录 schema v2：保存不可变原图、当前透明结果、遮罩与 revision；dataUrl 仍是旧消费者读取的透明结果。
+    async function buildSpriteImageRecord(imageId, originalDataUrl, transparent, createdAt) {
+        const raw = await matte(originalDataUrl, { alreadyTransparent: transparent, detailed: true });
+        // 兼容旧注入：matte 只返回字符串时按旧契约处理，没有遮罩。
+        const result = typeof raw === 'string'
+            ? { dataUrl: raw, alphaMaskDataUrl: '' }
+            : (raw && typeof raw === 'object' ? raw : { dataUrl: originalDataUrl, alphaMaskDataUrl: '' });
+        return {
+            schemaVersion: GENERATED_IMAGE_SCHEMA_VERSION,
+            id: imageId,
+            type: 'sprite',
+            originalDataUrl,
+            workingDataUrl: '',
+            dataUrl: typeof result.dataUrl === 'string' && result.dataUrl ? result.dataUrl : originalDataUrl,
+            alphaMaskDataUrl: typeof result.alphaMaskDataUrl === 'string' ? result.alphaMaskDataUrl : '',
+            // 自动抠图的裁边偏移：编辑器据此把原图对齐到遮罩坐标；没有时为 null。
+            matteCrop: result.diagnostics && result.diagnostics.crop ? { ...result.diagnostics.crop } : null,
+            revision: 1,
+            createdAt,
+            updatedAt: createdAt,
+        };
+    }
+
+    // 额度不足时降级为只存透明结果（记录为 legacy），已生成的立绘不丢失，并给出可诊断标记。
+    async function putImageWithQuotaFallback(image) {
+        try {
+            await store.putImage(image);
+            return { ok: true };
+        } catch (error) {
+            if (!isQuotaError(error) || !image.originalDataUrl) throw error;
+            await store.putImage({ id: image.id, dataUrl: image.dataUrl, type: image.type, createdAt: image.createdAt });
+            report('warn', '素材图片存储空间不足，已只保存透明结果，之后无法从原图修复抠图（source-unavailable: quota）');
+            return { ok: true, diagnostic: 'quota' };
+        }
+    }
+
     async function generateItem(item, s, floor, floorKey) {
         const isSprite = item.need.type === 'sprite';
-        const transparent = isSprite && supportsNaiTransparentBackground(s.auto.nai.model);
+        // 智绘姬出图不保证透明底：走智绘姬时按浅灰底模板出图并抠图，不信任 NAI 模型的原生透明能力。
+        const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
+        const transparent = isSprite && plannedVia !== 'chatu8' && supportsNaiTransparentBackground(s.auto.nai.model);
         const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
         const size = isSprite ? s.auto.assets.spriteSize : s.auto.assets.backgroundSize;
         // 数据库生图模式下前端正负模板随 meta 传出：写进描述交给插件写词，并在出图前合并进最终 caption。
@@ -138,11 +192,13 @@ export function createAssetGenerationService(deps) {
         };
         let record;
         if (result && result.ok && result.dataUrl) {
-            const dataUrl = isSprite ? await matte(result.dataUrl, { alreadyTransparent: transparent }) : result.dataUrl;
             const imageId = newId();
-            await store.putImage({ id: imageId, dataUrl, type: item.need.type, createdAt: base.createdAt });
-            rememberImage(imageId, dataUrl);
-            record = { ...base, imageId, status: 'review' };
+            const image = isSprite
+                ? await buildSpriteImageRecord(imageId, result.dataUrl, transparent, base.createdAt)
+                : { id: imageId, dataUrl: result.dataUrl, type: item.need.type, createdAt: base.createdAt };
+            const saved = await putImageWithQuotaFallback(image);
+            rememberImage(imageId, image.dataUrl);
+            record = { ...base, imageId, status: 'review', ...(saved.diagnostic ? { sourceUnavailable: saved.diagnostic } : {}) };
         } else {
             record = { ...base, imageId: '', status: 'failed', error: (result && result.error) || 'NAI 生成失败' };
             report('error', `素材「${item.need.name}」生成失败：${record.error}`);
@@ -168,6 +224,7 @@ export function createAssetGenerationService(deps) {
             ),
             { background: s.auto.assets.backgroundEnabled, sprite: s.auto.assets.spriteEnabled, limit: s.auto.assets.maxPerFloor },
         );
+        attachCharacterDna(needs, s.sceneAssets);
         if (!needs.length) {
             await store.putFloor(key, { status: 'done', count: 0, updatedAt: now() });
             return { ok: true, reason: 'nothing-missing' };
@@ -276,6 +333,27 @@ export function createAssetGenerationService(deps) {
     }
 
     async function deleteImages(ids) {
+        return deleteImagesImpl(ids);
+    }
+
+    // 遮罩编辑器读取：legacy 记录（无原图）只可查看，editable 为 false。
+    async function getEditableImage(imageId) {
+        const record = normalizeGeneratedImageRecord(await store.getImage(imageId));
+        if (!record) return { ok: false, reason: 'not-found' };
+        return { ok: true, record, editable: !isLegacyGeneratedImage(record) };
+    }
+
+    // 保存修复结果：按 revision 原子更新；成功后刷新内存缓存并通知重渲染，失败不改任何字段。
+    async function saveMatteEdit(imageId, expectedRevision, patch) {
+        if (!store || typeof store.updateImage !== 'function') return { ok: false, reason: 'update-unsupported' };
+        const result = await store.updateImage(imageId, expectedRevision, patch, now());
+        if (!result || !result.ok) return result || { ok: false, reason: 'update-failed' };
+        rememberImage(imageId, result.record.dataUrl);
+        emit({ imageId, reason: 'matte-edited', revision: result.record.revision });
+        return { ok: true, revision: result.record.revision };
+    }
+
+    async function deleteImagesImpl(ids) {
         for (const id of ids || []) {
             images.delete(id);
             try { await store.deleteImage(id); } catch (error) { /* 图片已不存在时忽略 */ }
@@ -294,6 +372,7 @@ export function createAssetGenerationService(deps) {
 
     return {
         processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl,
+        getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
         start() {
             if (offRendered) return;

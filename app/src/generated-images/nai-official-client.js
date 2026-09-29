@@ -1,5 +1,6 @@
 import { parseImageResponse } from './image-api-client.js';
 import { buildNaiV4Request, validateNaiV4Request, NAI_DEFAULT_SETTINGS, NAI_OFFICIAL_ENDPOINT } from './request-builders/nai-v4-builder.js';
+import { buildNaiInpaintRequest, resolveNaiInpaintModel } from './request-builders/nai-inpaint-builder.js';
 
 export { NAI_OFFICIAL_ENDPOINT };
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
@@ -73,13 +74,8 @@ export function createNaiOfficialClient(deps = {}) {
         }
     }
 
-    async function generate(slot, naiSettings = {}) {
-        const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
-        if (!fetchImpl) return { ok: false, error: '当前环境无法发起网络请求' };
-        if (!String(settings.apiKey || '').trim()) return { ok: false, error: '请先在设置中填写 NAI Key' };
-        const body = buildNaiV4Request(slot, settings, random);
-        const valid = validateNaiV4Request(body);
-        if (!valid.ok) return { ok: false, error: `生图请求无效：${valid.reason}` };
+    // 生成与局部重绘共用的发送 / 重试 / 响应解析；错误文案不含 Key 与请求体。
+    async function sendWithRetry(body, settings) {
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
             let response;
             try {
@@ -112,5 +108,35 @@ export function createNaiOfficialClient(deps = {}) {
         return { ok: false, error: 'NAI 请求失败' };
     }
 
-    return { generate };
+    function precheck(settings) {
+        if (!fetchImpl) return { ok: false, error: '当前环境无法发起网络请求' };
+        if (!String(settings.apiKey || '').trim()) return { ok: false, error: '请先在设置中填写 NAI Key' };
+        return null;
+    }
+
+    async function generate(slot, naiSettings = {}) {
+        const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
+        const blocked = precheck(settings);
+        if (blocked) return blocked;
+        const body = buildNaiV4Request(slot, settings, random);
+        const valid = validateNaiV4Request(body);
+        if (!valid.ok) return { ok: false, error: `生图请求无效：${valid.reason}` };
+        return sendWithRetry(body, settings);
+    }
+
+    // 所选模型存在 inpainting 版本时才支持局部重绘。
+    function supportsEdit(naiSettings = {}) {
+        return Boolean(resolveNaiInpaintModel(naiSettings.model || NAI_DEFAULT_SETTINGS.model));
+    }
+
+    async function edit(request = {}, naiSettings = {}) {
+        const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
+        const blocked = precheck(settings);
+        if (blocked) return blocked;
+        const built = buildNaiInpaintRequest(request, settings, random);
+        if (!built.ok) return { ok: false, reason: built.reason, error: `局部重绘请求无效：${built.reason}` };
+        return sendWithRetry(built.body, settings);
+    }
+
+    return { generate, edit, supportsEdit };
 }

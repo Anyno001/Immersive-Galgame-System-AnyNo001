@@ -13,7 +13,12 @@ export function loadMoodReview(storage) {
 }
 
 export function saveMoodReview(storage, items) {
-    try { storage.setItem(KEY, JSON.stringify({ version: 1, items: items.slice(0, MOOD_REVIEW_LIMIT) })); } catch {}
+    try {
+        storage.setItem(KEY, JSON.stringify({ version: 1, items: items.slice(0, MOOD_REVIEW_LIMIT) }));
+        return { ok: true };
+    } catch (error) {
+        return { ok: false, reason: 'store-write-failed', saveError: error };
+    }
 }
 
 // 同词只留最新一条并移到最前；内容未变时不写存储，避免每次翻页都写一次。
@@ -36,9 +41,9 @@ export function recordMoodReview(storage, entry) {
 export function removeMoodReview(storage, word) {
     const items = loadMoodReview(storage);
     const next = items.filter((item) => item.word !== word);
-    if (next.length !== items.length) saveMoodReview(storage, next);
+    return next.length !== items.length ? saveMoodReview(storage, next) : { ok: true };
 }
 
 export function clearMoodReview(storage) {
-    saveMoodReview(storage, []);
+    return saveMoodReview(storage, []);
 }

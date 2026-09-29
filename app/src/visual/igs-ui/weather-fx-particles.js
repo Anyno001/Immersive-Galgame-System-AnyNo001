@@ -1,7 +1,10 @@
 // 天气粒子：远景画布挂后景层（立绘之后），近景画布挂前景层（立绘之前）。
-// 能耗约束：锁 30fps、画布按 CSS 像素（不乘 devicePixelRatio）、同透明度档合批绘制、
+// 能耗约束：锁 30fps（低画质档 20fps、粒子减半）、画布按 CSS 像素（不乘 devicePixelRatio）、同透明度档合批绘制、
 // 图层隐藏（尺寸为 0）时停止请求帧、图层脱离文档时自行退出。
-const FRAME_MS = 1000 / 30;
+import { getQualityFactor } from './render-quality.js';
+import { isStagePaused, onStageResume } from './stage-pause.js';
+
+const FPS = 30;
 const MAX_DT = 0.05;
 const REFERENCE_AREA = 1280 * 720;
 const TAU = Math.PI * 2;
@@ -265,16 +268,17 @@ export function startWeatherParticles(options = {}) {
     if (!surfaces.length) return null;
     const density = (LEVEL_DENSITY[plan.level] || 1) * (INTENSITY_DENSITY[options.intensity] || 1);
     const base = BASE_COUNTS[plan.kind];
+    let quality = getQualityFactor();
 
     const resize = (s, w, h) => {
         s.w = w;
         s.h = h;
-        const scale = Math.min(view.devicePixelRatio || 1, 1);
+        const scale = Math.min(view.devicePixelRatio || 1, 1, quality.dprCap ?? 1);
         s.canvas.width = Math.max(1, Math.round(w * scale));
         s.canvas.height = Math.max(1, Math.round(h * scale));
         s.ctx.setTransform(scale, 0, 0, scale, 0, 0);
         const areaScale = Math.min(1.6, Math.max(0.45, (w * h) / REFERENCE_AREA));
-        const count = w && h ? Math.round(base[s.depth] * density * areaScale) : 0;
+        const count = w && h ? Math.round(base[s.depth] * density * quality.density * areaScale) : 0;
         s.items = Array.from({ length: count }, () => engine.spawn(s, true));
         s.splashes = [];
     };
@@ -298,8 +302,14 @@ export function startWeatherParticles(options = {}) {
         ? new view.ResizeObserver(() => { if (measure()) { lastTime = 0; request(); } })
         : null;
 
+    // 页面隐藏或舞台暂停时不排帧，可见 / 恢复后由 onVisibility 重新拉起（同 fx-daily-particles）。
     function request() {
-        if (!rafId && !stopped) rafId = view.requestAnimationFrame(frame);
+        if (!rafId && !stopped && !doc.hidden && !isStagePaused(back)) rafId = view.requestAnimationFrame(frame);
+    }
+    function onVisibility() {
+        if (doc.hidden) return;
+        lastTime = 0;
+        request();
     }
     function frame(now) {
         rafId = 0;
@@ -309,7 +319,12 @@ export function startWeatherParticles(options = {}) {
         // 有 ResizeObserver 时隐藏即停帧，由尺寸恢复回调重新拉起。
         if (!visible && observer) { lastTime = 0; return; }
         request();
-        if (lastTime && now - lastTime < FRAME_MS - 2) return;
+        const q = getQualityFactor();
+        if (q !== quality) {
+            quality = q;
+            for (const s of surfaces) resize(s, s.w, s.h);
+        }
+        if (lastTime && now - lastTime < 1000 / Math.min(FPS, quality.fps ?? FPS) - 2) return;
         const dt = lastTime ? Math.min(MAX_DT, (now - lastTime) / 1000) : 0;
         lastTime = now;
         clock += dt;
@@ -331,10 +346,14 @@ export function startWeatherParticles(options = {}) {
         if (rafId && typeof view.cancelAnimationFrame === 'function') view.cancelAnimationFrame(rafId);
         rafId = 0;
         if (observer) observer.disconnect();
+        if (typeof doc.removeEventListener === 'function') doc.removeEventListener('visibilitychange', onVisibility);
+        offResume();
         for (const s of surfaces) if (s.canvas.parentNode) s.canvas.parentNode.removeChild(s.canvas);
     }
 
     if (observer) for (const s of surfaces) observer.observe(s.layer);
+    if (typeof doc.addEventListener === 'function') doc.addEventListener('visibilitychange', onVisibility);
+    const offResume = onStageResume(back, onVisibility);
     if (measure() || !observer) request();
     return { stop };
 }

@@ -7,18 +7,24 @@ import { extractSceneDirectives, stripIllustrationMarkers } from './scene-direct
 import { parseSceneText } from './text-parser.js';
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards } from './html-cards.js';
 import { extractChatBlocks } from './chat-blocks.js';
-import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags } from './directive-tags.js';
+import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags, stripOutfitFields } from './directive-tags.js';
+import { createOutfitResolver } from './character-outfits.js';
 
 export const DEFAULT_SOURCE_FILTER = Object.freeze({
     enabled: true,
     stripHtmlComments: true,
     allowUntaggedFallback: false,
     textIncludeTags: 'content',
-    textExcludeTags: 'thinking\nSubtext_think\nStatus_block\ntext_to_image\nparallel_world\naftertalk\nimage',
+    textExcludeTags: 'thinking\nSubtext_think\nStatus_block\ntext_to_image\nparallel_world\naftertalk\nimage\nmeta:检定结果',
     imageIncludeTags: 'image\ntext_to_image',
     imageExcludeTags: '',
     htmlCardTags: DEFAULT_HTML_CARD_TAGS,
 });
+
+// 旧默认正文排除列表（不含选项检定的 meta:检定结果）按原值迁移到新默认，用户自定义列表不动。
+const LEGACY_TEXT_EXCLUDE_TAGS = Object.freeze([
+    'thinking\nSubtext_think\nStatus_block\ntext_to_image\nparallel_world\naftertalk\nimage',
+]);
 
 // 字段不得跨行：AI 漏写 "]" 时旧规则会一路吞到后文下一个 "]"，把旁白并进台词。
 // 表情栏可省略：AI 偶发 [igs-char:角色|台词] 两栏写法，按「没写表情」的台词处理。
@@ -143,12 +149,14 @@ export function cleanNarrativeSource(text) {
 export function normalizeSourceFilter(value) {
     const source = isPlainObject(value) ? value : {};
     const merged = { ...DEFAULT_SOURCE_FILTER, ...source };
+    const textExcludeTags = normalizeTagText(merged.textExcludeTags);
+    const legacyExclude = LEGACY_TEXT_EXCLUDE_TAGS.includes(textExcludeTags.replace(/\r\n?/g, '\n').trim());
     return {
         enabled: Boolean(merged.enabled),
         stripHtmlComments: Boolean(merged.stripHtmlComments),
         allowUntaggedFallback: merged.allowUntaggedFallback !== false,
         textIncludeTags: normalizeTagText(merged.textIncludeTags),
-        textExcludeTags: normalizeTagText(merged.textExcludeTags),
+        textExcludeTags: legacyExclude ? DEFAULT_SOURCE_FILTER.textExcludeTags : textExcludeTags,
         imageIncludeTags: normalizeTagText(merged.imageIncludeTags),
         imageExcludeTags: normalizeTagText(merged.imageExcludeTags),
         htmlCardTags: normalizeTagText(merged.htmlCardTags),
@@ -197,7 +205,7 @@ export function buildBridgeImageSource(raw, filter) {
     return source.trim();
 }
 
-export function applyImmersiveGalgameSystemBodyFormat(raw, rule) {
+export function applyImmersiveGalgameSystemBodyFormat(raw, rule, outfitResolver = null) {
     const source = String(raw || '');
     const cfg = normalizeVirtualRegex(rule);
     const result = {
@@ -214,7 +222,7 @@ export function applyImmersiveGalgameSystemBodyFormat(raw, rule) {
     }
 
     try {
-        const bounded = breakAfterIgsDirectiveClose(source);
+        const bounded = breakAfterIgsDirectiveClose(stripOutfitFields(source, outfitResolver));
         const rules = [{
             pattern: cfg.pattern,
             flags: cfg.flags,
@@ -304,10 +312,11 @@ export function buildFormattedTextPipeline(raw, sourceFilter, formatRule, option
     // Formatting controls around an excluded block can precede [igs-scene:] and prevent the directive from being recognized.
     const textSource = stripReaderFormattingControls(filtered.textSource);
     const imageSource = buildBridgeImageSource(raw, cfg);
+    const outfitResolver = typeof options.outfitResolver === 'function' ? options.outfitResolver : null;
     const directiveResult = options.sceneAssetsEnabled
-        ? extractSceneDirectives(textSource)
+        ? extractSceneDirectives(textSource, { outfitResolver })
         : { directives: [], strippedText: textSource };
-    const formatted = applyImmersiveGalgameSystemBodyFormat(textSource, formatRule);
+    const formatted = applyImmersiveGalgameSystemBodyFormat(textSource, formatRule, outfitResolver);
     const formattedText = String(formatted.formattedRaw || '').trim();
 
     return {
@@ -342,8 +351,10 @@ export function buildIgsTextPayload(message, options = {}) {
         ? normalizeWhitespace(removeTagBlocks(visibleText, sourceFilter.textExcludeTags)) : visibleText);
     const safeRaw = sourceFilter.enabled ? removeTagBlocks(raw, sourceFilter.textExcludeTags) : raw;
     const sceneAssetsEnabled = Boolean(options.sceneAssets && options.sceneAssets.enabled);
+    // 场景素材模式下始终识别四栏：没登记任何服装时，AI 写出的服装栏也按未登记服装剥掉，不把整句打成旁白。
+    const outfitResolver = sceneAssetsEnabled ? createOutfitResolver(options.sceneAssets) : null;
     const sentencePagingEnabled = Boolean(options.sentencePaging);
-    const strictPayload = buildFormattedTextPipeline(raw, sourceFilter, virtualRegex, { visibleText: safeVisibleText, sceneAssetsEnabled });
+    const strictPayload = buildFormattedTextPipeline(raw, sourceFilter, virtualRegex, { visibleText: safeVisibleText, sceneAssetsEnabled, outfitResolver });
     const cleanedRaw = normalizeWhitespace(stripReaderFormattingControls(cleanNarrativeSource(safeRaw)));
     const filteredToEmpty = strictPayload.sourceKind === 'tagged-empty';
     const warnings = [];
@@ -387,9 +398,9 @@ export function buildIgsTextPayload(message, options = {}) {
         // 格式化会替换掉指令标签；先保留原文中的角色/场景定位供后续分页归属使用。
         if (!sceneDirectives.length) {
             sceneDirectiveSource = formattedText;
-            sceneDirectives = extractSceneDirectives(sceneDirectiveSource).directives;
+            sceneDirectives = extractSceneDirectives(sceneDirectiveSource, { outfitResolver }).directives;
         }
-        formattedText = applyImmersiveGalgameSystemBodyFormat(formattedText, virtualRegex).formattedRaw;
+        formattedText = applyImmersiveGalgameSystemBodyFormat(formattedText, virtualRegex, outfitResolver).formattedRaw;
     }
     formattedText = normalizeWhitespace(formattedText);
 
@@ -417,7 +428,7 @@ export function buildIgsTextPayload(message, options = {}) {
         && localizedTextDiffers(domCompareBase, domVisibleText)) {
         // DOM 文本可能仍含 [igs-char/thought:] 原始标签（宿主没清洗）。必须先跑正文格式化，
         // 把标签转成气泡/心理话形态（[名]：… 与 *…*），否则阅读器把整段当旁白、丢失角色名。
-        const domFormatted = applyImmersiveGalgameSystemBodyFormat(domVisibleText, virtualRegex);
+        const domFormatted = applyImmersiveGalgameSystemBodyFormat(domVisibleText, virtualRegex, outfitResolver);
         formattedText = normalizeWhitespace(domFormatted.formattedRaw || domVisibleText);
         sourceKind = 'dom-visible-override';
         formatSourceKind = 'dom-visible-override';
@@ -426,7 +437,7 @@ export function buildIgsTextPayload(message, options = {}) {
         // 不能从 DOM 重提指令——保留数据层已提取的 sceneDirectives。
         if (!domClobbersDirectiveTags) {
             if (sceneAssetsEnabled) {
-                const extractedDirectives = extractSceneDirectives(domVisibleText);
+                const extractedDirectives = extractSceneDirectives(domVisibleText, { outfitResolver });
                 sceneDirectives = extractedDirectives.directives;
                 sceneDirectiveSource = domVisibleText;
             }
@@ -440,7 +451,7 @@ export function buildIgsTextPayload(message, options = {}) {
             cleanedRaw,
             sourceFilter.enabled ? '' : String(raw || '').trim(),
         );
-        sceneDirectives = extractSceneDirectives(sceneDirectiveSource).directives;
+        sceneDirectives = extractSceneDirectives(sceneDirectiveSource, { outfitResolver }).directives;
     }
     const readerScene = parseSceneText(formattedText, { keepSpeakerPrefix: sceneAssetsEnabled });
     const readerText = filteredToEmpty ? '' : stripIllustrationMarkers(normalizeReaderSegmentText(firstNonEmpty(
@@ -728,7 +739,7 @@ function remapSceneDirectiveSegments(directives, source, virtualRegex, options =
         ...(markerLines.get(index) || []),
         line,
     ]).join('\n');
-    const formatted = applyImmersiveGalgameSystemBodyFormat(markedSource, virtualRegex);
+    const formatted = applyImmersiveGalgameSystemBodyFormat(markedSource, virtualRegex, options.outfitResolver || null);
     const readerScene = parseSceneText(formatted.formattedRaw || markedSource, { keepSpeakerPrefix: true });
     const readerText = normalizeReaderSegmentText(firstNonEmpty(
         readerScene.text,

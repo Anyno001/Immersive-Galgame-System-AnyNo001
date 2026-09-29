@@ -2,11 +2,11 @@ import { selectRecordTables } from './record-tables.js';
 
 const FIELDS = Object.freeze({
     diary: { author: ['写作角色', '作者', '角色'], chapterTitle: ['篇名', '日记标题', '标题', '主题', '名称'], title: ['写作角色', '角色', '标题', '日记标题', '名称', '主题'], date: ['发生时间', '发生日期', '日期', '时间', '记录时间'], body: ['正文', '内容', '日记内容', '记录', '描述'], related: ['关联角色', '相关角色', '对象'] },
-    inventory: { title: ['物品名称', '名称', '物品', '道具名称'], quantity: ['数量', '数目', '个数', '数量值', 'amount', 'count'], category: ['类别', '分类', '类型', '种类', '物品类别', '物品类型'], status: ['状态', '物品状态', '使用状态'] },
+    inventory: { title: ['物品名称', '名称', '物品', '道具名称', '装备名称'], quantity: ['数量', '数目', '个数', '数量值', 'amount', 'count'], category: ['类别', '分类', '类型', '种类', '物品类别', '物品类型'], status: ['状态', '物品状态', '使用状态'] },
 });
 
 const DIARY_CORE_FIELDS = new Set(['写作角色', '作者', '角色', '篇名', '标题', '日记标题', '名称', '主题', '发生时间', '发生日期', '日期', '时间', '记录时间', '正文', '内容', '日记内容', '记录', '描述', '关联角色', '相关角色', '对象']);
-const INVENTORY_TITLE_FIELDS = new Set(['物品名称', '名称', '物品', '道具名称']);
+const INVENTORY_TITLE_FIELDS = new Set(['物品名称', '名称', '物品', '道具名称', '装备名称']);
 const INVENTORY_QUANTITY_FIELDS = new Set(['数量', '数目', '个数', '数量值', 'amount', 'count']);
 const INVENTORY_CATEGORY_FIELDS = new Set(FIELDS.inventory.category);
 const INVENTORY_STATUS_FIELDS = new Set(FIELDS.inventory.status);
@@ -59,6 +59,14 @@ const RELATIONSHIP_PROFILE = Object.freeze([
     ['past', '过往经历', ['过往经历', '经历', '背景故事', '生平']],
     ['thought', '当下想法', ['当下想法', '内心想法', '想法', '心声']],
 ]);
+
+// 服装兜底线索与资料页共用列名识别，避免两处各写一份。
+export const OUTFIT_CLUE_FIELDS = Object.freeze({
+    name: RELATIONSHIP_FIELDS.name,
+    outfit: RELATIONSHIP_PROFILE.find(([key]) => key === 'outfit')[2],
+    itemTitle: FIELDS.inventory.title,
+    itemStatus: FIELDS.inventory.status,
+});
 
 // 关系页纯展示模型：人物行（主体/身份/描述/显式相关人员）与成对关系行（A+B+关系）。
 // 不跨来源合并同名人物；无法定位的相关人员保留为纯名称条目，不捏造身份与生平。

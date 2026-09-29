@@ -22,46 +22,6 @@ export const PRESET_TYPES = Object.freeze([
     'visual-mode-preset',
 ]);
 
-export const TEXT_PRESET_TYPES = Object.freeze([
-    'scene-regex-preset',
-    'text-filter-preset',
-    'text-format-preset',
-]);
-
-export const PRESET_TYPE_TO_API_GROUP = Object.freeze({
-    'theme-preset': 'themePresets',
-    'css-preset': 'themePresets',
-    'ui-skin-preset': 'uiSkins',
-    'ui-layout-preset': 'uiSkins',
-    'scene-regex-preset': 'sceneRegexPresets',
-    'text-filter-preset': 'textFilterPresets',
-    'text-format-preset': 'textFormatPresets',
-    'prompt-preset': 'promptPresets',
-    'image-provider-preset': null,
-    'image-request-builder-preset': null,
-    'workflow-preset': null,
-    'background-rule-preset': null,
-    'choice-parser-preset': null,
-    'visual-mode-preset': null,
-});
-
-export const PRESET_TYPE_TO_CONFIG_KEY = Object.freeze({
-    'scene-regex-preset': 'sceneRegexPreset',
-    'text-filter-preset': 'textFilterPreset',
-    'text-format-preset': 'textFormatPreset',
-    'prompt-preset': 'promptPreset',
-    'image-provider-preset': 'imageProviderPreset',
-    'image-request-builder-preset': 'imageRequestBuilderPreset',
-    'workflow-preset': 'workflowPreset',
-    'theme-preset': 'themePreset',
-    'css-preset': 'cssPreset',
-    'ui-skin-preset': 'uiSkinPreset',
-    'ui-layout-preset': 'uiLayoutPreset',
-    'background-rule-preset': 'backgroundRulePreset',
-    'choice-parser-preset': 'choiceParserPreset',
-    'visual-mode-preset': 'visualModePreset',
-});
-
 const MANIFEST_FIELDS = new Set(['format', 'type', 'id', 'name', 'version', 'data']);
 const PRESET_TYPE_SET = new Set(PRESET_TYPES);
 

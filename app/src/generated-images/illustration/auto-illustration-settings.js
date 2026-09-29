@@ -90,16 +90,6 @@ export function normalizeAutoIllustrationSettings(value) {
     };
 }
 
-export function isAutoIllustrationEnabled(settings) {
-    const s = normalizeAutoIllustrationSettings(settings);
-    return s.nsfwEnabled || s.interludeEnabled;
-}
-
-export function isAssetGenerationEnabled(settings) {
-    const s = normalizeAutoIllustrationSettings(settings);
-    return s.assets.spriteEnabled || s.assets.backgroundEnabled;
-}
-
 // 精准生图优先只在开启背景生成时生效：没有生成兜底时收紧匹配只会让背景变空。
 export function isStrictBackgroundMatch(settings) {
     const s = normalizeAutoIllustrationSettings(settings);

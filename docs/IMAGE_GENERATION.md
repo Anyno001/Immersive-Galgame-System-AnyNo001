@@ -100,3 +100,32 @@ ComfyUI 这类工作流型 provider 应使用 `workflow-preset` 或 provider 专
 升号前素材测试 15/15、手动入口模拟 3/3、完整 `npm test` 390/390、`npm run simulate` 135/135、`npm run build` 和 `npm run perf` 均通过（退出码 0）。合并魔法棒改动并升至 `v0.29.3` 后，重新构建 bundle、版本化自动更新 loader，完整 `npm run gate` 通过（退出码 0，含魔法棒独立回归，模拟 135/135）。真实 TavernHelper 事件、NovelAI Key/额度、直连或代理 CORS、IndexedDB 与酒馆视觉均未验收，不打 tag；下一步在目标酒馆点击最新 AI 楼层的「生图」，结合日志与网络面板确认请求及结果。
 
 此前版本的本地 `npm test`、`npm run simulate`、`npm run structure`、`npm run static` 与 `npm run perf` 通过记录不代表本轮验证；本轮结果以上述记录为准。真实 TavernHelper、NovelAI/provider、真实酒馆 DOM、IndexedDB 迁移、跨设备 `igs-gen:` 失效回退和真实视觉质量仍需在目标环境中验证。
+
+
+## 角色 DNA 与抠图修复（本地内测候选，尚未经真实酒馆验收）
+
+### 角色 DNA
+
+`bridge.sceneAssets.characterDna = { 主角色名: { identity, defaultAppearance, negative, triggerWords } }`，与情绪槽映射 `characters` 并列。键为主名，查询先经既有别名归约；空字段不注入；旧配置缺该字段时规范化为 `{}`。唯一编辑入口在「场景 → 素材 → 角色立绘」：角色卡内折叠编辑器、「仅有 DNA 的角色」列表（可先录资料后补立绘）、审核卡「加入素材库并编辑 DNA」（`tags` 仅作候选，点「采用」才写入 `defaultAppearance` 且不覆盖已填内容）；生图页「管理角色 DNA」只跳转。角色改名保序迁移、删除清理；场景预设保存 / 应用 / 导入 / 导出携带 DNA，旧预设缺字段时保留当前 DNA。
+
+合并顺序：
+
+- 立绘补全：`triggerWords → identity → defaultAppearance → 副 LLM tag → 立绘模板`；负向为 `模板负面词 → DNA negative → NSFW 防护词 → 素材 uc`。
+- 剧情 CG：`triggerWords → identity → 规划得到的当前外观 / 动作`；`defaultAppearance` 只交给 planner 作默认资料，剧情换装时不强行追加；负向 `DNA negative → char_uc`。planner 输出 `char: 角色名 | x,y | tags`，旧格式 `char: x,y | tags` 仍兼容；无名角色仅在「本张单人且上下文唯一角色」时绑定，多人无法判定时不注入并写 warning 日志。
+- 数据库生图：合并结果照旧经 `meta.userPrompts` 传给插件，插件是否采纳不作保证。智绘姬链路不变。
+
+### 非破坏抠图记录
+
+新生成立绘写 schema v2：`originalDataUrl`（provider 原图，不可变）、`workingDataUrl`（最近接受的 AI 重建原图）、`dataUrl`（当前透明结果，旧消费者继续读取）、`alphaMaskDataUrl`、`matteCrop`（自动抠图裁边偏移）、`revision`。同一 IndexedDB `images` store 懒兼容，不升库版本。旧记录只有 `dataUrl`，按 legacy 只读，界面提示「无原图，不能恢复已丢失像素」，不伪造原图。写完整记录遇存储额度错误时只保存透明结果，素材记录标 `sourceUnavailable: 'quota'`。新立绘额外保存原图与 Alpha 遮罩，单张占用明显高于旧版（原图 + 透明结果 + 遮罩，接受 AI 修复后另存工作原图）；实际增幅取决于图片尺寸与内容，尚未实测。
+
+### 本地遮罩修复编辑器
+
+生成区立绘行的「修复抠图」打开编辑器（首版只编辑 `igs-gen:` 立绘）：保留 / 删除 / 软边发丝画笔、画笔大小、撤销重做（会话内最多 20 步）、恢复自动抠图、保存 / 取消；Pointer Events 同时支持鼠标与触控，坐标始终映射回原像素。保存经 `saveMatteEdit` 按 `revision` 原子更新，另一会话已修改时拒绝并保留编辑内容；取消、关闭不写任何字段。
+
+### AI 局部重绘
+
+只能由用户在编辑器中圈出「AI 选区」后点击触发。`image-backend.describeEdit()` 协商能力：仅内置 NAI、所选模型存在 inpainting 版本（V4 / V4.5，action `infill`）时可用；数据库生图、智绘姬与 V5 模型返回 `image-edit-unsupported`，按钮置灰并说明原因，绝不退化为整张重画。候选只在内存中预览；点「接受」才写 `workingDataUrl`、重新自动抠图并原子更新；取消、失败、超时、过期不写入；恢复首次原图清除 `workingDataUrl`。提示词自动附带该角色 DNA 与「保持发色 / 发型 / 脸 / 视角 / 光照」项。AI 结果是生成式重建，不代表恢复被抠掉的原始像素。API Key、原图 base64 与请求体不进入日志、错误与测试输出。
+
+### 验证边界
+
+本地只用 fake provider / fake store / 假 DOM 验证契约与请求结构。NAI inpaint 的真实请求字段与返回、直连及代理 CORS、IndexedDB 配额、大图内存、触屏画笔手感与实际发丝质量均需在真实酒馆中验证；验证前不打 tag。

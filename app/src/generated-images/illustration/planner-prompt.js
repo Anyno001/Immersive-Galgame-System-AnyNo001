@@ -7,9 +7,9 @@ const PLANNER_OUTPUT_FORMAT = [
     'analysis: 一句话中文说明画面内容',
     'scene: 画面整体 tag（人数如 1girl/1boy/2girls、地点、时间、光线、构图、镜头、氛围）',
     'scene_uc: 这张图不能出现的 tag，可留空',
-    'char: x,y | 该角色的 tag（外貌、服装、表情、动作、姿势）',
+    'char: 角色名 | x,y | 该角色的 tag（外貌、服装、表情、动作、姿势）',
     'char_uc: 该角色不能出现的 tag，可留空',
-    '每个出场角色写一对 char / char_uc；x,y 是角色在画面中的位置，取值只能是 0.1/0.3/0.5/0.7/0.9；没有人物就不要写 char。',
+    '每个出场角色写一对 char / char_uc；角色名照抄【出场角色】里的名字，无法确定是谁时写「未知」；x,y 是角色在画面中的位置，取值只能是 0.1/0.3/0.5/0.7/0.9；没有人物就不要写 char。',
 ];
 
 const PLANNER_SELECTION_RULES = [
@@ -50,8 +50,16 @@ export const PLANNER_SOFT_SYSTEM_PROMPT = [
     ...PLANNER_TAG_RULES,
 ].join('\n');
 
-export function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText, want, exact, isNsfw }) {
+// characterDna：[{ name, identity, defaultAppearance }]，由调用方按别名归约后提供；为空时输出与旧版一致。
+export function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText, want, exact, isNsfw, characterDna = [] }) {
     const lastScene = scenes && scenes.length ? scenes[scenes.length - 1] : null;
+    const flat = (text) => String(text || '').replace(/\s*\n\s*/g, ' ').trim();
+    const dnaLines = (Array.isArray(characterDna) ? characterDna : [])
+        .filter((d) => d && d.name && (flat(d.identity) || flat(d.defaultAppearance)))
+        .map((d) => [`${d.name}`, flat(d.identity) ? `固定身份：${flat(d.identity)}` : '', flat(d.defaultAppearance) ? `默认外观：${flat(d.defaultAppearance)}` : ''].filter(Boolean).join('｜'));
+    const dnaBlock = dnaLines.length
+        ? `【角色 DNA】固定身份任何时候都不得改变；默认外观只在正文未交代换装时使用，正文明确换装时按正文写：\n${dnaLines.join('\n')}`
+        : '';
     const sceneLine = lastScene
         ? `${lastScene.scene}｜${lastScene.time}｜${lastScene.weather}${lastScene.nsfw ? '｜NSFW' : ''}`
         : '未标注';
@@ -61,6 +69,7 @@ export function buildPlannerUserPrompt({ numberedText, scenes, characters, previ
     return [
         `【场景】${sceneLine}`,
         `【出场角色】${characters && characters.length ? characters.join('、') : '未标注'}`,
+        dnaBlock,
         previousText ? `【前文摘要】\n${previousText}` : '',
         `【本楼正文（已编号）】\n${numberedText}`,
         `【要求】${countLine}${isNsfw ? '本楼为 NSFW 场景，请选择最具代表性的画面。' : ''}`,

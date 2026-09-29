@@ -31,6 +31,7 @@ local-data/
 tmp/
 __pycache__/
 *.pyc
+repro*.mjs
 
 # AI 工具的过程、计划与缓存
 .kilo/

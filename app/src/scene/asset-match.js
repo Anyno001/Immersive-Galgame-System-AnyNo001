@@ -1,4 +1,5 @@
-import { lookupSceneBackground, lookupSceneAssetUrls, resolveCharacterKey } from './scene-directives.js';
+import { lookupSceneBackground, lookupSceneAssetUrls, resolveCharacterKey, lookupAssetValue } from './scene-directives.js';
+import { OUTFIT_RESET, outfitsOfCharacter } from './character-outfits.js';
 
 export const GENERATED_ASSET_URL_PREFIX = 'igs-gen:';
 
@@ -119,10 +120,20 @@ export function resolveBackgroundAsset(sceneState, ctx = {}) {
     return { url: user.url || '', source: user.url ? 'placeholder' : 'none', quality: user.quality, needsGeneration: true };
 }
 
-export function resolveSpriteAsset(character, mood, ctx = {}) {
+export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     const name = String(character || '').trim();
     if (!name) return { url: '', slot: '', character: '', source: 'none', needsGeneration: false };
     const userAssets = ctx.sceneAssets || {};
+    const outfitName = String(outfit || '').trim();
+    // 服装内只按当条表情找（精确 → 情绪组 → 模糊），不取服装内「默认」；找不到退回原有立绘。
+    if (outfitName && outfitName !== OUTFIT_RESET) {
+        const found = outfitsOfCharacter(userAssets.characterOutfits, userAssets.characterAliases, name);
+        const entry = found.outfits[outfitName];
+        if (entry && entry.moods) {
+            const hit = lookupAssetValue(entry.moods, mood, userAssets.moodGroups, userAssets.moodFuzzyMatch === true, false);
+            if (hit.url) return { url: hit.url, slot: hit.slot, outfit: outfitName, character: found.key || name, source: 'user-outfit', quality: hit.quality, needsGeneration: false };
+        }
+    }
     const user = lookupSceneAssetUrls({ character: name, mood }, userAssets);
     if (user.spriteUrl) {
         return { url: user.spriteUrl, slot: user.spriteSlot, character: user.spriteCharacter || name, source: 'user', quality: user.spriteQuality, needsGeneration: false };
@@ -153,7 +164,7 @@ function isKnownCharacterName(name, userAssets, knownCharacters) {
     return candidates.some((c) => c === name || c.includes(name) || name.includes(c));
 }
 
-function isNonSpriteSpeaker(name, userName) {
+export function isNonSpriteSpeaker(name, userName) {
     const lower = name.toLowerCase();
     if (NON_SPRITE_SPEAKERS.has(name) || NON_SPRITE_SPEAKERS.has(lower)) return true;
     if (userName && name === String(userName).trim()) return true;

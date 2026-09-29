@@ -1,12 +1,18 @@
 const BASIC_TAB_TEMPLATE = `
 <div class="igs-settings-grid">
+  {{performancePresetBar}}
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">通用</div>
     {{openModeField}}
     <div class="igs-settings-row">{{settingsToggles}}</div>
+    <div class="igs-settings-row">
+      <button class="igs-settings-action" data-action="settings-export-all" type="button">导出全部设置</button>
+      <button class="igs-settings-action" data-action="settings-import-all" type="button">导入设置</button>
+    </div>
+    <div class="igs-source-filter-note">导出文件不含 API Key；导入时保留本机已填的 Key。</div>
   </div>
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">标签解析</div>
+    <div class="igs-source-filter-title">标签解析{{resetBasicSourceFilter}}</div>
     {{filterToggle}}
     <div class="igs-settings-sub"{{filterHidden}}>
       <div class="igs-source-filter-grid">
@@ -127,7 +133,7 @@ const IMAGE_AUTO_TEMPLATE = `
   <div class="igs-source-filter" data-image-feature="assets">
     <div class="igs-source-filter-title">素材（未登记的人物与场景）</div>
     <div class="igs-source-filter-note"{{assetSceneWarnHidden}}>需要先在「素材」页开启场景素材模式，下面的开关才会生效。</div>
-    <div class="igs-source-filter-grid">{{autoAssetSpriteField}}{{autoAssetBackgroundField}}</div>
+    <div class="igs-source-filter-grid">{{autoAssetSpriteField}}<button type="button" class="igs-settings-action" data-action="open-character-dna" title="在素材 → 角色立绘中编辑角色 DNA">管理角色 DNA</button>{{autoAssetBackgroundField}}</div>
     <div class="igs-settings-sub" data-image-feature="asset-options"{{autoAssetOptionsHidden}}>
       <div class="igs-source-filter-grid">
         {{autoAssetMaxField}}{{autoAssetStrictField}}
@@ -141,6 +147,11 @@ const IMAGE_AUTO_TEMPLATE = `
         <div class="igs-settings-full">{{autoAssetSpriteNegativeTemplateField}}</div>
       </details>
     </div>
+  </div>
+  <div class="igs-source-filter" data-image-feature="item-images">
+    <div class="igs-source-filter-title">物品图（背包与获得物品演出）</div>
+    <div class="igs-source-filter-note">默认关闭；开启后只为物品表与 igs-fx:item 标签里的物品生成图，每层最多补 3 件。背包格子图标可选「生图」或「SVG」。</div>
+    <div class="igs-source-filter-grid">{{itemImageFields}}</div>
   </div>
   <div class="igs-source-filter" data-image-feature="llm"{{autoSharedHidden}}>
     <div class="igs-source-filter-title">副 LLM · 规划画面与标签</div>
@@ -181,29 +192,35 @@ const READER_TAB_TEMPLATE = `
 const READER_DIALOG_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="dialog">
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">风格</div>
+    <div class="igs-source-filter-title">风格{{resetReaderDialogStyle}}</div>
     {{dialogSkinField}}
     {{gradientVeilFields}}
     <div class="igs-settings-row">{{statusLineToggle}}</div>
   </div>
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">尺寸</div>
+    <div class="igs-source-filter-title">尺寸{{resetReaderDialogSize}}</div>
     <div class="igs-source-filter-grid">
       {{dialogWidthField}}
       {{classicDialogWidthPercentField}}
       {{skinDialogScaleField}}
       {{dialogHeightField}}
-      {{inputScaleField}}
     </div>
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="dialog-size"{{advancedDialogSizeOpen}}>
+      <summary>高级：输入框高度</summary>
+      <div class="igs-source-filter-grid">{{inputScaleField}}</div>
+    </details>
   </div>
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">背景</div>
+    <div class="igs-source-filter-title">背景{{resetReaderDialogBackground}}</div>
     <div class="igs-source-filter-grid">
       {{glassOpacityField}}
       {{dialogBgOpacityField}}
       {{dialogBgField}}
     </div>
-    <div class="igs-settings-row">{{backdropFilterToggle}}</div>
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="dialog-background"{{advancedDialogBackgroundOpen}}>
+      <summary>高级：模糊滤镜</summary>
+      <div class="igs-settings-row">{{backdropFilterToggle}}</div>
+    </details>
   </div>
 </div>
 `.trim();
@@ -211,15 +228,15 @@ const READER_DIALOG_TEMPLATE = `
 const READER_TEXT_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="text">
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">排版</div>
+    <div class="igs-source-filter-title">排版{{resetReaderTextLayout}}</div>
     <div class="igs-source-filter-grid">
       {{fontSizeField}}
       {{dialogFontWeightField}}
     </div>
   </div>
   <div class="igs-source-filter igs-text-style">
-    <div class="igs-source-filter-title">文字样式</div>
-    <div class="igs-source-filter-note"{{themeNoteHidden}}>开启「场景」素材模式后可自定义</div>
+    <div class="igs-source-filter-title">文字样式{{resetReaderTextStyle}}</div>
+    <div class="igs-source-filter-note"{{themeNoteHidden}}>开启素材页的场景素材模式后可自定义</div>
     <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">角色名</div><div class="igs-settings-row">{{nameFontField}}{{nameColorField}}{{nameAlignField}}</div></div>
     <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}{{textAlignField}}</div></div>
     <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}{{narrationAlignField}}</div></div>
@@ -231,22 +248,15 @@ const READER_TEXT_TEMPLATE = `
 `.trim();
 
 const READER_PERFORMANCE_TEMPLATE = `
-<div class="igs-settings-grid" data-reader-pane="performance">
-  <div class="igs-source-filter"><div class="igs-source-filter-title">打字机</div>{{typewriterToggle}}{{typewriterControls}}</div>
-  <div class="igs-source-filter"><div class="igs-source-filter-title">震动</div>{{stageShakeToggle}}{{stageShakeSettings}}</div>
-  {{fxSections}}
-  <div class="igs-source-filter"><div class="igs-source-filter-title">线上交流</div>{{chatShowToggle}}{{chatShowSettings}}</div>
-  <div class="igs-source-filter"><div class="igs-source-filter-title">天气</div>{{weatherFxToggle}}{{weatherFxSettings}}</div>
-  <div class="igs-source-filter"><div class="igs-source-filter-title">场景演出</div><div class="igs-settings-section">{{performanceToggles}}</div>{{nsfwVeilLevelField}}</div>
-</div>
+<div class="igs-settings-grid" data-reader-pane="performance">{{performanceSections}}</div>
 `.trim();
 
 const READER_INTERFACE_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="interface">
-  <div class="igs-source-filter"><div class="igs-source-filter-title">背景图</div><div class="igs-source-filter-grid">{{imgModeField}}{{imgBrightnessField}}{{imageCountField}}</div></div>
-  <div class="igs-source-filter"><div class="igs-source-filter-title">状态栏</div>{{statusHudSection}}</div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">背景图{{resetReaderInterfaceBackground}}</div><div class="igs-source-filter-grid">{{imgModeField}}{{imgBrightnessField}}{{imageCountField}}</div></div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">状态栏{{resetReaderInterfaceStatusHud}}</div>{{statusHudSection}}</div>
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">选项气泡</div>
+    <div class="igs-source-filter-title">选项气泡{{resetReaderInterfaceOptionBubble}}</div>
     {{optionBubbleToggle}}
     <div class="igs-settings-sub"{{optionBubbleHidden}}>
       <div class="igs-source-filter-grid">{{optionFontSizeField}}{{optionBubbleWidthToggle}}</div>
@@ -254,7 +264,7 @@ const READER_INTERFACE_TEMPLATE = `
       {{optionBubbleActionField}}
     </div>
   </div>
-  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}</div>{{pinnedButtonsField}}</div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏{{resetReaderInterfaceToolbar}}</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}</div>{{pinnedButtonsField}}</div>
 </div>
 `.trim();
 
@@ -278,6 +288,8 @@ const SCENE_RULES_TEMPLATE = `
       <button class="igs-settings-action" data-action="save-prompt-rule" type="button">保存提示词</button>
     </div>
     <div class="igs-settings-result" data-result="prompt-rule">{{promptRuleStatus}}</div>
+    {{promptRuleOutfitHint}}
+    {{promptAdvanced}}
   </div>
 </div>
 `.trim();
@@ -287,6 +299,7 @@ const SCENE_ASSETS_TEMPLATE = `
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">预设</div>
     {{scenePresetBar}}
+    {{sceneEraToggle}}
   </div>
   <div class="igs-source-filter">
     {{sceneSubTabs}}

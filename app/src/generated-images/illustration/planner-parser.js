@@ -1,8 +1,19 @@
 import { snapToNaiGrid } from '../request-builders/nai-v4-builder.js';
 
 const FIELD_RE = /^\s*[-*]?\s*(slot|at|analysis|scene_uc|scene|char_uc|char)\s*[:：]\s*(.*)$/i;
+const COORD_ONLY_RE = /^\s*([\d.]+)\s*[,，]\s*([\d.]+)\s*$/;
 
+// 新格式：char: 角色名 | x,y | tags；旧格式：char: x,y | tags（解析结果与旧版一致，不带 name）。
 function parseCharLine(value) {
+    const parts = value.split(/[|｜]/);
+    if (parts.length >= 3 && !COORD_ONLY_RE.test(parts[0]) && COORD_ONLY_RE.test(parts[1])) {
+        const name = parts[0].trim();
+        const coord = parts[1].match(COORD_ONLY_RE);
+        const tagsStart = value.indexOf(parts[1]) + parts[1].length + 1;
+        const char = { x: snapToNaiGrid(coord[1]), y: snapToNaiGrid(coord[2]), tags: value.slice(tagsStart).trim(), uc: '' };
+        if (name) char.name = name;
+        return char;
+    }
     const bar = value.search(/[|｜]/);
     let x = 0.5;
     let y = 0.5;

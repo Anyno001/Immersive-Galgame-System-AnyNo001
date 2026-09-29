@@ -1,14 +1,18 @@
 const ADAPTER_SELECTORS = Object.freeze({
     chatu8: Object.freeze({
         images: Object.freeze([
-            'img.st-chatu8-image-tag-image',
-            '[class*="st-chatu8"] img',
-            '[class*="chatu8"] img',
+            '.st-chatu8-image-container img',
+            '.st-chatu8-image-container video',
+            '.st-chatu8-image-span img',
+            '.st-chatu8-image-span video',
+            'span[data-request-id] img',
+            'span[data-request-id] video',
         ]),
         buttons: Object.freeze([
             'button.image-tag-button',
+            'button.st-chatu8-image-button',
             'button[class*="image-tag-button"]',
-            'button[class*="st-chatu8-image"]',
+            'button[class*="st-chatu8-image-button"]',
         ]),
     }),
     generic: Object.freeze({
@@ -179,6 +183,7 @@ export function collectDomRegenerateButtonCandidates(roots) {
                 buttons.push({
                     button,
                     adapterKey: entry.adapterKey,
+                    requestId: metadata.requestId,
                     order: order + 1,
                     imageId: metadata.imageId,
                     locationHash: metadata.locationHash,
@@ -275,6 +280,12 @@ function imageCandidateGroupKey(sourceNode, imageNode, url, order) {
     const source = sourceNode && typeof sourceNode === 'object' ? sourceNode : imageNode;
     const slot = safeClosest(source, '.tsp-image-slot,[class*="tsp-image-slot"]');
     if (slot) return `slot:${nodePathKey(slot)}`;
+    const requestIdNode = safeClosest(source, '[data-request-id]');
+    const requestId = safeGetAttribute(source, 'data-request-id')
+        || safeGetAttribute(imageNode, 'data-request-id')
+        || safeGetAttribute(requestIdNode, 'data-request-id')
+        || '';
+    if (requestId) return `rid:${requestId}`;
     const metadataNode = safeClosest(source, '[data-location-hash],[data-image-id]');
     const locationHash = safeGetAttribute(source, 'data-location-hash')
         || safeGetAttribute(imageNode, 'data-location-hash')
@@ -291,8 +302,12 @@ function imageCandidateGroupKey(sourceNode, imageNode, url, order) {
 
 function collectNodeMetadata(sourceNode, imageNode = null) {
     const source = sourceNode && typeof sourceNode === 'object' ? sourceNode : imageNode;
-    const metadataNode = safeClosest(source, '[data-location-hash],[data-image-id],[data-slot-index],[data-image-index],[data-igs-image-slot]');
+    const metadataNode = safeClosest(source, '[data-location-hash],[data-image-id],[data-slot-index],[data-image-index],[data-igs-image-slot],[data-request-id]');
     return {
+        requestId: safeGetAttribute(source, 'data-request-id')
+            || safeGetAttribute(imageNode, 'data-request-id')
+            || safeGetAttribute(metadataNode, 'data-request-id')
+            || '',
         imageId: safeGetAttribute(source, 'data-image-id')
             || safeGetAttribute(imageNode, 'data-image-id')
             || safeGetAttribute(metadataNode, 'data-image-id')

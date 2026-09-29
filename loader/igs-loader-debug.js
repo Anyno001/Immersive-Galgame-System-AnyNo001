@@ -5,6 +5,8 @@
     const DEFAULT_REF = 'main';
     const MAIN_BASE = `https://cdn.jsdelivr.net/gh/${REPOSITORY}@main`;
     const MAIN_BRANCH_URL = `https://api.github.com/repos/${REPOSITORY}/branches/main`;
+    const LATEST_REF_CACHE_KEY = 'igs:loader:latest-ref';
+    const LATEST_REF_TTL_MS = 60 * 60 * 1000;
     const INSTANCE_KEY = '__IGS_AUTO_UPDATE_LOADER_DEBUG__';
     const QR_BINDING_KEY = '__IGS_QR_ENTRY_BINDING__';
     const QR_BUTTON_NAME = 'Gal模拟';
@@ -100,30 +102,34 @@
     async function load() {
         const config = await resolveLoaderConfig();
         const attempts = buildLoadAttempts(config);
+        const bundleFiles = root.IGS_DEBUG === true ? ['igs.bundle.debug.js', 'igs.bundle.js'] : ['igs.bundle.js'];
         let lastError = null;
 
         for (const attempt of attempts) {
             const cssUrl = withCacheBust(`${attempt.base}/app/dist/igs.bundle.css`, attempt);
-            const scriptUrl = withCacheBust(`${attempt.base}/app/dist/igs.bundle.js`, attempt);
-            if (shouldProbeBundleAttempt(attempt, config)) {
-                const probe = await probeBundleUrl(scriptUrl);
-                if (!probe.ok) {
-                    lastError = probe.error || new Error(`remote bundle not available: ${scriptUrl}`);
-                    console.warn('[IGS Loader] 远程 bundle 探测失败，尝试下一个地址。', attempt.ref, scriptUrl, lastError);
-                    continue;
+            for (const bundleFile of bundleFiles) {
+                const scriptUrl = withCacheBust(`${attempt.base}/app/dist/${bundleFile}`, attempt);
+                if (shouldProbeBundleAttempt(attempt, config)) {
+                    const probe = await probeBundleUrl(scriptUrl);
+                    if (!probe.ok) {
+                        lastError = probe.error || new Error(`remote bundle not available: ${scriptUrl}`);
+                        console.warn('[IGS Loader] 远程 bundle 探测失败，尝试下一个地址。', attempt.ref, scriptUrl, lastError);
+                        continue;
+                    }
                 }
-            }
-            try {
-                injectCss(cssUrl);
-                await injectScript(scriptUrl);
-                scheduleMagicWandEnsure();
-                schedulePendingQrOpen();
-                console.info('[IGS Loader] 使用远程版本。', attempt.ref, attempt.base);
-                return { ...config, activeRef: attempt.ref, activeBase: attempt.base };
-            } catch (error) {
-                lastError = error;
-                clearTraceElements();
-                console.warn('[IGS Loader] 远程 bundle 加载失败，尝试下一个地址。', attempt.ref, scriptUrl, error);
+                try {
+                    injectCss(cssUrl);
+                    await injectScript(scriptUrl);
+                    if (attempt.ref === config.latestRef && !config.latestFromCache) rememberLatestRef(attempt.ref);
+                    scheduleMagicWandEnsure();
+                    schedulePendingQrOpen();
+                    console.info('[IGS Loader] 使用远程版本。', attempt.ref, attempt.base);
+                    return { ...config, activeRef: attempt.ref, activeBase: attempt.base };
+                } catch (error) {
+                    lastError = error;
+                    clearTraceElements();
+                    console.warn('[IGS Loader] 远程 bundle 加载失败，尝试下一个地址。', attempt.ref, scriptUrl, error);
+                }
             }
         }
 
@@ -133,15 +139,16 @@
     async function resolveLoaderConfig() {
         const userConfig = getObject(root.IGS_LOADER_CONFIG);
         const explicitRef = String(userConfig.ref || root.IGS_LOADER_REF || '').trim();
-        const latestRef = !explicitRef && !userConfig.base && !root.IGS_LOADER_BASE
-            ? await fetchLatestRef()
-            : null;
+        const latest = !explicitRef && !userConfig.base && !root.IGS_LOADER_BASE
+            ? await resolveLatestRef()
+            : { ref: '', fromCache: false };
+        const latestRef = latest.ref || null;
         const ref = explicitRef || latestRef || DEFAULT_REF;
         const defaultBase = `https://cdn.jsdelivr.net/gh/${REPOSITORY}@${ref}`;
         const hasCustomBase = Boolean(userConfig.base || root.IGS_LOADER_BASE);
         const base = String(userConfig.base || root.IGS_LOADER_BASE || defaultBase).replace(/\/+$/, '');
         const cacheBust = userConfig.cacheBust === undefined ? ref === 'main' || Boolean(explicitRef && !/^v\d+\.\d+\.\d+$/.test(ref)) : userConfig.cacheBust !== false;
-        return { ref, base, cacheBust, hasCustomBase, latestRef };
+        return { ref, base, cacheBust, hasCustomBase, latestRef, latestFromCache: latest.fromCache };
     }
 
     function buildLoadAttempts(config) {
@@ -171,9 +178,45 @@
         return dedupeAttempts(attempts);
     }
 
+    // 自动发现的提交 SHA 不探测：加载失败时 onerror 会落到下一个地址，省一次 HEAD。
     function shouldProbeBundleAttempt(attempt, config) {
         if (config.hasCustomBase) return true;
-        return attempt.ref !== 'main';
+        return attempt.ref !== 'main' && attempt.ref !== config.latestRef;
+    }
+
+    // 最新提交 SHA 在 localStorage 缓存 1 小时，避免每次启动都打 GitHub API（未认证每 IP 每小时 60 次）；
+    // 调试版 loader 不用缓存，push 后立即可验。查询失败时沿用旧 SHA。
+    async function resolveLatestRef() {
+        const cached = readCachedLatestRef();
+        if (cached && root.IGS_DEBUG !== true && Date.now() - cached.at < LATEST_REF_TTL_MS) {
+            return { ref: cached.ref, fromCache: true };
+        }
+        const ref = await fetchLatestRef();
+        if (ref) return { ref, fromCache: false };
+        if (cached) {
+            console.info('[IGS Loader] 沿用缓存的远程提交。', cached.ref);
+            return { ref: cached.ref, fromCache: true };
+        }
+        return { ref: '', fromCache: false };
+    }
+
+    function readCachedLatestRef() {
+        try {
+            const parsed = JSON.parse(root.localStorage.getItem(LATEST_REF_CACHE_KEY) || 'null');
+            const ref = normalizeCommitRef(parsed && parsed.ref);
+            const at = Number(parsed && parsed.at);
+            return ref && Number.isFinite(at) ? { ref, at } : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function rememberLatestRef(ref) {
+        try {
+            root.localStorage.setItem(LATEST_REF_CACHE_KEY, JSON.stringify({ ref, at: Date.now() }));
+        } catch (error) {
+            // Storage may be unavailable or full; the next launch simply queries again.
+        }
     }
 
     async function fetchLatestRef() {
@@ -490,9 +533,10 @@
         return value && typeof value === 'object' ? value : {};
     }
 
+    // 取整到小时：一小时内重复启动命中浏览器缓存，不再每次重下整个 bundle。
     function withCacheBust(url, config) {
         if (!config.cacheBust) return url;
-        const mark = `igs_t=${Date.now()}`;
+        const mark = `igs_t=${Math.floor(Date.now() / LATEST_REF_TTL_MS)}`;
         return `${url}${url.includes('?') ? '&' : '?'}${mark}`;
     }
 

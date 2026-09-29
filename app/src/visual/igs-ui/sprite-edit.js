@@ -1,4 +1,5 @@
 import { resolveSpriteLayout } from './settings-normalize.js';
+import { spriteIdentity } from '../../scene/character-outfits.js';
 import { igsDebug } from './reader-value-utils.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteHeadKey } from './fx-anchor.js';
 import { startHeadEdit } from './sprite-head-edit.js';
@@ -48,10 +49,11 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     const rs = current.snapshot.readerSettings;
     const character = current.snapshot.content.spriteCharacter || current.snapshot.content.speaker || '';
     const mood = current.snapshot.content.spriteMood || '';
-    const modeLayout = resolveSpriteLayout(rs.spriteLayouts, mode, character, mood);
+    const outfit = current.snapshot.content.spriteOutfit || '';
+    const modeLayout = resolveSpriteLayout(rs.spriteLayouts, mode, character, mood, outfit);
     const orig = { ...modeLayout };
     let posX = orig.posX, posY = orig.posY, scale = orig.scale;
-    igsDebug('[DEBUG-sprite] enter-edit', { mode, character, mood, layoutKey: character ? `${mode}::${character}::${mood}` : mode, resolved: { ...orig }, allLayouts: rs.spriteLayouts });
+    igsDebug('[DEBUG-sprite] enter-edit', { mode, character, mood, outfit, resolved: { ...orig }, allLayouts: rs.spriteLayouts });
     const clickLayer = overlay.querySelector('#igs-click-layer');
     if (clickLayer) clickLayer.style.pointerEvents = 'none';
 
@@ -72,15 +74,15 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     editBar.id = 'igs-sprite-edit-bar';
     editBar.innerHTML = MAIN_BAR;
     overlay.appendChild(editBar);
-    const em = { orig, editBar, clickLayer, mode, character, mood, origSpriteStyle, headEdit: null, headPending: null };
+    const em = { orig, editBar, clickLayer, mode, character, mood, outfit, origSpriteStyle, headEdit: null, headPending: null };
     current.spriteEditMode = em;
-    const storedHead = resolveSpriteHead(rs.spriteHeads, character, mood);
-    const head = { moodOnly: Boolean(mood && rs.spriteHeads && rs.spriteHeads[spriteHeadKey(character, mood)]), dirty: false, info: null };
+    const storedHead = resolveSpriteHead(rs.spriteHeads, character, mood, outfit);
+    const head = { moodOnly: Boolean(mood && rs.spriteHeads && rs.spriteHeads[spriteHeadKey(character, mood, outfit)]), dirty: false, info: null };
 
     // 按角色保存时顺带清掉当前表情的单独标定，否则表情键会继续覆盖角色键、改动看不到。
     function headTarget(value) {
-        const key = spriteHeadKey(character, head.moodOnly ? mood : '');
-        return { key, value, clearKey: !head.moodOnly && mood ? spriteHeadKey(character, mood) : '' };
+        const key = spriteHeadKey(character, head.moodOnly ? mood : '', outfit);
+        return { key, value, clearKey: !head.moodOnly && mood ? spriteHeadKey(character, mood, outfit) : '' };
     }
 
     function pendingHead() {
@@ -229,25 +231,30 @@ export function exitSpriteEditMode(overlay, current, save, ctx = {}) {
         } else {
             const sceneAssets = (unified.bridge && unified.bridge.sceneAssets) || {};
             const unified_ = sceneAssets.unifiedSpriteLayout === true;
+            // 服装立绘的位置写到「角色|服装」身份下，不影响原有立绘位置。
+            const identity = spriteIdentity(em.character, em.outfit);
             if (unified_) {
                 // Apply to every known mood slot of this character so all expressions
                 // share one position, while keeping the mode::char::mood key format.
-                const charMoods = (sceneAssets.characters && sceneAssets.characters[em.character])
-                    ? Object.keys(sceneAssets.characters[em.character])
-                    : [];
+                const outfitEntry = identity !== em.character && sceneAssets.characterOutfits
+                    && sceneAssets.characterOutfits[em.character] && sceneAssets.characterOutfits[em.character][em.outfit];
+                const slotSource = identity !== em.character
+                    ? (outfitEntry && outfitEntry.moods) || null
+                    : (sceneAssets.characters && sceneAssets.characters[em.character]) || null;
+                const charMoods = slotSource ? Object.keys(slotSource) : [];
                 if (charMoods.length) {
                     for (const m of charMoods) {
-                        layouts[`${em.mode}::${em.character}::${m}`] = { ...value };
+                        layouts[`${em.mode}::${identity}::${m}`] = { ...value };
                     }
                 } else {
-                    layouts[`${em.mode}::${em.character}`] = value;
+                    layouts[`${em.mode}::${identity}`] = value;
                 }
             } else if (em.mood) {
-                layouts[`${em.mode}::${em.character}::${em.mood}`] = value;
+                layouts[`${em.mode}::${identity}::${em.mood}`] = value;
             } else {
                 // 空 mood 必须存到 mode::char，与 resolveSpriteLayout 的 charKey 对齐，
                 // 否则重渲染查不回（v0.5.4/v0.13.1 回归）。
-                layouts[`${em.mode}::${em.character}`] = value;
+                layouts[`${em.mode}::${identity}`] = value;
             }
         }
         const patch = { spriteLayouts: layouts };

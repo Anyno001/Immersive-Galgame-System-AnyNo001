@@ -23,22 +23,44 @@ function fillShape(d, cls = '', extra = '', x = 0, y = 0, scale = 1) {
     return scale !== 1 || x || y ? `<g transform="translate(${x} ${y}) scale(${scale})">${body}</g>` : body;
 }
 
-// 冲击短线：符号弹出瞬间向外炸开的一圈小线段。
-function burst(radius, count, from = -90) {
-    let d = '';
-    for (let i = 0; i < count; i += 1) {
-        const a = (from + (360 / count) * i) * Math.PI / 180;
-        const r0 = radius;
-        const r1 = radius + (i % 2 ? 7 : 11);
-        const p = (r) => `${(50 + Math.cos(a) * r).toFixed(1)} ${(50 + Math.sin(a) * r).toFixed(1)}`;
-        d += `M${p(r0)}L${p(r1)}`;
-    }
+const polar = (deg, r) => {
+    const a = deg * Math.PI / 180;
+    return `${(50 + Math.cos(a) * r).toFixed(1)} ${(50 + Math.sin(a) * r).toFixed(1)}`;
+};
+
+// 冲击短线：符号弹出瞬间沿给定角度向外炸开的小线段，长短交替。
+function rays(radius, angles) {
+    const d = angles.map((deg, i) => `M${polar(deg, radius)}L${polar(deg, radius + (i % 2 ? 7 : 11))}`).join('');
     return `<path class="igs-fx-burst" d="${d}" fill="none" stroke-width="4" stroke-linecap="round"/>`;
 }
 
+function burst(radius, count, from = -90) {
+    return rays(radius, Array.from({ length: count }, (_, i) => from + (360 / count) * i));
+}
+
 const HEART = 'M50 86C22 66 9 49 9 33C9 19 19 10 31 10C40 10 46 15 50 22C54 15 60 10 69 10C81 10 91 19 91 33C91 49 78 66 50 86Z';
+// 心碎：沿锯齿裂缝把心形拆成左右两半，两半各自带描边，裂缝处自然露出白边。
+const HEART_L = 'M50 86C22 66 9 49 9 33C9 19 19 10 31 10C40 10 46 15 50 22L44 38L54 52L44 66Z';
+const HEART_R = 'M50 22C54 15 60 10 69 10C81 10 91 19 91 33C91 49 78 66 50 86L44 66L54 52L44 38Z';
 const DROP = 'M50 8C50 8 78 44 78 62A28 28 0 0 1 22 62C22 44 50 8 50 8Z';
 const STAR = 'M50 6Q55 45 94 50Q55 55 50 94Q45 55 6 50Q45 45 50 6Z';
+const BULB = 'M50 8C31 8 18 22 18 40C18 52 25 60 31 66C35 70 36 73 36 76H64C64 73 65 70 69 66C75 60 82 52 82 40C82 22 69 8 50 8Z';
+const BULB_BASE = 'M36 79H64V86Q64 93 57 93H43Q36 93 36 86Z';
+const FLAME = 'M50 4C57 22 76 30 80 52C84 76 68 94 50 94C32 94 16 80 18 58C19 46 26 37 33 31C33 41 37 48 43 51C39 34 43 18 50 4Z';
+const FLAME_IN = 'M50 46C55 57 65 62 65 75C65 86 58 92 50 92C42 92 35 86 35 77C35 69 41 64 44 56C46 62 48 65 51 65C49 58 48 52 50 46Z';
+const PUFF = 'M30 70C16 70 10 60 14 51C8 42 16 30 28 33C30 22 44 17 53 25C60 16 76 20 77 33C88 34 93 46 86 55C92 64 84 74 72 71C66 79 50 79 44 72C40 74 34 73 30 70Z';
+// 螺旋：交替圆心的半圆逐圈放大，圈距 12 保证三层描边叠起来仍留有缝隙。
+const SPIRAL = 'M50 50a6 6 0 0 1 12 0a12 12 0 0 1 -24 0a18 18 0 0 1 36 0a24 24 0 0 1 -48 0a30 30 0 0 1 60 0';
+// 音符：所有子路径同为顺时针，非零环绕下符头、符杆与符梁合成一个整体轮廓。
+const noteHead = (cx, cy) => `M${cx - 12} ${cy}a12 9 -20 1 1 24 0a12 9 -20 1 1 -24 0Z`;
+const NOTE_PAIR = `${noteHead(34, 76)}${noteHead(74, 64)}M41 28H46V75H41ZM81 16H86V63H81ZM41 22L86 10V21L41 33Z`;
+const NOTE = `${noteHead(40, 80)}M47 20H53V79H47ZM53 20Q74 28 72 50Q66 36 53 36Z`;
+const circle = (cx, cy, r) => `M${cx - r} ${cy}a${r} ${r} 0 1 1 ${2 * r} 0a${r} ${r} 0 1 1 ${-2 * r} 0Z`;
+const zee = (x, y, s) => `M${x} ${y}h${s}l${-s} ${s}h${s}`;
+// 六瓣冰晶：每条主干末端带一个 V 形分叉。
+const SNOWFLAKE = [-90, -30, 30, 90, 150, 210]
+    .map((deg) => `M50 50L${polar(deg, 40)}M${polar(deg - 22, 32)}L${polar(deg, 24)}L${polar(deg + 22, 32)}`)
+    .join('');
 const shine = (cx, cy, rx, ry, rot = -30) => `<ellipse class="igs-fx-hi" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" transform="rotate(${rot} ${cx} ${cy})"/>`;
 
 // 波浪竖线：每条从 y0 起向下蜿蜒 n 个半波，pathLength=1 便于“从上往下画出”。
@@ -79,12 +101,57 @@ const BODIES = Object.freeze({
         + fillShape(STAR, 'igs-fx-star-main', '<circle class="igs-fx-hi" cx="50" cy="50" r="5"/>', 8, 12, .72)
         + fillShape(STAR, 'igs-fx-star-b', '', 66, 2, .3)
         + fillShape(STAR, 'igs-fx-star-c', '', 72, 62, .24),
+    bulb: rays(44, [-90, -130, -50, -170, -10])
+        + '<g class="igs-fx-g igs-fx-bulb">'
+        + fillShape(BULB, 'igs-fx-bulb-glass', shine(33, 30, 6, 11, 30)
+            + '<path class="igs-fx-filament" d="M42 64V52L50 58L58 52V64" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>')
+        + fillShape(BULB_BASE, 'igs-fx-bulb-base', '<path class="igs-fx-filament" d="M40 86H60" fill="none" stroke-width="3" stroke-linecap="round"/>')
+        + '</g>',
+    note: fillShape(NOTE_PAIR, 'igs-fx-note-main', shine(30, 73, 5, 3, -20))
+        + fillShape(NOTE, 'igs-fx-note-b', '', 2, 0, .34),
+    zzz: strokeGlyph(zee(10, 66, 18), 6, 'igs-fx-z-1')
+        + strokeGlyph(zee(34, 40, 24), 7, 'igs-fx-z-2')
+        + strokeGlyph(zee(62, 8, 30), 8, 'igs-fx-z-3'),
+    heartbreak: fillShape(HEART_L, 'igs-fx-break-l', shine(28, 30, 8, 5, -35))
+        + fillShape(HEART_R, 'igs-fx-break-r'),
+    sigh: fillShape(PUFF, 'igs-fx-puff', shine(40, 38, 9, 5, -15))
+        + fillShape(circle(12, 84, 6), 'igs-fx-puff-b')
+        + fillShape(circle(2, 96, 3.5), 'igs-fx-puff-c'),
+    dizzy: strokeGlyph(SPIRAL, 3.5, 'igs-fx-spiral')
+        + '<g class="igs-fx-orbit">'
+        + fillShape(STAR, '', '', 74, 2, .24)
+        + fillShape(STAR, '', '', 4, 72, .2)
+        + '</g>',
+    fire: fillShape(FLAME, 'igs-fx-flame', `<path class="igs-fx-flame-in" d="${FLAME_IN}"/>`),
+    frost: burst(46, 6, -60)
+        + strokeGlyph(SNOWFLAKE, 4, 'igs-fx-crystal')
+        + fillShape(DROP, 'igs-fx-drop-b', shine(40, 58, 6, 11, 20), 70, 58, .34),
 });
 
-export const MANGA_SYMBOL_SVG = Object.freeze(Object.fromEntries(Object.entries(BODIES).map(([kind, body]) => [
-    kind,
-    `<svg class="igs-fx-svg" viewBox="-12 -12 124 124" aria-hidden="true" focusable="false">${body}</svg>`,
-])));
+const svgOf = (body) => `<svg class="igs-fx-svg" viewBox="-12 -12 124 124" aria-hidden="true" focusable="false">${body}</svg>`;
+
+export const MANGA_SYMBOL_SVG = Object.freeze(Object.fromEntries(Object.entries(BODIES).map(([kind, body]) => [kind, svgOf(body)])));
+
+// 古代背景：只替换带现代器物或西文的三个符号——灯泡换油灯，五线谱音符换墨点，Zzz 换鼻涕泡（贴在鼻尖，定位用 snot）。
+const LAMP_BOWL = 'M12 66H88Q84 88 50 90Q16 88 12 66ZM40 90H60L64 96H36Z';
+const LAMP_FLAME = 'M50 14C58 30 66 38 66 50A16 16 0 0 1 34 50C34 38 42 30 50 14Z';
+const LAMP_FLAME_IN = 'M50 34C54 42 58 46 58 52A8 8 0 0 1 42 52C42 46 46 42 50 34Z';
+const ANCIENT_BODIES = Object.freeze({
+    bulb: rays(44, [-90, -130, -50, -165, -15])
+        + '<g class="igs-fx-g igs-fx-lamp">'
+        + fillShape(LAMP_FLAME, 'igs-fx-lamp-flame', `<path class="igs-fx-flame-in" d="${LAMP_FLAME_IN}"/>`)
+        + fillShape(LAMP_BOWL, 'igs-fx-lamp-bowl', shine(30, 73, 7, 2.5, 0))
+        + '</g>',
+    note: strokeGlyph('M8 72C24 40 38 40 50 56S74 74 92 36', 5, 'igs-fx-inkwave')
+        + fillShape(circle(22, 38, 7), 'igs-fx-inkdot-1')
+        + fillShape(circle(56, 28, 5.5), 'igs-fx-inkdot-2')
+        + fillShape(circle(82, 60, 6.5), 'igs-fx-inkdot-3'),
+    zzz: fillShape(circle(46, 48, 34), 'igs-fx-snot', shine(32, 32, 9, 5, -35))
+        + fillShape(circle(86, 84, 7), 'igs-fx-snot-b'),
+});
+export const ANCIENT_SYMBOL_SVG = Object.freeze(Object.fromEntries(Object.entries(ANCIENT_BODIES).map(([kind, body]) => [kind, svgOf(body)])));
+// 古代版与现代版定位不同的符号：鼻涕泡贴鼻尖，不在头顶。
+export const ANCIENT_SYMBOL_PLACEMENT = Object.freeze({ zzz: 'snot' });
 
 // 取主题里饱和度最高的颜色作为演出强调色；主题整体偏灰（黑白、灰阶）时返回空串，符号用固有色。
 const MIN_CHROMA = 0.14;

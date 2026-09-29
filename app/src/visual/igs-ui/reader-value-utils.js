@@ -133,10 +133,3 @@ export function firstRenderableText(...values) {
     }
     return '';
 }
-
-export function stripSpeakerPrefix(text, speaker) {
-    if (!speaker || !text) return text;
-    const escaped = speaker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = new RegExp(`^\\[?${escaped}\\]?\\s*[:：]\\s*`);
-    return text.replace(pattern, '');
-}

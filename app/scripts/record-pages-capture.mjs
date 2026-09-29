@@ -1,6 +1,8 @@
 // CDP 截图与探针：驱动本机 Edge（无头）访问 record-pages preview，
 // 收集控制台错误、核对 DOM 状态、按容器尺寸截图。
-// 用法：node scripts/record-pages-capture.mjs [--page map] [--size desktop] [--select <data-record-id>] [--query <k=v&...>] [--out <file>] [--probe-only]
+// 用法：node scripts/record-pages-capture.mjs [--page map|diary|inventory|relationships|settings-scene|stage-cast] [--size desktop] [--select <data-record-id>] [--query <k=v&...>] [--out <file>] [--probe-only]
+// stage-cast：加载 fixtures/stage-cast/preview.html；[--step <页号>] 翻到指定页，[--freeze <0~1>] 把进行中的动画暂停在该进度后截图。
+// stage-cast-reader：加载 fixtures/stage-cast/reader.html（真实阅读器）；[--actions "eval:<表达式>;drag:x,y,dx,dy;wheel:x,y,deltaY;sleep:ms;shot:<名称>"] 在同一会话里按序驱动并截图。
 // 依赖：Node >= 22（内置 WebSocket）；Edge 以 --remote-debugging-port 启动。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -18,6 +20,12 @@ const outFile = arg('out', path.join(appRoot, '..', 'docs', 'ui', 'record-pages'
 const probeOnly = args.includes('--probe-only');
 const exerciseMap = args.includes('--exercise-map');
 const exerciseRecord = args.includes('--exercise-record');
+const castStep = arg('step', '');
+const freezeAt = arg('freeze', null);
+const readerActions = arg('actions', '');
+const previewPath = page === 'stage-cast' ? 'fixtures/stage-cast/preview.html'
+    : page === 'stage-cast-reader' ? 'fixtures/stage-cast/reader.html'
+    : 'fixtures/record-pages/preview.html';
 
 const SIZES = { desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768], mobile: [390, 844], short: [390, 500], tiny: [320, 568] };
 const [width, height] = SIZES[size] || SIZES.desktop;
@@ -54,7 +62,7 @@ try {
     await send('Page.enable');
     await send('Network.enable');
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 768 });
-    const url = `http://127.0.0.1:4173/fixtures/record-pages/preview.html?page=${page}&size=${size}${bg ? '&bg=' + bg : ''}${selectId ? '&select=' + encodeURIComponent(selectId) : ''}${extraQuery ? '&' + extraQuery : ''}`;
+    const url = `http://127.0.0.1:4173/${previewPath}?page=${page}&size=${size}${bg ? '&bg=' + bg : ''}${selectId ? '&select=' + encodeURIComponent(selectId) : ''}${extraQuery ? '&' + extraQuery : ''}`;
     await send('Page.navigate', { url });
     const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true })).result?.result?.value;
     // 等待面板挂载且地图底图状态机收敛（loading → ready/failed/none），替代固定时长猜测。
@@ -62,7 +70,8 @@ try {
     for (let i = 0; i < 40 && !settled; i++) {
         await sleep(250);
         settled = await evaluate(`(() => {
-            const panel = document.querySelector('#igs-map-panel,#igs-record-panel');
+            if (window.__stageCast) return window.__stageCast.ready === true;
+            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings');
             if (!panel) return false;
             if (panel.id !== 'igs-map-panel') return true;
             const state = window.__preview?.map?.getState?.();
@@ -161,8 +170,61 @@ try {
             : after?.state?.selectedId === targetId;
         return { before, alternateId, after, restored };
     })() : null;
+    const stageCastProbe = page === 'stage-cast' ? await (async () => {
+        if (castStep) {
+            await evaluate(`window.__stageCast.goto(${JSON.stringify(castStep)})`);
+            await sleep(60);
+        }
+        if (freezeAt != null) {
+            await evaluate(`(() => { const f = ${Number(freezeAt)}; return document.getAnimations().map((a) => { const d = Number(a.effect && a.effect.getTiming().duration) || 0; a.pause(); a.currentTime = d * f; return d; }); })()`);
+        }
+        return evaluate('window.__stageCast.probe()');
+    })() : null;
+    const readerSteps = page === 'stage-cast-reader' ? await (async () => {
+        const evalAsync = async (expression) => {
+            const res = (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result;
+            if (res?.exceptionDetails) return { error: res.exceptionDetails.exception?.description || res.exceptionDetails.text };
+            return res?.result?.value;
+        };
+        const out = [];
+        for (const step of readerActions.split(';').map((s) => s.trim()).filter(Boolean)) {
+            const cut = step.indexOf(':');
+            const kind = cut < 0 ? step : step.slice(0, cut);
+            const rest = cut < 0 ? '' : step.slice(cut + 1);
+            if (kind === 'eval') {
+                out.push({ step, value: await evalAsync(rest) });
+            } else if (kind === 'sleep') {
+                await sleep(Number(rest) || 0);
+            } else if (kind === 'drag') {
+                const [x, y, dx, dy] = rest.split(',').map(Number);
+                await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+                await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+                for (let i = 1; i <= 5; i++) {
+                    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + dx * i / 5, y: y + dy * i / 5, button: 'left', buttons: 1 });
+                    await sleep(30);
+                }
+                await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + dx, y: y + dy, button: 'left', buttons: 0, clickCount: 1 });
+                out.push({ step });
+            } else if (kind === 'wheel') {
+                const [x, y, deltaY] = rest.split(',').map(Number);
+                await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY });
+                out.push({ step });
+            } else if (kind === 'shot') {
+                await sleep(150);
+                const probe = await evalAsync('window.__stageCast.probe()');
+                const file = path.join(path.dirname(outFile), `${rest}.png`);
+                const shot = await send('Page.captureScreenshot', { format: 'png' });
+                fs.mkdirSync(path.dirname(file), { recursive: true });
+                fs.writeFileSync(file, Buffer.from(shot.result.data, 'base64'));
+                out.push({ step, file, bytes: fs.statSync(file).size, probe });
+            } else {
+                out.push({ step, error: 'unknown step' });
+            }
+        }
+        return out;
+    })() : null;
     const state = await evaluate(`(() => {
-        const panel = document.querySelector('#igs-map-panel,#igs-record-panel');
+        const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings');
         const title = document.querySelector('.igs-rp-title');
         const back = document.querySelector('.igs-rp-back');
       const tRect = title?.getBoundingClientRect(), bRect = back?.getBoundingClientRect(), stage = document.getElementById('stage')?.getBoundingClientRect();
@@ -205,8 +267,30 @@ try {
             })() : null,
             mapInteraction: ${JSON.stringify(mapInteraction)},
             recordInteraction: ${JSON.stringify(recordInteraction)},
+            stageCast: ${JSON.stringify(stageCastProbe)},
+            stageCastReader: ${JSON.stringify(readerSteps)},
             relationshipNodeCount: panel?.querySelectorAll?.('.igs-record-relationship-node')?.length ?? null,
             relationshipLabelCount: panel?.querySelectorAll?.('.igs-record-relationship-label')?.length ?? null,
+            settings: panel?.id === 'igs-unified-settings' ? (() => {
+                const thumbs = [...panel.querySelectorAll('img.igs-asset-tile-thumb')];
+                const vw = window.innerWidth;
+                const offenders = [...panel.querySelectorAll('*')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.right > vw + 1; })
+                    .slice(0, 6).map(el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(' ').filter(Boolean).join('.') : '') + ' right=' + Math.round(el.getBoundingClientRect().right));
+                return {
+                    activeTab: panel.querySelector('.igs-settings-tab.is-active')?.textContent?.trim() || '',
+                    activeSceneSubtab: panel.querySelector('.igs-scene-subtab.is-active')?.textContent?.trim() || '',
+                    folderNames: [...panel.querySelectorAll('.igs-asset-folder-name')].map(el => el.textContent.trim()),
+                    viewPressed: [...panel.querySelectorAll('.igs-asset-view-btn[aria-pressed="true"]')].map(el => el.textContent.trim()),
+                    tiles: panel.querySelectorAll('.igs-asset-tile').length,
+                    thumbsLoaded: thumbs.filter(img => img.complete && img.naturalWidth > 0).length,
+                    thumbsBroken: thumbs.filter(img => img.complete && img.naturalWidth === 0).length,
+                    emptyTiles: panel.querySelectorAll('.igs-asset-tile-empty').length,
+                    moveSelects: panel.querySelectorAll('select[data-asset-folder-move]').length,
+                    tileWidth: Math.round(panel.querySelector('.igs-asset-tile')?.getBoundingClientRect().width || 0),
+                    viewport: [vw, window.innerHeight],
+                    outOfViewport: offenders,
+                };
+            })() : null,
         };
     })()`);
     console.log(JSON.stringify({ url, ...state, consoleErrors, failedRequests }, null, 1));

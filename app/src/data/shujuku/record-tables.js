@@ -8,7 +8,8 @@ export function isImportantCharactersTable(table) {
 export const RECORD_TABLE_KEYWORDS = Object.freeze({
     map: Object.freeze(['地图', '地点']),
     diary: Object.freeze(['日记']),
-    inventory: Object.freeze(['物品']),
+    // 物品页按表名模糊匹配：物品表、物品与装备表、装备表、道具栏、背包均归入物品页。
+    inventory: Object.freeze(['物品', '装备', '道具', '背包']),
     relationships: Object.freeze(['关系', '势力']),
 });
 

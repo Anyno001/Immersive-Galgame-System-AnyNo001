@@ -1,5 +1,7 @@
 import { parseTables } from '../../shujuku-panel/panel-model.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
+import { outfitAvatarOf } from '../../scene/character-outfits.js';
+
 
 export const STATUS_HUD_MAX_METRICS = 4;
 export const STATUS_HUD_SIZE_IDS = Object.freeze(['small', 'medium', 'large']);
@@ -21,6 +23,15 @@ export const NSFW_VEIL_LEVEL_STYLE = Object.freeze({
     strong: { center: '.55', edge: '.88' },
 });
 
+// NSFW 场景立绘：显示 / 隐藏 / 仅露脸剪影（按头部标定，头以下黑幕）。取代旧布尔 showSpriteOnNsfw：
+// 旧值 false 迁为 hide，其余迁为 shade；输出里的 showSpriteOnNsfw 只由档位派生，供旧读取点兼容。
+export const NSFW_SPRITE_MODE_IDS = Object.freeze(['show', 'hide', 'shade']);
+
+export function resolveNsfwSpriteMode(src) {
+    if (NSFW_SPRITE_MODE_IDS.includes(src.nsfwSpriteMode)) return src.nsfwSpriteMode;
+    return src.showSpriteOnNsfw === false ? 'hide' : 'shade';
+}
+
 export const STATUS_HUD_DEFAULTS = Object.freeze({
     enabled: false,
     collapsed: false,
@@ -29,6 +40,7 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     showLocation: false,
     showLocationDetails: false,
     showSpriteOnNsfw: true,
+    nsfwSpriteMode: 'shade',
     dimSpriteOnNarration: true,
     nsfwVeilLevel: 'medium',
     avatarRadius: 'circle',
@@ -39,6 +51,7 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
 
 export function normalizeStatusHudSettings(raw) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const nsfwSpriteMode = resolveNsfwSpriteMode(src);
     return {
         enabled: src.enabled === true,
         collapsed: src.collapsed === true,
@@ -46,7 +59,8 @@ export function normalizeStatusHudSettings(raw) {
         showEmotion: src.showEmotion === false ? false : true,
         showLocation: src.showLocation === true,
         showLocationDetails: src.showLocationDetails === true,
-        showSpriteOnNsfw: src.showSpriteOnNsfw === false ? false : true,
+        showSpriteOnNsfw: nsfwSpriteMode !== 'hide',
+        nsfwSpriteMode,
         dimSpriteOnNarration: src.dimSpriteOnNarration === false ? false : true,
         nsfwVeilLevel: NSFW_VEIL_LEVEL_IDS.includes(src.nsfwVeilLevel) ? src.nsfwVeilLevel : STATUS_HUD_DEFAULTS.nsfwVeilLevel,
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,
@@ -152,6 +166,9 @@ export function buildStatusHudModel(input = {}) {
     // 只是取不到自定义头像。
     const character = resolveCharacterKey(characters, sceneAssets.characterAliases, rawCharacter) || rawCharacter;
     const emotion = character ? String(input.emotion || '').trim() : '';
+    // 服装属于当前立绘角色：说话人与立绘角色一致时才取服装头像。
+    const outfit = input.outfitFor && input.outfitFor.character === character ? String(input.outfitFor.outfit || '') : '';
+
     // 地点栏只在没有角色的旁白页显示；内心页属于角色页，与对白页同样不显示地点。
     const showSceneInfo = settings.showLocation && input.isNarration === true && !rawCharacter;
     const model = {
@@ -162,11 +179,14 @@ export function buildStatusHudModel(input = {}) {
         time: showSceneInfo && settings.showLocationDetails ? String(input.time || '').trim() : '',
         weather: showSceneInfo && settings.showLocationDetails ? String(input.weather || '').trim() : '',
         showLocationDetails: settings.showLocationDetails,
-        avatar: resolveStatusAvatar(sceneAssets.statusAvatars, character),
+        // 当前服装设了头像时优先用它，未设时沿用角色头像。
+        avatar: resolveStatusAvatar({ [character]: outfitAvatarOf(sceneAssets.characterOutfits, sceneAssets.characterAliases, character, outfit) }, character)
+            || resolveStatusAvatar(sceneAssets.statusAvatars, character),
         avatarRadius: settings.avatarRadius,
         background: settings.background,
         barColor: settings.barColor,
         metrics: [],
+        relation: '',
         hiddenCount: 0,
         loadState: 'idle',
         loadReason: '',
@@ -185,6 +205,7 @@ export function buildStatusHudModel(input = {}) {
     for (const entry of resolved) {
         if (!entry.table) { missingTables += 1; continue; }
         metrics.push(...extractStatusHudMetrics(entry.table, character, sceneAssets.characterAliases, entry.pick));
+        if (!model.relation) model.relation = extractStatusHudRelation(entry.table, character, sceneAssets.characterAliases);
     }
     model.metrics = metrics.slice(0, STATUS_HUD_MAX_METRICS);
     model.hiddenCount = Math.max(0, metrics.length - model.metrics.length);
@@ -226,6 +247,22 @@ export function extractStatusHudMetrics(table, character, characterAliases, pick
         }
     }
     return metrics;
+}
+
+// 关系文字列（列名含「关系」）：供亲密演出的关系变化卡使用；纯数字或过长的单元格不算关系名。
+const RELATION_COLUMN_RE = /关系/;
+const RELATION_MAX = 20;
+
+export function extractStatusHudRelation(table, character, characterAliases) {
+    if (!table || !Array.isArray(table.columns) || !Array.isArray(table.rows)) return '';
+    const row = findStatusHudRow(table, character, characterAliases);
+    if (!row) return '';
+    for (let index = 0; index < table.columns.length; index += 1) {
+        if (index === row.headerIndex || !RELATION_COLUMN_RE.test(String(table.columns[index] || ''))) continue;
+        const cell = String(row.values[index] == null ? '' : row.values[index]).trim();
+        if (cell && cell.length <= RELATION_MAX && !/^[\d\s.%/+-]+$/.test(cell)) return cell;
+    }
+    return '';
 }
 
 export function findStatusHudRow(table, character, characterAliases) {

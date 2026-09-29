@@ -71,4 +71,10 @@ const elegantEuropean = buildDialogFrameCss(DIALOG_SKIN_ELEGANT_EUROPEAN, {
     textCss: 'letter-spacing:.06em;text-shadow:0 1px 2px rgba(0,0,0,.85),0 0 6px rgba(0,0,0,.45);',
 });
 
-export const CSS_DIALOG_STYLE_TEXT = [dayMinimal, warmPicturebook, elegantEuropean].join('\n');
+export const CSS_DIALOG_STYLE_BY_SKIN = Object.freeze({
+    [DIALOG_SKIN_DAY_MINIMAL]: dayMinimal,
+    [DIALOG_SKIN_WARM_PICTUREBOOK]: warmPicturebook,
+    [DIALOG_SKIN_ELEGANT_EUROPEAN]: elegantEuropean,
+});
+
+export const CSS_DIALOG_STYLE_TEXT = Object.values(CSS_DIALOG_STYLE_BY_SKIN).join('\n');
