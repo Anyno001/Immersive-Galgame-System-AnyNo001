@@ -1746,6 +1746,65 @@ test('gate:settings:generated-asset-actions-rollback-on-persist-and-service-fail
     }
 });
 
+test('gate:settings:generated-asset-download-button-and-action', async () => {
+    const { renderGeneratedAssetPane } = await import('../src/visual/igs-ui/settings-fields.js');
+    const { sanitizeDownloadName } = await import('../src/visual/igs-ui/settings-actions.js');
+    const enc = (value) => encodeURIComponent(value);
+    const html = renderGeneratedAssetPane({
+        library: {
+            scenes: { 夜景: { url: 'igs-gen:bg-lib', words: [], times: {} } },
+            characters: { 爱丽丝: { 默认: 'igs-gen:sp-lib' } },
+        },
+        temp: [
+            { key: 'temp/sp', imageId: 'sp-temp', type: 'sprite', name: '若叶睦', status: 'review' },
+            { key: 'temp/failed', imageId: '', type: 'sprite', name: '失败', status: 'failed' },
+        ],
+        resolveUrl: () => '',
+    });
+    assert.ok(html.includes(`data-action="gen-asset-download:${enc('bg-lib')}:${enc('夜景-背景.png')}"`));
+    assert.ok(html.includes(`data-action="gen-asset-download:${enc('sp-lib')}:${enc('爱丽丝-立绘.png')}"`));
+    assert.ok(html.includes(`data-action="gen-asset-download:${enc('sp-temp')}:${enc('若叶睦-立绘.png')}"`));
+    assert.equal((html.match(/gen-asset-download:/g) || []).length, 3, '没有图片的失败记录不显示下载按钮');
+
+    const clicks = [];
+    const created = [];
+    const revoked = [];
+    const alerts = [];
+    const doc = {
+        body: { appendChild() {}, removeChild() {} },
+        createElement: () => { const a = { click() { clicks.push({ href: a.href, download: a.download }); } }; return a; },
+    };
+    const global = {
+        document: doc,
+        Blob,
+        URL: { createObjectURL: (b) => { created.push(b); return 'blob:igs-test'; }, revokeObjectURL: (u) => revoked.push(u) },
+        atob: (s) => Buffer.from(s, 'base64').toString('latin1'),
+        alert: (m) => alerts.push(m),
+    };
+    const pngUrl = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')}`;
+    const ctx = {
+        state: { activeSettings: { draft: { bridge: {}, readerSettings: {} }, readerMode: 'pc', asyncState: {} } },
+        options: { global, generatedAssets: { getImageDataUrl: async (id) => (id === 'sp-temp' ? pngUrl : '') } },
+        closeSettings: () => ({ ok: true }),
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        buildRegexPreview: () => '',
+    };
+    const done = await handleSettingsAction(`gen-asset-download:${enc('sp-temp')}:${enc('若叶睦/立绘?.png')}`, ctx);
+    assert.equal(done.ok, true);
+    assert.equal(done.fileName, '若叶睦_立绘_.png');
+    assert.deepEqual(clicks, [{ href: 'blob:igs-test', download: '若叶睦_立绘_.png' }]);
+    assert.equal(created[0].type, 'image/png');
+    assert.deepEqual(Array.from(new Uint8Array(await created[0].arrayBuffer())), [0x89, 0x50, 0x4e, 0x47], '下载字节与存储一致');
+    assert.deepEqual(revoked, ['blob:igs-test']);
+
+    const missing = await handleSettingsAction(`gen-asset-download:${enc('gone')}:${enc('x.png')}`, ctx);
+    assert.equal(missing.reason, 'generated-asset-image-missing');
+    assert.equal(alerts.length, 1);
+    assert.equal(sanitizeDownloadName(''), '素材.png');
+    assert.equal(sanitizeDownloadName('a:b'), 'a_b.png');
+});
+
 test('gate:scene:asset-alias-actions-and-presets-reuse-existing-entries', async () => {
     const storage = createMemoryStorage();
     const prompts = ['爱丽', '古城', '艾莉西亚'];
