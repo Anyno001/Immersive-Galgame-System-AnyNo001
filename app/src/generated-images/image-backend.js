@@ -1,5 +1,6 @@
 import { normalizeAutoIllustrationSettings } from './illustration/auto-illustration-settings.js';
 import { resolveNaiNativeEndpoint } from './request-builders/nai-v4-builder.js';
+import { applyUserPromptsToCaption } from './dbgen-prompt.js';
 
 // 生图来源：nai = IGS 内置 NAI；dbgen = 数据库生图插件（window.NaiDbGen）；
 // extension = 智绘姬。智绘姬无法按需出图，剧情 CG 与素材在该模式下退回内置 NAI。
@@ -90,12 +91,15 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         return { mode, ownPrompts: false, ready: { ok: true } };
     }
 
-    // 提示词交给插件按当前楼层来写，IGS 只给出「画什么」的自然语言描述。
+    // 提示词交给插件按当前楼层来写，IGS 给出「画什么」的描述；
+    // meta.userPrompts 是前端素材模板渲染出的正负提示词，出图前再合并进插件返回的 caption，
+    // 保证用户在 IGS 前端填写的提示词一定进入最终请求。
     async function viaDbgen(meta = {}) {
         const api = findDbgenApi(globalObject);
         if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
         const description = String(meta.description || '').trim();
         if (!description) return { ok: false, error: '没有可交给数据库生图插件的画面描述' };
+        const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
         let caption;
         let written = null;
         try {
@@ -104,7 +108,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             if (!written || !written.ok || !written.value || !written.value.caption) {
                 return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${describeResultError(written, '未返回提示词')}` };
             }
-            caption = written.value.caption;
+            caption = userPrompts ? applyUserPromptsToCaption(written.value.caption, userPrompts) : written.value.caption;
         } catch (error) {
             return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
         }

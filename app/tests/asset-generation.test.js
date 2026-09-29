@@ -447,7 +447,70 @@ test('gate:assets:dbgen-source-skips-secondary-llm', async () => {
     });
     const result = await service.processMessage(3, { manual: true });
     assert.deepEqual([result.ok, result.count, llmCalls], [true, 1, 0]);
-    assert.match(metas[0].description, /废弃工厂.*夜晚.*不要出现任何人物/);
+    assert.match(metas[0].description, /废弃工厂」（夜晚、雨）的背景图/);
+    assert.match(metas[0].description, /no humans, scenery/);
+    assert.match(metas[0].description, /负面提示词.*1girl/);
+    assert.ok(metas[0].userPrompts.positive.includes('no humans'));
+    assert.ok(metas[0].userPrompts.negative.includes('1girl'));
+});
+
+test('gate:assets:dbgen-sprite-passes-frontend-templates', async () => {
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
+    const floor = { chatId: 'c', messageId: 3, swipeId: 0, isAi: true, isLatest: true, text: '[igs-char:神秘少女|平静|你来了。]' };
+    const metas = [];
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'c', readFloor: () => floor, readPreviousAiTexts: () => [] },
+        llm: { async request() { throw new Error('不应请求副 LLM'); } },
+        nai: {
+            describe: () => ({ mode: 'dbgen', ownPrompts: true, ready: { ok: true } }),
+            async generate(slot, settings, meta) { metas.push(meta); return { ok: true, dataUrl: 'data:image/png;base64,AAA' }; },
+        },
+        store: createMemoryGeneratedAssetStore(),
+        getSettings: () => ({
+            autoIllustration: { assets: { spriteEnabled: true, templates: { sprite: '{tags}, upper body, red ribbon, {matte}', spriteNegative: 'cowboy shot, hat' } } },
+            sceneAssets: { enabled: true, scenes: {}, characters: {} },
+        }),
+    });
+    const result = await service.processMessage(3, { manual: true });
+    assert.deepEqual([result.ok, result.count], [true, 1]);
+    const meta = metas[0];
+    assert.ok(!meta.description.includes('全身'), '不再写死全身构图');
+    assert.match(meta.description, /神秘少女/);
+    assert.match(meta.description, /upper body, red ribbon/);
+    assert.match(meta.description, /cowboy shot, hat/);
+    assert.ok(meta.userPrompts.positive.startsWith('upper body, red ribbon'));
+    assert.ok(meta.userPrompts.negative.startsWith('cowboy shot, hat'));
+});
+
+test('gate:image-backend:dbgen-merges-frontend-prompts-into-caption', async () => {
+    const { createImageBackend } = await import('../src/generated-images/image-backend.js');
+    const calls = [];
+    const globalObject = {
+        btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
+        NaiDbGen: {
+            async generateSinglePrompt(req) {
+                calls.push(['prompt', req]);
+                return { ok: true, value: { caption: {
+                    v4_prompt: { caption: { base_caption: '1girl, full body, blonde hair', char_captions: [{ char_caption: 'full body, smile', centers: [{ x: 0.5, y: 0.5 }] }] } },
+                    v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [{ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] }] } },
+                } } };
+            },
+            async generate(req) { calls.push(['gen', req]); return { ok: true, value: [{ blob: new Blob([Uint8Array.from([1])], { type: 'image/png' }), mimeType: 'image/png' }] }; },
+        },
+    };
+    const backend = createImageBackend({ nai: {}, global: globalObject, getBridge: () => ({ imageApi: { mode: 'dbgen' } }) });
+    const result = await backend.generate({}, {}, {
+        messageId: 7, description: '画角色', size: '832x1216',
+        userPrompts: { positive: 'cowboy shot, 1.2::grey background::', negative: 'Full Body, feet' },
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls[0][1], { description: '画角色', messageId: 7 });
+    const caption = calls[1][1].caption;
+    assert.equal(caption.v4_prompt.caption.base_caption, '1girl, blonde hair, cowboy shot, 1.2::grey background::');
+    assert.deepEqual(caption.v4_prompt.caption.char_captions, [{ char_caption: 'smile', centers: [{ x: 0.5, y: 0.5 }] }]);
+    assert.equal(caption.v4_negative_prompt.caption.base_caption, 'lowres, Full Body, feet');
+    assert.deepEqual(caption.v4_negative_prompt.caption.char_captions, [{ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] }]);
 });
 
 test('gate:llm:user-head-and-tail-wrap-requests-and-default-empty', async () => {
