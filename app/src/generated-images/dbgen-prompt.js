@@ -1,5 +1,6 @@
 // 数据库生图模式下的前端提示词接线：素材补全的正负模板既写进交给插件写词 LLM 的描述，
 // 也在出图前合并进插件返回的 NaiCaption，保证 IGS 前端填写的提示词一定进入最终请求。
+import { NSFW_NEGATIVE_GUARD } from './illustration/prompt-kit.js';
 
 const WEIGHT_RE = /^-?\d*\.?\d+::|::$/g;
 
@@ -32,7 +33,10 @@ export function buildDbgenAssetDescription(need = {}, prompts = {}) {
     const isBackground = need.type === 'background';
     const when = [need.time, need.weather].filter(Boolean).join('、');
     const positive = mergeTags(prompts.positive);
-    const negative = mergeTags(prompts.negative);
+    // 内置未成年防护词只进最终负面（applyUserPromptsToCaption），不写进交给写词 LLM 的描述：
+    // 实测写词 LLM 看到这组词会直接返回空回复，导致立绘整项失败。
+    const guard = new Set(splitTags(NSFW_NEGATIVE_GUARD).map(tagKey));
+    const negative = mergeTags(splitTags(prompts.negative).filter((tag) => !guard.has(tagKey(tag))).join(', '));
     return [
         isBackground
             ? `画场景「${need.name || ''}」${when ? `（${when}）` : ''}的背景图。`

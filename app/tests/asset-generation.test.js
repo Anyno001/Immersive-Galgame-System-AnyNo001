@@ -479,6 +479,8 @@ test('gate:assets:dbgen-sprite-passes-frontend-templates', async () => {
     assert.match(meta.description, /神秘少女/);
     assert.match(meta.description, /upper body, red ribbon/);
     assert.match(meta.description, /cowboy shot, hat/);
+    assert.ok(!/loli|shota|underage/.test(meta.description), '内置防护词不写进交给写词 LLM 的描述');
+    assert.ok(meta.userPrompts.negative.includes('loli'), '内置防护词仍随 userPrompts 进入最终负面');
     assert.ok(meta.userPrompts.positive.startsWith('upper body, red ribbon'));
     assert.ok(meta.userPrompts.negative.startsWith('cowboy shot, hat'));
 });
