@@ -35,6 +35,7 @@ const BASIC_TAB_TEMPLATE = `
           {{regexFlagsField}}
           <div class="igs-settings-full">{{regexReplacementField}}</div>
         </div>
+        {{regexExtraRules}}
       </details>
       <div class="igs-settings-row">
         <button class="igs-settings-action" data-action="reset-virtual-regex" type="button">恢复默认</button>
@@ -163,7 +164,6 @@ const IMAGE_AUTO_TEMPLATE = `
     </details>
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-jailbreak"{{advancedJailbreakOpen}}>
       <summary>高级：自定义附加词（头部 / 尾部）</summary>
-      <div class="igs-source-filter-note">插件不提供任何内容，留空即不附加。头部加在系统提示词最前，尾部加在请求内容最后，对剧情 CG 和素材的副 LLM 请求都生效。</div>
       <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
       <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
     </details>

@@ -929,6 +929,13 @@ test('gate:igs-ui:default-narration-adds-five-pixels-in-every-mode', () => {
     assert.match(rendererText, /dialog\.removeAttribute\('data-igs-narration'\)/);
 });
 
+test('gate:igs-ui:default-reader-chrome-removes-input-control-borders', () => {
+    const source = getOriginalReaderStyleText();
+    assert.match(source, /#igs-overlay\.igs-default-reader-chrome \.igs-controls\{border-top:0;\}/);
+    assert.match(source, /#igs-overlay\.igs-default-reader-chrome \.igs-input\{border:0;\}/);
+    assert.match(source, /#igs-overlay\.igs-default-reader-chrome \.igs-send-btn\{border:0;box-shadow:none;\}/);
+});
+
 test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
     const source = getOriginalReaderStyleText();
     assert.match(source, /\.igs-embedded-host\{aspect-ratio:8 \/ 5;max-height:760px;\}/);

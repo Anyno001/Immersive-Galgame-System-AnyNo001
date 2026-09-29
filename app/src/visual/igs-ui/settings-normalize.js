@@ -79,7 +79,8 @@ export function setPath(target, path, value) {
     let cursor = target;
     for (let index = 0; index < parts.length - 1; index += 1) {
         const key = parts[index];
-        if (!cursor[key] || typeof cursor[key] !== 'object' || Array.isArray(cursor[key])) {
+        const nextKey = parts[index + 1];
+        if (!cursor[key] || typeof cursor[key] !== 'object' || (Array.isArray(cursor[key]) && !/^\d+$/.test(nextKey))) {
             cursor[key] = {};
         }
         cursor = cursor[key];

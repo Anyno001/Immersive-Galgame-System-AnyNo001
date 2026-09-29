@@ -185,10 +185,13 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.virtualRegex.pattern',
             'bridge.virtualRegex.flags',
             'bridge.virtualRegex.replacement',
+            'bridge.virtualRegex.rules',
         ]),
         requiredActions: Object.freeze([
             'reset-virtual-regex',
             'test-virtual-regex',
+            'add-virtual-regex',
+            'remove-virtual-regex:',
         ]),
     }),
     image: Object.freeze({

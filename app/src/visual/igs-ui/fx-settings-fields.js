@@ -42,7 +42,7 @@ export function renderFxPerformanceSections(reader) {
             + checkbox(`${p}.titleCard.onLocation`, s.titleCard.onLocation, '切换地点时显示')
             + checkbox(`${p}.titleCard.onTime`, s.titleCard.onTime, '时间变化时显示')) : '');
     const favor = checkbox(`${p}.favorToast.enabled`, s.favorToast.enabled, '数值变化提示（读取状态栏已选表格）');
-    const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '演出标签（开启后向 AI 注入 igs-fx 语法）')
+    const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '演出标签')
         + (s.fxTags.enabled ? sub(`<div class="igs-source-filter-grid">${FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('')}</div>`) : '');
     const soundOn = s.heartbeatFx.enabled || s.flashFx.enabled || s.fxTags.enabled;
     const sound = soundOn ? group('音效', checkbox(`${p}.fxSound.enabled`, s.fxSound.enabled, '启用演出音效（铃声、心跳、耳鸣等）')

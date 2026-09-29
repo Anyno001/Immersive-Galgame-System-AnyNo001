@@ -2269,6 +2269,48 @@ test('gate:scene:directive-extraction-survives-malformed-tags-and-legacy-format-
     assert.equal(normalizeVirtualRegex({ pattern: '^@bubble:(.+)$' }).pattern, '^@bubble:(.+)$');
 });
 
+test('gate:scene:text-pipeline:virtual-regex-rules-run-in-order-and-keep-legacy-fields', async () => {
+    const { applyImmersiveGalgameSystemBodyFormat, normalizeVirtualRegex } = await import('../src/scene/message-source.js');
+    const legacy = applyImmersiveGalgameSystemBodyFormat('foo foo', {
+        enabled: true,
+        pattern: 'foo',
+        flags: 'g',
+        replacement: 'bar',
+    });
+    assert.equal(legacy.formattedRaw, 'bar bar');
+
+    const ordered = applyImmersiveGalgameSystemBodyFormat('foo foo', {
+        enabled: true,
+        pattern: 'foo',
+        flags: 'g',
+        replacement: 'bar',
+        rules: [
+            { pattern: 'bar', flags: 'g', replacement: 'baz' },
+            { pattern: '', flags: 'g', replacement: 'ignored' },
+        ],
+    });
+    assert.equal(ordered.formattedRaw, 'baz baz');
+    assert.deepEqual(normalizeVirtualRegex({
+        pattern: 'foo',
+        flags: ' g ',
+        rules: [{ pattern: 'bar', flags: ' i ', replacement: 2 }, null],
+    }).rules, [
+        { pattern: 'bar', flags: 'i', replacement: '2' },
+        { pattern: '', flags: '', replacement: '' },
+    ]);
+});
+
+test('gate:scene:settings:set-path-writes-virtual-regex-array-items', async () => {
+    const { setPath } = await import('../src/visual/igs-ui/settings-normalize.js');
+    const target = { bridge: { virtualRegex: { rules: [{}] } } };
+    setPath(target, 'bridge.virtualRegex.rules.0.pattern', 'foo');
+    setPath(target, 'bridge.virtualRegex.rules.0.flags', 'g');
+    setPath(target, 'bridge.virtualRegex.rules.0.replacement', 'bar');
+    assert.ok(Array.isArray(target.bridge.virtualRegex.rules));
+    assert.deepEqual(target.bridge.virtualRegex.rules[0], { pattern: 'foo', flags: 'g', replacement: 'bar' });
+});
+
+
 test('gate:igs-ui:reader-host-skips-empty-dialogue-pages', () => {
     const host = createIgsReaderHost({
         global: {},

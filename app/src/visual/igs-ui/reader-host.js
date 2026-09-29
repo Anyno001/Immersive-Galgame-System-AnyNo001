@@ -2489,6 +2489,20 @@ export function createIgsReaderHost(options = {}) {
                 regexPatternField: field('bridge.virtualRegex.pattern', '查找表达式', textareaInput('bridge.virtualRegex.pattern', bridge.virtualRegex.pattern, '^@bubble:([^|\\n]+)\\|[^|\\n]*\\|\\[?([^\\n]*?)\\]?$')),
                 regexFlagsField: field('bridge.virtualRegex.flags', 'flags', textInput('bridge.virtualRegex.flags', bridge.virtualRegex.flags, 'i')),
                 regexReplacementField: field('bridge.virtualRegex.replacement', '替换文本', textareaInput('bridge.virtualRegex.replacement', bridge.virtualRegex.replacement, '[$1]：$2')),
+                regexExtraRules: (() => {
+                    const rules = Array.isArray(bridge.virtualRegex.rules) ? bridge.virtualRegex.rules : [];
+                    return `<div class="igs-settings-full igs-settings-sub igs-regex-extra-rules">
+                        <div class="igs-settings-row"><strong>手动追加规则（按顺序执行）</strong><button class="igs-settings-action" data-action="add-virtual-regex" type="button">新增一条</button></div>
+                        ${rules.map((rule, index) => `<div class="igs-settings-sub igs-regex-extra-rule">
+                            <div class="igs-settings-row"><strong>追加规则 ${index + 1}</strong><button class="igs-settings-action" data-action="remove-virtual-regex:${index}" type="button">删除</button></div>
+                            <div class="igs-source-filter-grid">
+                                ${field(`bridge.virtualRegex.rules.${index}.pattern`, '查找表达式', textareaInput(`bridge.virtualRegex.rules.${index}.pattern`, rule.pattern, '输入正则表达式'))}
+                                ${field(`bridge.virtualRegex.rules.${index}.flags`, 'flags', textInput(`bridge.virtualRegex.rules.${index}.flags`, rule.flags, 'i'))}
+                                <div class="igs-settings-full">${field(`bridge.virtualRegex.rules.${index}.replacement`, '替换文本', textareaInput(`bridge.virtualRegex.rules.${index}.replacement`, rule.replacement, '输入替换文本'))}</div>
+                            </div>
+                        </div>`).join('')}
+                    </div>`;
+                })(),
                 regexPreview: esc(asyncState.virtualRegexPreview || ''),
             });
         }
@@ -2572,8 +2586,8 @@ export function createIgsReaderHost(options = {}) {
                 autoLlmModelsMessage: esc(asyncState.llmModelsMessage || ''),
                 autoLlmPromptsOpen: advancedOpen('llm-prompts'),
                 advancedJailbreakOpen: advancedOpen('llm-jailbreak'),
-                autoLlmJailbreakHeadField: field('bridge.autoIllustration.llm.jailbreakHead', '头部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakHead', auto.llm.jailbreakHead, '留空不附加')),
-                autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '留空不附加')),
+                autoLlmJailbreakHeadField: field('bridge.autoIllustration.llm.jailbreakHead', '头部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakHead', auto.llm.jailbreakHead, '')),
+                autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '')),
                 autoLlmPromptIllustrationField: field('bridge.autoIllustration.llm.prompts.illustration', 'CG 插图规划', autoTextarea('bridge.autoIllustration.llm.prompts.illustration', auto.llm.prompts.illustration, '清空即恢复内置提示词')),
                 autoLlmPromptIllustrationSoftField: field('bridge.autoIllustration.llm.prompts.illustrationSoft', 'CG 插图规划 · 温和重试（NSFW 被拒后使用）', autoTextarea('bridge.autoIllustration.llm.prompts.illustrationSoft', auto.llm.prompts.illustrationSoft, '清空即恢复内置提示词')),
                 autoLlmPromptAssetField: field('bridge.autoIllustration.llm.prompts.asset', '素材补全规划', autoTextarea('bridge.autoIllustration.llm.prompts.asset', auto.llm.prompts.asset, '清空即恢复内置提示词')),

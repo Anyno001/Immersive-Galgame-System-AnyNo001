@@ -23,6 +23,53 @@ import { VISUAL_MODES } from '../src/visual/visual-mode.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
 
+test('gate:simulation:virtual-regex-extra-rules-render-add-save-and-remove', async () => {
+    const storage = createMemoryStorage();
+    const document = createFakeDocument();
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '正则设置测试。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        const settings = opened.reader.controller.openSettings('regex').controller;
+        let snapshot = settings.getSnapshot();
+        assert.match(snapshot.html, /手动追加规则（按顺序执行）/);
+        assert.deepEqual(snapshot.draft.bridge.virtualRegex.rules, []);
+
+        const added = await settings.invoke('add-virtual-regex');
+        assert.equal(added.ok, true);
+        snapshot = settings.getSnapshot();
+        assert.match(snapshot.html, /data-path="bridge\.virtualRegex\.rules\.0\.pattern"/);
+        settings.setValue('bridge.virtualRegex.rules.0.pattern', 'foo');
+        settings.setValue('bridge.virtualRegex.rules.0.flags', 'g');
+        settings.setValue('bridge.virtualRegex.rules.0.replacement', 'bar');
+        assert.deepEqual(settings.getSnapshot().draft.bridge.virtualRegex.rules, [{ pattern: 'foo', flags: 'g', replacement: 'bar' }]);
+        assert.equal(settings.close().ok, true);
+        assert.deepEqual(vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex.rules, [{ pattern: 'foo', flags: 'g', replacement: 'bar' }]);
+
+        const reopened = vn.openSettings({ tab: 'regex', mode: 'pc' }).controller;
+        const removed = await reopened.invoke('remove-virtual-regex:0');
+        assert.equal(removed.ok, true);
+        assert.deepEqual(reopened.getSnapshot().draft.bridge.virtualRegex.rules, []);
+        assert.deepEqual(vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex.rules, []);
+        assert.equal(reopened.close().ok, true);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:igs-ui:toolbar-top-wraps-many-buttons', () => {
+    const css = getOriginalReaderStyleText();
+    assert.match(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar\{[^}]*flex-wrap:wrap/);
+    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*flex-wrap:wrap[^}]*overflow-x:visible[^}]*max-height:78px/);
+});
+
+
 test('gate:simulation:minimal loop reads fake message, resolves scene, renders layer, and sends choice text', async () => {
     const message = readJson('fixtures/tavern/standard-message.json');
     const sent = [];
@@ -2044,12 +2091,14 @@ test('gate:simulation:igs-ui-toolbar-top-has-option-bubble-avoidance-css', () =>
     );
 });
 
-test('gate:simulation:igs-ui-toolbar-top-bar-is-horizontally-scrollable', () => {
-    // 顶部固定栏按钮放不下时须能横向滚动：触摸端 touch-action:pan-x，溢出态切 flex-start。
+test('gate:simulation:igs-ui-toolbar-top-wraps-instead-of-horizontal-scroll', () => {
+    // 顶部固定栏按钮放不下时须换行，不再依赖横向滚动。
     const css = getOriginalReaderStyleText();
-    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*overflow-x:auto/);
-    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*touch-action:pan-x/);
-    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\.igs-bar-overflow\{[^}]*justify-content:flex-start/);
+    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*flex-wrap:wrap/);
+    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*overflow-x:visible/);
+    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*max-height:78px/);
+    assert.doesNotMatch(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*overflow-x:auto/);
+    assert.doesNotMatch(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*touch-action:pan-x/);
 });
 
 test('gate:simulation:igs-ui-toolbar-dock-invalid-falls-back-to-float', async () => {

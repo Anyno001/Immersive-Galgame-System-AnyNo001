@@ -155,15 +155,28 @@ export function normalizeSourceFilter(value) {
     };
 }
 
+function normalizeVirtualRegexRule(value) {
+    const source = isPlainObject(value) ? value : {};
+    return {
+        pattern: String(source.pattern == null ? '' : source.pattern),
+        flags: String(source.flags == null ? '' : source.flags).replace(/\s+/g, ''),
+        replacement: String(source.replacement == null ? '' : source.replacement),
+    };
+}
+
 export function normalizeVirtualRegex(value) {
     const source = isPlainObject(value) ? value : {};
     const merged = { ...DEFAULT_VIRTUAL_REGEX, ...source };
     const pattern = String(merged.pattern == null ? DEFAULT_VIRTUAL_REGEX.pattern : merged.pattern);
+    const rules = Array.isArray(merged.rules)
+        ? merged.rules.map(normalizeVirtualRegexRule)
+        : [];
     return {
         enabled: merged.enabled !== false,
         pattern: LEGACY_VIRTUAL_REGEX_PATTERNS.includes(pattern) ? DEFAULT_VIRTUAL_REGEX.pattern : pattern,
         flags: String(merged.flags == null ? DEFAULT_VIRTUAL_REGEX.flags : merged.flags).replace(/\s+/g, ''),
         replacement: String(merged.replacement == null ? DEFAULT_VIRTUAL_REGEX.replacement : merged.replacement),
+        rules,
     };
 }
 
@@ -195,15 +208,22 @@ export function applyImmersiveGalgameSystemBodyFormat(raw, rule) {
         virtualRegexError: '',
     };
 
-    if (!cfg.enabled || !cfg.pattern) {
+    if (!cfg.enabled || (!cfg.pattern && !cfg.rules.length)) {
         result.formatSourceKind = 'raw';
         return result;
     }
 
     try {
-        const regex = new RegExp(cfg.pattern, cfg.flags);
         const bounded = breakAfterIgsDirectiveClose(source);
-        result.formattedRaw = bounded.replace(regex, cfg.replacement);
+        const rules = [{
+            pattern: cfg.pattern,
+            flags: cfg.flags,
+            replacement: cfg.replacement,
+        }, ...cfg.rules].filter((rule) => rule.pattern);
+        result.formattedRaw = rules.reduce((text, rule) => {
+            const regex = new RegExp(rule.pattern, rule.flags);
+            return text.replace(regex, rule.replacement);
+        }, bounded);
         result.formattedRaw = result.formattedRaw.replace(THOUGHT_RE_GLOBAL, '*$2*');
         result.virtualRegexChanged = result.formattedRaw !== source;
         if (!result.virtualRegexChanged) result.formatSourceKind = 'raw';

@@ -543,6 +543,29 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'add-virtual-regex') {
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const virtualRegex = bridge.virtualRegex = bridge.virtualRegex || {};
+        const rules = Array.isArray(virtualRegex.rules) ? virtualRegex.rules.slice() : [];
+        rules.push({ pattern: '', flags: '', replacement: '' });
+        virtualRegex.rules = rules;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('remove-virtual-regex:')) {
+        const index = Number(normalizedAction.slice('remove-virtual-regex:'.length));
+        const virtualRegex = settingsState.draft.bridge && settingsState.draft.bridge.virtualRegex;
+        const rules = virtualRegex && Array.isArray(virtualRegex.rules) ? virtualRegex.rules.slice() : [];
+        if (!Number.isInteger(index) || index < 0 || index >= rules.length) return rerenderSettings();
+        rules.splice(index, 1);
+        virtualRegex.rules = rules;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'fetch-nai-models') {
         settingsState.asyncState.naiModels = NAI_OFFICIAL_MODELS.slice();
         settingsState.asyncState.naiModelsMessage = `NAI 官方没有模型列表接口，已载入内置 ${NAI_OFFICIAL_MODELS.length} 个模型（V5 / V4.5 / V4）。`;

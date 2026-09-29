@@ -114,7 +114,6 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
         fetchModels,
         async request({ system, user }, llm = {}) {
             const timeoutMs = Number(llm.timeoutMs) || 90000;
-            // 用户自填的头部 / 尾部附加词，插件本身不提供任何内容，留空即不附加。
             const head = String(llm.jailbreakHead || '').trim();
             const tail = String(llm.jailbreakTail || '').trim();
             const finalSystem = head ? `${head}\n\n${system}` : system;
