@@ -61,6 +61,40 @@ function generatedOperationFailure(globalObj, message, reason) {
     return { ok: false, reason };
 }
 
+// 下载文件名：去掉 Windows / 各浏览器不允许的字符，保证以 .png 结尾。
+export function sanitizeDownloadName(name) {
+    const cleaned = String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().replace(/^\.+/, '');
+    const base = cleaned || '素材.png';
+    return /\.png$/i.test(base) ? base : `${base}.png`;
+}
+
+// 把 data:image/...;base64 转成 Blob 下载；环境缺 Blob/URL 时退回直接用 dataUrl 作为链接。
+function triggerDataUrlDownload(globalObj, dataUrl, fileName) {
+    const doc = globalObj.document;
+    if (!doc || typeof doc.createElement !== 'function') return { ok: false, reason: 'no-document' };
+    const BlobCtor = globalObj.Blob || globalThis.Blob;
+    const urlApi = globalObj.URL || globalThis.URL;
+    const decode = typeof globalObj.atob === 'function' ? globalObj.atob.bind(globalObj) : (typeof globalThis.atob === 'function' ? globalThis.atob : null);
+    const m = /^data:([^;,]+);base64,/i.exec(String(dataUrl));
+    let href = dataUrl;
+    let objectUrl = '';
+    if (m && BlobCtor && urlApi && typeof urlApi.createObjectURL === 'function' && decode) {
+        const bin = decode(String(dataUrl).slice(m[0].length));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+        objectUrl = urlApi.createObjectURL(new BlobCtor([bytes], { type: m[1] }));
+        href = objectUrl;
+    }
+    const a = doc.createElement('a');
+    a.href = href;
+    a.download = fileName;
+    doc.body.appendChild(a);
+    a.click();
+    doc.body.removeChild(a);
+    if (objectUrl && typeof urlApi.revokeObjectURL === 'function') urlApi.revokeObjectURL(objectUrl);
+    return { ok: true, fileName };
+}
+
 export async function handleSettingsAction(action, ctx) {
     const {
         state,
@@ -208,6 +242,32 @@ export async function handleSettingsAction(action, ctx) {
         }
         return rerenderSettings();
     }
+
+    // 下载 IGS 实际存储的素材图片：立绘为裁边后带原图 PNG 文本块的版本，背景为原图。
+    if (normalizedAction.startsWith('gen-asset-download:')) {
+        const rest = normalizedAction.slice('gen-asset-download:'.length);
+        const colon = rest.indexOf(':');
+        const imageId = decodeSeg(colon < 0 ? rest : rest.slice(0, colon));
+        const fileName = sanitizeDownloadName(colon < 0 ? '' : decodeSeg(rest.slice(colon + 1)));
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        if (!imageId || !service || typeof service.getImageDataUrl !== 'function') {
+            return { ok: false, reason: 'generated-assets-unavailable' };
+        }
+        let dataUrl = '';
+        try {
+            dataUrl = await service.getImageDataUrl(imageId);
+        } catch (error) {
+            dataUrl = '';
+        }
+        if (!dataUrl) return generatedOperationFailure(globalObj, '找不到这份素材的图片，可能已被删除。', 'generated-asset-image-missing');
+        try {
+            return triggerDataUrlDownload(globalObj, dataUrl, fileName);
+        } catch (error) {
+            return generatedOperationFailure(globalObj, '素材图片下载失败。', 'generated-asset-download-failed');
+        }
+    }
+
 
     if (normalizedAction.startsWith('gen-temp-discard:')) {
         const key = decodeSeg(normalizedAction.slice('gen-temp-discard:'.length));

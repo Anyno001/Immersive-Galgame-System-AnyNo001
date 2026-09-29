@@ -463,3 +463,48 @@ test('gate:llm:user-head-and-tail-wrap-requests-and-default-empty', async () => 
     assert.deepEqual(bodies[0].messages.map((m) => m.content), ['SYS', 'USR']);
     assert.deepEqual(bodies[1].messages.map((m) => m.content), ['HEAD\n\nSYS', 'USR\n\nTAIL']);
 });
+
+test('gate:alpha-matte:keeps-png-text-chunks-after-crop', async () => {
+    const { default: zlib } = await import('node:zlib');
+    const { preservePngTextChunks, extractPngTextChunks } = await import('../src/media/alpha-matte.js');
+    const chunk = (type, data) => {
+        const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+        const td = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+        const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(td) >>> 0);
+        return Buffer.concat([len, td, crc]);
+    };
+    const png = (extra) => {
+        const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(1, 0); ihdr.writeUInt32BE(1, 4); ihdr[8] = 8; ihdr[9] = 6;
+        return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', ihdr), ...extra, chunk('IDAT', zlib.deflateSync(Buffer.from([0, 0, 0, 0, 0]))), chunk('IEND', Buffer.alloc(0))]);
+    };
+    const toUrl = (b) => `data:image/png;base64,${b.toString('base64')}`;
+    const texts = ['Comment\0{"prompt":"1girl"}', 'Software\0NovelAI'];
+    const source = png(texts.map((t) => chunk('tEXt', Buffer.from(t, 'latin1'))));
+    const cropped = png([]);
+    const out = Buffer.from(preservePngTextChunks(toUrl(source), toUrl(cropped)).split(',')[1], 'base64');
+    const got = extractPngTextChunks(new Uint8Array(out)).map((c) => Buffer.from(c).toString('latin1', 8, c.length - 4));
+    assert.deepEqual(got, texts, '裁边输出保留原图文本块');
+    assert.equal(out.toString('latin1', 12, 16), 'IHDR');
+    assert.equal(out.toString('latin1', 37, 41), 'tEXt', '文本块紧跟 IHDR');
+    assert.equal(preservePngTextChunks(toUrl(cropped), toUrl(cropped)), toUrl(cropped), '源图无元数据时输出不变');
+    assert.equal(preservePngTextChunks('data:image/png;base64,@@', toUrl(cropped)), toUrl(cropped), '源图损坏时输出不变');
+});
+
+test('gate:generated-assets:get-image-data-url-for-download', async () => {
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
+    const store = createMemoryGeneratedAssetStore();
+    await store.putImage({ id: 'img-1', dataUrl: 'data:image/png;base64,AAAA', type: 'sprite', createdAt: 1 });
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'chat', readFloor: () => null, readPreviousAiTexts: () => [], on: () => () => {} },
+        llm: { async request() { throw new Error('unused'); } },
+        nai: { async generate() { return { ok: false }; } },
+        store,
+        getSettings: () => ({}),
+        report: () => {},
+        matte: async (d) => d,
+    });
+    assert.equal(await service.getImageDataUrl('img-1'), 'data:image/png;base64,AAAA');
+    assert.equal(await service.getImageDataUrl('missing'), '');
+    assert.equal(await service.getImageDataUrl(''), '');
+});

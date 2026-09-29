@@ -287,8 +287,18 @@ export function createAssetGenerationService(deps) {
         }
     }
 
+    // 下载用：取 IGS 实际存储的图片 dataUrl（立绘为裁边后的版本），找不到返回空串。
+    async function getImageDataUrl(id) {
+        const key = String(id || '');
+        if (!key) return '';
+        const hit = images.get(key);
+        if (hit) return hit;
+        const record = await store.getImage(key);
+        return record && record.dataUrl ? record.dataUrl : '';
+    }
+
     return {
-        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages,
+        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl,
         getRecord: (key) => currentTempRecords().get(key) || null,
         start() {
             if (offRendered) return;
