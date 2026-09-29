@@ -5,6 +5,7 @@ import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './au
 import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-builder.js';
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
+import { buildDbgenAssetDescription } from '../dbgen-prompt.js';
 
 export const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
 const IMAGE_CACHE_LIMIT = 60;
@@ -14,14 +15,6 @@ const ACTIVE_TEMP_STATUSES = new Set(['review', 'chat']);
 
 function toReadableText(raw) {
     return numberParagraphs(raw).paragraphs.map((p) => p.text).join('\n');
-}
-
-function describeAssetNeed(need) {
-    if (need.type === 'background') {
-        const when = [need.time, need.weather].filter(Boolean).join('、');
-        return `画场景「${need.name}」${when ? `（${when}）` : ''}的空镜背景图：只画环境，画面中不要出现任何人物。`;
-    }
-    return `画角色「${need.name}」的立绘：单人、全身、正面站立，纯白背景，不要其他人物和场景。`;
 }
 
 export function createAssetGenerationService(deps) {
@@ -132,7 +125,9 @@ export function createAssetGenerationService(deps) {
         const transparent = isSprite && supportsNaiTransparentBackground(s.auto.nai.model);
         const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
         const size = isSprite ? s.auto.assets.spriteSize : s.auto.assets.backgroundSize;
-        const meta = { messageId: floor.messageId, size, description: describeAssetNeed(item.need) };
+        // 数据库生图模式下前端正负模板随 meta 传出：写进描述交给插件写词，并在出图前合并进最终 caption。
+        const userPrompts = { positive: slot.scene, negative: slot.sceneUc };
+        const meta = { messageId: floor.messageId, size, description: buildDbgenAssetDescription(item.need, userPrompts), userPrompts };
         let result;
         try { result = await nai.generate(slot, { ...s.auto.nai, size }, meta); } catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
         const key = tempAssetKeyOf(floor.chatId, item.need);
