@@ -20,7 +20,7 @@ import { spriteGeometry } from '../src/visual/igs-ui/fx-runtime.js';
 import { MANGA_SYMBOL_SVG, pickFxAccent } from '../src/visual/igs-ui/fx-symbols.js';
 import { MANGA_SYMBOL_KINDS } from '../src/visual/igs-ui/fx-settings.js';
 import { clearSpriteHeadCache, probeSpriteHead } from '../src/visual/igs-ui/fx-anchor.js';
-import { exitSpriteEditMode } from '../src/visual/igs-ui/sprite-edit.js';
+import { exitSpriteEditMode, spriteDragPosition } from '../src/visual/igs-ui/sprite-edit.js';
 
 class FakeNode {
     constructor(doc, tag) {
@@ -398,3 +398,30 @@ test('gate:fx-anchor:failed-sprite-probe-is-not-retried-every-render', async () 
     assert.equal(loads, 1);
     clearSpriteHeadCache();
 });
+
+test('gate:sprite-edit:drag-follows-finger-when-sprite-larger-than-stage', () => {
+    const stage = { stageW: 400, stageH: 600 };
+    const natural = { naturalW: 832, naturalH: 1216 };
+    const moved = (layout, dx, dy) => {
+        const before = spriteDrawRect(stage.stageW, stage.stageH, { ...layout, ...natural });
+        const next = spriteDragPosition({ ...layout, ...stage, ...natural, dx, dy });
+        const after = spriteDrawRect(stage.stageW, stage.stageH, { ...layout, ...next, ...natural });
+        return { next, dx: after.left - before.left, dy: after.top - before.top };
+    };
+    // 手机竖屏常见：立绘放大到比舞台宽，手指左移，立绘必须左移同样距离（旧逻辑会反向）。
+    const big = moved({ posX: 50, posY: 100, scale: 200 }, -40, -30);
+    assert.ok(Math.abs(big.dx - -40) < 1e-6, `横向跟手：${big.dx}`);
+    assert.ok(Math.abs(big.dy - -30) < 1e-6, `纵向跟手：${big.dy}`);
+    // 立绘比舞台窄（PC 常见）：同样跟手。
+    const small = moved({ posX: 50, posY: 100, scale: 50 }, 20, -10);
+    assert.ok(Math.abs(small.dx - 20) < 1e-6);
+    assert.ok(Math.abs(small.dy - -10) < 1e-6);
+    // 立绘恰好与舞台等宽：横向百分比不影响画面，保持不变，不产生跳变。
+    const same = spriteDragPosition({ posX: 50, posY: 100, scale: 100, ...stage, ...natural, dx: 30, dy: 0 });
+    assert.equal(same.posX, 50);
+    // 读不到原图比例：纵向沿用按舞台高度换算。
+    const unknown = spriteDragPosition({ posX: 50, posY: 100, scale: 200, ...stage, dx: -40, dy: -60 });
+    assert.equal(unknown.posX, 60);
+    assert.equal(unknown.posY, 90);
+});
+
