@@ -334,6 +334,7 @@ export function getChatRevealState(root) {
 export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer{position:absolute;inset:0;z-index:4;display:flex;align-items:center;justify-content:center;padding:clamp(52px,9%,72px) clamp(10px,4%,32px) clamp(16px,5%,40px);box-sizing:border-box;background:rgba(0,0,0,var(--igs-chat-dim,.45));cursor:pointer;font-family:var(--igs-chat-font,inherit);}
 #igs-chat-layer[hidden]{display:none;}
+#igs-overlay.igs-options-visible #igs-chat-layer{display:none;}
 #igs-chat-layer .igs-chat-shell{display:flex;flex-direction:column;width:min(640px,100%);max-height:100%;min-height:0;box-sizing:border-box;}
 #igs-chat-layer .igs-chat-head{align-self:center;flex:none;margin-bottom:10px;padding:4px 14px;border-radius:999px;background:rgba(0,0,0,.38);color:#fff;font-size:13px;line-height:1.5;letter-spacing:.04em;}
 #igs-chat-layer .igs-chat-head[hidden]{display:none;}

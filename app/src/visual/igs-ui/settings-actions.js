@@ -268,7 +268,6 @@ export async function handleSettingsAction(action, ctx) {
         }
     }
 
-
     if (normalizedAction.startsWith('gen-temp-discard:')) {
         const key = decodeSeg(normalizedAction.slice('gen-temp-discard:'.length));
         const globalObj = options.global || globalThis;

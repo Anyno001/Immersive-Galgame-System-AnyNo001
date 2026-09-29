@@ -14,6 +14,8 @@ import { resolveFxPromptRule } from '../src/visual/igs-ui/fx-prompt.js';
 test('gate:fx-directives:parse-known-kinds-and-reject-bad-args', () => {
     assert.deepEqual(parseFxBody('call|爱丽丝'), { kind: 'call', end: false, args: ['爱丽丝'] });
     assert.deepEqual(parseFxBody('call-end'), { kind: 'call', end: true, args: [] });
+    assert.deepEqual(parseFxBody('dream'), { kind: 'dream', end: false, args: [] });
+    assert.deepEqual(parseFxBody('dream-end'), { kind: 'dream', end: true, args: [] });
     assert.deepEqual(parseFxBody('eye|OPEN'), { kind: 'eye', end: false, args: ['open'] });
     assert.equal(parseFxBody('eye|blink'), null);
     assert.equal(parseFxBody('call'), null);
@@ -23,36 +25,38 @@ test('gate:fx-directives:parse-known-kinds-and-reject-bad-args', () => {
 });
 
 test('gate:fx-directives:extract-offsets-and-tolerate-missing-bracket', () => {
-    const source = '开头\n[igs-fx:sfx|砰]\n正文一\n[igs-fx:flashback\n回忆\n[igs-fx:bogus]\n';
+    const source = '开头\n[igs-fx:sfx|砰]\n正文一\n[igs-fx:flashback\n回忆\n[igs-fx:dream]\n梦境\n[igs-fx:bogus]\n';
     const list = extractFxDirectives(source);
-    assert.deepEqual(list.map((d) => d.kind), ['sfx', 'flashback']);
+    assert.deepEqual(list.map((d) => d.kind), ['sfx', 'flashback', 'dream']);
     assert.equal(list[0].offset, source.indexOf('[igs-fx:sfx'));
 });
 
 test('gate:fx-directives:instants-attach-to-next-page-ranges-follow-open-close', () => {
-    const source = '[igs-fx:call|爱丽丝]第一页\n[igs-fx:sfx|砰][igs-fx:sfx|咚]第二页\n[igs-fx:call-end]第三页';
+    const source = '[igs-fx:call|爱丽丝]第一页\n[igs-fx:dream]梦境页\n[igs-fx:dream-end]现实页';
     const list = extractFxDirectives(source);
     const p1 = source.indexOf('第一页');
-    const p2 = source.indexOf('第二页');
-    const p3 = source.indexOf('第三页');
+    const p2 = source.indexOf('梦境页');
+    const p3 = source.indexOf('现实页');
     const first = resolveFxAtPage(list, p1, -1);
     assert.deepEqual(first.instants, [{ kind: 'call', name: '爱丽丝' }]);
     assert.deepEqual(first.call, { name: '爱丽丝' });
     const second = resolveFxAtPage(list, p2, p1);
-    assert.deepEqual(second.instants, [{ kind: 'sfx', text: '砰' }]);
-    assert.deepEqual(second.call, { name: '爱丽丝' });
+    assert.deepEqual(second.instants, []);
+    assert.equal(second.dream, true);
     const third = resolveFxAtPage(list, p3, p2);
-    assert.deepEqual(third.instants, [{ kind: 'call-end' }]);
-    assert.equal(third.call, null);
+    assert.deepEqual(third.instants, []);
+    assert.equal(third.dream, false);
+    assert.deepEqual(third.call, { name: '爱丽丝' });
     assert.deepEqual(resolveFxAtPage(list, -1, -1).instants, []);
 });
 
 test('gate:fx-directives:filter-by-enabled-kinds', () => {
-    const fx = { instants: [{ kind: 'sfx', text: '砰' }, { kind: 'call-end' }], call: { name: 'A' }, flashback: true, letterbox: true };
-    const filtered = filterFxByKinds(fx, ['call', 'letterbox']);
+    const fx = { instants: [{ kind: 'sfx', text: '砰' }, { kind: 'call-end' }], call: { name: 'A' }, flashback: true, dream: true, letterbox: true };
+    const filtered = filterFxByKinds(fx, ['call', 'dream', 'letterbox']);
     assert.deepEqual(filtered.instants, [{ kind: 'call-end' }]);
     assert.deepEqual(filtered.call, { name: 'A' });
     assert.equal(filtered.flashback, false);
+    assert.equal(filtered.dream, true);
     assert.equal(filtered.letterbox, true);
 });
 
@@ -74,9 +78,10 @@ test('gate:fx-directives:fx-lines-move-out-of-explicit-chat-blocks', () => {
 
 test('gate:fx-directives:prompt-rule-only-lists-enabled-kinds', () => {
     assert.equal(resolveFxPromptRule({ enabled: false }), '');
-    const rule = resolveFxPromptRule({ enabled: true, call: false, notify: false, flashback: true, letterbox: false, sfx: true, eye: false });
+    const rule = resolveFxPromptRule({ enabled: true, call: false, notify: false, flashback: true, dream: true, letterbox: false, sfx: true, eye: false });
     assert.match(rule, /igs-fx:flashback/);
+    assert.match(rule, /igs-fx:dream/);
     assert.match(rule, /igs-fx:sfx/);
     assert.doesNotMatch(rule, /igs-fx:call/);
-    assert.equal(resolveFxPromptRule({ enabled: true, call: false, notify: false, flashback: false, letterbox: false, sfx: false, eye: false }), '');
+    assert.equal(resolveFxPromptRule({ enabled: true, call: false, notify: false, flashback: false, dream: false, letterbox: false, sfx: false, eye: false }), '');
 });

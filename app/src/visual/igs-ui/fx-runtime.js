@@ -18,19 +18,20 @@ import { MANGA_SYMBOL_SVG, pickFxAccent, speedLinesImage, warmSpeedLines } from 
 import { measureStage, peekSpriteHead, probeSpriteHead, resolveSymbolPlacement, waitSpriteHead } from './fx-anchor.js';
 
 export const FX_LIFETIME_MS = Object.freeze({
-    symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 800, title: 2700,
+    symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 800,
     favor: 2400, notify: 3300, sfx: 1000, eye: 1600, call: 2400, 'call-end': 1800,
 });
+export const TITLE_CARD_LIFETIME_MS = Object.freeze({ fast: 1800, medium: 2700, slow: 4200 });
 const SEEN_LIMIT = 256;
 const FAVOR_LIMIT = 256;
 const MIN_FAVOR_DELTA = 1;
 // 停留时间只拉长「出现—停留—消失」类演出；心跳、闪白、睁眼与来电跟音效节奏绑定，不随档位变化。
-const HOLDABLE = new Set(['symbol', 'speedLines', 'title', 'favor', 'notify', 'sfx', 'call-end']);
-const RANGE_ATTRS = Object.freeze(['data-igs-fx-flashback', 'data-igs-fx-letterbox', 'data-igs-fx-call', 'data-igs-fx-motion', 'data-igs-fx-busy']);
+const HOLDABLE = new Set(['symbol', 'speedLines', 'favor', 'notify', 'sfx', 'call-end']);
+const RANGE_ATTRS = Object.freeze(['data-igs-fx-flashback', 'data-igs-fx-dream', 'data-igs-fx-letterbox', 'data-igs-fx-call', 'data-igs-fx-motion', 'data-igs-fx-busy', 'data-igs-fx-presentation']);
 // 在对话框下方播放的全屏演出：播放期间给舞台挂 data-igs-fx-busy，样式暂停对话框毛玻璃，
 // 否则 backdrop-filter 每帧都要对变化中的底图重新模糊。
 const BUSY_EFFECTS = new Set(['speedLines', 'heartbeat', 'eye']);
-const EMPTY_FX = Object.freeze({ instants: [], call: null, flashback: false, letterbox: false });
+const EMPTY_FX = Object.freeze({ instants: [], call: null, flashback: false, dream: false, letterbox: false });
 
 const states = new WeakMap();
 const layeredRoots = new WeakSet();
@@ -143,8 +144,9 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline, normalize
     return {
         pageKey,
         effects,
-        ranges: { flashback: fx.flashback, letterbox: fx.letterbox, call: fx.call },
+        ranges: { flashback: fx.flashback, dream: fx.dream, letterbox: fx.letterbox, call: fx.call },
         eyeHold,
+        titleSpeed: settings.titleCard.speed,
         sound: settings.fxSound,
         style: settings.fxStyle,
     };
@@ -180,7 +182,7 @@ function setFlag(el, name, on, value = '1') {
 function getState(root, options) {
     let state = states.get(root);
     if (!state) {
-        state = { memory: createFxMemory(), timers: new Set(), sounds: [], pageKey: '', busy: 0, rangeBusy: false, busyOn: false, motion: null, accent: null };
+        state = { memory: createFxMemory(), timers: new Set(), sounds: [], pageKey: '', busy: 0, rangeBusy: false, busyOn: false, presentation: 0, presentationOn: false, motion: null, accent: null };
         states.set(root, state);
     }
     state.schedule = typeof options.schedule === 'function' ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -204,7 +206,14 @@ function syncBusy(state) {
     setFlag(state.motion, 'data-igs-fx-busy', on);
 }
 
-function spawn(state, layer, el, lifeMs, busy = false) {
+function syncPresentation(state) {
+    const on = state.presentation > 0;
+    if (on === state.presentationOn || !state.motion) return;
+    state.presentationOn = on;
+    setFlag(state.motion, 'data-igs-fx-presentation', on);
+}
+
+function spawn(state, layer, el, lifeMs, busy = false, presentation = false) {
     el.classList.add('igs-fx-transient');
     if (el.style && typeof el.style.setProperty === 'function') el.style.setProperty('--igs-fx-life', `${lifeMs}ms`);
     layer.appendChild(el);
@@ -212,11 +221,19 @@ function spawn(state, layer, el, lifeMs, busy = false) {
         state.busy += 1;
         syncBusy(state);
     }
+    if (presentation) {
+        state.presentation += 1;
+        syncPresentation(state);
+    }
     track(state, () => {
         el.remove();
         if (busy) {
             state.busy = Math.max(0, state.busy - 1);
             syncBusy(state);
+        }
+        if (presentation) {
+            state.presentation = Math.max(0, state.presentation - 1);
+            syncPresentation(state);
         }
     }, lifeMs);
     return el;
@@ -227,6 +244,8 @@ function clearTransients(state, layers) {
     for (const timer of state.timers) state.clear(timer);
     state.timers.clear();
     state.busy = 0;
+    state.presentation = 0;
+    syncPresentation(state);
     for (const layer of [layers.stage, layers.front]) {
         if (!layer) continue;
         for (const el of Array.from(layer.querySelectorAll('.igs-fx-transient'))) el.remove();
@@ -333,7 +352,9 @@ function speedLines(doc) {
 
 function playEffect(effect, ctx) {
     const { state, layers, doc, snapshot, options, reduced, plan } = ctx;
-    const base = FX_LIFETIME_MS[effect.type] || 1000;
+    const base = effect.type === 'title'
+        ? (TITLE_CARD_LIFETIME_MS[plan.titleSpeed] || TITLE_CARD_LIFETIME_MS.medium)
+        : (FX_LIFETIME_MS[effect.type] || 1000);
     const life = HOLDABLE.has(effect.type) ? Math.round(base * (FX_HOLD_SCALE[plan.style.hold] || 1)) : base;
     const busy = BUSY_EFFECTS.has(effect.type);
     if (effect.type === 'symbol') {
@@ -352,7 +373,7 @@ function playEffect(effect, ctx) {
         const el = node(doc, 'igs-fx-title-card');
         if (effect.main) el.appendChild(node(doc, 'igs-fx-title-main', effect.main));
         if (effect.sub) el.appendChild(node(doc, 'igs-fx-title-sub', effect.sub));
-        spawn(state, layers.front, el, life);
+        spawn(state, layers.front, el, life, false, true);
     } else if (effect.type === 'favor') {
         const up = effect.delta > 0;
         const el = node(doc, 'igs-fx-favor', `${effect.character} ${effect.label} ${up ? '↑' : '↓'} ${up ? '+' : ''}${effect.delta}`);
@@ -413,9 +434,10 @@ export function applyFxToDom(root, snapshot, options = {}) {
     state.accent = accent;
     setFlag(motion, 'data-igs-fx-motion', plan.style.motion === 'snappy', 'snappy');
     setFlag(motion, 'data-igs-fx-flashback', plan.ranges.flashback);
+    setFlag(motion, 'data-igs-fx-dream', plan.ranges.dream);
     setFlag(motion, 'data-igs-fx-letterbox', plan.ranges.letterbox);
     setFlag(motion, 'data-igs-fx-call', Boolean(plan.ranges.call));
-    state.rangeBusy = Boolean(plan.ranges.flashback);
+    state.rangeBusy = Boolean(plan.ranges.flashback || plan.ranges.dream);
     syncBusy(state);
     // 常驻节点只在内容变化时写入，避免每次渲染都产生无意义的 DOM 变更（外部 MutationObserver 也会被惊动）。
     const badgeText = plan.ranges.call ? `通话中 · ${plan.ranges.call.name}` : '';

@@ -38,7 +38,8 @@ export function renderFxPerformanceSections(reader) {
     const flash = checkbox(`${p}.flashFx.enabled`, s.flashFx.enabled, '闪白与耳鸣')
         + (s.flashFx.enabled ? sub(renderWordListField('flashFx.emotions', '触发情绪', s.flashFx.emotions)) : '');
     const title = checkbox(`${p}.titleCard.enabled`, s.titleCard.enabled, '地点/时间标题卡')
-        + (s.titleCard.enabled ? sub(checkbox(`${p}.titleCard.onLocation`, s.titleCard.onLocation, '切换地点时显示')
+        + (s.titleCard.enabled ? sub(field(`${p}.titleCard.speed`, '报幕速度', segmentedInput(`${p}.titleCard.speed`, s.titleCard.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '报幕速度'))
+            + checkbox(`${p}.titleCard.onLocation`, s.titleCard.onLocation, '切换地点时显示')
             + checkbox(`${p}.titleCard.onTime`, s.titleCard.onTime, '时间变化时显示')) : '');
     const favor = checkbox(`${p}.favorToast.enabled`, s.favorToast.enabled, '数值变化提示（读取状态栏已选表格）');
     const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '演出标签（开启后向 AI 注入 igs-fx 语法）')

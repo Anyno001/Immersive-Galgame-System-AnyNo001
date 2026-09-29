@@ -1,3 +1,4 @@
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -15,6 +16,14 @@ test('gate:illustration:marker-does-not-shift-scene-directives', () => {
     assert.deepEqual(after.directives, before.directives);
     assert.equal(after.illustrationMarkers.length, 1);
     assert.equal(after.illustrationMarkers[0].slot, 1);
+});
+
+test('gate:illustration:database-img-marker-is-compatible-with-igs-marker', () => {
+    const source = '[igs-scene:卧室|夜晚|晴]\n第一段。<IMG>1</IMG>\n第二段。';
+    const extracted = extractSceneDirectives(source);
+    assert.deepEqual(extracted.illustrationMarkers.map((marker) => marker.slot), [1]);
+    assert.equal(stripIllustrationMarkers(source).includes('<IMG>'), false);
+    assert.deepEqual(resolveIllustrationAtSourceOffset(source, source.indexOf('第二段')), { slot: 1, offset: source.indexOf('<IMG>') });
 });
 
 test('gate:illustration:broken-marker-does-not-hang', () => {
@@ -256,15 +265,23 @@ test('gate:illustration:message-host-rejects-stale-floor-before-helper-write', a
     assert.equal(ctx.chat[0].mes, 'original');
 });
 
+const NSFW_TEXT = '[igs-scene:卧室|夜晚|晴|NSFW]\n一段。\n二段。\n三段。';
+const SFW_TEXT = '[igs-scene:街道|白天|晴]\n一段。\n二段。';
+const REPLY = 'slot: 1\nat: 2\nscene: 1girl, bedroom\nchar: 0.5,0.5 | 1girl, black hair';
+
 test('gate:illustration:prompt-ready-strips-markers', async () => {
     const { createIllustrationMessageHost } = await import('../src/host/illustration-message-host.js');
     const handlers = new Map();
+
     const ctx = { eventTypes: { CHAT_COMPLETION_PROMPT_READY: 'ready' }, eventSource: { on: (key, fn) => handlers.set(key, fn), off: (key) => handlers.delete(key) } };
     const host = createIllustrationMessageHost({ SillyTavern: { getContext: () => ctx } });
     host.attachPromptStrip();
     const payload = { chat: [{ role: 'assistant', content: 'a\n[igs-img:1]\nb' }] };
     handlers.get('ready')(payload);
     assert.equal(payload.chat[0].content, 'a\nb');
+    const databasePayload = { chat: [{ role: 'assistant', content: 'a\n<IMG>1</IMG>\nb' }] };
+    handlers.get('ready')(databasePayload);
+    assert.equal(databasePayload.chat[0].content, 'a\nb');
     host.destroy();
 });
 
@@ -275,17 +292,14 @@ test('gate:illustration:regex-install-idempotent', async () => {
         getTavernRegexes: () => scripts,
         replaceTavernRegexes: async (next) => { scripts = next; },
     };
-    const host = createIllustrationMessageHost({ TavernHelper: helper });
-    assert.equal((await host.ensureMarkerRegexes()).ok, true);
-    assert.equal((await host.ensureMarkerRegexes()).ok, true);
+    const regexHost = createIllustrationMessageHost({ TavernHelper: helper });
+    assert.equal((await regexHost.ensureMarkerRegexes()).ok, true);
+    assert.equal((await regexHost.ensureMarkerRegexes()).ok, true);
     assert.equal(scripts.length, 3);
     assert.ok(scripts.some(({ id }) => id === 'user'));
     assert.equal(scripts.some(({ destination }) => !destination.display && !destination.prompt), false);
+    assert.ok(scripts.find(({ id }) => id === 'igs-illustration-marker-display').find_regex.includes('<IMG>'));
 });
-
-const NSFW_TEXT = '[igs-scene:卧室|夜晚|晴|NSFW]\n一段。\n二段。\n三段。';
-const SFW_TEXT = '[igs-scene:街道|白天|晴]\n一段。\n二段。';
-const REPLY = 'slot: 1\nat: 2\nscene: 1girl, bedroom\nchar: 0.5,0.5 | 1girl, black hair';
 
 function makeFakes({ text, isLatest = true, llmReply = REPLY, naiResult, settings = {} }) {
     const calls = { llm: 0, nai: 0, writes: [], events: [] };
@@ -580,6 +594,26 @@ test('gate:illustration:nai-client-uses-custom-endpoint-or-official', async () =
     await client.generate(slot, { apiKey: 'fake-key', endpoint: 'https://nai.example.com/x', transport: 'st-proxy' });
     assert.deepEqual(urls, [NAI_OFFICIAL_ENDPOINT, 'https://nai.example.com/custom/generate', '/proxy/https://nai.example.com/x']);
 });
+
+test('gate:illustration:service-retries-database-img-marker-without-replanning', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({
+        text: NSFW_TEXT.replace('[igs-scene:卧室|夜晚|晴|NSFW]\n', '[igs-scene:卧室|夜晚|晴|NSFW]\n<IMG>1</IMG>\n'),
+        settings: { nsfwEnabled: true, nsfwCount: 1 },
+    });
+    const store = createMemoryIllustrationStore();
+    await store.putFloor('c1|5|0', { kind: 'nsfw', want: 1, status: 'failed' });
+    await store.putSlot('c1|5|0', { slot: 1, scene: 'room', status: 'failed' });
+    const service = createAutoIllustrationService({ ...fake, store });
+    const result = await service.processMessage(5);
+    assert.equal(result.reason, 'done');
+    assert.equal(fake.calls.llm, 0);
+    assert.equal(fake.calls.writes.length, 0);
+    assert.equal(fake.calls.nai, 1);
+    assert.equal(service.getIllustrationUrl({ messageId: 5, slot: 1 }), 'data:image/png;base64,AAAA');
+});
+
 
 test('gate:illustration:failed-slot-retries-without-replanning', async () => {
     const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');

@@ -4,6 +4,7 @@ const FX_PROMPT_LINES = Object.freeze({
     call: '[igs-fx:call|来电角色名] … [igs-fx:call-end]：角色打来电话。来电标签放在通话内容之前，通话中的台词照常用[igs-char]，挂断后输出[igs-fx:call-end]',
     notify: '[igs-fx:notify|发送者|一句话内容]：手机弹出一条通知或短消息，不打断叙事；需要完整聊天记录时仍用线上聊天标签',
     flashback: '[igs-fx:flashback] … [igs-fx:flashback-end]：包住一段回忆或闪回的正文',
+    dream: '[igs-fx:dream] … [igs-fx:dream-end]：包住梦境、幻觉或介于现实与想象之间的朦胧段落',
     letterbox: '[igs-fx:letterbox] … [igs-fx:letterbox-end]：包住告白、对峙、决战等需要电影感的严肃段落',
     sfx: '[igs-fx:sfx|拟声词]：巨响、撞击等瞬间的拟声大字，拟声词不超过4个字，如[igs-fx:sfx|砰]',
     eye: '[igs-fx:eye|open] / [igs-fx:eye|close]：主视角醒来睁眼 / 晕倒、入睡闭眼',

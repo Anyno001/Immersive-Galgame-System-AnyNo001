@@ -470,7 +470,12 @@ function resolveActiveProviders(explicitProviders, builtinProviders, imageApi = 
     return sourceProviders.filter((provider) => {
         if (!provider || typeof provider !== 'object') return false;
         if (mode === 'nai' || mode === 'dbgen') {
-            return String(provider.providerType || '').trim() === 'nai';
+            const providerType = String(provider.providerType || '').trim();
+            // 数据库插件的 <IMG>n</IMG> 标记对应插件渲染到楼层 DOM 的图片；
+            // dbgen 模式仍须收集这些 DOM provider，才能按标记顺序读取图片。
+            return mode === 'nai'
+                ? providerType === 'nai'
+                : providerType === 'nai' || providerType === 'extension-dom';
         }
         if (String(provider.providerType || '').trim() === 'nai') {
             return false;

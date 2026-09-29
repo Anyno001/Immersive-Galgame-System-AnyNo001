@@ -13,7 +13,9 @@ import {
     matchMangaSymbol,
     normalizeFxReaderSettings,
     normalizeMangaFxSettings,
+    normalizeTitleCardSettings,
 } from '../src/visual/igs-ui/fx-settings.js';
+import { renderFxPerformanceSections } from '../src/visual/igs-ui/fx-settings-fields.js';
 import { FX_SFX_PARTIALS, playFxSfx } from '../src/visual/igs-ui/fx-sfx.js';
 import { headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanHeadFromAlpha, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
 import { spriteGeometry } from '../src/visual/igs-ui/fx-runtime.js';
@@ -21,6 +23,7 @@ import { MANGA_SYMBOL_SVG, pickFxAccent } from '../src/visual/igs-ui/fx-symbols.
 import { MANGA_SYMBOL_KINDS } from '../src/visual/igs-ui/fx-settings.js';
 import { clearSpriteHeadCache, probeSpriteHead } from '../src/visual/igs-ui/fx-anchor.js';
 import { exitSpriteEditMode, spriteDragPosition } from '../src/visual/igs-ui/sprite-edit.js';
+import { FX_STYLE_TEXT } from '../src/visual/igs-ui/fx-style.js';
 
 class FakeNode {
     constructor(doc, tag) {
@@ -112,6 +115,11 @@ test('gate:fx-runtime:settings-default-off-and-keep-explicit-empty-lists', () =>
     const manga = normalizeMangaFxSettings({ enabled: true, symbols: { anger: [] }, speedLines: ['震惊', 'wow'] });
     assert.deepEqual(manga.symbols.anger, []);
     assert.deepEqual(manga.speedLines, ['震惊']);
+    assert.equal(normalizeTitleCardSettings({}).speed, 'medium');
+    assert.equal(normalizeTitleCardSettings({ speed: 'fast' }).speed, 'fast');
+    assert.equal(normalizeTitleCardSettings({ speed: 'invalid' }).speed, 'medium');
+    const titleFields = renderFxPerformanceSections({ titleCard: { enabled: true, speed: 'fast' } });
+    assert.match(titleFields, /data-segment-path="readerSettings\.titleCard\.speed"[^>]*data-segment-value="fast"/);
 });
 
 test('gate:fx-runtime:emotion-matching-is-exact-chinese', () => {
@@ -150,6 +158,32 @@ test('gate:fx-runtime:title-card-on-location-or-time-change-once', () => {
     assert.deepEqual(off.effects, []);
 });
 
+test('gate:fx-runtime:title-card-temporarily-hides-stage-chrome', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const result = applyFxToDom(root, snapshot({ sceneLocation: '天台', sceneTime: '放学后' }, { titleCard: { enabled: true, speed: 'fast' }, fxStyle: { hold: 'long' } }), {
+        schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
+    });
+    assert.deepEqual(result.played, ['title']);
+    assert.equal(timers.lives[0], 1800, '报幕速度独立于全局停留时间');
+    assert.equal(motion.getAttribute('data-igs-fx-presentation'), '1');
+    assert.ok(motion.querySelector('.igs-fx-title-card'));
+    assert.ok(FX_STYLE_TEXT.includes('#igs-stage-motion[data-igs-fx-presentation="1"] #igs-status-hud'));
+    assert.ok(FX_STYLE_TEXT.includes('#igs-stage-motion[data-igs-fx-presentation="1"] #igs-sprite'));
+    assert.ok(FX_STYLE_TEXT.includes('#igs-stage-motion[data-igs-fx-presentation="1"] #igs-dialog-layer'));
+    assert.ok(FX_STYLE_TEXT.includes('{display:none!important;pointer-events:none!important;}'));
+    timers.flush();
+    assert.equal(motion.getAttribute('data-igs-fx-presentation'), null);
+    assert.equal(motion.querySelector('.igs-fx-title-card'), null);
+
+    const slow = clock();
+    const slowRoot = makeRoot().root;
+    applyFxToDom(slowRoot, snapshot({ sceneLocation: '教室' }, { titleCard: { enabled: true, speed: 'slow' }, fxStyle: { hold: 'short' } }), {
+        schedule: slow.schedule, clear: slow.clear, reducedMotion: false,
+    });
+    assert.equal(slow.lives[0], 4200);
+});
+
 test('gate:fx-runtime:favor-diff-records-baseline-then-reports-changes', () => {
     const baseline = new Map();
     assert.deepEqual(diffFavorMetrics(baseline, '爱丽丝', [{ label: '好感', percent: 40 }]), []);
@@ -161,11 +195,11 @@ test('gate:fx-runtime:favor-diff-records-baseline-then-reports-changes', () => {
 });
 
 test('gate:fx-runtime:fx-tags-respect-kind-switches', () => {
-    const fx = { instants: [{ kind: 'sfx', text: '砰' }, { kind: 'eye', mode: 'close' }], call: { name: 'A' }, flashback: true, letterbox: false };
+    const fx = { instants: [{ kind: 'sfx', text: '砰' }, { kind: 'eye', mode: 'close' }], call: { name: 'A' }, flashback: true, dream: false, letterbox: false };
     const plan = planPageFx(snapshot({ fx }, { fxTags: { enabled: true, sfx: false } }), createFxMemory(), new Map());
     assert.deepEqual(plan.effects.map((e) => e.type), ['eye']);
     assert.equal(plan.eyeHold, true);
-    assert.deepEqual(plan.ranges, { flashback: true, letterbox: false, call: { name: 'A' } });
+    assert.deepEqual(plan.ranges, { flashback: true, dream: false, letterbox: false, call: { name: 'A' } });
     const off = planPageFx(snapshot({ fx }, { fxTags: { enabled: false } }), createFxMemory(), new Map());
     assert.deepEqual(off.effects, []);
     assert.equal(off.ranges.call, null);
@@ -176,7 +210,7 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     const timers = clock();
     const sounds = [];
     const settings = { mangaFx: { enabled: true }, fxTags: { enabled: true } };
-    const fx = { instants: [{ kind: 'call', name: '爱丽丝' }], call: { name: '爱丽丝' }, flashback: true, letterbox: false };
+    const fx = { instants: [{ kind: 'call', name: '爱丽丝' }], call: { name: '爱丽丝' }, flashback: true, dream: true, letterbox: false };
     const result = applyFxToDom(root, snapshot({ statusEmotion: '生气', fx }, settings), {
         schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
         audioScheduler: (job) => { sounds.push(job.kind); return { stop() {} }; },
@@ -185,6 +219,7 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     assert.equal(result.phone, true);
     assert.deepEqual(sounds, ['ring']);
     assert.equal(motion.getAttribute('data-igs-fx-flashback'), '1');
+    assert.equal(motion.getAttribute('data-igs-fx-dream'), '1');
     assert.equal(motion.getAttribute('data-igs-fx-call'), '1');
     const stage = motion.querySelector('#igs-fx-stage');
     const front = motion.querySelector('#igs-fx-front');
@@ -193,6 +228,7 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     const symbol = stage.querySelector('.igs-fx-symbol');
     assert.equal(symbol.getAttribute('data-kind'), 'anger');
     assert.equal(symbol.style.left, undefined);
+    assert.ok(stage.querySelector('.igs-fx-dream-mist'));
     assert.equal(front.querySelector('.igs-fx-call-badge').textContent, '通话中 · 爱丽丝');
     assert.ok(front.querySelector('.igs-fx-call-screen'));
     timers.flush();

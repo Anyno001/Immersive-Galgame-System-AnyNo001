@@ -1,5 +1,5 @@
-export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'flashback', 'letterbox', 'sfx', 'eye']);
-export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'letterbox']);
+export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'flashback', 'dream', 'letterbox', 'sfx', 'eye']);
+export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox']);
 export const FX_EYE_MODES = Object.freeze(['open', 'close']);
 
 const FX_TAG_RE = /\[igs-fx:([^\]\n]*)(?:\]|$)/gm;
@@ -55,7 +55,7 @@ function instantOf(d) {
 // 瞬时标签落在 (prevOffset, offset] 内时归当前页；首页 prevOffset 传 -1。
 // 区间状态取 offset 之前最近一次开/关；同类瞬时演出每页只取第一个。
 export function resolveFxAtPage(directives, offset, prevOffset = -1) {
-    const result = { instants: [], call: null, flashback: false, letterbox: false };
+    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false };
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
@@ -64,6 +64,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1) {
         if (d.offset > at) break;
         if (d.kind === 'call') result.call = d.end ? null : { name: d.args[0] };
         else if (d.kind === 'flashback') result.flashback = !d.end;
+        else if (d.kind === 'dream') result.dream = !d.end;
         else if (d.kind === 'letterbox') result.letterbox = !d.end;
         if (d.offset <= from) continue;
         const instant = instantOf(d);
@@ -79,7 +80,8 @@ export function filterFxByKinds(fx, enabledKinds) {
     return {
         instants: fx.instants.filter((item) => allow.has(item.kind === 'call-end' ? 'call' : item.kind)),
         call: allow.has('call') ? fx.call : null,
-        flashback: allow.has('flashback') && fx.flashback,
-        letterbox: allow.has('letterbox') && fx.letterbox,
+        flashback: allow.has('flashback') && Boolean(fx.flashback),
+        dream: allow.has('dream') && Boolean(fx.dream),
+        letterbox: allow.has('letterbox') && Boolean(fx.letterbox),
     };
 }

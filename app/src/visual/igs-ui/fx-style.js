@@ -7,6 +7,10 @@ export const FX_STYLE_TEXT = `
 #igs-fx-stage{z-index:2;}
 #igs-fx-front{z-index:6;}
 .igs-fx-layer [hidden]{display:none!important;}
+/* 报幕期间暂隐左上状态栏、人物立绘和对话框；状态撤销后沿用原样式恢复。 */
+#igs-stage-motion[data-igs-fx-presentation="1"] #igs-status-hud,
+#igs-stage-motion[data-igs-fx-presentation="1"] #igs-sprite,
+#igs-stage-motion[data-igs-fx-presentation="1"] #igs-dialog-layer{display:none!important;pointer-events:none!important;}
 @keyframes igs-fx-pop{0%{opacity:0;transform:scale(.3);}18%{opacity:1;transform:translateY(-8%) scale(1.16);}30%{transform:translateY(-6%) scale(1);}80%{opacity:1;}100%{opacity:0;transform:translateY(-16%) scale(1);}}
 @keyframes igs-fx-pop-snap{0%{opacity:1;transform:scale(.2);}6%{transform:scale(1.35);}12%{transform:scale(.86);}18%{transform:scale(1.1) rotate(-6deg);}26%{transform:scale(1) rotate(5deg);}34%{transform:scale(1) rotate(-4deg);}44%{transform:scale(1.06) rotate(0deg);}58%{transform:scale(1) rotate(3deg);}74%{transform:scale(1.04) rotate(-2deg);}90%{opacity:1;transform:scale(1.12);}100%{opacity:0;transform:scale(.4);}}
 @keyframes igs-fx-throb-snap{0%{opacity:1;transform:scale(.2);}8%{transform:scale(1.3);}16%{transform:scale(.94);}28%{transform:scale(1.2);}40%{transform:scale(.94);}52%{transform:scale(1.2);}64%{transform:scale(.94);}76%{transform:scale(1.2);}90%{opacity:1;transform:scale(1);}100%{opacity:0;transform:scale(1);}}
@@ -122,11 +126,17 @@ export const FX_STYLE_TEXT = `
 .igs-fx-letterbox-bar.is-bottom{bottom:0;transform-origin:50% 100%;}
 #igs-stage-motion[data-igs-fx-letterbox] .igs-fx-letterbox-bar{transform:scaleY(1);}
 .igs-fx-flashback-grain{position:absolute;inset:-4%;opacity:0;transition:opacity .6s ease;background:radial-gradient(ellipse at 50% 50%,transparent 50%,rgba(40,24,8,.55) 100%),repeating-radial-gradient(circle at 30% 40%,rgba(255,240,210,.08) 0 1px,transparent 1px 3px);}
+@keyframes igs-fx-dream-drift{from{transform:translate3d(-3%,-1%,0) scale(1.02);}to{transform:translate3d(3%,2%,0) scale(1.06);}}
 #igs-stage-motion[data-igs-fx-flashback] .igs-fx-flashback-grain{opacity:1;will-change:transform;animation:igs-fx-grain .5s steps(2) infinite;}
+.igs-fx-dream-mist{position:absolute;inset:-8%;opacity:0;pointer-events:none;transition:opacity .8s ease;background:radial-gradient(ellipse 58% 48% at 28% 34%,rgba(206,196,255,.22),transparent 70%),radial-gradient(ellipse 54% 44% at 72% 68%,rgba(170,184,255,.18),transparent 70%),repeating-radial-gradient(circle at 30% 40%,rgba(235,238,255,.08) 0 1px,transparent 1px 4px);mix-blend-mode:screen;filter:blur(2px);}
+#igs-stage-motion[data-igs-fx-dream] .igs-fx-dream-mist{opacity:1;will-change:transform;animation:igs-fx-dream-drift 8s ease-in-out infinite alternate;}
 #igs-stage-motion[data-igs-fx-flashback] #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) sepia(.55) saturate(.55) brightness(.92) contrast(.95)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) sepia(.55) saturate(.55) brightness(.92) contrast(.95)!important;}
 #igs-stage-motion[data-igs-fx-flashback] #igs-sprite{filter:sepia(.55) saturate(.55) brightness(.92) contrast(.95)!important;-webkit-filter:sepia(.55) saturate(.55) brightness(.92) contrast(.95)!important;}
+#igs-stage-motion[data-igs-fx-dream] #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) saturate(.72) brightness(1.03) contrast(.94)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) saturate(.72) brightness(1.03) contrast(.94)!important;}
+#igs-stage-motion[data-igs-fx-dream] #igs-sprite{filter:saturate(.78) brightness(1.02) contrast(.96)!important;-webkit-filter:saturate(.78) brightness(1.02) contrast(.96)!important;}
 #igs-stage-motion[data-igs-fx-busy] .igs-dialog,#igs-stage-motion[data-igs-fx-busy] .igs-option-bubble,#igs-stage-motion[data-igs-fx-busy] .igs-ctrl-bar{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;}
 #igs-stage-motion[data-igs-fx-flashback] .igs-dialog{opacity:.9;}
+#igs-stage-motion[data-igs-fx-dream] .igs-dialog{opacity:.94;}
 #igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-symbol{animation-name:igs-fx-pop-snap;animation-timing-function:steps(1,end);}
 #igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-symbol[data-kind="anger"]{animation-name:igs-fx-throb-snap;}
 #igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-svg *{animation-timing-function:steps(2,end);}

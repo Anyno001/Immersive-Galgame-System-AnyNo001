@@ -1,7 +1,7 @@
 const SCENE_RE = /\[igs-scene:([^|\]\n]+)\|([^|\]\n]+)\|([^|\]\n]+)(?:\|([^\]\n]*))?\]/g;
 const CHAR_RE = /\[igs-char:([^|\]\n]+)\|(?:([^|\]\n]*)\|)?([^|\]\n]+)\]?/g;
 const THOUGHT_RE = /\[igs-thought:([^|\]\n]+)\|(?:([^|\]\n]*)\|)?([^|\]\n]+)\]?/g;
-const IMG_RE = /\[igs-img:\s*\d+\s*\]/g;
+const IMG_RE = /(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/gi;
 const LEADING_SCENE_RE = /^(\s*(?:\[igs-scene:[^\]\n]*\]\s*)+)/;
 
 function contentRange(lines) {

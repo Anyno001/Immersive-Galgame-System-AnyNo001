@@ -34,7 +34,7 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
         if (/^readerSettings\.chatShow\.(dim|sound\.volume)$/.test(path)) return Number(value);
-        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|letterbox|sfx|eye)$/.test(path)) {
+        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye)$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
         if (path === 'readerSettings.fxSound.volume') {

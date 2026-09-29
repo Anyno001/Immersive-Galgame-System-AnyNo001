@@ -11,19 +11,23 @@ const SCENE_AT_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)\|([^|\]]+)(?:\|([^\]]*))?
 // 台词/心里话漏写 "]" 时以行尾收口，与正文格式化规则一致；表情栏可省略（两栏写法视为没写表情）。
 const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
-const IMG_AT_RE = /^\[igs-img:\s*(\d+)\s*\]/;
+const IMG_AT_RE = /^(?:\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>)/i;
 const FX_AT_RE = /^\[igs-fx:[^\]\n]*(?:\]|$)/;
-export const IGS_IMG_MARKER_SOURCE = '\\[igs-img:\\s*(\\d+)\\s*\\]';
+export const IGS_IMG_MARKER_SOURCE = '(?:\\[igs-img:\\s*|<IMG>\\s*)(\\d+)(?:\\s*\\]|\\s*<\\/IMG>)';
 
 export function stripIllustrationMarkers(text) {
     return String(text || '')
-        .replace(/^[ \t]*\[igs-img:\s*\d+\s*\][ \t]*(?:\r?\n|$)/gm, '')
-        .replace(/\[igs-img:\s*\d+\s*\]/g, '');
+        .replace(/^[ \t]*(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)[ \t]*(?:\r?\n|$)/gim, '')
+        .replace(/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/gi, '');
 }
 // 找出当前位置之后最近一条 igs 指令的起始下标；没有则返回 -1。
 function nextDirectiveIndex(text) {
-    const m = String(text || '').match(IGS_DIRECTIVE_START_RE);
-    return m ? m.index : -1;
+    const source = String(text || '');
+    const directive = source.match(IGS_DIRECTIVE_START_RE);
+    const illustration = source.match(/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/i);
+    const indexes = [directive && directive.index, illustration && illustration.index]
+        .filter((index) => Number.isInteger(index));
+    return indexes.length ? Math.min(...indexes) : -1;
 }
 
 export function extractSceneDirectives(text) {
@@ -73,7 +77,7 @@ export function extractSceneDirectives(text) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'thought', character: m[1].trim(), mood: String(m[2] || '').trim(), thought: m[3].trim(),segmentIndex: segmentCount, lineIndex: i, offset: cursor });
             } else if ((m = rest.match(IMG_AT_RE))) {
-                illustrationMarkers.push({ slot: Number(m[1]), lineIndex: i, offset: cursor });
+                illustrationMarkers.push({ slot: Number(m[1] || m[2]), lineIndex: i, offset: cursor });
             } else if ((m = rest.match(FX_AT_RE))) {
                 // igs-fx 由 fx-directives 单独解析，这里只跳过、不计入正文。
             } else {
@@ -141,12 +145,14 @@ export function resolveIllustrationAtSourceOffset(source, position) {
     const src = String(source || '');
     const limit = Math.max(0, Math.min(src.length, Number(position) || 0));
     const head = src.slice(0, limit);
-    const imgAt = head.lastIndexOf('[igs-img:');
+    const markerRe = /\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>/gi;
+    let imgAt = -1;
+    for (const match of head.matchAll(markerRe)) imgAt = match.index;
     if (imgAt < 0) return null;
     const m = src.slice(imgAt).match(IMG_AT_RE);
     if (!m) return null;
     if (head.lastIndexOf('[igs-scene:') > imgAt) return null;
-    return { slot: Number(m[1]), offset: imgAt };
+    return { slot: Number(m[1] || m[2]), offset: imgAt };
 }
 
 // 从已提取的指令中取最后一条 [igs-scene]：供跨楼层场景追溯使用，

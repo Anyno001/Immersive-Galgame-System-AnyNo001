@@ -6,7 +6,7 @@ export const MANGA_SYMBOL_LABELS = Object.freeze({
     anger: '青筋（怒）', sweat: '汗滴', heart: '爱心', surprise: '!?', silence: '……', gloom: '阴沉竖线', sparkle: '闪光',
 });
 export const FX_TAG_LABELS = Object.freeze({
-    call: '来电 / 通话', notify: '通知横幅', flashback: '回忆滤镜', letterbox: '电影黑边', sfx: '拟声词', eye: '睁眼 / 闭眼',
+    call: '来电 / 通话', notify: '通知横幅', flashback: '回忆滤镜', dream: '梦境滤镜', letterbox: '电影黑边', sfx: '拟声词', eye: '睁眼 / 闭眼',
 });
 
 const freezeList = (list) => Object.freeze(list.slice());
@@ -29,9 +29,12 @@ function plain(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+export const TITLE_CARD_SPEEDS = Object.freeze(['fast', 'medium', 'slow']);
+
 export function normalizeTitleCardSettings(value) {
     const src = plain(value);
-    return { enabled: src.enabled === true, onLocation: src.onLocation !== false, onTime: src.onTime !== false };
+    const speed = TITLE_CARD_SPEEDS.includes(src.speed) ? src.speed : 'medium';
+    return { enabled: src.enabled === true, onLocation: src.onLocation !== false, onTime: src.onTime !== false, speed };
 }
 
 export function normalizeMangaFxSettings(value) {

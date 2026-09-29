@@ -108,7 +108,7 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         on('CHAT_COMPLETION_PROMPT_READY', (eventData) => {
             const chat = eventData && Array.isArray(eventData.chat) ? eventData.chat : [];
             for (const item of chat) {
-                if (item && typeof item.content === 'string' && item.content.includes('[igs-img:')) {
+                if (item && typeof item.content === 'string' && /(?:\[igs-img:|<IMG>)/i.test(item.content)) {
                     item.content = stripIllustrationMarkers(item.content);
                 }
             }
@@ -120,7 +120,7 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         if (!helper || typeof helper.getTavernRegexes !== 'function' || typeof helper.replaceTavernRegexes !== 'function') {
             return { ok: false, reason: 'regex-api-missing' };
         }
-        const find = `/${IGS_IMG_MARKER_SOURCE}\\n?/g`;
+        const find = `/${IGS_IMG_MARKER_SOURCE}\\n?/gi`;
         const make = (id, name, destination) => ({
             id,
             script_name: name,

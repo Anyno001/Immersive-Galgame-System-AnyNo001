@@ -10,7 +10,7 @@ import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel
 import { createImageResourceCache, createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
-import { advanceChatReveal, applyChatToDom, cancelChatShow, getChatRevealState } from '../src/visual/igs-ui/chat-layer.js';
+import { CHAT_LAYER_STYLE_TEXT, advanceChatReveal, applyChatToDom, cancelChatShow, getChatRevealState } from '../src/visual/igs-ui/chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from '../src/visual/igs-ui/chat-show-runtime.js';
 import { resolveChatTheme } from '../src/visual/igs-ui/chat-themes.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
@@ -4401,6 +4401,59 @@ test('gate:simulation:igs-ui-image-slot-binding-falls-back-to-scan-order-when-im
     vn.destroy();
 });
 
+test('gate:simulation:igs-ui-database-img-marker-selects-provider-image', async () => {
+    const document = createFakeDocument();
+    const source = '<content>第一段。\n<IMG>1</IMG>\n第二段。\n<IMG>2</IMG>\n第三段。</content>';
+    const imageOne = createFakeMediaNode({
+        ownerDocument: document,
+        tagName: 'IMG',
+        src: 'https://example.com/database-image-1.png',
+    });
+    const imageTwo = createFakeMediaNode({
+        ownerDocument: document,
+        tagName: 'IMG',
+        src: 'https://example.com/database-image-2.png',
+    });
+    const message = {
+        id: 43,
+        text: source,
+        element: createFakeMessageElement(document, {
+            textContent: source,
+            genericNodes: [imageOne, imageTwo],
+        }),
+    };
+    const vn = bootstrapIGS({
+        global: { document },
+        autoAttachMagicWand: false,
+        config: {
+            imageApi: {
+                mode: 'dbgen',
+                externalAdapter: 'auto',
+            },
+        },
+        hostAdapter: {
+            getCurrentMessage: async () => message,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const next = await opened.reader.controller.invokeAction('next');
+    const middleContent = vn.getState().igsUi.activeReader.snapshot.content;
+    const nextAgain = await opened.reader.controller.invokeAction('next');
+    const content = vn.getState().igsUi.activeReader.snapshot.content;
+
+    assert.equal(opened.ok, true);
+    assert.deepEqual(opened.reader.snapshot.content.segments, ['第一段。', '第二段。', '第三段。']);
+    assert.equal(next.ok, true);
+    assert.equal(middleContent.backgroundImage, 'https://example.com/database-image-1.png');
+    assert.equal(nextAgain.ok, true);
+    assert.equal(content.backgroundImage, 'https://example.com/database-image-2.png');
+
+    vn.destroy();
+});
+
+
 test('gate:simulation:igs-ui-generic-message-images-follow-image-tags-while-paging', async () => {
     const document = createFakeDocument();
     const source = readText('fixtures/igs/image-slot-binding-message.txt');
@@ -6690,6 +6743,8 @@ test('gate:simulation:chat-show-options-wait-for-an-extra-forward-action-after-t
         const revealedOptions = await reader.invokeAction('next');
         assert.equal(revealedOptions.reason, 'option-bubbles-toggled');
         assert.equal(optionBubbles.hasAttribute('hidden'), false);
+        assert.equal(overlay.classList.contains('igs-options-visible'), true);
+        assert.ok(CHAT_LAYER_STYLE_TEXT.includes('#igs-overlay.igs-options-visible #igs-chat-layer{display:none;}'));
         assert.equal(optionBubbles.querySelectorAll('.igs-option-bubble').length, 1);
     } finally {
         vn.destroy();

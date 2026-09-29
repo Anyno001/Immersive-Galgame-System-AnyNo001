@@ -424,6 +424,7 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl }
         return `<button type="button" class="igs-btn-mgr-icon" data-action="gen-asset-download:${encSeg(id)}:${encSeg(fileName)}" title="下载">${downloadIcon}</button>`;
     };
     const resolve = (url) => {
+
         const raw = String(url || '').trim();
         if (!raw) return '';
         try { return typeof resolveUrl === 'function' ? String(resolveUrl(raw) || '') : raw; }

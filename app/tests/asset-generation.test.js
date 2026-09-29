@@ -529,6 +529,7 @@ test('gate:llm:user-head-and-tail-wrap-requests-and-default-empty', async () => 
     assert.deepEqual(bodies[1].messages.map((m) => m.content), ['HEAD\n\nSYS', 'USR\n\nTAIL']);
 });
 
+
 test('gate:alpha-matte:keeps-png-text-chunks-after-crop', async () => {
     const { default: zlib } = await import('node:zlib');
     const { preservePngTextChunks, extractPngTextChunks } = await import('../src/media/alpha-matte.js');

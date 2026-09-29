@@ -6,7 +6,7 @@ import { normalizeAutoIllustrationSettings } from './auto-illustration-settings.
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { stripIllustrationMarkers } from '../../scene/scene-directives.js';
 
-const MARKER_RE = /\[igs-img:\s*(\d+)\s*\]/g;
+const MARKER_RE = /(?:\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>)/gi;
 
 export const ILLUSTRATION_UPDATED_EVENT = 'igs:illustration-updated';
 const CACHE_LIMIT = 40;
@@ -72,7 +72,7 @@ export function createAutoIllustrationService(deps) {
         if (!manual && previous && SETTLED_STATUSES.has(previous.status)) return { ok: true, reason: 'already-decided' };
         // 标记还在但记录丢了（换设备、清缓存）时先去掉旧标记再规划，避免重复插入；写回时仍按原文校验。
         const expected = floor;
-        if (/\[igs-img:\s*\d+\s*\]/.test(floor.text)) floor = { ...floor, text: stripIllustrationMarkers(floor.text) };
+        if (/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/i.test(floor.text)) floor = { ...floor, text: stripIllustrationMarkers(floor.text) };
         const numbered = numberParagraphs(floor.text);
         const decision = numbered.paragraphs.length ? decide(s, numbered.isNsfw, manual) : null;
         if (!decision) {
@@ -195,7 +195,7 @@ export function createAutoIllustrationService(deps) {
 
     // 正文里仍有标记的槽位，以及其中还没成功出图的。
     async function markedSlots(key, text) {
-        const present = new Set(Array.from(String(text || '').matchAll(MARKER_RE), (m) => Number(m[1])));
+        const present = new Set(Array.from(String(text || '').matchAll(MARKER_RE), (m) => Number(m[1] || m[2])));
         const all = (await store.getSlots(key)).filter((slot) => present.has(Number(slot.slot)));
         return { all, retry: all.filter((slot) => slot.status !== 'done') };
     }

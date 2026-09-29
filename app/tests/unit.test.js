@@ -1805,6 +1805,7 @@ test('gate:settings:generated-asset-download-button-and-action', async () => {
     assert.equal(sanitizeDownloadName('a:b'), 'a_b.png');
 });
 
+
 test('gate:scene:asset-alias-actions-and-presets-reuse-existing-entries', async () => {
     const storage = createMemoryStorage();
     const prompts = ['爱丽', '古城', '艾莉西亚'];

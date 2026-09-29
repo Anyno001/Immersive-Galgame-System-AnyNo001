@@ -2070,7 +2070,7 @@ export function createIgsReaderHost(options = {}) {
         const pageFx = resolveFxAtPage(fxDirectives, fxOffset, fxPrevOffset);
         const illustrationOffset = currentOffset >= 0
             ? currentOffset
-            : (sceneSourceForOffset.includes('[igs-img:') ? locateTextOffsetInSource(sceneSourceForOffset, currentText) : -1);
+            : (/(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset) ? locateTextOffsetInSource(sceneSourceForOffset, currentText) : -1);
         const illustrationHit = illustrationOffset >= 0
             ? resolveIllustrationAtSourceOffset(sceneSourceForOffset, illustrationOffset)
             : null;
@@ -2085,8 +2085,14 @@ export function createIgsReaderHost(options = {}) {
                 slot: illustrationHit.slot,
             }) || '')
             : '';
+        const markerImageUrl = illustrationHit
+            ? resolveIllustrationMarkerImageUrl(displayImageState, illustrationHit.slot)
+            : '';
         if (illustrationUrl) {
             finalBackgroundImage = illustrationUrl;
+            spriteImage = null;
+        } else if (markerImageUrl) {
+            finalBackgroundImage = markerImageUrl;
             spriteImage = null;
         } else if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
@@ -3871,6 +3877,27 @@ function locateTextOffsetInSource(source, segText, from = 0) {
         if (end < map.length) return map[hit];
     }
     return -1;
+}
+
+function resolveIllustrationMarkerImageUrl(imageState, slot) {
+    const numericSlot = Number(slot);
+    if (!Number.isInteger(numericSlot) || numericSlot < 1) return '';
+    const targetIndex = numericSlot - 1;
+    const sources = [
+        imageState && imageState.slots,
+        imageState && imageState.images,
+        imageState && imageState.unboundImages,
+    ];
+    for (const source of sources) {
+        if (!Array.isArray(source)) continue;
+        const exact = source.find((image) => Number(image && image.slotIndex) === targetIndex);
+        const indexed = source[targetIndex];
+        for (const image of [exact, indexed]) {
+            const url = String(image && image.url || '').trim();
+            if (url) return url;
+        }
+    }
+    return '';
 }
 
 
