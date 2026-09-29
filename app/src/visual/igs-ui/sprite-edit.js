@@ -1,6 +1,6 @@
 import { resolveSpriteLayout } from './settings-normalize.js';
 import { igsDebug } from './reader-value-utils.js';
-import { probeSpriteHead, resolveSpriteHead, spriteHeadKey } from './fx-anchor.js';
+import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteHeadKey } from './fx-anchor.js';
 import { startHeadEdit } from './sprite-head-edit.js';
 
 const MAIN_BAR = '<span class="igs-se-hint">拖动调整，滚轮/双指缩放</span>'
@@ -21,6 +21,19 @@ function spriteUrlOf(spriteEl) {
     const raw = String(spriteEl.style.backgroundImage || '').trim();
     if (!raw.startsWith('url(')) return '';
     return raw.slice(4, -1).trim().replace(/^["']|["']$/g, '').replace(/\\"/g, '"');
+}
+
+// background-position 百分比的实际偏移 = (舞台 - 立绘) × pos%。立绘比舞台大时可移动量为负，
+// 固定按舞台尺寸换算会让拖动方向反过来（手机竖屏放大立绘后最常见）。这里按实际可移动量换算，
+// 让立绘跟手移动；可移动量不足 1px 时该轴百分比不影响画面，保持不变。读不到原图比例时纵向沿用旧换算。
+export function spriteDragPosition({ posX, posY, dx, dy, stageW, stageH, scale, naturalW, naturalH }) {
+    const axis = (pos, delta, movable) => (Number.isFinite(movable) && Math.abs(movable) >= 1 ? pos + delta / movable * 100 : pos);
+    const drawW = stageW * scale / 100;
+    const aspect = naturalW > 0 && naturalH > 0 ? naturalH / naturalW : 0;
+    const nextX = stageW > 0 ? axis(posX, dx, stageW - drawW) : posX;
+    let nextY = posY;
+    if (stageH > 0) nextY = aspect ? axis(posY, dy, stageH - drawW * aspect) : posY + dy / stageH * 100;
+    return { posX: nextX, posY: nextY };
 }
 
 export function enterSpriteEditMode(overlay, current, ctx = {}) {
@@ -140,6 +153,8 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
 
     const pointers = new Map();
     let dragStart = null, pinchStart = null;
+    // 预热原图尺寸缓存，拖动时用于纵向换算。
+    void probeSpriteHead(spriteUrlOf(spriteEl), doc).catch(() => null);
     spriteEl.addEventListener('pointerdown', (event) => {
         event.preventDefault();
         pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -158,8 +173,13 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
         pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (pointers.size === 1 && dragStart) {
             const rect = spriteEl.getBoundingClientRect ? spriteEl.getBoundingClientRect() : { width: 400, height: 600 };
-            posX = dragStart.posX + (event.clientX - dragStart.x) / rect.width * 100;
-            posY = dragStart.posY + (event.clientY - dragStart.y) / rect.height * 100;
+            const info = peekSpriteHead(spriteUrlOf(spriteEl));
+            ({ posX, posY } = spriteDragPosition({
+                posX: dragStart.posX, posY: dragStart.posY,
+                dx: event.clientX - dragStart.x, dy: event.clientY - dragStart.y,
+                stageW: rect.width, stageH: rect.height, scale,
+                naturalW: info && info.naturalW, naturalH: info && info.naturalH,
+            }));
             igsDebug('[DEBUG-sprite] drag', { dx: event.clientX - dragStart.x, dy: event.clientY - dragStart.y, rectW: Math.round(rect.width), rectH: Math.round(rect.height), posX: Math.round(posX), posY: Math.round(posY) });
             apply();
         } else if (pointers.size === 2 && pinchStart) {
