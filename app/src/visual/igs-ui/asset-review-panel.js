@@ -7,8 +7,7 @@ export const ASSET_REVIEW_STYLE_TEXT = `
 .igs-asset-review-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
 .igs-asset-review-body input{width:100%;box-sizing:border-box;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);color:inherit;}
 .igs-asset-review-actions{display:flex;gap:6px;flex-wrap:wrap;}
-.igs-asset-review-actions button,.igs-asset-review-later{padding:3px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:transparent;color:inherit;cursor:pointer;font-size:12px;}
-.igs-asset-review-later{margin-top:8px;}
+.igs-asset-review-actions button{padding:3px 8px;border-radius:6px;border:0;background:transparent;color:inherit;cursor:pointer;font-size:12px;}
 `;
 
 const TYPE_LABEL = { sprite: '立绘', background: '背景' };
@@ -60,14 +59,5 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
         row.append(thumb, body);
         container.appendChild(row);
     }
-    const later = doc.createElement('button');
-    later.type = 'button';
-    later.className = 'igs-asset-review-later';
-    later.textContent = '稍后再说';
-    later.addEventListener('click', (event) => {
-        event.stopPropagation();
-        if (typeof handlers.onLater === 'function') handlers.onLater();
-    });
-    container.appendChild(later);
     container.removeAttribute('hidden');
 }

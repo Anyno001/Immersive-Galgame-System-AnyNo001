@@ -264,7 +264,7 @@ export function createIgsReaderHost(options = {}) {
         getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
         global: options.global || globalThis,
     });
-    const dismissedReviewFloors = new Set();
+
     const sourceCache = createReaderSourceCache({
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
@@ -3803,7 +3803,7 @@ export function createIgsReaderHost(options = {}) {
         if (!overlay || !overlay.querySelector || !service || typeof service.listReview !== 'function') return;
         let container = overlay.querySelector('#igs-asset-review');
         const floorKey = currentFloorKey(current);
-        const items = floorKey && isReaderLastPage(snapshot) && !dismissedReviewFloors.has(floorKey)
+        const items = floorKey && isReaderLastPage(snapshot)
             ? service.listReview(floorKey)
             : [];
         if (!items.length) {
@@ -3821,10 +3821,6 @@ export function createIgsReaderHost(options = {}) {
             previewUrl: typeof service.resolveUrl === 'function' ? service.resolveUrl(item.url) : item.url,
         })), {
             onResolve: (item, status, name) => { void resolveGeneratedReview(item, status, name); },
-            onLater: () => {
-                dismissedReviewFloors.add(floorKey);
-                container.setAttribute('hidden', '');
-            },
         });
     }
 
