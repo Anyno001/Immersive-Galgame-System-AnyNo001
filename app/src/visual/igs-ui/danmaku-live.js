@@ -1,4 +1,4 @@
-import { LIVE_ICONS } from './danmaku-icons.js';
+import { LIVE_ICONS, buildPhoneStatus } from './danmaku-icons.js';
 import { isStagePaused } from './stage-pause.js';
 import {
     LIVE_AMBIENT_GIFTS,
@@ -62,7 +62,7 @@ function clock(ms) {
     return `${h ? `${pad(h)}:` : ''}${pad(Math.floor(total / 60) % 60)}:${pad(total % 60)}`;
 }
 
-function buildPhone(doc, live) {
+function buildPhone(doc, live, now) {
     const host = live.view === 'host';
     const root = el(doc, 'div', 'igs-live-stage');
     root.appendChild(el(doc, 'div', 'igs-live-dim'));
@@ -121,7 +121,7 @@ function buildPhone(doc, live) {
         bar.appendChild(el(doc, 'span', 'igs-live-input', '发个弹幕呗~'));
         bar.append(icon(doc, 'gift', 'igs-live-icon igs-live-btn is-gift'), icon(doc, 'heart', 'igs-live-icon igs-live-btn is-like'));
     }
-    phone.append(screen, top, title, sc, gifts, guard, list, hearts, bar);
+    phone.append(screen, buildPhoneStatus(doc, now), top, title, sc, gifts, guard, list, hearts, bar);
     return { root, phone, cover, portrait, initial, avatar, popText, viewersText, clockEl, sc, gifts, guard, list, hearts };
 }
 
@@ -311,8 +311,8 @@ export function syncLivePhone(host, live, ctx) {
     }
     if (!live) return null;
     if (!state) {
-        const els = buildPhone(ctx.doc, live);
         const now = ctx.now || Date.now;
+        const els = buildPhone(ctx.doc, live, now);
         state = {
             key, view: live.view, doc: ctx.doc, els, queue: [], timers: new Set(), timer: null, beat: 0,
             schedule: ctx.schedule, clear: ctx.clear, rng: ctx.rng || Math.random, now,

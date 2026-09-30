@@ -15,6 +15,7 @@ export const DANMAKU_PERSONA_PROMPTS = Object.freeze({
 });
 export const DANMAKU_DENSITIES = Object.freeze(['sparse', 'medium', 'dense']);
 export const DANMAKU_SPEEDS = Object.freeze(['slow', 'medium', 'fast']);
+export const DANMAKU_ENTRY_SIZES = Object.freeze(['small', 'medium', 'large']);
 // 滚动弹幕横穿视频窗的时长（秒），与 B 站一样按统一时长走，长弹幕自然更快。
 export const DANMAKU_SPEED_SECONDS = Object.freeze({ slow: 9, medium: 7, fast: 5 });
 export const INNER_DANMAKU_MOODS = Object.freeze(['love', 'panic', 'anger', 'guilty']);
@@ -53,6 +54,7 @@ export function normalizeAudienceFxSettings(value) {
         customPersona: String(src.customPersona || '').trim().slice(0, 120),
         density: pick(DANMAKU_DENSITIES, src.density, 'medium'),
         speed: pick(DANMAKU_SPEEDS, src.speed, 'medium'),
+        entrySize: pick(DANMAKU_ENTRY_SIZES, src.entrySize, 'medium'),
         ambient: src.ambient !== false,
         muteOnNsfw: src.muteOnNsfw !== false,
     };

@@ -1,16 +1,34 @@
-// 直播间图标：统一 24 视框、描边随 currentColor，禁止用 emoji 代替。
-const svg = (body, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${body}</svg>`;
+// 直播间图标：统一 24 视框、1.6 细描边、圆角端点，描边随 currentColor；禁止用 emoji 代替。
+const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 
 export const LIVE_ICONS = Object.freeze({
-    close: svg('<path d="M6 6l12 12M18 6 6 18"/>'),
-    heart: svg('<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" fill="currentColor" stroke="none"/>'),
-    gift: svg('<rect x="3.5" y="9" width="17" height="11" rx="1.5"/><path d="M2.5 9h19M12 9v11"/><path d="M12 9c-2.5 0-5-1-5-3a2 2 0 0 1 3.6-1.2L12 9l1.4-4.2A2 2 0 0 1 17 6c0 2-2.5 3-5 3z"/>'),
-    flame: svg('<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3 2-5 3.3-6.4.4 1.7 1.3 2.7 2.4 3.2C11 8 12.3 5.2 14.6 3c.3 2.8 1.8 4.3 3 5.9 1 1.4 1.9 3.2 1.9 5.6 0 3.7-3.1 6.5-7.5 6.5z" fill="currentColor" stroke="none"/>'),
-    mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>'),
-    flip: svg('<path d="M4 8h11l-3-3M20 16H9l3 3"/>'),
-    beauty: svg('<path d="M5 19 15 9M13.5 5.5l1-2 1 2 2 1-2 1-1 2-1-2-2-1zM18 12l.7 1.3L20 14l-1.3.7L18 16l-.7-1.3L16 14l1.3-.7z"/>'),
-    ship: svg('<path d="M12 3v9M8 6h8M4 13h16l-2.2 5.2a2 2 0 0 1-1.8 1.3H8a2 2 0 0 1-1.8-1.3z"/>'),
-    viewers: svg('<circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5M16 5.2a3 3 0 0 1 0 5.6M18 14.2c1.7.6 2.8 2.1 3 4.8"/>'),
-    more: svg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor" stroke="none"/>'),
-    plus: svg('<path d="M12 6v12M6 12h12"/>'),
+    close: svg('<path d="M7 7l10 10M17 7 7 17"/>'),
+    heart: svg('<path d="M12 20.2s-7.4-4.5-7.4-10.1A4.2 4.2 0 0 1 12 7.4a4.2 4.2 0 0 1 7.4 2.7c0 5.6-7.4 10.1-7.4 10.1z" fill="currentColor" stroke="none"/>'),
+    gift: svg('<rect x="3.8" y="8.2" width="16.4" height="4" rx="1.1"/><path d="M5.3 12.2v6.9c0 .9.7 1.6 1.6 1.6h10.2c.9 0 1.6-.7 1.6-1.6v-6.9M12 8.2v12.5"/><path d="M12 8.2C10.9 5.6 7.7 4.9 7.2 6.6c-.4 1.4 2 1.6 4.8 1.6zm0 0c1.1-2.6 4.3-3.3 4.8-1.6.4 1.4-2 1.6-4.8 1.6z"/>'),
+    flame: svg('<path d="M12 21.4c3.5 0 5.9-2.3 5.9-5.7 0-2.6-1.5-4.5-2.9-6.1-.4 1.5-1.2 2.5-2.3 2.9.5-2.9-.6-6-3.1-8.3-.2 3.1-1.8 4.9-3.1 6.5-1.2 1.4-2.3 3-2.3 5 0 3.4 2.4 5.7 5.8 5.7z" fill="currentColor" stroke="none"/>'),
+    mic: svg('<rect x="9" y="3.5" width="6" height="10.5" rx="3"/><path d="M6 11.2a6 6 0 0 0 12 0M12 17.2v3.3M9.2 20.5h5.6"/>'),
+    flip: svg('<path d="M4.5 9.5a7.8 7.8 0 0 1 13.6-2.3M19.5 14.5a7.8 7.8 0 0 1-13.6 2.3"/><path d="M18.6 3.8v3.6H15M5.4 20.2v-3.6H9"/>'),
+    beauty: svg('<path d="M5 19.5 14.2 10.3"/><path d="M15.8 4.2l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9zM19 12.6l.5 1.1 1.1.5-1.1.5-.5 1.1-.5-1.1-1.1-.5 1.1-.5z" fill="currentColor" stroke="none"/>'),
+    ship: svg('<circle cx="12" cy="5.2" r="1.9"/><path d="M12 7.1v13.4M8.4 10.6h7.2M4.8 13.6a7.2 7.2 0 0 0 14.4 0"/>'),
+    viewers: svg('<circle cx="12" cy="8.3" r="3.3"/><path d="M5.6 19.6c.7-3.4 3.3-5.3 6.4-5.3s5.7 1.9 6.4 5.3"/>'),
+    more: svg('<circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.2" fill="currentColor" stroke="none"/>'),
+    plus: svg('<path d="M12 7v10M7 12h10"/>'),
 });
+
+const STATUS_ICONS = '<svg viewBox="0 0 17 11" aria-hidden="true"><rect x="0" y="7" width="3" height="4" rx=".8"/><rect x="4.5" y="5" width="3" height="6" rx=".8"/><rect x="9" y="2.5" width="3" height="8.5" rx=".8"/><rect x="13.5" y="0" width="3" height="11" rx=".8"/></svg>'
+    + '<svg viewBox="0 0 16 11" aria-hidden="true"><path d="M8 2.2c2.3 0 4.4.9 6 2.4l1.1-1.2A10.2 10.2 0 0 0 8 .5 10.2 10.2 0 0 0 .9 3.4L2 4.6a8.6 8.6 0 0 1 6-2.4zm0 3.3c1.4 0 2.6.5 3.6 1.4l1.1-1.2A6.8 6.8 0 0 0 8 3.8a6.8 6.8 0 0 0-4.7 1.9l1.1 1.2c1-.9 2.2-1.4 3.6-1.4zm0 3.3c.5 0 1 .2 1.3.5L8 10.7 6.7 9.3c.3-.3.8-.5 1.3-.5z"/></svg>'
+    + '<svg viewBox="0 0 26 12" aria-hidden="true"><rect x=".5" y=".5" width="22" height="11" rx="3" fill="none" stroke="currentColor" stroke-opacity=".4"/><rect x="2" y="2" width="16" height="8" rx="1.8"/><path d="M24 4v4c.8-.3 1.3-1.1 1.3-2S24.8 4.3 24 4z" fill-opacity=".45"/></svg>';
+
+// 手机状态栏：左侧时间，右侧信号 / Wi-Fi / 电量；灵动岛与底部横条由样式伪元素绘制。
+export function buildPhoneStatus(doc, now = Date.now) {
+    const bar = doc.createElement('div');
+    bar.className = 'igs-phone-status';
+    const time = doc.createElement('span');
+    const date = new Date(now());
+    time.textContent = `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+    const icons = doc.createElement('span');
+    icons.className = 'igs-phone-status-icons';
+    icons.innerHTML = STATUS_ICONS;
+    bar.append(time, icons);
+    return bar;
+}

@@ -21,6 +21,7 @@ export function renderDanmakuFields(reader, more = collapsible) {
     const aud = s.audience;
     const audience = checkbox(`${p}.audienceFx.enabled`, aud.enabled, '观众弹幕（小剧场）')
         + (aud.enabled ? sub(field(`${p}.audienceFx.persona`, '观众人设', segmentedInput(`${p}.audienceFx.persona`, aud.persona, DANMAKU_PERSONAS.map((key) => [key, DANMAKU_PERSONA_LABELS[key]]), '观众人设'))
+            + field(`${p}.audienceFx.entrySize`, '入口大小', segmentedInput(`${p}.audienceFx.entrySize`, aud.entrySize, [['small', '小'], ['medium', '中'], ['large', '大']], '入口大小'))
             + (aud.persona === 'custom' ? field(`${p}.audienceFx.customPersona`, '自定义人设', textInput(`${p}.audienceFx.customPersona`, aud.customPersona, '例：一群沉迷推理的侦探迷，爱猜凶手')) : '')
             + more('audience-fx', '密度、速度与静音', `<div class="igs-source-filter-grid">`
                 + field(`${p}.audienceFx.density`, '密度', segmentedInput(`${p}.audienceFx.density`, aud.density, [['sparse', '稀疏'], ['medium', '适中'], ['dense', '满屏']], '密度'))

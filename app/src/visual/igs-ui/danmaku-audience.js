@@ -1,5 +1,6 @@
 import { DANMAKU_PERSONA_LABELS, DANMAKU_SPEED_SECONDS } from './danmaku-settings.js';
 import { randomItem } from './danmaku-pools.js';
+import { buildPhoneStatus } from './danmaku-icons.js';
 
 // 观众弹幕（正文外的小剧场）：平时只是 HUD 下方一台半透明小手机，来新弹幕时亮角标、抖一下；
 // 用户点开才「掏出手机」进 B 站视频页——上方小视频窗滚弹幕，下方是本楼到当前页为止的弹幕列表。
@@ -14,7 +15,8 @@ const TRACK_GAP = 16;
 const SECONDS_PER_PAGE = 8;
 const LEAVE_MS = 380;
 
-const PHONE_ICON = '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="8" y="3" width="16" height="26" rx="3.5" fill="rgba(12,14,20,.55)" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.5h8M11 15h10M13 19.5h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="25.5" r="1" fill="currentColor"/></svg>';
+// 入口小手机：细机身、灵动岛、三条长短错落的弹幕（其中一条为 B 站粉），不用 emoji。
+const PHONE_ICON = '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="9" y="3.2" width="14" height="25.6" rx="3.6" fill="rgba(14,16,22,.5)" stroke="currentColor" stroke-width="1.5"/><rect x="13.9" y="5.4" width="4.2" height="1.4" rx=".7" fill="currentColor"/><g stroke-linecap="round" stroke-width="1.5"><path d="M13.6 12.2h6.4" stroke="currentColor" stroke-opacity=".9"/><path d="M11.8 16h5.4" stroke="#fb7299"/><path d="M14.4 19.8h5.6" stroke="currentColor" stroke-opacity=".6"/></g><rect x="13.6" y="25.4" width="4.8" height="1" rx=".5" fill="currentColor" fill-opacity=".6"/></svg>';
 const BACK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 
 const audiences = new WeakMap();
@@ -145,7 +147,7 @@ function buildViewer(state) {
     const list = el(doc, 'div', 'igs-aud-list');
     const bar = el(doc, 'div', 'igs-aud-bar');
     bar.append(el(doc, 'span', 'igs-aud-dm-toggle', '弹'), el(doc, 'span', 'igs-aud-input', '发个友善的弹幕见证当下'));
-    phone.append(video, info, tabs, list, bar);
+    phone.append(buildPhoneStatus(doc, state.now), video, info, tabs, list, bar);
     stage.append(dim, phone);
     swallow(stage, ['click', 'pointerdown', 'mousedown', 'touchstart', 'wheel', 'dblclick'], null);
     swallow(dim, ['click'], () => closeViewer(state, true));
@@ -310,6 +312,8 @@ export function syncAudience(front, info, ctx) {
     }
     const added = info.groups.length ? appendAudienceLog(state.log, info.messageId, info.page, info.groups) : [];
     const hasRows = (state.log.get(String(info.messageId)) || []).length > 0;
+    const size = info.settings.entrySize || 'medium';
+    if (state.els.entry.getAttribute('data-size') !== size) state.els.entry.setAttribute('data-size', size);
     const show = info.visible && hasRows;
     if (state.els.entry.hidden !== !show) state.els.entry.hidden = !show;
     if (!info.visible && state.view) closeViewer(state, false);
