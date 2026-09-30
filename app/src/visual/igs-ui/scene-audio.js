@@ -1,8 +1,11 @@
-import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, setAudioMasterVolume } from './audio-bus.js';
+import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, setAudioBusSpace, setAudioMasterVolume } from './audio-bus.js';
 import { WEATHER_FLASH_EVENT, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime, resolveWeatherFxKind } from './weather-fx-runtime.js';
 
 // 场景音频：BGM 用 HTMLAudio 按关键词选曲并交叉淡入淡出；环境音全部 WebAudio 实时合成，不依赖音频文件。
-export const AMBIENT_KINDS = Object.freeze(['birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow']);
+export const AMBIENT_KINDS = Object.freeze([
+    'birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow',
+    'cicadas', 'frogs', 'chimes', 'bell', 'clock', 'drip', 'train', 'tavern', 'ship', 'traffic',
+]);
 export const AMBIENT_LABELS = Object.freeze({
     birds: '鸟鸣',
     rain: '雨声',
@@ -14,27 +17,31 @@ export const AMBIENT_LABELS = Object.freeze({
     stream: '溪流',
     fire: '篝火',
     snow: '雪夜',
+    cicadas: '蝉鸣',
+    frogs: '蛙鸣',
+    chimes: '风铃',
+    bell: '钟声',
+    clock: '钟表',
+    drip: '滴水',
+    train: '列车',
+    tavern: '酒馆',
+    ship: '船只',
+    traffic: '车流',
 });
 export const BGM_DEFAULTS = Object.freeze({ enabled: false, volume: 0.5, tracks: Object.freeze([]) });
 export const AMBIENT_SOUND_DEFAULTS = Object.freeze({
     enabled: false,
     volume: 0.4,
-    birds: true,
-    rain: true,
-    wind: true,
-    insects: true,
-    waves: true,
-    crowd: true,
-    thunder: true,
-    stream: true,
-    fire: true,
-    snow: true,
+    ...Object.fromEntries(AMBIENT_KINDS.map((kind) => [kind, true])),
 });
 export const BGM_FADE_MS = 1600;
 export const AMBIENT_FADE_IN_S = 1.5;
 export const AMBIENT_FADE_OUT_S = 1.2;
-// 打字音/提示音期间 BGM 与环境音压到原音量的比例。
+// 提示音、演出音效期间 BGM 与环境音压到原音量的比例；打字音连续整页，只轻压，避免每页一次抽吸。
 export const DUCK_RATIO = 0.55;
+export const TYPING_DUCK_RATIO = 0.8;
+// 演出色调下 BGM 的音量（BGM 是外链 HTMLAudio，受 CORS 限制进不了滤波链，只能压音量配合画面）。
+const BGM_TONE_GAIN = Object.freeze({ '': 1, dream: 0.85, flashback: 0.85, thought: 0.92, letterbox: 0.8 });
 
 const MAX_TRACKS = 50;
 const MAX_KEYWORDS = 20;
@@ -44,6 +51,7 @@ const MAX_URL_LENGTH = 2048;
 const MAX_LAYERS = 3;
 const RAMP_STEP_MS = 50;
 const VOLUME_RAMP_MS = 300;
+const BGM_TONE_RAMP_MS = 1200;
 const MUFFLE_HZ = 700;
 const FLOOR = 0.0001;
 const URL_PATTERN = /^(https?:\/\/|data:audio\/|blob:)/i;
@@ -54,8 +62,23 @@ const WAVE_WORDS = Object.freeze(['海', '沙滩', '港', '码头', '岸', '礁'
 const CROWD_WORDS = Object.freeze(['街', '市', '商场', '车站', '广场', '食堂', '餐厅', '集市', '教室', '咖啡', '酒吧']);
 const STREAM_WORDS = Object.freeze(['溪', '泉', '瀑', '河', '江边', '水边', '水渠']);
 const FIRE_WORDS = Object.freeze(['篝火', '营火', '壁炉', '火堆', '火炉', '炉边', '暖炉', '火塘']);
-// thunder 只挂调度器、不常驻，不计入 MAX_LAYERS。
-const LAYER_ORDER = Object.freeze(['thunder', 'rain', 'wind', 'snow', 'waves', 'stream', 'fire', 'crowd', 'birds', 'insects']);
+const SUMMER_WORDS = Object.freeze(['夏', '暑', '蝉', '七月', '八月', '7月', '8月']);
+const FOREST_WORDS = Object.freeze(['森林', '树林', '林', '山']);
+const FROG_WORDS = Object.freeze(['稻田', '水田', '田埂', '田野', '池塘', '荷塘', '水塘', '沼泽', '湿地', '蛙']);
+const CHIME_WORDS = Object.freeze(['风铃', '屋檐', '檐下', '缘侧', '廊下', '和室']);
+const BELL_WORDS = Object.freeze(['寺', '庙', '神社', '教堂', '钟楼', '修道院', '禅', '佛堂', '道观']);
+const CHURCH_WORDS = Object.freeze(['教堂', '钟楼', '修道院']);
+const CLOCK_WORDS = Object.freeze(['卧室', '书房', '房间', '客厅', '办公室', '图书馆', '病房', '宿舍', '自习室', '阁楼', '钟表']);
+const DRIP_WORDS = Object.freeze(['洞', '地牢', '地下', '地窖', '遗迹', '下水道', '矿', '钟乳', '墓']);
+const TRAIN_WORDS = Object.freeze(['电车', '列车', '火车', '地铁', '车厢', '新干线', '高铁', '轻轨']);
+const TAVERN_WORDS = Object.freeze(['酒馆', '旅店', '客栈', '酒楼', '茶馆', '茶楼', '酒肆', '酒家', '公会']);
+const SHIP_WORDS = Object.freeze(['船', '甲板', '舰', '帆']);
+const TRAFFIC_WORDS = Object.freeze(['马路', '公路', '路口', '高架', '停车场', '斑马线', '公交站', '车道', '路边']);
+// thunder 只挂调度器、不常驻，不计入 MAX_LAYERS；顺序即 3 层名额的优先级。
+const LAYER_ORDER = Object.freeze([
+    'thunder', 'rain', 'wind', 'snow', 'train', 'ship', 'waves', 'stream', 'drip', 'fire', 'tavern', 'crowd', 'traffic',
+    'bell', 'cicadas', 'frogs', 'birds', 'insects', 'chimes', 'clock',
+]);
 const LEVEL_GAIN = Object.freeze({ light: 0.55, medium: 0.8, heavy: 1 });
 const THUNDER_GAP_MS = Object.freeze({ heavy: Object.freeze([4500, 9000]), other: Object.freeze([7000, 14000]) });
 // 演出色调：环境音总线上的高低通、混响湿声与增益，1.2s 内平滑过渡；多个同时生效时取优先级最高者。
@@ -70,7 +93,9 @@ const TONE_SHAPES = Object.freeze({
 const TONE_TC_S = 0.4;
 // 空间混响：衰减噪声生成脉冲响应；梦境固定用长混响。
 const IMPULSES = Object.freeze({ room: Object.freeze({ seconds: 0.4, wet: 0.18 }), hall: Object.freeze({ seconds: 1.8, wet: 0.3 }), long: Object.freeze({ seconds: 2.6, wet: 0 }) });
-const HALL_WORDS = Object.freeze(['大厅', '大堂', '走廊', '教堂', '礼堂', '体育馆', '车站', '神殿', '洞', '隧道', '地下']);
+const HALL_WORDS = Object.freeze(['大厅', '大堂', '走廊', '教堂', '礼堂', '体育馆', '车站', '神殿', '洞', '隧道', '地下', '地牢', '地窖', '遗迹', '下水道']);
+// 打字音与音效送进同一空间混响的湿声量；梦境用长混响。
+const VOICE_SPACE_WET = Object.freeze({ room: 0.05, hall: 0.12, long: 0.15 });
 const DUCK_MS = 150;
 const UNDUCK_MS = 300;
 const HIDE_FADE_MS = 300;
@@ -79,7 +104,11 @@ const states = new WeakMap();
 const liveStates = new Set();
 const noiseBuffers = new WeakMap();
 const impulseBuffers = new WeakMap();
-let duckCount = 0;
+// 进行中的闪避比例（可嵌套），取最低者生效。
+const duckRatios = [];
+// 粉噪声循环长度：2s 循环在连续底噪（风、海、溪）里能听出规律。
+const NOISE_SECONDS = 7;
+let voiceSpace = '';
 
 function plainObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -202,28 +231,46 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     const rain = weather && weather.kind === 'rain' ? weather.level : '';
     const snow = weather && weather.kind === 'snow' ? weather.level : '';
     const candidates = new Map();
-    const add = (kind, level, muffled) => {
-        if (!candidates.has(kind)) candidates.set(kind, { kind, level, muffled });
+    const add = (kind, level, muffled, variant = '') => {
+        if (!candidates.has(kind)) candidates.set(kind, variant ? { kind, level, muffled, variant } : { kind, level, muffled });
     };
+    const night = time === 'night' || time === 'midnight';
+    const summer = includesAny(`${location} ${textOf(ctx.time)}`, SUMMER_WORDS);
     // 天气演出负责闪电时，雷声跟随闪屏事件；否则雷声自行排程。
     if (weather && weather.thunder) candidates.set('thunder', { kind: 'thunder', level: weather.level, muffled: indoor, synced: ctx.lightningSynced === true });
     if (rain) add('rain', rain, indoor);
     if (weather && (weather.kind === 'wind' || weather.wind)) add('wind', weather.level, indoor);
     if (snow && !weather.wind) add('snow', snow, indoor);
+    if (includesAny(location, TRAIN_WORDS)) add('train', 'medium', false);
+    if (includesAny(location, SHIP_WORDS)) add('ship', rain === 'heavy' || weather?.wind ? 'heavy' : 'medium', false);
     if (!indoor) {
         const nature = includesAny(location, NATURE_WORDS);
         if ((time === 'dawn' || time === 'day' || !time) && nature && rain !== 'heavy') {
             add('birds', rain ? 'light' : 'medium', false);
         }
-        const summer = includesAny(`${location} ${textOf(ctx.time)}`, INSECT_EXTRA_WORDS);
-        if ((time === 'night' || time === 'dusk' || time === 'midnight') && (nature || summer) && !rain && !snow) {
-            add('insects', 'medium', false);
+        // 夜里的森林换成猫头鹰。
+        if (night && includesAny(location, FOREST_WORDS) && rain !== 'heavy' && !snow) add('birds', 'light', false, 'owl');
+        if (night || time === 'dusk') {
+            if ((nature || summer || includesAny(`${location} ${textOf(ctx.time)}`, INSECT_EXTRA_WORDS)) && !rain && !snow) add('insects', 'medium', false);
+            if (includesAny(location, FROG_WORDS) && !snow && rain !== 'heavy') add('frogs', rain ? 'heavy' : 'medium', false);
         }
         if (includesAny(location, WAVE_WORDS)) add('waves', rain === 'heavy' || weather?.wind ? 'heavy' : 'medium', false);
         if (includesAny(location, STREAM_WORDS)) add('stream', rain === 'heavy' ? 'heavy' : 'medium', false);
     }
+    // 夏天白天的蝉鸣隔着窗也听得见（夏日教室）；傍晚换成茅蜩。
+    if (summer && !rain && !snow && (time === 'dawn' || time === 'day' || time === 'dusk' || !time)) {
+        add('cicadas', time === 'dusk' ? 'light' : 'medium', indoor, time === 'dusk' ? 'higurashi' : '');
+    }
+    if (includesAny(location, DRIP_WORDS)) add('drip', 'medium', false);
     if (includesAny(location, FIRE_WORDS)) add('fire', 'medium', false);
-    if (includesAny(location, CROWD_WORDS)) add('crowd', indoor ? 'medium' : 'light', false);
+    const tavern = includesAny(location, TAVERN_WORDS);
+    if (tavern) add('tavern', 'medium', false);
+    else if (includesAny(location, CROWD_WORDS)) add('crowd', indoor ? 'medium' : 'light', false);
+    if (includesAny(location, TRAFFIC_WORDS)) add('traffic', night ? 'light' : 'medium', indoor);
+    if (includesAny(location, BELL_WORDS)) add('bell', 'medium', false, includesAny(location, CHURCH_WORDS) ? 'church' : 'temple');
+    if (includesAny(location, CHIME_WORDS) && rain !== 'heavy') add('chimes', weather?.wind || weather?.kind === 'wind' ? 'heavy' : 'medium', false);
+    // 钟表只在安静的室内听得见：有雨、风、人声时不加。
+    if (includesAny(location, CLOCK_WORDS) && !candidates.size) add('clock', 'light', false);
     const plan = [];
     let steady = 0;
     for (const kind of LAYER_ORDER) {
@@ -241,7 +288,7 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
 }
 
 function layerKey(layer) {
-    return `${layer.kind}:${layer.level}:${layer.muffled ? 1 : 0}${layer.synced ? ':sync' : ''}`;
+    return `${layer.kind}:${layer.level}:${layer.muffled ? 1 : 0}${layer.synced ? ':sync' : ''}${layer.variant ? `:${layer.variant}` : ''}`;
 }
 
 function defaultAudioFactory() {
@@ -279,7 +326,7 @@ function createState(root) {
         clear: (timer) => clearTimeout(timer),
         audioFactory: defaultAudioFactory,
         contextFactory: defaultContextFactory,
-        bgm: { current: null, fading: new Set(), volume: BGM_DEFAULTS.volume },
+        bgm: { current: null, fading: new Set(), volume: BGM_DEFAULTS.volume, tone: '' },
         ctx: null,
         master: null,
         layers: new Map(),
@@ -290,14 +337,18 @@ function createState(root) {
 }
 
 // 闪避与页面隐藏以乘数叠在设置音量上，不改写 bgm.volume / masterVolume 本身。
-function gainFactor(state) {
-    if (state.hidden) return 0;
-    return duckCount > 0 ? DUCK_RATIO : 1;
+function duckFactor() {
+    return duckRatios.length ? Math.min(...duckRatios) : 1;
 }
 
-// BGM 是 HTMLAudio、不经过混音总线，总音量只能在这里按乘数补上；环境音已由总线 master 处理。
+function gainFactor(state) {
+    if (state.hidden) return 0;
+    return duckFactor();
+}
+
+// BGM 是 HTMLAudio、不经过混音总线，总音量与演出色调只能在这里按乘数补上；环境音已由总线 master 处理。
 function bgmFactor(state) {
-    return gainFactor(state) * audioMasterVolume();
+    return gainFactor(state) * audioMasterVolume() * (BGM_TONE_GAIN[state.bgm.tone] ?? 1);
 }
 
 function retarget(state, ms) {
@@ -305,7 +356,31 @@ function retarget(state, ms) {
     if (state.master && state.ctx) {
         try { state.master.gain.setTargetAtTime(state.masterVolume * factor, state.ctx.currentTime, ms / 3000); } catch { /* ignore */ }
     }
-    if (state.bgm.current) rampEntry(state, state.bgm.current, state.bgm.volume * factor * audioMasterVolume(), ms);
+    if (state.bgm.current) rampEntry(state, state.bgm.current, state.bgm.volume * bgmFactor(state), ms);
+}
+
+// 隐藏时必须当场停：iOS 与部分安卓 WebView 切到后台后 JS 立即冻结，延时回调不会执行，
+// HTMLAudio 却允许后台继续播；iOS 的 audio.volume 还是只读的，淡出也无效。
+function silenceForHidden(state) {
+    if (state.master && state.ctx) {
+        try { state.master.gain.setTargetAtTime(0, state.ctx.currentTime, HIDE_FADE_MS / 3000); } catch { /* ignore */ }
+    }
+    for (const entry of state.bgm.fading) {
+        clearTimer(state, entry.ramp);
+        releaseAudio(entry.audio);
+    }
+    state.bgm.fading.clear();
+    const entry = state.bgm.current;
+    if (entry) {
+        clearTimer(state, entry.ramp);
+        entry.ramp = null;
+        entry.level = 0;
+        setAudioVolume(entry.audio, 0);
+        try { entry.audio.pause(); } catch { /* ignore */ }
+    }
+    if (state.ctx && typeof state.ctx.suspend === 'function') {
+        try { Promise.resolve(state.ctx.suspend()).catch(() => {}); } catch { /* ignore */ }
+    }
 }
 
 function onVisibility(state) {
@@ -313,19 +388,11 @@ function onVisibility(state) {
     const hidden = Boolean(doc && doc.hidden === true);
     if (hidden === state.hidden) return;
     state.hidden = hidden;
-    retarget(state, HIDE_FADE_MS);
     if (hidden) {
-        later(state, () => {
-            if (!state.hidden) return;
-            if (state.bgm.current) {
-                try { state.bgm.current.audio.pause(); } catch { /* ignore */ }
-            }
-            if (state.ctx && typeof state.ctx.suspend === 'function') {
-                try { Promise.resolve(state.ctx.suspend()).catch(() => {}); } catch { /* ignore */ }
-            }
-        }, HIDE_FADE_MS + 100);
+        silenceForHidden(state);
         return;
     }
+    retarget(state, HIDE_FADE_MS);
     if (state.bgm.current) playAudio(state, state.bgm.current);
     // 共享 context 上还有打字音与提示音，可见即恢复，不看是否有环境音图层。
     if (state.ctx) resumeContext(state);
@@ -349,17 +416,20 @@ function unwatchVisibility(state) {
 }
 
 // 打字音、聊天/演出提示音播放期间压低场景声音；返回幂等的释放函数，可嵌套。
-export function duckSceneAudio({ durationMs } = {}) {
-    duckCount += 1;
-    if (duckCount === 1) for (const state of liveStates) retarget(state, DUCK_MS);
+export function duckSceneAudio({ durationMs, ratio = DUCK_RATIO } = {}) {
+    const value = Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : DUCK_RATIO;
+    const before = duckFactor();
+    duckRatios.push(value);
+    if (duckFactor() !== before) for (const state of liveStates) retarget(state, DUCK_MS);
     let released = false;
     let timer = null;
     const release = () => {
         if (released) return;
         released = true;
         if (timer) clearTimeout(timer);
-        duckCount = Math.max(0, duckCount - 1);
-        if (duckCount === 0) for (const state of liveStates) retarget(state, UNDUCK_MS);
+        const prior = duckFactor();
+        duckRatios.splice(duckRatios.indexOf(value), 1);
+        if (duckFactor() !== prior) for (const state of liveStates) retarget(state, duckRatios.length ? DUCK_MS : UNDUCK_MS);
     };
     if (Number.isFinite(durationMs) && durationMs > 0) timer = setTimeout(release, durationMs);
     return release;
@@ -444,20 +514,24 @@ function fadeOutEntry(state, entry) {
     });
 }
 
-function syncBgm(state, track, volume) {
+function syncBgm(state, track, volume, tone = '') {
     const bgm = state.bgm;
     const current = bgm.current;
     const url = track ? track.url : '';
     if (current && current.url === url) {
-        if (bgm.volume !== volume || bgm.master !== audioMasterVolume()) {
+        const toneOnly = bgm.volume === volume && bgm.master === audioMasterVolume();
+        if (!toneOnly || bgm.tone !== tone) {
             bgm.volume = volume;
             bgm.master = audioMasterVolume();
-            rampEntry(state, current, volume * bgmFactor(state), VOLUME_RAMP_MS);
+            bgm.tone = tone;
+            // 进出回忆、梦境跟画面色调同速（约 1.2s），手动调音量仍然快跟。
+            rampEntry(state, current, volume * bgmFactor(state), toneOnly ? BGM_TONE_RAMP_MS : VOLUME_RAMP_MS);
         }
         return;
     }
     bgm.volume = volume;
     bgm.master = audioMasterVolume();
+    bgm.tone = tone;
     if (current) {
         bgm.current = null;
         fadeOutEntry(state, current);
@@ -587,7 +661,7 @@ function noiseBuffer(ctx) {
     let buffer = noiseBuffers.get(ctx);
     if (buffer) return buffer;
     const rate = ctx.sampleRate || 44100;
-    const length = rate * 2;
+    const length = rate * NOISE_SECONDS;
     const fade = Math.floor(rate * 0.05);
     const raw = new Float32Array(length + fade);
     let b0 = 0; let b1 = 0; let b2 = 0; let b3 = 0; let b4 = 0; let b5 = 0; let b6 = 0;
@@ -642,7 +716,7 @@ function makeNoise(layer) {
     const node = own(layer, layer.ctx.createBufferSource());
     node.buffer = noiseBuffer(layer.ctx);
     node.loop = true;
-    node.start(0, Math.random() * 1.9);
+    node.start(0, Math.random() * (NOISE_SECONDS - 0.1));
     return node;
 }
 
@@ -680,24 +754,36 @@ function resumeParkedLayers(state) {
 
 // 一次性短音：结束后自动断开；图层销毁时统一停掉。
 // 随机声像：鸟鸣每句、雷声每次、虫鸣每只各取一个位置；环境不支持 StereoPanner 时直连。
-function panTo(layer, pan, parts) {
-    if (!pan || typeof layer.ctx.createStereoPanner !== 'function') return layer.out;
+// out 缺省为图层入口（室内会经过闷声低通）；layer.clear 绕过闷声，给「雨打窗」这类贴近听者的声音。
+function panTo(layer, pan, parts, out = layer.out) {
+    if (!pan || typeof layer.ctx.createStereoPanner !== 'function') return out;
     const panner = layer.ctx.createStereoPanner();
     panner.pan.value = pan;
-    panner.connect(layer.out);
+    panner.connect(out);
     parts.push(panner);
     return panner;
 }
 
-function blip(layer, at, duration, build, pan = 0) {
+// filter：可选的一个滤波器（type / frequency / q），夹在振荡器与包络之间。
+function blip(layer, at, duration, build, pan = 0, { out, filter } = {}) {
     const ctx = layer.ctx;
     const osc = ctx.createOscillator();
     const amp = ctx.createGain();
     amp.gain.value = 0;
     build(osc, amp);
     const parts = [osc, amp];
-    osc.connect(amp);
-    amp.connect(panTo(layer, pan, parts));
+    if (filter) {
+        const node = ctx.createBiquadFilter();
+        node.type = filter.type;
+        node.frequency.value = filter.frequency;
+        node.Q.value = filter.q ?? 0.7;
+        parts.push(node);
+        osc.connect(node);
+        node.connect(amp);
+    } else {
+        osc.connect(amp);
+    }
+    amp.connect(panTo(layer, pan, parts, out));
     for (const node of parts) layer.transient.add(node);
     osc.onended = () => {
         for (const node of parts) {
@@ -730,6 +816,20 @@ function voiceRain(layer) {
         layerLater(layer, drop, rand(minGap, maxGap));
     };
     layerLater(layer, drop, rand(minGap, maxGap));
+    if (layer.muffled) windowTaps(layer, heavy, light);
+}
+
+// 室内雨声：闷掉的雨幕之外，偶尔几滴清脆地打在窗玻璃上，走 clear 不被低通。
+function windowTaps(layer, heavy, light) {
+    const [minGap, maxGap] = heavy ? [90, 320] : light ? [500, 1600] : [220, 750];
+    const tap = () => {
+        const at = layer.ctx.currentTime + 0.02;
+        noiseBurst(layer, at, rand(0.012, 0.03), {
+            type: 'bandpass', frequency: rand(2600, 4800), q: rand(3, 6), peak: rand(0.03, 0.09), attack: 0.001, pan: rand(-0.5, 0.5), out: layer.clear,
+        });
+        layerLater(layer, tap, rand(minGap, maxGap));
+    };
+    layerLater(layer, tap, rand(minGap, maxGap));
 }
 
 function voiceWind(layer) {
@@ -769,7 +869,43 @@ function phrase(layer, start, base) {
     return at;
 }
 
+// 猫头鹰：「呼——呼呼」，柔起音的低正弦加一点二次泛音。
+function hoot(layer, at, duration, peak, pan) {
+    const freq = rand(360, 420);
+    for (const [ratio, gain] of [[1, 1], [2, 0.12]]) {
+        blip(layer, at, duration, (osc, amp) => {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq * ratio, at);
+            osc.frequency.exponentialRampToValueAtTime(freq * ratio * 0.94, at + duration);
+            amp.gain.setValueAtTime(FLOOR, at);
+            amp.gain.exponentialRampToValueAtTime(peak * gain, at + duration * 0.3);
+            amp.gain.exponentialRampToValueAtTime(FLOOR, at + duration);
+        }, pan);
+    }
+}
+
+function voiceOwl(layer) {
+    const call = () => {
+        const pan = rand(-0.6, 0.6);
+        const peak = rand(0.07, 0.11);
+        let at = layer.ctx.currentTime + 0.05;
+        hoot(layer, at, rand(0.35, 0.5), peak, pan);
+        at += rand(0.8, 1.1);
+        const tail = 1 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < tail; i++) {
+            hoot(layer, at, rand(0.18, 0.26), peak * 0.8, pan);
+            at += rand(0.3, 0.4);
+        }
+        layerLater(layer, call, rand(8000, 20000));
+    };
+    layerLater(layer, call, rand(1500, 5000));
+}
+
 function voiceBirds(layer) {
+    if (layer.variant === 'owl') {
+        voiceOwl(layer);
+        return;
+    }
     const birds = [rand(2300, 2700), rand(2800, 3300), rand(2000, 2400)];
     const sing = () => {
         const bird = birds[Math.floor(Math.random() * birds.length)];
@@ -795,7 +931,7 @@ function voiceInsects(layer) {
         for (const node of parts) own(layer, node);
         osc.start();
         const rate = rand(26, 34);
-        const peak = rand(0.012, 0.024);
+        const peak = rand(0.024, 0.048);
         const trill = () => {
             const start = layer.ctx.currentTime + 0.05;
             const end = start + rand(0.3, 0.6);
@@ -842,10 +978,50 @@ function voiceCrowd(layer) {
         layerLater(layer, wander, rand(700, 2000));
     };
     wander();
+    // 室内（食堂、咖啡店）偶尔杯碟相碰；街上只有路过的脚步。
+    const indoor = layer.level === 'medium';
+    const detail = () => {
+        const at = layer.ctx.currentTime + 0.05;
+        if (indoor && Math.random() < 0.55) clink(layer, at, rand(0.012, 0.028), rand(-0.7, 0.7));
+        else footsteps(layer, at, 2 + Math.floor(Math.random() * 4), rand(-0.8, 0.8));
+        layerLater(layer, detail, rand(1200, 4000));
+    };
+    layerLater(layer, detail, rand(600, 2000));
+}
+
+// 瓷杯、玻璃杯：非谐泛音的短促金属声，偶尔两下。
+function clink(layer, at, peak, pan) {
+    const base = rand(2400, 3600);
+    const hits = Math.random() < 0.35 ? 2 : 1;
+    for (let h = 0; h < hits; h++) {
+        const t = at + h * rand(0.08, 0.16);
+        for (const [ratio, gain, decay] of [[1, 1, 0.25], [2.43, 0.45, 0.12], [3.8, 0.2, 0.07]]) {
+            blip(layer, t, decay, (osc, amp) => {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(base * ratio, t);
+                amp.gain.setValueAtTime(FLOOR, t);
+                amp.gain.exponentialRampToValueAtTime(peak * gain * (h ? 0.6 : 1), t + 0.002);
+                amp.gain.exponentialRampToValueAtTime(FLOOR, t + decay);
+            }, pan);
+        }
+    }
+}
+
+// 脚步：低频闷响 + 一点鞋底摩擦，步距 0.45~0.6s，声像缓慢移过。
+function footsteps(layer, at, count, pan) {
+    const gap = rand(0.45, 0.6);
+    const drift = rand(-0.08, 0.08);
+    const peak = rand(0.05, 0.1);
+    for (let i = 0; i < count; i++) {
+        const t = at + i * gap * rand(0.95, 1.05);
+        const p = Math.max(-0.9, Math.min(0.9, pan + drift * i));
+        noiseBurst(layer, t, 0.07, { type: 'lowpass', frequency: rand(500, 800), peak: peak * rand(0.8, 1), attack: 0.003, pan: p });
+        noiseBurst(layer, t + 0.01, 0.04, { type: 'bandpass', frequency: rand(2000, 3000), q: 1.2, peak: peak * 0.25, attack: 0.002, pan: p });
+    }
 }
 
 // 一次性滤波噪声：起音后按时间常数衰减，结束后自动断开；图层销毁时统一停掉。
-function noiseBurst(layer, at, duration, { type, frequency, q = 0.7, peak, attack = 0.005, pan = 0 }) {
+function noiseBurst(layer, at, duration, { type, frequency, q = 0.7, peak, attack = 0.005, pan = 0, out }) {
     const ctx = layer.ctx;
     const src = ctx.createBufferSource();
     const filter = ctx.createBiquadFilter();
@@ -860,7 +1036,7 @@ function noiseBurst(layer, at, duration, { type, frequency, q = 0.7, peak, attac
     amp.gain.exponentialRampToValueAtTime(peak, at + attack);
     amp.gain.setTargetAtTime(0, at + attack, Math.max(0.01, (duration - attack) / 4));
     const parts = [src, filter, amp];
-    chain(src, filter, amp, panTo(layer, pan, parts));
+    chain(src, filter, amp, panTo(layer, pan, parts, out));
     for (const node of parts) layer.transient.add(node);
     src.onended = () => {
         for (const node of parts) {
@@ -868,7 +1044,7 @@ function noiseBurst(layer, at, duration, { type, frequency, q = 0.7, peak, attac
             try { node.disconnect(); } catch { /* ignore */ }
         }
     };
-    src.start(at, Math.random() * 1.9);
+    src.start(at, Math.random() * (NOISE_SECONDS - 0.1));
     src.stop(at + duration + 0.05);
 }
 
@@ -893,6 +1069,15 @@ function voiceThunder(layer) {
             peak: near ? 0.9 : 0.6,
             attack: near ? 0.02 : rand(0.15, 0.35),
         });
+        // 滚雷：主雷之后再滚 1~3 下，越来越远、越来越闷。
+        let tail = at + rand(0.7, 1.4);
+        let peak = near ? 0.5 : 0.35;
+        const rolls = 1 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < rolls; i++) {
+            noiseBurst(layer, tail, rand(1.6, 2.6), { pan, type: 'lowpass', frequency: rand(160, 230), peak, attack: rand(0.12, 0.3) });
+            tail += rand(0.8, 1.6);
+            peak *= rand(0.5, 0.7);
+        }
     };
     if (layer.synced) {
         // 光比声快：闪屏后 0.3~2s 再响。
@@ -969,6 +1154,362 @@ function voiceVinyl(layer) {
     layerLater(layer, pop, rand(50, 300));
 }
 
+// 蝉鸣：两三只错开的合唱。带通噪声经音频速率调幅成「嗞——」，一阵阵涨落。
+function voiceCicadas(layer) {
+    if (layer.variant === 'higurashi') {
+        voiceHigurashi(layer);
+        return;
+    }
+    const voices = 2 + Math.floor(Math.random() * 2);
+    for (let v = 0; v < voices; v++) {
+        const am = makeGain(layer, 0.5);
+        const swell = makeGain(layer, 0);
+        const parts = [];
+        chain(makeNoise(layer), makeFilter(layer, 'bandpass', rand(4200, 6200), 5), am, swell, panTo(layer, rand(-0.7, 0.7), parts));
+        for (const node of parts) own(layer, node);
+        makeLfo(layer, rand(90, 160), 0.5, am.gain);
+        const peak = rand(0.8, 1.3);
+        const cycle = () => {
+            const t = layer.ctx.currentTime + 0.05;
+            const rise = rand(1.5, 3);
+            const hold = rand(3, 8);
+            const fall = rand(1.5, 3);
+            swell.gain.cancelScheduledValues(t);
+            swell.gain.setTargetAtTime(peak, t, rise / 3);
+            swell.gain.setTargetAtTime(0, t + rise + hold, fall / 3);
+            layerLater(layer, cycle, (rise + hold + fall + rand(1, 5)) * 1000);
+        };
+        layerLater(layer, cycle, rand(100, 3000));
+    }
+}
+
+// 茅蜩（傍晚）：「卡那卡那卡那」一串逐渐降调、渐弱的短音。
+function voiceHigurashi(layer) {
+    const call = () => {
+        const pan = rand(-0.7, 0.7);
+        const count = 8 + Math.floor(Math.random() * 8);
+        let freq = rand(4200, 4800);
+        let peak = rand(0.03, 0.05);
+        let at = layer.ctx.currentTime + 0.05;
+        for (let i = 0; i < count; i++) {
+            const duration = rand(0.1, 0.14);
+            const f = freq;
+            const p = peak;
+            const t = at;
+            blip(layer, t, duration, (osc, amp) => {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(f * 1.04, t);
+                osc.frequency.exponentialRampToValueAtTime(f, t + duration);
+                amp.gain.setValueAtTime(FLOOR, t);
+                amp.gain.exponentialRampToValueAtTime(p, t + 0.015);
+                amp.gain.exponentialRampToValueAtTime(FLOOR, t + duration);
+            }, pan);
+            at += duration + rand(0.03, 0.05);
+            freq *= 0.992;
+            if (i > count * 0.4) peak *= 0.9;
+        }
+        layerLater(layer, call, rand(5000, 14000));
+    };
+    layerLater(layer, call, rand(500, 3000));
+}
+
+// 蛙鸣：锯齿波按 18~28Hz 脉冲、带通成「咕呱」；几只各自成串地叫，雨天更热闹。
+function croak(layer, at, base, peak, pan) {
+    const pulses = 3 + Math.floor(Math.random() * 4);
+    const rate = rand(18, 28);
+    const duration = pulses / rate;
+    blip(layer, at, duration, (osc, amp) => {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(base, at);
+        osc.frequency.linearRampToValueAtTime(base * rand(0.85, 0.95), at + duration);
+        for (let i = 0; i < pulses; i++) {
+            const t = at + i / rate;
+            amp.gain.setValueAtTime(0, t);
+            amp.gain.linearRampToValueAtTime(peak, t + 0.25 / rate);
+            amp.gain.linearRampToValueAtTime(0, t + 0.8 / rate);
+        }
+    }, pan, { filter: { type: 'bandpass', frequency: base * rand(3, 4.5), q: 2.5 } });
+}
+
+function voiceFrogs(layer) {
+    const count = layer.level === 'heavy' ? 4 : 2 + Math.floor(Math.random() * 2);
+    for (let f = 0; f < count; f++) {
+        const base = rand(140, 280);
+        const pan = rand(-0.7, 0.7);
+        const peak = rand(0.16, 0.26);
+        const bout = () => {
+            const now = layer.ctx.currentTime;
+            const n = 2 + Math.floor(Math.random() * 4);
+            let at = now + 0.05;
+            for (let i = 0; i < n; i++) {
+                croak(layer, at, base * rand(0.97, 1.03), peak, pan);
+                at += rand(0.35, 0.6);
+            }
+            layerLater(layer, bout, (at - now) * 1000 + rand(1500, 5000));
+        };
+        layerLater(layer, bout, rand(200, 3000));
+    }
+}
+
+// 风铃：五声音阶上的金属管（非谐泛音 1 : 2.76 : 5.4），风一阵就叮几下；有风时更密。
+const CHIME_SCALE = Object.freeze([1, 9 / 8, 5 / 4, 3 / 2, 5 / 3]);
+
+function chimeStrike(layer, at, freq, peak, pan) {
+    for (const [ratio, gain, decay] of [[1, 1, rand(1.8, 2.8)], [2.76, 0.35, 0.9], [5.4, 0.15, 0.4]]) {
+        blip(layer, at, decay, (osc, amp) => {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq * ratio, at);
+            amp.gain.setValueAtTime(FLOOR, at);
+            amp.gain.exponentialRampToValueAtTime(peak * gain, at + 0.002);
+            amp.gain.exponentialRampToValueAtTime(FLOOR, at + decay);
+        }, pan);
+    }
+}
+
+function voiceChimes(layer) {
+    const root = rand(1400, 1900);
+    const notes = CHIME_SCALE.map((ratio) => root * ratio);
+    const windy = layer.level === 'heavy';
+    const pan = rand(-0.4, 0.4);
+    const gust = () => {
+        const hits = windy ? 2 + Math.floor(Math.random() * 5) : 1 + Math.floor(Math.random() * 3);
+        let at = layer.ctx.currentTime + 0.05;
+        for (let i = 0; i < hits; i++) {
+            chimeStrike(layer, at, notes[Math.floor(Math.random() * notes.length)], rand(0.015, 0.035), pan + rand(-0.1, 0.1));
+            at += rand(0.08, 0.35);
+        }
+        layerLater(layer, gust, windy ? rand(1200, 4000) : rand(3000, 10000));
+    };
+    layerLater(layer, gust, rand(500, 2500));
+}
+
+// 钟声：寺庙梵钟低沉、带拍频，一下余音十秒；教堂钟明亮，一次连敲数下。都隔很久才响一回。
+const TEMPLE_PARTIALS = Object.freeze([[1, 1, 10], [1.004, 0.6, 10], [2.02, 0.4, 6], [2.7, 0.25, 4], [3.9, 0.12, 2.5], [5.4, 0.06, 1.5]]);
+const CHURCH_PARTIALS = Object.freeze([[0.5, 0.5, 5], [1, 0.8, 4], [1.2, 0.5, 3], [1.5, 0.3, 2.5], [2, 0.6, 2]]);
+
+function bellStrike(layer, at, base, partials, peak, pan) {
+    noiseBurst(layer, at, 0.12, { type: 'lowpass', frequency: base * 6, peak: peak * 0.4, attack: 0.002, pan });
+    for (const [ratio, gain, decay] of partials) {
+        blip(layer, at, decay, (osc, amp) => {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(base * ratio, at);
+            amp.gain.setValueAtTime(FLOOR, at);
+            amp.gain.exponentialRampToValueAtTime(peak * gain, at + 0.004);
+            amp.gain.exponentialRampToValueAtTime(FLOOR, at + decay);
+        }, pan);
+    }
+}
+
+function voiceBell(layer) {
+    const church = layer.variant === 'church';
+    const base = church ? rand(320, 420) : rand(110, 140);
+    const pan = rand(-0.3, 0.3);
+    const toll = () => {
+        const at = layer.ctx.currentTime + 0.05;
+        if (church) {
+            const strokes = 2 + Math.floor(Math.random() * 4);
+            for (let i = 0; i < strokes; i++) bellStrike(layer, at + i * rand(1.6, 2), base, CHURCH_PARTIALS, 0.05, pan);
+            layerLater(layer, toll, rand(25000, 50000));
+        } else {
+            bellStrike(layer, at, base, TEMPLE_PARTIALS, 0.08, pan);
+            layerLater(layer, toll, rand(20000, 40000));
+        }
+    };
+    layerLater(layer, toll, rand(2000, 6000));
+}
+
+// 按音频时钟预排未来几秒的等间隔事件（钟表、列车），不受定时器抖动影响；隐藏后恢复从当前时刻续上。
+function metronome(layer, period, strike) {
+    let next = 0;
+    const batch = () => {
+        const now = layer.ctx.currentTime;
+        if (next < now + 0.05) next = now + 0.05;
+        while (next < now + 4) {
+            strike(next);
+            next += period();
+        }
+        layerLater(layer, batch, 3000);
+    };
+    batch();
+}
+
+// 钟表：一秒一下，「嘀」「嗒」交替，很轻。
+function voiceClock(layer) {
+    const period = rand(0.98, 1.02);
+    const peak = rand(0.6, 0.85);
+    const pan = rand(-0.5, 0.5);
+    let tock = false;
+    metronome(layer, () => period, (at) => {
+        noiseBurst(layer, at, 0.02, { type: 'bandpass', frequency: tock ? 2400 : 3400, q: 2.5, peak: peak * (tock ? 0.8 : 1), attack: 0.001, pan });
+        tock = !tock;
+    });
+}
+
+// 洞穴滴水：上滑的「叮咚」，偶尔紧跟一滴小的；底下垫一层极低的空洞气流。空间混响由地点词决定。
+function voiceDrip(layer) {
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 140), makeGain(layer, 0.12), layer.out);
+    const plink = (at, freq, peak, pan) => blip(layer, at, 0.12, (osc, amp) => {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, at);
+        osc.frequency.exponentialRampToValueAtTime(freq * rand(1.6, 2.2), at + 0.05);
+        amp.gain.setValueAtTime(FLOOR, at);
+        amp.gain.exponentialRampToValueAtTime(peak, at + 0.003);
+        amp.gain.exponentialRampToValueAtTime(FLOOR, at + 0.12);
+    }, pan);
+    const drop = () => {
+        const at = layer.ctx.currentTime + 0.03;
+        const freq = rand(700, 1600);
+        const peak = rand(0.04, 0.09);
+        const pan = rand(-0.7, 0.7);
+        plink(at, freq, peak, pan);
+        if (Math.random() < 0.25) plink(at + rand(0.15, 0.4), freq * rand(0.9, 1.1), peak * 0.5, pan);
+        layerLater(layer, drop, rand(500, 2600));
+    };
+    layerLater(layer, drop, rand(200, 1200));
+}
+
+// 列车：车厢里的低频轰鸣 + 「哐当、哐当」的轨缝节奏。
+function voiceTrain(layer) {
+    const rumble = makeGain(layer, 0.32);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 170), rumble, layer.out);
+    makeLfo(layer, rand(0.15, 0.3), 0.06, rumble.gain);
+    chain(makeNoise(layer), makeFilter(layer, 'bandpass', 520, 0.9), makeGain(layer, 0.06), layer.out);
+    const period = rand(1.05, 1.3);
+    metronome(layer, () => period * rand(0.99, 1.01), (at) => {
+        for (const offset of [0, 0.11]) {
+            noiseBurst(layer, at + offset, 0.09, { type: 'lowpass', frequency: rand(700, 1000), peak: rand(0.14, 0.2), attack: 0.002 });
+        }
+    });
+}
+
+// 酒馆：比街市更暖更闷的人声，夹着碰杯、木杯落桌和偶尔一阵笑。
+function mugThunk(layer, at, pan) {
+    noiseBurst(layer, at, 0.1, { type: 'lowpass', frequency: 280, peak: rand(0.12, 0.2), attack: 0.002, pan });
+    noiseBurst(layer, at, 0.05, { type: 'bandpass', frequency: rand(800, 1100), q: 2, peak: 0.04, attack: 0.001, pan });
+}
+
+function laugh(layer, at, pan) {
+    const count = 3 + Math.floor(Math.random() * 4);
+    const freq = rand(700, 1100);
+    let peak = rand(0.03, 0.05);
+    let t = at;
+    for (let i = 0; i < count; i++) {
+        noiseBurst(layer, t, 0.08, { type: 'bandpass', frequency: freq * rand(0.95, 1.08), q: 4, peak, attack: 0.01, pan });
+        t += rand(0.13, 0.17);
+        peak *= 0.85;
+    }
+}
+
+function voiceTavern(layer) {
+    const murmur = makeGain(layer, 0.24);
+    chain(makeNoise(layer), makeFilter(layer, 'highpass', 180), makeFilter(layer, 'lowpass', 1100), murmur, layer.out);
+    const formant = makeFilter(layer, 'bandpass', 550, 1.4);
+    chain(makeNoise(layer), formant, makeGain(layer, 0.1), layer.out);
+    makeLfo(layer, rand(0.15, 0.3), 200, formant.frequency);
+    const wander = () => {
+        murmur.gain.setTargetAtTime(rand(0.16, 0.32), layer.ctx.currentTime, 0.8);
+        layerLater(layer, wander, rand(900, 2500));
+    };
+    wander();
+    const detail = () => {
+        const at = layer.ctx.currentTime + 0.05;
+        const pan = rand(-0.8, 0.8);
+        const roll = Math.random();
+        if (roll < 0.45) clink(layer, at, rand(0.012, 0.025), pan);
+        else if (roll < 0.8) mugThunk(layer, at, pan);
+        else laugh(layer, at, pan);
+        layerLater(layer, detail, rand(700, 2500));
+    };
+    layerLater(layer, detail, rand(300, 1200));
+}
+
+// 船只：船底随浪一涨一落的水声，船身跟着摇一下就「吱呀」一声。
+function creak(layer, at, heavy) {
+    const duration = rand(0.4, 1.1);
+    const base = rand(70, 140);
+    const peak = rand(0.04, 0.08) * (heavy ? 1.3 : 1);
+    blip(layer, at, duration, (osc, amp) => {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(base, at);
+        osc.frequency.linearRampToValueAtTime(base * rand(1.1, 1.35), at + duration * 0.6);
+        osc.frequency.linearRampToValueAtTime(base * rand(0.9, 1.05), at + duration);
+        amp.gain.setValueAtTime(FLOOR, at);
+        amp.gain.exponentialRampToValueAtTime(peak, at + duration * 0.25);
+        amp.gain.setValueAtTime(peak * 0.8, at + duration * 0.75);
+        amp.gain.exponentialRampToValueAtTime(FLOOR, at + duration);
+    }, rand(-0.6, 0.6), { filter: { type: 'bandpass', frequency: rand(500, 1100), q: 5 } });
+}
+
+function voiceShip(layer) {
+    const heavy = layer.level === 'heavy';
+    const wash = makeGain(layer, 0.1);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 380, 0.5), wash, layer.out);
+    const period = rand(5, 8);
+    const sway = () => {
+        const t = layer.ctx.currentTime + 0.05;
+        wash.gain.cancelScheduledValues(t);
+        wash.gain.setTargetAtTime(heavy ? 0.4 : 0.26, t, period * 0.15);
+        wash.gain.setTargetAtTime(0.08, t + period * 0.5, period * 0.15);
+        creak(layer, t + period * rand(0.3, 0.5), heavy);
+        if (Math.random() < 0.4) creak(layer, t + period * rand(0.7, 0.9), heavy);
+        layerLater(layer, sway, period * 1000);
+    };
+    sway();
+}
+
+// 车流：远处低沉的车河 + 一辆辆驶过（滤波上扬再回落模拟多普勒，声像从一侧扫到另一侧）；夜里车少。
+function passBy(layer, at) {
+    const ctx = layer.ctx;
+    const duration = rand(3, 5);
+    const mid = at + duration * rand(0.4, 0.6);
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(ctx);
+    src.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 0.9;
+    filter.frequency.setValueAtTime(350, at);
+    filter.frequency.exponentialRampToValueAtTime(rand(800, 1100), mid);
+    filter.frequency.exponentialRampToValueAtTime(300, at + duration);
+    const amp = ctx.createGain();
+    amp.gain.value = 0;
+    amp.gain.setValueAtTime(FLOOR, at);
+    amp.gain.exponentialRampToValueAtTime(rand(0.18, 0.32), mid);
+    amp.gain.exponentialRampToValueAtTime(FLOOR, at + duration);
+    const parts = [src, filter, amp];
+    let tail = layer.out;
+    if (typeof ctx.createStereoPanner === 'function') {
+        const panner = ctx.createStereoPanner();
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        panner.pan.setValueAtTime(-0.8 * dir, at);
+        panner.pan.linearRampToValueAtTime(0.8 * dir, at + duration);
+        panner.connect(layer.out);
+        parts.push(panner);
+        tail = panner;
+    }
+    chain(src, filter, amp, tail);
+    for (const node of parts) layer.transient.add(node);
+    src.onended = () => {
+        for (const node of parts) {
+            layer.transient.delete(node);
+            try { node.disconnect(); } catch { /* ignore */ }
+        }
+    };
+    src.start(at, Math.random() * (NOISE_SECONDS - 0.1));
+    src.stop(at + duration + 0.05);
+}
+
+function voiceTraffic(layer) {
+    const light = layer.level === 'light';
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 220), makeGain(layer, light ? 0.1 : 0.16), layer.out);
+    const [minGap, maxGap] = light ? [5000, 14000] : [1800, 6000];
+    const pass = () => {
+        passBy(layer, layer.ctx.currentTime + 0.05);
+        layerLater(layer, pass, rand(minGap, maxGap));
+    };
+    layerLater(layer, pass, rand(500, 2500));
+}
+
 const VOICES = Object.freeze({
     rain: voiceRain,
     wind: voiceWind,
@@ -981,6 +1522,16 @@ const VOICES = Object.freeze({
     fire: voiceFire,
     snow: voiceSnow,
     vinyl: voiceVinyl,
+    cicadas: voiceCicadas,
+    frogs: voiceFrogs,
+    chimes: voiceChimes,
+    bell: voiceBell,
+    clock: voiceClock,
+    drip: voiceDrip,
+    train: voiceTrain,
+    tavern: voiceTavern,
+    ship: voiceShip,
+    traffic: voiceTraffic,
 });
 
 function disposeLayer(state, layer) {
@@ -1008,6 +1559,8 @@ function startLayer(state, spec) {
         kind: spec.kind,
         level: spec.level,
         synced: spec.synced === true,
+        muffled: spec.muffled === true,
+        variant: spec.variant || '',
         ctx,
         state,
         nodes: [],
@@ -1017,16 +1570,23 @@ function startLayer(state, spec) {
         cleanups: [],
         stopped: false,
         out: null,
+        clear: null,
+        fade: null,
     };
     try {
-        layer.out = makeGain(layer, 0);
-        let tail = layer.out;
-        if (spec.muffled) tail = chain(tail, makeFilter(layer, 'lowpass', MUFFLE_HZ, 0.5));
-        tail.connect(state.tone ? state.tone.input : state.master);
+        // 声音 → out →（室内闷声低通）→ fade（淡入淡出）→ 色调链；clear 直接进 fade，不被闷掉。
+        layer.fade = makeGain(layer, 0);
+        layer.fade.connect(state.tone ? state.tone.input : state.master);
+        layer.clear = layer.fade;
+        layer.out = layer.fade;
+        if (spec.muffled) {
+            layer.out = makeGain(layer, 1);
+            chain(layer.out, makeFilter(layer, 'lowpass', MUFFLE_HZ, 0.5), layer.fade);
+        }
         VOICES[spec.kind](layer);
         const now = ctx.currentTime;
-        layer.out.gain.setValueAtTime(0, now);
-        layer.out.gain.linearRampToValueAtTime(LEVEL_GAIN[spec.level] || LEVEL_GAIN.medium, now + AMBIENT_FADE_IN_S);
+        layer.fade.gain.setValueAtTime(0, now);
+        layer.fade.gain.linearRampToValueAtTime(LEVEL_GAIN[spec.level] || LEVEL_GAIN.medium, now + AMBIENT_FADE_IN_S);
     } catch {
         disposeLayer(state, layer);
         return null;
@@ -1038,7 +1598,7 @@ function fadeOutLayer(state, layer) {
     const ctx = state.ctx;
     try {
         const now = ctx.currentTime;
-        const gain = layer.out.gain;
+        const gain = layer.fade.gain;
         gain.cancelScheduledValues(now);
         gain.setValueAtTime(gain.value, now);
         gain.linearRampToValueAtTime(0, now + AMBIENT_FADE_OUT_S);
@@ -1080,8 +1640,14 @@ export function applySceneAudio(root, options = {}) {
     const plan = active ? resolveAmbientPlan(context, ambient, source.weatherSettings) : [];
     const tone = plan.length ? resolveAmbientTone(context) : '';
     const space = plan.length ? resolveAmbientSpace(context.location, source.weatherSettings) : '';
+    const bgmTone = track ? resolveAmbientTone(context) : '';
     const result = { track, ambient: plan, tone, space };
     if (!root || typeof root !== 'object') return result;
+    // 打字音与音效的空间混响跟着「场景声音」开关走；测试注入的 context 不碰共享总线。
+    if (typeof source.contextFactory !== 'function') {
+        const voiceTone = active && ambient.enabled ? resolveAmbientTone(context) : '';
+        syncVoiceSpace(voiceTone === 'dream' ? 'long' : active && ambient.enabled ? resolveAmbientSpace(context.location, source.weatherSettings) : '');
+    }
     let state = states.get(root);
     if (!state) {
         if (!track && !plan.length) return result;
@@ -1094,15 +1660,28 @@ export function applySceneAudio(root, options = {}) {
     if (typeof source.clear === 'function') state.clear = source.clear;
     if (typeof source.audioFactory === 'function') state.audioFactory = source.audioFactory;
     if (typeof source.contextFactory === 'function') state.contextFactory = source.contextFactory;
-    const key = [track ? track.url : '', bgm.volume, audioMasterVolume(), plan.map(layerKey).join(','), ambient.volume, tone, space].join('|');
+    const key = [track ? track.url : '', bgm.volume, audioMasterVolume(), bgmTone, plan.map(layerKey).join(','), ambient.volume, tone, space].join('|');
     if (key === state.key) return result;
     state.key = key;
-    syncBgm(state, track, bgm.volume);
+    syncBgm(state, track, bgm.volume, bgmTone);
     syncAmbient(state, plan, ambient.volume, tone, space);
     return result;
 }
 
+function syncVoiceSpace(kind) {
+    if (kind === voiceSpace) return;
+    voiceSpace = kind;
+    if (!kind) {
+        setAudioBusSpace(null, 0);
+        return;
+    }
+    const ctx = audioBusContext();
+    if (!ctx) return;
+    try { setAudioBusSpace(impulseBuffer(ctx, kind), VOICE_SPACE_WET[kind] || 0); } catch { /* ignore */ }
+}
+
 export function cancelSceneAudio(root) {
+    syncVoiceSpace('');
     const state = root && states.get(root);
     if (!state) return false;
     state.stopped = true;

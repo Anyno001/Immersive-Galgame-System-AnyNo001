@@ -8,6 +8,7 @@ import { STAGE_DIRECTION_STYLE_TEXT } from './stage-direction-style.js';
 import { STAGE_CAST_STYLE_TEXT } from './stage-cast-render.js';
 import { SCENE_GRADE_STYLE_TEXT } from './scene-grade.js';
 import { ROMANCE_STYLE_TEXT } from './romance-style.js';
+import { INTIMATE_STYLE_TEXT } from './romance-intimate-style.js';
 import { META_STYLE_TEXT } from './meta-style.js';
 import { TEXT_FX_STYLE_TEXT } from './text-fx.js';
 import { DIALOG_TYPESETTING_STYLE_TEXT } from './dialog-theme-typography.js';
@@ -289,6 +290,7 @@ ${STAGE_DIRECTION_STYLE_TEXT}
 ${STAGE_CAST_STYLE_TEXT}
 ${SCENE_GRADE_STYLE_TEXT}
 ${ROMANCE_STYLE_TEXT}
+${INTIMATE_STYLE_TEXT}
 ${META_STYLE_TEXT}
 ${DIALOG_TYPESETTING_STYLE_TEXT}
 ${TEXT_FX_STYLE_TEXT}

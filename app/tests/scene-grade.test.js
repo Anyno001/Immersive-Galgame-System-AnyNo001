@@ -7,6 +7,7 @@ import {
     resolveSceneGradePlan,
 } from '../src/visual/igs-ui/scene-grade.js';
 import { WEATHER_FLASH_EVENT } from '../src/visual/igs-ui/weather-fx-runtime.js';
+import { setStagePauseReason } from '../src/visual/igs-ui/stage-pause.js';
 import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 
 const TINT = { enabled: true, strength: 'medium' };
@@ -250,4 +251,39 @@ test('gate: scene grade layer carries a flat tint for the low quality tier', asy
     assert.match(active.style.getPropertyValue('--igs-grade-flat'), /^linear-gradient\(180deg,rgba\(\d+,\d+,\d+,[\d.]+\),rgba\(\d+,\d+,\d+,[\d.]+\)\)$/);
     assert.match(SCENE_GRADE_STYLE_TEXT, /#igs-overlay\[data-igs-quality="low"\] \.igs-grade-layer\{mix-blend-mode:normal;background:var\(--igs-grade-flat,none\)!important;\}/);
     assert.match(SCENE_GRADE_STYLE_TEXT, /#igs-overlay\[data-igs-quality="low"\] \.igs-grade-layer::after\{display:none;\}/);
+});
+
+test('gate:perf:retired-grade-layer-drops-its-blend-mode-after-the-fade', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const r = makeReader();
+    const options = { ...r.ctx, settings: TINT, weatherSettings: WEATHER, location: '河边' };
+    applySceneGrade(r.root, { ...options, time: '黄昏' });
+    const [a, b] = layers(r.motion);
+    assert.equal(a.getAttribute('data-igs-grade-idle'), null, 'active layer blends');
+    assert.equal(b.getAttribute('data-igs-grade-idle'), '', 'unused layer starts idle');
+    applySceneGrade(r.root, { ...options, time: '深夜' });
+    assert.equal(a.getAttribute('data-igs-grade-idle'), null, 'still blending while it fades out');
+    t.mock.timers.tick(1600);
+    assert.equal(a.getAttribute('data-igs-grade-idle'), '');
+    assert.equal(b.getAttribute('data-igs-grade-idle'), null);
+    applySceneGrade(r.root, { ...options, time: '黄昏' });
+    assert.equal(a.getAttribute('data-igs-grade-idle'), null, 'reactivated layer blends again at once');
+    cancelSceneGrade(r.root);
+    assert.match(SCENE_GRADE_STYLE_TEXT, /\.igs-grade-layer\[data-igs-grade-idle\][^{]*\{mix-blend-mode:normal;\}/);
+});
+
+test('gate:perf:lightning-skips-the-grade-flash-while-a-panel-pauses-the-stage', () => {
+    const r = makeReader();
+    r.root.id = 'igs-overlay';
+    applySceneGrade(r.root, { ...r.ctx, weatherSettings: WEATHER, time: '夜晚', weather: '雷阵雨', location: '街道' });
+    r.ctx.finish();
+    const settled = r.bg.style.getPropertyValue('--igs-grade-bg');
+    const flash = r.root.listeners.get(WEATHER_FLASH_EVENT);
+    setStagePauseReason(r.root, 'panel:settings', true);
+    flash();
+    assert.equal(r.bg.style.getPropertyValue('--igs-grade-bg'), settled, 'no flash under a panel');
+    setStagePauseReason(r.root, 'panel:settings', false);
+    flash();
+    assert.notEqual(r.bg.style.getPropertyValue('--igs-grade-bg'), settled, 'flashes again once resumed');
+    cancelSceneGrade(r.root);
 });

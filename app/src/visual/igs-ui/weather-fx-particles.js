@@ -9,6 +9,7 @@ const MAX_DT = 0.05;
 const REFERENCE_AREA = 1280 * 720;
 const TAU = Math.PI * 2;
 const MAX_SPLASHES = 80;
+const SPLASH_LEVELS = 8;
 const LEVEL_DENSITY = Object.freeze({ light: 0.5, medium: 1, heavy: 1.7 });
 const INTENSITY_DENSITY = Object.freeze({ weak: 0.6, medium: 1, strong: 1.35 });
 const BASE_COUNTS = Object.freeze({
@@ -80,12 +81,20 @@ function createEngine(plan, random) {
             });
             if (!s.splashes.length) return;
             ctx.lineWidth = 1;
-            for (const splash of s.splashes) {
-                const progress = splash.age / splash.life;
-                const radius = splash.size * (0.3 + progress);
-                ctx.globalAlpha = 0.45 * (1 - progress);
+            // 水花按剩余寿命分档合批：每档一次 stroke，不再逐个描边（最多 80 次/帧）。
+            for (let level = SPLASH_LEVELS; level > 0; level -= 1) {
+                let any = false;
                 ctx.beginPath();
-                ctx.ellipse(splash.x, splash.y, radius, radius * 0.28, 0, 0, TAU);
+                for (const splash of s.splashes) {
+                    const progress = splash.age / splash.life;
+                    if (splashLevel(progress) !== level) continue;
+                    const radius = splash.size * (0.3 + progress);
+                    ctx.moveTo(splash.x + radius, splash.y);
+                    ctx.ellipse(splash.x, splash.y, radius, radius * 0.28, 0, 0, TAU);
+                    any = true;
+                }
+                if (!any) continue;
+                ctx.globalAlpha = 0.45 * (level - 0.5) / SPLASH_LEVELS;
                 ctx.stroke();
             }
         },
@@ -256,6 +265,10 @@ function createSurface(doc, layer, depth) {
     return { layer, canvas, ctx, depth, w: 0, h: 0, items: [], splashes: [] };
 }
 
+export function splashLevel(progress) {
+    return Math.min(SPLASH_LEVELS, Math.max(1, Math.ceil((1 - progress) * SPLASH_LEVELS)));
+}
+
 export function startWeatherParticles(options = {}) {
     const { back, front, plan } = options;
     const doc = back && back.ownerDocument;
@@ -332,8 +345,12 @@ export function startWeatherParticles(options = {}) {
             if (!s.w || !s.h) continue;
             for (const item of s.items) engine.step(s, item, dt, clock);
             if (s.splashes.length) {
-                for (const splash of s.splashes) splash.age += dt;
-                s.splashes = s.splashes.filter((splash) => splash.age < splash.life);
+                let alive = 0;
+                for (const splash of s.splashes) {
+                    splash.age += dt;
+                    if (splash.age < splash.life) s.splashes[alive++] = splash;
+                }
+                s.splashes.length = alive;
             }
             s.ctx.globalAlpha = 1;
             s.ctx.clearRect(0, 0, s.w, s.h);

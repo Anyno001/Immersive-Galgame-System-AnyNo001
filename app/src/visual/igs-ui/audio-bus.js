@@ -6,8 +6,10 @@ export const AUDIO_MASTER_DEFAULTS = Object.freeze({ volume: 1 });
 // 压限器只兜底极端叠加（暴雨 + 雷 + 连续提示音），平时不应被触发。
 const COMPRESSOR = Object.freeze({ threshold: -10, knee: 6, ratio: 4, attack: 0.003, release: 0.25 });
 const MASTER_TC_S = 0.05;
-// 页面隐藏后先让各模块淡出（scene-audio 用 300ms），再挂起。
-const HIDE_SUSPEND_MS = 400;
+// 换场景时混响湿声跟环境音色调同速过渡。
+const SPACE_TC_S = 0.4;
+// 关闭阅读器后先让各模块淡出（scene-audio 用 300ms），再挂起。
+const PARK_SUSPEND_MS = 400;
 
 let bus = null;
 let contextFactory = defaultContextFactory;
@@ -45,7 +47,7 @@ export function getAudioBus() {
             inputs[name] = ctx.createGain();
             inputs[name].connect(compressor);
         }
-        bus = { ctx, inputs, compressor, master, retry: null, visibility: null, hideTimer: null, parkTimer: null };
+        bus = { ctx, inputs, compressor, master, retry: null, visibility: null, parkTimer: null, space: null };
     } catch {
         return null;
     }
@@ -76,6 +78,39 @@ export function setAudioMasterVolume(value) {
         try { bus.master.gain.setTargetAtTime(volume, bus.ctx.currentTime, MASTER_TC_S); } catch { /* ignore */ }
     }
     return volume;
+}
+
+// 空间混响：voice、sfx 两路各送一份到同一个卷积器，湿声并入压限器。首次需要时才建。
+// buffer 为 null 只把湿声收到 0，保留卷积器；总线不存在时关混响是空操作。
+export function setAudioBusSpace(buffer, wet) {
+    const current = buffer ? getAudioBus() : bus;
+    if (!current) return false;
+    const { ctx } = current;
+    const level = buffer && Number.isFinite(wet) ? Math.max(0, Math.min(1, wet)) : 0;
+    if (!current.space) {
+        if (!level || typeof ctx.createConvolver !== 'function') return false;
+        try {
+            const convolver = ctx.createConvolver();
+            const send = ctx.createGain();
+            send.gain.value = 0;
+            convolver.connect(send);
+            send.connect(current.compressor);
+            current.inputs.voice.connect(convolver);
+            current.inputs.sfx.connect(convolver);
+            current.space = { convolver, send, buffer: null };
+        } catch {
+            return false;
+        }
+    }
+    const { space } = current;
+    try {
+        if (buffer && space.buffer !== buffer) {
+            space.convolver.buffer = buffer;
+            space.buffer = buffer;
+        }
+        space.send.gain.setTargetAtTime(level, ctx.currentTime, SPACE_TC_S);
+    } catch { /* ignore */ }
+    return true;
 }
 
 function documentOf() {
@@ -128,14 +163,10 @@ function watchVisibility(current) {
         const hidden = doc.hidden === true;
         if (hidden === current.hidden) return;
         current.hidden = hidden;
-        clearTimeout(current.hideTimer);
-        current.hideTimer = null;
         if (hidden) {
-            current.hideTimer = setTimeout(() => {
-                current.hideTimer = null;
-                if (!current.hidden || typeof current.ctx.suspend !== 'function') return;
-                try { Promise.resolve(current.ctx.suspend()).catch(() => {}); } catch { /* ignore */ }
-            }, HIDE_SUSPEND_MS);
+            // 当场挂起：iOS 与部分安卓 WebView 切后台后 JS 立即冻结，延时挂起不会执行。
+            if (typeof current.ctx.suspend !== 'function') return;
+            try { Promise.resolve(current.ctx.suspend()).catch(() => {}); } catch { /* ignore */ }
             return;
         }
         // 可见即恢复，不以是否有环境音为条件，否则打字音与提示音会一直静音。
@@ -160,7 +191,7 @@ export function parkAudioBus() {
         current.parkTimer = null;
         if (bus !== current) return;
         try { Promise.resolve(current.ctx.suspend()).catch(() => {}); } catch { /* ignore */ }
-    }, HIDE_SUSPEND_MS);
+    }, PARK_SUSPEND_MS);
     return true;
 }
 
@@ -172,7 +203,6 @@ export function unparkAudioBus() {
 export function resetAudioBusForTest(factory) {
     if (bus) {
         disarmRetry(bus);
-        clearTimeout(bus.hideTimer);
         clearTimeout(bus.parkTimer);
         if (bus.visibility) {
             try { bus.visibility.doc.removeEventListener('visibilitychange', bus.visibility.handler); } catch { /* ignore */ }

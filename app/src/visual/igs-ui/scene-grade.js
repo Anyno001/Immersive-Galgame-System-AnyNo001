@@ -1,4 +1,5 @@
 import { prefersReducedMotion } from './reduced-motion.js';
+import { isStagePaused } from './stage-pause.js';
 import { WEATHER_FLASH_EVENT, normalizeWeatherFxSettings, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { normalizeTimeTintSettings } from './stage-direction-settings.js';
 
@@ -7,6 +8,8 @@ export const FLASH_FADE_MS = 380;
 const FLASH_BOOST = 1.6;
 // 立绘调色幅度只取背景的一部分，夜里人物仍要看得清。
 export const SPRITE_GRADE_RATIO = 0.55;
+// 画面是生成的 CG / 插图时，环境滤镜只留一点气氛，不盖过素材本身的色调。
+export const ASSET_GRADE_RATIO = 0.35;
 // 立绘少降对比与饱和、多压亮度：降对比会像半透明，压暗加色偏才像被环境光照着。
 const SPRITE_CHANNEL_WEIGHT = Object.freeze({ c: 0.5, s: 0.8, b: 1.3 });
 const STRENGTH_SCALE = Object.freeze({ light: 0.62, medium: 1, strong: 1.4 });
@@ -41,6 +44,8 @@ const NIGHT_TIMES = Object.freeze(['night', 'midnight']);
 const states = new WeakMap();
 let filterSeq = 0;
 
+// 触屏设备一律用普通叠色：mix-blend-mode 会把整个 #igs-stage-motion 变成离屏合成面，
+// 天气粒子、立绘呼吸每帧都要带着它全屏重合成，手机上明显掉帧。
 export const SCENE_GRADE_STYLE_TEXT = `
 #igs-overlay #igs-bg{filter:brightness(var(--igs-bg-brightness,.88)) var(--igs-grade-bg,);-webkit-filter:brightness(var(--igs-bg-brightness,.88)) var(--igs-grade-bg,);}
 #igs-overlay #igs-bg-blur{filter:blur(40px) brightness(.55) saturate(1.3) var(--igs-grade-bg,);-webkit-filter:blur(40px) brightness(.55) saturate(1.3) var(--igs-grade-bg,);}
@@ -49,11 +54,16 @@ export const SCENE_GRADE_STYLE_TEXT = `
 #igs-overlay #igs-cast{filter:var(--igs-grade-sprite,);-webkit-filter:var(--igs-grade-sprite,);}
 #igs-overlay .igs-grade-layer{position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply;opacity:0;transition:opacity 1.4s ease;}
 #igs-overlay .igs-grade-layer::after{content:"";position:absolute;inset:0;mix-blend-mode:screen;opacity:var(--igs-grade-glow,0);}
+#igs-overlay .igs-grade-layer[data-igs-grade-idle],#igs-overlay .igs-grade-layer[data-igs-grade-idle]::after{mix-blend-mode:normal;}
 #igs-overlay .igs-grade-layer[data-igs-grade-time="dawn"]::after{background:radial-gradient(ellipse at 18% 12%,rgba(255,196,160,.28),transparent 62%);}
 #igs-overlay .igs-grade-layer[data-igs-grade-time="dusk"]::after{background:radial-gradient(ellipse at 82% 18%,rgba(255,158,72,.42),transparent 62%);}
 #igs-overlay .igs-grade-layer[data-igs-grade-time="night"]::after{background:radial-gradient(ellipse at 70% 0%,rgba(140,166,255,.12),transparent 58%);}
 #igs-overlay[data-igs-quality="low"] .igs-grade-layer{mix-blend-mode:normal;background:var(--igs-grade-flat,none)!important;}
 #igs-overlay[data-igs-quality="low"] .igs-grade-layer::after{display:none;}
+@media (pointer: coarse){
+#igs-overlay .igs-grade-layer{mix-blend-mode:normal;background:var(--igs-grade-flat,none)!important;}
+#igs-overlay .igs-grade-layer::after{mix-blend-mode:normal;opacity:calc(var(--igs-grade-glow,0) * .55);}
+}
 #igs-stage-motion:is([data-igs-fx-flashback],[data-igs-fx-dream]) .igs-grade-layer{opacity:0!important;}
 #igs-overlay .igs-grade-defs{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;}
 @media (prefers-reduced-motion: reduce){
@@ -86,7 +96,7 @@ export function resolveSceneGradePlan(options = {}) {
     if (!tint.enabled && !weatherSettings.enabled) return null;
     const time = resolveWeatherFxTime(options.time);
     const indoor = resolveWeatherFxScene(options.location, weatherSettings) === 'indoor';
-    const strength = STRENGTH_SCALE[tint.strength];
+    const strength = STRENGTH_SCALE[tint.strength] * (options.asset === true ? ASSET_GRADE_RATIO : 1);
     const timeGrade = tint.enabled ? TIME_GRADES[time] || null : null;
     const weatherPlan = weatherSettings.enabled
         ? resolveWeatherFxPlan({ weather: options.weather, location: options.location, time: options.time, settings: weatherSettings })
@@ -115,7 +125,7 @@ export function resolveSceneGradePlan(options = {}) {
     sprite.tint = top.map((channel, index) => round(1 - (1 - (channel + bottom[index]) / 510) * ratio));
     const glow = timeGrade ? round(Math.min(1, timeGrade.glow * timeScale)) : 0;
     return {
-        key: [time || '-', weatherKind || '-', weatherPlan ? weatherPlan.level : '-', indoor ? 'in' : 'out', tint.enabled ? tint.strength : 'weather'].join('|'),
+        key: [time || '-', weatherKind || '-', weatherPlan ? weatherPlan.level : '-', indoor ? 'in' : 'out', tint.enabled ? tint.strength : 'weather', ...(options.asset === true ? ['asset'] : [])].join('|'),
         time: timeGrade ? time : '',
         weather: weatherKind,
         indoor,
@@ -252,6 +262,7 @@ function makeLayer(doc) {
     const layer = doc.createElement('div');
     layer.className = 'igs-grade-layer';
     layer.setAttribute('aria-hidden', 'true');
+    layer.setAttribute('data-igs-grade-idle', '');
     return layer;
 }
 
@@ -289,17 +300,30 @@ function attachLayers(state, root, doc) {
     return true;
 }
 
+// 淡出结束后把闲置层的混合模式退回 normal：opacity 为 0 的 multiply 层照样会让整个舞台离屏合成。
+function retireLayer(state, layer) {
+    layer.style.opacity = '0';
+    clearTimeout(state.idleTimers.get(layer));
+    state.idleTimers.set(layer, setTimeout(() => {
+        state.idleTimers.delete(layer);
+        if (layer.style.opacity === '0') layer.setAttribute('data-igs-grade-idle', '');
+    }, GRADE_FADE_MS + 100));
+}
+
 function paintLayers(state, plan) {
     const layerKey = plan ? JSON.stringify([plan.layer, plan.time]) : '';
     if (layerKey === state.layerKey) return;
     state.layerKey = layerKey;
-    if (state.active >= 0) state.layers[state.active].style.opacity = '0';
+    if (state.active >= 0) retireLayer(state, state.layers[state.active]);
     if (!plan) {
         state.active = -1;
         return;
     }
     state.active = state.active === 0 ? 1 : 0;
     const layer = state.layers[state.active];
+    clearTimeout(state.idleTimers.get(layer));
+    state.idleTimers.delete(layer);
+    layer.removeAttribute('data-igs-grade-idle');
     layer.style.background = `linear-gradient(180deg,rgb(${plan.layer.top.join(',')}),rgb(${plan.layer.bottom.join(',')}))`;
     setVar(layer, '--igs-grade-flat', `linear-gradient(180deg,${flatGradeTint(plan.layer.top)},${flatGradeTint(plan.layer.bottom)})`);
     setVar(layer, '--igs-grade-glow', String(plan.layer.glow));
@@ -310,7 +334,8 @@ function paintLayers(state, plan) {
 
 // 闪电时背景与立绘一起被照亮，再回落到当前调色；回忆、梦境与减弱动效时不闪。
 function onFlash(state, root) {
-    if (!state.flashOn) return;
+    // 设置、记录等面板盖住舞台时不闪：闪屏本身已暂停，照亮渐变只会让面板毛玻璃跟着每帧重算。
+    if (!state.flashOn || isStagePaused(root)) return;
     const target = state.target || neutralTarget();
     const lit = (value) => ({ ...value, b: value.b * FLASH_BOOST });
     state.current = { bg: lit(target.bg), sprite: { ...lit(target.sprite), tint: target.sprite.tint.slice() } };
@@ -333,7 +358,7 @@ function getState(root, ctx) {
         const caf = view && typeof view.cancelAnimationFrame === 'function' ? view.cancelAnimationFrame.bind(view) : null;
         state = {
             planKey: '', layers: [], active: -1, layerKey: '', defs: null, matrix: null, filterId: '', target: null, flashOn: false, flashListener: null,
-            current: neutralTarget(), frame: null, vars: null,
+            current: neutralTarget(), frame: null, vars: null, idleTimers: new Map(),
             requestFrame: raf || ((fn) => setTimeout(fn, 16)),
             cancelFrame: caf || ((id) => clearTimeout(id)),
             now: () => (view && view.performance && typeof view.performance.now === 'function' ? view.performance.now() : Date.now()),
@@ -374,6 +399,8 @@ export function cancelSceneGrade(root) {
     const state = root && states.get(root);
     if (!state) return false;
     stopTween(state);
+    for (const timer of state.idleTimers.values()) clearTimeout(timer);
+    state.idleTimers.clear();
     if (state.flashListener && typeof root.removeEventListener === 'function') root.removeEventListener(WEATHER_FLASH_EVENT, state.flashListener);
     for (const layer of state.layers) removeNode(layer);
     removeNode(state.defs);

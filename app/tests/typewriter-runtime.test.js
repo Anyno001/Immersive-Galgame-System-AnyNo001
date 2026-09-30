@@ -7,7 +7,7 @@ import {
 } from '../src/visual/igs-ui/typewriter-runtime.js';
 import { measureClassicReveal } from '../src/visual/igs-ui/typewriter-classic.js';
 import { TYPEWRITER_VOICES, TYPEWRITER_VOICE_LABELS, emotionPitch, resolveTypewriterVoice, scheduleTypewriterAudio, speakerPitch, spritePan } from '../src/visual/igs-ui/typewriter-audio.js';
-import { DUCK_RATIO, applySceneAudio, cancelSceneAudio } from '../src/visual/igs-ui/scene-audio.js';
+import { TYPING_DUCK_RATIO, applySceneAudio, cancelSceneAudio } from '../src/visual/igs-ui/scene-audio.js';
 
 function text(value) {
     return { nodeType: 3, nodeValue: value, childNodes: [] };
@@ -397,7 +397,7 @@ test('classic sound ducks scene audio while playing and releases on cancel', () 
     };
     assert.equal(applyTypewriterEffect(root, options).animated, true);
     settle();
-    assert.ok(Math.abs(bgmAudio.volume - 0.6 * DUCK_RATIO) < 1e-9);
+    assert.ok(Math.abs(bgmAudio.volume - 0.6 * TYPING_DUCK_RATIO) < 1e-9, 'typing ducks gently');
     cancelTypewriter(root, { finish: true });
     settle();
     assert.ok(Math.abs(bgmAudio.volume - 0.6) < 1e-9);

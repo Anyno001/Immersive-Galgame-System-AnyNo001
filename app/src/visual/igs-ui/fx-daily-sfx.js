@@ -1,5 +1,6 @@
 // 日常演出的合成音效：振荡器部分沿用 chat-sfx 的 partial 表，噪声部分（快门、纸张、烟花等）在本文件内合成。
 import { createSynthPartial as p } from './chat-sfx.js';
+import { audioBusContext, busInput, resumeAudioBus } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
 
 const TONE_GAIN = 0.35;
@@ -216,17 +217,8 @@ export function dailySfxDuration(kind) {
     return [...def.partials, ...def.noise].reduce((max, q) => Math.max(max, q.start + q.duration), 0);
 }
 
-let sharedContext = null;
 let noiseBuffer = null;
 let noiseBufferContext = null;
-
-function contextFor(contextFactory) {
-    if (typeof contextFactory === 'function') return contextFactory();
-    const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
-    if (!Context) return null;
-    if (!sharedContext) sharedContext = new Context();
-    return sharedContext;
-}
 
 function whiteNoise(context) {
     if (noiseBuffer && noiseBufferContext === context) return noiseBuffer;
@@ -239,7 +231,7 @@ function whiteNoise(context) {
     return buffer;
 }
 
-function scheduleTone(context, q, base, volume, nodes) {
+function scheduleTone(context, output, q, base, volume, nodes) {
     const at = base + q.start;
     const peak = q.gain * TONE_GAIN * volume;
     const attack = q.attack == null ? 0.005 : q.attack;
@@ -252,13 +244,13 @@ function scheduleTone(context, q, base, volume, nodes) {
     gain.gain.linearRampToValueAtTime(peak, at + attack);
     gain.gain.exponentialRampToValueAtTime(peak * FLOOR, at + q.duration);
     osc.connect(gain);
-    gain.connect(context.destination);
+    gain.connect(output);
     nodes.push(osc, gain);
     osc.start(at);
     osc.stop(at + q.duration + 0.02);
 }
 
-function scheduleNoise(context, q, base, volume, nodes) {
+function scheduleNoise(context, output, q, base, volume, nodes) {
     const at = base + q.start;
     const end = at + q.duration;
     const peak = q.gain * NOISE_GAIN * volume;
@@ -305,7 +297,7 @@ function scheduleNoise(context, q, base, volume, nodes) {
         lfo.start(at);
         lfo.stop(end + 0.02);
     }
-    tail.connect(context.destination);
+    tail.connect(output);
     nodes.push(source, filter, gain);
     source.start(at, q.tone ? undefined : Math.random() * (NOISE_SECONDS - 0.5));
     source.stop(end + 0.02);
@@ -324,19 +316,22 @@ function synthesize(def, volume, contextFactory) {
         nodes.length = 0;
         if (release) { release(); release = null; }
     };
+    // 默认走统一混音总线的 sfx 子总线（受总音量、压限与页面隐藏挂起管理）；测试注入的 context 直连 destination。
+    const injected = typeof contextFactory === 'function';
     let context;
     try {
-        context = contextFor(contextFactory);
+        context = injected ? contextFactory() : audioBusContext();
     } catch {
         return null;
     }
     if (!context) return null;
+    const output = (!injected && busInput('sfx')) || context.destination;
     const run = () => {
         if (stopped || (context.state && context.state !== 'running')) return;
         try {
             const base = context.currentTime + 0.01;
-            for (const q of def.partials) scheduleTone(context, q, base, volume, nodes);
-            for (const q of def.noise) scheduleNoise(context, q, base, volume, nodes);
+            for (const q of def.partials) scheduleTone(context, output, q, base, volume, nodes);
+            for (const q of def.noise) scheduleNoise(context, output, q, base, volume, nodes);
             const length = [...def.partials, ...def.noise].reduce((max, q) => Math.max(max, q.start + q.duration), 0);
             release = duckSceneAudio({ durationMs: length * 1000 + 150 });
         } catch {
@@ -344,7 +339,7 @@ function synthesize(def, volume, contextFactory) {
         }
     };
     let resumed;
-    try { resumed = context.resume?.(); } catch { /* 恢复失败时仍尝试按当前状态播放 */ }
+    try { resumed = injected ? context.resume?.() : resumeAudioBus(); } catch { /* 恢复失败时仍尝试按当前状态播放 */ }
     Promise.resolve(resumed).catch(() => {}).then(run);
     return { stop };
 }

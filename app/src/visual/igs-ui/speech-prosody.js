@@ -26,6 +26,8 @@ export const EMOTION_PROFILES = Object.freeze([
     profile('shy', ['害羞', '脸红', '羞涩', '不好意思', '腼腆', '娇羞'], { speed: 1.1, pitch: 1.04, gain: 0.8, jitter: 0.05, minGapMs: 120 }),
     profile('nervous', ['紧张', '害怕', '慌张', '不安', '恐惧', '惊慌', '焦虑'], { pitch: 1.02, gain: 0.9, jitter: 0.09, rhythmJitter: 0.15 }),
     profile('lazy', ['困倦', '犯困', '慵懒', '疲惫', '无聊', '疲倦', '懒洋洋'], { speed: 1.2, pitch: 0.94, gain: 0.85, jitter: 0.03, flat: 0.5 }),
+    // 耳语：亲密 / 情事声画开启且没有情绪时由阅读器补上「耳语」。
+    profile('whisper', ['耳语', '低语', '轻声', '呢喃', '悄声'], { speed: 1.15, pitch: 0.95, gain: 0.6, legacyPitch: 0.97, jitter: 0.03, minGapMs: 130, tail: 0.96 }),
 ]);
 const NEUTRAL = profile('neutral', [], {});
 

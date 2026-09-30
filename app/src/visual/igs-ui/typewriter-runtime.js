@@ -1,7 +1,8 @@
 import { prefersReducedMotion } from './reduced-motion.js';
 import { measureClassicReveal } from './typewriter-classic.js';
+import { startCompositedReveal } from './typewriter-compositor.js';
 import { TYPEWRITER_VOICE_DEFAULTS, normalizeTypewriterVoice, resolveTypewriterVoice, scheduleTypewriterAudio } from './typewriter-audio.js';
-import { duckSceneAudio } from './scene-audio.js';
+import { TYPING_DUCK_RATIO, duckSceneAudio } from './scene-audio.js';
 
 export const TYPEWRITER_SPEED_IDS = Object.freeze(['fast', 'medium', 'slow']);
 export const TYPEWRITER_SPEED_MS = Object.freeze({
@@ -212,12 +213,16 @@ export function applyTypewriterEffect(target, options = {}) {
 
     // delay：文字出现前的空白停顿（亲密演出的「回答前停顿一拍」），打字音与行内文字效果同步后移。
     const delay = Math.max(0, Math.min(3000, Number(options.delay) || 0));
-    const animation = createVisualAnimation(target, options, classic ? classic.frames : VISUAL_REVEAL_KEYFRAMES, {
+    const timing = {
         duration,
         easing: classic ? 'linear' : 'ease-out',
         fill: 'both',
         ...(delay ? { delay } : {}),
-    });
+    };
+    // 真实页面优先走合成线程揭示（不受主线程繁忙影响）；注入 animate 或前提不满足时退回 clip-path 遮罩。
+    const composited = typeof options.animate === 'function' ? null
+        : startCompositedReveal(target, classic ? { layout: classic.layout } : { soft: true }, timing);
+    const animation = composited || createVisualAnimation(target, options, classic ? classic.frames : VISUAL_REVEAL_KEYFRAMES, timing);
     if (!animation || typeof animation.cancel !== 'function') {
         setRunningState(target, false);
         return { animated: false, finish() {} };
@@ -232,7 +237,7 @@ export function applyTypewriterEffect(target, options = {}) {
             textType: options.textType, volume: jobVolume, audioScheduler: options.audioScheduler, phone: options.phone === true,
             preset: voice.preset, pitch: voice.pitch, pan: voice.pan, prosody: settings.prosody, emotion,
         });
-        if (job.audio) job.releaseDuck = duckSceneAudio();
+        if (job.audio) job.releaseDuck = duckSceneAudio({ ratio: TYPING_DUCK_RATIO });
     }
     const settle = () => settleVisualJob(target, job);
     if (typeof animation.addEventListener === 'function') {

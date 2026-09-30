@@ -4,6 +4,7 @@ import { normalizeEmotionList } from './stage-shake-runtime.js';
 // 亲密演出：无 CG 的恋爱 / 暧昧 / 情事氛围。档位 1 暧昧、2 亲密来自 [igs-fx:romance] 区间，3 情事来自场景 nsfw 标记。
 export const ROMANCE_STRENGTHS = Object.freeze(['weak', 'medium', 'strong']);
 export const ROMANCE_STRENGTH_SCALE = Object.freeze({ weak: 0.6, medium: 1, strong: 1.3 });
+export const ROMANCE_SWAY_LEVELS = Object.freeze(['off', 'weak', 'medium', 'strong']);
 const FX_LEVEL = Object.freeze({ ambiguous: 1, intimate: 2 });
 
 // 中档基准：pull 为立绘向中线收拢的比例，zoom 为以头部为原点的放大倍数，其余为环境层不透明度与背景柔焦像素。
@@ -122,6 +123,11 @@ export function normalizeRomanceFxSettings(value) {
         confess: src.confess === true,
         memories: src.memories === true,
         nsfwCurve: src.nsfwCurve !== false,
+        softSound: src.softSound !== false,
+        nsfwSound: src.nsfwSound === true,
+        rhythm: src.rhythm === true,
+        sway: ROMANCE_SWAY_LEVELS.includes(src.sway) ? src.sway : 'medium',
+        edgeFx: src.edgeFx !== false,
         quickActions: src.quickActions === true,
         actions: normalizeRomanceActions(src.actions),
     };

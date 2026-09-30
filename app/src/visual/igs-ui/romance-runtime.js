@@ -15,11 +15,12 @@ import {
 } from './romance-settings.js';
 import { applyRomanceMoments, closeRomanceMoments, playRivalSymbol } from './romance-moments.js';
 import { closeRomanceActions, syncRomanceActions } from './romance-actions.js';
+import { closeRomanceIntimate, syncRomanceIntimate } from './romance-intimate-runtime.js';
 
 // 状态全部挂在 #igs-stage-motion 上（data-igs-rm-* 与 --igs-rm-*），皮肤可覆写；环境层插在立绘之前（背景之上、立绘之下）。
 const ATTRS = Object.freeze([
     'data-igs-rm-level', 'data-igs-rm-favor', 'data-igs-rm-strength', 'data-igs-rm-tone', 'data-igs-rm-approach', 'data-igs-rm-breathe',
-    'data-igs-rm-glow', 'data-igs-rm-bokeh', 'data-igs-rm-backlight', 'data-igs-rm-shade', 'data-igs-rm-face',
+    'data-igs-rm-glow', 'data-igs-rm-bokeh', 'data-igs-rm-backlight', 'data-igs-rm-shade', 'data-igs-rm-face', 'data-igs-rm-asset',
 ]);
 const VARS = Object.freeze([
     '--igs-rm-dx', '--igs-rm-scale', '--igs-rm-origin-x', '--igs-rm-origin-y', '--igs-rm-bg-blur',
@@ -142,9 +143,17 @@ export function cancelRomanceFx(root) {
 // 关闭阅读器：清环境层、关系卡与计时器，并清空好感缓存与关系基线（换聊天后同名角色不串数据）。
 export function closeRomanceFx(root) {
     cancelRomanceFx(root);
+    closeRomanceIntimate(root);
     closeRomanceMoments(root);
     favorCache.clear();
     rangeOwners.clear();
+}
+
+function lowQuality(root, stage) {
+    const overlay = root && root.id === 'igs-overlay'
+        ? root
+        : stage && typeof stage.closest === 'function' ? stage.closest('#igs-overlay') : null;
+    return Boolean(overlay && typeof overlay.getAttribute === 'function' && overlay.getAttribute('data-igs-quality') === 'low');
 }
 
 function pageKindOf(content) {
@@ -193,7 +202,8 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
     const favor = settings.enabled && !level && !nsfw && pageKind === 'text' && favorActive(settings, content, hasSprite);
     if (!stage || (!level && !shade && !favor)) {
         cancelRomanceFx(root);
-        return { level: 0, shade: false, favor: false, typewriter: moments.typewriter };
+        syncRomanceIntimate(root, { level: 0 });
+        return { level: 0, shade: false, favor: false, whisper: false, typewriter: moments.typewriter };
     }
 
     let state = states.get(stage);
@@ -233,9 +243,12 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
         ? (settings.backlight && params.backlight > 0 ? params.backlight : 0)
         : (shade ? SHADE_ONLY_BACKLIGHT : 0);
     if (glow || bokeh || backlight) ensureBackLayer(state, stage, spriteEl);
+    // 生成的 CG / 插图是画面主体：不柔焦，环境层退到边缘（遮罩见 romance-intimate-style）。
+    const asset = content.illustrationActive === true;
+    setAttr(stage, 'data-igs-rm-asset', asset);
     setAttr(stage, 'data-igs-rm-glow', glow);
     setVar(stage, '--igs-rm-glow', glow ? params.glow : null);
-    setVar(stage, '--igs-rm-bg-blur', glow ? `${params.bgBlur}px` : null);
+    setVar(stage, '--igs-rm-bg-blur', glow && !asset ? `${params.bgBlur}px` : null);
     setAttr(stage, 'data-igs-rm-bokeh', bokeh);
     setVar(stage, '--igs-rm-bokeh', bokeh ? params.bokeh : null);
     setAttr(stage, 'data-igs-rm-backlight', backlight > 0);
@@ -264,5 +277,17 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
         const placement = resolveSymbolPlacement('heartbreak', { ...geo, sprite: { ...sprite, head: anyHead } });
         playRivalSymbol(root, placement, `${snapshot.messageId}:${content.currentIndex}`, ctx);
     }
-    return { level, shade, favor, rival, curve, face: Boolean(neck), approach, typewriter: moments.typewriter };
+    const intimate = syncRomanceIntimate(root, {
+        level,
+        span: content.nsfwSpan,
+        location: content.sceneLocation,
+        settings,
+        fxSound: reader.fxSound,
+        reduced,
+        low: lowQuality(root, stage),
+        messageId: snapshot.messageId,
+        index: content.currentIndex,
+        rng: ctx.rng,
+    });
+    return { level, shade, favor, rival, curve, face: Boolean(neck), approach, whisper: intimate.whisper, typewriter: moments.typewriter };
 }

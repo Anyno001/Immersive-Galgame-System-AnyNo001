@@ -1343,6 +1343,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         location: snapshot.content && snapshot.content.sceneLocation,
         time: snapshot.content && snapshot.content.sceneTime,
         ranges: fxResult && fxResult.ranges,
+        asset: Boolean(snapshot.content && snapshot.content.illustrationActive === true),
     });
     applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
     const stageDirection = applyStageDirection(root, snapshot, {
@@ -1523,8 +1524,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             sound: typewriterSettings.sound,
             textType: typewriterTextType,
             speaker: snapshot.content.speaker || '',
-            // 角色声线：情绪微调音高；立绘就是说话人本人时才按其位置分声道。
-            emotion: snapshot.content.statusEmotion || '',
+            // 角色声线：情绪微调音高；立绘就是说话人本人时才按其位置分声道。亲密 / 情事声画开启且没有情绪时压成耳语。
+            emotion: snapshot.content.statusEmotion || (romanceResult.whisper ? '耳语' : ''),
             posX: stageSprite && (!snapshot.content.spriteCharacter || snapshot.content.spriteCharacter === snapshot.content.speaker) ? stageSprite.posX : undefined,
             key: typewriterRenderKey,
             phone: fxResult.phone === true,

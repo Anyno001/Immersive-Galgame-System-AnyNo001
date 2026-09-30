@@ -1,22 +1,25 @@
 // 亲密演出样式：环境层（暖光 / 光斑 / 逆光）在背景之上、立绘之下；逼近只写 --igs-rm-* 变量，由 stage-direction-style 合成进立绘 scale / translate。
 // 剪影用伪元素继承立绘背景图再压成纯黑，不用 mask-image: url(立绘)——外部图床缺 CORS 时 mask 会失效并露出完整立绘。
 // 换表情（stage-direction）与换装（sprite-outfit-swap）的旧立绘残影在剪影模式下同样压黑，转场瞬间不露出完整立绘。
+// 未启用的环境层淡出后 visibility:hidden，不再参与绘制与 screen 混合；光斑漂移同时暂停。
 // 光斑不挂 filter（全屏常驻层每帧重做模糊）：软边是按原 blur(1.5px) 预算的多段色标，修罗场冷色是预换算的 hue-rotate(170deg) saturate(.5)。
+// 背景柔焦叠在环境滤镜（--igs-grade-bg）之上，不替换它，否则亲密演出时背景丢调色、立绘却还带着，前后不一致。
 export const ROMANCE_STYLE_TEXT = `
 #igs-stage-motion .igs-rm-back{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;}
-#igs-stage-motion .igs-rm-back>div{position:absolute;inset:0;opacity:0;transition:opacity 1.6s ease;}
+#igs-stage-motion .igs-rm-back>div{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity 1.6s ease,visibility 0s linear 1.6s;}
 #igs-stage-motion .igs-rm-glow{mix-blend-mode:screen;background:radial-gradient(ellipse 80% 70% at 50% 40%,rgba(255,196,170,.3),transparent 70%),linear-gradient(180deg,rgba(255,176,160,.2),rgba(230,130,150,.26));}
 #igs-stage-motion[data-igs-rm-tone="moon"] .igs-rm-glow{background:radial-gradient(ellipse 80% 70% at 50% 40%,rgba(196,190,255,.24),transparent 70%),linear-gradient(180deg,rgba(150,160,230,.16),rgba(190,140,200,.22));}
 #igs-stage-motion[data-igs-rm-tone="rival"] .igs-rm-glow{background:radial-gradient(ellipse 80% 70% at 50% 40%,rgba(170,200,230,.22),transparent 70%),linear-gradient(180deg,rgba(90,120,170,.22),rgba(60,70,120,.3));}
 #igs-stage-motion[data-igs-rm-tone="rival"] .igs-rm-bokeh{background-image:radial-gradient(circle,rgba(216,233,243,.83),rgba(216,233,243,.82) 1px,rgba(216,233,243,.77) 2px,rgba(216,233,243,.68) 3px,rgba(216,233,243,.54) 4px,rgba(216,233,243,.22) 6px,rgba(216,233,243,.1) 7px,rgba(216,233,243,.04) 8px,rgba(216,233,243,.01) 9px,rgba(216,233,243,0) 10px),radial-gradient(circle,rgba(179,212,202,.6),rgba(179,212,202,.6) 2px,rgba(179,212,202,.59) 3px,rgba(179,212,202,.57) 4px,rgba(179,212,202,.53) 5px,rgba(179,212,202,.46) 6px,rgba(179,212,202,.28) 8px,rgba(179,212,202,.11) 10px,rgba(179,212,202,.05) 11px,rgba(179,212,202,.02) 12px,rgba(179,212,202,0) 14px),radial-gradient(circle,rgba(233,243,251,.44),rgba(233,243,251,.42) 1px,rgba(233,243,251,.36) 2px,rgba(233,243,251,.16) 4px,rgba(233,243,251,.07) 5px,rgba(233,243,251,.03) 6px,rgba(233,243,251,.01) 7px,rgba(233,243,251,0) 8px);}
-#igs-stage-motion[data-igs-rm-glow] .igs-rm-glow{opacity:var(--igs-rm-glow,0);}
+#igs-stage-motion[data-igs-rm-glow] .igs-rm-glow{opacity:var(--igs-rm-glow,0);visibility:visible;transition-delay:0s;}
 #igs-stage-motion .igs-rm-bokeh{inset:-10%;mix-blend-mode:screen;background-image:radial-gradient(circle,rgba(255,226,200,.83),rgba(255,226,200,.82) 1px,rgba(255,226,200,.77) 2px,rgba(255,226,200,.68) 3px,rgba(255,226,200,.54) 4px,rgba(255,226,200,.22) 6px,rgba(255,226,200,.1) 7px,rgba(255,226,200,.04) 8px,rgba(255,226,200,.01) 9px,rgba(255,226,200,0) 10px),radial-gradient(circle,rgba(255,190,200,.6),rgba(255,190,200,.6) 2px,rgba(255,190,200,.59) 3px,rgba(255,190,200,.57) 4px,rgba(255,190,200,.53) 5px,rgba(255,190,200,.46) 6px,rgba(255,190,200,.28) 8px,rgba(255,190,200,.11) 10px,rgba(255,190,200,.05) 11px,rgba(255,190,200,.02) 12px,rgba(255,190,200,0) 14px),radial-gradient(circle,rgba(255,240,220,.44),rgba(255,240,220,.42) 1px,rgba(255,240,220,.36) 2px,rgba(255,240,220,.16) 4px,rgba(255,240,220,.07) 5px,rgba(255,240,220,.03) 6px,rgba(255,240,220,.01) 7px,rgba(255,240,220,0) 8px);background-size:230px 260px,370px 310px,150px 170px;background-position:0 0,120px 80px,60px 140px;animation:igs-rm-bokeh 26s ease-in-out infinite alternate;}
-#igs-stage-motion[data-igs-rm-bokeh] .igs-rm-bokeh{opacity:var(--igs-rm-bokeh,0);}
+#igs-stage-motion:not([data-igs-rm-bokeh]) .igs-rm-bokeh{animation-play-state:paused;}
+#igs-stage-motion[data-igs-rm-bokeh] .igs-rm-bokeh{opacity:var(--igs-rm-bokeh,0);visibility:visible;transition-delay:0s;}
 #igs-overlay[data-igs-quality="low"] #igs-stage-motion .igs-rm-bokeh{display:none;}
 #igs-stage-motion .igs-rm-backlight{mix-blend-mode:screen;background:radial-gradient(circle at var(--igs-rm-light-x,50%) var(--igs-rm-light-y,35%),rgba(255,214,176,.75),rgba(255,160,130,.28) 18%,transparent 44%);}
 #igs-stage-motion[data-igs-rm-tone="moon"] .igs-rm-backlight{background:radial-gradient(circle at var(--igs-rm-light-x,50%) var(--igs-rm-light-y,35%),rgba(206,218,255,.7),rgba(140,160,255,.24) 18%,transparent 44%);}
-#igs-stage-motion[data-igs-rm-backlight] .igs-rm-backlight{opacity:var(--igs-rm-backlight,0);}
-#igs-stage-motion[data-igs-rm-glow]:not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) blur(var(--igs-rm-bg-blur,0px)) saturate(1.06)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) blur(var(--igs-rm-bg-blur,0px)) saturate(1.06)!important;transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1),filter 1.6s ease;animation-play-state:paused;}
+#igs-stage-motion[data-igs-rm-backlight] .igs-rm-backlight{opacity:var(--igs-rm-backlight,0);visibility:visible;transition-delay:0s;}
+#igs-stage-motion[data-igs-rm-glow]:not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) blur(var(--igs-rm-bg-blur,0px)) saturate(1.06) var(--igs-grade-bg,)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) blur(var(--igs-rm-bg-blur,0px)) saturate(1.06) var(--igs-grade-bg,)!important;transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1),filter 1.6s ease;animation-play-state:paused;}
 #igs-stage-motion[data-igs-rm-glow]:not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg-blur{display:block;}
 #igs-stage-motion[data-igs-rm-level] #igs-sprite:not(.igs-sprite-editing){transition:scale 1.6s cubic-bezier(.3,.7,.2,1),translate 1.6s cubic-bezier(.3,.7,.2,1);}
 #igs-stage-motion[data-igs-rm-approach] #igs-sprite:not(.igs-sprite-editing){transform-origin:var(--igs-rm-origin-x,50%) var(--igs-rm-origin-y,28%);}

@@ -130,5 +130,12 @@ export function measureClassicReveal(target, speed, options = {}) {
         const index = parts.findIndex(part => element && typeof element.contains === 'function' && element.contains(part.node));
         return index < 0 ? 0 : times[index];
     };
-    return { frames, events, duration, revealAt };
+    // 合成线程揭示用的逐行几何（相对文字框左上角，屏幕像素）：每行上沿与每个字素的右沿、出现时刻。
+    const layout = {
+        width: bounds.width,
+        height: bounds.height,
+        lines: lines.map(line => ({ top: line.index === 0 ? 0 : line.top - bounds.top, bottom: line.bottom - bounds.top })),
+        steps: parts.map((part, index) => ({ line: part.line.index, right: part.rect.right - bounds.left, offset: duration ? times[index] / duration : 0 })),
+    };
+    return { frames, events, duration, revealAt, layout };
 }

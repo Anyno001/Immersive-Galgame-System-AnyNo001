@@ -5,6 +5,7 @@ import {
     AMBIENT_LABELS,
     BGM_FADE_MS,
     DUCK_RATIO,
+    TYPING_DUCK_RATIO,
     applySceneAudio,
     cancelSceneAudio,
     duckSceneAudio,
@@ -108,8 +109,14 @@ function bgmOptions(extra = {}) {
 }
 
 test('gate: scene audio exports ambient kinds with Chinese labels', () => {
-    assert.deepEqual(AMBIENT_KINDS, ['birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow']);
-    assert.deepEqual(AMBIENT_KINDS.map((kind) => AMBIENT_LABELS[kind]), ['鸟鸣', '雨声', '风声', '虫鸣', '海浪', '人声', '雷声', '溪流', '篝火', '雪夜']);
+    assert.deepEqual(AMBIENT_KINDS, [
+        'birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow',
+        'cicadas', 'frogs', 'chimes', 'bell', 'clock', 'drip', 'train', 'tavern', 'ship', 'traffic',
+    ]);
+    assert.deepEqual(AMBIENT_KINDS.map((kind) => AMBIENT_LABELS[kind]), [
+        '鸟鸣', '雨声', '风声', '虫鸣', '海浪', '人声', '雷声', '溪流', '篝火', '雪夜',
+        '蝉鸣', '蛙鸣', '风铃', '钟声', '钟表', '滴水', '列车', '酒馆', '船只', '车流',
+    ]);
 });
 
 test('gate: bgm settings normalize defaults, clamp volume and drop invalid tracks', () => {
@@ -146,6 +153,7 @@ test('gate: ambient settings default on per kind and honor explicit false', () =
     assert.deepEqual(normalizeAmbientSoundSettings(undefined), {
         enabled: false, volume: 0.4, birds: true, rain: true, wind: true, insects: true, waves: true, crowd: true,
         thunder: true, stream: true, fire: true, snow: true,
+        cicadas: true, frogs: true, chimes: true, bell: true, clock: true, drip: true, train: true, tavern: true, ship: true, traffic: true,
     });
     // 旧存档没有新增音色字段，按默认开启处理。
     const legacy = normalizeAmbientSoundSettings({ enabled: true, birds: true, rain: false });
@@ -476,11 +484,13 @@ test('gate: hidden page fades out, pauses and suspends; visible resumes', () => 
     assert.equal(visibility.length, 1);
     doc.hidden = true;
     visibility[0].fn();
+    // 不经过任何定时器：后台 JS 可能在定时器触发前就被冻结。
     assert.equal(lastTarget(ctx.nodes[0].gain), 0);
-    settleTimers(timers);
     assert.equal(audio.created[0].pauses, 1);
     assert.equal(audio.created[0].volume, 0);
     assert.equal(ctx.suspends, 1);
+    settleTimers(timers);
+    assert.equal(audio.created[0].pauses, 1);
     // 隐藏期间换曲不自动开播，回到前台再播。
     applySceneAudio(root, options('悲伤的雨夜'));
     assert.equal(audio.created[1].plays, 0);
@@ -490,6 +500,31 @@ test('gate: hidden page fades out, pauses and suspends; visible resumes', () => 
     assert.equal(lastTarget(ctx.nodes[0].gain), 0.4);
     cancelSceneAudio(root);
     assert.equal(doc.listeners.filter((l) => l.type === 'visibilitychange').length, 0);
+});
+
+test('gate: hiding mid-crossfade stops both the new and the fading bgm at once', () => {
+    const timers = scheduler();
+    const audio = audioFactory();
+    const root = fakeRoot();
+    const opts = (location) => bgmOptions({ context: { location }, audioFactory: audio.factory, schedule: timers.schedule, clear: timers.clear });
+    applySceneAudio(root, opts('教室'));
+    timers.runAll();
+    applySceneAudio(root, opts('海边'));
+    for (let i = 0; i < 5; i++) timers.queue.length && timers.runAll(2);
+    const [calm, sea] = audio.created;
+    assert.ok(calm.playing && calm.volume > 0, 'old track still fading');
+    const doc = root.ownerDocument;
+    doc.hidden = true;
+    doc.listeners.find((l) => l.type === 'visibilitychange').fn();
+    assert.equal(calm.playing, false);
+    assert.equal(calm.src, '');
+    assert.equal(sea.playing, false);
+    assert.equal(sea.volume, 0);
+    doc.hidden = false;
+    doc.listeners.find((l) => l.type === 'visibilitychange').fn();
+    assert.equal(sea.playing, true);
+    assert.equal(calm.playing, false);
+    cancelSceneAudio(root);
 });
 
 test('gate: ambient tone follows fx ranges and thought pages by priority', () => {
@@ -513,7 +548,8 @@ test('gate: ambient space picks hall words, indoor rooms and open air', () => {
 test('gate: flashback adds an uncapped vinyl layer', () => {
     const plan = resolveAmbientPlan({ location: '海边溪口广场', weather: '小雨大风', fxRanges: { flashback: true } }, ON);
     assert.deepEqual(kinds(plan), ['rain', 'wind', 'waves', 'vinyl']);
-    assert.deepEqual(kinds(resolveAmbientPlan({ location: '卧室', fxRanges: { flashback: true } }, ON)), ['vinyl']);
+    assert.deepEqual(kinds(resolveAmbientPlan({ location: '卧室', fxRanges: { flashback: true } }, ON)), ['clock', 'vinyl']);
+    assert.deepEqual(kinds(resolveAmbientPlan({ location: '卧室', fxRanges: { flashback: true } }, { enabled: true, clock: false })), ['vinyl']);
     assert.deepEqual(resolveAmbientPlan({ location: '卧室', fxRanges: { flashback: true } }, { enabled: false }), []);
 });
 
@@ -558,7 +594,7 @@ test('gate: vinyl voice synthesizes pops and disposes', () => {
     const timers = scheduler();
     const ctx = fakeContext();
     const root = fakeRoot();
-    const result = applySceneAudio(root, { ambient: { enabled: true }, contextFactory: () => ctx, schedule: timers.schedule, clear: timers.clear, context: { location: '卧室', fxRanges: { flashback: true } } });
+    const result = applySceneAudio(root, { ambient: { enabled: true }, contextFactory: () => ctx, schedule: timers.schedule, clear: timers.clear, context: { location: '走廊', fxRanges: { flashback: true } } });
     assert.deepEqual(kinds(result.ambient), ['vinyl']);
     const before = startedSources(ctx);
     for (let i = 0; i < 20 && timers.queue.length; i++) timers.runAll(1);
@@ -611,5 +647,97 @@ test('gate:perf:hidden-page-parks-ambient-loops-instead-of-queueing-blips', () =
     fire();
     for (let i = 0; i < 20; i++) timers.runAll(1);
     assert.ok(oscillators() > visibleDrops, 'loops restart once visible');
+    cancelSceneAudio(root);
+});
+
+test('gate: new ambient kinds resolve from common scene words', () => {
+    const plan = (context, settings = ON) => resolveAmbientPlan(context, settings);
+    const cicadas = plan({ location: '教室', time: '夏日午后' });
+    assert.deepEqual(cicadas.map((l) => [l.kind, l.muffled, l.variant]), [['crowd', false, undefined], ['cicadas', true, undefined]], '夏日教室隔窗蝉鸣');
+    assert.deepEqual(plan({ location: '神社参道', time: '夏天傍晚' }).map((l) => [l.kind, l.variant]), [['bell', 'temple'], ['cicadas', 'higurashi'], ['insects', undefined]]);
+    assert.deepEqual(kinds(plan({ location: '稻田边', time: '夜晚' })), ['frogs', 'insects']);
+    assert.equal(plan({ location: '池塘', time: '夜晚', weather: '小雨' })[1].level, 'heavy', '雨夜蛙声更密');
+    assert.deepEqual(plan({ location: '古老的教堂' }).map((l) => [l.kind, l.variant]), [['bell', 'church']]);
+    assert.deepEqual(kinds(plan({ location: '和室缘侧', weather: '微风' })), ['wind', 'chimes']);
+    assert.equal(plan({ location: '和室缘侧', weather: '微风' })[1].level, 'heavy');
+    assert.deepEqual(kinds(plan({ location: '卧室', time: '深夜' })), ['clock'], '安静的室内才有钟表');
+    assert.deepEqual(kinds(plan({ location: '卧室', time: '深夜', weather: '小雨' })), ['rain']);
+    assert.deepEqual(kinds(plan({ location: '地下城遗迹' })), ['drip']);
+    assert.deepEqual(kinds(plan({ location: '列车车厢' })), ['train']);
+    assert.deepEqual(kinds(plan({ location: '冒险者公会的酒馆' })), ['tavern'], '酒馆取代普通人声');
+    assert.deepEqual(kinds(plan({ location: '海盗船甲板', weather: '暴风雨' })).slice(0, 3), ['rain', 'wind', 'ship']);
+    assert.deepEqual(plan({ location: '十字路口', time: '深夜' }).map((l) => [l.kind, l.level]), [['traffic', 'light']]);
+    assert.deepEqual(plan({ location: '森林', time: '夜晚' }).map((l) => [l.kind, l.variant]), [['birds', 'owl'], ['insects', undefined]]);
+    assert.deepEqual(kinds(plan({ location: '森林', time: '夜晚' }, { enabled: true, birds: false })), ['insects']);
+});
+
+test('gate: every new ambient voice synthesizes, keeps looping and disposes all nodes', () => {
+    const scenes = [
+        { location: '操场', time: '夏日正午' }, { location: '操场', time: '夏天傍晚' }, { location: '荷塘', time: '夜晚' },
+        { location: '檐下', weather: '大风' }, { location: '寺庙' }, { location: '教堂' }, { location: '书房' }, { location: '山洞' },
+        { location: '地铁' }, { location: '客栈' }, { location: '船舱' }, { location: '马路' }, { location: '树林', time: '夜晚', weather: '晴' },
+        { location: '食堂' }, { location: '街道' },
+    ];
+    for (const context of scenes) {
+        const label = JSON.stringify(context);
+        const timers = scheduler();
+        const ctx = fakeContext();
+        ctx.createStereoPanner = () => { const n = ctx.createGain(); n.pan = param(0); return n; };
+        const root = fakeRoot();
+        const result = applySceneAudio(root, { ambient: { enabled: true }, contextFactory: () => ctx, schedule: timers.schedule, clear: timers.clear, context });
+        assert.ok(result.ambient.length >= 1, label);
+        for (let i = 0; i < 60 && timers.queue.length; i++) timers.runAll(1);
+        assert.ok(ctx.nodes.some((n) => n.started), label + ' makes sound');
+        assert.ok(timers.queue.length > 0, label + ' keeps looping');
+        assert.equal(cancelSceneAudio(root), true);
+        assert.equal(timers.queue.length, 0);
+        assert.ok(ctx.nodes.filter((n) => n.started).every((n) => n.stopped), label + ' stops');
+        assert.ok(ctx.nodes.every((n) => n.disconnected), label + ' disconnects');
+    }
+});
+
+test('gate: indoor rain adds window taps that bypass the muffle filter', () => {
+    const timers = scheduler();
+    const ctx = fakeContext();
+    const root = fakeRoot();
+    applySceneAudio(root, { ambient: { enabled: true }, contextFactory: () => ctx, schedule: timers.schedule, clear: timers.clear, context: { location: '卧室', weather: '中雨' } });
+    const muffle = ctx.nodes.find((n) => n.type === 'lowpass' && n.frequency.value === 700);
+    assert.ok(muffle, 'rain is muffled indoors');
+    const fade = muffle.connected[0];
+    for (let i = 0; i < 40 && timers.queue.length; i++) timers.runAll(1);
+    const taps = ctx.nodes.filter((n) => n.type === 'bandpass' && n.frequency.value >= 2600);
+    assert.ok(taps.length > 0, 'window taps played');
+    assert.ok(taps.some((filter) => filter.connected[0].connected.includes(fade)), 'taps reach the fade gain directly');
+    cancelSceneAudio(root);
+});
+
+test('gate: ducks nest by the lowest ratio and bgm follows the scene tone', () => {
+    const timers = scheduler();
+    const ctx = fakeContext();
+    const audio = audioFactory();
+    const root = fakeRoot();
+    const apply = (fxRanges) => applySceneAudio(root, {
+        ...bgmOptions(), ambient: { enabled: true, volume: 0.4 }, audioFactory: audio.factory, contextFactory: () => ctx,
+        schedule: timers.schedule, clear: timers.clear, context: { location: '海边', fxRanges },
+    });
+    apply();
+    settleTimers(timers);
+    const master = ctx.nodes[0];
+    const typing = duckSceneAudio({ ratio: TYPING_DUCK_RATIO });
+    assert.ok(Math.abs(lastTarget(master.gain) - 0.4 * TYPING_DUCK_RATIO) < 1e-9);
+    const notice = duckSceneAudio();
+    assert.ok(Math.abs(lastTarget(master.gain) - 0.4 * DUCK_RATIO) < 1e-9, 'the deeper duck wins');
+    notice();
+    assert.ok(Math.abs(lastTarget(master.gain) - 0.4 * TYPING_DUCK_RATIO) < 1e-9, 'back to the typing duck');
+    typing();
+    assert.equal(lastTarget(master.gain), 0.4);
+    settleTimers(timers);
+    apply({ flashback: true });
+    settleTimers(timers);
+    assert.ok(Math.abs(audio.created[0].volume - 0.6 * 0.85) < 1e-9, 'flashback dips the bgm');
+    apply();
+    settleTimers(timers);
+    assert.ok(Math.abs(audio.created[0].volume - 0.6) < 1e-9);
+    assert.equal(audio.created.length, 1, 'tone changes never restart the track');
     cancelSceneAudio(root);
 });

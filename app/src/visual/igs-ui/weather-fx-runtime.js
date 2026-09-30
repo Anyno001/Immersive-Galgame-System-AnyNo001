@@ -1,5 +1,6 @@
 import { prefersReducedMotion } from './reduced-motion.js';
 import { startWeatherParticles } from './weather-fx-particles.js';
+import { isStagePaused } from './stage-pause.js';
 
 export const WEATHER_FX_INTENSITIES = Object.freeze(['weak', 'medium', 'strong']);
 export const WEATHER_FX_INDOOR_WORDS = Object.freeze([
@@ -220,8 +221,11 @@ function scheduleLightning(state, target, plan, first) {
         if (target.isConnected === false) return;
         const hidden = target.ownerDocument && target.ownerDocument.hidden === true;
         if (!hidden) {
-            if (target.setAttribute) target.setAttribute('data-igs-weather-fx-flash', state.random() < 0.5 ? 'a' : 'b');
-            toggleClass(target, 'igs-fx-lightning-active', true);
+            // 面板盖住舞台时只补雷声不闪屏：闪屏会让面板的毛玻璃背景跟着整片重算。
+            if (!isStagePaused(target)) {
+                if (target.setAttribute) target.setAttribute('data-igs-weather-fx-flash', state.random() < 0.5 ? 'a' : 'b');
+                toggleClass(target, 'igs-fx-lightning-active', true);
+            }
             dispatchFlash(target, plan);
         }
         later(state, () => {

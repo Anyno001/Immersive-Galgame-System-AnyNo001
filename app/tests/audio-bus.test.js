@@ -10,6 +10,7 @@ import {
     unparkAudioBus,
     resetAudioBusForTest,
     resumeAudioBus,
+    setAudioBusSpace,
     setAudioMasterVolume,
 } from '../src/visual/igs-ui/audio-bus.js';
 import { playSynthPartials, createSynthPartial as p } from '../src/visual/igs-ui/chat-sfx.js';
@@ -165,9 +166,7 @@ test('gate: hidden page suspends the bus; visible resumes it even with no ambien
         getAudioBus();
         doc.hidden = true;
         doc.fire('visibilitychange');
-        assert.equal(ctx.suspends, 0, 'waits for module fades first');
-        t.mock.timers.tick(400);
-        assert.equal(ctx.suspends, 1);
+        assert.equal(ctx.suspends, 1, 'suspends at once: background JS may freeze before any timer fires');
         doc.hidden = false;
         doc.fire('visibilitychange');
         assert.equal(ctx.resumes, 1);
@@ -222,4 +221,31 @@ test('gate:perf:closing-reader-parks-bus-after-fades-and-next-play-resumes', asy
     assert.equal(ctx.suspends, 1, 'playing again cancels the pending suspend');
     resetAudioBusForTest();
     assert.equal(parkAudioBus(), false);
+});
+
+test('gate: scene space sends voice and sfx into one shared reverb and closing the reader dries it', () => {
+    cancelSceneAudio(null);
+    const ctx = fakeContext();
+    ctx.createConvolver = () => { const n = { kind: 'convolver', buffer: null, connected: [], connect(t) { this.connected.push(t); return t; }, disconnect() {} }; ctx.nodes.push(n); return n; };
+    resetAudioBusForTest(counted(ctx));
+    assert.equal(setAudioBusSpace(null, 0), false, 'drying a missing bus is a no-op');
+    const root = {};
+    applySceneAudio(root, { ambient: { enabled: true }, context: { location: '车站大厅' } });
+    const bus = getAudioBus();
+    const convolver = ctx.nodes.find((n) => n.kind === 'convolver');
+    assert.ok(convolver && convolver.buffer, 'hall impulse loaded');
+    assert.ok(bus.inputs.voice.connected.includes(convolver));
+    assert.ok(bus.inputs.sfx.connected.includes(convolver));
+    assert.ok(!bus.inputs.ambient.connected.includes(convolver), 'ambient has its own tone chain');
+    const send = convolver.connected[0];
+    assert.ok(send.connected.includes(bus.compressor));
+    assert.equal(send.gain.history.at(-1)[1], 0.12);
+    applySceneAudio(root, { ambient: { enabled: true }, context: { location: '车站大厅' } });
+    assert.equal(send.gain.history.filter((h) => h[0] === 'target').length, 1, 'same space is idempotent');
+    applySceneAudio(root, { ambient: { enabled: false }, context: { location: '车站大厅' } });
+    assert.equal(send.gain.history.at(-1)[1], 0, 'ambient off dries the voice');
+    applySceneAudio(root, { ambient: { enabled: true }, context: { location: '森林', fxRanges: { dream: true } } });
+    assert.equal(send.gain.history.at(-1)[1], 0.15, 'dream uses the long tail');
+    cancelSceneAudio(root);
+    assert.equal(send.gain.history.at(-1)[1], 0);
 });

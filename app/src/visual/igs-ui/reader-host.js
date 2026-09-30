@@ -2357,10 +2357,10 @@ export function createIgsReaderHost(options = {}) {
                 : resolveSceneStateAtIndex(sceneDirectives, normalizedIndex))
             : null;
         const sceneStateForBg = (ownSceneState && ownSceneState.scene) ? ownSceneState : inheritedSceneState;
-        // 亲密演出的 NSFW 强度曲线：只在开启且当前页为 NSFW 时，按与当前页相同的规则判定本楼每页是否 NSFW，
+        // 亲密演出的 NSFW 强度曲线与情事阶段（升温 / 顶点 / 余韵）：只在开启且当前页为 NSFW 时，按与当前页相同的规则判定本楼每页是否 NSFW，
         // 得出当前页在 NSFW 连续段中的位置；上一楼层末尾的场景为 NSFW 时视为延续，不再渐强。
         const romanceForSpan = normalizeRomanceFxSettings(readerSettings.romanceFx);
-        const nsfwSpan = romanceForSpan.enabled && romanceForSpan.nsfwCurve && sceneStateForBg && sceneStateForBg.nsfw
+        const nsfwSpan = romanceForSpan.enabled && sceneStateForBg && sceneStateForBg.nsfw
             ? resolveNsfwSpan(segments.map((segment, index) => {
                 if (index === normalizedIndex) return true;
                 const offset = sceneDirectives.length ? locateTextOffsetInSource(sceneSourceForOffset, segment) : -1;
