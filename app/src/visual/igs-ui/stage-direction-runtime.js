@@ -261,7 +261,18 @@ function playSpriteChange(state, ctx) {
     flushGhosts(state.spriteGhosts);
     // 前后都有立绘（换表情、换说话人）时默认直接切图；emotionFade 开启才走残影淡化与退场 / 登场。
     // 首次登场、退场到无立绘、黑场转场不受影响；换装转场由 sprite-outfit-swap 负责。
-    if (hadSprite && Boolean(nextUrl) && !black && !s.spriteMotion.emotionFade) return '';
+    const direct = !black && !s.spriteMotion.emotionFade;
+    // 无立绘说话人（系统角色、只配头像的角色）开口：旧立绘直接隐藏；之后轮回有立绘的人直接出现，不算登场 / 退场。
+    if (direct && hadSprite && !nextUrl && ctx.noSpriteSpeaker === true) {
+        state.speakerGap = true;
+        return '';
+    }
+    if (direct && !hadSprite && Boolean(nextUrl) && state.speakerGap) {
+        state.speakerGap = false;
+        return '';
+    }
+    state.speakerGap = false;
+    if (direct && hadSprite && Boolean(nextUrl)) return '';
     let ghost = null;
     if (hadSprite && state.spriteCss && (fadeOn || enterExit)) {
         ghost = makeSpriteGhost(doc, sprite, state.spriteCss);
@@ -459,7 +470,7 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     if (sprite && !ctx.spriteEditMode && (spriteUrl !== state.spriteUrl || (!state.initialized && spriteUrl))) {
         const castSwap = Boolean(spriteKey) && spriteKey !== state.spriteKey
             && (castKeys.includes(state.spriteKey) || (state.castKeys || []).includes(spriteKey));
-        const kind = playSpriteChange(state, { doc, sprite, nextUrl: spriteUrl, nextKey: spriteKey, nextPosX: posX, s, reduced, black, speed, castSwap });
+        const kind = playSpriteChange(state, { doc, sprite, nextUrl: spriteUrl, nextKey: spriteKey, nextPosX: posX, s, reduced, black, speed, castSwap, noSpriteSpeaker: ctx.noSpriteSpeaker === true });
         if (kind) played.push(`sprite:${kind}`);
         if (kind.includes('enter')) state.entered = pageKey;
     }

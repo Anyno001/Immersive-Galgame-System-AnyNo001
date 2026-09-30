@@ -188,6 +188,25 @@ test('gate: mood change on the same character switches directly by default', () 
     assert.equal(r.sprite.animations.length, before);
 });
 
+test('gate: speaker without a sprite hides the previous sprite directly and it returns without enter', () => {
+    const r = makeReader();
+    const settings = { spriteMotion: { enabled: true }, sceneTransition: { enabled: true } };
+    const ctx = { reducedMotion: false, ...r.clock };
+    r.sprite.style.cssText = 'background-image: url("alice.png");';
+    applyStageDirection(r.root, snapshot(settings, { textType: 'narration' }), { ...ctx, spriteUrl: 'alice.png', spriteKey: '爱丽丝', spritePosX: 70 });
+    r.clock.flush();
+    const before = r.sprite.animations.length;
+    let result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration' }, 1), { ...ctx, spriteUrl: '', spriteKey: '', noSpriteSpeaker: true });
+    assert.deepEqual(result.played, []);
+    assert.equal(ghosts(r.motion).length, 0);
+    result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration' }, 2), { ...ctx, spriteUrl: 'alice.png', spriteKey: '爱丽丝', spritePosX: 70 });
+    assert.deepEqual(result.played, []);
+    assert.equal(ghosts(r.motion).length, 0);
+    assert.equal(r.sprite.animations.length, before);
+    result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration' }, 3), { ...ctx, spriteUrl: '', spriteKey: '' });
+    assert.deepEqual(result.played, ['sprite:exit']);
+});
+
 test('gate: stage cast speaker change swaps without exit or enter', () => {
     const r = makeReader();
     const settings = { spriteMotion: { enabled: true, emotionFade: true } };

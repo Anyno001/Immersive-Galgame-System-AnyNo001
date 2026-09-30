@@ -1345,6 +1345,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         spritePosX: stageSprite ? stageSprite.posX : 50,
         spriteEditMode: Boolean(current.spriteEditMode),
         castKeys: stageSprite && castPlan ? [stageSprite.key, ...castPlan.members.map((m) => m.character)] : [],
+        // 有人说话但没有立绘（系统角色、只配头像）：舞台调度按换说话人处理，不播旧立绘退场。
+        noSpriteSpeaker: !stageSprite && (Boolean(snapshot.content.speaker) || snapshot.content.textType === 'system'),
     });
     if (castCollapseMove) playSpeakerMove(spriteEl, castCollapseMove.fromX, castCollapseMove.toX, castCollapseMove.posY);
     if (castSpeakerMotion) {
