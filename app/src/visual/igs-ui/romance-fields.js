@@ -12,7 +12,7 @@ function sub(body) {
 // 亲密演出的设置片段：强度常显，图层与好感 / 关系设置收进折叠区；关闭时已保存的子设置保留不清空。
 export function renderRomanceFxFields(reader, more = collapsible) {
     const s = normalizeRomanceFxSettings(reader && reader.romanceFx);
-    const toggle = checkbox(`${P}.enabled`, s.enabled, '亲密演出（读取 igs-fx:romance 标签与 NSFW 场景）');
+    const toggle = checkbox(`${P}.enabled`, s.enabled, '亲密演出');
     if (!s.enabled) return toggle;
     const layers = `<div class="igs-source-filter-grid">`
         + checkbox(`${P}.approach`, s.approach, '立绘逼近镜头')
@@ -25,12 +25,11 @@ export function renderRomanceFxFields(reader, more = collapsible) {
         + (s.favorAmbience ? sub(field(`${P}.favorThreshold`, '好感门槛', segmentedInput(`${P}.favorThreshold`, String(s.favorThreshold), ROMANCE_FAVOR_THRESHOLDS.map((n) => [String(n), `${n}%`]), '好感门槛'))
             + renderWordListField('romanceFx.favorWords', '好感指标名', s.favorWords)
             + '<div class="igs-source-filter-note">需开启状态栏并选择含好感指标的表格；指标名需与状态栏里显示的名称完全一致。</div>') : '')
-        + checkbox(`${P}.relationCard`, s.relationCard, '关系变化卡（状态栏「关系」列变化时弹出）')
-        + (s.relationCard ? sub('<div class="igs-source-filter-note">读取状态栏已选表格中列名含「关系」的文字；首次读到只记录，之后变化才弹卡。</div>') : '')
+        + checkbox(`${P}.relationCard`, s.relationCard, '关系变化卡（状态栏里的关系变化时弹出）')
         + checkbox(`${P}.rival`, s.rival, '修罗场（暧昧对象以外的角色出场时转冷色并弹心碎）')
-        + checkbox(`${P}.confess`, s.confess, '告白演出（读取 igs-fx:confess：黑边、心跳、打字放慢、回答前停顿）')
-        + checkbox(`${P}.memories`, s.memories, '恋爱回忆（读取 igs-fx:memory，拍下当前画面存进 CG 库）')
-        + (s.memories ? sub('<div class="igs-source-filter-note">与日常演出拍照共用相册；NSFW 场景不拍。同一楼层同一回忆只存一次。</div>') : '');
+        + checkbox(`${P}.confess`, s.confess, '告白演出（黑边、心跳、打字放慢、回答前停顿）')
+        + checkbox(`${P}.memories`, s.memories, '恋爱回忆（拍下当前画面存进 CG 库）')
+        + (s.memories ? sub('<div class="igs-source-filter-note">与日常拍照共用相册，NSFW 场景不拍。</div>') : '');
     // 列表复用 BGM 曲目的行样式（settings-style 的 .igs-bgm-track）。
     const rows = s.actions.map((item, index) => `<div class="igs-bgm-track"><div class="igs-bgm-track-main"><b>${esc(item.name || '（未命名）')}</b><span>${esc(item.text)}</span></div>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="romance-action-edit:${index}" title="修改">✎</button>`

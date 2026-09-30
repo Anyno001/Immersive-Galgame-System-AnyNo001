@@ -1343,7 +1343,9 @@ test('gate:scene:mood-review-list-renders-accept-only-for-live-fuzzy-group', () 
     ], [{ label: '嫌弃', words: ['嘲讽'] }]);
     assert.match(html, /mood-review-accept:%E5%98%B2%E5%BC%84/);
     assert.match(html, /确认加入「嫌弃」/);
-    assert.match(html, /未命中，显示默认立绘/);
+    // 待确认行只标角色，不再附「未命中 / 模糊归入」之类状态说明。
+    assert.doesNotMatch(html, /未命中|显示默认立绘|模糊归入|请核对/);
+    assert.match(html, /<span class="igs-source-filter-note">爱丽丝<\/span>/);
     assert.doesNotMatch(html, /mood-review-accept:%E5%86%B7/);
     assert.match(renderMoodReviewList([], []), /暂无/);
 });

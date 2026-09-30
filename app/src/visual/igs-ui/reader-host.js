@@ -2803,7 +2803,7 @@ export function createIgsReaderHost(options = {}) {
                 '<div class="igs-source-filter-grid">',
                 field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小')),
                 '</div>',
-                `<div class="igs-settings-field"><span>读取表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: listed.ok ? '' : '数据库插件未就绪' })}</div>`,
+                `<div class="igs-settings-field"><span>显示的表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: listed.ok ? '' : '数据库插件未就绪' })}</div>`,
                 `<details class="igs-settings-sub igs-settings-advanced" data-advanced="status-hud-look"${asyncState.advancedOpen && asyncState.advancedOpen['status-hud-look'] ? ' open' : ''}><summary>高级：头像圆角、背景与配色</summary>`,
                 '<div class="igs-source-filter-grid">',
                 field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']])),
@@ -2946,7 +2946,7 @@ export function createIgsReaderHost(options = {}) {
                 autoSharedHidden: hiddenAttr((!auto.nsfwEnabled && !auto.interludeEnabled && !auto.assets.spriteEnabled && !auto.assets.backgroundEnabled)
                     || (sourceMode === 'dbgen' && !auto.nsfwEnabled && !auto.interludeEnabled)),
                 // 物品图：独立开关（默认关闭，关闭时不读表、不联网）；背包格子图标是用户显示偏好。
-                itemImageFields: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '自动生成物品图（读取物品表与 igs-fx:item 标签）')
+                itemImageFields: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '自动生成物品图')
                     + field('bridge.itemImages.inventoryIcon', '背包格子图标', selectInput('bridge.itemImages.inventoryIcon', normalizeItemImageSettings(bridge.itemImages).inventoryIcon, [['image', '生图'], ['svg', 'SVG']])),
                 autoLlmApiHidden: hiddenAttr(openaiDisabled),
                 autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前 API（消耗主模型额度）'], ['openai', '独立 OpenAI 兼容 API']])),

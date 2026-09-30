@@ -113,7 +113,7 @@ export function renderOutfitReviewList(items, characterOutfits, characters) {
             )).join('') + `<button type="button" class="igs-settings-action" data-action="outfit-review-create:${c}:${w}">新建为服装</button>`
             : '<span class="igs-source-filter-note">角色未登记立绘</span>';
         return `<div class="igs-btn-mgr-row igs-mood-review-row"><span class="igs-btn-mgr-label">${esc(word)}</span>`
-            + `<span class="igs-source-filter-note">${esc(character)} · 未登记的服装，本句按原装显示</span>${assign}`
+            + `<span class="igs-source-filter-note">${esc(character)}</span>${assign}`
             + `<button type="button" class="igs-mood-word-del" data-action="outfit-review-dismiss:${c}:${w}" title="忽略">×</button></div>`;
     }).join('');
     const head = `<div class="igs-settings-section-head"><div class="igs-settings-subhead">待确认服装词</div><button type="button" class="igs-settings-action" data-action="outfit-review-clear">清空</button></div>`;

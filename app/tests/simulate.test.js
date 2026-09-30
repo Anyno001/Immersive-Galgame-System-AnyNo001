@@ -3132,7 +3132,8 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.doesNotMatch(performanceView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
     assert.match(performanceView.snapshot.html, /人物过场滤镜（旁白时压暗立绘）/);
     assert.match(performanceView.snapshot.html, /data-segment-path="readerSettings\.statusHud\.nsfwSpriteMode" data-segment-value="shade"/);
-    assert.match(performanceView.snapshot.html, /亲密演出（读取 igs-fx:romance 标签与 NSFW 场景）/);
+    assert.match(performanceView.snapshot.html, /亲密演出/);
+    assert.doesNotMatch(performanceView.snapshot.html, /读取 igs-fx/);
 
     const interfaceView = settings.switchReaderSubTab('interface');
     assert.match(interfaceView.snapshot.html, /data-reader-pane="interface"/);
@@ -6503,8 +6504,8 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /角色数值表/);
     assert.match(enabled, /任务表/);
     assert.match(enabled, /data-action="status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8"/);
-    assert.match(enabled, /<div class="igs-settings-field"><span>读取表格<\/span><div class="igs-status-hud-tables"/);
-    assert.doesNotMatch(enabled, /<label class="igs-settings-field"><span>读取表格<\/span>/);
+    assert.match(enabled, /<div class="igs-settings-field"><span>显示的表格<\/span><div class="igs-status-hud-tables"/);
+    assert.doesNotMatch(enabled, /<label class="igs-settings-field"><span>显示的表格<\/span>/);
 
     const performance = settings.switchReaderSubTab('performance').snapshot.html;
     assert.match(performance, /打字机（逐字显示）/);

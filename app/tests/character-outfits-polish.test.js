@@ -150,7 +150,9 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     const review = renderOutfitReviewList([{ character: '小林海斗', word: '浴衣' }, { character: '路人', word: '西装' }], assets.characterOutfits, assets.characters);
     assert.match(review, /data-action="outfit-review-assign:[^"]+:%E6%B5%B4%E8%A1%A3:%E6%B3%B3%E8%A3%85">归入「泳装」/);
     assert.match(review, /outfit-review-create:[^"]+:%E6%B5%B4%E8%A1%A3/);
-    assert.match(review, /路人 · 未登记的服装.*?角色未登记立绘/);
+    // 待确认服装行只标角色；无立绘角色保留「角色未登记立绘」说明为何没有归入按钮。
+    assert.match(review, /<span class="igs-source-filter-note">路人<\/span><span class="igs-source-filter-note">角色未登记立绘<\/span>/);
+    assert.doesNotMatch(review, /未登记的服装|按原装显示/);
     assert.equal(renderOutfitReviewList([], {}, {}), '');
 });
 

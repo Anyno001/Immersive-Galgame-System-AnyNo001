@@ -406,14 +406,14 @@ export function renderMoodReviewList(items, moodGroups = []) {
     if (!list.length) return `<div class="igs-mood-review">${head}<div class="igs-scene-empty">暂无。词库外的情绪词出现时会记在这里</div></div>`;
     const rows = list.map((item) => {
         const fuzzy = item.quality === 'fuzzy' && labels.has(item.group);
-        const who = item.character ? `${esc(item.character)} · ` : '';
-        const status = fuzzy ? `模糊归入「${esc(item.group)}」，请核对` : '未命中，显示默认立绘';
+        // 中间只标谁说的；匹配结果由按钮本身说明，显示效果用户在舞台上看得到。
+        const who = item.character ? `<span class="igs-source-filter-note">${esc(item.character)}</span>` : '';
         const accept = fuzzy
             ? `<button type="button" class="igs-settings-action" data-action="mood-review-accept:${encSeg(item.word)}">确认加入「${esc(item.group)}」</button>`
             : '';
         return `<div class="igs-btn-mgr-row igs-mood-review-row">`
             + `<span class="igs-btn-mgr-label">${esc(item.word)}</span>`
-            + `<span class="igs-source-filter-note">${who}${status}</span>`
+            + who
             + accept
             + `<button type="button" class="igs-settings-action" data-action="mood-review-assign:${encSeg(item.word)}">${fuzzy ? '改到其他组' : '加入情绪组'}</button>`
             + `<button type="button" class="igs-mood-word-del" data-action="mood-review-dismiss:${encSeg(item.word)}" title="忽略">×</button>`
