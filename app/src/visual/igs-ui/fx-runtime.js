@@ -141,9 +141,10 @@ function planTitle(content, settings, memory, effects) {
 }
 
 // 纯规划：根据快照与记忆决定本次渲染要播放的瞬时演出和需要保持的区间状态。
-export function planPageFx(snapshot, memory, baseline = favorBaseline, normalized = null) {
+export function planPageFx(snapshot, memory, baseline = favorBaseline, normalized = null, context = {}) {
     const content = (snapshot && snapshot.content) || {};
     const settings = normalized || normalizeFxReaderSettings(snapshot && snapshot.readerSettings);
+    const hasSprite = context.hasSprite !== false;
     const messageId = snapshot && snapshot.messageId;
     const pageKey = `${messageId}:${content.currentIndex}`;
     const special = content.chatPage === true || content.htmlCardPage === true;
@@ -156,7 +157,7 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline, normalize
 
     if (emotion && !special) {
         const symbol = pickMangaSymbol(emotion, settings.mangaFx);
-        if (symbol && once(`symbol:${emotionKey}`)) effects.push({ type: 'symbol', kind: symbol });
+        if (symbol && hasSprite && once(`symbol:${emotionKey}`)) effects.push({ type: 'symbol', kind: symbol });
         if (pickSpeedLines(emotion, settings.mangaFx) && once(`speed:${emotionKey}`)) effects.push({ type: 'speedLines' });
         const tone = pickHeartbeat(emotion, settings.heartbeatFx);
         if (tone && once(`heart:${emotionKey}`)) effects.push({ type: 'heartbeat', tone });
@@ -790,7 +791,9 @@ export function applyFxToDom(root, snapshot, options = {}) {
     if (!layers) return { played: [] };
     layeredRoots.add(root);
     const state = getState(root, options);
-    const plan = planPageFx(snapshot, state.memory, favorBaseline, settings);
+    const plan = planPageFx(snapshot, state.memory, favorBaseline, settings, {
+        hasSprite: Boolean(options.sprite && options.sprite.url),
+    });
     const reduced = hasReducedMotion(options);
     const { motion, stage, doc } = layers;
     if (state.pageKey && state.pageKey !== plan.pageKey) clearTransients(state, layers);

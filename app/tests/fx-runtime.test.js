@@ -205,6 +205,26 @@ test('gate:fx-runtime:fx-tags-respect-kind-switches', () => {
     assert.equal(off.ranges.call, null);
 });
 
+test('gate:fx-runtime:emotion-symbol-requires-current-sprite', () => {
+    const settings = { mangaFx: { enabled: true } };
+    const opts = { schedule: () => 0, clear() {}, reducedMotion: false };
+    const missing = makeRoot();
+    const skipped = applyFxToDom(missing.root, snapshot({ statusEmotion: '生气' }, settings), opts);
+    assert.deepEqual(skipped.played, []);
+    assert.equal(missing.motion.querySelector('.igs-fx-symbol'), null);
+
+    const visible = makeRoot();
+    const shown = applyFxToDom(visible.root, snapshot({ statusEmotion: '生气' }, settings), {
+        ...opts,
+        sprite: {
+            url: '/alice.png', posX: 50, posY: 100, scale: 100,
+            head: { x: 0.5, top: 0.08, w: 0.28, aspect: 2 },
+        },
+    });
+    assert.deepEqual(shown.played, ['symbol']);
+    assert.equal(visible.motion.querySelector('.igs-fx-symbol').getAttribute('data-kind'), 'anger');
+});
+
 test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', () => {
     const { root, motion } = makeRoot();
     const timers = clock();
@@ -213,6 +233,10 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     const fx = { instants: [{ kind: 'call', name: '爱丽丝' }], call: { name: '爱丽丝' }, flashback: true, dream: true, letterbox: false };
     const result = applyFxToDom(root, snapshot({ statusEmotion: '生气', speaker: '爱丽丝', fx }, settings), {
         schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
+        sprite: {
+            url: '/alice.png', posX: 50, posY: 100, scale: 100,
+            head: { x: 0.5, top: 0.08, w: 0.28, aspect: 2 },
+        },
         audioScheduler: (job) => { sounds.push(job.kind); return { stop() {} }; },
     });
     assert.deepEqual(result.played, ['symbol', 'call']);
@@ -394,7 +418,10 @@ test('gate:fx-runtime:ancient-era-notify-is-a-servant-report', () => {
 test('gate:fx-runtime:ancient-era-swaps-lamp-ink-snot-symbols-and-scroll-title', () => {
     const { root, motion } = makeRoot();
     const timers = clock();
-    const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false };
+    const opts = {
+        schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
+        sprite: { url: '/alice.png', posX: 50, posY: 100, scale: 100, head: { x: 0.5, top: 0.08, w: 0.28, aspect: 2 } },
+    };
     const ancient = { mangaFx: { enabled: true }, titleCard: { enabled: true }, _ancientEra: true };
     applyFxToDom(root, snapshot({ statusEmotion: '灵光一闪', sceneLocation: '醉仙楼', sceneTime: '戌时' }, ancient), opts);
     const symbol = motion.querySelector('.igs-fx-symbol');
@@ -529,11 +556,15 @@ test('gate:fx-runtime:replay-on-return-but-never-on-same-page-rerender', () => {
 
 test('gate:fx-runtime:hold-scales-lifetime-and-snappy-flags-stage', () => {
     const lives = {};
+    const sprite = {
+        url: '/alice.png', posX: 50, posY: 100, scale: 100,
+        head: { x: 0.5, top: 0.08, w: 0.28, aspect: 2 },
+    };
     for (const hold of ['short', 'medium', 'long']) {
         const { root, motion } = makeRoot();
         const timers = clock();
         applyFxToDom(root, snapshot({ statusEmotion: '生气' }, { mangaFx: { enabled: true }, fxStyle: { hold, motion: 'snappy' } }), {
-            schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
+            schedule: timers.schedule, clear: timers.clear, reducedMotion: false, sprite,
         });
         lives[hold] = timers.lives[0];
         assert.equal(motion.getAttribute('data-igs-fx-motion'), 'snappy');
@@ -631,7 +662,10 @@ test('gate:fx-runtime:page-flip-clears-previous-page-transients', () => {
     const { root, motion } = makeRoot();
     const timers = clock();
     const settings = { mangaFx: { enabled: true }, heartbeatFx: { enabled: true } };
-    const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, audioScheduler: () => null };
+    const opts = {
+        schedule: timers.schedule, clear: timers.clear, reducedMotion: false, audioScheduler: () => null,
+        sprite: { url: '/alice.png', posX: 50, posY: 100, scale: 100, head: { x: 0.5, top: 0.08, w: 0.28, aspect: 2 } },
+    };
     applyFxToDom(root, snapshot({ statusEmotion: '心动', currentIndex: 0 }, settings), opts);
     const stage = motion.querySelector('#igs-fx-stage');
     assert.equal(stage.querySelectorAll('.igs-fx-transient').length, 2);
@@ -660,7 +694,10 @@ test('gate:fx-symbols:every-kind-has-svg-and-accent-follows-vivid-theme-color', 
     for (const kind of MANGA_SYMBOL_KINDS) assert.match(MANGA_SYMBOL_SVG[kind], /^<svg class="igs-fx-svg"/, kind);
     assert.match(MANGA_SYMBOL_SVG.gloom, /igs-fx-wave/);
     const { root, motion } = makeRoot();
-    applyFxToDom(root, snapshot({ statusEmotion: '生气' }, { mangaFx: { enabled: true } }), { schedule: () => 0, clear() {}, reducedMotion: false });
+    applyFxToDom(root, snapshot({ statusEmotion: '生气' }, { mangaFx: { enabled: true } }), {
+        schedule: () => 0, clear() {}, reducedMotion: false,
+        sprite: { url: '/alice.png', posX: 50, posY: 100, scale: 100, head: { x: 0.5, top: 0.08, w: 0.28, aspect: 2 } },
+    });
     assert.equal(motion.querySelector('.igs-fx-symbol').innerHTML, MANGA_SYMBOL_SVG.anger);
     assert.equal(pickFxAccent({ nameColor: '#ffffff', textColor: '#5d3a4a', thoughtColor: '#c65f86' }), 'hsl(337 88% 60%)');
     assert.equal(pickFxAccent({ nameColor: '#b3b3b3', textColor: '#f4f4f6', dividerColor: '#404040' }), '');
