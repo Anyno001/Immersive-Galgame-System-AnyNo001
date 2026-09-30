@@ -92,6 +92,26 @@ export function collectGeneratedImageIds(value, out = []) {
     return Array.from(new Set(out));
 }
 
+// 把一条生成素材从 source 库移到 / 复制到 target 库（角色连同别名）。只改库记录，不碰 IndexedDB 图片；
+// target 已有同名条目时阻止，避免静默覆盖。move=false 为复制，source 原样返回。
+export function transferGeneratedLibraryEntry(source, target, type, name, { move = false } = {}) {
+    const src = JSON.parse(JSON.stringify(normalizeGeneratedLibrary(source)));
+    const dst = JSON.parse(JSON.stringify(normalizeGeneratedLibrary(target)));
+    const bucket = type === 'background' ? 'scenes' : 'characters';
+    const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+    if (!name || !own(src[bucket], name)) return { ok: false, reason: 'not-found', source: src, target: dst };
+    if (own(dst[bucket], name)) return { ok: false, reason: 'name-exists', source: src, target: dst };
+    dst[bucket][name] = JSON.parse(JSON.stringify(src[bucket][name]));
+    if (bucket === 'characters') {
+        dst.characterAliases[name] = Array.isArray(src.characterAliases[name]) ? src.characterAliases[name].slice() : [];
+    }
+    if (move) {
+        delete src[bucket][name];
+        if (bucket === 'characters') delete src.characterAliases[name];
+    }
+    return { ok: true, source: src, target: dst };
+}
+
 // 用户素材命中是否可信：普通模式下除「默认」兜底外的命中（含弱模糊）都算；
 // 精准生图优先模式下只认精确、别名和强模糊，弱命中仅作为生成完成前的占位。
 function isTrustedUserMatch(quality, strict) {

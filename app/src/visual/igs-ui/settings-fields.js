@@ -479,7 +479,7 @@ export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue) {
 }
 
 
-export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl } = {}) {
+export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, presetNames = [], currentPreset = '' } = {}) {
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1-1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const source = library && typeof library === 'object' ? library : {};
@@ -490,6 +490,16 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl }
         if (!id) return '';
         const fileName = `${String(name || '').trim() || '素材'}-${typeLabel}.png`;
         return `<button type="button" class="igs-btn-mgr-icon" data-action="gen-asset-download:${encSeg(id)}:${encSeg(fileName)}" title="下载">${downloadIcon}</button>`;
+    };
+    // 生成素材「移到 / 复制到其他场景预设」；没有其他预设时不显示。选项值为 move|copy:<编码后的预设名>。
+    const otherPresets = (Array.isArray(presetNames) ? presetNames : []).filter((n) => n && n !== currentPreset);
+    const transferSelect = (type, name) => {
+        if (!otherPresets.length) return '';
+        const opts = ['<option value="">移到 / 复制到预设…</option>']
+            .concat(otherPresets.map((p) => `<option value="move:${esc(encSeg(p))}">移到「${esc(p)}」</option>`))
+            .concat(otherPresets.map((p) => `<option value="copy:${esc(encSeg(p))}">复制到「${esc(p)}」</option>`))
+            .join('');
+        return `<select class="igs-asset-move" data-gen-transfer="${esc(type)}" data-gen-name="${esc(name)}" aria-label="移到或复制到其他预设">${opts}</select>`;
     };
     // 首版只修复 igs-gen: 生成立绘；背景不提供入口。
     const matteButton = (imageId, type) => {
@@ -524,7 +534,7 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl }
         for (const [name, value] of Object.entries(source[bucketName] && typeof source[bucketName] === 'object' ? source[bucketName] : {})) {
             const url = firstUrl(value);
             const imageId = url.startsWith('igs-gen:') ? url.slice('igs-gen:'.length) : '';
-            libraryRows.push(`<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(name)}</span><span class="igs-source-filter-note">${title}</span>${downloadButton(imageId, name, title)}${matteButton(imageId, type)}<button type="button" class="igs-btn-mgr-icon" data-action="gen-lib-rename:${encSeg(type)}:${encSeg(name)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="gen-lib-remove:${encSeg(type)}:${encSeg(name)}" title="删除">${trash}</button></div>${preview(url, name)}</div>`);
+            libraryRows.push(`<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(name)}</span><span class="igs-source-filter-note">${title}</span>${downloadButton(imageId, name, title)}${matteButton(imageId, type)}${transferSelect(type, name)}<button type="button" class="igs-btn-mgr-icon" data-action="gen-lib-rename:${encSeg(type)}:${encSeg(name)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="gen-lib-remove:${encSeg(type)}:${encSeg(name)}" title="删除">${trash}</button></div>${preview(url, name)}</div>`);
         }
     }
     const tempRows = (Array.isArray(temp) ? temp : []).map((record) => {

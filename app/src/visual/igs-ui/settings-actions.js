@@ -22,7 +22,7 @@ import { applyPerformancePreset } from './performance-presets.js';
 import { normalizeBgmSettings } from './scene-audio.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
-import { addGeneratedAssetToLibrary, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry } from '../../scene/asset-match.js';
+import { addGeneratedAssetToLibrary, collectGeneratedImageIds, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, transferGeneratedLibraryEntry } from '../../scene/asset-match.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
 import { createSettingsDialogs } from './settings-dialog.js';
@@ -129,6 +129,15 @@ function restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDr
 function generatedOperationFailure(globalObj, message, reason) {
     if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
     return { ok: false, reason };
+}
+
+// 生成素材图片可能被多个场景预设共用：只删当前设置与所有预设都不再引用的图片。
+export function unreferencedGeneratedImageIds(imageIds, sceneAssets, storage) {
+    const inUse = new Set(collectGeneratedImageIds(sceneAssets));
+    for (const preset of Object.values(loadScenePresets(storage))) {
+        for (const id of collectGeneratedImageIds(preset)) inUse.add(id);
+    }
+    return (Array.isArray(imageIds) ? imageIds : []).filter((id) => !inUse.has(id));
 }
 
 // 下载文件名：去掉 Windows / 各浏览器不允许的字符，保证以 .png 结尾。
@@ -278,6 +287,47 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 生成素材移到 / 复制到其他场景预设：先写目标预设，再从当前库移除；任一步失败都不丢图片引用，也不删图。
+    if (normalizedAction.startsWith('gen-lib-transfer:')) {
+        const [mode, rawType, rawName, rawPreset] = normalizedAction.slice('gen-lib-transfer:'.length).split(':');
+        const type = decodeSeg(rawType);
+        const name = decodeSeg(rawName);
+        const targetName = decodeSeg(rawPreset);
+        if ((mode !== 'move' && mode !== 'copy') || (type !== 'background' && type !== 'sprite') || !name || !targetName) return rerenderSettings();
+        const globalObj = options.global || globalThis;
+        const storage = globalObj.localStorage;
+        const activeName = settingsState.asyncState.scenePresetName || '';
+        const presets = loadScenePresets(storage);
+        if (!Object.prototype.hasOwnProperty.call(presets, targetName) || targetName === activeName) return rerenderSettings();
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const previousLibrary = normalizeGeneratedLibrary(sceneAssets.generated);
+        const move = mode === 'move';
+        const result = transferGeneratedLibraryEntry(previousLibrary, presets[targetName].generated, type, name, { move });
+        if (!result.ok) {
+            if (globalObj.alert) globalObj.alert(result.reason === 'name-exists' ? `预设「${targetName}」的生成素材库里已有「${name}」，已阻止。` : `生成素材「${name}」不存在。`);
+            return rerenderSettings();
+        }
+        presets[targetName] = { ...presets[targetName], generated: result.target };
+        // 移走时同步当前预设已保存的生成素材库，避免切回当前预设时条目又出现；旧预设没有该字段则不动。
+        if (move && activeName && Object.prototype.hasOwnProperty.call(presets, activeName) && Object.prototype.hasOwnProperty.call(presets[activeName], 'generated')) {
+            presets[activeName] = { ...presets[activeName], generated: result.source };
+        }
+        const written = saveScenePresets(storage, presets);
+        if (written.ok === false) return written;
+        if (move) {
+            sceneAssets.generated = result.source;
+            const persisted = persistGeneratedLibrary(persistSettingsDraft);
+            if (operationFailed(persisted)) {
+                if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
+                    return generatedOperationFailure(globalObj, '移动生成素材失败，且无法恢复原设置。', 'generated-asset-transfer-rollback-failed');
+                }
+                return persisted;
+            }
+        }
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('gen-lib-remove:')) {
         const rest = normalizedAction.slice('gen-lib-remove:'.length);
         const colon = rest.indexOf(':');
@@ -306,7 +356,7 @@ export async function handleSettingsAction(action, ctx) {
         const service = options.generatedAssets;
         if (service && typeof service.deleteImages === 'function') {
             try {
-                const deleted = await service.deleteImages(result.imageIds);
+                const deleted = await service.deleteImages(unreferencedGeneratedImageIds(result.imageIds, sceneAssets, globalObj.localStorage));
                 if (operationFailed(deleted)) {
                     if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
                         return generatedOperationFailure(globalObj, '删除生成素材失败，且无法恢复原设置。', 'generated-asset-remove-rollback-failed');
@@ -1850,6 +1900,7 @@ export async function handleSettingsAction(action, ctx) {
             timeGroups: cloneData(sa.timeGroups || []),
             weatherGroups: cloneData(sa.weatherGroups || []),
             ancient: sa.ancient === true,
+            generated: normalizeGeneratedLibrary(sa.generated),
             spriteLayouts: cloneData((settingsState.draft.readerSettings && settingsState.draft.readerSettings.spriteLayouts) || {}),
             spriteHeads: cloneData((settingsState.draft.readerSettings && settingsState.draft.readerSettings.spriteHeads) || {}),
         };
@@ -1890,6 +1941,10 @@ export async function handleSettingsAction(action, ctx) {
                 settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(preset.weatherGroups || []);
                 // 时代背景随预设走；早于该开关的旧预设都是现代背景。
                 settingsState.draft.bridge.sceneAssets.ancient = preset.ancient === true;
+                // 旧预设没有 generated 字段：保留当前生成素材库，避免静默清空。
+                if (Object.prototype.hasOwnProperty.call(preset, 'generated')) {
+                    settingsState.draft.bridge.sceneAssets.generated = normalizeGeneratedLibrary(preset.generated);
+                }
                 if (preset.spriteLayouts && typeof preset.spriteLayouts === 'object') {
                     settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
                     settingsState.draft.readerSettings.spriteLayouts = cloneData(preset.spriteLayouts);
@@ -1946,6 +2001,8 @@ export async function handleSettingsAction(action, ctx) {
             statusAvatars: (fileResult.data.statusAvatars && typeof fileResult.data.statusAvatars === 'object') ? fileResult.data.statusAvatars : {},
             timeGroups: fileResult.data.timeGroups || [],
             weatherGroups: fileResult.data.weatherGroups || [],
+            // 早于时代开关的旧文件都是现代背景。
+            ancient: fileResult.data.ancient === true,
             spriteLayouts: (fileResult.data.spriteLayouts && typeof fileResult.data.spriteLayouts === 'object') ? fileResult.data.spriteLayouts : {},
             spriteHeads: normalizeSpriteHeads(fileResult.data.spriteHeads),
         };
@@ -1966,6 +2023,7 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(presets[name].moodGroups);
         settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(presets[name].timeGroups || []);
         settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(presets[name].weatherGroups || []);
+        settingsState.draft.bridge.sceneAssets.ancient = presets[name].ancient === true;
         settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
         settingsState.draft.readerSettings.spriteLayouts = cloneData(presets[name].spriteLayouts);
         settingsState.draft.readerSettings.spriteHeads = cloneData(presets[name].spriteHeads);
@@ -1983,7 +2041,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!preset) return rerenderSettings();
         const doc = globalObj.document;
         if (!doc) return { ok: false, reason: 'no-document' };
-        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
+        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = doc.createElement('a');

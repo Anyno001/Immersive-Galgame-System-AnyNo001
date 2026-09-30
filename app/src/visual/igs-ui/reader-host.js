@@ -3026,6 +3026,8 @@ export function createIgsReaderHost(options = {}) {
                 library: normalizeGeneratedLibrary(sceneAssets.generated),
                 temp: generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
                 resolveUrl: resolveGenerated,
+                presetNames: Object.keys(scenePresets || {}),
+                currentPreset: asyncState.scenePresetName || '',
             });
             const subTabsHtml = `<div class="igs-scene-subtabs" role="tablist">`
                 + SCENE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-scene-subtab${subTab === id ? ' is-active' : ''}" data-scene-subtab="${id}" role="tab" aria-selected="${subTab === id ? 'true' : 'false'}">${label}</button>`).join('')
@@ -3652,6 +3654,16 @@ export function createIgsReaderHost(options = {}) {
             if (folderMoveKind) {
                 const assetName = event.target.getAttribute('data-asset-name') || '';
                 controller.invoke(`asset-folder-move:${folderMoveKind}:${encodeURIComponent(assetName)}:${encodeURIComponent(event.target.value)}`);
+                return;
+            }
+            // 生成素材「移到 / 复制到预设」：选项值为 move|copy:<编码后的预设名>。
+            const genTransferType = event.target && event.target.getAttribute ? event.target.getAttribute('data-gen-transfer') : '';
+            if (genTransferType) {
+                const choice = String(event.target.value || '');
+                const colon = choice.indexOf(':');
+                if (colon < 0) return;
+                const genName = event.target.getAttribute('data-gen-name') || '';
+                controller.invoke(`gen-lib-transfer:${choice.slice(0, colon)}:${encodeURIComponent(genTransferType)}:${encodeURIComponent(genName)}:${choice.slice(colon + 1)}`);
                 return;
             }
             if (event.target && event.target.getAttribute && event.target.getAttribute('data-preset-select') !== null) {
