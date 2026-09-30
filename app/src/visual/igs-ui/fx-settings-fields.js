@@ -34,8 +34,8 @@ export function renderFxFeatureFields(reader, more = collapsible) {
         + (s.mangaFx.enabled ? sub(more('manga-words', '自定义触发情绪', MANGA_SYMBOL_KINDS.map((kind) => renderWordListField(`mangaFx.symbols.${kind}`, MANGA_SYMBOL_LABELS[kind], s.mangaFx.symbols[kind])).join('')
             + renderWordListField('mangaFx.speedLines', '集中线', s.mangaFx.speedLines))) : '');
     const heartbeat = checkbox(`${p}.heartbeatFx.enabled`, s.heartbeatFx.enabled, '心跳脉动')
-        + (s.heartbeatFx.enabled ? sub(more('heartbeat-words', '自定义触发情绪', renderWordListField('heartbeatFx.love', '心动（粉色）', s.heartbeatFx.love)
-            + renderWordListField('heartbeatFx.tense', '紧张（暗红）', s.heartbeatFx.tense))) : '');
+        + (s.heartbeatFx.enabled ? sub(more('heartbeat-words', '自定义触发情绪', renderWordListField('heartbeatFx.love', '心动', s.heartbeatFx.love)
+            + renderWordListField('heartbeatFx.tense', '紧张', s.heartbeatFx.tense))) : '');
     const flash = checkbox(`${p}.flashFx.enabled`, s.flashFx.enabled, '闪白与耳鸣')
         + (s.flashFx.enabled ? sub(more('flash-words', '自定义触发情绪', renderWordListField('flashFx.emotions', '触发情绪', s.flashFx.emotions))) : '');
     const title = checkbox(`${p}.titleCard.enabled`, s.titleCard.enabled, '地点/时间标题卡')
@@ -46,12 +46,12 @@ export function renderFxFeatureFields(reader, more = collapsible) {
     const itemFx = checkbox(`${p}.itemFx.enabled`, s.itemFx.enabled, '获得物品演出');
     const battleFx = checkbox(`${p}.battleFx.enabled`, s.battleFx.enabled, '战斗演出')
         + (s.battleFx.enabled ? sub(checkbox(`${p}.battleFx.letterbox`, s.battleFx.letterbox, '战斗时加电影黑边')) : '');
-    const resultFx = checkbox(`${p}.resultFx.enabled`, s.resultFx.enabled, '选项检定掷骰展示（点检定选项时先播放骰点与结果）');
-    const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '演出标签（来电、通知、回忆、梦境等）')
+    const resultFx = checkbox(`${p}.resultFx.enabled`, s.resultFx.enabled, '选项检定掷骰');
+    const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '来电、通知、回忆等演出')
         + (s.fxTags.enabled ? sub(more('fx-tags', '选择标签类型', `<div class="igs-source-filter-grid">${FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('')}</div>`)
             + (s.fxTags.call ? more('fx-call', '通话设置', field(`${p}.fxTags.callSprite`, '语音通话时对方立绘', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话时对方立绘'))
             ) : '')) : '');
-    const sound = checkbox(`${p}.fxSound.enabled`, s.fxSound.enabled, '演出音效（铃声、心跳、耳鸣、日常与战斗音效）')
+    const sound = checkbox(`${p}.fxSound.enabled`, s.fxSound.enabled, '演出音效')
         + (s.fxSound.enabled ? sub(field(`${p}.fxSound.volume`, '音量', rangeInput(`${p}.fxSound.volume`, s.fxSound.volume, '音量'))) : '');
     return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, resultFx, tags, sound };
 }

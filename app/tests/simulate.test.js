@@ -63,10 +63,12 @@ test('gate:simulation:virtual-regex-extra-rules-render-add-save-and-remove', asy
     }
 });
 
-test('gate:igs-ui:toolbar-top-wraps-many-buttons', () => {
+test('gate:igs-ui:toolbar-top-first-row-aligns-with-toggle-and-close', () => {
     const css = getOriginalReaderStyleText();
-    assert.match(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar\{[^}]*flex-wrap:wrap/);
-    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*flex-wrap:wrap[^}]*overflow-x:visible[^}]*max-height:78px/);
+    // 外层不换行、顶部对齐：按钮第一行与收纳 / 关闭键同一行，收纳 / 关闭不会被挤到下一行。
+    assert.match(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar\{[^}]*align-items:flex-start[^}]*flex-wrap:nowrap/);
+    // 按钮区限宽（约 8 个一行）提前换行，行内左对齐。
+    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*max-width:336px[^}]*justify-content:flex-start[^}]*flex-wrap:wrap/);
 });
 
 
@@ -2340,14 +2342,13 @@ test('gate:simulation:igs-ui-toolbar-top-has-option-bubble-avoidance-css', () =>
     );
 });
 
-test('gate:simulation:igs-ui-toolbar-top-wraps-instead-of-horizontal-scroll', () => {
-    // 顶部固定栏按钮放不下时须换行，不再依赖横向滚动。
+test('gate:simulation:igs-ui-toolbar-top-wraps-early-without-clipping-rows', () => {
+    // 顶部固定栏按钮换行而不是横向滚动；不限高、不裁切，窄屏第三行也完整显示。
     const css = getOriginalReaderStyleText();
-    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*flex-wrap:wrap/);
-    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*overflow-x:visible/);
-    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*max-height:78px/);
+    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*flex-wrap:wrap[^}]*overflow:visible/);
+    assert.doesNotMatch(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*max-height/);
     assert.doesNotMatch(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*overflow-x:auto/);
-    assert.doesNotMatch(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*touch-action:pan-x/);
+    assert.doesNotMatch(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*space-evenly/);
 });
 
 test('gate:simulation:igs-ui-toolbar-dock-invalid-falls-back-to-float', async () => {
@@ -3110,7 +3111,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.match(dialogView.snapshot.html, /对话框宽度/);
     assert.match(dialogView.snapshot.html, /对话框风格/);
     assert.doesNotMatch(dialogView.snapshot.html, /文字排版|外观细节|角色名|分隔线/);
-    assert.doesNotMatch(dialogView.snapshot.html, /按钮管理|打字机（逐字显示）/);
+    assert.doesNotMatch(dialogView.snapshot.html, /按钮管理|<span>打字机<\/span>/);
 
     settings.setValue('readerSettings.dialogSkin', 'gradient-veil');
     const gradientDialogView = settings.switchReaderSubTab('dialog');
@@ -3127,10 +3128,10 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
 
     const performanceView = settings.switchReaderSubTab('performance');
     assert.match(performanceView.snapshot.html, /data-reader-pane="performance"/);
-    assert.match(performanceView.snapshot.html, /打字机（逐字显示）/);
+    assert.match(performanceView.snapshot.html, /<span>打字机<\/span>/);
     assert.doesNotMatch(performanceView.snapshot.html, /打字机速度/);
     assert.doesNotMatch(performanceView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
-    assert.match(performanceView.snapshot.html, /人物过场滤镜（旁白时压暗立绘）/);
+    assert.match(performanceView.snapshot.html, /旁白时压暗立绘/);
     assert.match(performanceView.snapshot.html, /data-segment-path="readerSettings\.statusHud\.nsfwSpriteMode" data-segment-value="shade"/);
     assert.match(performanceView.snapshot.html, /亲密演出/);
     assert.doesNotMatch(performanceView.snapshot.html, /读取 igs-fx/);
@@ -6490,7 +6491,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /显示地点栏（仅旁白）/);
     assert.match(enabled, /显示更多的场景信息/);
     assert.match(enabled, /显示左上角状态栏[\s\S]*显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息/);
-    assert.doesNotMatch(enabled, /启用背景滤镜|人物过场滤镜|显示NSFW场景下的人物立绘/);
+    assert.doesNotMatch(enabled, /启用背景滤镜|旁白时压暗立绘|显示NSFW场景下的人物立绘/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
@@ -6508,8 +6509,8 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.doesNotMatch(enabled, /<label class="igs-settings-field"><span>显示的表格<\/span>/);
 
     const performance = settings.switchReaderSubTab('performance').snapshot.html;
-    assert.match(performance, /打字机（逐字显示）/);
-    assert.match(performance, /按句号自动分页（仅旁白）[\s\S]*人物过场滤镜（旁白时压暗立绘）[\s\S]*NSFW场景立绘[\s\S]*仅露脸剪影/);
+    assert.match(performance, /<span>打字机<\/span>/);
+    assert.match(performance, /旁白按句号分页[\s\S]*旁白时压暗立绘[\s\S]*NSFW场景立绘[\s\S]*仅露脸剪影/);
     assert.match(performance, /NSFW黑幕强度/);
     const dialog = settings.switchReaderSubTab('dialog').snapshot.html;
     assert.match(dialog, /启用背景滤镜/);
@@ -6550,8 +6551,8 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.doesNotMatch(disabled, /显示情绪标签/);
     assert.doesNotMatch(disabled, /显示地点栏/);
     assert.doesNotMatch(disabled, /显示更多的场景信息/);
-    assert.doesNotMatch(disabled, /启用背景滤镜|人物过场滤镜|显示NSFW场景下的人物立绘/);
-    assert.match(settings.switchReaderSubTab('performance').snapshot.html, /人物过场滤镜（旁白时压暗立绘）/);
+    assert.doesNotMatch(disabled, /启用背景滤镜|旁白时压暗立绘|显示NSFW场景下的人物立绘/);
+    assert.match(settings.switchReaderSubTab('performance').snapshot.html, /旁白时压暗立绘/);
     assert.match(settings.switchReaderSubTab('dialog').snapshot.html, /显示对话框内状态行/);
 
     vn.destroy();
@@ -6928,7 +6929,7 @@ test('gate:simulation:stage-shake-settings-and-raw-emotion-drive-igs-stage-only'
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     settings.switchTab('reader');
     const disabled = settings.switchReaderSubTab('performance').snapshot.html;
-    assert.match(disabled, /震动（按情绪抖动画面）/);
+    assert.match(disabled, /画面震动/);
     assert.doesNotMatch(disabled, /震动强度/);
     settings.setValue('readerSettings.stageShake.enabled', true);
     const enabled = settings.switchReaderSubTab('performance').snapshot.html;
@@ -7154,7 +7155,7 @@ test('gate:simulation:chat-show-settings-edit-contacts-and-inject-prompt-rule', 
         const settings = withSettingsDialogs(document, (await opened.reader.controller.invokeAction('settings')).controller, () => answers.shift() || '');
         settings.switchTab('reader');
         const disabled = settings.switchReaderSubTab('performance').snapshot.html;
-        assert.match(disabled, /线上交流（手机聊天气泡）/);
+        assert.match(disabled, /<span>线上交流<\/span>/);
         assert.doesNotMatch(disabled, /聊天外框/);
         settings.setValue('readerSettings.chatShow.enabled', true);
         await settings.invoke('chat-show-add-contact');

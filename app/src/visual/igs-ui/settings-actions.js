@@ -258,6 +258,17 @@ export async function handleSettingsAction(action, ctx) {
         return closeSettings();
     }
 
+    // 生图页的「打开 CG 库」：先按正常流程关闭设置（保存草稿），再在阅读器里打开 CG 库。
+    if (normalizedAction === 'open-cg-gallery') {
+        if (typeof options.openCgGallery !== 'function') return { ok: false, reason: 'cg-gallery-unavailable' };
+        const closed = closeSettings();
+        if (closed && closed.ok === false) return closed;
+        const opened = options.openCgGallery();
+        const globalObj = options.global || globalThis;
+        if (opened && opened.ok === false && globalObj && typeof globalObj.alert === 'function') globalObj.alert('请先打开阅读器，再查看 CG 库。');
+        return opened;
+    }
+
     if (normalizedAction.startsWith('gen-lib-rename:')) {
         const rest = normalizedAction.slice('gen-lib-rename:'.length);
         const colon = rest.indexOf(':');
@@ -1784,20 +1795,17 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
-    if (normalizedAction.startsWith('mood-review-accept:') || normalizedAction.startsWith('mood-review-assign:')) {
-        const accept = normalizedAction.startsWith('mood-review-accept:');
-        const word = decodeSeg(normalizedAction.slice(normalizedAction.indexOf(':') + 1));
+    // 待确认情绪词只有一个「加入」：填写情绪组（模糊匹配到的组预填），加入后从列表移除。
+    if (normalizedAction.startsWith('mood-review-assign:')) {
+        const word = decodeSeg(normalizedAction.slice('mood-review-assign:'.length));
         const globalObj = options.global || globalThis;
         const storage = globalObj.localStorage;
         const item = loadMoodReview(storage).find((entry) => entry.word === word);
         const groups = ensureMoodGroups(settingsState);
-        let label = accept && item ? item.group : '';
-        if (!accept) {
-            const names = groups.map((g) => g.label).join('、');
-            label = ((await dialogs.prompt(`把「${word}」加入哪个情绪组？
-可选：${names}`, item && item.group || '')) || '').trim();
-            if (!label) return rerenderSettings();
-        }
+        const suggested = item && groups.some((g) => g.label === item.group) ? item.group : '';
+        const names = groups.map((g) => g.label).join('、');
+        const label = ((await dialogs.prompt(`把「${word}」加入哪个情绪组？\n可选：${names}`, suggested)) || '').trim();
+        if (!label) return rerenderSettings();
         const group = groups.find((g) => g.label === label);
         if (!group) {
             if (globalObj.alert) globalObj.alert(`情绪组「${label}」不存在`);

@@ -181,9 +181,9 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-ctrl-bar.igs-hidden{opacity:0;pointer-events:none;}
 #igs-bar-btns{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0;max-width:calc(100vw - 112px);align-content:center;}
 #igs-overlay.igs-toolbar-top #igs-toolbar-layer{inset:0 0 auto 0;width:auto;height:auto;transform:none;}
-#igs-overlay.igs-toolbar-top .igs-ctrl-bar{position:static;top:auto;right:auto;width:100%;box-sizing:border-box;justify-content:space-between;gap:0;border-radius:0;border-left:none;border-right:none;border-top:none;box-shadow:none;flex-wrap:wrap;}
+#igs-overlay.igs-toolbar-top .igs-ctrl-bar{position:static;top:auto;right:auto;width:100%;box-sizing:border-box;justify-content:space-between;align-items:flex-start;gap:6px;border-radius:0;border-left:none;border-right:none;border-top:none;box-shadow:none;flex-wrap:nowrap;}
 #igs-overlay.igs-toolbar-top.igs-toolbar-expanded .igs-ctrl-bar{padding-left:56px;}
-#igs-overlay.igs-toolbar-top #igs-bar-btns{flex:1 1 auto;min-width:0;max-width:none;justify-content:space-evenly;flex-wrap:wrap;overflow-x:visible;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;touch-action:none;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;max-height:78px;}
+#igs-overlay.igs-toolbar-top #igs-bar-btns{flex:0 1 auto;min-width:0;max-width:336px;justify-content:flex-start;align-content:flex-start;flex-wrap:wrap;overflow:visible;}
 #igs-overlay.igs-toolbar-top #igs-bar-btns.igs-bar-overflow{justify-content:flex-start;cursor:grab;}
 #igs-overlay.igs-toolbar-top #igs-bar-btns.igs-bar-dragging{cursor:grabbing;}
 #igs-overlay.igs-toolbar-top #igs-bar-btns::-webkit-scrollbar{display:none;width:0;height:0;}

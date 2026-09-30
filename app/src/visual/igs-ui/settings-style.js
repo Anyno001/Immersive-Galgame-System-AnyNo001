@@ -223,7 +223,13 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-mood-word-del:hover{color:var(--igs-settings-danger)}
 .igs-mood-review{margin:6px 0 10px}
 .igs-mood-review-row{flex-wrap:wrap;gap:6px}
-.igs-mood-review-row .igs-source-filter-note{flex:1 1 140px}
+.igs-mood-review-row .igs-source-filter-note{flex:0 1 auto;min-width:0}
+.igs-review-link,.igs-review-clear{flex:0 0 auto;border:0;background:transparent;padding:2px 4px;color:var(--igs-settings-ink-3);font:inherit;font-size:12px;line-height:18px;border-radius:var(--igs-settings-radius-small);cursor:pointer}
+.igs-review-link:hover,.igs-review-link:focus-visible,.igs-review-clear:hover,.igs-review-clear:focus-visible{color:var(--igs-settings-ink);background:var(--igs-settings-raised);outline:none}
+.igs-mood-review-list{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0}
+.igs-mood-review-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;padding:2px 4px 2px 8px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-highlight);font-size:12px;color:var(--igs-settings-ink-2);white-space:nowrap}
+.igs-mood-review-chip b{min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.igs-mood-review-who{min-width:0;font-size:11px;color:var(--igs-settings-ink-4);overflow:hidden;text-overflow:ellipsis}
 .igs-sprite-slot{min-width:0;max-width:100%;border-bottom:1px solid var(--igs-settings-line)}
 .igs-sprite-slot:last-child{border-bottom:0}
 .igs-sprite-slot-body{display:flex;gap:10px;min-width:0;max-width:100%;box-sizing:border-box;padding:6px 4px 10px;align-items:flex-start}

@@ -29,21 +29,21 @@ function renderStageFields(s, more) {
             + field(`${P}.sceneTransition.style`, '换地点转场', selectInput(`${P}.sceneTransition.style`, s.sceneTransition.style, SCENE_TRANSITION_STYLES.map((id) => [id, SCENE_TRANSITION_LABELS[id]])))
             + field(`${P}.sceneTransition.speed`, '转场速度', segmentedInput(`${P}.sceneTransition.speed`, s.sceneTransition.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '转场速度'))
             + `</div>`) : '');
-    const tint = checkbox(`${P}.timeTint.enabled`, s.timeTint.enabled, '环境滤镜（按时段调色，背景与立绘一起）')
+    const tint = checkbox(`${P}.timeTint.enabled`, s.timeTint.enabled, '环境滤镜')
         + (s.timeTint.enabled ? sub(field(`${P}.timeTint.strength`, '调色强度', segmentedInput(`${P}.timeTint.strength`, s.timeTint.strength, [['light', '弱'], ['medium', '中'], ['strong', '强']], '调色强度'))
             + '<div class="igs-source-filter-note">开启天气演出后，还会按雨、雪、雾等天气调色。</div>') : '');
-    const motion = checkbox(`${P}.spriteMotion.enabled`, s.spriteMotion.enabled, '立绘活动（呼吸、说话轻弹、登退场）')
+    const motion = checkbox(`${P}.spriteMotion.enabled`, s.spriteMotion.enabled, '立绘活动')
         + (s.spriteMotion.enabled ? sub(more('sprite-motion', '选择动作', `<div class="igs-source-filter-grid">`
             + checkbox(`${P}.spriteMotion.breathing`, s.spriteMotion.breathing, '待机呼吸')
             + checkbox(`${P}.spriteMotion.speakBounce`, s.spriteMotion.speakBounce, '说话轻弹')
             + checkbox(`${P}.spriteMotion.enterExit`, s.spriteMotion.enterExit, '登场 / 退场')
-            + checkbox(`${P}.spriteMotion.emotionFade`, s.spriteMotion.emotionFade, '换表情 / 换说话人淡入淡出（关闭时直接切换）')
+            + checkbox(`${P}.spriteMotion.emotionFade`, s.spriteMotion.emotionFade, '换表情、换人时淡入淡出')
             + checkbox(`${P}.spriteMotion.castBreathing`, s.spriteMotion.castBreathing, '同屏角色呼吸')
             + checkbox(`${P}.spriteMotion.castLean`, s.spriteMotion.castLean, '同屏角色看向说话人')
             + `</div>`)) : '');
-    const actions = checkbox(`${P}.spriteActions.enabled`, s.spriteActions.enabled, '情绪动作（跳、仰、沉、摇等）')
+    const actions = checkbox(`${P}.spriteActions.enabled`, s.spriteActions.enabled, '情绪动作')
         + (s.spriteActions.enabled ? sub(more('sprite-actions', '自定义触发情绪', SPRITE_ACTION_KINDS.map((kind) => renderWordListField(`spriteActions.${kind}`, SPRITE_ACTION_LABELS[kind], s.spriteActions[kind])).join(''))) : '');
-    const camera = checkbox(`${P}.camera.enabled`, s.camera.enabled, '镜头语言（推镜、视差、特写）')
+    const camera = checkbox(`${P}.camera.enabled`, s.camera.enabled, '镜头语言')
         + (s.camera.enabled ? sub(more('camera', '选择镜头', `<div class="igs-source-filter-grid">`
             + checkbox(`${P}.camera.kenBurns`, s.camera.kenBurns, '背景缓慢推镜')
             + checkbox(`${P}.camera.parallax`, s.camera.parallax, '鼠标视差（电脑端）')
@@ -52,16 +52,16 @@ function renderStageFields(s, more) {
             + (s.camera.closeUp ? renderWordListField('camera.closeUpEmotions', '特写触发情绪', s.camera.closeUpEmotions) : ''))) : '');
     const cast = checkbox(`${P}.stageCast.enabled`, s.stageCast.enabled, '多角色同屏（实验）')
         + (s.stageCast.enabled ? sub(checkbox(`${P}.stageCast.alignHeads`, s.stageCast.alignHeads, '按头部对齐大小与高度')
-            + checkbox(`${P}.stageCast.romanceDuo`, s.stageCast.romanceDuo, '恋爱演出时保留同屏角色（暧昧时其他人退到背景，修罗场时对象同台）')
-            + checkbox(`${P}.stageCast.castReact`, s.stageCast.castReact, '同屏角色反应（被点名时提亮、一起吃惊、可以戳）')
-            + checkbox(`${P}.stageCast.castStage`, s.stageCast.castStage, '同屏角色走位（靠近、背对、离开，上场方式）')
-            + '<div class="igs-source-filter-note">同一场景内最近说过话的角色同时显示，说话人在前、其他人压暗；电脑最多 3 人，手机与楼层内嵌最多 2 人。亲密、特写、NSFW 与聊天演出时只显示说话人；多人时点「立绘编辑」可按槽位微调每个人。头部对齐以本场景最先开口的人为准，需要立绘已抠图或手动标定过头部。</div>') : '');
+            + checkbox(`${P}.stageCast.romanceDuo`, s.stageCast.romanceDuo, '亲密演出时保留同屏角色')
+            + checkbox(`${P}.stageCast.castReact`, s.stageCast.castReact, '同屏角色反应')
+            + checkbox(`${P}.stageCast.castStage`, s.stageCast.castStage, '同屏角色走位')
+            + '<div class="igs-source-filter-note">同场景最近说过话的角色一起显示，电脑最多 3 人，手机最多 2 人。头部对齐需要立绘已抠图或标定过头部。</div>') : '');
     return { transition, tint, motion, actions, camera, cast };
 }
 
 function renderTextFields(textFx, clickWait) {
-    const tfx = checkbox(`${P}.textFx.enabled`, textFx.enabled, '行内文字效果（抖、波、吼、渐大等）')
-        + (textFx.enabled ? sub('<div class="igs-source-filter-note">开启后会教 AI 用 {抖:文字}、{吼:文字} 这类写法标出关键字句；关闭时已有标记只显示文字。</div>') : '');
+    const tfx = checkbox(`${P}.textFx.enabled`, textFx.enabled, '行内文字效果')
+        + (textFx.enabled ? sub('<div class="igs-source-filter-note">AI 会给关键字句加上抖动、吼叫等效果；关闭后只显示文字。</div>') : '');
     const glyphs = Object.entries(CLICK_WAIT_MARK_LABELS);
     const clickWaitMark = checkbox(`${P}.clickWaitMark.enabled`, clickWait.enabled, '句末等待符号')
         + (clickWait.enabled ? sub(field(`${P}.clickWaitMark.glyph`, '符号样式', selectInput(`${P}.clickWaitMark.glyph`, clickWait.glyph, glyphs))) : '');
@@ -81,23 +81,23 @@ function renderSoundFields(bgm, ambient, ui, master, more) {
         + (bgm.enabled ? sub(field(`${P}.bgm.volume`, '音乐音量', rangeInput(`${P}.bgm.volume`, bgm.volume, '音乐音量'))
             + `<div class="igs-bgm-tracks">${tracks}</div>`
             + `<button type="button" class="igs-settings-action" data-action="bgm-track-add">添加曲目</button>`
-            + '<div class="igs-source-filter-note">关键词按地点、时间、天气、情绪匹配（地点权重更高），都不命中时播放没有关键词的默认曲。</div>') : '');
-    const ambientBody = checkbox(`${P}.ambientSound.enabled`, ambient.enabled, '环境音（实时合成，无需素材）')
+            + '<div class="igs-source-filter-note">按地点、时间、天气、情绪匹配曲目，没有匹配时播放默认曲。</div>') : '');
+    const ambientBody = checkbox(`${P}.ambientSound.enabled`, ambient.enabled, '环境音')
         + (ambient.enabled ? sub(field(`${P}.ambientSound.volume`, '环境音量', rangeInput(`${P}.ambientSound.volume`, ambient.volume, '环境音量'))
             + more('ambient-kinds', '选择声音类型', `<div class="igs-source-filter-grid">${AMBIENT_KINDS.map((kind) => checkbox(`${P}.ambientSound.${kind}`, ambient[kind], AMBIENT_LABELS[kind])).join('')}</div>`
                 + '<div class="igs-source-filter-note">按当前地点、时间与天气自动选择：树林清晨有鸟鸣、夜里草地有虫鸣、海边有浪声、街市有人声；室内的雨声会变闷。</div>')) : '');
-    const uiBody = checkbox(`${P}.uiSound.enabled`, ui.enabled, '界面音效（翻页、选项、菜单）')
+    const uiBody = checkbox(`${P}.uiSound.enabled`, ui.enabled, '界面音效')
         + (ui.enabled ? sub(field(`${P}.uiSound.volume`, '界面音量', rangeInput(`${P}.uiSound.volume`, ui.volume, '界面音量'))) : '');
     const masterBody = field(`${P}.audioMaster.volume`, '总音量', rangeInput(`${P}.audioMaster.volume`, master.volume, '总音量'));
     return { master: masterBody, bgm: bgmBody, ambient: ambientBody, ui: uiBody };
 }
 
 function renderDailyField(daily, more) {
-    return checkbox(`${P}.dailyFx.enabled`, daily.enabled, '日常演出（拍照、铃声、广播、电视等）')
+    return checkbox(`${P}.dailyFx.enabled`, daily.enabled, '日常演出')
         + (daily.enabled ? sub(more('daily-kinds', '选择日常类型', `<div class="igs-source-filter-grid">${DAILY_FX_KINDS.map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')}</div>`
-            + checkbox(`${P}.dailyFx.photoAlbum`, daily.photoAlbum, '拍照存入 CG 库（相册）')
-            + checkbox(`${P}.dailyFx.petals`, daily.petals, '樱花 / 落叶飘落（按地点与季节自动）')
-            + '<div class="igs-source-filter-note">只教 AI 输出勾选的类型；音效跟随「声音 → 演出音效」。</div>')) : '');
+            + checkbox(`${P}.dailyFx.photoAlbum`, daily.photoAlbum, '拍照存入 CG 库')
+            + checkbox(`${P}.dailyFx.petals`, daily.petals, '樱花、落叶飘落')
+            + '<div class="igs-source-filter-note">只会出现勾选的类型；音效在「声音 › 演出音效」里开关。</div>')) : '');
 }
 
 // 舞台调度、文字演出、日常演出与场景声音的设置片段，由「演出」页按分类重新编排；持久化路径不变。

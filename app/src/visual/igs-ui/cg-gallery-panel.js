@@ -30,6 +30,7 @@ export function createCgGalleryPanel(doc, options = {}) {
     let filters = { favoritesOnly: false, showHidden: false, currentChatOnly: false };
     let pending = Promise.resolve();
     let previousFocus = null;
+    let viewerEl = null;
     const thumbs = new Map();
 
     const chatId = () => { try { return String(options.getChatId?.() || ''); } catch (_) { return ''; } };
@@ -66,14 +67,46 @@ export function createCgGalleryPanel(doc, options = {}) {
     function render() {
         if (!root) return;
         const toggle = (act, on, label) => `<button type="button" class="igs-cg-filter" data-cg-act="${act}" aria-pressed="${on}">${label}</button>`;
-        const viewed = viewing ? find(viewing) : null;
-        const viewer = viewed ? `<div class="igs-cg-viewer" role="dialog" aria-label="CG 大图"><img src="${escapeHtml(safeItemImageUrl(viewed.dataUrl))}" alt="第 ${viewed.messageId} 楼 CG"><button type="button" data-cg-act="close-view">关闭</button></div>` : '';
         const list = entries.length ? `<ul class="igs-cg-grid">${entries.map(tileHtml).join('')}</ul>` : '<p class="igs-cg-empty">还没有 CG</p>';
         const more = exhausted ? '' : '<button type="button" class="igs-cg-more" data-cg-act="more">加载更多</button>';
         root.innerHTML = `<header class="igs-cg-head"><h2>CG 库</h2><button type="button" data-cg-act="close" aria-label="关闭 CG 库">×</button></header>`
             + `<div class="igs-cg-filters" role="group" aria-label="筛选">${toggle('filter-favorite', filters.favoritesOnly, '只看收藏')}${toggle('filter-hidden', filters.showHidden, '显示已隐藏')}${toggle('filter-chat', filters.currentChatOnly, '只看当前聊天')}</div>`
             + (notice ? `<p class="igs-cg-notice" role="status">${escapeHtml(notice)}</p>` : '')
-            + list + more + viewer;
+            + list + more;
+    }
+
+    // 大图层挂在面板外的容器上铺满阅读区：面板是滚动容器，放在里面会随网格滚走。点任意处或 Esc 关闭。
+    function onViewerClick(event) {
+        event?.stopPropagation?.();
+        closeViewer();
+    }
+
+    function closeViewer() {
+        if (viewerEl) {
+            viewerEl.removeEventListener('click', onViewerClick);
+            viewerEl.removeEventListener('keydown', onKeydown);
+            viewerEl.remove();
+            viewerEl = null;
+        }
+        viewing = '';
+    }
+
+    function openViewer(entry) {
+        const src = safeItemImageUrl(entry.dataUrl);
+        if (!src || !host) { notice = '这张图暂时无法显示'; render(); return; }
+        closeViewer();
+        viewing = entry.key;
+        viewerEl = doc.createElement('div');
+        viewerEl.id = 'igs-cg-viewer';
+        viewerEl.setAttribute('role', 'dialog');
+        viewerEl.setAttribute('aria-modal', 'true');
+        viewerEl.setAttribute('aria-label', 'CG 大图');
+        viewerEl.setAttribute('tabindex', '-1');
+        viewerEl.innerHTML = `<img src="${escapeHtml(src)}" alt="${entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼 CG`}"><button type="button" class="igs-cg-viewer-close" aria-label="关闭大图">×</button>`;
+        viewerEl.addEventListener('click', onViewerClick);
+        viewerEl.addEventListener('keydown', onKeydown);
+        host.appendChild(viewerEl);
+        viewerEl.focus?.();
     }
 
     async function loadMore(reset = false) {
@@ -102,9 +135,9 @@ export function createCgGalleryPanel(doc, options = {}) {
             await loadMore(true);
             return;
         }
-        if (act === 'close-view') { viewing = ''; render(); return; }
+        if (act === 'close-view') { closeViewer(); return; }
         if (!entry) return;
-        if (act === 'view') { viewing = entry.key; render(); return; }
+        if (act === 'view') { openViewer(entry); return; }
         if (act === 'jump') { if (entry.chatId === chatId()) options.onJump?.(entry); return; }
         if (act === 'favorite') {
             const result = await service.setFavorite(entry.key, !entry.favorite);
@@ -128,7 +161,7 @@ export function createCgGalleryPanel(doc, options = {}) {
             if (result && result.ok) {
                 entries = entries.filter((e) => e !== entry);
                 thumbs.delete(entry.key);
-                if (viewing === entry.key) viewing = '';
+                if (viewing === entry.key) closeViewer();
                 notice = '已删除';
             } else notice = '删除失败，CG 仍保留';
             render();
@@ -144,7 +177,7 @@ export function createCgGalleryPanel(doc, options = {}) {
     // 焦点在面板内时，空格/回车/方向键不冒泡到阅读器的全局翻页处理器。
     function onKeydown(event) {
         const key = event && event.key;
-        if (key === 'Escape') { if (viewing) { viewing = ''; render(); } else close(); }
+        if (key === 'Escape') { if (viewing) closeViewer(); else close(); }
         if ([' ', 'Enter', 'ArrowLeft', 'ArrowRight', 'Escape'].includes(key)) event.stopPropagation?.();
     }
 
@@ -169,6 +202,7 @@ export function createCgGalleryPanel(doc, options = {}) {
 
     function close() {
         if (!root) return { ok: true, reason: 'not-open' };
+        closeViewer();
         root.removeEventListener('click', onClick);
         root.removeEventListener('keydown', onKeydown);
         root.remove();
@@ -176,7 +210,6 @@ export function createCgGalleryPanel(doc, options = {}) {
         setStagePauseReason(host, 'panel:gallery', false);
         host = null;
         entries = [];
-        viewing = '';
         thumbs.clear();
         previousFocus?.focus?.();
         previousFocus = null;
@@ -202,12 +235,13 @@ export const CG_GALLERY_STYLE_TEXT = `
 #igs-cg-gallery .igs-cg-filters{display:flex;flex-wrap:wrap;gap:6px;}
 #igs-cg-gallery .igs-cg-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}
 #igs-cg-gallery .igs-cg-tile.is-hidden{opacity:.5;}
-#igs-cg-gallery .igs-cg-thumb{display:block;width:100%;aspect-ratio:16/10;padding:0;overflow:hidden;}
+#igs-cg-gallery .igs-cg-thumb{display:block;width:100%;aspect-ratio:16/10;padding:0;overflow:hidden;cursor:zoom-in;}
 #igs-cg-gallery .igs-cg-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
 #igs-cg-gallery .igs-cg-meta{display:flex;justify-content:space-between;font-size:12px;opacity:.8;margin:4px 2px;}
 #igs-cg-gallery .igs-cg-actions{display:flex;flex-wrap:wrap;gap:4px;}
 #igs-cg-gallery .igs-cg-actions button{font-size:12px;}
-#igs-cg-gallery .igs-cg-viewer{position:fixed;inset:0;z-index:31;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.92);}
-#igs-cg-gallery .igs-cg-viewer img{max-width:96%;max-height:84%;object-fit:contain;}
+#igs-cg-viewer{position:absolute;inset:0;z-index:31;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.92);cursor:zoom-out;outline:none;}
+#igs-cg-viewer img{max-width:96%;max-height:92%;object-fit:contain;display:block;}
+#igs-cg-viewer .igs-cg-viewer-close{position:absolute;top:12px;right:12px;min-width:44px;min-height:44px;border:none;border-radius:8px;background:rgba(255,255,255,.14);color:#fff;font-size:20px;line-height:1;cursor:pointer;}
 @media (max-width:420px){#igs-cg-gallery .igs-cg-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
 `;

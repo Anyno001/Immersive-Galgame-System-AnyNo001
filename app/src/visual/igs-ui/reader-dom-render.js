@@ -437,9 +437,10 @@ export function applyToolbarState(root, current) {
     if (root.classList) {
         root.classList.toggle('igs-toolbar-expanded', toolbarExpanded);
     }
-    const order = Array.isArray(readerSettings.btnOrder) && readerSettings.btnOrder.length
-        ? readerSettings.btnOrder
-        : TOOLBAR_ACTIONS.map(([id]) => id);
+    // 旧存档的 btnOrder 可能缺少后来新增的按钮（如 CG 库）：补在末尾，否则这些按钮既不能隐藏也不进管理列表。
+    const canonicalOrder = TOOLBAR_ACTIONS.map(([id]) => id);
+    const savedOrder = Array.isArray(readerSettings.btnOrder) ? readerSettings.btnOrder.filter((id) => canonicalOrder.includes(id)) : [];
+    const order = savedOrder.concat(canonicalOrder.filter((id) => !savedOrder.includes(id)));
 
     const clearCgButton = root.querySelector('#igs-btn-clear-cg');
     if (clearCgButton) {

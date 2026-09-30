@@ -137,7 +137,7 @@ export function renderChatShowSettings(settings, options = {}) {
         '</div>',
     ].join('');
     const toggles = checkbox(`${p}.followTheme`, s.followTheme, '气泡跟随对话框主题')
-        + checkbox(`${p}.showAvatars`, s.showAvatars, '显示头像（取状态栏头像，没有则显示首字）')
+        + checkbox(`${p}.showAvatars`, s.showAvatars, '显示头像')
         + (s.revealMode === 'auto' ? checkbox(`${p}.typingIndicator`, s.typingIndicator, '对方消息前显示「正在输入」') : '')
         + checkbox(`${p}.hideSprites`, s.hideSprites, '聊天时隐藏立绘')
         + checkbox(`${p}.sound.enabled`, s.sound.enabled, '启用收发音效')
@@ -148,7 +148,7 @@ export function renderChatShowSettings(settings, options = {}) {
         const side = segmentedInput(`${p}.contacts.${name}.side`, c.side, [['auto', '自动'], ['left', '固定左'], ['right', '固定右']], '气泡位置');
         return `<div class="igs-chat-contact"><div class="igs-chat-contact-head"><b>${esc(name)}</b>${colorInput(`${p}.contacts.${name}.color`, c.color || s.defaultColors.left)}${side}<button type="button" class="igs-mood-word-del" data-action="chat-show-remove-contact:${n}" title="删除联系人">×</button></div><div class="igs-mood-word-list"><span class="igs-chat-contact-label">别名</span>${aliasTags}<button type="button" class="igs-btn-mgr-icon" data-action="chat-show-add-alias:${n}" title="添加别名">+</button></div></div>`;
     }).join('');
-    const contactList = `<div class="igs-settings-field"><span>联系人（别名把 AI 的各种叫法归到同一人；固定左/右后 AI 无法改变位置）</span><div class="igs-chat-contacts">${contacts || '<div class="igs-scene-empty">暂无联系人</div>'}<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-add-contact">添加联系人</button></div></div>`;
+    const contactList = `<div class="igs-settings-field"><span>联系人</span><div class="igs-chat-contacts">${contacts || '<div class="igs-scene-empty">暂无联系人</div>'}<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-add-contact">添加联系人</button></div></div>`;
     const promptDraft = typeof options.promptDraft === 'string' ? options.promptDraft : (s.promptRule || CHAT_SHOW_PROMPT_RULE);
     const promptStatus = options.promptStatus || (s.promptRule ? '正在使用自定义提示词。' : '正在使用默认提示词。');
     const promptField = `<div class="igs-settings-field"><span>注入提示词（开启线上交流时追加给 AI）</span><textarea class="igs-chat-prompt" data-chat-prompt-draft="1" aria-label="线上交流注入提示词" placeholder="聊天标签规则...">${esc(promptDraft)}</textarea><div class="igs-chat-prompt-actions"><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-save-prompt">保存提示词</button><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-reset-prompt">恢复默认</button></div><div class="igs-settings-result" data-result="chat-prompt">${esc(promptStatus)}</div></div>`;
@@ -399,27 +399,17 @@ export function renderDnaOnlyCharacterList(characterDna, characters) {
     return `<div class="igs-dna-only-list">${head}${rows}</div>`;
 }
 
-export function renderMoodReviewList(items, moodGroups = []) {
+// 待确认情绪词：每个词一枚紧凑标签，点「加入」填写情绪组（模糊匹配到的组会预填），加入后从列表移除；× 忽略。
+export function renderMoodReviewList(items) {
     const list = Array.isArray(items) ? items : [];
-    const labels = new Set((Array.isArray(moodGroups) ? moodGroups : []).map((g) => g && g.label));
-    const head = `<div class="igs-settings-section-head"><div class="igs-settings-subhead">待确认情绪词</div>${list.length ? '<button type="button" class="igs-settings-action" data-action="mood-review-clear">清空</button>' : ''}</div>`;
+    const head = `<div class="igs-settings-section-head"><div class="igs-settings-subhead">待确认情绪词</div>${list.length ? '<button type="button" class="igs-review-clear" data-action="mood-review-clear">清空</button>' : ''}</div>`;
     if (!list.length) return `<div class="igs-mood-review">${head}<div class="igs-scene-empty">暂无。词库外的情绪词出现时会记在这里</div></div>`;
-    const rows = list.map((item) => {
-        const fuzzy = item.quality === 'fuzzy' && labels.has(item.group);
-        // 中间只标谁说的；匹配结果由按钮本身说明，显示效果用户在舞台上看得到。
-        const who = item.character ? `<span class="igs-source-filter-note">${esc(item.character)}</span>` : '';
-        const accept = fuzzy
-            ? `<button type="button" class="igs-settings-action" data-action="mood-review-accept:${encSeg(item.word)}">确认加入「${esc(item.group)}」</button>`
-            : '';
-        return `<div class="igs-btn-mgr-row igs-mood-review-row">`
-            + `<span class="igs-btn-mgr-label">${esc(item.word)}</span>`
-            + who
-            + accept
-            + `<button type="button" class="igs-settings-action" data-action="mood-review-assign:${encSeg(item.word)}">${fuzzy ? '改到其他组' : '加入情绪组'}</button>`
-            + `<button type="button" class="igs-mood-word-del" data-action="mood-review-dismiss:${encSeg(item.word)}" title="忽略">×</button>`
-            + `</div>`;
-    }).join('');
-    return `<div class="igs-mood-review">${head}${rows}</div>`;
+    const chips = list.map((item) => `<span class="igs-mood-review-chip"><b>${esc(item.word)}</b>`
+        + (item.character ? `<span class="igs-mood-review-who">${esc(item.character)}</span>` : '')
+        + `<button type="button" class="igs-review-link" data-action="mood-review-assign:${encSeg(item.word)}">加入</button>`
+        + `<button type="button" class="igs-mood-word-del" data-action="mood-review-dismiss:${encSeg(item.word)}" title="忽略" aria-label="忽略「${esc(item.word)}」">×</button>`
+        + `</span>`).join('');
+    return `<div class="igs-mood-review">${head}<div class="igs-mood-review-list">${chips}</div></div>`;
 }
 
 function renderSpriteSlotExpansion(charName, mood, url, moodGroups, icons) {
@@ -460,7 +450,9 @@ export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue) {
     const pins = Array.isArray(pinnedValue) ? pinnedValue : [];
     const hidden = Array.isArray(hiddenValue) ? hiddenValue : [];
     const canonical = TOOLBAR_ACTIONS.map(([id]) => id);
-    const order = Array.isArray(orderValue) && orderValue.length ? orderValue : canonical;
+    // 旧顺序缺少的新按钮补到末尾，保证每个按钮都能在这里显示 / 隐藏。
+    const saved = Array.isArray(orderValue) ? orderValue.filter((id) => canonical.includes(id)) : [];
+    const order = saved.concat(canonical.filter((id) => !saved.includes(id)));
     const labelMap = Object.fromEntries(TOOLBAR_ACTIONS);
     const eyeOn = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
     const eyeOff = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';

@@ -70,6 +70,7 @@ const IMAGE_SOURCE_TEMPLATE = `
         {{autoNaiKeyField}}
         {{autoNaiModelField}}{{autoNaiSizeField}}
         <div class="igs-settings-full">{{autoNaiArtistField}}</div>
+        <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
       </div>
       <div class="igs-settings-result" data-result="nai-models">{{autoNaiModelsMessage}}</div>
       <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai"{{advancedNaiOpen}}>
@@ -78,7 +79,6 @@ const IMAGE_SOURCE_TEMPLATE = `
           {{autoNaiTransportField}}{{autoNaiEndpointField}}
           {{autoNaiStepsField}}{{autoNaiScaleField}}
           {{autoNaiSamplerField}}
-          <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
         </div>
       </details>
     </div>
@@ -116,6 +116,7 @@ const IMAGE_AUTO_TEMPLATE = `
   <div class="igs-source-filter-note">{{imageContentNote}}</div>
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">剧情 CG</div>
+    <div class="igs-settings-row"><button class="igs-settings-action" data-action="open-cg-gallery" type="button">打开 CG 库</button></div>
     {{autoNsfwField}}
     <div class="igs-settings-sub" data-image-feature="nsfw"{{autoNsfwHidden}}>
       <div class="igs-source-filter-grid">{{autoNsfwCountField}}</div>

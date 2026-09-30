@@ -1327,7 +1327,7 @@ export function createIgsReaderHost(options = {}) {
     async function handleSettingsAction(action) {
         return runSettingsAction(action, {
             state,
-            options: { ...options, openMatteEditor },
+            options: { ...options, openMatteEditor, openCgGallery },
             closeSettings,
             persistSettingsDraft,
             rerenderSettings,
@@ -3047,7 +3047,7 @@ export function createIgsReaderHost(options = {}) {
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
         <div class="igs-source-filter-note">词库里没有的相近情绪词也会自动归组（如「嘲弄」归入「嘲讽」）。可能归错，可在下方「待确认情绪词」里核对。</div>
-        ${renderMoodReviewList(loadMoodReview((options.global || globalThis).localStorage), sceneAssets.moodGroups || [])}
+        ${renderMoodReviewList(loadMoodReview((options.global || globalThis).localStorage))}
         ${renderOutfitReviewList(loadOutfitReview((options.global || globalThis).localStorage), sceneAssets.characterOutfits || {}, sceneAssets.characters || {})}
         ${renderDnaCandidateBar(asyncState.dnaCandidate)}
         ${charsHtml}
@@ -3131,15 +3131,15 @@ export function createIgsReaderHost(options = {}) {
             backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜'),
             advancedDialogSizeOpen: advancedOpen('dialog-size'),
             advancedDialogBackgroundOpen: advancedOpen('dialog-background'),
-            typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '打字机（逐字显示）'),
+            typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '打字机'),
             typewriterControls: typewriter.enabled ? `<div class="igs-settings-sub">${[
                 `<div class="igs-source-filter-grid">`,
                 field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度')),
                 field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式')),
                 `</div>`,
                 typewriter.mode === 'classic' ? `<details class="igs-settings-sub igs-settings-advanced" data-advanced="typewriter-classic"${advancedOpen('typewriter-classic')}><summary>高级：标点停顿与打字音效</summary>` : '',
-                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.punctuationPause', typewriter.punctuationPause, '标点处停顿（逗号顿一下、句末停一拍）') : '',
-                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.prosody', typewriter.prosody === true, '说话韵律（按词断句、句尾拖长、问句上扬、感叹加重，随情绪变化）') : '',
+                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.punctuationPause', typewriter.punctuationPause, '标点处停顿') : '',
+                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.prosody', typewriter.prosody === true, '说话韵律') : '',
                 typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.sound.enabled', typewriter.sound.enabled, '启用打字音效') : '',
                 typewriter.mode === 'classic' && typewriter.sound.enabled
                     ? `<div class="igs-settings-sub igs-source-filter-grid">`
@@ -3149,27 +3149,27 @@ export function createIgsReaderHost(options = {}) {
                         + field('readerSettings.typewriter.sound.narrationVolume', '旁白音量', rangeInput('readerSettings.typewriter.sound.narrationVolume', typewriter.sound.narrationVolume ?? typewriter.sound.volume ?? 0.5, '旁白音量'))
                         + field('readerSettings.typewriter.sound.thoughtPreset', '心里话音色', selectInput('readerSettings.typewriter.sound.thoughtPreset', typewriter.sound.thoughtPreset, [['follow', '跟随台词']].concat(TYPEWRITER_VOICE_LABELS)))
                         + `</div>`
-                        + checkbox('readerSettings.typewriter.sound.speakerPitch', typewriter.sound.speakerPitch, '按角色区分音高（同一角色固定，随情绪微调；台词按立绘位置分左右声道）')
+                        + checkbox('readerSettings.typewriter.sound.speakerPitch', typewriter.sound.speakerPitch, '按角色区分音高')
                         + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="typewriter-preview-sound">试听</button>`
                     : '',
                 typewriter.mode === 'classic' ? '</details>' : '',
             ].join('')}</div>` : '',
-            stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '震动（按情绪抖动画面）'),
+            stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             systemRoleFields: renderSystemRoleSettings(systemRole, {
                 fontOptions: DIALOG_FONT_OPTIONS,
                 narrationColor: toHex(displayTheme.narrationColor || '#f4f4f6'),
                 disabled: themeDisabled,
             }),
-            chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '线上交流（手机聊天气泡）'),
+            chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '线上交流'),
             chatShowSettings: chatShow.enabled ? renderChatShowSettings(chatShow, {
                 promptDraft: asyncState.chatPromptDraft,
                 promptStatus: asyncState.chatPromptStatus,
             }) : '',
-            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '天气（雨、雪、雾等粒子）'),
+            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '天气'),
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
-            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '人物过场滤镜（旁白时压暗立绘）'),
-            sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '按句号自动分页（仅旁白）'),
+            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'),
+            sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'),
             nsfwSpriteModeField: field('readerSettings.statusHud.nsfwSpriteMode', 'NSFW场景立绘', segmentedInput('readerSettings.statusHud.nsfwSpriteMode', normalizeStatusHudSettings(reader.statusHud).nsfwSpriteMode, [['show', '显示'], ['hide', '隐藏'], ['shade', '仅露脸剪影']], 'NSFW场景立绘'))
                 + '<div class="igs-source-filter-note">仅露脸剪影：头部以下压成剪影。需要先在立绘编辑里标定头部，未标定的立绘整张显示为剪影。</div>',
             nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', 'NSFW黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], 'NSFW黑幕强度')),

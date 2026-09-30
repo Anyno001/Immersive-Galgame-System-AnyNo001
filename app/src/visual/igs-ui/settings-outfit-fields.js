@@ -109,14 +109,14 @@ export function renderOutfitReviewList(items, characterOutfits, characters) {
         const known = Object.prototype.hasOwnProperty.call(chars, character);
         const assign = known
             ? Object.keys(plain(outfitMap[character])).map((name) => (
-                `<button type="button" class="igs-settings-action" data-action="outfit-review-assign:${c}:${w}:${encSeg(name)}">归入「${esc(name)}」</button>`
-            )).join('') + `<button type="button" class="igs-settings-action" data-action="outfit-review-create:${c}:${w}">新建为服装</button>`
+                `<button type="button" class="igs-review-link" data-action="outfit-review-assign:${c}:${w}:${encSeg(name)}">归入「${esc(name)}」</button>`
+            )).join('') + `<button type="button" class="igs-review-link" data-action="outfit-review-create:${c}:${w}">新建为服装</button>`
             : '<span class="igs-source-filter-note">角色未登记立绘</span>';
         return `<div class="igs-btn-mgr-row igs-mood-review-row"><span class="igs-btn-mgr-label">${esc(word)}</span>`
             + `<span class="igs-source-filter-note">${esc(character)}</span>${assign}`
             + `<button type="button" class="igs-mood-word-del" data-action="outfit-review-dismiss:${c}:${w}" title="忽略">×</button></div>`;
     }).join('');
-    const head = `<div class="igs-settings-section-head"><div class="igs-settings-subhead">待确认服装词</div><button type="button" class="igs-settings-action" data-action="outfit-review-clear">清空</button></div>`;
+    const head = `<div class="igs-settings-section-head"><div class="igs-settings-subhead">待确认服装词</div><button type="button" class="igs-review-clear" data-action="outfit-review-clear">清空</button></div>`;
     return `<div class="igs-mood-review igs-outfit-review">${head}${rows}</div>`;
 }
 

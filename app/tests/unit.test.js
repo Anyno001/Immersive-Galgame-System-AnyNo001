@@ -1336,18 +1336,21 @@ test('gate:scene:mood-review-dedupes-by-word-and-caps-length', () => {
     assert.equal(loadMoodReview(storage).length, MOOD_REVIEW_LIMIT);
 });
 
-test('gate:scene:mood-review-list-renders-accept-only-for-live-fuzzy-group', () => {
+test('gate:scene:mood-review-list-renders-one-add-per-word-as-compact-chips', () => {
     const html = renderMoodReviewList([
         { word: '嘲弄', character: '爱丽丝', quality: 'fuzzy', group: '嫌弃' },
         { word: '冷笑', character: '', quality: 'default', group: '' },
-    ], [{ label: '嫌弃', words: ['嘲讽'] }]);
-    assert.match(html, /mood-review-accept:%E5%98%B2%E5%BC%84/);
-    assert.match(html, /确认加入「嫌弃」/);
-    // 待确认行只标角色，不再附「未命中 / 模糊归入」之类状态说明。
+    ]);
+    assert.match(html, /mood-review-assign:%E5%98%B2%E5%BC%84/);
+    assert.match(html, /mood-review-assign:%E5%86%B7%E7%AC%91/);
+    assert.equal((html.match(/>加入</g) || []).length, 2);
+    // 每个词只有一个「加入」，不再有确认 / 改到其他组等多步按钮，也不用带框的大按钮。
+    assert.doesNotMatch(html, /mood-review-accept|确认加入|改到其他组|加入情绪组|igs-settings-action/);
     assert.doesNotMatch(html, /未命中|显示默认立绘|模糊归入|请核对/);
-    assert.match(html, /<span class="igs-source-filter-note">爱丽丝<\/span>/);
-    assert.doesNotMatch(html, /mood-review-accept:%E5%86%B7/);
-    assert.match(renderMoodReviewList([], []), /暂无/);
+    assert.match(html, /<span class="igs-mood-review-who">爱丽丝<\/span>/);
+    assert.match(html, /class="igs-review-clear" data-action="mood-review-clear"/);
+    assert.match(html, /class="igs-mood-review-chip"/);
+    assert.match(renderMoodReviewList([]), /暂无/);
 });
 
 test('gate:scene:mood-groups-build-text-renders-label-and-words', () => {
@@ -1477,7 +1480,7 @@ test('gate:scene:settings-action-set-time-url-survives-colon-in-time-name', asyn
     assert.equal(persistCount, 1);
 });
 
-test('gate:scene:mood-review-accept-moves-word-into-group-and-clears-entry', async () => {
+test('gate:scene:mood-review-assign-moves-word-into-group-and-clears-entry', async () => {
     const storage = memoryStorage();
     recordMoodReview(storage, { word: '嘲弄', character: '爱丽丝', quality: 'fuzzy', group: '嫌弃' });
     recordMoodReview(storage, { word: '冷笑', character: '爱丽丝', quality: 'default' });
@@ -1486,15 +1489,16 @@ test('gate:scene:mood-review-accept-moves-word-into-group-and-clears-entry', asy
         readerSettings: {},
     };
     let persistCount = 0;
+    const answers = ['嫌弃', '平和'];
     const ctx = {
         state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
-        options: { global: { localStorage: storage, prompt: () => '平和', alert: () => {} } },
+        options: { global: { localStorage: storage, prompt: () => answers.shift() || '', alert: () => {} } },
         closeSettings: () => ({ ok: true }),
         persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
         rerenderSettings: () => ({ ok: true }),
         buildRegexPreview: () => '',
     };
-    await handleSettingsAction(`mood-review-accept:${encodeURIComponent('嘲弄')}`, ctx);
+    await handleSettingsAction(`mood-review-assign:${encodeURIComponent('嘲弄')}`, ctx);
     assert.deepEqual(draft.bridge.sceneAssets.moodGroups[0].words, ['嘲讽', '嘲弄']);
     await handleSettingsAction(`mood-review-assign:${encodeURIComponent('冷笑')}`, ctx);
     assert.deepEqual(draft.bridge.sceneAssets.moodGroups[1].words, ['平静', '冷笑']);

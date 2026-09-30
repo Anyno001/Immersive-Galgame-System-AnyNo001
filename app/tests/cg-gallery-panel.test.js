@@ -58,10 +58,25 @@ test('cg-gallery-panel:lists-done-cgs-and-jump-only-for-current-chat', async () 
     await click('jump', 'chat-1|3|0|1');
     await click('jump', 'chat-2|7|0|2');
     assert.deepEqual(jumps, [3]);
+});
+
+test('cg-gallery-panel:click-thumb-opens-viewer-outside-scroll-panel-and-click-closes', async () => {
+    const { panel, root, container, click } = await setup();
     await click('view', 'chat-2|7|0|2');
-    assert.match(root.innerHTML, /igs-cg-viewer[\s\S]*base64,C/);
-    await click('close-view');
+    // 大图层挂在容器上，不在滚动的面板内部，避免随网格滚走。
+    const viewer = container.children.find((c) => c.id === 'igs-cg-viewer');
+    assert.ok(viewer);
+    assert.match(viewer.innerHTML, /base64,C/);
     assert.doesNotMatch(root.innerHTML, /igs-cg-viewer/);
+    assert.equal(panel.getState().viewing, 'chat-2|7|0|2');
+    let stopped = 0;
+    viewer.listeners.get('click')({ stopPropagation: () => { stopped += 1; } });
+    assert.equal(stopped, 1);
+    assert.equal(container.children.some((c) => c.id === 'igs-cg-viewer'), false);
+    assert.equal(panel.getState().viewing, '');
+    await click('view', 'chat-1|3|0|1');
+    assert.equal(panel.close().ok, true);
+    assert.equal(container.children.length, 0);
 });
 
 test('cg-gallery-panel:hide-and-favorite-write-marks-only-and-filters-apply', async () => {
