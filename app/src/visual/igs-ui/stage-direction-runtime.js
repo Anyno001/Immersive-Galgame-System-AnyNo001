@@ -262,17 +262,18 @@ function playSpriteChange(state, ctx) {
     // 前后都有立绘（换表情、换说话人）时默认直接切图；emotionFade 开启才走残影淡化与退场 / 登场。
     // 首次登场、退场到无立绘、黑场转场不受影响；换装转场由 sprite-outfit-swap 负责。
     const direct = !black && !s.spriteMotion.emotionFade;
-    // 无立绘说话人（系统角色、只配头像的角色）开口：旧立绘直接隐藏；之后轮回有立绘的人直接出现，不算登场 / 退场。
-    if (direct && hadSprite && !nextUrl && ctx.noSpriteSpeaker === true) {
+    // 同一场景内立绘暂时空缺（旁白、系统角色、只配头像的说话人）：旧立绘直接隐藏，之后直接出现，不算登场 / 退场。
+    // 登场 / 退场只留给换地点与首次出场；返回 'direct' 让同屏上台动画也跳过。
+    if (direct && hadSprite && !nextUrl && (ctx.sameScene === true || ctx.noSpriteSpeaker === true)) {
         state.speakerGap = true;
-        return '';
+        return 'direct';
     }
-    if (direct && !hadSprite && Boolean(nextUrl) && state.speakerGap) {
+    if (direct && !hadSprite && Boolean(nextUrl) && state.speakerGap && ctx.sameScene === true) {
         state.speakerGap = false;
-        return '';
+        return 'direct';
     }
     state.speakerGap = false;
-    if (direct && hadSprite && Boolean(nextUrl)) return '';
+    if (direct && hadSprite && Boolean(nextUrl)) return 'direct';
     let ghost = null;
     if (hadSprite && state.spriteCss && (fadeOn || enterExit)) {
         ghost = makeSpriteGhost(doc, sprite, state.spriteCss);
@@ -448,6 +449,7 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     const reduced = ctx.reducedMotion === true || (ctx.reducedMotion !== false && prefersReducedMotion());
     const content = snapshot.content || {};
     const played = [];
+    let directSprite = false;
     const bgUrl = text(ctx.bgUrl);
     const spriteUrl = ctx.spriteEditMode ? state.spriteUrl : text(ctx.spriteUrl);
     const spriteKey = text(ctx.spriteKey);
@@ -470,8 +472,10 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     if (sprite && !ctx.spriteEditMode && (spriteUrl !== state.spriteUrl || (!state.initialized && spriteUrl))) {
         const castSwap = Boolean(spriteKey) && spriteKey !== state.spriteKey
             && (castKeys.includes(state.spriteKey) || (state.castKeys || []).includes(spriteKey));
-        const kind = playSpriteChange(state, { doc, sprite, nextUrl: spriteUrl, nextKey: spriteKey, nextPosX: posX, s, reduced, black, speed, castSwap, noSpriteSpeaker: ctx.noSpriteSpeaker === true });
-        if (kind) played.push(`sprite:${kind}`);
+        const sameScene = state.initialized && text(content.sceneLocation) === state.location;
+        const kind = playSpriteChange(state, { doc, sprite, nextUrl: spriteUrl, nextKey: spriteKey, nextPosX: posX, s, reduced, black, speed, castSwap, sameScene, noSpriteSpeaker: ctx.noSpriteSpeaker === true });
+        if (kind === 'direct') directSprite = true;
+        else if (kind) played.push(`sprite:${kind}`);
         if (kind.includes('enter')) state.entered = pageKey;
     }
 
@@ -506,5 +510,5 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
         state.castKeys = castKeys;
     }
     state.pageKey = pageKey;
-    return { played };
+    return { played, directSprite };
 }

@@ -203,8 +203,27 @@ test('gate: speaker without a sprite hides the previous sprite directly and it r
     assert.deepEqual(result.played, []);
     assert.equal(ghosts(r.motion).length, 0);
     assert.equal(r.sprite.animations.length, before);
-    result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration' }, 3), { ...ctx, spriteUrl: '', spriteKey: '' });
+    result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration', sceneLocation: '学校' }, 3), { ...ctx, spriteUrl: '', spriteKey: '' });
     assert.deepEqual(result.played, ['sprite:exit']);
+});
+
+test('gate: narration or system page in the same scene hides and restores the sprite without exit or enter', () => {
+    const r = makeReader();
+    const settings = { spriteMotion: { enabled: true }, sceneTransition: { enabled: true } };
+    const ctx = { reducedMotion: false, ...r.clock };
+    r.sprite.style.cssText = 'background-image: url("alice.png");';
+    applyStageDirection(r.root, snapshot(settings, { textType: 'dialogue', sceneLocation: '教室' }), { ...ctx, spriteUrl: 'alice.png', spriteKey: '爱丽丝', spritePosX: 50 });
+    r.clock.flush();
+    const before = r.sprite.animations.length;
+    let result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration', sceneLocation: '教室' }, 1), { ...ctx, spriteUrl: '', spriteKey: '' });
+    assert.deepEqual(result.played, []);
+    assert.equal(result.directSprite, true);
+    assert.equal(ghosts(r.motion).length, 0);
+    result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration', sceneLocation: '教室' }, 2), { ...ctx, spriteUrl: 'alice.png', spriteKey: '爱丽丝', spritePosX: 50 });
+    assert.deepEqual(result.played, []);
+    assert.equal(result.directSprite, true);
+    assert.equal(ghosts(r.motion).length, 0);
+    assert.equal(r.sprite.animations.length, before);
 });
 
 test('gate: stage cast speaker change swaps without exit or enter', () => {

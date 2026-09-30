@@ -1351,7 +1351,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (castCollapseMove) playSpeakerMove(spriteEl, castCollapseMove.fromX, castCollapseMove.toX, castCollapseMove.posY);
     if (castSpeakerMotion) {
         playSpeakerCastMotion(spriteEl, castSpeakerMotion.prevStage, castSpeakerMotion.speaker, castSpeakerMotion.handoff, {
-            skipEnter: stageDirection.played.some((kind) => kind.startsWith('sprite:') && kind.includes('enter')),
+            // 同场景内直接切回（旁白 / 系统页后回到说话人）也不播同屏上台淡入。
+            skipEnter: stageDirection.directSprite === true || stageDirection.played.some((kind) => kind.startsWith('sprite:') && kind.includes('enter')),
         });
     }
     // 亲密演出与 NSFW 仅露脸剪影：复用 fxSprite（布局 + 手动头部标定），编辑立绘时 fxSprite 为 null、不逼近不剪影。
