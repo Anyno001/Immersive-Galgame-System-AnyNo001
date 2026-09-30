@@ -39,6 +39,7 @@ export function normalizeSpriteMotionSettings(value) {
         castLean: src.castLean !== false,
         speakBounce: src.speakBounce !== false,
         enterExit: src.enterExit !== false,
+        emotionFade: src.emotionFade === true,
     };
 }
 

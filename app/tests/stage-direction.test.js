@@ -151,9 +151,9 @@ test('gate: black transition drops a curtain above the stage and removes it afte
     assert.ok(!r.motion.children.some((child) => child.className === 'igs-sd-curtain'));
 });
 
-test('gate: sprite enters, swaps mood with a short ghost fade, and exits', () => {
+test('gate: sprite enters, swaps mood with a short ghost fade when emotionFade is on, and exits', () => {
     const r = makeReader();
-    const settings = { spriteMotion: { enabled: true } };
+    const settings = { spriteMotion: { enabled: true, emotionFade: true } };
     const ctx = { reducedMotion: false, ...r.clock };
     r.sprite.style.cssText = 'background-image: url("alice-smile.png");';
     let result = applyStageDirection(r.root, snapshot(settings), { ...ctx, spriteUrl: 'alice-smile.png', spriteKey: '爱丽丝', spritePosX: 70 });
@@ -169,9 +169,28 @@ test('gate: sprite enters, swaps mood with a short ghost fade, and exits', () =>
     assert.equal(r.root.getAttribute('data-igs-sd-breathe'), null);
 });
 
+test('gate: mood change on the same character switches directly by default', () => {
+    const r = makeReader();
+    const settings = { spriteMotion: { enabled: true }, sceneTransition: { enabled: true } };
+    const ctx = { reducedMotion: false, ...r.clock };
+    r.sprite.style.cssText = 'background-image: url("alice-smile.png");';
+    applyStageDirection(r.root, snapshot(settings), { ...ctx, spriteUrl: 'alice-smile.png', spriteKey: '爱丽丝', spritePosX: 70 });
+    r.clock.flush();
+    const before = r.sprite.animations.length;
+    const result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration' }, 1), { ...ctx, spriteUrl: 'alice-sad.png', spriteKey: '爱丽丝', spritePosX: 70 });
+    assert.deepEqual(result.played, []);
+    assert.equal(ghosts(r.motion).length, 0);
+    assert.equal(r.sprite.animations.length, before);
+    assert.equal(normalizeStageDirectionSettings({}).spriteMotion.emotionFade, false);
+    const speaker = applyStageDirection(r.root, snapshot(settings, { textType: 'narration' }, 2), { ...ctx, spriteUrl: 'bob.png', spriteKey: '鲍勃', spritePosX: 30 });
+    assert.deepEqual(speaker.played, []);
+    assert.equal(ghosts(r.motion).length, 0);
+    assert.equal(r.sprite.animations.length, before);
+});
+
 test('gate: stage cast speaker change swaps without exit or enter', () => {
     const r = makeReader();
-    const settings = { spriteMotion: { enabled: true } };
+    const settings = { spriteMotion: { enabled: true, emotionFade: true } };
     const ctx = { reducedMotion: false, ...r.clock };
     r.sprite.style.cssText = 'background-image: url("alice.png");';
     applyStageDirection(r.root, snapshot(settings), { ...ctx, spriteUrl: 'alice.png', spriteKey: '爱丽丝', spritePosX: 18, castKeys: ['爱丽丝', '鲍勃'] });

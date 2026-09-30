@@ -37,6 +37,7 @@ function renderStageFields(s, more) {
             + checkbox(`${P}.spriteMotion.breathing`, s.spriteMotion.breathing, '待机呼吸')
             + checkbox(`${P}.spriteMotion.speakBounce`, s.spriteMotion.speakBounce, '说话轻弹')
             + checkbox(`${P}.spriteMotion.enterExit`, s.spriteMotion.enterExit, '登场 / 退场')
+            + checkbox(`${P}.spriteMotion.emotionFade`, s.spriteMotion.emotionFade, '换表情 / 换说话人淡入淡出（关闭时直接切换）')
             + checkbox(`${P}.spriteMotion.castBreathing`, s.spriteMotion.castBreathing, '同屏角色呼吸')
             + checkbox(`${P}.spriteMotion.castLean`, s.spriteMotion.castLean, '同屏角色看向说话人')
             + `</div>`)) : '');

@@ -259,6 +259,9 @@ function playSpriteChange(state, ctx) {
     const enterExit = s.spriteMotion.enabled && s.spriteMotion.enterExit && !reduced;
     const fadeOn = s.sceneTransition.enabled || s.spriteMotion.enabled;
     flushGhosts(state.spriteGhosts);
+    // 前后都有立绘（换表情、换说话人）时默认直接切图；emotionFade 开启才走残影淡化与退场 / 登场。
+    // 首次登场、退场到无立绘、黑场转场不受影响；换装转场由 sprite-outfit-swap 负责。
+    if (hadSprite && Boolean(nextUrl) && !black && !s.spriteMotion.emotionFade) return '';
     let ghost = null;
     if (hadSprite && state.spriteCss && (fadeOn || enterExit)) {
         ghost = makeSpriteGhost(doc, sprite, state.spriteCss);
