@@ -29,7 +29,7 @@ export function renderFxFeatureFields(reader, more = collapsible) {
         + field(`${p}.fxStyle.hold`, '停留时间', segmentedInput(`${p}.fxStyle.hold`, s.fxStyle.hold, [['short', '短'], ['medium', '中'], ['long', '长']], '停留时间'))
         + `</div>`
         + checkbox(`${p}.fxStyle.replay`, s.fxStyle.replay, '翻回已看过的页时重播演出')
-        + `<div class="igs-source-filter-note">渐变演出为柔和缓动；灵动演出按关键帧定格，更有漫画分镜的一拍一拍卡顿感。作用于情绪符号、心跳、闪白、标题卡与演出标签。</div>`;
+        + `<div class="igs-source-filter-note">渐变更柔和，灵动更有漫画分镜的顿挫感。</div>`;
     const manga = checkbox(`${p}.mangaFx.enabled`, s.mangaFx.enabled, '情绪符号与集中线')
         + (s.mangaFx.enabled ? sub(more('manga-words', '自定义触发情绪', MANGA_SYMBOL_KINDS.map((kind) => renderWordListField(`mangaFx.symbols.${kind}`, MANGA_SYMBOL_LABELS[kind], s.mangaFx.symbols[kind])).join('')
             + renderWordListField('mangaFx.speedLines', '集中线', s.mangaFx.speedLines))) : '');
@@ -50,7 +50,7 @@ export function renderFxFeatureFields(reader, more = collapsible) {
     const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '演出标签（来电、通知、回忆、梦境等）')
         + (s.fxTags.enabled ? sub(more('fx-tags', '选择标签类型', `<div class="igs-source-filter-grid">${FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('')}</div>`)
             + (s.fxTags.call ? more('fx-call', '通话设置', field(`${p}.fxTags.callSprite`, '语音通话时对方立绘', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话时对方立绘'))
-                + `<div class="igs-source-filter-note">通话支持来电、拨出与视频通话；对方说话时名字后显示听筒，打字音效带听筒质感。视频通话时对方立绘装进手机视频框。</div>`) : '')) : '');
+            ) : '')) : '');
     const sound = checkbox(`${p}.fxSound.enabled`, s.fxSound.enabled, '演出音效（铃声、心跳、耳鸣、日常与战斗音效）')
         + (s.fxSound.enabled ? sub(field(`${p}.fxSound.volume`, '音量', rangeInput(`${p}.fxSound.volume`, s.fxSound.volume, '音量'))) : '');
     return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, resultFx, tags, sound };

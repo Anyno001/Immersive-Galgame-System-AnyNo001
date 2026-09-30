@@ -268,11 +268,15 @@ const SETTINGS_SECTION_RESET_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-section-reset:hover,#igs-unified-settings .igs-settings-section-reset:focus-visible{opacity:1;background:var(--igs-settings-field)}
 `;
 
-// 触屏（手指点按）时按钮至少 44px 高，鼠标设备保持原尺寸。
+// 触屏时按钮外观保持扁平长方形，只用透明伪元素把点按区上下外扩到 44px；鼠标设备不变。
+const TOUCH_TARGETS = ['.igs-settings-action', '.igs-settings-tab', '.igs-image-subtab', '.igs-reader-subtab', '.igs-scene-subtab', '.igs-scene-settings-subtab', '.igs-perf-preset', '.igs-settings-section-reset', '.igs-settings-dialog-actions button'];
+const touchSel = (suffix = '') => TOUCH_TARGETS.map((sel) => `#igs-unified-settings ${sel}${suffix}`).join(',');
 const SETTINGS_TOUCH_STYLE_TEXT = `
 @media (pointer:coarse){
-#igs-unified-settings .igs-settings-action,#igs-unified-settings .igs-settings-tab,#igs-unified-settings .igs-image-subtab,#igs-unified-settings .igs-reader-subtab,#igs-unified-settings .igs-scene-subtab,#igs-unified-settings .igs-scene-settings-subtab,#igs-unified-settings .igs-perf-preset,#igs-unified-settings .igs-settings-section-reset,#igs-unified-settings .igs-settings-dialog-actions button{min-height:44px}
-#igs-unified-settings .igs-settings-close{min-width:44px;min-height:44px}
+${touchSel()}{position:relative}
+${touchSel('::after')}{content:"";position:absolute;left:0;right:0;top:50%;height:max(100%,44px);transform:translateY(-50%)}
+#igs-unified-settings .igs-settings-close{position:relative}
+#igs-unified-settings .igs-settings-close::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
 }`;
 
 export function getSettingsStyleText() {

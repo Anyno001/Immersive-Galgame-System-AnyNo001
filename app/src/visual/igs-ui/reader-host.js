@@ -2880,12 +2880,12 @@ export function createIgsReaderHost(options = {}) {
             const sourceNotes = {
                 nai: '使用你的 NAI Key 直接生成剧情 CG、素材和重画。',
                 dbgen: '提示词、画师串和 NAI Key 在数据库生图插件里设置。',
-                extension: '剧情 CG、素材和物品图交给智绘姬出图，画师串与质量词沿用智绘姬的设置；下方 NAI Key 可选，填了会在智绘姬不可用或出图失败时兜底。',
+                extension: '画风沿用智绘姬的设置；填写下方 NAI Key 后，智绘姬出图失败时会改用 NAI。',
             };
             const contentNotes = {
                 nai: '当前图像来源：IGS 内置 NAI。',
                 dbgen: '当前图像来源：数据库生图插件。',
-                extension: '当前图像来源：智绘姬。剧情 CG 与素材由智绘姬出图；在「图像来源」填写 NAI Key 可作兜底。',
+                extension: '当前图像来源：智绘姬。',
             };
             const openaiDisabled = auto.llm.source !== 'openai';
             const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;

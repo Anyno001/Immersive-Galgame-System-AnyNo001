@@ -116,7 +116,9 @@ test('gate:settings-a11y:touch-targets-and-range-labels', async () => {
     const coarse = css.slice(css.indexOf('@media (pointer:coarse)'));
     assert.ok(coarse.length > 30, 'coarse pointer block exists');
     for (const cls of ['igs-settings-action', 'igs-settings-tab', 'igs-reader-subtab', 'igs-settings-close']) assert.ok(coarse.includes(`.${cls}`), cls);
-    assert.match(coarse, /min-height:44px/);
+    // 触屏只外扩透明点按区，按钮外观保持扁平，不再撑高按钮本身。
+    assert.match(coarse, /::after\{content:"";position:absolute;[^}]*height:max\(100%,44px\)/);
+    assert.doesNotMatch(coarse, /min-height:44px/);
     assert.match(rangeInput('a.volume', 0.5, '环境音量'), /aria-label="环境音量"/);
     assert.match(rangeInput('a.volume', 0.5), /aria-label="音量"/);
     assert.doesNotMatch(rangeInput('a.volume', 0.5, '总音量'), /打字音效音量/);

@@ -9,8 +9,10 @@ import { renderQualityRow } from './render-quality-fields.js';
 export const PERFORMANCE_GROUPS = Object.freeze([
     Object.freeze(['text', '文字']),
     Object.freeze(['stage', '画面']),
-    Object.freeze(['character', '角色']),
-    Object.freeze(['story', '剧情']),
+    Object.freeze(['character', '立绘']),
+    Object.freeze(['emotion', '情绪反应']),
+    Object.freeze(['story', '剧情提示']),
+    Object.freeze(['event', '事件演出']),
     Object.freeze(['romance', '亲密']),
     Object.freeze(['sound', '声音']),
 ]);
@@ -24,9 +26,9 @@ export function renderPerformancePresetBar(reader, { home = false, extraRows = '
     const custom = '当前为自定义组合；点任一档位会覆盖各演出的开关，细项设置保留。';
     const note = home
         ? `${current ? '' : custom}细项在「阅读器 › 演出」里调。`
-        : (current ? '想细调时展开下面的分类。' : custom);
+        : (current ? '' : custom);
     const title = home ? '演出档位' : '一键档位';
-    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${extraRows}<div class="igs-source-filter-note">${esc(note)}</div></div>`;
+    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
 }
 
 // 「全部关闭」时默认开着的演出音效单独无效果，摘要里一并按关闭显示，和档位高亮一致。
@@ -55,8 +57,10 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
     const bodies = {
         text: [extras.typewriter, stage.clickWaitMark, stage.textFx, extras.sentencePaging],
         stage: [stage.transition, stage.tint, stage.camera, pair('weather', '强度与室内外地点词', extras.weatherFx), pair('stage-shake', '强度与触发情绪', extras.stageShake)],
-        character: [stage.motion, stage.actions, stage.cast, fx.manga, fx.heartbeat, fx.flash, extras.narrationFilter],
-        story: [fx.title, fx.favor, fx.itemFx, fx.tags, stage.daily, fx.battleFx, fx.resultFx, pair('chat-show', '线上交流详细设置', extras.chatShow)],
+        character: [stage.motion, stage.actions, stage.cast, extras.narrationFilter],
+        emotion: [fx.manga, fx.heartbeat, fx.flash],
+        story: [fx.title, fx.favor, fx.itemFx, fx.resultFx],
+        event: [fx.tags, stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow)],
         romance: [renderRomanceFxFields(src, more), extras.nsfw ? more('nsfw', 'NSFW 场景立绘与黑幕', extras.nsfw) : ''],
         sound: [stage.master, fx.sound, stage.ambient, stage.ui, stage.bgm],
     };

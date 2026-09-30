@@ -33,7 +33,6 @@ const BASIC_TAB_TEMPLATE = `
     <div class="igs-source-filter-title">正文格式化</div>
     {{regexToggle}}
     <div class="igs-settings-sub"{{regexHidden}}>
-      <div class="igs-source-filter-note">把正文里的自定义格式（如 @bubble:…）转成阅读器能识别的台词。一般保持默认即可。</div>
       <details class="igs-settings-sub igs-settings-advanced" data-advanced="virtual-regex"{{advancedRegexOpen}}>
         <summary>高级：查找表达式与替换文本</summary>
         <div class="igs-source-filter-grid">
@@ -99,7 +98,7 @@ const IMAGE_LOGS_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="logs">
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">生图日志</div>
-    <div class="igs-source-filter-note">记录自动插图与素材补全每一步的进度和失败原因（副 LLM 请求、NAI 请求、跳过原因）。</div>
+    <div class="igs-source-filter-note">出图失败时，可以在这里查看原因。</div>
     <div class="igs-source-filter-grid">{{imageLogRetainDaysField}}{{imageLogMaxEntriesField}}</div>
     <div class="igs-settings-row">
       <button class="igs-settings-action" data-action="image-log-refresh" type="button">刷新</button>
@@ -150,7 +149,7 @@ const IMAGE_AUTO_TEMPLATE = `
   </div>
   <div class="igs-source-filter" data-image-feature="item-images">
     <div class="igs-source-filter-title">物品图（背包与获得物品演出）</div>
-    <div class="igs-source-filter-note">默认关闭；开启后只为物品表与 igs-fx:item 标签里的物品生成图，每层最多补 3 件。背包格子图标可选「生图」或「SVG」。</div>
+    <div class="igs-source-filter-note">背包图标可选「生图」或「SVG」。</div>
     <div class="igs-source-filter-grid">{{itemImageFields}}</div>
   </div>
   <div class="igs-source-filter" data-image-feature="llm"{{autoSharedHidden}}>
