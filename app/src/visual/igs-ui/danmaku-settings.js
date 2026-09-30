@@ -18,7 +18,7 @@ export const DANMAKU_SPEEDS = Object.freeze(['slow', 'medium', 'fast']);
 // 滚动弹幕横穿视频窗的时长（秒），与 B 站一样按统一时长走，长弹幕自然更快。
 export const DANMAKU_SPEED_SECONDS = Object.freeze({ slow: 9, medium: 7, fast: 5 });
 export const INNER_DANMAKU_MOODS = Object.freeze(['love', 'panic', 'anger', 'guilty']);
-export const INNER_DANMAKU_MOOD_LABELS = Object.freeze({ love: '心动（粉）', panic: '慌乱（蓝）', anger: '生气（红）', guilty: '心虚（紫）' });
+export const INNER_DANMAKU_MOOD_LABELS = Object.freeze({ love: '心动', panic: '慌乱', anger: '生气', guilty: '心虚' });
 
 const freezeList = (list) => Object.freeze(list.slice());
 
