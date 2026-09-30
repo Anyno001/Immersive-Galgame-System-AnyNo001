@@ -25,7 +25,7 @@ export function renderPerformancePresetBar(reader, { home = false, extraRows = '
     )).join('');
     const custom = '当前为自定义组合；点任一档位会覆盖各演出的开关，细项设置保留。';
     const note = home
-        ? `${current ? '' : custom}细项在「阅读器 › 演出」里调。`
+        ? `${current ? '' : custom}细项前往「阅读器 › 演出」调整。`
         : (current ? '' : custom);
     const title = home ? '演出档位' : '一键档位';
     return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
@@ -61,12 +61,12 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
         emotion: [fx.manga, fx.heartbeat, fx.flash],
         story: [fx.title, fx.favor, fx.itemFx, fx.resultFx],
         event: [fx.tags, stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow)],
-        romance: [renderRomanceFxFields(src, more), extras.nsfw ? more('nsfw', 'NSFW 场景立绘与黑幕', extras.nsfw) : ''],
+        romance: [renderRomanceFxFields(src, more), extras.nsfw || ''],
         sound: [stage.master, fx.sound, stage.ambient, stage.ui, stage.bgm],
     };
     const groups = PERFORMANCE_GROUPS.map(([id, title]) => groupCard(id, title, groupSummary(src, id, current === 'off'), bodies[id].filter(Boolean).join(''), isOpen(`perf-group-${id}`)));
     const metaOn = Boolean(src.metaFx && src.metaFx.enabled === true);
-    const meta = groupCard('meta', 'Meta 互动', `<span class="igs-perf-count${metaOn ? ' is-on' : ''}">${metaOn ? '开' : '关'}</span><span class="igs-perf-brief">戳头、阅读吐槽、真实时间问候（不受一键档位影响）</span>`, renderMetaFxFields(src, more), isOpen('perf-group-meta'));
+    const meta = groupCard('meta', 'Meta 互动', `<span class="igs-perf-count${metaOn ? ' is-on' : ''}">${metaOn ? '开' : '关'}</span><span class="igs-perf-brief">TA在注视着你</span>`, renderMetaFxFields(src, more), isOpen('perf-group-meta'));
     const rhythm = groupCard('rhythm', '节奏', '<span class="igs-perf-brief">演出风格、停留时间与重播</span>', fx.style, isOpen('perf-group-rhythm'));
     return renderPerformancePresetBar(src, { extraRows: renderQualityRow(src) }) + groups.join('') + meta + rhythm;
 }

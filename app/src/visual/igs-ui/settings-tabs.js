@@ -111,12 +111,26 @@ const IMAGE_LOGS_TEMPLATE = `
 </div>
 `.trim();
 
+const IMAGE_CG_TEMPLATE = `
+<div class="igs-settings-grid" data-image-pane="cg">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">CG 库</div>
+    <div class="igs-source-filter-note">生成过的剧情 CG 和 NSFW 图都在这里，点缩略图看大图。</div>
+    <div class="igs-settings-row">
+      <button class="igs-settings-action" data-action="image-cg-refresh" type="button">刷新</button>
+      <button class="igs-settings-action" data-action="open-cg-gallery" type="button">收藏与隐藏</button>
+    </div>
+    <div class="igs-settings-result" data-result="image-cg">{{imageCgStatus}}</div>
+    <div class="igs-image-cg-grid" data-image-cg-list>{{imageCgList}}</div>
+  </div>
+</div>
+`.trim();
+
 const IMAGE_AUTO_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="auto">
   <div class="igs-source-filter-note">{{imageContentNote}}</div>
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">剧情 CG</div>
-    <div class="igs-settings-row"><button class="igs-settings-action" data-action="open-cg-gallery" type="button">打开 CG 库</button></div>
     {{autoNsfwField}}
     <div class="igs-settings-sub" data-image-feature="nsfw"{{autoNsfwHidden}}>
       <div class="igs-source-filter-grid">{{autoNsfwCountField}}</div>
@@ -323,6 +337,7 @@ export const IMAGE_SUBTAB_DEFS = Object.freeze([
     ['source', '图像来源'],
     ['auto', '生图内容'],
     ['logs', '日志'],
+    ['cg', 'CG 库'],
 ]);
 
 export const READER_SUBTAB_DEFS = Object.freeze([
@@ -400,6 +415,7 @@ export function getImageSubTabTemplate(subTab) {
     const id = normalizeImageSubTab(subTab);
     if (id === 'source') return IMAGE_SOURCE_TEMPLATE;
     if (id === 'logs') return IMAGE_LOGS_TEMPLATE;
+    if (id === 'cg') return IMAGE_CG_TEMPLATE;
     return IMAGE_AUTO_TEMPLATE;
 }
 

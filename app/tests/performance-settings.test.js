@@ -71,7 +71,7 @@ test('gate:perf-presets:home-tab-shows-same-preset-bar-and-custom-state', async 
     const home = renderPerformancePresetBar(reader, { home: true });
     assert.match(home, /演出档位/);
     assert.match(home, /data-action="perf-preset:standard" aria-pressed="true"/);
-    assert.match(home, /细项在「阅读器 › 演出」里调/);
+    assert.match(home, /细项前往「阅读器 › 演出」调整。/);
     reader.typewriter = { ...reader.typewriter, enabled: false };
     const custom = renderPerformancePresetBar(reader, { home: true });
     assert.doesNotMatch(custom, /aria-pressed="true"/);

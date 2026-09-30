@@ -1324,6 +1324,40 @@ export function createIgsReaderHost(options = {}) {
         return list.map((e) => `<div class="igs-image-log-item is-${esc(e.level)}"><span class="igs-image-log-time">${esc(formatImageJobLogTime(e.at))}</span><span class="igs-image-log-level">${esc(imageJobLogLevelLabel(e.level))}</span><span class="igs-image-log-msg">${esc(e.message)}</span></div>`).join('');
     }
 
+    // 生图 › CG 库：列出已生成的剧情 CG（含 NSFW 图）与照片，点缩略图用预览层看大图。首次进入时异步读取，读完重绘一次。
+    function renderImageCgList() {
+        const settings = state.activeSettings;
+        const asyncState = settings && settings.asyncState;
+        if (!asyncState) return '';
+        const service = options.cgGallery;
+        if (!service || typeof service.loadPage !== 'function') return '<div class="igs-scene-empty">CG 库不可用</div>';
+        if (!Array.isArray(asyncState.imageCgEntries)) {
+            if (!asyncState.imageCgLoading) {
+                asyncState.imageCgLoading = true;
+                Promise.resolve()
+                    .then(() => service.loadPage({ limit: 60, showHidden: true }))
+                    .then((page) => {
+                        asyncState.imageCgEntries = page && page.ok && Array.isArray(page.items) ? page.items : [];
+                        asyncState.imageCgStatus = page && page.ok ? '' : 'CG 读取失败';
+                    })
+                    .catch(() => { asyncState.imageCgEntries = []; asyncState.imageCgStatus = 'CG 读取失败'; })
+                    .then(() => {
+                        asyncState.imageCgLoading = false;
+                        if (state.activeSettings === settings) rerenderSettings();
+                    });
+            }
+            return '<div class="igs-scene-empty">正在读取…</div>';
+        }
+        const tiles = asyncState.imageCgEntries.map((entry, index) => {
+            const url = String((entry && entry.dataUrl) || '').trim();
+            if (!/^(?:data:image\/|https?:\/\/|blob:)/i.test(url)) return '';
+            const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;
+            // 大图按序号回查已读列表，避免把整段 data URL 再塞进 data-action。
+            return `<button type="button" class="igs-image-cg-tile" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><img src="${esc(url)}" loading="lazy" decoding="async" alt=""><span>${esc(label)}</span></button>`;
+        }).join('');
+        return tiles || '<div class="igs-scene-empty">还没有生成过 CG</div>';
+    }
+
     async function handleSettingsAction(action) {
         return runSettingsAction(action, {
             state,
@@ -2896,6 +2930,8 @@ export function createIgsReaderHost(options = {}) {
                 imageLogMaxEntriesField: field('bridge.imageJobLog.maxEntries', '自动清理：最多保留条数', numberInput('bridge.imageJobLog.maxEntries', logSettings.maxEntries, 50, 1000)),
                 imageLogStatus: esc(asyncState.imageLogStatus || ''),
                 imageLogList: imageSubTab === 'logs' ? renderImageJobLogList() : '',
+                imageCgStatus: esc(asyncState.imageCgStatus || ''),
+                imageCgList: imageSubTab === 'cg' ? renderImageCgList() : '',
                 imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS 内置 NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬']], '图像来源')),
                 imageSourceNote: esc(sourceNotes[sourceMode]),
                 imageContentNote: esc(contentNotes[sourceMode]),
@@ -3170,9 +3206,9 @@ export function createIgsReaderHost(options = {}) {
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
             narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'),
             sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'),
-            nsfwSpriteModeField: field('readerSettings.statusHud.nsfwSpriteMode', 'NSFW场景立绘', segmentedInput('readerSettings.statusHud.nsfwSpriteMode', normalizeStatusHudSettings(reader.statusHud).nsfwSpriteMode, [['show', '显示'], ['hide', '隐藏'], ['shade', '仅露脸剪影']], 'NSFW场景立绘'))
+            nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', normalizeStatusHudSettings(reader.statusHud).nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW 场景立绘')}</div>`
                 + '<div class="igs-source-filter-note">仅露脸剪影：头部以下压成剪影。需要先在立绘编辑里标定头部，未标定的立绘整张显示为剪影。</div>',
-            nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', 'NSFW黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], 'NSFW黑幕强度')),
+            nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')),
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
             optionBubbleHidden: hiddenAttr(!(bridge.optionBubble && bridge.optionBubble.enabled)),
@@ -3538,6 +3574,16 @@ export function createIgsReaderHost(options = {}) {
                     event.preventDefault();
                     const url = decodeURIComponent(actName.slice('sprite-preview:'.length));
                     showSpritePreviewOverlay(root, url);
+                    return;
+                }
+                // 生图 › CG 库缩略图：按序号回查已读列表，用同一个预览层铺满显示大图。
+                if (actName.startsWith('image-cg-view:')) {
+                    event.preventDefault();
+                    const cgAsync = state.activeSettings && state.activeSettings.asyncState;
+                    const cgEntries = cgAsync && Array.isArray(cgAsync.imageCgEntries) ? cgAsync.imageCgEntries : [];
+                    const cgEntry = cgEntries[Number(actName.slice('image-cg-view:'.length))];
+                    const cgUrl = cgEntry ? String(cgEntry.dataUrl || '').trim() : '';
+                    if (cgUrl) showSpritePreviewOverlay(root, cgUrl);
                     return;
                 }
                 event.preventDefault();

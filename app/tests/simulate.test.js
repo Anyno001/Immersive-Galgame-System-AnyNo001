@@ -2328,8 +2328,9 @@ test('gate:simulation:igs-ui-default-skin-unifies-dialog-and-toolbar-with-embedd
     // 按钮换行成两排时工具栏层会撑满可用宽度，按钮必须保持靠右，不能退回左上角。
     assert.match(css, /#igs-overlay\.igs-default-reader-chrome:not\(\.igs-toolbar-top\) \.igs-ctrl-bar,[^{]*\{justify-content:flex-end;\}/);
     assert.match(css, /#igs-overlay\.igs-default-reader-chrome:not\(\.igs-toolbar-top\) #igs-bar-btns\{justify-content:flex-end;\}/);
-    // 悬浮栏按钮过多时仍须允许换成两排。
-    assert.match(css, /#igs-bar-btns\{display:flex;align-items:center;flex-wrap:wrap;[^}]*max-width:calc\(100vw - 112px\)/);
+    // 悬浮栏按钮约 8 个一行提前换行、左对齐；收纳 / 关闭与按钮第一行顶部对齐。
+    assert.match(css, /#igs-bar-btns\{display:flex;align-items:center;flex-wrap:wrap;[^}]*max-width:min\(336px,calc\(100vw - 112px\)\)[^}]*justify-content:flex-start/);
+    assert.match(css, /\.igs-ctrl-bar\{position:absolute;top:-50px;right:0;display:flex;align-items:flex-start;/);
     vn.destroy();
 });
 
@@ -6510,8 +6511,9 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
 
     const performance = settings.switchReaderSubTab('performance').snapshot.html;
     assert.match(performance, /<span>打字机<\/span>/);
-    assert.match(performance, /旁白按句号分页[\s\S]*旁白时压暗立绘[\s\S]*NSFW场景立绘[\s\S]*仅露脸剪影/);
-    assert.match(performance, /NSFW黑幕强度/);
+    assert.match(performance, /旁白按句号分页[\s\S]*旁白时压暗立绘[\s\S]*显示立绘[\s\S]*隐藏立绘[\s\S]*仅露脸剪影/);
+    assert.match(performance, /<span>黑幕强度<\/span>/);
+    assert.doesNotMatch(performance, /NSFW场景立绘|NSFW黑幕强度|NSFW 场景立绘与黑幕/);
     const dialog = settings.switchReaderSubTab('dialog').snapshot.html;
     assert.match(dialog, /启用背景滤镜/);
     assert.match(dialog, /显示对话框内状态行/);

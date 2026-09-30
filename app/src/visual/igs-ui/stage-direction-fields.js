@@ -94,9 +94,10 @@ function renderSoundFields(bgm, ambient, ui, master, more) {
 
 function renderDailyField(daily, more) {
     return checkbox(`${P}.dailyFx.enabled`, daily.enabled, '日常演出')
-        + (daily.enabled ? sub(more('daily-kinds', '选择日常类型', `<div class="igs-source-filter-grid">${DAILY_FX_KINDS.map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')}</div>`
-            + checkbox(`${P}.dailyFx.photoAlbum`, daily.photoAlbum, '拍照存入 CG 库')
+        + (daily.enabled ? sub(more('daily-kinds', '选择日常类型', `<div class="igs-source-filter-grid">${DAILY_FX_KINDS.map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')}`
             + checkbox(`${P}.dailyFx.petals`, daily.petals, '樱花、落叶飘落')
+            + checkbox(`${P}.dailyFx.photoAlbum`, daily.photoAlbum, '拍照存入 CG 库')
+            + `</div>`
             + '<div class="igs-source-filter-note">只会出现勾选的类型；音效在「声音 › 演出音效」里开关。</div>')) : '');
 }
 

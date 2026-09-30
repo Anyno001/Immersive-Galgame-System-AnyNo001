@@ -1323,8 +1323,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');
     const effectFrontLayer = root.querySelector('#igs-effect-front-layer');
+    // NSFW 场景关闭天气粒子与天气调色，避免遮挡 NSFW 图与立绘；离开 NSFW 场景后按原设置恢复。
+    const rawWeatherSettings = snapshot.readerSettings && snapshot.readerSettings.weatherFx;
+    const nsfwScene = Boolean(snapshot.content && snapshot.content.sceneNsfw === true);
+    const weatherSettings = nsfwScene && rawWeatherSettings && typeof rawWeatherSettings === 'object'
+        ? { ...rawWeatherSettings, enabled: false }
+        : rawWeatherSettings;
     const weatherFx = applyWeatherFx(effectLayer, {
-        settings: snapshot.readerSettings && snapshot.readerSettings.weatherFx,
+        settings: weatherSettings,
         weather: snapshot.content && snapshot.content.sceneWeather,
         location: snapshot.content && snapshot.content.sceneLocation,
         time: snapshot.content && snapshot.content.sceneTime,
@@ -1332,7 +1338,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     });
     applySceneGrade(root, {
         settings: snapshot.readerSettings && snapshot.readerSettings.timeTint,
-        weatherSettings: snapshot.readerSettings && snapshot.readerSettings.weatherFx,
+        weatherSettings,
         weather: snapshot.content && snapshot.content.sceneWeather,
         location: snapshot.content && snapshot.content.sceneLocation,
         time: snapshot.content && snapshot.content.sceneTime,

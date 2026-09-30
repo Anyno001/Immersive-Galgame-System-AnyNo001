@@ -975,6 +975,13 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 生图 › CG 库「刷新」：丢弃已读列表，重绘时重新读取。
+    if (normalizedAction === 'image-cg-refresh') {
+        settingsState.asyncState.imageCgEntries = null;
+        settingsState.asyncState.imageCgStatus = '';
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'open-dbgen-settings') {
         const api = findDbgenApi(options.global || globalThis);
         if (!api || typeof api.openManagement !== 'function') {
