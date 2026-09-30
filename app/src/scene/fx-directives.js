@@ -48,6 +48,23 @@ export const FX_CALL_END_REASONS = Object.freeze({
     对方挂断: 'cut', 被挂断: 'cut', 断线: 'cut', cut: 'cut',
 });
 const FX_VIDEO_MARKS = Object.freeze(['视频', 'video']);
+// 弹幕标签：独立于 FX_TAG_KINDS，开关归 liveFx / audienceFx。
+// 直播区间 [igs-fx:live|主播|标题|视角] … [igs-fx:live-end]，视角写 主播 为主播后台，其余为观看；
+// 直播弹幕 [igs-fx:dm|观众|内容|类型|附加]，类型写错按普通弹幕；观众弹幕 [igs-fx:danmaku|甲/乙|样式]。
+export const DANMAKU_TAG_KINDS = Object.freeze(['live', 'dm', 'danmaku']);
+export const DM_TYPES = Object.freeze({
+    sc: 'sc', superchat: 'sc', 醒目留言: 'sc', 留言: 'sc',
+    gift: 'gift', 礼物: 'gift', 投喂: 'gift',
+    guard: 'guard', 上舰: 'guard', 舰长: 'guard', 开通舰长: 'guard', 舰队: 'guard',
+    enter: 'enter', 进场: 'enter', 进入: 'enter', 进入直播间: 'enter',
+    admin: 'admin', 房管: 'admin', 管理: 'admin',
+});
+const LIVE_HOST_VIEWS = Object.freeze(['host', '主播', '主播视角', '后台']);
+export const DANMAKU_STYLES = Object.freeze(['scroll', 'top', 'flood', 'color']);
+export const FX_DM_PAGE_MAX = 12;
+export const FX_DANMAKU_PAGE_MAX = 4;
+const DANMAKU_LINE_MAX = 5;
+const DANMAKU_LINE_LEN = 30;
 
 const FX_TAG_RE = /\[igs-fx:([^\]\n]*)(?:\]|$)/gm;
 const FIELD_MAX = 60;
@@ -59,6 +76,32 @@ function field(value) {
 function lookup(map, key, fallback) {
     const k = String(key || '').toLowerCase();
     return Object.hasOwn(map, k) ? map[k] : fallback;
+}
+
+// 观众弹幕一个标签可用 / 分隔多条；过长的单条截断，条数封顶。
+export function danmakuLinesOf(value) {
+    return String(value || '').split(/[/／]/)
+        .map((line) => Array.from(line.trim()).slice(0, DANMAKU_LINE_LEN).join(''))
+        .filter(Boolean)
+        .slice(0, DANMAKU_LINE_MAX);
+}
+
+function parseDanmakuBody(kind, isEnd, parts) {
+    if (kind === 'live') {
+        if (isEnd) return { kind, end: true, args: [] };
+        if (!parts[1]) return null;
+        return { kind, end: false, args: [parts[1], parts[2] || '', LIVE_HOST_VIEWS.includes(String(parts[3] || '').toLowerCase()) ? 'host' : 'watch'] };
+    }
+    if (isEnd) return null;
+    if (kind === 'dm') {
+        const type = lookup(DM_TYPES, parts[3], 'text');
+        if (!parts[2] && !(parts[1] && (type === 'enter' || type === 'guard'))) return null;
+        return { kind, end: false, args: [parts[1] || '', parts[2] || '', type, parts[4] || ''] };
+    }
+    const lines = danmakuLinesOf(parts[1]);
+    if (!lines.length) return null;
+    const style = String(parts[2] || '').toLowerCase();
+    return { kind, end: false, args: [lines.join('/'), DANMAKU_STYLES.includes(style) ? style : 'scroll'] };
 }
 
 // 返回 { kind, end, args } 或 null；end 表示区间结束标签（call-end 等）。
@@ -107,6 +150,7 @@ export function parseFxBody(body) {
         const video = kind === 'video' || FX_VIDEO_MARKS.includes(String(parts[2] || '').toLowerCase());
         return { kind: 'call', end: false, args: [parts[1], FX_CALL_DIRS[kind], video ? 'video' : 'voice'] };
     }
+    if (DANMAKU_TAG_KINDS.includes(kind)) return parseDanmakuBody(kind, isEnd, parts);
     if (DAILY_FX_KINDS.includes(kind)) {
         const args = isEnd ? null : parseDailyFxBody(kind, parts.slice(1));
         return args ? { kind: 'daily', end: false, args } : null;
@@ -205,7 +249,7 @@ function applyStageDirective(result, d, current) {
 
 export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
     const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
-    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '' };
+    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [] };
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
@@ -222,6 +266,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         else if (d.kind === 'light') result.lightsOff = !d.end;
         else if (d.kind === 'umbrella') result.umbrella = !d.end;
         else if (d.kind === 'battle') result.battle = d.end ? null : { foe: d.args[0], title: d.args[1] };
+        else if (d.kind === 'live') result.live = d.end ? null : { name: d.args[0], title: d.args[1], view: d.args[2] };
         else if (d.kind === 'romance') {
             result.romance = d.end ? '' : d.args[0];
             // 区间内升降档不换对象：未写对象的升档标签沿用本区间已有对象。
@@ -248,6 +293,15 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
             if (result.hits.length < FX_HIT_PAGE_MAX) {
                 result.hits.push({ attacker: d.args[0], target: d.args[1], skill: d.args[2], result: d.args[3], dice: d.dice === true });
             }
+            continue;
+        }
+        if (d.kind === 'live') continue;
+        if (d.kind === 'dm') {
+            if (result.dms.length < FX_DM_PAGE_MAX) result.dms.push({ user: d.args[0], text: d.args[1], type: d.args[2], extra: d.args[3] });
+            continue;
+        }
+        if (d.kind === 'danmaku') {
+            if (result.danmaku.length < FX_DANMAKU_PAGE_MAX) result.danmaku.push({ lines: d.args[0].split('/'), style: d.args[1] });
             continue;
         }
         if (d.kind === 'react') {

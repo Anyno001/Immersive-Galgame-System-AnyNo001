@@ -26,6 +26,7 @@ import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyFxToDom } from './fx-runtime.js';
+import { applyDanmakuToDom } from './danmaku-runtime.js';
 import { renderItemFx } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
 import { renderDailyFx } from './fx-daily.js';
@@ -1319,6 +1320,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         resolveAssetUrl,
     });
     renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto });
+    // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
+    applyDanmakuToDom(root, snapshot, { sprite: fxSprite, resolveAssetUrl });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');

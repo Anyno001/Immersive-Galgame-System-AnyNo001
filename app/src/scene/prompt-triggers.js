@@ -1,5 +1,5 @@
 // 按需展开的提示词块：最近几层出现过对应标签、用户输入命中触发词、或对应成对标签未闭合时才发完整写法。
-export const ADAPTIVE_PROMPT_BLOCKS = Object.freeze(['chat', 'daily', 'battle', 'romance']);
+export const ADAPTIVE_PROMPT_BLOCKS = Object.freeze(['chat', 'daily', 'battle', 'romance', 'live']);
 export const DEFAULT_TRIGGER_LOOKBACK = 3;
 // 成对标签可能跨很多层才闭合（一场战斗、一段书信），未闭合判断看更长的窗口。
 export const PAIR_TRIGGER_LOOKBACK = 12;
@@ -28,6 +28,12 @@ const BLOCK_TRIGGERS = Object.freeze({
         words: /告白|表白|约会|亲吻|接吻|拥抱|心动|暧昧|喜欢你|爱你/,
         open: /\[igs-fx:romance[|\]]/g,
         close: /\[igs-fx:romance-end\]/g,
+    },
+    live: {
+        tag: /\[igs-fx:(?:live|live-end|dm)[|\]]/,
+        words: /直播|开播|下播|主播|直播间|弹幕|连麦/,
+        open: /\[igs-fx:live[|\]]/g,
+        close: /\[igs-fx:live-end\]/g,
     },
 });
 

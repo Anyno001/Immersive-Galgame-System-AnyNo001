@@ -19,6 +19,7 @@ import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3, normali
 import { createIgsReaderHost } from '../visual/igs-ui/reader-host.js';
 import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/igs-ui/chat-show-runtime.js';
 import { resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
+import { resolveDanmakuPromptRule } from '../visual/igs-ui/danmaku-prompt.js';
 import { resolveTextFxPromptRule } from '../visual/igs-ui/text-fx.js';
 import { resolveDailyFxPromptRule } from '../visual/igs-ui/fx-daily-prompt.js';
 import { beginMetaDigestSend, clearMetaDigest, finishMetaDigestSend, onMetaDigestChange, resolveMetaDigestRule } from '../visual/igs-ui/meta-digest.js';
@@ -46,7 +47,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.32.8';
+const IGS_VERSION = '0.32.9';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -548,6 +549,8 @@ export function bootstrapIGS(options = {}) {
         if (romanceFxRule) rules.push(romanceFxRule);
         const stageCastFxRule = resolveStageCastFxPromptRule(readerSettings && readerSettings.stageCast);
         if (stageCastFxRule) rules.push(stageCastFxRule);
+        const danmakuRule = resolveDanmakuPromptRule(readerSettings);
+        if (danmakuRule) rules.push(danmakuRule);
         const split = placement === 'system';
         if (metaDigestRule && !split) rules.push(metaDigestRule);
         if (rules.length && ancient) rules.push(ANCIENT_ERA_PROMPT_RULE);

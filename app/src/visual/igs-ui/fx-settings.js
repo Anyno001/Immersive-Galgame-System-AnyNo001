@@ -4,6 +4,7 @@ import { normalizeItemFxSettings } from './fx-item-model.js';
 import { STAGE_DIRECTION_NORMALIZERS, STAGE_DIRECTION_WORD_LIST_PATHS } from './stage-direction-settings.js';
 import { normalizeUiSoundSettings } from './ui-sfx.js';
 import { normalizeAudioMasterSettings } from './audio-bus.js';
+import { DANMAKU_SETTINGS_NORMALIZERS, DANMAKU_WORD_LIST_PATHS } from './danmaku-settings.js';
 import { normalizeAmbientSoundSettings, normalizeBgmSettings } from './scene-audio.js';
 import { normalizeTextFxSettings } from './text-fx.js';
 import { normalizeClickWaitMarkSettings } from './click-wait-mark.js';
@@ -129,6 +130,8 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     fxTags: normalizeFxTagsSettings,
     fxSound: normalizeFxSoundSettings,
     fxStyle: normalizeFxStyleSettings,
+    // 弹幕三件套独立渲染（danmaku-runtime），不进入 FX_FEATURE_KEYS。
+    ...DANMAKU_SETTINGS_NORMALIZERS,
     // 获得物品演出独立渲染（fx-item-render），不进入 FX_FEATURE_KEYS。
     itemFx: normalizeItemFxSettings,
     // 战斗演出同样独立渲染（fx-battle-render）。
@@ -173,6 +176,7 @@ export const FX_WORD_LIST_PATHS = Object.freeze([
     'flashFx.emotions',
     ...STAGE_DIRECTION_WORD_LIST_PATHS,
     'romanceFx.favorWords',
+    ...DANMAKU_WORD_LIST_PATHS,
 ]);
 
 function emotionOf(value) {

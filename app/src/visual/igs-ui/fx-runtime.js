@@ -83,14 +83,14 @@ function markOnce(memory, key) {
     return true;
 }
 
-function enterPage(memory, pageKey) {
+export function enterPage(memory, pageKey) {
     if (memory.visitKey === pageKey) return;
     memory.visitKey = pageKey;
     memory.visitSeen = new Set();
 }
 
 // 同一次停留内的重绘永不重播；replay 开启时离开再翻回该页会重新播放。
-function markPage(memory, key, replay) {
+export function markPage(memory, key, replay) {
     const fresh = markOnce(memory, key);
     if (memory.visitSeen.has(key)) return false;
     memory.visitSeen.add(key);
@@ -306,7 +306,7 @@ function clearTransients(state, layers) {
 }
 
 // 定位要读舞台几何：推迟到下一帧，避免在本次渲染刚写完 DOM 时强制同步排版。
-function nextFrame(doc, fn) {
+export function nextFrame(doc, fn) {
     const view = doc && doc.defaultView;
     if (view && typeof view.requestAnimationFrame === 'function') view.requestAnimationFrame(fn);
     else fn();
@@ -326,7 +326,7 @@ function stopRing(state) {
     state.ring = null;
 }
 
-function resolveAvatar(name, snapshot, options) {
+export function resolveAvatar(name, snapshot, options) {
     const assets = (snapshot.readerSettings && snapshot.readerSettings._sceneAssets) || {};
     const key = resolveCharacterKey(assets.characters || {}, assets.characterAliases, name) || name;
     const url = resolveStatusAvatar(assets.statusAvatars, key);

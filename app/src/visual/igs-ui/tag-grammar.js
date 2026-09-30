@@ -6,6 +6,7 @@ import { normalizeChatShowSettings, resolveChatShowGrammar } from './chat-show-r
 import { enabledFxTagKinds } from './fx-settings.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
 import { estimatePromptTokens } from '../../scene/prompt-triggers.js';
+import { danmakuGrammarBlocks } from './danmaku-prompt.js';
 
 export const DEFAULT_PROMPT_BUDGET_TOKENS = 1500;
 export const PROMPT_PLACEMENTS = Object.freeze(['system', 'depth0']);
@@ -60,6 +61,7 @@ export function collectGrammarBlocks(readerSettings, { ancient = false } = {}) {
     if (castLines.length) {
         blocks.push({ key: 'cast', full: fxBlock('同屏角色', castLines), index: `同屏 igs-fx:${castLines.map((line) => line.split('|')[0]).join('/')}` });
     }
+    blocks.push(...danmakuGrammarBlocks(rs, fxBlock));
     return blocks;
 }
 

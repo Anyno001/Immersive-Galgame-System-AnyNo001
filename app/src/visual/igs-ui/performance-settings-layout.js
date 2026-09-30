@@ -2,6 +2,7 @@ import { esc } from './reader-value-utils.js';
 import { collapsible, renderFxFeatureFields } from './fx-settings-fields.js';
 import { renderStageDirectionFields } from './stage-direction-fields.js';
 import { renderRomanceFxFields } from './romance-fields.js';
+import { renderDanmakuFields } from './danmaku-settings-fields.js';
 import { renderMetaFxFields } from './meta-fields.js';
 import { PERFORMANCE_FEATURES, PERFORMANCE_PRESETS, detectPerformancePreset, isPerformanceFeatureOn } from './performance-presets.js';
 import { renderQualityRow } from './render-quality-fields.js';
@@ -54,13 +55,14 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
     const current = detectPerformancePreset(src);
     const fx = renderFxFeatureFields(src, more);
     const stage = renderStageDirectionFields(src, more);
+    const danmaku = renderDanmakuFields(src, more);
     const bodies = {
         text: [extras.typewriter, stage.clickWaitMark, stage.textFx, extras.sentencePaging],
         stage: [stage.transition, stage.tint, stage.camera, pair('weather', '强度与室内外地点词', extras.weatherFx), pair('stage-shake', '强度与触发情绪', extras.stageShake)],
         character: [stage.motion, stage.actions, stage.cast, extras.narrationFilter],
-        emotion: [fx.manga, fx.heartbeat, fx.flash],
+        emotion: [fx.manga, fx.heartbeat, fx.flash, danmaku.inner],
         story: [fx.title, fx.favor, fx.itemFx, fx.resultFx],
-        event: [fx.tags, stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow)],
+        event: [fx.tags, stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow), danmaku.live, danmaku.audience],
         romance: [renderRomanceFxFields(src, more), extras.nsfw || ''],
         sound: [stage.master, fx.sound, stage.ambient, stage.ui, stage.bgm],
     };

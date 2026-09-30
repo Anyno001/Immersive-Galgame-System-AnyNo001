@@ -4,6 +4,7 @@ import { MAP_PANEL_STYLE_TEXT } from './map-panel-style.js';
 import { MAP_LIGHT_LAYER_STYLE_TEXT } from './map-light-layers.js';
 import { WEATHER_FX_STYLE_TEXT } from './weather-fx-style.js';
 import { FX_STYLE_TEXT } from './fx-style.js';
+import { DANMAKU_STYLE_TEXT } from './danmaku-style.js';
 import { STAGE_DIRECTION_STYLE_TEXT } from './stage-direction-style.js';
 import { STAGE_CAST_STYLE_TEXT } from './stage-cast-render.js';
 import { SCENE_GRADE_STYLE_TEXT } from './scene-grade.js';
@@ -299,6 +300,7 @@ ${DAILY_FX_STYLE_TEXT}
 ${ITEM_FX_STYLE_TEXT}
 ${BATTLE_FX_STYLE_TEXT}
 ${RESULT_FX_STYLE_TEXT}
+${DANMAKU_STYLE_TEXT}
 ${CG_GALLERY_STYLE_TEXT}
 ${INVENTORY_IMAGE_STYLE_TEXT}
 ${STAGE_PAUSE_STYLE_TEXT}

@@ -19,6 +19,7 @@ import { applyDiceToHits } from '../../scene/battle-context.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
 import { cancelFxEffects } from './fx-runtime.js';
+import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
 import { cancelSceneGrade } from './scene-grade.js';
 import { closeRomanceFx } from './romance-runtime.js';
@@ -646,6 +647,7 @@ export function createIgsReaderHost(options = {}) {
         cancelStageShakeEffect(stageMotion);
         if (current.dom && current.dom.overlay) cancelChatShow(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelFxEffects(current.dom.overlay);
+        if (current.dom && current.dom.overlay) cancelDanmaku(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelStageDirection(current.dom.overlay);
         if (current.dom && current.dom.overlay) clearCastDom(current.dom.overlay);
         current.castCollapsedFrom = null;

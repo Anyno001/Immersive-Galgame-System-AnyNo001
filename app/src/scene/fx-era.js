@@ -8,7 +8,7 @@ export const FX_ERA_MODERN_ONLY = Object.freeze({
     dailyFx: Object.freeze(['photo', 'bell', 'broadcast', 'alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
 });
 // 整块现代专属的功能（enabled 拨成关）。线上聊天在古代模式下换成「书信往来」，不在此列。
-export const FX_ERA_MODERN_FEATURES = Object.freeze([]);
+export const FX_ERA_MODERN_FEATURES = Object.freeze(['liveFx']);
 
 export const ANCIENT_ERA_PROMPT_RULE = `[igs时代背景]
 本故事发生在古代。上述igs标签里填写的文字一律使用古代的说法与器物：时间写「一炷香后」「次日辰时」这类说法，不写「三小时后」「07:00」；不要出现手机、电话、照片、电视、广播等现代事物。`;

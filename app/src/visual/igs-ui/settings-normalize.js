@@ -48,6 +48,7 @@ export function normalizeSettingsValue(path, value) {
         }
         if (/^readerSettings\.(sceneTransition|timeTint|spriteMotion|spriteActions|camera|stageCast|textFx|clickWaitMark|bgm|ambientSound|uiSound)\.(enabled|alignHeads|romanceDuo|castReact|castStage|breathing|castBreathing|castLean|speakBounce|enterExit|emotionFade|kenBurns|parallax|closeUp|birds|rain|wind|insects|waves|crowd|thunder|stream|fire|snow|cicadas|frogs|chimes|bell|clock|drip|train|tavern|ship|traffic)$/.test(path)
             || /^readerSettings\.dailyFx\.(enabled|petals|photoAlbum|timeskip|photo|letter|note|bell|broadcast|fireworks|touch|alarm|omikuji|receipt|tv)$/.test(path)
+            || /^readerSettings\.(liveFx|audienceFx|innerFx)\.(enabled|muteOnNsfw|ambient|useThought)$/.test(path)
             || path === 'readerSettings.typewriter.punctuationPause'
             || path === 'readerSettings.typewriter.prosody') {
             return value === true || value === 'true' || value === 1 || value === '1';
