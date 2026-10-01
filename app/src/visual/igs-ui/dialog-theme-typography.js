@@ -73,7 +73,8 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtFont: DIALOG_FONT_WENKAI,
         narrationFont: DIALOG_FONT_WENKAI,
         nameColor: '#f6e6c4',
-        textColor: '#46322a',
+        // 文楷笔画细，原 #46322a 压在纸色与花簇上偏淡；加深到 #2f2119 提高对比。
+        textColor: '#2f2119',
         thoughtColor: '#2f6e58',
         narrationColor: '#6b5645',
     }),

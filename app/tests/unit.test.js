@@ -3851,7 +3851,7 @@ test('gate:igs-ui:reference-typography-applies-to-material-themes-only', () => {
         'plant-coffee': { nameColor: '#f6ecd9', textColor: '#5b4643', nameAlign: 'center', textFont: /^"LXGW WenKai Lite"/, nameFont: /^"Quicksand"/ },
         'black-white-manga': { nameColor: '#171412', textColor: '#231f1c', nameAlign: 'left', textFont: /^"Source Han Sans CN"/, nameFont: /^"Smiley Sans"/ },
         'cute-pink': { nameColor: '#ffffff', textColor: '#5d3a4a', nameAlign: 'center', textFont: /^"Yozai"/, nameFont: /^"ZCOOL KuaiLe"/ },
-        'retro-japanese': { nameColor: '#f6e6c4', textColor: '#46322a', nameAlign: 'center', textFont: /^"LXGW WenKai"/, nameFont: /^"Huiwen Mincho"/ },
+        'retro-japanese': { nameColor: '#f6e6c4', textColor: '#2f2119', nameAlign: 'center', textFont: /^"LXGW WenKai"/, nameFont: /^"Huiwen Mincho"/ },
         'adventure-journey': { nameColor: '#f0dcb8', textColor: '#45372d', nameAlign: 'center', textFont: /^"LXGW Neo ZhiSong"/, nameFont: /^"Cinzel"/ },
         'day-minimal': { nameColor: '#f7f5ee', textColor: '#3a3935', nameAlign: 'left', textFont: /^"LXGW Neo XiHei"/, nameFont: /^"Cormorant Garamond"/ },
         'warm-picturebook': { nameColor: '#f4efe9', textColor: '#4f4a45', nameAlign: 'center', textFont: /^"LXGW WenKai"/, nameFont: /^"Yozai"/ },

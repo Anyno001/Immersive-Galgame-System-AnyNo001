@@ -1,4 +1,4 @@
-import { buildDialogFrameCss, scalePx, threeSliceCss } from './dialog-skin-frame.js';
+import { buildDialogFrameCss, scalePx, stroke, threeSliceCss } from './dialog-skin-frame.js';
 
 export const DIALOG_SKIN_DAY_MINIMAL = 'day-minimal';
 export const DIALOG_SKIN_WARM_PICTUREBOOK = 'warm-picturebook';
@@ -67,8 +67,9 @@ const elegantEuropean = buildDialogFrameCss(DIALOG_SKIN_ELEGANT_EUROPEAN, {
     rise: 0,
     flush: true,
     frameCss: `${threeSliceCss(ELEGANT_BAND, [200, 200], ELEGANT_EDGE, ELEGANT_EDGE)}background-image:url("${ELEGANT_ORNAMENT_TOP}"),url("${ELEGANT_ORNAMENT_BOTTOM}");background-position:center ${ELEGANT_TOP_LINE - 10}px,center ${ELEGANT_BOTTOM_LINE - 3}px;background-size:${ELEGANT_ORNAMENT.width}px ${ELEGANT_ORNAMENT.height}px;background-repeat:no-repeat;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
-    speakerCss: `left:56px;top:${ELEGANT_TOP_LINE - 36}px;${NAME_TEXT}max-width:calc(100% - 112px);height:32px;line-height:32px;padding:0;background:none;border:0;font-size:22px;font-weight:400;letter-spacing:.06em;text-shadow:0 0 8px rgba(195,180,230,.55),0 1px 3px rgba(0,0,0,.9);`,
-    textCss: 'letter-spacing:.06em;text-shadow:0 1px 2px rgba(0,0,0,.85),0 0 6px rgba(0,0,0,.45);',
+    // 黑纱上的字用 1px 实描边 + 1px 投影托住，不用模糊光晕（光晕会让字边发虚）。
+    speakerCss: `left:56px;top:${ELEGANT_TOP_LINE - 36}px;${NAME_TEXT}max-width:calc(100% - 112px);height:32px;line-height:32px;padding:0;background:none;border:0;font-size:22px;font-weight:400;letter-spacing:.06em;text-shadow:${stroke('rgba(0,0,0,.55)')},0 1px 0 rgba(0,0,0,.9);`,
+    textCss: `letter-spacing:.06em;text-shadow:${stroke('rgba(0,0,0,.55)')},0 1px 0 rgba(0,0,0,.85);`,
 });
 
 export const CSS_DIALOG_STYLE_BY_SKIN = Object.freeze({

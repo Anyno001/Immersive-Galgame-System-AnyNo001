@@ -18,9 +18,10 @@ export function scalePx(css) {
     ));
 }
 
-// 正文压在花纹上时用同底色的光晕描边托住字形，而不是把正文挤进花纹之间的空隙。
-export function halo(color, blur = 4) {
-    return `text-shadow:${stroke(color)},0 0 ${blur}px ${color};`;
+// 正文压在花纹上时用同底色的 1px 实描边托住字形，而不是把正文挤进花纹之间的空隙。
+// 不叠模糊光晕：光晕会让字边发虚、框内文字朦胧。第二个参数保留只为兼容旧调用。
+export function halo(color) {
+    return `text-shadow:${stroke(color)};`;
 }
 
 // 八向 1px 实描边（不含 text-shadow 属性名），可再拼接投影。
