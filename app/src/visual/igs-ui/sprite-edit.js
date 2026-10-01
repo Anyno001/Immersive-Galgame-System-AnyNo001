@@ -27,11 +27,15 @@ function spriteUrlOf(spriteEl) {
 // background-position 百分比的实际偏移 = (舞台 - 立绘) × pos%。立绘比舞台大时可移动量为负，
 // 固定按舞台尺寸换算会让拖动方向反过来（手机竖屏放大立绘后最常见）。这里按实际可移动量换算，
 // 让立绘跟手移动；可移动量不足 1px 时该轴百分比不影响画面，保持不变。读不到原图比例时纵向沿用旧换算。
+// 读不到原图比例（探测未完成或失败）时宽度只能估算；立绘按高度绘制，估算可移动量可能为 0，
+// 这时横向退回按舞台宽度换算，避免拖动被整个吞掉（比例 100 时最常见）。
 export function spriteDragPosition({ posX, posY, dx, dy, stageW, stageH, scale, naturalW, naturalH }) {
     const axis = (pos, delta, movable) => (Number.isFinite(movable) && Math.abs(movable) >= 1 ? pos + delta / movable * 100 : pos);
     const rect = naturalW > 0 && naturalH > 0 ? spriteDrawRect(stageW, stageH, { posX, posY, scale, naturalW, naturalH }) : null;
     const drawW = rect ? rect.w : stageW * scale / 100;
-    const nextX = stageW > 0 ? axis(posX, dx, stageW - drawW) : posX;
+    const movableX = stageW - drawW;
+    const nextX = !(stageW > 0) ? posX
+        : (!rect && !(Math.abs(movableX) >= 1) ? posX + dx / stageW * 100 : axis(posX, dx, movableX));
     let nextY = posY;
     if (stageH > 0) nextY = rect ? axis(posY, dy, stageH - rect.h) : posY + dy / stageH * 100;
     return { posX: nextX, posY: nextY };

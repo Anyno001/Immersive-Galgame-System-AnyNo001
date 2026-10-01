@@ -7,6 +7,7 @@
 - `buildMapGenInput({ chatId, tableUid, parentId, salt, parentName, points, theme?, themeTexts? })`：把地图面板已排好位置的指针（含自动排位点，0–1 归一化）转成生成输入。
   - `seed` 由 `MAP_GEN_VERSION + chatId + tableUid + parentId + salt` 哈希得出：同一对话、同一层、同一 `salt` 永远是同一张图；换对话即换城市。
   - `key` 额外覆盖地点签名（id、名称、类别、坐标）、世界观、尺度和尺寸，用作缓存键。
+  - `palette` 为配色款式：`bright`（默认，明亮插画风）或 `classic`（原暮色版），见 `themes.js` 的 `MAP_THEME_VARIANTS`。款式只换颜色与收尾层（`finish`、`shadowAlpha`），不参与 `seed`，同一对话换款式城市布局不变；它参与 `key`，切换后不会命中另一款的缓存。
   - `scale` 为 `city` 或 `interior`；面板只为 `city` 生成底图，`interior`（楼层、房间）保持中性坐标平面。
 - `buildMarkerLightsInput(points, width, height)`：外部底图没有生成数据时，只在指针周围点灯。
 - `createMapBasemapGenerator({ doc, budgetMs, timeoutMs, cacheSize, scale, schedule, now, createCanvas })`：
@@ -28,6 +29,7 @@
 - 地点优先：非水域指针不落水、连入主路网、周围留净空；水域指针（海、湖、河）塑造地形；沙滩、码头类地点落在岸上。
 - 路网：主干道与街道都是同一张张量场的流线（场只由种子与水系决定），全城朝向连续、交叉近似直角；主干道可架桥跨河，但不横穿湖海；街道在河堤处停下，不伸进水面；断头路就近接成 T 字路口。
 - 建筑与植被：建筑只沿街排布，精确占位（不叠压、不落水、不压堤）；城区强度决定建筑密度，郊区/村落稀疏并配院树，公园、神社林、野林与田野保证大面积绿色。公园园路从街道断点出发、按最小生成树连成弯曲小径，不画环形步道。
+- 配色款式：`themes.js` 的 `MAP_THEME_VARIANTS` 提供 `bright`（默认，明亮插画风：高饱和草木、浅青水面、浅蓝白屋顶、极淡收尾层）与 `classic`（原冷灰暮色）；科幻主题在明亮款下保持原暗色。`buildMapGenInput` 的 `palette` 选项进入缓存键，`getMapTheme(name, palette)` 未传款式时取 `MAP_DEFAULT_VARIANT`。
 - 升级算法或画风时必须加 `MAP_GEN_VERSION`，让旧种子与缓存失效。
 
 ## 不做

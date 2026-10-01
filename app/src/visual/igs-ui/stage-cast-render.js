@@ -260,6 +260,16 @@ function playSlide(el, posX, reduced, entering, duration, fill, done) {
     return anim;
 }
 
+// 头部对齐等待上限，与立绘解码超时一致；超时后不再等对齐，直接滑入。
+export const CAST_ALIGN_WAIT_MS = 1500;
+
+function waitAlign(ready) {
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, CAST_ALIGN_WAIT_MS);
+        Promise.resolve(ready).catch(() => null).then(() => { clearTimeout(timer); resolve(); });
+    });
+}
+
 // members: [{ character, url, posX, posY, scale }]；同一角色复用元素，按角色名对比前后两次：
 // 新上台从近侧滑入，换槽位的平移过去，下台的往近侧滑出后移除。
 // 新图先解码再换上或滑入，解码期间保留旧图；同一角色换图时旧图淡出。
@@ -273,6 +283,8 @@ export function applyCastToDom(root, members = [], motion = {}) {
     const handoff = motion.handoff || {};
     const lean = motion.lean || null;
     const entrances = motion.entrances && typeof motion.entrances === 'object' ? motion.entrances : {};
+    // ready：头部对齐重排完成的信号（探测未就绪时由渲染层传入）；只有新上台的陪衬等它，超时兜底后照常滑入。
+    const ready = motion.ready && typeof motion.ready.then === 'function' ? motion.ready : null;
     const existing = new Map();
     for (const el of Array.from(layer.children || [])) {
         const key = el.getAttribute && el.getAttribute('data-igs-cast-char');
@@ -296,7 +308,9 @@ export function applyCastToDom(root, members = [], motion = {}) {
         const demotedIn = entering && m.character === handoff.demoted && !reduced;
         const pendingSame = Boolean(el._igsCastPending) && el._igsCastPending.url === m.url;
         // 退下来的说话人图片刚在 #igs-sprite 上显示过，不必再等解码。
-        const wait = pendingSame || demotedIn || el.style.backgroundImage === image ? null : decodeSpriteImage(doc, m.url);
+        const decode = pendingSame || demotedIn || el.style.backgroundImage === image ? null : decodeSpriteImage(doc, m.url);
+        // 新上台且对齐未就绪：等对齐重排后再滑入，避免先按未对齐的样子出现再跳。
+        const wait = entering && ready && !pendingSame && !demotedIn ? Promise.all([decode, waitAlign(ready)]) : decode;
         if (!pendingSame) el._igsCastPending = null;
         el.style.backgroundSize = spriteBackgroundSize(m.scale);
         el.style.backgroundPosition = `${m.posX}% ${m.posY}%`;
@@ -514,7 +528,8 @@ export function isCastStageEnabled(snapshot) {
     return cast.enabled && cast.castStage;
 }
 
-function castKeyOfSnapshot(snapshot) {
+// 角色名 / 别名 → 主名，与宿主同屏名单（reader-host castKeyOf）同源；战斗目标匹配复用。
+export function castKeyOfSnapshot(snapshot) {
     const reader = (snapshot && snapshot.readerSettings) || {};
     const assets = reader._sceneAssets && typeof reader._sceneAssets === 'object' ? reader._sceneAssets : {};
     return (name) => {

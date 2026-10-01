@@ -9,7 +9,7 @@
 - 根据时间、天气、地点输出背景规则和环境效果候选。
 - 按句分页启用时，场景指令索引必须重映射到最终可见分页坐标，不得沿用分页前的原始行号计数。
 - HTML 卡片（`html-cards.js`）：`bridge.sourceFilter.htmlCardTags`（默认 `htm1fenge`）命中的整块在一切正文处理前从原文抠出，原位换成独占一行的 `[igs-card#N]`，单独成页；占位不得写成 `[key:value]`（会被 `parseSceneText` 当场景标签吞掉）。未闭合块（流式中）同样占位。payload 以 `htmlCards[N]` 携带原始 HTML，渲染由 `visual/igs-ui/html-card-layer.js` 消毒后放入 Shadow DOM。
-- `[igs-img:N]` 只由插件写入；原文保留标记以定位插图，显示正文与主模型上下文隐藏标记。解析时记录原文偏移，不计入 scene/char/thought 的可见段索引；新场景指令终止此前插图。
+- `[igs-img:N]` 只由插件写入；原文保留标记以定位插图，显示正文与主模型上下文隐藏标记。解析时记录原文偏移，不计入 scene/char/thought 的可见段索引。当前页按 `resolveHeldSourceOffset` 从第一页往后定位（只在 `<content>` 正文里找，对不上时沿用前一页的位置），再由 `resolveIllustrationAtSourceOffset` 取该位置之后最近的一张（`[igs-img:N]` 与数据库 `<IMG>N</IMG>` 同规则），翻过最后一张后保持最后一张。
 - igs 行内指令名只在 `scene/directive-tags.js` 登记（scene/char/thought/img/fx）；分段、正文清洗、DOM 对比与聊天块收口的正则都从这里构造，新增指令不得再复制正则。
 - `[igs-fx:类型|参数…]` 为演出标签族（call/call-end、notify、flashback/flashback-end、dream/dream-end、letterbox/letterbox-end、sfx、eye），由 `scene/fx-directives.js` 解析；未知类型或参数不合法时静默剥离，永不进入正文。瞬时标签按原文偏移归属到 (上一可定位页, 当前页] 区间，每页同类只取第一个；区间状态取当前页前最近一次开/关，缺结束标签时持续到楼层结束。显式聊天块内的 fx 行移到块前。
 - 弹幕标签（`DANMAKU_TAG_KINDS`）独立于 FX_TAG_KINDS，开关归 `liveFx` / `audienceFx`：`live|主播|标题|视角`…`live-end` 为直播区间（视角写 主播 为 host，其余 watch），结果在 `live`；`dm|观众|内容|类型|附加` 为直播弹幕（类型 醒目留言/礼物/上舰/进场/房管 → sc/gift/guard/enter/admin，写错按 text），每页最多 12 条进 `dms`；`danmaku|甲/乙|样式` 为观众弹幕（样式 scroll/top/flood/color），每页最多 4 个进 `danmaku`。直播属现代专属（`FX_ERA_MODERN_FEATURES`），按需注入块 `live` 由直播相关词或未闭合的 live 触发。

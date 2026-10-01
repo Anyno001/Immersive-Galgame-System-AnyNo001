@@ -6,8 +6,8 @@ const SAVE_FAILURE_REASONS = new Set(['save-failed', 'generated-asset-persist-fa
 export const SETTINGS_NOTICE_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-notice{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:3;max-width:min(520px,calc(100% - 48px));padding:10px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-danger,#c0392b);color:#fff;font-size:13px;line-height:1.5;pointer-events:auto;}
 #igs-unified-settings .igs-settings-shell>.igs-settings-progress{position:static;left:auto;right:auto;bottom:auto;transform:none;z-index:2;flex:0 0 auto;width:auto;max-width:none;margin:0;padding:10px 16px 12px;border-radius:0;background:var(--igs-settings-accent,#2f5f78);color:var(--igs-settings-on-accent,#fff);font-size:13px;line-height:1.4;pointer-events:none}
-#igs-unified-settings .igs-settings-progress-track{height:6px;margin-top:8px;border-radius:999px;background:rgba(255,255,255,.28);overflow:hidden}
-#igs-unified-settings .igs-settings-progress-fill{height:100%;width:0;border-radius:999px;background:#fff}
+#igs-unified-settings .igs-settings-progress-track{height:6px;margin-top:8px;border-radius:var(--igs-settings-radius-small);background:rgba(255,255,255,.28);overflow:hidden}
+#igs-unified-settings .igs-settings-progress-fill{height:100%;width:0;border-radius:var(--igs-settings-radius-small);background:#fff}
 #igs-unified-settings .igs-settings-progress.is-writing .igs-settings-progress-fill{width:38%;animation:igs-settings-progress-slide 1s ease-in-out infinite}
 @keyframes igs-settings-progress-slide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 `;

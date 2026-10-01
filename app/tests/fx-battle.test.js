@@ -415,6 +415,26 @@ test('gate: battle targets a stage cast member by name after the speaker', () =>
     assert.equal(plan.events[1].targetChar, '');
 });
 
+test('gate: battle target resolves sprite and cast aliases through keyOf', () => {
+    const keyOf = (name) => ({ 小乙: '乙', 阿甲: '甲' }[name] || name);
+    const fx = { hits: [
+        { attacker: '甲', target: '小乙', result: 'hit' },
+        { attacker: '乙', target: '阿甲', result: 'hit' },
+        { attacker: '甲', target: '路人', result: 'hit' },
+    ] };
+    const plan = planBattleFx(fx, { settings: ON, identity: ID, spriteName: '甲', castNames: ['乙'], keyOf });
+    assert.equal(plan.events[0].targetKind, 'cast');
+    assert.equal(plan.events[0].targetChar, '乙');
+    assert.equal(plan.events[1].targetKind, 'sprite');
+    assert.equal(plan.events[1].targetChar, '');
+    assert.equal(plan.events[2].targetKind, 'stage');
+    // 不传 keyOf 时保持旧行为：单字主名的别名不命中。
+    const legacy = planBattleFx(fx, { settings: ON, identity: ID, spriteName: '甲', castNames: ['乙'] });
+    assert.equal(legacy.events[0].targetKind, 'stage');
+    assert.equal(legacy.events[1].targetKind, 'stage');
+});
+
+
 
 test('gate:fx-battle:world-skin-marks-every-node-and-keeps-modern-text', async () => {
     const { WORLD_SKIN_IDS } = await import('../src/scene/worldview.js');

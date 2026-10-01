@@ -41,11 +41,21 @@ export function isSpriteTarget(target, spriteName) {
     return a === b || (a.length >= 2 && b.length >= 2 && (a.includes(b) || b.includes(a)));
 }
 
+// 在 names 里找目标：名字直接命中优先；否则用 keyOf（与同屏名单同源的别名归一）把目标转成主名再全等比对。
+function aliasTarget(target, names, keyOf) {
+    const list = (Array.isArray(names) ? names : []).filter((name) => text(name));
+    const direct = list.find((name) => isSpriteTarget(target, name));
+    if (direct || typeof keyOf !== 'function' || !text(target)) return direct || '';
+    let key = '';
+    try { key = text(keyOf(text(target))); } catch (error) { key = ''; }
+    return key ? list.find((name) => text(name) === key) || '' : '';
+}
+
 // 目标优先级：主角 → 当前立绘角色 → 同屏陪衬角色 → 有立绘的对手（出招时临时登场）→ 舞台中上部。
-function targetKindOf(target, { spriteName, userName, foe, foeImage, castNames = [] }) {
+function targetKindOf(target, { spriteName, userName, foe, foeImage, castNames = [], keyOf = null }) {
     if (isPlayerName(target, userName)) return 'player';
-    if (isSpriteTarget(target, spriteName)) return 'sprite';
-    if (castNames.some((name) => isSpriteTarget(target, name))) return 'cast';
+    if (aliasTarget(target, [spriteName], keyOf)) return 'sprite';
+    if (aliasTarget(target, castNames, keyOf)) return 'cast';
     if (foeImage && isSpriteTarget(target, foe)) return 'foe';
     return 'stage';
 }
@@ -63,8 +73,8 @@ function scaled(ms, scale) {
 }
 
 // 未开启、NSFW、聊天页或卡片页返回空计划；plate 为战斗进行中常驻的对手名牌，events 为本页一次性演出。
-// holdScale 来自演出风格的停留时间档位；spriteName 为当前立绘角色，用来判断目标是否在场；foeImage 为对手立绘的可显示地址。
-export function planBattleFx(fx, { settings, identity, nsfw = false, pageKind = 'text', holdScale = 1, spriteName = '', foeImage = '', castNames = [] } = {}) {
+// holdScale 来自演出风格的停留时间档位；spriteName 为当前立绘角色，用来判断目标是否在场；foeImage 为对手立绘的可显示地址；keyOf 把目标别名归一到角色主名（可选）。
+export function planBattleFx(fx, { settings, identity, nsfw = false, pageKind = 'text', holdScale = 1, spriteName = '', foeImage = '', castNames = [], keyOf = null } = {}) {
     const empty = { plate: null, letterbox: false, events: [], identity: null, totalMs: 0 };
     const config = normalizeBattleFxSettings(settings);
     if (!config.enabled || nsfw || pageKind !== 'text' || !fx) return empty;
@@ -81,14 +91,14 @@ export function planBattleFx(fx, { settings, identity, nsfw = false, pageKind = 
     for (const hit of Array.isArray(fx.hits) ? fx.hits : []) {
         const result = Object.hasOwn(BATTLE_HIT_LABELS, hit && hit.result) ? hit.result : 'hit';
         const target = text(hit.target);
-        const targetKind = targetKindOf(target, { spriteName, userName, foe: battle ? battle.foe : '', foeImage: portrait, castNames });
+        const targetKind = targetKindOf(target, { spriteName, userName, foe: battle ? battle.foe : '', foeImage: portrait, castNames, keyOf });
         events.push({
             type: 'hit', at, life: scaled(BATTLE_TIMING.hit, scale), result,
             attacker: text(hit.attacker), target, skill: text(hit.skill),
             label: BATTLE_HIT_LABELS[result],
             diceLabel: hit.dice === true ? BATTLE_DICE_LABELS[result] || '' : '',
             targetKind,
-            targetChar: targetKind === 'cast' ? castNames.find((name) => isSpriteTarget(target, name)) : '',
+            targetChar: targetKind === 'cast' ? aliasTarget(target, castNames, keyOf) : '',
             portrait: targetKind === 'foe' ? portrait : '',
         });
         at += scaled(result === 'ko' ? BATTLE_TIMING.ko : BATTLE_TIMING.hitGap, scale);

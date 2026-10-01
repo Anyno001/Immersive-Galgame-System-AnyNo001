@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveStageCast } from '../src/scene/stage-cast.js';
+import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveCastOffset, resolveStageCast } from '../src/scene/stage-cast.js';
 import { extractSceneDirectives } from '../src/scene/scene-directives.js';
 import { applyCastToDom, castSlotKey, isCastCollapsed, layoutCastSlots, resolveCastCapacity } from '../src/visual/igs-ui/stage-cast-render.js';
 
@@ -204,4 +204,53 @@ test('gate: cast dom waits for decode and cuts same-character swaps', async () =
     assert.equal(el.style.backgroundImage, 'url("decode-a2.png")');
     assert.equal(appended.length, 0);
     assert.equal(layer.children.length, 1);
+});
+
+test('gate: entering cast waits for head-align ready before showing', async () => {
+    const { root, layer } = fakeLayer();
+    const flush = () => new Promise((r) => setImmediate(r));
+    let release;
+    const ready = new Promise((r) => { release = r; });
+    applyCastToDom(root, [{ character: '甲', url: 'align-a.png', posX: 6, posY: 100, scale: 100 }], { ready });
+    const el = layer.children[0];
+    await flush();
+    assert.ok(!el.style.backgroundImage, 'entering member stays hidden until alignment is ready');
+    // 对齐重排：同一元素同步改尺寸，不提前显示。
+    applyCastToDom(root, [{ character: '甲', url: 'align-a.png', posX: 6, posY: 92, scale: 110 }], { reduced: true });
+    assert.equal(el.style.backgroundSize, 'auto 110%');
+    assert.equal(el.style.backgroundPosition, '6% 92%');
+    assert.ok(!el.style.backgroundImage);
+    release();
+    await flush();
+    assert.equal(el.style.backgroundImage, 'url("align-a.png")');
+    assert.equal(el.style.backgroundSize, 'auto 110%');
+    // 已在台上的成员不受 ready 影响，换图照常。
+    const pending = new Promise(() => {});
+    applyCastToDom(root, [{ character: '甲', url: 'align-a2.png', posX: 6, posY: 92, scale: 110 }], { ready: pending });
+    await flush();
+    assert.equal(el.style.backgroundImage, 'url("align-a2.png")');
+});
+
+
+
+test('gate: stage-cast offset falls back to nearest page directive when locate fails', () => {
+    const directives = [
+        { type: 'scene', offset: 0, segmentIndex: 0 },
+        { type: 'char', character: '甲', dialogue: '早。', segmentIndex: 0, offset: 10 },
+        { type: 'char', character: '乙', dialogue: '早上好。', segmentIndex: 1, offset: 30 },
+        { type: 'thought', character: '丙', thought: '后来的心声', segmentIndex: 3, offset: 60 },
+    ];
+    const locate = (t) => ({ '早。': 14, '早上好。': 34, '后来的心声': 64 }[t] ?? -1);
+    // 定位成功时原样返回。
+    assert.equal(resolveCastOffset({ offset: 20, directives, segmentIndex: 1, locate }), 20);
+    // 定位失败：取本页及之前最近一条台词重新定位，名单不再清空。
+    const at = resolveCastOffset({ offset: -1, directives, segmentIndex: 2, locate });
+    assert.equal(at, 34);
+    assert.deepEqual(resolveStageCast({ directives, offset: at }).map((m) => m.character), ['乙', '甲']);
+    assert.equal(resolveCastOffset({ offset: -1, directives, segmentIndex: 3, locate }), 64);
+    // 本页之前没人开口、原文也定位不到或缺 locate：返回 -1，名单为空。
+    assert.equal(resolveCastOffset({ offset: -1, directives: directives.slice(0, 1), segmentIndex: 2, locate }), -1);
+    assert.equal(resolveCastOffset({ offset: -1, directives, segmentIndex: 2, locate: () => -1 }), -1);
+    assert.equal(resolveCastOffset({ offset: -1, directives, segmentIndex: 2 }), -1);
+    assert.equal(resolveCastOffset({ offset: Number.NaN, directives, segmentIndex: -1, locate }), -1);
 });

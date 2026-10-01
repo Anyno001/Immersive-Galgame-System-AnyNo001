@@ -37,7 +37,7 @@ import { renderQualityRow } from './render-quality-fields.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
 import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary, isNonSpriteSpeaker } from '../../scene/asset-match.js';
-import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveStageCast } from '../../scene/stage-cast.js';
+import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveCastOffset, resolveStageCast } from '../../scene/stage-cast.js';
 import { normalizeStageCastSettings } from './stage-direction-settings.js';
 import { resolveRomanceRivalTarget } from './romance-settings.js';
 import { clearCastDom } from './stage-cast-render.js';
@@ -141,6 +141,7 @@ import { renderAssetReviewPanel } from './asset-review-panel.js';
 import {
     ensureEmbeddedHost,
     findEmbeddedHost,
+    hideEmbeddedSourceText,
     hideStorySpan,
     isEmbeddedEditTrigger,
     isStoryHidden,
@@ -2830,7 +2831,8 @@ export function createIgsReaderHost(options = {}) {
                         ? resolveRomanceRivalTarget(pageFx, speakerKey, castKeyOf) : '';
                     const cast = resolveStageCast({
                         directives: outfitDirectives,
-                        offset: outfitOffset,
+                        // 定位失败时按页码取最近一条台词重新定位，避免名单整体清空。
+                        offset: resolveCastOffset({ offset: outfitOffset, directives: sceneDirectives, segmentIndex: normalizedIndex, locate: (t) => locateTextOffsetInSource(sceneSourceForOffset, t) }),
                         keyOf: castKeyOf,
                         isEligible: (name) => !isNonSpriteSpeaker(name, castUser) && !isSystemRole(name, readerSettings.systemRole),
                         limit: STAGE_CAST_SCAN_LIMIT,
@@ -3725,8 +3727,12 @@ export function createIgsReaderHost(options = {}) {
             || '';
         const tags = reader && reader.sourceFilter && reader.sourceFilter.textIncludeTags;
         const lines = storyLines(raw, tags || 'content');
-        if (!lines.length) return;
-        hideStorySpan(mesText, lines);
+        // 只藏故事片段；片段定位不到（原文与渲染不一致、宿主缺 Range 等）时整段藏起，避免正文与阅读器重复显示。
+        if (lines.length && hideStorySpan(mesText, lines)) {
+            if (mesText && typeof mesText.getAttribute === 'function' && mesText.getAttribute('data-igs-embedded-hidden') === '1') restoreEmbeddedSourceText(mesText);
+            return;
+        }
+        hideEmbeddedSourceText(mesText);
     }
 
     // 酒馆重画 .mes_text（生图写回、铅笔保存）会丢掉藏好的正文。楼层还在就再藏一次。

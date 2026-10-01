@@ -1240,7 +1240,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 陪衬反应：点名提亮每次渲染都带上；动作只在进入新页时播一次，同页重绘不重播。
         const castReact = resolveCastReactPage(snapshot, castPlan.members);
         castReactMarks = castReact.marks;
-        applyCastToDom(root, markCalledCast(castPlan.members, castReact.called), { reduced: castReduced, handoff, focus: castFocus, lean: castLean, entrances: castStageEntrances(snapshot) });
+        // 头部对齐探测未就绪时，新上台的陪衬等下方对齐重排完成再滑入（applyCastToDom 内有超时兜底）。
+        let releaseCastAlign = () => {};
+        const castAlignReady = castPlan.pending.length ? new Promise((resolve) => { releaseCastAlign = resolve; }) : null;
+        applyCastToDom(root, markCalledCast(castPlan.members, castReact.called), { reduced: castReduced, handoff, focus: castFocus, lean: castLean, entrances: castStageEntrances(snapshot), ready: castAlignReady });
         const castReactKey = `${snapshot.messageId}:${snapshot.content.currentIndex}`;
         if (current.castReactKey !== castReactKey) {
             current.castReactKey = castReactKey;
@@ -1284,7 +1287,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                         return next ? { ...e, posX: next.posX, posY: next.posY, scale: next.scale } : e;
                     });
                 }
-            });
+            }).finally(() => releaseCastAlign());
         }
     } else if (!castEditing) {
         const prevStage = current.castStage || null;

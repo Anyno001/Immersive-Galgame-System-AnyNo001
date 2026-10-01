@@ -19,7 +19,8 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 - 阶段：最小闭环已接通
 - 形态：独立 app 工程，已有 Node 原生测试与验收闸门
-- 当前内测候选 `v0.33.9`（推送 `main`，未打 tag）：剧情 CG 每层张数可设 1～16 并保持；同一楼后面的 `[igs-scene]` 也会触发 NSFW 生图；缺的背景一次写完，已有的不重复生成。详见更新日志 v0.33.9。
+- 当前内测候选 `v0.33.10`（整合验证通过，未打 tag）：程序生成地图默认使用明亮配色，保留 classic 原配色；合入云端 v0.33.9 的 CG 张数、后续场景生成与背景补全改动，并统一源码、dist 与 loader。详见更新日志 v0.33.10。
+- `v0.33.9`（已推送 `main`，未打 tag）：剧情 CG 每层张数可设 1～16 并保持；同一楼后面的 `[igs-scene]` 也会触发 NSFW 生图；缺的背景一次写完，已有的不重复生成。详见更新日志 v0.33.9。
 - `v0.33.8`（已推送 `main`，未打 tag）：内嵌框按背景尺寸钉死，正文栏宽不超过 640 像素用竖屏尺寸，更宽用横屏尺寸；图按原比例铺进框里。详见更新日志 v0.33.8。
 - `v0.33.7`（已推送 `main`，未打 tag）：内嵌模式点小铅笔编辑完成或取消后自动重开阅读器；待确认情绪词标签不再带所属角色；阅读模式等分段按钮选中态不再加粗。详见更新日志 v0.33.7。
 - `v0.33.6`（已推送 `main`，未打 tag）：天气程度细分为毛毛雨 / 小雨 / 中雨 / 大雨 / 暴雨，粒子、调色、地图光照与暴雨闪电随之拉开差距；环境滤镜新增「夜间调色」子开关；内嵌模式点小铅笔直接编辑；新手引导新增「翻页」一步。详见更新日志 v0.33.6。
@@ -58,6 +59,8 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 
 
+
+- 本地草稿（未升版本号、未构建、未提交、未推送）：多角色同屏优化续（审查清单第 6 项 + 首次出场技术债）。① 定位失败不再清空同屏名单：`scene/stage-cast.js` 新增 `resolveCastOffset`，当前页在原文里定位不到时，按页码取本页及之前最近一条台词 / 心声重新定位，仍定位不到才返回 -1；`reader-host.js` 名单解析改走该兜底。② 战斗目标认别名：`fx-battle-model.js` 的 `planBattleFx` 新增可选 `keyOf`（不传时行为不变），说话人与陪衬目标先按名字直接匹配，再按别名归一到主名全等比对；`fx-battle-render.js` 传入 `stage-cast-render.js` 导出的 `castKeyOfSnapshot`（与同屏名单同源）。③ 头部对齐开启时陪衬首次出场不再先错位再跳：探测未就绪时渲染层传 `ready` 信号，新上台的陪衬等解码与对齐重排都完成再滑入，等待上限 `CAST_ALIGN_WAIT_MS = 1500`，已在台上的成员不受影响。新增 3 条回归（`stage-cast.test.js` 2 条、`fx-battle.test.js` 1 条）。技术债：说话人 `#igs-sprite` 首次出场仍是先显示、探测完成后修正（本次只处理陪衬）；第 2 项（跨楼层继承在场名单）待拍板；第 5 项待真机测帧率与内存；未做真机验证，不打 tag。④ 已拉取云端 v0.33.8（fast-forward 到 `9f4933f`，本地改动无冲突恢复）；上游把立绘尺寸改为按高度绘制（`spriteBackgroundSize` → `auto N%`）后，`sprite-edit.js` 的 `spriteDragPosition` 在读不到原图尺寸（探测未完成或失败）时仍按宽度估算，比例 100 时横向可移动量为 0，立绘拖不动；现改为该情况下横向按舞台宽度换算，原图尺寸已知时行为不变，单人立绘编辑与陪衬槽位编辑共用此修复，新增回归 `gate:sprite-edit:drag-still-moves-when-natural-size-unknown-at-scale-100`。上游 v0.33.8 自带失败（纯 v0.33.8 复现，与本地改动无关，已在 ⑤ 修复）：`npm test` 3 条（`dbgen-cg-calls-only-the-plugin-prompt-and-generate-apis`、`settings-style-keeps-material-language`、`settings-style-uses-soft-radius-tokens`），`npm run simulate` 3 条（`igs-ui-embedded-mounts-beside-latest-message-and-restores-source`、`igs-ui-embedded-stream-hides-new-floor-and-finishes-on-host-event`、`igs-ui-database-img-marker-selects-provider-image`）。⑤ 修复上述 6 条（保留共创 `20b72cd` 的视觉效果与 CG 显示规则）：设置页进度条圆角 `999px` 改用 `--igs-settings-radius-small`（`settings-notice.js`）；dbgen CG 描述补回「提示词、出图指导、标签和」（`auto-illustration-service.js`）；内嵌阅读只藏故事片段，片段定位不到时退回整段隐藏，避免正文与阅读器重复显示（`reader-host.js` 的 `hideMountedStory`）；流式内嵌测试改为通知全部 `#chat` 观察器（v0.33.8 新增正文守护观察器，属有意设计）；数据库 `<IMG>` 测试按新规则「当前句显示其后下一张、翻过最后一张保持最后一张」更新期望，`scene/CONTRACT.md` 同步现行规则。验证：`npm test` 1106/1106、`npm run simulate` 174/174、`structure` / `static` 通过。
 
 - 本地草稿（未升版本号、未推送）：多角色同屏优化（审查清单第 1 / 3 / 4 项）。① 缺图角色不再占同屏名额：名单先宽扫 6 人（`STAGE_CAST_SCAN_LIMIT`），`scene/stage-cast.js` 新增 `pickCastMembers` 跳过无立绘角色，凑满「3 − 说话人」个即停止解析，窄屏上限仍由 `layoutCastSlots` 截断。② 开启头部对齐、首次出场的立绘探测补跑后，同步更新 `fxSprite`（漫画符号、Meta 头部热区、亲密演出重跑时读到新值）、战斗陪衬冲击点目标与 `castStage.entries`（槽位编辑起点），不再停在旧值。③ 陪衬换图与新成员入场先解码再显示（复用 `stage-direction-runtime.js` 导出的 `decodeSpriteImage`，1.5 秒超时兜底），解码期间保留旧图；同一角色换图时旧图 180ms 淡出，减少动态效果时直接切换。新增 2 条回归，`npm test` 838/838。技术债：首次出场仍是先按未对齐的样子渲染、探测完成后再修正，未改为等探测完成再滑入；经核对 `#igs-sprite` 换图为同步写入，审查清单所述「陪衬升为说话人时双位置残影」的前提不成立，待真机观察；第 2 项（跨楼层继承在场名单）待用户拍板；第 5 项待真机测帧率与内存；第 6 项两处疑点已确认存在（定位失败时名单清空、战斗目标不认别名），未修。未升版本号、未构建、未提交。
 - 本地草稿（未升版本号、未提交、未推送）：新增「好感总览」。左上角状态栏资料菜单（地图 / 日记 / 物品 / 人际关系旁）新增同款细线心形 SVG 按钮，仅当当前 HUD 显示了好感度条时出现；打开后一页列出状态栏所选表里所有角色的好感度条（数据路径沿用「阅读器 → 界面 → 状态栏 → 读取表格」，用户自选），按好感从高到低排序；页面沿用资料页外壳与四套配色（地雷色 / 奶油风 / 浅色 / 深色）。改动：新增 `data/shujuku/favor-overview-model.js`，`record-panel.js` / `record-panel-style.js` / `record-icons.js` / `reader-dom-render.js` / `reader-host.js`；新增 `tests/favor-overview.test.js`。技术债：未重建 dist 与 loader；真实酒馆视觉与手机窄屏待验收，不打 tag。
@@ -373,6 +376,13 @@ projects/Immersive Galgame System/
 15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
 
 ## 更新日志
+
+### v0.33.10 - 明亮地图配色与云端改动统一整合
+
+- 程序生成地图默认使用 `bright`：饱和草木、浅青水面、浅蓝白屋顶与浅色道路；投影透明度、收尾光照、暗角及颗粒跟随配色款式，保持正交俯视，不替换自带或表格底图。
+- 原配色通过 `palette: 'classic'` 保留；款式进入生成缓存键，不参与城市布局种子。当前未新增面板配色切换控件；科幻主题保留原暗色。
+- 在云端 v0.33.9 基线上整合本地两笔提交，保留 CG 宽高构图提示、剧情 CG 张数 1～16、后续场景 NSFW 识别及缺失背景补全，同时保留本地战斗演出、舞台阵容、地图面板等既有改动。
+- 统一 `package.json`、运行时版本、dist 与版本化自动更新 loader。整合定向测试 165/165 通过；结构、静态检查、全量测试、模拟测试（174/174）、性能和最终构建逐阶段通过，退出码均为 0。真实酒馆视觉和外部生图接口未在本轮验收，不打 tag。
 
 ### v0.33.9 - 后续场景的 NSFW 和背景都会生成
 

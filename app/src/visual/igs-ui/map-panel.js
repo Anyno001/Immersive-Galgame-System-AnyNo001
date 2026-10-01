@@ -17,6 +17,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '
 const personInitial = value => escapeHtml(String(value ?? '').trim().charAt(0) || '·');
 const BASEMAP_SOURCE_KEY = 'igs-map-basemap-source';
 const GEN_SALT_KEY = 'igs-map-gen-salt:';
+const GEN_PALETTE_KEY = 'igs-map-gen-palette';
 // map-demo 全套自带分时段美术，不再二次调色与点灯。
 const OWN_TIME_ART = /map-demo-(?:clean|day)/i;
 // 「17:40」等钟点也归入五档时段，内置分时段底图才能跟着切换。
@@ -63,6 +64,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
     const builtinStyle = () => getBuiltinBasemap(storedSource().replace(/^builtin:/, ''));
     const saltKey = () => GEN_SALT_KEY + (getChatId() || 'default');
     const readSalt = () => { try { return Number(storage()?.getItem(saltKey())) || 0; } catch (_) { return 0; } };
+    const readPalette = () => { try { return storage()?.getItem(GEN_PALETTE_KEY) === 'classic' ? 'classic' : 'bright'; } catch (_) { return 'bright'; } };
     const writeStored = (key, value) => { try { storage()?.setItem(key, String(value)); } catch (_) { /* 隐私模式下仅本次会话生效 */ } };
     const callback = () => { if (root) reload(); };
     const activeTable = () => model.tables.find(table => table.uid === activeUid) || null;
@@ -171,7 +173,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
         const id = control.getAttribute('data-map-id');
         if (action === 'close') return close();
         if (action === 'toggle-source') { sourceOpen = !sourceOpen; render(); return; }
-        if (!['basemap-source', 'basemap-style', 'reroll', 'reroll-back'].includes(action)) sourceOpen = false;
+        if (!['basemap-source', 'basemap-style', 'reroll', 'reroll-back', 'gen-palette'].includes(action)) sourceOpen = false;
         if (action === 'deselect') selectedId = null;
         if (action === 'refresh') return reload();
         if (action === 'table') {
@@ -206,6 +208,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
             camera = null;
         }
         if (action === 'basemap-style' && MAP_BUILTIN_BASEMAPS.some(style => style.id === id)) writeStored(BASEMAP_SOURCE_KEY, `builtin:${id}`);
+        if (action === 'gen-palette' && (id === 'bright' || id === 'classic')) writeStored(GEN_PALETTE_KEY, id);
         render();
     }
 
@@ -498,6 +501,12 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
                 + (salt > 0 ? '<button type="button" class="igs-map-source-chip" data-map-act="reroll-back">上一张</button>' : '')
                 + `<button type="button" class="igs-map-source-chip" data-map-act="reroll">${RECORD_ICONS.shuffle}<span>换一张</span></button>`;
         }
+        // 生成地图的配色款式：明亮（默认）/ 暮色（原配色）；只换颜色，城市布局不变。
+        if (source === 'auto' && generated?.status !== 'skipped') {
+            const pal = readPalette();
+            const chip = (id, label) => '<button type="button" class="igs-map-source-chip" data-map-act="gen-palette" data-map-id="' + id + '" aria-pressed="' + (pal === id ? 'true' : 'false') + '">' + label + '</button>';
+            sub += chip('bright', '明亮') + chip('classic', '暮色');
+        }
         return `<div class="igs-map-source" role="group" aria-label="底图"><div class="igs-map-source-switch">${tab('auto', '生成地图')}${tab('builtin', '自带底图')}</div><div class="igs-map-source-sub">${sub}</div></div>`;
     }
 
@@ -508,7 +517,7 @@ export function createMapPanelController(doc, global, fillDraft, options = {}) {
 
     function requestGenerated(table, parent, markers) {
         const input = buildMapGenInput({
-            chatId: getChatId(), tableUid: table.uid, parentId: parentId || '', salt: readSalt(), parentName: parent?.name || '',
+            chatId: getChatId(), tableUid: table.uid, parentId: parentId || '', salt: readSalt(), palette: readPalette(), parentName: parent?.name || '',
             points: markers.map(({ loc, x, y }) => ({ id: loc.id, name: loc.name, description: loc.description, x, y })),
             themeTexts: table.locations.flatMap(loc => [loc.name, loc.description]),
         });

@@ -520,7 +520,7 @@ test('gate:illustration:dbgen-cg-calls-only-the-plugin-prompt-and-generate-apis'
     assert.equal(calls.generate, 0);
     assert.equal(calls.floor.length, 1);
     assert.equal(calls.floor[0].messageId, 5);
-    assert.equal(calls.floor[0].description, '为本楼生成1张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，正文以外的内容不要拿来当挂载点，也不要画进CG。\n画面是横的，宽1216，高832。构图按横屏写，不要写成竖屏。');
+    assert.equal(calls.floor[0].description, '为本楼生成1张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，提示词、出图指导、标签和正文以外的内容不要拿来当挂载点，也不要画进CG。\n画面是横的，宽1216，高832。构图按横屏写，不要写成竖屏。');
     assert.equal(calls.floor[0].skipRecall, undefined);
     assert.equal(calls.paint.length, 1);
     assert.equal(calls.paint[0].caption, caption);

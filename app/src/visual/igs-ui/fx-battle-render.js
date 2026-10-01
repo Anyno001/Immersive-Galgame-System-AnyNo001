@@ -7,6 +7,7 @@ import { battleSfxKind, playBattleSfx } from './fx-battle-sfx.js';
 import { FX_HOLD_SCALE, normalizeFxSoundSettings, normalizeFxStyleSettings } from './fx-settings.js';
 import { pickFxAccent } from './fx-symbols.js';
 import { probeSpriteHead } from './fx-anchor.js';
+import { castKeyOfSnapshot } from './stage-cast-render.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 
 const SEEN_LIMIT = 256;
@@ -53,6 +54,7 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
         spriteName: sprite ? content.spriteCharacter || content.speaker || '' : '',
         foeImage,
         castNames: cast.map((c) => c.character),
+        keyOf: castKeyOfSnapshot(snapshot),
     });
     if (!plan.plate && !plan.events.length && !mountedRoots.has(root)) return { played: false, reason: 'no-battle' };
     if (plan.identity) {

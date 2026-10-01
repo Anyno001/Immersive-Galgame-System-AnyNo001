@@ -68,8 +68,58 @@ export const MAP_THEMES = Object.freeze({
     }),
 });
 
-export function getMapTheme(name) {
-    return MAP_THEMES[name] || MODERN;
+// 明亮款：参考明快的动漫城市插画，饱和草木、浅青水面、白色道路与浅蓝白楼顶。
+// 自然层（地面、水、树、阴影）套到所有非科幻世界观；城市层（道路、楼顶、车）只替换现代主题，其余世界观保留自身建筑配色。
+const BRIGHT_NATURE = Object.freeze({
+    suburb: '#c8e39a', meadow: '#a8d977', meadowAlt: '#9dd26c',
+    forestFloor: '#6fbf4f', lawn: '#8fd468', lawnAlt: '#82cc5c', sand: '#f3e3b5', sandWet: '#e2cf98', bankGround: '#d7e8c4',
+    fields: ['#cfe58a', '#a6d86c', '#8fcf5f', '#e3d58a', '#b9e07e', '#9ad069', '#d9e79a'],
+    fieldLine: 'rgba(70,110,40,.22)', hedge: '#4f9e3f',
+    bank: '#e3ebe0', bankEdge: '#a9c0b4',
+    shallow: '#9fe3f5', water: '#5cc4ec', waterDeep: '#3aa8e0', foam: 'rgba(255,255,255,.7)',
+    roofGarden: '#86cf62',
+    trees: [['#2f8a3a', '#4caf4a', '#86d36a'], ['#2a7f42', '#45a552', '#7fcf73'], ['#3c9a3a', '#62bd4c', '#9fdc6c'], ['#256f3e', '#3a9150', '#68bf64']],
+    shadow: '#3b4f86', shadowAlpha: 0.2,
+    // 收尾：左上暖白光、右下极淡天蓝，几乎无暗角，颗粒以白点为主，保持插画式的干净亮面。
+    finish: Object.freeze({ glow: 'rgba(255,250,232,.16)', dusk: 'rgba(120,180,230,.05)', vignette: 'rgba(60,110,170,.06)', grainLight: 0.85, grainMin: 0.02, grainMax: 0.06 }),
+});
+
+const BRIGHT_CITY = Object.freeze({
+    paving: '#e6e9ee',
+    roadEdge: '#b6bfcc', road: '#f4f6fa', roadLine: 'rgba(255,255,255,.9)',
+    linkEdge: '#bcc4d0', link: '#eef1f6', streetEdge: '#c6cdd8', street: '#e9edf3',
+    laneEdge: '#cfd8bf', lane: '#e6ecd8', pathEdge: '#d7d9c0', path: '#f1efdc',
+    plaza: '#eceff4', plazaEdge: '#c4cbd6', parking: '#cdd2da',
+    roofs: ['#dfe7f2', '#c9d6e8', '#f1f3f7', '#a9c4e4', '#e8e2d8', '#b7d0ea', '#d4dbe6', '#9bbbe0'],
+    flats: ['#f4f6fa', '#dde6f2', '#e9eef5', '#c7d7ec', '#f0ece4', '#d3e0ef', '#bcd0ea'], flatDetail: '#a8b8cc', solar: '#3f6fb0',
+    accentTrees: ['#f2a7c3', '#f7c4d6', '#e98fb2'],
+    accent: '#f08a4b', track: '#e07a50', torii: '#e2483a', white: '#ffffff',
+    cars: ['#ffffff', '#e85a50', '#4f86d6', '#3d4250', '#f2c94c', '#8fc0e0'], boat: '#ffffff',
+});
+
+// 款式变体：classic 为原配色；bright 为明亮款。科幻主题刻意偏暗，明亮款下保持原样。
+export const MAP_THEME_VARIANTS = Object.freeze({
+    classic: MAP_THEMES,
+    bright: Object.freeze({
+        modern: Object.freeze({ ...MAP_THEMES.modern, ...BRIGHT_NATURE, ...BRIGHT_CITY }),
+        wafu: Object.freeze({ ...MAP_THEMES.wafu, ...BRIGHT_NATURE }),
+        fantasy: Object.freeze({ ...MAP_THEMES.fantasy, ...BRIGHT_NATURE }),
+        ancient: Object.freeze({ ...MAP_THEMES.ancient, ...BRIGHT_NATURE }),
+        scifi: MAP_THEMES.scifi,
+    }),
+});
+
+export const MAP_DEFAULT_VARIANT = 'bright';
+
+// 未知款式回退默认款，未知主题回退该款式的现代主题。
+export function getMapThemeVariant(name, variant = MAP_DEFAULT_VARIANT) {
+    const set = MAP_THEME_VARIANTS[variant] || MAP_THEME_VARIANTS[MAP_DEFAULT_VARIANT];
+    return set[name] || set.modern;
+}
+
+
+export function getMapTheme(name, palette) {
+    return getMapThemeVariant(name, palette || MAP_DEFAULT_VARIANT);
 }
 
 export function hexToRgb(hex) {

@@ -203,7 +203,7 @@ export function createAutoIllustrationService(deps) {
             written = await nai.writeDbgenFloorPrompts({
                 messageId,
                 description: [
-                    `为本楼生成${decision.want}张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，正文以外的内容不要拿来当挂载点，也不要画进CG。`,
+                    `为本楼生成${decision.want}张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，提示词、出图指导、标签和正文以外的内容不要拿来当挂载点，也不要画进CG。`,
                     cgFramePrompt(cgSize(s)),
                 ].filter(Boolean).join('\n'),
             });

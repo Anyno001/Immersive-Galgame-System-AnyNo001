@@ -3463,7 +3463,9 @@ test('gate:simulation:igs-ui-embedded-stream-hides-new-floor-and-finishes-on-hos
 
     const opened = await vn.openLatestAvailable('embedded');
     assert.equal(opened.ok, true);
-    assert.equal(mutationObservers.length, 1);
+    // 流式观察器与内嵌正文守护（v0.33.8 起）都挂在 #chat 上；模拟宿主变更时通知全部观察器。
+    assert.ok(mutationObservers.length >= 1);
+    const notifyChat = (records) => { for (const observer of mutationObservers) observer.handler(records); };
     eventSource.emit('generation_started');
 
     const streamingElement = createFakeMessageElement(document, { messageId: 71, textContent: '流式中的楼层字样。' });
@@ -3471,7 +3473,7 @@ test('gate:simulation:igs-ui-embedded-stream-hides-new-floor-and-finishes-on-hos
     chat.appendChild(streamingElement);
     currentMessage = { id: 71, text: '流式中的楼层字样。', visibleText: '流式中的楼层字样。', element: streamingElement };
     messages.set(71, currentMessage);
-    mutationObservers[0].handler([{ target: chat, addedNodes: [streamingElement], removedNodes: [] }]);
+    notifyChat([{ target: chat, addedNodes: [streamingElement], removedNodes: [] }]);
 
     const streamHost = streamingElement.querySelector('[data-igs-embedded-host="1"]');
     assert.ok(streamHost);
@@ -3499,7 +3501,7 @@ test('gate:simulation:igs-ui-embedded-stream-hides-new-floor-and-finishes-on-hos
     assert.notEqual(document.getElementById('igs-overlay').style.display, 'none');
     assert.match(opened.reader.controller.getSnapshot().content.displayText, /生成完成后的最终正文/);
 
-    mutationObservers[0].handler([{ target: streamingText, addedNodes: [], removedNodes: [] }]);
+    notifyChat([{ target: streamingText, addedNodes: [], removedNodes: [] }]);
     assert.equal(streamHost.querySelector('.igs-embedded-loading'), null);
     vn.destroy();
     assert.equal(streamingText.style.display, '');
@@ -4725,8 +4727,10 @@ test('gate:simulation:igs-ui-database-img-marker-selects-provider-image', async 
 
     assert.equal(opened.ok, true);
     assert.deepEqual(opened.reader.snapshot.content.segments, ['第一段。', '第二段。', '第三段。']);
+    // v0.33.8 起：当前句显示它之后的下一张；翻过最后一张后保持最后一张。
+    assert.equal(opened.reader.snapshot.content.backgroundImage, 'https://example.com/database-image-1.png');
     assert.equal(next.ok, true);
-    assert.equal(middleContent.backgroundImage, 'https://example.com/database-image-1.png');
+    assert.equal(middleContent.backgroundImage, 'https://example.com/database-image-2.png');
     assert.equal(nextAgain.ok, true);
     assert.equal(content.backgroundImage, 'https://example.com/database-image-2.png');
 

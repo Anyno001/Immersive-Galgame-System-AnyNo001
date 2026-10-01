@@ -47,7 +47,7 @@ function* renderCitySteps(ctx, scene, options = {}) {
     const W = scene.width;
     const H = scene.height;
     const scale = options.scale || 1;
-    const pal = getMapTheme(scene.theme);
+    const pal = getMapTheme(scene.theme, options.palette);
     const seed = options.seed || 1;
     const rng = createRandom(seed).fork('render');
     const createCanvas = typeof options.createCanvas === 'function' ? options.createCanvas : null;
@@ -101,7 +101,7 @@ function* renderCitySteps(ctx, scene, options = {}) {
     world();
     yield 'landmarks';
 
-    drawFinish(ctx, W, H, rng.fork('finish'), createCanvas);
+    drawFinish(ctx, W, H, rng.fork('finish'), createCanvas, pal);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     yield 'finish';
 }
@@ -505,7 +505,7 @@ function drawShadows(ctx, scene, pal, scale, createCanvas) {
     target.fill();
     if (!sctx) return;
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
-    ctx.globalAlpha = pal.shadow === '#07090f' ? 0.45 : 0.24;
+    ctx.globalAlpha = pal.shadowAlpha ?? (pal.shadow === '#07090f' ? 0.45 : 0.24);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(layer, 0, 0, W, H);
     ctx.globalAlpha = 1;
@@ -683,19 +683,23 @@ function drawTrees(ctx, trees, pal) {
 
 // ---------- 收尾 ----------
 
-function drawFinish(ctx, W, H, rng, createCanvas) {
+// 收尾层默认值即原暮色版；调色板可用 finish 覆盖（明亮版去掉暗角与深色颗粒）。
+const CLASSIC_FINISH = Object.freeze({ glow: 'rgba(255,246,222,.12)', dusk: 'rgba(24,28,48,.07)', vignette: 'rgba(30,30,50,.14)', grainLight: 0.5, grainMin: 0.04, grainMax: 0.12 });
+
+function drawFinish(ctx, W, H, rng, createCanvas, pal) {
+    const fx = pal?.finish || CLASSIC_FINISH;
     if (ctx.createLinearGradient) {
         const light = ctx.createLinearGradient(0, 0, W, H);
-        light.addColorStop(0, 'rgba(255,246,222,.12)');
+        light.addColorStop(0, fx.glow);
         light.addColorStop(0.55, 'rgba(255,246,222,0)');
-        light.addColorStop(1, 'rgba(24,28,48,.07)');
+        light.addColorStop(1, fx.dusk);
         ctx.fillStyle = light;
         ctx.fillRect(0, 0, W, H);
     }
     if (ctx.createRadialGradient) {
         const vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.6);
         vignette.addColorStop(0, 'rgba(30,30,50,0)');
-        vignette.addColorStop(1, 'rgba(30,30,50,.14)');
+        vignette.addColorStop(1, fx.vignette);
         ctx.fillStyle = vignette;
         ctx.fillRect(0, 0, W, H);
     }
@@ -704,8 +708,8 @@ function drawFinish(ctx, W, H, rng, createCanvas) {
     const tctx = tile?.getContext?.('2d');
     if (!tctx || !ctx.createPattern) return;
     for (let k = 0; k < 1400; k++) {
-        const v = rng.chance(0.5) ? 255 : 0;
-        tctx.fillStyle = `rgba(${v},${v},${v},${rng.range(0.04, 0.12)})`;
+        const v = rng.chance(fx.grainLight) ? 255 : 0;
+        tctx.fillStyle = `rgba(${v},${v},${v},${rng.range(fx.grainMin, fx.grainMax)})`;
         tctx.fillRect(rng.int(0, 127), rng.int(0, 127), 1, 1);
     }
     const pattern = ctx.createPattern(tile, 'repeat');

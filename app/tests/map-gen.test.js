@@ -323,3 +323,19 @@ test('gate:map-gen:builtin-basemap-styles-resolve-time-art', async () => {
     assert.deepEqual(resolveBuiltinBasemap(timed, '夜晚'), { url: 'https://a/night.webp', ownTimeArt: true });
     assert.equal(resolveBuiltinBasemap(timed, '黄昏').url, 'https://a/day.webp', 'missing slots fall back to the day art');
 });
+
+
+test('gate:map-gen:bright-palette-is-default-and-classic-stays-selectable', async () => {
+    const { getMapTheme, MAP_DEFAULT_VARIANT, MAP_THEMES } = await import('../src/visual/map-gen/themes.js');
+    assert.equal(MAP_DEFAULT_VARIANT, 'bright');
+    assert.notEqual(getMapTheme('modern').water, MAP_THEMES.modern.water, 'default render uses the bright palette');
+    assert.equal(getMapTheme('modern', 'classic'), MAP_THEMES.modern, 'classic keeps the original palette');
+    assert.equal(getMapTheme('missing', 'classic'), MAP_THEMES.modern);
+    assert.equal(getMapTheme('scifi'), MAP_THEMES.scifi, 'scifi stays dark in bright mode');
+    const base = { chatId: 'c', tableUid: 't', points: PRESETS.campus };
+    const bright = buildMapGenInput(base);
+    const classic = buildMapGenInput({ ...base, palette: 'classic' });
+    assert.equal(bright.palette, 'bright');
+    assert.equal(bright.seed, classic.seed, 'palette changes colours, not the city layout');
+    assert.notEqual(bright.key, classic.key, 'palette is part of the cache key');
+});

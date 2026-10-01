@@ -757,6 +757,18 @@ test('gate:sprite-edit:drag-follows-finger-when-sprite-larger-than-stage', () =>
     assert.equal(unknown.posY, 90);
 });
 
+test('gate:sprite-edit:drag-still-moves-when-natural-size-unknown-at-scale-100', () => {
+    const stage = { stageW: 1280, stageH: 720 };
+    // 探测未完成 / 失败：比例 100 时估算可移动量为 0，横向仍须跟着拖动走，纵向照旧。
+    const next = spriteDragPosition({ posX: 50, posY: 100, scale: 100, ...stage, dx: 64, dy: -36 });
+    assert.ok(Math.abs(next.posX - 55) < 1e-9, `横向：${next.posX}`);
+    assert.ok(Math.abs(next.posY - 95) < 1e-9, `纵向：${next.posY}`);
+    // 原图尺寸已知时行为不变：沿用绘制矩形换算。
+    const known = spriteDragPosition({ posX: 50, posY: 100, scale: 100, ...stage, naturalW: 800, naturalH: 1600, dx: 40, dy: 0 });
+    assert.ok(Math.abs(known.posX - 54.34782608695652) < 1e-9);
+});
+
+
 
 test('gate:fx-runtime:onomatopoeia-plays-sound-without-big-text', () => {
     const { root, motion } = makeRoot();

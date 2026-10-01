@@ -2,9 +2,10 @@ import { hashString } from './seed-random.js';
 import { classifyMapPlace, detectMapTheme, resolveMapScale } from './place-semantics.js';
 import { generateCitySteps } from './city.js';
 import { renderCitySteps, renderLightSteps } from './render-canvas.js';
+import { MAP_DEFAULT_VARIANT } from './themes.js';
 
 // 升级生成算法或画风时加一，旧缓存与旧种子序列随之失效。
-export const MAP_GEN_VERSION = 2;
+export const MAP_GEN_VERSION = 3;
 export const MAP_GEN_WORLD = Object.freeze({ width: 1600, height: 900 });
 
 const round4 = value => Math.round(Number(value) * 10000) / 10000;
@@ -21,13 +22,14 @@ export function buildMapGenInput(options = {}) {
         y: round4(point.y),
         category: classifyMapPlace(point.name, point.description),
     }));
+    const palette = options.palette || MAP_DEFAULT_VARIANT;
     const scale = resolveMapScale(options.parentName, points.map(point => point.name));
     const theme = options.theme || detectMapTheme(options.themeTexts || points.flatMap(point => [point.name, point.description]));
     const seed = hashString([MAP_GEN_VERSION, options.chatId, options.tableUid, options.parentId, options.salt || 0].map(part => String(part ?? '')).join('\u0001'));
     const signature = hashString(points.map(point => [point.id, point.name, point.category, point.x, point.y].join('|')).join(';'));
     return {
-        kind: 'city', key: `city:${seed}:${signature}:${theme}:${scale}:${width}x${height}`,
-        seed, scale, theme, width, height, points,
+        kind: 'city', key: `city:${seed}:${signature}:${theme}:${palette}:${scale}:${width}x${height}`,
+        seed, scale, theme, palette, width, height, points,
     };
 }
 
@@ -100,7 +102,7 @@ export function createMapBasemapGenerator(options = {}) {
         const canvas = createCanvas(Math.round(input.width * renderScale), Math.round(input.height * renderScale));
         const ctx = canvas?.getContext?.('2d');
         if (!ctx) throw new Error('canvas-unavailable');
-        yield* renderCitySteps(ctx, scene, { scale: renderScale, seed: input.seed, createCanvas });
+        yield* renderCitySteps(ctx, scene, { scale: renderScale, seed: input.seed, palette: input.palette, createCanvas });
         const lights = createCanvas(input.width, input.height);
         const lctx = lights?.getContext?.('2d');
         if (lctx) renderLightSteps(lctx, scene.lights, input.width, input.height, { createCanvas });

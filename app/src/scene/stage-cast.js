@@ -37,6 +37,29 @@ export function resolveStageCast({ directives, offset, isEligible, keyOf, limit 
         .map(({ at, ...m }) => m);
 }
 
+// 定位兜底：当前页在原文里定位不到（offset < 0）时，从与页码对齐的指令里取本页及之前最近一条台词 / 心声，
+// 用 locate 在原文里重新定位它的正文，避免同屏名单整体清空；仍定位不到时返回 -1（名单为空）。
+// directives 的 segmentIndex 须与 segmentIndex（当前页码）同源；locate(text) 返回该文本在名单原文中的偏移或 -1。
+// 指令的 offset 是标签起点，定位到的正文偏移不早于它，所以锚点角色本人一定进名单。
+export function resolveCastOffset({ offset, directives, segmentIndex, locate } = {}) {
+    const at = Number(offset);
+    if (Number.isFinite(at) && at >= 0) return at;
+    const idx = Number(segmentIndex);
+    if (!Array.isArray(directives) || !Number.isFinite(idx) || idx < 0 || typeof locate !== 'function') return -1;
+    let anchor = null;
+    for (const d of directives) {
+        if (!d || (d.type !== 'char' && d.type !== 'thought')) continue;
+        const seg = Number(d.segmentIndex);
+        if (Number.isFinite(seg) && seg <= idx) anchor = d;
+    }
+    const body = anchor ? String((anchor.type === 'thought' ? anchor.thought : anchor.dialogue) || '').trim() : '';
+    if (!body) return -1;
+    let pos = -1;
+    try { pos = Number(locate(body)); } catch (error) { pos = -1; }
+    return Number.isFinite(pos) && pos >= 0 ? pos : -1;
+}
+
+
 // 名单先宽扫再按有无立绘挑人，避免无图角色占掉名额；3 是电脑端同屏上限，窄屏由渲染层再截断。
 export const STAGE_CAST_SCAN_LIMIT = 6;
 export const STAGE_CAST_MAX_SEATS = 3;
