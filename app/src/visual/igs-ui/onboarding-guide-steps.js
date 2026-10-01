@@ -35,6 +35,6 @@ export const ONBOARDING_STEPS = Object.freeze([
     Object.freeze({
         id: 'done', tab: 'basic', subTabs: [], target: ['[data-action="onboarding-start"]'],
         title: '配置完成',
-        body: '想再看一遍，点这里的「重新查看新手引导」。如果正文分页不对，去「基础 › 标签解析」看看。',
+        body: '想再看一遍，点这里的「新手引导」。如果正文分页不对，去「基础 › 标签解析」看看。',
     }),
 ]);

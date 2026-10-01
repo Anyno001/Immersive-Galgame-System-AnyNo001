@@ -8,7 +8,7 @@ const BASIC_TAB_TEMPLATE = `
     <div class="igs-settings-row">
       <button class="igs-settings-action" data-action="settings-export-all" type="button">导出全部设置</button>
       <button class="igs-settings-action" data-action="settings-import-all" type="button">导入设置</button>
-      <button class="igs-settings-action" data-action="onboarding-start" type="button">重新查看新手引导</button>
+      <button class="igs-settings-action" data-action="onboarding-start" type="button">新手引导</button>
     </div>
     <div class="igs-source-filter-note">导出文件不含 API Key；导入时保留本机已填的 Key。</div>
   </div>

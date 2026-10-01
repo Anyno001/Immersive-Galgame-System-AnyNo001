@@ -69,7 +69,7 @@ ${RECORD_THEME_RULES}
 }
 #igs-record-panel{--igs-ui-caustic-size:900px;}
 ${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .2, { tile: true, tint: 'var(--igs-rp-ripple)' })}
-#igs-record-panel .igs-rp-page::after{opacity:var(--igs-rp-ripple-opacity);}
+#igs-record-panel .igs-rp-page::after{opacity:calc(var(--igs-rp-ripple-opacity) / 3);}
 ${IGS_UI_LIQUID_KEYFRAMES}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
   #igs-record-panel .igs-rp-page::before{background:var(--igs-rp-backdrop-solid);}

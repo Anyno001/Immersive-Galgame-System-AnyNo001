@@ -9,7 +9,7 @@ const SETTINGS_SHELL_TEMPLATE = `
   </div>
   <div class="igs-settings-tabs">{{tabs}}</div>
   <div class="igs-settings-search">
-    <input type="search" class="igs-settings-search-input" data-settings-search placeholder="搜索设置，例如：镜头、音效、打字机" aria-label="搜索设置" autocomplete="off">
+    <input type="search" class="igs-settings-search-input" data-settings-search placeholder="搜索设置" aria-label="搜索设置" autocomplete="off">
     <div class="igs-settings-search-results" data-settings-search-results role="list" aria-live="polite"></div>
   </div>
   <div class="igs-settings-body">{{body}}</div>

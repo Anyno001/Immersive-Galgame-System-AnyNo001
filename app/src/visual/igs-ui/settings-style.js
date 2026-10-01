@@ -73,8 +73,10 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 #igs-unified-settings [hidden]{display:none!important}
 .igs-settings-body{flex:1;min-height:0;overflow-y:auto;padding:12px 20px 24px;background:transparent}
 .igs-settings-search{position:relative;margin:0 20px 6px}
-.igs-settings-search-input{box-sizing:border-box;width:100%;height:30px;padding:0 10px;border:1px solid var(--igs-settings-line,rgba(127,127,127,.24));border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);color:var(--igs-settings-ink);font:inherit;font-size:12px;outline:none}
-.igs-settings-search-input:focus-visible{border-color:var(--igs-settings-ink-3)}
+.igs-settings-search::before{content:"";position:absolute;left:9px;top:8px;width:14px;height:14px;background:var(--igs-settings-ink-3);pointer-events:none;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") center/contain no-repeat}
+.igs-settings-search-input{box-sizing:border-box;width:100%;height:30px;padding:0 10px 0 30px;border:0;border-bottom:1px solid transparent;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);color:var(--igs-settings-ink);font:inherit;font-size:12px;outline:none;-webkit-appearance:none;appearance:none}
+.igs-settings-search-input::placeholder{color:var(--igs-settings-ink-4)}
+.igs-settings-search-input:focus,.igs-settings-search-input:focus-visible{border-bottom-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
 .igs-settings-search-results:empty{display:none}
 .igs-settings-search-results{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;max-height:min(320px,50vh);overflow-y:auto;padding:4px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-raised);box-shadow:var(--igs-settings-shell-shadow)}
 .igs-settings-search-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:6px 8px;border:0;border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}

@@ -3146,10 +3146,10 @@ export function createIgsReaderHost(options = {}) {
                 promptRuleOutfitHint: scenePromptRuleOutfitHint(sceneAssets.promptRule)
                     ? `<div class="igs-source-filter-note" data-result="prompt-rule-outfit">${esc(PROMPT_RULE_OUTFIT_HINT)}</div>` : '',
                 promptAdvanced: `<details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-injection"${asyncState.advancedOpen && asyncState.advancedOpen['prompt-injection'] ? ' open' : ''}><summary>高级：注入位置与按需注入</summary>`
-                    + field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区（推荐，可命中缓存）'], ['depth0', '聊天末尾 depth 0（旧版）']]),
-                        'AI 不太按标签输出时可以改回聊天末尾。')
-                    + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入（精简写法，聊天/日常/战斗/亲密只在用得上时附完整说明）')
-                    + '<div class="igs-source-filter-note">关闭后每轮发送全部已开启演出的完整说明，与旧版一致。</div></details>',
+                    + field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区'], ['depth0', '聊天末尾']]),
+                        'AI 不按标签输出时改回聊天末尾。')
+                    + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入')
+                    + '<div class="igs-source-filter-note">只在用得上时附完整说明。</div></details>',
                 scenePresetBar: scenePresetBarHtml,
                 sceneSubTabs: subTabsHtml,
                 sceneSubPane: subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane),

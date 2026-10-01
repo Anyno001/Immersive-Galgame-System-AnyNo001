@@ -198,7 +198,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-icon-btn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18);color:rgba(255,255,255,.96);}
 .igs-icon-btn:active{transform:scale(.96);}
 .igs-icon-btn.igs-group-start{position:relative;margin-left:5px;}
-.igs-icon-btn.igs-group-start::before{content:"";position:absolute;left:-6px;top:28%;bottom:28%;width:1px;background:rgba(255,255,255,.16);pointer-events:none;}
+.igs-icon-btn.igs-group-start::before{content:none;}
 #igs-bar-btns{display:none;gap:6px;align-items:center;}
 #igs-bar-pinned{display:flex;gap:6px;align-items:center;}
 .igs-progress{display:none;font-size:11px;color:rgba(255,255,255,.55);margin-bottom:0;letter-spacing:1px;}
