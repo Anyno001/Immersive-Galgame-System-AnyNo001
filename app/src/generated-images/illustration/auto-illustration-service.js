@@ -31,6 +31,18 @@ function isPhoneEmbedded(viewport) {
     return width > 0 && width <= EMBEDDED_PHONE_MAX_WIDTH;
 }
 
+// 写提示词时告诉模型这张图的宽高。尺寸只在出图时传，写词的模型看不到。
+export function cgFramePrompt(sizeText) {
+    const match = String(sizeText || '').trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+    if (!match) return '';
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!(width > 0) || !(height > 0)) return '';
+    if (width === height) return `画面是正方形，宽${width}，高${height}。构图按这个比例写。`;
+    if (width > height) return `画面是横的，宽${width}，高${height}。构图按横屏写，不要写成竖屏。`;
+    return `画面是竖的，宽${width}，高${height}。构图按竖屏写，不要写成横屏。`;
+}
+
 // 内嵌画面在页面上，浏览器窗口可以更高。出图量的是画面，不是窗口。
 export function readCgViewport(globalObject) {
     const doc = globalObject && globalObject.document;
@@ -190,7 +202,10 @@ export function createAutoIllustrationService(deps) {
         try {
             written = await nai.writeDbgenFloorPrompts({
                 messageId,
-                description: `为本楼生成${decision.want}张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，正文以外的内容不要拿来当挂载点，也不要画进CG。`,
+                description: [
+                    `为本楼生成${decision.want}张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，正文以外的内容不要拿来当挂载点，也不要画进CG。`,
+                    cgFramePrompt(cgSize(s)),
+                ].filter(Boolean).join('\n'),
             });
         } catch (error) {
             written = { ok: false, error: (error && error.message) || '写提示词失败' };
@@ -335,6 +350,7 @@ export function createAutoIllustrationService(deps) {
                 scenes: numbered.scenes, characters: numbered.characters,
                 previousText, want: decision.want, exact: decision.exact, isNsfw: numbered.isNsfw,
                 characterDna: summarizeCharacterDna(numbered.characters, readSceneAssets()),
+                frame: cgFramePrompt(cgSize(s)),
             });
             plan = await requestWithSoftRetry(llm, {
                 system: s.llm.prompts.illustration,

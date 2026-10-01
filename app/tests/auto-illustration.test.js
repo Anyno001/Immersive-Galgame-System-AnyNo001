@@ -240,6 +240,7 @@ test('gate:illustration:parse-empty-fails', async () => {
 test('gate:illustration:planner-prompt-count-wording', async () => {
     const { buildPlannerUserPrompt } = await import('../src/generated-images/illustration/planner-prompt.js');
     assert.ok(buildPlannerUserPrompt({ want: 2, exact: true }).includes('恰好 2 张'));
+    assert.ok(buildPlannerUserPrompt({ want: 1, exact: true, frame: '画面是竖的，宽832，高1216。构图按竖屏写，不要写成横屏。' }).includes('【画面】画面是竖的，宽832，高1216。'));
     assert.ok(buildPlannerUserPrompt({ want: 3, exact: false }).includes('1 到 3 张'));
 });
 
@@ -450,7 +451,9 @@ test('gate:illustration:embedded-cg-uses-host-box-not-window', async () => {
 });
 
 test('gate:illustration:cg-size-swaps-on-mobile', async () => {
-    const { cgSizeForMode } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { cgSizeForMode, cgFramePrompt } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    assert.equal(cgFramePrompt('1216x832'), '画面是横的，宽1216，高832。构图按横屏写，不要写成竖屏。');
+    assert.equal(cgFramePrompt('832x1216'), '画面是竖的，宽832，高1216。构图按竖屏写，不要写成横屏。');
     assert.equal(cgSizeForMode('1216x832', 'pc'), '1216x832');
     assert.equal(cgSizeForMode('1216x832', 'fullscreen'), '1216x832');
     assert.equal(cgSizeForMode('1216x832', 'web'), '1216x832');
@@ -497,7 +500,7 @@ test('gate:illustration:dbgen-cg-calls-only-the-plugin-prompt-and-generate-apis'
     assert.equal(calls.generate, 0);
     assert.equal(calls.floor.length, 1);
     assert.equal(calls.floor[0].messageId, 5);
-    assert.equal(calls.floor[0].description, '为本楼生成1张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，提示词、出图指导、标签和正文以外的内容不要拿来当挂载点，也不要画进CG。');
+    assert.equal(calls.floor[0].description, '为本楼生成1张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，正文以外的内容不要拿来当挂载点，也不要画进CG。\n画面是横的，宽1216，高832。构图按横屏写，不要写成竖屏。');
     assert.equal(calls.floor[0].skipRecall, undefined);
     assert.equal(calls.paint.length, 1);
     assert.equal(calls.paint[0].caption, caption);

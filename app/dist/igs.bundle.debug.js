@@ -33081,7 +33081,7 @@ const PLANNER_SOFT_SYSTEM_PROMPT = [
 ].join('\n');
 
 // characterDna：[{ name, identity, defaultAppearance }]，由调用方按别名归约后提供；为空时输出与旧版一致。
-function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText, want, exact, isNsfw, characterDna = [] }) {
+function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText, want, exact, isNsfw, characterDna = [], frame = '' }) {
     const lastScene = scenes && scenes.length ? scenes[scenes.length - 1] : null;
     const flat = (text) => String(text || '').replace(/\s*\n\s*/g, ' ').trim();
     const dnaLines = (Array.isArray(characterDna) ? characterDna : [])
@@ -33097,6 +33097,7 @@ function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText
         ? `本楼需要恰好 ${want} 张插图。`
         : `本楼需要 1 到 ${want} 张插图，按剧情判断，画面感不足时只出 1 张。`;
     return [
+        frame ? `【画面】${frame}` : '',
         `【场景】${sceneLine}`,
         `【出场角色】${characters && characters.length ? characters.join('、') : '未标注'}`,
         dnaBlock,
@@ -56438,6 +56439,18 @@ function isPhoneEmbedded(viewport) {
     return width > 0 && width <= EMBEDDED_PHONE_MAX_WIDTH;
 }
 
+// 写提示词时告诉模型这张图的宽高。尺寸只在出图时传，写词的模型看不到。
+function cgFramePrompt(sizeText) {
+    const match = String(sizeText || '').trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+    if (!match) return '';
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!(width > 0) || !(height > 0)) return '';
+    if (width === height) return `画面是正方形，宽${width}，高${height}。构图按这个比例写。`;
+    if (width > height) return `画面是横的，宽${width}，高${height}。构图按横屏写，不要写成竖屏。`;
+    return `画面是竖的，宽${width}，高${height}。构图按竖屏写，不要写成横屏。`;
+}
+
 // 内嵌画面在页面上，浏览器窗口可以更高。出图量的是画面，不是窗口。
 function readCgViewport(globalObject) {
     const doc = globalObject && globalObject.document;
@@ -56595,7 +56608,10 @@ function createAutoIllustrationService(deps) {
         try {
             written = await nai.writeDbgenFloorPrompts({
                 messageId,
-                description: `为本楼生成${decision.want}张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，正文以外的内容不要拿来当挂载点，也不要画进CG。`,
+                description: [
+                    `为本楼生成${decision.want}张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，正文以外的内容不要拿来当挂载点，也不要画进CG。`,
+                    cgFramePrompt(cgSize(s)),
+                ].filter(Boolean).join('\n'),
             });
         } catch (error) {
             written = { ok: false, error: (error && error.message) || '写提示词失败' };
@@ -56740,6 +56756,7 @@ function createAutoIllustrationService(deps) {
                 scenes: numbered.scenes, characters: numbered.characters,
                 previousText, want: decision.want, exact: decision.exact, isNsfw: numbered.isNsfw,
                 characterDna: summarizeCharacterDna(numbered.characters, readSceneAssets()),
+                frame: cgFramePrompt(cgSize(s)),
             });
             plan = await requestWithSoftRetry(llm, {
                 system: s.llm.prompts.illustration,
@@ -57043,6 +57060,7 @@ function createAutoIllustrationService(deps) {
 }
 
 __igsDefine(exports, "cgSizeForMode", () => cgSizeForMode);
+__igsDefine(exports, "cgFramePrompt", () => cgFramePrompt);
 __igsDefine(exports, "readCgViewport", () => readCgViewport);
 __igsDefine(exports, "summarizeCharacterDna", () => summarizeCharacterDna);
 __igsDefine(exports, "bindCharacterDnaToSlots", () => bindCharacterDnaToSlots);

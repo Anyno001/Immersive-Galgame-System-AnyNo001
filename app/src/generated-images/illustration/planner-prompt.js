@@ -51,7 +51,7 @@ export const PLANNER_SOFT_SYSTEM_PROMPT = [
 ].join('\n');
 
 // characterDna：[{ name, identity, defaultAppearance }]，由调用方按别名归约后提供；为空时输出与旧版一致。
-export function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText, want, exact, isNsfw, characterDna = [] }) {
+export function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText, want, exact, isNsfw, characterDna = [], frame = '' }) {
     const lastScene = scenes && scenes.length ? scenes[scenes.length - 1] : null;
     const flat = (text) => String(text || '').replace(/\s*\n\s*/g, ' ').trim();
     const dnaLines = (Array.isArray(characterDna) ? characterDna : [])
@@ -67,6 +67,7 @@ export function buildPlannerUserPrompt({ numberedText, scenes, characters, previ
         ? `本楼需要恰好 ${want} 张插图。`
         : `本楼需要 1 到 ${want} 张插图，按剧情判断，画面感不足时只出 1 张。`;
     return [
+        frame ? `【画面】${frame}` : '',
         `【场景】${sceneLine}`,
         `【出场角色】${characters && characters.length ? characters.join('、') : '未标注'}`,
         dnaBlock,
