@@ -1815,6 +1815,8 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         const auto = initial.draft.bridge.autoIllustration;
         assert.equal(auto.nsfwEnabled, false);
         assert.equal(auto.interludeEnabled, false);
+        assert.equal(auto.interludeMaxCount, 1);
+        assert.equal(auto.assets.maxPerFloor, 2);
         assert.equal(auto.llm.source, 'tavern');
         assert.equal(auto.nai.transport, 'direct');
         assert.equal(initial.imageSubTab, 'source');
@@ -1843,6 +1845,10 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(opened.controller.toggle('bridge.autoIllustration.interludeEnabled').ok, true);
         assert.match(opened.controller.getSnapshot().html, /data-image-feature="interlude"(?![^>]*\shidden)/);
         assert.match(opened.controller.getSnapshot().html, /data-image-feature="llm"(?![^>]*\shidden)/);
+        assert.ok(/data-path="bridge\.autoIllustration\.interludeMaxCount"[^>]*max="16"/.test(opened.controller.getSnapshot().html));
+        assert.ok(/data-path="bridge\.autoIllustration\.assets\.maxPerFloor"[^>]*max="16"/.test(opened.controller.getSnapshot().html));
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.interludeMaxCount', '16').ok, true);
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.assets.maxPerFloor', '16').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.interludeProbability', '45').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.source', 'openai').ok, true);
         assert.equal(opened.controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1').ok, true);
@@ -1867,6 +1873,8 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(saved.assets.templates.nsfwExtra, 'adult scene');
         assert.equal(saved.nsfwCount, 2);
         assert.equal(saved.interludeEnabled, true);
+        assert.equal(saved.interludeMaxCount, 16);
+        assert.equal(saved.assets.maxPerFloor, 16);
         assert.equal(saved.interludeProbability, 45);
         assert.equal(saved.llm.source, 'openai');
         assert.equal(saved.llm.endpoint, 'https://example.com/v1');
@@ -1878,6 +1886,8 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         reopenedController.switchImageSubTab('auto');
         const reopened = reopenedController.getSnapshot();
         assert.equal(reopened.draft.bridge.autoIllustration.nsfwCount, 2);
+        assert.equal(reopened.draft.bridge.autoIllustration.interludeMaxCount, 16);
+        assert.equal(reopened.draft.bridge.autoIllustration.assets.maxPerFloor, 16);
         assert.equal(reopened.draft.bridge.autoIllustration.nai.scale, 5.5);
         assert.ok(/data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*value="https:\/\/example\.com\/v1"/.test(reopened.html));
         assert.ok(/data-path="bridge\.autoIllustration\.llm\.apiKey"[^>]*type="password"/.test(reopened.html));

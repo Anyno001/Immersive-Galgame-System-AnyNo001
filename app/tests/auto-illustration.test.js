@@ -663,11 +663,17 @@ test('gate:illustration:get-url-hydrates-from-store', async () => {
 
 test('gate:illustration:settings-normalize-clamps', async () => {
     const { normalizeAutoIllustrationSettings } = await import('../src/generated-images/illustration/auto-illustration-settings.js');
-    const settings = normalizeAutoIllustrationSettings({ nsfwEnabled: 'true', nsfwCount: 9, interludeProbability: -5, llm: { source: 'x' } });
+    const settings = normalizeAutoIllustrationSettings({ nsfwEnabled: 'true', nsfwCount: 9, interludeProbability: -5, interludeMaxCount: '16', assets: { maxPerFloor: '16' }, llm: { source: 'x' } });
     assert.equal(settings.nsfwEnabled, true);
     assert.equal(settings.nsfwCount, 9);
     assert.equal(normalizeAutoIllustrationSettings({ nsfwCount: 2 }).nsfwCount, 2);
     assert.equal(normalizeAutoIllustrationSettings({ nsfwCount: 99 }).nsfwCount, 16);
+    assert.equal(settings.interludeMaxCount, 16);
+    assert.equal(settings.assets.maxPerFloor, 16);
+    const capped = normalizeAutoIllustrationSettings({ interludeMaxCount: 99, assets: { maxPerFloor: 99 } });
+    assert.deepEqual([capped.interludeMaxCount, capped.assets.maxPerFloor], [16, 16]);
+    const defaults = normalizeAutoIllustrationSettings({});
+    assert.deepEqual([defaults.interludeMaxCount, defaults.assets.maxPerFloor], [1, 2]);
     assert.equal(settings.interludeProbability, 0);
     assert.equal(settings.llm.source, 'tavern');
     assert.equal(normalizeAutoIllustrationSettings({}).nsfwEnabled, false);

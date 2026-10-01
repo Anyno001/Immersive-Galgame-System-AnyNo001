@@ -51,7 +51,7 @@ ComfyUI 这类工作流型 provider 应使用 `workflow-preset` 或 provider 专
 | 设置路径（前缀 `bridge.autoIllustration.`） | 默认值 | 作用 |
 | --- | --- | --- |
 | `nsfwEnabled` / `nsfwCount` | `false` / `1` | NSFW 场景开关与每层张数（1～16） |
-| `interludeEnabled` / `interludeProbability` / `interludeMaxCount` | `false` / `30` / `1` | 过场开关、百分比（0～100）、最多张数（1～4） |
+| `interludeEnabled` / `interludeProbability` / `interludeMaxCount` | `false` / `30` / `1` | 过场开关、百分比（0～100）、最多张数（1～16） |
 | `llm.source` / `llm.endpoint` / `llm.apiKey` / `llm.model` | `tavern` / 空 / 空 / 空 | `tavern` 使用当前酒馆 API；`openai` 使用独立兼容接口及凭据 |
 | `llm.contextFloors` / `llm.timeoutMs` | `1` / `90000` | 参考 AI 楼层数（0～3）与规划超时毫秒 |
 | `nai.transport` / `nai.apiKey` | `direct` / 空 | 浏览器直连或 `st-proxy`（酒馆需开启 `enableCorsProxy`）；未填 Key 不请求 |
@@ -85,7 +85,7 @@ ComfyUI 这类工作流型 provider 应使用 `workflow-preset` 或 provider 专
 | `bridge.autoIllustration.assets.spriteEnabled` | 开启无名角色透明/抠图立绘补全 |
 | `bridge.autoIllustration.assets.backgroundEnabled` | 开启缺失场景背景补全 |
 | `bridge.autoIllustration.assets.strictMatch` | 将弱模糊场景命中视为未命中并允许生成 |
-| `bridge.autoIllustration.assets.maxPerFloor` | 单个楼层最多生成的立绘数量。背景按本楼尚未生成的场景各出一张，不受这个上限限制 |
+| `bridge.autoIllustration.assets.maxPerFloor` | 单个楼层最多生成的立绘数量（1～16，默认 2）。背景按本楼尚未生成的场景各出一张，不受这个上限限制 |
 | `bridge.autoIllustration.assets.spriteSize` / `backgroundSize` | 立绘和背景生成尺寸 |
 | `bridge.autoIllustration.assets.templates.background` / `templates.sprite` | 背景和立绘提示词模板 |
 
