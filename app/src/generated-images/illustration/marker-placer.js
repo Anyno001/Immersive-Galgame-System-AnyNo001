@@ -6,14 +6,24 @@ const THOUGHT_RE = /\[igs-thought:([^|\]\n]+)\|(?:([^|\]\n]*)\|)?([^|\]\n]+)\]?/
 const IMG_RE = /(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/gi;
 const LEADING_SCENE_RE = /^(\s*(?:\[igs-scene:[^\]\n]*\]\s*)+)/;
 
-function contentRange(lines) {
-    const start = lines.findIndex((l) => /<content\b[^>]*>/i.test(l));
-    if (start < 0) return [0, lines.length - 1];
-    let end = lines.length - 1;
-    for (let i = start; i < lines.length; i += 1) {
-        if (/<\/content>/i.test(lines[i])) { end = i; break; }
+// 一段正文里可以有多段 <content>。只认第一段会漏掉后面的场景标签。
+function contentSpans(lines) {
+    const spans = [];
+    let start = -1;
+    for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
+        if (start < 0 && /<content\b[^>]*>/i.test(line)) start = i;
+        if (start >= 0 && /<\/content>/i.test(line)) {
+            spans.push([start, i]);
+            start = -1;
+        }
     }
-    return [start, end];
+    if (start >= 0) spans.push([start, lines.length - 1]);
+    return spans.length ? spans : [[0, lines.length - 1]];
+}
+
+function lineInSpans(index, spans) {
+    return spans.some(([from, to]) => index >= from && index <= to);
 }
 
 function readableLine(line) {
@@ -28,15 +38,17 @@ function readableLine(line) {
 
 export function numberParagraphs(raw, options = {}) {
     const lines = String(raw || '').split('\n');
-    const [from, to] = contentRange(lines);
+    const spans = contentSpans(lines);
     const paragraphs = [];
     const scenes = [];
     const characters = new Set();
-    for (let i = from; i <= to; i += 1) {
+    for (let i = 0; i < lines.length; i += 1) {
         const line = stripOutfitFields(lines[i], options && options.outfitResolver);
+        // 场景标签整楼都认。写在第一段 </content> 之后的转场也要算进 NSFW 和背景。
         for (const m of line.matchAll(SCENE_RE)) {
             scenes.push({ scene: m[1].trim(), time: m[2].trim(), weather: m[3].trim(), nsfw: String(m[4] || '').trim().toLowerCase() === 'nsfw' });
         }
+        if (!lineInSpans(i, spans)) continue;
         for (const m of line.matchAll(CHAR_RE)) characters.add(m[1].trim());
         for (const m of line.matchAll(THOUGHT_RE)) characters.add(m[1].trim());
         const text = readableLine(line);

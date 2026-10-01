@@ -558,6 +558,64 @@ test('gate:assets:dbgen-source-skips-secondary-llm', async () => {
     assert.equal(metas[0].skipRecall, true);
 });
 
+test('gate:assets:later-backgrounds-skip-recall-and-already-generated', async () => {
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
+    const { addGeneratedAssetToLibrary } = await import('../src/scene/asset-match.js');
+    const text = [
+        '<content>',
+        '[igs-scene:教室|白天|晴]',
+        '上课。',
+        '</content>',
+        '<content>',
+        '[igs-scene:卧室|夜晚|晴]',
+        '她回到卧室。',
+        '[igs-scene:走廊|夜晚|晴]',
+        '她走过走廊。',
+        '</content>',
+    ].join('\n');
+    const library = addGeneratedAssetToLibrary({}, { type: 'background', name: '教室', time: '白天', imageId: 'old' }, '教室').library;
+    const writes = [];
+    const paints = [];
+    const caption = {
+        v4_prompt: { caption: { base_caption: 'room', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } },
+    };
+    const service = createAssetGenerationService({
+        messageHost: {
+            getChatId: () => 'c',
+            readFloor: () => ({ chatId: 'c', messageId: 3, swipeId: 0, isAi: true, isLatest: true, text }),
+            readPreviousAiTexts: () => [],
+        },
+        llm: { async request() { throw new Error('不应请求副 LLM'); } },
+        nai: {
+            describe: () => ({ mode: 'dbgen', ownPrompts: true, ready: { ok: true } }),
+            writeDbgenPrompt: async (meta) => {
+                writes.push(meta);
+                return { ok: true, caption, captions: [{ slotId: 1, caption }, { slotId: 2, caption }] };
+            },
+            generateDbgenCaption: async (meta) => {
+                paints.push(meta);
+                return { ok: true, dataUrl: 'data:image/png;base64,AAA' };
+            },
+            generate: async () => { throw new Error('背景不应逐张走召回'); },
+        },
+        store: createMemoryGeneratedAssetStore(),
+        getSettings: () => ({
+            autoIllustration: { assets: { backgroundEnabled: true, maxPerFloor: 1 } },
+            sceneAssets: { enabled: true, scenes: {}, characters: {}, generated: library },
+        }),
+    });
+    const result = await service.processMessage(3, { manual: true });
+    assert.deepEqual([result.ok, result.count, writes.length, paints.length], [true, 2, 1, 2]);
+    assert.match(writes[0].description, /2张背景/);
+    assert.match(writes[0].description, /卧室/);
+    assert.match(writes[0].description, /走廊/);
+    assert.equal(writes[0].description.includes('教室'), false);
+    assert.match(writes[0].description, /不要写生成点/);
+    assert.equal(paints[0].userPrompts.positive.includes('no humans'), true);
+});
+
 test('gate:assets:dbgen-sprite-passes-frontend-templates', async () => {
     const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
     const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');

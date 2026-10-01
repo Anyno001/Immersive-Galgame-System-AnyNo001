@@ -161,6 +161,21 @@ export function buildWardrobeClothingDescription(_character, outfitName) {
     ].join('\n');
 }
 
+// 本楼还缺的背景一次写完。名单里只有尚未生成的，已有的不进来。
+export function buildDbgenBackgroundBatchDescription(needs = []) {
+    const list = (Array.isArray(needs) ? needs : []).map((need, index) => {
+        const when = [need && need.time, need && need.weather].filter(Boolean).join('、');
+        return `${index + 1}. ${need && need.name ? need.name : ''}${when ? `（${when}）` : ''}`;
+    });
+    const count = list.length;
+    return [
+        `为本楼写${count}张背景的提示词，按下面的顺序各一份，slotid 从 1 数到 ${count}。`,
+        list.join('\n'),
+        '地点陈设、光线与氛围依据楼层正文补充。',
+        '不要写生成点，不要从正文摘挂载句。',
+    ].join('\n');
+}
+
 export function buildDbgenAssetDescription(need = {}) {
     const when = [need.time, need.weather].filter(Boolean).join('、');
     if (need.type === 'sprite') {

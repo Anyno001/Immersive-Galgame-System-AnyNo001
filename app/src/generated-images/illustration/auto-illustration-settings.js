@@ -11,6 +11,8 @@ export const DEFAULT_LLM_PROMPTS = Object.freeze({
     assetSoft: ASSET_PLANNER_SOFT_SYSTEM_PROMPT,
 });
 
+export const NSFW_COUNT_MAX = 16;
+
 const clampInt = (v, min, max, d) => {
     const n = Math.round(Number(v));
     return v == null || v === '' || !Number.isFinite(n) ? d : Math.min(max, Math.max(min, n));
@@ -51,7 +53,7 @@ export function normalizeAutoIllustrationSettings(value) {
     const assets = src.assets && typeof src.assets === 'object' ? src.assets : {};
     return {
         nsfwEnabled: bool(src.nsfwEnabled),
-        nsfwCount: clampInt(src.nsfwCount, 1, 4, 1),
+        nsfwCount: clampInt(src.nsfwCount, 1, NSFW_COUNT_MAX, 1),
         interludeEnabled: bool(src.interludeEnabled),
         interludeProbability: clampInt(src.interludeProbability, 0, 100, 30),
         interludeMaxCount: clampInt(src.interludeMaxCount, 1, 4, 1),

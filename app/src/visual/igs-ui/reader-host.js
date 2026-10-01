@@ -53,7 +53,7 @@ import { isStrictBackgroundMatch } from '../../generated-images/illustration/aut
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { normalizeMoodGroups, resolveMoodGroup } from '../../scene/mood-groups.js';
-import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { NSFW_COUNT_MAX, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { normalizeImageSourceMode, mergeLegacyNaiSettings } from '../../generated-images/image-backend.js';
 import {
     getOriginalReaderHtml,
@@ -3155,7 +3155,7 @@ export function createIgsReaderHost(options = {}) {
                 imageTestHelp: esc(asyncState.imageResult || ''),
                 autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW 自动生图'),
                 autoNsfwHidden: hiddenAttr(!auto.nsfwEnabled),
-                autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', '每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, 4)),
+                autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', '每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, NSFW_COUNT_MAX)),
                 autoAssetSpriteField: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '自动补全无名角色立绘'),
                 autoAssetBackgroundField: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '自动补全缺失场景背景'),
                 autoAssetStrictField: checkbox('bridge.autoIllustration.assets.strictMatch', auto.assets.strictMatch, '精准场景匹配'),

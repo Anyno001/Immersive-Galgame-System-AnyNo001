@@ -6,7 +6,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildDbgenAssetDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, expressionSpritePrompts, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, expressionSpritePrompts, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
@@ -221,21 +221,87 @@ export function createAssetGenerationService(deps) {
         return record;
     }
 
+    // 数据库生图：本楼缺的背景一次写完，跳过召回。已入库或本聊天已有的不在这份名单里。
+    async function generateBackgroundBatch(items, s, floor, floorKey) {
+        const needs = items.map((item) => item.need);
+        let written;
+        try {
+            written = await nai.writeDbgenPrompt({
+                description: buildDbgenBackgroundBatchDescription(needs),
+                messageId: floor.messageId,
+            });
+        } catch (error) {
+            written = { ok: false, error: `写提示词失败：${(error && error.message) || error}` };
+        }
+        const captions = written && written.ok && Array.isArray(written.captions)
+            ? written.captions.slice().sort((a, b) => (Number(a.slotId) || 0) - (Number(b.slotId) || 0))
+            : [];
+        const records = [];
+        for (let index = 0; index < items.length; index += 1) {
+            const item = items[index];
+            const caption = captions[index] && captions[index].caption;
+            const slot = buildAssetSlot(item, { transparent: false, templates: s.auto.assets.templates });
+            let result;
+            if (!caption) {
+                result = { ok: false, error: written && written.error ? written.error : '没有对应的背景提示词' };
+            } else {
+                try {
+                    result = await nai.generateDbgenCaption({
+                        caption,
+                        size: s.auto.assets.backgroundSize,
+                        messageId: floor.messageId,
+                        userPrompts: { positive: slot.scene, negative: slot.sceneUc },
+                    });
+                } catch (error) {
+                    result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` };
+                }
+            }
+            const key = tempAssetKeyOf(floor.chatId, item.need);
+            const base = {
+                key, chatId: floor.chatId, floorKey, messageId: floor.messageId, swipeId: floor.swipeId,
+                type: item.need.type, name: item.need.name, time: item.need.time || '', weather: item.need.weather || '',
+                tags: item.tags, createdAt: now(),
+            };
+            let record;
+            if (result && result.ok && result.dataUrl) {
+                const imageId = newId();
+                const image = { id: imageId, dataUrl: result.dataUrl, type: item.need.type, createdAt: base.createdAt };
+                const prompt = normalizeStoredPrompt(result.prompt);
+                if (prompt) image.prompt = prompt;
+                await store.putImage(image);
+                rememberImage(imageId, image.dataUrl);
+                record = { ...base, imageId, status: 'review' };
+            } else {
+                record = { ...base, imageId: '', status: 'failed', error: (result && result.error) || 'NAI 生成失败' };
+                report('error', `素材「${item.need.name}」生成失败：${record.error}`);
+            }
+            await store.putAsset(record);
+            if (tempChatId === floor.chatId) tempRecords.set(key, record);
+            emit({ chatId: floor.chatId, messageId: floor.messageId, swipeId: floor.swipeId, key, reason: 'generated' });
+            records.push(record);
+        }
+        return records;
+    }
+
     async function run(messageId, floor, key, s, manual) {
         // 失败或中途刷新残留的 planning 不算处理完，下次渲染时重试。
         const previous = await store.getFloor(key);
         if (!manual && previous && previous.status === 'done') return { ok: true, reason: 'already-decided' };
         await loadTempRecords(floor.chatId);
         const numbered = numberParagraphs(floor.text);
-        const needs = collectAssetNeeds(
-            { scenes: numbered.scenes, characters: numbered.characters },
-            matchContext(
-                s,
-                messageHost.getUserName ? messageHost.getUserName() : '',
-                messageHost.getCharacterNames ? messageHost.getCharacterNames() : [],
-            ),
-            { background: s.auto.assets.backgroundEnabled, sprite: s.auto.assets.spriteEnabled, limit: s.auto.assets.maxPerFloor },
+        const match = matchContext(
+            s,
+            messageHost.getUserName ? messageHost.getUserName() : '',
+            messageHost.getCharacterNames ? messageHost.getCharacterNames() : [],
         );
+        // 背景按本楼实际缺的张数生成，不跟立绘共用每层上限。已生成的在匹配时剔掉。
+        const backgroundNeeds = s.auto.assets.backgroundEnabled
+            ? collectAssetNeeds({ scenes: numbered.scenes, characters: [] }, match, { background: true, sprite: false })
+            : [];
+        const spriteNeeds = s.auto.assets.spriteEnabled
+            ? collectAssetNeeds({ scenes: [], characters: numbered.characters }, match, { background: false, sprite: true, limit: s.auto.assets.maxPerFloor })
+            : [];
+        const needs = [...backgroundNeeds, ...spriteNeeds];
         attachCharacterDna(needs, s.sceneAssets);
         if (!needs.length) {
             await store.putFloor(key, { status: 'done', count: 0, updatedAt: now() });
@@ -280,7 +346,17 @@ export function createAssetGenerationService(deps) {
         }
         let count = 0;
         const errors = [];
-        for (const item of plan.items) {
+        const backgrounds = plan.items.filter((item) => item.need && item.need.type === 'background');
+        const others = plan.items.filter((item) => !item.need || item.need.type !== 'background');
+        const batchBackgrounds = backend.ownPrompts && backgrounds.length && nai && typeof nai.writeDbgenPrompt === 'function';
+        const queue = batchBackgrounds ? others : plan.items;
+        if (batchBackgrounds) {
+            for (const record of await generateBackgroundBatch(backgrounds, s, floor, key)) {
+                if (record.status === 'review') count += 1;
+                else errors.push(`「${record.name}」${record.error}`);
+            }
+        }
+        for (const item of queue) {
             const record = await generateItem(item, s, floor, key);
             if (record.status === 'review') count += 1;
             else errors.push(`「${record.name}」${record.error}`);

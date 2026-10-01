@@ -168,6 +168,26 @@ test('gate:illustration:number-paragraphs-reads-directives', async () => {
     assert.ok(result.characters.includes('小雪'));
 });
 
+test('gate:illustration:later-scene-nsfw-still-triggers', async () => {
+    const { numberParagraphs } = await import('../src/generated-images/illustration/marker-placer.js');
+    const split = [
+        '<content>',
+        '[igs-scene:教室|白天|晴]',
+        '上课。',
+        '</content>',
+        '<content>',
+        '[igs-scene:卧室|夜晚|晴|NSFW]',
+        '她关上门。',
+        '</content>',
+    ].join('\n');
+    const afterClose = '<content>\n[igs-scene:教室|白天|晴]\n上课。\n</content>\n[igs-scene:卧室|夜晚|晴|NSFW]\n她关上门。';
+    for (const text of [split, afterClose]) {
+        const result = numberParagraphs(text);
+        assert.equal(result.isNsfw, true);
+        assert.deepEqual(result.scenes.map((scene) => scene.scene), ['教室', '卧室']);
+    }
+});
+
 test('gate:illustration:anchor-uses-the-same-match-as-dbgen', async () => {
     const { numberParagraphs, paragraphNoForAnchor } = await import('../src/generated-images/illustration/marker-placer.js');
     const raw = [
@@ -645,7 +665,9 @@ test('gate:illustration:settings-normalize-clamps', async () => {
     const { normalizeAutoIllustrationSettings } = await import('../src/generated-images/illustration/auto-illustration-settings.js');
     const settings = normalizeAutoIllustrationSettings({ nsfwEnabled: 'true', nsfwCount: 9, interludeProbability: -5, llm: { source: 'x' } });
     assert.equal(settings.nsfwEnabled, true);
-    assert.equal(settings.nsfwCount, 4);
+    assert.equal(settings.nsfwCount, 9);
+    assert.equal(normalizeAutoIllustrationSettings({ nsfwCount: 2 }).nsfwCount, 2);
+    assert.equal(normalizeAutoIllustrationSettings({ nsfwCount: 99 }).nsfwCount, 16);
     assert.equal(settings.interludeProbability, 0);
     assert.equal(settings.llm.source, 'tavern');
     assert.equal(normalizeAutoIllustrationSettings({}).nsfwEnabled, false);
