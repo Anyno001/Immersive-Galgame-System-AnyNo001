@@ -1,7 +1,7 @@
 import { spriteIdentity } from '../../scene/character-outfits.js';
 
 
-// 漫画符号定位：按立绘在舞台里的实际绘制矩形（background-size 宽度百分比 + background-position）
+// 漫画符号定位：按立绘在舞台里的实际绘制矩形（background-size 高度百分比 + background-position）
 // 与立绘透明通道探测出的头部位置换算落点，电脑/窄屏/全屏/内嵌各模式统一按真实像素计算。
 const HEAD_CACHE_LIMIT = 48;
 const PROBE_W = 48;
@@ -45,13 +45,25 @@ function clamp(value, min, max) {
     return max < min ? (min + max) / 2 : Math.max(min, Math.min(max, value));
 }
 
-// 立绘在舞台里的绘制矩形：background-size 单值百分比只定宽度，高度按原图比例。
+// 比例 100：图高等于舞台高，宽度按原图比例。不同宽高比的立绘不用各自改比例。
+export function spriteBackgroundSize(scale) {
+    return `auto ${finite(scale, 100)}%`;
+}
+
+// 立绘在舞台里的绘制矩形：background-size 的高度百分比，宽度按原图比例。
 export function spriteDrawRect(stageW, stageH, sprite) {
     if (!sprite || !(sprite.naturalW > 0) || !(sprite.naturalH > 0)) return null;
-    const w = stageW * finite(sprite.scale, 100) / 100;
-    if (!(w > 0)) return null;
-    const h = w * sprite.naturalH / sprite.naturalW;
+    const h = stageH * finite(sprite.scale, 100) / 100;
+    if (!(h > 0)) return null;
+    const w = h * sprite.naturalW / sprite.naturalH;
     return { left: (stageW - w) * finite(sprite.posX, 50) / 100, top: (stageH - h) * finite(sprite.posY, 100) / 100, w, h };
+}
+
+// 翻转原点要用图的实际宽度百分比。读不到原图时退回比例值本身。
+export function spriteWidthPercent(stageW, stageH, sprite) {
+    const rect = spriteDrawRect(stageW, stageH, sprite);
+    if (!rect || !(stageW > 0)) return finite(sprite && sprite.scale, 100);
+    return rect.w / stageW * 100;
 }
 
 // 头部标定：{ x, top, w } 均相对立绘原图（x 为头部中心、top 为头顶、w 为头宽），与阅读模式无关；aspect 为原图高宽比。

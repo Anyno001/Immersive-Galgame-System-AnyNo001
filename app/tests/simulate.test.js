@@ -17,7 +17,7 @@ import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader
 import { createMapPanelController } from '../src/visual/igs-ui/map-panel.js';
 import { createRecordPanelController } from '../src/visual/igs-ui/record-panel.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
-import { LEGACY_DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
+import { DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
 import { applyTypewriterEffect } from '../src/visual/igs-ui/typewriter-runtime.js';
 import { VISUAL_MODES } from '../src/visual/visual-mode.js';
 
@@ -449,7 +449,7 @@ test('gate:simulation:scene-assets-injects-prompt-and-renders-single-configured-
         igs_bridge_config: JSON.stringify({
             sceneAssets: {
                 enabled: true,
-                promptRule: LEGACY_DEFAULT_SCENE_PROMPT_RULE,
+                promptRule: DEFAULT_SCENE_PROMPT_RULE,
                 scenes: {
                     'B班教室': { url: 'https://example.com/classroom.png', times: {} },
                 },
@@ -506,7 +506,9 @@ test('gate:simulation:scene-assets-injects-prompt-and-renders-single-configured-
     assert.match(injected.value, /喜悦：开心、欢喜、欣喜/);
     assert.match(injected.value, /\[igs-char:角色名\|表情\|服装\|对白\]/);
     assert.doesNotMatch(injected.value, /\{\{outfit_groups\}\}/);
-    assert.match(injected.value, /（暂无登记服装，省略服装栏）/);
+    assert.match(injected.value, /对上哪套就写哪套的名字/);
+    assert.match(injected.value, /不要照抄上一句/);
+    assert.match(injected.value, /不许再写原来那套/);
 
     const opened = await vn.openLatestAvailable('pc');
     assert.equal(opened.ok, true);
@@ -909,7 +911,9 @@ test('gate:illustration:reader-activates-only-after-marker-and-keeps-veil-withou
     assert.equal(overlay.classList.contains('igs-scene-nsfw'), false);
     assert.ok(after.segments.every((segment) => !segment.includes('[igs-img:')));
     opened.controller.invokeAction('next');
-    assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, false);
+    const held = host.getState().activeReader.snapshot.content;
+    assert.equal(held.illustrationActive, true);
+    assert.equal(held.backgroundImage, imageUrl);
     host.destroy();
 });
 
@@ -1178,7 +1182,7 @@ test('gate:simulation:scene-and-character-aliases-reuse-original-assets-and-layo
     assert.equal(snapshot.content.spriteCharacter, '爱丽丝');
     const sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(sprite.style.backgroundPosition, '14% 78%');
-    assert.equal(sprite.style.backgroundSize, '126%');
+    assert.equal(sprite.style.backgroundSize, 'auto 100%');
     vn.destroy();
 });
 
@@ -2912,7 +2916,7 @@ test('gate:simulation:sprite-layout-save-survives-mode-mismatch', async () => {
     const opened = await vn.openLatestAvailable('mobile');
     let sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(opened.reader.snapshot.mode, 'mobile');
-    assert.equal(sprite.style.backgroundSize, '156%');
+    assert.equal(sprite.style.backgroundSize, 'auto 100%');
     assert.equal(sprite.style.backgroundPosition, '12% 34%');
 
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
@@ -2921,7 +2925,7 @@ test('gate:simulation:sprite-layout-save-survives-mode-mismatch', async () => {
     sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(vn.getState().igsUi.activeReader.mode, 'mobile');
     assert.equal(vn.getState().igsUi.activeReader.snapshot.mode, 'mobile');
-    assert.equal(sprite.style.backgroundSize, '156%');
+    assert.equal(sprite.style.backgroundSize, 'auto 100%');
     assert.equal(sprite.style.backgroundPosition, '12% 34%');
 
     vn.destroy();
@@ -4038,7 +4042,7 @@ test('gate:simulation:igs-ui-regen-gives-pending-feedback-and-reports-thrown-err
     assert.equal(opened.ok, true);
     const pending = opened.controller.invokeAction('regen');
     await Promise.resolve();
-    assert.match(host.getState().activeReader.toastMessage, /正在重新生图/);
+    assert.equal(host.getState().activeReader.toastMessage, '生图中');
     const again = await opened.controller.invokeAction('regen');
     assert.equal(again.reason, 'regen-pending');
     assert.equal(calls, 1);
@@ -7919,9 +7923,8 @@ test('gate:simulation:outfit-paging-inherits-switches-resets-and-isolates-layout
         await controller.invokeAction('next');
         expectPage('dialogue', ...swim);
         assert.doesNotMatch(content().displayText, /泳装/);
-        // 换装：旧立绘（校服图）留作残影淡出，新立绘带淡入类名。
-        assert.ok(ghost(), 'outfit change leaves a fading ghost of the previous look');
-        assert.ok(sprite().classList.contains('igs-sprite-outfit-in'));
+        assert.equal(ghost(), null, 'same character outfit change cuts directly');
+        assert.equal(sprite().classList.contains('igs-sprite-outfit-in'), false);
 
         await controller.invokeAction('next');
         expectPage('narration', ...swim);

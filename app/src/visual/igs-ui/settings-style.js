@@ -277,6 +277,9 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-sprite-thumb{width:72px;height:72px;flex-shrink:0;object-fit:contain;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-paper);border:0;cursor:zoom-in}
 .igs-sprite-thumb-empty{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--igs-settings-ink-4);cursor:default}
 .igs-sprite-thumb-broken{position:relative}
+.igs-expression-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;padding:6px 4px 10px}
+.igs-expression-cell{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.igs-expression-actions{display:flex;flex-wrap:wrap;gap:4px}
  .igs-status-avatar-row{justify-content:flex-start;gap:8px}
  .igs-status-avatar-row .igs-btn-mgr-label{flex:0 0 auto}
  .igs-status-avatar-thumb{width:28px;height:28px;flex-shrink:0;border-radius:50%;object-fit:cover;background:var(--igs-settings-paper);overflow:hidden}

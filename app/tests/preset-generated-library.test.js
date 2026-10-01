@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../src/index.js';
 import { handleSettingsAction, unreferencedGeneratedImageIds } from '../src/visual/igs-ui/settings-actions.js';
+import { normalizeGeneratedLibrary } from '../src/scene/asset-match.js';
 
 const PRESET_KEY = 'igs:scene-presets:v1';
 const libA = () => ({ scenes: { 教室: { url: 'igs-gen:bg-a', words: [], times: {} } }, characters: { 雪乃: { 默认: 'igs-gen:sp-a' } }, characterAliases: { 雪乃: [] } });
@@ -41,24 +42,24 @@ function createCtx({ importFile, generated = libA(), ancient = false, presetName
 test('gate:preset:generated-library-saved-and-switched-with-preset', async () => {
     const t = createCtx();
     await handleSettingsAction('scene-preset-save', t.ctx);
-    assert.deepEqual(t.stored().presets['卡A'].generated, libA());
+    assert.deepEqual(t.stored().presets['卡A'].generated, normalizeGeneratedLibrary(libA()));
 
     t.sa().generated = libB();
     t.ctx.state.activeSettings.asyncState.scenePresetName = '卡B';
     await handleSettingsAction('scene-preset-save', t.ctx);
-    assert.deepEqual(t.stored().presets['卡B'].generated, libB());
+    assert.deepEqual(t.stored().presets['卡B'].generated, normalizeGeneratedLibrary(libB()));
 
     await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('卡A'), t.ctx);
-    assert.deepEqual(t.sa().generated, libA(), '切到卡A换成卡A的生成素材库');
+    assert.deepEqual(t.sa().generated, normalizeGeneratedLibrary(libA()), '切到卡A换成卡A的生成素材库');
     await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('卡B'), t.ctx);
-    assert.deepEqual(t.sa().generated, libB());
+    assert.deepEqual(t.sa().generated, normalizeGeneratedLibrary(libB()));
 
     const stored = t.stored();
     const { generated, ...legacy } = stored.presets['卡A'];
     stored.presets['旧预设'] = legacy;
     t.storage.setItem(PRESET_KEY, JSON.stringify(stored));
     await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('旧预设'), t.ctx);
-    assert.deepEqual(t.sa().generated, libB(), '旧预设没有 generated 字段时保留当前生成素材库');
+    assert.deepEqual(t.sa().generated, normalizeGeneratedLibrary(libB()), '旧预设没有 generated 字段时保留当前生成素材库');
 });
 
 test('gate:preset:remove-generated-keeps-images-still-referenced-by-other-presets', async () => {

@@ -21,7 +21,7 @@ export const ROMANCE_STYLE_TEXT = `
 #igs-stage-motion[data-igs-rm-backlight] .igs-rm-backlight{opacity:var(--igs-rm-backlight,0);visibility:visible;transition-delay:0s;}
 #igs-stage-motion[data-igs-rm-glow]:not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) blur(var(--igs-rm-bg-blur,0px)) saturate(1.06) var(--igs-grade-bg,)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) blur(var(--igs-rm-bg-blur,0px)) saturate(1.06) var(--igs-grade-bg,)!important;transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1),filter 1.6s ease;animation-play-state:paused;}
 #igs-stage-motion[data-igs-rm-glow]:not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg-blur{display:block;}
-#igs-stage-motion[data-igs-rm-level] #igs-sprite:not(.igs-sprite-editing){transition:scale 1.6s cubic-bezier(.3,.7,.2,1),translate 1.6s cubic-bezier(.3,.7,.2,1);}
+#igs-stage-motion[data-igs-rm-level] #igs-sprite:not(.igs-sprite-editing){transition:translate 1.6s cubic-bezier(.3,.7,.2,1);}
 #igs-stage-motion[data-igs-rm-approach] #igs-sprite:not(.igs-sprite-editing){transform-origin:var(--igs-rm-origin-x,50%) var(--igs-rm-origin-y,28%);}
 #igs-stage-motion[data-igs-rm-breathe] #igs-sprite:not(.igs-sprite-editing){animation:igs-rm-breathe 5.4s ease-in-out infinite;}
 #igs-stage-motion[data-igs-rm-shade] #igs-sprite::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:inherit;background-size:inherit;background-position:inherit;background-repeat:no-repeat;filter:brightness(0);-webkit-filter:brightness(0);}

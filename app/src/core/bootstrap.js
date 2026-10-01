@@ -37,7 +37,7 @@ import { createImageBackend, mergeLegacyNaiSettings } from '../generated-images/
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
 import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
-import { createAutoIllustrationService, ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
+import { createAutoIllustrationService, ILLUSTRATION_PROGRESS_EVENT, ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
 import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
 import { createItemAndCgServices } from './item-cg-services.js';
 import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-store.js';
@@ -116,6 +116,14 @@ export function bootstrapIGS(options = {}) {
         nai: imageBackend,
         store: illustrationStore,
         getSettings: () => readImageBridge().autoIllustration,
+        getReaderMode: () => {
+            const snapshot = getUnifiedSettingsSnapshot() || {};
+            return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
+        },
+        getViewport: () => ({
+            width: Number(globalObject && globalObject.innerWidth) || 0,
+            height: Number(globalObject && globalObject.innerHeight) || 0,
+        }),
         getSceneAssets: () => readImageBridge().sceneAssets,
         events,
         random: options.random,
@@ -197,6 +205,7 @@ export function bootstrapIGS(options = {}) {
         getIllustrationUrl: (query) => illustrationService.getIllustrationUrl(query),
         illustrations: illustrationService,
         onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),
+        onIllustrationProgress: (handler) => events.on(ILLUSTRATION_PROGRESS_EVENT, handler),
         generatedAssets: assetGenerationService,
         // 遮罩修复编辑器的 AI 局部重绘：只经 describeEdit/edit 显式调用，不影响普通生成。
         imageEditBackend: imageBackend,
@@ -439,6 +448,7 @@ export function bootstrapIGS(options = {}) {
         return {
             version: app.version,
             bridge,
+            readerMode,
             imageApi: cloneData(bridge.imageApi || {}),
             readerSettings: cloneData(resolvedReaderSettings),
         };

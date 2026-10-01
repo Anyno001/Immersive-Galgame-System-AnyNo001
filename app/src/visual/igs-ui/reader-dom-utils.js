@@ -33,11 +33,13 @@ export function clearChildren(node) {
 
 export function ensureStyleTag(doc, id, text) {
     if (!doc || !doc.head) return;
-    if (doc.getElementById(id)) return;
-    const style = doc.createElement('style');
-    style.id = id;
-    style.textContent = text;
-    doc.head.appendChild(style);
+    let style = doc.getElementById(id);
+    if (!style) {
+        style = doc.createElement('style');
+        style.id = id;
+        doc.head.appendChild(style);
+    }
+    if (style.textContent !== text) style.textContent = text;
 }
 
 export function unmountNode(node) {

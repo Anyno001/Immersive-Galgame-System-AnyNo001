@@ -8,7 +8,7 @@ const sceneAssets = {
     moodGroups: [{ label: '喜悦', words: ['喜悦', '欣喜'] }, { label: '害羞', words: ['害羞'] }, { label: '平和', words: ['平和'] }],
     characterOutfits: {
         小林海斗: {
-            泳装: { words: ['泳衣'], moods: { 喜悦: 'swim-joy.png' } },
+            泳装: { words: ['泳衣'], moods: { 喜悦: 'swim-joy.png', 平和: 'swim-calm.png' } },
             睡衣: { words: [], moods: { 默认: 'sleep-default.png' } },
         },
     },
@@ -24,9 +24,9 @@ test('gate:outfits:sprite-lookup-uses-outfit-exact-and-group', () => {
     assert.deepEqual([alias.url, alias.character], ['swim-joy.png', '小林海斗']);
 });
 
-test('gate:outfits:sprite-lookup-falls-back-to-base-without-outfit-default', () => {
+test('gate:outfits:sprite-lookup-miss-uses-this-outfit-calm', () => {
     const missingMood = resolveSpriteAsset('小林海斗', '害羞', ctx, '泳装');
-    assert.deepEqual([missingMood.url, missingMood.source], ['base.png', 'user']);
+    assert.deepEqual([missingMood.url, missingMood.source, missingMood.slot, missingMood.outfit], ['swim-calm.png', 'user-outfit', '平和', '泳装']);
     assert.equal(resolveSpriteAsset('小林海斗', '平和', ctx, '睡衣').url, 'base.png');
     assert.equal(resolveSpriteAsset('小林海斗', '喜悦', ctx, '默认').url, 'base-joy.png');
     assert.equal(resolveSpriteAsset('小林海斗', '喜悦', ctx, '不存在').url, 'base-joy.png');

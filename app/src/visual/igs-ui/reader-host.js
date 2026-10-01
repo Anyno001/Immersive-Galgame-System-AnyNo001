@@ -5,10 +5,10 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
+import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, resolveHeldSourceOffset, locateNarrativeOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
-import { loadOutfitReview, recordOutfitReview } from '../../scene/outfit-review-store.js';
-import { renderOutfitReviewList } from './settings-outfit-fields.js';
+import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
+import { renderOutfitReviewList, renderWardrobe } from './settings-outfit-fields.js';
 
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
@@ -42,7 +42,7 @@ import { normalizeStageCastSettings } from './stage-direction-settings.js';
 import { resolveRomanceRivalTarget } from './romance-settings.js';
 import { clearCastDom } from './stage-cast-render.js';
 import { CHARACTER_DNA_FIELDS, normalizeCharacterDnaMap, resolveCharacterDna } from '../../scene/character-dna.js';
-import { createOutfitResolver, normalizeCharacterOutfits, resolveSpriteOutfit } from '../../scene/character-outfits.js';
+import { createOutfitResolver, normalizeCharacterOutfits, normalizeWardrobe, resolveSpriteOutfit } from '../../scene/character-outfits.js';
 import { collectOutfitClues } from '../../data/shujuku/outfit-clues.js';
 import { renderDnaCandidateBar, renderDnaOnlyCharacterList } from './settings-fields.js';
 import { loadMatteEditor } from './sprite-matte-editor.js';
@@ -141,10 +141,13 @@ import { renderAssetReviewPanel } from './asset-review-panel.js';
 import {
     ensureEmbeddedHost,
     findEmbeddedHost,
-    hideEmbeddedSourceText,
+    hideStorySpan,
     isEmbeddedEditTrigger,
+    isStoryHidden,
     resolveEmbeddedHostParent,
     restoreEmbeddedSourceText,
+    restoreStorySpan,
+    storyLines,
 } from './embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from './reader-source-cache.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
@@ -283,6 +286,8 @@ export function createIgsReaderHost(options = {}) {
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
     const imageResourceCache = createImageResourceCache(options.global || globalThis);
+    let embeddedStoryObserver = null;
+    let embeddedStoryTimer = null;
     const streamObserver = createChatStreamObserver({
         global: options.global || globalThis,
         getDocument: () => resolveEmbeddedDocument(state.activeReader),
@@ -299,10 +304,26 @@ export function createIgsReaderHost(options = {}) {
         ? options.onItemImageUpdated(() => { if (state.activeReader) rerenderActiveReader(); })
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
+    let settingsImageRefreshTimer = 0;
+    function scheduleSettingsImageRefresh() {
+        if (settingsImageRefreshTimer) return;
+        const g = options.global || globalThis;
+        const schedule = typeof g.setTimeout === 'function' ? g.setTimeout.bind(g) : setTimeout;
+        settingsImageRefreshTimer = schedule(() => {
+            settingsImageRefreshTimer = 0;
+            if (state.activeSettings && state.activeSettings.tab === 'scene') rerenderSettings();
+        }, 0);
+    }
     const offGeneratedAssetUpdated = typeof options.onGeneratedAssetUpdated === 'function'
-        ? options.onGeneratedAssetUpdated(() => {
+        ? options.onGeneratedAssetUpdated((detail) => {
             if (state.activeReader) rerenderActiveReader();
-            if (state.activeSettings && state.activeSettings.asyncState.sceneSubTab === 'generated') rerenderSettings();
+            const settings = state.activeSettings;
+            if (!settings) return;
+            if (detail && detail.reason === 'image-loaded') {
+                if (settings.tab === 'scene') scheduleSettingsImageRefresh();
+                return;
+            }
+            if (settings.asyncState.sceneSubTab === 'generated') rerenderSettings();
         })
         : () => {};
     // 日志更新时只替换列表 DOM，不整页重渲染，避免打断正在输入的设置项。
@@ -339,7 +360,11 @@ export function createIgsReaderHost(options = {}) {
             current.payload.textSegments = null;
             current.payload.sceneDirectives = null;
             rerenderActiveReader();
+            scheduleEmbeddedStoryHide();
         })
+        : () => {};
+    const offIllustrationProgress = typeof options.onIllustrationProgress === 'function'
+        ? options.onIllustrationProgress((payload) => showIllustrationProgress(payload))
         : () => {};
 
     const host = {
@@ -437,8 +462,10 @@ export function createIgsReaderHost(options = {}) {
         syncStatusHudSubscription();
         if (isEmbeddedReaderMode(nextMode)) {
             streamObserver.start();
+            startEmbeddedStoryWatch();
         } else {
             streamObserver.stop();
+            stopEmbeddedStoryWatch();
         }
 
         if (domState && domState.overlay) onboarding.syncInvite(domState.overlay);
@@ -682,6 +709,7 @@ export function createIgsReaderHost(options = {}) {
         }
         current.imagePollToken += 1;
         streamObserver.stop();
+        stopEmbeddedStoryWatch();
         sourceCache.invalidate();
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
@@ -735,6 +763,7 @@ export function createIgsReaderHost(options = {}) {
         const closed = closeSettings();
         if (closed.ok === false) return closed;
         offIllustrationUpdated();
+        offIllustrationProgress();
         offGeneratedAssetUpdated();
         offItemImageUpdated();
         offImageJobLog();
@@ -826,7 +855,7 @@ export function createIgsReaderHost(options = {}) {
             && mount.host.parentNode === resolved.parent
         );
         if (sameMount) {
-            hideEmbeddedSourceText(resolved.mesText);
+            hideMountedStory(resolved.mesText, message);
             return false;
         }
         remountEmbeddedReader(current, { ...message, element });
@@ -940,9 +969,11 @@ export function createIgsReaderHost(options = {}) {
                 current.dom.embeddedMount = mountEmbeddedRoot(doc, root, current.payload.message, current.mountMessageId);
             }
             streamObserver.start();
+            startEmbeddedStoryWatch();
             return;
         }
         streamObserver.stop();
+        stopEmbeddedStoryWatch();
         exitEmbeddedLoading();
         if (current.dom.embeddedMount) {
             (doc.documentElement || doc.body).appendChild(root);
@@ -1272,6 +1303,23 @@ export function createIgsReaderHost(options = {}) {
         try { if (state.activeReader) writeToast(message); } catch (error) { /* ignore */ }
     }
 
+    function showIllustrationProgress(payload) {
+        const current = state.activeReader;
+        if (!current || !payload) return;
+        const messageId = Number(payload.messageId);
+        const contentId = current.payload && current.payload.messageId != null
+            ? current.payload.messageId : current.contentMessageId;
+        if (contentId == null || Number(contentId) !== messageId) return;
+        if (payload.phase === 'done') {
+            if (!current.cgProgress) return;
+            current.cgProgress = false;
+            if (current.toastMessage === '生图中') clearReaderToast(current);
+            return;
+        }
+        current.cgProgress = true;
+        writeGenerating();
+    }
+
     function updateSettingsValue(path, value, editOptions = {}) {
         if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
         const draft = state.activeSettings.draft;
@@ -1390,7 +1438,7 @@ export function createIgsReaderHost(options = {}) {
             if (!/^(?:data:image\/|https?:\/\/|blob:)/i.test(url)) return '';
             const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;
             // 大图按序号回查已读列表，避免把整段 data URL 再塞进 data-action。
-            return `<button type="button" class="igs-image-cg-tile" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><img src="${esc(url)}" loading="lazy" decoding="async" alt=""><span>${esc(label)}</span></button>`;
+            return `<button type="button" class="igs-image-cg-tile" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><img src="${esc(url)}" decoding="async" alt=""><span>${esc(label)}</span></button>`;
         }).join('');
         return tiles || '<div class="igs-scene-empty">还没有生成过 CG</div>';
     }
@@ -1536,6 +1584,12 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'clear-cg') {
             return clearCurrentIllustration();
+        }
+        if (normalizedAction === 'clear-floor-cg') {
+            return clearFloorIllustrations();
+        }
+        if (normalizedAction === 'reroll-cg') {
+            return rerollCurrentIllustration();
         }
         if (normalizedAction === 'cg-gallery') {
             return openCgGallery();
@@ -1813,7 +1867,7 @@ export function createIgsReaderHost(options = {}) {
         }
         const globalObj = options.global || globalThis;
         if (typeof globalObj.confirm === 'function'
-            && !globalObj.confirm('清扫当前显示的 CG？只会删除这一张，其他 CG 不受影响。')) {
+            && !globalObj.confirm('清扫当前这张 CG？正文里对应的挂载点会一起删掉。')) {
             return { ok: true, reason: 'cancelled', removed: false, rendered: false };
         }
         const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
@@ -1839,11 +1893,22 @@ export function createIgsReaderHost(options = {}) {
         return result;
     }
 
-    // 工具栏「绘制 CG」：先补画本楼的过场 / NSFW 插图（含重试失败的张），没有可补的再重画当前图。
-    // 素材补全是单独的「补全素材」按钮，不在这里顺带触发。
+    // 工具栏「绘制 CG」：已有挂载点时确认后重写提示词再出图；没有则补画过场 / NSFW，补不了再重画当前图。
     async function generateOrRegenerate() {
-        const hasCg = options.illustrations && typeof options.illustrations.processMessage === 'function';
+        const service = options.illustrations;
+        const hasCg = service && typeof service.processMessage === 'function';
         if (!hasCg) return regenerateCurrentImage();
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const target = readManualFloor(current);
+        if (target.floor && /(?:\[igs-img:|<IMG>)/i.test(target.floor.text)) {
+            const globalObj = options.global || globalThis;
+            if (typeof globalObj.confirm === 'function'
+                && !globalObj.confirm('重写本楼提示词，并重画全部 CG？原来的图和挂载点都会换掉。')) {
+                return { ok: true, reason: 'cancelled' };
+            }
+            return runManualIllustration({ reroll: true });
+        }
         const cg = await runManualIllustration({ deferSkip: true });
         if (!cg || !cg.skipMessage) return cg;
         const regen = await regenerateCurrentImage();
@@ -1852,6 +1917,82 @@ export function createIgsReaderHost(options = {}) {
             return cg;
         }
         return regen;
+    }
+
+    async function rerollCurrentIllustration() {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const content = current.snapshot && current.snapshot.content || {};
+        if (!content.illustrationActive || !content.illustrationUrl || !content.illustrationSlot) {
+            writeToastSafe('当前页没有可重画的 CG。');
+            return { ok: true, reason: 'no-current-cg' };
+        }
+        const service = options.illustrations;
+        if (!service || typeof service.rerollSlot !== 'function') {
+            writeToastSafe('当前未接入单张重画。');
+            return { ok: false, reason: 'reroll-unavailable' };
+        }
+        const globalObj = options.global || globalThis;
+        if (typeof globalObj.confirm === 'function'
+            && !globalObj.confirm('只重画这一张？提示词不变。')) {
+            return { ok: true, reason: 'cancelled' };
+        }
+        const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
+        const identity = current.illustrationIdentity || {};
+        if (current.illustrationPending) {
+            writeGenerating();
+            return { ok: true, reason: 'busy' };
+        }
+        current.illustrationPending = true;
+        writeGenerating();
+        try {
+            const result = await service.rerollSlot({
+                chatId: identity.chatId,
+                messageId,
+                swipeId: identity.swipeId,
+                slot: content.illustrationSlot,
+            });
+            if (state.activeReader === current) {
+                if (!result || result.ok === false) writeToastSafe(`重画失败：${(result && result.error) || '未返回具体原因'}`);
+                else if (result.reason === 'not-eligible') writeToastSafe('请打开当前聊天最新的非空 AI 楼层');
+                else writeToastSafe('这一张已重画。');
+            }
+            return result || { ok: false, reason: 'error' };
+        } catch (error) {
+            if (state.activeReader === current) writeToastSafe(`重画异常：${(error && error.message) || error || '未知错误'}`);
+            return { ok: false, reason: 'error' };
+        } finally {
+            current.illustrationPending = false;
+        }
+    }
+
+    async function clearFloorIllustrations() {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const service = options.illustrations;
+        if (!service || typeof service.clearFloorIllustrations !== 'function') {
+            writeToastSafe('当前未接入本楼清扫。');
+            return { ok: false, reason: 'clear-unavailable' };
+        }
+        const globalObj = options.global || globalThis;
+        if (typeof globalObj.confirm === 'function'
+            && !globalObj.confirm('清扫本楼全部 CG？正文里的挂载点会一起删掉，不会马上重画。')) {
+            return { ok: true, reason: 'cancelled' };
+        }
+        const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
+        const identity = current.illustrationIdentity || {};
+        const result = await service.clearFloorIllustrations({
+            chatId: identity.chatId,
+            messageId,
+            swipeId: identity.swipeId,
+        });
+        if (state.activeReader === current) {
+            rerenderActiveReader();
+            if (result && result.ok && result.reason === 'cleared') writeToastSafe('本楼 CG 已清扫。');
+            else if (result && result.ok) writeToastSafe('本楼没有可清扫的 CG。');
+            else writeToastSafe(`清扫本楼失败：${(result && result.reason) || '未知错误'}`);
+        }
+        return result || { ok: false, reason: 'error' };
     }
 
     function readManualFloor(current) {
@@ -1870,12 +2011,14 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 过场 / NSFW 插图：手动时跳过过场概率，并重试之前失败的张。
-    async function runManualIllustration({ deferSkip = false } = {}) {
+    async function runManualIllustration({ deferSkip = false, reroll = false } = {}) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
-        const feedback = (level, message) => {
+        const feedback = (level, message, generating = false) => {
             if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
-            if (state.activeReader === current) writeToastSafe(message);
+            if (state.activeReader !== current) return;
+            if (generating) writeGenerating();
+            else writeToastSafe(message);
         };
         const skip = (result, message) => {
             if (!deferSkip) {
@@ -1885,19 +2028,23 @@ export function createIgsReaderHost(options = {}) {
             return { ...result, skipMessage: message };
         };
         const service = options.illustrations;
-        if (!service || typeof service.processMessage !== 'function') {
+        if (!service || (reroll ? typeof service.rerollFloor !== 'function' : typeof service.processMessage !== 'function')) {
             return skip({ ok: false, reason: 'service-unavailable' }, '插图已跳过：插图服务未就绪');
         }
         const target = readManualFloor(current);
         if (!target.floor) return skip({ ok: true, reason: target.reason }, `插图已跳过：${target.message}`);
         if (current.illustrationPending) {
-            feedback('info', '插图处理中，请等待当前任务完成');
+            feedback('info', '插图处理中，请等待当前任务完成', true);
             return { ok: true, reason: 'busy' };
         }
         current.illustrationPending = true;
-        feedback('info', `第 ${target.messageId} 楼插图：正在检查过场 / NSFW 插图…`);
+        feedback('info', reroll
+            ? `第 ${target.messageId} 楼正在重写提示词并重画…`
+            : `第 ${target.messageId} 楼插图：正在检查过场 / NSFW 插图…`, true);
         try {
-            const result = await service.processMessage(Number(target.messageId), { manual: true });
+            const result = reroll
+                ? await service.rerollFloor(Number(target.messageId))
+                : await service.processMessage(Number(target.messageId), { manual: true });
             const skipped = {
                 disabled: '请在设置「生图 → 生图内容」开启 NSFW 或过场插图并保存',
                 'not-eligible': '当前楼层不是最新的非空 AI 回复',
@@ -1923,9 +2070,11 @@ export function createIgsReaderHost(options = {}) {
     async function runManualAssetGeneration({ deferSkip = false } = {}) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
-        const feedback = (level, message) => {
+        const feedback = (level, message, generating = false) => {
             if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
-            if (state.activeReader === current) writeToastSafe(message);
+            if (state.activeReader !== current) return;
+            if (generating) writeGenerating();
+            else writeToastSafe(message);
         };
         // 没有可补全素材时交给重画当前图，这类跳过不必单独提示。
         const skip = (result, message) => {
@@ -1944,11 +2093,11 @@ export function createIgsReaderHost(options = {}) {
         const messageId = target.messageId;
         if (!target.floor) return skip({ ok: true, reason: target.reason }, `补全素材已跳过：${target.message}`);
         if (current.assetGenerationPending) {
-            feedback('info', '补全素材处理中，请等待当前任务完成');
+            feedback('info', '补全素材处理中，请等待当前任务完成', true);
             return { ok: true, reason: 'busy' };
         }
         current.assetGenerationPending = true;
-        feedback('info', `第 ${messageId} 楼补全素材：正在检查未登记的人物和场景…`);
+        feedback('info', `第 ${messageId} 楼补全素材：正在检查未登记的人物和场景…`, true);
         try {
             const result = await service.processMessage(Number(messageId), { manual: true });
             const skipped = {
@@ -1983,15 +2132,14 @@ export function createIgsReaderHost(options = {}) {
             return { ok: false, reason: 'provider-not-enabled' };
         }
         if (current.regenPending) {
-            writeToast('正在重新生图，请稍候…');
+            writeGenerating();
             return { ok: false, reason: 'regen-pending' };
         }
-        // 生图可能要几十秒：先给转圈和提示，结束（含异常）时一定收回。
         current.regenPending = true;
         const overlay = current.dom && current.dom.root;
         const bgContainer = overlay && overlay.querySelector ? overlay.querySelector('#igs-bg') : null;
         ensureImageLoadingSpinner(bgContainer);
-        writeToast('正在重新生图…');
+        writeGenerating();
         let result;
         try {
             result = await options.regenerateImage(buildImageActionContext(
@@ -2212,11 +2360,16 @@ export function createIgsReaderHost(options = {}) {
     function noteUnlistedOutfits(directives, sceneAssets) {
         const storage = (options.global || globalThis).localStorage;
         if (!storage) return;
+        const wardrobe = sceneAssets.wardrobe && typeof sceneAssets.wardrobe === 'object' ? sceneAssets.wardrobe : {};
+        dropConfirmedOutfitReview(storage, wardrobe);
+        const fresh = [];
         for (const d of directives) {
             if (!d || !d.unknownOutfit || !d.character) continue;
+            if (Object.prototype.hasOwnProperty.call(wardrobe, d.unknownOutfit)) continue;
             const character = resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, d.character) || d.character;
-            recordOutfitReview(storage, { character, word: d.unknownOutfit });
+            if (recordOutfitReview(storage, { character, word: d.unknownOutfit })) fresh.push(`「${character}」的「${d.unknownOutfit}」`);
         }
+        if (fresh.length) writeToast(`有新服装待确认：${fresh.join('、')}。打开衣柜可以生成提示词，或删除这条。`, 4200);
     }
 
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
@@ -2448,9 +2601,13 @@ export function createIgsReaderHost(options = {}) {
         if (battleContext && battleFoe && sceneAssets && sceneAssets.enabled) {
             pageFx.foeImage = resolveGenerated(resolveSpriteAsset(battleFoe, '', assetMatchCtx).url) || '';
         }
-        const illustrationOffset = currentOffset >= 0
-            ? currentOffset
-            : (/(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset) ? locateTextOffsetInSource(sceneSourceForOffset, currentText) : -1);
+        const illustrationOffset = /(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset)
+            ? resolveHeldSourceOffset(sceneSourceForOffset, segments, normalizedIndex, (segment, from) => {
+                const find = (text) => locateNarrativeOffset(sceneSourceForOffset, text, from, (slice, start) => locateTextOffsetInSource(slice, text, start));
+                const exact = find(segment);
+                return exact >= 0 ? exact : find(stripSegmentSpeaker(segment));
+            })
+            : -1;
         const illustrationHit = illustrationOffset >= 0
             ? resolveIllustrationAtSourceOffset(sceneSourceForOffset, illustrationOffset)
             : null;
@@ -2465,7 +2622,7 @@ export function createIgsReaderHost(options = {}) {
                 slot: illustrationHit.slot,
             }) || '')
             : '';
-        const markerImageUrl = illustrationHit
+        const markerImageUrl = illustrationHit && !illustrationUrl
             ? resolveIllustrationMarkerImageUrl(displayImageState, illustrationHit.slot)
             : '';
         if (illustrationUrl) {
@@ -2487,6 +2644,7 @@ export function createIgsReaderHost(options = {}) {
             }
             spriteImage = null;
         }
+        const cgActive = Boolean(illustrationUrl || markerImageUrl);
         // Per-segment classification from the formatted segment text itself.
         // Order matters: thought (*...*) is checked before dialogue ([名字]：) because
         // a thought segment looks like *[名字]：...* and would otherwise match dialogue.
@@ -2630,7 +2788,7 @@ export function createIgsReaderHost(options = {}) {
                 spriteMood = sceneStateForBg.mood || '';
             }
             // HTML 卡片独占舞台前景：不继承上一段角色的立绘，也不发起素材解析。
-            if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
+            if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !cgActive && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
                 // 服装按当前页在原文中的位置取该角色最近一次服装栏，本楼没写时取跨楼继承，再按表格 / 装备 / DNA 兜底；指令与偏移同源于原文。
                 const outfitMap = sceneAssets.characterOutfits;
                 // 对白页正文带「[名字]：」前缀，原文里是「名字|表情|服装|对白」，去掉前缀再定位，避免取到整楼最后一条服装。
@@ -2798,6 +2956,7 @@ export function createIgsReaderHost(options = {}) {
                 sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
+                cgActive,
                 illustrationSlot: illustrationHit ? illustrationHit.slot : null,
                 illustrationUrl,
                 statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw), { character: spriteCharacter, outfit: spriteOutfit }),
@@ -3069,16 +3228,21 @@ export function createIgsReaderHost(options = {}) {
             // 文件夹只是本地界面归类：按当前预设读取，素材数据原样传给原有列表渲染器。
             const assetFolders = loadAssetFolders((options.global || globalThis).localStorage, asyncState.scenePresetName || '');
             const firstUrl = (values) => (values.map((v) => String(v || '').trim()).find(Boolean) || '');
+            const generatedService = options.generatedAssets || null;
+            const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
+                ? (generatedService && typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '')
+                : (url || ''));
             const sceneListOptions = {
                 expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
                 timeGroups: sceneAssets.timeGroups || [],
                 weatherGroups: sceneAssets.weatherGroups || [],
+                resolveUrl: resolveGenerated,
                 folderSelect: (name) => renderAssetFolderSelect('scenes', name, assetFolders.scenes),
             };
             const scenesHtml = renderAssetFolderView('scenes', sceneAssets.scenes || {}, {
                 state: assetFolders,
                 renderList: (subset) => renderSceneAssetList(subset, sceneListOptions),
-                thumbOf: (name, value) => (typeof value === 'string' ? value : firstUrl([value && value.url].concat(Object.values((value && value.times) || {}).map((t) => (typeof t === 'string' ? t : t && t.url))))),
+                thumbOf: (name, value) => resolveGenerated(typeof value === 'string' ? value : firstUrl([value && value.url].concat(Object.values((value && value.times) || {}).map((t) => (typeof t === 'string' ? t : t && t.url))))),
             });
             const charListOptions = {
                 aliases: sceneAssets.characterAliases || {},
@@ -3089,25 +3253,25 @@ export function createIgsReaderHost(options = {}) {
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
                 statusAvatars: sceneAssets.statusAvatars || {},
+                resolveUrl: resolveGenerated,
+                expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
                 folderSelect: (name) => renderAssetFolderSelect('characters', name, assetFolders.characters),
             };
             const charsHtml = renderAssetFolderView('characters', sceneAssets.characters || {}, {
                 state: assetFolders,
                 renderList: (subset) => renderCharacterAssetList(subset, charListOptions),
-                thumbOf: (name, moods) => firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]])),
+                thumbOf: (name, moods) => resolveGenerated(firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]]))),
             });
             const scenePresets = loadScenePresets((options.global || globalThis).localStorage);
             const scenePresetBarHtml = renderScenePresetBar(scenePresets, asyncState.scenePresetName || '');
-            const generatedService = options.generatedAssets || null;
-            const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
-                ? (generatedService && typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '')
-                : (url || ''));
             const generatedPane = renderGeneratedAssetPane({
                 library: normalizeGeneratedLibrary(sceneAssets.generated),
+                characters: sceneAssets.characters || {},
                 temp: generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
                 resolveUrl: resolveGenerated,
                 presetNames: Object.keys(scenePresets || {}),
                 currentPreset: asyncState.scenePresetName || '',
+                moodGroups: sceneAssets.moodGroups || [],
             });
             const subTabsHtml = `<div class="igs-scene-subtabs" role="tablist">`
                 + SCENE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-scene-subtab${subTab === id ? ' is-active' : ''}" data-scene-subtab="${id}" role="tab" aria-selected="${subTab === id ? 'true' : 'false'}">${label}</button>`).join('')
@@ -3134,7 +3298,7 @@ export function createIgsReaderHost(options = {}) {
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
         <div class="igs-source-filter-note">词库里没有的相近情绪词也会自动归组（如「嘲弄」归入「嘲讽」）。可能归错，可在下方「待确认情绪词」里核对。</div>
         ${renderMoodReviewList(loadMoodReview((options.global || globalThis).localStorage))}
-        ${renderOutfitReviewList(loadOutfitReview((options.global || globalThis).localStorage), sceneAssets.characterOutfits || {}, sceneAssets.characters || {})}
+        ${renderOutfitReviewList(dropConfirmedOutfitReview((options.global || globalThis).localStorage, sceneAssets.wardrobe), sceneAssets.characterOutfits || {}, sceneAssets.characters || {})}
         ${renderDnaCandidateBar(asyncState.dnaCandidate)}
         ${charsHtml}
         ${renderDnaOnlyCharacterList(sceneAssets.characterDna || {}, sceneAssets.characters || {})}
@@ -3158,7 +3322,7 @@ export function createIgsReaderHost(options = {}) {
                     + '<div class="igs-source-filter-note">只在用得上时附完整说明。</div></details>',
                 scenePresetBar: scenePresetBarHtml,
                 sceneSubTabs: subTabsHtml,
-                sceneSubPane: subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane),
+                sceneSubPane: subTab === 'wardrobe' ? renderWardrobe(sceneAssets.wardrobe, dropConfirmedOutfitReview((options.global || globalThis).localStorage, sceneAssets.wardrobe), resolveGenerated) : (subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane)),
             };
             return renderTemplate(getSettingsTabTemplate('scene'), {
                 sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
@@ -3527,8 +3691,7 @@ export function createIgsReaderHost(options = {}) {
         return domState;
     }
 
-    // 把唯一 reader root 挂到最新 AI 楼层 .mes_text 的兄弟容器中，并隐藏宿主原文。
-    // 定位不到楼层节点时返回 null，由调用方回退到全局挂载，避免整块 UI 打不开。
+    // 酒馆先把正则界面画进 .mes_text。gal 挂在这一层上面，正文从第一句藏到最后一句。
     function mountEmbeddedRoot(doc, root, message, messageId) {
         const element = message && message.element ? message.element : resolveLiveMessageElement(doc, messageId);
         if (!element) return null;
@@ -3537,7 +3700,6 @@ export function createIgsReaderHost(options = {}) {
         const targetDoc = resolved.mesText.ownerDocument || element.ownerDocument || doc;
         const host = ensureEmbeddedHost(resolved.parent, targetDoc, findEmbeddedHost(targetDoc));
         if (!host) return null;
-        hideEmbeddedSourceText(resolved.mesText);
         if (root.classList) root.classList.add('igs-embedded-root');
         if (root.style) {
             root.style.width = '100%';
@@ -3546,11 +3708,96 @@ export function createIgsReaderHost(options = {}) {
             root.style.overflow = 'hidden';
         }
         host.appendChild(root);
+        hideMountedStory(resolved.mesText, message);
         return { host, mesText: resolved.mesText, messageId, root };
+    }
+
+    function hideMountedStory(mesText, message) {
+        const reader = state.activeReader;
+        const messageId = message && message.id != null
+            ? message.id
+            : (reader && (reader.mountMessageId != null ? reader.mountMessageId : reader.payload && reader.payload.messageId));
+        const floor = messageId != null && typeof options.getIllustrationSource === 'function'
+            ? options.getIllustrationSource(messageId) : null;
+        const raw = (floor && floor.text)
+            || getMessagePrimaryText(message)
+            || getMessagePrimaryText(reader && reader.payload && reader.payload.raw)
+            || '';
+        const tags = reader && reader.sourceFilter && reader.sourceFilter.textIncludeTags;
+        const lines = storyLines(raw, tags || 'content');
+        if (!lines.length) return;
+        hideStorySpan(mesText, lines);
+    }
+
+    // 酒馆重画 .mes_text（生图写回、铅笔保存）会丢掉藏好的正文。楼层还在就再藏一次。
+    function keepEmbeddedStoryHidden() {
+        const current = state.activeReader;
+        if (!current || !isEmbeddedReaderMode(current.mode) || !current.dom) return;
+        const doc = resolveEmbeddedDocument(current);
+        const messageId = current.mountMessageId != null
+            ? current.mountMessageId
+            : (current.payload && current.payload.messageId);
+        const element = resolveLiveMessageElement(doc, messageId);
+        if (!element) return;
+        const resolved = resolveEmbeddedHostParent(element);
+        if (!resolved) return;
+        const mount = current.dom.embeddedMount;
+        const host = mount && mount.host;
+        if (!host || host.parentNode !== resolved.parent) {
+            syncEmbeddedReaderMount(current, { id: messageId, element });
+            return;
+        }
+        if (mount.mesText !== resolved.mesText) mount.mesText = resolved.mesText;
+        if (isStoryHidden(resolved.mesText)) return;
+        hideMountedStory(resolved.mesText, { id: messageId, element });
+    }
+
+    function scheduleEmbeddedStoryHide() {
+        if (embeddedStoryTimer != null) return;
+        const globalObject = options.global || globalThis;
+        const setter = typeof globalObject.setTimeout === 'function' ? globalObject.setTimeout.bind(globalObject) : setTimeout;
+        embeddedStoryTimer = setter(() => {
+            embeddedStoryTimer = null;
+            keepEmbeddedStoryHidden();
+        }, 0);
+    }
+
+    function stopEmbeddedStoryWatch() {
+        const globalObject = options.global || globalThis;
+        const clearer = typeof globalObject.clearTimeout === 'function' ? globalObject.clearTimeout.bind(globalObject) : clearTimeout;
+        if (embeddedStoryTimer != null) clearer(embeddedStoryTimer);
+        embeddedStoryTimer = null;
+        if (embeddedStoryObserver && typeof embeddedStoryObserver.disconnect === 'function') embeddedStoryObserver.disconnect();
+        embeddedStoryObserver = null;
+    }
+
+    function startEmbeddedStoryWatch() {
+        stopEmbeddedStoryWatch();
+        const doc = getRootDocument(options.global);
+        const chat = doc && typeof doc.querySelector === 'function' ? doc.querySelector('#chat') : null;
+        const view = doc && doc.defaultView;
+        const Ctor = (options.global && options.global.MutationObserver)
+            || (view && view.MutationObserver)
+            || (typeof MutationObserver === 'function' ? MutationObserver : null);
+        if (!Ctor || !chat) return;
+        embeddedStoryObserver = new Ctor((records) => {
+            const external = Array.isArray(records) && records.some((record) => {
+                const target = record && record.target;
+                if (target && target.closest && target.closest('[data-igs-internal-reader="1"]')) return false;
+                return true;
+            });
+            if (external) scheduleEmbeddedStoryHide();
+        });
+        try {
+            embeddedStoryObserver.observe(chat, { childList: true, subtree: true });
+        } catch (error) {
+            embeddedStoryObserver = null;
+        }
     }
 
     function teardownEmbeddedMount(mount) {
         if (!mount) return;
+        restoreStorySpan(mount.mesText);
         restoreEmbeddedSourceText(mount.mesText);
         if (mount.root && mount.root.classList) mount.root.classList.remove('igs-embedded-root');
         if (mount.root && mount.root.style) {
@@ -3748,6 +3995,18 @@ export function createIgsReaderHost(options = {}) {
                 }
                 return;
             }
+            const wardrobeName = target.getAttribute('data-wardrobe-name');
+            if (wardrobeName) {
+                if (['__proto__', 'constructor', 'prototype'].includes(wardrobeName)) return;
+                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                const wardrobe = assets.wardrobe && typeof assets.wardrobe === 'object' && !Array.isArray(assets.wardrobe)
+                    ? assets.wardrobe : (assets.wardrobe = {});
+                const entry = wardrobe[wardrobeName] && typeof wardrobe[wardrobeName] === 'object' && !Array.isArray(wardrobe[wardrobeName])
+                    ? wardrobe[wardrobeName] : (wardrobe[wardrobeName] = { prompt: '' });
+                entry.prompt = target.value;
+                state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
+                return;
+            }
             const dnaChar = target.getAttribute('data-dna-char');
             const dnaField = target.getAttribute('data-dna-field');
             if (dnaChar && dnaField) {
@@ -3776,6 +4035,11 @@ export function createIgsReaderHost(options = {}) {
             }
             if (sceneTimeBg && sceneTime) {
                 controller.invoke('scene-set-time-url:' + encodeURIComponent(sceneTimeBg) + ':' + encodeURIComponent(sceneTime) + ':' + target.value);
+                return;
+            }
+            const outfitNoteChar = target.getAttribute('data-scene-outfit-note-char');
+            if (outfitNoteChar) {
+                controller.invoke('scene-set-outfit-note:' + [outfitNoteChar, target.getAttribute('data-scene-outfit-note')].map((v) => encodeURIComponent(v || '')).join(':') + ':' + target.value);
                 return;
             }
             const outfitAvatarChar = target.getAttribute('data-scene-outfit-avatar-char');
@@ -3815,6 +4079,12 @@ export function createIgsReaderHost(options = {}) {
                 if (colon < 0) return;
                 const genName = event.target.getAttribute('data-gen-name') || '';
                 controller.invoke(`gen-lib-transfer:${choice.slice(0, colon)}:${encodeURIComponent(genTransferType)}:${encodeURIComponent(genName)}:${choice.slice(colon + 1)}`);
+                return;
+            }
+            const wardrobeChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-wardrobe-char') : '';
+            if (wardrobeChar) {
+                const wardrobeOutfit = event.target.getAttribute('data-outfit-wardrobe') || '';
+                controller.invoke(`scene-set-outfit-wardrobe-url:${[wardrobeChar, wardrobeOutfit, event.target.value].map((value) => encodeURIComponent(value || '')).join(':')}`);
                 return;
             }
             if (event.target && event.target.getAttribute && event.target.getAttribute('data-preset-select') !== null) {
@@ -4233,6 +4503,7 @@ export function createIgsReaderHost(options = {}) {
         }
         normalized.characterDna = normalizeCharacterDnaMap(normalized.characterDna);
         normalized.characterOutfits = normalizeCharacterOutfits(normalized.characterOutfits);
+        normalized.wardrobe = normalizeWardrobe(normalized.wardrobe);
         normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
         // init group arrays
         if (!Array.isArray(normalized.timeGroups)) normalized.timeGroups = [];
@@ -4430,11 +4701,18 @@ export function createIgsReaderHost(options = {}) {
         return '';
     }
 
-    function writeToast(message) {
+    function writeToast(message, durationMs) {
         const current = state.activeReader;
         if (!current) return;
         const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
-        applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme));
+        applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme), durationMs);
+    }
+
+    function writeGenerating() {
+        const current = state.activeReader;
+        if (!current) return;
+        const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
+        applyToastToReader(current, true, '生图中', normalizeSettingsTheme(bridge.settingsTheme), 0, { sticky: true });
     }
 
     function buildSpriteEditContext() {
@@ -4482,7 +4760,7 @@ function showSpritePreviewOverlay(root, url) {
     host.appendChild(overlay);
 }
 
-function applyToastToReader(current, allowed, message, theme) {
+function applyToastToReader(current, allowed, message, theme, durationMs, options) {
     if (!current || !message || allowed === false) return;
     clearReaderToast(current);
     current.toastMessage = String(message);
@@ -4492,13 +4770,15 @@ function applyToastToReader(current, allowed, message, theme) {
         toast.textContent = current.toastMessage;
         toast.style.opacity = "1";
     }
+    if (options && options.sticky === true) return;
     const win = current.dom && current.dom.overlay ? getOwnerWindow(current.dom.overlay) : null;
     const setter = win && typeof win.setTimeout === "function" ? win.setTimeout.bind(win) : setTimeout;
+    const stay = Number(durationMs) > 0 ? Number(durationMs) : 1800;
     current.toastTimer = setter(() => {
         current.toastMessage = "";
         if (toast) toast.style.opacity = "0";
         current.toastTimer = null;
-    }, 1800);
+    }, stay);
 }
 
 function clearReaderToast(current) {
@@ -4588,10 +4868,6 @@ function locateTextOffsetInSource(source, segText, from = 0) {
     return -1;
 }
 
-function stripSegmentSpeaker(text) {
-    return String(text || '').trim().replace(/^\*+|\*+$/g, '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, '');
-}
-
 function resolveIllustrationMarkerImageUrl(imageState, slot) {
     const numericSlot = Number(slot);
     if (!Number.isInteger(numericSlot) || numericSlot < 1) return '';
@@ -4613,4 +4889,6 @@ function resolveIllustrationMarkerImageUrl(imageState, slot) {
     return '';
 }
 
-
+function stripSegmentSpeaker(text) {
+    return String(text || '').trim().replace(/^\*+|\*+$/g, '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, '');
+}

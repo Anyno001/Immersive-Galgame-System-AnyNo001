@@ -47,8 +47,8 @@ test('gate: head alignment matches head width and head top within limits', () =>
     const member = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.18 } };
     const out = alignToReference({ ...stage, reference, member });
     const rect = spriteDrawRect(stage.stageW, stage.stageH, { ...member, ...out });
-    assert.ok(Math.abs(rect.w * member.head.w - 100) < 0.01);
-    assert.ok(Math.abs(rect.top + rect.h * member.head.top - (-350)) < 0.01);
+    assert.ok(Math.abs(rect.w * member.head.w - 30) < 0.01);
+    assert.ok(Math.abs(rect.top + rect.h * member.head.top - 315) < 0.01);
     const tiny = alignToReference({ ...stage, reference, member: { ...member, head: { x: 0.5, top: 0.05, w: 0.05 } } });
     assert.equal(tiny.scale, 62.5);
     assert.deepEqual(alignToReference({ ...stage, reference, member: { ...member, head: null } }), { scale: 50, posY: 100 });

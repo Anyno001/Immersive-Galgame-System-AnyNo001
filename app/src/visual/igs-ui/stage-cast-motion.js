@@ -117,7 +117,6 @@ export function playSpeakerCastMotion(spriteEl, prevStage, speaker, handoff = {}
     if (fromX == null) {
         if (skipEnter) return played;
         const side = castSideOf(speaker.posX);
-        spriteEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: CAST_ENTER_MS, easing: EASING, fill: 'backwards' });
         if (side) {
             spriteEl.animate([{ transform: `translateX(${side * CAST_SLIDE_PCT}%)` }, { transform: 'translateX(0)' }], {
                 duration: CAST_ENTER_MS, easing: EASING, fill: 'backwards', composite: 'add',

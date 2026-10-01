@@ -6,6 +6,7 @@ import { findCalledCast } from '../../scene/stage-cast.js';
 import { CAST_CALLED_FRAME, CAST_DIM_FRAME, CAST_FOCUS_FRAME, CAST_HANDOFF_MS, CAST_LIT_FRAME, CAST_MOVE_MS, CAST_SLIDE_PCT, castSideOf } from './stage-cast-motion.js';
 import { playSpriteAction } from './sprite-actions.js';
 import { decodeSpriteImage } from './stage-direction-runtime.js';
+import { peekSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
 
 const NARROW_MODES = new Set(['mobile', 'embedded']);
 const NARROW_STAGE_WIDTH = 768;
@@ -17,7 +18,7 @@ const SWAP_FADE_MS = 180;
 export const STAGE_CAST_STYLE_TEXT = `
 #igs-cast{position:absolute;inset:0;z-index:2;pointer-events:none;}
 #igs-cast .igs-cast-sprite{position:absolute;inset:0;background-repeat:no-repeat;pointer-events:none;transform-origin:var(--igs-cast-origin-x,50%) 100%;}
-#igs-cast .igs-cast-sprite:not([data-igs-cast-ghost]){transition:rotate .6s ease,scale .2s ease;}
+#igs-cast .igs-cast-sprite:not([data-igs-cast-ghost]){transition:rotate .6s ease;}
 #igs-overlay[data-igs-cast-breathe]:not([data-igs-quality="low"]) #igs-cast .igs-cast-sprite:not([data-igs-cast-leaving]):not([data-igs-cast-ghost]){animation:igs-sd-breathe var(--igs-cast-breathe,5.2s) ease-in-out var(--igs-cast-delay,0s) infinite;}
 #igs-overlay[data-igs-sd-parallax] #igs-cast{translate:calc(var(--igs-sd-px,0) * -12px) calc(var(--igs-sd-py,0) * -5px);transition:translate .6s cubic-bezier(.2,.7,.3,1);}
 #igs-stage-motion[data-igs-fx-presentation="1"] #igs-cast,
@@ -202,7 +203,7 @@ function cssUrl(url) {
     return `url("${String(url).replace(/"/g, '&quot;')}")`;
 }
 
-// 同一角色换图：旧图复制到上层淡出，不瞬切；入场或减少动效时直接换。
+// 同一角色换图直接切。入场仍等图片解码完再显示，避免空一帧。
 function swapImage(layer, el, image, instant) {
     const prev = el.style.backgroundImage;
     if (prev === image) return;
@@ -297,7 +298,7 @@ export function applyCastToDom(root, members = [], motion = {}) {
         // 退下来的说话人图片刚在 #igs-sprite 上显示过，不必再等解码。
         const wait = pendingSame || demotedIn || el.style.backgroundImage === image ? null : decodeSpriteImage(doc, m.url);
         if (!pendingSame) el._igsCastPending = null;
-        el.style.backgroundSize = `${m.scale}%`;
+        el.style.backgroundSize = spriteBackgroundSize(m.scale);
         el.style.backgroundPosition = `${m.posX}% ${m.posY}%`;
         const focused = Boolean(focus) && m.character === focus;
         const frame = focused ? CAST_FOCUS_FRAME : (m.called === true || m.front === true) ? CAST_CALLED_FRAME : CAST_DIM_FRAME;
@@ -310,7 +311,10 @@ export function applyCastToDom(root, members = [], motion = {}) {
         el._igsCastX = m.posX;
         // 背对（第四批）：整张立绘水平翻转，用空闲的独立属性 scale；原点移到图的中心，镜像不整体平移。
         const flipped = m.flip === true;
-        setStyleProp(el, '--igs-cast-origin-x', `${flipped ? castFlipOriginX(m.posX, m.scale) : m.posX}%`);
+        const host = el.parentNode;
+        const probed = peekSpriteHead(m.url);
+        const widthPct = spriteWidthPercent(host && host.clientWidth, host && host.clientHeight, { posX: m.posX, posY: m.posY, scale: m.scale, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH });
+        setStyleProp(el, '--igs-cast-origin-x', `${flipped ? castFlipOriginX(m.posX, widthPct) : m.posX}%`);
         setStyleProp(el, 'scale', flipped ? '-1 1' : '');
         if (flipped) el.setAttribute('data-igs-cast-flip', '1');
         else el.removeAttribute('data-igs-cast-flip');
@@ -320,7 +324,7 @@ export function applyCastToDom(root, members = [], motion = {}) {
         setStyleProp(el, '--igs-cast-delay', `${phase.delay}s`);
         applyLean(el, lean, m.posX);
         const show = () => {
-            swapImage(layer, el, image, reduced || entering);
+            swapImage(layer, el, image, true);
             if (!entering) return;
             stopAnim(el);
             el._igsCastAnim = demotedIn

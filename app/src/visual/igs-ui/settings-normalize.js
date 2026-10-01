@@ -168,22 +168,25 @@ export function normalizeSpriteLayouts(value) {
 
 export function resolveSpriteLayout(layouts, mode, character, mood, outfit = '') {
     const def = { posX: 50, posY: 100, scale: 100 };
+    const modeLayout = layouts && layouts[mode];
+    const scale = modeLayout && Number.isFinite(Number(modeLayout.scale)) ? Number(modeLayout.scale) : def.scale;
+    const placed = (layout) => ({ posX: layout.posX, posY: layout.posY, scale });
     if (!layouts) return def;
     if (character) {
         const identity = spriteIdentity(character, outfit);
-        // 服装先查自身位置；未调过时回落到角色整体位置，不借用原有立绘的单表情位置。
+        // 服装先查自身位置；未调过时回落到角色整体位置，不借用原有立绘的单表情位置。比例只认当前模式的那一个。
         if (identity !== character) {
-            if (mood && layouts[`${mode}::${identity}::${mood}`]) return layouts[`${mode}::${identity}::${mood}`];
-            if (layouts[`${mode}::${identity}`]) return layouts[`${mode}::${identity}`];
+            if (mood && layouts[`${mode}::${identity}::${mood}`]) return placed(layouts[`${mode}::${identity}::${mood}`]);
+            if (layouts[`${mode}::${identity}`]) return placed(layouts[`${mode}::${identity}`]);
         } else if (mood) {
             const moodKey = `${mode}::${character}::${mood}`;
-            if (layouts[moodKey]) return layouts[moodKey];
+            if (layouts[moodKey]) return placed(layouts[moodKey]);
         }
         const charKey = `${mode}::${character}`;
-        if (layouts[charKey]) return layouts[charKey];
+        if (layouts[charKey]) return placed(layouts[charKey]);
     }
-    if (layouts[mode]) return layouts[mode];
-    return def;
+    if (modeLayout) return placed(modeLayout);
+    return { ...def, scale };
 }
 
 export function resolveActiveTheme(snapshot) {

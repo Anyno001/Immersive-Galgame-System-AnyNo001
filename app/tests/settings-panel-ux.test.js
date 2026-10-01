@@ -157,6 +157,105 @@ test('gate:settings-dialog:prompt-keeps-typed-text-across-rerender-and-cancels-t
     assert.equal(await second, false, 'closing the panel cancels the pending dialog');
 });
 
+test('gate:settings-dialog:edit-keeps-multiline-prompt-until-save', async () => {
+    const panel = makePanel();
+    const dialogs = createSettingsDialogs({ getContainer: () => panel.container, fallback: () => { throw new Error('native dialog must not be used'); } });
+    const answer = dialogs.edit('这张立绘的提示词', 'scene: 1girl');
+    const field = panel.overlay.querySelector('.igs-settings-dialog-text');
+    assert.equal(field.tagName, 'TEXTAREA');
+    assert.equal(field.value, 'scene: 1girl');
+    assert.equal(panel.overlay.querySelector('[data-settings-dialog="ok"]').textContent, '保存');
+    field.value = 'scene: 1girl\nstanding';
+    field.dispatch('input');
+    field.dispatch('keydown', { key: 'Enter' });
+    assert.equal(dialogs.isOpen(), true, 'Enter inserts a line and does not save');
+    panel.overlay.querySelector('[data-settings-dialog="ok"]').dispatch('click');
+    assert.equal(await answer, 'scene: 1girl\nstanding');
+});
+
+test('gate:expression-prompt:edit-saves-caption-and-redraw-uses-it', async () => {
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl', char_captions: [{ char_caption: 'silver hair', centers: [{ x: 0.5, y: 0.5 }] }] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [{ char_caption: '' }] } },
+    };
+    const images = new Map([
+        ['def', { positive: 'base girl', negative: 'lowres', caption }],
+        ['joy', { positive: '1girl', negative: 'lowres', caption }],
+    ]);
+    let saved = null;
+    const painted = [];
+    const ctx = {
+        state: { activeSettings: { draft: { bridge: { sceneAssets: { characters: { 冬月: { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy' } } } }, readerSettings: {} }, asyncState: {} } },
+        options: {
+            global: { alert() {} },
+            generatedAssets: {
+                getImagePrompt: async (id) => images.get(id) || null,
+                saveImagePrompt: async (id, prompt) => { saved = { id, prompt }; images.set(id, prompt); return { ok: true, prompt }; },
+                generateExpressionSet: async () => { throw new Error('重画不该重写提示词'); },
+                generateExpressionImage: async (input) => { painted.push(input.caption); return { ok: true, items: [] }; },
+            },
+        },
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: {
+            edit: async (_title, text) => text.replace('silver hair', 'silver hair, smile'),
+        },
+    };
+    const edited = await handleSettingsAction('char-expression-prompt:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx);
+    assert.equal(edited.ok, true);
+    assert.equal(saved.id, 'joy');
+    assert.match(saved.prompt.caption.v4_prompt.caption.char_captions[0].char_caption, /smile/);
+    const redraw = await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx);
+    assert.equal(redraw.ok, true);
+    assert.equal(painted.length, 1);
+    assert.match(painted[0].v4_prompt.caption.char_captions[0].char_caption, /smile/);
+});
+
+test('gate:expression-set:replaces-every-existing-slot', async () => {
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
+    const asks = [];
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                characters: { 冬月: { 默认: 'igs-gen:def', 喜悦: 'igs-gen:old-joy', 愤怒: 'https://kept.example/a.png' } },
+                characterOutfits: { 冬月: { 日常: { words: [], moods: { 喜悦: 'igs-gen:old-outfit' } } } },
+            },
+        },
+        readerSettings: {},
+    };
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: {
+            global: { alert() {}, document: { getElementById() { return null; } } },
+            generatedAssets: {
+                getImagePrompt: async () => ({ positive: '1girl', negative: 'lowres', caption }),
+                generateExpressionImage: async () => { throw new Error('整套不应走单张'); },
+                generateExpressionSet: async (input) => ({
+                    ok: true,
+                    items: input.moods.map((mood) => ({ mood, ok: true, imageId: `new-${mood}` })),
+                }),
+            },
+        },
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: { confirm: async (message) => { asks.push(message); return true; } },
+    };
+    const character = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(character.ok, true);
+    assert.match(asks[0], /重新生成「冬月」的全部 8 张表情差分/);
+    assert.match(asks[0], /已有 2 张将被替换/);
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:new-喜悦');
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'igs-gen:new-愤怒');
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['默认'], 'igs-gen:def');
+    const outfit = await handleSettingsAction('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8', ctx);
+    assert.equal(outfit.ok, true);
+    assert.match(asks[1], /服装「日常」的全部 8 张/);
+    assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['喜悦'], 'igs-gen:new-喜悦');
+});
+
 test('gate:settings-dialog:falls-back-to-native-dialogs-without-a-mounted-panel', async () => {
     const calls = [];
     const globalObj = {

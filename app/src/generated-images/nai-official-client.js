@@ -1,5 +1,6 @@
 import { parseImageResponse } from './image-api-client.js';
 import { buildNaiV4Request, validateNaiV4Request, NAI_DEFAULT_SETTINGS, NAI_OFFICIAL_ENDPOINT } from './request-builders/nai-v4-builder.js';
+import { promptFromNaiBody } from './generation-prompt.js';
 import { buildNaiInpaintRequest, resolveNaiInpaintModel } from './request-builders/nai-inpaint-builder.js';
 
 export { NAI_OFFICIAL_ENDPOINT };
@@ -121,7 +122,9 @@ export function createNaiOfficialClient(deps = {}) {
         const body = buildNaiV4Request(slot, settings, random);
         const valid = validateNaiV4Request(body);
         if (!valid.ok) return { ok: false, error: `生图请求无效：${valid.reason}` };
-        return sendWithRetry(body, settings);
+        const sent = await sendWithRetry(body, settings);
+        if (sent && sent.ok) return { ...sent, prompt: promptFromNaiBody(body) };
+        return sent;
     }
 
     // 所选模型存在 inpainting 版本时才支持局部重绘。

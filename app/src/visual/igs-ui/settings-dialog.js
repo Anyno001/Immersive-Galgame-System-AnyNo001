@@ -1,8 +1,11 @@
 // 设置面板内的确认条与输入框，替代浏览器原生 confirm / prompt。
 // 面板重绘会整体替换 innerHTML，挂起的对话记在控制器里，由 remount 在重绘后补回（含输入框里已打的字）。
 export const SETTINGS_DIALOG_STYLE_TEXT = `
-#igs-unified-settings .igs-settings-dialog{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:4;box-sizing:border-box;width:min(480px,calc(100% - 32px));padding:14px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);color:var(--igs-settings-ink);border:1px solid var(--igs-settings-line-strong);display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+#igs-unified-settings .igs-settings-dialog{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:6;box-sizing:border-box;width:min(480px,calc(100% - 32px));padding:14px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);color:var(--igs-settings-ink);border:1px solid var(--igs-settings-line-strong);display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+#igs-unified-settings .igs-settings-dialog.is-view,#igs-unified-settings .igs-settings-dialog.is-edit{width:min(640px,calc(100% - 32px))}
+#igs-unified-settings .igs-settings-dialog-text{width:100%;min-height:220px;max-height:min(46vh,320px);box-sizing:border-box;resize:vertical;padding:8px 10px;border:0;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);color:var(--igs-settings-ink);font:inherit;font-size:12px;line-height:1.5}
 #igs-unified-settings .igs-settings-dialog-msg{font-size:13px;line-height:1.6;white-space:pre-line;word-break:break-word}
+#igs-unified-settings .igs-settings-dialog-msg.is-scroll{max-height:min(50vh,360px);overflow:auto;white-space:pre-wrap}
 #igs-unified-settings .igs-settings-dialog .igs-settings-field{margin:0}
 #igs-unified-settings .igs-settings-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
 #igs-unified-settings .igs-settings-dialog-actions [data-settings-dialog="ok"]{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
@@ -11,6 +14,15 @@ export const SETTINGS_DIALOG_STYLE_TEXT = `
 function nativeFallback(globalObj) {
     return (kind, message, value) => {
         if (kind === 'confirm') return globalObj && typeof globalObj.confirm === 'function' ? Boolean(globalObj.confirm(message)) : true;
+        if (kind === 'view') {
+            if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
+            return true;
+        }
+        if (kind === 'edit') {
+            if (!globalObj || typeof globalObj.prompt !== 'function') return null;
+            const edited = globalObj.prompt(message, value);
+            return edited == null ? null : String(edited);
+        }
         if (!globalObj || typeof globalObj.prompt !== 'function') return null;
         const answer = globalObj.prompt(message, value);
         return answer == null ? null : String(answer);
@@ -47,21 +59,23 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         const doc = host.ownerDocument;
         if (!doc || typeof doc.createElement !== 'function') return null;
         const el = doc.createElement('div');
-        el.className = 'igs-settings-dialog';
+        el.className = entry.kind === 'view' || entry.kind === 'edit'
+            ? `igs-settings-dialog is-${entry.kind}`
+            : 'igs-settings-dialog';
         el.setAttribute('role', entry.kind === 'confirm' ? 'alertdialog' : 'dialog');
         el.setAttribute('aria-modal', 'true');
-        el.setAttribute('aria-label', entry.message);
+        el.setAttribute('aria-label', entry.kind === 'view' || entry.kind === 'edit' ? '生图提示词' : entry.message);
         const msg = doc.createElement('div');
-        msg.className = 'igs-settings-dialog-msg';
+        msg.className = entry.kind === 'view' ? 'igs-settings-dialog-msg is-scroll' : 'igs-settings-dialog-msg';
         msg.textContent = entry.message;
         el.appendChild(msg);
         let input = null;
-        if (entry.kind === 'prompt') {
+        if (entry.kind === 'prompt' || entry.kind === 'edit') {
             const wrap = doc.createElement('label');
             wrap.className = 'igs-settings-field';
-            input = doc.createElement('input');
-            input.type = 'text';
-            input.className = 'igs-settings-dialog-input';
+            input = doc.createElement(entry.kind === 'edit' ? 'textarea' : 'input');
+            if (entry.kind === 'prompt') input.type = 'text';
+            input.className = entry.kind === 'edit' ? 'igs-settings-dialog-text' : 'igs-settings-dialog-input';
             input.setAttribute('aria-label', entry.message);
             input.value = entry.value;
             input.addEventListener('input', () => { entry.value = input.value; });
@@ -70,7 +84,8 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         }
         const actions = doc.createElement('div');
         actions.className = 'igs-settings-dialog-actions';
-        for (const [role, label] of [['cancel', entry.cancelLabel], ['ok', entry.okLabel]]) {
+        const buttons = entry.kind === 'view' ? [['ok', entry.okLabel]] : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
+        for (const [role, label] of buttons) {
             const btn = doc.createElement('button');
             btn.type = 'button';
             btn.className = 'igs-settings-action';
@@ -92,7 +107,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 event.preventDefault();
                 event.stopPropagation();
                 settle(entry, cancelValue(entry));
-            } else if (event.key === 'Enter' && !event.isComposing && (input ? event.target === input : true)) {
+            } else if (event.key === 'Enter' && !entry.multiline && !event.isComposing && (input ? event.target === input : true)) {
                 event.preventDefault();
                 event.stopPropagation();
                 accept();
@@ -129,8 +144,9 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 kind,
                 message: String(message == null ? '' : message),
                 value: String(value == null ? '' : value),
-                okLabel: labels.okLabel || '确定',
+                okLabel: labels.okLabel || (kind === 'edit' ? '保存' : '确定'),
                 cancelLabel: labels.cancelLabel || '取消',
+                multiline: kind === 'edit',
                 resolve,
                 el: null,
             };
@@ -145,6 +161,8 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
     return {
         confirm: (message, labels) => open('confirm', message, '', labels),
         prompt: (message, value = '', labels) => open('prompt', message, value, labels),
+        view: (message, labels) => open('view', message, '', { okLabel: '关闭', ...labels }),
+        edit: (message, value = '', labels) => open('edit', message, value, { okLabel: '保存', ...labels }),
         remount(container) {
             const el = mount(container || getContainer());
             if (!el && pending) settle(pending, cancelValue(pending));

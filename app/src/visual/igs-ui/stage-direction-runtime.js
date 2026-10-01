@@ -83,6 +83,47 @@ function flushGhosts(set) {
     set.clear();
 }
 
+function sharpenCg(bg) {
+    if (!bg || !bg.style || typeof bg.style.setProperty !== 'function') return;
+    bg.style.setProperty('filter', 'none', 'important');
+    bg.style.setProperty('-webkit-filter', 'none', 'important');
+}
+
+function clearCgFilter(bg) {
+    if (!bg || !bg.style || typeof bg.style.removeProperty !== 'function') return;
+    bg.style.removeProperty('transition');
+    bg.style.removeProperty('filter');
+    bg.style.removeProperty('-webkit-filter');
+}
+
+// CG 出场：先模糊，再在同一张图上变清晰。同一张翻页不重放。
+function playCgFocus(state, bg, url, reduced) {
+    if (!bg || !url) return;
+    if (reduced) {
+        state.cgFocusUrl = url;
+        state.cgFocusing = false;
+        sharpenCg(bg);
+        return;
+    }
+    if (state.cgFocusUrl === url) {
+        if (!state.cgFocusing) sharpenCg(bg);
+        return;
+    }
+    state.cgFocusUrl = url;
+    state.cgFocusing = true;
+    bg.style.setProperty('transition', 'none', 'important');
+    bg.style.setProperty('filter', 'blur(28px)', 'important');
+    bg.style.setProperty('-webkit-filter', 'blur(28px)', 'important');
+    later(state, () => {
+        if (state.cgFocusUrl !== url) return;
+        bg.style.setProperty('transition', 'filter 2.4s ease-in-out, -webkit-filter 2.4s ease-in-out', 'important');
+        sharpenCg(bg);
+        later(state, () => {
+            if (state.cgFocusUrl === url) state.cgFocusing = false;
+        }, 2500);
+    }, 450);
+}
+
 function setAttr(el, name, on, value = '1') {
     if (!el || typeof el.setAttribute !== 'function') return;
     if (on) {
@@ -255,15 +296,17 @@ function enterFrames(side) {
 }
 
 function playSpriteChange(state, ctx) {
-    const { doc, sprite, nextUrl, nextKey, nextPosX, s, reduced, black } = ctx;
+    const { doc, sprite, nextUrl, nextPosX, s, reduced, black } = ctx;
     const hadSprite = Boolean(state.spriteUrl);
-    const sameCharacter = hadSprite && Boolean(nextUrl) && (nextKey === state.spriteKey || ctx.castSwap === true);
+    flushGhosts(state.spriteGhosts);
+    // 前后都有立绘就直接换图，不看是不是判定成同一个人。
+    if (hadSprite && nextUrl) {
+        state.speakerGap = false;
+        return 'direct';
+    }
     const enterExit = s.spriteMotion.enabled && s.spriteMotion.enterExit && !reduced;
     const fadeOn = s.sceneTransition.enabled || s.spriteMotion.enabled;
-    flushGhosts(state.spriteGhosts);
-    // 前后都有立绘（换表情、换说话人）时默认直接切图；emotionFade 开启才走残影淡化与退场 / 登场。
-    // 首次登场、退场到无立绘、黑场转场不受影响；换装转场由 sprite-outfit-swap 负责。
-    const direct = !black && !s.spriteMotion.emotionFade;
+    const direct = !black;
     // 同一场景内立绘暂时空缺（旁白、系统角色、只配头像的说话人）：旧立绘直接隐藏，之后直接出现，不算登场 / 退场。
     // 登场 / 退场只留给换地点与首次出场；返回 'direct' 让同屏上台动画也跳过。
     if (direct && hadSprite && !nextUrl && (ctx.sameScene === true || ctx.noSpriteSpeaker === true)) {
@@ -290,11 +333,6 @@ function playSpriteChange(state, ctx) {
     let kind = '';
     if (ghost && black) {
         kind = 'black';
-    } else if (ghost && sameCharacter) {
-        kind = 'swap';
-        const a = animate(ghost, [{ opacity: 1 }, { opacity: 0 }], { duration: SPRITE_SWAP_MS, easing: 'ease-out', fill: 'forwards' });
-        dropGhost(a ? SPRITE_SWAP_MS + 40 : 0);
-        return kind;
     } else if (ghost) {
         kind = 'exit';
         const side = sideOf(state.spritePosX);
@@ -461,10 +499,11 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     const pageKey = `${snapshot.messageId}:${content.currentIndex}`;
     const newPage = pageKey !== state.pageKey;
     const eligible = content.sceneNsfw !== true && content.textType !== 'chat' && content.htmlCardPage !== true;
+    const cg = content.cgActive === true || content.illustrationActive === true;
     const speed = s.sceneTransition.speed;
 
     let black = false;
-    if (state.initialized && bg && bgUrl !== state.bgUrl && s.sceneTransition.enabled) {
+    if (!cg && state.initialized && bg && bgUrl !== state.bgUrl && s.sceneTransition.enabled) {
         // 同一地点只是换时段的底图时总用淡入，换地点才用所选转场。
         const sameLocation = text(content.sceneLocation) && text(content.sceneLocation) === state.location;
         const style = reduced || sameLocation ? 'fade' : s.sceneTransition.style;
@@ -472,7 +511,16 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
         if (kind) played.push(`bg:${kind}`);
         black = kind === 'black';
     }
-    if (sprite && !ctx.spriteEditMode && (spriteUrl !== state.spriteUrl || (!state.initialized && spriteUrl))) {
+    if (cg) {
+        flushGhosts(state.bgGhosts);
+        flushGhosts(state.spriteGhosts);
+        playCgFocus(state, bg, bgUrl, reduced);
+    } else {
+        state.cgFocusUrl = '';
+        state.cgFocusing = false;
+        clearCgFilter(bg);
+    }
+    if (!cg && sprite && !ctx.spriteEditMode && (spriteUrl !== state.spriteUrl || (!state.initialized && spriteUrl))) {
         const castSwap = Boolean(spriteKey) && spriteKey !== state.spriteKey
             && (castKeys.includes(state.spriteKey) || (state.castKeys || []).includes(spriteKey));
         const sameScene = state.initialized && text(content.sceneLocation) === state.location;
@@ -497,12 +545,13 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
         }
     }
 
-    setAttr(root, 'data-igs-sd-kenburns', !reduced && s.camera.enabled && s.camera.kenBurns && Boolean(bgUrl));
-    setAttr(root, 'data-igs-sd-closeup', !reduced && eligible && Boolean(spriteUrl) && pickCloseUp(content.statusEmotion, s.camera));
-    syncParallax(state, root, !reduced && s.camera.enabled && s.camera.parallax);
-    // 冲击推近：只在翻到新页时按原始情绪精确匹配播一次，音效与镜头同时起播；本页震动在播时让位。
+    setAttr(root, 'data-igs-cg', cg);
+    setAttr(root, 'data-igs-sd-kenburns', !cg && !reduced && s.camera.enabled && s.camera.kenBurns && Boolean(bgUrl));
+    setAttr(root, 'data-igs-sd-closeup', !cg && !reduced && eligible && Boolean(spriteUrl) && pickCloseUp(content.statusEmotion, s.camera));
+    syncParallax(state, root, !cg && !reduced && s.camera.enabled && s.camera.parallax);
+    // 冲击推近：只在翻到新页时按原始情绪精确匹配播一次，音效与镜头同时起播；本页震动在播时让位。CG 页不推。
     const stageMotion = root.querySelector('#igs-stage-motion');
-    const impactPlan = stageMotion
+    const impactPlan = !cg && stageMotion
         ? planCameraImpact({ newPage, motionOn, eligible, emotion: content.statusEmotion, camera: s.camera, stageShakeActive: ctx.stageShakeActive === true })
         : '';
     if (impactPlan === 'yield') played.push('camera:impact-yield');

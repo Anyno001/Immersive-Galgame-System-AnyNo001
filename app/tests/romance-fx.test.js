@@ -152,21 +152,21 @@ test('gate:romance:approach-pulls-toward-center-and-zooms-around-head', () => {
     assert.equal(computeRomanceApproach({ sprite: { posX: 80, scale: 40 }, params }).dx, -11.7);
     // 无头部：原点退回立绘水平位置 / 28%。
     assert.deepEqual([left.originX, left.originY], [20, 28]);
-    // 有头部与原图尺寸：原点落在头部中心。舞台 1000×600，立绘宽 40% = 400px、高 1000px，posX 50 / posY 100 → left 300、top -400。
+    // 有头部与原图尺寸：原点落在头部中心。舞台 1000×600，比例 40 时图高 240、宽 96，posX 50 / posY 100 → left 452、top 360。
     const sprite = { posX: 50, posY: 100, scale: 40, naturalW: 400, naturalH: 1000 };
     const head = { x: 0.5, top: 0.45, w: 0.3 };
     const r = computeRomanceApproach({ stageW: 1000, stageH: 600, sprite, head, params });
     assert.equal(r.originX, 50);
-    // 头顶 = -400 + .45 × 1000 = 50；头宽 120、头高 132 → 中心 116 → 19.33%。
-    assert.equal(r.originY, 19.33);
+    // 头顶 = 360 + .45 × 240 = 468；头宽 28.8、头高 31.68 → 中心 483.84 → 80.64%。
+    assert.equal(r.originY, 80.64);
     assert.equal(computeRomanceApproach({ sprite: null, params }), null);
 });
 
 test('gate:romance:shade-neck-below-chin-and-null-without-head', () => {
     const sprite = { posX: 50, posY: 100, scale: 40, naturalW: 400, naturalH: 1000 };
     const neck = computeShadeNeck({ stageW: 1000, stageH: 600, sprite, head: { x: 0.5, top: 0.45, w: 0.3 } });
-    // 头顶 50、头高 132：颈线 50 + 132 × 1.25 = 215 → 35.83%；过渡带再 66px → 46.83%。
-    assert.deepEqual(neck, { neck: 35.83, end: 46.83 });
+    // 头顶 468、头高 31.68：颈线 468 + 31.68 × 1.25 = 507.6 → 84.6%；过渡带再 15.84px → 87.24%。
+    assert.deepEqual(neck, { neck: 84.6, end: 87.24 });
     assert.equal(computeShadeNeck({ stageW: 1000, stageH: 600, sprite, head: null }), null);
     assert.equal(computeShadeNeck({ stageW: 1000, stageH: 600, sprite: { posX: 50, scale: 40 }, head: { x: 0.5, top: 0.1, w: 0.3 } }), null);
     assert.equal(computeShadeNeck({ stageW: 0, stageH: 0, sprite, head: { x: 0.5, top: 0.1, w: 0.3 } }), null);
@@ -247,8 +247,8 @@ test('gate:romance:nsfw-shade-full-silhouette-until-calibrated-head-is-sized', a
     // 原图尺寸探测完成后重算：手动标定的头部露脸。
     await nextTick();
     assert.equal(stage.getAttribute('data-igs-rm-face'), '1');
-    assert.equal(stage.style.getPropertyValue('--igs-rm-neck'), '35.83%');
-    assert.equal(stage.style.getPropertyValue('--igs-rm-shade-end'), '46.83%');
+    assert.equal(stage.style.getPropertyValue('--igs-rm-neck'), '84.6%');
+    assert.equal(stage.style.getPropertyValue('--igs-rm-shade-end'), '87.24%');
     // 没有手动标定：即便尺寸已知也整张剪影。
     applyRomanceToDom(root, snap, { ...ctx, sprite: { ...ctx.sprite, head: null } });
     assert.equal(stage.getAttribute('data-igs-rm-shade'), '1');

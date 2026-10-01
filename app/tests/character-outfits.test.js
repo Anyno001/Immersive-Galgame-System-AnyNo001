@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    normalizeCharacterOutfits, isValidOutfitName, outfitNamesOf, resolveOutfitToken,
+    normalizeCharacterOutfits, normalizeWardrobe, resolveWardrobePrompt, isValidOutfitName, outfitNamesOf, resolveOutfitToken,
     createOutfitResolver, matchOutfitByText, buildOutfitGroupsText,
 } from '../src/scene/character-outfits.js';
 
@@ -14,6 +14,7 @@ test('gate:outfits:normalize-drops-invalid-names-default-slot-and-proto-keys', (
         睡衣: { words: ['睡裙'], moods: {} },
     });
     assert.equal(isValidOutfitName('默认'), false);
+    assert.equal(isValidOutfitName('原装'), false);
     assert.equal(isValidOutfitName('校服'), true);
 });
 
@@ -27,6 +28,7 @@ test('gate:outfits:alias-reduces-to-main-name-and-words-resolve-outfit', () => {
     assert.equal(resolve('小林', '泳衣'), '泳装');
     assert.equal(resolve('小林海斗', '校服'), '校服');
     assert.equal(resolve('小林海斗', '默认'), '默认');
+    assert.equal(resolve('小林海斗', '原装'), '默认');
     assert.equal(resolve('小林海斗', '前半句'), '');
     assert.equal(resolve('路人', '泳装'), '');
     assert.equal(resolveOutfitToken({}, ''), '');
@@ -45,8 +47,46 @@ test('gate:outfits:text-match-prefers-longest-and-rejects-conflict-and-single-ch
     assert.equal(matchOutfitByText('', outfits), '');
 });
 
+test('gate:outfits:wardrobe-prompt-is-shared-and-named-link-wins', () => {
+    const wardrobe = normalizeWardrobe({
+        校服: { prompt: '  school uniform, pleated skirt  ' },
+        泳装: 'swimsuit',
+        默认: { prompt: 'nope' },
+        'a|b': { prompt: 'bad' },
+    });
+    assert.deepEqual(wardrobe, {
+        校服: { prompt: 'school uniform, pleated skirt' },
+        泳装: { prompt: 'swimsuit' },
+    });
+    assert.deepEqual(resolveWardrobePrompt(wardrobe, { wardrobe: '泳装' }, '校服'), { name: '泳装', prompt: 'swimsuit' });
+    assert.deepEqual(resolveWardrobePrompt(wardrobe, {}, '校服'), { name: '校服', prompt: 'school uniform, pleated skirt' });
+    assert.equal(resolveWardrobePrompt(wardrobe, { wardrobe: '没有' }, '便服'), null);
+    assert.deepEqual(normalizeWardrobe({ 校服: { prompt: 'a', reference: 'igs-gen:ref' } }).校服, { prompt: 'a', reference: 'igs-gen:ref' });
+    assert.equal(normalizeWardrobe({ 校服: { prompt: 'a', reference: 'https://x' } }).校服.reference, undefined);
+});
+
+test('gate:outfits:wardrobe-pending-row-can-generate-or-dismiss', async () => {
+    const { renderWardrobe } = await import('../src/visual/igs-ui/settings-outfit-fields.js');
+    const html = renderWardrobe({}, [{ character: '冬月', word: '浴衣' }]);
+    assert.match(html, /igs-wardrobe-group"><div class="igs-settings-section-head"><div class="igs-settings-subhead">已确认/);
+    assert.match(html, /igs-wardrobe-pending-list"><div class="igs-settings-section-head"><div class="igs-settings-subhead">待确认/);
+    assert.ok(html.indexOf('已确认') < html.indexOf('待确认'));
+    assert.doesNotMatch(html, /这里写衣服的生图提示词/);
+    assert.match(html, /data-action="wardrobe-generate-prompt:%E5%86%AC%E6%9C%88:%E6%B5%B4%E8%A1%A3"/);
+    assert.match(html, /data-action="outfit-review-dismiss:%E5%86%AC%E6%9C%88:%E6%B5%B4%E8%A1%A3"/);
+    const filled = renderWardrobe({ 校服: { prompt: 'uniform', reference: 'igs-gen:ref' } }, [], () => 'data:image/png;base64,QQ==');
+    assert.match(filled, /data-action="wardrobe-reference:%E6%A0%A1%E6%9C%8D"/);
+    assert.match(filled, /src="data:image\/png;base64,QQ=="/);
+    const empty = renderWardrobe({ 冬月星见日常: { prompt: '' } });
+    assert.match(empty, new RegExp(`data-action="wardrobe-generate-prompt:${encodeURIComponent('冬月星见日常')}"`));
+    assert.match(empty, /<input class="igs-scene-url-input igs-wardrobe-prompt"/);
+    assert.doesNotMatch(empty, /<textarea/);
+    const confirmed = renderWardrobe({ 晚礼服: { prompt: 'gown' } }, [{ character: '林小雨', word: '晚礼服' }]);
+    assert.doesNotMatch(confirmed, /igs-wardrobe-pending-list/);
+});
+
 test('gate:outfits:prompt-groups-text', () => {
-    assert.equal(buildOutfitGroupsText({}), '（暂无登记服装，省略服装栏）');
+    assert.equal(buildOutfitGroupsText({}), '（暂无登记服装。）');
     assert.equal(buildOutfitGroupsText({ 甲: {}, 乙: { 校服: {}, 泳装: {} } }), '乙：校服 / 泳装');
 });
 

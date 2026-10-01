@@ -1019,6 +1019,8 @@ test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
     assert.match(source, /\.igs-embedded-host\{aspect-ratio:8 \/ 5;max-height:760px;\}/);
     assert.match(source, /@media \(max-width:640px\)\{\.igs-embedded-host\{aspect-ratio:auto;height:min\(74dvh,680px\);\}\}/);
     assert.match(source, /#igs-overlay\.igs-mode-embedded\{[^}]*position:relative/);
+    assert.match(source, /#igs-overlay\.igs-mode-embedded\{[^}]*overscroll-behavior:auto;touch-action:pan-y/);
+    assert.match(source, /\.igs-embedded-host\{[^}]*overscroll-behavior:auto;touch-action:pan-y/);
     assert.match(source, /@media \(prefers-reduced-motion: reduce\)\{\.igs-embedded-loading-dot\{animation:none/);
 });
 

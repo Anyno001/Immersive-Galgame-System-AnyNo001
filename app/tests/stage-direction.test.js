@@ -151,7 +151,7 @@ test('gate: black transition drops a curtain above the stage and removes it afte
     assert.ok(!r.motion.children.some((child) => child.className === 'igs-sd-curtain'));
 });
 
-test('gate: sprite enters, swaps mood with a short ghost fade when emotionFade is on, and exits', () => {
+test('gate: sprite enters, cuts a same-character mood change, and exits', () => {
     const r = makeReader();
     const settings = { spriteMotion: { enabled: true, emotionFade: true } };
     const ctx = { reducedMotion: false, ...r.clock };
@@ -161,12 +161,35 @@ test('gate: sprite enters, swaps mood with a short ghost fade when emotionFade i
     assert.equal(r.sprite.animations[1].frames[0].transform, 'translate(3%,0)');
     assert.equal(r.sprite.animations[1].options.composite, 'add');
     result = applyStageDirection(r.root, snapshot(settings, {}, 1), { ...ctx, spriteUrl: 'alice-sad.png', spriteKey: '爱丽丝', spritePosX: 70 });
-    assert.deepEqual(result.played, ['sprite:swap', 'bounce']);
-    assert.equal(ghosts(r.motion)[0].style.cssText.includes('alice-smile'), true);
+    assert.deepEqual(result.played, ['bounce']);
+    assert.equal(ghosts(r.motion).length, 0);
     r.clock.flush();
     result = applyStageDirection(r.root, snapshot(settings, { textType: 'narration' }, 2), { ...ctx, spriteUrl: '', spriteKey: '' });
-    assert.deepEqual(result.played, ['sprite:exit']);
-    assert.equal(r.root.getAttribute('data-igs-sd-breathe'), null);
+    assert.deepEqual(result.played, []);
+    assert.equal(result.directSprite, true);
+    assert.equal(ghosts(r.motion).length, 0);
+});
+
+test('gate: another speaker or narration between the same character cuts without a fade', () => {
+    const r = makeReader();
+    const settings = { spriteMotion: { enabled: true, emotionFade: true, enterExit: true }, sceneTransition: { enabled: true } };
+    const ctx = { reducedMotion: false, ...r.clock };
+    const show = (url, key, index, extra = {}) => applyStageDirection(r.root, snapshot(settings, { sceneLocation: '教室', ...extra }, index), { ...ctx, spriteUrl: url, spriteKey: key, spritePosX: 50 });
+    show('a.png', '爱丽丝', 0);
+    r.clock.flush();
+    let result = show('b.png', '鲍勃', 1);
+    assert.equal(result.directSprite, true);
+    assert.equal(ghosts(r.motion).length, 0);
+    result = show('a.png', '爱丽丝', 2);
+    assert.equal(result.directSprite, true);
+    assert.equal(ghosts(r.motion).length, 0);
+    result = show('', '', 3, { textType: 'narration' });
+    assert.equal(result.directSprite, true);
+    assert.equal(ghosts(r.motion).length, 0);
+    result = show('a.png', '爱丽丝', 4);
+    assert.equal(result.directSprite, true);
+    assert.equal(ghosts(r.motion).length, 0);
+    assert.ok(!result.played.some((kind) => String(kind).startsWith('sprite:')));
 });
 
 test('gate: mood change on the same character switches directly by default', () => {
@@ -234,8 +257,9 @@ test('gate: stage cast speaker change swaps without exit or enter', () => {
     applyStageDirection(r.root, snapshot(settings), { ...ctx, spriteUrl: 'alice.png', spriteKey: '爱丽丝', spritePosX: 18, castKeys: ['爱丽丝', '鲍勃'] });
     r.clock.flush();
     const result = applyStageDirection(r.root, snapshot(settings, {}, 1), { ...ctx, spriteUrl: 'bob.png', spriteKey: '鲍勃', spritePosX: 82, castKeys: ['鲍勃', '爱丽丝'] });
-    assert.ok(result.played.includes('sprite:swap'));
-    assert.ok(!result.played.some((kind) => kind.includes('exit') || kind.includes('enter')));
+    assert.equal(result.directSprite, true);
+    assert.ok(!result.played.some((kind) => String(kind).startsWith('sprite:')));
+    assert.equal(ghosts(r.motion).length, 0);
 });
 
 test('gate: stage cast alone does not activate stage direction', () => {

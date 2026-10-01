@@ -1,5 +1,5 @@
 import { esc } from './reader-value-utils.js';
-import { peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
+import { peekSpriteHead, probeSpriteHead, spriteBackgroundSize } from './fx-anchor.js';
 import { enterSpriteEditMode, spriteDragPosition } from './sprite-edit.js';
 
 const SCALE_MIN = -500;
@@ -26,7 +26,7 @@ function renderBar(work, selected) {
 
 function paint(el, value) {
     if (!el) return;
-    el.style.backgroundSize = `${value.scale}%`;
+    el.style.backgroundSize = spriteBackgroundSize(value.scale);
     el.style.backgroundPosition = `${value.posX}% ${value.posY}%`;
 }
 
@@ -73,9 +73,11 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         paint(targetEl(overlay, w), w.cur);
     };
     const zoom = (factor) => {
-        const w = work[selected];
-        w.cur.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, w.cur.scale * factor));
-        touch(w);
+        for (const person of work) {
+            person.cur.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, person.cur.scale * factor));
+            person.scaleDirty = true;
+            paint(targetEl(overlay, person), person.cur);
+        }
     };
     mark();
 
@@ -163,7 +165,9 @@ export function exitCastSlotEdit(overlay, current, save, ctx = {}) {
     const mode = current.snapshot && current.snapshot.mode;
     const unified = typeof ctx.resolveUnifiedSettings === 'function' ? ctx.resolveUnifiedSettings({ mode }) : { readerSettings: {} };
     const layouts = { ...((unified.readerSettings && unified.readerSettings.castSlotLayouts) || {}) };
+    const patch = {};
     let changed = false;
+    let scale = null;
     for (const w of em.work) {
         if (w.reset) {
             delete layouts[w.key];
@@ -172,6 +176,18 @@ export function exitCastSlotEdit(overlay, current, save, ctx = {}) {
             layouts[w.key] = { posX: w.cur.posX, posY: w.cur.posY, scale: w.cur.scale };
             changed = true;
         }
+        if (w.scaleDirty) scale = w.cur.scale;
     }
-    if (changed && typeof ctx.saveReaderSettingsPatch === 'function') ctx.saveReaderSettingsPatch({ castSlotLayouts: layouts });
+    if (changed) patch.castSlotLayouts = layouts;
+    if (scale != null && mode) {
+        const spriteLayouts = { ...((unified.readerSettings && unified.readerSettings.spriteLayouts) || {}) };
+        const prev = spriteLayouts[mode] || { posX: 50, posY: 100, scale: 100 };
+        spriteLayouts[mode] = {
+            posX: Number.isFinite(Number(prev.posX)) ? Number(prev.posX) : 50,
+            posY: Number.isFinite(Number(prev.posY)) ? Number(prev.posY) : 100,
+            scale,
+        };
+        patch.spriteLayouts = spriteLayouts;
+    }
+    if (Object.keys(patch).length && typeof ctx.saveReaderSettingsPatch === 'function') ctx.saveReaderSettingsPatch(patch);
 }

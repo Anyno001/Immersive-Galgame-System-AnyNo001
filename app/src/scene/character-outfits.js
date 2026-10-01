@@ -1,6 +1,8 @@
 import { resolveCharacterKey } from './scene-directives.js';
 
 export const OUTFIT_RESET = '默认';
+const OUTFIT_BASE_WORDS = new Set([OUTFIT_RESET, '原装']);
+export const NO_OUTFIT_GROUPS_TEXT = '（暂无登记服装。）';
 export const OUTFIT_GROUPS_PLACEHOLDER = '{{outfit_groups}}';
 const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const INVALID_CHARS = /[|\]\r\n]/;
@@ -13,7 +15,7 @@ export function isValidOutfitWord(word) {
 }
 
 export function isValidOutfitName(name) {
-    return isValidOutfitWord(name) && name.trim() !== OUTFIT_RESET;
+    return isValidOutfitWord(name) && !OUTFIT_BASE_WORDS.has(name.trim());
 }
 
 function normalizeMoods(value) {
@@ -60,10 +62,37 @@ export function normalizeCharacterOutfits(value) {
             if (scenes.length) outfits[name].scenes = scenes;
             const avatar = typeof entry.avatar === 'string' ? entry.avatar.trim() : '';
             if (avatar) outfits[name].avatar = avatar;
+            const wardrobe = typeof entry.wardrobe === 'string' ? entry.wardrobe.trim() : '';
+            if (isValidOutfitName(wardrobe)) outfits[name].wardrobe = wardrobe;
+            const note = normalizeOutfitNote(entry.note);
+            if (note) outfits[name].note = note;
         }
         out[character] = outfits;
     }
     return out;
+}
+
+// 衣柜：服装名 → 手写生图提示词。角色的某一套服装可点名引用，没点名时按同名服装取。
+export function normalizeWardrobe(raw) {
+    const out = {};
+    for (const [key, value] of Object.entries(plain(raw) || {})) {
+        const name = typeof key === 'string' ? key.trim() : '';
+        if (!isValidOutfitName(name) || hasOwn(out, name)) continue;
+        const source = typeof value === 'string' ? { prompt: value } : (plain(value) || {});
+        const prompt = typeof source.prompt === 'string' ? source.prompt.replace(/\r\n?/g, '\n').trim() : '';
+        const reference = typeof source.reference === 'string' ? source.reference.trim() : '';
+        out[name] = { prompt };
+        if (reference.startsWith('igs-gen:')) out[name].reference = reference;
+    }
+    return out;
+}
+
+export function resolveWardrobePrompt(wardrobe, outfitEntry, outfitName) {
+    const map = plain(wardrobe) || {};
+    const linked = outfitEntry && typeof outfitEntry.wardrobe === 'string' ? outfitEntry.wardrobe.trim() : '';
+    const key = linked && hasOwn(map, linked) ? linked : (hasOwn(map, outfitName) ? outfitName : '');
+    if (!key) return null;
+    return { name: key, prompt: String((map[key] && map[key].prompt) || '').trim() };
 }
 
 export function outfitsOfCharacter(characterOutfits, characterAliases, character) {
@@ -80,7 +109,7 @@ export function outfitNamesOf(characterOutfits, characterAliases, character) {
 export function resolveOutfitToken(outfits, token) {
     const text = String(token || '').trim();
     if (!text) return '';
-    if (text === OUTFIT_RESET) return OUTFIT_RESET;
+    if (OUTFIT_BASE_WORDS.has(text)) return OUTFIT_RESET;
     const map = plain(outfits) || {};
     if (hasOwn(map, text)) return text;
     for (const [name, entry] of Object.entries(map)) {
@@ -115,12 +144,27 @@ export function matchOutfitByText(text, outfits) {
     return tie ? '' : best;
 }
 
+// 给模型看的穿着说明：一行内，去掉会打断列表的符号。空说明不写出。
+export function normalizeOutfitNote(value) {
+    return String(value || '').replace(/[\r\n|[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function outfitPromptLabel(name, entry) {
+    const note = normalizeOutfitNote(entry && entry.note);
+    return note ? `${name}（${note}）` : name;
+}
+
+function outfitPromptLine(character, outfits) {
+    const map = plain(outfits) || {};
+    const labels = Object.keys(map).map((name) => outfitPromptLabel(name, map[name]));
+    return labels.length ? `${character}：${labels.join(' / ')}` : '';
+}
+
 export function buildOutfitGroupsText(characterOutfits) {
     const lines = Object.entries(plain(characterOutfits) || {})
-        .map(([character, outfits]) => [character, Object.keys(plain(outfits) || {})])
-        .filter(([, names]) => names.length)
-        .map(([character, names]) => `${character}：${names.join(' / ')}`);
-    return lines.length ? lines.join('\n') : '（暂无登记服装，省略服装栏）';
+        .map(([character, outfits]) => outfitPromptLine(character, outfits))
+        .filter(Boolean);
+    return lines.length ? lines.join('\n') : NO_OUTFIT_GROUPS_TEXT;
 }
 
 function outfitKeyOf(resolveKey, character) {
@@ -272,16 +316,15 @@ export function buildScopedOutfitGroupsText(characterOutfits, { presentText = nu
     const text = presentText == null ? null : String(presentText);
     const aliases = plain(characterAliases) || {};
     const entries = Object.entries(plain(characterOutfits) || {})
-        .map(([character, outfits]) => [character, Object.keys(plain(outfits) || {})])
-        .filter(([, names]) => names.length)
+        .map(([character, outfits]) => [character, outfits, outfitPromptLine(character, outfits)])
+        .filter(([, , line]) => line)
         .filter(([character]) => text == null
             || [character, ...(Array.isArray(aliases[character]) ? aliases[character] : [])]
                 .some((name) => String(name || '').trim() && text.includes(String(name).trim())));
-    if (!entries.length) return '（暂无登记服装，省略服装栏）';
+    if (!entries.length) return NO_OUTFIT_GROUPS_TEXT;
     const lines = [];
     let used = 0;
-    for (const [character, names] of entries) {
-        const line = `${character}：${names.join(' / ')}`;
+    for (const [, , line] of entries) {
         const cost = Array.from(line).length + 1;
         if (used + cost > limit && lines.length) {
             lines.push('等');

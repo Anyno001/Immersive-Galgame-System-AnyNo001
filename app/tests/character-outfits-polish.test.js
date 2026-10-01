@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeCharacterOutfits, outfitAllowsScene, outfitAvatarOf, renameOutfitScene, resolveSpriteOutfit } from '../src/scene/character-outfits.js';
-import { clearOutfitReview, loadOutfitReview, recordOutfitReview, removeOutfitReview } from '../src/scene/outfit-review-store.js';
+import { clearOutfitReview, loadOutfitReview, recordOutfitReview, removeOutfitReview, dropConfirmedOutfitReview } from '../src/scene/outfit-review-store.js';
 import { buildStatusHudModel } from '../src/data/shujuku/status-hud-model.js';
 import { isOutfitSwap, playSpriteOutfitSwap, spriteLookOf } from '../src/visual/igs-ui/sprite-outfit-swap.js';
 import { renderCharacterAssetList } from '../src/visual/igs-ui/settings-fields.js';
@@ -74,6 +74,10 @@ test('gate:outfits:outfit-review-store-dedupes-and-clears', () => {
     assert.deepEqual(loadOutfitReview(storage), [{ character: '小林海斗', word: '浴衣' }]);
     clearOutfitReview(storage);
     assert.deepEqual(loadOutfitReview(storage), []);
+    recordOutfitReview(storage, { character: '小林海斗', word: '晚礼服' });
+    recordOutfitReview(storage, { character: '小林海斗', word: '浴衣' });
+    assert.deepEqual(dropConfirmedOutfitReview(storage, { 晚礼服: { prompt: 'gown' } }), [{ character: '小林海斗', word: '浴衣' }]);
+    assert.deepEqual(loadOutfitReview(storage), [{ character: '小林海斗', word: '浴衣' }]);
 });
 
 test('gate:outfits:status-hud-avatar-follows-outfit-of-sprite-character', () => {
@@ -106,16 +110,9 @@ test('gate:outfits:swap-plays-only-when-same-character-changes-outfit', () => {
         classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) } };
     assert.equal(playSpriteOutfitSwap(sprite, { reducedMotion: true }), false);
     assert.equal(parent.ghost, undefined);
-    assert.equal(playSpriteOutfitSwap(sprite, { reducedMotion: false }), true);
-    assert.equal(parent.ghost.style.cssText, 'background-image:url(a.png)');
-    assert.ok(classes.has('igs-sprite-outfit-in'));
-    const firstTimer = timers[0];
-    assert.equal(playSpriteOutfitSwap(sprite, { reducedMotion: false }), true);
-    firstTimer();
-    assert.ok(classes.has('igs-sprite-outfit-in'), 'stale timer must not end the newer swap');
-    timers[1]();
-    assert.ok(!classes.has('igs-sprite-outfit-in'));
-    assert.equal(parent.ghost, null);
+    assert.equal(playSpriteOutfitSwap(sprite, { reducedMotion: false }), false);
+    assert.equal(parent.ghost, undefined);
+    assert.equal(classes.has('igs-sprite-outfit-in'), false);
 });
 
 test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () => {
@@ -144,7 +141,8 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
 
     const school = render({ 小林海斗: '校服' });
     assert.match(school, /适用场景<\/span><div class="igs-mood-word-list"><span class="igs-outfit-muted">不限/);
-    assert.match(school, /还没有这套服装的情绪槽/);
+    assert.match(school, /data-scene-outfit-note="校服"/);
+    assert.match(school, /placeholder="什么情形穿这套"/);
     assert.match(render({ 小林海斗: '已删除' }), /class="igs-outfit-tab is-active"[^>]*>原装/);
 
     const review = renderOutfitReviewList([{ character: '小林海斗', word: '浴衣' }, { character: '路人', word: '西装' }], assets.characterOutfits, assets.characters);

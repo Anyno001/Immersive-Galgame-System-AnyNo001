@@ -61,19 +61,22 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         return out;
     }
 
-    function matchesExpectedFloor(messageId, expected) {
+    function matchesExpectedFloor(messageId, expected, options = {}) {
         if (!expected) return true;
+        const requireLatest = !options || options.requireLatest !== false;
         const current = readFloor(messageId);
         return current && current.chatId === expected.chatId
             && current.messageId === expected.messageId
             && current.swipeId === expected.swipeId
-            && current.isAi && current.isLatest
+            && current.isAi
+            && (!requireLatest || current.isLatest)
             && current.text === expected.text;
     }
 
-    async function writeFloor(messageId, text, expectedFloor = null) {
+    async function writeFloor(messageId, text, expectedFloor = null, options = null) {
+        const matchOptions = options && typeof options === 'object' ? options : {};
         const helper = getTavernHelper(globalObject);
-        if (!matchesExpectedFloor(messageId, expectedFloor)) return { ok: false, reason: 'stale' };
+        if (!matchesExpectedFloor(messageId, expectedFloor, matchOptions)) return { ok: false, reason: 'stale' };
         if (helper && typeof helper.setChatMessages === 'function') {
             await helper.setChatMessages([{ message_id: Number(messageId), message: text }], { refresh: 'affected' });
             return { ok: true };
@@ -81,7 +84,7 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         const ctx = context();
         const msg = ctx && Array.isArray(ctx.chat) ? ctx.chat[messageId] : null;
         if (!msg) return { ok: false, reason: 'message-not-found' };
-        if (!matchesExpectedFloor(messageId, expectedFloor)) return { ok: false, reason: 'stale' };
+        if (!matchesExpectedFloor(messageId, expectedFloor, matchOptions)) return { ok: false, reason: 'stale' };
         msg.mes = text;
         if (Array.isArray(msg.swipes) && Number.isInteger(msg.swipe_id)) msg.swipes[msg.swipe_id] = text;
         if (typeof ctx.updateMessageBlock === 'function') ctx.updateMessageBlock(Number(messageId), msg, { rerenderMessage: true });

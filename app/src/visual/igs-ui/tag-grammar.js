@@ -5,10 +5,8 @@ import { textFxGrammarBlock } from './text-fx.js';
 import { normalizeChatShowSettings, resolveChatShowGrammar } from './chat-show-runtime.js';
 import { enabledFxTagKinds } from './fx-settings.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
-import { estimatePromptTokens } from '../../scene/prompt-triggers.js';
 import { danmakuGrammarBlocks } from './danmaku-prompt.js';
 
-export const DEFAULT_PROMPT_BUDGET_TOKENS = 1500;
 export const PROMPT_PLACEMENTS = Object.freeze(['system', 'depth0']);
 export const DEPTH0_REMINDER = '本轮按系统说明中的igs标签语法输出标签。';
 
@@ -69,7 +67,9 @@ function buildExample({ sceneRule, moodWord, fxKinds, itemOn }) {
     const lines = [];
     if (sceneRule) {
         lines.push('[igs-scene:教室|傍晚|晴天]');
-        lines.push(`[igs-char:林小雨|${moodWord || '害羞'}|这个……给你。]`);
+        lines.push(`[igs-char:林小雨|${moodWord || '害羞'}|校服|这个……给你。]`);
+        lines.push('回到家换上睡衣：[igs-char:林小雨|平和|睡衣|我回来了。]');
+        lines.push('去宴会，没有能对上的衣服，新起短名：[igs-char:林小雨|喜悦|晚礼服|到了。]');
     }
     if (fxKinds.includes('sfx')) lines.push('[igs-fx:sfx|砰]');
     else if (itemOn) lines.push('[igs-fx:item|获得|黄铜钥匙|刻着校徽的旧钥匙]');
@@ -88,7 +88,6 @@ export function buildTagGrammar({
     sceneRule = '',
     ancient = false,
     expand = new Set(),
-    budgetTokens = DEFAULT_PROMPT_BUDGET_TOKENS,
     tailRules = [],
     dynamicRules = [],
     moodWord = '',
@@ -97,17 +96,13 @@ export function buildTagGrammar({
     if (!sceneRule && !blocks.length) return { system: '', depth0: '', expanded: [], indexed: [] };
     const rs = plain(readerSettings);
     const example = buildExample({ sceneRule, moodWord, fxKinds: enabledFxTagKinds(rs.fxTags), itemOn: plain(rs.itemFx).enabled === true });
-    const fixed = [GRAMMAR_HEADER, sceneRule, example, ...tailRules, ...dynamicRules].filter(Boolean);
-    let used = estimatePromptTokens(fixed.join('\n\n'));
     const staticParts = [];
     const dynamicParts = [];
     const indexed = [];
     const adaptiveIndexed = [];
     for (const block of blocks) {
         const wanted = !block.adaptive || expand.has(block.key);
-        const cost = estimatePromptTokens(block.full);
-        if (wanted && used + cost <= budgetTokens) {
-            used += cost;
+        if (wanted) {
             (block.adaptive ? dynamicParts : staticParts).push(block.full);
         } else if (block.adaptive) {
             adaptiveIndexed.push(block);

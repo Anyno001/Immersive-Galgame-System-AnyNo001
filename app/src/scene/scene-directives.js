@@ -20,6 +20,15 @@ export function stripIllustrationMarkers(text) {
         .replace(/^[ \t]*(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)[ \t]*(?:\r?\n|$)/gim, '')
         .replace(/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/gi, '');
 }
+
+export function stripIllustrationMarker(text, slot) {
+    const n = Number(slot);
+    if (!Number.isInteger(n) || n < 1) return String(text || '');
+    const token = String(n);
+    return String(text || '')
+        .replace(new RegExp(`^[ \\t]*(?:\\[igs-img:\\s*${token}\\s*\\]|<IMG>\\s*${token}\\s*<\\/IMG>)[ \\t]*(?:\\r?\\n|$)`, 'gim'), '')
+        .replace(new RegExp(`(?:\\[igs-img:\\s*${token}\\s*\\]|<IMG>\\s*${token}\\s*<\\/IMG>)`, 'gi'), '');
+}
 // 找出当前位置之后最近一条 igs 指令的起始下标；没有则返回 -1。
 function nextDirectiveIndex(text) {
     const source = String(text || '');
@@ -148,19 +157,62 @@ export function resolveSceneAtSourceOffset(source, position) {
     };
 }
 
-// 新场景标签终止此前的 CG；图像标记只作偏移定位，不改变场景指令段索引。
+// 正文范围。同一句若在提示词里再出现一次，不拿那一次当阅读位置。
+export function narrativeRanges(source) {
+    const src = String(source || '');
+    const ranges = [];
+    for (const match of src.matchAll(/<content\b[^>]*>([\s\S]*?)<\/content>/gi)) {
+        const body = match[1];
+        const start = match.index + match[0].length - body.length - '</content>'.length;
+        if (body.length) ranges.push([start, start + body.length]);
+    }
+    return ranges;
+}
+
+// 从上一页之后接着找当前这句，只在正文里找。
+export function locateNarrativeOffset(source, needle, from, locate) {
+    const src = String(source || '');
+    const ranges = narrativeRanges(src);
+    const zones = ranges.length ? ranges : [[0, src.length]];
+    const find = typeof locate === 'function'
+        ? locate
+        : (text, start) => String(text || '').indexOf(String(needle || '').trim(), Math.max(0, Number(start) || 0));
+    const origin = Math.max(0, Number(from) || 0);
+    for (const [start, end] of zones) {
+        if (end <= origin) continue;
+        const hit = Number(find(src.slice(start, end), Math.max(0, origin - start)));
+        if (Number.isFinite(hit) && hit >= 0) return start + hit;
+    }
+    return -1;
+}
+
+// 从第一页往后定位。当前页对不上原文时，沿用前面已经对上的位置，避免翻一页就退回标记前。
+export function resolveHeldSourceOffset(source, segments, index, locate) {
+    const list = Array.isArray(segments) ? segments : [];
+    if (!list.length) return -1;
+    const at = Math.min(list.length - 1, Math.max(0, Number(index) || 0));
+    const find = typeof locate === 'function' ? locate : (text, from) => String(source || '').indexOf(String(text || ''), Math.max(0, Number(from) || 0));
+    let last = -1;
+    for (let i = 0; i <= at; i += 1) {
+        const hit = Number(find(list[i], last >= 0 ? last + 1 : 0));
+        if (Number.isFinite(hit) && hit >= 0) last = hit;
+    }
+    return last;
+}
+
+// 从当前这句往后找下一张 CG。这句在标记前面就显示这张；翻过最后一张后仍保持最后一张。
 export function resolveIllustrationAtSourceOffset(source, position) {
     const src = String(source || '');
     const limit = Math.max(0, Math.min(src.length, Number(position) || 0));
-    const head = src.slice(0, limit);
-    const markerRe = /\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>/gi;
-    let imgAt = -1;
-    for (const match of head.matchAll(markerRe)) imgAt = match.index;
-    if (imgAt < 0) return null;
-    const m = src.slice(imgAt).match(IMG_AT_RE);
-    if (!m) return null;
-    if (head.lastIndexOf('[igs-scene:') > imgAt) return null;
-    return { slot: Number(m[1] || m[2]), offset: imgAt };
+    const markerRe = /\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>/gi;
+    let last = null;
+    for (const match of src.matchAll(markerRe)) {
+        const slot = Number(match[1] || match[2]);
+        if (!Number.isInteger(slot) || slot < 1) continue;
+        if (match.index >= limit) return { slot, offset: match.index };
+        last = { slot, offset: match.index };
+    }
+    return last;
 }
 
 // 从已提取的指令中取最后一条 [igs-scene]：供跨楼层场景追溯使用，

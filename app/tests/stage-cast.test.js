@@ -134,7 +134,7 @@ test('gate: cast dom reuses elements by character and removes leavers', () => {
     const first = layer.children[0];
     assert.equal(first.getAttribute('data-igs-cast-char'), '甲');
     assert.equal(first.style.backgroundPosition, '6% 100%');
-    assert.equal(layer.children[1].style.backgroundSize, '90%');
+    assert.equal(layer.children[1].style.backgroundSize, 'auto 90%');
     applyCastToDom(root, [{ character: '甲', url: 'a2.png', posX: 18, posY: 100, scale: 100 }]);
     assert.equal(layer.children.length, 1);
     assert.equal(layer.children[0], first);
@@ -176,7 +176,7 @@ test('gate: stage-cast skips imageless members before capping', () => {
 });
 
 
-test('gate: cast dom waits for decode and crossfades same-character swaps', async () => {
+test('gate: cast dom waits for decode and cuts same-character swaps', async () => {
     const { root, layer } = fakeLayer();
     const decodes = [];
     class FakeImage {
@@ -202,7 +202,6 @@ test('gate: cast dom waits for decode and crossfades same-character swaps', asyn
     decodes.shift().resolve();
     await flush();
     assert.equal(el.style.backgroundImage, 'url("decode-a2.png")');
-    assert.equal(appended.length, 1);
-    assert.equal(appended[0].style.backgroundImage, 'url("decode-a.png")');
+    assert.equal(appended.length, 0);
     assert.equal(layer.children.length, 1);
 });

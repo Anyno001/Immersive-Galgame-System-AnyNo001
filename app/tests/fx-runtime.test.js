@@ -17,7 +17,7 @@ import {
 } from '../src/visual/igs-ui/fx-settings.js';
 import { renderFxFeatureFields } from '../src/visual/igs-ui/fx-settings-fields.js';
 import { FX_SFX_PARTIALS, playFxSfx } from '../src/visual/igs-ui/fx-sfx.js';
-import { SYMBOL_OFFSETS, headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanHeadFromAlpha, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
+import { SYMBOL_OFFSETS, headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanHeadFromAlpha, spriteBackgroundSize, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
 import { spriteGeometry } from '../src/visual/igs-ui/fx-runtime.js';
 import { ANCIENT_SYMBOL_PLACEMENT, ANCIENT_SYMBOL_SVG, MANGA_SYMBOL_SVG, pickFxAccent } from '../src/visual/igs-ui/fx-symbols.js';
 import { MANGA_SYMBOL_KINDS } from '../src/visual/igs-ui/fx-settings.js';
@@ -579,21 +579,24 @@ test('gate:fx-anchor:symbol-follows-sprite-head-across-desktop-and-phone', () =>
     const head = { x: 0.5, top: 0.05, w: 0.3 };
     const portrait = { naturalW: 600, naturalH: 1200, head };
     const pc = resolveSymbolPlacement('anger', { stageW: 1280, stageH: 720, dialogTop: 520, sprite: { ...portrait, posX: 50, posY: 100, scale: 40 } });
-    // 立绘宽 512、高 1024、底对齐：头顶 y = (720-1024) + 51 ≈ -253，被夹到舞台内；x 在头部中心右侧。
+    // 比例按舞台高度：40 时图高 288、宽 144，符号落在头部中心右侧、对话框之上。
     assert.ok(pc.x > 640 && pc.x < 800, JSON.stringify(pc));
     assert.ok(pc.y >= pc.size * 0.55 && pc.y < 520, JSON.stringify(pc));
-    const fit = resolveSymbolPlacement('anger', { stageW: 1280, stageH: 720, dialogTop: 520, sprite: { ...portrait, posX: 20, posY: 100, scale: 25 } });
-    const imgW = 320;
-    const left = (1280 - imgW) * 0.2;
-    const top = 720 - imgW * 2;
-    assert.ok(Math.abs(fit.x - (left + imgW * 0.5 + 0.45 * imgW * 0.3)) <= 1, JSON.stringify(fit));
-    assert.ok(Math.abs(fit.y - (top + imgW * 0.05 * 2 + 0.15 * imgW * 0.3 * 1.1)) <= 1, JSON.stringify(fit));
+    const fitSprite = { ...portrait, posX: 20, posY: 100, scale: 100 };
+    const fit = resolveSymbolPlacement('anger', { stageW: 1280, stageH: 720, dialogTop: 520, sprite: fitSprite });
+    const rect = spriteDrawRect(1280, 720, fitSprite);
+    const headW = rect.w * 0.3;
+    assert.equal(rect.h, 720);
+    assert.ok(Math.abs(fit.x - (rect.left + rect.w * 0.5 + 0.45 * headW)) <= 1, JSON.stringify(fit));
+    assert.ok(Math.abs(fit.y - (rect.top + rect.h * 0.05 + 0.15 * headW * 1.1)) <= 1, JSON.stringify(fit));
     const phone = resolveSymbolPlacement('sweat', { stageW: 390, stageH: 780, dialogTop: 560, sprite: { ...portrait, posX: 50, posY: 100, scale: 90 } });
     assert.ok(phone.x > 195 && phone.x < 390 - phone.size * 0.55, JSON.stringify(phone));
     assert.ok(phone.y + phone.size * 0.55 <= 560, JSON.stringify(phone));
-    const edge = resolveSymbolPlacement('anger', { stageW: 1280, stageH: 720, sprite: { ...portrait, posX: 100, posY: 100, scale: 25 } });
+    const edgeSprite = { ...portrait, posX: 100, posY: 100, scale: 25 };
+    const edge = resolveSymbolPlacement('anger', { stageW: 1280, stageH: 720, sprite: edgeSprite });
+    const edgeRect = spriteDrawRect(1280, 720, edgeSprite);
     assert.equal(edge.flip, true);
-    assert.ok(edge.x < 1280 - 320 * 0.5);
+    assert.ok(edge.x < edgeRect.left + edgeRect.w * 0.5);
     const none = resolveSymbolPlacement('heart', { stageW: 800, stageH: 450 });
     assert.ok(none.x > 400 && none.y < 225);
     assert.equal(resolveSymbolPlacement('heart', { stageW: 0, stageH: 0 }), null);
@@ -611,6 +614,16 @@ test('gate:fx-anchor:alpha-scan-finds-head-top-and-width', () => {
     assert.equal(head.w, 0.4);
     assert.equal(scanHeadFromAlpha(new Uint8ClampedArray(w * h * 4), w, h), null);
     assert.equal(scanHeadFromAlpha(new Uint8ClampedArray(w * h * 4).fill(255), w, h), null);
+});
+
+test('gate:fx-anchor:sprite-scale-fits-stage-height', () => {
+    const tall = spriteDrawRect(1000, 800, { naturalW: 600, naturalH: 1200, posX: 50, posY: 100, scale: 100 });
+    const wide = spriteDrawRect(1000, 800, { naturalW: 1200, naturalH: 600, posX: 50, posY: 100, scale: 100 });
+    assert.equal(tall.h, 800);
+    assert.equal(wide.h, 800);
+    assert.ok(Math.abs(tall.w - 400) < 1e-6);
+    assert.ok(Math.abs(wide.w - 1600) < 1e-6);
+    assert.equal(spriteBackgroundSize(100), 'auto 100%');
 });
 
 test('gate:fx-anchor:manual-head-round-trips-and-overrides-probe', () => {
@@ -735,7 +748,8 @@ test('gate:sprite-edit:drag-follows-finger-when-sprite-larger-than-stage', () =>
     assert.ok(Math.abs(small.dx - 20) < 1e-6);
     assert.ok(Math.abs(small.dy - -10) < 1e-6);
     // 立绘恰好与舞台等宽：横向百分比不影响画面，保持不变，不产生跳变。
-    const same = spriteDragPosition({ posX: 50, posY: 100, scale: 100, ...stage, ...natural, dx: 30, dy: 0 });
+    const fitWidth = stage.stageW / stage.stageH * natural.naturalH / natural.naturalW * 100;
+    const same = spriteDragPosition({ posX: 50, posY: 100, scale: fitWidth, ...stage, ...natural, dx: 30, dy: 0 });
     assert.equal(same.posX, 50);
     // 读不到原图比例：纵向沿用按舞台高度换算。
     const unknown = spriteDragPosition({ posX: 50, posY: 100, scale: 200, ...stage, dx: -40, dy: -60 });

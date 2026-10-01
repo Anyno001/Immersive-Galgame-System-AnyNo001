@@ -6,7 +6,8 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildDbgenAssetDescription } from '../dbgen-prompt.js';
+import { buildDbgenAssetDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, expressionSpritePrompts, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
 
@@ -166,7 +167,10 @@ export function createAssetGenerationService(deps) {
             return { ok: true };
         } catch (error) {
             if (!isQuotaError(error) || !image.originalDataUrl) throw error;
-            await store.putImage({ id: image.id, dataUrl: image.dataUrl, type: image.type, createdAt: image.createdAt });
+            await store.putImage({
+                id: image.id, dataUrl: image.dataUrl, type: image.type, createdAt: image.createdAt,
+                ...(image.prompt ? { prompt: image.prompt } : {}),
+            });
             report('warn', '素材图片存储空间不足，已只保存透明结果，之后无法从原图修复抠图（source-unavailable: quota）');
             return { ok: true, diagnostic: 'quota' };
         }
@@ -175,13 +179,19 @@ export function createAssetGenerationService(deps) {
     async function generateItem(item, s, floor, floorKey) {
         const isSprite = item.need.type === 'sprite';
         // 智绘姬出图不保证透明底：走智绘姬时按浅灰底模板出图并抠图，不信任 NAI 模型的原生透明能力。
+        // 数据库生图的立绘默认要透明底，不看沉浸式插件自己填的 NAI 模型。
         const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
-        const transparent = isSprite && plannedVia !== 'chatu8' && supportsNaiTransparentBackground(s.auto.nai.model);
+        const transparent = isSprite && plannedVia !== 'chatu8'
+            && (plannedVia === 'dbgen' || supportsNaiTransparentBackground(s.auto.nai.model));
         const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
         const size = isSprite ? s.auto.assets.spriteSize : s.auto.assets.backgroundSize;
-        // 数据库生图模式下前端正负模板随 meta 传出：写进描述交给插件写词，并在出图前合并进最终 caption。
+        // 数据库生图：描述只说明画什么。正负模板随 userPrompts 传出，出图前合并进最终 caption。
         const userPrompts = { positive: slot.scene, negative: slot.sceneUc };
-        const meta = { messageId: floor.messageId, size, description: buildDbgenAssetDescription(item.need, userPrompts), userPrompts };
+        const meta = {
+            messageId: floor.messageId, size, description: buildDbgenAssetDescription(item.need), userPrompts,
+            skipRecall: true,
+            ...(isSprite && plannedVia === 'dbgen' && { transparent: true }),
+        };
         let result;
         try { result = await nai.generate(slot, { ...s.auto.nai, size }, meta); } catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
         const key = tempAssetKeyOf(floor.chatId, item.need);
@@ -196,6 +206,8 @@ export function createAssetGenerationService(deps) {
             const image = isSprite
                 ? await buildSpriteImageRecord(imageId, result.dataUrl, transparent, base.createdAt)
                 : { id: imageId, dataUrl: result.dataUrl, type: item.need.type, createdAt: base.createdAt };
+            const prompt = normalizeStoredPrompt(result.prompt);
+            if (prompt) image.prompt = prompt;
             const saved = await putImageWithQuotaFallback(image);
             rememberImage(imageId, image.dataUrl);
             record = { ...base, imageId, status: 'review', ...(saved.diagnostic ? { sourceUnavailable: saved.diagnostic } : {}) };
@@ -370,8 +382,168 @@ export function createAssetGenerationService(deps) {
         return record && record.dataUrl ? record.dataUrl : '';
     }
 
+    function expressionPaintMeta() {
+        const s = readSettings();
+        const slot = buildAssetSlot(
+            { need: { type: 'sprite', name: '' }, tags: '', uc: '' },
+            { transparent: true, templates: s.auto.assets.templates },
+        );
+        const prompts = expressionSpritePrompts(slot.scene, slot.sceneUc);
+        return {
+            size: s.auto.assets.spriteSize,
+            userPrompts: { positive: prompts.positive, negative: prompts.negative },
+            transparent: true,
+        };
+    }
+
+    async function paintExpressionCaption(name, mood, caption) {
+        const upright = uprightSpriteCaption(caption) || caption;
+        const meta = expressionPaintMeta();
+        let painted;
+        try {
+            painted = await nai.generateDbgenCaption({ ...meta, caption: upright });
+        } catch (error) {
+            painted = { ok: false, error: (error && error.message) || '出图失败' };
+        }
+        if (!painted || !painted.ok || !painted.dataUrl) {
+            return {
+                mood,
+                ok: false,
+                error: (painted && painted.error) || '出图失败',
+                prompt: normalizeStoredPrompt(painted && painted.prompt) || promptFromCaption(upright),
+                caption: upright,
+            };
+        }
+        const imageId = newId();
+        const createdAt = now();
+        const image = await buildSpriteImageRecord(imageId, painted.dataUrl, true, createdAt);
+        const prompt = normalizeStoredPrompt(painted.prompt) || promptFromCaption(upright);
+        if (prompt) image.prompt = prompt;
+        await putImageWithQuotaFallback(image);
+        rememberImage(imageId, image.dataUrl);
+        return { mood, ok: true, imageId, prompt, name };
+    }
+
+    function reportExpressionProgress(onProgress, event) {
+        if (typeof onProgress === 'function') onProgress(event);
+    }
+
+    // 一次写词拿回全部分，再按表情顺序串行出图。某一张失败不影响后面的。
+    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress } = {}) {
+        const labels = (Array.isArray(moods) ? moods : []).map((item) => String(item || '').trim()).filter(Boolean);
+        if (!labels.length) return { ok: false, error: '没有表情分组' };
+        if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
+            return { ok: false, error: '当前图像来源不能写表情差分' };
+        }
+        reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: labels.length });
+        let written;
+        try {
+            written = await nai.writeDbgenPrompt({
+                description: buildExpressionDiffDescription(name, basePrompt, labels, dna, outfit),
+            });
+        } catch (error) {
+            return { ok: false, error: (error && error.message) || '写提示词失败' };
+        }
+        if (!written || !written.ok) return { ok: false, error: (written && written.error) || '写提示词失败' };
+        const captions = Array.isArray(written.captions) ? written.captions : [];
+        const items = [];
+        for (let i = 0; i < labels.length; i += 1) {
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: labels.length, mood: labels[i] });
+            const slot = captions.find((item) => Number(item && item.slotId) === i + 1);
+            const caption = slot && slot.caption;
+            if (!caption) {
+                items.push({ mood: labels[i], ok: false, error: '写提示词没有返回这一份' });
+                continue;
+            }
+            items.push(await paintExpressionCaption(name, labels[i], caption));
+        }
+        return { ok: true, items };
+    }
+
+    // 失败槽重画：已有 caption 就只出这一张，不再写词。
+    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, onProgress } = {}) {
+        const label = String(mood || '').trim();
+        if (!label) return { ok: false, error: '没有表情' };
+        if (caption) {
+            reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: label });
+            const item = await paintExpressionCaption(name, label, caption);
+            return { ok: true, items: [item] };
+        }
+        return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, onProgress });
+    }
+
+    function clothingCaption(prompt) {
+        const text = String(prompt || '').trim();
+        return {
+            v4_prompt: { caption: { base_caption: text, char_captions: [] } },
+            v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } },
+        };
+    }
+
+    // 衣柜参考图：用已有服装提示词直接出图，不再写提示词。
+    async function paintWardrobeReference({ prompt } = {}) {
+        const text = String(prompt || '').trim();
+        if (!text) return { ok: false, error: '这套衣服还没有提示词' };
+        if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出参考图' };
+        const meta = expressionPaintMeta();
+        let painted;
+        try {
+            painted = await nai.generateDbgenCaption({ ...meta, caption: clothingCaption(text) });
+        } catch (error) {
+            return { ok: false, error: (error && error.message) || '出参考图失败' };
+        }
+        if (!painted || !painted.ok || !painted.dataUrl) return { ok: false, error: (painted && painted.error) || '出参考图失败' };
+        const imageId = newId();
+        const createdAt = now();
+        const image = await buildSpriteImageRecord(imageId, painted.dataUrl, true, createdAt);
+        const stored = normalizeStoredPrompt(painted.prompt) || { positive: text, negative: '' };
+        if (stored) image.prompt = stored;
+        await putImageWithQuotaFallback(image);
+        rememberImage(imageId, image.dataUrl);
+        return { ok: true, imageId };
+    }
+
+    async function writeWardrobePrompt({ character, outfit } = {}) {
+        const name = String(character || '').trim();
+        const clothes = String(outfit || '').trim();
+        if (!clothes) return { ok: false, error: '没有待确认的服装' };
+        if (!nai || typeof nai.writeDbgenPrompt !== 'function') return { ok: false, error: '当前图像来源不能写服装提示词' };
+        let written;
+        try {
+            written = await nai.writeDbgenPrompt({ description: buildWardrobeClothingDescription(name, clothes) });
+        } catch (error) {
+            return { ok: false, error: (error && error.message) || '写服装提示词失败' };
+        }
+        if (!written || !written.ok) return { ok: false, error: (written && written.error) || '写服装提示词失败' };
+        const prompt = promptFromCaption(written.caption);
+        const text = prompt && String(prompt.positive || '').trim();
+        if (!text) return { ok: false, error: '写提示词没有返回服装标签' };
+        return { ok: true, prompt: text };
+    }
+
+    async function getImagePrompt(id) {
+        const key = String(id || '');
+        if (!key || !store || typeof store.getImage !== 'function') return null;
+        const record = await store.getImage(key);
+        return normalizeStoredPrompt(record && record.prompt);
+    }
+
+    async function saveImagePrompt(id, prompt) {
+        const key = String(id || '');
+        const stored = normalizeStoredPrompt(prompt);
+        if (!key || !stored) return { ok: false, error: '提示词是空的' };
+        if (!store || typeof store.getImage !== 'function' || typeof store.putImage !== 'function') {
+            return { ok: false, error: '提示词存不了' };
+        }
+        const record = await store.getImage(key);
+        if (!record) return { ok: false, error: '找不到这张立绘' };
+        await store.putImage({ ...record, prompt: stored });
+        return { ok: true, prompt: stored };
+    }
+
     return {
-        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl,
+        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt,
+        generateExpressionSet, generateExpressionImage, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
         start() {

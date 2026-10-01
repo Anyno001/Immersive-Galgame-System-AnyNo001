@@ -30,7 +30,7 @@ import { applyDanmakuToDom } from './danmaku-runtime.js';
 import { renderItemFx } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
 import { renderDailyFx } from './fx-daily.js';
-import { peekSpriteHead, probeSpriteHead, resolveSpriteHead } from './fx-anchor.js';
+import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
 import { applyWeatherFx } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
 import { applyStageDirection } from './stage-direction-runtime.js';
@@ -44,7 +44,7 @@ import { applyMetaFx } from './meta-runtime.js';
 import { applySceneAudio } from './scene-audio.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
-import { clearSpriteOutfitSwap, isOutfitSwap, playSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
+import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
 import { applyClickWaitMark } from './click-wait-mark.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
@@ -443,12 +443,13 @@ export function applyToolbarState(root, current) {
     const savedOrder = Array.isArray(readerSettings.btnOrder) ? readerSettings.btnOrder.filter((id) => canonicalOrder.includes(id)) : [];
     const order = savedOrder.concat(canonicalOrder.filter((id) => !savedOrder.includes(id)));
 
-    const clearCgButton = root.querySelector('#igs-btn-clear-cg');
-    if (clearCgButton) {
-        const content = current.snapshot && current.snapshot.content || {};
-        const clearCgDisabled = !(content.illustrationActive && content.illustrationUrl);
-        clearCgButton.disabled = clearCgDisabled;
-        clearCgButton.setAttribute('aria-disabled', String(clearCgDisabled));
+    const contentForCg = current.snapshot && current.snapshot.content || {};
+    const currentCgShown = Boolean(contentForCg.illustrationActive && contentForCg.illustrationUrl);
+    for (const id of ['clear-cg', 'reroll-cg']) {
+        const button = root.querySelector(`#igs-btn-${id}`);
+        if (!button) continue;
+        button.disabled = !currentCgShown;
+        button.setAttribute('aria-disabled', String(!currentCgShown));
     }
 
     for (const id of order) {
@@ -699,11 +700,14 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     }
 
     if (bg) {
-        bg.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'contain' : 'cover';
+        const cg = Boolean(snapshot.content && (snapshot.content.cgActive || snapshot.content.illustrationActive));
+        bg.style.backgroundSize = 'cover';
+        bg.style.backgroundPosition = 'center';
         const brightness = Number(readerSettings.imgBrightness);
         const level = (Number.isFinite(brightness) ? brightness : 100) / 100;
-        // 亮度、环境滤镜与回忆滤镜都由样式表按变量合成（见 scene-grade.js），这里不写行内 filter。
-        bg.style.filter = '';
+        // 亮度、环境滤镜与回忆滤镜都由样式表按变量合成（见 scene-grade.js）。
+        // CG 出场的先模糊再清晰写在行内 filter 上，这里不能清掉。
+        if (!cg) bg.style.filter = '';
         if (typeof bg.style.setProperty === 'function') bg.style.setProperty('--igs-bg-brightness', String(level));
     }
     if (bgBlur) {
@@ -1060,12 +1064,23 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             removeImageEmptyPlaceholder(bg);
         }
     }
-    if (bgBlur && backgroundAssetUrl) {
+    const cgActive = Boolean(snapshot.content && (snapshot.content.cgActive || snapshot.content.illustrationActive));
+    if (stageMotion && stageMotion.setAttribute) {
+        if (cgActive) stageMotion.setAttribute('data-igs-cg', '1');
+        else stageMotion.removeAttribute('data-igs-cg');
+    }
+    if (!cgActive && bg && bg.style && typeof bg.style.removeProperty === 'function') {
+        bg.style.removeProperty('filter');
+        bg.style.removeProperty('-webkit-filter');
+    }
+    if (bgBlur && backgroundAssetUrl && !cgActive) {
         writeBackgroundImage(bgBlur, backgroundAssetUrl);
         bgBlur.style.opacity = '0.72';
+        bgBlur.style.display = '';
     } else if (bgBlur) {
         writeBackgroundImage(bgBlur, '');
         bgBlur.style.opacity = '0';
+        if (cgActive) bgBlur.style.display = 'none';
     }
     const spriteEl = root.querySelector('#igs-sprite');
     let stageSprite = null;
@@ -1103,7 +1118,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const saved = slotKey ? castSlotLayouts[slotKey] : null;
         const auto = { posX: entry.posX, posY: entry.posY, scale: entry.scale };
         return saved
-            ? { ...entry, posX: saved.posX, posY: saved.posY, scale: saved.scale, slotKey, auto, locked: true }
+            ? { ...entry, posX: saved.posX, posY: saved.posY, slotKey, auto, locked: true }
             : { ...entry, slotKey, auto };
     };
     const castPlanInput = castLayout.multi && !current.spriteEditMode ? {
@@ -1139,9 +1154,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const spriteNarration = ['narration', 'chat', 'system'].includes(snapshot.content.textType) && spriteSettings.dimSpriteOnNarration !== false;
         // 旁白压暗由 .igs-sprite-narration 写入 --igs-sprite-dim，与环境滤镜在样式表里合成。
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
-        const look = spriteLookOf(snapshot.content, spriteAssetUrl);
-        if (!current.spriteEditMode && isOutfitSwap(current.spriteLook, look)) playSpriteOutfitSwap(spriteEl);
-        current.spriteLook = look;
+        current.spriteLook = spriteLookOf(snapshot.content, spriteAssetUrl);
         writeBackgroundImage(spriteEl, spriteAssetUrl);
         spriteEl.style.display = 'block';
         spriteEl.style.position = 'absolute';
@@ -1162,11 +1175,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const layout = { ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood, spriteOutfit) };
             if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
             else if (speakerSlotX != null) layout.posX = speakerSlotX;
-            spriteEl.style.backgroundSize = `${layout.scale}%`;
+            spriteEl.style.backgroundSize = spriteBackgroundSize(layout.scale);
             spriteEl.style.backgroundPosition = `${layout.posX}% ${layout.posY}%`;
             stageSprite = { url: spriteAssetUrl, key: spriteKey, posX: Number(layout.posX) };
             fxSprite = { url: spriteAssetUrl, posX: Number(layout.posX), posY: Number(layout.posY), scale: Number(layout.scale), head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, spriteKey, spriteMood, spriteOutfit), multi: Boolean(castPlan && castPlan.members.length), flip: Boolean(castPlan && castPlan.speaker && castPlan.speaker.flip) };
-            applySpeakerFlip(spriteEl, fxSprite.flip, layout.posX, layout.scale);
+            const probed = peekSpriteHead(spriteAssetUrl);
+            applySpeakerFlip(spriteEl, fxSprite.flip, layout.posX, spriteWidthPercent(stageMotion.clientWidth, stageMotion.clientHeight, { ...layout, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH }));
             igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, outfit: spriteOutfit, index: snapshot.content.currentIndex, layout: { ...layout } });
         }
     } else if (spriteEl) {
@@ -1226,7 +1240,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 if (current.castAlignToken !== token || current.spriteEditMode) return;
                 const again = resolveCastPosePlan(snapshot, planCastLayouts(castPlanInput), castSpeakerKey);
                 if (again.speaker && spriteEl) {
-                    spriteEl.style.backgroundSize = `${again.speaker.scale}%`;
+                    spriteEl.style.backgroundSize = spriteBackgroundSize(again.speaker.scale);
                     spriteEl.style.backgroundPosition = `${again.speaker.posX}% ${again.speaker.posY}%`;
                     if (fxSprite) Object.assign(fxSprite, { posY: Number(again.speaker.posY), scale: Number(again.speaker.scale) });
                 }

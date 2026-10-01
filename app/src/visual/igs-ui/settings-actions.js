@@ -2,6 +2,7 @@ import { DEFAULT_VIRTUAL_REGEX } from '../../scene/message-source.js';
 import { cloneData } from './reader-value-utils.js';
 import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { findDbgenApi } from '../../generated-images/image-backend.js';
+import { formatEditablePrompt, formatStoredPrompt, normalizeStoredPrompt, parseEditablePrompt } from '../../generated-images/generation-prompt.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { loadScenePresets, saveScenePresets, saveActiveScenePresetName } from '../../scene/scene-preset-store.js';
@@ -23,12 +24,15 @@ import { applyWorldview, resolveWorldview } from '../../scene/worldview.js';
 import { normalizeBgmSettings } from './scene-audio.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
-import { addGeneratedAssetToLibrary, collectGeneratedImageIds, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, transferGeneratedLibraryEntry } from '../../scene/asset-match.js';
+import { addGeneratedAssetToLibrary, bindGeneratedSprite, collectGeneratedImageIds, generatedAssetIdOf, isGeneratedAssetUrl, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, setGeneratedExpressionNote, transferGeneratedLibraryEntry } from '../../scene/asset-match.js';
+import { resolveCharacterDna } from '../../scene/character-dna.js';
+import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
+import { markSettingsButtonBusy, showSettingsProgress } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { SETTINGS_SECTIONS, buildSettingsExport, parseSettingsImport, resetSettingsSection, settingsExportFileName } from './settings-sections.js';
-import { normalizeCharacterOutfits, renameOutfitScene } from '../../scene/character-outfits.js';
+import { normalizeCharacterOutfits, normalizeWardrobe, renameOutfitScene, resolveWardrobePrompt } from '../../scene/character-outfits.js';
 
 import { migrateSpriteKeys } from './sprite-key-migration.js';
 import { NAI_OFFICIAL_MODELS } from '../../generated-images/request-builders/nai-v4-builder.js';
@@ -118,6 +122,131 @@ function forgetAssetFolderItem(settingsState, options, kind, name) {
     const { storage, scope } = assetFolderScope(settingsState, options);
     const state = loadAssetFolders(storage, scope);
     if (Object.prototype.hasOwnProperty.call(state[kind].assign, name)) saveAssetFolders(storage, scope, forgetAssetItem(state, kind, name));
+}
+
+function installGeneratedCharacter(sceneAssets, name, replace = false) {
+    const library = normalizeGeneratedLibrary(sceneAssets.generated);
+    const bound = bindGeneratedSprite(sceneAssets, name, library.characters[name] && library.characters[name]['默认'], { replace });
+    if (!bound.ok) return bound;
+    sceneAssets.characters = bound.characters;
+    sceneAssets.characterAliases = bound.characterAliases;
+    return bound;
+}
+
+function characterExpressionDna(sceneAssets, name) {
+    const hit = resolveCharacterDna(
+        sceneAssets.characterDna,
+        name,
+        (raw) => resolveCharacterKey(sceneAssets.characters || {}, sceneAssets.characterAliases || {}, raw) || '',
+    );
+    return hit ? hit.dna : null;
+}
+
+function expressionNoteKey(name, outfit) {
+    return outfit ? `${name}\u0001${outfit}` : name;
+}
+
+function firstGeneratedOutfitUrl(entry) {
+    const moods = entry && entry.moods && typeof entry.moods === 'object' ? entry.moods : {};
+    for (const url of Object.values(moods)) {
+        const text = String(url || '').trim();
+        if (isGeneratedAssetUrl(text)) return text;
+    }
+    return '';
+}
+
+function clearExpressionNote(library, key, mood) {
+    if (!library.expressionNotes[key]) return library;
+    const notes = { ...library.expressionNotes[key] };
+    delete notes[mood];
+    if (Object.keys(notes).length) library.expressionNotes[key] = notes;
+    else delete library.expressionNotes[key];
+    return library;
+}
+
+function applyCharacterExpression(sceneAssets, name, item) {
+    const characters = { ...(sceneAssets.characters || {}) };
+    const current = { ...(characters[name] || {}) };
+    let library = normalizeGeneratedLibrary(sceneAssets.generated);
+    if (item && item.ok && item.imageId) {
+        current[item.mood] = `igs-gen:${item.imageId}`;
+        library = clearExpressionNote(library, name, item.mood);
+    } else {
+        if (!Object.prototype.hasOwnProperty.call(current, item.mood)) current[item.mood] = '';
+        const noted = setGeneratedExpressionNote(library, name, item.mood, {
+            positive: item && item.prompt ? item.prompt.positive : '',
+            negative: item && item.prompt ? item.prompt.negative : '',
+            error: (item && item.error) || '出图失败',
+            caption: item && item.caption,
+        });
+        if (noted.ok) library = noted.library;
+    }
+    characters[name] = current;
+    sceneAssets.characters = characters;
+    sceneAssets.generated = library;
+}
+
+function settingsProgressHost(globalObj) {
+    const doc = globalObj && globalObj.document;
+    return doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-unified-settings') : null;
+}
+
+function reportExpressionProgress(globalObj, event) {
+    const host = settingsProgressHost(globalObj);
+    if (!host || !event) return;
+    const total = Math.max(0, Number(event.total) || 0);
+    const done = Math.max(0, Number(event.done) || 0);
+    const writing = event.phase === 'write';
+    showSettingsProgress(host, {
+        text: writing
+            ? '写词'
+            : `${done}/${total} ${event.mood || ''}`.trim(),
+        ratio: writing || !total ? 0 : done / total,
+        indeterminate: writing,
+        button: writing ? '写词' : `${done}/${total}`,
+    });
+}
+
+function clearExpressionProgress(globalObj) {
+    const host = settingsProgressHost(globalObj);
+    if (host) showSettingsProgress(host, null);
+}
+
+function markExpressionActionBusy(globalObj, action) {
+    const host = settingsProgressHost(globalObj);
+    const button = host && typeof host.querySelector === 'function'
+        ? host.querySelector(`[data-action="${action}"]`)
+        : null;
+    return markSettingsButtonBusy(button, '写词');
+}
+
+function applyOutfitExpression(sceneAssets, name, outfitName, item) {
+    const mood = item && item.mood;
+    if (!mood || mood === '默认') return;
+    const all = { ...(sceneAssets.characterOutfits || {}) };
+    const outfits = { ...(all[name] || {}) };
+    const entry = { ...(outfits[outfitName] || { words: [], moods: {} }) };
+    const moods = { ...(entry.moods && typeof entry.moods === 'object' ? entry.moods : {}) };
+    const noteKey = expressionNoteKey(name, outfitName);
+    let library = normalizeGeneratedLibrary(sceneAssets.generated);
+    if (item.ok && item.imageId) {
+        moods[mood] = `igs-gen:${item.imageId}`;
+        library = clearExpressionNote(library, noteKey, mood);
+    } else {
+        if (!Object.prototype.hasOwnProperty.call(moods, mood)) moods[mood] = '';
+        const noted = setGeneratedExpressionNote(library, noteKey, mood, {
+            positive: item && item.prompt ? item.prompt.positive : '',
+            negative: item && item.prompt ? item.prompt.negative : '',
+            error: (item && item.error) || '出图失败',
+            caption: item && item.caption,
+        });
+        if (noted.ok) library = noted.library;
+    }
+    entry.moods = moods;
+    outfits[outfitName] = entry;
+    all[name] = outfits;
+    sceneAssets.characterOutfits = all;
+    sceneAssets.generated = library;
 }
 
 function persistGeneratedLibrary(persistSettingsDraft) {
@@ -417,6 +546,7 @@ export async function handleSettingsAction(action, ctx) {
         const added = addGeneratedAssetToLibrary(previousLibrary, record, name);
         if (!added.ok) return rerenderSettings();
         sceneAssets.generated = added.library;
+        if (record.type !== 'background') installGeneratedCharacter(sceneAssets, added.name);
         const persisted = persistGeneratedLibrary(persistSettingsDraft);
         if (operationFailed(persisted)) {
             if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
@@ -448,6 +578,216 @@ export async function handleSettingsAction(action, ctx) {
         }
         try { return await options.openMatteEditor(imageId); }
         catch (error) { return generatedOperationFailure(globalObj, '打开抠图修复编辑器失败。', 'matte-editor-open-failed'); }
+    }
+
+    if (normalizedAction.startsWith('gen-asset-prompt:')) {
+        const imageId = decodeSeg(normalizedAction.slice('gen-asset-prompt:'.length));
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        if (!imageId || !service || typeof service.getImagePrompt !== 'function') {
+            return generatedOperationFailure(globalObj, '找不到这份素材的生图提示词。', 'generated-asset-prompt-unavailable');
+        }
+        let prompt = null;
+        try {
+            prompt = await service.getImagePrompt(imageId);
+        } catch (error) {
+            prompt = null;
+        }
+        const text = formatStoredPrompt(prompt) || '这条素材没有保存生图提示词。';
+        if (typeof dialogs.view === 'function') await dialogs.view(text);
+        else if (typeof globalObj.alert === 'function') globalObj.alert(text);
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('gen-adopt-sprite:')) {
+        const name = decodeSeg(normalizedAction.slice('gen-adopt-sprite:'.length));
+        const globalObj = options.global || globalThis;
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const adopted = installGeneratedCharacter(sceneAssets, name, true);
+        if (!adopted.ok) return generatedOperationFailure(globalObj, '这份生成立绘没有可绑定的图片。', 'generated-sprite-adopt-failed');
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        if (operationFailed(persisted)) return persisted;
+        const boundMessage = `已把这张图设为「${adopted.name}」的默认立绘。`;
+        if (globalObj.toastr && typeof globalObj.toastr.success === 'function') globalObj.toastr.success(boundMessage, 'IGS');
+        return rerenderSettings();
+    }
+
+    if (/^(?:char|outfit)-expression-prompt:/.test(normalizedAction)) {
+        const outfitMode = normalizedAction.startsWith('outfit-expression-prompt:');
+        const prefix = outfitMode ? 'outfit-expression-prompt:' : 'char-expression-prompt:';
+        const parts = normalizedAction.slice(prefix.length).split(':').map(decodeSeg);
+        const name = parts[0] || '';
+        const outfitName = outfitMode ? (parts[1] || '') : '';
+        const mood = parts[outfitMode ? 2 : 1] || '';
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const character = (sceneAssets.characters || {})[name];
+        const outfitEntry = outfitMode ? (((sceneAssets.characterOutfits || {})[name] || {})[outfitName]) : null;
+        if (!name || !mood || !character || (outfitMode && !outfitEntry)) return rerenderSettings();
+        if (typeof dialogs.edit !== 'function') {
+            return generatedOperationFailure(globalObj, '提示词编辑当前不可用。', 'expression-prompt-unavailable');
+        }
+        const slotUrl = outfitMode ? String((outfitEntry.moods || {})[mood] || '') : String(character[mood] || '');
+        const imageId = generatedAssetIdOf(slotUrl);
+        const library = normalizeGeneratedLibrary(sceneAssets.generated);
+        const note = (library.expressionNotes[expressionNoteKey(name, outfitName)] || {})[mood];
+        let prompt = null;
+        if (imageId && service && typeof service.getImagePrompt === 'function') {
+            try { prompt = await service.getImagePrompt(imageId); } catch (error) { prompt = null; }
+        }
+        if (!prompt && note) prompt = normalizeStoredPrompt(note);
+        const text = formatEditablePrompt(prompt);
+        if (!text) return generatedOperationFailure(globalObj, '这张立绘没有保存提示词。', 'expression-prompt-missing');
+        const edited = await dialogs.edit('这张立绘的提示词', text);
+        if (edited == null) return rerenderSettings();
+        const next = parseEditablePrompt(edited);
+        if (!next) return generatedOperationFailure(globalObj, '提示词是空的。', 'expression-prompt-empty');
+        if (imageId && service && typeof service.saveImagePrompt === 'function') {
+            let saved;
+            try { saved = await service.saveImagePrompt(imageId, next); }
+            catch (error) { saved = { ok: false, error: '提示词没存上。' }; }
+            if (!saved || !saved.ok) {
+                return generatedOperationFailure(globalObj, (saved && saved.error) || '提示词没存上。', 'expression-prompt-save-failed');
+            }
+        } else {
+            const noted = setGeneratedExpressionNote(library, expressionNoteKey(name, outfitName), mood, {
+                positive: next.positive,
+                negative: next.negative,
+                error: (note && note.error) || '',
+                caption: next.caption,
+            });
+            if (!noted.ok) return generatedOperationFailure(globalObj, '提示词没存上。', 'expression-prompt-save-failed');
+            sceneAssets.generated = noted.library;
+            const persisted = persistGeneratedLibrary(persistSettingsDraft);
+            if (operationFailed(persisted)) return persisted;
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('gen-expression-prompt:')) {
+        const rest = normalizedAction.slice('gen-expression-prompt:'.length);
+        const colon = rest.indexOf(':');
+        const name = decodeSeg(colon < 0 ? rest : rest.slice(0, colon));
+        const mood = decodeSeg(colon < 0 ? '' : rest.slice(colon + 1));
+        const globalObj = options.global || globalThis;
+        const bridge = settingsState.draft.bridge || {};
+        const note = (((bridge.sceneAssets || {}).generated || {}).expressionNotes || {})[name];
+        const item = note && note[mood];
+        const text = formatStoredPrompt(item) || '这条表情没有保存生图提示词。';
+        if (typeof dialogs.view === 'function') await dialogs.view(text);
+        else if (typeof globalObj.alert === 'function') globalObj.alert(text);
+        return rerenderSettings();
+    }
+
+    if (/^(?:char|outfit)-expression-(?:set|retry):/.test(normalizedAction)) {
+        const outfitMode = normalizedAction.startsWith('outfit-expression-');
+        const retry = normalizedAction.includes('-expression-retry:');
+        const prefix = `${outfitMode ? 'outfit' : 'char'}-expression-${retry ? 'retry' : 'set'}:`;
+        const parts = normalizedAction.slice(prefix.length).split(':').map(decodeSeg);
+        const name = parts[0] || '';
+        const outfitName = outfitMode ? (parts[1] || '') : '';
+        const mood = retry ? (parts[outfitMode ? 2 : 1] || '') : '';
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const character = (sceneAssets.characters || {})[name];
+        const outfitEntry = outfitMode ? (((sceneAssets.characterOutfits || {})[name] || {})[outfitName]) : null;
+        if (!name || !character || (outfitMode && !outfitEntry)) return rerenderSettings();
+        if (!service || typeof service.generateExpressionSet !== 'function' || typeof service.getImagePrompt !== 'function') {
+            return generatedOperationFailure(globalObj, '表情差分当前不可用。', 'expression-unavailable');
+        }
+        const labels = normalizeMoodGroups(sceneAssets.moodGroups).map((group) => group.label);
+        const ownUrl = outfitMode ? firstGeneratedOutfitUrl(outfitEntry) : '';
+        const baseUrl = ownUrl || String(character['默认'] || '');
+        const defaultId = generatedAssetIdOf(baseUrl);
+        let basePrompt = null;
+        try { basePrompt = defaultId ? await service.getImagePrompt(defaultId) : null; }
+        catch (error) { basePrompt = null; }
+        if (!basePrompt) {
+            const originId = generatedAssetIdOf(String(character['默认'] || ''));
+            if (originId && originId !== defaultId) {
+                try { basePrompt = await service.getImagePrompt(originId); }
+                catch (error) { basePrompt = null; }
+            }
+        }
+        const library = normalizeGeneratedLibrary(sceneAssets.generated);
+        const noteKey = expressionNoteKey(name, outfitName);
+        const note = retry ? (library.expressionNotes[noteKey] || {})[mood] : null;
+        let savedCaption = note && note.caption;
+        if (retry && !savedCaption) {
+            const slotUrl = outfitMode ? String((outfitEntry.moods || {})[mood] || '') : String((character || {})[mood] || '');
+            const slotId = generatedAssetIdOf(slotUrl);
+            if (slotId) {
+                try {
+                    const saved = await service.getImagePrompt(slotId);
+                    if (saved && saved.caption) savedCaption = saved.caption;
+                    else if (saved && (saved.positive || saved.negative)) {
+                        const parsed = parseEditablePrompt([
+                            saved.positive ? `scene: ${saved.positive}` : '',
+                            saved.negative ? `scene_uc: ${saved.negative}` : '',
+                        ].filter(Boolean).join('\n'));
+                        savedCaption = parsed && parsed.caption;
+                    }
+                } catch (error) { savedCaption = null; }
+            }
+        }
+        if (!savedCaption && !basePrompt) {
+            return generatedOperationFailure(globalObj, outfitMode
+                ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
+                : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
+        }
+        const dna = characterExpressionDna(sceneAssets, name);
+        const clothes = outfitMode ? resolveWardrobePrompt(sceneAssets.wardrobe, outfitEntry, outfitName) : null;
+        const outfit = outfitMode ? { name: outfitName, words: outfitEntry.words, ownImage: Boolean(ownUrl), prompt: clothes ? clothes.prompt : '' } : null;
+        if (retry && !mood) return rerenderSettings();
+        if (!retry) {
+            const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
+            const filled = labels.filter((label) => String(slots[label] || '').trim()).length;
+            const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
+            const confirmed = await dialogs.confirm(filled
+                ? `重新生成${who}的全部 ${labels.length} 张表情差分。已有 ${filled} 张将被替换。`
+                : `生成${who}的 ${labels.length} 张表情差分。先写提示词，再按顺序出图。`);
+            if (!confirmed) return rerenderSettings();
+        }
+        let result;
+        const onProgress = (event) => reportExpressionProgress(globalObj, event);
+        const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction);
+        try {
+            result = retry && savedCaption && typeof service.generateExpressionImage === 'function'
+                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, onProgress })
+                : retry
+                    ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, onProgress })
+                    : await service.generateExpressionSet({ name, basePrompt, moods: labels, dna, outfit, onProgress });
+        } catch (error) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return generatedOperationFailure(globalObj, '表情差分生成失败。', 'expression-generate-failed');
+        }
+        if (!result || !result.ok) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return generatedOperationFailure(globalObj, (result && result.error) || '表情差分生成失败。', 'expression-generate-failed');
+        }
+        const liveBridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const liveAssets = liveBridge.sceneAssets = liveBridge.sceneAssets || {};
+        for (const item of result.items || []) {
+            if (outfitMode) applyOutfitExpression(liveAssets, name, outfitName, item);
+            else applyCharacterExpression(liveAssets, name, item);
+        }
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        if (operationFailed(persisted)) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return persisted;
+        }
+        const rendered = await rerenderSettings();
+        clearExpressionProgress(globalObj);
+        restoreBusy();
+        return rendered;
     }
 
     // 下载 IGS 实际存储的素材图片：立绘为裁边后带原图 PNG 文本块的版本，背景为原图。
@@ -1960,6 +2300,7 @@ export async function handleSettingsAction(action, ctx) {
             characterAliases: cloneData(sa.characterAliases || {}),
             characterDna: normalizeCharacterDnaMap(sa.characterDna),
             characterOutfits: normalizeCharacterOutfits(sa.characterOutfits),
+            wardrobe: normalizeWardrobe(sa.wardrobe),
             moodGroups: cloneData(sa.moodGroups || []),
             statusAvatars: cloneData(sa.statusAvatars || {}),
             timeGroups: cloneData(sa.timeGroups || []),
@@ -2000,6 +2341,9 @@ export async function handleSettingsAction(action, ctx) {
                 // 旧预设没有 characterOutfits 字段：同理保留当前服装。
                 if (Object.prototype.hasOwnProperty.call(preset, 'characterOutfits')) {
                     settingsState.draft.bridge.sceneAssets.characterOutfits = normalizeCharacterOutfits(preset.characterOutfits);
+                }
+                if (Object.prototype.hasOwnProperty.call(preset, 'wardrobe')) {
+                    settingsState.draft.bridge.sceneAssets.wardrobe = normalizeWardrobe(preset.wardrobe);
                 }
                 settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(preset.moodGroups || []);
                 settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(preset.statusAvatars || {});
@@ -2063,6 +2407,7 @@ export async function handleSettingsAction(action, ctx) {
             characterAliases: fileResult.data.characterAliases || {},
             ...(Object.prototype.hasOwnProperty.call(fileResult.data, 'characterDna') ? { characterDna: normalizeCharacterDnaMap(fileResult.data.characterDna) } : {}),
             ...(Object.prototype.hasOwnProperty.call(fileResult.data, 'characterOutfits') ? { characterOutfits: normalizeCharacterOutfits(fileResult.data.characterOutfits) } : {}),
+            ...(Object.prototype.hasOwnProperty.call(fileResult.data, 'wardrobe') ? { wardrobe: normalizeWardrobe(fileResult.data.wardrobe) } : {}),
             moodGroups: fileResult.data.moodGroups || [],
             statusAvatars: (fileResult.data.statusAvatars && typeof fileResult.data.statusAvatars === 'object') ? fileResult.data.statusAvatars : {},
             timeGroups: fileResult.data.timeGroups || [],
@@ -2086,6 +2431,9 @@ export async function handleSettingsAction(action, ctx) {
         if (Object.prototype.hasOwnProperty.call(presets[name], 'characterOutfits')) {
             settingsState.draft.bridge.sceneAssets.characterOutfits = cloneData(presets[name].characterOutfits);
         }
+        if (Object.prototype.hasOwnProperty.call(presets[name], 'wardrobe')) {
+            settingsState.draft.bridge.sceneAssets.wardrobe = cloneData(presets[name].wardrobe);
+        }
         settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(presets[name].statusAvatars || {});
         settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(presets[name].moodGroups);
         settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(presets[name].timeGroups || []);
@@ -2108,7 +2456,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!preset) return rerenderSettings();
         const doc = globalObj.document;
         if (!doc) return { ok: false, reason: 'no-document' };
-        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, worldview: resolveWorldview(preset), spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
+        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'wardrobe') ? { wardrobe: preset.wardrobe } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, worldview: resolveWorldview(preset), spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = doc.createElement('a');

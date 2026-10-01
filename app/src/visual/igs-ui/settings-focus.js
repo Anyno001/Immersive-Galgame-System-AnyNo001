@@ -3,6 +3,7 @@ const FOCUS_KEY_ATTRS = Object.freeze([
     ['data-path', 'data-segment-value'],
     ['data-segment-path', 'data-segment-value'],
     ['data-dna-char', 'data-dna-field'],
+    ['data-wardrobe-name'],
     ['data-switch'],
     ['data-action'],
     ['data-tab'],

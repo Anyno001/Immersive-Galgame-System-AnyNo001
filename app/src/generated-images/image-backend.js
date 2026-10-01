@@ -1,6 +1,7 @@
 import { normalizeAutoIllustrationSettings } from './illustration/auto-illustration-settings.js';
 import { resolveNaiNativeEndpoint } from './request-builders/nai-v4-builder.js';
 import { applyUserPromptsToCaption } from './dbgen-prompt.js';
+import { promptFromCaption, promptFromText } from './generation-prompt.js';
 import { findChatu8Host, requestChatu8Image } from './chatu8-client.js';
 
 // 生图来源：nai = IGS 内置 NAI；dbgen = 数据库生图插件（window.NaiDbGen）；
@@ -122,42 +123,127 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         return { mode, via: 'nai', ownPrompts: false, ready: { ok: true } };
     }
 
-    // 提示词交给插件按当前楼层来写，IGS 给出「画什么」的描述；
-    // meta.userPrompts 是前端素材模板渲染出的正负提示词，出图前再合并进插件返回的 caption，
-    // 保证用户在 IGS 前端填写的提示词一定进入最终请求。
+    // 写词接口只收到「画什么」。前端正负模板不进这段描述，出图前再合并进插件返回的 caption。
     async function viaDbgen(meta = {}) {
         const api = findDbgenApi(globalObject);
         if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
         const description = String(meta.description || '').trim();
         if (!description) return { ok: false, error: '没有可交给数据库生图插件的画面描述' };
-        const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
-        let caption;
         let written = null;
         try {
             if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
-            written = await api.generateSinglePrompt({ description, ...(meta.messageId != null && { messageId: Number(meta.messageId) }) });
+            written = await api.generateSinglePrompt({
+                description,
+                ...(meta.skipRecall === true && { skipRecall: true }),
+                ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
+            });
             if (!written || !written.ok || !written.value || !written.value.caption) {
                 return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${describeResultError(written, '未返回提示词')}` };
             }
-            caption = userPrompts ? applyUserPromptsToCaption(written.value.caption, userPrompts) : written.value.caption;
         } catch (error) {
             return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
         }
         const size = parseSize(meta.size) || (written.value.width && written.value.height
             ? { width: written.value.width, height: written.value.height } : null);
+        return paintDbgenCaption(api, { ...meta, size: size ? `${size.width}x${size.height}` : meta.size }, written.value.caption);
+    }
+
+    async function writeDbgenPrompt(meta = {}) {
+        const api = findDbgenApi(globalObject);
+        if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
+        const description = String(meta.description || '').trim();
+        if (!description) return { ok: false, error: '没有可交给数据库生图插件的画面描述' };
+        if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
+        let written;
+        try {
+            written = await api.generateSinglePrompt({
+                description,
+                skipRecall: true,
+                ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
+            });
+        } catch (error) {
+            return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
+        }
+        if (!written || !written.ok || !written.value || !written.value.caption) {
+            return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${describeResultError(written, '未返回提示词')}` };
+        }
+        const captions = Array.isArray(written.value.captions) && written.value.captions.length
+            ? written.value.captions.filter((item) => item && item.caption)
+            : [{ slotId: 1, caption: written.value.caption, width: written.value.width, height: written.value.height }];
+        return {
+            ok: true,
+            caption: written.value.caption,
+            captions,
+            width: written.value.width,
+            height: written.value.height,
+        };
+    }
+
+    // 楼内 CG：走召回，把生成点原样带回。不出图。
+    async function writeDbgenFloorPrompts(meta = {}) {
+        const api = findDbgenApi(globalObject);
+        if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
+        const description = String(meta.description || '').trim();
+        if (!description) return { ok: false, error: '没有可交给数据库生图插件的画面描述' };
+        if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
+        let written;
+        try {
+            written = await api.generateSinglePrompt({
+                description,
+                ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
+            });
+        } catch (error) {
+            return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
+        }
+        if (!written || !written.ok || !written.value || !written.value.caption) {
+            return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${describeResultError(written, '未返回提示词')}` };
+        }
+        const captions = (Array.isArray(written.value.captions) && written.value.captions.length
+            ? written.value.captions
+            : [{ slotId: 1, caption: written.value.caption, width: written.value.width, height: written.value.height }])
+            .filter((item) => item && item.caption)
+            .map((item) => {
+                const anchor = String(item.anchorSentence || item.anchor || '').trim();
+                return {
+                    slotId: Number(item.slotId) || 1,
+                    caption: item.caption,
+                    ...(anchor && { anchorSentence: anchor }),
+                    ...(item.width != null && { width: item.width }),
+                    ...(item.height != null && { height: item.height }),
+                };
+            });
+        return { ok: true, caption: written.value.caption, captions };
+    }
+
+    async function paintDbgenCaption(api, meta, caption) {
+        const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
+        const merged = userPrompts ? applyUserPromptsToCaption(caption, userPrompts) : caption;
+        const size = parseSize(meta.size);
+        // 立绘走数据库生图时默认打开透明底。模型用插件自己的运行配置，这里不传 model。
+        const params = {
+            ...(size || {}),
+            ...(meta.transparent === true && { straight_alpha: true, tag_hint_transparent_background: true }),
+        };
         let result;
         try {
-            result = await api.generate({ caption, replaceCharacterKeywords: true, ...(size && { params: size }) });
+            result = await api.generate({ caption: merged, replaceCharacterKeywords: true, ...(Object.keys(params).length && { params }) });
         } catch (error) {
-            return { ok: false, error: `${DBGEN_LABEL}出图失败：${(error && error.message) || error}` };
+            return { ok: false, error: `${DBGEN_LABEL}出图失败：${(error && error.message) || error}`, prompt: promptFromCaption(merged) };
         }
         const image = result && result.ok && Array.isArray(result.value) ? result.value[0] : null;
-        if (!image || !image.blob) return { ok: false, error: `${DBGEN_LABEL}出图失败：${describeResultError(result, '未返回图片')}` };
+        if (!image || !image.blob) return { ok: false, error: `${DBGEN_LABEL}出图失败：${describeResultError(result, '未返回图片')}`, prompt: promptFromCaption(merged) };
         try {
-            return { ok: true, dataUrl: await blobToDataUrl(image.blob, image.mimeType, globalObject) };
+            return { ok: true, dataUrl: await blobToDataUrl(image.blob, image.mimeType, globalObject), prompt: promptFromCaption(merged) };
         } catch (error) {
-            return { ok: false, error: `${DBGEN_LABEL}图片读取失败：${(error && error.message) || error}` };
+            return { ok: false, error: `${DBGEN_LABEL}图片读取失败：${(error && error.message) || error}`, prompt: promptFromCaption(merged) };
         }
+    }
+
+    async function generateDbgenCaption(meta = {}) {
+        const api = findDbgenApi(globalObject);
+        if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
+        if (!meta.caption) return { ok: false, error: '没有可出图的提示词' };
+        return paintDbgenCaption(api, meta, meta.caption);
     }
 
     // 智绘姬出图；未安装、失败或图片取不到时，填了 NAI Key 就退回内置 NAI。
@@ -179,7 +265,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         const result = await requestChatu8(host, prompt);
         if (!result || !result.ok) return fallback((result && result.error) || `${CHATU8_LABEL}出图失败`);
         try {
-            return { ok: true, via: 'chatu8', dataUrl: await chatu8ImageToDataUrl(result.imageData, host.win || globalObject) };
+            return { ok: true, via: 'chatu8', dataUrl: await chatu8ImageToDataUrl(result.imageData, host.win || globalObject), prompt: promptFromText(prompt, '') };
         } catch (error) {
             return fallback(`${CHATU8_LABEL}图片读取失败：${(error && error.message) || error}`);
         }
@@ -255,5 +341,5 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             : { ok: false, message: `未检测到${DBGEN_LABEL}，请确认已安装并启用。` };
     }
 
-    return { describe, describeEdit, edit, generate, generateForReader, probeDbgen };
+    return { describe, describeEdit, edit, generate, generateForReader, probeDbgen, writeDbgenPrompt, writeDbgenFloorPrompts, generateDbgenCaption };
 }

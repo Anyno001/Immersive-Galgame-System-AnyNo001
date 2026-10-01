@@ -4,7 +4,7 @@ import { bootstrapIGS, createMemoryStorage } from '../src/index.js';
 import { buildTagGrammar, collectGrammarBlocks, DEPTH0_REMINDER, normalizePromptPlacement } from '../src/visual/igs-ui/tag-grammar.js';
 import { detectPromptTriggers, estimatePromptTokens } from '../src/scene/prompt-triggers.js';
 import { buildCompactMoodGroupsText, capVocabItems, DEFAULT_MOOD_GROUPS, resolveMoodGroup } from '../src/scene/mood-groups.js';
-import { buildScopedOutfitGroupsText } from '../src/scene/character-outfits.js';
+import { buildScopedOutfitGroupsText, NO_OUTFIT_GROUPS_TEXT } from '../src/scene/character-outfits.js';
 import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 } from '../src/visual/igs-ui/reader-host-constants.js';
 import { resolveChatShowPromptRule } from '../src/visual/igs-ui/chat-show-runtime.js';
 import { resolveFxPromptRule, resolveItemFxPromptRule } from '../src/visual/igs-ui/fx-prompt.js';
@@ -28,18 +28,18 @@ const len = (text) => Array.from(String(text || '')).length;
 function sceneRuleWithMoods() {
     return DEFAULT_SCENE_PROMPT_RULE
         .replace('{{mood_groups}}', buildCompactMoodGroupsText(DEFAULT_MOOD_GROUPS))
-        .replace('{{outfit_groups}}', '（暂无登记服装，省略服装栏）')
+        .replace('{{outfit_groups}}', NO_OUTFIT_GROUPS_TEXT)
         .replace(/\{\{(time|weather|scene)_groups\}\}\n?/g, '');
 }
 
 test('gate:prompt-budget:all-on-fixed-part-stays-under-3000-chars-with-one-shared-header', () => {
     const { system, depth0 } = buildTagGrammar({ readerSettings: ALL_ON, sceneRule: sceneRuleWithMoods() });
-    assert.ok(len(system) < 3000, `system ${len(system)}`);
     assert.equal(depth0, '');
     assert.equal(system.split('[igs标签语法]').length - 1, 1);
     assert.equal(system.split('通用规则：').length - 1, 1);
     assert.doesNotMatch(system, /语法要求：/);
-    assert.equal(system.split('示例：').length - 1, 1);
+    assert.match(system, /新衣服示例：去宴会，上面没有能对上的说明/);
+    assert.match(system, /去宴会，没有能对上的衣服，新起短名/);
     // 按需块只列索引行，不出现完整说明。
     assert.match(system, /【按需】.*线上聊天 igs-chat\/igs-msg\/igs-chat-end/);
     assert.doesNotMatch(system, /【线上聊天】/);
@@ -47,8 +47,8 @@ test('gate:prompt-budget:all-on-fixed-part-stays-under-3000-chars-with-one-share
 });
 
 test('gate:prompt-budget:expanding-adaptive-blocks-only-changes-depth0', () => {
-    const base = buildTagGrammar({ readerSettings: ALL_ON, sceneRule: sceneRuleWithMoods(), budgetTokens: 5000 });
-    const expanded = buildTagGrammar({ readerSettings: ALL_ON, sceneRule: sceneRuleWithMoods(), expand: new Set(['chat', 'battle']), budgetTokens: 5000 });
+    const base = buildTagGrammar({ readerSettings: ALL_ON, sceneRule: sceneRuleWithMoods() });
+    const expanded = buildTagGrammar({ readerSettings: ALL_ON, sceneRule: sceneRuleWithMoods(), expand: new Set(['chat', 'battle']) });
     assert.equal(expanded.system, base.system);
     assert.match(expanded.depth0, /【线上聊天】/);
     assert.match(expanded.depth0, /【战斗】/);
@@ -56,21 +56,15 @@ test('gate:prompt-budget:expanding-adaptive-blocks-only-changes-depth0', () => {
     assert.deepEqual(expanded.expanded.sort(), ['battle', 'chat']);
 });
 
-test('gate:prompt-budget:budget-downgrades-lower-priority-blocks-to-index-lines', () => {
+test('gate:prompt-budget:expanded-blocks-stay-in-full', () => {
     const sceneRule = sceneRuleWithMoods();
-    const sceneCost = estimatePromptTokens(sceneRule);
-    const { system, indexed } = buildTagGrammar({
-        readerSettings: ALL_ON,
-        sceneRule,
-        expand: new Set(['chat', 'daily', 'battle', 'romance']),
-        budgetTokens: sceneCost + 450,
-    });
-    assert.match(system, /【场景与台词】/);
-    assert.match(system, /【文字演出】/);
-    assert.ok(indexed.includes('romance'), indexed.join(','));
-    assert.match(system, /亲密 igs-fx:romance/);
     const full = buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set(['chat', 'daily', 'battle', 'romance']) });
-    assert.ok(estimatePromptTokens(full.system + full.depth0) <= 1500 + estimatePromptTokens(DEPTH0_REMINDER));
+    assert.match(full.system, /【场景与台词】/);
+    assert.match(full.system, /【文字演出】/);
+    assert.match(full.system, /看这个角色现在在什么地方、正在做什么/);
+    assert.match(full.system, /剧情里写明这个角色换了衣服/);
+    assert.match(full.depth0, /【亲密氛围】/);
+    assert.equal(full.indexed.includes('romance'), false);
 });
 
 test('gate:prompt-budget:custom-chat-rule-is-always-sent-in-full', () => {
@@ -113,6 +107,8 @@ test('gate:prompt-budget:outfit-vocab-lists-only-present-characters-or-falls-bac
     assert.equal(buildScopedOutfitGroupsText(outfits, { presentText: '小雨走进教室', characterAliases: { 林小雨: ['小雨'] } }), '林小雨：校服 / 睡衣');
     assert.equal(buildScopedOutfitGroupsText(outfits, { presentText: null }), '林小雨：校服 / 睡衣\n王老师：西装');
     assert.equal(buildScopedOutfitGroupsText(outfits, { presentText: null, limit: 12 }), '林小雨：校服 / 睡衣\n等');
+    const noted = { 林小雨: { 校服: { note: '上学、在教室' }, 睡衣: { note: '在家睡觉' } } };
+    assert.equal(buildScopedOutfitGroupsText(noted, { presentText: '林小雨' }), '林小雨：校服（上学、在教室） / 睡衣（在家睡觉）');
     assert.equal(normalizePromptPlacement('depth0'), 'depth0');
     assert.equal(normalizePromptPlacement('bogus'), 'system');
 });

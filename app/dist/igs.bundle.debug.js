@@ -91,7 +91,7 @@ const { createImageBackend, mergeLegacyNaiSettings } = require("src/generated-im
 const { createNaiOfficialClient } = require("src/generated-images/nai-official-client.js");
 const { createImageJobLog } = require("src/generated-images/image-job-log.js");
 const { createIndexedDbIllustrationStore } = require("src/media/illustration-store.js");
-const { createAutoIllustrationService, ILLUSTRATION_UPDATED_EVENT } = require("src/generated-images/illustration/auto-illustration-service.js");
+const { createAutoIllustrationService, ILLUSTRATION_PROGRESS_EVENT, ILLUSTRATION_UPDATED_EVENT } = require("src/generated-images/illustration/auto-illustration-service.js");
 const { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } = require("src/generated-images/illustration/asset-generation-service.js");
 const { createItemAndCgServices } = require("src/core/item-cg-services.js");
 const { createIndexedDbGeneratedAssetStore } = require("src/media/generated-asset-store.js");
@@ -168,6 +168,14 @@ function bootstrapIGS(options = {}) {
         nai: imageBackend,
         store: illustrationStore,
         getSettings: () => readImageBridge().autoIllustration,
+        getReaderMode: () => {
+            const snapshot = getUnifiedSettingsSnapshot() || {};
+            return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
+        },
+        getViewport: () => ({
+            width: Number(globalObject && globalObject.innerWidth) || 0,
+            height: Number(globalObject && globalObject.innerHeight) || 0,
+        }),
         getSceneAssets: () => readImageBridge().sceneAssets,
         events,
         random: options.random,
@@ -249,6 +257,7 @@ function bootstrapIGS(options = {}) {
         getIllustrationUrl: (query) => illustrationService.getIllustrationUrl(query),
         illustrations: illustrationService,
         onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),
+        onIllustrationProgress: (handler) => events.on(ILLUSTRATION_PROGRESS_EVENT, handler),
         generatedAssets: assetGenerationService,
         // 遮罩修复编辑器的 AI 局部重绘：只经 describeEdit/edit 显式调用，不影响普通生成。
         imageEditBackend: imageBackend,
@@ -491,6 +500,7 @@ function bootstrapIGS(options = {}) {
         return {
             version: app.version,
             bridge,
+            readerMode,
             imageApi: cloneData(bridge.imageApi || {}),
             readerSettings: cloneData(resolvedReaderSettings),
         };
@@ -2466,6 +2476,8 @@ __igsDefine(exports, "PROMISE_LOOKBACK_FLOORS", () => PROMISE_LOOKBACK_FLOORS);
 __igsRegister("src/scene/character-outfits.js", function(module, exports, require) {
 const { resolveCharacterKey } = require("src/scene/scene-directives.js");
 const OUTFIT_RESET = '默认';
+const OUTFIT_BASE_WORDS = new Set([OUTFIT_RESET, '原装']);
+const NO_OUTFIT_GROUPS_TEXT = '（暂无登记服装。）';
 const OUTFIT_GROUPS_PLACEHOLDER = '{{outfit_groups}}';
 const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const INVALID_CHARS = /[|\]\r\n]/;
@@ -2476,7 +2488,7 @@ function isValidOutfitWord(word) {
     return Boolean(text) && !BLOCKED_KEYS.has(text) && !INVALID_CHARS.test(text);
 }
 function isValidOutfitName(name) {
-    return isValidOutfitWord(name) && name.trim() !== OUTFIT_RESET;
+    return isValidOutfitWord(name) && !OUTFIT_BASE_WORDS.has(name.trim());
 }
 
 function normalizeMoods(value) {
@@ -2523,10 +2535,36 @@ function normalizeCharacterOutfits(value) {
             if (scenes.length) outfits[name].scenes = scenes;
             const avatar = typeof entry.avatar === 'string' ? entry.avatar.trim() : '';
             if (avatar) outfits[name].avatar = avatar;
+            const wardrobe = typeof entry.wardrobe === 'string' ? entry.wardrobe.trim() : '';
+            if (isValidOutfitName(wardrobe)) outfits[name].wardrobe = wardrobe;
+            const note = normalizeOutfitNote(entry.note);
+            if (note) outfits[name].note = note;
         }
         out[character] = outfits;
     }
     return out;
+}
+
+// 衣柜：服装名 → 手写生图提示词。角色的某一套服装可点名引用，没点名时按同名服装取。
+function normalizeWardrobe(raw) {
+    const out = {};
+    for (const [key, value] of Object.entries(plain(raw) || {})) {
+        const name = typeof key === 'string' ? key.trim() : '';
+        if (!isValidOutfitName(name) || hasOwn(out, name)) continue;
+        const source = typeof value === 'string' ? { prompt: value } : (plain(value) || {});
+        const prompt = typeof source.prompt === 'string' ? source.prompt.replace(/\r\n?/g, '\n').trim() : '';
+        const reference = typeof source.reference === 'string' ? source.reference.trim() : '';
+        out[name] = { prompt };
+        if (reference.startsWith('igs-gen:')) out[name].reference = reference;
+    }
+    return out;
+}
+function resolveWardrobePrompt(wardrobe, outfitEntry, outfitName) {
+    const map = plain(wardrobe) || {};
+    const linked = outfitEntry && typeof outfitEntry.wardrobe === 'string' ? outfitEntry.wardrobe.trim() : '';
+    const key = linked && hasOwn(map, linked) ? linked : (hasOwn(map, outfitName) ? outfitName : '');
+    if (!key) return null;
+    return { name: key, prompt: String((map[key] && map[key].prompt) || '').trim() };
 }
 function outfitsOfCharacter(characterOutfits, characterAliases, character) {
     const map = plain(characterOutfits) || {};
@@ -2541,7 +2579,7 @@ function outfitNamesOf(characterOutfits, characterAliases, character) {
 function resolveOutfitToken(outfits, token) {
     const text = String(token || '').trim();
     if (!text) return '';
-    if (text === OUTFIT_RESET) return OUTFIT_RESET;
+    if (OUTFIT_BASE_WORDS.has(text)) return OUTFIT_RESET;
     const map = plain(outfits) || {};
     if (hasOwn(map, text)) return text;
     for (const [name, entry] of Object.entries(map)) {
@@ -2574,12 +2612,27 @@ function matchOutfitByText(text, outfits) {
     }
     return tie ? '' : best;
 }
+
+// 给模型看的穿着说明：一行内，去掉会打断列表的符号。空说明不写出。
+function normalizeOutfitNote(value) {
+    return String(value || '').replace(/[\r\n|[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function outfitPromptLabel(name, entry) {
+    const note = normalizeOutfitNote(entry && entry.note);
+    return note ? `${name}（${note}）` : name;
+}
+
+function outfitPromptLine(character, outfits) {
+    const map = plain(outfits) || {};
+    const labels = Object.keys(map).map((name) => outfitPromptLabel(name, map[name]));
+    return labels.length ? `${character}：${labels.join(' / ')}` : '';
+}
 function buildOutfitGroupsText(characterOutfits) {
     const lines = Object.entries(plain(characterOutfits) || {})
-        .map(([character, outfits]) => [character, Object.keys(plain(outfits) || {})])
-        .filter(([, names]) => names.length)
-        .map(([character, names]) => `${character}：${names.join(' / ')}`);
-    return lines.length ? lines.join('\n') : '（暂无登记服装，省略服装栏）';
+        .map(([character, outfits]) => outfitPromptLine(character, outfits))
+        .filter(Boolean);
+    return lines.length ? lines.join('\n') : NO_OUTFIT_GROUPS_TEXT;
 }
 
 function outfitKeyOf(resolveKey, character) {
@@ -2730,16 +2783,15 @@ function buildScopedOutfitGroupsText(characterOutfits, { presentText = null, cha
     const text = presentText == null ? null : String(presentText);
     const aliases = plain(characterAliases) || {};
     const entries = Object.entries(plain(characterOutfits) || {})
-        .map(([character, outfits]) => [character, Object.keys(plain(outfits) || {})])
-        .filter(([, names]) => names.length)
+        .map(([character, outfits]) => [character, outfits, outfitPromptLine(character, outfits)])
+        .filter(([, , line]) => line)
         .filter(([character]) => text == null
             || [character, ...(Array.isArray(aliases[character]) ? aliases[character] : [])]
                 .some((name) => String(name || '').trim() && text.includes(String(name).trim())));
-    if (!entries.length) return '（暂无登记服装，省略服装栏）';
+    if (!entries.length) return NO_OUTFIT_GROUPS_TEXT;
     const lines = [];
     let used = 0;
-    for (const [character, names] of entries) {
-        const line = `${character}：${names.join(' / ')}`;
+    for (const [, , line] of entries) {
         const cost = Array.from(line).length + 1;
         if (used + cost > limit && lines.length) {
             lines.push('等');
@@ -2754,11 +2806,14 @@ function buildScopedOutfitGroupsText(characterOutfits, { presentText = null, cha
 __igsDefine(exports, "isValidOutfitWord", () => isValidOutfitWord);
 __igsDefine(exports, "isValidOutfitName", () => isValidOutfitName);
 __igsDefine(exports, "normalizeCharacterOutfits", () => normalizeCharacterOutfits);
+__igsDefine(exports, "normalizeWardrobe", () => normalizeWardrobe);
+__igsDefine(exports, "resolveWardrobePrompt", () => resolveWardrobePrompt);
 __igsDefine(exports, "outfitsOfCharacter", () => outfitsOfCharacter);
 __igsDefine(exports, "outfitNamesOf", () => outfitNamesOf);
 __igsDefine(exports, "resolveOutfitToken", () => resolveOutfitToken);
 __igsDefine(exports, "createOutfitResolver", () => createOutfitResolver);
 __igsDefine(exports, "matchOutfitByText", () => matchOutfitByText);
+__igsDefine(exports, "normalizeOutfitNote", () => normalizeOutfitNote);
 __igsDefine(exports, "buildOutfitGroupsText", () => buildOutfitGroupsText);
 __igsDefine(exports, "collectLatestOutfits", () => collectLatestOutfits);
 __igsDefine(exports, "resolveTagOutfitAt", () => resolveTagOutfitAt);
@@ -2771,6 +2826,7 @@ __igsDefine(exports, "resolveSpriteOutfit", () => resolveSpriteOutfit);
 __igsDefine(exports, "spriteIdentity", () => spriteIdentity);
 __igsDefine(exports, "buildScopedOutfitGroupsText", () => buildScopedOutfitGroupsText);
 __igsDefine(exports, "OUTFIT_RESET", () => OUTFIT_RESET);
+__igsDefine(exports, "NO_OUTFIT_GROUPS_TEXT", () => NO_OUTFIT_GROUPS_TEXT);
 __igsDefine(exports, "OUTFIT_GROUPS_PLACEHOLDER", () => OUTFIT_GROUPS_PLACEHOLDER);
 });
 __igsRegister("src/scene/scene-directives.js", function(module, exports, require) {
@@ -2793,6 +2849,14 @@ function stripIllustrationMarkers(text) {
     return String(text || '')
         .replace(/^[ \t]*(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)[ \t]*(?:\r?\n|$)/gim, '')
         .replace(/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/gi, '');
+}
+function stripIllustrationMarker(text, slot) {
+    const n = Number(slot);
+    if (!Number.isInteger(n) || n < 1) return String(text || '');
+    const token = String(n);
+    return String(text || '')
+        .replace(new RegExp(`^[ \\t]*(?:\\[igs-img:\\s*${token}\\s*\\]|<IMG>\\s*${token}\\s*<\\/IMG>)[ \\t]*(?:\\r?\\n|$)`, 'gim'), '')
+        .replace(new RegExp(`(?:\\[igs-img:\\s*${token}\\s*\\]|<IMG>\\s*${token}\\s*<\\/IMG>)`, 'gi'), '');
 }
 // 找出当前位置之后最近一条 igs 指令的起始下标；没有则返回 -1。
 function nextDirectiveIndex(text) {
@@ -2921,19 +2985,62 @@ function resolveSceneAtSourceOffset(source, position) {
     };
 }
 
-// 新场景标签终止此前的 CG；图像标记只作偏移定位，不改变场景指令段索引。
+// 正文范围。同一句若在提示词里再出现一次，不拿那一次当阅读位置。
+function narrativeRanges(source) {
+    const src = String(source || '');
+    const ranges = [];
+    for (const match of src.matchAll(/<content\b[^>]*>([\s\S]*?)<\/content>/gi)) {
+        const body = match[1];
+        const start = match.index + match[0].length - body.length - '</content>'.length;
+        if (body.length) ranges.push([start, start + body.length]);
+    }
+    return ranges;
+}
+
+// 从上一页之后接着找当前这句，只在正文里找。
+function locateNarrativeOffset(source, needle, from, locate) {
+    const src = String(source || '');
+    const ranges = narrativeRanges(src);
+    const zones = ranges.length ? ranges : [[0, src.length]];
+    const find = typeof locate === 'function'
+        ? locate
+        : (text, start) => String(text || '').indexOf(String(needle || '').trim(), Math.max(0, Number(start) || 0));
+    const origin = Math.max(0, Number(from) || 0);
+    for (const [start, end] of zones) {
+        if (end <= origin) continue;
+        const hit = Number(find(src.slice(start, end), Math.max(0, origin - start)));
+        if (Number.isFinite(hit) && hit >= 0) return start + hit;
+    }
+    return -1;
+}
+
+// 从第一页往后定位。当前页对不上原文时，沿用前面已经对上的位置，避免翻一页就退回标记前。
+function resolveHeldSourceOffset(source, segments, index, locate) {
+    const list = Array.isArray(segments) ? segments : [];
+    if (!list.length) return -1;
+    const at = Math.min(list.length - 1, Math.max(0, Number(index) || 0));
+    const find = typeof locate === 'function' ? locate : (text, from) => String(source || '').indexOf(String(text || ''), Math.max(0, Number(from) || 0));
+    let last = -1;
+    for (let i = 0; i <= at; i += 1) {
+        const hit = Number(find(list[i], last >= 0 ? last + 1 : 0));
+        if (Number.isFinite(hit) && hit >= 0) last = hit;
+    }
+    return last;
+}
+
+// 从当前这句往后找下一张 CG。这句在标记前面就显示这张；翻过最后一张后仍保持最后一张。
 function resolveIllustrationAtSourceOffset(source, position) {
     const src = String(source || '');
     const limit = Math.max(0, Math.min(src.length, Number(position) || 0));
-    const head = src.slice(0, limit);
-    const markerRe = /\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>/gi;
-    let imgAt = -1;
-    for (const match of head.matchAll(markerRe)) imgAt = match.index;
-    if (imgAt < 0) return null;
-    const m = src.slice(imgAt).match(IMG_AT_RE);
-    if (!m) return null;
-    if (head.lastIndexOf('[igs-scene:') > imgAt) return null;
-    return { slot: Number(m[1] || m[2]), offset: imgAt };
+    const markerRe = /\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>/gi;
+    let last = null;
+    for (const match of src.matchAll(markerRe)) {
+        const slot = Number(match[1] || match[2]);
+        if (!Number.isInteger(slot) || slot < 1) continue;
+        if (match.index >= limit) return { slot, offset: match.index };
+        last = { slot, offset: match.index };
+    }
+    return last;
 }
 
 // 从已提取的指令中取最后一条 [igs-scene]：供跨楼层场景追溯使用，
@@ -3151,9 +3258,13 @@ function normalizeSegmentIndex(value) {
 }
 
 __igsDefine(exports, "stripIllustrationMarkers", () => stripIllustrationMarkers);
+__igsDefine(exports, "stripIllustrationMarker", () => stripIllustrationMarker);
 __igsDefine(exports, "extractSceneDirectives", () => extractSceneDirectives);
 __igsDefine(exports, "resolveNearestCharacterBefore", () => resolveNearestCharacterBefore);
 __igsDefine(exports, "resolveSceneAtSourceOffset", () => resolveSceneAtSourceOffset);
+__igsDefine(exports, "narrativeRanges", () => narrativeRanges);
+__igsDefine(exports, "locateNarrativeOffset", () => locateNarrativeOffset);
+__igsDefine(exports, "resolveHeldSourceOffset", () => resolveHeldSourceOffset);
 __igsDefine(exports, "resolveIllustrationAtSourceOffset", () => resolveIllustrationAtSourceOffset);
 __igsDefine(exports, "resolveLatestSceneDirective", () => resolveLatestSceneDirective);
 __igsDefine(exports, "resolveSceneStateAtIndex", () => resolveSceneStateAtIndex);
@@ -8359,7 +8470,9 @@ const TOOLBAR_ACTIONS = Object.freeze([
     ['last-page', '最后一页'],
     ['next-turn', '下一轮'],
     ['regen', '绘制 CG'],
+    ['reroll-cg', '重画这张'],
     ['clear-cg', '清扫当前 CG'],
+    ['clear-floor-cg', '清扫本楼'],
     ['generate-assets', '补全立绘与背景'],
     ['cg-gallery', 'CG 库'],
     ['fill-item-images', '补全物品图'],
@@ -8382,15 +8495,17 @@ const DEFAULT_SCENE_PROMPT_RULE = `【场景与台词】
 角色名写完整全名；不知名角色写「？？？」，路人写「男路人A」「女同学B」；场景名写空间概念（教室、走廊），不写家具摆设。
 表情：角色外在可见的神态，不是语气；只从下列词中选，不自造：
 {{mood_groups}}
-服装：只用下列已登记名称，不自造；每轮角色首次出现时写，之后未换装可省略该栏（写成 角色名|表情|对白），换装时重写，换回原外观写「默认」；未列出的角色省略服装栏。
+服装：角色每次开口都写此刻穿的哪套，不能省，也不要照抄上一句。看这个角色现在在什么地方、正在做什么，去对下面括号里的说明：对上哪套就写哪套的名字；一套都对不上，就新起一个1至12字的短名，不要空格和标点。剧情里写明这个角色换了衣服、穿上另一套、脱了或披上，服装栏必须改成换上的那套，不许再写原来那套。
 {{outfit_groups}}
+换衣服示例：上一句 [igs-char:林小雨|平和|校服|走吧。] 回到家换上睡衣，写成 [igs-char:林小雨|平和|睡衣|我回来了。]
+新衣服示例：去宴会，上面没有能对上的说明，新起短名，写成 [igs-char:林小雨|喜悦|晚礼服|到了。]
 时间：只用笼统时间段 早晨/上午/中午/下午/傍晚/晚上/深夜
 {{time_groups}}
 天气：只用天气类型词 晴天/多云/小雨/大雨/雷雨/小雪/大雪等
 {{weather_groups}}
 {{scene_groups}}`.trim();
 
-// 旧默认 V3（v0.30.0，含服装栏的长版）原文冻结：逐字一致视为未自定义；关闭精简注入时也用它还原旧输出。
+// 关闭精简注入时使用的长版原文。已保存的提示词不在这里被替换，要换新规则用「恢复默认提示词」。
 const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 = `[igs标签语法]
 以下标签供前端渲染系统读取，是附加在正文上的元数据注释，不改变正文本身的写法。
 
@@ -8416,9 +8531,10 @@ const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 = `[igs标签语法]
 {{mood_groups}}
 
 [服装字段约束]
-服装只从该角色已登记的名称中选取，禁止自造；每轮回复中角色首次出现时必须写服装栏，之后未换装可省略该栏（写成 角色名|表情|对白）；换装时重新写；换回原有外观写「默认」。
-未列出的角色省略服装栏。
+角色每次开口都写此刻穿的哪套，不能省，也不要照抄上一句。看这个角色现在在什么地方、正在做什么，去对下面括号里的说明：对上哪套就写哪套的名字；一套都对不上，就新起一个1至12字的短名，不要空格和标点。剧情里写明这个角色换了衣服、穿上另一套、脱了或披上，服装栏必须改成换上的那套，不许再写原来那套。
 {{outfit_groups}}
+换衣服示例：上一句 [igs-char:林小雨|平和|校服|走吧。] 回到家换上睡衣，写成 [igs-char:林小雨|平和|睡衣|我回来了。]
+新衣服示例：去宴会，上面没有能对上的说明，新起短名，写成 [igs-char:林小雨|喜悦|晚礼服|到了。]
 
 [时间字段约束]
 仅使用笼统时间段：早晨/上午/中午/下午/傍晚/晚上/深夜
@@ -8435,89 +8551,10 @@ const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 = `[igs标签语法]
 [核心原则]
 igs标签是透明的元数据层。正文的文风、叙事密度、修辞手法、段落节奏完全由其他文风指令决定，不受标签存在的影响。标签插在段落之间，读者略去所有标签后，剩余正文应当是一篇完整的、符合当前文风要求的文章。其中，表情字段为角色可外在观察的神态表情，禁止理解成语气或说话方式。`.trim();
 
-// 旧默认 V2（v0.30.0 前）原文冻结：与它逐字一致的规则视为未自定义，可静默升级。
-const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V2 = `[igs标签语法]
-以下标签供前端渲染系统读取，是附加在正文上的元数据注释，不改变正文本身的写法。
-
-[igs-scene:场景名|时间|天气]
-[igs-scene:场景名|时间|天气|NSFW]（仅NSFW场景使用）
-[igs-char:角色名|表情|对白]
-[igs-thought:角色名|表情|心里话]
-
-语法要求：
-1. 每条标签独立成行，头尾用方括号包裹
-2. 字段之间用 | 分隔
-3. [igs-scene] 在本轮场景首次出现、以及任何场景切换时各输出一次；即使与上一轮场景相同，新一轮开头也要重新输出一次
-4. 场景属于NSFW内容时，[igs-scene]第四栏必须填写大写NSFW；其他场景保持三栏，禁止输出第四栏
-5. [igs-char] 在角色开口时使用
-6. [igs-thought] 在需要表现角色内心独白时使用
-7. 角色名必须输出完整全名
-8. 场景名必须定位到空间概念（如教室、走廊），禁止描述家具
-9. 不知名角色用「？？？」；路人用「男路人A」「女同学B」等
-10. 禁止发明新标签
-
-[表情词约束]
-表情字段从固定池选取（2-3字词），禁止自造：
-{{mood_groups}}
-
-[时间字段约束]
-仅使用笼统时间段：早晨/上午/中午/下午/傍晚/晚上/深夜
-{{time_groups}}
-
-[天气字段约束]
-仅使用天气类型词：晴天/多云/小雨/大雨/雷雨/小雪/大雪等
-{{weather_groups}}
-
-[场景字段约束]
-仅定位空间概念，禁止定位家具摆设。
-{{scene_groups}}
-
-[核心原则]
-igs标签是透明的元数据层。正文的文风、叙事密度、修辞手法、段落节奏完全由其他文风指令决定，不受标签存在的影响。标签插在段落之间，读者略去所有标签后，剩余正文应当是一篇完整的、符合当前文风要求的文章。其中，表情字段为角色可外在观察的神态表情，禁止理解成语气或说话方式。`.trim();
-const LEGACY_DEFAULT_SCENE_PROMPT_RULE = `[igs标签语法]
-以下三种标签供前端渲染系统读取，是附加在正文上的元数据注释，不改变正文本身的写法。
-
-[igs-scene:场景名|时间|天气]
-[igs-char:角色名|情绪|对白]
-[igs-thought:角色名|情绪|心里话]
-
-语法要求：
-1. 每条标签独占一行，方括号为固定边界，不可拆行
-2. 字段之间用 | 分隔，字段内不得含 | 或 ]
-3. [igs-scene] 在场景首次出现和换场景时各出现一次
-4. [igs-char] 在角色开口时使用
-5. [igs-thought] 在需要表现角色内心声音时使用
-6. 角色名必须输出完整全名，每次一致（立绘索引标识）
-7. 场景名必须定位到空间概念（如教室、走廊），每次一致（背景图索引标识）
-8. 不知名角色用「？？？」；路人用「男路人A」「女同学B」等
-9. 仅有以上三种标签，不要发明新标签
-
-[情绪词约束]
-情绪字段从固定池选取（2-3字词），仅用于前端索引立绘，禁止自造：
-{{mood_groups}}
-
-[时间字段约束]
-仅使用笼统时间段：早晨/上午/中午/下午/傍晚/晚上/深夜
-{{time_groups}}
-
-[天气字段约束]
-仅使用天气类型词：晴天/多云/小雨/大雨/雷雨/小雪/大雪等
-{{weather_groups}}
-
-[场景字段约束]
-仅定位空间概念，禁止定位家具摆设。
-{{scene_groups}}
-
-[核心原则]
-igs标签是透明的元数据层。正文的文风、叙事密度、修辞手法、段落节奏完全由其他文风指令决定，不受标签存在的影响。标签插在段落之间，如同脚注——读者略去所有标签后，剩余正文应当是一篇完整的、符合当前文风要求的文章。情绪字段是机械索引值，不替代也不影响正文中的情感表达。`.trim();
-
-// 只升级空值与逐字等于旧默认的规则；自定义规则原样保留，不覆盖、不备份。
-const LEGACY_DEFAULT_SCENE_PROMPT_RULES = Object.freeze([LEGACY_DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V2, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3]);
+// 只有没存过提示词时用当前默认。已存的内容保持原样，换新规则走「恢复默认提示词」。
 function normalizeScenePromptRule(value) {
     const rule = String(value || '');
-    return !rule || LEGACY_DEFAULT_SCENE_PROMPT_RULES.includes(rule)
-        ? DEFAULT_SCENE_PROMPT_RULE
-        : rule;
+    return rule ? rule : DEFAULT_SCENE_PROMPT_RULE;
 }
 
 // 自定义规则缺服装占位符时 AI 不会写服装栏；只提示，不改写用户规则。
@@ -8541,8 +8578,6 @@ __igsDefine(exports, "INITIAL_IMAGE_POLL_ATTEMPTS", () => INITIAL_IMAGE_POLL_ATT
 __igsDefine(exports, "INITIAL_IMAGE_POLL_INTERVAL_MS", () => INITIAL_IMAGE_POLL_INTERVAL_MS);
 __igsDefine(exports, "DEFAULT_SCENE_PROMPT_RULE", () => DEFAULT_SCENE_PROMPT_RULE);
 __igsDefine(exports, "LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3", () => LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3);
-__igsDefine(exports, "LEGACY_DEFAULT_SCENE_PROMPT_RULE_V2", () => LEGACY_DEFAULT_SCENE_PROMPT_RULE_V2);
-__igsDefine(exports, "LEGACY_DEFAULT_SCENE_PROMPT_RULE", () => LEGACY_DEFAULT_SCENE_PROMPT_RULE);
 __igsDefine(exports, "PROMPT_RULE_OUTFIT_HINT", () => PROMPT_RULE_OUTFIT_HINT);
 });
 __igsRegister("src/visual/igs-ui/dialog-theme-typography.js", function(module, exports, require) {
@@ -8752,10 +8787,10 @@ __igsDefine(exports, "DIALOG_TYPESETTING_STYLE_TEXT", () => DIALOG_TYPESETTING_S
 });
 __igsRegister("src/visual/igs-ui/reader-host.js", function(module, exports, require) {
 const { buildIgsTextPayload, getMessagePrimaryText, getVisibleMessageTextFromElement, normalizeSourceFilter, normalizeVirtualRegex } = require("src/scene/message-source.js");
-const { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } = require("src/scene/scene-directives.js");
+const { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, resolveHeldSourceOffset, locateNarrativeOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } = require("src/scene/scene-directives.js");
 const { classifySceneKey, resolveCharacterKey } = require("src/scene/scene-directives.js");
-const { loadOutfitReview, recordOutfitReview } = require("src/scene/outfit-review-store.js");
-const { renderOutfitReviewList } = require("src/visual/igs-ui/settings-outfit-fields.js");const { isMarkerDirectiveLine, stripMarkerDirectives } = require("src/scene/directive-tags.js");
+const { recordOutfitReview, dropConfirmedOutfitReview } = require("src/scene/outfit-review-store.js");
+const { renderOutfitReviewList, renderWardrobe } = require("src/visual/igs-ui/settings-outfit-fields.js");const { isMarkerDirectiveLine, stripMarkerDirectives } = require("src/scene/directive-tags.js");
 const { extractFxDirectives, resolveFxAtPage } = require("src/scene/fx-directives.js");
 const { readStoryNow, resolveDuePromises } = require("src/scene/promise-reminder.js");
 const { parseTables } = require("src/shujuku-panel/panel-model.js");
@@ -8786,7 +8821,7 @@ const { normalizeStageCastSettings } = require("src/visual/igs-ui/stage-directio
 const { resolveRomanceRivalTarget } = require("src/visual/igs-ui/romance-settings.js");
 const { clearCastDom } = require("src/visual/igs-ui/stage-cast-render.js");
 const { CHARACTER_DNA_FIELDS, normalizeCharacterDnaMap, resolveCharacterDna } = require("src/scene/character-dna.js");
-const { createOutfitResolver, normalizeCharacterOutfits, resolveSpriteOutfit } = require("src/scene/character-outfits.js");
+const { createOutfitResolver, normalizeCharacterOutfits, normalizeWardrobe, resolveSpriteOutfit } = require("src/scene/character-outfits.js");
 const { collectOutfitClues } = require("src/data/shujuku/outfit-clues.js");
 const { renderDnaCandidateBar, renderDnaOnlyCharacterList } = require("src/visual/igs-ui/settings-fields.js");
 const { loadMatteEditor } = require("src/visual/igs-ui/sprite-matte-editor.js");
@@ -8810,7 +8845,7 @@ const { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode } = requir
 const { cloneData, esc, firstDefined, firstNonEmptyString, firstRenderableText, clampNumber, normalizeBoolean, normalizeFiniteIndex, normalizeFiniteNumber, normalizeNullableNumber, normalizeOpacity, toHex } = require("src/visual/igs-ui/reader-value-utils.js");
 const { checkbox, colorInput, field, renderCharacterAssetList, renderMoodReviewList, renderPinnedButtons, renderSceneAssetList, renderGeneratedAssetPane, renderScenePresetBar, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, disabledAttr, hiddenAttr, modelPicker, tableMultiSelect } = require("src/visual/igs-ui/settings-fields.js");
 const { renderAssetReviewPanel } = require("src/visual/igs-ui/asset-review-panel.js");
-const { ensureEmbeddedHost, findEmbeddedHost, hideEmbeddedSourceText, isEmbeddedEditTrigger, resolveEmbeddedHostParent, restoreEmbeddedSourceText } = require("src/visual/igs-ui/embedded-reader-runtime.js");
+const { ensureEmbeddedHost, findEmbeddedHost, hideStorySpan, isEmbeddedEditTrigger, isStoryHidden, resolveEmbeddedHostParent, restoreEmbeddedSourceText, restoreStorySpan, storyLines } = require("src/visual/igs-ui/embedded-reader-runtime.js");
 const { buildReaderSourceSignature, createReaderSourceCache } = require("src/visual/igs-ui/reader-source-cache.js");
 const { createImageResourceCache } = require("src/media/resource-cache.js");
 const { createChatStreamObserver } = require("src/host/chat-stream-observer.js");
@@ -8886,6 +8921,8 @@ function createIgsReaderHost(options = {}) {
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
     const imageResourceCache = createImageResourceCache(options.global || globalThis);
+    let embeddedStoryObserver = null;
+    let embeddedStoryTimer = null;
     const streamObserver = createChatStreamObserver({
         global: options.global || globalThis,
         getDocument: () => resolveEmbeddedDocument(state.activeReader),
@@ -8902,10 +8939,26 @@ function createIgsReaderHost(options = {}) {
         ? options.onItemImageUpdated(() => { if (state.activeReader) rerenderActiveReader(); })
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
+    let settingsImageRefreshTimer = 0;
+    function scheduleSettingsImageRefresh() {
+        if (settingsImageRefreshTimer) return;
+        const g = options.global || globalThis;
+        const schedule = typeof g.setTimeout === 'function' ? g.setTimeout.bind(g) : setTimeout;
+        settingsImageRefreshTimer = schedule(() => {
+            settingsImageRefreshTimer = 0;
+            if (state.activeSettings && state.activeSettings.tab === 'scene') rerenderSettings();
+        }, 0);
+    }
     const offGeneratedAssetUpdated = typeof options.onGeneratedAssetUpdated === 'function'
-        ? options.onGeneratedAssetUpdated(() => {
+        ? options.onGeneratedAssetUpdated((detail) => {
             if (state.activeReader) rerenderActiveReader();
-            if (state.activeSettings && state.activeSettings.asyncState.sceneSubTab === 'generated') rerenderSettings();
+            const settings = state.activeSettings;
+            if (!settings) return;
+            if (detail && detail.reason === 'image-loaded') {
+                if (settings.tab === 'scene') scheduleSettingsImageRefresh();
+                return;
+            }
+            if (settings.asyncState.sceneSubTab === 'generated') rerenderSettings();
         })
         : () => {};
     // 日志更新时只替换列表 DOM，不整页重渲染，避免打断正在输入的设置项。
@@ -8942,7 +8995,11 @@ function createIgsReaderHost(options = {}) {
             current.payload.textSegments = null;
             current.payload.sceneDirectives = null;
             rerenderActiveReader();
+            scheduleEmbeddedStoryHide();
         })
+        : () => {};
+    const offIllustrationProgress = typeof options.onIllustrationProgress === 'function'
+        ? options.onIllustrationProgress((payload) => showIllustrationProgress(payload))
         : () => {};
 
     const host = {
@@ -9040,8 +9097,10 @@ function createIgsReaderHost(options = {}) {
         syncStatusHudSubscription();
         if (isEmbeddedReaderMode(nextMode)) {
             streamObserver.start();
+            startEmbeddedStoryWatch();
         } else {
             streamObserver.stop();
+            stopEmbeddedStoryWatch();
         }
 
         if (domState && domState.overlay) onboarding.syncInvite(domState.overlay);
@@ -9285,6 +9344,7 @@ function createIgsReaderHost(options = {}) {
         }
         current.imagePollToken += 1;
         streamObserver.stop();
+        stopEmbeddedStoryWatch();
         sourceCache.invalidate();
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
@@ -9338,6 +9398,7 @@ function createIgsReaderHost(options = {}) {
         const closed = closeSettings();
         if (closed.ok === false) return closed;
         offIllustrationUpdated();
+        offIllustrationProgress();
         offGeneratedAssetUpdated();
         offItemImageUpdated();
         offImageJobLog();
@@ -9429,7 +9490,7 @@ function createIgsReaderHost(options = {}) {
             && mount.host.parentNode === resolved.parent
         );
         if (sameMount) {
-            hideEmbeddedSourceText(resolved.mesText);
+            hideMountedStory(resolved.mesText, message);
             return false;
         }
         remountEmbeddedReader(current, { ...message, element });
@@ -9543,9 +9604,11 @@ function createIgsReaderHost(options = {}) {
                 current.dom.embeddedMount = mountEmbeddedRoot(doc, root, current.payload.message, current.mountMessageId);
             }
             streamObserver.start();
+            startEmbeddedStoryWatch();
             return;
         }
         streamObserver.stop();
+        stopEmbeddedStoryWatch();
         exitEmbeddedLoading();
         if (current.dom.embeddedMount) {
             (doc.documentElement || doc.body).appendChild(root);
@@ -9875,6 +9938,23 @@ function createIgsReaderHost(options = {}) {
         try { if (state.activeReader) writeToast(message); } catch (error) { /* ignore */ }
     }
 
+    function showIllustrationProgress(payload) {
+        const current = state.activeReader;
+        if (!current || !payload) return;
+        const messageId = Number(payload.messageId);
+        const contentId = current.payload && current.payload.messageId != null
+            ? current.payload.messageId : current.contentMessageId;
+        if (contentId == null || Number(contentId) !== messageId) return;
+        if (payload.phase === 'done') {
+            if (!current.cgProgress) return;
+            current.cgProgress = false;
+            if (current.toastMessage === '生图中') clearReaderToast(current);
+            return;
+        }
+        current.cgProgress = true;
+        writeGenerating();
+    }
+
     function updateSettingsValue(path, value, editOptions = {}) {
         if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
         const draft = state.activeSettings.draft;
@@ -9993,7 +10073,7 @@ function createIgsReaderHost(options = {}) {
             if (!/^(?:data:image\/|https?:\/\/|blob:)/i.test(url)) return '';
             const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;
             // 大图按序号回查已读列表，避免把整段 data URL 再塞进 data-action。
-            return `<button type="button" class="igs-image-cg-tile" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><img src="${esc(url)}" loading="lazy" decoding="async" alt=""><span>${esc(label)}</span></button>`;
+            return `<button type="button" class="igs-image-cg-tile" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><img src="${esc(url)}" decoding="async" alt=""><span>${esc(label)}</span></button>`;
         }).join('');
         return tiles || '<div class="igs-scene-empty">还没有生成过 CG</div>';
     }
@@ -10139,6 +10219,12 @@ function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'clear-cg') {
             return clearCurrentIllustration();
+        }
+        if (normalizedAction === 'clear-floor-cg') {
+            return clearFloorIllustrations();
+        }
+        if (normalizedAction === 'reroll-cg') {
+            return rerollCurrentIllustration();
         }
         if (normalizedAction === 'cg-gallery') {
             return openCgGallery();
@@ -10416,7 +10502,7 @@ function createIgsReaderHost(options = {}) {
         }
         const globalObj = options.global || globalThis;
         if (typeof globalObj.confirm === 'function'
-            && !globalObj.confirm('清扫当前显示的 CG？只会删除这一张，其他 CG 不受影响。')) {
+            && !globalObj.confirm('清扫当前这张 CG？正文里对应的挂载点会一起删掉。')) {
             return { ok: true, reason: 'cancelled', removed: false, rendered: false };
         }
         const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
@@ -10442,11 +10528,22 @@ function createIgsReaderHost(options = {}) {
         return result;
     }
 
-    // 工具栏「绘制 CG」：先补画本楼的过场 / NSFW 插图（含重试失败的张），没有可补的再重画当前图。
-    // 素材补全是单独的「补全素材」按钮，不在这里顺带触发。
+    // 工具栏「绘制 CG」：已有挂载点时确认后重写提示词再出图；没有则补画过场 / NSFW，补不了再重画当前图。
     async function generateOrRegenerate() {
-        const hasCg = options.illustrations && typeof options.illustrations.processMessage === 'function';
+        const service = options.illustrations;
+        const hasCg = service && typeof service.processMessage === 'function';
         if (!hasCg) return regenerateCurrentImage();
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const target = readManualFloor(current);
+        if (target.floor && /(?:\[igs-img:|<IMG>)/i.test(target.floor.text)) {
+            const globalObj = options.global || globalThis;
+            if (typeof globalObj.confirm === 'function'
+                && !globalObj.confirm('重写本楼提示词，并重画全部 CG？原来的图和挂载点都会换掉。')) {
+                return { ok: true, reason: 'cancelled' };
+            }
+            return runManualIllustration({ reroll: true });
+        }
         const cg = await runManualIllustration({ deferSkip: true });
         if (!cg || !cg.skipMessage) return cg;
         const regen = await regenerateCurrentImage();
@@ -10455,6 +10552,82 @@ function createIgsReaderHost(options = {}) {
             return cg;
         }
         return regen;
+    }
+
+    async function rerollCurrentIllustration() {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const content = current.snapshot && current.snapshot.content || {};
+        if (!content.illustrationActive || !content.illustrationUrl || !content.illustrationSlot) {
+            writeToastSafe('当前页没有可重画的 CG。');
+            return { ok: true, reason: 'no-current-cg' };
+        }
+        const service = options.illustrations;
+        if (!service || typeof service.rerollSlot !== 'function') {
+            writeToastSafe('当前未接入单张重画。');
+            return { ok: false, reason: 'reroll-unavailable' };
+        }
+        const globalObj = options.global || globalThis;
+        if (typeof globalObj.confirm === 'function'
+            && !globalObj.confirm('只重画这一张？提示词不变。')) {
+            return { ok: true, reason: 'cancelled' };
+        }
+        const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
+        const identity = current.illustrationIdentity || {};
+        if (current.illustrationPending) {
+            writeGenerating();
+            return { ok: true, reason: 'busy' };
+        }
+        current.illustrationPending = true;
+        writeGenerating();
+        try {
+            const result = await service.rerollSlot({
+                chatId: identity.chatId,
+                messageId,
+                swipeId: identity.swipeId,
+                slot: content.illustrationSlot,
+            });
+            if (state.activeReader === current) {
+                if (!result || result.ok === false) writeToastSafe(`重画失败：${(result && result.error) || '未返回具体原因'}`);
+                else if (result.reason === 'not-eligible') writeToastSafe('请打开当前聊天最新的非空 AI 楼层');
+                else writeToastSafe('这一张已重画。');
+            }
+            return result || { ok: false, reason: 'error' };
+        } catch (error) {
+            if (state.activeReader === current) writeToastSafe(`重画异常：${(error && error.message) || error || '未知错误'}`);
+            return { ok: false, reason: 'error' };
+        } finally {
+            current.illustrationPending = false;
+        }
+    }
+
+    async function clearFloorIllustrations() {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const service = options.illustrations;
+        if (!service || typeof service.clearFloorIllustrations !== 'function') {
+            writeToastSafe('当前未接入本楼清扫。');
+            return { ok: false, reason: 'clear-unavailable' };
+        }
+        const globalObj = options.global || globalThis;
+        if (typeof globalObj.confirm === 'function'
+            && !globalObj.confirm('清扫本楼全部 CG？正文里的挂载点会一起删掉，不会马上重画。')) {
+            return { ok: true, reason: 'cancelled' };
+        }
+        const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
+        const identity = current.illustrationIdentity || {};
+        const result = await service.clearFloorIllustrations({
+            chatId: identity.chatId,
+            messageId,
+            swipeId: identity.swipeId,
+        });
+        if (state.activeReader === current) {
+            rerenderActiveReader();
+            if (result && result.ok && result.reason === 'cleared') writeToastSafe('本楼 CG 已清扫。');
+            else if (result && result.ok) writeToastSafe('本楼没有可清扫的 CG。');
+            else writeToastSafe(`清扫本楼失败：${(result && result.reason) || '未知错误'}`);
+        }
+        return result || { ok: false, reason: 'error' };
     }
 
     function readManualFloor(current) {
@@ -10473,12 +10646,14 @@ function createIgsReaderHost(options = {}) {
     }
 
     // 过场 / NSFW 插图：手动时跳过过场概率，并重试之前失败的张。
-    async function runManualIllustration({ deferSkip = false } = {}) {
+    async function runManualIllustration({ deferSkip = false, reroll = false } = {}) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
-        const feedback = (level, message) => {
+        const feedback = (level, message, generating = false) => {
             if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
-            if (state.activeReader === current) writeToastSafe(message);
+            if (state.activeReader !== current) return;
+            if (generating) writeGenerating();
+            else writeToastSafe(message);
         };
         const skip = (result, message) => {
             if (!deferSkip) {
@@ -10488,19 +10663,23 @@ function createIgsReaderHost(options = {}) {
             return { ...result, skipMessage: message };
         };
         const service = options.illustrations;
-        if (!service || typeof service.processMessage !== 'function') {
+        if (!service || (reroll ? typeof service.rerollFloor !== 'function' : typeof service.processMessage !== 'function')) {
             return skip({ ok: false, reason: 'service-unavailable' }, '插图已跳过：插图服务未就绪');
         }
         const target = readManualFloor(current);
         if (!target.floor) return skip({ ok: true, reason: target.reason }, `插图已跳过：${target.message}`);
         if (current.illustrationPending) {
-            feedback('info', '插图处理中，请等待当前任务完成');
+            feedback('info', '插图处理中，请等待当前任务完成', true);
             return { ok: true, reason: 'busy' };
         }
         current.illustrationPending = true;
-        feedback('info', `第 ${target.messageId} 楼插图：正在检查过场 / NSFW 插图…`);
+        feedback('info', reroll
+            ? `第 ${target.messageId} 楼正在重写提示词并重画…`
+            : `第 ${target.messageId} 楼插图：正在检查过场 / NSFW 插图…`, true);
         try {
-            const result = await service.processMessage(Number(target.messageId), { manual: true });
+            const result = reroll
+                ? await service.rerollFloor(Number(target.messageId))
+                : await service.processMessage(Number(target.messageId), { manual: true });
             const skipped = {
                 disabled: '请在设置「生图 → 生图内容」开启 NSFW 或过场插图并保存',
                 'not-eligible': '当前楼层不是最新的非空 AI 回复',
@@ -10526,9 +10705,11 @@ function createIgsReaderHost(options = {}) {
     async function runManualAssetGeneration({ deferSkip = false } = {}) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
-        const feedback = (level, message) => {
+        const feedback = (level, message, generating = false) => {
             if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
-            if (state.activeReader === current) writeToastSafe(message);
+            if (state.activeReader !== current) return;
+            if (generating) writeGenerating();
+            else writeToastSafe(message);
         };
         // 没有可补全素材时交给重画当前图，这类跳过不必单独提示。
         const skip = (result, message) => {
@@ -10547,11 +10728,11 @@ function createIgsReaderHost(options = {}) {
         const messageId = target.messageId;
         if (!target.floor) return skip({ ok: true, reason: target.reason }, `补全素材已跳过：${target.message}`);
         if (current.assetGenerationPending) {
-            feedback('info', '补全素材处理中，请等待当前任务完成');
+            feedback('info', '补全素材处理中，请等待当前任务完成', true);
             return { ok: true, reason: 'busy' };
         }
         current.assetGenerationPending = true;
-        feedback('info', `第 ${messageId} 楼补全素材：正在检查未登记的人物和场景…`);
+        feedback('info', `第 ${messageId} 楼补全素材：正在检查未登记的人物和场景…`, true);
         try {
             const result = await service.processMessage(Number(messageId), { manual: true });
             const skipped = {
@@ -10586,15 +10767,14 @@ function createIgsReaderHost(options = {}) {
             return { ok: false, reason: 'provider-not-enabled' };
         }
         if (current.regenPending) {
-            writeToast('正在重新生图，请稍候…');
+            writeGenerating();
             return { ok: false, reason: 'regen-pending' };
         }
-        // 生图可能要几十秒：先给转圈和提示，结束（含异常）时一定收回。
         current.regenPending = true;
         const overlay = current.dom && current.dom.root;
         const bgContainer = overlay && overlay.querySelector ? overlay.querySelector('#igs-bg') : null;
         ensureImageLoadingSpinner(bgContainer);
-        writeToast('正在重新生图…');
+        writeGenerating();
         let result;
         try {
             result = await options.regenerateImage(buildImageActionContext(
@@ -10815,11 +10995,16 @@ function createIgsReaderHost(options = {}) {
     function noteUnlistedOutfits(directives, sceneAssets) {
         const storage = (options.global || globalThis).localStorage;
         if (!storage) return;
+        const wardrobe = sceneAssets.wardrobe && typeof sceneAssets.wardrobe === 'object' ? sceneAssets.wardrobe : {};
+        dropConfirmedOutfitReview(storage, wardrobe);
+        const fresh = [];
         for (const d of directives) {
             if (!d || !d.unknownOutfit || !d.character) continue;
+            if (Object.prototype.hasOwnProperty.call(wardrobe, d.unknownOutfit)) continue;
             const character = resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, d.character) || d.character;
-            recordOutfitReview(storage, { character, word: d.unknownOutfit });
+            if (recordOutfitReview(storage, { character, word: d.unknownOutfit })) fresh.push(`「${character}」的「${d.unknownOutfit}」`);
         }
+        if (fresh.length) writeToast(`有新服装待确认：${fresh.join('、')}。打开衣柜可以生成提示词，或删除这条。`, 4200);
     }
 
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
@@ -11051,9 +11236,13 @@ function createIgsReaderHost(options = {}) {
         if (battleContext && battleFoe && sceneAssets && sceneAssets.enabled) {
             pageFx.foeImage = resolveGenerated(resolveSpriteAsset(battleFoe, '', assetMatchCtx).url) || '';
         }
-        const illustrationOffset = currentOffset >= 0
-            ? currentOffset
-            : (/(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset) ? locateTextOffsetInSource(sceneSourceForOffset, currentText) : -1);
+        const illustrationOffset = /(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset)
+            ? resolveHeldSourceOffset(sceneSourceForOffset, segments, normalizedIndex, (segment, from) => {
+                const find = (text) => locateNarrativeOffset(sceneSourceForOffset, text, from, (slice, start) => locateTextOffsetInSource(slice, text, start));
+                const exact = find(segment);
+                return exact >= 0 ? exact : find(stripSegmentSpeaker(segment));
+            })
+            : -1;
         const illustrationHit = illustrationOffset >= 0
             ? resolveIllustrationAtSourceOffset(sceneSourceForOffset, illustrationOffset)
             : null;
@@ -11068,7 +11257,7 @@ function createIgsReaderHost(options = {}) {
                 slot: illustrationHit.slot,
             }) || '')
             : '';
-        const markerImageUrl = illustrationHit
+        const markerImageUrl = illustrationHit && !illustrationUrl
             ? resolveIllustrationMarkerImageUrl(displayImageState, illustrationHit.slot)
             : '';
         if (illustrationUrl) {
@@ -11090,6 +11279,7 @@ function createIgsReaderHost(options = {}) {
             }
             spriteImage = null;
         }
+        const cgActive = Boolean(illustrationUrl || markerImageUrl);
         // Per-segment classification from the formatted segment text itself.
         // Order matters: thought (*...*) is checked before dialogue ([名字]：) because
         // a thought segment looks like *[名字]：...* and would otherwise match dialogue.
@@ -11233,7 +11423,7 @@ function createIgsReaderHost(options = {}) {
                 spriteMood = sceneStateForBg.mood || '';
             }
             // HTML 卡片独占舞台前景：不继承上一段角色的立绘，也不发起素材解析。
-            if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !illustrationUrl && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
+            if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !cgActive && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
                 // 服装按当前页在原文中的位置取该角色最近一次服装栏，本楼没写时取跨楼继承，再按表格 / 装备 / DNA 兜底；指令与偏移同源于原文。
                 const outfitMap = sceneAssets.characterOutfits;
                 // 对白页正文带「[名字]：」前缀，原文里是「名字|表情|服装|对白」，去掉前缀再定位，避免取到整楼最后一条服装。
@@ -11401,6 +11591,7 @@ function createIgsReaderHost(options = {}) {
                 sceneWeather: statusSceneInfo.weather,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
+                cgActive,
                 illustrationSlot: illustrationHit ? illustrationHit.slot : null,
                 illustrationUrl,
                 statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw), { character: spriteCharacter, outfit: spriteOutfit }),
@@ -11672,16 +11863,21 @@ function createIgsReaderHost(options = {}) {
             // 文件夹只是本地界面归类：按当前预设读取，素材数据原样传给原有列表渲染器。
             const assetFolders = loadAssetFolders((options.global || globalThis).localStorage, asyncState.scenePresetName || '');
             const firstUrl = (values) => (values.map((v) => String(v || '').trim()).find(Boolean) || '');
+            const generatedService = options.generatedAssets || null;
+            const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
+                ? (generatedService && typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '')
+                : (url || ''));
             const sceneListOptions = {
                 expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
                 timeGroups: sceneAssets.timeGroups || [],
                 weatherGroups: sceneAssets.weatherGroups || [],
+                resolveUrl: resolveGenerated,
                 folderSelect: (name) => renderAssetFolderSelect('scenes', name, assetFolders.scenes),
             };
             const scenesHtml = renderAssetFolderView('scenes', sceneAssets.scenes || {}, {
                 state: assetFolders,
                 renderList: (subset) => renderSceneAssetList(subset, sceneListOptions),
-                thumbOf: (name, value) => (typeof value === 'string' ? value : firstUrl([value && value.url].concat(Object.values((value && value.times) || {}).map((t) => (typeof t === 'string' ? t : t && t.url))))),
+                thumbOf: (name, value) => resolveGenerated(typeof value === 'string' ? value : firstUrl([value && value.url].concat(Object.values((value && value.times) || {}).map((t) => (typeof t === 'string' ? t : t && t.url))))),
             });
             const charListOptions = {
                 aliases: sceneAssets.characterAliases || {},
@@ -11692,25 +11888,25 @@ function createIgsReaderHost(options = {}) {
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
                 statusAvatars: sceneAssets.statusAvatars || {},
+                resolveUrl: resolveGenerated,
+                expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
                 folderSelect: (name) => renderAssetFolderSelect('characters', name, assetFolders.characters),
             };
             const charsHtml = renderAssetFolderView('characters', sceneAssets.characters || {}, {
                 state: assetFolders,
                 renderList: (subset) => renderCharacterAssetList(subset, charListOptions),
-                thumbOf: (name, moods) => firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]])),
+                thumbOf: (name, moods) => resolveGenerated(firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]]))),
             });
             const scenePresets = loadScenePresets((options.global || globalThis).localStorage);
             const scenePresetBarHtml = renderScenePresetBar(scenePresets, asyncState.scenePresetName || '');
-            const generatedService = options.generatedAssets || null;
-            const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
-                ? (generatedService && typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '')
-                : (url || ''));
             const generatedPane = renderGeneratedAssetPane({
                 library: normalizeGeneratedLibrary(sceneAssets.generated),
+                characters: sceneAssets.characters || {},
                 temp: generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
                 resolveUrl: resolveGenerated,
                 presetNames: Object.keys(scenePresets || {}),
                 currentPreset: asyncState.scenePresetName || '',
+                moodGroups: sceneAssets.moodGroups || [],
             });
             const subTabsHtml = `<div class="igs-scene-subtabs" role="tablist">`
                 + SCENE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-scene-subtab${subTab === id ? ' is-active' : ''}" data-scene-subtab="${id}" role="tab" aria-selected="${subTab === id ? 'true' : 'false'}">${label}</button>`).join('')
@@ -11737,7 +11933,7 @@ function createIgsReaderHost(options = {}) {
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
         <div class="igs-source-filter-note">词库里没有的相近情绪词也会自动归组（如「嘲弄」归入「嘲讽」）。可能归错，可在下方「待确认情绪词」里核对。</div>
         ${renderMoodReviewList(loadMoodReview((options.global || globalThis).localStorage))}
-        ${renderOutfitReviewList(loadOutfitReview((options.global || globalThis).localStorage), sceneAssets.characterOutfits || {}, sceneAssets.characters || {})}
+        ${renderOutfitReviewList(dropConfirmedOutfitReview((options.global || globalThis).localStorage, sceneAssets.wardrobe), sceneAssets.characterOutfits || {}, sceneAssets.characters || {})}
         ${renderDnaCandidateBar(asyncState.dnaCandidate)}
         ${charsHtml}
         ${renderDnaOnlyCharacterList(sceneAssets.characterDna || {}, sceneAssets.characters || {})}
@@ -11761,7 +11957,7 @@ function createIgsReaderHost(options = {}) {
                     + '<div class="igs-source-filter-note">只在用得上时附完整说明。</div></details>',
                 scenePresetBar: scenePresetBarHtml,
                 sceneSubTabs: subTabsHtml,
-                sceneSubPane: subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane),
+                sceneSubPane: subTab === 'wardrobe' ? renderWardrobe(sceneAssets.wardrobe, dropConfirmedOutfitReview((options.global || globalThis).localStorage, sceneAssets.wardrobe), resolveGenerated) : (subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane)),
             };
             return renderTemplate(getSettingsTabTemplate('scene'), {
                 sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
@@ -12130,8 +12326,7 @@ function createIgsReaderHost(options = {}) {
         return domState;
     }
 
-    // 把唯一 reader root 挂到最新 AI 楼层 .mes_text 的兄弟容器中，并隐藏宿主原文。
-    // 定位不到楼层节点时返回 null，由调用方回退到全局挂载，避免整块 UI 打不开。
+    // 酒馆先把正则界面画进 .mes_text。gal 挂在这一层上面，正文从第一句藏到最后一句。
     function mountEmbeddedRoot(doc, root, message, messageId) {
         const element = message && message.element ? message.element : resolveLiveMessageElement(doc, messageId);
         if (!element) return null;
@@ -12140,7 +12335,6 @@ function createIgsReaderHost(options = {}) {
         const targetDoc = resolved.mesText.ownerDocument || element.ownerDocument || doc;
         const host = ensureEmbeddedHost(resolved.parent, targetDoc, findEmbeddedHost(targetDoc));
         if (!host) return null;
-        hideEmbeddedSourceText(resolved.mesText);
         if (root.classList) root.classList.add('igs-embedded-root');
         if (root.style) {
             root.style.width = '100%';
@@ -12149,11 +12343,96 @@ function createIgsReaderHost(options = {}) {
             root.style.overflow = 'hidden';
         }
         host.appendChild(root);
+        hideMountedStory(resolved.mesText, message);
         return { host, mesText: resolved.mesText, messageId, root };
+    }
+
+    function hideMountedStory(mesText, message) {
+        const reader = state.activeReader;
+        const messageId = message && message.id != null
+            ? message.id
+            : (reader && (reader.mountMessageId != null ? reader.mountMessageId : reader.payload && reader.payload.messageId));
+        const floor = messageId != null && typeof options.getIllustrationSource === 'function'
+            ? options.getIllustrationSource(messageId) : null;
+        const raw = (floor && floor.text)
+            || getMessagePrimaryText(message)
+            || getMessagePrimaryText(reader && reader.payload && reader.payload.raw)
+            || '';
+        const tags = reader && reader.sourceFilter && reader.sourceFilter.textIncludeTags;
+        const lines = storyLines(raw, tags || 'content');
+        if (!lines.length) return;
+        hideStorySpan(mesText, lines);
+    }
+
+    // 酒馆重画 .mes_text（生图写回、铅笔保存）会丢掉藏好的正文。楼层还在就再藏一次。
+    function keepEmbeddedStoryHidden() {
+        const current = state.activeReader;
+        if (!current || !isEmbeddedReaderMode(current.mode) || !current.dom) return;
+        const doc = resolveEmbeddedDocument(current);
+        const messageId = current.mountMessageId != null
+            ? current.mountMessageId
+            : (current.payload && current.payload.messageId);
+        const element = resolveLiveMessageElement(doc, messageId);
+        if (!element) return;
+        const resolved = resolveEmbeddedHostParent(element);
+        if (!resolved) return;
+        const mount = current.dom.embeddedMount;
+        const host = mount && mount.host;
+        if (!host || host.parentNode !== resolved.parent) {
+            syncEmbeddedReaderMount(current, { id: messageId, element });
+            return;
+        }
+        if (mount.mesText !== resolved.mesText) mount.mesText = resolved.mesText;
+        if (isStoryHidden(resolved.mesText)) return;
+        hideMountedStory(resolved.mesText, { id: messageId, element });
+    }
+
+    function scheduleEmbeddedStoryHide() {
+        if (embeddedStoryTimer != null) return;
+        const globalObject = options.global || globalThis;
+        const setter = typeof globalObject.setTimeout === 'function' ? globalObject.setTimeout.bind(globalObject) : setTimeout;
+        embeddedStoryTimer = setter(() => {
+            embeddedStoryTimer = null;
+            keepEmbeddedStoryHidden();
+        }, 0);
+    }
+
+    function stopEmbeddedStoryWatch() {
+        const globalObject = options.global || globalThis;
+        const clearer = typeof globalObject.clearTimeout === 'function' ? globalObject.clearTimeout.bind(globalObject) : clearTimeout;
+        if (embeddedStoryTimer != null) clearer(embeddedStoryTimer);
+        embeddedStoryTimer = null;
+        if (embeddedStoryObserver && typeof embeddedStoryObserver.disconnect === 'function') embeddedStoryObserver.disconnect();
+        embeddedStoryObserver = null;
+    }
+
+    function startEmbeddedStoryWatch() {
+        stopEmbeddedStoryWatch();
+        const doc = getRootDocument(options.global);
+        const chat = doc && typeof doc.querySelector === 'function' ? doc.querySelector('#chat') : null;
+        const view = doc && doc.defaultView;
+        const Ctor = (options.global && options.global.MutationObserver)
+            || (view && view.MutationObserver)
+            || (typeof MutationObserver === 'function' ? MutationObserver : null);
+        if (!Ctor || !chat) return;
+        embeddedStoryObserver = new Ctor((records) => {
+            const external = Array.isArray(records) && records.some((record) => {
+                const target = record && record.target;
+                if (target && target.closest && target.closest('[data-igs-internal-reader="1"]')) return false;
+                return true;
+            });
+            if (external) scheduleEmbeddedStoryHide();
+        });
+        try {
+            embeddedStoryObserver.observe(chat, { childList: true, subtree: true });
+        } catch (error) {
+            embeddedStoryObserver = null;
+        }
     }
 
     function teardownEmbeddedMount(mount) {
         if (!mount) return;
+        restoreStorySpan(mount.mesText);
         restoreEmbeddedSourceText(mount.mesText);
         if (mount.root && mount.root.classList) mount.root.classList.remove('igs-embedded-root');
         if (mount.root && mount.root.style) {
@@ -12351,6 +12630,18 @@ function createIgsReaderHost(options = {}) {
                 }
                 return;
             }
+            const wardrobeName = target.getAttribute('data-wardrobe-name');
+            if (wardrobeName) {
+                if (['__proto__', 'constructor', 'prototype'].includes(wardrobeName)) return;
+                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                const wardrobe = assets.wardrobe && typeof assets.wardrobe === 'object' && !Array.isArray(assets.wardrobe)
+                    ? assets.wardrobe : (assets.wardrobe = {});
+                const entry = wardrobe[wardrobeName] && typeof wardrobe[wardrobeName] === 'object' && !Array.isArray(wardrobe[wardrobeName])
+                    ? wardrobe[wardrobeName] : (wardrobe[wardrobeName] = { prompt: '' });
+                entry.prompt = target.value;
+                state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
+                return;
+            }
             const dnaChar = target.getAttribute('data-dna-char');
             const dnaField = target.getAttribute('data-dna-field');
             if (dnaChar && dnaField) {
@@ -12379,6 +12670,11 @@ function createIgsReaderHost(options = {}) {
             }
             if (sceneTimeBg && sceneTime) {
                 controller.invoke('scene-set-time-url:' + encodeURIComponent(sceneTimeBg) + ':' + encodeURIComponent(sceneTime) + ':' + target.value);
+                return;
+            }
+            const outfitNoteChar = target.getAttribute('data-scene-outfit-note-char');
+            if (outfitNoteChar) {
+                controller.invoke('scene-set-outfit-note:' + [outfitNoteChar, target.getAttribute('data-scene-outfit-note')].map((v) => encodeURIComponent(v || '')).join(':') + ':' + target.value);
                 return;
             }
             const outfitAvatarChar = target.getAttribute('data-scene-outfit-avatar-char');
@@ -12418,6 +12714,12 @@ function createIgsReaderHost(options = {}) {
                 if (colon < 0) return;
                 const genName = event.target.getAttribute('data-gen-name') || '';
                 controller.invoke(`gen-lib-transfer:${choice.slice(0, colon)}:${encodeURIComponent(genTransferType)}:${encodeURIComponent(genName)}:${choice.slice(colon + 1)}`);
+                return;
+            }
+            const wardrobeChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-wardrobe-char') : '';
+            if (wardrobeChar) {
+                const wardrobeOutfit = event.target.getAttribute('data-outfit-wardrobe') || '';
+                controller.invoke(`scene-set-outfit-wardrobe-url:${[wardrobeChar, wardrobeOutfit, event.target.value].map((value) => encodeURIComponent(value || '')).join(':')}`);
                 return;
             }
             if (event.target && event.target.getAttribute && event.target.getAttribute('data-preset-select') !== null) {
@@ -12836,6 +13138,7 @@ function createIgsReaderHost(options = {}) {
         }
         normalized.characterDna = normalizeCharacterDnaMap(normalized.characterDna);
         normalized.characterOutfits = normalizeCharacterOutfits(normalized.characterOutfits);
+        normalized.wardrobe = normalizeWardrobe(normalized.wardrobe);
         normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
         // init group arrays
         if (!Array.isArray(normalized.timeGroups)) normalized.timeGroups = [];
@@ -13033,11 +13336,18 @@ function createIgsReaderHost(options = {}) {
         return '';
     }
 
-    function writeToast(message) {
+    function writeToast(message, durationMs) {
         const current = state.activeReader;
         if (!current) return;
         const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
-        applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme));
+        applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme), durationMs);
+    }
+
+    function writeGenerating() {
+        const current = state.activeReader;
+        if (!current) return;
+        const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
+        applyToastToReader(current, true, '生图中', normalizeSettingsTheme(bridge.settingsTheme), 0, { sticky: true });
     }
 
     function buildSpriteEditContext() {
@@ -13085,7 +13395,7 @@ function showSpritePreviewOverlay(root, url) {
     host.appendChild(overlay);
 }
 
-function applyToastToReader(current, allowed, message, theme) {
+function applyToastToReader(current, allowed, message, theme, durationMs, options) {
     if (!current || !message || allowed === false) return;
     clearReaderToast(current);
     current.toastMessage = String(message);
@@ -13095,13 +13405,15 @@ function applyToastToReader(current, allowed, message, theme) {
         toast.textContent = current.toastMessage;
         toast.style.opacity = "1";
     }
+    if (options && options.sticky === true) return;
     const win = current.dom && current.dom.overlay ? getOwnerWindow(current.dom.overlay) : null;
     const setter = win && typeof win.setTimeout === "function" ? win.setTimeout.bind(win) : setTimeout;
+    const stay = Number(durationMs) > 0 ? Number(durationMs) : 1800;
     current.toastTimer = setter(() => {
         current.toastMessage = "";
         if (toast) toast.style.opacity = "0";
         current.toastTimer = null;
-    }, 1800);
+    }, stay);
 }
 
 function clearReaderToast(current) {
@@ -13191,10 +13503,6 @@ function locateTextOffsetInSource(source, segText, from = 0) {
     return -1;
 }
 
-function stripSegmentSpeaker(text) {
-    return String(text || '').trim().replace(/^\*+|\*+$/g, '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, '');
-}
-
 function resolveIllustrationMarkerImageUrl(imageState, slot) {
     const numericSlot = Number(slot);
     if (!Number.isInteger(numericSlot) || numericSlot < 1) return '';
@@ -13216,7 +13524,9 @@ function resolveIllustrationMarkerImageUrl(imageState, slot) {
     return '';
 }
 
-
+function stripSegmentSpeaker(text) {
+    return String(text || '').trim().replace(/^\*+|\*+$/g, '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, '');
+}
 
 __igsDefine(exports, "createIgsReaderHost", () => createIgsReaderHost);
 });
@@ -13260,6 +13570,15 @@ function removeOutfitReview(storage, character, word) {
     const next = items.filter((item) => !same(item, character, word));
     return next.length !== items.length ? saveOutfitReview(storage, next) : { ok: true };
 }
+
+// 已经写进衣柜的衣服名不再算待确认。生成提示词之后正文里还会出现这个名字，不能再记回来。
+function dropConfirmedOutfitReview(storage, wardrobe) {
+    const names = new Set(Object.keys(wardrobe && typeof wardrobe === 'object' && !Array.isArray(wardrobe) ? wardrobe : {}));
+    const items = loadOutfitReview(storage);
+    const next = items.filter((item) => !names.has(item.word));
+    if (next.length !== items.length) saveOutfitReview(storage, next);
+    return next;
+}
 function clearOutfitReview(storage) {
     return saveOutfitReview(storage, []);
 }
@@ -13267,6 +13586,7 @@ function clearOutfitReview(storage) {
 __igsDefine(exports, "loadOutfitReview", () => loadOutfitReview);
 __igsDefine(exports, "recordOutfitReview", () => recordOutfitReview);
 __igsDefine(exports, "removeOutfitReview", () => removeOutfitReview);
+__igsDefine(exports, "dropConfirmedOutfitReview", () => dropConfirmedOutfitReview);
 __igsDefine(exports, "clearOutfitReview", () => clearOutfitReview);
 __igsDefine(exports, "OUTFIT_REVIEW_LIMIT", () => OUTFIT_REVIEW_LIMIT);
 });
@@ -13280,15 +13600,21 @@ const isImageUrl = (url) => /^(?:https?:\/\/|data:image\/|blob:)/i.test(String(u
 
 const PERSON_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
 
-function thumb(url, alt, extraClass = '') {
-    const value = String(url || '').trim();
+function shownUrl(url, resolveUrl) {
+    const raw = String(url || '').trim();
+    if (!raw || typeof resolveUrl !== 'function') return raw;
+    try { return String(resolveUrl(raw) || ''); } catch (error) { return ''; }
+}
+
+function thumb(url, alt, extraClass = '', resolveUrl) {
+    const value = shownUrl(url, resolveUrl);
     if (isImageUrl(value)) {
-        return `<img class="igs-outfit-thumb${extraClass}" src="${esc(value)}" loading="lazy" alt="${esc(alt)}" data-action="sprite-preview:${encSeg(value)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`;
+        return `<img class="igs-outfit-thumb${extraClass}" src="${esc(value)}" alt="${esc(alt)}" data-action="sprite-preview:${encSeg(value)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`;
     }
     return `<span class="igs-outfit-thumb igs-outfit-thumb-empty${extraClass}" aria-hidden="true">${value ? '生成' : PERSON_SVG}</span>`;
 }
 
-// 该服装缺这一格（或这一格没填图）时阅读器实际显示什么：借用服装内同组槽，或回落到原装。
+// 该服装缺这一格（或这一格没填图）时阅读器实际显示什么：借用服装内同组槽，或这一套的平和。
 function previewOf(sceneAssets, charName, mood, outfit) {
     const hit = resolveSpriteAsset(charName, mood, { sceneAssets }, outfit);
     if (hit.source === 'user-outfit') return { url: hit.url, label: `借用「${hit.slot}」`, kind: 'borrow' };
@@ -13303,31 +13629,57 @@ function chipList(items, removeAction, addAction, emptyText, addTitle) {
     return `<div class="igs-mood-word-list">${tags || `<span class="igs-outfit-muted">${esc(emptyText)}</span>`}<button type="button" class="igs-btn-mgr-icon" data-action="${addAction}" title="${esc(addTitle)}">+</button></div>`;
 }
 
-function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons) {
+function wardrobeChoices(charName, outfitName, entry, wardrobe) {
+    const names = Object.keys(plain(wardrobe));
+    const selected = typeof entry.wardrobe === 'string' ? entry.wardrobe.trim() : '';
+    const options = ['<option value="">同名服装</option>'].concat(names.map((item) => (
+        `<option value="${esc(item)}"${item === selected ? ' selected' : ''}>${esc(item)}</option>`
+    )));
+    return `<select class="igs-asset-move" data-outfit-wardrobe-char="${esc(charName)}" data-outfit-wardrobe="${esc(outfitName)}" aria-label="使用衣柜">${options.join('')}</select>`;
+}
+
+function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl) {
     const c = encSeg(charName);
     const o = encSeg(name);
     const moods = plain(entry.moods);
     const words = Array.isArray(entry.words) ? entry.words : [];
     const scenes = Array.isArray(entry.scenes) ? entry.scenes : [];
+    const note = typeof entry.note === 'string' ? entry.note : '';
     const avatar = typeof entry.avatar === 'string' ? entry.avatar : '';
+    const notes = expressionNotes && typeof expressionNotes === 'object' ? expressionNotes[`${charName}\u0001${name}`] : null;
     const head = `<div class="igs-outfit-head"><code class="igs-outfit-syntax">[igs-char:${esc(charName)}|表情|${esc(name)}|对白]</code>`
+        + `<button type="button" class="igs-settings-action" data-action="outfit-expression-set:${c}:${o}">表情差分</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-outfit:${c}:${o}" title="重命名服装">${icons.pencil}</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-outfit-mood:${c}:${o}" title="添加情绪槽">+</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-outfit:${c}:${o}" title="删除服装">${icons.trash}</button></div>`;
     const meta = `<div class="igs-outfit-meta">`
+        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">衣柜</span>${wardrobeChoices(charName, name, entry, sceneAssets.wardrobe)}</div>`
+        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">说明</span><input class="igs-scene-url-input" data-scene-outfit-note-char="${esc(charName)}" data-scene-outfit-note="${esc(name)}" value="${esc(note)}" placeholder="什么情形穿这套"></div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">服装词</span>${chipList(words, `scene-remove-outfit-word:${c}:${o}`, `scene-add-outfit-word:${c}:${o}`, '只认服装名', '添加服装词（AI 写出或表格里出现该词即视为这套服装）')}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">适用场景</span>${chipList(scenes, `scene-remove-outfit-scene:${c}:${o}`, `scene-add-outfit-scene:${c}:${o}`, '不限', '添加适用场景（换到其他场景时，继承来的这套服装自动失效）')}</div>`
-        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">状态栏头像</span>${thumb(avatar, `${name} 头像`, ' igs-outfit-avatar')}`
+        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">状态栏头像</span>${thumb(avatar, `${name} 头像`, ' igs-outfit-avatar', resolveUrl)}`
         + `<input class="igs-scene-url-input" data-scene-outfit-avatar-char="${esc(charName)}" data-scene-outfit-avatar="${esc(name)}" value="${esc(avatar)}" placeholder="留空沿用角色头像">`
         + (avatar ? `<button type="button" class="igs-btn-mgr-icon" data-action="scene-clear-outfit-avatar:${c}:${o}" title="清除服装头像">${icons.trash}</button>` : '')
         + `</div></div>`;
     const ownRows = Object.entries(moods).map(([mood, url]) => {
         const filled = Boolean(String(url || '').trim());
         const preview = filled ? null : previewOf(sceneAssets, charName, mood, name);
+        const note = notes && notes[mood];
+        const raw = String(url || '').trim();
+        const imageId = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
+        const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
+        const promptBtn = canPrompt
+            ? `<button type="button" class="igs-settings-action" data-action="outfit-expression-prompt:${c}:${o}:${encSeg(mood)}">提示词</button>`
+            : '';
+        const retry = imageId || (note && note.error)
+            ? `<button type="button" class="igs-settings-action" data-action="outfit-expression-retry:${c}:${o}:${encSeg(mood)}">重新生成</button>`
+            : '';
         return `<div class="igs-outfit-slot${filled ? '' : ' is-fallback'}" data-outfit-slot="${esc(mood)}">`
-            + (filled ? thumb(url, mood) : thumb(preview.url, mood, ' is-ghost'))
+            + (filled ? thumb(url, mood, '', resolveUrl) : thumb(preview.url, mood, ' is-ghost', resolveUrl))
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
             + `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`
+            + promptBtn
+            + retry
             + (filled ? '' : `<span class="igs-outfit-badge is-${preview.kind}">未填 · ${esc(preview.label)}</span>`)
             + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}" title="重命名">${icons.pencil}</button>`
             + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}" title="删除">${icons.trash}</button>`
@@ -13336,7 +13688,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons)
     const missing = baseMoods.filter((mood) => mood !== OUTFIT_RESET && !Object.prototype.hasOwnProperty.call(moods, mood));
     const fallbackRows = missing.map((mood) => {
         const preview = previewOf(sceneAssets, charName, mood, name);
-        return `<div class="igs-outfit-slot is-fallback" data-outfit-fallback="${esc(mood)}">${thumb(preview.url, mood, ' is-ghost')}`
+        return `<div class="igs-outfit-slot is-fallback" data-outfit-fallback="${esc(mood)}">${thumb(preview.url, mood, ' is-ghost', resolveUrl)}`
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span><span class="igs-outfit-badge is-${preview.kind}">${esc(preview.label)}</span>`
             + `<button type="button" class="igs-settings-action igs-outfit-fill" data-action="scene-add-outfit-mood:${c}:${o}:${encSeg(mood)}">补这一格</button></div>`;
     }).join('');
@@ -13348,7 +13700,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons)
 }
 
 // 角色卡的立绘区：「原装 · 服装…」标签切换。原装标签显示原有情绪槽；服装标签显示该服装的槽、词、场景、头像与缺图预览。
-function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, outfits, activeOutfit, sceneAssets, icons }) {
+function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, outfits, activeOutfit, sceneAssets, icons, expressionNotes, resolveUrl }) {
     const map = plain(outfits);
     const names = Object.keys(map);
     const active = names.includes(activeOutfit) ? activeOutfit : '';
@@ -13364,9 +13716,45 @@ function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, outfits, a
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
         + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">＋ 服装</button></div>`;
     const panel = active
-        ? renderOutfitPanel(charName, active, plain(map[active]), baseMoods, sceneAssets, icons)
+        ? renderOutfitPanel(charName, active, plain(map[active]), baseMoods, sceneAssets, icons, expressionNotes, resolveUrl)
         : baseListHtml;
     return `<div class="igs-outfit-area" data-outfit-area="${esc(charName)}">${bar}${panel}</div>`;
+}
+function renderWardrobe(wardrobe, pending = [], resolveUrl) {
+    const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+    const map = plain(wardrobe);
+    const rows = Object.entries(map).map(([name, entry]) => {
+        const prompt = entry && typeof entry.prompt === 'string' ? entry.prompt : '';
+        const reference = entry && typeof entry.reference === 'string' ? entry.reference : '';
+        const encoded = encSeg(name);
+        return `<div class="igs-wardrobe-item"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(name)}</span>`
+            + `<input class="igs-scene-url-input igs-wardrobe-prompt" data-wardrobe-name="${esc(name)}" value="${esc(prompt)}" placeholder="提示词">`
+            + `<button type="button" class="igs-settings-action" data-action="wardrobe-generate-prompt:${encoded}">生成提示词</button>`
+            + `<button type="button" class="igs-settings-action" data-action="wardrobe-reference:${encoded}">生图参考</button>`
+            + `<button type="button" class="igs-btn-mgr-icon" data-action="wardrobe-rename:${encoded}" title="重命名">${pencil}</button>`
+            + `<button type="button" class="igs-btn-mgr-icon" data-action="wardrobe-remove:${encoded}" title="删除">${trash}</button></div>`
+            + (reference ? `<div class="igs-wardrobe-reference">${thumb(reference, `${name} 参考图`, '', resolveUrl)}</div>` : '')
+            + `</div>`;
+    }).join('');
+    const confirmed = new Set(Object.keys(map));
+    const waiting = (Array.isArray(pending) ? pending : []).filter((item) => item && item.character && item.word && !confirmed.has(item.word));
+    const pendingRows = waiting.map((item) => {
+        const c = encSeg(item.character);
+        const w = encSeg(item.word);
+        return `<div class="igs-btn-mgr-row igs-wardrobe-pending"><span class="igs-btn-mgr-label">${esc(item.word)}</span>`
+            + `<span class="igs-source-filter-note">${esc(item.character)}</span>`
+            + `<button type="button" class="igs-settings-action" data-action="wardrobe-generate-prompt:${c}:${w}">生成提示词</button>`
+            + `<button type="button" class="igs-review-link" data-action="outfit-review-dismiss:${c}:${w}">删除</button></div>`;
+    }).join('');
+    const pendingBlock = waiting.length
+        ? `<div class="igs-wardrobe-group igs-wardrobe-pending-list"><div class="igs-settings-section-head"><div class="igs-settings-subhead">待确认</div></div>${pendingRows}</div>`
+        : '';
+    const confirmedBlock = `<div class="igs-wardrobe-group"><div class="igs-settings-section-head"><div class="igs-settings-subhead">已确认</div>`
+        + `<button class="igs-btn-mgr-icon" data-action="wardrobe-add" type="button" title="添加服装">+</button></div>`
+        + (rows || '<div class="igs-scene-empty">还没有衣服</div>')
+        + `</div>`;
+    return `<div class="igs-settings-section">${confirmedBlock}${pendingBlock}</div>`;
 }
 
 // 待确认服装词：AI 写了、但该角色没登记的服装名。可归入已有服装当服装词，或直接新建为服装。
@@ -13427,9 +13815,17 @@ img.igs-outfit-avatar{padding:0}
 .igs-outfit-subhead{display:flex;align-items:center;gap:6px;margin:8px 0 2px;font-size:12px;color:var(--igs-settings-ink-2)}
 .igs-outfit-subhead .igs-outfit-fill{margin-left:auto}
 .igs-outfit-fill{height:24px;padding:0 8px;font-size:11px}
+.igs-wardrobe-group{display:flex;flex-direction:column;gap:6px;min-width:0}
+.igs-wardrobe-group+.igs-wardrobe-group{margin-top:4px;padding-top:12px;border-top:1px solid var(--igs-settings-line)}
+.igs-wardrobe-item{display:flex;flex-direction:column;min-width:0}
+.igs-wardrobe-item .igs-btn-mgr-row{height:auto;min-height:36px;flex-wrap:wrap}
+.igs-wardrobe-item .igs-btn-mgr-label{flex:0 1 auto;max-width:9em}
+.igs-wardrobe-prompt{flex:1;min-width:0;width:auto;height:26px}
+.igs-wardrobe-reference{padding:0 8px 4px}
 `.trim();
 
 __igsDefine(exports, "renderCharacterSlotTabs", () => renderCharacterSlotTabs);
+__igsDefine(exports, "renderWardrobe", () => renderWardrobe);
 __igsDefine(exports, "renderOutfitReviewList", () => renderOutfitReviewList);
 __igsDefine(exports, "OUTFIT_SETTINGS_STYLE_TEXT", () => OUTFIT_SETTINGS_STYLE_TEXT);
 });
@@ -13592,13 +13988,87 @@ const plainObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v 
 
 // 生成区与用户上传区分开存放：bridge.sceneAssets.generated = { scenes, characters, characterAliases }，
 // 结构与用户区一致，图片地址统一是 igs-gen:<imageId>，图片本体在 IndexedDB。
+function normalizeExpressionNotes(value) {
+    const src = plainObject(value);
+    const out = {};
+    for (const [name, moods] of Object.entries(src)) {
+        const bucket = {};
+        for (const [mood, note] of Object.entries(plainObject(moods))) {
+            const item = plainObject(note);
+            const positive = typeof item.positive === 'string' ? item.positive : '';
+            const negative = typeof item.negative === 'string' ? item.negative : '';
+            const error = typeof item.error === 'string' ? item.error : '';
+            const caption = item.caption && typeof item.caption === 'object' && !Array.isArray(item.caption)
+                ? item.caption : null;
+            if (!String(mood || '').trim() || (!positive && !negative && !error && !caption)) continue;
+            bucket[String(mood).trim()] = { positive, negative, error, ...(caption ? { caption } : {}) };
+        }
+        if (Object.keys(bucket).length) out[name] = bucket;
+    }
+    return out;
+}
 function normalizeGeneratedLibrary(value) {
     const src = plainObject(value);
     return {
         scenes: plainObject(src.scenes),
         characters: plainObject(src.characters),
         characterAliases: plainObject(src.characterAliases),
+        expressionNotes: normalizeExpressionNotes(src.expressionNotes),
     };
+}
+function setGeneratedExpressionImage(library, name, mood, imageId) {
+    const next = JSON.parse(JSON.stringify(normalizeGeneratedLibrary(library)));
+    const character = String(name || '').trim();
+    const label = String(mood || '').trim();
+    const id = String(imageId || '').trim();
+    if (!character || !label || !id || !next.characters[character]) return { ok: false, reason: 'not-found', library: next };
+    next.characters[character] = { ...plainObject(next.characters[character]), [label]: `${GENERATED_ASSET_URL_PREFIX}${id}` };
+    if (next.expressionNotes[character]) {
+        const notes = { ...next.expressionNotes[character] };
+        delete notes[label];
+        if (Object.keys(notes).length) next.expressionNotes[character] = notes;
+        else delete next.expressionNotes[character];
+    }
+    return { ok: true, library: next };
+}
+function setGeneratedExpressionNote(library, name, mood, note = {}) {
+    const next = JSON.parse(JSON.stringify(normalizeGeneratedLibrary(library)));
+    const character = String(name || '').trim();
+    const label = String(mood || '').trim();
+    if (!character || !label) return { ok: false, reason: 'not-found', library: next };
+    const item = plainObject(note);
+    next.expressionNotes[character] = {
+        ...plainObject(next.expressionNotes[character]),
+        [label]: {
+            positive: typeof item.positive === 'string' ? item.positive : '',
+            negative: typeof item.negative === 'string' ? item.negative : '',
+            error: typeof item.error === 'string' ? item.error : '',
+            ...(item.caption && typeof item.caption === 'object' ? { caption: item.caption } : {}),
+        },
+    };
+    return { ok: true, library: next };
+}
+
+// 把一张生成立绘绑到角色立绘的「默认」。角色库没有这个名字就新建。已有的非生成默认图不覆盖。
+function bindGeneratedSprite(sceneAssets, assetName, imageUrl, { replace = false } = {}) {
+    const requested = String(assetName || '').trim();
+    const url = String(imageUrl || '').trim();
+    const assets = sceneAssets && typeof sceneAssets === 'object' ? sceneAssets : {};
+    const characters = { ...plainObject(assets.characters) };
+    const aliases = { ...plainObject(assets.characterAliases) };
+    if (!requested || !isGeneratedAssetUrl(url)) {
+        return { ok: false, reason: 'no-image', created: false, name: '', characters, characterAliases: aliases };
+    }
+    let key = resolveCharacterKey(characters, aliases, requested);
+    const created = !key;
+    if (!key) key = requested;
+    const current = { ...plainObject(characters[key]) };
+    const existing = String(current['默认'] || '').trim();
+    if (replace || !existing || isGeneratedAssetUrl(existing)) current['默认'] = url;
+    characters[key] = current;
+    if (!Array.isArray(aliases[key])) aliases[key] = [];
+    if (requested !== key && !aliases[key].includes(requested)) aliases[key].push(requested);
+    return { ok: true, created, name: key, characters, characterAliases: aliases };
 }
 function addGeneratedAssetToLibrary(library, record, name) {
     const next = JSON.parse(JSON.stringify(normalizeGeneratedLibrary(library)));
@@ -13640,6 +14110,10 @@ function renameGeneratedLibraryEntry(library, type, oldName, newName) {
         const aliases = Array.isArray(next.characterAliases[oldName]) ? next.characterAliases[oldName] : [];
         delete next.characterAliases[oldName];
         next.characterAliases[target] = aliases.filter((a) => a !== target).concat(aliases.includes(oldName) ? [] : [oldName]);
+        if (next.expressionNotes[oldName]) {
+            next.expressionNotes[target] = next.expressionNotes[oldName];
+            delete next.expressionNotes[oldName];
+        }
     }
     return { ok: true, library: next };
 }
@@ -13648,7 +14122,10 @@ function removeGeneratedLibraryEntry(library, type, name) {
     const bucket = type === 'background' ? next.scenes : next.characters;
     const entry = bucket[name];
     delete bucket[name];
-    if (type !== 'background') delete next.characterAliases[name];
+    if (type !== 'background') {
+        delete next.characterAliases[name];
+        delete next.expressionNotes[name];
+    }
     return { library: next, imageIds: collectGeneratedImageIds(entry) };
 }
 function collectGeneratedImageIds(value, out = []) {
@@ -13672,10 +14149,14 @@ function transferGeneratedLibraryEntry(source, target, type, name, { move = fals
     dst[bucket][name] = JSON.parse(JSON.stringify(src[bucket][name]));
     if (bucket === 'characters') {
         dst.characterAliases[name] = Array.isArray(src.characterAliases[name]) ? src.characterAliases[name].slice() : [];
+        if (src.expressionNotes[name]) dst.expressionNotes[name] = JSON.parse(JSON.stringify(src.expressionNotes[name]));
     }
     if (move) {
         delete src[bucket][name];
-        if (bucket === 'characters') delete src.characterAliases[name];
+        if (bucket === 'characters') {
+            delete src.characterAliases[name];
+            delete src.expressionNotes[name];
+        }
     }
     return { ok: true, source: src, target: dst };
 }
@@ -13711,13 +14192,14 @@ function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     if (!name) return { url: '', slot: '', character: '', source: 'none', needsGeneration: false };
     const userAssets = ctx.sceneAssets || {};
     const outfitName = String(outfit || '').trim();
-    // 服装内只按当条表情找（精确 → 情绪组 → 模糊），不取服装内「默认」；找不到退回原有立绘。
+    // 服装内按当条表情找（精确 → 情绪组 → 模糊）。没命中就用这一套的「平和」，不退回原装。
     if (outfitName && outfitName !== OUTFIT_RESET) {
         const found = outfitsOfCharacter(userAssets.characterOutfits, userAssets.characterAliases, name);
         const entry = found.outfits[outfitName];
         if (entry && entry.moods) {
             const hit = lookupAssetValue(entry.moods, mood, userAssets.moodGroups, userAssets.moodFuzzyMatch === true, false);
-            if (hit.url) return { url: hit.url, slot: hit.slot, outfit: outfitName, character: found.key || name, source: 'user-outfit', quality: hit.quality, needsGeneration: false };
+            const calm = hit.url ? hit : lookupAssetValue(entry.moods, '平和', userAssets.moodGroups, false, false);
+            if (calm.url) return { url: calm.url, slot: calm.slot, outfit: outfitName, character: found.key || name, source: 'user-outfit', quality: hit.url ? hit.quality : 'group', needsGeneration: false };
         }
     }
     const user = lookupSceneAssetUrls({ character: name, mood }, userAssets);
@@ -13792,6 +14274,9 @@ function tempAssetKeyOf(chatId, need) {
 __igsDefine(exports, "isGeneratedAssetUrl", () => isGeneratedAssetUrl);
 __igsDefine(exports, "generatedAssetIdOf", () => generatedAssetIdOf);
 __igsDefine(exports, "normalizeGeneratedLibrary", () => normalizeGeneratedLibrary);
+__igsDefine(exports, "setGeneratedExpressionImage", () => setGeneratedExpressionImage);
+__igsDefine(exports, "setGeneratedExpressionNote", () => setGeneratedExpressionNote);
+__igsDefine(exports, "bindGeneratedSprite", () => bindGeneratedSprite);
 __igsDefine(exports, "addGeneratedAssetToLibrary", () => addGeneratedAssetToLibrary);
 __igsDefine(exports, "renameGeneratedLibraryEntry", () => renameGeneratedLibraryEntry);
 __igsDefine(exports, "removeGeneratedLibraryEntry", () => removeGeneratedLibraryEntry);
@@ -20672,7 +21157,7 @@ __igsDefine(exports, "BATTLE_GRAMMAR_LINES", () => BATTLE_GRAMMAR_LINES);
 });
 __igsRegister("src/visual/igs-ui/fx-anchor.js", function(module, exports, require) {
 const { spriteIdentity } = require("src/scene/character-outfits.js");
-// 漫画符号定位：按立绘在舞台里的实际绘制矩形（background-size 宽度百分比 + background-position）
+// 漫画符号定位：按立绘在舞台里的实际绘制矩形（background-size 高度百分比 + background-position）
 // 与立绘透明通道探测出的头部位置换算落点，电脑/窄屏/全屏/内嵌各模式统一按真实像素计算。
 const HEAD_CACHE_LIMIT = 48;
 const PROBE_W = 48;
@@ -20716,13 +21201,25 @@ function clamp(value, min, max) {
     return max < min ? (min + max) / 2 : Math.max(min, Math.min(max, value));
 }
 
-// 立绘在舞台里的绘制矩形：background-size 单值百分比只定宽度，高度按原图比例。
+// 比例 100：图高等于舞台高，宽度按原图比例。不同宽高比的立绘不用各自改比例。
+function spriteBackgroundSize(scale) {
+    return `auto ${finite(scale, 100)}%`;
+}
+
+// 立绘在舞台里的绘制矩形：background-size 的高度百分比，宽度按原图比例。
 function spriteDrawRect(stageW, stageH, sprite) {
     if (!sprite || !(sprite.naturalW > 0) || !(sprite.naturalH > 0)) return null;
-    const w = stageW * finite(sprite.scale, 100) / 100;
-    if (!(w > 0)) return null;
-    const h = w * sprite.naturalH / sprite.naturalW;
+    const h = stageH * finite(sprite.scale, 100) / 100;
+    if (!(h > 0)) return null;
+    const w = h * sprite.naturalW / sprite.naturalH;
     return { left: (stageW - w) * finite(sprite.posX, 50) / 100, top: (stageH - h) * finite(sprite.posY, 100) / 100, w, h };
+}
+
+// 翻转原点要用图的实际宽度百分比。读不到原图时退回比例值本身。
+function spriteWidthPercent(stageW, stageH, sprite) {
+    const rect = spriteDrawRect(stageW, stageH, sprite);
+    if (!rect || !(stageW > 0)) return finite(sprite && sprite.scale, 100);
+    return rect.w / stageW * 100;
 }
 
 // 头部标定：{ x, top, w } 均相对立绘原图（x 为头部中心、top 为头顶、w 为头宽），与阅读模式无关；aspect 为原图高宽比。
@@ -20933,7 +21430,9 @@ function clearSpriteHeadCache() {
     failed.clear();
 }
 
+__igsDefine(exports, "spriteBackgroundSize", () => spriteBackgroundSize);
 __igsDefine(exports, "spriteDrawRect", () => spriteDrawRect);
+__igsDefine(exports, "spriteWidthPercent", () => spriteWidthPercent);
 __igsDefine(exports, "headToMarker", () => headToMarker);
 __igsDefine(exports, "markerToHead", () => markerToHead);
 __igsDefine(exports, "normalizeSpriteHead", () => normalizeSpriteHead);
@@ -20952,7 +21451,7 @@ __igsDefine(exports, "HEAD_ASPECT", () => HEAD_ASPECT);
 __igsDefine(exports, "SYMBOL_OFFSETS", () => SYMBOL_OFFSETS);
 });
 __igsRegister("src/visual/igs-ui/romance-settings.js", function(module, exports, require) {
-const { HEAD_ASPECT, spriteDrawRect } = require("src/visual/igs-ui/fx-anchor.js");
+const { HEAD_ASPECT, spriteDrawRect, spriteWidthPercent } = require("src/visual/igs-ui/fx-anchor.js");
 const { normalizeEmotionList } = require("src/visual/igs-ui/stage-shake-runtime.js");
 // 亲密演出：无 CG 的恋爱 / 暧昧 / 情事氛围。档位 1 暧昧、2 亲密来自 [igs-fx:romance] 区间，3 情事来自场景 nsfw 标记。
 const ROMANCE_STRENGTHS = Object.freeze(['weak', 'medium', 'strong']);
@@ -21143,13 +21642,13 @@ function headBox(stageW, stageH, sprite, head) {
     return { cx: rect.left + head.x * rect.w, top: rect.top + head.top * rect.h, w, h };
 }
 
-// 逼近：立绘 background-position 为 posX% 时，居中所需位移 = (1 - scale%) × (50 - posX)，单位为舞台宽度 %，与舞台尺寸无关。
+// 逼近：立绘 background-position 为 posX% 时，居中所需位移 = (1 - 图宽%) × (50 - posX)，单位为舞台宽度 %。
 // 放大原点取头部中心（舞台 %），脸基本不动、身体向下超出对话框；缺头部数据时退回现有特写的原点。
 function computeRomanceApproach({ stageW, stageH, sprite, head, params } = {}) {
     if (!sprite || !params) return null;
     const posX = Number.isFinite(Number(sprite.posX)) ? Number(sprite.posX) : 50;
-    const scale = Number.isFinite(Number(sprite.scale)) ? Number(sprite.scale) : 100;
-    const dx = (1 - scale / 100) * (50 - posX) * params.pull;
+    const widthPct = spriteWidthPercent(stageW, stageH, sprite);
+    const dx = (1 - widthPct / 100) * (50 - posX) * params.pull;
     const box = stageW > 0 && stageH > 0 ? headBox(stageW, stageH, sprite, head) : null;
     return {
         dx: round(dx, 2),
@@ -23455,6 +23954,47 @@ function flushGhosts(set) {
     set.clear();
 }
 
+function sharpenCg(bg) {
+    if (!bg || !bg.style || typeof bg.style.setProperty !== 'function') return;
+    bg.style.setProperty('filter', 'none', 'important');
+    bg.style.setProperty('-webkit-filter', 'none', 'important');
+}
+
+function clearCgFilter(bg) {
+    if (!bg || !bg.style || typeof bg.style.removeProperty !== 'function') return;
+    bg.style.removeProperty('transition');
+    bg.style.removeProperty('filter');
+    bg.style.removeProperty('-webkit-filter');
+}
+
+// CG 出场：先模糊，再在同一张图上变清晰。同一张翻页不重放。
+function playCgFocus(state, bg, url, reduced) {
+    if (!bg || !url) return;
+    if (reduced) {
+        state.cgFocusUrl = url;
+        state.cgFocusing = false;
+        sharpenCg(bg);
+        return;
+    }
+    if (state.cgFocusUrl === url) {
+        if (!state.cgFocusing) sharpenCg(bg);
+        return;
+    }
+    state.cgFocusUrl = url;
+    state.cgFocusing = true;
+    bg.style.setProperty('transition', 'none', 'important');
+    bg.style.setProperty('filter', 'blur(28px)', 'important');
+    bg.style.setProperty('-webkit-filter', 'blur(28px)', 'important');
+    later(state, () => {
+        if (state.cgFocusUrl !== url) return;
+        bg.style.setProperty('transition', 'filter 2.4s ease-in-out, -webkit-filter 2.4s ease-in-out', 'important');
+        sharpenCg(bg);
+        later(state, () => {
+            if (state.cgFocusUrl === url) state.cgFocusing = false;
+        }, 2500);
+    }, 450);
+}
+
 function setAttr(el, name, on, value = '1') {
     if (!el || typeof el.setAttribute !== 'function') return;
     if (on) {
@@ -23627,15 +24167,17 @@ function enterFrames(side) {
 }
 
 function playSpriteChange(state, ctx) {
-    const { doc, sprite, nextUrl, nextKey, nextPosX, s, reduced, black } = ctx;
+    const { doc, sprite, nextUrl, nextPosX, s, reduced, black } = ctx;
     const hadSprite = Boolean(state.spriteUrl);
-    const sameCharacter = hadSprite && Boolean(nextUrl) && (nextKey === state.spriteKey || ctx.castSwap === true);
+    flushGhosts(state.spriteGhosts);
+    // 前后都有立绘就直接换图，不看是不是判定成同一个人。
+    if (hadSprite && nextUrl) {
+        state.speakerGap = false;
+        return 'direct';
+    }
     const enterExit = s.spriteMotion.enabled && s.spriteMotion.enterExit && !reduced;
     const fadeOn = s.sceneTransition.enabled || s.spriteMotion.enabled;
-    flushGhosts(state.spriteGhosts);
-    // 前后都有立绘（换表情、换说话人）时默认直接切图；emotionFade 开启才走残影淡化与退场 / 登场。
-    // 首次登场、退场到无立绘、黑场转场不受影响；换装转场由 sprite-outfit-swap 负责。
-    const direct = !black && !s.spriteMotion.emotionFade;
+    const direct = !black;
     // 同一场景内立绘暂时空缺（旁白、系统角色、只配头像的说话人）：旧立绘直接隐藏，之后直接出现，不算登场 / 退场。
     // 登场 / 退场只留给换地点与首次出场；返回 'direct' 让同屏上台动画也跳过。
     if (direct && hadSprite && !nextUrl && (ctx.sameScene === true || ctx.noSpriteSpeaker === true)) {
@@ -23662,11 +24204,6 @@ function playSpriteChange(state, ctx) {
     let kind = '';
     if (ghost && black) {
         kind = 'black';
-    } else if (ghost && sameCharacter) {
-        kind = 'swap';
-        const a = animate(ghost, [{ opacity: 1 }, { opacity: 0 }], { duration: SPRITE_SWAP_MS, easing: 'ease-out', fill: 'forwards' });
-        dropGhost(a ? SPRITE_SWAP_MS + 40 : 0);
-        return kind;
     } else if (ghost) {
         kind = 'exit';
         const side = sideOf(state.spritePosX);
@@ -23832,10 +24369,11 @@ function applyStageDirection(root, snapshot, ctx = {}) {
     const pageKey = `${snapshot.messageId}:${content.currentIndex}`;
     const newPage = pageKey !== state.pageKey;
     const eligible = content.sceneNsfw !== true && content.textType !== 'chat' && content.htmlCardPage !== true;
+    const cg = content.cgActive === true || content.illustrationActive === true;
     const speed = s.sceneTransition.speed;
 
     let black = false;
-    if (state.initialized && bg && bgUrl !== state.bgUrl && s.sceneTransition.enabled) {
+    if (!cg && state.initialized && bg && bgUrl !== state.bgUrl && s.sceneTransition.enabled) {
         // 同一地点只是换时段的底图时总用淡入，换地点才用所选转场。
         const sameLocation = text(content.sceneLocation) && text(content.sceneLocation) === state.location;
         const style = reduced || sameLocation ? 'fade' : s.sceneTransition.style;
@@ -23843,7 +24381,16 @@ function applyStageDirection(root, snapshot, ctx = {}) {
         if (kind) played.push(`bg:${kind}`);
         black = kind === 'black';
     }
-    if (sprite && !ctx.spriteEditMode && (spriteUrl !== state.spriteUrl || (!state.initialized && spriteUrl))) {
+    if (cg) {
+        flushGhosts(state.bgGhosts);
+        flushGhosts(state.spriteGhosts);
+        playCgFocus(state, bg, bgUrl, reduced);
+    } else {
+        state.cgFocusUrl = '';
+        state.cgFocusing = false;
+        clearCgFilter(bg);
+    }
+    if (!cg && sprite && !ctx.spriteEditMode && (spriteUrl !== state.spriteUrl || (!state.initialized && spriteUrl))) {
         const castSwap = Boolean(spriteKey) && spriteKey !== state.spriteKey
             && (castKeys.includes(state.spriteKey) || (state.castKeys || []).includes(spriteKey));
         const sameScene = state.initialized && text(content.sceneLocation) === state.location;
@@ -23868,12 +24415,13 @@ function applyStageDirection(root, snapshot, ctx = {}) {
         }
     }
 
-    setAttr(root, 'data-igs-sd-kenburns', !reduced && s.camera.enabled && s.camera.kenBurns && Boolean(bgUrl));
-    setAttr(root, 'data-igs-sd-closeup', !reduced && eligible && Boolean(spriteUrl) && pickCloseUp(content.statusEmotion, s.camera));
-    syncParallax(state, root, !reduced && s.camera.enabled && s.camera.parallax);
-    // 冲击推近：只在翻到新页时按原始情绪精确匹配播一次，音效与镜头同时起播；本页震动在播时让位。
+    setAttr(root, 'data-igs-cg', cg);
+    setAttr(root, 'data-igs-sd-kenburns', !cg && !reduced && s.camera.enabled && s.camera.kenBurns && Boolean(bgUrl));
+    setAttr(root, 'data-igs-sd-closeup', !cg && !reduced && eligible && Boolean(spriteUrl) && pickCloseUp(content.statusEmotion, s.camera));
+    syncParallax(state, root, !cg && !reduced && s.camera.enabled && s.camera.parallax);
+    // 冲击推近：只在翻到新页时按原始情绪精确匹配播一次，音效与镜头同时起播；本页震动在播时让位。CG 页不推。
     const stageMotion = root.querySelector('#igs-stage-motion');
-    const impactPlan = stageMotion
+    const impactPlan = !cg && stageMotion
         ? planCameraImpact({ newPage, motionOn, eligible, emotion: content.statusEmotion, camera: s.camera, stageShakeActive: ctx.stageShakeActive === true })
         : '';
     if (impactPlan === 'yield') played.push('camera:impact-yield');
@@ -28949,7 +29497,7 @@ function renderSceneAssetList(scenes, options = {}) {
             const weatherRows = weatherEntries.map(([weatherName, weatherVal]) => {
                 const weatherObj = typeof weatherVal === 'string' ? { url: weatherVal } : (weatherVal || { url: '' });
                 const wExpanded = expandedSlots.has('weather\x00' + sceneName + '\x00' + timeName + '\x00' + weatherName);
-                const wBody = wExpanded ? renderSceneGroupExpansion('weather', weatherName, weatherObj.url || '', weatherGroups) : '';
+                const wBody = wExpanded ? renderSceneGroupExpansion('weather', weatherName, weatherObj.url || '', weatherGroups, options.resolveUrl) : '';
                 return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row">`
                     + badge('天气')
                     + `<span class="igs-btn-mgr-label">${esc(weatherName)}</span>`
@@ -28959,7 +29507,7 @@ function renderSceneAssetList(scenes, options = {}) {
                     + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="展开/折叠">${wExpanded ? chevronUp : chevronDown}</button>`
                     + `</div>${wBody}</div>`;
             }).join('');
-            const timeBody = timeExpanded ? renderSceneGroupExpansion('time', timeName, timeObj.url || '', timeGroups) : '';
+            const timeBody = timeExpanded ? renderSceneGroupExpansion('time', timeName, timeObj.url || '', timeGroups, options.resolveUrl) : '';
             return `<div class="igs-scene-char-group igs-scene-time-group"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
                 + badge('时间')
                 + `<span class="igs-btn-mgr-label">${esc(timeName)}</span>`
@@ -28970,7 +29518,7 @@ function renderSceneAssetList(scenes, options = {}) {
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="展开/折叠">${timeExpanded ? chevronUp : chevronDown}</button>`
                 + `</div>${timeBody}</div>${weatherRows}</div>`;
         }).join('');
-        const bgBody = bgExpanded ? renderSceneBgExpansion(sceneName, sceneObj.url || '', sceneWords) : '';
+        const bgBody = bgExpanded ? renderSceneBgExpansion(sceneName, sceneObj.url || '', sceneWords, options.resolveUrl) : '';
         return `<div class="igs-scene-char-group"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
             + badge('场景')
             + `<span class="igs-btn-mgr-label" style="font-weight:600">${esc(sceneName)}</span>`
@@ -28984,11 +29532,18 @@ function renderSceneAssetList(scenes, options = {}) {
     }).join('');
 }
 
-function renderSceneBgExpansion(sceneName, url, words) {
+function shownAssetUrl(url, resolveUrl) {
+    const raw = String(url || '').trim();
+    if (!raw.startsWith('igs-gen:') || typeof resolveUrl !== 'function') return raw;
+    try { return String(resolveUrl(raw) || ''); } catch (error) { return ''; }
+}
+
+function renderSceneBgExpansion(sceneName, url, words, resolveUrl) {
     const trimmedUrl = String(url || '').trim();
-    const thumb = trimmedUrl
-        ? `<img class="igs-sprite-thumb" src="${esc(trimmedUrl)}" loading="lazy" alt="" data-action="sprite-preview:${encSeg(trimmedUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
-        : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">未配置</div>`;
+    const shown = shownAssetUrl(trimmedUrl, resolveUrl);
+    const thumb = /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
+        ? `<img class="igs-sprite-thumb" src="${esc(shown)}" alt="" data-action="sprite-preview:${encSeg(shown)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">${trimmedUrl ? '等待载入' : '未配置'}</div>`;
     const tags = words.map((alias) =>
         `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="scene-remove-bg-word:${encSeg(sceneName)}:${encSeg(alias)}" title="删除别名">×</button></span>`
     ).join('');
@@ -28996,11 +29551,12 @@ function renderSceneBgExpansion(sceneName, url, words) {
     return `<div class="igs-sprite-slot-body">${thumb}${wHtml}</div>`;
 }
 
-function renderSceneGroupExpansion(type, label, url, groups) {
+function renderSceneGroupExpansion(type, label, url, groups, resolveUrl) {
     const trimmedUrl = String(url || '').trim();
-    const thumb = trimmedUrl
-        ? `<img class="igs-sprite-thumb" src="${esc(trimmedUrl)}" loading="lazy" alt="" data-action="sprite-preview:${encSeg(trimmedUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
-        : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">未配置</div>`;
+    const shown = shownAssetUrl(trimmedUrl, resolveUrl);
+    const thumb = /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
+        ? `<img class="igs-sprite-thumb" src="${esc(shown)}" alt="" data-action="sprite-preview:${encSeg(shown)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">${trimmedUrl ? '等待载入' : '未配置'}</div>`;
     const isTime = type === 'time';
     const addAction = isTime ? `time-add-word:${encSeg(label)}` : `weather-add-word:${encSeg(label)}`;
     const removePrefix = isTime ? `time-remove-word:${encSeg(label)}` : `weather-remove-word:${encSeg(label)}`;
@@ -29047,33 +29603,63 @@ function renderCharacterAssetList(characters, options = {}) {
         const aliasesHtml = `<div class="igs-sprite-words"><div class="igs-mood-word-list">${aliasTags || '<div class="igs-scene-empty">暂无别名</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-char-alias:${encSeg(charName)}" title="添加别名">+</button></div></div>`;
         const avatarUrl = String(statusAvatars[charName] || '').trim();
         const avatarPreview = avatarUrl
-            ? `<img class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" loading="lazy" alt="" data-action="sprite-preview:${encSeg(avatarUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+            ? `<img class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" alt="" data-action="sprite-preview:${encSeg(avatarUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
         const avatarHtml = `<div class="igs-btn-mgr-row igs-status-avatar-row"><span class="igs-btn-mgr-label">状态栏头像</span>${avatarPreview}<input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/..."><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button></div>`;
         const dnaHtml = renderCharacterDnaEditor(charName, Object.prototype.hasOwnProperty.call(dnaMap, charName) ? dnaMap[charName] : null);
+        const outfitForChar = Object.prototype.hasOwnProperty.call(outfitMap, charName) ? outfitMap[charName] : null;
+        const outfitNames = outfitForChar && typeof outfitForChar === 'object' ? Object.keys(outfitForChar) : [];
+        const activeOutfit = outfitNames.includes(outfitTabs[charName]) ? outfitTabs[charName] : '';
+        const expressionButton = !activeOutfit && String((moods && moods['默认']) || '').startsWith('igs-gen:')
+            ? `<button type="button" class="igs-settings-action" data-action="char-expression-set:${encSeg(charName)}">表情差分</button>`
+            : '';
+        const expressionNotes = options.expressionNotes && typeof options.expressionNotes === 'object' ? options.expressionNotes[charName] : null;
         const moodEntries = Object.entries(moods || {});
         const moodRows = moodEntries.map(([mood, url]) => {
             const expanded = expandedSlots.has(charName + "\x00" + mood);
+            const note = expressionNotes && expressionNotes[mood];
+            const rawUrl = String(url || '').trim();
+            const imageId = rawUrl.startsWith('igs-gen:') ? rawUrl.slice('igs-gen:'.length) : '';
+            const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
+            const promptBtn = canPrompt
+                ? `<button type="button" class="igs-settings-action" data-action="char-expression-prompt:${encSeg(charName)}:${encSeg(mood)}">提示词</button>`
+                : '';
+            const retry = mood !== '默认' && (Boolean(imageId) || (note && note.error))
+                ? `<button type="button" class="igs-settings-action" data-action="char-expression-retry:${encSeg(charName)}:${encSeg(mood)}">重新生成</button>`
+                : '';
+            const shown = rawUrl.startsWith('igs-gen:') && typeof options.resolveUrl === 'function'
+                ? String(options.resolveUrl(rawUrl) || '')
+                : '';
+            const rowThumb = rawUrl.startsWith('igs-gen:') && /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
+                ? `<img class="igs-sprite-thumb" src="${esc(shown)}" alt="${esc(mood)}" data-action="sprite-preview:${encSeg(shown)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+                : '';
+            const boundNote = rawUrl.startsWith('igs-gen:') ? '<span class="igs-source-filter-note">已绑定生成立绘</span>' : '';
             const collapsedRow = `<div class="igs-btn-mgr-row igs-scene-mood-row">`
                 + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
+                + rowThumb
+                + boundNote
                 + `<input class="igs-scene-url-input" data-scene-char="${esc(charName)}" data-scene-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`
+                + promptBtn
+                + retry
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-mood:${encSeg(charName)}:${encSeg(mood)}" title="重命名">${pencil}</button>`
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-mood:${encSeg(charName)}:${encSeg(mood)}" title="删除">${trash}</button>`
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-mood:${encSeg(charName)}:${encSeg(mood)}" title="展开/折叠">${expanded ? chevronUp : chevronDown}</button>`
                 + `</div>`;
-            const expandedBody = expanded ? renderSpriteSlotExpansion(charName, mood, url, moodGroups, { pencil, trash }) : '';
+            const expandedBody = expanded ? renderSpriteSlotExpansion(charName, mood, url, moodGroups, { pencil, trash, resolveUrl: options.resolveUrl }) : '';
             return `<div class="igs-sprite-slot">${collapsedRow}${expandedBody}</div>`;
         }).join('');
         const slotArea = renderCharacterSlotTabs({
             charName,
             baseMoods: moodEntries.map(([mood]) => mood),
             baseListHtml: `<div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪</div>'}</div>`,
-            outfits: Object.prototype.hasOwnProperty.call(outfitMap, charName) ? outfitMap[charName] : null,
-            activeOutfit: Object.prototype.hasOwnProperty.call(outfitTabs, charName) ? outfitTabs[charName] : '',
+            outfits: outfitForChar,
+            activeOutfit,
+            expressionNotes: options.expressionNotes,
+            resolveUrl: options.resolveUrl,
             sceneAssets: options.sceneAssets || { characters, characterAliases: aliasesByCharacter, characterOutfits: outfitMap, moodGroups },
             icons: { pencil, trash },
         });
-        return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span>${folderSelect(charName)}<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}${avatarHtml}${dnaHtml}${slotArea}</div>`;
+        return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span>${folderSelect(charName)}${expressionButton}<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}${avatarHtml}${dnaHtml}${slotArea}</div>`;
     }).join('');
 }
 
@@ -29141,9 +29727,12 @@ function renderMoodReviewList(items) {
 
 function renderSpriteSlotExpansion(charName, mood, url, moodGroups, icons) {
     const trimmedUrl = String(url || '').trim();
-    const thumb = trimmedUrl
-        ? `<img class="igs-sprite-thumb" src="${esc(trimmedUrl)}" loading="lazy" alt="${esc(mood)}" data-action="sprite-preview:${encSeg(trimmedUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
-        : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">未配置</div>`;
+    const shownUrl = trimmedUrl.startsWith('igs-gen:') && typeof icons.resolveUrl === 'function'
+        ? String(icons.resolveUrl(trimmedUrl) || '')
+        : trimmedUrl;
+    const thumb = shownUrl
+        ? `<img class="igs-sprite-thumb" src="${esc(shownUrl)}" alt="${esc(mood)}" data-action="sprite-preview:${encSeg(shownUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">${trimmedUrl ? '等待载入' : '未配置'}</div>`;
     const group = moodGroups.find((g) => g && g.label === mood);
     let wordsHtml;
     if (group) {
@@ -29193,7 +29782,7 @@ function renderPinnedButtons(pinnedValue, hiddenValue, orderValue) {
     }).join('');
     return `<div class="igs-settings-field"><span>按钮管理</span><div class="igs-btn-mgr-list">${rows}</div></div>`;
 }
-function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, presetNames = [], currentPreset = '' } = {}) {
+function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, presetNames = [], currentPreset = '', moodGroups, characters = {} } = {}) {
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1-1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const source = library && typeof library === 'object' ? library : {};
@@ -29221,6 +29810,11 @@ function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, presetN
         if (!id || type !== 'sprite') return '';
         return `<button type="button" class="igs-settings-action" data-action="gen-matte-edit:${encSeg(id)}" title="修复抠图">修复抠图</button>`;
     };
+    const promptButton = (imageId) => {
+        const id = String(imageId || '').trim();
+        if (!id) return '';
+        return `<button type="button" class="igs-settings-action" data-action="gen-asset-prompt:${encSeg(id)}" title="生图提示词">提示词</button>`;
+    };
     const resolve = (url) => {
 
         const raw = String(url || '').trim();
@@ -29240,15 +29834,24 @@ function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, presetN
     const preview = (url, alt) => {
         const resolved = resolve(url);
         return resolved
-            ? `<img class="igs-sprite-thumb" src="${esc(resolved)}" loading="lazy" alt="${esc(alt)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+            ? `<img class="igs-sprite-thumb" src="${esc(resolved)}" alt="${esc(alt)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : '<div class="igs-sprite-thumb igs-sprite-thumb-empty">等待载入</div>';
     };
     const libraryRows = [];
     for (const [type, bucketName, title] of [['background', 'scenes', '背景'], ['sprite', 'characters', '立绘']]) {
         for (const [name, value] of Object.entries(source[bucketName] && typeof source[bucketName] === 'object' ? source[bucketName] : {})) {
-            const url = firstUrl(value);
+            const url = type === 'sprite' && value && typeof value === 'object' && typeof value['默认'] === 'string'
+                ? value['默认']
+                : firstUrl(value);
             const imageId = url.startsWith('igs-gen:') ? url.slice('igs-gen:'.length) : '';
-            libraryRows.push(`<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(name)}</span><span class="igs-source-filter-note">${title}</span>${downloadButton(imageId, name, title)}${matteButton(imageId, type)}${transferSelect(type, name)}<button type="button" class="igs-btn-mgr-icon" data-action="gen-lib-rename:${encSeg(type)}:${encSeg(name)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="gen-lib-remove:${encSeg(type)}:${encSeg(name)}" title="删除">${trash}</button></div>${preview(url, name)}</div>`);
+            const characterDefault = characters && characters[name] && typeof characters[name] === 'object'
+                ? String(characters[name]['默认'] || '').trim()
+                : '';
+            const alreadyBound = type === 'sprite' && url && characterDefault === url;
+            const bindButton = type !== 'sprite' ? '' : alreadyBound
+                ? '<span class="igs-source-filter-note">已绑定为默认立绘</span>'
+                : `<button type="button" class="igs-settings-action" data-action="gen-adopt-sprite:${encSeg(name)}" title="把这张图设为该角色的默认立绘">绑定到角色</button>`;
+            libraryRows.push(`<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(name)}</span><span class="igs-source-filter-note">${title}</span>${downloadButton(imageId, name, title)}${promptButton(imageId)}${matteButton(imageId, type)}${bindButton}${transferSelect(type, name)}<button type="button" class="igs-btn-mgr-icon" data-action="gen-lib-rename:${encSeg(type)}:${encSeg(name)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="gen-lib-remove:${encSeg(type)}:${encSeg(name)}" title="删除">${trash}</button></div>${preview(url, name)}</div>`);
         }
     }
     const tempRows = (Array.isArray(temp) ? temp : []).map((record) => {
@@ -29256,7 +29859,7 @@ function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, presetN
         const url = item.url || (item.imageId ? `igs-gen:${item.imageId}` : '');
         const key = String(item.key || '');
         const typeLabel = item.type === 'background' ? '背景' : '立绘';
-        return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(item.name || '未命名素材')}</span><span class="igs-source-filter-note">${typeLabel} · ${esc(item.status || '临时')}</span><button type="button" class="igs-settings-action" data-action="gen-temp-accept:${encSeg(key)}"${key ? '' : ' disabled'}>入库</button>${downloadButton(item.imageId, item.name, typeLabel)}${matteButton(item.imageId, item.type)}<button type="button" class="igs-btn-mgr-icon" data-action="gen-temp-discard:${encSeg(key)}"${key ? '' : ' disabled'} title="丢弃">${trash}</button></div>${preview(url, item.name || '')}</div>`;
+        return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(item.name || '未命名素材')}</span><span class="igs-source-filter-note">${typeLabel} · ${esc(item.status || '临时')}</span><button type="button" class="igs-settings-action" data-action="gen-temp-accept:${encSeg(key)}"${key ? '' : ' disabled'}>入库</button>${downloadButton(item.imageId, item.name, typeLabel)}${promptButton(item.imageId)}${matteButton(item.imageId, item.type)}<button type="button" class="igs-btn-mgr-icon" data-action="gen-temp-discard:${encSeg(key)}"${key ? '' : ' disabled'} title="丢弃">${trash}</button></div>${preview(url, item.name || '')}</div>`;
     }).join('');
     return `<div class="igs-settings-section"><div class="igs-settings-section-head"><div class="igs-settings-subhead">生成素材库</div></div>${libraryRows.join('') || '<div class="igs-scene-empty">暂无已入库素材</div>'}</div><div class="igs-settings-section"><div class="igs-settings-section-head"><div class="igs-settings-subhead">本聊天临时素材</div></div>${tempRows || '<div class="igs-scene-empty">暂无临时素材</div>'}</div>`;
 }
@@ -29677,7 +30280,6 @@ function renderStageFields(s, more) {
             + checkbox(`${P}.spriteMotion.breathing`, s.spriteMotion.breathing, '待机呼吸')
             + checkbox(`${P}.spriteMotion.speakBounce`, s.spriteMotion.speakBounce, '说话轻弹')
             + checkbox(`${P}.spriteMotion.enterExit`, s.spriteMotion.enterExit, '登场 / 退场')
-            + checkbox(`${P}.spriteMotion.emotionFade`, s.spriteMotion.emotionFade, '换表情、换人时淡入淡出')
             + checkbox(`${P}.spriteMotion.castBreathing`, s.spriteMotion.castBreathing, '同屏角色呼吸')
             + checkbox(`${P}.spriteMotion.castLean`, s.spriteMotion.castLean, '同屏角色看向说话人')
             + `</div>`)) : '');
@@ -30121,6 +30723,7 @@ const { findCalledCast } = require("src/scene/stage-cast.js");
 const { CAST_CALLED_FRAME, CAST_DIM_FRAME, CAST_FOCUS_FRAME, CAST_HANDOFF_MS, CAST_LIT_FRAME, CAST_MOVE_MS, CAST_SLIDE_PCT, castSideOf } = require("src/visual/igs-ui/stage-cast-motion.js");
 const { playSpriteAction } = require("src/visual/igs-ui/sprite-actions.js");
 const { decodeSpriteImage } = require("src/visual/igs-ui/stage-direction-runtime.js");
+const { peekSpriteHead, spriteBackgroundSize, spriteWidthPercent } = require("src/visual/igs-ui/fx-anchor.js");
 const NARROW_MODES = new Set(['mobile', 'embedded']);
 const NARROW_STAGE_WIDTH = 768;
 // background-position 百分比是「图上该比例点对齐容器该比例点」，不是中心坐标。
@@ -30130,7 +30733,7 @@ const SWAP_FADE_MS = 180;
 const STAGE_CAST_STYLE_TEXT = `
 #igs-cast{position:absolute;inset:0;z-index:2;pointer-events:none;}
 #igs-cast .igs-cast-sprite{position:absolute;inset:0;background-repeat:no-repeat;pointer-events:none;transform-origin:var(--igs-cast-origin-x,50%) 100%;}
-#igs-cast .igs-cast-sprite:not([data-igs-cast-ghost]){transition:rotate .6s ease,scale .2s ease;}
+#igs-cast .igs-cast-sprite:not([data-igs-cast-ghost]){transition:rotate .6s ease;}
 #igs-overlay[data-igs-cast-breathe]:not([data-igs-quality="low"]) #igs-cast .igs-cast-sprite:not([data-igs-cast-leaving]):not([data-igs-cast-ghost]){animation:igs-sd-breathe var(--igs-cast-breathe,5.2s) ease-in-out var(--igs-cast-delay,0s) infinite;}
 #igs-overlay[data-igs-sd-parallax] #igs-cast{translate:calc(var(--igs-sd-px,0) * -12px) calc(var(--igs-sd-py,0) * -5px);transition:translate .6s cubic-bezier(.2,.7,.3,1);}
 #igs-stage-motion[data-igs-fx-presentation="1"] #igs-cast,
@@ -30309,7 +30912,7 @@ function cssUrl(url) {
     return `url("${String(url).replace(/"/g, '&quot;')}")`;
 }
 
-// 同一角色换图：旧图复制到上层淡出，不瞬切；入场或减少动效时直接换。
+// 同一角色换图直接切。入场仍等图片解码完再显示，避免空一帧。
 function swapImage(layer, el, image, instant) {
     const prev = el.style.backgroundImage;
     if (prev === image) return;
@@ -30404,7 +31007,7 @@ function applyCastToDom(root, members = [], motion = {}) {
         // 退下来的说话人图片刚在 #igs-sprite 上显示过，不必再等解码。
         const wait = pendingSame || demotedIn || el.style.backgroundImage === image ? null : decodeSpriteImage(doc, m.url);
         if (!pendingSame) el._igsCastPending = null;
-        el.style.backgroundSize = `${m.scale}%`;
+        el.style.backgroundSize = spriteBackgroundSize(m.scale);
         el.style.backgroundPosition = `${m.posX}% ${m.posY}%`;
         const focused = Boolean(focus) && m.character === focus;
         const frame = focused ? CAST_FOCUS_FRAME : (m.called === true || m.front === true) ? CAST_CALLED_FRAME : CAST_DIM_FRAME;
@@ -30417,7 +31020,10 @@ function applyCastToDom(root, members = [], motion = {}) {
         el._igsCastX = m.posX;
         // 背对（第四批）：整张立绘水平翻转，用空闲的独立属性 scale；原点移到图的中心，镜像不整体平移。
         const flipped = m.flip === true;
-        setStyleProp(el, '--igs-cast-origin-x', `${flipped ? castFlipOriginX(m.posX, m.scale) : m.posX}%`);
+        const host = el.parentNode;
+        const probed = peekSpriteHead(m.url);
+        const widthPct = spriteWidthPercent(host && host.clientWidth, host && host.clientHeight, { posX: m.posX, posY: m.posY, scale: m.scale, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH });
+        setStyleProp(el, '--igs-cast-origin-x', `${flipped ? castFlipOriginX(m.posX, widthPct) : m.posX}%`);
         setStyleProp(el, 'scale', flipped ? '-1 1' : '');
         if (flipped) el.setAttribute('data-igs-cast-flip', '1');
         else el.removeAttribute('data-igs-cast-flip');
@@ -30427,7 +31033,7 @@ function applyCastToDom(root, members = [], motion = {}) {
         setStyleProp(el, '--igs-cast-delay', `${phase.delay}s`);
         applyLean(el, lean, m.posX);
         const show = () => {
-            swapImage(layer, el, image, reduced || entering);
+            swapImage(layer, el, image, true);
             if (!entering) return;
             stopAnim(el);
             el._igsCastAnim = demotedIn
@@ -30866,7 +31472,6 @@ function playSpeakerCastMotion(spriteEl, prevStage, speaker, handoff = {}, { ski
     if (fromX == null) {
         if (skipEnter) return played;
         const side = castSideOf(speaker.posX);
-        spriteEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: CAST_ENTER_MS, easing: EASING, fill: 'backwards' });
         if (side) {
             spriteEl.animate([{ transform: `translateX(${side * CAST_SLIDE_PCT}%)` }, { transform: 'translateX(0)' }], {
                 duration: CAST_ENTER_MS, easing: EASING, fill: 'backwards', composite: 'add',
@@ -32300,7 +32905,9 @@ function looksLikeRefusal(text) {
     if (!value.trim()) return true;
     return REFUSAL_RE.test(value.slice(0, 400));
 }
-const NSFW_NEGATIVE_GUARD = 'loli, shota, child, young child, underage, toddler, aged down';
+
+// 只挡色情向标签。child / young child / toddler 不放进来，立绘可以是未成年人。
+const NSFW_NEGATIVE_GUARD = '';
 
 // 统一的「请求 → 解析 → 拒答/失败时温和重试」流程；parse 返回 { ok, ... }。
 // 失败时 error 带上真实原因（HTTP 状态、网络/CORS、超时、拒答原文片段），方便用户排查。
@@ -32809,6 +33416,7 @@ __igsRegister("src/generated-images/image-backend.js", function(module, exports,
 const { normalizeAutoIllustrationSettings } = require("src/generated-images/illustration/auto-illustration-settings.js");
 const { resolveNaiNativeEndpoint } = require("src/generated-images/request-builders/nai-v4-builder.js");
 const { applyUserPromptsToCaption } = require("src/generated-images/dbgen-prompt.js");
+const { promptFromCaption, promptFromText } = require("src/generated-images/generation-prompt.js");
 const { findChatu8Host, requestChatu8Image } = require("src/generated-images/chatu8-client.js");
 // 生图来源：nai = IGS 内置 NAI；dbgen = 数据库生图插件（window.NaiDbGen）；
 // extension = 智绘姬：剧情 CG、素材与物品图经智绘姬的出图事件生成；
@@ -32926,42 +33534,127 @@ function createImageBackend({ nai, getBridge, global: globalObject = globalThis,
         return { mode, via: 'nai', ownPrompts: false, ready: { ok: true } };
     }
 
-    // 提示词交给插件按当前楼层来写，IGS 给出「画什么」的描述；
-    // meta.userPrompts 是前端素材模板渲染出的正负提示词，出图前再合并进插件返回的 caption，
-    // 保证用户在 IGS 前端填写的提示词一定进入最终请求。
+    // 写词接口只收到「画什么」。前端正负模板不进这段描述，出图前再合并进插件返回的 caption。
     async function viaDbgen(meta = {}) {
         const api = findDbgenApi(globalObject);
         if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
         const description = String(meta.description || '').trim();
         if (!description) return { ok: false, error: '没有可交给数据库生图插件的画面描述' };
-        const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
-        let caption;
         let written = null;
         try {
             if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
-            written = await api.generateSinglePrompt({ description, ...(meta.messageId != null && { messageId: Number(meta.messageId) }) });
+            written = await api.generateSinglePrompt({
+                description,
+                ...(meta.skipRecall === true && { skipRecall: true }),
+                ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
+            });
             if (!written || !written.ok || !written.value || !written.value.caption) {
                 return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${describeResultError(written, '未返回提示词')}` };
             }
-            caption = userPrompts ? applyUserPromptsToCaption(written.value.caption, userPrompts) : written.value.caption;
         } catch (error) {
             return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
         }
         const size = parseSize(meta.size) || (written.value.width && written.value.height
             ? { width: written.value.width, height: written.value.height } : null);
+        return paintDbgenCaption(api, { ...meta, size: size ? `${size.width}x${size.height}` : meta.size }, written.value.caption);
+    }
+
+    async function writeDbgenPrompt(meta = {}) {
+        const api = findDbgenApi(globalObject);
+        if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
+        const description = String(meta.description || '').trim();
+        if (!description) return { ok: false, error: '没有可交给数据库生图插件的画面描述' };
+        if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
+        let written;
+        try {
+            written = await api.generateSinglePrompt({
+                description,
+                skipRecall: true,
+                ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
+            });
+        } catch (error) {
+            return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
+        }
+        if (!written || !written.ok || !written.value || !written.value.caption) {
+            return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${describeResultError(written, '未返回提示词')}` };
+        }
+        const captions = Array.isArray(written.value.captions) && written.value.captions.length
+            ? written.value.captions.filter((item) => item && item.caption)
+            : [{ slotId: 1, caption: written.value.caption, width: written.value.width, height: written.value.height }];
+        return {
+            ok: true,
+            caption: written.value.caption,
+            captions,
+            width: written.value.width,
+            height: written.value.height,
+        };
+    }
+
+    // 楼内 CG：走召回，把生成点原样带回。不出图。
+    async function writeDbgenFloorPrompts(meta = {}) {
+        const api = findDbgenApi(globalObject);
+        if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
+        const description = String(meta.description || '').trim();
+        if (!description) return { ok: false, error: '没有可交给数据库生图插件的画面描述' };
+        if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
+        let written;
+        try {
+            written = await api.generateSinglePrompt({
+                description,
+                ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
+            });
+        } catch (error) {
+            return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
+        }
+        if (!written || !written.ok || !written.value || !written.value.caption) {
+            return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${describeResultError(written, '未返回提示词')}` };
+        }
+        const captions = (Array.isArray(written.value.captions) && written.value.captions.length
+            ? written.value.captions
+            : [{ slotId: 1, caption: written.value.caption, width: written.value.width, height: written.value.height }])
+            .filter((item) => item && item.caption)
+            .map((item) => {
+                const anchor = String(item.anchorSentence || item.anchor || '').trim();
+                return {
+                    slotId: Number(item.slotId) || 1,
+                    caption: item.caption,
+                    ...(anchor && { anchorSentence: anchor }),
+                    ...(item.width != null && { width: item.width }),
+                    ...(item.height != null && { height: item.height }),
+                };
+            });
+        return { ok: true, caption: written.value.caption, captions };
+    }
+
+    async function paintDbgenCaption(api, meta, caption) {
+        const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
+        const merged = userPrompts ? applyUserPromptsToCaption(caption, userPrompts) : caption;
+        const size = parseSize(meta.size);
+        // 立绘走数据库生图时默认打开透明底。模型用插件自己的运行配置，这里不传 model。
+        const params = {
+            ...(size || {}),
+            ...(meta.transparent === true && { straight_alpha: true, tag_hint_transparent_background: true }),
+        };
         let result;
         try {
-            result = await api.generate({ caption, replaceCharacterKeywords: true, ...(size && { params: size }) });
+            result = await api.generate({ caption: merged, replaceCharacterKeywords: true, ...(Object.keys(params).length && { params }) });
         } catch (error) {
-            return { ok: false, error: `${DBGEN_LABEL}出图失败：${(error && error.message) || error}` };
+            return { ok: false, error: `${DBGEN_LABEL}出图失败：${(error && error.message) || error}`, prompt: promptFromCaption(merged) };
         }
         const image = result && result.ok && Array.isArray(result.value) ? result.value[0] : null;
-        if (!image || !image.blob) return { ok: false, error: `${DBGEN_LABEL}出图失败：${describeResultError(result, '未返回图片')}` };
+        if (!image || !image.blob) return { ok: false, error: `${DBGEN_LABEL}出图失败：${describeResultError(result, '未返回图片')}`, prompt: promptFromCaption(merged) };
         try {
-            return { ok: true, dataUrl: await blobToDataUrl(image.blob, image.mimeType, globalObject) };
+            return { ok: true, dataUrl: await blobToDataUrl(image.blob, image.mimeType, globalObject), prompt: promptFromCaption(merged) };
         } catch (error) {
-            return { ok: false, error: `${DBGEN_LABEL}图片读取失败：${(error && error.message) || error}` };
+            return { ok: false, error: `${DBGEN_LABEL}图片读取失败：${(error && error.message) || error}`, prompt: promptFromCaption(merged) };
         }
+    }
+
+    async function generateDbgenCaption(meta = {}) {
+        const api = findDbgenApi(globalObject);
+        if (!api) return { ok: false, error: `未检测到${DBGEN_LABEL}` };
+        if (!meta.caption) return { ok: false, error: '没有可出图的提示词' };
+        return paintDbgenCaption(api, meta, meta.caption);
     }
 
     // 智绘姬出图；未安装、失败或图片取不到时，填了 NAI Key 就退回内置 NAI。
@@ -32983,7 +33676,7 @@ function createImageBackend({ nai, getBridge, global: globalObject = globalThis,
         const result = await requestChatu8(host, prompt);
         if (!result || !result.ok) return fallback((result && result.error) || `${CHATU8_LABEL}出图失败`);
         try {
-            return { ok: true, via: 'chatu8', dataUrl: await chatu8ImageToDataUrl(result.imageData, host.win || globalObject) };
+            return { ok: true, via: 'chatu8', dataUrl: await chatu8ImageToDataUrl(result.imageData, host.win || globalObject), prompt: promptFromText(prompt, '') };
         } catch (error) {
             return fallback(`${CHATU8_LABEL}图片读取失败：${(error && error.message) || error}`);
         }
@@ -33059,7 +33752,7 @@ function createImageBackend({ nai, getBridge, global: globalObject = globalThis,
             : { ok: false, message: `未检测到${DBGEN_LABEL}，请确认已安装并启用。` };
     }
 
-    return { describe, describeEdit, edit, generate, generateForReader, probeDbgen };
+    return { describe, describeEdit, edit, generate, generateForReader, probeDbgen, writeDbgenPrompt, writeDbgenFloorPrompts, generateDbgenCaption };
 }
 
 __igsDefine(exports, "normalizeImageSourceMode", () => normalizeImageSourceMode);
@@ -33072,9 +33765,9 @@ __igsDefine(exports, "DBGEN_LABEL", () => DBGEN_LABEL);
 __igsDefine(exports, "CHATU8_LABEL", () => CHATU8_LABEL);
 });
 __igsRegister("src/generated-images/dbgen-prompt.js", function(module, exports, require) {
-// 数据库生图模式下的前端提示词接线：素材补全的正负模板既写进交给插件写词 LLM 的描述，
-// 也在出图前合并进插件返回的 NaiCaption，保证 IGS 前端填写的提示词一定进入最终请求。
-const { NSFW_NEGATIVE_GUARD } = require("src/generated-images/illustration/prompt-kit.js");
+// 数据库生图模式下的前端提示词接线：写词接口只说明画什么。
+// 正负模板在出图前合并进插件返回的 NaiCaption，不交给写词模型照抄。
+
 const WEIGHT_RE = /^-?\d*\.?\d+::|::$/g;
 function splitTags(text) {
     return String(text || '').split(/[,，\n]/).map((t) => t.trim()).filter(Boolean);
@@ -33100,22 +33793,153 @@ function mergeTags(...groups) {
     }
     return out.join(', ');
 }
-function buildDbgenAssetDescription(need = {}, prompts = {}) {
-    const isBackground = need.type === 'background';
-    const when = [need.time, need.weather].filter(Boolean).join('、');
-    const positive = mergeTags(prompts.positive);
-    // 内置未成年防护词只进最终负面（applyUserPromptsToCaption），不写进交给写词 LLM 的描述：
-    // 实测写词 LLM 看到这组词会直接返回空回复，导致立绘整项失败。
-    const guard = new Set(splitTags(NSFW_NEGATIVE_GUARD).map(tagKey));
-    const negative = mergeTags(splitTags(prompts.negative).filter((tag) => !guard.has(tagKey(tag))).join(', '));
+
+// 插件 LLM 回给程序的是扁平字段。已有立绘按这个格式放进用户描述。
+function formatReturnedCaption(caption) {
+    const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
+    const neg = caption && caption.v4_negative_prompt && caption.v4_negative_prompt.caption;
+    if (!pos || !neg) return '';
+    const lines = ['slotid: 1'];
+    const scene = String(pos.base_caption || '').trim();
+    const sceneUc = String(neg.base_caption || '').trim();
+    if (scene) lines.push(`scene: ${scene}`);
+    if (sceneUc) lines.push(`scene_uc: ${sceneUc}`);
+    const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
+    const ucs = Array.isArray(neg.char_captions) ? neg.char_captions : [];
+    const count = Math.max(chars.length, ucs.length);
+    for (let i = 0; i < count; i += 1) {
+        const item = chars[i] && typeof chars[i] === 'object' ? chars[i] : {};
+        const center = Array.isArray(item.centers) ? item.centers[0] : null;
+        const x = center && Number.isFinite(Number(center.x)) ? Number(center.x) : 0.5;
+        const y = center && Number.isFinite(Number(center.y)) ? Number(center.y) : 0.5;
+        const text = String(item.char_caption || '').trim();
+        const uc = String((ucs[i] && ucs[i].char_caption) || '').trim();
+        if (text) lines.push(`char: ${x},${y} | ${text}`);
+        if (uc) lines.push(`char_uc: ${uc}`);
+    }
+    return lines.join('\n');
+}
+function buildExpressionDiffDescription(name, prompt, labels, dna, outfit) {
+    const moods = (Array.isArray(labels) ? labels : []).map((item) => String(item || '').trim()).filter(Boolean);
+    const stored = prompt && typeof prompt === 'object' ? prompt : {};
+    const caption = formatReturnedCaption(stored.caption);
+    const profile = dna && typeof dna === 'object' ? dna : {};
+    const clothes = outfit && typeof outfit === 'object' ? outfit : null;
+    const outfitName = clothes ? String(clothes.name || '').trim() : '';
+    const words = clothes && Array.isArray(clothes.words)
+        ? clothes.words.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+    const identity = String(profile.identity || '').trim();
+    const appearance = String(profile.defaultAppearance || '').trim();
+    const dnaNegative = String(profile.negative || '').trim();
+    const triggers = String(profile.triggerWords || '').trim();
+    const clothesPrompt = clothes ? String(clothes.prompt || '').trim() : '';
+    const wordText = words.length ? `，衣服按这些词来画：${words.join('、')}` : '';
+    const wear = caption
+        ? '上面 char 里的衣服换成下面的服装提示词，人还是上面那个。'
+        : '衣服按下面的服装提示词来画。';
+    const clothesLine = !outfitName
+        ? (caption ? '服装也按上面这份画。' : '外貌、服装和构图与已有立绘保持一致。')
+        : clothesPrompt
+            ? (clothes.ownImage
+                ? `这一套就是服装「${outfitName}」。${wear}不要画成别的衣服。`
+                : `这一套要改成服装「${outfitName}」。${wear}不要沿用原装的衣服。`)
+            : clothes.ownImage
+                ? `这一套就是服装「${outfitName}」${words.length ? `（${words.join('、')}）` : ''}。不要画成别的衣服。`
+                : `这一套要改成服装「${outfitName}」${wordText}。不要沿用原装的衣服。`;
     return [
-        isBackground
-            ? `画场景「${need.name || ''}」${when ? `（${when}）` : ''}的背景图。`
-            : `画角色「${need.name || ''}」的立绘。`,
-        positive ? `用户指定的正面提示词，必须原样写入正面提示词：${positive}` : '',
-        negative ? `用户指定的负面提示词，必须原样写入负面提示词，且正面提示词中不得出现：${negative}` : '',
-        isBackground ? '地点陈设、光线与氛围依据楼层正文补充。' : '角色外貌与服装依据楼层正文补充。',
+        outfitName
+            ? `为角色「${name || ''}」的服装「${outfitName}」写 ${moods.length} 份立绘表情差分。`
+            : `为角色「${name || ''}」写 ${moods.length} 份立绘表情差分。`,
+        caption ? '下面这份是已有立绘，外貌和构图按它画。这不是要回写的图。' : '',
+        caption,
+        clothesLine,
+        clothesPrompt ? `服装提示词：\n${clothesPrompt}` : '',
+        '表情依据该角色的性格、脾气与行为习惯分别撰写，禁止套用统一表情模板。',
+        '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
+        '情绪须写入肢体：手势、肩线、重心随该情绪变化。禁止仅替换面部。',
+        '无背景，透明底。',
+        identity ? `固定身份：\n${identity}` : '',
+        appearance ? `默认外观：\n${appearance}` : '',
+        triggers ? `触发词：\n${triggers}` : '',
+        dnaNegative ? `不要出现：\n${dnaNegative}` : '',
+        `按 slotid 1 到 ${moods.length} 的顺序另写 ${moods.length} 份：${moods.map((label, index) => `${index + 1} ${label}`).join('、')}。`,
     ].filter(Boolean).join('\n');
+}
+
+const UPRIGHT_POSITIVE = 'cowboy shot, standing, facing viewer, straight-on';
+const UPRIGHT_NEGATIVE = 'dutch angle, from side, profile, full body, feet';
+const EXPRESSION_DROP_POSITIVE = new Set(['arms at sides'].map(tagKey));
+
+// 景别回到大腿以上。只拿掉双手下垂，避免表情动作被锁死。
+function expressionSpritePrompts(positive, negative) {
+    const kept = splitTags(positive).filter((tag) => !EXPRESSION_DROP_POSITIVE.has(tagKey(tag))).join(', ');
+    return { positive: kept, negative: String(negative || '') };
+}
+
+// 写词结果补上大腿以上和正面。负面排除全身和脚。
+function uprightSpriteCaption(caption) {
+    const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
+    const neg = caption && caption.v4_negative_prompt && caption.v4_negative_prompt.caption;
+    if (!pos || !neg) return caption;
+    const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
+    const ucs = Array.isArray(neg.char_captions) ? neg.char_captions : [];
+    const nextChars = chars.map((item) => ({
+        ...(item && typeof item === 'object' ? item : {}),
+        char_caption: mergeTags(item && item.char_caption, UPRIGHT_POSITIVE),
+    }));
+    const nextUcs = (ucs.length ? ucs : nextChars.map(() => ({ char_caption: '' }))).map((item) => ({
+        ...(item && typeof item === 'object' ? item : {}),
+        char_caption: mergeTags(item && item.char_caption, UPRIGHT_NEGATIVE),
+    }));
+    return {
+        ...caption,
+        v4_prompt: {
+            ...caption.v4_prompt,
+            caption: {
+                ...pos,
+                base_caption: chars.length ? pos.base_caption : mergeTags(pos.base_caption, UPRIGHT_POSITIVE),
+                char_captions: nextChars,
+            },
+        },
+        v4_negative_prompt: {
+            ...caption.v4_negative_prompt,
+            caption: {
+                ...neg,
+                base_caption: mergeTags(neg.base_caption, UPRIGHT_NEGATIVE),
+                char_captions: chars.length ? nextUcs : ucs,
+            },
+        },
+    };
+}
+
+// 待确认服装：只写这一套衣服的生图标签，不写出图。
+function buildWardrobeClothingDescription(_character, outfitName) {
+    const outfit = String(outfitName || '').trim();
+    return [
+        `为服装「${outfit}」写一份生图用的服装提示词。`,
+        '一定要注意：生成的是一套衣服，而不是角色，没有角色。',
+        '这是一整套穿着，从上到下写完整：头上、上身、下身、腿和脚，以及配套的饰品。不要只写其中一件。',
+        '每件都写清款式、颜色和材质。',
+        '不要写人，不要写表情、姿势、背景。',
+        '只写一份，slotid 为 1。',
+    ].join('\n');
+}
+function buildDbgenAssetDescription(need = {}) {
+    const when = [need.time, need.weather].filter(Boolean).join('、');
+    if (need.type === 'sprite') {
+        return [
+            `画角色「${need.name || ''}」的立绘。`,
+            '角色外貌与服装依据正文补充。无背景，透明底。',
+        ].join('\n');
+    }
+    if (need.type === 'background') {
+        return [
+            `画场景「${need.name || ''}」${when ? `（${when}）` : ''}的背景图。`,
+            '地点陈设、光线与氛围依据楼层正文补充。',
+        ].join('\n');
+    }
+    return '';
 }
 
 // 正面：插件内容在前、前端正向模板追加在后，并去掉与前端负面冲突的标签；
@@ -33155,8 +33979,210 @@ function applyUserPromptsToCaption(caption, prompts = {}) {
 __igsDefine(exports, "splitTags", () => splitTags);
 __igsDefine(exports, "tagKey", () => tagKey);
 __igsDefine(exports, "mergeTags", () => mergeTags);
+__igsDefine(exports, "buildExpressionDiffDescription", () => buildExpressionDiffDescription);
+__igsDefine(exports, "expressionSpritePrompts", () => expressionSpritePrompts);
+__igsDefine(exports, "uprightSpriteCaption", () => uprightSpriteCaption);
+__igsDefine(exports, "buildWardrobeClothingDescription", () => buildWardrobeClothingDescription);
 __igsDefine(exports, "buildDbgenAssetDescription", () => buildDbgenAssetDescription);
 __igsDefine(exports, "applyUserPromptsToCaption", () => applyUserPromptsToCaption);
+});
+__igsRegister("src/generated-images/generation-prompt.js", function(module, exports, require) {
+// 出图时实际交给模型的正负提示词。只存文本，不存密钥和整份请求体。
+
+function sideText(node) {
+    const cap = node && node.caption && typeof node.caption === 'object' ? node.caption : {};
+    const base = String(cap.base_caption || '').trim();
+    const chars = (Array.isArray(cap.char_captions) ? cap.char_captions : [])
+        .map((item) => String(item && item.char_caption || '').trim())
+        .filter(Boolean);
+    return [base, ...chars].filter(Boolean).join('\n');
+}
+
+function captionSide(node) {
+    const cap = node && node.caption && typeof node.caption === 'object' ? node.caption : null;
+    if (!cap) return null;
+    const chars = (Array.isArray(cap.char_captions) ? cap.char_captions : [])
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => {
+            const text = String(item.char_caption || '');
+            const centers = (Array.isArray(item.centers) ? item.centers : [])
+                .filter((point) => point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)))
+                .map((point) => ({ x: Number(point.x), y: Number(point.y) }));
+            return centers.length ? { char_caption: text, centers } : { char_caption: text };
+        });
+    return { base_caption: String(cap.base_caption || ''), char_captions: chars };
+}
+
+function normalizeCaption(caption) {
+    if (!caption || typeof caption !== 'object') return null;
+    const positive = captionSide(caption.v4_prompt);
+    const negative = captionSide(caption.v4_negative_prompt);
+    if (!positive || !negative) return null;
+    const hasText = positive.base_caption.trim()
+        || negative.base_caption.trim()
+        || positive.char_captions.some((item) => item.char_caption.trim())
+        || negative.char_captions.some((item) => item.char_caption.trim());
+    if (!hasText) return null;
+    return {
+        v4_prompt: { caption: positive },
+        v4_negative_prompt: { caption: negative },
+    };
+}
+
+function coordText(chars) {
+    const point = (Array.isArray(chars) ? chars : [])
+        .map((item) => (item && Array.isArray(item.centers) ? item.centers[0] : null))
+        .find((item) => item && Number.isFinite(item.x) && Number.isFinite(item.y));
+    if (!point) return '';
+    return `${Number(point.x).toFixed(2)}, ${Number(point.y).toFixed(2)}`;
+}
+
+function formatCaptionText(caption) {
+    const positive = caption.v4_prompt.caption;
+    const negative = caption.v4_negative_prompt.caption;
+    const blocks = [];
+    const scene = ['场景'];
+    if (positive.base_caption.trim()) scene.push(`正面：${positive.base_caption.trim()}`);
+    if (negative.base_caption.trim()) scene.push(`负面：${negative.base_caption.trim()}`);
+    if (scene.length > 1) blocks.push(scene.join('\n'));
+    const count = Math.max(positive.char_captions.length, negative.char_captions.length);
+    for (let i = 0; i < count; i += 1) {
+        const charPositive = positive.char_captions[i] || { char_caption: '' };
+        const charNegative = negative.char_captions[i] || { char_caption: '' };
+        const lines = [`角色${i + 1}`];
+        if (String(charPositive.char_caption || '').trim()) lines.push(`正面：${String(charPositive.char_caption).trim()}`);
+        if (String(charNegative.char_caption || '').trim()) lines.push(`负面：${String(charNegative.char_caption).trim()}`);
+        const at = coordText([charPositive, charNegative]);
+        if (at) lines.push(`位置：${at}`);
+        if (lines.length > 1) blocks.push(lines.join('\n'));
+    }
+    return blocks.join('\n\n');
+}
+function promptFromCaption(caption) {
+    if (!caption || typeof caption !== 'object') return null;
+    const positive = sideText(caption.v4_prompt);
+    const negative = sideText(caption.v4_negative_prompt);
+    const structured = normalizeCaption(caption);
+    if (!positive && !negative && !structured) return null;
+    return structured ? { positive, negative, caption: structured } : { positive, negative };
+}
+function promptFromText(positive, negative) {
+    const pos = String(positive || '').trim();
+    const neg = String(negative || '').trim();
+    if (!pos && !neg) return null;
+    return { positive: pos, negative: neg };
+}
+function promptFromNaiBody(body) {
+    if (!body || typeof body !== 'object') return null;
+    const parameters = body.parameters && typeof body.parameters === 'object' ? body.parameters : {};
+    return promptFromCaption({
+        v4_prompt: parameters.v4_prompt,
+        v4_negative_prompt: parameters.v4_negative_prompt,
+    }) || promptFromText(body.input, parameters.negative_prompt);
+}
+function normalizeStoredPrompt(value) {
+    if (!value || typeof value !== 'object') return null;
+    const positive = String(value.positive || '').trim();
+    const negative = String(value.negative || '').trim();
+    const caption = normalizeCaption(value.caption);
+    if (!positive && !negative && !caption) return null;
+    return caption ? { positive, negative, caption } : { positive, negative };
+}
+function formatStoredPrompt(prompt) {
+    const value = normalizeStoredPrompt(prompt);
+    if (!value) return '';
+    if (value.caption) {
+        const structured = formatCaptionText(value.caption);
+        if (structured) return structured;
+    }
+    return `正面\n${value.positive || '（空）'}\n\n负面\n${value.negative || '（空）'}`;
+}
+
+const EDIT_FIELD_RE = /^(slotid|scene|scene_uc|char|char_uc)\s*:\s*(.*)$/i;
+
+function formatCaptionFields(caption) {
+    const pos = caption.v4_prompt.caption;
+    const neg = caption.v4_negative_prompt.caption;
+    const lines = ['slotid: 1'];
+    if (pos.base_caption.trim()) lines.push(`scene: ${pos.base_caption.trim()}`);
+    if (neg.base_caption.trim()) lines.push(`scene_uc: ${neg.base_caption.trim()}`);
+    const count = Math.max(pos.char_captions.length, neg.char_captions.length);
+    for (let i = 0; i < count; i += 1) {
+        const item = pos.char_captions[i] || { char_caption: '' };
+        const uc = neg.char_captions[i] || { char_caption: '' };
+        const center = Array.isArray(item.centers) ? item.centers[0] : null;
+        const x = center && Number.isFinite(Number(center.x)) ? Number(center.x) : 0.5;
+        const y = center && Number.isFinite(Number(center.y)) ? Number(center.y) : 0.5;
+        const text = String(item.char_caption || '').trim();
+        const negative = String(uc.char_caption || '').trim();
+        if (text) lines.push(`char: ${x},${y} | ${text}`);
+        if (negative) lines.push(`char_uc: ${negative}`);
+    }
+    return lines.join('\n');
+}
+
+// 单张立绘的提示词编辑框：有结构就按插件字段展示，改完还能按原结构重画。
+function formatEditablePrompt(prompt) {
+    const value = normalizeStoredPrompt(prompt);
+    if (!value) return '';
+    if (value.caption) {
+        const fields = formatCaptionFields(value.caption);
+        if (fields) return fields;
+    }
+    const lines = [];
+    if (value.positive) lines.push(`scene: ${value.positive}`);
+    if (value.negative) lines.push(`scene_uc: ${value.negative}`);
+    return lines.join('\n');
+}
+function parseEditablePrompt(text) {
+    const raw = String(text || '').replace(/\r\n/g, '\n').trim();
+    if (!raw) return null;
+    const lines = raw.split('\n');
+    if (!lines.some((line) => EDIT_FIELD_RE.test(line.trim()))) return promptFromText(raw, '');
+    let scene = '';
+    let sceneUc = '';
+    const chars = [];
+    const ucs = [];
+    for (const line of lines) {
+        const match = EDIT_FIELD_RE.exec(line.trim());
+        if (!match) continue;
+        const key = match[1].toLowerCase();
+        const body = match[2].trim();
+        if (key === 'scene') scene = body;
+        else if (key === 'scene_uc') sceneUc = body;
+        else if (key === 'char') {
+            const parts = body.split('|');
+            let x = 0.5;
+            let y = 0.5;
+            let captionText = body;
+            if (parts.length >= 2) {
+                const coords = parts[0].trim().split(',');
+                const nx = Number(coords[0]);
+                const ny = Number(coords[1]);
+                if (Number.isFinite(nx) && Number.isFinite(ny)) {
+                    x = nx;
+                    y = ny;
+                    captionText = parts.slice(1).join('|').trim();
+                }
+            }
+            chars.push({ char_caption: captionText, centers: [{ x, y }] });
+        } else if (key === 'char_uc') ucs.push({ char_caption: body });
+    }
+    const count = Math.max(chars.length, ucs.length);
+    while (ucs.length < count) ucs.push({ char_caption: '' });
+    return promptFromCaption({
+        v4_prompt: { caption: { base_caption: scene, char_captions: chars } },
+        v4_negative_prompt: { caption: { base_caption: sceneUc, char_captions: ucs.slice(0, count) } },
+    });
+}
+
+__igsDefine(exports, "promptFromCaption", () => promptFromCaption);
+__igsDefine(exports, "promptFromText", () => promptFromText);
+__igsDefine(exports, "promptFromNaiBody", () => promptFromNaiBody);
+__igsDefine(exports, "normalizeStoredPrompt", () => normalizeStoredPrompt);
+__igsDefine(exports, "formatStoredPrompt", () => formatStoredPrompt);
+__igsDefine(exports, "formatEditablePrompt", () => formatEditablePrompt);
+__igsDefine(exports, "parseEditablePrompt", () => parseEditablePrompt);
 });
 __igsRegister("src/generated-images/chatu8-client.js", function(module, exports, require) {
 // 智绘姬（st-chatu8）出图桥。
@@ -33321,6 +34347,8 @@ const ORIGINAL_READER_ICONS = Object.freeze({
     assets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="9" cy="7" r="3.2"/><path d="M3.5 20v-1.5A4.5 4.5 0 0 1 8 14h2"/><path d="M13 20l3.2-4.2 2 2.5 1.3-1.6L22 20z"/><path d="M18 4v5M15.5 6.5h5"/></svg>',
     regen: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M4 16l4.5-4.5a1.5 1.5 0 0 1 2.1 0L16 17"/><path d="M14 15l1.5-1.5a1.5 1.5 0 0 1 2.1 0L20 16"/><path d="M18.5 2.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor"/></svg>',
     clearCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 10v6M14 10v6"/></svg>',
+    clearFloorCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 10v6M14 10v6"/><path d="M4 3h16"/></svg>',
+    rerollCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M12 8v5l3 2"/></svg>',
     rescan: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>',
     save: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
     settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 5 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 5a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.4.6.8 1 1 .3.2.7.3 1.1.3H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>',
@@ -33344,7 +34372,9 @@ const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'last-page', group: 'nav', title: '最后一页', html: ORIGINAL_READER_ICONS.lastPage },
     { id: 'next-turn', group: 'nav', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
     { id: 'regen', group: 'create', title: '绘制 CG', html: ORIGINAL_READER_ICONS.regen },
+    { id: 'reroll-cg', group: 'create', title: '重画这张（提示词不变，只重画当前这一张）', html: ORIGINAL_READER_ICONS.rerollCg },
     { id: 'clear-cg', group: 'create', title: '清扫当前 CG', html: ORIGINAL_READER_ICONS.clearCg },
+    { id: 'clear-floor-cg', group: 'create', title: '清扫本楼（删掉本楼全部 CG 和挂载点，不重新出图）', html: ORIGINAL_READER_ICONS.clearFloorCg },
     { id: 'generate-assets', group: 'create', title: '补全立绘与背景', html: ORIGINAL_READER_ICONS.assets },
     { id: 'fill-item-images', group: 'create', title: '补全物品图', html: ITEM_CG_ICONS.fillItemImages },
     { id: 'cg-gallery', group: 'create', title: 'CG 库', html: ITEM_CG_ICONS.cgGallery },
@@ -33505,10 +34535,11 @@ ${TOAST_THEME_STYLE_TEXT}
 @media (max-width:640px){#igs-toast{top:calc(env(safe-area-inset-top,0px) + 56px);min-width:0;width:max-content;max-width:calc(100% - 24px);padding:8px 14px;}}
 #igs-overlay.igs-floating-mobile #igs-toast{top:calc(env(safe-area-inset-top,0px) + 56px);min-width:0;width:max-content;max-width:calc(100% - 24px);padding:8px 14px;}
 /* 楼层内嵌：容器固定高度、不可拖动、不锁页面滚动，全部层约束在容器内。 */
-.igs-embedded-host{position:relative;display:block;width:100%;margin:8px 0;border-radius:8px;overflow:hidden;isolation:isolate;background:#16181a;}
+.igs-embedded-host{position:relative;display:block;width:100%;margin:8px 0;border-radius:8px;overflow:hidden;isolation:isolate;background:#16181a;overscroll-behavior:auto;touch-action:pan-y;}
+.igs-parallel-blocks{display:block;width:100%;margin:8px 0 0;position:relative;}
 .igs-embedded-root{position:relative;width:100%;height:100%;overflow:hidden;}
 .igs-embedded-host[data-igs-embedded-loading="1"]{display:flex;align-items:center;justify-content:center;}
-#igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;}
+#igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;overscroll-behavior:auto;touch-action:pan-y;}
 .igs-mode-embedded .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;height:auto;min-height:0;max-height:calc(100% - 28px);transform:none;display:flex;flex-direction:column;overflow:hidden;padding:9px 18px 14px;}
 .igs-mode-embedded .igs-dialog[data-igs-narration="1"]{padding-top:14px;}
 .igs-mode-embedded .igs-text{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;}
@@ -35150,10 +36181,12 @@ const STAGE_DIRECTION_STYLE_TEXT = `
 #igs-overlay[data-igs-sd-breathe] #igs-sprite:not(.igs-sprite-editing){transform-origin:var(--igs-sd-origin-x,50%) 100%;animation:igs-sd-breathe 4.6s ease-in-out infinite;}
 #igs-overlay[data-igs-sd-kenburns] #igs-bg{animation:igs-sd-kenburns 34s ease-in-out infinite alternate;}
 #igs-overlay[data-igs-sd-parallax] #igs-bg{scale:1.03;translate:calc(var(--igs-sd-px,0) * -9px) calc(var(--igs-sd-py,0) * -6px);transition:translate .6s cubic-bezier(.2,.7,.3,1),scale .8s ease;}
-#igs-overlay[data-igs-sd-parallax] #igs-sprite:not(.igs-sprite-editing){--igs-sd-tx:calc(var(--igs-sd-px,0) * -18px);--igs-sd-ty:calc(var(--igs-sd-py,0) * -7px);transition:translate .6s cubic-bezier(.2,.7,.3,1),scale .8s cubic-bezier(.3,.7,.2,1);}
-#igs-overlay #igs-sprite{transition:scale .8s cubic-bezier(.3,.7,.2,1),translate 1.2s cubic-bezier(.3,.7,.2,1);}
+#igs-overlay[data-igs-sd-parallax] #igs-sprite:not(.igs-sprite-editing){--igs-sd-tx:calc(var(--igs-sd-px,0) * -18px);--igs-sd-ty:calc(var(--igs-sd-py,0) * -7px);transition:translate .6s cubic-bezier(.2,.7,.3,1);}
+#igs-overlay #igs-sprite{transition:translate 1.2s cubic-bezier(.3,.7,.2,1);}
 #igs-overlay #igs-sprite:not(.igs-sprite-editing){scale:min(1.3,calc(var(--igs-sd-closeup-scale,1) * var(--igs-rm-scale,1)));translate:calc(var(--igs-sd-tx,0px) + var(--igs-rm-dx,0%)) var(--igs-sd-ty,0px);}
 #igs-overlay #igs-bg{transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1);}
+#igs-overlay[data-igs-cg] #igs-bg,#igs-stage-motion[data-igs-cg] #igs-bg{animation:none!important;scale:1;}
+#igs-overlay[data-igs-cg] #igs-bg-blur,#igs-stage-motion[data-igs-cg] #igs-bg-blur{display:none!important;opacity:0!important;}
 #igs-overlay[data-igs-sd-closeup] #igs-sprite:not(.igs-sprite-editing){--igs-sd-closeup-scale:1.12;transform-origin:var(--igs-sd-origin-x,50%) 28%;}
 #igs-overlay[data-igs-sd-closeup] #igs-bg{scale:1.06;}
 #igs-overlay[data-igs-quality="low"][data-igs-sd-breathe] #igs-sprite:not(.igs-sprite-editing),#igs-overlay[data-igs-quality="low"][data-igs-sd-kenburns] #igs-bg,#igs-overlay[data-igs-quality="low"] #igs-stage-motion[data-igs-rm-breathe] #igs-sprite:not(.igs-sprite-editing){animation:none;}
@@ -35193,7 +36226,7 @@ const ROMANCE_STYLE_TEXT = `
 #igs-stage-motion[data-igs-rm-backlight] .igs-rm-backlight{opacity:var(--igs-rm-backlight,0);visibility:visible;transition-delay:0s;}
 #igs-stage-motion[data-igs-rm-glow]:not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) blur(var(--igs-rm-bg-blur,0px)) saturate(1.06) var(--igs-grade-bg,)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) blur(var(--igs-rm-bg-blur,0px)) saturate(1.06) var(--igs-grade-bg,)!important;transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1),filter 1.6s ease;animation-play-state:paused;}
 #igs-stage-motion[data-igs-rm-glow]:not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg-blur{display:block;}
-#igs-stage-motion[data-igs-rm-level] #igs-sprite:not(.igs-sprite-editing){transition:scale 1.6s cubic-bezier(.3,.7,.2,1),translate 1.6s cubic-bezier(.3,.7,.2,1);}
+#igs-stage-motion[data-igs-rm-level] #igs-sprite:not(.igs-sprite-editing){transition:translate 1.6s cubic-bezier(.3,.7,.2,1);}
 #igs-stage-motion[data-igs-rm-approach] #igs-sprite:not(.igs-sprite-editing){transform-origin:var(--igs-rm-origin-x,50%) var(--igs-rm-origin-y,28%);}
 #igs-stage-motion[data-igs-rm-breathe] #igs-sprite:not(.igs-sprite-editing){animation:igs-rm-breathe 5.4s ease-in-out infinite;}
 #igs-stage-motion[data-igs-rm-shade] #igs-sprite::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:inherit;background-size:inherit;background-position:inherit;background-repeat:no-repeat;filter:brightness(0);-webkit-filter:brightness(0);}
@@ -37437,19 +38470,14 @@ __igsDefine(exports, "getChatRevealState", () => getChatRevealState);
 __igsDefine(exports, "CHAT_LAYER_STYLE_TEXT", () => CHAT_LAYER_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/sprite-outfit-swap.js", function(module, exports, require) {
-const { prefersReducedMotion } = require("src/visual/igs-ui/reduced-motion.js");
 const IN_CLASS = 'igs-sprite-outfit-in';
 const GHOST_ID = 'igs-sprite-ghost';
-const SWAP_MS = 460;
 
-// 换装转场：旧立绘留一层残影压暗下沉淡出，新立绘从暗处上浮淡入。只在同一角色换装时播放，换表情、换人不播。
+// 同一人换装不再淡入淡出。函数保留给旧调用，阅读器不再播放。
 // 新立绘的关键帧只写起点，终点回到内联样式（旁白压暗等滤镜不被动画结束态覆盖）。
 const SPRITE_OUTFIT_SWAP_STYLE_TEXT = `
-#${GHOST_ID}{pointer-events:none;background-repeat:no-repeat;z-index:2;animation:igs-outfit-out 340ms cubic-bezier(.4,0,.8,.4) forwards;}
-#igs-sprite.${IN_CLASS}{animation:igs-outfit-in 420ms cubic-bezier(.2,.7,.2,1) backwards;}
-@keyframes igs-outfit-out{from{opacity:1;}to{opacity:0;filter:brightness(.45) saturate(.7);translate:0 2%;}}
-@keyframes igs-outfit-in{0%{opacity:0;filter:brightness(.4) saturate(.6);translate:0 1.5%;}35%{opacity:.4;}}
-@media (prefers-reduced-motion: reduce){#${GHOST_ID}{display:none;}#igs-sprite.${IN_CLASS}{animation:none;}}
+#${GHOST_ID}{display:none;}
+#igs-sprite.${IN_CLASS}{animation:none;}
 `.trim();
 function spriteLookOf(content, url) {
     const c = content || {};
@@ -37471,32 +38499,8 @@ function clearSpriteOutfitSwap(spriteEl) {
 }
 
 // 必须在写入新立绘之前调用：残影复制的是旧立绘此刻的内联样式（图片、缩放、位置）。
-function playSpriteOutfitSwap(spriteEl, options = {}) {
-    clearSpriteOutfitSwap(spriteEl);
-    const reduced = options.reducedMotion != null ? options.reducedMotion : prefersReducedMotion();
-    const doc = spriteEl && spriteEl.ownerDocument;
-    const parent = spriteEl && spriteEl.parentNode;
-    if (reduced || !doc || !parent || typeof doc.createElement !== 'function') return false;
-    try {
-        const ghost = doc.createElement('div');
-        ghost.id = GHOST_ID;
-        ghost.setAttribute('aria-hidden', 'true');
-        ghost.style.cssText = spriteEl.style.cssText || '';
-        parent.insertBefore(ghost, spriteEl);
-        spriteEl.classList.remove(IN_CLASS);
-        void spriteEl.offsetWidth;
-        spriteEl.classList.add(IN_CLASS);
-        const token = (Number(spriteEl.igsOutfitSwapToken) || 0) + 1;
-        spriteEl.igsOutfitSwapToken = token;
-        const timer = options.setTimeout || (doc.defaultView && doc.defaultView.setTimeout) || globalThis.setTimeout;
-        // 连续翻页时只让最后一次转场的计时器收尾，旧计时器不提前掐掉新转场。
-        const handle = timer(() => { if (spriteEl.igsOutfitSwapToken === token) clearSpriteOutfitSwap(spriteEl); }, SWAP_MS);
-        if (handle && typeof handle.unref === 'function') handle.unref();
-        return true;
-    } catch (error) {
-        clearSpriteOutfitSwap(spriteEl);
-        return false;
-    }
+function playSpriteOutfitSwap() {
+    return false;
 }
 
 __igsDefine(exports, "spriteLookOf", () => spriteLookOf);
@@ -37805,6 +38809,9 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-sprite-thumb{width:72px;height:72px;flex-shrink:0;object-fit:contain;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-paper);border:0;cursor:zoom-in}
 .igs-sprite-thumb-empty{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--igs-settings-ink-4);cursor:default}
 .igs-sprite-thumb-broken{position:relative}
+.igs-expression-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;padding:6px 4px 10px}
+.igs-expression-cell{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.igs-expression-actions{display:flex;flex-wrap:wrap;gap:4px}
  .igs-status-avatar-row{justify-content:flex-start;gap:8px}
  .igs-status-avatar-row .igs-btn-mgr-label{flex:0 0 auto}
  .igs-status-avatar-thumb{width:28px;height:28px;flex-shrink:0;border-radius:50%;object-fit:cover;background:var(--igs-settings-paper);overflow:hidden}
@@ -37868,6 +38875,11 @@ const SETTINGS_NOTICE_MS = 6000;
 const SAVE_FAILURE_REASONS = new Set(['save-failed', 'generated-asset-persist-failed', 'legacy-storage-write-failed', 'store-write-failed']);
 const SETTINGS_NOTICE_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-notice{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:3;max-width:min(520px,calc(100% - 48px));padding:10px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-danger,#c0392b);color:#fff;font-size:13px;line-height:1.5;pointer-events:auto;}
+#igs-unified-settings .igs-settings-shell>.igs-settings-progress{position:static;left:auto;right:auto;bottom:auto;transform:none;z-index:2;flex:0 0 auto;width:auto;max-width:none;margin:0;padding:10px 16px 12px;border-radius:0;background:var(--igs-settings-accent,#2f5f78);color:var(--igs-settings-on-accent,#fff);font-size:13px;line-height:1.4;pointer-events:none}
+#igs-unified-settings .igs-settings-progress-track{height:6px;margin-top:8px;border-radius:999px;background:rgba(255,255,255,.28);overflow:hidden}
+#igs-unified-settings .igs-settings-progress-fill{height:100%;width:0;border-radius:999px;background:#fff}
+#igs-unified-settings .igs-settings-progress.is-writing .igs-settings-progress-fill{width:38%;animation:igs-settings-progress-slide 1s ease-in-out infinite}
+@keyframes igs-settings-progress-slide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 `;
 function isQuotaError(error) {
     if (!error) return false;
@@ -37914,7 +38926,95 @@ const SETTINGS_BUSY_LABELS = Object.freeze({
     'fetch-image-models': '拉取中…',
 });
 function settingsBusyLabel(action) {
-    return SETTINGS_BUSY_LABELS[String(action || '')] || '';
+    const name = String(action || '');
+    if (SETTINGS_BUSY_LABELS[name]) return SETTINGS_BUSY_LABELS[name];
+    if (/^(?:char|outfit)-expression-retry:/.test(name)) return '生成中…';
+    return '';
+}
+
+// 表情差分写词和逐张出图都要几分钟。进度条挂在设置层上，面板重绘前一直看得见。
+function showSettingsProgress(container, progress) {
+    if (!container || typeof container.querySelector !== 'function') return null;
+    const host = container.id === 'igs-unified-settings'
+        ? container
+        : (container.querySelector('#igs-unified-settings') || container);
+    const existing = host.querySelector('.igs-settings-progress');
+    if (!progress || !progress.text) {
+        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        return null;
+    }
+    const doc = host.ownerDocument;
+    if ((!existing) && (!doc || typeof doc.createElement !== 'function')) return null;
+    const shell = host.querySelector('.igs-settings-shell');
+    const parent = shell || host;
+    const el = existing || doc.createElement('div');
+    const writing = progress.indeterminate === true;
+    el.className = `igs-settings-progress${writing ? ' is-writing' : ''}`;
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    let textEl = el.querySelector('.igs-settings-progress-text');
+    let track = el.querySelector('.igs-settings-progress-track');
+    let fill = el.querySelector('.igs-settings-progress-fill');
+    if (!textEl || !track || !fill) {
+        textEl = doc.createElement('div');
+        textEl.className = 'igs-settings-progress-text';
+        track = doc.createElement('div');
+        track.className = 'igs-settings-progress-track';
+        track.setAttribute('aria-hidden', 'true');
+        fill = doc.createElement('div');
+        fill.className = 'igs-settings-progress-fill';
+        if (fill.style) fill.style.width = '0%';
+        track.appendChild(fill);
+        el.appendChild(textEl);
+        el.appendChild(track);
+    }
+    textEl.textContent = progress.text;
+    const ratio = writing ? 0 : Math.max(0, Math.min(1, Number(progress.ratio) || 0));
+    fill.setAttribute('data-ratio', String(ratio));
+    if (fill.style) fill.style.width = writing ? '' : `${Math.round(ratio * 100)}%`;
+    pinSettingsProgress(el, track, fill);
+    if (el.parentNode !== parent) parent.appendChild(el);
+    if (progress.button) {
+        const busy = host.querySelector('[aria-busy="true"]');
+        if (busy) busy.textContent = progress.button;
+    }
+    return el;
+}
+
+function pinSettingsProgress(el, track, fill) {
+    const bar = el && el.style;
+    if (bar) {
+        bar.position = 'static';
+        bar.left = 'auto';
+        bar.right = 'auto';
+        bar.bottom = 'auto';
+        bar.transform = 'none';
+        bar.width = '100%';
+        bar.maxWidth = 'none';
+        bar.boxSizing = 'border-box';
+        bar.flex = '0 0 auto';
+        bar.margin = '0';
+        bar.padding = '10px 16px 12px';
+        bar.borderRadius = '0';
+        bar.background = '#2f5f78';
+        bar.color = '#fff';
+        bar.fontSize = '13px';
+        bar.lineHeight = '1.4';
+        bar.zIndex = '2';
+    }
+    if (track && track.style) {
+        track.style.height = '6px';
+        track.style.marginTop = '8px';
+        track.style.borderRadius = '999px';
+        track.style.background = 'rgba(255,255,255,.28)';
+        track.style.overflow = 'hidden';
+    }
+    if (fill && fill.style) {
+        fill.style.height = '100%';
+        fill.style.display = 'block';
+        fill.style.background = '#fff';
+        fill.style.borderRadius = '999px';
+    }
 }
 function markSettingsButtonBusy(button, label) {
     if (!button || !label) return () => {};
@@ -37935,6 +39035,7 @@ __igsDefine(exports, "describeSaveError", () => describeSaveError);
 __igsDefine(exports, "describeSettingsFailure", () => describeSettingsFailure);
 __igsDefine(exports, "remountSettingsNotice", () => remountSettingsNotice);
 __igsDefine(exports, "settingsBusyLabel", () => settingsBusyLabel);
+__igsDefine(exports, "showSettingsProgress", () => showSettingsProgress);
 __igsDefine(exports, "markSettingsButtonBusy", () => markSettingsButtonBusy);
 __igsDefine(exports, "SETTINGS_NOTICE_MS", () => SETTINGS_NOTICE_MS);
 __igsDefine(exports, "SETTINGS_NOTICE_STYLE_TEXT", () => SETTINGS_NOTICE_STYLE_TEXT);
@@ -37943,8 +39044,11 @@ __igsRegister("src/visual/igs-ui/settings-dialog.js", function(module, exports, 
 // 设置面板内的确认条与输入框，替代浏览器原生 confirm / prompt。
 // 面板重绘会整体替换 innerHTML，挂起的对话记在控制器里，由 remount 在重绘后补回（含输入框里已打的字）。
 const SETTINGS_DIALOG_STYLE_TEXT = `
-#igs-unified-settings .igs-settings-dialog{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:4;box-sizing:border-box;width:min(480px,calc(100% - 32px));padding:14px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);color:var(--igs-settings-ink);border:1px solid var(--igs-settings-line-strong);display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+#igs-unified-settings .igs-settings-dialog{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:6;box-sizing:border-box;width:min(480px,calc(100% - 32px));padding:14px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);color:var(--igs-settings-ink);border:1px solid var(--igs-settings-line-strong);display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+#igs-unified-settings .igs-settings-dialog.is-view,#igs-unified-settings .igs-settings-dialog.is-edit{width:min(640px,calc(100% - 32px))}
+#igs-unified-settings .igs-settings-dialog-text{width:100%;min-height:220px;max-height:min(46vh,320px);box-sizing:border-box;resize:vertical;padding:8px 10px;border:0;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);color:var(--igs-settings-ink);font:inherit;font-size:12px;line-height:1.5}
 #igs-unified-settings .igs-settings-dialog-msg{font-size:13px;line-height:1.6;white-space:pre-line;word-break:break-word}
+#igs-unified-settings .igs-settings-dialog-msg.is-scroll{max-height:min(50vh,360px);overflow:auto;white-space:pre-wrap}
 #igs-unified-settings .igs-settings-dialog .igs-settings-field{margin:0}
 #igs-unified-settings .igs-settings-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
 #igs-unified-settings .igs-settings-dialog-actions [data-settings-dialog="ok"]{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
@@ -37953,6 +39057,15 @@ const SETTINGS_DIALOG_STYLE_TEXT = `
 function nativeFallback(globalObj) {
     return (kind, message, value) => {
         if (kind === 'confirm') return globalObj && typeof globalObj.confirm === 'function' ? Boolean(globalObj.confirm(message)) : true;
+        if (kind === 'view') {
+            if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
+            return true;
+        }
+        if (kind === 'edit') {
+            if (!globalObj || typeof globalObj.prompt !== 'function') return null;
+            const edited = globalObj.prompt(message, value);
+            return edited == null ? null : String(edited);
+        }
         if (!globalObj || typeof globalObj.prompt !== 'function') return null;
         const answer = globalObj.prompt(message, value);
         return answer == null ? null : String(answer);
@@ -37988,21 +39101,23 @@ function createSettingsDialogs({ getContainer = () => null, global: globalObj = 
         const doc = host.ownerDocument;
         if (!doc || typeof doc.createElement !== 'function') return null;
         const el = doc.createElement('div');
-        el.className = 'igs-settings-dialog';
+        el.className = entry.kind === 'view' || entry.kind === 'edit'
+            ? `igs-settings-dialog is-${entry.kind}`
+            : 'igs-settings-dialog';
         el.setAttribute('role', entry.kind === 'confirm' ? 'alertdialog' : 'dialog');
         el.setAttribute('aria-modal', 'true');
-        el.setAttribute('aria-label', entry.message);
+        el.setAttribute('aria-label', entry.kind === 'view' || entry.kind === 'edit' ? '生图提示词' : entry.message);
         const msg = doc.createElement('div');
-        msg.className = 'igs-settings-dialog-msg';
+        msg.className = entry.kind === 'view' ? 'igs-settings-dialog-msg is-scroll' : 'igs-settings-dialog-msg';
         msg.textContent = entry.message;
         el.appendChild(msg);
         let input = null;
-        if (entry.kind === 'prompt') {
+        if (entry.kind === 'prompt' || entry.kind === 'edit') {
             const wrap = doc.createElement('label');
             wrap.className = 'igs-settings-field';
-            input = doc.createElement('input');
-            input.type = 'text';
-            input.className = 'igs-settings-dialog-input';
+            input = doc.createElement(entry.kind === 'edit' ? 'textarea' : 'input');
+            if (entry.kind === 'prompt') input.type = 'text';
+            input.className = entry.kind === 'edit' ? 'igs-settings-dialog-text' : 'igs-settings-dialog-input';
             input.setAttribute('aria-label', entry.message);
             input.value = entry.value;
             input.addEventListener('input', () => { entry.value = input.value; });
@@ -38011,7 +39126,8 @@ function createSettingsDialogs({ getContainer = () => null, global: globalObj = 
         }
         const actions = doc.createElement('div');
         actions.className = 'igs-settings-dialog-actions';
-        for (const [role, label] of [['cancel', entry.cancelLabel], ['ok', entry.okLabel]]) {
+        const buttons = entry.kind === 'view' ? [['ok', entry.okLabel]] : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
+        for (const [role, label] of buttons) {
             const btn = doc.createElement('button');
             btn.type = 'button';
             btn.className = 'igs-settings-action';
@@ -38033,7 +39149,7 @@ function createSettingsDialogs({ getContainer = () => null, global: globalObj = 
                 event.preventDefault();
                 event.stopPropagation();
                 settle(entry, cancelValue(entry));
-            } else if (event.key === 'Enter' && !event.isComposing && (input ? event.target === input : true)) {
+            } else if (event.key === 'Enter' && !entry.multiline && !event.isComposing && (input ? event.target === input : true)) {
                 event.preventDefault();
                 event.stopPropagation();
                 accept();
@@ -38070,8 +39186,9 @@ function createSettingsDialogs({ getContainer = () => null, global: globalObj = 
                 kind,
                 message: String(message == null ? '' : message),
                 value: String(value == null ? '' : value),
-                okLabel: labels.okLabel || '确定',
+                okLabel: labels.okLabel || (kind === 'edit' ? '保存' : '确定'),
                 cancelLabel: labels.cancelLabel || '取消',
+                multiline: kind === 'edit',
                 resolve,
                 el: null,
             };
@@ -38086,6 +39203,8 @@ function createSettingsDialogs({ getContainer = () => null, global: globalObj = 
     return {
         confirm: (message, labels) => open('confirm', message, '', labels),
         prompt: (message, value = '', labels) => open('prompt', message, value, labels),
+        view: (message, labels) => open('view', message, '', { okLabel: '关闭', ...labels }),
+        edit: (message, value = '', labels) => open('edit', message, value, { okLabel: '保存', ...labels }),
         remount(container) {
             const el = mount(container || getContainer());
             if (!el && pending) settle(pending, cancelValue(pending));
@@ -38432,6 +39551,7 @@ const SCENE_SETTINGS_SUBTAB_DEFS = Object.freeze([
 const SCENE_SUBTAB_DEFS = Object.freeze([
     ['scenes', '场景素材'],
     ['characters', '角色立绘'],
+    ['wardrobe', '衣柜'],
     ['generated', '生成素材'],
 ]);
 const IMAGE_SUBTAB_DEFS = Object.freeze([
@@ -38575,7 +39695,6 @@ function findEmbeddedHost(doc) {
 }
 function ensureEmbeddedHost(parent, doc, hostRef) {
     if (!parent || !doc || typeof doc.createElement !== 'function') return null;
-    if (hostRef && hostRef.parentNode === parent) return hostRef;
     let host = hostRef;
     if (!host) {
         host = doc.createElement('div');
@@ -38585,11 +39704,171 @@ function ensureEmbeddedHost(parent, doc, hostRef) {
     }
     const children = parent.children ? Array.from(parent.children) : [];
     const mesText = children.find((node) => node && node.classList && node.classList.contains('mes_text'));
-    const mesIndex = mesText ? children.indexOf(mesText) : -1;
-    const next = mesIndex >= 0 ? children[mesIndex + 1] : null;
-    if (next && next !== host && typeof parent.insertBefore === 'function') parent.insertBefore(host, next);
+    if (mesText && mesText !== host && typeof parent.insertBefore === 'function') parent.insertBefore(host, mesText);
     else if (host.parentNode !== parent && typeof parent.appendChild === 'function') parent.appendChild(host);
     return host;
+}
+
+// 正文行和 gal 读原文一样：保留标签里的每一行。
+function storyLines(raw, includeTags = 'content') {
+    const tags = String(includeTags || 'content')
+        .split(/[\n,，]+/)
+        .map((tag) => tag.trim().replace(/^<+/, '').replace(/^\/+/, '').replace(/>+$/, '').replace(/\/+$/, '').trim())
+        .filter(Boolean);
+    const parts = [];
+    const source = String(raw || '');
+    for (const tag of tags) {
+        const regex = new RegExp(`<${escapeRegExp(tag)}(?=[\\s/>])[^>]*>([\\s\\S]*?)<\\/${escapeRegExp(tag)}>`, 'gi');
+        let match = null;
+        while ((match = regex.exec(source)) !== null) parts.push(match[1] || '');
+    }
+    return parts.join('\n').split(/\n+/).map((line) => line.trim()).filter(Boolean);
+}
+function storyEdgeLines(raw, includeTags = 'content') {
+    const lines = storyLines(raw, includeTags);
+    if (!lines.length) return null;
+    return { first: lines[0], last: lines[lines.length - 1] };
+}
+
+// 按正文行的顺序在渲染文本里往前对。页面上没有的行（例如 [igs-img:3]）跳过。
+// 从第一句对上的位置藏到最后一句对上的位置。一句都对不上就不藏。
+function findStorySpan(text, firstOrLines, lastSentence) {
+    const lines = Array.isArray(firstOrLines)
+        ? firstOrLines
+        : [firstOrLines, lastSentence].filter((line) => String(line || '').trim());
+    const folded = compactWithMap(String(text || ''));
+    if (!folded.text) return null;
+    let cursor = 0;
+    let start = -1;
+    let end = -1;
+    for (const line of lines) {
+        const needle = collapseSpace(line);
+        if (!needle) continue;
+        const at = folded.text.indexOf(needle, cursor);
+        if (at < 0) continue;
+        if (start < 0) start = at;
+        end = at + needle.length;
+        cursor = end;
+    }
+    if (start < 0 || end <= 0 || end > folded.map.length) return null;
+    return { start: folded.map[start], end: folded.map[end - 1] + 1 };
+}
+
+const STORY_HIDDEN_ATTR = 'data-igs-story-hidden';
+function isStoryHidden(mesText) {
+    return Boolean(mesText && typeof mesText.querySelector === 'function' && mesText.querySelector(`[${STORY_HIDDEN_ATTR}="1"]`));
+}
+const BLANK_SHELL_ATTR = 'data-igs-blank-shell';
+const UI_SHELL = 'img,svg,canvas,video,button,input,select,textarea,iframe,.TH-render';
+function hideStorySpan(mesText, firstSentence, lastSentence) {
+    if (!mesText) return false;
+    restoreStorySpan(mesText);
+    const span = findStorySpan(mesText.textContent || '', firstSentence, lastSentence);
+    if (!span) return false;
+    const doc = mesText.ownerDocument;
+    if (!doc || typeof doc.createRange !== 'function' || typeof doc.createElement !== 'function') return false;
+    const startPoint = pointAt(mesText, span.start);
+    const endPoint = pointAt(mesText, span.end);
+    if (!startPoint || !endPoint) return false;
+    const range = doc.createRange();
+    range.setStart(startPoint.node, startPoint.offset);
+    range.setEnd(endPoint.node, endPoint.offset);
+    const hidden = doc.createElement('span');
+    hidden.setAttribute(STORY_HIDDEN_ATTR, '1');
+    if (hidden.style) hidden.style.display = 'none';
+    hidden.appendChild(range.extractContents());
+    range.insertNode(hidden);
+    collapseBlankShells(mesText);
+    return true;
+}
+
+// 正文抽走后，原来的段落壳还在，里面没有字也会占高度。界面块留下。
+function collapseBlankShells(mesText) {
+    if (!mesText || !mesText.children) return;
+    for (const node of Array.from(mesText.children)) {
+        if (!isBlankShell(node)) continue;
+        node.setAttribute(BLANK_SHELL_ATTR, '1');
+        setDisplayStyle(node.style, 'none', 'important');
+    }
+}
+function restoreBlankShells(mesText) {
+    if (!mesText || typeof mesText.querySelectorAll !== 'function') return;
+    for (const node of Array.from(mesText.querySelectorAll(`[${BLANK_SHELL_ATTR}="1"]`))) {
+        restoreDisplayStyle(node.style, '', '');
+        node.removeAttribute(BLANK_SHELL_ATTR);
+    }
+}
+
+function isBlankShell(node) {
+    if (!node || node.nodeType === 3) return false;
+    if (typeof node.getAttribute === 'function' && (node.getAttribute(STORY_HIDDEN_ATTR) === '1' || node.getAttribute(BLANK_SHELL_ATTR) === '1')) return false;
+    const cls = String(node.className || '');
+    if (cls.split(/\s+/).includes('TH-render')) return false;
+    if (node.shadowRoot) return false;
+    if (typeof node.querySelector === 'function' && node.querySelector(UI_SHELL)) return false;
+    return !String(node.textContent || '').replace(/\s+/g, '');
+}
+function restoreStorySpan(mesText) {
+    if (!mesText || typeof mesText.querySelectorAll !== 'function') return;
+    restoreBlankShells(mesText);
+    const nodes = Array.from(mesText.querySelectorAll(`[${STORY_HIDDEN_ATTR}="1"]`));
+    for (const node of nodes) {
+        const parent = node.parentNode;
+        if (!parent) continue;
+        while (node.firstChild) parent.insertBefore(node.firstChild, node);
+        if (typeof node.remove === 'function') node.remove();
+        else if (typeof parent.removeChild === 'function') parent.removeChild(node);
+    }
+}
+
+const PARALLEL_CONTROL = 'button,input,select,textarea';
+
+// 正文之外、正则已经换成界面的块：里面有按钮或输入框。剧情原文没有这些控件。
+function isParallelBlock(node) {
+    if (!node || node.nodeType === 3) return false;
+    const tag = String(node.tagName || node.nodeName || '').toLowerCase();
+    if (tag === 'button' || tag === 'input' || tag === 'select' || tag === 'textarea') return true;
+    return typeof node.querySelector === 'function' && Boolean(node.querySelector(PARALLEL_CONTROL));
+}
+
+// 把这些界面从被隐藏的原文里挪到 gal 窗口后面，原节点原样移动，点击仍由酒馆正则处理。
+function liftParallelBlocks(mesText, host, previous) {
+    if (!mesText || !host || !host.parentNode) return previous || null;
+    const doc = mesText.ownerDocument;
+    if (!doc || typeof doc.createElement !== 'function') return previous || null;
+    const nodes = Array.from(mesText.children || []).filter(isParallelBlock);
+    if (!nodes.length) return previous || null;
+    let holder = previous && previous.holder;
+    if (!holder || holder.parentNode !== host.parentNode) {
+        holder = doc.createElement('div');
+        holder.className = 'igs-parallel-blocks';
+        holder.setAttribute('data-igs-parallel-blocks', '1');
+        const after = host.nextSibling;
+        if (after && typeof host.parentNode.insertBefore === 'function') host.parentNode.insertBefore(holder, after);
+        else host.parentNode.appendChild(holder);
+    }
+    const placements = previous && Array.isArray(previous.placements) ? previous.placements.slice() : [];
+    for (const node of nodes) {
+        placements.push({ node, next: node.nextSibling || null });
+        holder.appendChild(node);
+    }
+    return { holder, placements, mesText };
+}
+function restoreParallelBlocks(record) {
+    if (!record || !record.mesText) return;
+    const mesText = record.mesText;
+    for (const item of record.placements || []) {
+        if (!item || !item.node || item.node.parentNode !== record.holder) continue;
+        if (item.next && item.next.parentNode === mesText && typeof mesText.insertBefore === 'function') mesText.insertBefore(item.node, item.next);
+        else if (typeof mesText.appendChild === 'function') mesText.appendChild(item.node);
+    }
+    const holder = record.holder;
+    if (!holder) return;
+    if (typeof holder.remove === 'function') holder.remove();
+    else if (holder.parentNode && Array.isArray(holder.parentNode.children)) {
+        holder.parentNode.children = holder.parentNode.children.filter((child) => child !== holder);
+        holder.parentNode = null;
+    }
 }
 function hideEmbeddedSourceText(mesText) {
     if (!mesText || typeof mesText.setAttribute !== 'function') return;
@@ -38620,6 +39899,52 @@ function restoreEmbeddedSourceText(mesText) {
     mesText.removeAttribute(PREVIOUS_DISPLAY_ATTR);
     mesText.removeAttribute(PREVIOUS_DISPLAY_PRIORITY_ATTR);
     mesText.removeAttribute(PREVIOUS_ARIA_ATTR);
+}
+
+function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function collapseSpace(value) {
+    return String(value || '').replace(/\s+/g, '');
+}
+
+function compactWithMap(text) {
+    const compact = [];
+    const map = [];
+    for (let index = 0; index < text.length; index += 1) {
+        if (/\s/.test(text[index])) continue;
+        compact.push(text[index]);
+        map.push(index);
+    }
+    return { text: compact.join(''), map };
+}
+
+function collectTextNodes(root) {
+    const nodes = [];
+    const visit = (node) => {
+        if (!node) return;
+        if (node.nodeType === 3) {
+            nodes.push(node);
+            return;
+        }
+        const list = node.childNodes ? Array.from(node.childNodes) : [];
+        for (const child of list) visit(child);
+    };
+    visit(root);
+    return nodes;
+}
+
+function pointAt(root, offset) {
+    const nodes = collectTextNodes(root);
+    let cursor = 0;
+    for (const node of nodes) {
+        const value = String(node.nodeValue != null ? node.nodeValue : node.textContent || '');
+        const next = cursor + value.length;
+        if (offset <= next) return { node, offset: Math.max(0, offset - cursor) };
+        cursor = next;
+    }
+    return null;
 }
 
 function readDisplayValue(style) {
@@ -38675,6 +40000,17 @@ function resolveHostEditFinish(target, messageId) {
 __igsDefine(exports, "resolveEmbeddedHostParent", () => resolveEmbeddedHostParent);
 __igsDefine(exports, "findEmbeddedHost", () => findEmbeddedHost);
 __igsDefine(exports, "ensureEmbeddedHost", () => ensureEmbeddedHost);
+__igsDefine(exports, "storyLines", () => storyLines);
+__igsDefine(exports, "storyEdgeLines", () => storyEdgeLines);
+__igsDefine(exports, "findStorySpan", () => findStorySpan);
+__igsDefine(exports, "isStoryHidden", () => isStoryHidden);
+__igsDefine(exports, "hideStorySpan", () => hideStorySpan);
+__igsDefine(exports, "collapseBlankShells", () => collapseBlankShells);
+__igsDefine(exports, "restoreBlankShells", () => restoreBlankShells);
+__igsDefine(exports, "restoreStorySpan", () => restoreStorySpan);
+__igsDefine(exports, "isParallelBlock", () => isParallelBlock);
+__igsDefine(exports, "liftParallelBlocks", () => liftParallelBlocks);
+__igsDefine(exports, "restoreParallelBlocks", () => restoreParallelBlocks);
 __igsDefine(exports, "hideEmbeddedSourceText", () => hideEmbeddedSourceText);
 __igsDefine(exports, "restoreEmbeddedSourceText", () => restoreEmbeddedSourceText);
 __igsDefine(exports, "isEmbeddedEditTrigger", () => isEmbeddedEditTrigger);
@@ -39729,11 +41065,13 @@ function clearChildren(node) {
 }
 function ensureStyleTag(doc, id, text) {
     if (!doc || !doc.head) return;
-    if (doc.getElementById(id)) return;
-    const style = doc.createElement('style');
-    style.id = id;
-    style.textContent = text;
-    doc.head.appendChild(style);
+    let style = doc.getElementById(id);
+    if (!style) {
+        style = doc.createElement('style');
+        style.id = id;
+        doc.head.appendChild(style);
+    }
+    if (style.textContent !== text) style.textContent = text;
 }
 function unmountNode(node) {
     if (node && node.remove) {
@@ -40050,22 +41388,25 @@ function normalizeSpriteLayouts(value) {
 }
 function resolveSpriteLayout(layouts, mode, character, mood, outfit = '') {
     const def = { posX: 50, posY: 100, scale: 100 };
+    const modeLayout = layouts && layouts[mode];
+    const scale = modeLayout && Number.isFinite(Number(modeLayout.scale)) ? Number(modeLayout.scale) : def.scale;
+    const placed = (layout) => ({ posX: layout.posX, posY: layout.posY, scale });
     if (!layouts) return def;
     if (character) {
         const identity = spriteIdentity(character, outfit);
-        // 服装先查自身位置；未调过时回落到角色整体位置，不借用原有立绘的单表情位置。
+        // 服装先查自身位置；未调过时回落到角色整体位置，不借用原有立绘的单表情位置。比例只认当前模式的那一个。
         if (identity !== character) {
-            if (mood && layouts[`${mode}::${identity}::${mood}`]) return layouts[`${mode}::${identity}::${mood}`];
-            if (layouts[`${mode}::${identity}`]) return layouts[`${mode}::${identity}`];
+            if (mood && layouts[`${mode}::${identity}::${mood}`]) return placed(layouts[`${mode}::${identity}::${mood}`]);
+            if (layouts[`${mode}::${identity}`]) return placed(layouts[`${mode}::${identity}`]);
         } else if (mood) {
             const moodKey = `${mode}::${character}::${mood}`;
-            if (layouts[moodKey]) return layouts[moodKey];
+            if (layouts[moodKey]) return placed(layouts[moodKey]);
         }
         const charKey = `${mode}::${character}`;
-        if (layouts[charKey]) return layouts[charKey];
+        if (layouts[charKey]) return placed(layouts[charKey]);
     }
-    if (layouts[mode]) return layouts[mode];
-    return def;
+    if (modeLayout) return placed(modeLayout);
+    return { ...def, scale };
 }
 function resolveActiveTheme(snapshot) {
     const readerSettings = snapshot.readerSettings || {};
@@ -40718,7 +42059,7 @@ __igsRegister("src/visual/igs-ui/sprite-edit.js", function(module, exports, requ
 const { resolveSpriteLayout } = require("src/visual/igs-ui/settings-normalize.js");
 const { spriteIdentity } = require("src/scene/character-outfits.js");
 const { igsDebug } = require("src/visual/igs-ui/reader-value-utils.js");
-const { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteHeadKey } = require("src/visual/igs-ui/fx-anchor.js");
+const { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteDrawRect, spriteHeadKey } = require("src/visual/igs-ui/fx-anchor.js");
 const { startHeadEdit } = require("src/visual/igs-ui/sprite-head-edit.js");
 const MAIN_BAR = '<span class="igs-se-hint">拖动调整，滚轮/双指缩放</span>'
     + '<button data-se="head" type="button">标定头部</button>'
@@ -40745,11 +42086,11 @@ function spriteUrlOf(spriteEl) {
 // 让立绘跟手移动；可移动量不足 1px 时该轴百分比不影响画面，保持不变。读不到原图比例时纵向沿用旧换算。
 function spriteDragPosition({ posX, posY, dx, dy, stageW, stageH, scale, naturalW, naturalH }) {
     const axis = (pos, delta, movable) => (Number.isFinite(movable) && Math.abs(movable) >= 1 ? pos + delta / movable * 100 : pos);
-    const drawW = stageW * scale / 100;
-    const aspect = naturalW > 0 && naturalH > 0 ? naturalH / naturalW : 0;
+    const rect = naturalW > 0 && naturalH > 0 ? spriteDrawRect(stageW, stageH, { posX, posY, scale, naturalW, naturalH }) : null;
+    const drawW = rect ? rect.w : stageW * scale / 100;
     const nextX = stageW > 0 ? axis(posX, dx, stageW - drawW) : posX;
     let nextY = posY;
-    if (stageH > 0) nextY = aspect ? axis(posY, dy, stageH - drawW * aspect) : posY + dy / stageH * 100;
+    if (stageH > 0) nextY = rect ? axis(posY, dy, stageH - rect.h) : posY + dy / stageH * 100;
     return { posX: nextX, posY: nextY };
 }
 function enterSpriteEditMode(overlay, current, ctx = {}) {
@@ -40841,7 +42182,7 @@ function enterSpriteEditMode(overlay, current, ctx = {}) {
     }
 
     function apply() {
-        spriteEl.style.backgroundSize = `${scale}%`;
+        spriteEl.style.backgroundSize = spriteBackgroundSize(scale);
         spriteEl.style.backgroundPosition = `${posX}% ${posY}%`;
     }
     apply();
@@ -40940,6 +42281,12 @@ function exitSpriteEditMode(overlay, current, save, ctx = {}) {
             : { readerSettings: {} };
         const layouts = { ...(unified.readerSettings.spriteLayouts || {}) };
         const value = { posX: save.posX, posY: save.posY, scale: save.scale };
+        const prevMode = layouts[em.mode];
+        layouts[em.mode] = {
+            posX: prevMode && Number.isFinite(Number(prevMode.posX)) ? Number(prevMode.posX) : 50,
+            posY: prevMode && Number.isFinite(Number(prevMode.posY)) ? Number(prevMode.posY) : 100,
+            scale: save.scale,
+        };
         if (!em.character) {
             layouts[em.mode] = value;
         } else {
@@ -40985,7 +42332,7 @@ function exitSpriteEditMode(overlay, current, save, ctx = {}) {
     } else {
         if (spriteEl) Object.assign(spriteEl.style, em.origSpriteStyle);
         if (em.orig && spriteEl) {
-            spriteEl.style.backgroundSize = `${em.orig.scale}%`;
+            spriteEl.style.backgroundSize = spriteBackgroundSize(em.orig.scale);
             spriteEl.style.backgroundPosition = `${em.orig.posX}% ${em.orig.posY}%`;
         }
     }
@@ -41131,7 +42478,7 @@ __igsDefine(exports, "startHeadEdit", () => startHeadEdit);
 });
 __igsRegister("src/visual/igs-ui/cast-slot-edit.js", function(module, exports, require) {
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
-const { peekSpriteHead, probeSpriteHead } = require("src/visual/igs-ui/fx-anchor.js");
+const { peekSpriteHead, probeSpriteHead, spriteBackgroundSize } = require("src/visual/igs-ui/fx-anchor.js");
 const { enterSpriteEditMode, spriteDragPosition } = require("src/visual/igs-ui/sprite-edit.js");
 const SCALE_MIN = -500;
 const SCALE_MAX = 500;
@@ -41157,7 +42504,7 @@ function renderBar(work, selected) {
 
 function paint(el, value) {
     if (!el) return;
-    el.style.backgroundSize = `${value.scale}%`;
+    el.style.backgroundSize = spriteBackgroundSize(value.scale);
     el.style.backgroundPosition = `${value.posX}% ${value.posY}%`;
 }
 
@@ -41204,9 +42551,11 @@ function enterCastSlotEdit(overlay, current, ctx = {}) {
         paint(targetEl(overlay, w), w.cur);
     };
     const zoom = (factor) => {
-        const w = work[selected];
-        w.cur.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, w.cur.scale * factor));
-        touch(w);
+        for (const person of work) {
+            person.cur.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, person.cur.scale * factor));
+            person.scaleDirty = true;
+            paint(targetEl(overlay, person), person.cur);
+        }
     };
     mark();
 
@@ -41293,7 +42642,9 @@ function exitCastSlotEdit(overlay, current, save, ctx = {}) {
     const mode = current.snapshot && current.snapshot.mode;
     const unified = typeof ctx.resolveUnifiedSettings === 'function' ? ctx.resolveUnifiedSettings({ mode }) : { readerSettings: {} };
     const layouts = { ...((unified.readerSettings && unified.readerSettings.castSlotLayouts) || {}) };
+    const patch = {};
     let changed = false;
+    let scale = null;
     for (const w of em.work) {
         if (w.reset) {
             delete layouts[w.key];
@@ -41302,8 +42653,20 @@ function exitCastSlotEdit(overlay, current, save, ctx = {}) {
             layouts[w.key] = { posX: w.cur.posX, posY: w.cur.posY, scale: w.cur.scale };
             changed = true;
         }
+        if (w.scaleDirty) scale = w.cur.scale;
     }
-    if (changed && typeof ctx.saveReaderSettingsPatch === 'function') ctx.saveReaderSettingsPatch({ castSlotLayouts: layouts });
+    if (changed) patch.castSlotLayouts = layouts;
+    if (scale != null && mode) {
+        const spriteLayouts = { ...((unified.readerSettings && unified.readerSettings.spriteLayouts) || {}) };
+        const prev = spriteLayouts[mode] || { posX: 50, posY: 100, scale: 100 };
+        spriteLayouts[mode] = {
+            posX: Number.isFinite(Number(prev.posX)) ? Number(prev.posX) : 50,
+            posY: Number.isFinite(Number(prev.posY)) ? Number(prev.posY) : 100,
+            scale,
+        };
+        patch.spriteLayouts = spriteLayouts;
+    }
+    if (Object.keys(patch).length && typeof ctx.saveReaderSettingsPatch === 'function') ctx.saveReaderSettingsPatch(patch);
 }
 
 __igsDefine(exports, "enterCastSlotEdit", () => enterCastSlotEdit);
@@ -48282,6 +49645,7 @@ const { DEFAULT_VIRTUAL_REGEX } = require("src/scene/message-source.js");
 const { cloneData } = require("src/visual/igs-ui/reader-value-utils.js");
 const { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } = require("src/visual/igs-ui/reader-host-constants.js");
 const { findDbgenApi } = require("src/generated-images/image-backend.js");
+const { formatEditablePrompt, formatStoredPrompt, normalizeStoredPrompt, parseEditablePrompt } = require("src/generated-images/generation-prompt.js");
 const { getNextSettingsTheme, normalizeSettingsTheme } = require("src/visual/igs-ui/settings-theme.js");
 const { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } = require("src/scene/mood-groups.js");
 const { loadScenePresets, saveScenePresets, saveActiveScenePresetName } = require("src/scene/scene-preset-store.js");
@@ -48303,12 +49667,15 @@ const { applyWorldview, resolveWorldview } = require("src/scene/worldview.js");
 const { normalizeBgmSettings } = require("src/visual/igs-ui/scene-audio.js");
 const { normalizeSpriteHeads } = require("src/visual/igs-ui/fx-anchor.js");
 const { formatImageJobLogText } = require("src/generated-images/image-job-log.js");
-const { addGeneratedAssetToLibrary, collectGeneratedImageIds, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, transferGeneratedLibraryEntry } = require("src/scene/asset-match.js");
+const { addGeneratedAssetToLibrary, bindGeneratedSprite, collectGeneratedImageIds, generatedAssetIdOf, isGeneratedAssetUrl, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, setGeneratedExpressionNote, transferGeneratedLibraryEntry } = require("src/scene/asset-match.js");
+const { resolveCharacterDna } = require("src/scene/character-dna.js");
+const { resolveCharacterKey } = require("src/scene/scene-directives.js");
 const { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } = require("src/scene/character-dna.js");
 const { handleOutfitAction } = require("src/visual/igs-ui/settings-outfit-actions.js");
+const { markSettingsButtonBusy, showSettingsProgress } = require("src/visual/igs-ui/settings-notice.js");
 const { createSettingsDialogs } = require("src/visual/igs-ui/settings-dialog.js");
 const { SETTINGS_SECTIONS, buildSettingsExport, parseSettingsImport, resetSettingsSection, settingsExportFileName } = require("src/visual/igs-ui/settings-sections.js");
-const { normalizeCharacterOutfits, renameOutfitScene } = require("src/scene/character-outfits.js");const { migrateSpriteKeys } = require("src/visual/igs-ui/sprite-key-migration.js");
+const { normalizeCharacterOutfits, normalizeWardrobe, renameOutfitScene, resolveWardrobePrompt } = require("src/scene/character-outfits.js");const { migrateSpriteKeys } = require("src/visual/igs-ui/sprite-key-migration.js");
 const { NAI_OFFICIAL_MODELS } = require("src/generated-images/request-builders/nai-v4-builder.js");
 const { ASSET_FOLDER_KINDS, addAssetFolder, forgetAssetItem, loadAssetFolders, moveAssetToFolder, removeAssetFolder, renameAssetFolder, renameAssetItem, saveAssetFolders, setAssetView, toggleAssetFolder } = require("src/visual/igs-ui/asset-folders.js");
 const { mergeDefaultBackgrounds } = require("src/backgrounds/merge-default-backgrounds.js");
@@ -48395,6 +49762,131 @@ function forgetAssetFolderItem(settingsState, options, kind, name) {
     const { storage, scope } = assetFolderScope(settingsState, options);
     const state = loadAssetFolders(storage, scope);
     if (Object.prototype.hasOwnProperty.call(state[kind].assign, name)) saveAssetFolders(storage, scope, forgetAssetItem(state, kind, name));
+}
+
+function installGeneratedCharacter(sceneAssets, name, replace = false) {
+    const library = normalizeGeneratedLibrary(sceneAssets.generated);
+    const bound = bindGeneratedSprite(sceneAssets, name, library.characters[name] && library.characters[name]['默认'], { replace });
+    if (!bound.ok) return bound;
+    sceneAssets.characters = bound.characters;
+    sceneAssets.characterAliases = bound.characterAliases;
+    return bound;
+}
+
+function characterExpressionDna(sceneAssets, name) {
+    const hit = resolveCharacterDna(
+        sceneAssets.characterDna,
+        name,
+        (raw) => resolveCharacterKey(sceneAssets.characters || {}, sceneAssets.characterAliases || {}, raw) || '',
+    );
+    return hit ? hit.dna : null;
+}
+
+function expressionNoteKey(name, outfit) {
+    return outfit ? `${name}\u0001${outfit}` : name;
+}
+
+function firstGeneratedOutfitUrl(entry) {
+    const moods = entry && entry.moods && typeof entry.moods === 'object' ? entry.moods : {};
+    for (const url of Object.values(moods)) {
+        const text = String(url || '').trim();
+        if (isGeneratedAssetUrl(text)) return text;
+    }
+    return '';
+}
+
+function clearExpressionNote(library, key, mood) {
+    if (!library.expressionNotes[key]) return library;
+    const notes = { ...library.expressionNotes[key] };
+    delete notes[mood];
+    if (Object.keys(notes).length) library.expressionNotes[key] = notes;
+    else delete library.expressionNotes[key];
+    return library;
+}
+
+function applyCharacterExpression(sceneAssets, name, item) {
+    const characters = { ...(sceneAssets.characters || {}) };
+    const current = { ...(characters[name] || {}) };
+    let library = normalizeGeneratedLibrary(sceneAssets.generated);
+    if (item && item.ok && item.imageId) {
+        current[item.mood] = `igs-gen:${item.imageId}`;
+        library = clearExpressionNote(library, name, item.mood);
+    } else {
+        if (!Object.prototype.hasOwnProperty.call(current, item.mood)) current[item.mood] = '';
+        const noted = setGeneratedExpressionNote(library, name, item.mood, {
+            positive: item && item.prompt ? item.prompt.positive : '',
+            negative: item && item.prompt ? item.prompt.negative : '',
+            error: (item && item.error) || '出图失败',
+            caption: item && item.caption,
+        });
+        if (noted.ok) library = noted.library;
+    }
+    characters[name] = current;
+    sceneAssets.characters = characters;
+    sceneAssets.generated = library;
+}
+
+function settingsProgressHost(globalObj) {
+    const doc = globalObj && globalObj.document;
+    return doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-unified-settings') : null;
+}
+
+function reportExpressionProgress(globalObj, event) {
+    const host = settingsProgressHost(globalObj);
+    if (!host || !event) return;
+    const total = Math.max(0, Number(event.total) || 0);
+    const done = Math.max(0, Number(event.done) || 0);
+    const writing = event.phase === 'write';
+    showSettingsProgress(host, {
+        text: writing
+            ? '写词'
+            : `${done}/${total} ${event.mood || ''}`.trim(),
+        ratio: writing || !total ? 0 : done / total,
+        indeterminate: writing,
+        button: writing ? '写词' : `${done}/${total}`,
+    });
+}
+
+function clearExpressionProgress(globalObj) {
+    const host = settingsProgressHost(globalObj);
+    if (host) showSettingsProgress(host, null);
+}
+
+function markExpressionActionBusy(globalObj, action) {
+    const host = settingsProgressHost(globalObj);
+    const button = host && typeof host.querySelector === 'function'
+        ? host.querySelector(`[data-action="${action}"]`)
+        : null;
+    return markSettingsButtonBusy(button, '写词');
+}
+
+function applyOutfitExpression(sceneAssets, name, outfitName, item) {
+    const mood = item && item.mood;
+    if (!mood || mood === '默认') return;
+    const all = { ...(sceneAssets.characterOutfits || {}) };
+    const outfits = { ...(all[name] || {}) };
+    const entry = { ...(outfits[outfitName] || { words: [], moods: {} }) };
+    const moods = { ...(entry.moods && typeof entry.moods === 'object' ? entry.moods : {}) };
+    const noteKey = expressionNoteKey(name, outfitName);
+    let library = normalizeGeneratedLibrary(sceneAssets.generated);
+    if (item.ok && item.imageId) {
+        moods[mood] = `igs-gen:${item.imageId}`;
+        library = clearExpressionNote(library, noteKey, mood);
+    } else {
+        if (!Object.prototype.hasOwnProperty.call(moods, mood)) moods[mood] = '';
+        const noted = setGeneratedExpressionNote(library, noteKey, mood, {
+            positive: item && item.prompt ? item.prompt.positive : '',
+            negative: item && item.prompt ? item.prompt.negative : '',
+            error: (item && item.error) || '出图失败',
+            caption: item && item.caption,
+        });
+        if (noted.ok) library = noted.library;
+    }
+    entry.moods = moods;
+    outfits[outfitName] = entry;
+    all[name] = outfits;
+    sceneAssets.characterOutfits = all;
+    sceneAssets.generated = library;
 }
 
 function persistGeneratedLibrary(persistSettingsDraft) {
@@ -48693,6 +50185,7 @@ async function handleSettingsAction(action, ctx) {
         const added = addGeneratedAssetToLibrary(previousLibrary, record, name);
         if (!added.ok) return rerenderSettings();
         sceneAssets.generated = added.library;
+        if (record.type !== 'background') installGeneratedCharacter(sceneAssets, added.name);
         const persisted = persistGeneratedLibrary(persistSettingsDraft);
         if (operationFailed(persisted)) {
             if (!restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDraft)) {
@@ -48724,6 +50217,216 @@ async function handleSettingsAction(action, ctx) {
         }
         try { return await options.openMatteEditor(imageId); }
         catch (error) { return generatedOperationFailure(globalObj, '打开抠图修复编辑器失败。', 'matte-editor-open-failed'); }
+    }
+
+    if (normalizedAction.startsWith('gen-asset-prompt:')) {
+        const imageId = decodeSeg(normalizedAction.slice('gen-asset-prompt:'.length));
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        if (!imageId || !service || typeof service.getImagePrompt !== 'function') {
+            return generatedOperationFailure(globalObj, '找不到这份素材的生图提示词。', 'generated-asset-prompt-unavailable');
+        }
+        let prompt = null;
+        try {
+            prompt = await service.getImagePrompt(imageId);
+        } catch (error) {
+            prompt = null;
+        }
+        const text = formatStoredPrompt(prompt) || '这条素材没有保存生图提示词。';
+        if (typeof dialogs.view === 'function') await dialogs.view(text);
+        else if (typeof globalObj.alert === 'function') globalObj.alert(text);
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('gen-adopt-sprite:')) {
+        const name = decodeSeg(normalizedAction.slice('gen-adopt-sprite:'.length));
+        const globalObj = options.global || globalThis;
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const adopted = installGeneratedCharacter(sceneAssets, name, true);
+        if (!adopted.ok) return generatedOperationFailure(globalObj, '这份生成立绘没有可绑定的图片。', 'generated-sprite-adopt-failed');
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        if (operationFailed(persisted)) return persisted;
+        const boundMessage = `已把这张图设为「${adopted.name}」的默认立绘。`;
+        if (globalObj.toastr && typeof globalObj.toastr.success === 'function') globalObj.toastr.success(boundMessage, 'IGS');
+        return rerenderSettings();
+    }
+
+    if (/^(?:char|outfit)-expression-prompt:/.test(normalizedAction)) {
+        const outfitMode = normalizedAction.startsWith('outfit-expression-prompt:');
+        const prefix = outfitMode ? 'outfit-expression-prompt:' : 'char-expression-prompt:';
+        const parts = normalizedAction.slice(prefix.length).split(':').map(decodeSeg);
+        const name = parts[0] || '';
+        const outfitName = outfitMode ? (parts[1] || '') : '';
+        const mood = parts[outfitMode ? 2 : 1] || '';
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const character = (sceneAssets.characters || {})[name];
+        const outfitEntry = outfitMode ? (((sceneAssets.characterOutfits || {})[name] || {})[outfitName]) : null;
+        if (!name || !mood || !character || (outfitMode && !outfitEntry)) return rerenderSettings();
+        if (typeof dialogs.edit !== 'function') {
+            return generatedOperationFailure(globalObj, '提示词编辑当前不可用。', 'expression-prompt-unavailable');
+        }
+        const slotUrl = outfitMode ? String((outfitEntry.moods || {})[mood] || '') : String(character[mood] || '');
+        const imageId = generatedAssetIdOf(slotUrl);
+        const library = normalizeGeneratedLibrary(sceneAssets.generated);
+        const note = (library.expressionNotes[expressionNoteKey(name, outfitName)] || {})[mood];
+        let prompt = null;
+        if (imageId && service && typeof service.getImagePrompt === 'function') {
+            try { prompt = await service.getImagePrompt(imageId); } catch (error) { prompt = null; }
+        }
+        if (!prompt && note) prompt = normalizeStoredPrompt(note);
+        const text = formatEditablePrompt(prompt);
+        if (!text) return generatedOperationFailure(globalObj, '这张立绘没有保存提示词。', 'expression-prompt-missing');
+        const edited = await dialogs.edit('这张立绘的提示词', text);
+        if (edited == null) return rerenderSettings();
+        const next = parseEditablePrompt(edited);
+        if (!next) return generatedOperationFailure(globalObj, '提示词是空的。', 'expression-prompt-empty');
+        if (imageId && service && typeof service.saveImagePrompt === 'function') {
+            let saved;
+            try { saved = await service.saveImagePrompt(imageId, next); }
+            catch (error) { saved = { ok: false, error: '提示词没存上。' }; }
+            if (!saved || !saved.ok) {
+                return generatedOperationFailure(globalObj, (saved && saved.error) || '提示词没存上。', 'expression-prompt-save-failed');
+            }
+        } else {
+            const noted = setGeneratedExpressionNote(library, expressionNoteKey(name, outfitName), mood, {
+                positive: next.positive,
+                negative: next.negative,
+                error: (note && note.error) || '',
+                caption: next.caption,
+            });
+            if (!noted.ok) return generatedOperationFailure(globalObj, '提示词没存上。', 'expression-prompt-save-failed');
+            sceneAssets.generated = noted.library;
+            const persisted = persistGeneratedLibrary(persistSettingsDraft);
+            if (operationFailed(persisted)) return persisted;
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('gen-expression-prompt:')) {
+        const rest = normalizedAction.slice('gen-expression-prompt:'.length);
+        const colon = rest.indexOf(':');
+        const name = decodeSeg(colon < 0 ? rest : rest.slice(0, colon));
+        const mood = decodeSeg(colon < 0 ? '' : rest.slice(colon + 1));
+        const globalObj = options.global || globalThis;
+        const bridge = settingsState.draft.bridge || {};
+        const note = (((bridge.sceneAssets || {}).generated || {}).expressionNotes || {})[name];
+        const item = note && note[mood];
+        const text = formatStoredPrompt(item) || '这条表情没有保存生图提示词。';
+        if (typeof dialogs.view === 'function') await dialogs.view(text);
+        else if (typeof globalObj.alert === 'function') globalObj.alert(text);
+        return rerenderSettings();
+    }
+
+    if (/^(?:char|outfit)-expression-(?:set|retry):/.test(normalizedAction)) {
+        const outfitMode = normalizedAction.startsWith('outfit-expression-');
+        const retry = normalizedAction.includes('-expression-retry:');
+        const prefix = `${outfitMode ? 'outfit' : 'char'}-expression-${retry ? 'retry' : 'set'}:`;
+        const parts = normalizedAction.slice(prefix.length).split(':').map(decodeSeg);
+        const name = parts[0] || '';
+        const outfitName = outfitMode ? (parts[1] || '') : '';
+        const mood = retry ? (parts[outfitMode ? 2 : 1] || '') : '';
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+        const character = (sceneAssets.characters || {})[name];
+        const outfitEntry = outfitMode ? (((sceneAssets.characterOutfits || {})[name] || {})[outfitName]) : null;
+        if (!name || !character || (outfitMode && !outfitEntry)) return rerenderSettings();
+        if (!service || typeof service.generateExpressionSet !== 'function' || typeof service.getImagePrompt !== 'function') {
+            return generatedOperationFailure(globalObj, '表情差分当前不可用。', 'expression-unavailable');
+        }
+        const labels = normalizeMoodGroups(sceneAssets.moodGroups).map((group) => group.label);
+        const ownUrl = outfitMode ? firstGeneratedOutfitUrl(outfitEntry) : '';
+        const baseUrl = ownUrl || String(character['默认'] || '');
+        const defaultId = generatedAssetIdOf(baseUrl);
+        let basePrompt = null;
+        try { basePrompt = defaultId ? await service.getImagePrompt(defaultId) : null; }
+        catch (error) { basePrompt = null; }
+        if (!basePrompt) {
+            const originId = generatedAssetIdOf(String(character['默认'] || ''));
+            if (originId && originId !== defaultId) {
+                try { basePrompt = await service.getImagePrompt(originId); }
+                catch (error) { basePrompt = null; }
+            }
+        }
+        const library = normalizeGeneratedLibrary(sceneAssets.generated);
+        const noteKey = expressionNoteKey(name, outfitName);
+        const note = retry ? (library.expressionNotes[noteKey] || {})[mood] : null;
+        let savedCaption = note && note.caption;
+        if (retry && !savedCaption) {
+            const slotUrl = outfitMode ? String((outfitEntry.moods || {})[mood] || '') : String((character || {})[mood] || '');
+            const slotId = generatedAssetIdOf(slotUrl);
+            if (slotId) {
+                try {
+                    const saved = await service.getImagePrompt(slotId);
+                    if (saved && saved.caption) savedCaption = saved.caption;
+                    else if (saved && (saved.positive || saved.negative)) {
+                        const parsed = parseEditablePrompt([
+                            saved.positive ? `scene: ${saved.positive}` : '',
+                            saved.negative ? `scene_uc: ${saved.negative}` : '',
+                        ].filter(Boolean).join('\n'));
+                        savedCaption = parsed && parsed.caption;
+                    }
+                } catch (error) { savedCaption = null; }
+            }
+        }
+        if (!savedCaption && !basePrompt) {
+            return generatedOperationFailure(globalObj, outfitMode
+                ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
+                : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
+        }
+        const dna = characterExpressionDna(sceneAssets, name);
+        const clothes = outfitMode ? resolveWardrobePrompt(sceneAssets.wardrobe, outfitEntry, outfitName) : null;
+        const outfit = outfitMode ? { name: outfitName, words: outfitEntry.words, ownImage: Boolean(ownUrl), prompt: clothes ? clothes.prompt : '' } : null;
+        if (retry && !mood) return rerenderSettings();
+        if (!retry) {
+            const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
+            const filled = labels.filter((label) => String(slots[label] || '').trim()).length;
+            const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
+            const confirmed = await dialogs.confirm(filled
+                ? `重新生成${who}的全部 ${labels.length} 张表情差分。已有 ${filled} 张将被替换。`
+                : `生成${who}的 ${labels.length} 张表情差分。先写提示词，再按顺序出图。`);
+            if (!confirmed) return rerenderSettings();
+        }
+        let result;
+        const onProgress = (event) => reportExpressionProgress(globalObj, event);
+        const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction);
+        try {
+            result = retry && savedCaption && typeof service.generateExpressionImage === 'function'
+                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, onProgress })
+                : retry
+                    ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, onProgress })
+                    : await service.generateExpressionSet({ name, basePrompt, moods: labels, dna, outfit, onProgress });
+        } catch (error) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return generatedOperationFailure(globalObj, '表情差分生成失败。', 'expression-generate-failed');
+        }
+        if (!result || !result.ok) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return generatedOperationFailure(globalObj, (result && result.error) || '表情差分生成失败。', 'expression-generate-failed');
+        }
+        const liveBridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const liveAssets = liveBridge.sceneAssets = liveBridge.sceneAssets || {};
+        for (const item of result.items || []) {
+            if (outfitMode) applyOutfitExpression(liveAssets, name, outfitName, item);
+            else applyCharacterExpression(liveAssets, name, item);
+        }
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        if (operationFailed(persisted)) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return persisted;
+        }
+        const rendered = await rerenderSettings();
+        clearExpressionProgress(globalObj);
+        restoreBusy();
+        return rendered;
     }
 
     // 下载 IGS 实际存储的素材图片：立绘为裁边后带原图 PNG 文本块的版本，背景为原图。
@@ -50236,6 +51939,7 @@ async function handleSettingsAction(action, ctx) {
             characterAliases: cloneData(sa.characterAliases || {}),
             characterDna: normalizeCharacterDnaMap(sa.characterDna),
             characterOutfits: normalizeCharacterOutfits(sa.characterOutfits),
+            wardrobe: normalizeWardrobe(sa.wardrobe),
             moodGroups: cloneData(sa.moodGroups || []),
             statusAvatars: cloneData(sa.statusAvatars || {}),
             timeGroups: cloneData(sa.timeGroups || []),
@@ -50276,6 +51980,9 @@ async function handleSettingsAction(action, ctx) {
                 // 旧预设没有 characterOutfits 字段：同理保留当前服装。
                 if (Object.prototype.hasOwnProperty.call(preset, 'characterOutfits')) {
                     settingsState.draft.bridge.sceneAssets.characterOutfits = normalizeCharacterOutfits(preset.characterOutfits);
+                }
+                if (Object.prototype.hasOwnProperty.call(preset, 'wardrobe')) {
+                    settingsState.draft.bridge.sceneAssets.wardrobe = normalizeWardrobe(preset.wardrobe);
                 }
                 settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(preset.moodGroups || []);
                 settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(preset.statusAvatars || {});
@@ -50339,6 +52046,7 @@ async function handleSettingsAction(action, ctx) {
             characterAliases: fileResult.data.characterAliases || {},
             ...(Object.prototype.hasOwnProperty.call(fileResult.data, 'characterDna') ? { characterDna: normalizeCharacterDnaMap(fileResult.data.characterDna) } : {}),
             ...(Object.prototype.hasOwnProperty.call(fileResult.data, 'characterOutfits') ? { characterOutfits: normalizeCharacterOutfits(fileResult.data.characterOutfits) } : {}),
+            ...(Object.prototype.hasOwnProperty.call(fileResult.data, 'wardrobe') ? { wardrobe: normalizeWardrobe(fileResult.data.wardrobe) } : {}),
             moodGroups: fileResult.data.moodGroups || [],
             statusAvatars: (fileResult.data.statusAvatars && typeof fileResult.data.statusAvatars === 'object') ? fileResult.data.statusAvatars : {},
             timeGroups: fileResult.data.timeGroups || [],
@@ -50362,6 +52070,9 @@ async function handleSettingsAction(action, ctx) {
         if (Object.prototype.hasOwnProperty.call(presets[name], 'characterOutfits')) {
             settingsState.draft.bridge.sceneAssets.characterOutfits = cloneData(presets[name].characterOutfits);
         }
+        if (Object.prototype.hasOwnProperty.call(presets[name], 'wardrobe')) {
+            settingsState.draft.bridge.sceneAssets.wardrobe = cloneData(presets[name].wardrobe);
+        }
         settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(presets[name].statusAvatars || {});
         settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(presets[name].moodGroups);
         settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(presets[name].timeGroups || []);
@@ -50384,7 +52095,7 @@ async function handleSettingsAction(action, ctx) {
         if (!preset) return rerenderSettings();
         const doc = globalObj.document;
         if (!doc) return { ok: false, reason: 'no-document' };
-        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, worldview: resolveWorldview(preset), spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
+        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'wardrobe') ? { wardrobe: preset.wardrobe } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, worldview: resolveWorldview(preset), spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = doc.createElement('a');
@@ -50952,10 +52663,10 @@ __igsDefine(exports, "IMAGE_JOB_LOG_LEVELS", () => IMAGE_JOB_LOG_LEVELS);
 __igsDefine(exports, "DEFAULT_IMAGE_JOB_LOG_SETTINGS", () => DEFAULT_IMAGE_JOB_LOG_SETTINGS);
 });
 __igsRegister("src/visual/igs-ui/settings-outfit-actions.js", function(module, exports, require) {
-const { isValidOutfitName, isValidOutfitWord, OUTFIT_RESET } = require("src/scene/character-outfits.js");
+const { isValidOutfitName, isValidOutfitWord, normalizeWardrobe, OUTFIT_RESET } = require("src/scene/character-outfits.js");
 const { normalizeMoodGroups } = require("src/scene/mood-groups.js");
 const { classifySceneKey } = require("src/scene/scene-directives.js");
-const { clearOutfitReview, removeOutfitReview } = require("src/scene/outfit-review-store.js");
+const { clearOutfitReview, loadOutfitReview, removeOutfitReview } = require("src/scene/outfit-review-store.js");
 const { migrateSpriteKeys } = require("src/visual/igs-ui/sprite-key-migration.js");
 const { createSettingsDialogs } = require("src/visual/igs-ui/settings-dialog.js");
 const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -51032,6 +52743,127 @@ function addOutfitSlot(sceneAssets, entry, mood) {
 }
 
 // 角色卡当前选中的服装标签，只是界面状态，不写入设置。
+function retargetWardrobe(characterOutfits, from, to) {
+    for (const outfits of Object.values(plain(characterOutfits) || {})) {
+        for (const entry of Object.values(plain(outfits) || {})) {
+            if (!entry || entry.wardrobe !== from) continue;
+            if (to) entry.wardrobe = to;
+            else delete entry.wardrobe;
+        }
+    }
+}
+
+async function handleWardrobe(command, segs, ctx) {
+    const { settingsState, options, persistSettingsDraft, rerenderSettings } = ctx;
+    const globalObj = options.global || globalThis;
+    const sceneAssets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+    const wardrobe = normalizeWardrobe(sceneAssets.wardrobe);
+    sceneAssets.wardrobe = wardrobe;
+    const name = decodeSeg(segs[0] || '');
+    if (command === 'wardrobe-add') {
+        const next = await ask(ctx, '服装名称：', '');
+        if (!next) return rerenderSettings();
+        if (!isValidOutfitName(next)) { warn(globalObj, `「${next}」不能用作服装名`); return rerenderSettings(); }
+        if (hasOwn(wardrobe, next)) { warn(globalObj, `衣柜里已有「${next}」`); return rerenderSettings(); }
+        wardrobe[next] = { prompt: '' };
+    } else if (command === 'wardrobe-rename') {
+        if (!hasOwn(wardrobe, name)) return rerenderSettings();
+        const next = await ask(ctx, `把「${name}」改名为：`, name);
+        if (!next || next === name) return rerenderSettings();
+        if (!isValidOutfitName(next)) { warn(globalObj, `「${next}」不能用作服装名`); return rerenderSettings(); }
+        if (hasOwn(wardrobe, next)) { warn(globalObj, `衣柜里已有「${next}」`); return rerenderSettings(); }
+        const renamed = {};
+        for (const [key, value] of Object.entries(wardrobe)) renamed[key === name ? next : key] = value;
+        sceneAssets.wardrobe = renamed;
+        retargetWardrobe(sceneAssets.characterOutfits, name, next);
+    } else if (command === 'wardrobe-generate-prompt') {
+        const word = decodeSeg(segs[1] || '');
+        const character = name;
+        if (!word && hasOwn(wardrobe, name)) {
+            const subject = { character: '', outfit: name };
+            const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
+            const existing = String((wardrobe[name] && wardrobe[name].prompt) || '').trim();
+            const confirmed = typeof dialogs.confirm === 'function'
+                ? await dialogs.confirm(existing ? `重新生成「${name}」的提示词并覆盖现有内容？` : `为「${name}」生成服装提示词？`)
+                : true;
+            if (!confirmed) return rerenderSettings();
+            const service = options.generatedAssets;
+            if (!service || typeof service.writeWardrobePrompt !== 'function') {
+                warn(globalObj, '当前不能写服装提示词。');
+                return rerenderSettings();
+            }
+            let written;
+            try { written = await service.writeWardrobePrompt(subject); }
+            catch (error) { written = { ok: false, error: '写服装提示词失败' }; }
+            if (!written || !written.ok || !String(written.prompt || '').trim()) {
+                warn(globalObj, (written && written.error) || '写服装提示词失败。');
+                return rerenderSettings();
+            }
+            wardrobe[name] = { ...wardrobe[name], prompt: String(written.prompt).trim() };
+            const persistedDirect = persistSettingsDraft();
+            if (persistedDirect.ok === false) return persistedDirect;
+            return rerenderSettings();
+        }
+        if (!character || !word) return rerenderSettings();
+        if (!isValidOutfitName(word)) { warn(globalObj, `「${word}」不能存进衣柜`); return rerenderSettings(); }
+        const pending = loadOutfitReview(globalObj.localStorage);
+        if (!pending.some((item) => item.character === character && item.word === word)) return rerenderSettings();
+        const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
+        const confirmed = typeof dialogs.confirm === 'function'
+            ? await dialogs.confirm(`为「${character}」的服装「${word}」写一份提示词，并放进衣柜？`)
+            : true;
+        if (!confirmed) return rerenderSettings();
+        const service = options.generatedAssets;
+        if (!service || typeof service.writeWardrobePrompt !== 'function') {
+            warn(globalObj, '当前不能写服装提示词。');
+            return rerenderSettings();
+        }
+        let written;
+        try { written = await service.writeWardrobePrompt({ character, outfit: word }); }
+        catch (error) { written = { ok: false, error: '写服装提示词失败' }; }
+        if (!written || !written.ok || !String(written.prompt || '').trim()) {
+            warn(globalObj, (written && written.error) || '写服装提示词失败。');
+            return rerenderSettings();
+        }
+        wardrobe[word] = { ...(wardrobe[word] || {}), prompt: String(written.prompt).trim() };
+        removeOutfitReview(globalObj.localStorage, character, word);
+    } else if (command === 'wardrobe-reference') {
+        if (!hasOwn(wardrobe, name)) return rerenderSettings();
+        const prompt = String((wardrobe[name] && wardrobe[name].prompt) || '').trim();
+        if (!prompt) { warn(globalObj, '先写下这套衣服的提示词。'); return rerenderSettings(); }
+        const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
+        const confirmed = typeof dialogs.confirm === 'function'
+            ? await dialogs.confirm(`用「${name}」的提示词出一张参考图？`)
+            : true;
+        if (!confirmed) return rerenderSettings();
+        const service = options.generatedAssets;
+        if (!service || typeof service.paintWardrobeReference !== 'function') {
+            warn(globalObj, '当前不能出参考图。');
+            return rerenderSettings();
+        }
+        let painted;
+        try { painted = await service.paintWardrobeReference({ prompt }); }
+        catch (error) { painted = { ok: false, error: '出参考图失败' }; }
+        if (!painted || !painted.ok || !painted.imageId) {
+            warn(globalObj, (painted && painted.error) || '出参考图失败。');
+            return rerenderSettings();
+        }
+        const previous = String((wardrobe[name] && wardrobe[name].reference) || '');
+        wardrobe[name] = { ...wardrobe[name], reference: `igs-gen:${painted.imageId}` };
+        const previousId = previous.startsWith('igs-gen:') ? previous.slice('igs-gen:'.length) : '';
+        if (previousId && previousId !== painted.imageId && typeof service.deleteImages === 'function') {
+            try { await service.deleteImages([previousId]); } catch (error) { /* 旧参考图删不掉时保留新图 */ }
+        }
+    } else if (command === 'wardrobe-remove') {
+        if (!hasOwn(wardrobe, name)) return rerenderSettings();
+        delete wardrobe[name];
+        retargetWardrobe(sceneAssets.characterOutfits, name, '');
+    }
+    const persisted = persistSettingsDraft();
+    if (persisted.ok === false) return persisted;
+    return rerenderSettings();
+}
+
 function selectTab(settingsState, charName, outfitName) {
     const tabs = plain(settingsState.asyncState.outfitTabs) || (settingsState.asyncState.outfitTabs = {});
     if (outfitName) tabs[charName] = outfitName; else delete tabs[charName];
@@ -51065,7 +52897,7 @@ function handleOutfitReview(command, segs, ctx) {
     return rerenderSettings();
 }
 
-const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar)-url|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear))(?::(.*))?$/;
+const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-note|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference))(?::(.*))?$/;
 
 // 服装区 action：返回 null 表示不归本模块处理。位置 / 头部标定 key 随改名迁移、随删除清理。
 function handleOutfitAction(normalizedAction, ctx) {
@@ -51078,6 +52910,7 @@ async function runOutfitAction(match, ctx) {
     const segs = rest.split(':');
     if (command.startsWith('outfit-review-')) return handleOutfitReview(command, segs, ctx);
     const { settingsState, options, persistSettingsDraft, rerenderSettings } = ctx;
+    if (command.startsWith('wardrobe-')) return handleWardrobe(command, segs, ctx);
     const globalObj = options.global || globalThis;
     const draft = settingsState.draft;
     const sceneAssets = draft.bridge.sceneAssets = draft.bridge.sceneAssets || {};
@@ -51102,6 +52935,17 @@ async function runOutfitAction(match, ctx) {
     if (command === 'scene-set-outfit-avatar-url') {
         if (entry) entry.avatar = segs.slice(2).join(':');
         return { ok: true };
+    }
+    if (command === 'scene-set-outfit-note') {
+        if (entry) entry.note = segs.slice(2).join(':');
+        return { ok: true };
+    }
+    if (command === 'scene-set-outfit-wardrobe-url') {
+        if (!entry) return rerenderSettings();
+        const picked = decodeSeg(segs[2] || '');
+        if (!picked) delete entry.wardrobe;
+        else if (isValidOutfitName(picked)) entry.wardrobe = picked;
+        return done();
     }
     if (command === 'scene-outfit-tab') {
         selectTab(settingsState, charName, entry ? outfitName : '');
@@ -51663,6 +53507,7 @@ const FOCUS_KEY_ATTRS = Object.freeze([
     ['data-path', 'data-segment-value'],
     ['data-segment-path', 'data-segment-value'],
     ['data-dna-char', 'data-dna-field'],
+    ['data-wardrobe-name'],
     ['data-switch'],
     ['data-action'],
     ['data-tab'],
@@ -52187,7 +54032,7 @@ function renderAssetFolderSelect(kind, name, kindState) {
 function tile(kind, name, url, kindState) {
     const u = String(url || '').trim();
     const thumb = u
-        ? `<img class="igs-asset-tile-thumb" src="${esc(u)}" loading="lazy" alt="${esc(name)}" data-action="sprite-preview:${encSeg(u)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        ? `<img class="igs-asset-tile-thumb" src="${esc(u)}" alt="${esc(name)}" data-action="sprite-preview:${encSeg(u)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : '<div class="igs-asset-tile-thumb igs-asset-tile-empty">未配置</div>';
     // 缩略图模式的「修改」入口：由 asset-edit 动作切回列表并展开该条目，不改动素材数据。
     const edit = `<button type="button" class="igs-btn-mgr-icon igs-asset-tile-edit" data-action="asset-edit:${kind}:${encSeg(name)}" title="修改" aria-label="修改 ${esc(name)}">${PENCIL}</button>`;
@@ -52320,9 +54165,7 @@ const { textFxGrammarBlock } = require("src/visual/igs-ui/text-fx.js");
 const { normalizeChatShowSettings, resolveChatShowGrammar } = require("src/visual/igs-ui/chat-show-runtime.js");
 const { enabledFxTagKinds } = require("src/visual/igs-ui/fx-settings.js");
 const { enabledDailyFxKinds } = require("src/visual/igs-ui/fx-daily-model.js");
-const { estimatePromptTokens } = require("src/scene/prompt-triggers.js");
 const { danmakuGrammarBlocks } = require("src/visual/igs-ui/danmaku-prompt.js");
-const DEFAULT_PROMPT_BUDGET_TOKENS = 1500;
 const PROMPT_PLACEMENTS = Object.freeze(['system', 'depth0']);
 const DEPTH0_REMINDER = '本轮按系统说明中的igs标签语法输出标签。';
 
@@ -52383,7 +54226,9 @@ function buildExample({ sceneRule, moodWord, fxKinds, itemOn }) {
     const lines = [];
     if (sceneRule) {
         lines.push('[igs-scene:教室|傍晚|晴天]');
-        lines.push(`[igs-char:林小雨|${moodWord || '害羞'}|这个……给你。]`);
+        lines.push(`[igs-char:林小雨|${moodWord || '害羞'}|校服|这个……给你。]`);
+        lines.push('回到家换上睡衣：[igs-char:林小雨|平和|睡衣|我回来了。]');
+        lines.push('去宴会，没有能对上的衣服，新起短名：[igs-char:林小雨|喜悦|晚礼服|到了。]');
     }
     if (fxKinds.includes('sfx')) lines.push('[igs-fx:sfx|砰]');
     else if (itemOn) lines.push('[igs-fx:item|获得|黄铜钥匙|刻着校徽的旧钥匙]');
@@ -52402,7 +54247,6 @@ function buildTagGrammar({
     sceneRule = '',
     ancient = false,
     expand = new Set(),
-    budgetTokens = DEFAULT_PROMPT_BUDGET_TOKENS,
     tailRules = [],
     dynamicRules = [],
     moodWord = '',
@@ -52411,17 +54255,13 @@ function buildTagGrammar({
     if (!sceneRule && !blocks.length) return { system: '', depth0: '', expanded: [], indexed: [] };
     const rs = plain(readerSettings);
     const example = buildExample({ sceneRule, moodWord, fxKinds: enabledFxTagKinds(rs.fxTags), itemOn: plain(rs.itemFx).enabled === true });
-    const fixed = [GRAMMAR_HEADER, sceneRule, example, ...tailRules, ...dynamicRules].filter(Boolean);
-    let used = estimatePromptTokens(fixed.join('\n\n'));
     const staticParts = [];
     const dynamicParts = [];
     const indexed = [];
     const adaptiveIndexed = [];
     for (const block of blocks) {
         const wanted = !block.adaptive || expand.has(block.key);
-        const cost = estimatePromptTokens(block.full);
-        if (wanted && used + cost <= budgetTokens) {
-            used += cost;
+        if (wanted) {
             (block.adaptive ? dynamicParts : staticParts).push(block.full);
         } else if (block.adaptive) {
             adaptiveIndexed.push(block);
@@ -52443,7 +54283,6 @@ function normalizePromptPlacement(value) {
 __igsDefine(exports, "collectGrammarBlocks", () => collectGrammarBlocks);
 __igsDefine(exports, "buildTagGrammar", () => buildTagGrammar);
 __igsDefine(exports, "normalizePromptPlacement", () => normalizePromptPlacement);
-__igsDefine(exports, "DEFAULT_PROMPT_BUDGET_TOKENS", () => DEFAULT_PROMPT_BUDGET_TOKENS);
 __igsDefine(exports, "PROMPT_PLACEMENTS", () => PROMPT_PLACEMENTS);
 __igsDefine(exports, "DEPTH0_REMINDER", () => DEPTH0_REMINDER);
 });
@@ -52696,87 +54535,6 @@ __igsDefine(exports, "resolveDailyFxPromptRule", () => resolveDailyFxPromptRule)
 __igsDefine(exports, "dailyGrammarLines", () => dailyGrammarLines);
 __igsDefine(exports, "DAILY_GRAMMAR_LINES", () => DAILY_GRAMMAR_LINES);
 });
-__igsRegister("src/scene/prompt-triggers.js", function(module, exports, require) {
-// 按需展开的提示词块：最近几层出现过对应标签、用户输入命中触发词、或对应成对标签未闭合时才发完整写法。
-const ADAPTIVE_PROMPT_BLOCKS = Object.freeze(['chat', 'daily', 'battle', 'romance', 'live']);
-const DEFAULT_TRIGGER_LOOKBACK = 3;
-// 成对标签可能跨很多层才闭合（一场战斗、一段书信），未闭合判断看更长的窗口。
-const PAIR_TRIGGER_LOOKBACK = 12;
-
-const DAILY_KINDS = 'timeskip|photo|letter|note|bell|broadcast|fireworks|touch|alarm|omikuji|receipt|tv|rps|gacha|game|score|pat|poke|fever|cheers|cook|cat|guqin|go|poem|edict|tea|bow';
-
-const BLOCK_TRIGGERS = Object.freeze({
-    chat: {
-        tag: /\[igs-(?:chat|msg)[:\]]/,
-        words: /手机|消息|微信|短信|私信|群聊|聊天记录|发信息|回信息|QQ|LINE|书信|写信|回信|家书|来信/i,
-        open: /\[igs-chat:/g,
-        close: /\[igs-chat-end\]/g,
-    },
-    daily: {
-        tag: new RegExp(`\\[igs-fx:(?:${DAILY_KINDS})[|\\]]`),
-        words: /拍照|照片|合影|情书|便签|字条|留言条|上课铃|下课|放学|广播|烟花|花火|闹钟|神社|抽签|求签|结账|买单|小票|电视|新闻|牵手|摸头|第二天|翌日|几个小时后|三天后/,
-    },
-    battle: {
-        tag: /\[igs-fx:(?:battle|battle-end|hit)[|\]]/,
-        words: /攻击|战斗|检定|交战|开战|迎战|出招|对决|拔剑|拔刀|敌人|怪物|魔物|反击|决斗/,
-        open: /\[igs-fx:battle[|\]]/g,
-        close: /\[igs-fx:battle-end[|\]]/g,
-    },
-    romance: {
-        tag: /\[igs-fx:(?:romance|romance-end|confess|memory)[|\]]/,
-        words: /告白|表白|约会|亲吻|接吻|拥抱|心动|暧昧|喜欢你|爱你/,
-        open: /\[igs-fx:romance[|\]]/g,
-        close: /\[igs-fx:romance-end\]/g,
-    },
-    live: {
-        tag: /\[igs-fx:(?:live|live-end|dm)[|\]]/,
-        words: /直播|开播|下播|主播|直播间|弹幕|连麦/,
-        open: /\[igs-fx:live[|\]]/g,
-        close: /\[igs-fx:live-end\]/g,
-    },
-});
-
-function lastIndexOf(text, pattern) {
-    let last = -1;
-    pattern.lastIndex = 0;
-    for (const match of text.matchAll(pattern)) last = match.index;
-    return last;
-}
-
-// recentAiTexts 按时间顺序（旧 → 新）；标签出现只看最近 lookback 层，未闭合的成对标签看最近 PAIR_TRIGGER_LOOKBACK 层。
-function detectPromptTriggers({ recentAiTexts = [], userText = '', lookback = DEFAULT_TRIGGER_LOOKBACK } = {}) {
-    const all = (Array.isArray(recentAiTexts) ? recentAiTexts : []).map((t) => String(t || '')).slice(-PAIR_TRIGGER_LOOKBACK);
-    const texts = lookback > 0 ? all.slice(-lookback) : [];
-    const joined = all.join('\n');
-    const user = String(userText || '');
-    const hits = new Set();
-    for (const [block, rule] of Object.entries(BLOCK_TRIGGERS)) {
-        if (texts.some((t) => rule.tag.test(t)) || rule.words.test(user)) {
-            hits.add(block);
-            continue;
-        }
-        if (rule.open && lastIndexOf(joined, rule.open) > lastIndexOf(joined, rule.close)) hits.add(block);
-    }
-    return hits;
-}
-
-// 粗估 token：中日韩字符约 1 token/字，其余约 3.5 字符/token。
-function estimatePromptTokens(text) {
-    let cjk = 0;
-    let other = 0;
-    for (const ch of String(text || '')) {
-        if (/[　-鿿豈-﫿＀-￯]/.test(ch)) cjk += 1;
-        else other += 1;
-    }
-    return cjk + Math.ceil(other / 3.5);
-}
-
-__igsDefine(exports, "detectPromptTriggers", () => detectPromptTriggers);
-__igsDefine(exports, "estimatePromptTokens", () => estimatePromptTokens);
-__igsDefine(exports, "ADAPTIVE_PROMPT_BLOCKS", () => ADAPTIVE_PROMPT_BLOCKS);
-__igsDefine(exports, "DEFAULT_TRIGGER_LOOKBACK", () => DEFAULT_TRIGGER_LOOKBACK);
-__igsDefine(exports, "PAIR_TRIGGER_LOOKBACK", () => PAIR_TRIGGER_LOOKBACK);
-});
 __igsRegister("src/visual/igs-ui/danmaku-prompt.js", function(module, exports, require) {
 const { normalizeDanmakuSettings, resolveAudiencePersona } = require("src/visual/igs-ui/danmaku-settings.js");
 // 内心弹幕是纯本地演出，不向 AI 注入任何规则；直播间与观众弹幕各一块。
@@ -52838,7 +54596,7 @@ const { applyDanmakuToDom } = require("src/visual/igs-ui/danmaku-runtime.js");
 const { renderItemFx } = require("src/visual/igs-ui/fx-item-render.js");
 const { renderBattleFx } = require("src/visual/igs-ui/fx-battle-render.js");
 const { renderDailyFx } = require("src/visual/igs-ui/fx-daily.js");
-const { peekSpriteHead, probeSpriteHead, resolveSpriteHead } = require("src/visual/igs-ui/fx-anchor.js");
+const { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } = require("src/visual/igs-ui/fx-anchor.js");
 const { applyWeatherFx } = require("src/visual/igs-ui/weather-fx-runtime.js");
 const { applySceneGrade } = require("src/visual/igs-ui/scene-grade.js");
 const { applyStageDirection } = require("src/visual/igs-ui/stage-direction-runtime.js");
@@ -52852,7 +54610,7 @@ const { applyMetaFx } = require("src/visual/igs-ui/meta-runtime.js");
 const { applySceneAudio } = require("src/visual/igs-ui/scene-audio.js");
 const { applyTextFxMarkup, armTextFx, disarmTextFx } = require("src/visual/igs-ui/text-fx.js");
 const { preloadDialogFonts, resolveDialogFontMetrics } = require("src/visual/igs-ui/dialog-theme-typography.js");
-const { clearSpriteOutfitSwap, isOutfitSwap, playSpriteOutfitSwap, spriteLookOf } = require("src/visual/igs-ui/sprite-outfit-swap.js");
+const { clearSpriteOutfitSwap, spriteLookOf } = require("src/visual/igs-ui/sprite-outfit-swap.js");
 const { applyClickWaitMark } = require("src/visual/igs-ui/click-wait-mark.js");
 const { applyHtmlCardToDom } = require("src/visual/igs-ui/html-card-layer.js");
 const { applyChatToDom } = require("src/visual/igs-ui/chat-layer.js");
@@ -53240,12 +54998,13 @@ function applyToolbarState(root, current) {
     const savedOrder = Array.isArray(readerSettings.btnOrder) ? readerSettings.btnOrder.filter((id) => canonicalOrder.includes(id)) : [];
     const order = savedOrder.concat(canonicalOrder.filter((id) => !savedOrder.includes(id)));
 
-    const clearCgButton = root.querySelector('#igs-btn-clear-cg');
-    if (clearCgButton) {
-        const content = current.snapshot && current.snapshot.content || {};
-        const clearCgDisabled = !(content.illustrationActive && content.illustrationUrl);
-        clearCgButton.disabled = clearCgDisabled;
-        clearCgButton.setAttribute('aria-disabled', String(clearCgDisabled));
+    const contentForCg = current.snapshot && current.snapshot.content || {};
+    const currentCgShown = Boolean(contentForCg.illustrationActive && contentForCg.illustrationUrl);
+    for (const id of ['clear-cg', 'reroll-cg']) {
+        const button = root.querySelector(`#igs-btn-${id}`);
+        if (!button) continue;
+        button.disabled = !currentCgShown;
+        button.setAttribute('aria-disabled', String(!currentCgShown));
     }
 
     for (const id of order) {
@@ -53495,11 +55254,14 @@ function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     }
 
     if (bg) {
-        bg.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'contain' : 'cover';
+        const cg = Boolean(snapshot.content && (snapshot.content.cgActive || snapshot.content.illustrationActive));
+        bg.style.backgroundSize = 'cover';
+        bg.style.backgroundPosition = 'center';
         const brightness = Number(readerSettings.imgBrightness);
         const level = (Number.isFinite(brightness) ? brightness : 100) / 100;
-        // 亮度、环境滤镜与回忆滤镜都由样式表按变量合成（见 scene-grade.js），这里不写行内 filter。
-        bg.style.filter = '';
+        // 亮度、环境滤镜与回忆滤镜都由样式表按变量合成（见 scene-grade.js）。
+        // CG 出场的先模糊再清晰写在行内 filter 上，这里不能清掉。
+        if (!cg) bg.style.filter = '';
         if (typeof bg.style.setProperty === 'function') bg.style.setProperty('--igs-bg-brightness', String(level));
     }
     if (bgBlur) {
@@ -53852,12 +55614,23 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             removeImageEmptyPlaceholder(bg);
         }
     }
-    if (bgBlur && backgroundAssetUrl) {
+    const cgActive = Boolean(snapshot.content && (snapshot.content.cgActive || snapshot.content.illustrationActive));
+    if (stageMotion && stageMotion.setAttribute) {
+        if (cgActive) stageMotion.setAttribute('data-igs-cg', '1');
+        else stageMotion.removeAttribute('data-igs-cg');
+    }
+    if (!cgActive && bg && bg.style && typeof bg.style.removeProperty === 'function') {
+        bg.style.removeProperty('filter');
+        bg.style.removeProperty('-webkit-filter');
+    }
+    if (bgBlur && backgroundAssetUrl && !cgActive) {
         writeBackgroundImage(bgBlur, backgroundAssetUrl);
         bgBlur.style.opacity = '0.72';
+        bgBlur.style.display = '';
     } else if (bgBlur) {
         writeBackgroundImage(bgBlur, '');
         bgBlur.style.opacity = '0';
+        if (cgActive) bgBlur.style.display = 'none';
     }
     const spriteEl = root.querySelector('#igs-sprite');
     let stageSprite = null;
@@ -53895,7 +55668,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const saved = slotKey ? castSlotLayouts[slotKey] : null;
         const auto = { posX: entry.posX, posY: entry.posY, scale: entry.scale };
         return saved
-            ? { ...entry, posX: saved.posX, posY: saved.posY, scale: saved.scale, slotKey, auto, locked: true }
+            ? { ...entry, posX: saved.posX, posY: saved.posY, slotKey, auto, locked: true }
             : { ...entry, slotKey, auto };
     };
     const castPlanInput = castLayout.multi && !current.spriteEditMode ? {
@@ -53931,9 +55704,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const spriteNarration = ['narration', 'chat', 'system'].includes(snapshot.content.textType) && spriteSettings.dimSpriteOnNarration !== false;
         // 旁白压暗由 .igs-sprite-narration 写入 --igs-sprite-dim，与环境滤镜在样式表里合成。
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
-        const look = spriteLookOf(snapshot.content, spriteAssetUrl);
-        if (!current.spriteEditMode && isOutfitSwap(current.spriteLook, look)) playSpriteOutfitSwap(spriteEl);
-        current.spriteLook = look;
+        current.spriteLook = spriteLookOf(snapshot.content, spriteAssetUrl);
         writeBackgroundImage(spriteEl, spriteAssetUrl);
         spriteEl.style.display = 'block';
         spriteEl.style.position = 'absolute';
@@ -53954,11 +55725,12 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const layout = { ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood, spriteOutfit) };
             if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
             else if (speakerSlotX != null) layout.posX = speakerSlotX;
-            spriteEl.style.backgroundSize = `${layout.scale}%`;
+            spriteEl.style.backgroundSize = spriteBackgroundSize(layout.scale);
             spriteEl.style.backgroundPosition = `${layout.posX}% ${layout.posY}%`;
             stageSprite = { url: spriteAssetUrl, key: spriteKey, posX: Number(layout.posX) };
             fxSprite = { url: spriteAssetUrl, posX: Number(layout.posX), posY: Number(layout.posY), scale: Number(layout.scale), head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, spriteKey, spriteMood, spriteOutfit), multi: Boolean(castPlan && castPlan.members.length), flip: Boolean(castPlan && castPlan.speaker && castPlan.speaker.flip) };
-            applySpeakerFlip(spriteEl, fxSprite.flip, layout.posX, layout.scale);
+            const probed = peekSpriteHead(spriteAssetUrl);
+            applySpeakerFlip(spriteEl, fxSprite.flip, layout.posX, spriteWidthPercent(stageMotion.clientWidth, stageMotion.clientHeight, { ...layout, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH }));
             igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, outfit: spriteOutfit, index: snapshot.content.currentIndex, layout: { ...layout } });
         }
     } else if (spriteEl) {
@@ -54018,7 +55790,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 if (current.castAlignToken !== token || current.spriteEditMode) return;
                 const again = resolveCastPosePlan(snapshot, planCastLayouts(castPlanInput), castSpeakerKey);
                 if (again.speaker && spriteEl) {
-                    spriteEl.style.backgroundSize = `${again.speaker.scale}%`;
+                    spriteEl.style.backgroundSize = spriteBackgroundSize(again.speaker.scale);
                     spriteEl.style.backgroundPosition = `${again.speaker.posX}% ${again.speaker.posY}%`;
                     if (fxSprite) Object.assign(fxSprite, { posY: Number(again.speaker.posY), scale: Number(again.speaker.scale) });
                 }
@@ -57865,19 +59637,22 @@ function createIllustrationMessageHost(globalObject = globalThis) {
         return out;
     }
 
-    function matchesExpectedFloor(messageId, expected) {
+    function matchesExpectedFloor(messageId, expected, options = {}) {
         if (!expected) return true;
+        const requireLatest = !options || options.requireLatest !== false;
         const current = readFloor(messageId);
         return current && current.chatId === expected.chatId
             && current.messageId === expected.messageId
             && current.swipeId === expected.swipeId
-            && current.isAi && current.isLatest
+            && current.isAi
+            && (!requireLatest || current.isLatest)
             && current.text === expected.text;
     }
 
-    async function writeFloor(messageId, text, expectedFloor = null) {
+    async function writeFloor(messageId, text, expectedFloor = null, options = null) {
+        const matchOptions = options && typeof options === 'object' ? options : {};
         const helper = getTavernHelper(globalObject);
-        if (!matchesExpectedFloor(messageId, expectedFloor)) return { ok: false, reason: 'stale' };
+        if (!matchesExpectedFloor(messageId, expectedFloor, matchOptions)) return { ok: false, reason: 'stale' };
         if (helper && typeof helper.setChatMessages === 'function') {
             await helper.setChatMessages([{ message_id: Number(messageId), message: text }], { refresh: 'affected' });
             return { ok: true };
@@ -57885,7 +59660,7 @@ function createIllustrationMessageHost(globalObject = globalThis) {
         const ctx = context();
         const msg = ctx && Array.isArray(ctx.chat) ? ctx.chat[messageId] : null;
         if (!msg) return { ok: false, reason: 'message-not-found' };
-        if (!matchesExpectedFloor(messageId, expectedFloor)) return { ok: false, reason: 'stale' };
+        if (!matchesExpectedFloor(messageId, expectedFloor, matchOptions)) return { ok: false, reason: 'stale' };
         msg.mes = text;
         if (Array.isArray(msg.swipes) && Number.isInteger(msg.swipe_id)) msg.swipes[msg.swipe_id] = text;
         if (typeof ctx.updateMessageBlock === 'function') ctx.updateMessageBlock(Number(messageId), msg, { rerenderMessage: true });
@@ -58088,6 +59863,7 @@ __igsDefine(exports, "createSecondaryLlm", () => createSecondaryLlm);
 __igsRegister("src/generated-images/nai-official-client.js", function(module, exports, require) {
 const { parseImageResponse } = require("src/generated-images/image-api-client.js");
 const { buildNaiV4Request, validateNaiV4Request, NAI_DEFAULT_SETTINGS, NAI_OFFICIAL_ENDPOINT } = require("src/generated-images/request-builders/nai-v4-builder.js");
+const { promptFromNaiBody } = require("src/generated-images/generation-prompt.js");
 const { buildNaiInpaintRequest, resolveNaiInpaintModel } = require("src/generated-images/request-builders/nai-inpaint-builder.js");
 __igsDefine(exports, "NAI_OFFICIAL_ENDPOINT", () => NAI_OFFICIAL_ENDPOINT);
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
@@ -58206,7 +59982,9 @@ function createNaiOfficialClient(deps = {}) {
         const body = buildNaiV4Request(slot, settings, random);
         const valid = validateNaiV4Request(body);
         if (!valid.ok) return { ok: false, error: `生图请求无效：${valid.reason}` };
-        return sendWithRetry(body, settings);
+        const sent = await sendWithRetry(body, settings);
+        if (sent && sent.ok) return { ...sent, prompt: promptFromNaiBody(body) };
+        return sent;
     }
 
     // 所选模型存在 inpainting 版本时才支持局部重绘。
@@ -58288,16 +60066,35 @@ __igsDefine(exports, "resolveNaiInpaintModel", () => resolveNaiInpaintModel);
 __igsDefine(exports, "buildNaiInpaintRequest", () => buildNaiInpaintRequest);
 });
 __igsRegister("src/generated-images/illustration/auto-illustration-service.js", function(module, exports, require) {
-const { numberParagraphs, formatNumberedParagraphs, insertMarkers } = require("src/generated-images/illustration/marker-placer.js");
+const { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex } = require("src/generated-images/illustration/marker-placer.js");
 const { buildPlannerUserPrompt } = require("src/generated-images/illustration/planner-prompt.js");
 const { requestWithSoftRetry, DEFAULT_ASSET_TEMPLATES } = require("src/generated-images/illustration/prompt-kit.js");
 const { parseIllustrationPlan } = require("src/generated-images/illustration/planner-parser.js");
 const { normalizeAutoIllustrationSettings } = require("src/generated-images/illustration/auto-illustration-settings.js");
 const { floorKeyOf } = require("src/media/illustration-store.js");
-const { resolveCharacterKey, stripIllustrationMarkers } = require("src/scene/scene-directives.js");
+const { resolveCharacterKey, stripIllustrationMarker, stripIllustrationMarkers } = require("src/scene/scene-directives.js");
 const { buildCharacterDnaPromptParts, isCharacterDnaEmpty, mergePromptTags, resolveCharacterDna } = require("src/scene/character-dna.js");
 const MARKER_RE = /(?:\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>)/gi;
 const ILLUSTRATION_UPDATED_EVENT = 'igs:illustration-updated';
+const ILLUSTRATION_PROGRESS_EVENT = 'igs:illustration-progress';
+
+// 电脑、网页全屏、全屏用背景尺寸。窄屏把宽高对调。
+// 楼层内嵌手机和电脑都能开：窗口更高就用竖屏尺寸，更宽就用背景尺寸。
+function cgSizeForMode(backgroundSize, mode, viewport) {
+    const landscape = String(backgroundSize || '').trim() || '1216x832';
+    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPortraitViewport(viewport));
+    if (!usePortrait) return landscape;
+    const match = landscape.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+    if (!match || match[1] === match[2]) return landscape;
+    return `${match[2]}x${match[1]}`;
+}
+
+function isPortraitViewport(viewport) {
+    const width = Number(viewport && viewport.width) || 0;
+    const height = Number(viewport && viewport.height) || 0;
+    return width > 0 && height > width;
+}
+
 const CACHE_LIMIT = 40;
 // 只有这些状态算「本楼已处理完」；failed / stale / 中途刷新残留的 planning 在下次渲染时重试，
 // 否则改好 Key 或地址之后，之前失败过的楼层永远不会再发请求。
@@ -58375,6 +60172,11 @@ function createAutoIllustrationService(deps) {
     let offRendered = null;
     let regexesEnsured = false;
     const settings = () => normalizeAutoIllustrationSettings(getSettings ? getSettings() : null);
+    const cgSize = (s) => cgSizeForMode(
+        s.assets && s.assets.backgroundSize,
+        typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc',
+        typeof deps.getViewport === 'function' ? deps.getViewport() : null,
+    );
     const readSceneAssets = () => {
         const value = typeof deps.getSceneAssets === 'function' ? deps.getSceneAssets() : null;
         return value && typeof value === 'object' ? value : {};
@@ -58390,6 +60192,16 @@ function createAutoIllustrationService(deps) {
         if (events && typeof events.emit === 'function') {
             events.emit(ILLUSTRATION_UPDATED_EVENT, { chatId: floor.chatId, messageId: floor.messageId, swipeId: floor.swipeId, slot });
         }
+    }
+
+    function progress(floor, detail) {
+        if (!floor || !events || typeof events.emit !== 'function') return;
+        events.emit(ILLUSTRATION_PROGRESS_EVENT, {
+            chatId: floor.chatId,
+            messageId: floor.messageId,
+            swipeId: floor.swipeId,
+            ...detail,
+        });
     }
 
     // 手动触发跳过过场概率，但仍尊重 NSFW / 过场开关。
@@ -58410,12 +60222,129 @@ function createAutoIllustrationService(deps) {
         try { regexesEnsured = (await messageHost.ensureMarkerRegexes()).ok === true; } catch (error) { regexesEnsured = false; }
     }
 
+    // 数据库生图：只调插件的写词接口和出图接口。生成点按本插件的插图标记写回正文。
+    async function planDbgenCg(messageId, floor, key, s, expected, decision, base) {
+        report('info', `第 ${messageId} 楼向数据库生图插件要 ${decision.want} 张 CG…`);
+        progress(floor, { phase: 'write' });
+        await store.putFloor(key, { ...base, status: 'planning', updatedAt: now() });
+        if (!nai || typeof nai.writeDbgenFloorPrompts !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
+            const error = '数据库生图插件缺少楼内写词或出图接口';
+            await store.putFloor(key, { ...base, status: 'failed', error, updatedAt: now() });
+            report('error', `第 ${messageId} 楼插图未开始：${error}`);
+            progress(floor, { phase: 'done' });
+            return { ok: false, reason: 'backend-unavailable', error };
+        }
+        let written;
+        try {
+            written = await nai.writeDbgenFloorPrompts({
+                messageId,
+                description: `为本楼生成${decision.want}张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，正文以外的内容不要拿来当挂载点，也不要画进CG。`,
+            });
+        } catch (error) {
+            written = { ok: false, error: (error && error.message) || '写提示词失败' };
+        }
+        if (!written || !written.ok) {
+            const error = (written && written.error) || '写提示词失败';
+            await store.putFloor(key, { ...base, status: 'failed', error, updatedAt: now() });
+            report('error', `第 ${messageId} 楼插图规划失败，未发送生图请求：${error}`);
+            progress(floor, { phase: 'done' });
+            return { ok: false, reason: 'plan-failed', error };
+        }
+        const returned = (Array.isArray(written.captions) ? written.captions : [])
+            .filter((item) => item && item.caption)
+            .sort((a, b) => Number(a.slotId) - Number(b.slotId))
+            .slice(0, decision.want);
+        if (returned.length !== decision.want) {
+            report('warn', `第 ${messageId} 楼数据库生图插件返回了 ${Array.isArray(written.captions) ? written.captions.length : 0} 张，按 ${returned.length} 张生成`);
+        }
+        const slots = [];
+        for (const item of returned) {
+            const anchorSentence = String(item.anchorSentence || item.anchor || '').trim();
+            const found = findAnchorInsertIndex(floor.text, anchorSentence);
+            if (found.index < 0) {
+                report('warn', `第 ${messageId} 楼第 ${item.slotId} 张没有能对上正文的生成点，跳过`);
+                continue;
+            }
+            slots.push({ slot: Number(item.slotId) || slots.length + 1, caption: item.caption, anchorSentence });
+        }
+        if (!slots.length) {
+            const error = '数据库生图插件没有返回能对上正文的生成点';
+            await store.putFloor(key, { ...base, status: 'failed', error, updatedAt: now() });
+            report('error', `第 ${messageId} 楼插图规划失败，未发送生图请求：${error}`);
+            progress(floor, { phase: 'done' });
+            return { ok: false, reason: 'plan-failed', error };
+        }
+        const latest = messageHost.readFloor(messageId);
+        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || latest.text !== expected.text) {
+            await store.putFloor(key, { ...base, status: 'stale', updatedAt: now() });
+            report('warn', `第 ${messageId} 楼在规划期间被修改或已不是最新楼层，本次放弃生图，下次渲染时重试`);
+            progress(floor, { phase: 'done' });
+            return { ok: false, reason: 'stale' };
+        }
+        await ensureRegexesOnce();
+        const writtenText = await messageHost.writeFloor(messageId, insertMarkersAtAnchors(floor.text, slots), expected);
+        if (!writtenText || !writtenText.ok) {
+            const stale = writtenText && writtenText.reason === 'stale';
+            await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });
+            report(stale ? 'warn' : 'error', `第 ${messageId} 楼${stale ? '在写回前被修改' : '无法写回插图标记'}，本次放弃生图`);
+            progress(floor, { phase: 'done' });
+            return { ok: false, reason: stale ? 'stale' : 'write-failed' };
+        }
+        report('info', `第 ${messageId} 楼已写入 ${slots.length} 个生成点，正在出图…`);
+        return paintDbgenCaptions(messageId, floor, key, s, base, slots);
+    }
+
+    async function paintDbgenCaptions(messageId, floor, key, s, base, slots) {
+        const requests = slots.map(({ status, error, dataUrl, floorKey, key: slotKey, updatedAt, ...request }) => request);
+        for (const request of requests) {
+            await store.putSlot(key, { ...request, status: 'pending', updatedAt: now() });
+            remember(`${key}|${request.slot}`, { status: 'pending', dataUrl: '' });
+        }
+        let succeeded = 0;
+        const errors = [];
+        for (let index = 0; index < requests.length; index += 1) {
+            const request = requests[index];
+            progress(floor, { phase: 'paint', done: index + 1, total: requests.length });
+            let result;
+            if (!request.caption) {
+                result = { ok: false, error: '没有可出图的提示词' };
+            } else {
+                try {
+                    result = await nai.generateDbgenCaption({ caption: request.caption, size: cgSize(s), messageId });
+                } catch (error) {
+                    result = { ok: false, error: (error && error.message) || '出图失败' };
+                }
+            }
+            if (result && result.ok) succeeded += 1;
+            else {
+                errors.push((result && result.error) || '出图失败');
+                report('error', `第 ${messageId} 楼第 ${request.slot} 张插图生成失败：${(result && result.error) || '出图失败'}`);
+            }
+            const record = result && result.ok
+                ? { ...request, status: 'done', dataUrl: result.dataUrl }
+                : { ...request, status: 'failed', error: (result && result.error) || '出图失败' };
+            await store.putSlot(key, { ...record, updatedAt: now() });
+            remember(`${key}|${request.slot}`, { status: record.status, dataUrl: record.dataUrl || '' });
+            emit(floor, request.slot);
+        }
+        progress(floor, { phase: 'done' });
+        const failedCount = requests.length - succeeded;
+        await store.putFloor(key, { ...base, status: failedCount ? 'failed' : 'done', count: requests.length, updatedAt: now() });
+        if (succeeded) report('success', `第 ${messageId} 楼已生成 ${succeeded} 张插图`);
+        if (!failedCount) return { ok: true, reason: 'done', count: succeeded };
+        return {
+            ok: false, reason: 'generation-failed', count: succeeded, failedCount,
+            error: `${failedCount} 张插图失败${succeeded ? `（成功 ${succeeded} 张）` : ''}：${Array.from(new Set(errors)).join('；')}`,
+        };
+    }
+
     async function run(messageId, floor, key, s, manual) {
         const previous = await store.getFloor(key);
         const marked = await markedSlots(key, floor.text);
         if (marked.retry.length) {
             const base = { kind: (previous && previous.kind) || 'interlude', want: (previous && previous.want) || marked.all.length };
             report('info', `第 ${messageId} 楼重试 ${marked.retry.length} 张未成功的插图…`);
+            if (backendReady().via === 'dbgen') return paintDbgenCaptions(messageId, floor, key, s, base, marked.retry);
             return generateSlots(messageId, floor, key, s, base, marked.retry);
         }
         if (marked.all.length) return { ok: true, reason: manual ? 'nothing-missing' : 'already-decided' };
@@ -58441,7 +60370,9 @@ function createAutoIllustrationService(deps) {
             report('error', `第 ${messageId} 楼插图未开始：${backend.ready.error}`);
             return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
         }
+        if (backend.via === 'dbgen') return planDbgenCg(messageId, floor, key, s, expected, decision, base);
         report('info', `第 ${messageId} 楼开始规划插图（${decision.kind === 'nsfw' ? 'NSFW' : '过场'}），正在请求副 LLM…`);
+        progress(floor, { phase: 'write' });
         await store.putFloor(key, { ...base, status: 'planning', updatedAt: now() });
         let plan;
         try {
@@ -58475,6 +60406,7 @@ function createAutoIllustrationService(deps) {
         if (!plan.ok) {
             await store.putFloor(key, { ...base, status: 'failed', error: plan.error, updatedAt: now() });
             report('error', `第 ${messageId} 楼插图规划失败，未发送生图请求：${plan.error}`);
+            progress(floor, { phase: 'done' });
             return { ok: false, reason: 'plan-failed', error: plan.error };
         }
         {
@@ -58487,6 +60419,7 @@ function createAutoIllustrationService(deps) {
         if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || latest.text !== expected.text) {
             await store.putFloor(key, { ...base, status: 'stale', updatedAt: now() });
             report('warn', `第 ${messageId} 楼在规划期间被修改或已不是最新楼层（可能有其他插件改写了正文），本次放弃生图，下次渲染时重试`);
+            progress(floor, { phase: 'done' });
             return { ok: false, reason: 'stale' };
         }
         await ensureRegexesOnce();
@@ -58495,6 +60428,7 @@ function createAutoIllustrationService(deps) {
             const stale = written && written.reason === 'stale';
             await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });
             report(stale ? 'warn' : 'error', `第 ${messageId} 楼${stale ? '在写回前被修改' : '无法写回插图标记'}，本次放弃生图`);
+            progress(floor, { phase: 'done' });
             return { ok: false, reason: stale ? 'stale' : 'write-failed' };
         }
 
@@ -58513,6 +60447,7 @@ function createAutoIllustrationService(deps) {
         if (!backend.ready.ok) {
             await store.putFloor(key, { ...base, status: 'failed', error: backend.ready.error, updatedAt: now() });
             report('error', `第 ${messageId} 楼插图未开始：${backend.ready.error}`);
+            progress(floor, { phase: 'done' });
             return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
         }
         const requests = slots.map(({ status, error, dataUrl, floorKey, key: slotKey, updatedAt, ...request }) => request);
@@ -58522,10 +60457,13 @@ function createAutoIllustrationService(deps) {
         }
         let succeeded = 0;
         const errors = [];
-        for (const request of requests) {
+        for (let index = 0; index < requests.length; index += 1) {
+            const request = requests[index];
+            progress(floor, { phase: 'paint', done: index + 1, total: requests.length });
             let result;
-            const meta = { messageId, description: request.description || request.scene, size: s.nai.size };
-            try { result = await nai.generate(request, s.nai, meta); }
+            const size = cgSize(s);
+            const meta = { messageId, description: request.description || request.scene, size };
+            try { result = await nai.generate(request, { ...s.nai, size }, meta); }
             catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
             if (result && result.ok) succeeded += 1;
             else {
@@ -58539,6 +60477,7 @@ function createAutoIllustrationService(deps) {
             remember(`${key}|${request.slot}`, { status: record.status, dataUrl: record.dataUrl || '' });
             emit(floor, request.slot);
         }
+        progress(floor, { phase: 'done' });
         const failedCount = requests.length - succeeded;
         await store.putFloor(key, { ...base, status: failedCount ? 'failed' : 'done', count: requests.length, updatedAt: now() });
         if (succeeded) report('success', `第 ${messageId} 楼已生成 ${succeeded} 张插图`);
@@ -58600,34 +60539,138 @@ function createAutoIllustrationService(deps) {
         return '';
     }
 
-    async function clearIllustration({ chatId, messageId, swipeId, slot } = {}) {
+    function identityOf({ chatId, messageId, swipeId } = {}, slot) {
         const floor = {
             chatId: String(chatId == null ? '' : chatId).trim(),
             messageId: Number(messageId),
             swipeId: Number(swipeId || 0),
         };
-        const normalizedSlot = Number(slot);
+        const normalizedSlot = slot == null ? null : Number(slot);
         if (!floor.chatId || !Number.isInteger(floor.messageId) || floor.messageId < 0
-            || !Number.isInteger(floor.swipeId) || floor.swipeId < 0
-            || !Number.isInteger(normalizedSlot) || normalizedSlot < 1) {
-            return { ok: false, reason: 'invalid-identity' };
+            || !Number.isInteger(floor.swipeId) || floor.swipeId < 0) return null;
+        if (normalizedSlot != null && (!Number.isInteger(normalizedSlot) || normalizedSlot < 1)) return null;
+        return { floor, slot: normalizedSlot };
+    }
+
+    // 先改正文，再删图。写不回去就不动图，避免挂载点还在、图却没了。
+    async function removeMarkers(floor, slot) {
+        if (!messageHost || typeof messageHost.readFloor !== 'function' || typeof messageHost.writeFloor !== 'function') {
+            return { ok: true, changed: false };
         }
-        if (!store || typeof store.deleteSlot !== 'function') {
-            return { ok: false, reason: 'delete-unavailable' };
+        const live = messageHost.readFloor(floor.messageId);
+        if (!live || live.chatId !== floor.chatId || Number(live.swipeId) !== floor.swipeId || !live.isAi) {
+            return { ok: false, reason: 'stale' };
         }
-        const key = floorKeyOf(floor);
-        try {
-            await store.deleteSlot(key, normalizedSlot);
-            cache.delete(`${key}|${normalizedSlot}`);
-            emit(floor, normalizedSlot);
-            return { ok: true, reason: 'cleared', slot: normalizedSlot };
-        } catch (error) {
-            return { ok: false, reason: 'delete-failed', error };
+        const next = slot == null ? stripIllustrationMarkers(live.text) : stripIllustrationMarker(live.text, slot);
+        if (next === live.text) return { ok: true, changed: false };
+        const written = await messageHost.writeFloor(floor.messageId, next, live, { requireLatest: false });
+        if (!written || written.ok === false) return { ok: false, reason: (written && written.reason) || 'write-failed' };
+        return { ok: true, changed: true };
+    }
+
+    async function dropSlots(floor, key, slots) {
+        for (const item of slots) {
+            await store.deleteSlot(key, item.slot);
+            cache.delete(`${key}|${item.slot}`);
+            emit(floor, item.slot);
         }
     }
 
+    async function clearIllustration(query = {}) {
+        const identity = identityOf(query, query.slot);
+        if (!identity) return { ok: false, reason: 'invalid-identity' };
+        if (!store || typeof store.deleteSlot !== 'function') return { ok: false, reason: 'delete-unavailable' };
+        const { floor } = identity;
+        const key = floorKeyOf(floor);
+        if (locks.has(key)) return locks.get(key);
+        const job = (async () => {
+            const removed = await removeMarkers(floor, identity.slot);
+            if (!removed.ok) return removed;
+            try {
+                await store.deleteSlot(key, identity.slot);
+            } catch (error) {
+                return { ok: false, reason: 'delete-failed', error };
+            }
+            cache.delete(`${key}|${identity.slot}`);
+            const live = messageHost && typeof messageHost.readFloor === 'function' ? messageHost.readFloor(floor.messageId) : null;
+            if (!live || !/(?:\[igs-img:|<IMG>)/i.test(live.text)) {
+                await store.putFloor(key, { kind: 'none', status: 'done', updatedAt: now() });
+            }
+            emit(floor, identity.slot);
+            return { ok: true, reason: 'cleared', slot: identity.slot };
+        })().finally(() => { if (locks.get(key) === job) locks.delete(key); });
+        locks.set(key, job);
+        return job;
+    }
+
+    async function clearFloorIllustrations(query = {}) {
+        const identity = identityOf(query);
+        if (!identity) return { ok: false, reason: 'invalid-identity' };
+        if (!store || typeof store.deleteSlot !== 'function') return { ok: false, reason: 'delete-unavailable' };
+        const { floor } = identity;
+        const key = floorKeyOf(floor);
+        if (locks.has(key)) return locks.get(key);
+        const job = (async () => {
+            const removed = await removeMarkers(floor, null);
+            if (!removed.ok) return removed;
+            const slots = await store.getSlots(key);
+            await store.putFloor(key, { kind: 'none', status: 'done', updatedAt: now() });
+            await dropSlots(floor, key, slots);
+            if (!slots.length) emit(floor, 1);
+            return { ok: true, reason: slots.length || removed.changed ? 'cleared' : 'nothing', count: slots.length };
+        })().finally(() => { if (locks.get(key) === job) locks.delete(key); });
+        locks.set(key, job);
+        return job;
+    }
+
+    async function rerollSlot(query = {}) {
+        const identity = identityOf(query, query.slot);
+        if (!identity) return { ok: false, reason: 'invalid-identity' };
+        const floorInfo = messageHost.readFloor(identity.floor.messageId);
+        if (!floorInfo || !floorInfo.isAi || !floorInfo.isLatest || floorInfo.chatId !== identity.floor.chatId || floorInfo.swipeId !== identity.floor.swipeId) {
+            return { ok: true, reason: 'not-eligible' };
+        }
+        const key = floorKeyOf(identity.floor);
+        if (locks.has(key)) return locks.get(key);
+        const job = (async () => {
+            const slots = await store.getSlots(key);
+            const record = slots.find((item) => Number(item.slot) === identity.slot);
+            if (!record) return { ok: false, reason: 'missing-slot', error: '这张没有保存的提示词，请重画本楼' };
+            const s = settings();
+            const previous = await store.getFloor(key);
+            const base = { kind: (previous && previous.kind) || 'interlude', want: (previous && previous.want) || 1 };
+            if (backendReady().via === 'dbgen') {
+                if (!record.caption) return { ok: false, reason: 'no-prompt', error: '这张没有保存提示词，请重画本楼' };
+                return paintDbgenCaptions(identity.floor.messageId, floorInfo, key, s, base, [record]);
+            }
+            return generateSlots(identity.floor.messageId, floorInfo, key, s, base, [record]);
+        })().finally(() => { if (locks.get(key) === job) locks.delete(key); });
+        locks.set(key, job);
+        return job;
+    }
+
+    async function rerollFloor(messageId) {
+        const s = settings();
+        if (!s.nsfwEnabled && !s.interludeEnabled) return { ok: true, reason: 'disabled' };
+        const floor = messageHost.readFloor(messageId);
+        if (!floor || !floor.isAi || !floor.isLatest || !floor.chatId || !floor.text.trim()) return { ok: true, reason: 'not-eligible' };
+        const key = floorKeyOf(floor);
+        if (locks.has(key)) return locks.get(key);
+        const job = (async () => {
+            const removed = await removeMarkers(floor, null);
+            if (!removed.ok) return { ...removed, error: '无法删掉本楼的 CG 挂载点' };
+            const slots = await store.getSlots(key);
+            await dropSlots(floor, key, slots);
+            if (!slots.length) emit(floor, 1);
+            const latest = messageHost.readFloor(messageId) || { ...floor, text: stripIllustrationMarkers(floor.text) };
+            return run(Number(messageId), latest, key, s, true);
+        })().finally(() => { if (locks.get(key) === job) locks.delete(key); });
+        locks.set(key, job);
+        return job;
+    }
+
     return {
-        processMessage, getIllustrationUrl, clearIllustration,
+        processMessage, getIllustrationUrl, clearIllustration, clearFloorIllustrations, rerollSlot, rerollFloor,
         start() {
             if (offRendered) return;
             messageHost.attachPromptStrip();
@@ -58642,10 +60685,12 @@ function createAutoIllustrationService(deps) {
     };
 }
 
+__igsDefine(exports, "cgSizeForMode", () => cgSizeForMode);
 __igsDefine(exports, "summarizeCharacterDna", () => summarizeCharacterDna);
 __igsDefine(exports, "bindCharacterDnaToSlots", () => bindCharacterDnaToSlots);
 __igsDefine(exports, "createAutoIllustrationService", () => createAutoIllustrationService);
 __igsDefine(exports, "ILLUSTRATION_UPDATED_EVENT", () => ILLUSTRATION_UPDATED_EVENT);
+__igsDefine(exports, "ILLUSTRATION_PROGRESS_EVENT", () => ILLUSTRATION_PROGRESS_EVENT);
 });
 __igsRegister("src/generated-images/illustration/marker-placer.js", function(module, exports, require) {
 const { stripOutfitFields } = require("src/scene/directive-tags.js");
@@ -58703,6 +60748,139 @@ function formatNumberedParagraphs(paragraphs, maxChars = 6000) {
     }
     return out.join('\n');
 }
+
+/**
+ * 与数据库生图插件的生成点定位相同：精确 → 去掉空白和标点 → 最长公共子串。
+ * 命中后落回本插件的段落编号，标记仍插在该段前面。
+ * @param {string} raw
+ * @param {Array<{ no: number, lineIndex: number }>} paragraphs
+ * @param {string} anchor
+ * @returns {number}
+ */
+function paragraphNoForAnchor(raw, paragraphs, anchor) {
+    const source = String(raw || '');
+    const found = findAnchorInsertIndex(source, anchor);
+    if (found.index < 0) return 0;
+    const lineIndex = source.slice(0, Math.max(0, found.index - 1)).split('\n').length - 1;
+    const list = Array.isArray(paragraphs) ? paragraphs : [];
+    const exact = list.find((paragraph) => paragraph.lineIndex === lineIndex);
+    if (exact) return exact.no;
+    let before = null;
+    for (const paragraph of list) {
+        if (paragraph.lineIndex <= lineIndex) before = paragraph;
+        else break;
+    }
+    if (before) return before.no;
+    return list.length ? list[0].no : 0;
+}
+
+/**
+ * 在 text 中定位 anchor，返回插入下标（anchor 结束之后）；找不到返回 -1。
+ * @param {string} text
+ * @param {string} anchorSentence
+ * @returns {{ index: number, mode: string }}
+ */
+function findAnchorInsertIndex(text, anchorSentence) {
+    const source = typeof text === 'string' ? text : '';
+    const anchor = typeof anchorSentence === 'string' ? anchorSentence : '';
+    if (!anchor) return { index: -1, mode: 'fail' };
+    const exact = source.indexOf(anchor);
+    if (exact !== -1) return { index: exact + anchor.length, mode: 'exact' };
+    const normResult = findNormalized(source, anchor);
+    if (normResult.index >= 0) return { index: normResult.index, mode: 'normalized' };
+    const lcsResult = findByLongestCommonSubstring(source, anchor);
+    if (lcsResult.index >= 0) return { index: lcsResult.index, mode: 'lcs' };
+    return { index: -1, mode: 'fail' };
+}
+
+function findNormalized(text, anchor) {
+    const { normalized: normText, map } = normalizeWithMap(text);
+    const normAnchor = normalizeAnchorText(anchor);
+    if (!normAnchor) return { index: -1 };
+    const at = normText.indexOf(normAnchor);
+    if (at === -1) return { index: -1 };
+    const endOrig = map[at + normAnchor.length - 1];
+    if (endOrig == null) return { index: -1 };
+    return { index: endOrig + 1 };
+}
+
+function normalizeAnchorText(s) {
+    return s
+        .replace(/\s+/g, '')
+        .replace(/[，。！？、；：""''「」『』（）【】《》,.!?;:'"()\[\]{}]/g, '')
+        .toLowerCase();
+}
+
+function normalizeWithMap(text) {
+    const map = [];
+    const chars = [];
+    const lower = text.toLowerCase();
+    for (let i = 0; i < text.length; i += 1) {
+        const ch = lower[i];
+        if (/\s/.test(ch)) continue;
+        if (/[，。！？、；：""''「」『』（）【】《》,.!?;:'"()\[\]{}]/.test(ch)) continue;
+        chars.push(ch);
+        map.push(i);
+    }
+    return { normalized: chars.join(''), map };
+}
+
+function findByLongestCommonSubstring(text, anchor) {
+    const a = text.toLowerCase();
+    const b = anchor.toLowerCase();
+    if (!a || !b) return { index: -1 };
+    const minLen = Math.max(4, Math.ceil(b.length * 0.4));
+    let bestLen = 0;
+    let bestEndInText = -1;
+    let prev = new Array(b.length + 1).fill(0);
+    let curr = new Array(b.length + 1).fill(0);
+    for (let i = 1; i <= a.length; i += 1) {
+        for (let j = 1; j <= b.length; j += 1) {
+            if (a[i - 1] === b[j - 1]) {
+                curr[j] = prev[j - 1] + 1;
+                if (curr[j] > bestLen) {
+                    bestLen = curr[j];
+                    bestEndInText = i;
+                }
+            } else {
+                curr[j] = 0;
+            }
+        }
+        const tmp = prev;
+        prev = curr;
+        curr = tmp;
+        curr.fill(0);
+    }
+    if (bestLen < minLen || bestEndInText < 0) return { index: -1 };
+    return { index: bestEndInText };
+}
+
+// 同一段里可以有多句生成点。按句尾插入，不按整段，避免四张标记叠在同一处。
+function insertMarkersAtAnchors(raw, slots) {
+    const source = String(raw || '');
+    const placed = [];
+    for (const slot of Array.isArray(slots) ? slots : []) {
+        if (!slot) continue;
+        const found = findAnchorInsertIndex(source, slot.anchorSentence);
+        if (found.index < 0) continue;
+        placed.push({ index: found.index, slot: Number(slot.slot) || placed.length + 1 });
+    }
+    placed.sort((a, b) => b.index - a.index || b.slot - a.slot);
+    let text = source;
+    for (const item of placed) {
+        text = insertTokenOnOwnLine(text, item.index, `[igs-img:${item.slot}]`);
+    }
+    return text;
+}
+
+function insertTokenOnOwnLine(text, index, token) {
+    const at = Math.max(0, Math.min(text.length, Number(index) || 0));
+    const before = text.slice(0, at);
+    const after = text.slice(at);
+    const lead = before.length === 0 || before.endsWith('\n') ? '' : '\n';
+    const trail = after.length === 0 || after.startsWith('\n') ? '' : '\n';
+    return before + lead + token + trail + after;
+}
 function insertMarkers(raw, paragraphs, slots) {
     const lines = String(raw || '').split('\n');
     const ordered = [...slots].sort((a, b) => b.at - a.at);
@@ -58723,6 +60901,9 @@ function insertMarkers(raw, paragraphs, slots) {
 
 __igsDefine(exports, "numberParagraphs", () => numberParagraphs);
 __igsDefine(exports, "formatNumberedParagraphs", () => formatNumberedParagraphs);
+__igsDefine(exports, "paragraphNoForAnchor", () => paragraphNoForAnchor);
+__igsDefine(exports, "findAnchorInsertIndex", () => findAnchorInsertIndex);
+__igsDefine(exports, "insertMarkersAtAnchors", () => insertMarkersAtAnchors);
 __igsDefine(exports, "insertMarkers", () => insertMarkers);
 });
 __igsRegister("src/generated-images/illustration/planner-parser.js", function(module, exports, require) {
@@ -58804,7 +60985,8 @@ const { supportsNaiTransparentBackground } = require("src/generated-images/reque
 const { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } = require("src/scene/asset-match.js");
 const { floorKeyOf } = require("src/media/illustration-store.js");
 const { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } = require("src/media/generated-asset-store.js");
-const { buildDbgenAssetDescription } = require("src/generated-images/dbgen-prompt.js");
+const { buildDbgenAssetDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, expressionSpritePrompts, uprightSpriteCaption } = require("src/generated-images/dbgen-prompt.js");
+const { normalizeStoredPrompt, promptFromCaption } = require("src/generated-images/generation-prompt.js");
 const { resolveCharacterKey } = require("src/scene/scene-directives.js");
 const { isCharacterDnaEmpty, resolveCharacterDna } = require("src/scene/character-dna.js");
 const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
@@ -58962,7 +61144,10 @@ function createAssetGenerationService(deps) {
             return { ok: true };
         } catch (error) {
             if (!isQuotaError(error) || !image.originalDataUrl) throw error;
-            await store.putImage({ id: image.id, dataUrl: image.dataUrl, type: image.type, createdAt: image.createdAt });
+            await store.putImage({
+                id: image.id, dataUrl: image.dataUrl, type: image.type, createdAt: image.createdAt,
+                ...(image.prompt ? { prompt: image.prompt } : {}),
+            });
             report('warn', '素材图片存储空间不足，已只保存透明结果，之后无法从原图修复抠图（source-unavailable: quota）');
             return { ok: true, diagnostic: 'quota' };
         }
@@ -58971,13 +61156,19 @@ function createAssetGenerationService(deps) {
     async function generateItem(item, s, floor, floorKey) {
         const isSprite = item.need.type === 'sprite';
         // 智绘姬出图不保证透明底：走智绘姬时按浅灰底模板出图并抠图，不信任 NAI 模型的原生透明能力。
+        // 数据库生图的立绘默认要透明底，不看沉浸式插件自己填的 NAI 模型。
         const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
-        const transparent = isSprite && plannedVia !== 'chatu8' && supportsNaiTransparentBackground(s.auto.nai.model);
+        const transparent = isSprite && plannedVia !== 'chatu8'
+            && (plannedVia === 'dbgen' || supportsNaiTransparentBackground(s.auto.nai.model));
         const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
         const size = isSprite ? s.auto.assets.spriteSize : s.auto.assets.backgroundSize;
-        // 数据库生图模式下前端正负模板随 meta 传出：写进描述交给插件写词，并在出图前合并进最终 caption。
+        // 数据库生图：描述只说明画什么。正负模板随 userPrompts 传出，出图前合并进最终 caption。
         const userPrompts = { positive: slot.scene, negative: slot.sceneUc };
-        const meta = { messageId: floor.messageId, size, description: buildDbgenAssetDescription(item.need, userPrompts), userPrompts };
+        const meta = {
+            messageId: floor.messageId, size, description: buildDbgenAssetDescription(item.need), userPrompts,
+            skipRecall: true,
+            ...(isSprite && plannedVia === 'dbgen' && { transparent: true }),
+        };
         let result;
         try { result = await nai.generate(slot, { ...s.auto.nai, size }, meta); } catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
         const key = tempAssetKeyOf(floor.chatId, item.need);
@@ -58992,6 +61183,8 @@ function createAssetGenerationService(deps) {
             const image = isSprite
                 ? await buildSpriteImageRecord(imageId, result.dataUrl, transparent, base.createdAt)
                 : { id: imageId, dataUrl: result.dataUrl, type: item.need.type, createdAt: base.createdAt };
+            const prompt = normalizeStoredPrompt(result.prompt);
+            if (prompt) image.prompt = prompt;
             const saved = await putImageWithQuotaFallback(image);
             rememberImage(imageId, image.dataUrl);
             record = { ...base, imageId, status: 'review', ...(saved.diagnostic ? { sourceUnavailable: saved.diagnostic } : {}) };
@@ -59166,8 +61359,168 @@ function createAssetGenerationService(deps) {
         return record && record.dataUrl ? record.dataUrl : '';
     }
 
+    function expressionPaintMeta() {
+        const s = readSettings();
+        const slot = buildAssetSlot(
+            { need: { type: 'sprite', name: '' }, tags: '', uc: '' },
+            { transparent: true, templates: s.auto.assets.templates },
+        );
+        const prompts = expressionSpritePrompts(slot.scene, slot.sceneUc);
+        return {
+            size: s.auto.assets.spriteSize,
+            userPrompts: { positive: prompts.positive, negative: prompts.negative },
+            transparent: true,
+        };
+    }
+
+    async function paintExpressionCaption(name, mood, caption) {
+        const upright = uprightSpriteCaption(caption) || caption;
+        const meta = expressionPaintMeta();
+        let painted;
+        try {
+            painted = await nai.generateDbgenCaption({ ...meta, caption: upright });
+        } catch (error) {
+            painted = { ok: false, error: (error && error.message) || '出图失败' };
+        }
+        if (!painted || !painted.ok || !painted.dataUrl) {
+            return {
+                mood,
+                ok: false,
+                error: (painted && painted.error) || '出图失败',
+                prompt: normalizeStoredPrompt(painted && painted.prompt) || promptFromCaption(upright),
+                caption: upright,
+            };
+        }
+        const imageId = newId();
+        const createdAt = now();
+        const image = await buildSpriteImageRecord(imageId, painted.dataUrl, true, createdAt);
+        const prompt = normalizeStoredPrompt(painted.prompt) || promptFromCaption(upright);
+        if (prompt) image.prompt = prompt;
+        await putImageWithQuotaFallback(image);
+        rememberImage(imageId, image.dataUrl);
+        return { mood, ok: true, imageId, prompt, name };
+    }
+
+    function reportExpressionProgress(onProgress, event) {
+        if (typeof onProgress === 'function') onProgress(event);
+    }
+
+    // 一次写词拿回全部分，再按表情顺序串行出图。某一张失败不影响后面的。
+    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress } = {}) {
+        const labels = (Array.isArray(moods) ? moods : []).map((item) => String(item || '').trim()).filter(Boolean);
+        if (!labels.length) return { ok: false, error: '没有表情分组' };
+        if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
+            return { ok: false, error: '当前图像来源不能写表情差分' };
+        }
+        reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: labels.length });
+        let written;
+        try {
+            written = await nai.writeDbgenPrompt({
+                description: buildExpressionDiffDescription(name, basePrompt, labels, dna, outfit),
+            });
+        } catch (error) {
+            return { ok: false, error: (error && error.message) || '写提示词失败' };
+        }
+        if (!written || !written.ok) return { ok: false, error: (written && written.error) || '写提示词失败' };
+        const captions = Array.isArray(written.captions) ? written.captions : [];
+        const items = [];
+        for (let i = 0; i < labels.length; i += 1) {
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: labels.length, mood: labels[i] });
+            const slot = captions.find((item) => Number(item && item.slotId) === i + 1);
+            const caption = slot && slot.caption;
+            if (!caption) {
+                items.push({ mood: labels[i], ok: false, error: '写提示词没有返回这一份' });
+                continue;
+            }
+            items.push(await paintExpressionCaption(name, labels[i], caption));
+        }
+        return { ok: true, items };
+    }
+
+    // 失败槽重画：已有 caption 就只出这一张，不再写词。
+    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, onProgress } = {}) {
+        const label = String(mood || '').trim();
+        if (!label) return { ok: false, error: '没有表情' };
+        if (caption) {
+            reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: label });
+            const item = await paintExpressionCaption(name, label, caption);
+            return { ok: true, items: [item] };
+        }
+        return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, onProgress });
+    }
+
+    function clothingCaption(prompt) {
+        const text = String(prompt || '').trim();
+        return {
+            v4_prompt: { caption: { base_caption: text, char_captions: [] } },
+            v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } },
+        };
+    }
+
+    // 衣柜参考图：用已有服装提示词直接出图，不再写提示词。
+    async function paintWardrobeReference({ prompt } = {}) {
+        const text = String(prompt || '').trim();
+        if (!text) return { ok: false, error: '这套衣服还没有提示词' };
+        if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出参考图' };
+        const meta = expressionPaintMeta();
+        let painted;
+        try {
+            painted = await nai.generateDbgenCaption({ ...meta, caption: clothingCaption(text) });
+        } catch (error) {
+            return { ok: false, error: (error && error.message) || '出参考图失败' };
+        }
+        if (!painted || !painted.ok || !painted.dataUrl) return { ok: false, error: (painted && painted.error) || '出参考图失败' };
+        const imageId = newId();
+        const createdAt = now();
+        const image = await buildSpriteImageRecord(imageId, painted.dataUrl, true, createdAt);
+        const stored = normalizeStoredPrompt(painted.prompt) || { positive: text, negative: '' };
+        if (stored) image.prompt = stored;
+        await putImageWithQuotaFallback(image);
+        rememberImage(imageId, image.dataUrl);
+        return { ok: true, imageId };
+    }
+
+    async function writeWardrobePrompt({ character, outfit } = {}) {
+        const name = String(character || '').trim();
+        const clothes = String(outfit || '').trim();
+        if (!clothes) return { ok: false, error: '没有待确认的服装' };
+        if (!nai || typeof nai.writeDbgenPrompt !== 'function') return { ok: false, error: '当前图像来源不能写服装提示词' };
+        let written;
+        try {
+            written = await nai.writeDbgenPrompt({ description: buildWardrobeClothingDescription(name, clothes) });
+        } catch (error) {
+            return { ok: false, error: (error && error.message) || '写服装提示词失败' };
+        }
+        if (!written || !written.ok) return { ok: false, error: (written && written.error) || '写服装提示词失败' };
+        const prompt = promptFromCaption(written.caption);
+        const text = prompt && String(prompt.positive || '').trim();
+        if (!text) return { ok: false, error: '写提示词没有返回服装标签' };
+        return { ok: true, prompt: text };
+    }
+
+    async function getImagePrompt(id) {
+        const key = String(id || '');
+        if (!key || !store || typeof store.getImage !== 'function') return null;
+        const record = await store.getImage(key);
+        return normalizeStoredPrompt(record && record.prompt);
+    }
+
+    async function saveImagePrompt(id, prompt) {
+        const key = String(id || '');
+        const stored = normalizeStoredPrompt(prompt);
+        if (!key || !stored) return { ok: false, error: '提示词是空的' };
+        if (!store || typeof store.getImage !== 'function' || typeof store.putImage !== 'function') {
+            return { ok: false, error: '提示词存不了' };
+        }
+        const record = await store.getImage(key);
+        if (!record) return { ok: false, error: '找不到这张立绘' };
+        await store.putImage({ ...record, prompt: stored });
+        return { ok: true, prompt: stored };
+    }
+
     return {
-        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl,
+        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt,
+        generateExpressionSet, generateExpressionImage, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
         start() {
@@ -60120,6 +62473,87 @@ __igsDefine(exports, "composePhoto", () => composePhoto);
 __igsDefine(exports, "withPhotoAlbum", () => withPhotoAlbum);
 __igsDefine(exports, "PHOTO_ALBUM_LIMIT", () => PHOTO_ALBUM_LIMIT);
 __igsDefine(exports, "PHOTO_WIDTH", () => PHOTO_WIDTH);
+});
+__igsRegister("src/scene/prompt-triggers.js", function(module, exports, require) {
+// 按需展开的提示词块：最近几层出现过对应标签、用户输入命中触发词、或对应成对标签未闭合时才发完整写法。
+const ADAPTIVE_PROMPT_BLOCKS = Object.freeze(['chat', 'daily', 'battle', 'romance', 'live']);
+const DEFAULT_TRIGGER_LOOKBACK = 3;
+// 成对标签可能跨很多层才闭合（一场战斗、一段书信），未闭合判断看更长的窗口。
+const PAIR_TRIGGER_LOOKBACK = 12;
+
+const DAILY_KINDS = 'timeskip|photo|letter|note|bell|broadcast|fireworks|touch|alarm|omikuji|receipt|tv|rps|gacha|game|score|pat|poke|fever|cheers|cook|cat|guqin|go|poem|edict|tea|bow';
+
+const BLOCK_TRIGGERS = Object.freeze({
+    chat: {
+        tag: /\[igs-(?:chat|msg)[:\]]/,
+        words: /手机|消息|微信|短信|私信|群聊|聊天记录|发信息|回信息|QQ|LINE|书信|写信|回信|家书|来信/i,
+        open: /\[igs-chat:/g,
+        close: /\[igs-chat-end\]/g,
+    },
+    daily: {
+        tag: new RegExp(`\\[igs-fx:(?:${DAILY_KINDS})[|\\]]`),
+        words: /拍照|照片|合影|情书|便签|字条|留言条|上课铃|下课|放学|广播|烟花|花火|闹钟|神社|抽签|求签|结账|买单|小票|电视|新闻|牵手|摸头|第二天|翌日|几个小时后|三天后/,
+    },
+    battle: {
+        tag: /\[igs-fx:(?:battle|battle-end|hit)[|\]]/,
+        words: /攻击|战斗|检定|交战|开战|迎战|出招|对决|拔剑|拔刀|敌人|怪物|魔物|反击|决斗/,
+        open: /\[igs-fx:battle[|\]]/g,
+        close: /\[igs-fx:battle-end[|\]]/g,
+    },
+    romance: {
+        tag: /\[igs-fx:(?:romance|romance-end|confess|memory)[|\]]/,
+        words: /告白|表白|约会|亲吻|接吻|拥抱|心动|暧昧|喜欢你|爱你/,
+        open: /\[igs-fx:romance[|\]]/g,
+        close: /\[igs-fx:romance-end\]/g,
+    },
+    live: {
+        tag: /\[igs-fx:(?:live|live-end|dm)[|\]]/,
+        words: /直播|开播|下播|主播|直播间|弹幕|连麦/,
+        open: /\[igs-fx:live[|\]]/g,
+        close: /\[igs-fx:live-end\]/g,
+    },
+});
+
+function lastIndexOf(text, pattern) {
+    let last = -1;
+    pattern.lastIndex = 0;
+    for (const match of text.matchAll(pattern)) last = match.index;
+    return last;
+}
+
+// recentAiTexts 按时间顺序（旧 → 新）；标签出现只看最近 lookback 层，未闭合的成对标签看最近 PAIR_TRIGGER_LOOKBACK 层。
+function detectPromptTriggers({ recentAiTexts = [], userText = '', lookback = DEFAULT_TRIGGER_LOOKBACK } = {}) {
+    const all = (Array.isArray(recentAiTexts) ? recentAiTexts : []).map((t) => String(t || '')).slice(-PAIR_TRIGGER_LOOKBACK);
+    const texts = lookback > 0 ? all.slice(-lookback) : [];
+    const joined = all.join('\n');
+    const user = String(userText || '');
+    const hits = new Set();
+    for (const [block, rule] of Object.entries(BLOCK_TRIGGERS)) {
+        if (texts.some((t) => rule.tag.test(t)) || rule.words.test(user)) {
+            hits.add(block);
+            continue;
+        }
+        if (rule.open && lastIndexOf(joined, rule.open) > lastIndexOf(joined, rule.close)) hits.add(block);
+    }
+    return hits;
+}
+
+// 粗估 token：中日韩字符约 1 token/字，其余约 3.5 字符/token。
+function estimatePromptTokens(text) {
+    let cjk = 0;
+    let other = 0;
+    for (const ch of String(text || '')) {
+        if (/[　-鿿豈-﫿＀-￯]/.test(ch)) cjk += 1;
+        else other += 1;
+    }
+    return cjk + Math.ceil(other / 3.5);
+}
+
+__igsDefine(exports, "detectPromptTriggers", () => detectPromptTriggers);
+__igsDefine(exports, "estimatePromptTokens", () => estimatePromptTokens);
+__igsDefine(exports, "ADAPTIVE_PROMPT_BLOCKS", () => ADAPTIVE_PROMPT_BLOCKS);
+__igsDefine(exports, "DEFAULT_TRIGGER_LOOKBACK", () => DEFAULT_TRIGGER_LOOKBACK);
+__igsDefine(exports, "PAIR_TRIGGER_LOOKBACK", () => PAIR_TRIGGER_LOOKBACK);
 });
 __igsRegister("src/host/prompt-context.js", function(module, exports, require) {
 // 为按需注入收集本轮上下文：最近几层 AI 正文、本轮用户输入、在场角色线索。只读宿主，不写。

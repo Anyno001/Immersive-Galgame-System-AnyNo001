@@ -66,9 +66,9 @@ import { renderMoodReviewList } from '../src/visual/igs-ui/settings-fields.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from '../src/visual/igs-ui/settings-theme.js';
 import { renderCharacterAssetList, renderSceneAssetList, tableMultiSelect } from '../src/visual/igs-ui/settings-fields.js';
-import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule } from '../src/visual/igs-ui/reader-host-constants.js';
+import { DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule } from '../src/visual/igs-ui/reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normalizePublicReaderMode } from '../src/schemas/reader-mode.js';
-import { ensureEmbeddedHost, hideEmbeddedSourceText, isEmbeddedEditTrigger, resolveHostEditFinish, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
+import { collapseBlankShells, ensureEmbeddedHost, findStorySpan, hideEmbeddedSourceText, isEmbeddedEditTrigger, isStoryHidden, resolveHostEditFinish, restoreBlankShells, restoreEmbeddedSourceText, resolveEmbeddedHostParent, storyEdgeLines, storyLines } from '../src/visual/igs-ui/embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from '../src/visual/igs-ui/reader-source-cache.js';
 import { createChatStreamObserver } from '../src/host/chat-stream-observer.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from '../src/visual/igs-ui/record-icons.js';
@@ -277,16 +277,11 @@ test('gate:igs-ui:embedded-host-mounts-beside-mes-text-and-restores', () => {
     assert.ok(host);
     assert.equal(host.getAttribute('data-igs-embedded-host'), '1');
     assert.equal(host.getAttribute('data-igs-internal-reader'), '1');
-    assert.equal(messageElement.children.indexOf(host), messageElement.children.indexOf(mesText) + 1);
+    assert.equal(messageElement.children.indexOf(host), messageElement.children.indexOf(mesText) - 1);
+    assert.equal(mesText.style.display, '');
 
     hideEmbeddedSourceText(mesText);
     assert.equal(mesText.style.display, 'none');
-    assert.equal(mesText.getAttribute('aria-hidden'), 'true');
-    mesText.style.display = '';
-    mesText.removeAttribute('aria-hidden');
-    hideEmbeddedSourceText(mesText);
-    assert.equal(mesText.style.display, 'none');
-    assert.equal(mesText.getAttribute('aria-hidden'), 'true');
     restoreEmbeddedSourceText(mesText);
     assert.equal(mesText.style.display, '');
     assert.equal(mesText.getAttribute('aria-hidden'), null);
@@ -326,6 +321,61 @@ test('gate:igs-ui:embedded-edit-finish-matches-floor-done-or-cancel', () => {
     assert.equal(resolveHostEditFinish(null, 5), null);
 });
 
+test('gate:igs-ui:story-span-is-first-sentence-through-last-sentence', () => {
+    const raw = '<phone>界面</phone>\n<content>\n第一句正文。\n中间还有一句。\n最后一句正文。\n</content>\n<status>另一块界面</status>';
+    const edges = storyEdgeLines(raw, 'content');
+    assert.equal(edges.first, '第一句正文。');
+    assert.equal(edges.last, '最后一句正文。');
+    const rendered = '界面第一句正文。中间还有一句。最后一句正文。另一块界面';
+    const span = findStorySpan(rendered, edges.first, edges.last);
+    assert.equal(rendered.slice(span.start, span.end), '第一句正文。中间还有一句。最后一句正文。');
+    assert.equal(rendered.slice(0, span.start), '界面');
+    assert.equal(rendered.slice(span.end), '另一块界面');
+});
+
+test('gate:igs-ui:story-span-skips-a-last-line-missing-on-the-page', () => {
+    const raw = '<content>\n[igs-scene:星见占星馆内室|傍晚|晴天|NSFW]\n第一句正文。\n最后一句正文。\n[igs-img:3]\n</content>';
+    const lines = storyLines(raw, 'content');
+    const rendered = '界面[igs-scene:星见占星馆内室|傍晚|晴天|NSFW]第一句正文。最后一句正文。另一块界面';
+    const span = findStorySpan(rendered, lines);
+    assert.equal(rendered.slice(span.start, span.end), '[igs-scene:星见占星馆内室|傍晚|晴天|NSFW]第一句正文。最后一句正文。');
+    assert.equal(rendered.slice(0, span.start), '界面');
+    assert.equal(rendered.slice(span.end), '另一块界面');
+});
+
+test('gate:igs-ui:blank-shells-collapse-and-regex-ui-stays', () => {
+    const make = (className, text) => ({
+        className,
+        textContent: text,
+        nodeType: 1,
+        children: [],
+        attributes: new Map(),
+        style: { display: '' },
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; },
+        removeAttribute(name) { this.attributes.delete(name); },
+        querySelector() { return null; },
+    });
+    const mesText = make('', '');
+    const empty = make('', '');
+    const ui = make('TH-render', '');
+    mesText.children = [empty, ui];
+    mesText.querySelectorAll = (selector) => (
+        selector === '[data-igs-blank-shell="1"]' ? mesText.children.filter((node) => node.getAttribute('data-igs-blank-shell') === '1') : []
+    );
+    collapseBlankShells(mesText);
+    assert.equal(empty.style.display, 'none');
+    assert.equal(ui.style.display, '');
+    restoreBlankShells(mesText);
+    assert.equal(empty.style.display, '');
+    assert.equal(empty.getAttribute('data-igs-blank-shell'), null);
+});
+
+test('gate:igs-ui:story-hide-is-gone-after-the-message-is-redrawn', () => {
+    const hidden = { getAttribute: (name) => (name === 'data-igs-story-hidden' ? '1' : null) };
+    assert.equal(isStoryHidden({ querySelector: (selector) => (selector === '[data-igs-story-hidden="1"]' ? hidden : null) }), true);
+    assert.equal(isStoryHidden({ querySelector: () => null }), false);
+});
 
 test('gate:igs-ui:embedded-chat-observer-only-starts-when-asked', () => {
     const created = [];
@@ -1164,10 +1214,12 @@ test('gate:igs-ui:classic-dialog-active-theme-keeps-default-isolated', () => {
 
 test('gate:igs-ui:resolve-sprite-layout-keeps-mode-isolated', () => {
     const layouts = {
+        pc: { posX: 50, posY: 100, scale: 90 },
         'pc::小林海斗::平和': { posX: 70, posY: 30, scale: 180 },
-        'mobile::小林海斗::平和': { posX: 40, posY: 90, scale: 110 },
+        mobile: { posX: 50, posY: 100, scale: 110 },
+        'mobile::小林海斗::平和': { posX: 40, posY: 90, scale: 200 },
     };
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林海斗', '平和'), { posX: 70, posY: 30, scale: 180 });
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林海斗', '平和'), { posX: 70, posY: 30, scale: 90 });
     assert.deepEqual(resolveSpriteLayout(layouts, 'mobile', '小林海斗', '平和'), { posX: 40, posY: 90, scale: 110 });
     // 切到没有该 key 的模式回退默认，不会串用其他模式的数据
     assert.deepEqual(resolveSpriteLayout(layouts, 'web', '小林海斗', '平和'), { posX: 50, posY: 100, scale: 100 });
@@ -1578,8 +1630,8 @@ test('gate:scene:prompt-rule-draft-only-persists-on-explicit-save', async () => 
     assert.equal(persistCount, 2);
 });
 
-test('gate:scene:legacy-default-prompt-upgrades-without-touching-custom-rule', () => {
-    assert.equal(normalizeScenePromptRule(LEGACY_DEFAULT_SCENE_PROMPT_RULE), DEFAULT_SCENE_PROMPT_RULE);
+test('gate:scene:empty-prompt-uses-default-saved-rule-stays', () => {
+    assert.equal(normalizeScenePromptRule(''), DEFAULT_SCENE_PROMPT_RULE);
     assert.equal(normalizeScenePromptRule('自定义规则'), '自定义规则');
     assert.match(DEFAULT_SCENE_PROMPT_RULE, /NSFW场景加第4栏大写NSFW/);
     // NSFW 只规定格式与触发条件，不解释前端用途。
@@ -1802,6 +1854,10 @@ test('gate:settings:generated-asset-download-button-and-action', async () => {
         ],
         resolveUrl: () => '',
     });
+    assert.ok(html.includes(`data-action="gen-asset-prompt:${enc('bg-lib')}"`));
+    assert.ok(html.includes(`data-action="gen-asset-prompt:${enc('sp-lib')}"`));
+    assert.ok(html.includes(`data-action="gen-asset-prompt:${enc('sp-temp')}"`));
+    assert.equal((html.match(/gen-asset-prompt:/g) || []).length, 3, '没有图片的失败记录不显示提示词按钮');
     assert.ok(html.includes(`data-action="gen-asset-download:${enc('bg-lib')}:${enc('夜景-背景.png')}"`));
     assert.ok(html.includes(`data-action="gen-asset-download:${enc('sp-lib')}:${enc('爱丽丝-立绘.png')}"`));
     assert.ok(html.includes(`data-action="gen-asset-download:${enc('sp-temp')}:${enc('若叶睦-立绘.png')}"`));
@@ -1844,6 +1900,19 @@ test('gate:settings:generated-asset-download-button-and-action', async () => {
     assert.equal(alerts.length, 1);
     assert.equal(sanitizeDownloadName(''), '素材.png');
     assert.equal(sanitizeDownloadName('a:b'), 'a_b.png');
+
+    const seen = [];
+    const promptCtx = {
+        ...ctx,
+        dialogs: { view: async (text) => { seen.push(text); } },
+        options: { ...ctx.options, generatedAssets: { getImagePrompt: async (id) => (id === 'sp-lib' ? { positive: '1girl, solo', negative: 'lowres' } : null) } },
+    };
+    const shown = await handleSettingsAction(`gen-asset-prompt:${enc('sp-lib')}`, promptCtx);
+    assert.equal(shown.ok, true);
+    assert.deepEqual(seen, ['正面\n1girl, solo\n\n负面\nlowres']);
+    const empty = await handleSettingsAction(`gen-asset-prompt:${enc('old')}`, promptCtx);
+    assert.equal(empty.ok, true);
+    assert.equal(seen[1], '这条素材没有保存生图提示词。');
 });
 
 
@@ -2124,6 +2193,41 @@ test('gate:igs-ui:scene-assets-keeps-sprite-with-existing-background', () => {
     assert.match(opened.snapshot.html, /id="igs-sprite"/);
     assert.equal(opened.snapshot.styles['#igs-sprite'].display, 'block');
 
+    host.destroy();
+});
+
+test('gate:igs-ui:settings-repaints-thumbs-when-generated-images-arrive', () => {
+    let notify = () => {};
+    const images = new Map();
+    const timers = [];
+    const host = createIgsReaderHost({
+        global: { setTimeout: (fn) => { timers.push(fn); return timers.length; } },
+        onGeneratedAssetUpdated: (handler) => { notify = handler; return () => {}; },
+        generatedAssets: { resolveUrl: (url) => images.get(String(url)) || '' },
+        getUnifiedSettings: () => ({
+            version: '0.33.7',
+            bridge: {
+                openMode: 'pc',
+                sceneAssets: {
+                    enabled: true,
+                    scenes: {},
+                    characters: { Kaito: { 默认: 'igs-gen:abc' } },
+                },
+            },
+            readerMode: 'pc',
+            readerSettings: {},
+        }),
+        saveUnifiedSettings: () => ({ ok: true }),
+    });
+    host.openReader({ message: { text: '旁白。' } }, { mode: 'pc' });
+    const opened = host.openSettings({ tab: 'scene' });
+    opened.controller.switchSceneSubTab('characters');
+    assert.equal(opened.controller.getSnapshot().html.includes('data:image/png;base64,aaa'), false);
+    images.set('igs-gen:abc', 'data:image/png;base64,aaa');
+    notify({ reason: 'image-loaded', imageId: 'abc' });
+    assert.equal(timers.length, 1);
+    timers[0]();
+    assert.match(opened.controller.getSnapshot().html, /data:image\/png;base64,aaa/);
     host.destroy();
 });
 

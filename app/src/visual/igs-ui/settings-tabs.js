@@ -330,6 +330,7 @@ export const SCENE_SETTINGS_SUBTAB_DEFS = Object.freeze([
 export const SCENE_SUBTAB_DEFS = Object.freeze([
     ['scenes', '场景素材'],
     ['characters', '角色立绘'],
+    ['wardrobe', '衣柜'],
     ['generated', '生成素材'],
 ]);
 

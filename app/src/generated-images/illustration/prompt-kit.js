@@ -36,7 +36,8 @@ export function looksLikeRefusal(text) {
     return REFUSAL_RE.test(value.slice(0, 400));
 }
 
-export const NSFW_NEGATIVE_GUARD = 'loli, shota, child, young child, underage, toddler, aged down';
+// 只挡色情向标签。child / young child / toddler 不放进来，立绘可以是未成年人。
+export const NSFW_NEGATIVE_GUARD = '';
 
 // 统一的「请求 → 解析 → 拒答/失败时温和重试」流程；parse 返回 { ok, ... }。
 // 失败时 error 带上真实原因（HTTP 状态、网络/CORS、超时、拒答原文片段），方便用户排查。

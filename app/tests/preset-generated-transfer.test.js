@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../src/index.js';
 import { handleSettingsAction, unreferencedGeneratedImageIds } from '../src/visual/igs-ui/settings-actions.js';
 import { renderGeneratedAssetPane } from '../src/visual/igs-ui/settings-fields.js';
-import { transferGeneratedLibraryEntry } from '../src/scene/asset-match.js';
+import { normalizeGeneratedLibrary, transferGeneratedLibraryEntry } from '../src/scene/asset-match.js';
 
 const PRESET_KEY = 'igs:scene-presets:v1';
 const enc = encodeURIComponent;
@@ -36,7 +36,7 @@ test('gate:preset:transfer-pure-function-copies-with-aliases-and-blocks-duplicat
     assert.equal(copied.ok, true);
     assert.deepEqual(copied.target.characters.雪乃, { 默认: 'igs-gen:sp-a' });
     assert.deepEqual(copied.target.characterAliases.雪乃, ['雪之下']);
-    assert.deepEqual(copied.source, libA(), '复制不改来源');
+    assert.deepEqual(copied.source, normalizeGeneratedLibrary(libA()), '复制不改来源');
     const moved = transferGeneratedLibraryEntry(libA(), undefined, 'background', '教室', { move: true });
     assert.deepEqual(Object.keys(moved.source.scenes), []);
     assert.deepEqual(moved.target.scenes.教室.words, ['课室']);

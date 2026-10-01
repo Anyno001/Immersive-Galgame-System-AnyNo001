@@ -1,7 +1,7 @@
 import { resolveSpriteLayout } from './settings-normalize.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
 import { igsDebug } from './reader-value-utils.js';
-import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteHeadKey } from './fx-anchor.js';
+import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteDrawRect, spriteHeadKey } from './fx-anchor.js';
 import { startHeadEdit } from './sprite-head-edit.js';
 
 const MAIN_BAR = '<span class="igs-se-hint">拖动调整，滚轮/双指缩放</span>'
@@ -29,11 +29,11 @@ function spriteUrlOf(spriteEl) {
 // 让立绘跟手移动；可移动量不足 1px 时该轴百分比不影响画面，保持不变。读不到原图比例时纵向沿用旧换算。
 export function spriteDragPosition({ posX, posY, dx, dy, stageW, stageH, scale, naturalW, naturalH }) {
     const axis = (pos, delta, movable) => (Number.isFinite(movable) && Math.abs(movable) >= 1 ? pos + delta / movable * 100 : pos);
-    const drawW = stageW * scale / 100;
-    const aspect = naturalW > 0 && naturalH > 0 ? naturalH / naturalW : 0;
+    const rect = naturalW > 0 && naturalH > 0 ? spriteDrawRect(stageW, stageH, { posX, posY, scale, naturalW, naturalH }) : null;
+    const drawW = rect ? rect.w : stageW * scale / 100;
     const nextX = stageW > 0 ? axis(posX, dx, stageW - drawW) : posX;
     let nextY = posY;
-    if (stageH > 0) nextY = aspect ? axis(posY, dy, stageH - drawW * aspect) : posY + dy / stageH * 100;
+    if (stageH > 0) nextY = rect ? axis(posY, dy, stageH - rect.h) : posY + dy / stageH * 100;
     return { posX: nextX, posY: nextY };
 }
 
@@ -126,7 +126,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     }
 
     function apply() {
-        spriteEl.style.backgroundSize = `${scale}%`;
+        spriteEl.style.backgroundSize = spriteBackgroundSize(scale);
         spriteEl.style.backgroundPosition = `${posX}% ${posY}%`;
     }
     apply();
@@ -226,6 +226,12 @@ export function exitSpriteEditMode(overlay, current, save, ctx = {}) {
             : { readerSettings: {} };
         const layouts = { ...(unified.readerSettings.spriteLayouts || {}) };
         const value = { posX: save.posX, posY: save.posY, scale: save.scale };
+        const prevMode = layouts[em.mode];
+        layouts[em.mode] = {
+            posX: prevMode && Number.isFinite(Number(prevMode.posX)) ? Number(prevMode.posX) : 50,
+            posY: prevMode && Number.isFinite(Number(prevMode.posY)) ? Number(prevMode.posY) : 100,
+            scale: save.scale,
+        };
         if (!em.character) {
             layouts[em.mode] = value;
         } else {
@@ -271,7 +277,7 @@ export function exitSpriteEditMode(overlay, current, save, ctx = {}) {
     } else {
         if (spriteEl) Object.assign(spriteEl.style, em.origSpriteStyle);
         if (em.orig && spriteEl) {
-            spriteEl.style.backgroundSize = `${em.orig.scale}%`;
+            spriteEl.style.backgroundSize = spriteBackgroundSize(em.orig.scale);
             spriteEl.style.backgroundPosition = `${em.orig.posX}% ${em.orig.posY}%`;
         }
     }

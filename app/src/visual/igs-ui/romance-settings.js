@@ -1,4 +1,4 @@
-import { HEAD_ASPECT, spriteDrawRect } from './fx-anchor.js';
+import { HEAD_ASPECT, spriteDrawRect, spriteWidthPercent } from './fx-anchor.js';
 import { normalizeEmotionList } from './stage-shake-runtime.js';
 
 // 亲密演出：无 CG 的恋爱 / 暧昧 / 情事氛围。档位 1 暧昧、2 亲密来自 [igs-fx:romance] 区间，3 情事来自场景 nsfw 标记。
@@ -192,13 +192,13 @@ function headBox(stageW, stageH, sprite, head) {
     return { cx: rect.left + head.x * rect.w, top: rect.top + head.top * rect.h, w, h };
 }
 
-// 逼近：立绘 background-position 为 posX% 时，居中所需位移 = (1 - scale%) × (50 - posX)，单位为舞台宽度 %，与舞台尺寸无关。
+// 逼近：立绘 background-position 为 posX% 时，居中所需位移 = (1 - 图宽%) × (50 - posX)，单位为舞台宽度 %。
 // 放大原点取头部中心（舞台 %），脸基本不动、身体向下超出对话框；缺头部数据时退回现有特写的原点。
 export function computeRomanceApproach({ stageW, stageH, sprite, head, params } = {}) {
     if (!sprite || !params) return null;
     const posX = Number.isFinite(Number(sprite.posX)) ? Number(sprite.posX) : 50;
-    const scale = Number.isFinite(Number(sprite.scale)) ? Number(sprite.scale) : 100;
-    const dx = (1 - scale / 100) * (50 - posX) * params.pull;
+    const widthPct = spriteWidthPercent(stageW, stageH, sprite);
+    const dx = (1 - widthPct / 100) * (50 - posX) * params.pull;
     const box = stageW > 0 && stageH > 0 ? headBox(stageW, stageH, sprite, head) : null;
     return {
         dx: round(dx, 2),

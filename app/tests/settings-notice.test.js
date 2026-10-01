@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeSettingsFailure, isQuotaError, markSettingsButtonBusy, remountSettingsNotice, settingsBusyLabel } from '../src/visual/igs-ui/settings-notice.js';
+import { describeSettingsFailure, isQuotaError, markSettingsButtonBusy, remountSettingsNotice, settingsBusyLabel, showSettingsProgress } from '../src/visual/igs-ui/settings-notice.js';
 import { bootstrapIGS, createMemoryStorage } from '../src/index.js';
 import { saveScenePresets } from '../src/scene/scene-preset-store.js';
 import { clearMoodReview, removeMoodReview, recordMoodReview } from '../src/scene/mood-review-store.js';
@@ -71,6 +71,8 @@ test('gate:settings-notice:slow-actions-show-busy-state-and-restore', () => {
     assert.equal(settingsBusyLabel('test-image'), '测试中…');
     assert.equal(settingsBusyLabel('fetch-llm-models'), '拉取中…');
     assert.equal(settingsBusyLabel('scene-add-bg'), '');
+    assert.equal(settingsBusyLabel('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8'), '');
+    assert.equal(settingsBusyLabel('char-expression-retry:%E5%86%AC%E6%9C%88:%E6%84%A4%E6%80%92'), '生成中…');
     const attrs = new Map();
     const button = { textContent: '测试生图', disabled: false, isConnected: true, setAttribute: (k, v) => attrs.set(k, v), removeAttribute: (k) => attrs.delete(k) };
     const restore = markSettingsButtonBusy(button, '测试中…');
@@ -86,6 +88,58 @@ test('gate:settings-notice:slow-actions-show-busy-state-and-restore', () => {
     gone.isConnected = false;
     restoreGone();
     assert.equal(gone.textContent, '拉取中…', 'a button replaced by a rerender is left alone');
+});
+
+test('gate:settings-notice:expression-progress-shows-write-then-each-image', () => {
+    const doc = {};
+    function matches(node, sel) {
+        if (sel.startsWith('.')) return String(node.className || '').split(/\s+/).includes(sel.slice(1));
+        if (sel.startsWith('#') ) return node.id === sel.slice(1);
+        const attr = /^\[([^=]+)="([^"]+)"\]$/.exec(sel);
+        return Boolean(attr) && node.getAttribute(attr[1]) === attr[2];
+    }
+    function find(node, sel) {
+        for (const child of node.children || []) {
+            if (matches(child, sel)) return child;
+            const nested = find(child, sel);
+            if (nested) return nested;
+        }
+        return null;
+    }
+    function makeNode() {
+        const attrs = {};
+        return {
+            id: '', children: [], parentNode: null, className: '', textContent: '', style: {}, ownerDocument: doc,
+            setAttribute(k, v) { attrs[k] = v; }, getAttribute: (k) => attrs[k],
+            appendChild(child) { child.parentNode = this; this.children.push(child); return child; },
+            removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
+            querySelector(sel) { return find(this, sel); },
+        };
+    }
+    doc.createElement = () => makeNode();
+    const host = makeNode();
+    host.id = 'igs-unified-settings';
+    const shell = makeNode();
+    shell.className = 'igs-settings-shell';
+    const button = makeNode();
+    button.textContent = '表情差分';
+    button.setAttribute('aria-busy', 'true');
+    shell.appendChild(button);
+    host.appendChild(shell);
+    const writing = showSettingsProgress(host, { text: '正在写 8 份提示词…', indeterminate: true, ratio: 0, button: '写词…' });
+    assert.equal(button.textContent, '写词…');
+    assert.match(writing.className, /is-writing/);
+    assert.equal(writing.querySelector('.igs-settings-progress-text').textContent, '正在写 8 份提示词…');
+    assert.equal(writing.querySelector('.igs-settings-progress-fill').getAttribute('data-ratio'), '0');
+    const painting = showSettingsProgress(host, { text: '正在画第 2/8 张：愤怒', ratio: 2 / 8, button: '2/8' });
+    assert.equal(painting, writing, 'updates the same bar');
+    assert.equal(painting.parentNode, shell, 'bar stays inside the settings panel');
+    assert.equal(host.children.filter((child) => String(child.className).includes('igs-settings-progress')).length, 0);
+    assert.equal(painting.className.includes('is-writing'), false);
+    assert.equal(painting.querySelector('.igs-settings-progress-fill').style.width, '25%');
+    assert.equal(button.textContent, '2/8');
+    assert.equal(showSettingsProgress(host, null), null);
+    assert.equal(host.querySelector('.igs-settings-progress'), null);
 });
 
 test('gate:settings-notice:full-storage-keeps-panel-open-with-readable-reason', () => {
