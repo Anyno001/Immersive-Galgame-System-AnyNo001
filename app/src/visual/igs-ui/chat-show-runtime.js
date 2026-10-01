@@ -141,18 +141,24 @@ function normalizeContacts(value) {
     return output;
 }
 
+// 气泡圆角（px）：0 为直角，默认沿用原样式 16px；尖角固定 5px，圆角更小时随圆角收。
+export const CHAT_SHOW_BUBBLE_RADIUS_DEFAULT = 16;
+export const CHAT_SHOW_BUBBLE_RADIUS_LEVELS = Object.freeze([0, 4, 8, 12, 16, 20, 24]);
+
 export function normalizeChatShowSettings(value) {
     const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     const sound = source.sound && typeof source.sound === 'object' ? source.sound : {};
     const colors = source.defaultColors && typeof source.defaultColors === 'object' ? source.defaultColors : {};
     const dim = Number(source.dim);
     const volume = Number(sound.volume);
+    const radius = source.bubbleRadius == null || source.bubbleRadius === '' ? NaN : Number(source.bubbleRadius);
     return {
         enabled: source.enabled === true,
         frame: CHAT_SHOW_FRAMES.includes(source.frame) ? source.frame : CHAT_SHOW_DEFAULTS.frame,
         revealMode: CHAT_SHOW_REVEAL_MODES.includes(source.revealMode) ? source.revealMode : CHAT_SHOW_DEFAULTS.revealMode,
         autoSpeed: Object.hasOwn(CHAT_SHOW_SPEEDS, source.autoSpeed) ? source.autoSpeed : CHAT_SHOW_DEFAULTS.autoSpeed,
         dim: Number.isFinite(dim) ? Math.max(0, Math.min(0.8, dim)) : CHAT_SHOW_DEFAULTS.dim,
+        bubbleRadius: Number.isFinite(radius) ? Math.round(Math.max(0, Math.min(24, radius))) : CHAT_SHOW_BUBBLE_RADIUS_DEFAULT,
         hideSprites: source.hideSprites !== false,
         sound: {
             enabled: sound.enabled !== false,

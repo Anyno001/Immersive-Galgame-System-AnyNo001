@@ -47,7 +47,7 @@ let filterSeq = 0;
 // 触屏设备一律用普通叠色：mix-blend-mode 会把整个 #igs-stage-motion 变成离屏合成面，
 // 天气粒子、立绘呼吸每帧都要带着它全屏重合成，手机上明显掉帧。
 export const SCENE_GRADE_STYLE_TEXT = `
-#igs-overlay #igs-bg{filter:brightness(var(--igs-bg-brightness,.88)) var(--igs-grade-bg,);-webkit-filter:brightness(var(--igs-bg-brightness,.88)) var(--igs-grade-bg,);}
+#igs-overlay #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) var(--igs-grade-bg,);-webkit-filter:brightness(var(--igs-bg-brightness,1)) var(--igs-grade-bg,);}
 #igs-overlay #igs-bg-blur{filter:blur(40px) brightness(.55) saturate(1.3) var(--igs-grade-bg,);-webkit-filter:blur(40px) brightness(.55) saturate(1.3) var(--igs-grade-bg,);}
 #igs-overlay #igs-sprite:not(.igs-sprite-editing),#igs-overlay .igs-sd-sprite-ghost{filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,);-webkit-filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,);}
 #igs-overlay #igs-sprite.igs-sprite-narration{--igs-sprite-dim:brightness(.86) saturate(.86);}
@@ -97,7 +97,8 @@ export function resolveSceneGradePlan(options = {}) {
     const time = resolveWeatherFxTime(options.time);
     const indoor = resolveWeatherFxScene(options.location, weatherSettings) === 'indoor';
     const strength = STRENGTH_SCALE[tint.strength] * (options.asset === true ? ASSET_GRADE_RATIO : 1);
-    const timeGrade = tint.enabled ? TIME_GRADES[time] || null : null;
+    // 背景命中素材自带的时段变体（夜景图等）时，画面已有该时段光照，不再叠时段调色；天气调色照常。
+    const timeGrade = tint.enabled && options.timedAsset !== true ? TIME_GRADES[time] || null : null;
     const weatherPlan = weatherSettings.enabled
         ? resolveWeatherFxPlan({ weather: options.weather, location: options.location, time: options.time, settings: weatherSettings })
         : null;

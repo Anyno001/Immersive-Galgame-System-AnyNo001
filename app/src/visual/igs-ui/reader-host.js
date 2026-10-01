@@ -2360,6 +2360,7 @@ export function createIgsReaderHost(options = {}) {
             : Array.isArray(payload.sceneDirectives) ? payload.sceneDirectives : [];
         const hasIgsDirectives = sceneDirectives.length > 0;
         let finalBackgroundImage = backgroundImage;
+        let finalBackgroundTimed = false;
         const hideSpriteOnNsfw = !normalizeStatusHudSettings(readerSettings && readerSettings.statusHud).showSpriteOnNsfw;
         let spriteImage = null;
         let resolvedSpeaker = scene.speaker || '';
@@ -2476,7 +2477,9 @@ export function createIgsReaderHost(options = {}) {
             spriteImage = null;
         } else if (sceneAssets && sceneAssets.enabled) {
             if (sceneStateForBg && sceneStateForBg.scene) {
-                finalBackgroundImage = resolveGenerated(resolveBackgroundAsset(sceneStateForBg, assetMatchCtx).url);
+                const bgHit = resolveBackgroundAsset(sceneStateForBg, assetMatchCtx);
+                finalBackgroundImage = resolveGenerated(bgHit.url);
+                finalBackgroundTimed = Boolean(finalBackgroundImage) && bgHit.timed === true;
             } else {
                 finalBackgroundImage = '';
             }
@@ -2768,6 +2771,7 @@ export function createIgsReaderHost(options = {}) {
                 currentIndex: normalizedIndex,
                 progress: buildProgressText(normalizedIndex, segments.length, displayImageState),
                 backgroundImage: finalBackgroundImage,
+                backgroundTimed: finalBackgroundTimed,
                 spriteImage,
                 castSprites,
                 speakerCastOrder,
@@ -4262,7 +4266,7 @@ export function createIgsReaderHost(options = {}) {
             toolbarDock: 'float',
             inputScale: 100,
             imgMode: 'adaptive',
-            imgBrightness: 88,
+            imgBrightness: 100,
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),

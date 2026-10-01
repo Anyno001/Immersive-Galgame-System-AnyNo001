@@ -124,16 +124,16 @@ export function resolveBackgroundAsset(sceneState, ctx = {}) {
     if (!state.scene) return { url: '', source: 'none', needsGeneration: false };
     const user = ctx.sceneAssets ? lookupSceneBackground(state, ctx.sceneAssets) : { url: null, quality: 'none' };
     if (user.url && isTrustedUserMatch(user.quality, ctx.strict === true)) {
-        return { url: user.url, source: 'user', quality: user.quality, needsGeneration: false };
+        return { url: user.url, source: 'user', quality: user.quality, timed: user.timed === true, needsGeneration: false };
     }
     // 用户已登记的场景（精确/别名/强模糊命中）哪怕该时段没图，也不替用户生成。
     if (TRUSTED.has(user.quality)) {
-        return { url: user.url || '', source: user.url ? 'user' : 'none', quality: user.quality, needsGeneration: false };
+        return { url: user.url || '', source: user.url ? 'user' : 'none', quality: user.quality, timed: Boolean(user.url) && user.timed === true, needsGeneration: false };
     }
     const library = normalizeGeneratedLibrary(ctx.generatedAssets);
     const generated = lookupSceneBackground(state, { ...ctx.sceneAssets, scenes: library.scenes });
     if (generated.url && TRUSTED.has(generated.quality)) {
-        return { url: generated.url, source: 'library', quality: generated.quality, needsGeneration: false };
+        return { url: generated.url, source: 'library', quality: generated.quality, timed: generated.timed === true, needsGeneration: false };
     }
     const temp = typeof ctx.tempBackground === 'function' ? ctx.tempBackground(state.scene, state.time || '') : '';
     if (temp) return { url: temp, source: 'temp', needsGeneration: false };

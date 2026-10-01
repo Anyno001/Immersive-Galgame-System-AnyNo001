@@ -701,7 +701,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     if (bg) {
         bg.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'contain' : 'cover';
         const brightness = Number(readerSettings.imgBrightness);
-        const level = (Number.isFinite(brightness) ? brightness : 88) / 100;
+        const level = (Number.isFinite(brightness) ? brightness : 100) / 100;
         // 亮度、环境滤镜与回忆滤镜都由样式表按变量合成（见 scene-grade.js），这里不写行内 filter。
         bg.style.filter = '';
         if (typeof bg.style.setProperty === 'function') bg.style.setProperty('--igs-bg-brightness', String(level));
@@ -1365,6 +1365,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         time: snapshot.content && snapshot.content.sceneTime,
         ranges: fxResult && fxResult.ranges,
         asset: Boolean(snapshot.content && snapshot.content.illustrationActive === true),
+        // 背景是素材自带时段变体（如夜景图）时不再叠时段调色。
+        timedAsset: Boolean(snapshot.content && snapshot.content.backgroundTimed === true && snapshot.content.illustrationActive !== true),
     });
     applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
     const stageDirection = applyStageDirection(root, snapshot, {

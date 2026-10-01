@@ -1,7 +1,7 @@
 import { esc } from './reader-value-utils.js';
 import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
-import { CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } from './chat-show-runtime.js';
+import { CHAT_SHOW_BUBBLE_RADIUS_LEVELS, CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } from './chat-show-runtime.js';
 import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
 import { renderCharacterSlotTabs } from './settings-outfit-fields.js';
 
@@ -136,6 +136,7 @@ export function renderChatShowSettings(settings, options = {}) {
     const p = 'readerSettings.chatShow';
     const segment = (key, label, items) => field(`${p}.${key}`, label, segmentedInput(`${p}.${key}`, s[key], items, label));
     const dimItems = CHAT_SHOW_DIM_LEVELS.includes(s.dim) ? CHAT_SHOW_DIM_LEVELS : CHAT_SHOW_DIM_LEVELS.concat(s.dim).sort((a, b) => a - b);
+    const radiusItems = CHAT_SHOW_BUBBLE_RADIUS_LEVELS.includes(s.bubbleRadius) ? CHAT_SHOW_BUBBLE_RADIUS_LEVELS : CHAT_SHOW_BUBBLE_RADIUS_LEVELS.concat(s.bubbleRadius).sort((a, b) => a - b);
     const grid = [
         '<div class="igs-source-filter-grid">',
         segment('frame', '聊天外框', [['phone', '手机框'], ['none', '无框']]),
@@ -143,6 +144,7 @@ export function renderChatShowSettings(settings, options = {}) {
         s.revealMode === 'auto' ? segment('autoSpeed', '连发速度', [['fast', '快'], ['medium', '中'], ['slow', '慢']]) : '',
         segment('returnMode', '返回看过的聊天页', [['full', '一次平铺'], ['replay', '逐条重播'], ['restart', '重新点击']]),
         field(`${p}.dim`, '背景压暗', selectInput(`${p}.dim`, s.dim, dimItems.map((n) => [n, `${Math.round(n * 100)}%`]))),
+        field(`${p}.bubbleRadius`, '气泡圆角', selectInput(`${p}.bubbleRadius`, s.bubbleRadius, radiusItems.map((n) => [n, n === 0 ? '直角' : `${n}px`]))),
         field(`${p}.selfName`, '自己的名字', textInput(`${p}.selfName`, s.selfName, '留空使用 {{user}}')),
         segment('unknownSide', '未登记发送者', [['left', '左'], ['right', '右']]),
         s.followTheme ? '' : field(`${p}.defaultColors.left`, '对方气泡色', colorInput(`${p}.defaultColors.left`, s.defaultColors.left)),

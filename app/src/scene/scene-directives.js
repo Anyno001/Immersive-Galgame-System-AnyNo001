@@ -333,11 +333,14 @@ export function lookupSceneBackground(sceneState, sceneAssets) {
     const raw = match.key != null ? scenes[match.key] : (useDefault ? scenes['默认'] : null);
     const quality = useDefault ? 'default' : match.quality;
     const key = match.key != null ? match.key : (useDefault ? '默认' : null);
-    if (!raw) return { url: null, key, quality };
-    return { url: resolveSceneEntryUrl(raw, state.time, state.weather, sceneAssets) || null, key, quality };
+    if (!raw) return { url: null, key, quality, timed: false };
+    const resolved = resolveSceneEntry(raw, state.time, state.weather, sceneAssets);
+    return { url: resolved.url || null, key, quality, timed: Boolean(resolved.url) && resolved.timed };
 }
 
-function resolveSceneEntryUrl(raw, time, weather, sceneAssets) {
+// timed：命中了素材自带的时段变体（times 层或内置示例图的时段替换），说明画面本身已有该时段光照，
+// 渲染层据此跳过时段调色，避免夜景素材再被压暗一次。
+function resolveSceneEntry(raw, time, weather, sceneAssets) {
     const entry = typeof raw === 'string' ? { url: raw } : raw;
     const timeGroups = sceneAssets && sceneAssets.timeGroups;
     const weatherGroups = sceneAssets && sceneAssets.weatherGroups;
@@ -349,11 +352,13 @@ function resolveSceneEntryUrl(raw, time, weather, sceneAssets) {
         if (weatherKey != null) {
             const weatherRaw = timeEntry.weathers[weatherKey];
             const weatherEntry = typeof weatherRaw === 'string' ? { url: weatherRaw } : weatherRaw;
-            return (weatherEntry && weatherEntry.url) || (typeof weatherRaw === 'string' ? weatherRaw : null) || null;
+            return { url: (weatherEntry && weatherEntry.url) || (typeof weatherRaw === 'string' ? weatherRaw : null) || null, timed: true };
         }
-        return resolveSceneTimeAsset(timeEntry.url || '', time);
+        return { url: resolveSceneTimeAsset(timeEntry.url || '', time), timed: true };
     }
-    return resolveSceneTimeAsset(entry.url || '', time);
+    const base = entry.url || '';
+    const url = resolveSceneTimeAsset(base, time);
+    return { url, timed: Boolean(base) && url !== base };
 }
 
 // quality：exact（槽位名）/ group（组词）/ fuzzy（模糊兜底，可能错配）/ default / none。

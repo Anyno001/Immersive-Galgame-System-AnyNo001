@@ -216,7 +216,7 @@ test('gate: lightning brightens the graded stage and settles back, but not in dr
 
 test('gate: reader styles compose bg and sprite filters through variables', () => {
     const css = getOriginalReaderStyleText();
-    assert.ok(css.includes('#igs-overlay #igs-bg{filter:brightness(var(--igs-bg-brightness,.88)) var(--igs-grade-bg,)'));
+    assert.ok(css.includes('#igs-overlay #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) var(--igs-grade-bg,)'));
     assert.ok(css.includes('#igs-overlay #igs-sprite.igs-sprite-narration{--igs-sprite-dim:brightness(.86) saturate(.86);}'));
     assert.ok(!css.includes('igs-sd-tint'));
 });

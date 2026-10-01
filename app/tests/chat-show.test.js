@@ -80,6 +80,19 @@ test('gate: chat show settings normalize defaults, clamps and contacts', () => {
     assert.deepEqual(s.contacts, { 爱丽丝: { aliases: ['小爱'], color: '#ff00aa', side: 'right' } });
 });
 
+test('gate: chat show bubble radius normalizes, clamps and renders a settings field', async () => {
+    assert.equal(normalizeChatShowSettings(null).bubbleRadius, 16);
+    assert.equal(normalizeChatShowSettings({ bubbleRadius: '8' }).bubbleRadius, 8);
+    assert.equal(normalizeChatShowSettings({ bubbleRadius: 99 }).bubbleRadius, 24);
+    assert.equal(normalizeChatShowSettings({ bubbleRadius: -3 }).bubbleRadius, 0);
+    assert.equal(normalizeChatShowSettings({ bubbleRadius: 'x' }).bubbleRadius, 16);
+    const { renderChatShowSettings } = await import('../src/visual/igs-ui/settings-fields.js');
+    const html = renderChatShowSettings(normalizeChatShowSettings({ enabled: true, bubbleRadius: 10 }));
+    assert.match(html, /data-path="readerSettings\.chatShow\.bubbleRadius"/);
+    assert.match(html, /<option value="10" selected>10px<\/option>/);
+    assert.match(html, /<option value="0">直角<\/option>/);
+});
+
 test('gate: chat sender resolves through contact aliases and scene character aliases', () => {
     const settings = normalizeChatShowSettings({ contacts: { 爱丽丝: { aliases: ['alice_cat'] } } });
     assert.equal(findChatContact('爱丽丝', settings), '爱丽丝');

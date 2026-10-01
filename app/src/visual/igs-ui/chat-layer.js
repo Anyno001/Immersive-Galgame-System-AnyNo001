@@ -294,6 +294,9 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
     else layer.removeAttribute('data-igs-chat-world');
     layer.setAttribute('data-igs-chat-frame', ancient ? 'letter' : settings.frame);
     layer.style.setProperty('--igs-chat-dim', String(settings.dim));
+    // 气泡圆角由用户设置；无有效数值时移除变量，样式表回落 16px。
+    if (Number.isFinite(settings.bubbleRadius)) layer.style.setProperty('--igs-chat-radius', `${settings.bubbleRadius}px`);
+    else layer.style.removeProperty('--igs-chat-radius');
     bindLayer(layer, ctx);
     const key = [snapshot.messageId, content.currentIndex, JSON.stringify(chat.messages.map((m) => [m.kind, m.displayName || '', m.text]))].join(':');
     const renderSig = JSON.stringify([settings.frame, ancient, chat]);
@@ -384,9 +387,9 @@ export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer .igs-chat-avatar{flex:none;width:36px;height:36px;border-radius:8px;object-fit:cover;box-shadow:0 1px 3px rgba(0,0,0,.2);}
 #igs-chat-layer .igs-chat-avatar.is-initial{display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;text-shadow:0 1px 1px rgba(0,0,0,.15);}
 #igs-chat-layer .igs-chat-name{margin:0 6px 3px;color:rgba(255,255,255,.82);font-size:12px;text-shadow:0 1px 2px rgba(0,0,0,.5);}
-#igs-chat-layer .igs-chat-bubble{padding:9px 13px;border-radius:16px;border:1.5px solid var(--igs-chat-border,transparent);font-size:15px;line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 2px 8px rgba(0,0,0,.18);box-sizing:border-box;}
-#igs-chat-layer .igs-chat-row.is-left .igs-chat-bubble{border-bottom-left-radius:5px;}
-#igs-chat-layer .igs-chat-row.is-right .igs-chat-bubble{border-bottom-right-radius:5px;}
+#igs-chat-layer .igs-chat-bubble{padding:9px 13px;border-radius:var(--igs-chat-radius,16px);border:1.5px solid var(--igs-chat-border,transparent);font-size:15px;line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 2px 8px rgba(0,0,0,.18);box-sizing:border-box;}
+#igs-chat-layer .igs-chat-row.is-left .igs-chat-bubble{border-top-left-radius:min(5px,var(--igs-chat-radius,16px));}
+#igs-chat-layer .igs-chat-row.is-right .igs-chat-bubble{border-top-right-radius:min(5px,var(--igs-chat-radius,16px));}
 #igs-chat-layer .igs-chat-bubble.is-image{padding:6px;width:180px;max-width:100%;}
 #igs-chat-layer .igs-chat-image{position:relative;aspect-ratio:4/3;border-radius:10px;background:linear-gradient(135deg,rgba(0,0,0,.06),rgba(0,0,0,.16));}
 #igs-chat-layer .igs-chat-image::before{content:"";position:absolute;left:50%;top:50%;width:34px;height:26px;margin:-13px 0 0 -17px;border:2.5px solid currentColor;border-radius:5px;opacity:.45;}
