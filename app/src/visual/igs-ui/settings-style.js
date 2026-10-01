@@ -137,7 +137,7 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 .igs-segmented-btn-label{display:block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .igs-segmented-btn:hover{background:var(--igs-settings-highlight);color:var(--igs-settings-ink)}
 .igs-segmented-btn:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
-.igs-segmented-btn.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);font-weight:600;text-shadow:none}
+.igs-segmented-btn.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);text-shadow:none}
 #igs-unified-settings .igs-segmented-field .igs-segmented{display:grid;grid-template-columns:repeat(var(--igs-segment-count,3),minmax(0,1fr))}
 #igs-unified-settings .igs-segmented-field .igs-segmented>.igs-segmented-btn{width:100%;min-width:0;max-width:none;flex:1 1 0;justify-self:stretch;margin:0}
 .igs-switch{height:38px;display:flex;align-items:center;gap:10px;border:0;background:var(--igs-settings-field);color:var(--igs-settings-ink-2);border-radius:var(--igs-settings-radius-control);padding:0 12px;cursor:pointer;text-align:left;font:inherit;font-size:13px;transition:background-color .14s ease,color .14s ease}
@@ -271,7 +271,6 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-review-link.is-primary{color:var(--igs-settings-accent);font-weight:500}
 .igs-mood-review-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;padding:2px 4px 2px 8px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-highlight);font-size:12px;color:var(--igs-settings-ink-2);white-space:nowrap}
 .igs-mood-review-chip b{min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis}
-.igs-mood-review-who{min-width:0;font-size:11px;color:var(--igs-settings-ink-4);overflow:hidden;text-overflow:ellipsis}
 .igs-sprite-slot{min-width:0;max-width:100%;border-bottom:1px solid var(--igs-settings-line)}
 .igs-sprite-slot:last-child{border-bottom:0}
 .igs-sprite-slot-body{display:flex;gap:10px;min-width:0;max-width:100%;box-sizing:border-box;padding:6px 4px 10px;align-items:flex-start}

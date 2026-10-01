@@ -48,7 +48,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.33.6';
+const IGS_VERSION = '0.33.7';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -215,6 +215,12 @@ export function bootstrapIGS(options = {}) {
         },
         fillEmptyInputText(text) {
             return typeof hostAdapter.fillEmptyInputText === 'function' ? hostAdapter.fillEmptyInputText(text) : { ok: false, reason: 'missing-readable-input' };
+        },
+        // 内嵌模式点小铅笔编辑完成 / 取消后，按原模式重新打开最新楼层；publicApi 在阅读器宿主之后创建，延迟取用。
+        reopenReader(mode) {
+            return publicApi && typeof publicApi.openLatestAvailable === 'function'
+                ? publicApi.openLatestAvailable(mode)
+                : { ok: false, reason: 'public-api-not-ready' };
         },
         getAdjacentMessage: hasAdjacentMessageCapability() ? resolveAdjacentMessage : null,
         jumpToMessage: jumpToMessage,

@@ -740,6 +740,7 @@ export function createIgsReaderHost(options = {}) {
         offImageJobLog();
         teardownStatusHudSubscription();
         closeReader();
+        disarmEditReopen();
         streamObserver.stop();
         imageResourceCache.clear();
         return { ok: true };
@@ -3463,7 +3464,10 @@ export function createIgsReaderHost(options = {}) {
             const mount = current && current.dom && current.dom.embeddedMount;
             if (!mount || !isEmbeddedReaderMode(current.mode)) return;
             if (!isEmbeddedEditTrigger(event && event.target, mount.mesText)) return;
-            closeReader();
+            const mode = current.mode;
+            const messageId = mount.messageId != null ? mount.messageId : current.mountMessageId;
+            const closed = closeReader();
+            if (closed.ok !== false) armEditReopen(doc, messageId, mode);
         };
         if (typeof doc.addEventListener === 'function') {
             doc.addEventListener('keydown', keydownHandler, true);
@@ -3556,6 +3560,36 @@ export function createIgsReaderHost(options = {}) {
             mount.root.style.overflow = '';
         }
         if (mount.host && typeof mount.host.remove === 'function') mount.host.remove();
+    }
+
+    // 点小铅笔关闭内嵌阅读器后，等该楼层编辑框的「完成 / 取消」再按原模式重开；
+    // 只等一次；期间阅读器已被其他入口打开、宿主销毁或未注入重开回调时不重开。
+    function armEditReopen(doc, messageId, mode) {
+        disarmEditReopen();
+        if (!doc || typeof doc.addEventListener !== 'function' || typeof options.reopenReader !== 'function') return;
+        const root = options.global && typeof options.global.setTimeout === 'function' ? options.global : globalThis;
+        const handler = (event) => {
+            const finish = resolveHostEditFinish(event && event.target, messageId);
+            if (!finish) return;
+            disarmEditReopen();
+            // 稍等片刻，让酒馆先写回楼层并重渲染，再重新读取最新楼层。
+            const timer = root.setTimeout(() => {
+                if (state.editReopen && state.editReopen.timer === timer) state.editReopen = null;
+                if (state.activeReader) return;
+                Promise.resolve()
+                    .then(() => options.reopenReader(mode))
+                    .catch((error) => console.warn('[IGS] 编辑后重开阅读器失败', error));
+            }, 150);
+            state.editReopen = { timer, clear: () => root.clearTimeout(timer) };
+        };
+        doc.addEventListener('click', handler, true);
+        state.editReopen = { clear: () => doc.removeEventListener('click', handler, true) };
+    }
+
+    function disarmEditReopen() {
+        const pending = state.editReopen;
+        state.editReopen = null;
+        if (pending && typeof pending.clear === 'function') pending.clear();
     }
 
     function resolveLiveMessageElement(doc, messageId) {

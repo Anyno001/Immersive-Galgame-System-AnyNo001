@@ -106,3 +106,19 @@ export function isEmbeddedEditTrigger(target, mesText) {
     const message = button.closest('.mes');
     return Boolean(message && typeof message.contains === 'function' && message.contains(mesText));
 }
+
+
+// 宿主编辑框的「完成 / 取消」按钮点在指定楼层上时返回 'done' / 'cancel'，否则 null。
+// 点小铅笔关闭内嵌阅读器后，用它判断编辑何时结束，以便重新打开阅读器。
+export function resolveHostEditFinish(target, messageId) {
+    if (!target || messageId == null || typeof target.closest !== 'function') return null;
+    const done = target.closest('.mes_edit_done');
+    const cancel = done ? null : target.closest('.mes_edit_cancel');
+    const button = done || cancel;
+    if (!button || typeof button.closest !== 'function') return null;
+    const message = button.closest('.mes');
+    if (!message || typeof message.getAttribute !== 'function') return null;
+    const id = message.getAttribute('mesid') ?? message.getAttribute('data-mesid');
+    if (id == null || String(id) !== String(messageId)) return null;
+    return done ? 'done' : 'cancel';
+}

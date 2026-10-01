@@ -419,9 +419,8 @@ export function renderMoodReviewList(items) {
     const list = Array.isArray(items) ? items : [];
     const head = `<div class="igs-settings-section-head"><div class="igs-settings-subhead">待确认情绪词</div>${list.length ? '<button type="button" class="igs-review-clear" data-action="mood-review-clear">清空</button>' : ''}</div>`;
     if (!list.length) return `<div class="igs-mood-review">${head}<div class="igs-scene-empty">暂无。词库外的情绪词出现时会记在这里</div></div>`;
-    // 标签框里只放词与角色；「加入」「忽略」两个文字按钮放在框外，避免用户只注意到 ×。
+    // 标签框里只放情绪词，不带所属角色；「加入」「忽略」两个文字按钮放在框外，避免用户只注意到 ×。
     const chips = list.map((item) => `<span class="igs-mood-review-item"><span class="igs-mood-review-chip"><b>${esc(item.word)}</b>`
-        + (item.character ? `<span class="igs-mood-review-who">${esc(item.character)}</span>` : '')
         + `</span>`
         + `<button type="button" class="igs-review-link is-primary" data-action="mood-review-assign:${encSeg(item.word)}" aria-label="加入「${esc(item.word)}」">加入</button>`
         + `<button type="button" class="igs-review-link" data-action="mood-review-dismiss:${encSeg(item.word)}" aria-label="忽略「${esc(item.word)}」">忽略</button>`

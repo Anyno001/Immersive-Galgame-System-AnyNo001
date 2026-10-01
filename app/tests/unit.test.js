@@ -68,7 +68,7 @@ import { getNextSettingsTheme, normalizeSettingsTheme } from '../src/visual/igs-
 import { renderCharacterAssetList, renderSceneAssetList, tableMultiSelect } from '../src/visual/igs-ui/settings-fields.js';
 import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule } from '../src/visual/igs-ui/reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normalizePublicReaderMode } from '../src/schemas/reader-mode.js';
-import { ensureEmbeddedHost, hideEmbeddedSourceText, isEmbeddedEditTrigger, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
+import { ensureEmbeddedHost, hideEmbeddedSourceText, isEmbeddedEditTrigger, resolveHostEditFinish, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from '../src/visual/igs-ui/reader-source-cache.js';
 import { createChatStreamObserver } from '../src/host/chat-stream-observer.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from '../src/visual/igs-ui/record-icons.js';
@@ -307,6 +307,23 @@ test('gate:igs-ui:embedded-edit-pencil-only-matches-mounted-floor', () => {
     assert.equal(isEmbeddedEditTrigger(plain, mesText), false, '非铅笔点击不命中');
     assert.equal(isEmbeddedEditTrigger(null, mesText), false);
     assert.equal(isEmbeddedEditTrigger(pencil, null), false);
+});
+
+test('gate:igs-ui:embedded-edit-finish-matches-floor-done-or-cancel', () => {
+    const mes = (attrs) => ({ getAttribute: (k) => (k in attrs ? attrs[k] : null) });
+    const button = (cls, message) => {
+        const node = { closest: (sel) => (sel === cls ? node : sel === '.mes' ? message : null) };
+        return node;
+    };
+    const m5 = mes({ mesid: '5' });
+    const m6 = mes({ mesid: '6' });
+    assert.equal(resolveHostEditFinish(button('.mes_edit_done', m5), 5), 'done', '挂载楼层点完成');
+    assert.equal(resolveHostEditFinish(button('.mes_edit_cancel', m5), '5'), 'cancel', '挂载楼层点取消');
+    assert.equal(resolveHostEditFinish(button('.mes_edit_done', m6), 5), null, '其他楼层的完成不重开');
+    assert.equal(resolveHostEditFinish(button('.mes_edit_done', mes({ 'data-mesid': '5' })), 5), 'done', 'data-mesid 兜底');
+    assert.equal(resolveHostEditFinish({ closest: () => null }, 5), null, '非完成 / 取消点击');
+    assert.equal(resolveHostEditFinish(button('.mes_edit_done', m5), null), null);
+    assert.equal(resolveHostEditFinish(null, 5), null);
 });
 
 
@@ -1365,7 +1382,7 @@ test('gate:scene:mood-review-list-renders-one-add-per-word-as-compact-chips', ()
     // 每个词只有一个「加入」，不再有确认 / 改到其他组等多步按钮，也不用带框的大按钮。
     assert.doesNotMatch(html, /mood-review-accept|确认加入|改到其他组|加入情绪组|igs-settings-action/);
     assert.doesNotMatch(html, /未命中|显示默认立绘|模糊归入|请核对/);
-    assert.match(html, /<span class="igs-mood-review-who">爱丽丝<\/span>/);
+    assert.doesNotMatch(html, /igs-mood-review-who/, '待确认情绪词标签不带所属角色');
     assert.match(html, /class="igs-review-clear" data-action="mood-review-clear"/);
     assert.match(html, /class="igs-mood-review-chip"/);
     assert.match(renderMoodReviewList([]), /暂无/);

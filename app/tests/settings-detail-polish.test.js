@@ -19,8 +19,9 @@ test('gate:settings-polish:image-tab-has-cg-gallery-pane', () => {
 
 test('gate:settings-polish:mood-review-actions-sit-outside-chip', () => {
     const html = renderMoodReviewList([{ word: '嘲弄', character: '爱丽丝' }]);
-    const chip = html.match(/<span class="igs-mood-review-chip">[\s\S]*?<\/span><\/span>/)[0];
+    const chip = html.match(/<span class="igs-mood-review-chip">[\s\S]*?<\/span>/)[0];
     assert.doesNotMatch(chip, /<button/);
+    assert.doesNotMatch(html, /爱丽丝/, '标签不带所属角色');
     assert.match(html, /<\/span><button type="button" class="igs-review-link is-primary" data-action="mood-review-assign:[^"]+"[^>]*>加入<\/button>/);
     assert.match(html, /data-action="mood-review-dismiss:[^"]+"[^>]*>忽略<\/button>/);
     assert.doesNotMatch(html, />×</);
