@@ -62,9 +62,11 @@ export const RECORD_PAGE_SHELL_STYLE_TEXT = `
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
 }
 ${RECORD_THEME_RULES}
+/* 后景柔光：左上一束淡高光 + 整体轻微提亮，叠在主题遮罩上，四套配色相对浓淡不变。 */
+#igs-record-panel{--igs-rp-lift:radial-gradient(120% 90% at 0% 0%,rgba(255,255,255,.12),rgba(255,255,255,0) 70%),linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06));}
 #igs-record-panel .igs-rp-page::before{
   content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
-  background:var(--igs-rp-backdrop);
+  background:var(--igs-rp-lift),var(--igs-rp-backdrop);
   -webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};
 }
 #igs-record-panel{--igs-ui-caustic-size:900px;}
@@ -72,10 +74,10 @@ ${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .2, { tile: true, tin
 #igs-record-panel .igs-rp-page::after{opacity:calc(var(--igs-rp-ripple-opacity) / 3);}
 ${IGS_UI_LIQUID_KEYFRAMES}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  #igs-record-panel .igs-rp-page::before{background:var(--igs-rp-backdrop-solid);}
+  #igs-record-panel .igs-rp-page::before{background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
 }
 @media (prefers-reduced-transparency:reduce){
-  #igs-record-panel .igs-rp-page::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--igs-rp-backdrop-solid);}
+  #igs-record-panel .igs-rp-page::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
   #igs-record-panel{--igs-rp-pane:var(--igs-rp-solid);--igs-rp-reading:var(--igs-rp-solid);}
 }
 #igs-record-panel .igs-rp-head,#igs-map-panel .igs-rp-head{

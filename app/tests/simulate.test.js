@@ -5613,7 +5613,7 @@ test('gate:simulation:record-panel-reads-diary-inventory-and-relationships-safel
     const recordCss = getOriginalReaderStyleText();
     // 液态磨玻璃：资料页整页只有一层 backdrop 模糊，格位/卡片无描边，标题两侧不再画线。
     assert.match(recordCss, /#igs-record-panel,#igs-map-panel\{[^}]*--igs-rp-text:#eceae6/);
-    assert.match(recordCss, /#igs-record-panel \.igs-rp-page::before\{[^}]*background:var\(--igs-rp-backdrop\);[^}]*backdrop-filter:[^;}]*blur\(/);
+    assert.match(recordCss, /#igs-record-panel \.igs-rp-page::before\{[^}]*background:var\(--igs-rp-lift\),var\(--igs-rp-backdrop\);[^}]*backdrop-filter:[^;}]*blur\(/);
     assert.match(recordCss, /prefers-reduced-transparency:reduce/);
     assert.doesNotMatch(recordCss, /\.igs-rp-title::before/);
     assert.match(recordCss, /#igs-record-panel \.igs-rp-back,#igs-map-panel \.igs-rp-back\{[^}]*min-width:44px;min-height:44px/);

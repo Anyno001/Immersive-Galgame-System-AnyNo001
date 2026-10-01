@@ -28,6 +28,8 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}{${settingsThemeVars(
 #igs-unified-settings{--igs-ui-caustic-size:900px}
 ${igsUiLiquidRule('#igs-unified-settings::before', .2, { tile: true, tint: 'var(--igs-settings-ripple)' })}
 ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${palette.ripple}}`).join('\n')}
+/* 电脑设备（精确指针 + 悬停）不铺水波纹大背景，只留设置框；触屏设备保持原样。 */
+@media (hover:hover) and (pointer:fine){#igs-unified-settings::before{content:none}}
 ${IGS_UI_LIQUID_KEYFRAMES}
 .igs-settings-head{height:54px;display:flex;align-items:center;gap:10px;padding:0 14px 0 20px;flex-shrink:0}
 .igs-settings-title{font-size:15px;font-weight:600;letter-spacing:.08em;flex:0 0 auto;color:var(--igs-settings-ink)}

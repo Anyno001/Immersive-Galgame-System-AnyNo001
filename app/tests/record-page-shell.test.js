@@ -56,6 +56,8 @@ test('record-page-shell:caustic-tiles-only-in-settings', () => {
         'utf8',
     );
     assert.match(settingsSource, /igsUiLiquidRule\('#igs-unified-settings::before', \.2, \{ tile: true, tint: 'var\(--igs-settings-ripple\)' \}\)/);
+    // 电脑设备（精确指针 + 悬停）不铺设置器水波纹大背景，触屏保留。
+    assert.match(settingsSource, /@media \(hover:hover\) and \(pointer:fine\)\{#igs-unified-settings::before\{content:none\}\}/);
 
     const tintedRule = igsUiLiquidRule('.settings::before', 0.26, { tile: true, tint: 'var(--ripple)' });
     assert.match(tintedRule, /background-color:var\(--ripple\)/);
@@ -65,6 +67,8 @@ test('record-page-shell:caustic-tiles-only-in-settings', () => {
     // 资料页照搬设置器的后景：同一套主题色平铺水纹，浓度随配色走。
     assert.match(recordSource, /igsUiLiquidRule\('#igs-record-panel \.igs-rp-page::after', \.2, \{ tile: true, tint: 'var\(--igs-rp-ripple\)' \}\)/);
     assert.doesNotMatch(recordSource, /BLUR_VIVID/);
+    // 资料页后景叠柔光提亮，回退分支同样叠加。
+    assert.equal((recordSource.match(/background:var\(--igs-rp-lift\),var\(--igs-rp-backdrop(-solid)?\)/g) || []).length, 3);
 });
 
 test('record-page-shell:record-pages-share-settings-palettes', async () => {
