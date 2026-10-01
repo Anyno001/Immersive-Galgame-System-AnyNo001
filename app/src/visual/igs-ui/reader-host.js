@@ -28,7 +28,8 @@ import { normalizeRomanceFxSettings, resolveNsfwSpan } from './romance-settings.
 import { cancelDailyFx } from './fx-daily.js';
 import { cancelSceneAudio } from './scene-audio.js';
 import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
-import { setStagePauseReason, watchStagePause } from './stage-pause.js';
+import { isStagePaused, setStagePauseReason, watchStagePause } from './stage-pause.js';
+import { createReaderAutoPlay } from './reader-auto-play.js';
 import { playUiSfx } from './ui-sfx.js';
 import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
 import { renderPerformancePresetBar, renderPerformanceSettings } from './performance-settings-layout.js';
@@ -249,7 +250,7 @@ import {
 import { TYPEWRITER_VOICE_LABELS } from './typewriter-audio.js';
 import { cancelStageShakeEffect } from './stage-shake-runtime.js';
 import { SETTINGS_SEARCH_INDEX, renderSettingsSearchResults } from './settings-search.js';
-import { advanceChatReveal, cancelChatShow } from './chat-layer.js';
+import { advanceChatReveal, cancelChatShow, getChatRevealState } from './chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { resolveChatTheme } from './chat-themes.js';
 import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
@@ -454,6 +455,32 @@ export function createIgsReaderHost(options = {}) {
             imagePollToken: 0,
             assetLoadRequests: new Set(),
         };
+        const current = state.activeReader;
+        current.autoPlayer = createReaderAutoPlay({
+            timers: options.autoPlayTimers || globalThis,
+            read: () => {
+                const overlay = current.dom?.overlay;
+                const chat = current.snapshot.content.textType === 'chat' ? getChatRevealState(overlay) : null;
+                const chatUnfinished = Boolean(chat && chat.revealed < chat.total);
+                return {
+                    closed: state.activeReader !== current,
+                    page: `${current.snapshot.messageId}:${current.index}:${chat?.revealed || 0}`,
+                    blocked: current.hidden || current.streamPhase !== 'idle' || current.spriteEditMode
+                        || Boolean(state.activeSettings) || isStagePaused(overlay)
+                        || Boolean(overlay?.ownerDocument?.hidden)
+                        || Boolean(overlay?.classList?.contains('igs-options-visible')),
+                    busy: current.dom?.text?.dataset?.igsTypewriter === 'running'
+                        || Boolean(chatUnfinished && chat.pending),
+                    last: isReaderLastPage(current.snapshot) && !chatUnfinished,
+                };
+            },
+            advance: () => handleReaderAction('next'),
+            sync: (autoPlay) => {
+                current.autoPlay = autoPlay;
+                applyToolbarState(current.dom?.overlay, current);
+            },
+        });
+        current.autoPlay = current.autoPlayer.getState();
         updateMountedReader(snapshot);
         startReaderImagePolling(state.activeReader);
         if (domState && domState.overlay) {
@@ -684,6 +711,7 @@ export function createIgsReaderHost(options = {}) {
             }
         }
         teardownStatusHudSubscription();
+        current.autoPlayer?.stop();
         clearReaderToast(current);
         cancelTypewriter(current.dom && current.dom.text, { finish: false });
         const stageMotion = current.dom && current.dom.overlay && current.dom.overlay.querySelector
@@ -747,6 +775,7 @@ export function createIgsReaderHost(options = {}) {
                 hidden: state.activeReader.hidden,
                 dragSuppressClick: state.activeReader.dragSuppressClick,
                 toolbarCollapsed: state.activeReader.toolbarCollapsed,
+                autoPlay: { ...state.activeReader.autoPlay },
                 lastAction: state.activeReader.lastAction,
                 inputValue: state.activeReader.inputValue,
                 toastMessage: state.activeReader.toastMessage,
@@ -1507,6 +1536,10 @@ export function createIgsReaderHost(options = {}) {
         const normalizedAction = String(action || '').trim();
         state.activeReader.lastAction = normalizedAction;
 
+        if (normalizedAction === 'auto-play' || normalizedAction === 'auto-speed') {
+            const player = state.activeReader.autoPlayer;
+            return { ok: true, ...(normalizedAction === 'auto-play' ? player.toggle() : player.cycleSpeed()) };
+        }
         if (normalizedAction === 'generate-assets') {
             return runManualAssetGeneration();
         }
@@ -1646,6 +1679,7 @@ export function createIgsReaderHost(options = {}) {
             };
         }
         state.activeReader.index = nextIndex;
+        state.activeReader.autoPlayer?.refresh();
         rerenderActiveReader();
         playReaderUiSfx('page');
         return {
@@ -1667,6 +1701,7 @@ export function createIgsReaderHost(options = {}) {
             return { ok: true, moved: false, index: state.activeReader.index };
         }
         state.activeReader.index = nextIndex;
+        state.activeReader.autoPlayer?.refresh();
         rerenderActiveReader();
         return { ok: true, moved: true, index: state.activeReader.index };
     }

@@ -1,10 +1,12 @@
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
 import {
+    AUTO_PLAY_SPEED_ICONS,
     ORIGINAL_READER_ICONS,
     ORIGINAL_READER_TOOLBAR_BUTTONS,
 } from './original-reader-source.js';
 import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
+import { AUTO_PLAY_LABELS } from './reader-auto-play.js';
 import {
     ensureImageLoadingSpinner,
     ensureImageEmptyPlaceholder,
@@ -445,6 +447,24 @@ export function applyToolbarState(root, current) {
     const order = savedOrder.concat(canonicalOrder.filter((id) => !savedOrder.includes(id)));
 
     const contentForCg = current.snapshot && current.snapshot.content || {};
+    const autoPlay = current.autoPlay || { enabled: false, speed: 'medium' };
+    const playButton = root.querySelector('#igs-btn-auto-play');
+    if (playButton) {
+        const title = autoPlay.enabled ? '停止自动播放' : '自动播放';
+        const icon = autoPlay.enabled ? ORIGINAL_READER_ICONS.stop : ORIGINAL_READER_ICONS.play;
+        if (playButton.innerHTML !== icon) playButton.innerHTML = icon;
+        playButton.setAttribute('title', title);
+        playButton.setAttribute('aria-label', title);
+        playButton.setAttribute('aria-pressed', String(autoPlay.enabled));
+    }
+    const speedButton = root.querySelector('#igs-btn-auto-speed');
+    if (speedButton) {
+        const label = AUTO_PLAY_LABELS[autoPlay.speed] || AUTO_PLAY_LABELS.medium;
+        const icon = AUTO_PLAY_SPEED_ICONS[autoPlay.speed] || AUTO_PLAY_SPEED_ICONS.medium;
+        if (speedButton.innerHTML !== icon) speedButton.innerHTML = icon;
+        speedButton.setAttribute('title', `自动播放速度：${label}（点击切换快 / 中 / 慢）`);
+        speedButton.setAttribute('aria-label', speedButton.getAttribute('title'));
+    }
     const currentCgShown = Boolean(contentForCg.illustrationActive && contentForCg.illustrationUrl);
     for (const id of ['clear-cg', 'reroll-cg']) {
         const button = root.querySelector(`#igs-btn-${id}`);

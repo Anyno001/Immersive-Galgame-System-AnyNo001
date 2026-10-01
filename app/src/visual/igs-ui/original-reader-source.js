@@ -44,6 +44,8 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
     db: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="display:block"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
     prev: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="15 18 9 12 15 6"/></svg>',
     next: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="9 18 15 12 9 6"/></svg>',
+    play: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="m8 5 11 7-11 7z"/></svg>',
+    stop: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
     assets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="9" cy="7" r="3.2"/><path d="M3.5 20v-1.5A4.5 4.5 0 0 1 8 14h2"/><path d="M13 20l3.2-4.2 2 2.5 1.3-1.6L22 20z"/><path d="M18 4v5M15.5 6.5h5"/></svg>',
     regen: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M4 16l4.5-4.5a1.5 1.5 0 0 1 2.1 0L16 17"/><path d="M14 15l1.5-1.5a1.5 1.5 0 0 1 2.1 0L20 16"/><path d="M18.5 2.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor"/></svg>',
     clearCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 10v6M14 10v6"/></svg>',
@@ -62,6 +64,12 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
     spriteEdit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 15 22 12 19 9"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>',
 });
 
+export const AUTO_PLAY_SPEED_ICONS = Object.freeze({
+    slow: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-igs-auto-speed="slow" style="display:block"><path d="M4 19a9 9 0 1 1 16 0M4 19h16M5 10l2 1M12 5v2M19 10l-2 1M12 15l-4-2"/></svg>',
+    medium: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-igs-auto-speed="medium" style="display:block"><path d="M4 19a9 9 0 1 1 16 0M4 19h16M5 10l2 1M12 5v2M19 10l-2 1M12 15V10"/></svg>',
+    fast: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-igs-auto-speed="fast" style="display:block"><path d="M4 19a9 9 0 1 1 16 0M4 19h16M5 10l2 1M12 5v2M19 10l-2 1M12 15l4-4"/></svg>',
+});
+
 export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     // group 决定工具栏分隔：nav 翻页 / create 画图与素材 / view 画面 / system 系统。
     // 按钮可被用户重排、隐藏、固定，分隔由 applyToolbarState 按实际可见顺序标记，不写死在 DOM 里。
@@ -72,6 +80,8 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'next', group: 'nav', title: '下一页', html: ORIGINAL_READER_ICONS.next },
     { id: 'last-page', group: 'nav', title: '最后一页', html: ORIGINAL_READER_ICONS.lastPage },
     { id: 'next-turn', group: 'nav', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
+    { id: 'auto-play', group: 'nav', title: '自动播放', html: ORIGINAL_READER_ICONS.play },
+    { id: 'auto-speed', group: 'nav', title: '自动播放速度：中（点击切换快 / 中 / 慢）', html: AUTO_PLAY_SPEED_ICONS.medium },
     { id: 'regen', group: 'create', title: '绘制 CG', html: ORIGINAL_READER_ICONS.regen },
     { id: 'reroll-cg', group: 'create', title: '重画这张（提示词不变，只重画当前这一张）', html: ORIGINAL_READER_ICONS.rerollCg },
     { id: 'clear-cg', group: 'create', title: '清扫当前 CG', html: ORIGINAL_READER_ICONS.clearCg },

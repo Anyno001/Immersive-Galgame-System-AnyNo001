@@ -13,12 +13,14 @@ import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
 import { CHAT_LAYER_STYLE_TEXT, advanceChatReveal, applyChatToDom, cancelChatShow, getChatRevealState } from '../src/visual/igs-ui/chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from '../src/visual/igs-ui/chat-show-runtime.js';
 import { resolveChatTheme } from '../src/visual/igs-ui/chat-themes.js';
-import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
+import { AUTO_PLAY_SPEED_ICONS, ORIGINAL_READER_ICONS, getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { createMapPanelController } from '../src/visual/igs-ui/map-panel.js';
 import { createRecordPanelController } from '../src/visual/igs-ui/record-panel.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import { DEFAULT_SCENE_PROMPT_RULE } from '../src/visual/igs-ui/reader-host-constants.js';
 import { applyTypewriterEffect } from '../src/visual/igs-ui/typewriter-runtime.js';
+import { createAutoPlayClock } from './helpers/auto-play-clock.js';
+import { setStagePauseReason } from '../src/visual/igs-ui/stage-pause.js';
 import { VISUAL_MODES } from '../src/visual/visual-mode.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
@@ -2022,6 +2024,148 @@ test('gate:simulation:igs-ui-background-click-does-not-page-dialog-click-still-p
     assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '2 / 2');
 
     vn.destroy();
+});
+
+function makeAutoPlayReader(raw = '第一段。\n第二段。\n第三段。', readerSettings = {}) {
+    const document = createFakeDocument();
+    const timers = createAutoPlayClock();
+    let savedSettings = { bridge: {}, readerSettings };
+    const host = createIgsReaderHost({
+        global: { document, localStorage: createMemoryStorage() },
+        autoPlayTimers: timers,
+        getUnifiedSettings: () => savedSettings,
+        saveUnifiedSettings: (value) => {
+            savedSettings = value;
+            return { ok: true };
+        },
+    });
+    const opened = host.openReader({ messageId: 881, message: { id: 881, text: raw }, raw }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const overlay = document.getElementById('igs-overlay');
+    return { document, timers, host, opened, overlay };
+}
+
+test('gate:simulation:auto-play-toolbar-clicks-cycle-speed-and-stop-at-last-page', async () => {
+    const { host, timers, overlay, opened, document } = makeAutoPlayReader();
+    try {
+        const play = overlay.querySelector('#igs-btn-auto-play');
+        const speed = overlay.querySelector('#igs-btn-auto-speed');
+        assert.ok(play && speed);
+        assert.equal(speed.innerHTML, AUTO_PLAY_SPEED_ICONS.medium);
+        assert.equal(play.innerHTML, ORIGINAL_READER_ICONS.play);
+        assert.equal(play.getAttribute('aria-pressed'), 'false');
+        assert.equal(timers.size(), 0);
+        opened.controller.toggleToolbar();
+        const click = (button) => overlay.parentNode.dispatchEvent({ type: 'click', target: button });
+        await click(play);
+        assert.equal(play.getAttribute('aria-pressed'), 'true');
+        assert.equal(play.innerHTML, ORIGINAL_READER_ICONS.stop);
+        assert.match(play.getAttribute('aria-label'), /停止/);
+        await timers.advance(2999);
+        assert.equal(host.getState().activeReader.index, 0);
+        await timers.advance(1);
+        assert.equal(host.getState().activeReader.index, 1);
+        for (const [value, label] of [['slow', '慢'], ['fast', '快'], ['medium', '中']]) {
+            await click(speed);
+            assert.equal(speed.innerHTML, AUTO_PLAY_SPEED_ICONS[value]);
+            assert.ok(speed.getAttribute('aria-label').includes(`速度：${label}`));
+        }
+        document.dispatchEvent({ type: 'keydown', key: ' ', target: play });
+        assert.equal(host.getState().activeReader.index, 1);
+        await timers.advance(3000);
+        assert.equal(host.getState().activeReader.index, 2);
+        assert.equal(host.getState().activeReader.autoPlay.enabled, false);
+        assert.equal(play.getAttribute('aria-pressed'), 'false');
+        assert.equal(play.innerHTML, ORIGINAL_READER_ICONS.play);
+        assert.equal(timers.size(), 0);
+        assert.equal(overlay.classList.contains('igs-options-visible'), false);
+        await opened.controller.invokeAction('first-page');
+        await click(play);
+        await timers.advance(0);
+        await click(play);
+        await timers.advance(10000);
+        assert.equal(host.getState().activeReader.index, 0);
+        assert.equal(timers.size(), 0);
+        await click(play);
+        assert.equal(opened.controller.close().ok, true);
+        assert.equal(timers.size(), 0);
+    } finally { host.destroy(); }
+});
+
+test('gate:simulation:auto-play-waits-for-typewriter-and-stage-pause-and-cleans-up', async () => {
+    const { host, timers, overlay, opened } = makeAutoPlayReader();
+    try {
+        const text = overlay.querySelector('#igs-text');
+        text.dataset = {};
+        text.nodeType = 1;
+        text.childNodes = [{ nodeType: 3, nodeValue: '第一段。', childNodes: [] }];
+        const animation = { cancel() { this.oncancel?.(); } };
+        applyTypewriterEffect(text, { enabled: true, speed: 'slow', key: 'auto-play-wait',
+            reducedMotion: false, animate: () => animation });
+        await opened.controller.invokeAction('auto-play');
+        await timers.advance(6000);
+        assert.equal(host.getState().activeReader.index, 0);
+        assert.equal(text.dataset.igsTypewriter, 'running');
+        animation.onfinish();
+        await timers.advance(200);
+        await timers.advance(1000);
+        setStagePauseReason(overlay, 'panel:settings', true);
+        await timers.advance(6000);
+        assert.equal(host.getState().activeReader.index, 0);
+        setStagePauseReason(overlay, 'panel:settings', false);
+        await timers.advance(200);
+        await timers.advance(2999);
+        assert.equal(host.getState().activeReader.index, 0);
+        await timers.advance(1);
+        assert.equal(host.getState().activeReader.index, 1);
+        assert.equal(opened.controller.close().ok, true);
+        assert.equal(timers.size(), 0);
+        await timers.advance(10000);
+        assert.equal(host.getState().activeReader, null);
+    } finally { host.destroy(); }
+});
+
+test('gate:simulation:auto-play-buttons-join-existing-pin-hide-and-order-management', async () => {
+    const { host, opened, overlay } = makeAutoPlayReader(undefined, {
+        pinnedBtns: ['auto-play'], hiddenBtns: ['auto-speed'], btnOrder: ['next', 'auto-speed', 'auto-play'],
+    });
+    try {
+        const play = overlay.querySelector('#igs-btn-auto-play');
+        const speed = overlay.querySelector('#igs-btn-auto-speed');
+        assert.equal(play.parentNode.id, 'igs-bar-pinned');
+        assert.equal(speed.style.display, 'none');
+        const settings = opened.controller.openSettings('reader').controller;
+        settings.switchReaderSubTab('interface');
+        const html = settings.getSnapshot().html;
+        assert.ok(html.includes('自动播放'));
+        assert.ok(html.includes('toolbar-toggle-visible:auto-speed'));
+        assert.ok(html.includes('toggle-toolbar-pin:auto-play'));
+        assert.equal(settings.close().ok, true);
+    } finally { host.destroy(); }
+});
+
+test('gate:simulation:auto-play-reveals-chat-messages-before-leaving-the-page', async () => {
+    const raw = '<content>\n[igs-chat:爱丽丝]\n[igs-msg:爱丽丝|在吗？]\n[igs-msg:小明|在的。]\n[igs-msg:爱丽丝|放学后见。]\n[igs-chat-end]\n她收起手机。\n</content>';
+    const { host, timers, overlay, opened } = makeAutoPlayReader(raw, {
+        chatShow: { enabled: true, frame: 'none', pace: 'click', sound: { enabled: false } },
+    });
+    try {
+        assert.equal(host.getState().activeReader.snapshot.content.textType, 'chat');
+        assert.equal(getChatRevealState(overlay).revealed, 1);
+        await opened.controller.invokeAction('auto-play');
+        await timers.advance(3000);
+        assert.equal(host.getState().activeReader.index, 0);
+        assert.equal(getChatRevealState(overlay).revealed, 2);
+        await timers.advance(3000);
+        assert.equal(host.getState().activeReader.index, 0);
+        assert.equal(getChatRevealState(overlay).revealed, 3);
+        await timers.advance(2999);
+        assert.equal(host.getState().activeReader.index, 0);
+        await timers.advance(1);
+        assert.equal(host.getState().activeReader.index, 1);
+        assert.equal(host.getState().activeReader.autoPlay.enabled, false);
+        assert.equal(timers.size(), 0);
+    } finally { host.destroy(); }
 });
 
 test('gate:simulation:typewriter-first-forward-completes-text-and-second-forward-pages', async () => {
