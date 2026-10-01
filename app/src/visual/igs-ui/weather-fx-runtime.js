@@ -33,8 +33,16 @@ const WEATHER_KIND_RULES = Object.freeze([
     Object.freeze(['cloud', Object.freeze(['阴', '云', 'cloud', 'overcast'])]),
     Object.freeze(['sun', Object.freeze(['晴', '阳', 'sun', 'clear'])]),
 ]);
-const HEAVY_WORDS = Object.freeze(['暴', '大', '倾盆', '瓢泼', '狂', '猛', '强', '浓', '密', 'heavy', 'torrential', 'storm', 'blizzard', 'dense', 'thick']);
-const LIGHT_WORDS = Object.freeze(['小', '细', '毛毛', '微', '薄', '零星', '轻', '淡', '疏', 'light', 'drizzle', 'slight', 'mist']);
+// 天气细分程度：按序先命中者生效，重的一族先于轻的一族（暴雨先于大雨、毛毛雨先于小雨），都未命中为中。
+// level 是旧的三档（轻/中/重），由细分档折算，与细分前的判定一致；场景音频等旧消费方照常使用。
+const WEATHER_GRADE_RULES = Object.freeze([
+    Object.freeze(['storm', Object.freeze(['暴', '倾盆', '瓢泼', '狂', 'torrential', 'storm', 'blizzard'])]),
+    Object.freeze(['heavy', Object.freeze(['大', '猛', '强', '浓', '密', 'heavy', 'dense', 'thick'])]),
+    Object.freeze(['drizzle', Object.freeze(['毛毛', '零星', '微', 'drizzle', 'mist'])]),
+    Object.freeze(['light', Object.freeze(['小', '细', '薄', '轻', '淡', '疏', 'light', 'slight'])]),
+]);
+export const WEATHER_FX_GRADES = Object.freeze(['drizzle', 'light', 'medium', 'heavy', 'storm']);
+const GRADE_LEVELS = Object.freeze({ drizzle: 'light', light: 'light', medium: 'medium', heavy: 'heavy', storm: 'heavy' });
 const THUNDER_WORDS = Object.freeze(['雷', '闪电', 'thunder', 'lightning']);
 const WIND_WORDS = Object.freeze(['风', 'wind', 'gale', 'blizzard']);
 
@@ -51,7 +59,7 @@ const NIGHT_TIMES = Object.freeze(['night', 'midnight']);
 const FX_ATTRS = Object.freeze([
     'data-igs-weather-fx', 'data-igs-weather-fx-intensity', 'data-igs-weather-fx-level', 'data-igs-weather-fx-scene',
     'data-igs-weather-fx-time', 'data-igs-weather-fx-thunder', 'data-igs-weather-fx-wind', 'data-igs-weather-fx-motion',
-    'data-igs-weather-fx-flash',
+    'data-igs-weather-fx-flash', 'data-igs-weather-fx-grade',
 ]);
 const FX_CLASSES = Object.freeze(['igs-fx-sunburst-active', 'igs-fx-lightning-active']);
 
@@ -138,6 +146,20 @@ export function resolveWeatherFxTime(time) {
     return 'night';
 }
 
+// 天气程度：地图光照、环境滤镜、粒子与场景音频共用这一条规则，不在调用方另写词表。
+export function resolveWeatherFxGrade(weather) {
+    const text = textOf(weather);
+    if (!text) return 'medium';
+    for (const [grade, words] of WEATHER_GRADE_RULES) {
+        if (includesAny(text, words)) return grade;
+    }
+    return 'medium';
+}
+
+export function resolveWeatherFxLevel(weather) {
+    return GRADE_LEVELS[resolveWeatherFxGrade(weather)];
+}
+
 export function resolveWeatherFxPlan(options = {}) {
     const kind = resolveWeatherFxKind(options.weather);
     if (!kind) return null;
@@ -145,10 +167,11 @@ export function resolveWeatherFxPlan(options = {}) {
     const scene = resolveWeatherFxScene(options.location, options.settings);
     // 室内看不到风，直接不演出；其余天气在室内改为「隔窗」氛围。
     if (kind === 'wind' && scene === 'indoor') return null;
-    const level = includesAny(text, HEAVY_WORDS) ? 'heavy' : includesAny(text, LIGHT_WORDS) ? 'light' : 'medium';
+    const grade = resolveWeatherFxGrade(options.weather);
     return {
         kind,
-        level,
+        level: GRADE_LEVELS[grade],
+        grade,
         scene,
         time: resolveWeatherFxTime(options.time),
         thunder: kind === 'rain' && includesAny(text, THUNDER_WORDS),
@@ -193,6 +216,7 @@ function setFxAttrs(el, plan, intensity, motion) {
     el.setAttribute('data-igs-weather-fx', plan.kind);
     el.setAttribute('data-igs-weather-fx-intensity', intensity);
     el.setAttribute('data-igs-weather-fx-level', plan.level);
+    if (plan.grade) el.setAttribute('data-igs-weather-fx-grade', plan.grade);
     el.setAttribute('data-igs-weather-fx-scene', plan.scene);
     if (plan.time) el.setAttribute('data-igs-weather-fx-time', plan.time);
     if (plan.thunder) el.setAttribute('data-igs-weather-fx-thunder', '1');
@@ -216,7 +240,7 @@ function toggleClass(el, name, on) {
 
 // 闪电：进场后 1.2~2.6s 先闪一次定调，之后随机间隔循环；阅读器被移除时停止排程。
 function scheduleLightning(state, target, plan, first) {
-    const [min, max] = first ? [1200, 2600] : plan.level === 'heavy' ? [4500, 9000] : [7000, 14000];
+    const [min, max] = first ? [1200, 2600] : plan.grade === 'storm' ? [3000, 6500] : plan.level === 'heavy' ? [4500, 9000] : [7000, 14000];
     later(state, () => {
         if (target.isConnected === false) return;
         const hidden = target.ownerDocument && target.ownerDocument.hidden === true;
@@ -259,7 +283,7 @@ export function applyWeatherFx(layer, options = {}) {
         return { active: false, kind: '' };
     }
     const motion = !hasReducedMotion(options);
-    const signature = [plan.kind, plan.level, plan.scene, plan.time, plan.thunder, plan.wind, settings.intensity, motion].join('|');
+    const signature = [plan.kind, plan.level, plan.grade, plan.scene, plan.time, plan.thunder, plan.wind, settings.intensity, motion].join('|');
     const lightning = Boolean(motion && plan.thunder);
     const result = (replayed) => ({ active: true, kind: plan.kind, intensity: settings.intensity, plan, replayed, lightning });
     const previous = activeStates.get(layer);

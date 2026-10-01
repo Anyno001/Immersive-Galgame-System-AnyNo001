@@ -8,6 +8,11 @@ export const ONBOARDING_STEPS = Object.freeze([
         body: '接下来花一分钟，带你看看最常用的几项设置。每一步都可以跳过，所有选项以后都能再改。',
     }),
     Object.freeze({
+        id: 'paging', tab: 'basic', subTabs: [], target: [],
+        title: '翻页',
+        body: '阅读时点画面右半边进入下一页，点左半边回到上一页；键盘按空格或「→」也能前进。开启打字机时，第一次点击先显示全文，再点一次才翻页。',
+    }),
+    Object.freeze({
         id: 'mode', tab: 'basic', subTabs: [], target: ['[data-path="bridge.openMode"]'],
         title: '选择阅读方式',
         body: '电脑浮窗、手机、楼层内嵌和全屏任选一种，初次使用推荐「内嵌模式」。',

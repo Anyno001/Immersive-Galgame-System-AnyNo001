@@ -31,7 +31,8 @@ function renderStageFields(s, more) {
             + `</div>`) : '');
     const tint = checkbox(`${P}.timeTint.enabled`, s.timeTint.enabled, '环境滤镜')
         + (s.timeTint.enabled ? sub(field(`${P}.timeTint.strength`, '调色强度', segmentedInput(`${P}.timeTint.strength`, s.timeTint.strength, [['light', '弱'], ['medium', '中'], ['strong', '强']], '调色强度'))
-            + '<div class="igs-source-filter-note">开启天气演出后，还会按雨、雪、雾等天气调色。</div>') : '');
+            + checkbox(`${P}.timeTint.night`, s.timeTint.night, '夜间调色')
+            + '<div class="igs-source-filter-note">关闭夜间调色后，夜晚和深夜不再压暗。开启天气演出后，还会按雨、雪、雾等天气调色。</div>') : '');
     const motion = checkbox(`${P}.spriteMotion.enabled`, s.spriteMotion.enabled, '立绘活动')
         + (s.spriteMotion.enabled ? sub(more('sprite-motion', '选择动作', `<div class="igs-source-filter-grid">`
             + checkbox(`${P}.spriteMotion.breathing`, s.spriteMotion.breathing, '待机呼吸')

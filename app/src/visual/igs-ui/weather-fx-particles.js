@@ -10,8 +10,16 @@ const REFERENCE_AREA = 1280 * 720;
 const TAU = Math.PI * 2;
 const MAX_SPLASHES = 80;
 const SPLASH_LEVELS = 8;
-const LEVEL_DENSITY = Object.freeze({ light: 0.5, medium: 1, heavy: 1.7 });
+// 按细分程度取值；只带旧三档 level 的方案取值与细分前相同。
+const GRADE_DENSITY = Object.freeze({ drizzle: 0.28, light: 0.5, medium: 1, heavy: 1.7, storm: 2.3 });
+const GRADE_SPEED = Object.freeze({ drizzle: 0.7, light: 0.85, medium: 1, heavy: 1.12, storm: 1.25 });
+const GRADE_LENGTH = Object.freeze({ drizzle: 0.75, light: 1, medium: 1, heavy: 1.15, storm: 1.32 });
+const GRADE_SNOW_FALL = Object.freeze({ drizzle: 0.85, light: 1, medium: 1, heavy: 1.15, storm: 1.3 });
 const INTENSITY_DENSITY = Object.freeze({ weak: 0.6, medium: 1, strong: 1.35 });
+
+function gradeOf(plan) {
+    return GRADE_DENSITY[plan.grade] ? plan.grade : GRADE_DENSITY[plan.level] ? plan.level : 'medium';
+}
 const BASE_COUNTS = Object.freeze({
     rain: Object.freeze({ far: 120, near: 26 }),
     snow: Object.freeze({ far: 110, near: 16 }),
@@ -36,18 +44,19 @@ function particleColor(kind, time) {
 function createEngine(plan, random) {
     const r = (min, max) => min + random() * (max - min);
     const bucket = () => Math.floor(random() * 3);
-    const heavy = plan.level === 'heavy';
+    const grade = gradeOf(plan);
     const color = particleColor(plan.kind, plan.time);
 
     const rain = {
         spawn(s, seed) {
             const near = s.depth === 'near';
-            const speed = (near ? r(1050, 1350) : r(620, 820)) * (heavy ? 1.12 : plan.level === 'light' ? 0.85 : 1);
-            const len = (near ? r(26, 42) : r(11, 19)) * (heavy ? 1.15 : 1);
-            const angle = (plan.wind ? 0.36 : 0.13) + r(-0.03, 0.03);
+            const speed = (near ? r(1050, 1350) : r(620, 820)) * GRADE_SPEED[grade];
+            const len = (near ? r(26, 42) : r(11, 19)) * GRADE_LENGTH[grade];
+            // 暴雨无风也斜着落。
+            const angle = (plan.wind ? 0.36 : grade === 'storm' ? 0.22 : 0.13) + r(-0.03, 0.03);
             const vx = -Math.sin(angle) * speed;
             const vy = Math.cos(angle) * speed;
-            const splash = near && plan.level !== 'light';
+            const splash = near && grade !== 'light' && grade !== 'drizzle';
             return {
                 x: r(-0.05 * s.w, s.w * 1.05 + s.h * Math.tan(angle)),
                 y: seed ? r(-len, s.h) : r(-s.h * 0.25, -len),
@@ -110,7 +119,7 @@ function createEngine(plan, random) {
                 x: 0,
                 y: seed ? r(-radius, s.h) : r(-s.h * 0.1, -radius * 2),
                 radius,
-                vy: (near ? r(55, 90) : r(26, 54)) * (heavy ? 1.15 : 1),
+                vy: (near ? r(55, 90) : r(26, 54)) * GRADE_SNOW_FALL[grade],
                 drift: plan.wind ? r(70, 150) * (near ? 1.3 : 1) : r(-10, 10),
                 amp: near ? r(18, 36) : r(6, 16),
                 freq: r(0.25, 0.6),
@@ -279,7 +288,7 @@ export function startWeatherParticles(options = {}) {
     if (!engine) return null;
     const surfaces = [createSurface(doc, back, 'far'), front ? createSurface(doc, front, 'near') : null].filter(Boolean);
     if (!surfaces.length) return null;
-    const density = (LEVEL_DENSITY[plan.level] || 1) * (INTENSITY_DENSITY[options.intensity] || 1);
+    const density = GRADE_DENSITY[gradeOf(plan)] * (INTENSITY_DENSITY[options.intensity] || 1);
     const base = BASE_COUNTS[plan.kind];
     let quality = getQualityFactor();
 

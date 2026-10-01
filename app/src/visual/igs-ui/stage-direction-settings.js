@@ -27,7 +27,8 @@ export const TIME_TINT_STRENGTHS = Object.freeze(['light', 'medium', 'strong']);
 
 export function normalizeTimeTintSettings(value) {
     const src = plain(value);
-    return { enabled: src.enabled === true, strength: pick(src.strength, TIME_TINT_STRENGTHS, 'medium') };
+    // night 缺省为开：旧存档开了环境滤镜，夜里照旧压暗。
+    return { enabled: src.enabled === true, strength: pick(src.strength, TIME_TINT_STRENGTHS, 'medium'), night: src.night !== false };
 }
 
 export function normalizeSpriteMotionSettings(value) {

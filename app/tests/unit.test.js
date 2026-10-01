@@ -68,7 +68,7 @@ import { getNextSettingsTheme, normalizeSettingsTheme } from '../src/visual/igs-
 import { renderCharacterAssetList, renderSceneAssetList, tableMultiSelect } from '../src/visual/igs-ui/settings-fields.js';
 import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule } from '../src/visual/igs-ui/reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode, normalizePublicReaderMode } from '../src/schemas/reader-mode.js';
-import { ensureEmbeddedHost, hideEmbeddedSourceText, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
+import { ensureEmbeddedHost, hideEmbeddedSourceText, isEmbeddedEditTrigger, restoreEmbeddedSourceText, resolveEmbeddedHostParent } from '../src/visual/igs-ui/embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from '../src/visual/igs-ui/reader-source-cache.js';
 import { createChatStreamObserver } from '../src/host/chat-stream-observer.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from '../src/visual/igs-ui/record-icons.js';
@@ -291,6 +291,24 @@ test('gate:igs-ui:embedded-host-mounts-beside-mes-text-and-restores', () => {
     assert.equal(mesText.style.display, '');
     assert.equal(mesText.getAttribute('aria-hidden'), null);
 });
+
+test('gate:igs-ui:embedded-edit-pencil-only-matches-mounted-floor', () => {
+    const mesText = { id: 'mounted-text' };
+    const otherText = { id: 'other-text' };
+    const message = { closest: (sel) => (sel === '.mes' ? message : null), contains: (n) => n === mesText };
+    const otherMessage = { closest: (sel) => (sel === '.mes' ? otherMessage : null), contains: (n) => n === otherText };
+    const pencil = { closest: (sel) => (sel === '.mes_edit' ? pencil : sel === '.mes' ? message : null) };
+    const icon = { closest: (sel) => (sel === '.mes_edit' ? pencil : null) };
+    const otherPencil = { closest: (sel) => (sel === '.mes_edit' ? otherPencil : sel === '.mes' ? otherMessage : null) };
+    const plain = { closest: () => null };
+    assert.equal(isEmbeddedEditTrigger(pencil, mesText), true, '点挂载楼层的小铅笔');
+    assert.equal(isEmbeddedEditTrigger(icon, mesText), true, '点铅笔内部图标同样命中');
+    assert.equal(isEmbeddedEditTrigger(otherPencil, mesText), false, '其他楼层的铅笔不关阅读器');
+    assert.equal(isEmbeddedEditTrigger(plain, mesText), false, '非铅笔点击不命中');
+    assert.equal(isEmbeddedEditTrigger(null, mesText), false);
+    assert.equal(isEmbeddedEditTrigger(pencil, null), false);
+});
+
 
 test('gate:igs-ui:embedded-chat-observer-only-starts-when-asked', () => {
     const created = [];

@@ -8200,7 +8200,7 @@ test('gate:simulation:onboarding-invite-guide-skip-and-no-repeat', async () => {
         await settings.invoke('onboarding-start');
         assert.equal(host.getState().activeSettings.tab, 'basic');
         assert.ok(document.getElementById('igs-onboarding-card'), '引导卡挂在设置面板内');
-        for (let i = 0; i < 3; i += 1) await settings.invoke('onboarding-next');
+        for (let i = 0; i < 4; i += 1) await settings.invoke('onboarding-next');
         assert.equal(host.getState().activeSettings.tab, 'reader');
         settings.switchTab('reader');
         assert.ok(document.getElementById('igs-onboarding-card'), '面板重绘后引导卡仍在');

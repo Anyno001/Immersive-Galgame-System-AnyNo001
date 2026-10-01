@@ -142,6 +142,7 @@ import {
     ensureEmbeddedHost,
     findEmbeddedHost,
     hideEmbeddedSourceText,
+    isEmbeddedEditTrigger,
     resolveEmbeddedHostParent,
     restoreEmbeddedSourceText,
 } from './embedded-reader-runtime.js';
@@ -3455,8 +3456,18 @@ export function createIgsReaderHost(options = {}) {
                 controller.invokeAction('hide');
             }
         };
+        // 内嵌模式：点挂载楼层的小铅笔（.mes_edit）时先关闭阅读器并恢复原文；
+        // 捕获阶段执行且不拦截事件，酒馆随后在冒泡阶段照常打开编辑框（编辑框渲染在 .mes_text 内）。
+        const hostEditHandler = (event) => {
+            const current = state.activeReader;
+            const mount = current && current.dom && current.dom.embeddedMount;
+            if (!mount || !isEmbeddedReaderMode(current.mode)) return;
+            if (!isEmbeddedEditTrigger(event && event.target, mount.mesText)) return;
+            closeReader();
+        };
         if (typeof doc.addEventListener === 'function') {
             doc.addEventListener('keydown', keydownHandler, true);
+            doc.addEventListener('click', hostEditHandler, true);
         }
         const dbController = createDbPanelController(doc, options.global);
         // 资料页只填空草稿：「前往 / 使用」共用同一条非覆盖、不发送的输入框路径。
@@ -3500,6 +3511,7 @@ export function createIgsReaderHost(options = {}) {
             dispose() {
                 if (typeof doc.removeEventListener === 'function') {
                     doc.removeEventListener('keydown', keydownHandler, true);
+                    doc.removeEventListener('click', hostEditHandler, true);
                 }
                 mapController.dispose();
                 recordController.close();

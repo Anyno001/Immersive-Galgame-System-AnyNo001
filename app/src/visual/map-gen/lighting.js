@@ -1,4 +1,4 @@
-import { resolveWeatherFxKind, resolveWeatherFxTime } from '../igs-ui/weather-fx-runtime.js';
+import { resolveWeatherFxGrade, resolveWeatherFxKind, resolveWeatherFxLevel, resolveWeatherFxTime } from '../igs-ui/weather-fx-runtime.js';
 
 // 关键帧：[时, 压暗色, 压暗强度, 暖光色, 暖光强度, 亮度, 饱和度, 灯光]；相邻关键帧线性插值，24 点回到 0 点。
 const KEYFRAMES = Object.freeze([
@@ -14,9 +14,8 @@ const KEYFRAMES = Object.freeze([
     [24, [18, 24, 60], 0.7, [0, 0, 0], 0, 0.8, 0.55, 1],
 ]);
 const BUCKET_HOURS = Object.freeze({ dawn: 6.3, day: 12, dusk: 18, night: 21, midnight: 0.5 });
-const LEVEL_SCALE = Object.freeze({ light: 0.6, medium: 1, heavy: 1.35 });
-const HEAVY = /暴|大|倾盆|瓢泼|狂|猛|浓|密|heavy|storm|dense/i;
-const LIGHT = /小|细|毛毛|微|薄|零星|轻|淡|light|drizzle|slight/i;
+// 程度规则与舞台天气共用 weather-fx-runtime，按细分档缩放。
+const GRADE_SCALE = Object.freeze({ drizzle: 0.42, light: 0.6, medium: 1, heavy: 1.35, storm: 1.6 });
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const rgba = (rgb, alpha) => `rgba(${rgb.map(Math.round).join(',')},${Math.round(alpha * 1000) / 1000})`;
@@ -56,8 +55,8 @@ export function resolveMapLighting(options = {}) {
 
     const weatherText = String(options.weather ?? '');
     const kind = resolveWeatherFxKind(weatherText);
-    const level = HEAVY.test(weatherText) ? 'heavy' : LIGHT.test(weatherText) ? 'light' : 'medium';
-    const s = LEVEL_SCALE[level];
+    const level = resolveWeatherFxLevel(weatherText);
+    const s = GRADE_SCALE[resolveWeatherFxGrade(weatherText)];
     let gray = 0;
     let clouds = 0;
     let fog = 0;

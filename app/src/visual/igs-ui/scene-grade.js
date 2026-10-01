@@ -13,7 +13,8 @@ export const ASSET_GRADE_RATIO = 0.35;
 // 立绘少降对比与饱和、多压亮度：降对比会像半透明，压暗加色偏才像被环境光照着。
 const SPRITE_CHANNEL_WEIGHT = Object.freeze({ c: 0.5, s: 0.8, b: 1.3 });
 const STRENGTH_SCALE = Object.freeze({ light: 0.62, medium: 1, strong: 1.4 });
-const LEVEL_SCALE = Object.freeze({ light: 0.6, medium: 1, heavy: 1.35 });
+// 按细分程度缩放天气调色；只带旧三档 level 时取值不变。
+const LEVEL_SCALE = Object.freeze({ drizzle: 0.42, light: 0.6, medium: 1, heavy: 1.35, storm: 1.6 });
 // 室内有灯光，夜色减半；天气隔着窗户只剩一点。
 const INDOOR_NIGHT_SCALE = 0.5;
 const INDOOR_WEATHER_SCALE = 0.35;
@@ -98,7 +99,9 @@ export function resolveSceneGradePlan(options = {}) {
     const indoor = resolveWeatherFxScene(options.location, weatherSettings) === 'indoor';
     const strength = STRENGTH_SCALE[tint.strength] * (options.asset === true ? ASSET_GRADE_RATIO : 1);
     // 背景命中素材自带的时段变体（夜景图等）时，画面已有该时段光照，不再叠时段调色；天气调色照常。
-    const timeGrade = tint.enabled && options.timedAsset !== true ? TIME_GRADES[time] || null : null;
+    // 关掉「夜间调色」时夜晚与深夜不压暗，清晨、黄昏照常调色。
+    const nightOff = !tint.night && NIGHT_TIMES.includes(time);
+    const timeGrade = tint.enabled && options.timedAsset !== true && !nightOff ? TIME_GRADES[time] || null : null;
     const weatherPlan = weatherSettings.enabled
         ? resolveWeatherFxPlan({ weather: options.weather, location: options.location, time: options.time, settings: weatherSettings })
         : null;
@@ -108,7 +111,7 @@ export function resolveSceneGradePlan(options = {}) {
     if (!timeGrade && !weatherGrade) return null;
 
     const timeScale = timeGrade ? strength * (indoor && NIGHT_TIMES.includes(time) ? INDOOR_NIGHT_SCALE : 1) : 0;
-    const weatherScale = weatherGrade ? strength * LEVEL_SCALE[weatherPlan.level] * (indoor ? INDOOR_WEATHER_SCALE : 1) : 0;
+    const weatherScale = weatherGrade ? strength * (LEVEL_SCALE[weatherPlan.grade] || LEVEL_SCALE[weatherPlan.level]) * (indoor ? INDOOR_WEATHER_SCALE : 1) : 0;
     const bg = {};
     for (const key of ['c', 's', 'b']) {
         const deviation = (timeGrade ? (timeGrade[key] - 1) * timeScale : 0) + (weatherGrade ? (weatherGrade[key] - 1) * weatherScale : 0);

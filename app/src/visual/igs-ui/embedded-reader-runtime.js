@@ -93,3 +93,16 @@ function restoreDisplayStyle(style, value, priority) {
     if (!value && typeof style.removeProperty === 'function') style.removeProperty('display');
     else setDisplayStyle(style, value || '', priority || '');
 }
+
+
+// 宿主「编辑」按钮（小铅笔 .mes_edit）点在挂载楼层上时返回 true。
+// 酒馆把编辑框渲染进 .mes_text，内嵌阅读器必须先卸载并恢复原文，否则编辑框随原文一起被隐藏。
+export const HOST_EDIT_TRIGGER_SELECTOR = '.mes_edit';
+
+export function isEmbeddedEditTrigger(target, mesText) {
+    if (!target || !mesText || typeof target.closest !== 'function') return false;
+    const button = target.closest(HOST_EDIT_TRIGGER_SELECTOR);
+    if (!button || typeof button.closest !== 'function') return false;
+    const message = button.closest('.mes');
+    return Boolean(message && typeof message.contains === 'function' && message.contains(mesText));
+}
