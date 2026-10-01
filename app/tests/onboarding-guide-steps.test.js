@@ -7,19 +7,20 @@ import {
     SETTINGS_TAB_DEFS, READER_SUBTAB_DEFS, SCENE_SETTINGS_SUBTAB_DEFS, SCENE_SUBTAB_DEFS, IMAGE_SUBTAB_DEFS,
 } from '../src/visual/igs-ui/settings-tabs.js';
 
-test('onboarding steps: 七步顺序与可选生图', () => {
+test('onboarding steps: 八步顺序与可选生图', () => {
     assert.deepEqual(ONBOARDING_STEPS.map((step) => step.id),
-        ['welcome', 'mode', 'performance', 'dialog', 'scene', 'image', 'done']);
-    assert.equal(getOnboardingStep(5).optional, true);
-    assert.ok(getOnboardingStep(6).body.includes('标签解析'));
+        ['welcome', 'mode', 'performance', 'dialog', 'scene', 'assets', 'image', 'done']);
+    assert.equal(getOnboardingStep(6).optional, true);
+    assert.ok(getOnboardingStep(7).body.includes('标签解析'));
+    assert.ok(getOnboardingStep(5).body.includes('下载默认素材'));
 });
 
 test('onboarding steps: 前后导航边界', () => {
     assert.equal(prevOnboardingStep(0), 0);
     assert.equal(nextOnboardingStep(0), 1);
-    assert.equal(nextOnboardingStep(6), 6);
-    assert.equal(isLastOnboardingStep(6), true);
-    assert.equal(isLastOnboardingStep(5), false);
+    assert.equal(nextOnboardingStep(7), 7);
+    assert.equal(isLastOnboardingStep(7), true);
+    assert.equal(isLastOnboardingStep(6), false);
     assert.equal(getOnboardingStep(-1).id, 'welcome');
 });
 

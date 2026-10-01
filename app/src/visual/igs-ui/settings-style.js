@@ -215,11 +215,16 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-btn-mgr-icon:hover,.igs-btn-mgr-icon:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-btn-mgr-icon.is-on{color:var(--igs-settings-accent)}
 .igs-add-menu{position:relative;flex-shrink:0}
+.igs-add-menu[open]{z-index:30}
 .igs-add-menu>summary{list-style:none}
 .igs-add-menu>summary::-webkit-details-marker{display:none}
-.igs-add-menu-list{position:absolute;right:0;top:calc(100% + 4px);z-index:5;display:flex;flex-direction:column;min-width:9em;padding:4px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-surface,#fff);box-shadow:0 6px 18px rgba(0,0,0,.18)}
-.igs-add-menu-item{border:0;background:transparent;color:var(--igs-settings-ink);text-align:left;white-space:nowrap;min-height:28px;padding:4px 10px;border-radius:var(--igs-settings-radius-small);cursor:pointer;font:inherit;font-size:12px}
-.igs-add-menu-item:hover,.igs-add-menu-item:focus-visible{background:var(--igs-settings-highlight);outline:none}
+.igs-add-menu[open]>summary{background:var(--igs-settings-highlight);color:var(--igs-settings-ink)}
+.igs-add-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:flex;flex-direction:column;gap:2px;min-width:10.5em;padding:4px;border:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);box-shadow:var(--igs-settings-shell-shadow);transform-origin:top right;animation:igs-add-menu-in .14s ease-out both}
+.igs-add-menu-item{display:flex;align-items:center;border:0;background:transparent;color:var(--igs-settings-ink-2);text-align:left;white-space:nowrap;min-height:30px;padding:0 12px;border-radius:var(--igs-settings-radius-small);cursor:pointer;font:inherit;font-size:12px;letter-spacing:.02em;transition:background-color .14s ease,color .14s ease}
+.igs-add-menu-item:hover,.igs-add-menu-item:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
+@keyframes igs-add-menu-in{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.igs-add-menu-list{animation:none}}
+@media (pointer:coarse){.igs-add-menu-list{gap:14px;padding:9px 4px}.igs-add-menu-item{position:relative}.igs-add-menu-item::after{content:"";position:absolute;inset:-7px 0}}
 
 .igs-btn-mgr-icon.is-on:hover{color:var(--igs-settings-on-accent);background:var(--igs-settings-accent)}
 .igs-scene-url-input{flex:1;min-width:0;height:28px;border:0;border-bottom:1px solid transparent;background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:0 8px;font:inherit;font-size:11px;outline:none}

@@ -30,12 +30,12 @@ function setup(initial = {}) {
 test('onboarding controller: 换步只切页签，不写设置', () => {
     const { ctl, calls } = setup();
     ctl.handleAction('onboarding-start');
-    for (let i = 0; i < 5; i += 1) ctl.handleAction('onboarding-next');
+    for (let i = 0; i < 6; i += 1) ctl.handleAction('onboarding-next');
     assert.deepEqual(calls.filter(([k]) => k !== 'tab').map((c) => c.join(':')),
-        ['open:basic', 'reader:dialog', 'sceneSettings:assets', 'scene:scenes', 'image:source']);
-    assert.equal(ctl.getState().step, 5);
+        ['open:basic', 'reader:dialog', 'sceneSettings:assets', 'scene:scenes', 'sceneSettings:assets', 'scene:scenes', 'image:source']);
+    assert.equal(ctl.getState().step, 6);
     ctl.handleAction('onboarding-prev');
-    assert.equal(ctl.getState().step, 4);
+    assert.equal(ctl.getState().step, 5);
 });
 
 test('onboarding controller: 完成写 done，跳过写 dismissed', () => {

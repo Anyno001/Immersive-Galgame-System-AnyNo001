@@ -28,6 +28,11 @@ export const ONBOARDING_STEPS = Object.freeze([
         body: '给地点配背景图，给角色配不同情绪的立绘。剧情里出现对应的地点和情绪时会自动切换。',
     }),
     Object.freeze({
+        id: 'assets', tab: 'scene', subTabs: [['sceneSettings', 'assets'], ['scene', 'scenes']], target: ['[data-add-menu="scenes"]', '.igs-scene-subtabs'],
+        title: '配置素材',
+        body: '点「背景场景」右侧的「+」：选「下载默认素材」一次装好常用背景，同名不会覆盖；也可以「新增空白场景」，填图片地址和别名。立绘在「角色立绘」页同样添加。',
+    }),
+    Object.freeze({
         id: 'image', tab: 'image', subTabs: [['image', 'source']], target: ['.igs-image-subpane'], optional: true,
         title: '自动插图（可选）',
         body: '填好生图接口和 Key 后可以自动生成插图。不配也能正常阅读，只是没有自动插图。',
