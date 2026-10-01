@@ -45,6 +45,7 @@ import { applySceneAudio } from './scene-audio.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
+import { cgSizeForMode } from '../../generated-images/illustration/auto-illustration-service.js';
 import { applyClickWaitMark } from './click-wait-mark.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
@@ -980,6 +981,21 @@ function applyAlignStyleImpl(element, align) {
 // 这三个节点的 backgroundImage 只由本文件写，记住上次写入值即可，不必回读样式。
 const backgroundImageKeys = new WeakMap();
 
+// 内嵌框只跟横竖尺寸走。横屏钉背景尺寸，竖屏钉对调后的尺寸。图的像素不参与。
+export function syncEmbeddedHostFrame(root, sizeText) {
+    if (!root || !String(root.className || '').includes('igs-mode-embedded')) return;
+    const host = typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
+    if (!host || !host.style) return;
+    const match = String(sizeText || '').trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+    if (!match) {
+        host.style.aspectRatio = '';
+        if (typeof host.removeAttribute === 'function') host.removeAttribute('data-igs-frame');
+        return;
+    }
+    host.style.aspectRatio = `${match[1]} / ${match[2]}`;
+    if (typeof host.setAttribute === 'function') host.setAttribute('data-igs-frame', 'size');
+}
+
 function writeBackgroundImage(element, url) {
     const value = url ? `url("${url.replace(/"/g, '&quot;')}")` : '';
     if (backgroundImageKeys.get(element) === value) return;
@@ -1039,6 +1055,16 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         }
     }
     const backgroundAssetUrl = resolveAssetUrl(snapshot.content.backgroundImage);
+    const frameHost = typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
+    const frameRect = frameHost && typeof frameHost.getBoundingClientRect === 'function' ? frameHost.getBoundingClientRect() : null;
+    const frameViewport = frameRect && frameRect.width > 0
+        ? { width: frameRect.width, height: frameRect.height }
+        : null;
+    syncEmbeddedHostFrame(root, cgSizeForMode(
+        snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize,
+        snapshot.mode,
+        frameViewport,
+    ));
 
     if (bg && backgroundAssetUrl) {
         writeBackgroundImage(bg, backgroundAssetUrl);

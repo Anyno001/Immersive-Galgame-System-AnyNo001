@@ -4381,6 +4381,7 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
         readerSettings._vnTheme = readerSettings.vnTheme || null;
         readerSettings._strictBackgroundMatch = isStrictBackgroundMatch(bridge.autoIllustration);
+        readerSettings._cgBackgroundSize = normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.backgroundSize;
         return readerSettings;
     }
 

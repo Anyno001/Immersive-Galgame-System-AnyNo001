@@ -12,21 +12,37 @@ const MARKER_RE = /(?:\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>)/gi;
 export const ILLUSTRATION_UPDATED_EVENT = 'igs:illustration-updated';
 export const ILLUSTRATION_PROGRESS_EVENT = 'igs:illustration-progress';
 
-// 电脑、网页全屏、全屏用背景尺寸。窄屏把宽高对调。
-// 楼层内嵌手机和电脑都能开：窗口更高就用竖屏尺寸，更宽就用背景尺寸。
+// 手机内嵌栏宽。框高是我们按尺寸钉出来的，不能拿高来判断横竖。
+const EMBEDDED_PHONE_MAX_WIDTH = 640;
+
+// 电脑、网页全屏、全屏用背景尺寸。窄屏模式把宽高对调。
+// 楼层内嵌：正文栏不超过 640 像素就是手机，钉竖屏尺寸；更宽钉横屏尺寸。
 export function cgSizeForMode(backgroundSize, mode, viewport) {
     const landscape = String(backgroundSize || '').trim() || '1216x832';
-    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPortraitViewport(viewport));
+    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPhoneEmbedded(viewport));
     if (!usePortrait) return landscape;
     const match = landscape.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
     if (!match || match[1] === match[2]) return landscape;
     return `${match[2]}x${match[1]}`;
 }
 
-function isPortraitViewport(viewport) {
+function isPhoneEmbedded(viewport) {
     const width = Number(viewport && viewport.width) || 0;
-    const height = Number(viewport && viewport.height) || 0;
-    return width > 0 && height > width;
+    return width > 0 && width <= EMBEDDED_PHONE_MAX_WIDTH;
+}
+
+// 内嵌画面在页面上，浏览器窗口可以更高。出图量的是画面，不是窗口。
+export function readCgViewport(globalObject) {
+    const doc = globalObject && globalObject.document;
+    const host = doc && typeof doc.querySelector === 'function' ? doc.querySelector('.igs-embedded-host') : null;
+    const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
+    const hostWidth = rect ? Number(rect.width) : 0;
+    const hostHeight = rect ? Number(rect.height) : 0;
+    if (hostWidth > 0 && hostHeight > 0) return { width: hostWidth, height: hostHeight };
+    return {
+        width: Number(globalObject && globalObject.innerWidth) || 0,
+        height: Number(globalObject && globalObject.innerHeight) || 0,
+    };
 }
 
 const CACHE_LIMIT = 40;

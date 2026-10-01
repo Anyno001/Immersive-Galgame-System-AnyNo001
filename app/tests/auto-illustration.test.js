@@ -435,6 +435,20 @@ test('gate:illustration:service-nsfw-generates-and-writes-marker', async () => {
     assert.equal(service.getIllustrationUrl({ messageId: 5, slot: 1 }), 'data:image/png;base64,AAAA');
 });
 
+test('gate:illustration:embedded-cg-uses-host-box-not-window', async () => {
+    const { readCgViewport, cgSizeForMode } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const host = { getBoundingClientRect: () => ({ width: 818, height: 511 }) };
+    const globalObject = {
+        innerWidth: 865,
+        innerHeight: 962,
+        document: { querySelector: (selector) => (selector === '.igs-embedded-host' ? host : null) },
+    };
+    const viewport = readCgViewport(globalObject);
+    assert.deepEqual(viewport, { width: 818, height: 511 });
+    assert.equal(cgSizeForMode('1216x832', 'embedded', viewport), '1216x832');
+    assert.deepEqual(readCgViewport({ innerWidth: 865, innerHeight: 962, document: { querySelector: () => null } }), { width: 865, height: 962 });
+});
+
 test('gate:illustration:cg-size-swaps-on-mobile', async () => {
     const { cgSizeForMode } = await import('../src/generated-images/illustration/auto-illustration-service.js');
     assert.equal(cgSizeForMode('1216x832', 'pc'), '1216x832');
@@ -443,7 +457,9 @@ test('gate:illustration:cg-size-swaps-on-mobile', async () => {
     assert.equal(cgSizeForMode('1216x832', 'mobile'), '832x1216');
     assert.equal(cgSizeForMode('', 'mobile'), '832x1216');
     assert.equal(cgSizeForMode('1216x832', 'embedded', { width: 390, height: 844 }), '832x1216');
+    assert.equal(cgSizeForMode('1216x832', 'embedded', { width: 390, height: 220 }), '832x1216');
     assert.equal(cgSizeForMode('1216x832', 'embedded', { width: 1280, height: 720 }), '1216x832');
+    assert.equal(cgSizeForMode('1216x832', 'embedded', { width: 818, height: 511 }), '1216x832');
 });
 
 test('gate:illustration:dbgen-cg-calls-only-the-plugin-prompt-and-generate-apis', async () => {

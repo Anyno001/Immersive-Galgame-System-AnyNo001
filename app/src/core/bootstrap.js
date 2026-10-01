@@ -37,7 +37,7 @@ import { createImageBackend, mergeLegacyNaiSettings } from '../generated-images/
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
 import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
-import { createAutoIllustrationService, ILLUSTRATION_PROGRESS_EVENT, ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
+import { createAutoIllustrationService, ILLUSTRATION_PROGRESS_EVENT, ILLUSTRATION_UPDATED_EVENT, readCgViewport } from '../generated-images/illustration/auto-illustration-service.js';
 import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
 import { createItemAndCgServices } from './item-cg-services.js';
 import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-store.js';
@@ -48,7 +48,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.33.7';
+const IGS_VERSION = '0.33.8';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -120,10 +120,7 @@ export function bootstrapIGS(options = {}) {
             const snapshot = getUnifiedSettingsSnapshot() || {};
             return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
         },
-        getViewport: () => ({
-            width: Number(globalObject && globalObject.innerWidth) || 0,
-            height: Number(globalObject && globalObject.innerHeight) || 0,
-        }),
+        getViewport: () => readCgViewport(globalObject),
         getSceneAssets: () => readImageBridge().sceneAssets,
         events,
         random: options.random,

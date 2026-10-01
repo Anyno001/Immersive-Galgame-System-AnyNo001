@@ -20,7 +20,7 @@ import {
     parseImageSlots,
 } from '../src/scene/image-slots.js';
 import { parseSceneText } from '../src/scene/text-parser.js';
-import { applyAlignStyle } from '../src/visual/igs-ui/reader-dom-render.js';
+import { applyAlignStyle, syncEmbeddedHostFrame } from '../src/visual/igs-ui/reader-dom-render.js';
 import { resolveSpriteLayout, resolveActiveTheme, renderDialogueHtml } from '../src/visual/igs-ui/settings-normalize.js';
 import {
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -218,6 +218,23 @@ test('gate:igs-ui:embedded-cache-evicts-oldest-beyond-limit', () => {
     assert.equal(cache.size(), 2);
     const reparse = cache.get('a', { mark: 4 });
     assert.equal(reparse.hit, false);
+});
+
+test('gate:igs-ui:embedded-frame-locks-configured-size', () => {
+    const host = () => ({
+        style: {},
+        attrs: {},
+        getAttribute(key) { return this.attrs[key] || null; },
+        setAttribute(key, value) { this.attrs[key] = value; },
+        removeAttribute(key) { delete this.attrs[key]; },
+    });
+    const landscape = host();
+    syncEmbeddedHostFrame({ className: 'igs-mode-embedded', closest: () => landscape }, '1216x832');
+    assert.equal(landscape.style.aspectRatio, '1216 / 832');
+    assert.equal(landscape.getAttribute('data-igs-frame'), 'size');
+    const portrait = host();
+    syncEmbeddedHostFrame({ className: 'igs-mode-embedded', closest: () => portrait }, '832x1216');
+    assert.equal(portrait.style.aspectRatio, '832 / 1216');
 });
 
 test('gate:igs-ui:embedded-host-mounts-beside-mes-text-and-restores', () => {

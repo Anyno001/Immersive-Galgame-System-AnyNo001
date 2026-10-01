@@ -1016,8 +1016,10 @@ test('gate:igs-ui:default-reader-chrome-removes-input-control-borders', () => {
 
 test('gate:igs-ui:embedded-mode-keeps-contained-geometry', () => {
     const source = getOriginalReaderStyleText();
-    assert.match(source, /\.igs-embedded-host\{aspect-ratio:8 \/ 5;max-height:760px;\}/);
-    assert.match(source, /@media \(max-width:640px\)\{\.igs-embedded-host\{aspect-ratio:auto;height:min\(74dvh,680px\);\}\}/);
+    assert.match(source, /\.igs-embedded-host\{width:100%;min-height:220px;\}/);
+    assert.match(source, /\.igs-embedded-host\[data-igs-frame="size"\]\{min-height:0;\}/);
+    assert.doesNotMatch(source, /#igs-overlay\.igs-mode-embedded #igs-bg\{background-size:100% 100%;\}/);
+    assert.doesNotMatch(source, /aspect-ratio:8 \/ 5/);
     assert.match(source, /#igs-overlay\.igs-mode-embedded\{[^}]*position:relative/);
     assert.match(source, /#igs-overlay\.igs-mode-embedded\{[^}]*overscroll-behavior:auto;touch-action:pan-y/);
     assert.match(source, /\.igs-embedded-host\{[^}]*overscroll-behavior:auto;touch-action:pan-y/);
