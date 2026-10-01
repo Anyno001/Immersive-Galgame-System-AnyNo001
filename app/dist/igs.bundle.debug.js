@@ -51802,12 +51802,12 @@ const ONBOARDING_STEPS = Object.freeze([
     Object.freeze({
         id: 'mode', tab: 'basic', subTabs: [], target: ['[data-path="bridge.openMode"]'],
         title: '选择阅读方式',
-        body: '电脑浮窗、手机、楼层内嵌和全屏任选一种。拿不准就先用默认的，读起来不顺手再回来换。',
+        body: '电脑浮窗、手机、楼层内嵌和全屏任选一种，初次使用推荐「内嵌模式」。',
     }),
     Object.freeze({
-        id: 'performance', tab: 'basic', subTabs: [], target: ['[data-action^="perf-preset:"]'],
+        id: 'performance', tab: 'basic', subTabs: [], target: ['.igs-perf-preset-row', '[data-action^="perf-preset:"]'],
         title: '一键演出档位',
-        body: '档位决定转场、震动、音效这些演出开多少。先挑一个顺眼的，细项以后在「阅读器 › 演出」里调。',
+        body: '档位决定转场、震动、音效这些演出开多少，拿不定主意就选「推荐」，细项可前往「阅读器 › 演出」调整。',
     }),
     Object.freeze({
         id: 'dialog', tab: 'reader', subTabs: [['reader', 'dialog']], target: ['[data-path="readerSettings.dialogSkin"]'],
@@ -51980,8 +51980,14 @@ const STYLE_TEXT = `
 .igs-onboarding-btn.is-quiet{border-color:transparent;opacity:.75}
 .igs-onboarding-btn:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 #igs-unified-settings [data-igs-guide-active]{outline:2px solid currentColor;outline-offset:3px;border-radius:var(--igs-settings-radius-small,6px)}
-#igs-onboarding-invite{position:absolute;left:50%;top:max(12px,env(safe-area-inset-top));transform:translateX(-50%);z-index:30;box-sizing:border-box;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;max-width:calc(100% - 24px);padding:8px 12px;border-radius:12px;background:var(--igs-dialog-bg,Canvas);color:inherit;border:1px solid ${SOFT_LINE};font-size:13px}
-#igs-onboarding-invite .igs-onboarding-btn{border-radius:8px}
+#igs-onboarding-invite{position:absolute;left:50%;top:max(10px,env(safe-area-inset-top));transform:translateX(-50%);z-index:30;box-sizing:border-box;display:flex;flex-wrap:nowrap;align-items:center;gap:2px;max-width:calc(100% - 24px);height:30px;padding:0 3px 0 14px;border:0;border-radius:999px;background:var(--igs-dialog-bg,Canvas);color:inherit;box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:12px;line-height:1;white-space:nowrap}
+#igs-onboarding-invite .igs-onboarding-invite-text{flex:1 1 auto;min-width:0;margin-right:6px;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
+#igs-onboarding-invite .igs-onboarding-btn{position:relative;flex:none;min-height:24px;min-width:0;padding:0 10px;border:0;border-radius:999px;background:transparent;font-size:12px}
+#igs-onboarding-invite .igs-onboarding-btn.is-primary{background:color-mix(in srgb,currentColor 14%,transparent)}
+#igs-onboarding-invite .igs-onboarding-btn.is-quiet{opacity:.6}
+#igs-onboarding-invite .igs-onboarding-btn:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
+#igs-onboarding-invite .igs-onboarding-btn.is-primary:hover{background:color-mix(in srgb,currentColor 20%,transparent)}
+@media (pointer:coarse){#igs-onboarding-invite .igs-onboarding-btn::after{content:"";position:absolute;inset:-10px -2px}}
 @media (pointer:coarse){.igs-onboarding-btn{min-height:44px;min-width:44px}}
 @media (prefers-reduced-motion:reduce){#igs-onboarding-card,#igs-onboarding-invite,.igs-onboarding-btn{transition:none;animation:none}}
 `.trim();

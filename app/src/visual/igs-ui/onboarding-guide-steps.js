@@ -10,12 +10,12 @@ export const ONBOARDING_STEPS = Object.freeze([
     Object.freeze({
         id: 'mode', tab: 'basic', subTabs: [], target: ['[data-path="bridge.openMode"]'],
         title: '选择阅读方式',
-        body: '电脑浮窗、手机、楼层内嵌和全屏任选一种。拿不准就先用默认的，读起来不顺手再回来换。',
+        body: '电脑浮窗、手机、楼层内嵌和全屏任选一种，初次使用推荐「内嵌模式」。',
     }),
     Object.freeze({
-        id: 'performance', tab: 'basic', subTabs: [], target: ['[data-action^="perf-preset:"]'],
+        id: 'performance', tab: 'basic', subTabs: [], target: ['.igs-perf-preset-row', '[data-action^="perf-preset:"]'],
         title: '一键演出档位',
-        body: '档位决定转场、震动、音效这些演出开多少。先挑一个顺眼的，细项以后在「阅读器 › 演出」里调。',
+        body: '档位决定转场、震动、音效这些演出开多少，拿不定主意就选「推荐」，细项可前往「阅读器 › 演出」调整。',
     }),
     Object.freeze({
         id: 'dialog', tab: 'reader', subTabs: [['reader', 'dialog']], target: ['[data-path="readerSettings.dialogSkin"]'],
