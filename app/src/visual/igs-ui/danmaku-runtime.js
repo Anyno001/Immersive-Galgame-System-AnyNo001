@@ -11,6 +11,8 @@ import {
 import { AUDIENCE_AMBIENT_LINES, INNER_PHRASES, classifyAudienceMood, randomItem, thoughtFragments } from './danmaku-pools.js';
 import { fitLivePhone, pushLiveMessages, stopLivePhone, syncLivePhone } from './danmaku-live.js';
 import { isAudienceEntryShown, placeAudienceEntry, stopAudience, syncAudience } from './danmaku-audience.js';
+import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
+import { resolveChatTheme } from './chat-themes.js';
 
 // 弹幕运行时：直播间（掏出手机看直播）、观众弹幕（HUD 下方小手机入口，点开看）、内心弹幕（立绘周围爆发）。
 // 性能约束：全关零开销；运动只用 transform/opacity 的 CSS 动画，没有逐帧 JS；
@@ -22,6 +24,9 @@ const ENTRY_TOP = 14;
 export const INNER_WORD_CAP = 16;
 const INNER_LIFE = 3200;
 const INNER_BURST_AT = 2600;
+// 横飞样式：每条穿过舞台的时长与整组发射窗口；轨道防追尾沿用观众弹幕的 B 站式判定。
+const INNER_FLY_MS = 5200;
+const INNER_FLY_SPAN = 2400;
 
 const states = new WeakMap();
 
@@ -43,7 +48,7 @@ export function planDanmakuPage(snapshot, memory, settings, rng = Math.random) {
     const fx = content.fx || {};
     const special = content.chatPage === true || content.htmlCardPage === true;
     const nsfw = content.sceneNsfw === true;
-    const plan = { pageKey, live: null, liveVisible: false, dms: [], audience: [], audienceVisible: false, inner: null };
+    const plan = { pageKey, live: null, liveVisible: false, dms: [], audience: [], audienceVisible: false, inner: null, hostSay: '' };
 
     if (settings.live.enabled && !(settings.live.muteOnNsfw && nsfw) && fx.live) {
         plan.live = fx.live;
@@ -52,6 +57,10 @@ export function planDanmakuPage(snapshot, memory, settings, rng = Math.random) {
         (fx.dms || []).forEach((item, index) => {
             if (once(`dm:${pageKey}:${index}:${item.user}:${item.text}`)) plan.dms.push({ user: item.user, text: item.text, type: item.type, extra: item.extra });
         });
+        // 主播本人的台词上屏：以「主播」标识进弹幕区，观众弹幕随后接着刷。
+        const say = text(content.displayText);
+        const who = text(content.speaker || content.spriteCharacter);
+        if (content.textType === 'dialogue' && say && who === text(fx.live.name) && once(`host-say:${pageKey}:${say}`)) plan.hostSay = Array.from(say).slice(0, 60).join('');
     }
 
     if (settings.audience.enabled && !(settings.audience.muteOnNsfw && nsfw) && !special) {
@@ -166,27 +175,65 @@ export function layoutInnerWords(anchor, phrases, count, rng = Math.random) {
     return words;
 }
 
+// 横飞：轨道集中在头部到上半身一带、不越过对话框顶边；从右缘外进场，满轨的直接丢弃。
+export function layoutInnerFlight(anchor, phrases, count, fontSize, rng = Math.random) {
+    const lineH = Math.round(fontSize * 1.5);
+    const top = Math.max(anchor.stageH * 0.05, anchor.cy - anchor.ry * 1.6);
+    const bottom = Math.max(top + lineH, Math.min(anchor.floor, anchor.cy + anchor.ry * 1.6) - lineH);
+    const lanes = Math.max(2, Math.floor((bottom - top) / lineH) + 1);
+    const tracks = [];
+    const words = [];
+    for (let i = 0; i < count; i += 1) {
+        const text = phrases[i % phrases.length];
+        const t = count > 1 ? i / (count - 1) : 0;
+        const delay = Math.round(t * INNER_FLY_SPAN + rng() * 120);
+        const width = estimateTextWidth(text, fontSize);
+        const lane = pickScrollTrack(tracks, lanes, delay, width, anchor.stageW, INNER_FLY_MS);
+        if (lane < 0) continue;
+        occupyTrack(tracks, lane, delay, width, anchor.stageW, INNER_FLY_MS);
+        words.push({ text, y: Math.round(top + lane * lineH), delay, duration: INNER_FLY_MS, run: -(anchor.stageW + width) });
+    }
+    return words;
+}
+
 function playInner(ctx, inner, stage) {
     const { state, doc, reduced, options } = ctx;
     const sprite = options.sprite && options.sprite.url ? options.sprite : null;
     const anchor = innerAnchor(stage, sprite);
     const size = Math.round(Math.max(15, Math.min(26, Math.min(anchor.stageW, anchor.stageH) * 0.036)));
+    // 减少动态效果时横飞退回静态落位的爆发样式。
+    const fly = ctx.settings.inner.style === 'fly' && !reduced;
     const group = node(doc, 'igs-dm-inner');
     group.setAttribute('data-mood', inner.mood);
+    group.setAttribute('data-style', fly ? 'fly' : 'burst');
     group.style.setProperty('--igs-dm-inner-size', `${size}px`);
     group.style.setProperty('--igs-dm-burst', `${INNER_BURST_AT}ms`);
-    const words = layoutInnerWords(anchor, inner.phrases, reduced ? 5 : INNER_WORD_CAP, state.rng);
-    for (const word of words) {
-        const el = node(doc, 'igs-dm-word', word.text);
-        el.style.left = `${word.x}px`;
-        el.style.top = `${word.y}px`;
-        el.style.setProperty('--igs-dm-d', `${reduced ? 0 : word.delay}ms`);
-        el.style.setProperty('--igs-dm-s', String(word.scale));
-        el.style.setProperty('--igs-dm-r', `${word.tilt}deg`);
-        group.appendChild(el);
+    let life = INNER_LIFE;
+    if (fly) {
+        for (const word of layoutInnerFlight(anchor, inner.phrases, INNER_WORD_CAP, size, state.rng)) {
+            const el = node(doc, 'igs-dm-word', word.text);
+            el.style.left = `${anchor.stageW}px`;
+            el.style.top = `${word.y}px`;
+            el.style.setProperty('--igs-dm-d', `${word.delay}ms`);
+            el.style.setProperty('--igs-dm-run', `${word.run}px`);
+            el.style.setProperty('--igs-dm-dur', `${word.duration}ms`);
+            group.appendChild(el);
+            life = Math.max(life, word.delay + word.duration + 120);
+        }
+    } else {
+        const words = layoutInnerWords(anchor, inner.phrases, reduced ? 5 : INNER_WORD_CAP, state.rng);
+        for (const word of words) {
+            const el = node(doc, 'igs-dm-word', word.text);
+            el.style.left = `${word.x}px`;
+            el.style.top = `${word.y}px`;
+            el.style.setProperty('--igs-dm-d', `${reduced ? 0 : word.delay}ms`);
+            el.style.setProperty('--igs-dm-s', String(word.scale));
+            el.style.setProperty('--igs-dm-r', `${word.tilt}deg`);
+            group.appendChild(el);
+        }
     }
     ctx.host.appendChild(group);
-    track(state, () => group.remove(), INNER_LIFE);
+    track(state, () => group.remove(), life);
 }
 
 function liveContext(ctx, live) {
@@ -198,6 +245,9 @@ function liveContext(ctx, live) {
     return {
         doc, reduced, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng,
         visible: ctx.plan.liveVisible,
+        layout: ctx.settings.live.layout,
+        chat: ctx.settings.live.chat,
+        theme: ctx.settings.live.followTheme ? resolveChatTheme(snapshot.readerSettings && snapshot.readerSettings.dialogSkin) : null,
         coverUrl: resolve(content.backgroundImage),
         portraitUrl,
         avatarUrl: resolveAvatar(live.name, snapshot, options),
@@ -249,8 +299,12 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         state, layers, doc: layers.doc, root, host, snapshot, options, reduced, plan, pageKey: plan.pageKey,
         settings,
     };
-    const phone = syncLivePhone(host, plan.live, plan.live ? liveContext(ctx, plan.live) : { schedule: state.schedule, reduced });
+    // 主播名就是用户角色名时自动切主播视角，不依赖 AI 写视角栏。
+    const userName = text(options.userName);
+    const live = plan.live && userName && text(plan.live.name) === userName ? { ...plan.live, view: 'host' } : plan.live;
+    const phone = syncLivePhone(host, live, live ? liveContext(ctx, live) : { schedule: state.schedule, reduced });
     if (phone && plan.dms.length) pushLiveMessages(host, plan.dms);
+    if (phone && plan.hostSay) pushLiveMessages(host, [{ user: live.name, text: plan.hostSay, type: 'host', extra: '' }]);
     if (settings.audience.enabled) {
         syncAudience(front, audienceInfo(ctx), {
             doc: ctx.doc, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng,

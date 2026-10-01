@@ -48,8 +48,10 @@ function renderStageFields(s, more) {
             + checkbox(`${P}.camera.kenBurns`, s.camera.kenBurns, '背景缓慢推镜')
             + checkbox(`${P}.camera.parallax`, s.camera.parallax, '鼠标视差（电脑端）')
             + checkbox(`${P}.camera.closeUp`, s.camera.closeUp, '情绪特写')
+            + checkbox(`${P}.camera.impact`, s.camera.impact, '情绪冲击推近（带音效）')
             + `</div>`
-            + (s.camera.closeUp ? renderWordListField('camera.closeUpEmotions', '特写触发情绪', s.camera.closeUpEmotions) : ''))) : '');
+            + (s.camera.closeUp ? renderWordListField('camera.closeUpEmotions', '特写触发情绪', s.camera.closeUpEmotions) : '')
+            + (s.camera.impact ? renderWordListField('camera.impactEmotions', '冲击触发情绪', s.camera.impactEmotions) : ''))) : '');
     const cast = checkbox(`${P}.stageCast.enabled`, s.stageCast.enabled, '多角色同屏（实验）')
         + (s.stageCast.enabled ? sub(checkbox(`${P}.stageCast.alignHeads`, s.stageCast.alignHeads, '按头部对齐大小与高度')
             + checkbox(`${P}.stageCast.romanceDuo`, s.stageCast.romanceDuo, '亲密演出时保留同屏角色')

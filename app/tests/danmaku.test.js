@@ -6,9 +6,10 @@ import { extractFxDirectives, parseFxBody, resolveFxAtPage } from '../src/scene/
 import { stripMarkerDirectives } from '../src/scene/directive-tags.js';
 import { normalizeDanmakuSettings, pickInnerMood } from '../src/visual/igs-ui/danmaku-settings.js';
 import { resolveDanmakuPromptRule } from '../src/visual/igs-ui/danmaku-prompt.js';
-import { applyDanmakuToDom, cancelDanmaku, createDanmakuMemory, layoutInnerWords, planDanmakuPage } from '../src/visual/igs-ui/danmaku-runtime.js';
+import { applyDanmakuToDom, cancelDanmaku, createDanmakuMemory, layoutInnerFlight, layoutInnerWords, planDanmakuPage } from '../src/visual/igs-ui/danmaku-runtime.js';
 import { LIVE_LIST_LIMIT, formatPopularity, guardLevelOf, scColorOf } from '../src/visual/igs-ui/danmaku-live.js';
-import { AUDIENCE_LOG_LIMIT, appendAudienceLog, formatDanmakuTime, pickScrollTrack } from '../src/visual/igs-ui/danmaku-audience.js';
+import { AUDIENCE_LOG_LIMIT, appendAudienceLog, formatDanmakuTime } from '../src/visual/igs-ui/danmaku-audience.js';
+import { pickScrollTrack } from '../src/visual/igs-ui/danmaku-lanes.js';
 import { thoughtFragments } from '../src/visual/igs-ui/danmaku-pools.js';
 import { getOriginalReaderSource } from '../src/visual/igs-ui/original-reader-source.js';
 import { applyPerformancePreset, detectPerformancePreset } from '../src/visual/igs-ui/performance-presets.js';
@@ -248,6 +249,7 @@ test('gate:danmaku:live-phone-raises-plays-ai-first-and-caps-list', () => {
     const stage = motion.querySelector('.igs-live-stage');
     const phone = stage.querySelector('.igs-live-phone');
     assert.equal(phone.getAttribute('data-view'), 'watch');
+    assert.equal(phone.querySelector('.igs-live-rankcard'), null, 'phone layout unchanged');
     assert.equal(phone.style.get('--igs-live-h'), '648px', 'capped at 90% of the stage');
     c.run(4 * 950);
     const list = phone.querySelector('.igs-live-list');
@@ -266,6 +268,9 @@ test('gate:danmaku:live-phone-raises-plays-ai-first-and-caps-list', () => {
 });
 
 test('gate:danmaku:live-helpers', () => {
+    const defaults = normalizeDanmakuSettings(null).live;
+    assert.equal(defaults.layout, 'phone', 'old settings keep the phone');
+    assert.equal(defaults.chat, 'roll');
     assert.equal(formatPopularity(12345), '1.2万');
     assert.equal(formatPopularity(20000), '2万');
     assert.equal(formatPopularity(876), '876');
@@ -274,6 +279,62 @@ test('gate:danmaku:live-helpers', () => {
     assert.equal(scColorOf('').amount, 30);
     assert.equal(guardLevelOf('提督'), '提督');
     assert.equal(guardLevelOf(''), '舰长');
+});
+
+test('gate:danmaku:live-full-screen-layout-and-fly-chat', () => {
+    const { root, motion } = makeRoot();
+    const c = clock();
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: () => 0.9, reducedMotion: false };
+    const live = { name: '爱丽丝', title: '深夜杂谈', view: 'watch' };
+    const fx = { dms: [{ user: '甲', text: '全屏好爽', type: 'text', extra: '' }], live };
+    applyDanmakuToDom(root, snapshot({ fx }, { liveFx: { enabled: true, layout: 'full', chat: 'fly' } }), opts);
+    const stage = motion.querySelector('.igs-live-stage');
+    assert.equal(stage.getAttribute('data-layout'), 'full');
+    assert.equal(stage.getAttribute('data-chat'), 'fly');
+    const phone = stage.querySelector('.igs-live-phone');
+    assert.equal(phone.querySelector('.igs-phone-status'), null, 'no phone status bar in full screen');
+    assert.equal(phone.querySelectorAll('.igs-live-rank').length, 3, 'top-3 ranking avatars');
+    assert.ok(phone.querySelector('.igs-live-chips'), 'hot / popularity chips');
+    assert.ok(phone.querySelector('.igs-live-rankcard'), 'ranking card bottom right');
+    c.run(1000);
+    const flyer = phone.querySelector('.igs-live-flyer');
+    assert.ok(flyer, 'AI chat flies across');
+    assert.equal(flyer.getAttribute('data-ai'), '1');
+    assert.equal(flyer.textContent, '全屏好爽');
+    assert.equal(phone.querySelector('.igs-live-list').children.length, 0, 'roll list stays empty in fly mode');
+    c.run(60000);
+    assert.ok(phone.querySelector('.igs-live-fly').children.length <= 18);
+    const reduced = applyDanmakuToDom(root, snapshot({ currentIndex: 1, fx: { live } }, { liveFx: { enabled: true, layout: 'full', chat: 'fly' } }), { ...opts, reducedMotion: true });
+    assert.equal(reduced.live, true);
+    assert.equal(stage.getAttribute('data-chat'), 'roll', 'reduced motion falls back to the roll list');
+    c.run(8000);
+    const rolled = phone.querySelector('.igs-live-list').children.filter((n) => n.getAttribute('data-type') === 'text');
+    assert.ok(rolled.length > 0 && rolled[0].querySelector('.igs-live-lv'), 'full-screen chat lines carry a fan level badge');
+    cancelDanmaku(root);
+});
+
+test('gate:danmaku:live-host-auto-view-say-both-and-theme', () => {
+    const { root, motion } = makeRoot();
+    const c = clock();
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: () => 0.9, reducedMotion: false, userName: '小林' };
+    const settings = { liveFx: { enabled: true, chat: 'both', followTheme: true }, dialogSkin: 'cute-pink' };
+    applyDanmakuToDom(root, snapshot({ speaker: '小林', displayText: '大家晚上好', fx: { live: { name: '小林', title: '开播', view: 'watch' } } }, settings), opts);
+    const stage = motion.querySelector('.igs-live-stage');
+    const phone = stage.querySelector('.igs-live-phone');
+    assert.equal(phone.getAttribute('data-view'), 'host', 'streamer named after the user switches to host view');
+    assert.equal(stage.getAttribute('data-chat'), 'both');
+    assert.equal(stage.getAttribute('data-theme'), 'cute-pink');
+    c.run(1000);
+    const hostLine = phone.querySelector('.igs-live-list').children.find((n) => n.getAttribute('data-type') === 'host');
+    assert.ok(hostLine, 'host words show in the roll list');
+    assert.match(hostLine.textContent, /主播/);
+    assert.match(hostLine.textContent, /大家晚上好/);
+    assert.ok(phone.querySelectorAll('.igs-live-flyer').some((n) => n.classList.contains('is-host')), 'both mode also flies the host line');
+    cancelDanmaku(root);
+    const other = makeRoot();
+    applyDanmakuToDom(other.root, snapshot({ fx: { live: { name: '爱丽丝', title: '', view: 'watch' } } }, settings), opts);
+    assert.equal(other.motion.querySelector('.igs-live-phone').getAttribute('data-view'), 'watch', 'other streamers keep the watch view');
+    cancelDanmaku(other.root);
 });
 
 test('gate:danmaku:audience-entry-badge-open-close-and-floor-reset', () => {
@@ -333,6 +394,26 @@ test('gate:danmaku:inner-words-stay-on-stage-and-ramp-up', () => {
     }
     assert.ok(words[15].scale > words[0].scale);
     assert.deepEqual(thoughtFragments('啊……！'), []);
+});
+
+test('gate:danmaku:inner-fly-style-defaults-burst-and-lanes-stay-above-dialog', () => {
+    assert.equal(normalizeDanmakuSettings(null).inner.style, 'burst', 'old settings keep the burst style');
+    assert.equal(normalizeDanmakuSettings({ innerFx: { style: 'fly' } }).inner.style, 'fly');
+    assert.equal(normalizeDanmakuSettings({ innerFx: { style: '乱写' } }).inner.style, 'burst');
+    const anchor = { stageW: 1280, stageH: 720, cx: 640, cy: 250, rx: 300, ry: 140, floor: 480 };
+    const words = layoutInnerFlight(anchor, ['好喜欢', '心跳好快'], 16, 24, seq([0.1, 0.7, 0.4]));
+    assert.ok(words.length >= 8 && words.length <= 16, String(words.length));
+    const lanes = new Map();
+    for (const w of words) {
+        assert.ok(w.y >= 0 && w.y + 24 <= anchor.floor, JSON.stringify(w));
+        assert.ok(w.run <= -1280, 'flies fully across the stage');
+        if (!lanes.has(w.y)) lanes.set(w.y, []);
+        lanes.get(w.y).push(w);
+    }
+    assert.ok(lanes.size >= 2, 'spread over several lanes');
+    for (const list of lanes.values()) {
+        for (let i = 1; i < list.length; i += 1) assert.ok(list[i].delay > list[i - 1].delay, 'same lane launches in order');
+    }
 });
 
 test('gate:danmaku:style-wired-and-phone-ui-has-no-emoji', () => {

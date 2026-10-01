@@ -51,6 +51,34 @@ export const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-note{display:flex;align-items:flex-start;justify-content:flex-end;padding:9% 11% 0 0;}
 #igs-overlay .igs-dfx-sticky{position:relative;width:min(30%,220px);min-height:120px;padding:26px 18px 18px;box-sizing:border-box;background:linear-gradient(170deg,#fff7a8,#ffe97a);box-shadow:0 10px 22px rgba(0,0,0,.28),0 1px 0 rgba(255,255,255,.5) inset;color:#4a3d12;font-family:"Yozai","LXGW WenKai",cursive;font-size:clamp(15px,2.5vmin,19px);line-height:1.5;transform-origin:50% 0;animation:igs-dfx-slap var(--igs-dfx-life) cubic-bezier(.3,1.4,.4,1) both;}
 #igs-overlay .igs-dfx-tape{position:absolute;top:-10px;left:50%;width:74px;height:22px;transform:translateX(-50%) rotate(-3deg);background:rgba(255,255,255,.55);box-shadow:0 1px 3px rgba(0,0,0,.12);}
+/* 世界观换皮（西幻羊皮纸 / 科幻全息青光 / 末日旧纸锈边）：只改配色字体，结构与动画沿用现代。 */
+#igs-overlay .igs-dfx-timeskip.is-fantasy .igs-dfx-veil{background:radial-gradient(ellipse at center,rgba(50,32,14,.7),rgba(14,9,4,.92));}
+#igs-overlay .igs-dfx-timeskip.is-fantasy .igs-dfx-timeskip-text{color:#f6e7c1;font-family:Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-timeskip.is-scifi .igs-dfx-veil{background:radial-gradient(ellipse at center,rgba(6,30,44,.72),rgba(2,8,14,.94));}
+#igs-overlay .igs-dfx-timeskip.is-scifi .igs-dfx-timeskip-text{color:#bff6ff;letter-spacing:.2em;text-shadow:0 0 10px rgba(60,200,255,.85);}
+#igs-overlay .igs-dfx-timeskip.is-apocalypse .igs-dfx-veil{background:radial-gradient(ellipse at center,rgba(44,36,26,.74),rgba(10,8,6,.94));}
+#igs-overlay .igs-dfx-timeskip.is-apocalypse .igs-dfx-timeskip-text{color:#efe4cc;font-family:"Courier New",monospace;}
+#igs-overlay .igs-dfx-letter.is-fantasy .igs-dfx-paper{background:#efe2c2;color:#3a2614;border:1px solid #9c7a46;box-shadow:inset 0 0 22px rgba(120,80,30,.22),0 10px 26px rgba(0,0,0,.35);font-family:Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-letter.is-scifi .igs-dfx-paper{background:rgba(8,24,36,.92);color:#d8fbff;border:1px solid rgba(80,220,255,.7);box-shadow:0 0 18px rgba(60,200,255,.4);}
+#igs-overlay .igs-dfx-letter.is-apocalypse .igs-dfx-paper{background:#d9cdb3;color:#2a2219;border:1px solid #7a6a52;box-shadow:0 10px 24px rgba(0,0,0,.45);font-family:"Courier New",monospace;}
+#igs-overlay .igs-dfx-note.is-fantasy .igs-dfx-sticky{background:#efe2c2;color:#3a2614;font-family:Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-note.is-scifi .igs-dfx-sticky{background:rgba(8,24,36,.92);color:#d8fbff;box-shadow:0 0 14px rgba(60,200,255,.4);}
+#igs-overlay .igs-dfx-note.is-apocalypse .igs-dfx-sticky{background:#d9cdb3;color:#2a2219;font-family:"Courier New",monospace;}
+#igs-overlay .igs-dfx-omikuji.is-fantasy .igs-dfx-slip{background:#efe2c2;color:#3a2614;border:1px solid #9c7a46;font-family:Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-omikuji.is-scifi .igs-dfx-slip{background:rgba(8,24,36,.92);color:#d8fbff;border:1px solid rgba(80,220,255,.7);box-shadow:0 0 16px rgba(60,200,255,.4);}
+#igs-overlay .igs-dfx-omikuji.is-apocalypse .igs-dfx-slip{background:#d9cdb3;color:#2a2219;border:1px dashed #7a6a52;font-family:"Courier New",monospace;}
+#igs-overlay .igs-dfx-broadcast.is-scifi .igs-dfx-banner{background:rgba(8,24,36,.9);color:#d8fbff;border:1px solid rgba(80,220,255,.7);box-shadow:0 0 14px rgba(60,200,255,.45);}
+#igs-overlay .igs-dfx-broadcast.is-apocalypse .igs-dfx-banner{background:rgba(48,40,32,.93);color:#e8dfcf;border:1px dashed rgba(200,150,80,.6);font-family:"Courier New",monospace;}
+
+/* 大正换皮：奶油洋纸 + 海老茶 + 明朝体；照片褪色泛黄。只改配色字体与滤镜，结构与动画沿用现代。 */
+#igs-overlay .igs-dfx-timeskip.is-taisho .igs-dfx-veil{background:radial-gradient(ellipse at center,rgba(60,22,18,.7),rgba(16,6,5,.92));}
+#igs-overlay .igs-dfx-timeskip.is-taisho .igs-dfx-timeskip-text{color:#f4ead6;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;letter-spacing:.14em;}
+#igs-overlay .igs-dfx-photo.is-taisho .igs-dfx-photo-img{filter:sepia(.55) contrast(1.05) saturate(.85);}
+#igs-overlay .igs-dfx-letter.is-taisho .igs-dfx-paper{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;box-shadow:inset 0 0 0 3px #f4ead6,inset 0 0 0 4px rgba(123,46,42,.4),0 10px 26px rgba(0,0,0,.35);font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+#igs-overlay .igs-dfx-note.is-taisho .igs-dfx-sticky{background:#f4ead6;color:#2a1c18;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+#igs-overlay .igs-dfx-omikuji.is-taisho .igs-dfx-slip{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+#igs-overlay .igs-dfx-broadcast.is-taisho .igs-dfx-banner{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+
 /* 古代背景：一炷香（香身随演出时长燃短，烟从香头升起）、对折字条、竖排信笺。 */
 #igs-overlay .igs-dfx-timeskip.is-ancient .igs-dfx-veil{background:radial-gradient(ellipse at center,rgba(40,26,12,.72),rgba(12,8,4,.92));}
 #igs-overlay .igs-dfx-timeskip.is-ancient .igs-dfx-timeskip-text{font-family:"STKaiti","KaiTi","Kaiti SC","楷体",serif;}

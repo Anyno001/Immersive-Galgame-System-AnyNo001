@@ -8,6 +8,7 @@ const BASIC_TAB_TEMPLATE = `
     <div class="igs-settings-row">
       <button class="igs-settings-action" data-action="settings-export-all" type="button">导出全部设置</button>
       <button class="igs-settings-action" data-action="settings-import-all" type="button">导入设置</button>
+      <button class="igs-settings-action" data-action="onboarding-start" type="button">重新查看新手引导</button>
     </div>
     <div class="igs-source-filter-note">导出文件不含 API Key；导入时保留本机已填的 Key。</div>
   </div>
@@ -295,7 +296,7 @@ const SCENE_TAB_TEMPLATE = `
 const SCENE_RULES_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="rules">
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">格式规则注入</div>
+    <div class="igs-source-filter-title">AI 格式规则</div>
     {{promptRuleField}}
     <div class="igs-settings-row">
       <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认提示词</button>
@@ -313,7 +314,6 @@ const SCENE_ASSETS_TEMPLATE = `
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">预设</div>
     {{scenePresetBar}}
-    {{sceneEraToggle}}
   </div>
   <div class="igs-source-filter">
     {{sceneSubTabs}}

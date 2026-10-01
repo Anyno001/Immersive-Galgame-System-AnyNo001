@@ -276,7 +276,7 @@ export function buildFallbackReaderOverlay(doc) {
     pinned.id = 'igs-bar-pinned';
     ctrlBar.appendChild(pinned);
 
-    ctrlBar.appendChild(createReaderButton(doc, 'toggle-bar', '收纳/展开按钮', ORIGINAL_READER_ICONS.toggleBar));
+    ctrlBar.appendChild(createReaderButton(doc, 'toggle-bar', '收起/展开工具栏', ORIGINAL_READER_ICONS.toggleBar));
     ctrlBar.appendChild(createReaderButton(doc, 'close', '退出', ORIGINAL_READER_ICONS.close));
 
     const progress = doc.createElement('div');
@@ -464,6 +464,21 @@ export function applyToolbarState(root, current) {
             } else if (collapsible) {
                 collapsible.appendChild(button);
             }
+        }
+    }
+
+    // 工具栏分组：按实际可见顺序在每组第一个按钮上标记分隔；用户重排、隐藏、固定后同样成立，不改按钮尺寸。
+    const groupOf = new Map(ORIGINAL_READER_TOOLBAR_BUTTONS.map((item) => [item.id, item.group || '']));
+    for (const container of [collapsible, pinned]) {
+        if (!container) continue;
+        let prevGroup = null;
+        for (const button of Array.from(container.children || [])) {
+            if (!button || !button.classList || typeof button.classList.toggle !== 'function') continue;
+            const id = typeof button.getAttribute === 'function' ? button.getAttribute('data-act') : '';
+            const visible = !(button.style && button.style.display === 'none');
+            const group = visible && groupOf.has(id) ? groupOf.get(id) : null;
+            button.classList.toggle('igs-group-start', group !== null && prevGroup !== null && group !== prevGroup);
+            if (group !== null) prevGroup = group;
         }
     }
 
@@ -861,8 +876,10 @@ export function applyStatusHudToDom(root, snapshot) {
     menu.className = 'igs-hud-entry-menu';
     menu.setAttribute('aria-label', '资料入口');
     if (!recordMenuOpen) menu.setAttribute('hidden', '');
-    const items = ['map', 'diary', 'inventory', 'relationships'];
-    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系' })[name]])) {
+    // 好感总览入口只在当前 HUD 已有好感度条时出现；数据仍来自状态栏所选表。
+    const hasFavorBar = hasMetrics && hud.metrics.some(metric => /好感/.test(String(metric?.label || '')));
+    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : [])];
+    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度' })[name]])) {
         const button = doc.createElement('button');
         button.type = 'button';
         button.className = 'igs-hud-entry-item';
@@ -1296,7 +1313,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         snapshot.content && snapshot.content.statusEmotion,
         snapshot.content && snapshot.content.displayText,
     ].join(':');
-    applyStageShakeEffect(stageMotion, {
+    const stageShake = applyStageShakeEffect(stageMotion, {
         settings: stageShakeSettings,
         emotion: snapshot.content && snapshot.content.statusEmotion,
         key: stageShakeKey,
@@ -1321,7 +1338,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     });
     renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
-    applyDanmakuToDom(root, snapshot, { sprite: fxSprite, resolveAssetUrl });
+    // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
+    applyDanmakuToDom(root, snapshot, { sprite: fxSprite, resolveAssetUrl, userName: ctx.userName });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');
@@ -1355,6 +1373,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         spriteKey: stageSprite ? stageSprite.key : '',
         spritePosX: stageSprite ? stageSprite.posX : 50,
         spriteEditMode: Boolean(current.spriteEditMode),
+        // 同页演出预算：震动在播时冲击推近让位。
+        stageShakeActive: Boolean(stageShake && (stageShake.played || stageShake.active)),
         castKeys: stageSprite && castPlan ? [stageSprite.key, ...castPlan.members.map((m) => m.character)] : [],
         // 有人说话但没有立绘（系统角色、只配头像）：舞台调度按换说话人处理，不播旧立绘退场。
         noSpriteSpeaker: !stageSprite && (Boolean(snapshot.content.speaker) || snapshot.content.textType === 'system'),

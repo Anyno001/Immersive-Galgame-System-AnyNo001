@@ -1,3 +1,5 @@
+import { worldSkinOf } from '../../scene/worldview.js';
+
 // 日常演出运行时：reader-dom-render 每次渲染调用一次 renderDailyFx。
 // 卡片类演出挂在 #igs-fx-front（对话层之上），触碰与飘花挂在 #igs-fx-stage（立绘之上、对话层之下），
 // 烟花挂在紧贴 #igs-bg 之后的天空层（背景之上、立绘之下）。同一次停留内重绘不重播，翻页清理上一页卡片，烟花与飘花跨页持续。
@@ -510,8 +512,11 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
     const env = {
         root, doc: layers.doc, layers, reduced, play, messageId: snapshot.messageId, hold: FX_HOLD_SCALE[style.hold] || 1,
         ancient: readerSettings._ancientEra === true,
+        worldview: String(readerSettings._worldview || ''),
         onPhoto: settings.photoAlbum ? ctx.onPhoto : null,
     };
+    // 西幻 / 科幻 / 末日：在现代节点上追加 is-<id> 换皮，结构、时长与音效不变；古代沿用自身分支。
+    const worldSkin = !env.ancient && worldSkinOf(env.worldview) ? `is-${env.worldview}` : '';
     const played = [];
     const plan = planDailyFx(content.fx, { settings, nsfw: content.sceneNsfw === true, pageKind: pageKindOf(content) });
     for (const item of plan) {
@@ -528,6 +533,7 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
         if (!built) continue;
         const parent = built.layer === 'stage' ? layers.stage : layers.front;
         if (reduced && built.node.classList) built.node.classList.add('is-reduced');
+        if (worldSkin) built.node.className = `${String(built.node.className || '')} ${worldSkin}`.trim();
         spawn(state, parent, built.node, built.life);
         for (const kind of built.sounds) play(kind);
         played.push(item.type);

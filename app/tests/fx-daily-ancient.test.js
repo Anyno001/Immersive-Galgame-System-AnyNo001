@@ -86,3 +86,37 @@ test('gate:fx-daily-ancient bow sinks sprite with add composite, skips without s
     assert.deepEqual(render(reduced, { type: 'bow', who: '' }, { reducedMotion: true }).result.played, []);
     cancelDailyFx(reduced);
 });
+
+
+test('gate:fx-daily world-skin adds is-<id> to built nodes; ancient and modern stay unmarked', async () => {
+    const { WORLD_SKIN_IDS } = await import('../src/scene/worldview.js');
+    const item = dailyFxOf(parseDailyFxBody('note', ['记得带伞']));
+    assert.ok(item, 'note item parses');
+    const run = (extra) => {
+        const root = makeStage();
+        const timers = makeTimers();
+        renderDailyFx(root, {
+            messageId: 9,
+            readerSettings: { dailyFx: { enabled: true, petals: false, note: true }, ...extra },
+            content: { currentIndex: 0, fx: { daily: [item] } },
+        }, { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, playSfx: () => {} });
+        const node = root.querySelector('#igs-fx-front').children[0];
+        const classes = node ? String(node.className).split(/\s+/) : [];
+        cancelDailyFx(root);
+        return classes;
+    };
+    for (const id of WORLD_SKIN_IDS) {
+        const classes = run({ _worldview: id });
+        assert.ok(classes.includes('igs-dfx-note'), id);
+        assert.ok(classes.includes(`is-${id}`), id);
+        assert.equal(classes.includes('is-ancient'), false, id);
+        assert.ok(DAILY_FX_STYLE_TEXT.includes(`.igs-dfx-note.is-${id} `), id);
+        assert.ok(DAILY_FX_STYLE_TEXT.includes(`.igs-dfx-letter.is-${id} `), id);
+        assert.ok(DAILY_FX_STYLE_TEXT.includes(`.igs-dfx-timeskip.is-${id} `), id);
+    }
+    for (const extra of [{}, { _worldview: 'modern' }, { _ancientEra: true, _worldview: 'ancient' }]) {
+        const classes = run(extra);
+        assert.ok(classes.includes('igs-dfx-note'), JSON.stringify(extra));
+        for (const id of WORLD_SKIN_IDS) assert.equal(classes.includes(`is-${id}`), false, `${JSON.stringify(extra)} ${id}`);
+    }
+});

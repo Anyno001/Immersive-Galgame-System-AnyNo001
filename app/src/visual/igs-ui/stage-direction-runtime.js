@@ -1,6 +1,8 @@
 import { prefersReducedMotion } from './reduced-motion.js';
 import { STAGE_DIRECTION_NORMALIZERS, pickCloseUp, pickSpriteAction } from './stage-direction-settings.js';
 import { SPEAK_BOUNCE, SPRITE_ACTION_FRAMES, playSpriteSpec } from './sprite-actions.js';
+import { cancelCameraImpact, planCameraImpact, playCameraImpact, playCameraImpactSfx } from './camera-impact.js';
+import { normalizeFxSoundSettings } from './fx-settings.js';
 
 export const BG_TRANSITION_MS = Object.freeze({ fast: 350, medium: 650, slow: 1100 });
 export const BLACK_TRANSITION_MS = Object.freeze({ fast: 700, medium: 1000, slow: 1500 });
@@ -425,6 +427,7 @@ export function cancelStageDirection(root) {
     flushGhosts(state.bgGhosts);
     flushGhosts(state.spriteGhosts);
     syncParallax(state, root, false);
+    cancelCameraImpact(typeof root.querySelector === 'function' ? root.querySelector('#igs-stage-motion') : null);
     for (const name of ROOT_ATTRS) setAttr(root, name, false);
     for (const name of ROOT_VARS) setVar(root, name, null);
     states.delete(root);
@@ -497,6 +500,20 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     setAttr(root, 'data-igs-sd-kenburns', !reduced && s.camera.enabled && s.camera.kenBurns && Boolean(bgUrl));
     setAttr(root, 'data-igs-sd-closeup', !reduced && eligible && Boolean(spriteUrl) && pickCloseUp(content.statusEmotion, s.camera));
     syncParallax(state, root, !reduced && s.camera.enabled && s.camera.parallax);
+    // 冲击推近：只在翻到新页时按原始情绪精确匹配播一次，音效与镜头同时起播；本页震动在播时让位。
+    const stageMotion = root.querySelector('#igs-stage-motion');
+    const impactPlan = stageMotion
+        ? planCameraImpact({ newPage, motionOn, eligible, emotion: content.statusEmotion, camera: s.camera, stageShakeActive: ctx.stageShakeActive === true })
+        : '';
+    if (impactPlan === 'yield') played.push('camera:impact-yield');
+    if (impactPlan === 'play') {
+        const playSfx = typeof ctx.playSfx === 'function'
+            ? ctx.playSfx
+            : () => playCameraImpactSfx(normalizeFxSoundSettings(snapshot.readerSettings && snapshot.readerSettings.fxSound));
+        const lowQuality = typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low';
+        const impact = playCameraImpact(stageMotion, { key: pageKey, reducedMotion: false, lowQuality, playSfx });
+        if (impact.played) played.push('camera:impact');
+    }
 
     state.initialized = true;
     state.bgUrl = bgUrl;

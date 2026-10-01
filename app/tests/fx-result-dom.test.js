@@ -107,3 +107,54 @@ test('gate:fx-result dom escapes plan text', () => {
     assert.doesNotMatch(card.innerHTML, /<img/);
     cancelResultFx(root);
 });
+
+
+test('gate:fx-result dom settles on landing with tier and validated theme accent', () => {
+    const root = makeStage();
+    const timers = makeTimers();
+    playResultFx(root, { ...CHECK_PLAN, tone: 'crit', tier: 'crit' }, { schedule: timers.schedule, cancel: timers.clear, accent: 'hsl(210 88% 60%)' });
+    const card = front(root).children[0];
+    assert.equal(card.getAttribute('data-igs-fx-result-tier'), 'crit');
+    assert.equal(card.style.vars['--igs-fx-result-accent'], 'hsl(210 88% 60%)');
+    timers.advance(899);
+    assert.doesNotMatch(card.className, /is-settled/, '滚动结束前不应定格');
+    timers.advance(1);
+    assert.match(card.className, /is-settled/);
+    cancelResultFx(root);
+});
+
+test('gate:fx-result dom contest marks winner/loser reels and rejects unsafe accent or unknown tier', () => {
+    const root = makeStage();
+    const timers = makeTimers();
+    const plan = {
+        type: 'dice',
+        title: '对抗',
+        reels: [
+            { label: '林晚·理智', value: 38, sub: '', outcome: 'lose' },
+            { label: '白墨·察言观色', value: 8, sub: '', outcome: 'win' },
+        ],
+        verdict: '白墨胜出',
+        tone: 'fail',
+        tier: 'bogus',
+        rollMs: 900,
+        holdMs: 1600,
+    };
+    playResultFx(root, plan, { schedule: timers.schedule, cancel: timers.clear, accent: 'red;background:url(x)' });
+    const card = front(root).children[0];
+    assert.ok(!card.style.vars['--igs-fx-result-accent'], '非颜色字面量不得写入样式变量');
+    assert.ok(!card.getAttribute('data-igs-fx-result-tier'));
+    assert.match(card.innerHTML, /igs-fx-result-reel is-lose/);
+    assert.match(card.innerHTML, /igs-fx-result-reel is-win/);
+    cancelResultFx(root);
+});
+
+test('gate:fx-result dom reduced motion settles immediately', () => {
+    const root = makeStage();
+    const timers = makeTimers();
+    playResultFx(root, CHECK_PLAN, { schedule: timers.schedule, cancel: timers.clear, reducedMotion: true });
+    const card = front(root).children[0];
+    timers.advance(0);
+    assert.match(card.className, /is-settled/);
+    assert.match(card.className, /is-reduced/);
+    cancelResultFx(root);
+});

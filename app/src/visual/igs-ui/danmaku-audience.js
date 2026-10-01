@@ -1,6 +1,7 @@
 import { DANMAKU_PERSONA_LABELS, DANMAKU_SPEED_SECONDS } from './danmaku-settings.js';
 import { randomItem } from './danmaku-pools.js';
 import { buildPhoneStatus } from './danmaku-icons.js';
+import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 
 // 观众弹幕（正文外的小剧场）：平时只是 HUD 下方一台半透明小手机，来新弹幕时亮角标、抖一下；
 // 用户点开才「掏出手机」进 B 站视频页——上方小视频窗滚弹幕，下方是本楼到当前页为止的弹幕列表。
@@ -11,7 +12,6 @@ export const AUDIENCE_VIDEO_CAP = Object.freeze({ sparse: 10, medium: 14, dense:
 const FLOOD_COPIES = Object.freeze({ sparse: 5, medium: 8, dense: 12 });
 const COLOR_PALETTE = Object.freeze(['#fe0302', '#ff7204', '#ffaa02', '#ffd302', '#00cd00', '#00a2ff', '#cc0273']);
 const TOP_LIFE = 4000;
-const TRACK_GAP = 16;
 const SECONDS_PER_PAGE = 8;
 const LEAVE_MS = 380;
 
@@ -35,24 +35,6 @@ function swallow(node, events, fn) {
             if (name === 'click' && fn) fn(event);
         });
     }
-}
-
-// 按字形估算宽度，免去逐条测量：CJK 记 1em，半角记 0.55em。
-export function estimateTextWidth(value, fontSize) {
-    let units = 0;
-    for (const ch of String(value || '')) units += ch.charCodeAt(0) > 0xff ? 1 : 0.55;
-    return Math.ceil(units * fontSize) + 8;
-}
-
-// B 站式防追尾：轨道空出（前一条尾巴离开右缘）且新弹幕在前一条完全出屏之前追不上它时才可用。
-export function pickScrollTrack(tracks, count, now, width, stageW, durationMs) {
-    const speed = (stageW + width) / durationMs;
-    const reachLeft = now + stageW / speed;
-    for (let i = 0; i < count; i += 1) {
-        const lane = tracks[i];
-        if (!lane || (now >= lane.freeAt && reachLeft >= lane.exitAt)) return i;
-    }
-    return -1;
 }
 
 export function formatDanmakuTime(page) {
@@ -214,7 +196,7 @@ function spawnVideoLine(state, row) {
             if (!row.ai) return;
             lane = Math.floor(state.rng() * geo.lanes);
         }
-        view.tracks[lane] = { freeAt: now + (width + TRACK_GAP) / ((geo.w + width) / duration), exitAt: now + duration };
+        occupyTrack(view.tracks, lane, now, width, geo.w, duration);
         node.style.top = `${lane * geo.lineH}px`;
         node.style.setProperty('--igs-dm-run', `${-(geo.w + width)}px`);
         node.style.setProperty('--igs-dm-dur', `${duration}ms`);

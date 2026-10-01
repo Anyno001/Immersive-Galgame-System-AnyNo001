@@ -122,6 +122,7 @@ const HUD_THEMES = Object.freeze({
     },
     [DIALOG_SKIN_ELEGANT_EUROPEAN]: {
         neutral: '#d4cfdc',
+        toast: 'background:rgba(6,6,12,.82);border:0;border-bottom:1px solid rgba(196,176,255,.65);border-radius:0;box-shadow:0 0 12px rgba(150,120,255,.35);color:#eeeaf3;',
         panel: `background:linear-gradient(90deg,rgba(236,232,244,.5),rgba(236,232,244,0)) left top/100% 1px no-repeat,linear-gradient(90deg,rgba(236,232,244,.5),rgba(236,232,244,0)) left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(6,6,12,.72),rgba(6,6,12,.5) 70%,rgba(6,6,12,0));border:0;border-radius:0;box-shadow:none;`,
         ink: '#e4dfeb',
         emotion: `padding:${s(1)} ${s(4)} ${s(1)} ${s(14)};border:0;border-bottom:1px solid rgba(196,176,255,.65);border-radius:0;background:transparent;color:#eeeaf3;letter-spacing:.14em;text-shadow:0 0 8px rgba(160,136,255,.7),0 1px 3px rgba(0,0,0,.9);position:relative;`,
@@ -148,6 +149,7 @@ const HUD_THEMES = Object.freeze({
     },
     [DIALOG_SKIN_GRADIENT_VEIL]: {
         neutral: 'rgba(255,255,255,.8)',
+        toast: 'background:rgba(0,0,0,.62);border:0;border-radius:0;box-shadow:none;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);',
         panel: 'background:linear-gradient(90deg,rgba(0,0,0,.125),rgba(0,0,0,.072) 75%,transparent);border-radius:0;-webkit-backdrop-filter:none;backdrop-filter:none;',
         emotion: `padding:0 ${s(2)};border:0;border-bottom:1px solid rgba(255,238,184,.7);border-radius:0;background:transparent;color:#fff;letter-spacing:.12em;text-shadow:0 1px 3px rgba(0,0,0,.9);`,
         avatar: 'filter:drop-shadow(0 2px 6px rgba(0,0,0,.6));',
@@ -205,6 +207,18 @@ function itemFxThemeRules(skin, theme) {
 export const DIALOG_THEME_ITEM_FX_STYLE_TEXT = Object.entries(HUD_THEMES)
     .map(([skin, theme]) => itemFxThemeRules(skin, theme))
     .join('\n');
+
+// 提示弹窗跟随对话框皮肤：默认取主题 HUD 面板与墨色；面板为半透明渐变的主题用 toast 字段给实底，保证文字可读。
+// 选择器带 #igs-overlay 皮肤前缀，优先于按设置器主题生成的 #igs-toast[data-igs-toast-theme] 规则。
+function toastThemeRules(skin, theme) {
+    const body = theme.toast || `${theme.panel}${theme.ink ? `color:${theme.ink};text-shadow:none;` : ''}`;
+    return `#igs-overlay[data-igs-dialog-skin="${skin}"] #igs-toast{${body}}`;
+}
+
+export function getDialogThemeToastStyleText(skin) {
+    const theme = HUD_THEMES[skin];
+    return theme ? toastThemeRules(skin, theme) : '';
+}
 
 export function getDialogThemeHudStyleText(skin) {
     const theme = HUD_THEMES[skin];

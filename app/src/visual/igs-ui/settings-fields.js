@@ -54,8 +54,18 @@ export function rangeInput(path, value, label = '音量') {
     return `<span class="igs-settings-range"><input data-path="${esc(path)}" type="range" min="0" max="1" step="0.05" value="${esc(value)}" aria-label="${esc(label)}"><output data-range-value="${esc(path)}">${esc(percent)}%</output></span>`;
 }
 
+// 把「主文案（补充说明）」拆成主文案与辅助说明；无尾部括号时原样返回。
+export function splitLabelNote(label) {
+    const text = String(label ?? '');
+    const match = text.match(/^(.+?)\s*[（(]([^（）()]+)[）)]$/);
+    return match ? [match[1], match[2]] : [text, ''];
+}
+
 export function checkbox(path, value, label) {
-    return `<button type="button" class="igs-switch${value ? ' is-on' : ''}" data-switch="${esc(path)}" aria-pressed="${value ? 'true' : 'false'}"><i></i><span>${esc(label)}</span></button>`;
+    const [main, note] = splitLabelNote(label);
+    const noteHtml = note ? `<small class="igs-switch-note">${esc(note)}</small>` : '';
+    const ariaLabel = note ? ` aria-label="${esc(label)}"` : '';
+    return `<button type="button" class="igs-switch${value ? ' is-on' : ''}" data-switch="${esc(path)}" aria-pressed="${value ? 'true' : 'false'}"${ariaLabel}><i></i><span>${esc(main)}${noteHtml}</span></button>`;
 }
 
 export function tableMultiSelect(paths, selected, catalog, options = {}) {
@@ -100,7 +110,10 @@ export function segmentedInput(path, value, items, label) {
     return `<div class="igs-segmented" role="radiogroup" aria-label="${esc(label || '')}" data-count="${esc(items.length)}" data-active-index="${esc(activeIndex)}" style="--igs-segment-count:${esc(items.length)};--igs-active-index:${esc(activeIndex)};"><span class="igs-segmented-indicator" aria-hidden="true"></span>${items.map((item) => {
         const selected = String(item[0]) === String(value);
         const icon = item[2] ? `<span class="igs-segmented-btn-icon" aria-hidden="true">${item[2]}</span>` : '';
-        return `<button type="button" class="igs-segmented-btn${item[2] ? ' has-icon' : ''}${selected ? ' is-active' : ''}" data-segment-path="${esc(path)}" data-segment-value="${esc(item[0])}" role="radio" aria-checked="${selected ? 'true' : 'false'}" aria-pressed="${selected ? 'true' : 'false'}">${icon}<span class="igs-segmented-btn-label">${esc(item[1])}</span></button>`;
+        const [main, note] = splitLabelNote(item[1]);
+        const noteHtml = note ? `<small class="igs-segmented-btn-note">${esc(note)}</small>` : '';
+        const ariaLabel = note ? ` aria-label="${esc(item[1])}"` : '';
+        return `<button type="button" class="igs-segmented-btn${item[2] ? ' has-icon' : ''}${selected ? ' is-active' : ''}" data-segment-path="${esc(path)}" data-segment-value="${esc(item[0])}" role="radio" aria-checked="${selected ? 'true' : 'false'}" aria-pressed="${selected ? 'true' : 'false'}"${ariaLabel}>${icon}<span class="igs-segmented-btn-label">${esc(main)}${noteHtml}</span></button>`;
     }).join('')}</div>`;
 }
 
@@ -151,7 +164,7 @@ export function renderChatShowSettings(settings, options = {}) {
     const contactList = `<div class="igs-settings-field"><span>联系人</span><div class="igs-chat-contacts">${contacts || '<div class="igs-scene-empty">暂无联系人</div>'}<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-add-contact">添加联系人</button></div></div>`;
     const promptDraft = typeof options.promptDraft === 'string' ? options.promptDraft : (s.promptRule || CHAT_SHOW_PROMPT_RULE);
     const promptStatus = options.promptStatus || (s.promptRule ? '正在使用自定义提示词。' : '正在使用默认提示词。');
-    const promptField = `<div class="igs-settings-field"><span>注入提示词（开启线上交流时追加给 AI）</span><textarea class="igs-chat-prompt" data-chat-prompt-draft="1" aria-label="线上交流注入提示词" placeholder="聊天标签规则...">${esc(promptDraft)}</textarea><div class="igs-chat-prompt-actions"><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-save-prompt">保存提示词</button><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-reset-prompt">恢复默认</button></div><div class="igs-settings-result" data-result="chat-prompt">${esc(promptStatus)}</div></div>`;
+    const promptField = `<div class="igs-settings-field"><span>线上交流规则（启用后随消息发送至 AI）</span><textarea class="igs-chat-prompt" data-chat-prompt-draft="1" aria-label="线上交流规则" placeholder="聊天标签规则...">${esc(promptDraft)}</textarea><div class="igs-chat-prompt-actions"><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-save-prompt">保存提示词</button><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="chat-show-reset-prompt">恢复默认</button></div><div class="igs-settings-result" data-result="chat-prompt">${esc(promptStatus)}</div></div>`;
     return `<div class="igs-settings-sub igs-chat-show-settings">${grid}${toggles}${contactList}${promptField}</div>`;
 }
 

@@ -1,3 +1,5 @@
+import { worldSkinOf } from '../../scene/worldview.js';
+
 import { prefersReducedMotion } from './reduced-motion.js';
 import { filterFxByKinds } from '../../scene/fx-directives.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
@@ -505,7 +507,7 @@ function playEffect(effect, ctx) {
         sound(state, 'tinnitus', plan.sound, options);
     } else if (effect.type === 'title') {
         // 古代背景是一条宣纸竖幅：地点、时间竖排，末尾朱印；竖排里不要「——」引线。
-        const el = node(doc, ctx.ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card');
+        const el = node(doc, (ctx.ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card') + (ctx.worldSkin || ''));
         const sub = ctx.ancient && effect.sub ? effect.sub.replace(/^——\s*/, '') : effect.sub;
         if (effect.main) el.appendChild(node(doc, 'igs-fx-title-main', effect.main));
         if (sub) el.appendChild(node(doc, 'igs-fx-title-sub', sub));
@@ -518,12 +520,12 @@ function playEffect(effect, ctx) {
         spawn(state, stack, el, life);
     } else if (effect.type === 'notify') {
         // 古代背景是家仆通报：右侧滑入一张竖排纸条，朱印「禀」字打头，梆子两声。
-        const el = node(doc, ctx.ancient ? 'igs-fx-notify is-ancient' : 'igs-fx-notify');
+        const el = node(doc, (ctx.ancient ? 'igs-fx-notify is-ancient' : 'igs-fx-notify') + (ctx.worldSkin || ''));
         if (ctx.ancient) el.appendChild(node(doc, 'igs-fx-notify-seal', '禀'));
         if (effect.sender) el.appendChild(node(doc, 'igs-fx-notify-sender', effect.sender));
         el.appendChild(node(doc, 'igs-fx-notify-text', effect.text));
         spawn(state, layers.front, el, life);
-        sound(state, ctx.ancient ? 'notify-ancient' : 'notify', plan.sound, options);
+        sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'nickname') {
         // 称呼变化复用数值提示的堆叠栏，与好感变化同一视觉语言。
         const el = node(doc, 'igs-fx-favor igs-fx-nickname', `${effect.name}开始叫你『${effect.nick}』了`);
@@ -585,24 +587,24 @@ function playEffect(effect, ctx) {
         sound(state, 'onomatopoeia', plan.sound, options, ctx.ancient ? '呼' : '啪');
     } else if (effect.type === 'promise') {
         // 约定便笺：只播放卡片，不写存储；古代背景换宣纸竖排「立契」，印文「契」。
-        const el = node(doc, ctx.ancient ? 'igs-fx-promise is-ancient' : 'igs-fx-promise');
+        const el = node(doc, (ctx.ancient ? 'igs-fx-promise is-ancient' : 'igs-fx-promise') + (ctx.worldSkin || ''));
         el.setAttribute('role', 'status');
         el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '立契' : '约定'));
         el.appendChild(node(doc, 'igs-fx-promise-text', effect.place ? [effect.time, effect.place].join(' · ') : effect.time));
         el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : '约'));
         spawn(state, layers.front, el, life);
-        sound(state, ctx.ancient ? 'notify-ancient' : 'notify', plan.sound, options);
+        sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'eye') {
         if (effect.mode === 'open' && !reduced) spawn(state, layers.stage, node(doc, 'igs-fx-eye is-open'), life, busy);
     } else if (effect.type === 'promise-due') {
         // 到期提醒复用约定便笺，标题换成当天提醒；古代背景为「契期」。
-        const el = node(doc, ctx.ancient ? 'igs-fx-promise is-due is-ancient' : 'igs-fx-promise is-due');
+        const el = node(doc, (ctx.ancient ? 'igs-fx-promise is-due is-ancient' : 'igs-fx-promise is-due') + (ctx.worldSkin || ''));
         el.setAttribute('role', 'status');
         el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '契期已至' : '今天是约定的日子'));
         el.appendChild(node(doc, 'igs-fx-promise-text', effect.place ? [effect.time, effect.place].join(' · ') : effect.time));
         el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : '约'));
         spawn(state, layers.front, el, life);
-        sound(state, ctx.ancient ? 'notify-ancient' : 'notify', plan.sound, options);
+        sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'call') {
         const outcome = callOutcome(plan);
         const screen = spawn(state, layers.front, renderCallScreen(doc, effect, resolveAvatar(effect.name, snapshot, options), outcome), CALL_SCREEN_MS[outcome]);
@@ -810,6 +812,12 @@ export function applyFxToDom(root, snapshot, options = {}) {
     setFlag(motion, 'data-igs-fx-motion', plan.style.motion === 'snappy', 'snappy');
     const ancient = Boolean(snapshot.readerSettings && snapshot.readerSettings._ancientEra === true);
     setFlag(motion, 'data-igs-fx-era', ancient, 'ancient');
+    // 世界观换音色：古代梆子沿用原值，西幻 / 科幻 / 末日用 fx-sfx 的 notify-<id>，现代与未知 id 退回 notify。
+    const worldview = String((snapshot.readerSettings && snapshot.readerSettings._worldview) || '');
+    const notifySound = ancient ? 'notify-ancient'
+        : worldSkinOf(worldview) ? `notify-${worldview}` : 'notify';
+    // 换皮类名：西幻 / 科幻 / 末日追加 is-<id>，古代与现代为空（古代沿用 is-ancient 分支）。
+    const worldSkin = worldSkinOf(worldview) ? ` is-${worldview}` : '';
     setFlag(motion, 'data-igs-fx-flashback', plan.ranges.flashback);
     setFlag(motion, 'data-igs-fx-dream', plan.ranges.dream);
     setFlag(motion, 'data-igs-fx-letterbox', plan.ranges.letterbox);
@@ -821,7 +829,7 @@ export function applyFxToDom(root, snapshot, options = {}) {
     syncBusy(state);
     // 常驻节点只在内容变化时写入，避免每次渲染都产生无意义的 DOM 变更（外部 MutationObserver 也会被惊动）。
     const now = typeof options.now === 'function' ? options.now() : Date.now();
-    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root, now, ancient };
+    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root, now, ancient, worldview, notifySound, worldSkin };
     const remote = syncCall(ctx, settings.fxTags.callSprite);
     const eyeHold = persistent(stage, doc, 'igs-fx-eye-hold');
     if (eyeHold.hidden !== !plan.eyeHold) eyeHold.hidden = !plan.eyeHold;

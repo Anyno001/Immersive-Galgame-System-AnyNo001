@@ -27,6 +27,8 @@
 - 按需触发（`prompt-triggers.js`）：聊天、日常、战斗、亲密四块在最近 3 层出现对应标签、本轮用户输入命中触发词，或最近 12 层内有未闭合的成对标签时才发完整说明，否则只在索引行列出类型名。
 - 在场名单只由 `stage-cast.js` 的 `resolveStageCast` 推断：纯函数，不读宿主、不读 DOM；换 `[igs-scene]` 清空，每层楼从空名单开始。
 - 陪衬挑选由 `stage-cast.js` 的 `pickCastMembers` 负责：调用方以 `STAGE_CAST_SCAN_LIMIT`（6）宽扫名单，再按有无立绘跳过无图角色，凑满 `STAGE_CAST_MAX_SEATS`（3）减说话人即停止解析；窄屏上限仍由渲染层 `layoutCastSlots` 截断。无图角色不得占用同屏名额。
+- 世界观（`worldview.js`）：`WORLDVIEWS` 为唯一注册表（modern / ancient / fantasy / scifi / apocalypse / taisho 均已启用；`ready:false` 仍表示预留项，下拉中不可选、`applyWorldview` 拒绝写入），设置页一键档位条的「适配世界」下拉、`worldview:<id>` 动作与场景预设保存 / 应用 / 导入 / 导出只经 `resolveWorldview` / `applyWorldview` 读写，不直接碰存储字段。存储为枚举 `bridge.sceneAssets.worldview`，并同步写布尔 `ancient`（古代为 true，其余为 false）供既有消费方读取；读取时 `ancient: true` 优先按古代，`ancient` 为假时 `worldview: 'ancient'` 按现代，缺字段或未知值按现代。演出过滤与时代提示词由 `fx-era.js` 的 `applyFxWorldview` / `resolveWorldviewPromptRule` 负责（古代、现代与 `applyFxEra` / `ANCIENT_ERA_PROMPT_RULE` 逐值等价）；阅读器快照携带 `_worldview`，`_ancientEra` 保留。在现代结构上换皮的世界观统一登记在 `WORLD_SKIN_IDS`，演出 / 音效层只经 `worldSkinOf` 判断，不各自维护列表；新增世界观时先注册为 `ready:false`，补齐 `FX_WORLDVIEW_OFF`、时代规则、`fx-sfx` 的 `notify-<id>` 音色与 `fx-style` 的 `is-<id>` 换皮后再启用；日常（`fx-daily-style` 的 `is-<id>`）、物品（`data-igs-era="<id>"`）、战斗（`is-<id>`）、聊天（`data-igs-chat-world`）四类演出也各有一套样式分支，新增世界观须同步补齐，古代与现代不挂这些标记；未知 id 一律不改动。
+
 
 ## 场景来源优先级
 

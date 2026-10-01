@@ -7629,8 +7629,9 @@ test('gate:simulation:ancient-era-filters-modern-fx-from-prompt-and-reader', asy
         settings = await openSettings();
         settings.switchTab('scene');
         settings.setValue('bridge.sceneAssets.enabled', true);
-        assert.match(settings.getSnapshot().html, /适配古代背景/);
-        settings.setValue('bridge.sceneAssets.ancient', true);
+        // 时代只在一键档位条的「适配世界」下拉里切换，场景素材页不再有勾选框。
+        assert.doesNotMatch(settings.getSnapshot().html, /data-path="bridge\.sceneAssets\.ancient"/);
+        await settings.invoke('worldview:ancient');
         await settings.invoke('scene-preset-save');
         assert.equal(settings.close().ok, true);
         const ancientPrompt = mainPrompt();
@@ -7726,6 +7727,20 @@ test('gate:simulation:ancient-era-chat-renders-as-vertical-letters', () => {
     applyChatToDom(root, { messageId: 3, content: { chatPage: true, chat, currentIndex: 0 }, readerSettings: { chatShow: settings } }, ctx);
     assert.equal(layer.getAttribute('data-igs-chat-frame'), 'phone');
     assert.equal(layer.querySelector('.igs-chat-letter'), null);
+    // 换皮世界观：手机聊天框另挂 data-igs-chat-world，era 仍为 modern、外框不变；古代与现代不挂。
+    for (const id of ['fantasy', 'scifi', 'apocalypse', 'taisho']) {
+        applyChatToDom(root, { messageId: 3, content: { chatPage: true, chat, currentIndex: 0 }, readerSettings: { chatShow: settings, _worldview: id } }, ctx);
+        assert.equal(layer.getAttribute('data-igs-chat-era'), 'modern', id);
+        assert.equal(layer.getAttribute('data-igs-chat-world'), id, id);
+        assert.equal(layer.getAttribute('data-igs-chat-frame'), 'phone', id);
+        assert.ok(CHAT_LAYER_STYLE_TEXT.includes(`#igs-chat-layer[data-igs-chat-world="${id}"] .igs-chat-head{`), id);
+    }
+    applyChatToDom(root, { messageId: 3, content: { chatPage: true, chat, currentIndex: 0 }, readerSettings: { chatShow: settings, _ancientEra: true, _worldview: 'ancient' } }, ctx);
+    assert.equal(layer.getAttribute('data-igs-chat-era'), 'ancient');
+    assert.equal(layer.getAttribute('data-igs-chat-world'), null, 'ancient carries no world skin');
+    applyChatToDom(root, { messageId: 3, content: { chatPage: true, chat, currentIndex: 0 }, readerSettings: { chatShow: settings } }, ctx);
+    assert.equal(layer.getAttribute('data-igs-chat-world'), null, 'modern carries no world skin');
+
 });
 
 test('gate:assets:reader-cg-and-asset-buttons-are-independent', async () => {
@@ -7807,6 +7822,17 @@ test('gate:simulation:asset-folders-stay-local-and-do-not-touch-scene-assets', a
         assert.equal(scope.scenes.assign['教室'], '学校');
         assert.equal(scope.scenes.view, 'grid');
         assert.equal(JSON.stringify(settings.getSnapshot().draft.bridge.sceneAssets), before);
+
+        // 缩略图模式下点「修改」：切回列表、展开所在文件夹，归属与素材草稿都不变。
+        await settings.invoke('asset-folder-toggle:scenes:' + encodeURIComponent('学校'));
+        assert.deepEqual(Object.values(JSON.parse(storage.getItem('igs-asset-folders-v1')).scopes)[0].scenes.collapsed, ['学校']);
+        await settings.invoke('asset-edit:scenes:' + encodeURIComponent('教室'));
+        const edited = Object.values(JSON.parse(storage.getItem('igs-asset-folders-v1')).scopes)[0];
+        assert.equal(edited.scenes.view, 'list');
+        assert.deepEqual(edited.scenes.collapsed, []);
+        assert.equal(edited.scenes.assign['教室'], '学校');
+        assert.equal(JSON.stringify(settings.getSnapshot().draft.bridge.sceneAssets), before);
+
     } finally {
         vn.destroy?.();
     }
@@ -8148,5 +8174,94 @@ test('gate:simulation:romance-nsfw-curve-ramps-and-falls-across-real-pages', () 
         assert.deepEqual(pages.slice(1, 5).map((p) => p.backlight), ['0.55', '0.8', '0.8', '0.6']);
     } finally {
         host.destroy();
+    }
+});
+
+
+test('gate:simulation:onboarding-invite-guide-skip-and-no-repeat', async () => {
+    const document = createFakeDocument();
+    const storage = createMemoryStorage();
+    const raw = '[igs-scene:教室|白天|晴]\n新手引导测试。';
+    const saves = [];
+    const host = createIgsReaderHost({
+        global: { document, localStorage: storage },
+        getUnifiedSettings: () => ({ bridge: { sceneAssets: { enabled: true, scenes: {}, characters: {} } }, readerSettings: {} }),
+        saveUnifiedSettings: (payload) => { saves.push(JSON.stringify(payload)); return { ok: true }; },
+    });
+    const open = () => host.openReader({ messageId: 1, message: { id: 1, text: raw }, raw }, { mode: 'pc' });
+    try {
+        assert.equal(open().ok, true);
+        assert.ok(document.getElementById('igs-overlay').querySelector('#igs-onboarding-invite'), '首次打开应出现邀请条');
+        assert.equal(open().ok, true, '换楼层重开');
+        assert.ok(document.getElementById('igs-overlay').querySelector('#igs-onboarding-invite'), '未回应的邀请原样补挂');
+
+        const settings = host.openSettings({ tab: 'basic', mode: 'pc' }).controller;
+        const draftBefore = JSON.stringify(settings.getSnapshot().draft);
+        await settings.invoke('onboarding-start');
+        assert.equal(host.getState().activeSettings.tab, 'basic');
+        assert.ok(document.getElementById('igs-onboarding-card'), '引导卡挂在设置面板内');
+        for (let i = 0; i < 3; i += 1) await settings.invoke('onboarding-next');
+        assert.equal(host.getState().activeSettings.tab, 'reader');
+        settings.switchTab('reader');
+        assert.ok(document.getElementById('igs-onboarding-card'), '面板重绘后引导卡仍在');
+        await settings.invoke('onboarding-skip');
+        assert.equal(document.getElementById('igs-onboarding-card'), null);
+        assert.equal(JSON.parse(storage.getItem('igs-onboarding')).status, 'dismissed');
+        assert.equal(JSON.stringify(settings.getSnapshot().draft), draftBefore, '引导不得改写设置草稿');
+        const closed = settings.close();
+        assert.equal(closed.ok, true, `关闭设置失败：${closed.reason || ''}`);
+
+        assert.equal(open().ok, true);
+        assert.equal(document.getElementById('igs-overlay').querySelector('#igs-onboarding-invite'), null, '跳过后不再邀请');
+    } finally {
+        host.destroy();
+    }
+});
+
+test('gate:simulation:onboarding-read-error-does-not-block-reader', () => {
+    const document = createFakeDocument();
+    const storage = createMemoryStorage({ 'igs-onboarding': '{bad' });
+    const raw = '读取失败测试。';
+    const host = createIgsReaderHost({
+        global: { document, localStorage: storage },
+        getUnifiedSettings: () => ({ bridge: {}, readerSettings: {} }),
+    });
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    try {
+        assert.equal(host.openReader({ messageId: 2, message: { id: 2, text: raw }, raw }, { mode: 'pc' }).ok, true);
+        assert.equal(document.getElementById('igs-overlay').querySelector('#igs-onboarding-invite'), null);
+        assert.equal(storage.getItem('igs-onboarding'), '{bad');
+    } finally {
+        console.warn = originalWarn;
+        host.destroy();
+    }
+});
+
+
+test('gate:simulation:settings-search-go-to-setting-opens-performance-group', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: createMemoryStorage() },
+        autoAttachMagicWand: false,
+        config: { sceneAssets: { enabled: true, promptRule: 'rule', scenes: {}, characters: { H: { default: '' } }, characterAliases: { H: [] }, moodGroups: [] } },
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '[igs-char:H|喜悦|Hello.]' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+        assert.deepEqual(settings.goToSetting('no-such-setting'), { ok: false, reason: 'unknown-setting' });
+        const jumped = settings.goToSetting('camera-impact');
+        assert.notEqual(jumped && jumped.ok, false);
+        const html = settings.switchReaderSubTab('performance').snapshot.html;
+        assert.match(html, /<details data-advanced="perf-group-stage" open>/);
+        assert.match(html, /画面与镜头/);
+        assert.match(html, /data-settings-search/);
+        settings.close();
+    } finally {
+        vn.destroy();
     }
 });

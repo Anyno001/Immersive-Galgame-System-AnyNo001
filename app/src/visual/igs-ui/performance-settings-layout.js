@@ -9,7 +9,7 @@ import { renderQualityRow } from './render-quality-fields.js';
 
 export const PERFORMANCE_GROUPS = Object.freeze([
     Object.freeze(['text', '文字']),
-    Object.freeze(['stage', '画面']),
+    Object.freeze(['stage', '画面与镜头']),
     Object.freeze(['character', '立绘']),
     Object.freeze(['emotion', '情绪反应']),
     Object.freeze(['story', '剧情提示']),
@@ -70,5 +70,5 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
     const metaOn = Boolean(src.metaFx && src.metaFx.enabled === true);
     const meta = groupCard('meta', 'Meta 互动', `<span class="igs-perf-count${metaOn ? ' is-on' : ''}">${metaOn ? '开' : '关'}</span><span class="igs-perf-brief">TA在注视着你</span>`, renderMetaFxFields(src, more), isOpen('perf-group-meta'));
     const rhythm = groupCard('rhythm', '节奏', '<span class="igs-perf-brief">演出风格、停留时间与重播</span>', fx.style, isOpen('perf-group-rhythm'));
-    return renderPerformancePresetBar(src, { extraRows: renderQualityRow(src) }) + groups.join('') + meta + rhythm;
+    return renderPerformancePresetBar(src, { extraRows: (extras.worldview || '') + renderQualityRow(src) }) + groups.join('') + meta + rhythm;
 }

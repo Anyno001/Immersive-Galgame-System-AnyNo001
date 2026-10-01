@@ -1,3 +1,5 @@
+import { worldSkinOf } from '../../scene/worldview.js';
+
 import { prefersReducedMotion } from './reduced-motion.js';
 import { chatRevealDelayMs, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { chatSfxKindForSide, playChatSfx } from './chat-sfx.js';
@@ -286,6 +288,10 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
     // 古代背景：手机框换成书信，外框设置不再生效。
     const ancient = Boolean(snapshot.readerSettings && snapshot.readerSettings._ancientEra === true);
     layer.setAttribute('data-igs-chat-era', ancient ? 'ancient' : 'modern');
+    // 西幻 / 科幻 / 末日：在现代聊天框上另挂 data-igs-chat-world 换配色字体，era 仍为 modern，结构与外框设置不变。
+    const world = String((snapshot.readerSettings && snapshot.readerSettings._worldview) || '');
+    if (!ancient && worldSkinOf(world)) layer.setAttribute('data-igs-chat-world', world);
+    else layer.removeAttribute('data-igs-chat-world');
     layer.setAttribute('data-igs-chat-frame', ancient ? 'letter' : settings.frame);
     layer.style.setProperty('--igs-chat-dim', String(settings.dim));
     bindLayer(layer, ctx);
@@ -437,6 +443,19 @@ export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer[data-igs-chat-era="ancient"] .igs-chat-note{background:rgba(243,230,200,.16);color:rgba(243,230,200,.85);}
 #igs-chat-layer[data-igs-chat-era="ancient"] .igs-chat-row.is-letter.igs-chat-pop{transform-origin:right center;animation:igs-chat-unfold .45s ease-out both;}
 @keyframes igs-chat-unfold{from{opacity:0;transform:scaleX(.15);}60%{opacity:1;}to{opacity:1;transform:none;}}
+/* 世界观换皮（西幻羊皮纸 / 科幻全息青光 / 末日旧纸锈边）：只改标题、时间、系统行与气泡描边；气泡底色仍由角色配色内联决定。 */
+#igs-chat-layer[data-igs-chat-world="fantasy"]{font-family:Georgia,"Times New Roman",serif;}
+#igs-chat-layer[data-igs-chat-world="fantasy"] .igs-chat-head{background:#efe2c2;color:#3a2614;border:1px solid #9c7a46;}
+#igs-chat-layer[data-igs-chat-world="fantasy"] .igs-chat-bubble{box-shadow:0 0 0 1px rgba(156,122,70,.55);}
+#igs-chat-layer[data-igs-chat-world="scifi"] .igs-chat-head{background:rgba(8,24,36,.9);color:#d8fbff;border:1px solid rgba(80,220,255,.7);box-shadow:0 0 12px rgba(60,200,255,.4);letter-spacing:.08em;}
+#igs-chat-layer[data-igs-chat-world="scifi"] .igs-chat-bubble{box-shadow:0 0 0 1px rgba(80,220,255,.55),0 0 8px rgba(60,200,255,.3);}
+#igs-chat-layer[data-igs-chat-world="scifi"] .igs-chat-time,#igs-chat-layer[data-igs-chat-world="scifi"] .igs-chat-note{color:#8fd8e8;}
+#igs-chat-layer[data-igs-chat-world="apocalypse"]{font-family:"Courier New",monospace;}
+#igs-chat-layer[data-igs-chat-world="apocalypse"] .igs-chat-head{background:rgba(48,40,32,.93);color:#e8dfcf;border:1px dashed rgba(200,150,80,.6);}
+#igs-chat-layer[data-igs-chat-world="apocalypse"] .igs-chat-bubble{box-shadow:0 0 0 1px rgba(200,150,80,.45);}
+#igs-chat-layer[data-igs-chat-world="taisho"]{font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+#igs-chat-layer[data-igs-chat-world="taisho"] .igs-chat-head{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;}
+#igs-chat-layer[data-igs-chat-world="taisho"] .igs-chat-bubble{box-shadow:0 0 0 1px rgba(123,46,42,.5);}
 #igs-overlay.igs-chat-page #igs-dialog-layer{visibility:hidden;}
 #igs-overlay.igs-record-screen-open #igs-chat-layer{display:none!important;}
 @media (prefers-reduced-motion: reduce){#igs-chat-layer .igs-chat-row.igs-chat-pop,#igs-chat-layer .igs-chat-dot{animation:none!important;}}

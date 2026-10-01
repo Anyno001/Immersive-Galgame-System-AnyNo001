@@ -32,6 +32,7 @@ import { setStagePauseReason, watchStagePause } from './stage-pause.js';
 import { playUiSfx } from './ui-sfx.js';
 import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
 import { renderPerformancePresetBar, renderPerformanceSettings } from './performance-settings-layout.js';
+import { renderWorldviewRow } from './worldview-fields.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -151,6 +152,7 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
 import { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } from './fx-result-model.js';
 import { cancelResultFx, playResultFx } from './fx-result.js';
+import { pickFxAccent } from './fx-symbols.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 import {
     applyImageCountOverride,
@@ -203,9 +205,11 @@ import { SETTINGS_NOTICE_MS, describeSettingsFailure, markSettingsButtonBusy, re
 import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
+import { createOnboardingController } from './onboarding-guide-controller.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { loadScenePresets, loadActiveScenePresetName } from '../../scene/scene-preset-store.js';
-import { applyFxEra, isAncientEra } from '../../scene/fx-era.js';
+import { applyFxWorldview } from '../../scene/fx-era.js';
+import { resolveWorldview } from '../../scene/worldview.js';
 import { loadAssetFolders } from './asset-folders.js';
 import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview, recordMoodReview } from '../../scene/mood-review-store.js';
@@ -239,6 +243,7 @@ import {
 } from './typewriter-runtime.js';
 import { TYPEWRITER_VOICE_LABELS } from './typewriter-audio.js';
 import { cancelStageShakeEffect } from './stage-shake-runtime.js';
+import { SETTINGS_SEARCH_INDEX, renderSettingsSearchResults } from './settings-search.js';
 import { advanceChatReveal, cancelChatShow } from './chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { resolveChatTheme } from './chat-themes.js';
@@ -263,6 +268,14 @@ export function createIgsReaderHost(options = {}) {
     const settingsDialogs = createSettingsDialogs({
         getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
         global: options.global || globalThis,
+    });
+    // 新手引导：会话标记与当前步骤挂在宿主实例上，状态只存独立的 localStorage 键。
+    const onboarding = createOnboardingController({
+        getStorage: () => { try { return (options.global || globalThis).localStorage || null; } catch (_) { return null; } },
+        openSettings: (tab) => openSettings({ tab, mode: state.activeReader ? state.activeReader.mode : undefined }),
+        getSettingsController: () => (state.activeSettings ? state.activeSettings.controller : null),
+        rerenderSettings: () => rerenderSettings(),
+        getDocument: () => getRootDocument(options.global),
     });
 
     const sourceCache = createReaderSourceCache({
@@ -427,6 +440,7 @@ export function createIgsReaderHost(options = {}) {
             streamObserver.stop();
         }
 
+        if (domState && domState.overlay) onboarding.syncInvite(domState.overlay);
         return {
             ok: true,
             mode: nextMode,
@@ -601,6 +615,8 @@ export function createIgsReaderHost(options = {}) {
             // 获得物品演出：只读本聊天物品图本地缓存。
             resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
             chatId: typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '',
+            // 用户角色名：直播主播名与之相同时自动切主播视角；用 getter 跟随切换角色。
+            get userName() { return String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''); },
             onDailyPhoto: saveDailyPhoto,
             onRomanceMemory: saveRomanceMemory,
         });
@@ -687,6 +703,7 @@ export function createIgsReaderHost(options = {}) {
         }
         unmountNode(current.dom && current.dom.root);
         state.activeSettings = null;
+        onboarding.onSettingsClosed();
         syncSettingsStagePause();
         playReaderUiSfx('close');
         return { ok: true };
@@ -1020,6 +1037,19 @@ export function createIgsReaderHost(options = {}) {
                 state.activeSettings.asyncState.readerSubTab = normalizeReaderSubTab(subTab);
                 return rerenderSettings();
             },
+            // 设置搜索：跳到搜索结果所在的分页 / 子页，并展开所在分组与折叠区。
+            goToSetting(id) {
+                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+                const entry = SETTINGS_SEARCH_INDEX.find((item) => item.id === id);
+                if (!entry) return { ok: false, reason: 'unknown-setting' };
+                const asyncState = state.activeSettings.asyncState;
+                state.activeSettings.tab = normalizeSettingsTab(entry.target.tab);
+                if (entry.target.readerSubTab) asyncState.readerSubTab = normalizeReaderSubTab(entry.target.readerSubTab);
+                asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}) };
+                for (const key of entry.target.open) asyncState.advancedOpen[key] = true;
+                asyncState.settingsSearch = '';
+                return rerenderSettings();
+            },
             switchSceneSettingsSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.asyncState.sceneSettingsSubTab = normalizeSceneSettingsSubTab(subTab);
@@ -1198,9 +1228,12 @@ export function createIgsReaderHost(options = {}) {
         const overlay = current.dom && current.dom.overlay;
         const plan = buildResultFxPlan(resultDetailOf(result));
         if (!overlay || !plan) return;
+        // 强调色跟随当前对话框皮肤（与物品演出同一取色链路）；取不到时卡片用默认色。
+        let accent = '';
+        try { accent = pickFxAccent(resolveChatTheme(readerSettings.dialogSkin)) || ''; } catch (error) { accent = ''; }
         let played = null;
         try {
-            played = playResultFx(overlay, plan, { reducedMotion: prefersReducedMotion(), random: options.random });
+            played = playResultFx(overlay, plan, { reducedMotion: prefersReducedMotion(), random: options.random, accent });
         } catch (error) {
             played = null;
         }
@@ -1361,6 +1394,8 @@ export function createIgsReaderHost(options = {}) {
     }
 
     async function handleSettingsAction(action) {
+        const onboardingResult = onboarding.handleAction(action);
+        if (onboardingResult) return onboardingResult;
         return runSettingsAction(action, {
             state,
             options: { ...options, openMatteEditor, openCgGallery },
@@ -1433,7 +1468,7 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'close') {
             return state.activeReader.controller.close();
         }
-        if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships'].includes(normalizedAction)) {
+        if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships', 'favor'].includes(normalizedAction)) {
             const current = state.activeReader;
             const hud = current.snapshot?.content?.statusHud;
             const settings = current.snapshot?.readerSettings;
@@ -1453,6 +1488,7 @@ export function createIgsReaderHost(options = {}) {
                 return { ok: true, expanded };
             }
             if (normalizedAction === 'map' && !hud.character && !hud.location) return { ok: false, reason: 'record-entry-not-visible' };
+            if (normalizedAction === 'favor' && !(hud.metrics || []).some(metric => /好感/.test(String(metric?.label || '')))) return { ok: false, reason: 'favor-bar-missing' };
             if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen()) return { ok: false, reason: 'panel-open' };
             if (!menu.hasAttribute('hidden')) {
                 menu.setAttribute('hidden', '');
@@ -1801,7 +1837,7 @@ export function createIgsReaderHost(options = {}) {
         return result;
     }
 
-    // 工具栏「画 CG」：先补画本楼的过场 / NSFW 插图（含重试失败的张），没有可补的再重画当前图。
+    // 工具栏「绘制 CG」：先补画本楼的过场 / NSFW 插图（含重试失败的张），没有可补的再重画当前图。
     // 素材补全是单独的「补全素材」按钮，不在这里顺带触发。
     async function generateOrRegenerate() {
         const hasCg = options.illustrations && typeof options.illustrations.processMessage === 'function';
@@ -2860,7 +2896,7 @@ export function createIgsReaderHost(options = {}) {
 
         if (tab === 'basic') {
             return renderTemplate(getSettingsTabTemplate('basic'), {
-                performancePresetBar: renderPerformancePresetBar(reader, { home: true, extraRows: renderQualityRow(reader) }),
+                performancePresetBar: renderPerformancePresetBar(reader, { home: true, extraRows: renderWorldviewRow(bridge.sceneAssets) + renderQualityRow(reader) }),
                 advancedFilterOpen: advancedOpen('source-filter'),
                 advancedRegexOpen: advancedOpen('virtual-regex'),
                 openModeField: `<div class="igs-segmented-field">${field(
@@ -2948,8 +2984,8 @@ export function createIgsReaderHost(options = {}) {
                 assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
                 autoLlmNote: esc('用于规划剧情 CG 的画面，可沿用酒馆 API 或单独配置。'),
                 adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
-                pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：轮询间隔 ms', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
-                pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：轮询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
+                pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：查询间隔（毫秒）', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
+                pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：查询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
                 imageTestActionLabel: sourceMode === 'extension' ? '检测智绘姬' : (sourceMode === 'dbgen' ? '检测并测试生成' : '测试生成'),
                 imageTestHelp: esc(asyncState.imageResult || ''),
                 autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW 自动生图'),
@@ -3073,7 +3109,13 @@ export function createIgsReaderHost(options = {}) {
             const scenesPane = `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
           <div class="igs-settings-subhead">背景场景</div>
-          <button class="igs-btn-mgr-icon" data-action="scene-add-bg" type="button" title="添加背景图">+</button>
+          <details class="igs-add-menu" data-add-menu="scenes">
+            <summary class="igs-btn-mgr-icon" title="新增背景" aria-label="新增背景">+</summary>
+            <div class="igs-add-menu-list" role="menu">
+              <button class="igs-add-menu-item" data-action="scene-add-bg" type="button" role="menuitem">新增空白场景</button>
+              <button class="igs-add-menu-item" data-action="scene-add-default-bg" type="button" role="menuitem">下载默认素材</button>
+            </div>
+          </details>
         </div>
         ${scenesHtml}
       </div>`;
@@ -3099,7 +3141,7 @@ export function createIgsReaderHost(options = {}) {
                 ? asyncState.promptRuleDraft
                 : String(sceneAssets.promptRule || '');
             const sceneValues = {
-                promptRuleField: `<div class="igs-settings-field"><textarea data-prompt-rule-draft="1" aria-label="注入提示词" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea></div>`,
+                promptRuleField: `<div class="igs-settings-field"><textarea data-prompt-rule-draft="1" aria-label="AI 格式规则" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea></div>`,
                 promptRuleStatus: esc(asyncState.promptRuleStatus || ''),
                 promptRuleOutfitHint: scenePromptRuleOutfitHint(sceneAssets.promptRule)
                     ? `<div class="igs-source-filter-note" data-result="prompt-rule-outfit">${esc(PROMPT_RULE_OUTFIT_HINT)}</div>` : '',
@@ -3109,8 +3151,6 @@ export function createIgsReaderHost(options = {}) {
                     + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入（精简写法，聊天/日常/战斗/亲密只在用得上时附完整说明）')
                     + '<div class="igs-source-filter-note">关闭后每轮发送全部已开启演出的完整说明，与旧版一致。</div></details>',
                 scenePresetBar: scenePresetBarHtml,
-                sceneEraToggle: checkbox('bridge.sceneAssets.ancient', isAncientEra(sceneAssets), '适配古代背景')
-                    + `<div class="igs-source-filter-note">随预设保存。开启后不再给 AI 提供来电、通知、线上聊天、拍照、电视、广播等现代演出，已开启的演出里的时间和器物也会按古代的说法写；通知换成家仆通报，线上聊天换成书信往来。</div>`,
                 sceneSubTabs: subTabsHtml,
                 sceneSubPane: subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane),
             };
@@ -3239,7 +3279,7 @@ export function createIgsReaderHost(options = {}) {
             dialogBgOpacityField: !dialogBgEditable ? '' : field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随玻璃'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], !themeCustom)),
         };
         if (readerSubTab === 'performance') {
-            readerValues.performanceSections = renderPerformanceSettings(reader, {
+            readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(bridge.sceneAssets),
                 typewriter: readerValues.typewriterToggle + readerValues.typewriterControls,
                 stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
                 weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
@@ -3366,6 +3406,7 @@ export function createIgsReaderHost(options = {}) {
             }
         });
         const keydownHandler = (event) => {
+            if (onboarding.keydown(event)) return;
             if (!state.activeReader) return;
             const mapPanel = state.activeReader.dom?.mapController;
             const recordPanel = state.activeReader.dom?.recordController;
@@ -3538,6 +3579,11 @@ export function createIgsReaderHost(options = {}) {
                 controller.switchReaderSubTab(readerSubTab.getAttribute('data-reader-subtab'));
                 return;
             }
+            const settingGo = event.target.closest('[data-setting-go]');
+            if (settingGo) {
+                controller.goToSetting(settingGo.getAttribute('data-setting-go'));
+                return;
+            }
             const sceneSettingsSubTab = event.target.closest('[data-scene-settings-subtab]');
             if (sceneSettingsSubTab) {
                 controller.switchSceneSettingsSubTab(sceneSettingsSubTab.getAttribute('data-scene-settings-subtab'));
@@ -3609,6 +3655,12 @@ export function createIgsReaderHost(options = {}) {
         root.addEventListener('input', (event) => {
             const target = event.target;
             if (!target || !target.getAttribute) return;
+            // 设置搜索只就地刷新结果列表，不写草稿、不整页重绘，保留输入焦点与软键盘。
+            if (target.getAttribute('data-settings-search') !== null) {
+                const list = root.querySelector('[data-settings-search-results]');
+                if (list) list.innerHTML = renderSettingsSearchResults(target.value);
+                return;
+            }
             if (target.tagName === 'SELECT') return; // change handles dependent fields once
             if (target.getAttribute('data-chat-prompt-draft') !== null) {
                 state.activeSettings.asyncState.chatPromptDraft = target.value;
@@ -3718,6 +3770,11 @@ export function createIgsReaderHost(options = {}) {
                 controller.invoke('scene-preset-apply:' + encodeURIComponent(event.target.value));
                 return;
             }
+            // 一键档位条的「适配世界」下拉：转成 worldview:<id> 动作，未就绪的世界观由动作层拒绝。
+            if (event.target && event.target.getAttribute && event.target.getAttribute('data-worldview-select') !== null) {
+                controller.invoke('worldview:' + String(event.target.value || ''));
+                return;
+            }
             const target = event.target;
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
             if (event.target && event.target.type === 'range' && !/^readerSettings\.typewriter\.sound\./.test(path || '')) return;
@@ -3733,6 +3790,7 @@ export function createIgsReaderHost(options = {}) {
             asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}), [key]: target.open === true };
         }, true);
         root.addEventListener('keydown', (event) => {
+            if (onboarding.keydown(event, doc)) return;
             if (event.key === 'Escape') {
                 event.preventDefault();
                 controller.close();
@@ -3776,6 +3834,8 @@ export function createIgsReaderHost(options = {}) {
             // 获得物品演出：只读本聊天物品图本地缓存。
             resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
             chatId: typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '',
+            // 用户角色名：直播主播名与之相同时自动切主播视角；用 getter 跟随切换角色。
+            get userName() { return String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''); },
             onDailyPhoto: saveDailyPhoto,
             onRomanceMemory: saveRomanceMemory,
         });
@@ -3967,6 +4027,7 @@ export function createIgsReaderHost(options = {}) {
         restoreSettingsFocus(container, focus);
         remountSettingsNotice(container, current.notice);
         settingsDialogs.remount(container);
+        onboarding.mountInSettings(container);
     }
 
     // 保存失败或动作抛异常时在面板内提示原因；面板重绘时由 updateMountedSettings 补回。
@@ -3989,10 +4050,12 @@ export function createIgsReaderHost(options = {}) {
 
 
     function attachBridgeReaderExtras(readerSettings, bridge) {
-        // readerSettings 是每次新克隆的快照，按时代拨掉现代专属演出不会写回存档。
-        Object.assign(readerSettings, applyFxEra(readerSettings, isAncientEra(bridge.sceneAssets)));
-        // 演出与聊天层据此切换古风画面（家仆通报、书信往来）。
-        readerSettings._ancientEra = isAncientEra(bridge.sceneAssets);
+        // readerSettings 是每次新克隆的快照，按世界观拨掉冲突演出不会写回存档。
+        const worldview = resolveWorldview(bridge.sceneAssets);
+        Object.assign(readerSettings, applyFxWorldview(readerSettings, worldview));
+        // 演出与聊天层据此换皮：_ancientEra 保留给既有古风分支，_worldview 供西幻 / 科幻 / 末日换皮。
+        readerSettings._ancientEra = worldview === 'ancient';
+        readerSettings._worldview = worldview;
         readerSettings._sceneAssets = bridge.sceneAssets || null;
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
         readerSettings._vnTheme = readerSettings.vnTheme || null;

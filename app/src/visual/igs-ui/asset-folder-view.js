@@ -24,7 +24,9 @@ function tile(kind, name, url, kindState) {
     const thumb = u
         ? `<img class="igs-asset-tile-thumb" src="${esc(u)}" loading="lazy" alt="${esc(name)}" data-action="sprite-preview:${encSeg(u)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : '<div class="igs-asset-tile-thumb igs-asset-tile-empty">未配置</div>';
-    return `<div class="igs-asset-tile">${thumb}<div class="igs-asset-tile-name" title="${esc(name)}">${esc(name)}</div>${renderAssetFolderSelect(kind, name, kindState)}</div>`;
+    // 缩略图模式的「修改」入口：由 asset-edit 动作切回列表并展开该条目，不改动素材数据。
+    const edit = `<button type="button" class="igs-btn-mgr-icon igs-asset-tile-edit" data-action="asset-edit:${kind}:${encSeg(name)}" title="修改" aria-label="修改 ${esc(name)}">${PENCIL}</button>`;
+    return `<div class="igs-asset-tile">${thumb}<div class="igs-asset-tile-head"><div class="igs-asset-tile-name" title="${esc(name)}">${esc(name)}</div>${edit}</div>${renderAssetFolderSelect(kind, name, kindState)}</div>`;
 }
 
 // 只改变素材的展示方式；renderList 仍用原来的列表渲染器，数据原样传入。

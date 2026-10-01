@@ -19,18 +19,33 @@ function toneOfTier(tierName, success) {
     return success ? 'success' : 'fail';
 }
 
-function reel(label, value, sub) {
+// 成功档位只在成功或大失败时给出，供定格演出区分轻重；失败不分档。
+const TIER_KEYS = Object.freeze({ 大成功: 'crit', 极难成功: 'extreme', 困难成功: 'hard', 普通成功: 'regular' });
+
+function tierKeyOf(tierName, success) {
+    if (tierName === '大失败') return 'fumble';
+    return success ? (TIER_KEYS[tierName] || '') : '';
+}
+
+function contestOutcome(winner, own) {
+    if (winner === 'tie') return 'tie';
+    if (winner === 'left' || winner === 'right') return winner === own ? 'win' : 'lose';
+    return '';
+}
+
+function reel(label, value, sub, outcome = '') {
     const number = Number(value);
     return {
         label: String(label || ''),
         value: Number.isFinite(number) ? number : null,
         sub: String(sub || ''),
+        ...(outcome ? { outcome } : {}),
     };
 }
 
-function side(part) {
+function side(part, outcome) {
     const source = part && typeof part === 'object' ? part : {};
-    return reel(`${source.name || ''}·${source.attribute || ''}`, source.roll, `目标${source.target ?? ''} · ${source.tier || ''}`);
+    return reel(`${source.name || ''}·${source.attribute || ''}`, source.roll, `目标${source.target ?? ''} · ${source.tier || ''}`, outcome);
 }
 
 // 返回 null 表示明细不完整，调用方不播放（不编造数字）。
@@ -57,13 +72,14 @@ export function buildResultFxPlan(detail) {
             reels: [face],
             verdict: String(detail.outcome || ''),
             tone: toneOfTier(detail.tier, detail.success === true),
+            tier: tierKeyOf(detail.tier, detail.success === true),
             rollMs: RESULT_FX_ROLL_MS,
             holdMs: RESULT_FX_HOLD_MS,
         };
     }
     if (detail.kind === 'contest') {
-        const left = side(detail.left);
-        const right = side(detail.right);
+        const left = side(detail.left, contestOutcome(detail.winner, 'left'));
+        const right = side(detail.right, contestOutcome(detail.winner, 'right'));
         if (left.value === null || right.value === null) return null;
         const tone = detail.winner === 'left' ? 'success' : detail.winner === 'tie' ? 'tie' : 'fail';
         return {

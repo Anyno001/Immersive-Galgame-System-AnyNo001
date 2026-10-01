@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+body{margin:0;background:#222;font-family:sans-serif;color:#ddd}
+.stage-wrap{position:relative;width:1280px;height:720px;overflow:hidden;margin:0 0 12px}
+#igs-stage-motion{position:absolute;inset:0;background:linear-gradient(160deg,#6b7fa8,#2c3350)}
+.igs-dialog{position:absolute;left:12%;right:12%;bottom:18px;height:150px;border-radius:14px;background:rgba(20,22,30,.75)}
+#igs-status-hud{position:absolute;top:14px;left:12px;width:300px;height:92px;border-radius:12px;background:rgba(0,0,0,.35)}
+.grid{display:flex;gap:28px;padding:20px;background:#15161a;flex-wrap:wrap;width:1240px}
+.cell{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px}
+.cell .ico{width:48px;height:48px;color:#fff;display:flex}
+.cell .ico svg{width:100%;height:100%}
+</style></head><body>
+<div class="stage-wrap" id="live"></div>
+<div class="stage-wrap" id="aud"></div>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { DANMAKU_STYLE_TEXT } from '/src/visual/igs-ui/danmaku-style.js';
+import { FX_STYLE_TEXT } from '/src/visual/igs-ui/fx-style.js';
+import { applyDanmakuToDom } from '/src/visual/igs-ui/danmaku-runtime.js';
+import { LIVE_ICONS } from '/src/visual/igs-ui/danmaku-icons.js';
+const style = document.createElement('style');
+style.textContent = FX_STYLE_TEXT + DANMAKU_STYLE_TEXT;
+document.head.appendChild(style);
+function stage(host) {
+  host.innerHTML = '<div id="igs-overlay" style="position:absolute;inset:0"><div id="igs-status-hud"></div><div id="igs-stage-motion"><div id="igs-bg"></div><div id="igs-sprite"></div><div id="igs-click-layer"></div><div id="igs-dialog-layer"><div class="igs-dialog"></div></div></div></div>';
+  return host.querySelector('#igs-overlay');
+}
+const noAnim = document.createElement('style');
+noAnim.textContent = '*,*::before,*::after{animation-delay:-10s!important;animation-duration:0s!important}';
+const rng = (() => { let i = 0; const v = [0.5, 0.8, 0.2, 0.9, 0.6, 0.3, 0.7]; return () => v[i++ % v.length]; })();
+const live = stage(document.getElementById('live'));
+const dms = [
+  { user: '路过的咸鱼', text: '主播今天好漂亮', type: 'text', extra: '' },
+  { user: '单推团子', text: '晚上能唱那首歌吗', type: 'sc', extra: '100' },
+  { user: '熬夜的橘猫', text: '辣条', type: 'gift', extra: '10' },
+  { user: '一只企鹅', text: '', type: 'guard', extra: '舰长' },
+];
+applyDanmakuToDom(live, { messageId: 1, content: { currentIndex: 0, textType: 'dialogue', speaker: '爱丽丝', fx: { live: { name: '爱丽丝', title: '深夜杂谈', view: 'watch' }, dms } }, readerSettings: { liveFx: { enabled: true } } }, { rng, reducedMotion: false });
+const aud = stage(document.getElementById('aud'));
+const fx = { danmaku: [{ lines: ['前方高能', '啊啊啊'], style: 'top' }, { lines: ['好甜', '民政局我搬来了', '给我锁死'], style: 'scroll' }] };
+applyDanmakuToDom(aud, { messageId: 2, content: { currentIndex: 1, textType: 'dialogue', speaker: '爱丽丝', sceneLocation: '天台', segments: [1, 2, 3], fx }, readerSettings: { audienceFx: { enabled: true, ambient: true, entrySize: 'large' } } }, { rng, reducedMotion: false });
+const grid = document.getElementById('grid');
+for (const [name, html] of Object.entries(LIVE_ICONS)) {
+  grid.insertAdjacentHTML('beforeend', `<div class="cell"><div class="ico">${html}</div>${name}</div>`);
+}
+setTimeout(() => {
+  const entry = aud.querySelector('.igs-aud-entry');
+  grid.insertAdjacentHTML('beforeend', `<div class="cell"><div class="ico" style="width:96px;height:96px">${entry.innerHTML}</div>entry x2.5</div>`);
+  entry.click();
+  setTimeout(() => { document.head.appendChild(noAnim); document.title = 'ready'; }, 1500);
+}, 3500);
+</script></body></html>

@@ -821,3 +821,35 @@ test('gate:fx-runtime:ancient-era-light-off-blows-out-a-candle', () => {
     assert.match(FX_STYLE_TEXT, /prefers-reduced-motion: reduce\)\{\.igs-fx-candle\{display:none/);
 });
 
+
+
+test('gate:fx-runtime:world-skin-notify-marks-class-sound-and-style-per-worldview', async () => {
+    const { WORLD_SKIN_IDS } = await import('../src/scene/worldview.js');
+    assert.deepEqual([...WORLD_SKIN_IDS].sort(), ['apocalypse', 'fantasy', 'scifi', 'taisho']);
+    const fx = { instants: [{ kind: 'notify', sender: '信使', text: '有客到' }], call: null, flashback: false, dream: false, letterbox: false };
+    for (const id of WORLD_SKIN_IDS) {
+        const { root, motion } = makeRoot();
+        const timers = clock();
+        const sounds = [];
+        const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, audioScheduler: (job) => { sounds.push(job.kind); return null; } };
+        applyFxToDom(root, snapshot({ fx }, { fxTags: { enabled: true }, _worldview: id }), opts);
+        const el = motion.querySelector('#igs-fx-front').querySelector('.igs-fx-notify');
+        assert.ok(el, id);
+        assert.ok(el.className.split(/\s+/).includes(`is-${id}`), id);
+        assert.equal(el.className.includes('is-ancient'), false, id);
+        assert.equal(el.children[0].textContent, '信使', `${id}: no ancient seal`);
+        assert.ok(!motion.getAttribute('data-igs-fx-era'), id);
+        assert.deepEqual(sounds, [`notify-${id}`], id);
+        assert.ok(FX_SFX_PARTIALS[`notify-${id}`].length > 0, id);
+        for (const kind of ['notify', 'title-card', 'promise']) assert.ok(FX_STYLE_TEXT.includes(`.igs-fx-${kind}.is-${id}{`), `${id} ${kind}`);
+        cancelFxEffects(root);
+    }
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    applyFxToDom(root, snapshot({ fx }, { fxTags: { enabled: true }, _worldview: 'modern' }), { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, audioScheduler: () => null });
+    const modern = motion.querySelector('#igs-fx-front').querySelector('.igs-fx-notify');
+    const modernClasses = String(modern.className).split(/\s+/);
+    assert.ok(modernClasses.includes('igs-fx-notify'));
+    for (const id of [...WORLD_SKIN_IDS, 'ancient']) assert.equal(modernClasses.includes(`is-${id}`), false, `modern notify carries no is-${id}`);
+    cancelFxEffects(root);
+});

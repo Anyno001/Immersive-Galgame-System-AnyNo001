@@ -54,6 +54,7 @@ export function renderItemFx(root, snapshot, ctx = {}) {
         clear: ctx.clear,
         accent,
         ancient: readerSettings._ancientEra === true,
+        worldview: String(readerSettings._worldview || ''),
         onCard: (card) => play(`item-${card.action}`),
         onShowcase: () => play('item-rare'),
     });

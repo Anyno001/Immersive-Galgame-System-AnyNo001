@@ -25,7 +25,16 @@ const mapped = compiled.replace(MAP_ASSET_RE, (_match, dir, file) => {
     return `./maps/${file}`;
 });
 if (!mapAssets.has('map-demo-clean-night.png')) throw new Error('Map image path is missing from bundle.');
-const skinAssets = await externalizeSkinAssets(mapped, { srcRoot, distRoot });
+// 默认背景素材包：源码以 new URL('../../assets/backgrounds/<文件名>', import.meta.url) 引用，统一改写为 ./backgrounds/<文件名> 并复制到 dist/backgrounds/。
+const BACKGROUND_ASSET_RE = /(?:\.\.?\/)+assets\/backgrounds\/([\w.-]+\.webp)/g;
+const backgroundSourceDir = path.join(appRoot, 'assets', 'backgrounds');
+const backgroundAssets = new Set();
+const withBackgrounds = mapped.replace(BACKGROUND_ASSET_RE, (_match, file) => {
+    backgroundAssets.add(file);
+    return `./backgrounds/${file}`;
+});
+if (!backgroundAssets.size) throw new Error('Default background pack images are missing from bundle.');
+const skinAssets = await externalizeSkinAssets(withBackgrounds, { srcRoot, distRoot });
 const bundle = inlineTypewriterAudio(skinAssets.bundle);
 
 const roundedFontWeights = [300, 400, 500, 700];
@@ -136,6 +145,18 @@ for (const variant of ['dawn', 'day', 'dusk', 'night', 'minight']) {
 for (const [file, source] of mapAssets) {
     if (!fs.existsSync(source)) throw new Error(`Bundled map image is missing: ${source}`);
     fs.copyFileSync(source, path.join(mapTargetDir, file));
+}
+// 默认背景素材包：只复制 bundle 实际引用的 webp，并校验文件签名与 jsDelivr 单文件上限。
+const backgroundTargetDir = path.join(distRoot, 'backgrounds');
+fs.rmSync(backgroundTargetDir, { recursive: true, force: true });
+fs.mkdirSync(backgroundTargetDir, { recursive: true });
+for (const file of backgroundAssets) {
+    const source = path.join(backgroundSourceDir, file);
+    if (!fs.existsSync(source)) throw new Error(`Default background image is missing: ${source}`);
+    const head = fs.readFileSync(source).subarray(0, 12);
+    if (head.toString('latin1', 0, 4) !== 'RIFF' || head.toString('latin1', 8, 12) !== 'WEBP') throw new Error(`Default background image is not webp: ${source}`);
+    if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Default background image exceeds the jsDelivr file limit: ${source}`);
+    fs.copyFileSync(source, path.join(backgroundTargetDir, file));
 }
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.debug.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), await minifyBundle(bundle), 'utf8');

@@ -20,6 +20,13 @@ export const DANMAKU_ENTRY_SIZES = Object.freeze(['small', 'medium', 'large']);
 export const DANMAKU_SPEED_SECONDS = Object.freeze({ slow: 9, medium: 7, fast: 5 });
 export const INNER_DANMAKU_MOODS = Object.freeze(['love', 'panic', 'anger', 'guilty']);
 export const INNER_DANMAKU_MOOD_LABELS = Object.freeze({ love: '心动', panic: '慌乱', anger: '生气', guilty: '心虚' });
+// 内心弹幕样式：burst 在立绘头部周围冒出后一起碎掉（原样式，默认）；fly 沿轨道从右往左横飞穿过舞台上部。
+export const INNER_DANMAKU_STYLES = Object.freeze(['burst', 'fly']);
+export const INNER_DANMAKU_STYLE_LABELS = Object.freeze({ burst: '爆发', fly: '横飞' });
+// 直播间形态：phone 掏出手机看竖屏直播（原样式，默认）；full 直接铺满舞台的全屏直播。
+export const LIVE_LAYOUTS = Object.freeze(['phone', 'full']);
+// 直播弹幕：roll 左下角列表向上翻滚（默认）；fly 沿轨道横飞穿过画面；both 两者同时。
+export const LIVE_CHAT_MODES = Object.freeze(['roll', 'fly', 'both']);
 
 const freezeList = (list) => Object.freeze(list.slice());
 
@@ -43,7 +50,14 @@ function pick(list, value, fallback) {
 
 export function normalizeLiveFxSettings(value) {
     const src = plain(value);
-    return { enabled: src.enabled === true, muteOnNsfw: src.muteOnNsfw !== false };
+    return {
+        enabled: src.enabled === true,
+        muteOnNsfw: src.muteOnNsfw !== false,
+        layout: pick(LIVE_LAYOUTS, src.layout, 'phone'),
+        chat: pick(LIVE_CHAT_MODES, src.chat, 'roll'),
+        // 跟随对话框主题：沿用线上交流的主题色板（默认关，保持 B 站深色）。
+        followTheme: src.followTheme === true,
+    };
 }
 
 export function normalizeAudienceFxSettings(value) {
@@ -62,7 +76,11 @@ export function normalizeAudienceFxSettings(value) {
 
 export function normalizeInnerFxSettings(value) {
     const src = plain(value);
-    const out = { enabled: src.enabled === true, useThought: src.useThought !== false };
+    const out = {
+        enabled: src.enabled === true,
+        useThought: src.useThought !== false,
+        style: pick(INNER_DANMAKU_STYLES, src.style, 'burst'),
+    };
     for (const mood of INNER_DANMAKU_MOODS) out[mood] = normalizeEmotionList(src[mood], INNER_DANMAKU_DEFAULT_EMOTIONS[mood]);
     return out;
 }

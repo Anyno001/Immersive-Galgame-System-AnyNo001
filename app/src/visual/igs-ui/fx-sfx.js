@@ -39,6 +39,29 @@ export const FX_SFX_PARTIALS = Object.freeze({
         p('triangle', 1250, 960, start, 0.07, 0.8, { attack: 0.001, sweep: 1 }),
         p('sine', 620, 540, start, 0.1, 0.45, { attack: 0.001, sweep: 1 }),
     ])),
+    // 西幻通报：手摇铜铃「叮铃」两下，基音叠高次泛音，余韵较长。
+    'notify-fantasy': Object.freeze([0, 0.22].flatMap((start) => [
+        p('triangle', 1568, 1568, start, 0.42, 0.42, { attack: 0.002 }),
+        p('sine', 3136, 3136, start, 0.24, 0.16, { attack: 0.002 }),
+        p('sine', 4186, 4186, start, 0.12, 0.08, { attack: 0.001 }),
+    ])),
+    // 科幻通报：终端数字提示音，两声上扬短扫频。
+    'notify-scifi': Object.freeze([
+        p('sine', 880, 1320, 0, 0.08, 0.45, { attack: 0.002, sweep: 1 }),
+        p('sine', 1320, 1980, 0.11, 0.1, 0.45, { attack: 0.002, sweep: 1 }),
+        p('triangle', 1980, 1980, 0.21, 0.12, 0.18, { attack: 0.002 }),
+    ]),
+    // 末日通报：对讲机按键后的一段静电杂音，接一声短哔。
+    'notify-apocalypse': Object.freeze([
+        p('noise', 2200, 1600, 0, 0.22, 0.5, { filter: 'bandpass', q: 1.2, attack: 0.004, sweep: 1 }),
+        p('sine', 1000, 1000, 0.24, 0.12, 0.42, { attack: 0.003 }),
+    ]),
+    // 大正通报：老式座机的机械电铃，短促连击一阵。
+    'notify-taisho': Object.freeze(Array.from({ length: 6 }, (_, i) => [
+        p('triangle', 1760, 1760, i * 0.06, 0.05, 0.4, { attack: 0.001 }),
+        p('sine', 2637, 2637, i * 0.06, 0.04, 0.16, { attack: 0.001 }),
+    ]).flat()),
+
     heartbeat: Object.freeze([
         p('sine', 70, 48, 0, 0.16, 1, { attack: 0.004, sweep: 1 }),
         p('sine', 64, 44, 0.2, 0.2, 0.8, { attack: 0.004, sweep: 1 }),

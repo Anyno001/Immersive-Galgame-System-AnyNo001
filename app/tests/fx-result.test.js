@@ -80,3 +80,19 @@ test('gate:fx-result rolling frames always end on the real value', () => {
     for (const value of frames) assert.ok(value >= 1 && value <= 100);
     assert.deepEqual(rollingFrames(42, 1), [42]);
 });
+
+
+test('gate:fx-result plan carries success tier and contest reel outcomes', async () => {
+    const hard = buildResultFxPlan((await resolveDiceCommand('检定 陈屿 照顾 难度=困难', mockAcuDice(), {})).detail);
+    assert.equal(hard.tier, 'hard');
+    const crit = buildResultFxPlan((await resolveDiceCommand('检定 A 力量', mockAcuDice({ roll: 3 }), {})).detail);
+    assert.equal(crit.tier, 'crit');
+    const fumble = buildResultFxPlan((await resolveDiceCommand('检定 A 力量', mockAcuDice({ roll: 99 }), {})).detail);
+    assert.equal(fumble.tier, 'fumble');
+    const fail = buildResultFxPlan((await resolveDiceCommand('检定 A 力量', mockAcuDice({ roll: 80 }), {})).detail);
+    assert.equal(fail.tier, '', '普通失败不分档');
+    const contest = buildResultFxPlan((await resolveDiceCommand('对抗 林晚 理智 vs 白墨 察言观色', mockAcuDice({ attr: 50, left: 38, right: 8 }), {})).detail);
+    assert.deepEqual(contest.reels.map((reel) => reel.outcome), ['lose', 'win']);
+    const fixed = buildResultFxPlan(resultDetailOf(await resolveDiceCommand('必成', null, {})));
+    assert.equal(fixed.tier, undefined);
+});

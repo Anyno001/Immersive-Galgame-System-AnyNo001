@@ -23,7 +23,8 @@ import { resolveDanmakuPromptRule } from '../visual/igs-ui/danmaku-prompt.js';
 import { resolveTextFxPromptRule } from '../visual/igs-ui/text-fx.js';
 import { resolveDailyFxPromptRule } from '../visual/igs-ui/fx-daily-prompt.js';
 import { beginMetaDigestSend, clearMetaDigest, finishMetaDigestSend, onMetaDigestChange, resolveMetaDigestRule } from '../visual/igs-ui/meta-digest.js';
-import { ANCIENT_ERA_PROMPT_RULE, applyFxEra, isAncientEra } from '../scene/fx-era.js';
+import { applyFxWorldview, resolveWorldviewPromptRule } from '../scene/fx-era.js';
+import { resolveWorldview } from '../scene/worldview.js';
 import { resolveBattleFxPromptRule } from '../visual/igs-ui/fx-battle-model.js';
 import { createEventBus } from './event-bus.js';
 import { createMagicWandEntry } from '../host/magic-wand-entry.js';
@@ -47,7 +48,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.32.13';
+const IGS_VERSION = '0.33.0';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -494,14 +495,16 @@ export function bootstrapIGS(options = {}) {
     function syncSceneAssetsInjection(generationType = null) {
         const unified = getUnifiedSettingsSnapshot();
         const sceneAssets = unified.bridge && unified.bridge.sceneAssets;
-        // 古代背景：现代专属演出的开关在这里拨成关，AI 不会收到它们的语法说明。
-        const ancient = isAncientEra(sceneAssets);
-        const readerSettings = applyFxEra(unified.readerSettings, ancient);
+        // 世界观：与之冲突的演出开关在这里拨成关，AI 不会收到它们的语法说明；时代规则按世界观追加（现代为空）。
+        const worldview = resolveWorldview(sceneAssets);
+        const ancient = worldview === 'ancient';
+        const eraRule = resolveWorldviewPromptRule(worldview);
+        const readerSettings = applyFxWorldview(unified.readerSettings, worldview);
         const placement = normalizePromptPlacement(sceneAssets && sceneAssets.promptPlacement);
         // 交互摘要：只在有待送出的事件时注入，生成结束后清空（见 attachMetaDigestSync）。
         const metaDigestRule = resolveMetaDigestRule(readerSettings && readerSettings.metaFx);
         if (sceneAssets && sceneAssets.promptAdaptive === false) {
-            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, placement, metaDigestRule });
+            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule });
         }
         if (generationType === 'impersonate' || generationType === 'quiet') {
             promptInjector.clear();
@@ -514,7 +517,7 @@ export function bootstrapIGS(options = {}) {
             sceneRule: sceneOn ? resolvePromptRuleContent(sceneAssets, { compact: true, presentText: promptContext.presentText }) : '',
             ancient,
             expand: detectPromptTriggers(promptContext),
-            tailRules: ancient ? [ANCIENT_ERA_PROMPT_RULE] : [],
+            tailRules: eraRule ? [eraRule] : [],
             dynamicRules: metaDigestRule ? [metaDigestRule] : [],
             moodWord: firstMoodWord(sceneAssets),
         });
@@ -527,7 +530,7 @@ export function bootstrapIGS(options = {}) {
     }
 
     // 关闭按需注入时的旧行为：各块完整拼接；未自定义的场景规则用改版前的长版原文。
-    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, placement, metaDigestRule }) {
+    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule }) {
         const rules = [];
         if (sceneAssets && sceneAssets.enabled && sceneAssets.promptRule) {
             const promptRule = sceneAssets.promptRule === DEFAULT_SCENE_PROMPT_RULE ? LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 : sceneAssets.promptRule;
@@ -553,7 +556,7 @@ export function bootstrapIGS(options = {}) {
         if (danmakuRule) rules.push(danmakuRule);
         const split = placement === 'system';
         if (metaDigestRule && !split) rules.push(metaDigestRule);
-        if (rules.length && ancient) rules.push(ANCIENT_ERA_PROMPT_RULE);
+        if (rules.length && eraRule) rules.push(eraRule);
         if (!rules.length) {
             promptInjector.clear();
             return { ok: true, reason: 'scene-assets-disabled' };

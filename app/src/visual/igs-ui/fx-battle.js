@@ -1,3 +1,5 @@
+import { worldSkinOf } from '../../scene/worldview.js';
+
 // 战斗演出 DOM 层：遭遇、出招、结算挂在 fx 前层（对话层之上），对手名牌与战斗暗角挂在 fx 后层。
 // 同一身份（消息|swipe|页）重绘不重播；名牌、暗角与黑边跟随当前页的战斗区间状态；计时器与立绘动画统一回收。
 // 演出播放期间前层铺一块透明点击层：点一下跳到结算，这次点击不翻页。
@@ -17,6 +19,7 @@ const EVENT_CLASSES = '.igs-fx-battle-encounter, .igs-fx-battle-hit, .igs-fx-bat
 const ANCIENT_HIT_LABELS = Object.freeze({ hit: '命中', crit: '暴击', miss: '闪避', guard: '格挡', ko: '击倒', heal: '疗伤' });
 const ANCIENT_RESULT_GLYPHS = Object.freeze({ win: '胜', lose: '败', escape: '遁' });
 const eraClass = (className, ancient) => (ancient ? `${className} is-ancient` : className);
+// 换皮世界观（worldSkinOf）：在现代节点上追加 is-<id> 换皮，时间轴、文案与音效不变。
 const SHIELD_SVG = '<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true"><polygon points="50,4 90,27 90,73 50,96 10,73 10,27" fill="none" stroke="currentColor" stroke-width="4"/><polygon points="50,18 78,34 78,66 50,82 22,66 22,34" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="2" stroke-opacity=".7"/></svg>';
 
 // 立绘受击反应：与舞台调度的立绘动作一样以 composite:add 叠加，不覆盖立绘自身的 transform / filter。
@@ -231,7 +234,7 @@ function placeImpact(node, event, motion, sprite) {
     impact.style.top = `${point.y}px`;
 }
 
-function syncPlate(state, layers, plan, ancient) {
+function syncPlate(state, layers, plan, ancient, worldSkin = '') {
     const plate = plan.plate;
     if (plan.letterbox) layers.motion.setAttribute(LETTERBOX_ATTR, '1');
     else layers.motion.removeAttribute(LETTERBOX_ATTR);
@@ -252,14 +255,15 @@ function syncPlate(state, layers, plan, ancient) {
         state.plate.setAttribute('aria-hidden', 'true');
         front.appendChild(state.plate);
     }
-    const vignetteClass = eraClass('igs-fx-battle-vignette', ancient);
+    const skin = worldSkin ? ` is-${worldSkin}` : '';
+    const vignetteClass = eraClass('igs-fx-battle-vignette', ancient) + skin;
     if (state.vignette.className !== vignetteClass) state.vignette.className = vignetteClass;
     const label = [plate.foe || '战斗中', plate.title].filter(Boolean).join(' · ');
-    const era = ancient ? 'ancient' : 'modern';
+    const era = ancient ? 'ancient' : (worldSkin || 'modern');
     if (state.plate.getAttribute('data-igs-battle-label') !== label || state.plate.getAttribute('data-igs-battle-era') !== era) {
         state.plate.setAttribute('data-igs-battle-label', label);
         state.plate.setAttribute('data-igs-battle-era', era);
-        state.plate.className = eraClass('igs-fx-battle-plate', ancient);
+        state.plate.className = eraClass('igs-fx-battle-plate', ancient) + skin;
         state.plate.textContent = '';
         state.plate.appendChild(el(doc, 'span', 'igs-fx-battle-plate-mark', ancient ? '战' : 'VS'));
         state.plate.appendChild(el(doc, 'span', 'igs-fx-battle-plate-name', label));
@@ -280,7 +284,8 @@ export function applyBattleFxToDom(root, plan, options = {}) {
     if (options.motion === 'snappy') layers.motion.setAttribute(MOTION_ATTR, 'snappy');
     else layers.motion.removeAttribute(MOTION_ATTR);
     const ancient = options.ancient === true;
-    syncPlate(state, layers, plan, ancient);
+    const worldSkin = ancient ? '' : worldSkinOf(options.worldview);
+    syncPlate(state, layers, plan, ancient, worldSkin);
     const key = plan.identity ? battleFxIdentity(plan.identity) : '';
     if (key && state.key === key) return { played: false, reason: 'same-page' };
     // 换页即收掉上一页未播完的出招，即使本页没有新演出。
@@ -300,6 +305,7 @@ export function applyBattleFxToDom(root, plan, options = {}) {
         else if (event.type === 'hit') node = buildHit(doc, event, ancient);
         else node = buildResult(doc, event, ancient);
         setVar(node, '--igs-battle-life', `${life}ms`);
+        if (worldSkin) node.className = `${node.className} is-${worldSkin}`;
         if (reduced) node.setAttribute('data-igs-fx-static', '1');
         if (event.type !== 'hit') holdShow(state, life);
         if (event.type === 'hit' && event.targetKind === 'foe' && event.portrait) {
@@ -446,6 +452,18 @@ export const BATTLE_FX_STYLE_TEXT = `
 .igs-fx-battle-result[data-igs-battle-result="lose"] .igs-fx-battle-ribbon-title{color:#ff5a5a;text-shadow:3px 3px 0 #000,0 0 22px rgba(200,20,30,.6);}
 .igs-fx-battle-result[data-igs-battle-result="escape"] .igs-fx-battle-ribbon{border-color:#8fb4d8;}
 .igs-fx-battle-result[data-igs-battle-result="escape"] .igs-fx-battle-ribbon-title{color:#cfe3f5;text-shadow:3px 3px 0 #000;}
+.igs-fx-battle-vignette.is-fantasy{background:radial-gradient(ellipse at center,transparent 50%,rgba(40,24,8,.45) 100%);}
+.igs-fx-battle-vignette.is-scifi{background:radial-gradient(ellipse at center,transparent 50%,rgba(4,30,46,.5) 100%);}
+.igs-fx-battle-vignette.is-apocalypse{background:radial-gradient(ellipse at center,transparent 45%,rgba(30,24,16,.55) 100%);}
+.igs-fx-battle-plate.is-fantasy{border:1px solid #9c7a46;background:linear-gradient(180deg,#efe2c2,#e2d0a6);color:#3a2614;font-family:Georgia,"Times New Roman",serif;}
+.igs-fx-battle-plate.is-scifi{border:1px solid rgba(80,220,255,.7);background:rgba(8,24,36,.9);color:#d8fbff;box-shadow:0 0 12px rgba(60,200,255,.45);}
+.igs-fx-battle-plate.is-apocalypse{border:1px dashed rgba(200,150,80,.6);background:rgba(48,40,32,.93);color:#e8dfcf;font-family:"Courier New",monospace;}
+.igs-fx-battle-encounter.is-fantasy .igs-fx-battle-vs,.igs-fx-battle-hit.is-fantasy .igs-fx-battle-skill,.igs-fx-battle-result.is-fantasy .igs-fx-battle-ribbon{font-family:Georgia,"Times New Roman",serif;}
+.igs-fx-battle-encounter.is-scifi .igs-fx-battle-vs,.igs-fx-battle-hit.is-scifi .igs-fx-battle-skill,.igs-fx-battle-result.is-scifi .igs-fx-battle-ribbon{letter-spacing:.08em;filter:drop-shadow(0 0 8px rgba(60,200,255,.7));}
+.igs-fx-battle-encounter.is-apocalypse .igs-fx-battle-vs,.igs-fx-battle-hit.is-apocalypse .igs-fx-battle-skill,.igs-fx-battle-result.is-apocalypse .igs-fx-battle-ribbon{font-family:"Courier New",monospace;filter:sepia(.35) saturate(.8);}
+.igs-fx-battle-vignette.is-taisho{background:radial-gradient(ellipse at center,transparent 50%,rgba(50,16,12,.45) 100%);}
+.igs-fx-battle-plate.is-taisho{border:1px solid #7b2e2a;background:linear-gradient(180deg,#f4ead6,#e8dabb);color:#2a1c18;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+.igs-fx-battle-encounter.is-taisho .igs-fx-battle-vs,.igs-fx-battle-hit.is-taisho .igs-fx-battle-skill,.igs-fx-battle-result.is-taisho .igs-fx-battle-ribbon{font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;filter:sepia(.25);}
 .igs-fx-battle-vignette.is-ancient{background:radial-gradient(ellipse at center,transparent 50%,rgba(26,18,12,.42) 100%);}
 .igs-fx-battle-plate.is-ancient{padding:4px 16px 4px 5px;border:1px solid rgba(43,29,18,.8);border-radius:2px;background:linear-gradient(180deg,#f6ecd4,#e9dab4);color:#1a120c;box-shadow:0 3px 12px rgba(26,18,12,.35);font-family:"STKaiti","KaiTi","Kaiti SC","楷体",serif;font-size:16px;letter-spacing:.12em;}
 .igs-fx-battle-plate.is-ancient .igs-fx-battle-plate-mark{padding:1px 4px;border-radius:2px;background:#b8452f;color:#f6ecd4;font-size:13px;font-weight:400;font-style:normal;box-shadow:inset 0 0 0 1px rgba(246,236,212,.7);}

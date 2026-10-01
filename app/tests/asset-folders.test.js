@@ -79,6 +79,11 @@ test('asset-folder-view: list keeps original renderer, grid shows thumbnails', (
     assert.match(grid, /igs-asset-tile-thumb" src="https:\/\/example\.com\/a\.png"/);
     assert.match(grid, /未配置/);
     assert.match(grid, /data-asset-folder-move="scenes" data-asset-name="教室"/);
+    // 缩略图卡片提供「修改」入口，列表模式不重复渲染。
+    assert.match(grid, /data-action="asset-edit:scenes:%E6%95%99%E5%AE%A4"/);
+    assert.match(grid, /aria-label="修改 教室"/);
+    assert.doesNotMatch(plain, /asset-edit:/);
+
 
     const collapsed = renderAssetFolderView('scenes', entries, { state: toggleAssetFolder(state, 'scenes', '学校'), renderList, thumbOf: (n, v) => v });
     assert.doesNotMatch(collapsed, /src="https:\/\/example\.com\/a\.png"/);

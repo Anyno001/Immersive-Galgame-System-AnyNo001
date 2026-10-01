@@ -971,7 +971,7 @@ test('gate:igs-ui:settings-style-keeps-material-language', () => {
     assert.match(styleText, /#igs-unified-settings::before/);
     const shadows = Array.from(styleText.matchAll(/box-shadow:([^;}]+)/g), (match) => match[1].trim());
     assert.ok(shadows.length > 0);
-    assert.deepEqual(Array.from(new Set(shadows)), ['none', 'var(--igs-settings-shell-shadow)']);
+    assert.deepEqual(Array.from(new Set(shadows)), ['none', 'var(--igs-settings-shell-shadow)', '0 6px 18px rgba(0,0,0,.18)']);
     assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(/);
     assert.doesNotMatch(styleText, /border-radius:999px/);
 });
@@ -987,7 +987,7 @@ test('gate:igs-ui:settings-style-uses-soft-radius-tokens', () => {
     assert.doesNotMatch(styleText, /border-radius:999px/);
     assert.doesNotMatch(styleText, /(?:linear|radial)-gradient\(/);
     const shadows = Array.from(styleText.matchAll(/box-shadow:([^;}]+)/g), (match) => match[1].trim());
-    assert.deepEqual(Array.from(new Set(shadows)), ['none', 'var(--igs-settings-shell-shadow)']);
+    assert.deepEqual(Array.from(new Set(shadows)), ['none', 'var(--igs-settings-shell-shadow)', '0 6px 18px rgba(0,0,0,.18)']);
 });
 
 test('gate:igs-ui:reader-speaker-keeps-dialog-top-padding', () => {

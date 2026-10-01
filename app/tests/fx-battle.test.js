@@ -414,3 +414,35 @@ test('gate: battle targets a stage cast member by name after the speaker', () =>
     assert.equal(plan.events[1].targetKind, 'sprite');
     assert.equal(plan.events[1].targetChar, '');
 });
+
+
+test('gate:fx-battle:world-skin-marks-every-node-and-keeps-modern-text', async () => {
+    const { WORLD_SKIN_IDS } = await import('../src/scene/worldview.js');
+    const fx = fxOf({ battle: { foe: '哥布林', title: '' }, battleStart: true, hits: [hit('hit', { skill: '火球术' })] });
+    for (const id of WORLD_SKIN_IDS) {
+        const root = makeStage();
+        const timers = makeTimers();
+        const readerSettings = { battleFx: ON, _worldview: id };
+        const page = (index, pageFx) => renderBattleFx(root, { messageId: 1, readerSettings, content: { currentIndex: index, fx: pageFx } }, { ...timers, playSfx: () => null });
+        page(0, fx);
+        const front = frontOf(root);
+        const encounter = front.querySelector('.igs-fx-battle-encounter');
+        const plate = front.querySelector('.igs-fx-battle-plate');
+        const vignette = root.querySelector('#igs-fx-stage').querySelector('.igs-fx-battle-vignette');
+        timers.advance(BATTLE_TIMING.encounterGap);
+        const hitNode = front.querySelector('.igs-fx-battle-hit');
+        page(1, fxOf({ battleEnd: 'win' }));
+        const result = front.querySelector('.igs-fx-battle-result');
+        for (const [name, node] of Object.entries({ encounter, plate, vignette, hitNode, result })) {
+            assert.ok(node, `${id} ${name}`);
+            const classes = String(node.className).split(/\s+/);
+            assert.ok(classes.includes(`is-${id}`), `${id} ${name}`);
+            assert.equal(classes.includes('is-ancient'), false, `${id} ${name}`);
+        }
+        assert.equal(plate.getAttribute('data-igs-battle-era'), id);
+        assert.equal(plate.querySelector('.igs-fx-battle-plate-mark').textContent, 'VS', id);
+        assert.equal(encounter.querySelector('.igs-fx-battle-vs-cap').textContent, 'ENCOUNTER', id);
+        assert.equal(result.querySelector('.igs-fx-battle-ribbon-title').textContent, 'VICTORY', id);
+        for (const kind of ['vignette', 'plate']) assert.ok(BATTLE_FX_STYLE_TEXT.includes(`.igs-fx-battle-${kind}.is-${id}{`), `${id} ${kind}`);
+    }
+});

@@ -245,3 +245,28 @@ test('fx-item:ancient-era-snapshot-switches-cards-and-showcase-to-seal-skin-mode
     assert.equal(stackOf(modern).querySelector('.igs-fx-item-seal'), null);
     assert.equal(stackOf(modern).querySelector('.igs-fx-item-card').children.length, 2);
 });
+
+
+test('fx-item:world-skin-snapshot-marks-showcase-stack-and-style-without-seal', async () => {
+    const { WORLD_SKIN_IDS } = await import('../src/scene/worldview.js');
+    const { ITEM_FX_STYLE_TEXT } = await import('../src/visual/igs-ui/fx-item.js');
+    for (const id of WORLD_SKIN_IDS) {
+        const timers = makeTimers();
+        const root = makeStage();
+        renderItemFx(root, { chatId: 'c', messageId: 1, swipeId: 0, readerSettings: { itemFx: { enabled: true }, _worldview: id }, content: { currentIndex: 0, fx: RARE_FX } }, { ...timers, playSfx: () => {} });
+        const showcase = showcaseOf(root);
+        assert.ok(showcase, id);
+        assert.equal(showcase.getAttribute('data-igs-era'), id, id);
+        assert.ok(!showcase.querySelector('.igs-fx-item-showcase-seal'), `${id}: no ancient seal`);
+        showcase.fire('click');
+        timers.advance(400);
+        timers.advance(500);
+        const stack = stackOf(root);
+        assert.ok(stack, id);
+        assert.equal(stack.getAttribute('data-igs-era'), id, id);
+        assert.ok(!stack.querySelector('.igs-fx-item-seal'), `${id}: no ancient seal`);
+        assert.ok(ITEM_FX_STYLE_TEXT.includes(`.igs-fx-item-stack[data-igs-era="${id}"]`), id);
+        assert.ok(ITEM_FX_STYLE_TEXT.includes(`.igs-fx-item-showcase[data-igs-era="${id}"]`), id);
+        assert.ok(ITEM_FX_STYLE_TEXT.includes(`.igs-fx-item-flyer[data-igs-era="${id}"]`), id);
+    }
+});

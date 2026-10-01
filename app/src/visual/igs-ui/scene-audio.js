@@ -1,4 +1,4 @@
-import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, setAudioBusSpace, setAudioMasterVolume } from './audio-bus.js';
+import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, setAudioBusSpace, setAudioMasterVolume, watchPageAway } from './audio-bus.js';
 import { WEATHER_FLASH_EVENT, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime, resolveWeatherFxKind } from './weather-fx-runtime.js';
 
 // 场景音频：BGM 用 HTMLAudio 按关键词选曲并交叉淡入淡出；环境音全部 WebAudio 实时合成，不依赖音频文件。
@@ -383,12 +383,11 @@ function silenceForHidden(state) {
     }
 }
 
-function onVisibility(state) {
-    const doc = state.visibility && state.visibility.doc;
-    const hidden = Boolean(doc && doc.hidden === true);
-    if (hidden === state.hidden) return;
-    state.hidden = hidden;
-    if (hidden) {
+// away：标签页隐藏或浏览器窗口失焦（切到别的程序），判定见 audio-bus.watchPageAway。
+function onVisibility(state, away) {
+    if (away === state.hidden) return;
+    state.hidden = away;
+    if (away) {
         silenceForHidden(state);
         return;
     }
@@ -401,18 +400,16 @@ function onVisibility(state) {
 
 function watchVisibility(state) {
     const doc = state.root?.ownerDocument || globalThis.document;
-    if (!doc || typeof doc.addEventListener !== 'function') return;
-    const handler = () => onVisibility(state);
-    state.visibility = { doc, handler };
-    state.hidden = doc.hidden === true;
-    doc.addEventListener('visibilitychange', handler);
+    const watch = watchPageAway(doc, (away) => onVisibility(state, away));
+    state.visibility = watch;
+    state.hidden = watch ? watch.away() : false;
 }
 
 function unwatchVisibility(state) {
     if (!state.visibility) return;
-    const { doc, handler } = state.visibility;
+    const watch = state.visibility;
     state.visibility = null;
-    try { doc.removeEventListener('visibilitychange', handler); } catch { /* ignore */ }
+    watch.stop();
 }
 
 // 打字音、聊天/演出提示音播放期间压低场景声音；返回幂等的释放函数，可嵌套。

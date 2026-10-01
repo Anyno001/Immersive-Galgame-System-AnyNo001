@@ -19,6 +19,7 @@ import { FX_SETTINGS_NORMALIZERS, FX_WORD_LIST_PATHS } from './fx-settings.js';
 import { ROMANCE_ACTIONS_MAX, normalizeRomanceFxSettings } from './romance-settings.js';
 import { META_GLOBAL_SCOPE, META_LINE_KINDS, META_LINES_MAX, normalizeMetaFxSettings } from './meta-settings.js';
 import { applyPerformancePreset } from './performance-presets.js';
+import { applyWorldview, resolveWorldview } from '../../scene/worldview.js';
 import { normalizeBgmSettings } from './scene-audio.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
@@ -32,6 +33,7 @@ import { normalizeCharacterOutfits, renameOutfitScene } from '../../scene/charac
 import { migrateSpriteKeys } from './sprite-key-migration.js';
 import { NAI_OFFICIAL_MODELS } from '../../generated-images/request-builders/nai-v4-builder.js';
 import { ASSET_FOLDER_KINDS, addAssetFolder, forgetAssetItem, loadAssetFolders, moveAssetToFolder, removeAssetFolder, renameAssetFolder, renameAssetItem, saveAssetFolders, setAssetView, toggleAssetFolder } from './asset-folders.js';
+import { mergeDefaultBackgrounds } from '../../backgrounds/merge-default-backgrounds.js';
 
 // 草稿深拷贝后顶层 imageApi 与 bridge.imageApi 不再是同一对象，面板只改后者；生图读取优先顶层，这里对齐为面板当前值。
 function cloneImageDraft(draft) {
@@ -59,13 +61,23 @@ function assetFolderScope(settingsState, options) {
 
 // 素材文件夹只是本地界面归类：不改草稿、不触发设置持久化。
 async function runAssetFolderAction(action, settingsState, options, dialogs) {
-    const m = /^asset-(view|folder-add|folder-rename|folder-remove|folder-toggle|folder-move):([a-z]+)(?::(.*))?$/.exec(action);
+    const m = /^asset-(view|edit|folder-add|folder-rename|folder-remove|folder-toggle|folder-move):([a-z]+)(?::(.*))?$/.exec(action);
     if (!m || !ASSET_FOLDER_KINDS.includes(m[2])) return false;
     const [, op, kind, rest = ''] = m;
     const { globalObj, storage, scope } = assetFolderScope(settingsState, options);
     let state = loadAssetFolders(storage, scope);
     if (op === 'view') {
         state = setAssetView(state, kind, rest);
+    } else if (op === 'edit') {
+        // 缩略图卡片「修改」：切回列表并展开所在文件夹；背景场景同时展开该条目。素材数据不动。
+        const name = decodeSeg(rest);
+        state = setAssetView(state, kind, 'list');
+        const folder = Object.prototype.hasOwnProperty.call(state[kind].assign, name) ? state[kind].assign[name] : '';
+        if (state[kind].collapsed.includes(folder)) state = toggleAssetFolder(state, kind, folder);
+        if (kind === 'scenes' && name) {
+            if (!(settingsState.asyncState.expandedSceneSlots instanceof Set)) settingsState.asyncState.expandedSceneSlots = new Set();
+            settingsState.asyncState.expandedSceneSlots.add('bg\x00' + name);
+        }
     } else if (op === 'folder-add') {
         const name = ((await dialogs.prompt('新文件夹名称：', '')) || '').trim();
         if (!name) return true;
@@ -650,6 +662,14 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    const worldviewAction = normalizedAction.match(/^worldview:([a-z-]+)$/);
+    if (worldviewAction) {
+        const bridgeDraft = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridgeDraft.sceneAssets = bridgeDraft.sceneAssets || {};
+        applyWorldview(sceneAssets, worldviewAction[1]);
+        return rerenderSettings();
+    }
+
     const fxWordAction = normalizedAction.match(/^fx-word-(add|remove):([^:]+)(?::(.*))?$/);
     if (fxWordAction) {
         const path = decodeSeg(fxWordAction[2]);
@@ -1113,6 +1133,36 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.draft.bridge.sceneAssets.scenes[newName] = { url: '', times: {} };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    // 素材库「新增 → 下载默认素材」：把内置默认背景包合并进当前场景素材，同名跳过、不覆盖，并归入默认文件夹。
+    if (normalizedAction === 'scene-add-default-bg') {
+        const globalObj = options.global || globalThis;
+        settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const sceneAssets = settingsState.draft.bridge.sceneAssets;
+        const merged = mergeDefaultBackgrounds(sceneAssets.scenes);
+        if (!merged.added.length) {
+            if (globalObj.alert) globalObj.alert(`默认素材已全部在素材库里（${merged.skipped.length} 个同名场景已跳过）。`);
+            return rerenderSettings();
+        }
+        const skippedNote = merged.skipped.length ? `已有的 ${merged.skipped.length} 个同名场景会跳过，不覆盖。` : '';
+        if (!await dialogs.confirm(`下载 ${merged.added.length} 个默认背景到素材库？${skippedNote}`, { okLabel: '下载' })) return rerenderSettings();
+        const previousScenes = sceneAssets.scenes;
+        sceneAssets.scenes = merged.scenes;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) {
+            sceneAssets.scenes = previousScenes;
+            return persisted;
+        }
+        const { storage, scope } = assetFolderScope(settingsState, options);
+        let folders = loadAssetFolders(storage, scope);
+        for (const { name, folder } of merged.added) {
+            if (!folder) continue;
+            if (!folders.scenes.folders.includes(folder)) folders = addAssetFolder(folders, 'scenes', folder);
+            folders = moveAssetToFolder(folders, 'scenes', name, folder);
+        }
+        saveAssetFolders(storage, scope, folders);
         return rerenderSettings();
     }
 
@@ -1915,6 +1965,7 @@ export async function handleSettingsAction(action, ctx) {
             timeGroups: cloneData(sa.timeGroups || []),
             weatherGroups: cloneData(sa.weatherGroups || []),
             ancient: sa.ancient === true,
+            worldview: resolveWorldview(sa),
             generated: normalizeGeneratedLibrary(sa.generated),
             spriteLayouts: cloneData((settingsState.draft.readerSettings && settingsState.draft.readerSettings.spriteLayouts) || {}),
             spriteHeads: cloneData((settingsState.draft.readerSettings && settingsState.draft.readerSettings.spriteHeads) || {}),
@@ -1954,8 +2005,8 @@ export async function handleSettingsAction(action, ctx) {
                 settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(preset.statusAvatars || {});
                 settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(preset.timeGroups || []);
                 settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(preset.weatherGroups || []);
-                // 时代背景随预设走；早于该开关的旧预设都是现代背景。
-                settingsState.draft.bridge.sceneAssets.ancient = preset.ancient === true;
+                // 世界观随预设走（同步写 worldview 与 ancient）；早于该开关的旧预设按现代，只有 ancient:true 的按古代。
+                applyWorldview(settingsState.draft.bridge.sceneAssets, resolveWorldview(preset));
                 // 旧预设没有 generated 字段：保留当前生成素材库，避免静默清空。
                 if (Object.prototype.hasOwnProperty.call(preset, 'generated')) {
                     settingsState.draft.bridge.sceneAssets.generated = normalizeGeneratedLibrary(preset.generated);
@@ -2018,6 +2069,7 @@ export async function handleSettingsAction(action, ctx) {
             weatherGroups: fileResult.data.weatherGroups || [],
             // 早于时代开关的旧文件都是现代背景。
             ancient: fileResult.data.ancient === true,
+            worldview: resolveWorldview(fileResult.data),
             spriteLayouts: (fileResult.data.spriteLayouts && typeof fileResult.data.spriteLayouts === 'object') ? fileResult.data.spriteLayouts : {},
             spriteHeads: normalizeSpriteHeads(fileResult.data.spriteHeads),
         };
@@ -2038,7 +2090,7 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(presets[name].moodGroups);
         settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(presets[name].timeGroups || []);
         settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(presets[name].weatherGroups || []);
-        settingsState.draft.bridge.sceneAssets.ancient = presets[name].ancient === true;
+        applyWorldview(settingsState.draft.bridge.sceneAssets, resolveWorldview(presets[name]));
         settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
         settingsState.draft.readerSettings.spriteLayouts = cloneData(presets[name].spriteLayouts);
         settingsState.draft.readerSettings.spriteHeads = cloneData(presets[name].spriteHeads);
@@ -2056,7 +2108,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!preset) return rerenderSettings();
         const doc = globalObj.document;
         if (!doc) return { ok: false, reason: 'no-document' };
-        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
+        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, worldview: resolveWorldview(preset), spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = doc.createElement('a');

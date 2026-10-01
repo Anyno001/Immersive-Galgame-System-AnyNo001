@@ -68,6 +68,8 @@ export function normalizeSpriteActionSettings(value) {
 }
 
 export const CAMERA_CLOSE_UP_DEFAULTS = freezeList(['震惊', '严肃', '认真', '深情', '哭泣', '决然', '冷酷', '坚决']);
+// 冲击推近默认关闭：已开「镜头语言」的旧设置不会突然多出冲击与音效。
+export const CAMERA_IMPACT_DEFAULTS = freezeList(['震惊', '震撼', '愤怒', '暴怒', '惊恐', '决然']);
 
 export function normalizeCameraSettings(value) {
     const src = plain(value);
@@ -77,6 +79,8 @@ export function normalizeCameraSettings(value) {
         parallax: src.parallax !== false,
         closeUp: src.closeUp !== false,
         closeUpEmotions: normalizeEmotionList(src.closeUpEmotions, CAMERA_CLOSE_UP_DEFAULTS),
+        impact: src.impact === true,
+        impactEmotions: normalizeEmotionList(src.impactEmotions, CAMERA_IMPACT_DEFAULTS),
     };
 }
 
@@ -100,6 +104,7 @@ export const STAGE_DIRECTION_NORMALIZERS = Object.freeze({
 export const STAGE_DIRECTION_WORD_LIST_PATHS = Object.freeze([
     ...SPRITE_ACTION_KINDS.map((kind) => `spriteActions.${kind}`),
     'camera.closeUpEmotions',
+    'camera.impactEmotions',
 ]);
 
 export function pickSpriteAction(emotion, actions) {
@@ -111,4 +116,9 @@ export function pickSpriteAction(emotion, actions) {
 export function pickCloseUp(emotion, camera) {
     const target = String(emotion == null ? '' : emotion).trim();
     return camera.enabled && camera.closeUp && Boolean(target) && camera.closeUpEmotions.includes(target);
+}
+
+export function pickCameraImpact(emotion, camera) {
+    const target = String(emotion == null ? '' : emotion).trim();
+    return camera.enabled && camera.impact && Boolean(target) && camera.impactEmotions.includes(target);
 }

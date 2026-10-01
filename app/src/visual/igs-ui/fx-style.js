@@ -226,6 +226,30 @@ export const FX_STYLE_TEXT = `
 @keyframes igs-fx-slip{0%{opacity:0;transform:translateX(120%);}12%{opacity:1;transform:translateX(0);}86%{opacity:1;transform:translateX(0);}100%{opacity:0;transform:translateX(120%);}}
 .igs-fx-notify.is-ancient{left:auto;right:16px;top:14px;width:auto;max-height:min(62%,320px);padding:14px 10px;border-radius:2px;writing-mode:vertical-rl;color:#2b1d12;background:#f6ecd4;border:1px solid rgba(120,70,30,.45);box-shadow:0 6px 22px rgba(0,0,0,.35);font-family:"STKaiti","KaiTi","Kaiti SC","楷体",serif;animation:igs-fx-slip var(--igs-fx-life,3.3s) ease both;}
 .igs-fx-notify.is-ancient .igs-fx-notify-seal{width:26px;height:26px;margin-left:8px;border-radius:3px;background:#b8452f;color:#fff6e6;font-size:16px;line-height:26px;text-align:center;}
+/* 世界观换皮：西幻为羊皮纸与蜡封，科幻为全息面板青色辉光，末日为旧纸与锈色虚线。只改配色字体，不改位置与动画。 */
+.igs-fx-notify.is-fantasy{color:#3a2614;background:#efe2c2;border:1px solid rgba(110,70,30,.5);border-radius:4px;box-shadow:0 6px 22px rgba(0,0,0,.32),inset 0 0 18px rgba(120,80,30,.18);font-family:Georgia,"Times New Roman",serif;}
+.igs-fx-notify.is-scifi{color:#d8fbff;background:rgba(8,24,36,.88);border:1px solid rgba(80,220,255,.7);border-radius:4px;box-shadow:0 0 14px rgba(60,200,255,.45),inset 0 0 12px rgba(60,200,255,.18);letter-spacing:.04em;}
+.igs-fx-notify.is-apocalypse{color:#e8dfcf;background:rgba(48,40,32,.93);border:1px dashed rgba(200,150,80,.6);border-radius:2px;box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:"Courier New",monospace;}
+.igs-fx-title-card.is-fantasy{color:#f6e7c1;font-family:Georgia,"Times New Roman",serif;letter-spacing:.12em;text-shadow:0 2px 12px rgba(60,30,0,.85);}
+.igs-fx-title-card.is-fantasy::before,.igs-fx-title-card.is-fantasy::after{background:linear-gradient(90deg,transparent,rgba(230,190,110,.9),transparent);}
+.igs-fx-title-card.is-scifi{color:#bff6ff;letter-spacing:.2em;text-shadow:0 0 10px rgba(60,200,255,.85);}
+.igs-fx-title-card.is-scifi::before,.igs-fx-title-card.is-scifi::after{background:linear-gradient(90deg,transparent,rgba(80,220,255,.95),transparent);}
+.igs-fx-title-card.is-apocalypse{color:#efe4cc;font-family:"Courier New",monospace;letter-spacing:.08em;text-shadow:0 2px 6px rgba(0,0,0,.9);}
+.igs-fx-title-card.is-apocalypse::before,.igs-fx-title-card.is-apocalypse::after{background:linear-gradient(90deg,transparent,rgba(200,150,80,.75),transparent);}
+.igs-fx-promise.is-fantasy{color:#3a2614;background:#efe2c2;border:1px solid #9c7a46;font-family:Georgia,"Times New Roman",serif;}
+.igs-fx-promise.is-fantasy .igs-fx-promise-seal{border-color:#8e1f1f;background:#8e1f1f;color:#f6e7c1;}
+.igs-fx-promise.is-scifi{color:#d8fbff;background:rgba(8,24,36,.9);border:1px solid rgba(80,220,255,.7);box-shadow:0 0 14px rgba(60,200,255,.4);}
+.igs-fx-promise.is-scifi .igs-fx-promise-seal{border-color:#4fdcff;color:#4fdcff;border-radius:3px;}
+.igs-fx-promise.is-apocalypse{color:#2a2219;background:#d9cdb3;border:1px solid #7a6a52;font-family:"Courier New",monospace;}
+.igs-fx-promise.is-apocalypse .igs-fx-promise-seal{border-color:#9a3b1b;color:#9a3b1b;border-radius:2px;}
+
+/* 大正换皮：和洋折衷，奶油色洋纸 + 海老茶双线框 + 明朝体，强调色取海老茶与金。只改配色字体，不改位置与动画。 */
+.igs-fx-notify.is-taisho{color:#2a1c18;background:#f4ead6;border:1px solid #7b2e2a;border-radius:3px;box-shadow:0 6px 22px rgba(0,0,0,.32),inset 0 0 0 3px #f4ead6,inset 0 0 0 4px rgba(123,46,42,.45);font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+.igs-fx-title-card.is-taisho{color:#f4ead6;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;letter-spacing:.16em;text-shadow:0 2px 10px rgba(60,16,12,.85);}
+.igs-fx-title-card.is-taisho::before,.igs-fx-title-card.is-taisho::after{background:linear-gradient(90deg,transparent,rgba(201,162,92,.95),transparent);}
+.igs-fx-promise.is-taisho{color:#2a1c18;background:#f4ead6;border:1px solid #7b2e2a;box-shadow:0 8px 20px rgba(0,0,0,.3),inset 0 0 0 3px #f4ead6,inset 0 0 0 4px rgba(123,46,42,.4);font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+.igs-fx-promise.is-taisho .igs-fx-promise-seal{border-color:#7b2e2a;color:#7b2e2a;}
+
 .igs-fx-notify.is-ancient .igs-fx-notify-sender{margin:0 0 0 8px;font-size:13px;color:#7a2a1a;opacity:1;}
 .igs-fx-notify.is-ancient .igs-fx-notify-text{font-size:16px;line-height:1.7;letter-spacing:.08em;white-space:normal;}
 .igs-fx-eye,.igs-fx-eye-hold{position:absolute;inset:0;overflow:hidden;}

@@ -1,3 +1,5 @@
+import { worldSkinOf } from '../../scene/worldview.js';
+
 // 获得物品演出 DOM 层：挂在 fx 前层（立绘之上、对话层之下）。
 // 同一身份（消息|swipe|页）重绘不重播；图片后到只在身份仍一致时淡入替换占位；计时器统一回收。
 // 流程：（重要物品先走中央大演出）→ 卡片逐张弹出 → 停留（鼠标悬停 / 点开详情时暂停）→ 退场。
@@ -20,6 +22,7 @@ const SHOWCASE_OUT_MS = 320;
 const IMAGE_FADE_MS = 420;
 // 古代背景：容器挂 data-igs-era="ancient" 换宣纸卡 + 朱砂印；印文取动作单字。
 const ERA_ATTR = 'data-igs-era';
+// 换皮世界观（worldSkinOf）：容器挂 data-igs-era="<id>" 换皮（只改配色字体，印文与动画沿用现代）。
 const ANCIENT_SEALS = Object.freeze({ gain: '得', lose: '失', use: '用' });
 // 背包入口按可见度依次回退：物品按钮 → 资料菜单箭头 → 整个 HUD；都不可见时原地淡出。
 const BAG_TARGETS = ['#igs-status-hud [data-act="inventory"]', '#igs-status-hud .igs-hud-entry-arrow', '#igs-status-hud'];
@@ -186,6 +189,7 @@ function flyToBag(state, layers, card, target) {
     const scale = layers.front.offsetWidth > 0 ? frame.width / layers.front.offsetWidth : 1;
     const flyer = el(layers.doc, 'div', `${FLYER_CLASS} igs-fx-transient`);
     if (state.ancient) flyer.setAttribute(ERA_ATTR, 'ancient');
+    else if (state.worldSkin) flyer.setAttribute(ERA_ATTR, state.worldSkin);
     const img = icon.querySelector('img');
     if (img) {
         const copy = layers.doc.createElement('img');
@@ -291,6 +295,7 @@ function runStack(state, root, layers, plan, options) {
     setVar(stack, '--igs-item-accent', options.accent);
     if (reduced) stack.setAttribute('data-igs-fx-static', '1');
     if (state.ancient) stack.setAttribute(ERA_ATTR, 'ancient');
+    else if (state.worldSkin) stack.setAttribute(ERA_ATTR, state.worldSkin);
     front.appendChild(stack);
     state.stack = stack;
     const onCard = typeof options.onCard === 'function' ? options.onCard : null;
@@ -322,6 +327,7 @@ function runStack(state, root, layers, plan, options) {
 // 中央大演出：压暗舞台、放射光、大图标；点击可提前结束，结束后接着播卡片（该物品随卡片飞进背包）。
 function runShowcase(state, root, layers, plan, options, next) {
     const node = buildShowcase(layers.doc, plan.showcase, state.ancient);
+    if (!state.ancient && state.worldSkin) node.setAttribute(ERA_ATTR, state.worldSkin);
     setVar(node, '--igs-item-accent', options.accent);
     layers.front.appendChild(node);
     state.showcase = node;
@@ -359,6 +365,7 @@ export function applyItemFxToDom(root, plan, options = {}) {
     state.key = key;
     state.layers = layers;
     state.ancient = options.ancient === true;
+    state.worldSkin = worldSkinOf(options.worldview);
     const reduced = options.reducedMotion === true;
     const start = () => runStack(state, root, layers, plan, options);
     if (plan.showcase && !reduced) runShowcase(state, root, layers, plan, options, start);
@@ -482,7 +489,38 @@ export const ITEM_FX_STYLE_TEXT = `
 .igs-fx-item-showcase[data-igs-era="ancient"]:not(#igs-era-x) .igs-fx-item-showcase-name{color:#2b1d12;font-size:26px;letter-spacing:.12em;}
 .igs-fx-item-showcase[data-igs-era="ancient"]:not(#igs-era-x) .igs-fx-item-showcase-desc{color:#6b5139;opacity:1;}
 .igs-fx-item-showcase-seal{position:absolute;right:16px;bottom:18px;width:40px;height:40px;margin:0;font-size:26px;border-radius:4px;box-shadow:inset 0 0 0 2px #b8452f,inset 0 0 0 4px rgba(246,236,212,.85);animation:igs-fx-item-stamp .5s cubic-bezier(.3,1.4,.5,1) .7s both;}
+/* 世界观换皮（西幻羊皮纸 / 科幻全息面板 / 末日旧纸锈边）：只改配色字体，布局、印文与动画沿用现代。 */
+.igs-fx-item-stack[data-igs-era="fantasy"]:not(#igs-era-x),.igs-fx-item-showcase[data-igs-era="fantasy"]:not(#igs-era-x){--igs-item-accent-c:#b8862f;}
+.igs-fx-item-stack[data-igs-era="fantasy"]:not(#igs-era-x) .igs-fx-item-card{border:1px solid #9c7a46;border-radius:4px;background:#efe2c2;color:#3a2614;box-shadow:inset 0 0 14px rgba(120,80,30,.2),0 3px 10px rgba(40,20,5,.35);font-family:Georgia,"Times New Roman",serif;}
+.igs-fx-item-stack[data-igs-era="fantasy"]:not(#igs-era-x) .igs-fx-item-name{color:#3a2614;}
+.igs-fx-item-stack[data-igs-era="fantasy"]:not(#igs-era-x) .igs-fx-item-desc{color:#6b5139;opacity:1;}
+.igs-fx-item-showcase[data-igs-era="fantasy"]:not(#igs-era-x) .igs-fx-item-showcase-plate{border-color:#9c7a46;background:#efe2c2;color:#3a2614;font-family:Georgia,"Times New Roman",serif;}
+.igs-fx-item-showcase[data-igs-era="fantasy"]:not(#igs-era-x) .igs-fx-item-showcase-rays{background:repeating-conic-gradient(from 0deg,rgba(230,190,110,.3) 0 6deg,transparent 6deg 18deg);}
+.igs-fx-item-flyer[data-igs-era="fantasy"]{color:#3a2614;background:#efe2c2;box-shadow:0 0 0 1px #9c7a46,0 0 12px rgba(230,190,110,.5);}
+.igs-fx-item-stack[data-igs-era="scifi"]:not(#igs-era-x),.igs-fx-item-showcase[data-igs-era="scifi"]:not(#igs-era-x){--igs-item-accent-c:#4fdcff;}
+.igs-fx-item-stack[data-igs-era="scifi"]:not(#igs-era-x) .igs-fx-item-card{border:1px solid rgba(80,220,255,.7);border-radius:4px;background:rgba(8,24,36,.9);color:#d8fbff;box-shadow:0 0 12px rgba(60,200,255,.4),inset 0 0 10px rgba(60,200,255,.15);}
+.igs-fx-item-stack[data-igs-era="scifi"]:not(#igs-era-x) .igs-fx-item-name{color:#d8fbff;letter-spacing:.04em;}
+.igs-fx-item-stack[data-igs-era="scifi"]:not(#igs-era-x) .igs-fx-item-desc{color:#8fd8e8;opacity:1;}
+.igs-fx-item-showcase[data-igs-era="scifi"]:not(#igs-era-x) .igs-fx-item-showcase-plate{border-color:rgba(80,220,255,.7);background:rgba(8,24,36,.92);color:#d8fbff;box-shadow:0 0 18px rgba(60,200,255,.45);}
+.igs-fx-item-showcase[data-igs-era="scifi"]:not(#igs-era-x) .igs-fx-item-showcase-rays{background:repeating-conic-gradient(from 0deg,rgba(80,220,255,.24) 0 6deg,transparent 6deg 18deg);}
+.igs-fx-item-flyer[data-igs-era="scifi"]{color:#d8fbff;background:rgba(8,24,36,.9);box-shadow:0 0 0 1px rgba(80,220,255,.8),0 0 12px rgba(60,200,255,.55);}
+.igs-fx-item-stack[data-igs-era="apocalypse"]:not(#igs-era-x),.igs-fx-item-showcase[data-igs-era="apocalypse"]:not(#igs-era-x){--igs-item-accent-c:#c8964f;}
+.igs-fx-item-stack[data-igs-era="apocalypse"]:not(#igs-era-x) .igs-fx-item-card{border:1px dashed rgba(200,150,80,.6);border-radius:2px;background:rgba(48,40,32,.94);color:#e8dfcf;box-shadow:0 3px 12px rgba(0,0,0,.5);font-family:"Courier New",monospace;}
+.igs-fx-item-stack[data-igs-era="apocalypse"]:not(#igs-era-x) .igs-fx-item-name{color:#e8dfcf;}
+.igs-fx-item-stack[data-igs-era="apocalypse"]:not(#igs-era-x) .igs-fx-item-desc{color:#b8a888;opacity:1;}
+.igs-fx-item-showcase[data-igs-era="apocalypse"]:not(#igs-era-x) .igs-fx-item-showcase-plate{border:1px dashed rgba(200,150,80,.6);background:rgba(48,40,32,.95);color:#e8dfcf;font-family:"Courier New",monospace;}
+.igs-fx-item-showcase[data-igs-era="apocalypse"]:not(#igs-era-x) .igs-fx-item-showcase-rays{background:repeating-conic-gradient(from 0deg,rgba(200,150,80,.18) 0 6deg,transparent 6deg 18deg);}
+.igs-fx-item-flyer[data-igs-era="apocalypse"]{color:#e8dfcf;background:rgba(48,40,32,.94);box-shadow:0 0 0 1px rgba(200,150,80,.7),0 0 10px rgba(0,0,0,.5);}
+
 @keyframes igs-fx-item-stamp{0%{opacity:0;transform:scale(1.8) rotate(-6deg);}100%{opacity:.92;transform:scale(1) rotate(-6deg);}}
+.igs-fx-item-stack[data-igs-era="taisho"]:not(#igs-era-x),.igs-fx-item-showcase[data-igs-era="taisho"]:not(#igs-era-x){--igs-item-accent-c:#7b2e2a;}
+.igs-fx-item-stack[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-card{border:1px solid #7b2e2a;border-radius:3px;background:#f4ead6;color:#2a1c18;box-shadow:inset 0 0 0 2px #f4ead6,inset 0 0 0 3px rgba(123,46,42,.4),0 3px 10px rgba(40,12,8,.35);font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+.igs-fx-item-stack[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-name{color:#2a1c18;}
+.igs-fx-item-stack[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-desc{color:#6b4a40;opacity:1;}
+.igs-fx-item-showcase[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-showcase-plate{border-color:#7b2e2a;background:#f4ead6;color:#2a1c18;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+.igs-fx-item-showcase[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-showcase-rays{background:repeating-conic-gradient(from 0deg,rgba(201,162,92,.28) 0 6deg,transparent 6deg 18deg);}
+.igs-fx-item-flyer[data-igs-era="taisho"]{color:#2a1c18;background:#f4ead6;box-shadow:0 0 0 1px #7b2e2a,0 0 12px rgba(201,162,92,.5);}
+
 @keyframes igs-fx-item-in{from{opacity:0;transform:translateX(28px) scale(.96);}to{opacity:1;transform:none;}}
 @keyframes igs-fx-item-out{to{opacity:0;transform:translateX(18px);}}
 @keyframes igs-fx-item-out-drop{to{opacity:0;transform:translateY(14px) rotate(-2deg);}}

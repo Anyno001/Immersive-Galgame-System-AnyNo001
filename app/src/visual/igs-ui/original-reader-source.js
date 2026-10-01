@@ -34,7 +34,7 @@ import {
     IGS_UI_BLUR, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FONT_SANS, IGS_UI_INK, IGS_UI_RADIUS, IGS_UI_THICKNESS, igsUiSurface,
 } from '../../styles/ui-material.js';
 
-// 提示弹窗跟随设置器配色：底色、文字与阴影取对应主题的面板 token。
+// 提示弹窗兜底配色：对话框皮肤有专属主题时由 dialog-theme-hud.js 的提示弹窗规则覆盖，否则取设置器主题的面板 token。
 const TOAST_THEME_STYLE_TEXT = SETTINGS_THEME_OPTIONS.map(({ value }) => {
     const { tokens } = getSettingsThemePalette(value);
     return `#igs-toast[data-igs-toast-theme="${value}"]{background:${tokens['shell-bg']};color:${tokens.ink};box-shadow:${tokens['shell-shadow']};}`;
@@ -61,23 +61,25 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
 });
 
 export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
-
-    { id: 'prev-turn', title: '上一轮', html: ORIGINAL_READER_ICONS.prevTurn },
-    { id: 'first-page', title: '第一页', html: ORIGINAL_READER_ICONS.firstPage },
-    { id: 'prev', title: '上一页', html: ORIGINAL_READER_ICONS.prev },
-    { id: 'next', title: '下一页', html: ORIGINAL_READER_ICONS.next },
-    { id: 'last-page', title: '最后一页', html: ORIGINAL_READER_ICONS.lastPage },
-    { id: 'next-turn', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
-    { id: 'regen', title: '画 CG（补画本楼剧情插图；没有可补的就重画当前图）', html: ORIGINAL_READER_ICONS.regen },
-    { id: 'clear-cg', title: '清扫当前 CG', html: ORIGINAL_READER_ICONS.clearCg },
-    { id: 'generate-assets', title: '补全素材（为未登记的人物和场景生成立绘 / 背景）', html: ORIGINAL_READER_ICONS.assets },
-    { id: 'fill-item-images', title: '补全物品图（为背包里还没有图的物品生成图）', html: ITEM_CG_ICONS.fillItemImages },
-    { id: 'cg-gallery', title: 'CG 库（查看、收藏、隐藏已生成的剧情 CG）', html: ITEM_CG_ICONS.cgGallery },
-    { id: 'save', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
-    { id: 'hide', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
-    { id: 'sprite-edit', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
-    { id: 'rescan', title: '重新加载', html: ORIGINAL_READER_ICONS.rescan },
-    { id: 'settings', title: '设置', html: ORIGINAL_READER_ICONS.settings },
+    // group 决定工具栏分隔：nav 翻页 / create 画图与素材 / view 画面 / system 系统。
+    // 按钮可被用户重排、隐藏、固定，分隔由 applyToolbarState 按实际可见顺序标记，不写死在 DOM 里。
+    // title 同时是悬停提示与读屏名称：用动词短语，一眼看懂做什么。
+    { id: 'prev-turn', group: 'nav', title: '上一轮', html: ORIGINAL_READER_ICONS.prevTurn },
+    { id: 'first-page', group: 'nav', title: '第一页', html: ORIGINAL_READER_ICONS.firstPage },
+    { id: 'prev', group: 'nav', title: '上一页', html: ORIGINAL_READER_ICONS.prev },
+    { id: 'next', group: 'nav', title: '下一页', html: ORIGINAL_READER_ICONS.next },
+    { id: 'last-page', group: 'nav', title: '最后一页', html: ORIGINAL_READER_ICONS.lastPage },
+    { id: 'next-turn', group: 'nav', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
+    { id: 'regen', group: 'create', title: '绘制 CG', html: ORIGINAL_READER_ICONS.regen },
+    { id: 'clear-cg', group: 'create', title: '清扫当前 CG', html: ORIGINAL_READER_ICONS.clearCg },
+    { id: 'generate-assets', group: 'create', title: '补全立绘与背景', html: ORIGINAL_READER_ICONS.assets },
+    { id: 'fill-item-images', group: 'create', title: '补全物品图', html: ITEM_CG_ICONS.fillItemImages },
+    { id: 'cg-gallery', group: 'create', title: 'CG 库', html: ITEM_CG_ICONS.cgGallery },
+    { id: 'save', group: 'view', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
+    { id: 'hide', group: 'view', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
+    { id: 'sprite-edit', group: 'view', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
+    { id: 'rescan', group: 'system', title: '重新加载', html: ORIGINAL_READER_ICONS.rescan },
+    { id: 'settings', group: 'system', title: '设置', html: ORIGINAL_READER_ICONS.settings },
 ]);
 
 const ORIGINAL_READER_STYLE_TEXT = `
@@ -114,7 +116,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-head-marker::after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#ffd23f;}
 .igs-head-edit-layer .igs-fx-symbol.is-preview{animation:none;opacity:.9;pointer-events:none;}
 #igs-click-layer{position:absolute;inset:0;cursor:pointer;z-index:3;}
-#igs-status-hud{position:absolute;z-index:8;top:14px;left:14px;pointer-events:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:calc(6px * var(--igs-hud-scale,1));width:calc(340px * var(--igs-hud-scale,1));padding:calc(8px * var(--igs-hud-scale,1));border-radius:calc(10px * var(--igs-hud-scale,1));box-sizing:border-box;}
+#igs-status-hud{position:absolute;z-index:8;top:14px;left:14px;pointer-events:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:calc(6px * var(--igs-hud-scale,1));width:calc(340px * var(--igs-hud-scale,1));max-width:calc(100% - 28px);padding:calc(8px * var(--igs-hud-scale,1));border-radius:calc(10px * var(--igs-hud-scale,1));box-sizing:border-box;}
 #igs-status-hud.igs-hud-bg-dialog{background:color-mix(in srgb,var(--igs-dialog-bg,var(--igs-glass-bg,rgba(31,34,37,.62))) 50%,transparent);-webkit-backdrop-filter:var(--igs-dialog-blur,none);backdrop-filter:var(--igs-dialog-blur,none);border-radius:calc(6px * var(--igs-hud-scale,1));}
 #igs-overlay.igs-toolbar-top #igs-status-hud{top:14px;}
 #igs-overlay.igs-mode-embedded #igs-status-hud{top:14px;left:12px;width:calc(320px * var(--igs-hud-scale,1));}
@@ -195,6 +197,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-icon-btn{width:36px;height:36px;border:1px solid transparent;cursor:pointer;background:transparent;color:rgba(255,255,255,.52);font-size:15px;border-radius:13px;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,border-color .18s,color .18s,transform .12s;outline:none;}
 .igs-icon-btn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18);color:rgba(255,255,255,.96);}
 .igs-icon-btn:active{transform:scale(.96);}
+.igs-icon-btn.igs-group-start{position:relative;margin-left:5px;}
+.igs-icon-btn.igs-group-start::before{content:"";position:absolute;left:-6px;top:28%;bottom:28%;width:1px;background:rgba(255,255,255,.16);pointer-events:none;}
 #igs-bar-btns{display:none;gap:6px;align-items:center;}
 #igs-bar-pinned{display:flex;gap:6px;align-items:center;}
 .igs-progress{display:none;font-size:11px;color:rgba(255,255,255,.55);margin-bottom:0;letter-spacing:1px;}
@@ -338,7 +342,7 @@ const ORIGINAL_READER_HTML = `
     </div>
     <div id="igs-settings" aria-hidden="true"></div>
     <div id="igs-bar-pinned"></div>
-    <button class="igs-icon-btn" data-act="toggle-bar" title="收纳/展开按钮" type="button">${ORIGINAL_READER_ICONS.toggleBar}</button>
+    <button class="igs-icon-btn" data-act="toggle-bar" title="收起/展开工具栏" type="button">${ORIGINAL_READER_ICONS.toggleBar}</button>
     <button class="igs-icon-btn" data-act="close" title="退出" type="button">${ORIGINAL_READER_ICONS.close}</button>
   </div>
 </div>

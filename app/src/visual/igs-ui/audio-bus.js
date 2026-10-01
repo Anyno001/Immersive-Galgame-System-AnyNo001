@@ -118,6 +118,77 @@ function documentOf() {
     return doc && typeof doc.addEventListener === 'function' ? doc : null;
 }
 
+// 「离开页面」= 标签页隐藏，或整个浏览器窗口失去焦点（切到别的程序、别的窗口）。
+// visibilitychange 只覆盖前者：桌面上切走窗口但页面仍可见时 document.hidden 一直是 false。
+// 焦点挪进页面里的子 iframe（如楼层里的前端卡）时顶层窗口也会 blur，但 hasFocus() 仍为 true，不算离开。
+function focusTarget(doc) {
+    try {
+        const top = doc.defaultView && doc.defaultView.top;
+        if (top && top.document && typeof top.addEventListener === 'function') return { win: top, doc: top.document };
+    } catch { /* 跨域顶层不可访问，退回本文档 */ }
+    const win = doc.defaultView;
+    return { win: win && typeof win.addEventListener === 'function' ? win : null, doc };
+}
+
+export function isPageAway(doc) {
+    if (!doc) return false;
+    if (doc.hidden === true) return true;
+    const { doc: focusDoc } = focusTarget(doc);
+    try { return typeof focusDoc.hasFocus === 'function' && focusDoc.hasFocus() === false; } catch { return false; }
+}
+
+// 返回 { away(), stop() }；无 document 时返回 null。隐藏当场回调（iOS / WebView 切后台立即冻结 JS），
+// 失焦等一拍再读 hasFocus（blur 时焦点还没落到新位置）。
+export function watchPageAway(doc, onChange) {
+    if (!doc || typeof doc.addEventListener !== 'function') return null;
+    const { win } = focusTarget(doc);
+    let away = isPageAway(doc);
+    let timer = null;
+    let stopped = false;
+    // 从别的程序直接点回子 iframe 时顶层窗口收不到 focus；离开期间点到页面任意处补一次检查。
+    const armReturn = (on) => {
+        try {
+            if (on) doc.addEventListener('pointerdown', check, true);
+            else doc.removeEventListener('pointerdown', check, true);
+        } catch { /* ignore */ }
+    };
+    function check() {
+        clearTimeout(timer);
+        timer = null;
+        if (stopped) return;
+        const next = isPageAway(doc);
+        if (next === away) return;
+        away = next;
+        armReturn(away);
+        try { onChange(away); } catch { /* ignore */ }
+    }
+    const deferCheck = () => {
+        clearTimeout(timer);
+        timer = setTimeout(check, 0);
+    };
+    doc.addEventListener('visibilitychange', check);
+    if (win) {
+        win.addEventListener('blur', deferCheck);
+        win.addEventListener('focus', check);
+    }
+    if (away) armReturn(true);
+    return {
+        away: () => away,
+        stop() {
+            if (stopped) return;
+            stopped = true;
+            clearTimeout(timer);
+            timer = null;
+            armReturn(false);
+            try { doc.removeEventListener('visibilitychange', check); } catch { /* ignore */ }
+            if (win) {
+                try { win.removeEventListener('blur', deferCheck); } catch { /* ignore */ }
+                try { win.removeEventListener('focus', check); } catch { /* ignore */ }
+            }
+        },
+    };
+}
+
 function disarmRetry(current) {
     if (!current.retry) return;
     const { doc, handler } = current.retry;
@@ -158,12 +229,9 @@ export function resumeAudioBus({ retry = true } = {}) {
 function watchVisibility(current) {
     const doc = documentOf();
     if (!doc) return;
-    current.hidden = doc.hidden === true;
-    const handler = () => {
-        const hidden = doc.hidden === true;
-        if (hidden === current.hidden) return;
-        current.hidden = hidden;
-        if (hidden) {
+    const watch = watchPageAway(doc, (away) => {
+        current.hidden = away;
+        if (away) {
             // 当场挂起：iOS 与部分安卓 WebView 切后台后 JS 立即冻结，延时挂起不会执行。
             if (typeof current.ctx.suspend !== 'function') return;
             try { Promise.resolve(current.ctx.suspend()).catch(() => {}); } catch { /* ignore */ }
@@ -171,9 +239,9 @@ function watchVisibility(current) {
         }
         // 可见即恢复，不以是否有环境音为条件，否则打字音与提示音会一直静音。
         resumeAudioBus();
-    };
-    current.visibility = { doc, handler };
-    doc.addEventListener('visibilitychange', handler);
+    });
+    current.hidden = watch ? watch.away() : false;
+    current.visibility = watch;
 }
 
 function cancelParkedSuspend(current) {
@@ -204,9 +272,7 @@ export function resetAudioBusForTest(factory) {
     if (bus) {
         disarmRetry(bus);
         clearTimeout(bus.parkTimer);
-        if (bus.visibility) {
-            try { bus.visibility.doc.removeEventListener('visibilitychange', bus.visibility.handler); } catch { /* ignore */ }
-        }
+        if (bus.visibility) bus.visibility.stop();
     }
     bus = null;
     masterVolume = AUDIO_MASTER_DEFAULTS.volume;
