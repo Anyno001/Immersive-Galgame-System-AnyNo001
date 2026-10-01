@@ -281,7 +281,6 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['last-page', '最后一页'],
     ['next-turn', '下一轮'],
     ['auto-play', '自动播放'],
-    ['auto-speed', '自动播放速度'],
     ['regen', '绘制 CG'],
     ['reroll-cg', '重画这张'],
     ['clear-cg', '清扫当前 CG'],

@@ -13,7 +13,7 @@ import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
 import { CHAT_LAYER_STYLE_TEXT, advanceChatReveal, applyChatToDom, cancelChatShow, getChatRevealState } from '../src/visual/igs-ui/chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from '../src/visual/igs-ui/chat-show-runtime.js';
 import { resolveChatTheme } from '../src/visual/igs-ui/chat-themes.js';
-import { AUTO_PLAY_SPEED_ICONS, ORIGINAL_READER_ICONS, getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
+import { ORIGINAL_READER_ICONS, getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { createMapPanelController } from '../src/visual/igs-ui/map-panel.js';
 import { createRecordPanelController } from '../src/visual/igs-ui/record-panel.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
@@ -2042,16 +2042,34 @@ function makeAutoPlayReader(raw = '第一段。\n第二段。\n第三段。', re
     const opened = host.openReader({ messageId: 881, message: { id: 881, text: raw }, raw }, { mode: 'pc' });
     assert.equal(opened.ok, true);
     const overlay = document.getElementById('igs-overlay');
-    return { document, timers, host, opened, overlay };
+    return { document, timers, host, opened, overlay, getSavedSettings: () => savedSettings };
 }
 
-test('gate:simulation:auto-play-toolbar-clicks-cycle-speed-and-stop-at-last-page', async () => {
+for (const [speed, delay] of [['fast', 1500], ['medium', 3000], ['slow', 5000]]) {
+    test(`gate:simulation:auto-play:${speed}-reads-shared-settings-on-open`, async () => {
+        const { host, timers, opened } = makeAutoPlayReader(undefined, {
+            typewriter: { enabled: false, speed },
+        });
+        try {
+            assert.equal(host.getState().activeReader.autoPlay.speed, speed);
+            assert.equal(host.getState().activeReader.autoPlay.enabled, false);
+            assert.equal(timers.size(), 0);
+            await opened.controller.invokeAction('auto-play');
+            await timers.advance(delay - 1);
+            assert.equal(host.getState().activeReader.index, 0);
+            await timers.advance(1);
+            assert.equal(host.getState().activeReader.index, 1);
+        } finally { host.destroy(); }
+        assert.equal(timers.size(), 0);
+    });
+}
+
+test('gate:simulation:auto-play-toolbar-clicks-toggle-and-stop-at-last-page', async () => {
     const { host, timers, overlay, opened, document } = makeAutoPlayReader();
     try {
         const play = overlay.querySelector('#igs-btn-auto-play');
-        const speed = overlay.querySelector('#igs-btn-auto-speed');
-        assert.ok(play && speed);
-        assert.equal(speed.innerHTML, AUTO_PLAY_SPEED_ICONS.medium);
+        assert.ok(play);
+        assert.ok(!overlay.querySelector('#igs-btn-auto-speed'));
         assert.equal(play.innerHTML, ORIGINAL_READER_ICONS.play);
         assert.equal(play.getAttribute('aria-pressed'), 'false');
         assert.equal(timers.size(), 0);
@@ -2065,11 +2083,6 @@ test('gate:simulation:auto-play-toolbar-clicks-cycle-speed-and-stop-at-last-page
         assert.equal(host.getState().activeReader.index, 0);
         await timers.advance(1);
         assert.equal(host.getState().activeReader.index, 1);
-        for (const [value, label] of [['slow', '慢'], ['fast', '快'], ['medium', '中']]) {
-            await click(speed);
-            assert.equal(speed.innerHTML, AUTO_PLAY_SPEED_ICONS[value]);
-            assert.ok(speed.getAttribute('aria-label').includes(`速度：${label}`));
-        }
         document.dispatchEvent({ type: 'keydown', key: ' ', target: play });
         assert.equal(host.getState().activeReader.index, 1);
         await timers.advance(3000);
@@ -2125,23 +2138,87 @@ test('gate:simulation:auto-play-waits-for-typewriter-and-stage-pause-and-cleans-
     } finally { host.destroy(); }
 });
 
-test('gate:simulation:auto-play-buttons-join-existing-pin-hide-and-order-management', async () => {
+test('gate:simulation:auto-play-button-management-filters-removed-speed-from-old-settings', async () => {
     const { host, opened, overlay } = makeAutoPlayReader(undefined, {
-        pinnedBtns: ['auto-play'], hiddenBtns: ['auto-speed'], btnOrder: ['next', 'auto-speed', 'auto-play'],
+        pinnedBtns: ['auto-speed', 'auto-play'], hiddenBtns: ['auto-speed', 'next'], btnOrder: ['next', 'auto-speed', 'auto-play'],
     });
     try {
         const play = overlay.querySelector('#igs-btn-auto-play');
-        const speed = overlay.querySelector('#igs-btn-auto-speed');
+        assert.ok(!overlay.querySelector('#igs-btn-auto-speed'));
         assert.equal(play.parentNode.id, 'igs-bar-pinned');
-        assert.equal(speed.style.display, 'none');
+        assert.equal(overlay.querySelector('#igs-btn-next').style.display, 'none');
+        const normalized = host.getState().activeReader.snapshot.readerSettings;
+        for (const key of ['pinnedBtns', 'hiddenBtns', 'btnOrder']) {
+            assert.ok(!normalized[key].includes('auto-speed'), `${key} must filter the removed speed action`);
+        }
+        assert.deepEqual(normalized.btnOrder.slice(0, 2), ['next', 'auto-play']);
         const settings = opened.controller.openSettings('reader').controller;
         settings.switchReaderSubTab('interface');
         const html = settings.getSnapshot().html;
         assert.ok(html.includes('自动播放'));
-        assert.ok(html.includes('toolbar-toggle-visible:auto-speed'));
+        assert.ok(!html.includes('auto-speed'));
         assert.ok(html.includes('toggle-toolbar-pin:auto-play'));
         assert.equal(settings.close().ok, true);
     } finally { host.destroy(); }
+});
+
+test('gate:simulation:auto-play-settings-segments-save-reopen-and-update-running-speed-with-typewriter-off', async () => {
+    const { host, timers, opened, document, getSavedSettings } = makeAutoPlayReader();
+    try {
+        await opened.controller.invokeAction('auto-play');
+        await timers.advance(1000);
+        for (const [speed, delay] of [['slow', 5000], ['fast', 1500], ['medium', 3000]]) {
+            const settings = opened.controller.openSettings('reader').controller;
+            settings.switchReaderSubTab('performance');
+            const html = settings.getSnapshot().html;
+            const buttons = html.match(/<button[^>]*data-segment-path="readerSettings\.typewriter\.speed"[^>]*>[\s\S]*?<\/button>/g) || [];
+            assert.equal(buttons.length, 3);
+            assert.ok(html.includes('播放速度') && html.includes('自动播放与打字机共用'));
+            assert.equal(settings.getSnapshot().draft.readerSettings.typewriter.enabled, false);
+            assert.ok(!html.includes('readerSettings.typewriter.mode'));
+            for (const [index, value] of ['fast', 'medium', 'slow'].entries()) {
+                assert.ok(buttons[index].includes('igs-segmented-btn'));
+                assert.ok(buttons[index].includes('igs-segmented-btn-label'));
+                assert.ok(buttons[index].includes(`data-segment-value="${value}"`));
+                assert.ok(buttons[index].includes('role="radio"'));
+            }
+            const buttonHtml = buttons.find((value) => value.includes(`data-segment-value="${speed}"`));
+            const button = document.createElement('button');
+            for (const [, name, value] of buttonHtml.matchAll(/([\w-]+)="([^"]*)"/g)) button.setAttribute(name, value);
+            const settingsRoot = document.getElementById('igs-unified-settings').parentNode;
+            settingsRoot.appendChild(button);
+            await settingsRoot.dispatchEvent({ type: 'click', target: button });
+            assert.equal(settings.getSnapshot().draft.readerSettings.typewriter.speed, speed);
+            assert.notEqual(getSavedSettings().readerSettings.typewriter?.speed, speed);
+            await timers.advance(6000);
+            assert.equal(host.getState().activeReader.index, 0);
+            assert.equal(settings.close().ok, true);
+            assert.equal(getSavedSettings().readerSettings.typewriter.speed, speed);
+            assert.equal(host.getState().activeReader.autoPlay.speed, speed);
+            assert.equal(host.getState().activeReader.autoPlay.enabled, true);
+            assert.equal(host.getState().activeReader.snapshot.readerSettings.typewriter.enabled, false);
+            const reopened = opened.controller.openSettings('reader').controller;
+            reopened.switchReaderSubTab('performance');
+            assert.equal(reopened.getSnapshot().draft.readerSettings.typewriter.speed, speed);
+            const selected = reopened.getSnapshot().html.match(/<button[^>]*data-segment-path="readerSettings\.typewriter\.speed"[^>]*>/g)
+                .find((value) => value.includes(`data-segment-value="${speed}"`));
+            assert.ok(selected.includes('is-active') && selected.includes('aria-checked="true"'));
+            assert.equal(reopened.close().ok, true);
+            await timers.advance(0);
+            await timers.advance(delay - 1);
+            assert.equal(host.getState().activeReader.index, 0);
+            await timers.advance(1);
+            assert.equal(host.getState().activeReader.index, 1);
+            await opened.controller.invokeAction('first-page');
+        }
+        assert.equal(opened.controller.close().ok, true);
+        assert.equal(timers.size(), 0);
+        const reopened = host.openReader({ messageId: 881, raw: '第一段。\n第二段。' }, { mode: 'pc' });
+        assert.equal(reopened.ok, true);
+        assert.equal(host.getState().activeReader.autoPlay.speed, 'medium');
+        assert.equal(host.getState().activeReader.autoPlay.enabled, false);
+    } finally { host.destroy(); }
+    assert.equal(timers.size(), 0);
 });
 
 test('gate:simulation:auto-play-reveals-chat-messages-before-leaving-the-page', async () => {
@@ -3288,8 +3365,9 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     const performanceView = settings.switchReaderSubTab('performance');
     assert.match(performanceView.snapshot.html, /data-reader-pane="performance"/);
     assert.match(performanceView.snapshot.html, /<span>打字机<\/span>/);
-    assert.doesNotMatch(performanceView.snapshot.html, /打字机速度/);
-    assert.doesNotMatch(performanceView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
+    assert.match(performanceView.snapshot.html, /播放速度/);
+    assert.match(performanceView.snapshot.html, /自动播放与打字机共用/);
+    assert.doesNotMatch(performanceView.snapshot.html, /演出方式/);
     assert.match(performanceView.snapshot.html, /旁白时压暗立绘/);
     assert.match(performanceView.snapshot.html, /data-segment-path="readerSettings\.statusHud\.nsfwSpriteMode" data-segment-value="shade"/);
     assert.match(performanceView.snapshot.html, /亲密演出/);
@@ -3314,7 +3392,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.notEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default') || '{}').typewriter?.speed, 'slow');
 
     const enabledView = settings.switchReaderSubTab('performance');
-    assert.match(enabledView.snapshot.html, /打字机速度/);
+    assert.match(enabledView.snapshot.html, /播放速度/);
     assert.match(enabledView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
     assert.match(enabledView.snapshot.html, /演出方式/);
     assert.doesNotMatch(enabledView.snapshot.html, /启用打字音效|台词音色|旁白音色/);

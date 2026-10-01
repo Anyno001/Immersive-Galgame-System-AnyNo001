@@ -1536,9 +1536,9 @@ export function createIgsReaderHost(options = {}) {
         const normalizedAction = String(action || '').trim();
         state.activeReader.lastAction = normalizedAction;
 
-        if (normalizedAction === 'auto-play' || normalizedAction === 'auto-speed') {
+        if (normalizedAction === 'auto-play') {
             const player = state.activeReader.autoPlayer;
-            return { ok: true, ...(normalizedAction === 'auto-play' ? player.toggle() : player.cycleSpeed()) };
+            return { ok: true, ...player.toggle() };
         }
         if (normalizedAction === 'generate-assets') {
             return runManualAssetGeneration();
@@ -3418,9 +3418,9 @@ export function createIgsReaderHost(options = {}) {
             advancedDialogSizeOpen: advancedOpen('dialog-size'),
             advancedDialogBackgroundOpen: advancedOpen('dialog-background'),
             typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '打字机'),
+            playbackSpeed: field('readerSettings.typewriter.speed', '播放速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '播放速度'), '自动播放与打字机共用'),
             typewriterControls: typewriter.enabled ? `<div class="igs-settings-sub">${[
                 `<div class="igs-source-filter-grid">`,
-                field('readerSettings.typewriter.speed', '打字机速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '打字机速度')),
                 field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式')),
                 `</div>`,
                 typewriter.mode === 'classic' ? `<details class="igs-settings-sub igs-settings-advanced" data-advanced="typewriter-classic"${advancedOpen('typewriter-classic')}><summary>高级：标点停顿与打字音效</summary>` : '',
@@ -3488,7 +3488,7 @@ export function createIgsReaderHost(options = {}) {
         };
         if (readerSubTab === 'performance') {
             readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(bridge.sceneAssets),
-                typewriter: readerValues.typewriterToggle + readerValues.typewriterControls,
+                typewriter: readerValues.playbackSpeed + readerValues.typewriterToggle + readerValues.typewriterControls,
                 stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
                 weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
                 chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],
@@ -4175,7 +4175,9 @@ export function createIgsReaderHost(options = {}) {
 
     function updateMountedReader(snapshot) {
         const current = state.activeReader;
-        if (!current || !current.dom || !current.dom.root) return;
+        if (!current) return;
+        current.autoPlayer?.setSpeed(snapshot.readerSettings?.typewriter?.speed);
+        if (!current.dom || !current.dom.root) return;
         const refs = hydrateReaderMount(current.dom.root, snapshot);
         current.dom.overlay = refs.overlay;
         current.dom.dialog = refs.dialog;
@@ -4680,6 +4682,7 @@ export function createIgsReaderHost(options = {}) {
         for (const [key, normalize] of Object.entries(FX_SETTINGS_NORMALIZERS)) normalized[key] = normalize(normalized[key]);
         normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
         normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
+        normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);
         normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
         normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
         normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);

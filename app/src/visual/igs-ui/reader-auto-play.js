@@ -1,5 +1,4 @@
 export const AUTO_PLAY_SPEEDS = Object.freeze({ fast: 1500, medium: 3000, slow: 5000 });
-export const AUTO_PLAY_LABELS = Object.freeze({ fast: '快', medium: '中', slow: '慢' });
 
 export function createReaderAutoPlay({ read, advance, sync = () => {}, timers = globalThis }) {
     let enabled = false;
@@ -74,9 +73,10 @@ export function createReaderAutoPlay({ read, advance, sync = () => {}, timers = 
             sync(getState());
             return getState();
         },
-        cycleSpeed() {
-            const speeds = Object.keys(AUTO_PLAY_SPEEDS);
-            speed = speeds[(speeds.indexOf(speed) + 1) % speeds.length];
+        setSpeed(value) {
+            const next = Object.hasOwn(AUTO_PLAY_SPEEDS, value) ? value : 'medium';
+            if (next === speed) return getState();
+            speed = next;
             refresh();
             sync(getState());
             return getState();
