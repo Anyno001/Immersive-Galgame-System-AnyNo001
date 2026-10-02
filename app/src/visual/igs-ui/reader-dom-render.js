@@ -45,7 +45,7 @@ import { applyRomanceToDom } from './romance-runtime.js';
 import { applyMetaFx } from './meta-runtime.js';
 import { applySceneAudio } from './scene-audio.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
-import { renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
+import { fitBilingualRuby, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
 import { cgSizeForMode } from '../../generated-images/illustration/auto-illustration-service.js';
@@ -1369,6 +1369,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         } else {
             textEl.style.color = '';
         }
+        // 字体、字号定下后再量：放不下一行的注音改成译文单独成行，打字机随后按改好的排版测量。
+        if (bilingualDisplay === 'ruby') fitBilingualRuby(textEl);
     }
     const stageShakeSettings = snapshot.readerSettings && snapshot.readerSettings.stageShake;
     const stageShakeKey = [

@@ -4541,8 +4541,15 @@ test('gate:igs-ui:sprite-matte-editor-mode-and-save-errors', async () => {
         temp: [{ key: 'k1', type: 'sprite', name: '路人', imageId: 'sp2' }, { key: 'k2', type: 'background', name: '街道', imageId: 'bg2' }],
         resolveUrl: () => '',
     });
-    assert.ok(!pane.includes('gen-matte-edit:sp1'));
+    // 还没进角色的生成立绘留在「刚生成的图」里，同样可以修复抠图；进了角色就不在这里了。
+    assert.ok(pane.includes('data-action="gen-matte-edit:sp1"'));
     assert.ok(pane.includes('data-action="gen-matte-edit:sp2"'));
+    const placed = renderGeneratedAssetPane({
+        library: { characters: { '爱丽丝': { '默认': 'igs-gen:sp1' } } },
+        characters: { '爱丽丝': { '默认': 'igs-gen:sp1' } },
+        resolveUrl: () => '',
+    });
+    assert.ok(!placed.includes('gen-matte-edit:sp1'));
     assert.ok(!pane.includes('gen-matte-edit:bg1'));
     assert.ok(!pane.includes('gen-matte-edit:bg2'));
 });

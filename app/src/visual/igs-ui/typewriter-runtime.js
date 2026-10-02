@@ -1,4 +1,5 @@
 import { prefersReducedMotion } from './reduced-motion.js';
+import { isBilingualNote } from './bilingual-text.js';
 import { measureClassicReveal } from './typewriter-classic.js';
 import { startCompositedReveal } from './typewriter-compositor.js';
 import { TYPEWRITER_VOICE_DEFAULTS, normalizeTypewriterVoice, resolveTypewriterVoice, scheduleTypewriterAudio } from './typewriter-audio.js';
@@ -40,7 +41,7 @@ const VISUAL_REVEAL_KEYFRAMES = Object.freeze([
 function readText(root) {
     if (!root) return '';
     if (root.nodeType === 3) return String(root.nodeValue || '');
-    if (String(root.nodeName || '').toUpperCase() === 'RT') return '';
+    if (isBilingualNote(root)) return '';
     return Array.from(root.childNodes || [], readText).join('');
 }
 

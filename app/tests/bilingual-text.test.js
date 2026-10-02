@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     bilingualGrammarBlock,
+    fitBilingualRuby,
     nextBilingualDisplay,
     normalizeBilingualSettings,
     renderBilingualHtml,
@@ -132,4 +133,78 @@ test('gate: classic typewriter skips ruby text and lifts its line top to include
     assert.deepEqual(result.events.map((event) => event.text), ['あ', 'い']);
     assert.equal(result.layout.lines.length, 2);
     assert.equal(result.layout.lines[1].top, 28);
+});
+
+test('gate: classic typewriter skips a stacked bilingual note and lifts the next line to include it', () => {
+    const first = textNode('あ');
+    const noteText = textNode('是');
+    const base = textNode('い');
+    const note = node('SPAN', noteText);
+    note.classList = { contains: (name) => name === 'igs-bi-note' };
+    const root = node('DIV', first, node('SPAN', note, base));
+    const rects = new Map([
+        [first, { top: 0, bottom: 20, left: 0, right: 10, width: 10, height: 20 }],
+        [noteText, { top: 24, bottom: 36, left: 0, right: 10, width: 10, height: 12 }],
+        [base, { top: 40, bottom: 60, left: 0, right: 10, width: 10, height: 20 }],
+    ]);
+    root.getBoundingClientRect = () => ({ top: 0, left: 0, right: 100, bottom: 60, width: 100, height: 60 });
+    root.ownerDocument = { createRange() {
+        let current;
+        return {
+            setStart(value) { current = value; },
+            setEnd() {},
+            selectNodeContents(value) { current = value; },
+            getClientRects() { return [rects.get(current)]; },
+        };
+    } };
+    const result = measureClassicReveal(root, 10);
+    assert.deepEqual(result.events.map((event) => event.text), ['あ', 'い']);
+    assert.equal(result.layout.lines.length, 2);
+    assert.equal(result.layout.lines[1].top, 24);
+});
+
+function fakeElement(nodeName, className, rects = []) {
+    return {
+        nodeType: 1, nodeName, className, childNodes: [], rects, parent: null,
+        classList: { contains(name) { return className.split(/\s+/).includes(name); } },
+        get children() { return this.childNodes.filter((child) => child.nodeType === 1); },
+        get firstChild() { return this.childNodes[0] || null; },
+        appendChild(child) {
+            if (child.parent) child.parent.childNodes.splice(child.parent.childNodes.indexOf(child), 1);
+            child.parent = this;
+            this.childNodes.push(child);
+            return child;
+        },
+        replaceWith(next) {
+            const siblings = this.parent.childNodes;
+            siblings.splice(siblings.indexOf(this), 1, next);
+            next.parent = this.parent;
+        },
+        getClientRects() { return this.rects; },
+    };
+}
+
+test('gate: ruby that overflows the text box becomes a stacked note line, fitting ruby stays', () => {
+    const doc = { defaultView: { getComputedStyle: () => ({ paddingLeft: '10px', paddingRight: '10px' }) }, createElement: (tag) => fakeElement(tag.toUpperCase(), '') };
+    const box = fakeElement('DIV', '');
+    box.ownerDocument = doc;
+    box.offsetWidth = 200;
+    box.getBoundingClientRect = () => ({ left: 0, right: 200, width: 200 });
+    const make = (base, note, rect) => {
+        const ruby = fakeElement('RUBY', 'igs-bi', [rect]);
+        ruby.appendChild({ nodeType: 3, nodeValue: base });
+        const rt = ruby.appendChild(fakeElement('RT', '', []));
+        rt.appendChild({ nodeType: 3, nodeValue: note });
+        return box.appendChild(ruby);
+    };
+    make('Wait.', '等等。', { left: 10, right: 60, width: 50 });
+    make('My young mistress does not speak English.', '我家小主人不会说英语。', { left: 60, right: 400, width: 340 });
+    box.querySelectorAll = () => box.childNodes.filter((child) => child.nodeName === 'RUBY');
+    assert.equal(fitBilingualRuby(box), 1);
+    assert.deepEqual(box.childNodes.map((child) => child.nodeName), ['RUBY', 'SPAN']);
+    const stack = box.childNodes[1];
+    assert.equal(stack.className, 'igs-bi-stack');
+    assert.equal(stack.childNodes[0].className, 'igs-bi-note');
+    assert.equal(stack.childNodes[0].childNodes[0].nodeValue, '我家小主人不会说英语。');
+    assert.equal(stack.childNodes[1].nodeValue, 'My young mistress does not speak English.');
 });
