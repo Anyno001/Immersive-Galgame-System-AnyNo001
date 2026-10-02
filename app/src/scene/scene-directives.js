@@ -215,6 +215,77 @@ export function resolveIllustrationAtSourceOffset(source, position) {
     return last;
 }
 
+// 每一页的阅读位置，规则同 resolveHeldSourceOffset：对不上原文的页沿用前一页的位置。
+export function resolveHeldSourceOffsets(source, segments, locate) {
+    const list = Array.isArray(segments) ? segments : [];
+    const find = typeof locate === 'function' ? locate : (text, from) => String(source || '').indexOf(String(text || ''), Math.max(0, Number(from) || 0));
+    const out = [];
+    let last = -1;
+    for (let i = 0; i < list.length; i += 1) {
+        const hit = Number(find(list[i], last >= 0 ? last + 1 : 0));
+        if (Number.isFinite(hit) && hit >= 0) last = hit;
+        out.push(last);
+    }
+    return out;
+}
+
+const PAGE_SPEAKER_RE = /^\s*\*?\s*\[([^\]\n]+)\]\s*[:：]/;
+
+/**
+ * 当前页该显示哪张 CG。
+ * NSFW 页沿用 resolveIllustrationAtSourceOffset：整楼有图就一直挂着，只被下一张替换；翻过的 NSFW 图转到 SFW 场景也不撤。
+ * SFW 页按 GAL 的事件 CG 处理：从标记前一页（锚句所在页）切入，至少保持 holdPages 页；
+ * 之后有本段没开口过的角色说话就退场，最长 holdPages*2 页；换地点或时段、下一张 CG 也会结束这一张。
+ * @returns {{ slot: number, offset: number } | null}
+ */
+export function resolveIllustrationForPage({ source, offsets, segments, index, holdPages = 4, inheritedNsfw = false } = {}) {
+    const src = String(source || '');
+    const pages = Array.isArray(offsets) ? offsets : [];
+    const at = Math.min(pages.length - 1, Math.max(0, Number(index) || 0));
+    if (!pages.length || pages[at] < 0) return null;
+    const sceneAt = (position) => {
+        const state = resolveSceneAtSourceOffset(src, position);
+        return state.scene ? state : { ...state, nsfw: inheritedNsfw === true };
+    };
+    if (sceneAt(pages[at]).nsfw) return resolveIllustrationAtSourceOffset(src, pages[at]);
+    const markers = [];
+    for (const match of src.matchAll(/\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>/gi)) {
+        const slot = Number(match[1] || match[2]);
+        if (Number.isInteger(slot) && slot >= 1) markers.push({ slot, offset: match.index });
+    }
+    // NSFW 图翻过后，即使转到 SFW 场景也保持到下一张。
+    const passed = markers.filter((marker) => marker.offset < pages[at]).pop();
+    if (passed && sceneAt(passed.offset).nsfw) return passed;
+    let current = null;
+    let start = -1;
+    for (const marker of markers) {
+        let page = -1;
+        for (let i = 0; i < pages.length; i += 1) {
+            if (pages[i] >= 0 && pages[i] < marker.offset) page = i;
+        }
+        if (page < 0) page = pages.findIndex((offset) => offset > marker.offset);
+        if (page >= 0 && page <= at && page >= start) {
+            current = marker;
+            start = page;
+        }
+    }
+    if (!current) return null;
+    const hold = Math.max(1, Number(holdPages) || 4);
+    if (at - start >= hold * 2) return null;
+    const opening = sceneAt(pages[start]);
+    const here = sceneAt(pages[at]);
+    if (here.scene !== opening.scene || here.time !== opening.time) return null;
+    const list = Array.isArray(segments) ? segments : [];
+    const spoken = new Set();
+    for (let i = start; i <= at; i += 1) {
+        const match = String(list[i] || '').match(PAGE_SPEAKER_RE);
+        const speaker = match ? match[1].trim() : '';
+        if (speaker && i - start >= hold && !spoken.has(speaker)) return null;
+        if (speaker) spoken.add(speaker);
+    }
+    return current;
+}
+
 // 从已提取的指令中取最后一条 [igs-scene]：供跨楼层场景追溯使用，
 // 当前楼层正文未重发场景标签时继承上一 AI 楼层的场景状态。
 export function resolveLatestSceneDirective(directives) {

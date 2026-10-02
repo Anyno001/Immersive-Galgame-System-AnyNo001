@@ -3,16 +3,16 @@ export const INTIMATE_PHASES = Object.freeze(['rise', 'steady', 'climax', 'after
 
 // 节拍：bpm 为目标速度，jitter 为逐拍时间偏差，skip / double 为漏一拍、连两下的概率，velocity 为力度区间。
 export const PHASE_TEMPO = Object.freeze({
-    rise: Object.freeze({ bpm: 60, jitter: 0.12, skip: 0.08, double: 0, velocity: Object.freeze([0.45, 0.75]) }),
-    steady: Object.freeze({ bpm: 88, jitter: 0.07, skip: 0.04, double: 0.05, velocity: Object.freeze([0.65, 0.95]) }),
-    climax: Object.freeze({ bpm: 124, jitter: 0.04, skip: 0, double: 0.03, velocity: Object.freeze([0.8, 1]) }),
+    rise: Object.freeze({ bpm: 50, jitter: 0.12, skip: 0.08, double: 0, velocity: Object.freeze([0.45, 0.75]) }),
+    steady: Object.freeze({ bpm: 68, jitter: 0.07, skip: 0.04, double: 0.05, velocity: Object.freeze([0.65, 0.95]) }),
+    climax: Object.freeze({ bpm: 90, jitter: 0.04, skip: 0, double: 0.03, velocity: Object.freeze([0.8, 1]) }),
 });
 // 越往后越快：中段按在情事段里的进度再提速，停在同一页上也缓慢加快；顶点页按停留时间持续加速，晃动随之放大。
-const STEADY_SPAN_BONUS = 16;
-const STEADY_TIME_BPM = 0.4;
-const STEADY_TIME_MAX = 10;
-const CLIMAX_TIME_BPM = 1.5;
-const CLIMAX_MAX_BPM = 150;
+const STEADY_SPAN_BONUS = 10;
+const STEADY_TIME_BPM = 0.3;
+const STEADY_TIME_MAX = 6;
+const CLIMAX_TIME_BPM = 1;
+const CLIMAX_MAX_BPM = 112;
 const CLIMAX_SWELL_RATE = 0.015;
 const CLIMAX_SWELL_MAX = 0.3;
 
@@ -38,8 +38,8 @@ const TEMPO_FOLLOW = 0.12;
 const MIN_GAP_S = 0.22;
 
 // 心率与呼吸周期（秒）；2 为亲密档，其余为情事各阶段。
-export const HEART_BPM = Object.freeze({ 2: 72, rise: 84, steady: 98, climax: 126, after: 70 });
-export const BREATH_PERIOD = Object.freeze({ 2: 4.6, rise: 3.6, steady: 2.6, climax: 1.5, after: 5.2 });
+export const HEART_BPM = Object.freeze({ 2: 66, rise: 74, steady: 84, climax: 100, after: 64 });
+export const BREATH_PERIOD = Object.freeze({ 2: 5.6, rise: 4.8, steady: 4, climax: 3.2, after: 6.4 });
 // 世界安静下来：场景 BGM 与环境声的压低比例。
 export const DUCK_BY_LEVEL = Object.freeze({ 1: 0.75, 2: 0.55, 3: 0.4 });
 

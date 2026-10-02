@@ -129,7 +129,7 @@ test('gate:romance-intimate:tempo-speeds-up-later', () => {
     const climaxLate = resolveIntimateTempo('climax', span(5, 8), 12);
     assert.equal(climax.bpm, PHASE_TEMPO.climax.bpm);
     assert.ok(climaxLate.bpm > climax.bpm && climaxLate.swell > 1);
-    assert.equal(resolveIntimateTempo('climax', span(5, 8), 999).bpm, 150);
+    assert.equal(resolveIntimateTempo('climax', span(5, 8), 999).bpm, 112);
     assert.equal(resolveIntimateTempo('climax', span(5, 8), 999).swell, 1.3);
     assert.equal(resolveIntimateTempo('after', span(6, 8)), null);
 });
@@ -258,4 +258,16 @@ test('gate:romance-intimate:synchronous-raf-host-does-not-recurse', async () => 
 test('gate:romance-intimate:whisper-voice-profile', () => {
     assert.equal(emotionProfile('耳语').id, 'whisper');
     assert.ok(emotionProfile('耳语').gain < 1);
+});
+
+test('gate:romance-intimate:rhythm-sound-can-be-off-while-sway-keeps-clock', () => {
+    const settings = normalizeRomanceFxSettings({ enabled: true, rhythm: true, rhythmSound: false, sway: 'medium' });
+    assert.equal(normalizeRomanceFxSettings({ rhythm: true }).rhythmSound, true);
+    const plan = resolveIntimatePlan({ level: 3, phase: 'climax', settings, sound: SOUND });
+    assert.equal(plan.creak, false);
+    assert.equal(plan.knock, false);
+    assert.equal(plan.settle, false);
+    assert.ok(plan.sway);
+    assert.ok(plan.tempo);
+    assert.match(renderRomanceFxFields({ romanceFx: settings }), /romanceFx.rhythmSound/);
 });

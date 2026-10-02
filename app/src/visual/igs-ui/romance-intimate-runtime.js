@@ -46,7 +46,7 @@ export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}
     const edge = settings.edgeFx !== false;
     const heartBpm = level === 2 && (soft || edge) ? HEART_BPM[2] : nsfw && (nsfwSound || edge) ? HEART_BPM[phase] : 0;
     const rhythmic = nsfw && settings.rhythm === true && phase !== 'after';
-    const creak = rhythmic && soundOk;
+    const creak = rhythmic && soundOk && settings.rhythmSound !== false;
     const sway = rhythmic && !reduced && settings.sway !== 'off' ? SWAY_AMPLITUDE[settings.sway] || SWAY_AMPLITUDE.medium : null;
     const plan = {
         level,
@@ -64,7 +64,7 @@ export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}
         material: resolveIntimateMaterial(location),
         knock: creak && (phase === 'climax' || settings.strength === 'strong'),
         sway,
-        settle: nsfw && settings.rhythm === true && soundOk,
+        settle: nsfw && settings.rhythm === true && settings.rhythmSound !== false && soundOk,
         whisper: (level === 2 && soft) || nsfwSound,
         vignette: edge && level >= 2,
         gobo: edge && mild,
@@ -211,8 +211,8 @@ function scheduleBeat(state, plan, beat) {
     voice.creak(beat.t, { material, velocity, down: true, duration: period * 0.5 });
     if (RHYTHM_MATERIALS.has(material)) {
         voice.creak(beat.t + period * 0.45, { material, velocity: velocity * 0.8, down: false, duration: period * 0.4 });
-        if (plan.phase !== 'rise' && material !== 'sofa' && state.rng() < 0.5) voice.spring(beat.t + 0.02, velocity);
-        if (plan.knock && state.rng() < (plan.phase === 'climax' ? 0.25 : 0.1)) voice.knock(beat.t + 0.01, velocity);
+        if (plan.phase !== 'rise' && material !== 'sofa' && state.rng() < 0.3) voice.spring(beat.t + 0.02, velocity);
+        if (plan.knock && state.rng() < (plan.phase === 'climax' ? 0.1 : 0.04)) voice.knock(beat.t + 0.01, velocity);
     }
 }
 
@@ -245,7 +245,7 @@ function pump(state) {
             state.heartBpm = state.heartBpm > 0 ? state.heartBpm + (plan.heartBpm - state.heartBpm) * 0.25 : plan.heartBpm;
             const at = state.nextHeart;
             state.hearts.push({ t: at, bpm: state.heartBpm });
-            if (voice && plan.heartAudio) voice.heartbeat(at, { bpm: state.heartBpm, gain: plan.level === 3 ? 0.9 : 0.6 });
+            if (voice && plan.heartAudio) voice.heartbeat(at, { bpm: state.heartBpm, gain: plan.level === 3 ? 0.7 : 0.5 });
             state.nextHeart = at + (60 / state.heartBpm) * (1 + (state.rng() - 0.5) * 0.04);
         }
         if (state.hearts.length > 4) state.hearts.splice(0, state.hearts.length - 4);
@@ -254,9 +254,9 @@ function pump(state) {
         if (!(state.nextBreath > t - 1)) state.nextBreath = t + 0.4;
         while (state.nextBreath < horizon) {
             const at = state.nextBreath;
-            const share = state.inhale ? 0.45 : 0.55;
+            const share = state.inhale ? 0.4 : 0.6;
             const pan = plan.phase === 'climax' ? (state.inhale ? -0.35 : 0.35) : (state.rng() - 0.5) * 0.2;
-            voice.breath(at, { inhale: state.inhale, duration: plan.breath * share * 0.95, gain: plan.level === 3 ? 1 : 0.7, pan });
+            voice.breath(at, { inhale: state.inhale, duration: plan.breath * share * 0.7, gain: plan.level === 3 ? 0.85 : 0.65, pan });
             state.nextBreath = at + plan.breath * share * (1 + (state.rng() - 0.5) * 0.12);
             state.inhale = !state.inhale;
         }

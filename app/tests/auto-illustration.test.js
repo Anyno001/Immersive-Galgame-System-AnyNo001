@@ -7,6 +7,8 @@ import {
     resolveIllustrationAtSourceOffset,
     resolveHeldSourceOffset,
     locateNarrativeOffset,
+    resolveHeldSourceOffsets,
+    resolveIllustrationForPage,
 } from '../src/scene/scene-directives.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 
@@ -833,4 +835,39 @@ test('gate:illustration:slot-count-mismatch-still-generates', async () => {
     const result = await createAutoIllustrationService({ ...fake, store: createMemoryIllustrationStore() }).processMessage(5);
     assert.equal(result.reason, 'done');
     assert.equal(fake.calls.nai, 1);
+});
+
+function cgSlots(src, segments, opts = {}) {
+    const offsets = resolveHeldSourceOffsets(src, segments);
+    return segments.map((_, index) => {
+        const hit = resolveIllustrationForPage({ source: src, offsets, segments, index, holdPages: 2, ...opts });
+        return hit ? hit.slot : 0;
+    });
+}
+
+test('gate:illustration:sfw-cg-enters-at-anchor-and-leaves-after-hold', () => {
+    const segments = ['甲。', '乙。', '丙。', '丁。', '戊。', '己。', '庚。'];
+    const src = '[igs-scene:教室|午后|晴]\n甲。\n乙。\n[igs-img:1]\n丙。\n丁。\n戊。\n己。\n庚。';
+    // 锚句「乙」所在页切入，不提前；无人开口时最长保持 holdPages*2 页。
+    assert.deepEqual(cgSlots(src, segments), [0, 1, 1, 1, 1, 0, 0]);
+});
+
+test('gate:illustration:sfw-cg-leaves-when-a-new-speaker-talks', () => {
+    const segments = ['甲。', '[小雪]：嗯。', '丙。', '[小雪]：好。', '[林]：喂。', '丁。'];
+    const src = '[igs-scene:教室|午后|晴]\n甲。\n[igs-char:小雪|开心|嗯。]\n[igs-img:1]\n丙。\n[igs-char:小雪|开心|好。]\n[igs-char:林|平和|喂。]\n丁。';
+    assert.deepEqual(cgSlots(src, segments), [0, 1, 1, 1, 0, 0]);
+});
+
+test('gate:illustration:sfw-cg-leaves-on-scene-change-and-next-cg-takes-over', () => {
+    const segments = ['甲。', '乙。', '丙。', '丁。', '戊。'];
+    const src = '[igs-scene:教室|午后|晴]\n甲。\n[igs-img:1]\n[igs-scene:走廊|午后|晴]\n乙。\n丙。\n[igs-img:2]\n丁。\n戊。';
+    assert.deepEqual(cgSlots(src, segments), [1, 0, 2, 2, 2]);
+});
+
+test('gate:illustration:nsfw-cg-keeps-floor-wide-behaviour', () => {
+    const segments = ['甲。', '乙。', '丙。', '丁。', '戊。', '己。', '庚。'];
+    const src = '[igs-scene:卧室|夜晚|晴|NSFW]\n甲。\n乙。\n[igs-img:1]\n丙。\n丁。\n戊。\n己。\n庚。';
+    assert.deepEqual(cgSlots(src, segments), [1, 1, 1, 1, 1, 1, 1]);
+    // 本楼没写场景时沿用上一楼的 NSFW 状态。
+    assert.deepEqual(cgSlots(src.replace(/^.*\n/, ''), segments, { inheritedNsfw: true }), [1, 1, 1, 1, 1, 1, 1]);
 });

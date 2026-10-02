@@ -126,6 +126,7 @@ export function normalizeRomanceFxSettings(value) {
         softSound: src.softSound !== false,
         nsfwSound: src.nsfwSound === true,
         rhythm: src.rhythm === true,
+        rhythmSound: src.rhythmSound !== false,
         sway: ROMANCE_SWAY_LEVELS.includes(src.sway) ? src.sway : 'medium',
         edgeFx: src.edgeFx !== false,
         quickActions: src.quickActions === true,

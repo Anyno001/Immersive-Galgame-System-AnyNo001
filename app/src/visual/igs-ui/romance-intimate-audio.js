@@ -3,10 +3,10 @@ import { busInput } from './audio-bus.js';
 // 亲密声画的合成音色：全部现场合成，走 sfx 子总线（跟随房间混响），自带一路本地音量，便于顶点瞬间静音。
 // 吱呀 = 摩擦「咬住—滑开」的脉冲串（锯齿波）经过几个窄带共振；频率随受力滑动，往返两声音高不同。
 const CREAK = Object.freeze({
-    wood: Object.freeze({ f0: [38, 62], bands: Object.freeze([430, 800]), q: 11, dur: 0.24, gain: 0.2, grain: 0.03 }),
-    metal: Object.freeze({ f0: [90, 140], bands: Object.freeze([1150, 1950, 2800]), q: 22, dur: 0.15, gain: 0.1, grain: 0.015 }),
-    leather: Object.freeze({ f0: [170, 240], bands: Object.freeze([900, 1600]), q: 9, dur: 0.1, gain: 0.09, grain: 0.02 }),
-    sofa: Object.freeze({ f0: [30, 42], bands: Object.freeze([260, 520]), q: 7, dur: 0.2, gain: 0.16, grain: 0.02, thud: 0.12 }),
+    wood: Object.freeze({ f0: [38, 62], bands: Object.freeze([430, 800]), q: 11, dur: 0.24, gain: 0.12, grain: 0.012 }),
+    metal: Object.freeze({ f0: [90, 140], bands: Object.freeze([1150, 1950, 2800]), q: 22, dur: 0.15, gain: 0.06, grain: 0.006 }),
+    leather: Object.freeze({ f0: [170, 240], bands: Object.freeze([900, 1600]), q: 9, dur: 0.1, gain: 0.055, grain: 0.008 }),
+    sofa: Object.freeze({ f0: [30, 42], bands: Object.freeze([260, 520]), q: 7, dur: 0.2, gain: 0.1, grain: 0.008, thud: 0.06 }),
 });
 const FLOOR = 0.0001;
 
@@ -129,15 +129,15 @@ export function createIntimateVoice(volume = 0.5) {
     const heartbeat = safe((t, { bpm = 72, gain = 1 } = {}) => {
         const gap = Math.min(0.26, (0.32 * 60) / Math.max(40, bpm));
         for (const [at, k] of [[t, 1], [t + gap, 0.62]]) {
-            tone(at, 'sine', 58, 38, 0.16, 0.5 * gain * k, { attack: 0.006 });
-            noise(at, 'lowpass', 150, 90, 0.7, 0.09, 0.22 * gain * k, { attack: 0.004 });
+            tone(at, 'sine', 58, 38, 0.16, 0.3 * gain * k, { attack: 0.012 });
+            noise(at, 'lowpass', 150, 90, 0.7, 0.09, 0.1 * gain * k, { attack: 0.004 });
         }
     });
 
     // 呼吸：带通噪声，吸气时滤波上扫、呼气时下扫。
     const breath = safe((t, { inhale = true, duration = 1, gain = 1, pan = 0 } = {}) => {
         const [from, to] = inhale ? [650, 1300] : [1200, 560];
-        noise(t, 'bandpass', from, to, 0.9, duration, 0.07 * gain, { attack: duration * (inhale ? 0.55 : 0.18), pan, lowpass: 3600 });
+        noise(t, 'bandpass', from, to, 0.9, duration, 0.04 * gain, { attack: duration * (inhale ? 0.55 : 0.3), pan, lowpass: 2400 });
     });
 
     // 布料窸窣：几下短促的高频噪声，间隔随机。
@@ -145,7 +145,7 @@ export function createIntimateVoice(volume = 0.5) {
         let at = t;
         for (let i = 0; i < 3; i++) {
             const duration = 0.03 + Math.random() * 0.04;
-            noise(at, 'bandpass', 3600 + Math.random() * 1400, 2600, 0.7, duration, (0.035 + Math.random() * 0.035) * gain, { attack: 0.006, pan: (Math.random() - 0.5) * 0.4 });
+            noise(at, 'bandpass', 3600 + Math.random() * 1400, 2600, 0.7, duration, (0.02 + Math.random() * 0.02) * gain, { attack: 0.006, pan: (Math.random() - 0.5) * 0.4 });
             at += duration + 0.02 + Math.random() * 0.07;
         }
     });
@@ -180,8 +180,8 @@ export function createIntimateVoice(volume = 0.5) {
     // 床的吱呀：down 为下压（主声），否则为回弹（更轻、音高反向）。被褥 / 野外没有吱呀，只剩布料摩擦与闷响。
     const creak = safe((t, { material = 'wood', velocity = 0.8, down = true, duration } = {}) => {
         if (material === 'futon') {
-            noise(t, 'bandpass', 1900, 1300, 0.8, 0.18, 0.06 * velocity, { attack: 0.03, lowpass: 3000 });
-            if (down) tone(t, 'sine', 90, 58, 0.09, 0.07 * velocity, { attack: 0.004 });
+            noise(t, 'bandpass', 1900, 1300, 0.8, 0.18, 0.03 * velocity, { attack: 0.03, lowpass: 3000 });
+            if (down) tone(t, 'sine', 90, 58, 0.09, 0.04 * velocity, { attack: 0.004 });
             return;
         }
         const spec = CREAK[material] || CREAK.wood;
@@ -198,8 +198,8 @@ export function createIntimateVoice(volume = 0.5) {
     });
 
     const knock = safe((t, gain = 1) => {
-        tone(t, 'sine', 80, 48, 0.13, 0.2 * gain, { attack: 0.003, lowpass: 300 });
-        noise(t, 'lowpass', 420, 300, 0.7, 0.05, 0.08 * gain, { attack: 0.002 });
+        tone(t, 'sine', 80, 48, 0.13, 0.1 * gain, { attack: 0.006, lowpass: 300 });
+        noise(t, 'lowpass', 420, 300, 0.7, 0.05, 0.035 * gain, { attack: 0.002 });
     });
 
     const tick = safe((t, tock = false, gain = 1) => {

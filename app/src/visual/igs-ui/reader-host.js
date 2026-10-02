@@ -5,7 +5,7 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationAtSourceOffset, resolveHeldSourceOffset, locateNarrativeOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
+import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
 import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
 import { renderOutfitReviewList, renderWardrobe } from './settings-outfit-fields.js';
@@ -2637,15 +2637,20 @@ export function createIgsReaderHost(options = {}) {
         if (battleContext && battleFoe && sceneAssets && sceneAssets.enabled) {
             pageFx.foeImage = resolveGenerated(resolveSpriteAsset(battleFoe, '', assetMatchCtx).url) || '';
         }
-        const illustrationOffset = /(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset)
-            ? resolveHeldSourceOffset(sceneSourceForOffset, segments, normalizedIndex, (segment, from) => {
-                const find = (text) => locateNarrativeOffset(sceneSourceForOffset, text, from, (slice, start) => locateTextOffsetInSource(slice, text, start));
-                const exact = find(segment);
-                return exact >= 0 ? exact : find(stripSegmentSpeaker(segment));
+        // NSFW 页整楼挂图；SFW 页只在事件那几页显示，之后回到背景和立绘。
+        const illustrationHit = /(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset)
+            ? resolveIllustrationForPage({
+                source: sceneSourceForOffset,
+                offsets: resolveHeldSourceOffsets(sceneSourceForOffset, segments, (segment, from) => {
+                    const find = (text) => locateNarrativeOffset(sceneSourceForOffset, text, from, (slice, start) => locateTextOffsetInSource(slice, text, start));
+                    const exact = find(segment);
+                    return exact >= 0 ? exact : find(stripSegmentSpeaker(segment));
+                }),
+                segments,
+                index: normalizedIndex,
+                holdPages: readerSettings && readerSettings.cgHoldPages,
+                inheritedNsfw: Boolean(payload.inheritedSceneState && payload.inheritedSceneState.nsfw),
             })
-            : -1;
-        const illustrationHit = illustrationOffset >= 0
-            ? resolveIllustrationAtSourceOffset(sceneSourceForOffset, illustrationOffset)
             : null;
         const floorIdentity = state.activeReader && Number(state.activeReader.payload.messageId) === Number(payload.messageId)
             ? state.activeReader.illustrationIdentity
@@ -3454,7 +3459,9 @@ export function createIgsReaderHost(options = {}) {
             }) : '',
             weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '天气'),
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
-            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'),
+            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘')
+                + field('readerSettings.cgHoldPages', '日常 CG 停留', selectInput('readerSettings.cgHoldPages', reader.cgHoldPages || 4, [[2, '2 页'], [3, '3 页'], [4, '4 页'], [6, '6 页'], [8, '8 页']]))
+                + '<div class="igs-source-filter-note">非 NSFW 的插图至少停留这么多页，之后有新角色开口、换场景或到下一张图时回到立绘；NSFW 插图保持到下一张。</div>',
             sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'),
             nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', normalizeStatusHudSettings(reader.statusHud).nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW 场景立绘')}</div>`
                 + '<div class="igs-source-filter-note">仅露脸剪影：头部以下压成剪影。需要先在立绘编辑里标定头部，未标定的立绘整张显示为剪影。</div>',
@@ -4629,6 +4636,7 @@ export function createIgsReaderHost(options = {}) {
             inputScale: 100,
             imgMode: 'adaptive',
             imgBrightness: 100,
+            cgHoldPages: 4,
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),

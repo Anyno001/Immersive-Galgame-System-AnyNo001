@@ -25,7 +25,8 @@ export function renderRomanceFxFields(reader, more = collapsible) {
         + checkbox(`${P}.softSound`, s.softSound, '亲密氛围音（心跳、呼吸、环境声压低、耳语）')
         + checkbox(`${P}.nsfwSound`, s.nsfwSound, 'NSFW 场景音效（急促心跳与呼吸、耳鸣、顶点静音、余韵钟声）')
         + checkbox(`${P}.rhythm`, s.rhythm, 'NSFW 节律演出（床的吱呀声 + 画面随节奏晃动）')
-        + (s.rhythm ? sub(field(`${P}.sway`, '晃动幅度', segmentedInput(`${P}.sway`, s.sway, [['off', '关'], ['weak', '弱'], ['medium', '中'], ['strong', '强']], '晃动幅度'))
+        + (s.rhythm ? sub(checkbox(`${P}.rhythmSound`, s.rhythmSound, '节律音效（吱呀、摩擦、撞击声；关掉只保留晃动）')
+            + field(`${P}.sway`, '晃动幅度', segmentedInput(`${P}.sway`, s.sway, [['off', '关'], ['weak', '弱'], ['medium', '中'], ['strong', '强']], '晃动幅度'))
             + '<div class="igs-source-filter-note">越往后越快，顶点处戛然而止。床的材质按地点自动选（木床 / 铁床 / 车内 / 沙发 / 被褥）；对话框不晃，系统开启「减少动态效果」时只保留声音。</div>') : '')
         + '<div class="igs-source-filter-note">声音跟随「演出音效」的开关与音量；画面效果只落在画面边缘，生成的 CG 与插图不柔焦、环境滤镜减弱。</div>';
     const story = checkbox(`${P}.favorAmbience`, s.favorAmbience, '高好感角色在场时常驻暖光')
