@@ -5912,6 +5912,7 @@ const DAILY_FX_KINDS = Object.freeze([
     'timeskip', 'photo', 'letter', 'note', 'bell', 'broadcast', 'fireworks', 'touch', 'alarm', 'omikuji', 'receipt', 'tv', 'rps', 'gacha', 'game', 'score',
     'pat', 'poke', 'fever', 'cheers', 'cook', 'cat',
     'guqin', 'go', 'poem', 'edict', 'tea', 'bow',
+    'spell', 'potion', 'owl', 'broom', 'howler',
 ]);
 const DAILY_OMIKUJI_RESULTS = Object.freeze(['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶']);
 // 同页日常演出上限：都是全屏或大卡片，连发只会互相遮挡。
@@ -5987,6 +5988,15 @@ function parseDailyFxBody(type, fields) {
     case 'edict': return a ? ['edict', a] : null;
     case 'tea': return ['tea'];
     case 'bow': return ['bow', a];
+    // 魔法世界独有：咒语、魔药名、寄件人均可省。
+    case 'spell': return ['spell', a];
+    case 'potion': return ['potion', a];
+    case 'owl': return ['owl', a];
+    case 'broom': return ['broom'];
+    // 吼叫信同信件：只写一栏时视为内容。
+    case 'howler':
+        if (!a) return null;
+        return b ? ['howler', a, b] : ['howler', '', a];
     default: return null;
     }
 }
@@ -6022,6 +6032,11 @@ function dailyFxOf(args) {
     case 'edict': return { type, text: a };
     case 'tea': return { type };
     case 'bow': return { type, who: a };
+    case 'spell': return { type, words: a };
+    case 'potion': return { type, name: a };
+    case 'owl': return { type, from: a };
+    case 'broom': return { type };
+    case 'howler': return { type, from: a, text: b };
     case 'pat': return { type, who: a };
     case 'poke': return { type, who: a };
     case 'fever': {
@@ -8636,6 +8651,7 @@ const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.gradientVeil.speakerStyle',
     'readerSettings.classicDialogWidthPercent',
     'readerSettings.skinDialogScale',
+    'readerSettings.magicHouse',
     'readerSettings.optionFontSize',
     'readerSettings.dialogWidth',
     'readerSettings.dialogHeight',
@@ -9024,6 +9040,30 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#c3b4e6',
         narrationColor: '#d4cfdc',
     }),
+    // 魔法星夜：月光银白，内心独白取淡长春花蓝，旁白再淡一层；姓名用纤细的 Cormorant 衬线。
+    'magic-academy': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_CORMORANT,
+        textFont: DIALOG_FONT_HUIWEN,
+        thoughtFont: DIALOG_FONT_HUIWEN,
+        narrationFont: DIALOG_FONT_HUIWEN,
+        nameColor: '#f1effb',
+        textColor: '#ecebf7',
+        thoughtColor: '#b8c3ff',
+        narrationColor: '#c9c7dd',
+    }),
+    // 青绿山水：明朝体托住绢本气质，内心独白换楷书以示区别；墨色取黛青，旁白淡一层。
+    'qinglv-shanshui': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_HUIWEN,
+        textFont: DIALOG_FONT_HUIWEN,
+        thoughtFont: DIALOG_FONT_WENKAI,
+        narrationFont: DIALOG_FONT_HUIWEN,
+        nameColor: '#1f2b28',
+        textColor: '#26332f',
+        thoughtColor: '#2f5d7c',
+        narrationColor: '#56625d',
+    }),
 });
 function getReferenceDialogTypography(dialogSkin) {
     return REFERENCE_DIALOG_TYPOGRAPHY[dialogSkin] || null;
@@ -9202,6 +9242,9 @@ const { renderAssetFolderView, renderAssetFolderSelect } = require("src/visual/i
 const { loadMoodReview, recordMoodReview } = require("src/scene/mood-review-store.js");
 const { LEGACY_READER_MODES } = require("src/storage/legacy-igs.js");
 const { CLASSIC_DIALOG_HEIGHT, CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK, DIALOG_SKIN_WESTERN_CLASSIC, isIllustratedDialogSkin, normalizeClassicDialogWidthPercent, normalizeDialogSkin } = require("src/visual/igs-ui/classic-dialog-skin.js");
+const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, MAGIC_HOUSE_DEFAULT, normalizeMagicHouse } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
+const { normalizeCharacterHouses } = require("src/visual/igs-ui/magic-house.js");
+const { DIALOG_SKIN_QINGLV } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { normalizeGradientVeil } = require("src/visual/igs-ui/gradient-veil-dialog-skin.js");
 const { SKIN_DIALOG_SCALE_OPTIONS, SKIN_DIALOG_SCALE_DEFAULT, normalizeSkinDialogScale } = require("src/visual/igs-ui/dialog-skin-frame.js");
 const { normalizeStageShakeSettings } = require("src/visual/igs-ui/stage-shake-runtime.js");
@@ -12291,6 +12334,8 @@ function createIgsReaderHost(options = {}) {
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
                 statusAvatars: sceneAssets.statusAvatars || {},
+                // 角色学院只在魔法世界观下有意义；其他世界观的魔法星夜只当星空框用，不显示这一行。
+                magicHouse: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY && resolveWorldview(worldviewAssets) === 'magic' ? { sceneAssets, fallback: reader.magicHouse } : null,
                 resolveUrl: resolveGenerated,
                 expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
                 folderSelect: (name) => renderAssetFolderSelect('characters', name, assetFolders.characters),
@@ -12398,8 +12443,9 @@ function createIgsReaderHost(options = {}) {
             ...sectionResetPlaceholders(),
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
             dialogFontWeightField: field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])),
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
+            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_MAGIC_ACADEMY, '魔法星夜'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_QINGLV, '青绿山水'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
             gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
+            magicHouseField: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) : '',
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : '',
             skinDialogScaleField: classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]))) : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
@@ -12489,7 +12535,7 @@ function createIgsReaderHost(options = {}) {
             dialogBgOpacityField: !dialogBgEditable ? '' : field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随玻璃'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], !themeCustom)),
         };
         if (readerSubTab === 'performance') {
-            readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(worldviewAssets),
+            readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(worldviewAssets), worldviewId: resolveWorldview(worldviewAssets),
                 typewriter: readerValues.playbackSpeed + readerValues.typewriterToggle + readerValues.typewriterControls,
                 stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
                 weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
@@ -13037,6 +13083,15 @@ function createIgsReaderHost(options = {}) {
                     avatars[statusAvatarChar] = target.value;
                     state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
                 }
+                return;
+            }
+            const charHouse = target.getAttribute('data-char-house');
+            if (charHouse && !['__proto__', 'constructor', 'prototype'].includes(charHouse)) {
+                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                const houses = assets.characterHouses || (assets.characterHouses = {});
+                if (target.value) houses[charHouse] = target.value;
+                else delete houses[charHouse];
+                state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
                 return;
             }
             const wardrobeName = target.getAttribute('data-wardrobe-name');
@@ -13590,6 +13645,7 @@ function createIgsReaderHost(options = {}) {
         }
         normalized.characterDna = normalizeCharacterDnaMap(normalized.characterDna);
         normalized.characterOutfits = normalizeCharacterOutfits(normalized.characterOutfits);
+        normalized.characterHouses = normalizeCharacterHouses(normalized.characterHouses);
         normalized.wardrobe = normalizeWardrobe(normalized.wardrobe);
         normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
         // init group arrays
@@ -13661,6 +13717,7 @@ function createIgsReaderHost(options = {}) {
             gradientVeil: normalizeGradientVeil(null),
             classicDialogWidthPercent: CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
             skinDialogScale: SKIN_DIALOG_SCALE_DEFAULT,
+            magicHouse: MAGIC_HOUSE_DEFAULT,
             fontSize: 18,
             dialogFontWeight: null,
             optionFontSize: 14,
@@ -13695,6 +13752,7 @@ function createIgsReaderHost(options = {}) {
         normalized.gradientVeil = normalizeGradientVeil(normalized.gradientVeil);
         normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
         normalized.skinDialogScale = normalizeSkinDialogScale(normalized.skinDialogScale);
+        normalized.magicHouse = normalizeMagicHouse(normalized.magicHouse);
         normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
         normalized.dialogFontWeight = normalized.dialogFontWeight != null
             && [300, 400, 500, 700].includes(Number(normalized.dialogFontWeight))
@@ -15667,6 +15725,13 @@ const ITEM_FX_STYLE_TEXT = `
 .igs-fx-item-stack[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-desc{color:#6b4a40;opacity:1;}
 .igs-fx-item-showcase[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-showcase-plate{border-color:#7b2e2a;background:#f4ead6;color:#2a1c18;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 .igs-fx-item-showcase[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-showcase-rays{background:repeating-conic-gradient(from 0deg,rgba(201,162,92,.28) 0 6deg,transparent 6deg 18deg);}
+.igs-fx-item-stack[data-igs-era="magic"]:not(#igs-era-x),.igs-fx-item-showcase[data-igs-era="magic"]:not(#igs-era-x){--igs-item-accent-c:#ffd36a;}
+.igs-fx-item-stack[data-igs-era="magic"]:not(#igs-era-x) .igs-fx-item-card{border:1px solid rgba(201,162,74,.8);border-radius:4px;background:linear-gradient(180deg,rgba(28,34,72,.94),rgba(14,18,42,.95));color:#f3e2b6;box-shadow:0 0 14px rgba(255,214,120,.25),0 3px 10px rgba(0,0,0,.4);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+.igs-fx-item-stack[data-igs-era="magic"]:not(#igs-era-x) .igs-fx-item-name{color:#f6e7c1;}
+.igs-fx-item-stack[data-igs-era="magic"]:not(#igs-era-x) .igs-fx-item-desc{color:#c9b98e;opacity:1;}
+.igs-fx-item-showcase[data-igs-era="magic"]:not(#igs-era-x) .igs-fx-item-showcase-plate{border-color:rgba(201,162,74,.85);background:linear-gradient(180deg,rgba(28,34,72,.94),rgba(14,18,42,.95));color:#f6e7c1;font-family:"IM Fell English",Georgia,"Times New Roman",serif;box-shadow:0 0 20px rgba(255,214,120,.35);}
+.igs-fx-item-showcase[data-igs-era="magic"]:not(#igs-era-x) .igs-fx-item-showcase-rays{background:repeating-conic-gradient(from 0deg,rgba(255,226,150,.32) 0 4deg,transparent 4deg 12deg,rgba(170,200,255,.22) 12deg 15deg,transparent 15deg 24deg);}
+.igs-fx-item-flyer[data-igs-era="magic"]{color:#f6e7c1;background:#1c2248;box-shadow:0 0 0 1px rgba(201,162,74,.85),0 0 16px rgba(255,214,120,.6);}
 .igs-fx-item-flyer[data-igs-era="taisho"]{color:#2a1c18;background:#f4ead6;box-shadow:0 0 0 1px #7b2e2a,0 0 12px rgba(201,162,92,.5);}
 
 @keyframes igs-fx-item-in{from{opacity:0;transform:translateX(28px) scale(.96);}to{opacity:1;transform:none;}}
@@ -15709,11 +15774,12 @@ const WORLDVIEWS = Object.freeze([
     Object.freeze({ id: 'scifi', label: '科幻', ready: true }),
     Object.freeze({ id: 'apocalypse', label: '末日', ready: true }),
     Object.freeze({ id: 'taisho', label: '大正', ready: true }),
+    Object.freeze({ id: 'magic', label: '魔法', ready: true }),
 ]);
 const DEFAULT_WORLDVIEW = 'modern';
 
 // 在现代演出结构上换皮的世界观（古代有独立分支，不在此列）；演出 / 音效层只经 worldSkinOf 判断，不各自维护列表。
-const WORLD_SKIN_IDS = Object.freeze(['fantasy', 'scifi', 'apocalypse', 'taisho']);
+const WORLD_SKIN_IDS = Object.freeze(['fantasy', 'scifi', 'apocalypse', 'taisho', 'magic']);
 function worldSkinOf(id) {
     return WORLD_SKIN_IDS.includes(id) ? id : '';
 }
@@ -15774,16 +15840,25 @@ const ANCIENT_ERA_PROMPT_RULE = `[igs时代背景]
 const FX_ERA_ANCIENT_ONLY = Object.freeze({
     dailyFx: Object.freeze(['guqin', 'go', 'poem', 'edict', 'tea', 'bow']),
 });
+// 魔法世界专属演出：施咒、魔药、猫头鹰送信、骑扫帚、吼叫信，其他世界观一律拨成关。
+const FX_MAGIC_ONLY = Object.freeze({
+    dailyFx: Object.freeze(['spell', 'potion', 'owl', 'broom', 'howler']),
+});
+// 世界观专属演出表：当前世界观以外的表全部拨成关。
+const FX_WORLDVIEW_ONLY = Object.freeze({ ancient: FX_ERA_ANCIENT_ONLY, magic: FX_MAGIC_ONLY });
 
-function stripAncientOnly(readerSettings) {
+function stripExclusive(readerSettings, worldview) {
     let out = null;
-    for (const [key, kinds] of Object.entries(FX_ERA_ANCIENT_ONLY)) {
-        const group = plain(readerSettings[key]);
-        const on = kinds.filter((kind) => group[kind] === true);
-        if (!on.length) continue;
-        out = out || { ...readerSettings };
-        out[key] = { ...group };
-        for (const kind of on) out[key][kind] = false;
+    for (const [owner, table] of Object.entries(FX_WORLDVIEW_ONLY)) {
+        if (owner === worldview) continue;
+        for (const [key, kinds] of Object.entries(table)) {
+            const group = plain(out ? out[key] : readerSettings[key]);
+            const on = kinds.filter((kind) => group[kind] === true);
+            if (!on.length) continue;
+            out = out || { ...readerSettings };
+            out[key] = { ...group };
+            for (const kind of on) out[key][kind] = false;
+        }
     }
     return out || readerSettings;
 }
@@ -15795,11 +15870,11 @@ function plain(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-// 不改入参：古代模式返回拨掉现代专属项的新对象；现代模式只在有古代专属项开启时返回副本，否则原样返回。
+// 不改入参：古代模式返回拨掉现代专属项的新对象；现代模式只在有其他世界观专属项开启时返回副本，否则原样返回。
 function applyFxEra(readerSettings, ancient) {
     if (!readerSettings || typeof readerSettings !== 'object') return readerSettings;
-    if (ancient !== true) return stripAncientOnly(readerSettings);
-    const out = { ...readerSettings };
+    if (ancient !== true) return stripExclusive(readerSettings, '');
+    const out = { ...stripExclusive(readerSettings, 'ancient') };
     for (const [key, kinds] of Object.entries(FX_ERA_MODERN_ONLY)) {
         out[key] = { ...plain(out[key]) };
         for (const kind of kinds) out[key][kind] = false;
@@ -15809,7 +15884,7 @@ function applyFxEra(readerSettings, ancient) {
 }
 
 
-// 西幻 / 科幻 / 末日：在现代基线（先拨掉古代专属项）上，再拨掉与该世界观冲突的演出。
+// 西幻 / 科幻 / 末日 / 大正 / 魔法：在现代基线（先拨掉其他世界观专属项）上，再拨掉与该世界观冲突的演出。
 // fxTags / dailyFx 列出要拨成关的类型，features 列出整块拨成关（enabled:false）的功能。
 const FX_WORLDVIEW_OFF = Object.freeze({
     // 西幻没有现代电子设备：与古代共用现代专属表。
@@ -15828,6 +15903,12 @@ const FX_WORLDVIEW_OFF = Object.freeze({
         dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
         features: Object.freeze(['liveFx']),
     }),
+    // 魔法世界没有麻瓜电子设备，传讯靠猫头鹰与魔法；照片会动、城堡有钟声、魔法扩音可作广播，这三项保留。
+    magic: Object.freeze({
+        fxTags: FX_ERA_MODERN_ONLY.fxTags,
+        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
+        features: FX_ERA_MODERN_FEATURES,
+    }),
 });
 const FANTASY_ERA_PROMPT_RULE = `[igs时代背景]
 本故事发生在西方奇幻世界。上述igs标签里填写的文字一律使用奇幻世界的说法与器物：时间写「钟楼敲过三下后」「次日黎明」这类说法，不写「三小时后」「07:00」；通报写信使、侍从或传讯魔法；不要出现手机、电话、照片、电视、广播等现代事物。`;
@@ -15837,12 +15918,15 @@ const APOCALYPSE_ERA_PROMPT_RULE = `[igs时代背景]
 本故事发生在末日之后。上述igs标签里填写的文字使用末日幸存者的说法：通讯写对讲机、短波电台、残存终端或手写字条，时间写「天黑前」「第三天清晨」或幸存天数；物资匮乏，不要写外卖、影院、直播等末日前才有的日常服务。`;
 const TAISHO_ERA_PROMPT_RULE = `[igs时代背景]
 本故事发生在大正时代（和洋折衷的近代日本）。上述igs标签里填写的文字使用大正时代的说法与器物：通讯写电报、黑色座机、书信或差人传话，电话指要接线员转接的座机；娱乐写活动写真、留声机、咖啡馆；时间可写钟点；不要出现手机、电视、网络、直播等现代事物。`;
+const MAGIC_ERA_PROMPT_RULE = `[igs时代背景]
+本故事发生在魔法世界（隐藏在现实中的巫师社会与魔法学院）。上述igs标签里填写的文字使用魔法世界的说法与器物：书信由猫头鹰送达，通报写猫头鹰、守护神传话或魔法广播；时间写「宵禁钟声后」「第二节魔药课后」「次日清晨」这类说法，不写「07:00」；照片会动、画像会说话、烛火悬在半空都属寻常；咒语、魔杖、魔药、扫帚、学院、级长、禁林等是日常用语；不要出现手机、电话、电视、网络等麻瓜电子设备，除非剧情明确提到麻瓜世界。`;
 const WORLDVIEW_PROMPT_RULES = Object.freeze({
     ancient: ANCIENT_ERA_PROMPT_RULE,
     fantasy: FANTASY_ERA_PROMPT_RULE,
     scifi: SCIFI_ERA_PROMPT_RULE,
     apocalypse: APOCALYPSE_ERA_PROMPT_RULE,
     taisho: TAISHO_ERA_PROMPT_RULE,
+    magic: MAGIC_ERA_PROMPT_RULE,
 });
 
 // 现代与未知 id 返回空串（不追加时代规则）。
@@ -15866,7 +15950,7 @@ function stripKinds(readerSettings, off) {
 function applyFxWorldview(readerSettings, worldview) {
     if (!readerSettings || typeof readerSettings !== 'object') return readerSettings;
     if (worldview === 'ancient') return applyFxEra(readerSettings, true);
-    const base = stripAncientOnly(readerSettings);
+    const base = stripExclusive(readerSettings, worldview);
     const off = FX_WORLDVIEW_OFF[worldview];
     return off ? stripKinds(base, off) : base;
 }
@@ -15879,11 +15963,14 @@ __igsDefine(exports, "FX_ERA_MODERN_ONLY", () => FX_ERA_MODERN_ONLY);
 __igsDefine(exports, "FX_ERA_MODERN_FEATURES", () => FX_ERA_MODERN_FEATURES);
 __igsDefine(exports, "ANCIENT_ERA_PROMPT_RULE", () => ANCIENT_ERA_PROMPT_RULE);
 __igsDefine(exports, "FX_ERA_ANCIENT_ONLY", () => FX_ERA_ANCIENT_ONLY);
+__igsDefine(exports, "FX_MAGIC_ONLY", () => FX_MAGIC_ONLY);
+__igsDefine(exports, "FX_WORLDVIEW_ONLY", () => FX_WORLDVIEW_ONLY);
 __igsDefine(exports, "FX_WORLDVIEW_OFF", () => FX_WORLDVIEW_OFF);
 __igsDefine(exports, "FANTASY_ERA_PROMPT_RULE", () => FANTASY_ERA_PROMPT_RULE);
 __igsDefine(exports, "SCIFI_ERA_PROMPT_RULE", () => SCIFI_ERA_PROMPT_RULE);
 __igsDefine(exports, "APOCALYPSE_ERA_PROMPT_RULE", () => APOCALYPSE_ERA_PROMPT_RULE);
 __igsDefine(exports, "TAISHO_ERA_PROMPT_RULE", () => TAISHO_ERA_PROMPT_RULE);
+__igsDefine(exports, "MAGIC_ERA_PROMPT_RULE", () => MAGIC_ERA_PROMPT_RULE);
 __igsDefine(exports, "WORLDVIEW_PROMPT_RULES", () => WORLDVIEW_PROMPT_RULES);
 });
 __igsRegister("src/visual/igs-ui/fx-layer.js", function(module, exports, require) {
@@ -16685,9 +16772,9 @@ function playEffect(effect, ctx) {
         // 约定便笺：只播放卡片，不写存储；古代背景换宣纸竖排「立契」，印文「契」。
         const el = node(doc, (ctx.ancient ? 'igs-fx-promise is-ancient' : 'igs-fx-promise') + (ctx.worldSkin || ''));
         el.setAttribute('role', 'status');
-        el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '立契' : '约定'));
+        el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '立契' : ctx.worldview === 'magic' ? '魔法契约' : '约定'));
         el.appendChild(node(doc, 'igs-fx-promise-text', effect.place ? [effect.time, effect.place].join(' · ') : effect.time));
-        el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : '约'));
+        el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : ctx.worldview === 'magic' ? '誓' : '约'));
         spawn(state, layers.front, el, life);
         sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'eye') {
@@ -16696,9 +16783,9 @@ function playEffect(effect, ctx) {
         // 到期提醒复用约定便笺，标题换成当天提醒；古代背景为「契期」。
         const el = node(doc, (ctx.ancient ? 'igs-fx-promise is-due is-ancient' : 'igs-fx-promise is-due') + (ctx.worldSkin || ''));
         el.setAttribute('role', 'status');
-        el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '契期已至' : '今天是约定的日子'));
+        el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '契期已至' : ctx.worldview === 'magic' ? '誓约之日已至' : '今天是约定的日子'));
         el.appendChild(node(doc, 'igs-fx-promise-text', effect.place ? [effect.time, effect.place].join(' · ') : effect.time));
-        el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : '约'));
+        el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : ctx.worldview === 'magic' ? '誓' : '约'));
         spawn(state, layers.front, el, life);
         sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'call') {
@@ -17971,6 +18058,7 @@ const UI_SFX_FAMILIES = Object.freeze({
 const SKIN_FAMILIES = Object.freeze({
     'retro-japanese': 'wood',
     'adventure-journey': 'wood',
+    'qinglv-shanshui': 'wood',
     'black-white-manga': 'paper',
     'warm-picturebook': 'paper',
     'plant-coffee': 'paper',
@@ -17978,6 +18066,7 @@ const SKIN_FAMILIES = Object.freeze({
     'cute-pink': 'soft',
     'day-minimal': 'soft',
     'elegant-european': 'glass',
+    'magic-academy': 'glass',
     'gradient-veil': 'glass',
 });
 function resolveUiSfxFamily(dialogSkin) {
@@ -21367,6 +21456,8 @@ const TEXT_FX_STYLE_TEXT = `
 #igs-overlay[data-igs-dialog-skin="retro-japanese"]{--igs-tfx-accent:#b8321f;--igs-tfx-glow:#f5ead3;}
 #igs-overlay[data-igs-dialog-skin="adventure-journey"]{--igs-tfx-accent:#8a4f16;--igs-tfx-glow:rgba(255,250,238,.95);}
 #igs-overlay[data-igs-dialog-skin="plant-coffee"]{--igs-tfx-accent:#a4492a;--igs-tfx-glow:rgba(255,255,255,.9);}
+#igs-overlay[data-igs-dialog-skin="magic-academy"]{--igs-tfx-accent:#f0cf78;--igs-tfx-glow:rgba(255,214,120,.85);}
+#igs-overlay[data-igs-dialog-skin="qinglv-shanshui"]{--igs-tfx-accent:#2f5d7c;--igs-tfx-glow:rgba(244,240,229,.9);}
 #igs-overlay[data-igs-dialog-skin="warm-picturebook"]{--igs-tfx-accent:#c8553d;--igs-tfx-glow:rgba(255,255,255,.8);}
 #igs-overlay[data-igs-dialog-skin="day-minimal"]{--igs-tfx-accent:#b0503f;--igs-tfx-glow:rgba(255,255,255,.9);}
 #igs-overlay[data-igs-dialog-skin="black-white-manga"]{--igs-tfx-accent:#000;--igs-tfx-glow:#fff;}
@@ -21446,6 +21537,7 @@ const SHAPES = Object.freeze({
     leaf: "<path fill-rule='evenodd' d='M4.5 19.5C4.5 10.6 10.6 4.2 20.2 3.8C20.2 13.6 13.6 19.5 4.5 19.5ZM6.2 18.4Q11.6 12.4 17.6 6.4Q12.4 13.2 6.8 19Z'/><path d='M2.8 21.2L6.4 17.6' stroke='#000' stroke-width='1.6' stroke-linecap='round'/>",
     star: "<path d='M12 4.2L14.29 9.64L20.18 10.14L15.71 14.01L17.05 19.76L12 16.7L6.95 19.76L8.29 14.01L3.82 10.14L9.71 9.64Z' stroke='#000' stroke-width='2.4' stroke-linejoin='round'/>",
     caret: "<path d='M6 9.2L12 15.2L18 9.2' fill='none' stroke='#000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/>",
+    seal: "<rect x='6.5' y='6.5' width='11' height='11' rx='1.4'/>",
     heart: "<path d='M12 20.5C5.5 16 2.5 12.4 2.5 8.6C2.5 5.8 4.7 3.8 7.3 3.8C9.3 3.8 10.9 4.9 12 6.6C13.1 4.9 14.7 3.8 16.7 3.8C19.3 3.8 21.5 5.8 21.5 8.6C21.5 12.4 18.5 16 12 20.5Z'/>",
 });
 
@@ -21484,6 +21576,8 @@ const CLICK_WAIT_MARK_SKINS = Object.freeze({
     default: { shape: 'diamond', animation: 'breathe', color: 'rgba(236,230,218,.95)' },
     'western-classic': { shape: 'fleuron', animation: 'bob', color: '#e2bd6b' },
     'elegant-european': { shape: 'sparkle', animation: 'twinkle', color: '#dccff7' },
+    'magic-academy': { shape: 'sparkle', animation: 'twinkle', color: '#f0cf78' },
+    'qinglv-shanshui': { shape: 'seal', animation: 'breathe', color: '#b23a2a' },
     'retro-japanese': { shape: 'triangle-brush', animation: 'bounce-slow', color: '#c23a24' },
     'adventure-journey': { shape: 'chevron', animation: 'nudge', color: '#9a6a2c' },
     'plant-coffee': { shape: 'leaf', animation: 'sway', color: '#6f8446' },
@@ -21543,9 +21637,10 @@ const DAILY_FX_LABELS = Object.freeze({
     rps: '猜拳', gacha: '扭蛋', game: '一起打游戏', score: '成绩单', pat: '摸头', poke: '捏脸', fever: '测体温',
     cheers: '碰杯', cook: '做饭', cat: '撸猫',
     guqin: '抚琴', go: '对弈', poem: '题诗', edict: '圣旨 / 告示', tea: '敬茶', bow: '行礼',
+    spell: '施咒', potion: '熬魔药', owl: '猫头鹰送信', broom: '骑扫帚', howler: '吼叫信',
 });
 // 后加的日常类型需显式勾选：旧存档里日常演出已开启的用户不会突然收到新语法。
-const DAILY_FX_OPT_IN = new Set(['rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow']);
+const DAILY_FX_OPT_IN = new Set(['rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler']);
 function normalizeDailyFxSettings(value) {
     const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     const out = { enabled: src.enabled === true, petals: src.petals !== false, photoAlbum: src.photoAlbum !== false };
@@ -22731,6 +22826,12 @@ const FX_SFX_PARTIALS = Object.freeze({
         p('triangle', 1760, 1760, i * 0.06, 0.05, 0.4, { attack: 0.001 }),
         p('sine', 2637, 2637, i * 0.06, 0.04, 0.16, { attack: 0.001 }),
     ]).flat()),
+    // 魔法通报：猫头鹰「咕—咕」两声，尾随一串细碎的魔法泛音。
+    'notify-magic': Object.freeze([
+        p('sine', 420, 380, 0, 0.2, 0.42, { attack: 0.04, sweep: 1 }),
+        p('sine', 400, 360, 0.26, 0.36, 0.42, { attack: 0.04, sweep: 1 }),
+        ...[2093, 2637, 3136, 3951].map((freq, i) => p('sine', freq, freq, 0.5 + i * 0.06, 0.3, 0.07, { attack: 0.003 })),
+    ]),
 
     heartbeat: Object.freeze([
         p('sine', 70, 48, 0, 0.16, 1, { attack: 0.004, sweep: 1 }),
@@ -24443,6 +24544,8 @@ const palette = (shell, head, headInk, frame, sub, left, right, border = 'transp
 const CHAT_THEME_PALETTES = Object.freeze({
     default: palette('#ededed', '#f7f7f7', '#1f1f1f', '#1c1c1f', '#8a8a8a', '#ffffff', '#95ec69'),
     'western-classic': palette('#efe4cc', '#3b2a1c', '#f2e5c4', '#2e2218', '#8a7456', '#fbf3df', '#d8b979'),
+    'magic-academy': palette('#141a3a', '#1c2248', '#f3e2b6', '#0c0f26', '#a99b78', '#f1e3c0', '#d9b45a', 'rgba(217,180,90,.6)'),
+    'qinglv-shanshui': palette('#f1ede2', '#e8e3d5', '#26332f', '#2b3532', '#8c958f', '#fbf9f3', '#cfe0d6', 'rgba(47,93,124,.3)'),
     'elegant-european': palette('#f4efe6', '#2b2a3a', '#e8dcc2', '#1f1e2b', '#8b8577', '#ffffff', '#dccba8'),
     'gradient-veil': palette('#1d1d22', '#111114', '#eeeeee', '#000000', '#9a9aa6', '#34343d', '#4a6cf7'),
     'day-minimal': palette('#f5f7fa', '#ffffff', '#222222', '#d0d5dd', '#8b93a1', '#ffffff', '#cfe3ff'),
@@ -28080,11 +28183,35 @@ function nowClock() {
 }
 
 // 结果类日常演出的停留时长（未并入导出的 DAILY_FX_LIFETIME_MS，避免改变其既有结构）。
-const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900 });
+const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200 });
+// 吼叫信：抖动 900ms 后炸开，逐字吼出，吼完再停留。
+const HOWLER_MS = Object.freeze({ shake: 900, perChar: 70, hold: 2400 });
 // 行礼：立绘微沉再起，add 合成叠加，结束后自动还原。
 const BOW_SPEC = Object.freeze({ duration: 760, easing: 'ease-in-out', frames: ['translate(0,0)', 'translate(0,2.2%)', 'translate(0,2.2%)', 'translate(0,0)'] });
 // 捏脸：横向挤扁再回弹，composite:'add' 叠加在呼吸与动作之上，结束后自动还原。
 const POKE_SPEC = Object.freeze({ duration: 420, easing: 'ease-out', frames: ['scale(1,1)', 'scale(.92,1.03)', 'scale(1.03,.99)', 'scale(1,1)'] });
+// 魔法光色：咒语 / 魔药名按字取色，同名每次同色。
+const MAGIC_HUES = Object.freeze(['#ffd36a', '#8fd3ff', '#ff7a7a', '#8ff0a4', '#d9a8ff', '#ffa8d8']);
+function magicHue(text) {
+    let h = 0;
+    for (const ch of String(text || '')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return MAGIC_HUES[h % MAGIC_HUES.length];
+}
+// 咒语先按语义归类取色，归不了类再按字取色。
+const SPELL_HUES = Object.freeze([
+    [/阿瓦达|索命|钻心|剜骨|魂魄出窍|夺魂|不可饶恕|黑魔法|诅咒|死咒|avada|kedavra|crucio|imperio/iu, '#4dff6e'],
+    [/除你武器|缴械|昏昏倒地|昏迷|击晕|障碍|粉身碎骨|爆炸|火焰|烈火|expelliarmus|stupefy|reducto|confringo|incendio/iu, '#ff6b5a'],
+    [/守护神|呼神护卫|铁甲护身|护盾|守护|屏障|治愈|愈合|恢复|patronum|protego|episkey|vulnera/iu, '#e4ecff'],
+    [/荧光闪烁|照明|光明|点亮|lumos/iu, '#fffbe8'],
+    [/统统石化|石化|冰冻|冻结|定身|禁锢|束缚|petrificus|glacius|incarcerous|immobulus/iu, '#7fc8ff'],
+]);
+function spellHue(words) {
+    const hit = SPELL_HUES.find(([pattern]) => pattern.test(String(words || '')));
+    return hit ? hit[1] : magicHue(words);
+}
+const HOURGLASS_HTML = '<div class="igs-dfx-hourglass"><i class="igs-dfx-hg-cap"></i><div class="igs-dfx-hg-glass"><i class="igs-dfx-hg-sand is-top"></i><i class="igs-dfx-hg-stream"></i><i class="igs-dfx-hg-sand is-bottom"></i></div><i class="igs-dfx-hg-cap"></i></div>';
+const OWL_SVG = '<svg class="igs-dfx-owl-bird" viewBox="0 0 64 48" aria-hidden="true"><path class="igs-dfx-owl-wing is-left" d="M28 22C18 8 6 9 0 17c10 1 17 7 26 13Z"/><path class="igs-dfx-owl-wing is-right" d="M36 22C46 8 58 9 64 17c-10 1-17 7-26 13Z"/><path d="M24 20l2-8 4 5h4l4-5 2 8c2 10-2 20-8 22-6-2-10-12-8-22Z"/><circle cx="29" cy="21" r="2.2" fill="#ffd46a"/><circle cx="35" cy="21" r="2.2" fill="#ffd46a"/></svg>';
+const BROOM_SVG = '<svg class="igs-dfx-broom-stick" viewBox="0 0 120 30" aria-hidden="true"><path d="M4 13 82 15" stroke="#6b4423" stroke-width="3.5" stroke-linecap="round"/><path d="M80 10 118 2l-4 13 4 13-38-8Z" fill="#c9a25a"/><path d="M80 9v12" stroke="#4a2e14" stroke-width="3"/></svg>';
 const HAND_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V6.5a1.5 1.5 0 0 1 3 0V10h.5V4.5a1.5 1.5 0 0 1 3 0V10h.5V5.5a1.5 1.5 0 0 1 3 0V11h.5V8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.5A6.5 6.5 0 0 1 7 14.5Z"/></svg>';
 
 // 立绘 background-position 横向百分比；读不到时居中，并收在 10–90 之间避免贴边。
@@ -28105,6 +28232,13 @@ const BUILDERS = {
             return {
                 layer: 'front', life, sounds: ['drum'],
                 node: make(env.doc, 'igs-dfx igs-dfx-timeskip is-ancient', `<div class="igs-dfx-veil"></div><div class="igs-dfx-incense"><i class="igs-dfx-stick"><i class="igs-dfx-smoke"></i><i class="igs-dfx-smoke is-b"></i></i><i class="igs-dfx-censer"></i></div>${text}`),
+            };
+        }
+        // 魔法世界：沙漏流沙 + 城堡钟声；星空底与字体由 is-magic 换皮提供。
+        if (env.worldview === 'magic') {
+            return {
+                layer: 'front', life, sounds: ['hourglass'],
+                node: make(env.doc, 'igs-dfx igs-dfx-timeskip is-hourglass', `<div class="igs-dfx-veil"></div>${HOURGLASS_HTML}${text}`),
             };
         }
         return {
@@ -28297,6 +28431,40 @@ const BUILDERS = {
         if (!playSpriteSpec(sprite, BOW_SPEC)) return null;
         return { layer: 'stage', life: DAILY_RESULT_LIFE_MS.bow, sounds: [], node: make(env.doc, 'igs-dfx igs-dfx-bow') };
     },
+    // 魔法世界独有：只在魔法世界观可用（fx-era 在其他世界观拨掉）。
+    spell(item, env) {
+        const sparks = Array.from({ length: 10 }, (_, i) => {
+            const angle = i * 36 + (i % 2) * 14;
+            return `<i style="--igs-spark-a:${angle}deg;--igs-spark-d:${46 + (i % 3) * 18}px;animation-delay:${520 + (i % 4) * 40}ms"></i>`;
+        }).join('');
+        const words = item.words ? `<div class="igs-dfx-spell-words">${esc(item.words)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-spell', `<i class="igs-dfx-spell-beam"></i><div class="igs-dfx-spell-burst"><i class="igs-dfx-spell-core"></i>${sparks}</div>${words}`);
+        if (node.style && typeof node.style.setProperty === 'function') node.style.setProperty('--igs-magic', spellHue(item.words));
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.spell * env.hold), sounds: ['spell'], node };
+    },
+    potion(item, env) {
+        const bubbles = [22, 40, 58, 74, 32, 66].map((x, i) => `<i style="left:${x}%;animation-delay:${i * 230}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-potion', `<div class="igs-dfx-potion-pot"><div class="igs-dfx-potion-smoke"><i></i><i></i><i></i></div><i class="igs-dfx-potion-brew"></i><div class="igs-dfx-potion-bubbles">${bubbles}</div><i class="igs-dfx-potion-body"></i></div><div class="igs-dfx-potion-label"><span>魔药完成</span>${item.name ? `<b>${esc(item.name)}</b>` : ''}</div>`);
+        if (node.style && typeof node.style.setProperty === 'function') node.style.setProperty('--igs-magic', magicHue(item.name || 'potion'));
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.potion * env.hold), sounds: ['potion'], node };
+    },
+    owl(item, env) {
+        const from = item.from ? `<div class="igs-dfx-owl-from">来自 ${esc(item.from)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-owl', `<div class="igs-dfx-owl-flight">${OWL_SVG}</div><div class="igs-dfx-owl-drop"><div class="igs-dfx-owl-letter"><i class="igs-dfx-owl-seal"></i></div>${from}</div>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.owl * env.hold), sounds: ['owl'], node };
+    },
+    howler(item, env) {
+        const n = chars(item.text).length;
+        const life = HOWLER_MS.shake + n * HOWLER_MS.perChar + Math.round(HOWLER_MS.hold * env.hold);
+        const from = item.from ? `<div class="igs-dfx-howler-from">${esc(item.from)} 的吼叫信</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-howler', `<div class="igs-dfx-howler-env"><i class="igs-dfx-howler-flap"></i></div><div class="igs-dfx-howler-mouth">${charSpans(item.text, HOWLER_MS.perChar, HOWLER_MS.shake + 120)}</div>${from}`);
+        return { layer: 'front', life, sounds: ['howler'], node };
+    },
+    broom(item, env) {
+        const streaks = [18, 34, 52, 66, 80].map((y, i) => `<i style="top:${y}%;animation-delay:${i * 90}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-broom', `<div class="igs-dfx-broom-wind">${streaks}</div><div class="igs-dfx-broom-flight">${BROOM_SVG}<i class="igs-dfx-broom-trail"></i></div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.broom * env.hold), sounds: ['broom'], node };
+    },
 
 };
 
@@ -28459,6 +28627,7 @@ function renderDailyFx(root, snapshot, ctx = {}) {
 }
 
 __igsDefine(exports, "ancientLotOf", () => ancientLotOf);
+__igsDefine(exports, "spellHue", () => spellHue);
 __igsDefine(exports, "cancelDailyFx", () => cancelDailyFx);
 __igsDefine(exports, "renderDailyFx", () => renderDailyFx);
 __igsDefine(exports, "DAILY_FX_LIFETIME_MS", () => DAILY_FX_LIFETIME_MS);
@@ -28553,7 +28722,82 @@ const touchGlints = Array.from({ length: 6 }, (_, i) => {
     return p('sine', freq, freq * 1.02, 0.34 + i * 0.1 + touchRand() * 0.05, 0.28, 0.05 + touchRand() * 0.03, { attack: 0.01 });
 });
 
+// 魔法世界：施咒的上扬泛音与火花、坩埚咕嘟、猫头鹰振翅与「咕—咕」、扫帚破风。
+const spellRand = seeded(59);
+const spellGlints = Array.from({ length: 9 }, (_, i) => {
+    const freq = 2600 + spellRand() * 1800;
+    return p('sine', freq, freq * 1.04, 0.36 + i * 0.05 + spellRand() * 0.04, 0.22, 0.05 + spellRand() * 0.04, { attack: 0.004 });
+});
+const potionRand = seeded(67);
+const potionBubbles = Array.from({ length: 11 }, () => {
+    const start = 0.1 + potionRand() * 2.2;
+    const freq = 260 + potionRand() * 260;
+    return p('sine', freq, freq * 2.2, start, 0.06, 0.22 + potionRand() * 0.12, { attack: 0.004, sweep: 1 });
+}).sort((a, b) => a.start - b.start);
+const owlFlaps = [0, 0.2, 0.4, 0.6];
+const owlHoot = (start, ring) => [
+    p('sine', 410, 372, start, ring, 0.4, { attack: 0.05, sweep: 1 }),
+    p('sine', 820, 744, start, ring * 0.8, 0.06, { attack: 0.05, sweep: 1 }),
+];
+
+const howlerRand = seeded(73);
+const howlerRattle = Array.from({ length: 10 }, (_, i) => n(i * 0.085 + howlerRand() * 0.02, 0.03, 0.3 + howlerRand() * 0.15, {
+    filter: 'lowpass', freq: 1400 + howlerRand() * 600, q: 0.8, attack: 0.002,
+}));
+
 const DEFS = {
+    // 魔法时间跳跃：细沙流泻，接一声城堡塔钟。
+    hourglass: {
+        partials: bellNote(196, 1.1, 1.6, 0.34),
+        noise: [
+            n(0, 2.4, 0.1, { filter: 'highpass', freq: 5200, q: 0.7, attack: 0.3, env: 'flat', am: Object.freeze({ rate: 38, depth: 0.6 }) }),
+        ],
+    },
+    // 吼叫信：信封在桌上乱抖，炸开后一声粗粝的怒吼。
+    howler: {
+        partials: [
+            p('sawtooth', 150, 112, 0.9, 1.3, 0.2, { attack: 0.04, sweep: 1 }),
+            p('sawtooth', 157, 116, 0.9, 1.3, 0.16, { attack: 0.04, sweep: 1 }),
+            p('square', 300, 228, 0.9, 1.1, 0.05, { attack: 0.04, sweep: 1 }),
+        ],
+        noise: [
+            ...howlerRattle,
+            n(0.86, 0.12, 0.5, { filter: 'lowpass', freq: 900, q: 0.7, attack: 0.002 }),
+            n(0.9, 1.3, 0.3, { freq: 950, freqTo: 620, q: 1.4, attack: 0.05 }),
+        ],
+    },
+    spell: {
+        partials: [
+            p('sine', 520, 2100, 0, 0.36, 0.2, { attack: 0.02, sweep: 1 }),
+            p('triangle', 1040, 4200, 0.02, 0.32, 0.06, { attack: 0.02, sweep: 1 }),
+            p('sine', 1568, 1568, 0.38, 0.5, 0.16, { attack: 0.003 }),
+            p('sine', 2349, 2349, 0.38, 0.4, 0.08, { attack: 0.003 }),
+            ...spellGlints,
+        ],
+        noise: [
+            n(0, 0.4, 0.14, { filter: 'highpass', freq: 3000, freqTo: 6000, q: 0.7, attack: 0.2 }),
+        ],
+    },
+    potion: {
+        partials: potionBubbles,
+        noise: [
+            n(0, 2.6, 0.12, { filter: 'lowpass', freq: 320, q: 0.7, attack: 0.4, env: 'flat', am: Object.freeze({ rate: 7, depth: 0.5 }) }),
+        ],
+    },
+    owl: {
+        partials: [...owlHoot(0.95, 0.24), ...owlHoot(1.3, 0.5)],
+        noise: owlFlaps.map((start) => n(start, 0.13, 0.32, { filter: 'lowpass', freq: 900, freqTo: 420, q: 0.8, attack: 0.03 })),
+    },
+    broom: {
+        partials: [
+            p('sine', 2400, 2400, 0.55, 0.3, 0.05, { attack: 0.02 }),
+            p('sine', 3200, 3200, 0.62, 0.26, 0.04, { attack: 0.02 }),
+        ],
+        noise: [
+            n(0, 1.1, 0.4, { freq: 500, freqTo: 2600, q: 1.1, attack: 0.5 }),
+            n(0.2, 0.9, 0.12, { filter: 'highpass', freq: 3500, q: 0.7, attack: 0.4 }),
+        ],
+    },
     shutter: {
         partials: [
             p('triangle', 2400, 2200, 0.004, 0.014, 0.1, { attack: 0.001, sweep: 1 }),
@@ -29875,7 +30119,7 @@ function renderPerformanceSettings(reader, extras = {}, isOpen = () => false) {
     };
     const current = detectPerformancePreset(src);
     const fx = renderFxFeatureFields(src, more);
-    const stage = renderStageDirectionFields(src, more);
+    const stage = renderStageDirectionFields(src, more, { worldview: extras.worldviewId });
     const danmaku = renderDanmakuFields(src, more);
     const bodies = {
         text: [extras.typewriter, stage.clickWaitMark, stage.textFx, extras.sentencePaging],
@@ -29966,6 +30210,8 @@ const { STAGE_SHAKE_INTENSITIES } = require("src/visual/igs-ui/stage-shake-runti
 const { CHAT_SHOW_BUBBLE_RADIUS_LEVELS, CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } = require("src/visual/igs-ui/chat-show-runtime.js");
 const { CHAT_SFX_PRESET_LABELS } = require("src/visual/igs-ui/chat-sfx.js");
 const { renderCharacterSlotTabs } = require("src/visual/igs-ui/settings-outfit-fields.js");
+const { MAGIC_HOUSES, normalizeMagicHouse } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
+const { resolveCharacterMagicHouse } = require("src/visual/igs-ui/magic-house.js");
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
 function assetMoveButton(options, collection, name) {
@@ -30301,6 +30547,8 @@ function renderCharacterAssetList(characters, options = {}) {
     const outfitMap = options.characterOutfits && typeof options.characterOutfits === 'object' && !Array.isArray(options.characterOutfits)
         ? options.characterOutfits : {};
     const outfitTabs = options.outfitTabs && typeof options.outfitTabs === 'object' ? options.outfitTabs : {};
+    // 魔法星夜才显示学院行；未指定时按 DNA 自动识别，识别不出用全局配色。
+    const magicHouse = options.magicHouse && typeof options.magicHouse === 'object' ? options.magicHouse : null;
     const upload = STATUS_AVATAR_UPLOAD_ICON;
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
@@ -30319,6 +30567,7 @@ function renderCharacterAssetList(characters, options = {}) {
             ? `<img class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" alt="" data-action="sprite-preview:${encSeg(avatarUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
         const avatarHtml = `<div class="igs-btn-mgr-row igs-status-avatar-row"><span class="igs-btn-mgr-label">状态栏头像</span>${avatarPreview}<input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/..."><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button></div>`;
+        const houseHtml = magicHouse ? renderCharacterHouseRow(charName, magicHouse) : '';
         const dnaHtml = renderCharacterDnaEditor(charName, Object.prototype.hasOwnProperty.call(dnaMap, charName) ? dnaMap[charName] : null);
         const outfitForChar = Object.prototype.hasOwnProperty.call(outfitMap, charName) ? outfitMap[charName] : null;
         const outfitNames = outfitForChar && typeof outfitForChar === 'object' ? Object.keys(outfitForChar) : [];
@@ -30374,8 +30623,20 @@ function renderCharacterAssetList(characters, options = {}) {
             globalWardrobe: options.globalWardrobe,
             icons: { pencil, trash },
         });
-        return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span>${folderSelect(charName)}${expressionButton}<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button>${assetMoveButton(options, 'characters', charName)}<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}${avatarHtml}${dnaHtml}${slotArea}</div>`;
+        return `<div class="igs-scene-char-group"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(charName)}</span>${folderSelect(charName)}${expressionButton}<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-char:${encSeg(charName)}" title="重命名">${pencil}</button><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-mood:${encSeg(charName)}" title="添加情绪">+</button>${assetMoveButton(options, 'characters', charName)}<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-char:${encSeg(charName)}" title="删除角色">${trash}</button></div>${aliasesHtml}${avatarHtml}${houseHtml}${dnaHtml}${slotArea}</div>`;
     }).join('');
+}
+
+const houseLabel = (id) => (MAGIC_HOUSES.find((house) => house.id === id) || {}).label || '';
+
+function renderCharacterHouseRow(charName, { sceneAssets, fallback }) {
+    const houses = sceneAssets && typeof sceneAssets.characterHouses === 'object' ? sceneAssets.characterHouses || {} : {};
+    const manual = Object.prototype.hasOwnProperty.call(houses, charName) ? houses[charName] : '';
+    const auto = resolveCharacterMagicHouse({ ...sceneAssets, characterHouses: {} }, charName).house;
+    const autoText = auto ? `自动（DNA 识别为${houseLabel(auto)}）` : `自动（跟随全局：${houseLabel(normalizeMagicHouse(fallback))}）`;
+    const opts = [['', autoText], ...MAGIC_HOUSES.map((house) => [house.id, house.label])]
+        .map(([id, label]) => `<option value="${esc(id)}"${id === manual ? ' selected' : ''}>${esc(label)}</option>`).join('');
+    return `<div class="igs-btn-mgr-row igs-char-house-row"><span class="igs-btn-mgr-label">学院</span><select class="igs-asset-move" data-char-house="${esc(charName)}" aria-label="角色学院">${opts}</select></div>`;
 }
 
 const CHARACTER_DNA_FIELD_LABELS = [
@@ -30920,6 +31181,349 @@ __igsDefine(exports, "isSystemRole", () => isSystemRole);
 __igsDefine(exports, "SYSTEM_ROLE_ALIGNS", () => SYSTEM_ROLE_ALIGNS);
 __igsDefine(exports, "SYSTEM_ROLE_DEFAULTS", () => SYSTEM_ROLE_DEFAULTS);
 });
+__igsRegister("src/visual/igs-ui/dialog-theme-css-skins.js", function(module, exports, require) {
+const { buildDialogFrameCss, scalePx, stroke } = require("src/visual/igs-ui/dialog-skin-frame.js");
+const DIALOG_SKIN_DAY_MINIMAL = 'day-minimal';
+const DIALOG_SKIN_WARM_PICTUREBOOK = 'warm-picturebook';
+const DIALOG_SKIN_ELEGANT_EUROPEAN = 'elegant-european';
+const DIALOG_SKIN_MAGIC_ACADEMY = 'magic-academy';
+const CSS_DIALOG_SKINS = Object.freeze([
+    DIALOG_SKIN_DAY_MINIMAL,
+    DIALOG_SKIN_WARM_PICTUREBOOK,
+    DIALOG_SKIN_ELEGANT_EUROPEAN,
+    DIALOG_SKIN_MAGIC_ACADEMY,
+]);
+
+const ELEGANT_BAND = '__IGS_ASSET__elegant-european/dialog.webp__';
+
+function scope(skin) {
+    return `#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]`;
+}
+
+const NO_CHROME = 'border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;';
+const NAME_TEXT = 'width:max-content;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+const svgUrl = (svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+
+// 日间简约：还原作者 frame_message 的深色渐隐名条 + ××× 标记，正文底为半透明白。
+const DAY_MINIMAL_BAR = 32;
+const dayMinimal = [
+    buildDialogFrameCss(DIALOG_SKIN_DAY_MINIMAL, {
+        height: 172,
+        text: { top: 46, speakerTop: 46, right: 56, bottom: 22, left: 64 },
+        rise: 0,
+        flush: true,
+        frameCss: `background-color:transparent;background-image:linear-gradient(90deg,#333 0,#383835 22%,#5f5e53 34%,rgba(150,149,130,.82) 46%,rgba(205,203,188,.45) 58%,rgba(255,255,255,0) 68%),linear-gradient(180deg,rgba(255,255,255,.8),rgba(250,249,244,.86));background-position:left top,left ${DAY_MINIMAL_BAR}px;background-size:100% ${DAY_MINIMAL_BAR}px,100% calc(100% - ${DAY_MINIMAL_BAR}px);background-repeat:no-repeat;${NO_CHROME}-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);`,
+        speakerCss: `left:64px;top:0;${NAME_TEXT}max-width:calc(60% - 64px);height:${DAY_MINIMAL_BAR}px;line-height:${DAY_MINIMAL_BAR}px;padding:0;background:none;border:0;font-size:16px;letter-spacing:.14em;text-shadow:0 1px 2px rgba(0,0,0,.45);`,
+        textCss: 'letter-spacing:.06em;text-shadow:0 1px 0 rgba(255,255,255,.8);',
+    }),
+    scalePx(`${scope(DIALOG_SKIN_DAY_MINIMAL)}::before{content:"\\00d7\\00d7\\00d7";position:absolute;left:18px;top:0;height:${DAY_MINIMAL_BAR}px;line-height:${DAY_MINIMAL_BAR}px;font:15px/${DAY_MINIMAL_BAR}px "Microsoft YaHei",sans-serif;letter-spacing:1px;background:linear-gradient(90deg,#e0826c 0 33.3%,#ebe5d0 33.3% 66.6%,#b9c4a2 66.6%);-webkit-background-clip:text;background-clip:text;color:transparent;pointer-events:none;}`),
+    scalePx(`${scope(DIALOG_SKIN_DAY_MINIMAL)}::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,rgba(120,118,104,.5),rgba(120,118,104,.15));pointer-events:none;}`),
+].join('\n');
+
+// 温暖绘本：作者的异形姓名牌是「斜纹胶囊 + 断开的外描边」，用 CSS 重建，避免拉伸素材让斜纹变形。
+// 外描边画在 ::after 上，靠 overflow:clip + overflow-clip-margin 露出牌外；不支持的浏览器只丢描边。
+const WARM_INK = '#4f4a45';
+const WARM_PAPER = '#f1ede9';
+const warmPicturebook = [
+    buildDialogFrameCss(DIALOG_SKIN_WARM_PICTUREBOOK, {
+        height: 176,
+        text: { top: 28, speakerTop: 36, right: 44, bottom: 26, left: 44 },
+        rise: 22,
+        frameCss: `background:${WARM_PAPER};border:2px solid ${WARM_INK};border-radius:14px;box-shadow:inset 0 -12px 0 #55514b,0 2px 0 rgba(79,74,69,.18);-webkit-backdrop-filter:none;backdrop-filter:none;`,
+        speakerCss: `left:34px;top:-22px;${NAME_TEXT}overflow:clip;overflow-clip-margin:8px;min-width:210px;max-width:calc(100% - 68px);height:44px;line-height:44px;padding:0 42px 0 58px;background:repeating-linear-gradient(135deg,#5b5650 0 5px,${WARM_INK} 5px 10px);border:0;border-radius:22px;box-shadow:0 0 0 3px ${WARM_PAPER};font-size:17px;font-weight:500;letter-spacing:.16em;text-shadow:0 1px 0 #2f2b27,0 0 3px rgba(47,43,39,.6);`,
+        textCss: 'letter-spacing:.05em;text-shadow:0 1px 0 rgba(255,255,255,.6);',
+    }),
+    scalePx(`${scope(DIALOG_SKIN_WARM_PICTUREBOOK)} .igs-speaker::before{content:"";position:absolute;left:26px;top:50%;width:12px;height:12px;margin-top:-6px;background:linear-gradient(#a6dcd4 0 0) 0 0/5px 5px,linear-gradient(#a6dcd4 0 0) 7px 0/5px 5px,linear-gradient(#a6dcd4 0 0) 0 7px/5px 5px,linear-gradient(#a6dcd4 0 0) 7px 7px/5px 5px;background-repeat:no-repeat;}`),
+    scalePx(`${scope(DIALOG_SKIN_WARM_PICTUREBOOK)} .igs-speaker::after{content:"";position:absolute;inset:-6px;border:2px solid ${WARM_INK};border-radius:999px;pointer-events:none;-webkit-mask:linear-gradient(#000 0 0) left top/36% 50% no-repeat,linear-gradient(#000 0 0) right bottom/40% 50% no-repeat,linear-gradient(#000 0 0) right top/30px 100% no-repeat;mask:linear-gradient(#000 0 0) left top/36% 50% no-repeat,linear-gradient(#000 0 0) right bottom/40% 50% no-repeat,linear-gradient(#000 0 0) right top/30px 100% no-repeat;}`),
+].join('\n');
+
+// 优雅欧式：作者 frame_message 的通栏黑纱贴合阅读器左右与底边。几何按原图 0.7 缩放：275→192，两道线在 y≈76/168。
+// 拼法照作者三切片：中央饰纹（连同穿过它的线段）原样居中不动，两侧细线向外延伸、在两端渐隐；
+// 细线不得穿过饰纹，否则会填进花纹之间的空隙。黑纱横向均匀，用一列像素拉满。
+const ELEGANT_TOP_LINE = 76;
+const ELEGANT_BOTTOM_LINE = 168;
+// 饰纹按作者中段切片重描为矢量：位图只有 1px 线稿，高倍屏放大、对话框缩放后会糊成一团。
+// 中心菱形镂空 + 内芯，两侧 C 形卷草、叶片与波浪尾；线稿下垫 1px 暗影，亮背景上也托得住。
+// 上饰纹的线在 y=12、花纹朝上；下饰纹整体上下翻转，线在 y=6。两端直线与两侧细线同色、不垫暗影，接口无台阶；
+// 1px 线心须落在半像素上才与 CSS 细线（占 y..y+1）重合；背景定位按整像素取整，故在 SVG 内整体下移 .5。
+const ELEGANT_ORNAMENT = { width: 220, height: 18, topLine: 12, bottomLine: 6 };
+const ELEGANT_LINE = 'rgba(255,255,255,.5)';
+const ELEGANT_SCROLL_HALF = [
+    'M113.4 12H119C123 12 123.4 5 128 5C132 5 133.6 9.6 130.2 10.1C128.2 10.4 127.5 8.1 129.2 7.7',
+    'M128 12H146',
+    'M134 12Q137.5 7.4 142.4 8.6Q138.6 10.4 134 12Z',
+    'M146 12C149.4 12 150 7.2 154 7.2C157 7.2 157.6 10.6 155.1 10.8C153.7 10.9 153.4 9.3 154.5 9.1',
+    'M146 12H158C162 12 163 9.4 167 9.4S171 12 175 12C178 12 179 10.6 182 10.6S185 12 188 12',
+].join('');
+function elegantOrnament(flip) {
+    const { width, height } = ELEGANT_ORNAMENT;
+    const art = (dot) => `<path d="M110 2L116 9L110 16L104 9Z"/><path d="M110 6.4L112.2 9L110 11.6L107.8 9Z" ${dot}/><circle cx="110" cy=".9" r=".9" ${dot}/><path d="${ELEGANT_SCROLL_HALF}"/><path d="${ELEGANT_SCROLL_HALF}" transform="matrix(-1 0 0 1 220 0)"/>`;
+    const turn = flip ? `matrix(1 0 0 -1 0 ${height + 0.5})` : 'translate(0 .5)';
+    return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g transform="${turn}" fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="#000" stroke-opacity=".45" stroke-width="1.6" transform="translate(0 .8)">${art('fill="#000" fill-opacity=".45" stroke="none"')}</g><g stroke="#fff" stroke-opacity=".82">${art('fill="#fff" fill-opacity=".82" stroke="none"')}</g><path d="M0 12H32M188 12H220" stroke="#fff" stroke-opacity=".5" stroke-linecap="butt"/></g></svg>`);
+}
+function elegantLines(y) {
+    const side = `calc(50% - ${ELEGANT_ORNAMENT.width / 2}px) 1px`;
+    return {
+        image: `linear-gradient(90deg,rgba(255,255,255,0) 15px,${ELEGANT_LINE} 100px),linear-gradient(270deg,rgba(255,255,255,0) 15px,${ELEGANT_LINE} 100px)`,
+        position: `left ${y}px,right ${y}px`,
+        size: `${side},${side}`,
+    };
+}
+const ELEGANT_TOP = elegantLines(ELEGANT_TOP_LINE);
+const ELEGANT_BOTTOM = elegantLines(ELEGANT_BOTTOM_LINE);
+const ELEGANT_ORNAMENT_SIZE = `${ELEGANT_ORNAMENT.width}px ${ELEGANT_ORNAMENT.height}px`;
+const elegantEuropean = buildDialogFrameCss(DIALOG_SKIN_ELEGANT_EUROPEAN, {
+    height: 192,
+    text: { top: 88, speakerTop: 88, right: 72, bottom: 30, left: 72 },
+    rise: 0,
+    flush: true,
+    frameCss: `background-color:transparent;background-image:${elegantOrnament(false)},${elegantOrnament(true)},${ELEGANT_TOP.image},${ELEGANT_BOTTOM.image},url("${ELEGANT_BAND}");background-position:center ${ELEGANT_TOP_LINE - ELEGANT_ORNAMENT.topLine}px,center ${ELEGANT_BOTTOM_LINE - ELEGANT_ORNAMENT.bottomLine}px,${ELEGANT_TOP.position},${ELEGANT_BOTTOM.position},0 0;background-size:${ELEGANT_ORNAMENT_SIZE},${ELEGANT_ORNAMENT_SIZE},${ELEGANT_TOP.size},${ELEGANT_BOTTOM.size},100% 100%;background-repeat:no-repeat;${NO_CHROME}`,
+    // 黑纱上的字用 1px 实描边 + 1px 投影托住，不用模糊光晕（光晕会让字边发虚）。
+    speakerCss: `left:56px;top:${ELEGANT_TOP_LINE - 36}px;${NAME_TEXT}max-width:calc(100% - 112px);height:32px;line-height:32px;padding:0;background:none;border:0;font-size:22px;font-weight:400;letter-spacing:.06em;text-shadow:${stroke('rgba(0,0,0,.55)')},0 1px 0 rgba(0,0,0,.9);`,
+    textCss: `letter-spacing:.06em;text-shadow:${stroke('rgba(0,0,0,.55)')},0 1px 0 rgba(0,0,0,.85);`,
+});
+
+// 魔法星夜（id 仍为 magic-academy，已选用户直接换新）：不用实心框，靠透明与星光营造神秘感。
+// 通栏薄纱自上而下由全透明渐入暮色，没有硬边；一道银线两端渐隐，正中月牙星徽；
+// 线上方留白里放一小组淡星座，四芒星缓慢闪烁（只动透明度，舞台暂停或减少动态时静止）。
+// 学院配色只染细线、星徽与薄纱底色（--igs-ma-*，reader-dom-render 写在 #igs-overlay 上），选项与状态栏共用。
+const MAGIC_HOUSES = Object.freeze([
+    Object.freeze({ id: 'starlight', label: '星银', metal: '#cfd5f2', hi: '#f3f1ff', veil: '#1b1a44' }),
+    Object.freeze({ id: 'scarlet', label: '红金', metal: '#e2c48e', hi: '#ffe4b4', veil: '#36172f' }),
+    Object.freeze({ id: 'emerald', label: '绿银', metal: '#c7d6d8', hi: '#ecfaf6', veil: '#0f2b2c' }),
+    Object.freeze({ id: 'sapphire', label: '蓝铜', metal: '#d7a87c', hi: '#f6cfa6', veil: '#141d47' }),
+    Object.freeze({ id: 'amber', label: '黄黑', metal: '#e6c763', hi: '#fde6a0', veil: '#1f1b15' }),
+]);
+const MAGIC_HOUSE_DEFAULT = 'starlight';
+function normalizeMagicHouse(value) {
+    return MAGIC_HOUSES.some((house) => house.id === value) ? value : MAGIC_HOUSE_DEFAULT;
+}
+function magicHouseVars(value) {
+    const house = MAGIC_HOUSES.find((item) => item.id === normalizeMagicHouse(value));
+    return { '--igs-ma-metal': house.metal, '--igs-ma-hi': house.hi, '--igs-ma-veil': house.veil };
+}
+const MAGIC_METAL = 'var(--igs-ma-metal,#cfd5f2)';
+const MAGIC_METAL_HI = 'var(--igs-ma-hi,#f3f1ff)';
+const MAGIC_VEIL = 'var(--igs-ma-veil,#1b1a44)';
+const magicTint = (color, percent) => `color-mix(in srgb,${color} ${percent}%,transparent)`;
+const magicVeil = (percent) => magicTint(MAGIC_VEIL, percent);
+// 四芒星笔形（24×24），选项、状态栏等处复用。
+const MAGIC_SPARKLE_PATH = 'M12 0Q13 11 24 12Q13 13 12 24Q11 13 0 12Q11 11 12 0Z';
+const MAGIC_SPARKLE_MASK = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${MAGIC_SPARKLE_PATH}"/></svg>`);
+const sparkle = (x, y, size, opacity) => `<path d="${MAGIC_SPARKLE_PATH}" transform="translate(${x - size / 2} ${y - size / 2}) scale(${size / 24})" fill="#fff" fill-opacity="${opacity}"/>`;
+const MAGIC_LINE_Y = 46;
+const MAGIC_EMBLEM = { width: 64, height: 26 };
+// 星徽作遮罩、填学院高光色：月牙开口朝右托住正中的四芒星，右侧两点小星。
+const MAGIC_EMBLEM_MASK = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="26" viewBox="0 0 64 26"><mask id="m"><rect width="64" height="26" fill="#fff"/><circle cx="21.4" cy="11.6" r="6.4" fill="#000"/></mask><circle cx="18" cy="13" r="7.2" fill="#fff" mask="url(#m)"/>${sparkle(32, 13, 16, 1)}<circle cx="43.5" cy="8.5" r="1.1" fill="#fff"/><circle cx="46.5" cy="16" r=".75" fill="#fff" fill-opacity=".8"/></svg>`);
+// 星座：六颗星以极淡的线相连，放在银线上方右侧的留白里。
+const MAGIC_CONSTELLATION = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="132" height="36" viewBox="0 0 132 36"><path d="M4 26L30 14L58 20L86 6L124 16M58 20L66 32" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width=".7"/>${[[4, 26, 1.2], [30, 14, 1.6], [58, 20, 1.3], [86, 6, 1.8], [124, 16, 1.2], [66, 32, 1]].map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" fill-opacity=".75"/>`).join('')}</svg>`);
+// 闪烁层：几颗四芒星散在留白与两侧边缘，避开正文。
+const MAGIC_TWINKLE = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="184" viewBox="0 0 1000 184" preserveAspectRatio="none">${sparkle(150, 22, 11, 0.9)}${sparkle(352, 30, 7, 0.7)}${sparkle(612, 18, 8, 0.75)}${sparkle(28, 122, 8, 0.6)}${sparkle(974, 98, 9, 0.65)}${sparkle(950, 166, 6, 0.5)}</svg>`);
+// 星尘：百分比坐标随框宽铺开，一张 SVG 一层背景，免得多层渐变与 size/position 列表错位。
+const MAGIC_DUST = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">${[[6, 12, 1], [17, 34, 1.3], [24, 8, 0.8], [33, 40, 1], [46, 14, 1.1], [55, 32, 0.8], [68, 10, 1], [77, 38, 1.2], [93, 22, 0.9], [3, 72, 0.9], [97, 60, 1], [12, 92, 0.8], [88, 86, 0.9], [40, 94, 0.7], [64, 90, 0.8]]
+    .map(([x, y, r], i) => `<circle cx="${x}%" cy="${y}%" r="${r}" fill="#f0f0ff" fill-opacity="${i % 3 ? 0.5 : 0.85}"/>`).join('')}</svg>`);
+// 薄纱下段偏黑：学院底色先压向近黑再做透明度，只留一层色调，正文底更沉。
+const magicVeilDark = (percent, keep) => magicTint(`color-mix(in srgb,${MAGIC_VEIL} ${keep}%,#04040a)`, percent);
+const magicHalfLine = (dir) => `linear-gradient(${dir},transparent 3%,${magicTint(MAGIC_METAL, 70)} 34%)`;
+const MAGIC_SIDE = `calc(50% - ${MAGIC_EMBLEM.width / 2 + 6}px) 1px`;
+const magicAcademy = [
+    buildDialogFrameCss(DIALOG_SKIN_MAGIC_ACADEMY, {
+        height: 184,
+        text: { top: 58, speakerTop: 60, right: 72, bottom: 20, left: 72 },
+        rise: 0,
+        flush: true,
+        frameCss: `background-color:transparent;background-image:${magicHalfLine('90deg')},${magicHalfLine('270deg')},${MAGIC_CONSTELLATION},${MAGIC_DUST},radial-gradient(ellipse 28% 70px at 50% ${MAGIC_LINE_Y}px,${magicTint(MAGIC_METAL, 16)},transparent),linear-gradient(180deg,transparent 0,${magicVeil(28)} ${MAGIC_LINE_Y}px,${magicVeilDark(66, 45)} 62%,${magicVeilDark(84, 30)});background-position:left ${MAGIC_LINE_Y}px,right ${MAGIC_LINE_Y}px,right 56px top 4px,0 0,0 0,0 0;background-size:${MAGIC_SIDE},${MAGIC_SIDE},132px 36px,100% 100%,100% 100%,100% 100%;background-repeat:no-repeat;${NO_CHROME}`,
+        speakerCss: `left:56px;top:${MAGIC_LINE_Y - 38}px;${NAME_TEXT}max-width:calc(100% - 112px);height:34px;line-height:34px;padding:0 0 0 24px;background:none;border:0;font-size:21px;font-weight:400;letter-spacing:.1em;text-shadow:${stroke('rgba(8,8,30,.45)')},0 0 12px ${magicTint(MAGIC_METAL_HI, 55)};`,
+        textCss: `letter-spacing:.06em;text-shadow:${stroke('rgba(8,8,30,.4)')},0 1px 2px rgba(6,6,24,.85);`,
+    }),
+    scalePx(`${scope(DIALOG_SKIN_MAGIC_ACADEMY)} .igs-speaker::before{content:"";position:absolute;left:2px;top:50%;width:13px;height:13px;margin-top:-7px;background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;filter:drop-shadow(0 0 3px ${magicTint(MAGIC_METAL_HI, 80)});}`),
+    scalePx(`${scope(DIALOG_SKIN_MAGIC_ACADEMY)}::after{content:"";position:absolute;left:50%;top:${MAGIC_LINE_Y - MAGIC_EMBLEM.height / 2}px;width:${MAGIC_EMBLEM.width}px;height:${MAGIC_EMBLEM.height}px;transform:translateX(-50%);background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_EMBLEM_MASK} center/100% 100% no-repeat;mask:${MAGIC_EMBLEM_MASK} center/100% 100% no-repeat;filter:drop-shadow(0 0 4px ${magicTint(MAGIC_METAL_HI, 75)});pointer-events:none;}`),
+    `${scope(DIALOG_SKIN_MAGIC_ACADEMY)}::before{content:"";position:absolute;inset:0;background:${MAGIC_TWINKLE} 0 0/100% 100% no-repeat;pointer-events:none;opacity:.5;animation:igs-ma-twinkle 4.8s ease-in-out infinite alternate;will-change:opacity;}`,
+    '@keyframes igs-ma-twinkle{0%{opacity:.25}55%{opacity:.9}100%{opacity:.5}}',
+    // 学院色按说话角色切换：注册为颜色属性才能补间，换人时薄纱与细线 0.6s 渐变；不支持 @property 的浏览器直接切换。
+    // 同一条 transition 带上 overlay 淡出的 opacity，免得覆盖 .igs-fading。
+    ...[['metal', '#cfd5f2'], ['hi', '#f3f1ff'], ['veil', '#1b1a44']].map(([name, initial]) => `@property --igs-ma-${name}{syntax:"<color>";inherits:true;initial-value:${initial};}`),
+    `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_MAGIC_ACADEMY}"]{transition:opacity .25s,--igs-ma-metal .6s ease,--igs-ma-hi .6s ease,--igs-ma-veil .6s ease;}`,
+    `#igs-overlay[data-igs-paused] .igs-dialog[data-igs-dialog-skin="${DIALOG_SKIN_MAGIC_ACADEMY}"]::before{animation-play-state:paused;}`,
+    `@media (prefers-reduced-motion: reduce){${scope(DIALOG_SKIN_MAGIC_ACADEMY)}::before{animation:none;opacity:.6;}}`,
+    // 窄屏左右留白减半，正文多出一两个字宽；姓名随之左移。
+    `@media (max-width:640px){${scalePx(`${scope(DIALOG_SKIN_MAGIC_ACADEMY)},${scope(DIALOG_SKIN_MAGIC_ACADEMY)}[data-igs-has-speaker="1"]{padding-left:36px;padding-right:36px;}${scope(DIALOG_SKIN_MAGIC_ACADEMY)} .igs-speaker{left:24px;max-width:calc(100% - 48px);}`)}}`,
+].join('\n');
+const CSS_DIALOG_STYLE_BY_SKIN = Object.freeze({
+    [DIALOG_SKIN_DAY_MINIMAL]: dayMinimal,
+    [DIALOG_SKIN_WARM_PICTUREBOOK]: warmPicturebook,
+    [DIALOG_SKIN_ELEGANT_EUROPEAN]: elegantEuropean,
+    [DIALOG_SKIN_MAGIC_ACADEMY]: magicAcademy,
+});
+const CSS_DIALOG_STYLE_TEXT = Object.values(CSS_DIALOG_STYLE_BY_SKIN).join('\n');
+
+__igsDefine(exports, "normalizeMagicHouse", () => normalizeMagicHouse);
+__igsDefine(exports, "magicHouseVars", () => magicHouseVars);
+__igsDefine(exports, "DIALOG_SKIN_DAY_MINIMAL", () => DIALOG_SKIN_DAY_MINIMAL);
+__igsDefine(exports, "DIALOG_SKIN_WARM_PICTUREBOOK", () => DIALOG_SKIN_WARM_PICTUREBOOK);
+__igsDefine(exports, "DIALOG_SKIN_ELEGANT_EUROPEAN", () => DIALOG_SKIN_ELEGANT_EUROPEAN);
+__igsDefine(exports, "DIALOG_SKIN_MAGIC_ACADEMY", () => DIALOG_SKIN_MAGIC_ACADEMY);
+__igsDefine(exports, "CSS_DIALOG_SKINS", () => CSS_DIALOG_SKINS);
+__igsDefine(exports, "MAGIC_HOUSES", () => MAGIC_HOUSES);
+__igsDefine(exports, "MAGIC_HOUSE_DEFAULT", () => MAGIC_HOUSE_DEFAULT);
+__igsDefine(exports, "MAGIC_METAL", () => MAGIC_METAL);
+__igsDefine(exports, "MAGIC_METAL_HI", () => MAGIC_METAL_HI);
+__igsDefine(exports, "MAGIC_VEIL", () => MAGIC_VEIL);
+__igsDefine(exports, "magicTint", () => magicTint);
+__igsDefine(exports, "magicVeil", () => magicVeil);
+__igsDefine(exports, "MAGIC_SPARKLE_PATH", () => MAGIC_SPARKLE_PATH);
+__igsDefine(exports, "MAGIC_SPARKLE_MASK", () => MAGIC_SPARKLE_MASK);
+__igsDefine(exports, "CSS_DIALOG_STYLE_BY_SKIN", () => CSS_DIALOG_STYLE_BY_SKIN);
+__igsDefine(exports, "CSS_DIALOG_STYLE_TEXT", () => CSS_DIALOG_STYLE_TEXT);
+});
+__igsRegister("src/visual/igs-ui/dialog-skin-frame.js", function(module, exports, require) {
+const SKIN_DIALOG_SCALE_OPTIONS = Object.freeze([1, 0.9, 0.8, 0.7, 0.6]);
+const SKIN_DIALOG_SCALE_DEFAULT = 1;
+function normalizeSkinDialogScale(value) {
+    const numeric = Number(value);
+    return SKIN_DIALOG_SCALE_OPTIONS.includes(numeric) ? numeric : SKIN_DIALOG_SCALE_DEFAULT;
+}
+
+// 主题几何统一乘 --igs-skin-scale：降低高度时花纹等比缩小而不变形，中段照常横向伸缩。
+function sp(value) {
+    return `calc(${value}px * var(--igs-skin-scale,1))`;
+}
+
+// 字号不跟随缩放：框变矮时姓名仍需保持可读。
+function scalePx(css) {
+    return css.replace(/(^|[^\w.#-])(-?\d+(?:\.\d+)?)px/g, (match, lead, value, offset, source) => (
+        source.slice(Math.max(0, offset - 9), offset + lead.length) === 'font-size:' ? match : `${lead}${sp(value)}`
+    ));
+}
+
+// 正文压在花纹上时用同底色的 1px 实描边托住字形，而不是把正文挤进花纹之间的空隙。
+// 不叠模糊光晕：光晕会让字边发虚、框内文字朦胧。第二个参数保留只为兼容旧调用。
+function halo(color) {
+    return `text-shadow:${stroke(color)};`;
+}
+
+// 八向 1px 实描边（不含 text-shadow 属性名），可再拼接投影。
+function stroke(color) {
+    return `1px 0 0 ${color},-1px 0 0 ${color},0 1px 0 ${color},0 -1px 0 ${color},1px 1px 0 ${color},-1px -1px 0 ${color},1px -1px 0 ${color},-1px 1px 0 ${color}`;
+}
+
+// 素材/CSS 主题共用的对话框骨架：固定高度、正文安全区与悬浮姓名牌；外观由 frameCss/speakerCss 注入。
+// flush 主题是横贯画面的通栏，全部阅读模式都贴合阅读器左右与底边，不按卡片留边距。
+function buildDialogFrameCss(skin, { height, text, rise, frameCss, speakerCss, textCss = '', flush = false }) {
+    const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]`;
+    const embeddedMax = flush ? '100%' : 'calc(100% - 28px)';
+    const padding = (top) => `padding:${sp(top)} ${sp(text.right)} ${sp(text.bottom)} ${sp(text.left)};`;
+    return [
+        `${scope}{box-sizing:border-box;height:${sp(height)};min-height:${sp(height)};max-height:${sp(height)};display:flex;flex-direction:column;overflow:visible;${padding(text.top)}${scalePx(frameCss)}}`,
+        `${scope}[data-igs-has-speaker="1"]{${padding(text.speakerTop)}}`,
+        `${scope} .igs-progress,${scope} .igs-speaker,${scope} .igs-divider,${scope} .igs-controls{flex-shrink:0;}`,
+        `${scope} .igs-divider{display:none;}`,
+        `${scope} .igs-text{min-height:0;margin:0;overflow-y:auto;flex:1 1 auto;text-shadow:none;${textCss}}`,
+        `${scope} .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;${scalePx(speakerCss)}}`,
+        `#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{height:min(${sp(height)},${embeddedMax});min-height:min(${sp(height)},${embeddedMax});max-height:${embeddedMax};}`,
+        `#igs-overlay[data-igs-dialog-skin="${skin}"]{--igs-skin-plate-rise:${sp(rise)};}`,
+        ...(flush ? [
+            `${scope},#igs-overlay.igs-floating .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-floating-mobile .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{left:0;right:0;bottom:0;width:auto;margin:0;transform:none;}`,
+            `${scope}.igs-hidden{transform:translateY(20px);}`,
+        ] : []),
+    ].join('\n');
+}
+
+// 三片素材预先横向拼成一张图，用 border-image 一次绘制：分三层背景时各层独立取整，缩放后接缝会漏缝或叠出亮线。
+// slice 是素材原始像素中的两端宽度，left/right 是渲染宽度；高度随框拉伸，框被压矮时不会裁掉底边。
+// border 简写会重置 border-image，调用方不得在其后再写 border。
+function threeSliceCss(image, [sliceLeft, sliceRight], left, right) {
+    return `background:none;border:0 solid transparent;border-image:url("${image}") 0 ${sliceRight} 0 ${sliceLeft} fill / 0 ${right}px 0 ${left}px / 0 stretch;`;
+}
+
+__igsDefine(exports, "normalizeSkinDialogScale", () => normalizeSkinDialogScale);
+__igsDefine(exports, "sp", () => sp);
+__igsDefine(exports, "scalePx", () => scalePx);
+__igsDefine(exports, "halo", () => halo);
+__igsDefine(exports, "stroke", () => stroke);
+__igsDefine(exports, "buildDialogFrameCss", () => buildDialogFrameCss);
+__igsDefine(exports, "threeSliceCss", () => threeSliceCss);
+__igsDefine(exports, "SKIN_DIALOG_SCALE_OPTIONS", () => SKIN_DIALOG_SCALE_OPTIONS);
+__igsDefine(exports, "SKIN_DIALOG_SCALE_DEFAULT", () => SKIN_DIALOG_SCALE_DEFAULT);
+});
+__igsRegister("src/visual/igs-ui/magic-house.js", function(module, exports, require) {
+// 魔法星夜按说话角色换学院色：手动指定（sceneAssets.characterHouses）→ 角色 DNA 里写到的学院 → 全局「学院配色」。
+// 旁白、未登记角色与识别不出学院的角色都落回全局配色。
+const { MAGIC_HOUSES, normalizeMagicHouse } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+const plainObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
+const isHouse = (value) => MAGIC_HOUSES.some((house) => house.id === value);
+
+// 学院名、英文名与俗称；按出现先后取第一个命中，写了多个学院的身份以先写的为准。
+const MAGIC_HOUSE_KEYWORDS = Object.freeze({
+    scarlet: Object.freeze(['格兰芬多', '葛來分多', 'gryffindor', '狮院', '獅院']),
+    emerald: Object.freeze(['斯莱特林', '史萊哲林', 'slytherin', '蛇院']),
+    sapphire: Object.freeze(['拉文克劳', '雷文克勞', 'ravenclaw', '鹰院', '鷹院']),
+    amber: Object.freeze(['赫奇帕奇', '赫夫帕夫', 'hufflepuff', '獾院']),
+});
+function normalizeCharacterHouses(raw) {
+    const out = {};
+    const source = plainObject(raw);
+    if (!source) return out;
+    for (const [key, value] of Object.entries(source)) {
+        const name = String(key || '').trim();
+        if (!name || FORBIDDEN_KEYS.has(name) || hasOwn(out, name) || !isHouse(value)) continue;
+        out[name] = value;
+    }
+    return out;
+}
+function detectMagicHouse(text) {
+    const source = String(text || '').toLowerCase();
+    if (!source) return '';
+    let best = '';
+    let bestAt = Infinity;
+    for (const [house, words] of Object.entries(MAGIC_HOUSE_KEYWORDS)) {
+        for (const word of words) {
+            const at = source.indexOf(word);
+            if (at >= 0 && at < bestAt) {
+                best = house;
+                bestAt = at;
+            }
+        }
+    }
+    return best;
+}
+
+// 说话人可能写的是别名；别名表以主名为键，按主名查手动指定与 DNA。
+function canonicalName(sceneAssets, name) {
+    const target = String(name || '').trim();
+    if (!target) return '';
+    const maps = [sceneAssets.characterHouses, sceneAssets.characters, sceneAssets.characterDna].map(plainObject);
+    if (maps.some((map) => map && hasOwn(map, target))) return target;
+    const aliases = plainObject(sceneAssets.characterAliases) || {};
+    for (const [key, values] of Object.entries(aliases)) {
+        if (Array.isArray(values) && values.some((value) => String(value || '').trim() === target)) return key;
+    }
+    return target;
+}
+function resolveCharacterMagicHouse(sceneAssets, speaker) {
+    const assets = plainObject(sceneAssets);
+    if (!assets) return { house: '', source: '' };
+    const name = canonicalName(assets, speaker);
+    if (!name) return { house: '', source: '' };
+    const manual = plainObject(assets.characterHouses);
+    if (manual && hasOwn(manual, name) && isHouse(manual[name])) return { house: manual[name], source: 'manual' };
+    const dnaMap = plainObject(assets.characterDna);
+    const dna = dnaMap && hasOwn(dnaMap, name) ? plainObject(dnaMap[name]) : null;
+    const detected = dna ? detectMagicHouse(`${dna.identity || ''}\n${dna.defaultAppearance || ''}`) : '';
+    return detected ? { house: detected, source: 'dna' } : { house: '', source: '' };
+}
+function resolveSpeakerMagicHouse(sceneAssets, speaker, fallback) {
+    return resolveCharacterMagicHouse(sceneAssets, speaker).house || normalizeMagicHouse(fallback);
+}
+
+__igsDefine(exports, "normalizeCharacterHouses", () => normalizeCharacterHouses);
+__igsDefine(exports, "detectMagicHouse", () => detectMagicHouse);
+__igsDefine(exports, "resolveCharacterMagicHouse", () => resolveCharacterMagicHouse);
+__igsDefine(exports, "resolveSpeakerMagicHouse", () => resolveSpeakerMagicHouse);
+__igsDefine(exports, "MAGIC_HOUSE_KEYWORDS", () => MAGIC_HOUSE_KEYWORDS);
+});
 __igsRegister("src/visual/igs-ui/stage-direction-fields.js", function(module, exports, require) {
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
 const { checkbox, field, rangeInput, segmentedInput, selectInput } = require("src/visual/igs-ui/settings-fields.js");
@@ -30931,6 +31535,7 @@ const { normalizeTextFxSettings } = require("src/visual/igs-ui/text-fx.js");
 const { CLICK_WAIT_MARK_LABELS, normalizeClickWaitMarkSettings } = require("src/visual/igs-ui/click-wait-mark.js");
 const { DAILY_FX_LABELS, normalizeDailyFxSettings } = require("src/visual/igs-ui/fx-daily-model.js");
 const { DAILY_FX_KINDS } = require("src/scene/daily-fx-directives.js");
+const { FX_WORLDVIEW_ONLY } = require("src/scene/fx-era.js");
 const { normalizeUiSoundSettings } = require("src/visual/igs-ui/ui-sfx.js");
 const { normalizeAudioMasterSettings } = require("src/visual/igs-ui/audio-bus.js");
 const P = 'readerSettings';
@@ -31011,9 +31616,17 @@ function renderSoundFields(bgm, ambient, ui, master, more) {
     return { master: masterBody, bgm: bgmBody, ambient: ambientBody, ui: uiBody };
 }
 
-function renderDailyField(daily, more) {
+// 其他世界观的专属日常（古风抚琴、魔法施咒等）不列出；已存的勾选保留，切回对应世界观时照常显示。
+function dailyKindsFor(worldview) {
+    const foreign = new Set(Object.entries(FX_WORLDVIEW_ONLY)
+        .filter(([owner]) => owner !== worldview)
+        .flatMap(([, table]) => table.dailyFx || []));
+    return DAILY_FX_KINDS.filter((kind) => !foreign.has(kind));
+}
+
+function renderDailyField(daily, more, worldview) {
     return checkbox(`${P}.dailyFx.enabled`, daily.enabled, '日常演出')
-        + (daily.enabled ? sub(more('daily-kinds', '选择日常类型', `<div class="igs-source-filter-grid">${DAILY_FX_KINDS.map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')}`
+        + (daily.enabled ? sub(more('daily-kinds', '选择日常类型', `<div class="igs-source-filter-grid">${dailyKindsFor(worldview).map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')}`
             + checkbox(`${P}.dailyFx.petals`, daily.petals, '樱花、落叶飘落')
             + checkbox(`${P}.dailyFx.photoAlbum`, daily.photoAlbum, '拍照存入 CG 库')
             + `</div>`
@@ -31021,12 +31634,12 @@ function renderDailyField(daily, more) {
 }
 
 // 舞台调度、文字演出、日常演出与场景声音的设置片段，由「演出」页按分类重新编排；持久化路径不变。
-function renderStageDirectionFields(reader, more = collapsible) {
+function renderStageDirectionFields(reader, more = collapsible, { worldview = 'modern' } = {}) {
     const src = reader && typeof reader === 'object' ? reader : {};
     return {
         ...renderStageFields(normalizeStageDirectionSettings(src), more),
         ...renderTextFields(normalizeTextFxSettings(src.textFx), normalizeClickWaitMarkSettings(src.clickWaitMark)),
-        daily: renderDailyField(normalizeDailyFxSettings(src.dailyFx), more),
+        daily: renderDailyField(normalizeDailyFxSettings(src.dailyFx), more, worldview),
         ...renderSoundFields(normalizeBgmSettings(src.bgm), normalizeAmbientSoundSettings(src.ambientSound), normalizeUiSoundSettings(src.uiSound), normalizeAudioMasterSettings(src.audioMaster), more),
     };
 }
@@ -35477,6 +36090,8 @@ __igsDefine(exports, "ORIGINAL_READER_STYLE_CONTRACT", () => ORIGINAL_READER_STY
 });
 __igsRegister("src/visual/igs-ui/dialog-theme-choices.js", function(module, exports, require) {
 const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-dialog-skin.js");
+const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
+const { DIALOG_SKIN_QINGLV, QINGLV_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-skins.js");
 const CLASSIC = 'western-classic';
 
@@ -35561,6 +36176,15 @@ const DIALOG_THEME_CHOICE_STYLE_BY_SKIN = Object.freeze({
         '': `box-sizing:border-box;min-height:44px;padding:10px 40px;border:0;border-radius:0;background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(8,8,16,0),rgba(8,8,16,.55) 20%,rgba(8,8,16,.55) 80%,rgba(8,8,16,0));box-shadow:none;color:#eeeaf3;letter-spacing:.12em;text-shadow:0 1px 3px rgba(0,0,0,.8);`,
         ':hover': `background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(96,78,168,0),rgba(96,78,168,.72) 22%,rgba(112,92,186,.78) 50%,rgba(96,78,168,.72) 78%,rgba(96,78,168,0));color:#fff;text-shadow:0 0 8px rgba(196,176,255,.6);`,
     }),
+    // 星夜选项：暮色薄纱横带 + 上下两道渐隐银线，上线正中一颗四芒星，悬停时星光亮起。
+    [DIALOG_SKIN_MAGIC_ACADEMY]: bubbleRules(DIALOG_SKIN_MAGIC_ACADEMY, {
+        '': `box-sizing:border-box;min-height:44px;padding:10px 44px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,${magicTint(MAGIC_METAL, 60)},transparent) left top/100% 1px no-repeat,linear-gradient(90deg,transparent,${magicTint(MAGIC_METAL, 35)},transparent) left bottom/100% 1px no-repeat,linear-gradient(90deg,transparent,${magicVeil(74)} 20%,${magicVeil(74)} 80%,transparent);box-shadow:none;color:#ecebf7;letter-spacing:.12em;text-shadow:0 1px 3px rgba(6,6,24,.85);`,
+        '::before': `content:"";position:absolute;left:50%;top:-5px;width:10px;height:10px;margin-left:-5px;background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;opacity:.55;transition:opacity .2s,filter .2s;`,
+        ':hover': `background:linear-gradient(90deg,transparent,${magicTint(MAGIC_METAL_HI, 90)},transparent) left top/100% 1px no-repeat,linear-gradient(90deg,transparent,${magicTint(MAGIC_METAL_HI, 55)},transparent) left bottom/100% 1px no-repeat,radial-gradient(ellipse 45% 120% at 50% 50%,${magicTint(MAGIC_METAL, 22)},transparent),linear-gradient(90deg,transparent,${magicVeil(84)} 16%,${magicVeil(84)} 84%,transparent);color:#fff;text-shadow:0 0 10px ${magicTint(MAGIC_METAL_HI, 60)},0 1px 3px rgba(6,6,24,.85);`,
+        ':hover::before': `opacity:1;filter:drop-shadow(0 0 4px ${MAGIC_METAL_HI});`,
+        ':active': 'transform:translateY(1px);',
+    }),
+    [DIALOG_SKIN_QINGLV]: QINGLV_CHOICE_STYLE,
     [DIALOG_SKIN_GRADIENT_VEIL]: bubbleRules(DIALOG_SKIN_GRADIENT_VEIL, {
         '': 'padding:11px 32px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.6) 18%,rgba(0,0,0,.6) 82%,transparent);box-shadow:none;color:rgba(255,255,255,.88);text-shadow:0 1px 3px rgba(0,0,0,.85);letter-spacing:.1em;',
         '::after': 'content:"";position:absolute;left:20%;right:20%;bottom:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);transition:background .18s;',
@@ -35655,9 +36279,98 @@ __igsDefine(exports, "DIALOG_SKIN_GRADIENT_VEIL", () => DIALOG_SKIN_GRADIENT_VEI
 __igsDefine(exports, "GRADIENT_VEIL_DEFAULTS", () => GRADIENT_VEIL_DEFAULTS);
 __igsDefine(exports, "GRADIENT_VEIL_STYLE_TEXT", () => GRADIENT_VEIL_STYLE_TEXT);
 });
+__igsRegister("src/visual/igs-ui/dialog-theme-guofeng.js", function(module, exports, require) {
+const { buildDialogFrameCss, scalePx, stroke } = require("src/visual/igs-ui/dialog-skin-frame.js");
+const DIALOG_SKIN_QINGLV = 'qinglv-shanshui';
+
+// 青绿山水：取《千里江山图》的绢色、石青、石绿。对话框不画框，是从画面底部升起的一层烟岚，
+// 顶边完全虚化，让场景自然退进雾里；只用一道左起右收的细线定住姓名，右侧大片留白。
+// 右下一抹远山极淡（峰青麓绿、山脚化入雾中），仅作底纹，不与画面争主。朱砂只留给点击印与头像小印。
+const SHIQING = '47,93,124';
+const SHILV = '79,143,127';
+const INK = '#26332f';
+const LINE_Y = 80;
+const NARRATION_LINE_Y = 56;
+
+// 绢色随场景时段（overlay 的 data-igs-scene-time）变化：晨微粉、昏转缃、夜沉为月白、深夜再暗一档。
+// 墨字仍用排版设置里的颜色（可被用户改写），所以夜里只把底色压暗变冷，不翻成深底浅字。
+// 变量挂在 overlay 上，选项、状态栏、提示与物品卡片同步取色。
+const SILK_BY_TIME = Object.freeze({ dawn: '243,236,232', dusk: '241,229,210', night: '178,186,192', midnight: '150,160,168' });
+const SILK_DAY = '244,240,229';
+const silk = (alpha) => `rgba(var(--qlv-silk,${SILK_DAY}),${alpha})`;
+const qinglvSilk = silk;
+const overlayScope = `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_QINGLV}"]`;
+
+const MOUNTAINS = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 480 100' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='f' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%234c7d9b'/%3E%3Cstop offset='1' stop-color='%237fb3a0' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='n' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%232f5d7c'/%3E%3Cstop offset='.5' stop-color='%234f8f7f'/%3E%3Cstop offset='1' stop-color='%234f8f7f' stop-opacity='0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg opacity='.16'%3E%3Cpath fill='url(%23f)' opacity='.55' d='M0 100C40 96 70 84 98 78C120 73 132 60 150 56C166 52 178 62 194 66C214 70 228 58 246 52C262 47 276 56 290 62C320 74 360 70 400 76C430 80 456 86 480 88V100Z'/%3E%3Cpath fill='url(%23n)' d='M150 100C180 94 204 82 224 74C238 68 244 50 256 36C264 27 272 30 278 40C286 54 294 60 306 58C318 56 324 42 334 38C344 34 352 46 360 56C372 70 392 74 414 80C440 86 462 92 480 94V100Z'/%3E%3C/g%3E%3C/svg%3E";
+// 雾的顶边叠三团极淡的云气，让边缘有轻微起伏，不是一条机械的直线渐变。
+const CLOUDS = [[18, 30, 22, 38, '.28'], [63, 26, 30, 30, '.22'], [88, 34, 16, 34, '.2']]
+    .map(([x, y, rx, ry, a]) => `radial-gradient(ellipse ${rx}% ${ry}% at ${x}% ${y}%,${silk(a)},${silk(0)} 70%)`).join(',');
+const MIST = `linear-gradient(180deg,${silk(0)} 0,${silk('.5')} 22%,${silk('.82')} 40%,${silk('.9')} 58%,${silk('.93')})`;
+const HORIZON = `linear-gradient(90deg,rgba(${SHIQING},0),rgba(${SHIQING},.6) 9%,rgba(${SHILV},.42) 34%,rgba(${SHILV},0) 64%)`;
+// 旁白没有姓名：线收短、调淡、上移，正文随之上提，版面不留一块空着的名位。
+const HORIZON_NARRATION = `linear-gradient(90deg,rgba(${SHIQING},0),rgba(${SHIQING},.34) 8%,rgba(${SHILV},.2) 20%,rgba(${SHILV},0) 36%)`;
+const bgSize = (mountain) => `${mountain},100% 1px,100% 100%,100% 100%,100% 100%,100% 100%`;
+
+const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${DIALOG_SKIN_QINGLV}"]`;
+const QINGLV_DIALOG_STYLE = [
+    ...Object.entries(SILK_BY_TIME).map(([time, rgb]) => `${overlayScope}[data-igs-scene-time="${time}"]{--qlv-silk:${rgb};}`),
+    buildDialogFrameCss(DIALOG_SKIN_QINGLV, {
+        height: 196,
+        text: { top: NARRATION_LINE_Y + 14, speakerTop: LINE_Y + 14, right: 72, bottom: 24, left: 72 },
+        rise: 0,
+        flush: true,
+        frameCss: `background-color:transparent;background-image:url("${MOUNTAINS}"),var(--qlv-horizon),${CLOUDS},${MIST};background-position:right bottom,0 var(--qlv-line-y),0 0,0 0,0 0,0 0;background-size:${bgSize('460px 96px')};background-repeat:no-repeat;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
+        // 姓名不托底牌，墨字直接落在雾上；1px 绢色实描边在雾较薄处托住字形。
+        speakerCss: `left:72px;top:${LINE_Y - 40}px;width:max-content;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 144px);height:32px;line-height:32px;padding:0;background:none;border:0;font-size:20px;font-weight:400;letter-spacing:.2em;text-shadow:${stroke(silk('.55'))};`,
+        textCss: `letter-spacing:.06em;text-shadow:0 1px 0 ${silk('.5')};`,
+    }),
+    scalePx(`${scope}{--qlv-horizon:${HORIZON};--qlv-line-y:${LINE_Y}px;}`),
+    scalePx(`${scope}:not([data-igs-has-speaker="1"]){--qlv-horizon:${HORIZON_NARRATION};--qlv-line-y:${NARRATION_LINE_Y}px;}`),
+    // 窄屏收窄两侧留白，远山同比缩小，免得占满整条底边。
+    `@media (max-width:640px){${scalePx(`${scope},${scope}[data-igs-has-speaker="1"]{padding-left:36px;padding-right:36px;background-size:${bgSize('300px 63px')};}${scope} .igs-speaker{left:36px;max-width:calc(100% - 72px);}`)}}`,
+].join('\n');
+
+// 选项：两端化开的绢带，上下各一道同样收笔的石青细线；悬停时线转石绿、字转石青。
+const choiceLine = (rgb, alpha, edge) => `linear-gradient(90deg,rgba(${rgb},0),rgba(${rgb},${alpha}) 24%,rgba(${rgb},${alpha}) 76%,rgba(${rgb},0)) left ${edge}/100% 1px no-repeat`;
+const choiceLines = (rgb, alpha) => `${choiceLine(rgb, alpha, 'top')},${choiceLine(rgb, alpha, 'bottom')}`;
+const choiceBand = (alpha) => `linear-gradient(90deg,${silk(0)},${silk(alpha)} 18%,${silk(alpha)} 82%,${silk(0)})`;
+const choiceScope = `${overlayScope} .igs-option-bubble`;
+const QINGLV_CHOICE_STYLE = [
+    `${choiceScope}{box-sizing:border-box;min-height:44px;padding:10px 44px;border:0;border-radius:0;background:${choiceLines(SHIQING, '.6')},${choiceBand('.86')};box-shadow:none;color:${INK};letter-spacing:.14em;text-shadow:none;transition:background .2s,color .2s;}`,
+    `${choiceScope}:hover{background:${choiceLines(SHILV, '.8')},radial-gradient(ellipse 50% 90% at 50% 50%,rgba(${SHILV},.16),transparent),${choiceBand('.93')};color:#1f4c66;}`,
+    `${choiceScope}:active{transform:translateY(1px);}`,
+].join('\n');
+
+const s = (value) => `calc(${value}px * var(--igs-hud-scale,1))`;
+const ring = (color, width) => `drop-shadow(${width}px 0 0 ${color}) drop-shadow(-${width}px 0 0 ${color}) drop-shadow(0 ${width}px 0 ${color}) drop-shadow(0 -${width}px 0 ${color})`;
+const panel = (alpha) => `background:${silk(alpha)};border:0;border-radius:${s(2)};box-shadow:inset 0 1px 0 rgba(${SHIQING},.32),inset 0 -1px 0 rgba(${SHIQING},.32),0 2px 10px rgba(30,40,38,.12);`;
+
+// 状态栏零件：绢面裱条（上下两道石青细线）、石绿细进度条、头像右下一方朱印。
+const QINGLV_HUD_THEME = Object.freeze({
+    neutral: '#9aa59f',
+    panel: panel('.88'),
+    toast: `${panel('.96')}color:${INK};text-shadow:none;`,
+    ink: INK,
+    emotion: `padding:0 ${s(12)};border:0;border-radius:0;background:${silk('.86')};box-shadow:inset 0 -1px 0 rgba(${SHILV},.6);color:#2f5d7c;letter-spacing:.2em;text-shadow:none;`,
+    avatar: `filter:${ring(silk(1), 1.5)} ${ring(`rgba(${SHIQING},.5)`, 1)};`,
+    badge: `content:"";position:absolute;right:${s(-3)};bottom:${s(-3)};width:${s(9)};height:${s(9)};border-radius:${s(1.5)};background:#b23a2a;box-shadow:0 0 0 1.5px ${silk(1)};`,
+    placeholder: 'background:linear-gradient(180deg,#ebe6d8,#d6ded6);color:#2f5d7c;',
+    placeholderSvg: 'fill:none;stroke:#2f5d7c;stroke-width:1.3;',
+    track: `height:${s(4)};border:0;border-radius:0;background:rgba(${SHIQING},.16);`,
+    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 55%,#4f8f7f) !important;border-radius:0;`,
+    value: 'font-weight:400;',
+});
+
+__igsDefine(exports, "DIALOG_SKIN_QINGLV", () => DIALOG_SKIN_QINGLV);
+__igsDefine(exports, "qinglvSilk", () => qinglvSilk);
+__igsDefine(exports, "QINGLV_DIALOG_STYLE", () => QINGLV_DIALOG_STYLE);
+__igsDefine(exports, "QINGLV_CHOICE_STYLE", () => QINGLV_CHOICE_STYLE);
+__igsDefine(exports, "QINGLV_HUD_THEME", () => QINGLV_HUD_THEME);
+});
 __igsRegister("src/visual/igs-ui/dialog-theme-skins.js", function(module, exports, require) {
 const { CSS_DIALOG_SKINS, CSS_DIALOG_STYLE_BY_SKIN, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { buildDialogFrameCss, halo, stroke, threeSliceCss } = require("src/visual/igs-ui/dialog-skin-frame.js");
+const { DIALOG_SKIN_QINGLV, QINGLV_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const DIALOG_SKIN_PLANT_COFFEE = 'plant-coffee';
 const DIALOG_SKIN_BLACK_WHITE_MANGA = 'black-white-manga';
 const DIALOG_SKIN_CUTE_PINK = 'cute-pink';
@@ -35665,6 +36378,7 @@ const DIALOG_SKIN_RETRO_JAPANESE = 'retro-japanese';
 const DIALOG_SKIN_ADVENTURE_JOURNEY = 'adventure-journey';
 __igsDefine(exports, "DIALOG_SKIN_DAY_MINIMAL", () => DIALOG_SKIN_DAY_MINIMAL);
 __igsDefine(exports, "DIALOG_SKIN_ELEGANT_EUROPEAN", () => DIALOG_SKIN_ELEGANT_EUROPEAN);
+__igsDefine(exports, "DIALOG_SKIN_QINGLV", () => DIALOG_SKIN_QINGLV);
 __igsDefine(exports, "DIALOG_SKIN_WARM_PICTUREBOOK", () => DIALOG_SKIN_WARM_PICTUREBOOK);
 const SLICED_DIALOG_SKINS = Object.freeze([
     DIALOG_SKIN_PLANT_COFFEE,
@@ -35675,7 +36389,7 @@ const SLICED_DIALOG_SKINS = Object.freeze([
 ]);
 
 // 「插画式」= 固定高度、自带排版默认值的主题，含三片素材主题与纯 CSS 还原主题。
-const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS]);
+const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV]);
 function isIllustratedDialogSkin(value) {
     const skin = typeof value === 'string' ? value : value && value.dialogSkin;
     return ILLUSTRATED_DIALOG_SKINS.includes(skin);
@@ -35779,6 +36493,7 @@ function slicedSkinCss(skin) {
 const ILLUSTRATED_DIALOG_STYLE_BY_SKIN = Object.freeze({
     ...Object.fromEntries(SLICED_DIALOG_SKINS.map((skin) => [skin, slicedSkinCss(skin)])),
     ...CSS_DIALOG_STYLE_BY_SKIN,
+    [DIALOG_SKIN_QINGLV]: QINGLV_DIALOG_STYLE,
 });
 const ILLUSTRATED_DIALOG_STYLE_TEXT = ILLUSTRATED_DIALOG_SKINS
     .map((skin) => ILLUSTRATED_DIALOG_STYLE_BY_SKIN[skin])
@@ -35795,162 +36510,6 @@ __igsDefine(exports, "ILLUSTRATED_DIALOG_SKINS", () => ILLUSTRATED_DIALOG_SKINS)
 __igsDefine(exports, "ILLUSTRATED_DIALOG_SPECS", () => ILLUSTRATED_DIALOG_SPECS);
 __igsDefine(exports, "ILLUSTRATED_DIALOG_STYLE_BY_SKIN", () => ILLUSTRATED_DIALOG_STYLE_BY_SKIN);
 __igsDefine(exports, "ILLUSTRATED_DIALOG_STYLE_TEXT", () => ILLUSTRATED_DIALOG_STYLE_TEXT);
-});
-__igsRegister("src/visual/igs-ui/dialog-theme-css-skins.js", function(module, exports, require) {
-const { buildDialogFrameCss, scalePx, stroke, threeSliceCss } = require("src/visual/igs-ui/dialog-skin-frame.js");
-const DIALOG_SKIN_DAY_MINIMAL = 'day-minimal';
-const DIALOG_SKIN_WARM_PICTUREBOOK = 'warm-picturebook';
-const DIALOG_SKIN_ELEGANT_EUROPEAN = 'elegant-european';
-const CSS_DIALOG_SKINS = Object.freeze([
-    DIALOG_SKIN_DAY_MINIMAL,
-    DIALOG_SKIN_WARM_PICTUREBOOK,
-    DIALOG_SKIN_ELEGANT_EUROPEAN,
-]);
-
-const ELEGANT_BAND = '__IGS_ASSET__elegant-european/dialog.webp__';
-const ELEGANT_ORNAMENT_TOP = '__IGS_ASSET__elegant-european/ornament-top.webp__';
-const ELEGANT_ORNAMENT_BOTTOM = '__IGS_ASSET__elegant-european/ornament-bottom.webp__';
-
-function scope(skin) {
-    return `#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]`;
-}
-
-const NO_CHROME = 'border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;';
-const NAME_TEXT = 'width:max-content;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-
-// 日间简约：还原作者 frame_message 的深色渐隐名条 + ××× 标记，正文底为半透明白。
-const DAY_MINIMAL_BAR = 32;
-const dayMinimal = [
-    buildDialogFrameCss(DIALOG_SKIN_DAY_MINIMAL, {
-        height: 172,
-        text: { top: 46, speakerTop: 46, right: 56, bottom: 22, left: 64 },
-        rise: 0,
-        flush: true,
-        frameCss: `background-color:transparent;background-image:linear-gradient(90deg,#333 0,#383835 22%,#5f5e53 34%,rgba(150,149,130,.82) 46%,rgba(205,203,188,.45) 58%,rgba(255,255,255,0) 68%),linear-gradient(180deg,rgba(255,255,255,.8),rgba(250,249,244,.86));background-position:left top,left ${DAY_MINIMAL_BAR}px;background-size:100% ${DAY_MINIMAL_BAR}px,100% calc(100% - ${DAY_MINIMAL_BAR}px);background-repeat:no-repeat;${NO_CHROME}-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);`,
-        speakerCss: `left:64px;top:0;${NAME_TEXT}max-width:calc(60% - 64px);height:${DAY_MINIMAL_BAR}px;line-height:${DAY_MINIMAL_BAR}px;padding:0;background:none;border:0;font-size:16px;letter-spacing:.14em;text-shadow:0 1px 2px rgba(0,0,0,.45);`,
-        textCss: 'letter-spacing:.06em;text-shadow:0 1px 0 rgba(255,255,255,.8);',
-    }),
-    scalePx(`${scope(DIALOG_SKIN_DAY_MINIMAL)}::before{content:"\\00d7\\00d7\\00d7";position:absolute;left:18px;top:0;height:${DAY_MINIMAL_BAR}px;line-height:${DAY_MINIMAL_BAR}px;font:15px/${DAY_MINIMAL_BAR}px "Microsoft YaHei",sans-serif;letter-spacing:1px;background:linear-gradient(90deg,#e0826c 0 33.3%,#ebe5d0 33.3% 66.6%,#b9c4a2 66.6%);-webkit-background-clip:text;background-clip:text;color:transparent;pointer-events:none;}`),
-    scalePx(`${scope(DIALOG_SKIN_DAY_MINIMAL)}::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,rgba(120,118,104,.5),rgba(120,118,104,.15));pointer-events:none;}`),
-].join('\n');
-
-// 温暖绘本：作者的异形姓名牌是「斜纹胶囊 + 断开的外描边」，用 CSS 重建，避免拉伸素材让斜纹变形。
-// 外描边画在 ::after 上，靠 overflow:clip + overflow-clip-margin 露出牌外；不支持的浏览器只丢描边。
-const WARM_INK = '#4f4a45';
-const WARM_PAPER = '#f1ede9';
-const warmPicturebook = [
-    buildDialogFrameCss(DIALOG_SKIN_WARM_PICTUREBOOK, {
-        height: 176,
-        text: { top: 28, speakerTop: 36, right: 44, bottom: 26, left: 44 },
-        rise: 22,
-        frameCss: `background:${WARM_PAPER};border:2px solid ${WARM_INK};border-radius:14px;box-shadow:inset 0 -12px 0 #55514b,0 2px 0 rgba(79,74,69,.18);-webkit-backdrop-filter:none;backdrop-filter:none;`,
-        speakerCss: `left:34px;top:-22px;${NAME_TEXT}overflow:clip;overflow-clip-margin:8px;min-width:210px;max-width:calc(100% - 68px);height:44px;line-height:44px;padding:0 42px 0 58px;background:repeating-linear-gradient(135deg,#5b5650 0 5px,${WARM_INK} 5px 10px);border:0;border-radius:22px;box-shadow:0 0 0 3px ${WARM_PAPER};font-size:17px;font-weight:500;letter-spacing:.16em;text-shadow:0 1px 0 #2f2b27,0 0 3px rgba(47,43,39,.6);`,
-        textCss: 'letter-spacing:.05em;text-shadow:0 1px 0 rgba(255,255,255,.6);',
-    }),
-    scalePx(`${scope(DIALOG_SKIN_WARM_PICTUREBOOK)} .igs-speaker::before{content:"";position:absolute;left:26px;top:50%;width:12px;height:12px;margin-top:-6px;background:linear-gradient(#a6dcd4 0 0) 0 0/5px 5px,linear-gradient(#a6dcd4 0 0) 7px 0/5px 5px,linear-gradient(#a6dcd4 0 0) 0 7px/5px 5px,linear-gradient(#a6dcd4 0 0) 7px 7px/5px 5px;background-repeat:no-repeat;}`),
-    scalePx(`${scope(DIALOG_SKIN_WARM_PICTUREBOOK)} .igs-speaker::after{content:"";position:absolute;inset:-6px;border:2px solid ${WARM_INK};border-radius:999px;pointer-events:none;-webkit-mask:linear-gradient(#000 0 0) left top/36% 50% no-repeat,linear-gradient(#000 0 0) right bottom/40% 50% no-repeat,linear-gradient(#000 0 0) right top/30px 100% no-repeat;mask:linear-gradient(#000 0 0) left top/36% 50% no-repeat,linear-gradient(#000 0 0) right bottom/40% 50% no-repeat,linear-gradient(#000 0 0) right top/30px 100% no-repeat;}`),
-].join('\n');
-
-// 优雅欧式：作者 frame_message 的通栏黑纱贴合阅读器左右与底边。底板由左右两片拼成（两端 200px 渐隐线保形、
-// 中段纯色拉伸），中央饰纹单独叠放，避免随宽度被拉变形。几何按原图 0.7 缩放：275→192，两道线在 y≈76/168。
-const ELEGANT_EDGE = 140;
-const ELEGANT_TOP_LINE = 76;
-const ELEGANT_BOTTOM_LINE = 168;
-// 饰纹从作者中段切片反合成抠出（200×14，线穿过其 y=10 / y=3）；1px 线稿缩小会糊掉，按原尺寸绘制。
-const ELEGANT_ORNAMENT = { width: 200, height: 14 };
-const elegantEuropean = buildDialogFrameCss(DIALOG_SKIN_ELEGANT_EUROPEAN, {
-    height: 192,
-    text: { top: 88, speakerTop: 88, right: 72, bottom: 30, left: 72 },
-    rise: 0,
-    flush: true,
-    frameCss: `${threeSliceCss(ELEGANT_BAND, [200, 200], ELEGANT_EDGE, ELEGANT_EDGE)}background-image:url("${ELEGANT_ORNAMENT_TOP}"),url("${ELEGANT_ORNAMENT_BOTTOM}");background-position:center ${ELEGANT_TOP_LINE - 10}px,center ${ELEGANT_BOTTOM_LINE - 3}px;background-size:${ELEGANT_ORNAMENT.width}px ${ELEGANT_ORNAMENT.height}px;background-repeat:no-repeat;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
-    // 黑纱上的字用 1px 实描边 + 1px 投影托住，不用模糊光晕（光晕会让字边发虚）。
-    speakerCss: `left:56px;top:${ELEGANT_TOP_LINE - 36}px;${NAME_TEXT}max-width:calc(100% - 112px);height:32px;line-height:32px;padding:0;background:none;border:0;font-size:22px;font-weight:400;letter-spacing:.06em;text-shadow:${stroke('rgba(0,0,0,.55)')},0 1px 0 rgba(0,0,0,.9);`,
-    textCss: `letter-spacing:.06em;text-shadow:${stroke('rgba(0,0,0,.55)')},0 1px 0 rgba(0,0,0,.85);`,
-});
-const CSS_DIALOG_STYLE_BY_SKIN = Object.freeze({
-    [DIALOG_SKIN_DAY_MINIMAL]: dayMinimal,
-    [DIALOG_SKIN_WARM_PICTUREBOOK]: warmPicturebook,
-    [DIALOG_SKIN_ELEGANT_EUROPEAN]: elegantEuropean,
-});
-const CSS_DIALOG_STYLE_TEXT = Object.values(CSS_DIALOG_STYLE_BY_SKIN).join('\n');
-
-__igsDefine(exports, "DIALOG_SKIN_DAY_MINIMAL", () => DIALOG_SKIN_DAY_MINIMAL);
-__igsDefine(exports, "DIALOG_SKIN_WARM_PICTUREBOOK", () => DIALOG_SKIN_WARM_PICTUREBOOK);
-__igsDefine(exports, "DIALOG_SKIN_ELEGANT_EUROPEAN", () => DIALOG_SKIN_ELEGANT_EUROPEAN);
-__igsDefine(exports, "CSS_DIALOG_SKINS", () => CSS_DIALOG_SKINS);
-__igsDefine(exports, "CSS_DIALOG_STYLE_BY_SKIN", () => CSS_DIALOG_STYLE_BY_SKIN);
-__igsDefine(exports, "CSS_DIALOG_STYLE_TEXT", () => CSS_DIALOG_STYLE_TEXT);
-});
-__igsRegister("src/visual/igs-ui/dialog-skin-frame.js", function(module, exports, require) {
-const SKIN_DIALOG_SCALE_OPTIONS = Object.freeze([1, 0.9, 0.8, 0.7, 0.6]);
-const SKIN_DIALOG_SCALE_DEFAULT = 1;
-function normalizeSkinDialogScale(value) {
-    const numeric = Number(value);
-    return SKIN_DIALOG_SCALE_OPTIONS.includes(numeric) ? numeric : SKIN_DIALOG_SCALE_DEFAULT;
-}
-
-// 主题几何统一乘 --igs-skin-scale：降低高度时花纹等比缩小而不变形，中段照常横向伸缩。
-function sp(value) {
-    return `calc(${value}px * var(--igs-skin-scale,1))`;
-}
-
-// 字号不跟随缩放：框变矮时姓名仍需保持可读。
-function scalePx(css) {
-    return css.replace(/(^|[^\w.#-])(-?\d+(?:\.\d+)?)px/g, (match, lead, value, offset, source) => (
-        source.slice(Math.max(0, offset - 9), offset + lead.length) === 'font-size:' ? match : `${lead}${sp(value)}`
-    ));
-}
-
-// 正文压在花纹上时用同底色的 1px 实描边托住字形，而不是把正文挤进花纹之间的空隙。
-// 不叠模糊光晕：光晕会让字边发虚、框内文字朦胧。第二个参数保留只为兼容旧调用。
-function halo(color) {
-    return `text-shadow:${stroke(color)};`;
-}
-
-// 八向 1px 实描边（不含 text-shadow 属性名），可再拼接投影。
-function stroke(color) {
-    return `1px 0 0 ${color},-1px 0 0 ${color},0 1px 0 ${color},0 -1px 0 ${color},1px 1px 0 ${color},-1px -1px 0 ${color},1px -1px 0 ${color},-1px 1px 0 ${color}`;
-}
-
-// 素材/CSS 主题共用的对话框骨架：固定高度、正文安全区与悬浮姓名牌；外观由 frameCss/speakerCss 注入。
-// flush 主题是横贯画面的通栏，全部阅读模式都贴合阅读器左右与底边，不按卡片留边距。
-function buildDialogFrameCss(skin, { height, text, rise, frameCss, speakerCss, textCss = '', flush = false }) {
-    const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]`;
-    const embeddedMax = flush ? '100%' : 'calc(100% - 28px)';
-    const padding = (top) => `padding:${sp(top)} ${sp(text.right)} ${sp(text.bottom)} ${sp(text.left)};`;
-    return [
-        `${scope}{box-sizing:border-box;height:${sp(height)};min-height:${sp(height)};max-height:${sp(height)};display:flex;flex-direction:column;overflow:visible;${padding(text.top)}${scalePx(frameCss)}}`,
-        `${scope}[data-igs-has-speaker="1"]{${padding(text.speakerTop)}}`,
-        `${scope} .igs-progress,${scope} .igs-speaker,${scope} .igs-divider,${scope} .igs-controls{flex-shrink:0;}`,
-        `${scope} .igs-divider{display:none;}`,
-        `${scope} .igs-text{min-height:0;margin:0;overflow-y:auto;flex:1 1 auto;text-shadow:none;${textCss}}`,
-        `${scope} .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;${scalePx(speakerCss)}}`,
-        `#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{height:min(${sp(height)},${embeddedMax});min-height:min(${sp(height)},${embeddedMax});max-height:${embeddedMax};}`,
-        `#igs-overlay[data-igs-dialog-skin="${skin}"]{--igs-skin-plate-rise:${sp(rise)};}`,
-        ...(flush ? [
-            `${scope},#igs-overlay.igs-floating .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-floating-mobile .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{left:0;right:0;bottom:0;width:auto;margin:0;transform:none;}`,
-            `${scope}.igs-hidden{transform:translateY(20px);}`,
-        ] : []),
-    ].join('\n');
-}
-
-// 三片素材预先横向拼成一张图，用 border-image 一次绘制：分三层背景时各层独立取整，缩放后接缝会漏缝或叠出亮线。
-// slice 是素材原始像素中的两端宽度，left/right 是渲染宽度；高度随框拉伸，框被压矮时不会裁掉底边。
-// border 简写会重置 border-image，调用方不得在其后再写 border。
-function threeSliceCss(image, [sliceLeft, sliceRight], left, right) {
-    return `background:none;border:0 solid transparent;border-image:url("${image}") 0 ${sliceRight} 0 ${sliceLeft} fill / 0 ${right}px 0 ${left}px / 0 stretch;`;
-}
-
-__igsDefine(exports, "normalizeSkinDialogScale", () => normalizeSkinDialogScale);
-__igsDefine(exports, "sp", () => sp);
-__igsDefine(exports, "scalePx", () => scalePx);
-__igsDefine(exports, "halo", () => halo);
-__igsDefine(exports, "stroke", () => stroke);
-__igsDefine(exports, "buildDialogFrameCss", () => buildDialogFrameCss);
-__igsDefine(exports, "threeSliceCss", () => threeSliceCss);
-__igsDefine(exports, "SKIN_DIALOG_SCALE_OPTIONS", () => SKIN_DIALOG_SCALE_OPTIONS);
-__igsDefine(exports, "SKIN_DIALOG_SCALE_DEFAULT", () => SKIN_DIALOG_SCALE_DEFAULT);
 });
 __igsRegister("src/visual/igs-ui/map-panel-style.js", function(module, exports, require) {
 const { IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_NIGHT_RGB, IGS_UI_THICKNESS, igsUiSurface } = require("src/styles/ui-material.js");
@@ -36614,6 +37173,13 @@ const FX_STYLE_TEXT = `
 .igs-fx-promise.is-taisho{color:#2a1c18;background:#f4ead6;border:1px solid #7b2e2a;box-shadow:0 8px 20px rgba(0,0,0,.3),inset 0 0 0 3px #f4ead6,inset 0 0 0 4px rgba(123,46,42,.4);font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 .igs-fx-promise.is-taisho .igs-fx-promise-seal{border-color:#7b2e2a;color:#7b2e2a;}
 
+/* 魔法换皮：午夜蓝 + 金线 + 星光辉，契约为羊皮纸配火漆。只改配色字体，不改位置与动画。 */
+.igs-fx-notify.is-magic{color:#f3e2b6;background:linear-gradient(180deg,rgba(28,34,72,.94),rgba(14,18,42,.95));border:1px solid rgba(201,162,74,.8);border-radius:4px;box-shadow:0 0 16px rgba(255,214,120,.28),0 6px 22px rgba(0,0,0,.4),inset 0 0 0 3px rgba(14,18,42,.95),inset 0 0 0 4px rgba(201,162,74,.35);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+.igs-fx-title-card.is-magic{color:#f6e7c1;font-family:"IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.14em;text-shadow:0 0 14px rgba(255,214,120,.65),0 2px 10px rgba(10,12,40,.9);}
+.igs-fx-title-card.is-magic::before,.igs-fx-title-card.is-magic::after{background:linear-gradient(90deg,transparent,rgba(255,214,120,.95),transparent);box-shadow:0 0 8px rgba(255,214,120,.6);}
+.igs-fx-promise.is-magic{color:#2b1d10;background:linear-gradient(160deg,#f1e3c0,#e2cc98);border:1px solid #9c7a46;box-shadow:0 8px 22px rgba(0,0,0,.35),0 0 18px rgba(255,214,120,.3),inset 0 0 20px rgba(120,80,30,.25);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+.igs-fx-promise.is-magic .igs-fx-promise-seal{border-color:#7a1f2b;background:radial-gradient(circle at 38% 34%,#b8323e,#7a1f2b 62%,#5a141e);color:#f3e2b6;border-radius:50%;}
+
 .igs-fx-notify.is-ancient .igs-fx-notify-sender{margin:0 0 0 8px;font-size:13px;color:#7a2a1a;opacity:1;}
 .igs-fx-notify.is-ancient .igs-fx-notify-text{font-size:16px;line-height:1.7;letter-spacing:.08em;white-space:normal;}
 .igs-fx-eye,.igs-fx-eye-hold{position:absolute;inset:0;overflow:hidden;}
@@ -37179,6 +37745,17 @@ const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-omikuji.is-taisho .igs-dfx-slip{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 #igs-overlay .igs-dfx-broadcast.is-taisho .igs-dfx-banner{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 
+/* 魔法换皮：午夜蓝星空报幕、羊皮纸 + 火漆、会动的照片；结构与时长沿用现代。 */
+#igs-overlay .igs-dfx-timeskip.is-magic .igs-dfx-veil{background:radial-gradient(1px 1px at 18% 30%,rgba(255,240,200,.9),transparent),radial-gradient(1px 1px at 72% 22%,rgba(255,240,200,.8),transparent),radial-gradient(1.5px 1.5px at 40% 70%,rgba(200,220,255,.8),transparent),radial-gradient(1px 1px at 86% 64%,rgba(255,240,200,.7),transparent),radial-gradient(ellipse at center,rgba(28,34,72,.78),rgba(8,10,26,.94));}
+#igs-overlay .igs-dfx-timeskip.is-magic .igs-dfx-timeskip-text{color:#f3e2b6;font-family:"IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.14em;text-shadow:0 0 12px rgba(255,214,120,.55),0 2px 8px rgba(0,0,0,.6);}
+#igs-overlay .igs-dfx-photo.is-magic .igs-dfx-photo-img{filter:sepia(.35) saturate(.9) contrast(1.05);animation:igs-dfx-magic-photo 2.6s ease-in-out infinite alternate;}
+@keyframes igs-dfx-magic-photo{from{transform:scale(1) translateX(0);}to{transform:scale(1.04) translateX(-1.5%);}}
+#igs-overlay .igs-dfx-letter.is-magic .igs-dfx-paper{background:radial-gradient(ellipse at 30% 20%,rgba(255,250,232,.6),transparent 60%),linear-gradient(160deg,#f1e3c0,#e2cc98);color:#2b1d10;border:1px solid #9c7a46;box-shadow:inset 0 0 26px rgba(120,80,30,.28),0 10px 26px rgba(0,0,0,.4);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-letter.is-magic .igs-dfx-paper::after{content:"";position:absolute;right:18px;bottom:-14px;width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#b8323e,#7a1f2b 62%,#5a141e);box-shadow:0 2px 4px rgba(0,0,0,.35),inset 0 0 0 3px rgba(255,255,255,.08);}
+#igs-overlay .igs-dfx-note.is-magic .igs-dfx-sticky{background:linear-gradient(160deg,#f1e3c0,#e2cc98);color:#2b1d10;font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-omikuji.is-magic .igs-dfx-slip{background:#f1e3c0;color:#2b1d10;border:1px solid #9c7a46;font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-broadcast.is-magic .igs-dfx-banner{background:linear-gradient(180deg,rgba(28,34,72,.92),rgba(14,18,42,.94));color:#f3e2b6;border:1px solid rgba(201,162,74,.75);box-shadow:0 0 18px rgba(255,214,120,.25),0 6px 20px rgba(0,0,0,.35);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+
 /* 古代背景：一炷香（香身随演出时长燃短，烟从香头升起）、对折字条、竖排信笺。 */
 #igs-overlay .igs-dfx-timeskip.is-ancient .igs-dfx-veil{background:radial-gradient(ellipse at center,rgba(40,26,12,.72),rgba(12,8,4,.92));}
 #igs-overlay .igs-dfx-timeskip.is-ancient .igs-dfx-timeskip-text{font-family:"STKaiti","KaiTi","Kaiti SC","楷体",serif;}
@@ -37405,6 +37982,81 @@ const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-tea-steam i:nth-child(2){animation-delay:.4s;}
 #igs-overlay .igs-dfx-tea-steam i:nth-child(3){animation-delay:.8s;}
 #igs-overlay .igs-dfx-bow{display:none;}
+
+/* 魔法世界独有：魔杖光束 + 咒语、坩埚冒泡、猫头鹰投信、扫帚掠空。光色由 --igs-magic 给出。 */
+#igs-overlay .igs-dfx-spell{--igs-magic:#ffd36a;animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-spell-beam{position:absolute;left:6%;bottom:22%;width:50%;height:3px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--igs-magic) 30%,#fff);box-shadow:0 0 10px var(--igs-magic),0 0 24px var(--igs-magic);transform-origin:0 50%;transform:rotate(-24deg) scaleX(0);animation:igs-dfx-spell-beam .9s cubic-bezier(.2,.8,.3,1) both;}
+#igs-overlay .igs-dfx-spell-burst{position:absolute;left:51%;top:47%;width:0;height:0;}
+#igs-overlay .igs-dfx-spell-core{position:absolute;left:-60px;top:-60px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,#fff 0,var(--igs-magic) 22%,transparent 68%);opacity:0;mix-blend-mode:screen;animation:igs-dfx-spell-core 1.1s ease-out .45s both;}
+#igs-overlay .igs-dfx-spell-burst i:not(.igs-dfx-spell-core){position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 8px var(--igs-magic),0 0 14px var(--igs-magic);opacity:0;animation:igs-dfx-spell-spark .9s ease-out both;}
+#igs-overlay .igs-dfx-spell-words{position:absolute;left:0;right:0;top:24%;text-align:center;color:#fff8e6;font:italic 400 clamp(26px,5.4vw,48px)/1.2 "IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.18em;text-shadow:0 0 10px var(--igs-magic),0 0 26px var(--igs-magic),0 2px 6px rgba(0,0,0,.6);opacity:0;animation:igs-dfx-spell-words var(--igs-dfx-life) ease both;}
+@keyframes igs-dfx-spell-beam{0%{transform:rotate(-24deg) scaleX(0);opacity:1;}45%{transform:rotate(-24deg) scaleX(1);opacity:1;}100%{transform:rotate(-24deg) scaleX(1);opacity:0;}}
+@keyframes igs-dfx-spell-core{0%{opacity:0;transform:scale(.2);}25%{opacity:1;transform:scale(1);}100%{opacity:0;transform:scale(1.6);}}
+@keyframes igs-dfx-spell-spark{0%{opacity:0;transform:rotate(var(--igs-spark-a)) translateX(0);}20%{opacity:1;}100%{opacity:0;transform:rotate(var(--igs-spark-a)) translateX(var(--igs-spark-d));}}
+@keyframes igs-dfx-spell-words{0%,14%{opacity:0;transform:translateY(10px);letter-spacing:.4em;}30%{opacity:1;transform:none;letter-spacing:.18em;}84%{opacity:1;}100%{opacity:0;transform:translateY(-8px);}}
+#igs-overlay .igs-dfx-potion{--igs-magic:#8ff0a4;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:14px;padding-bottom:26%;animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-potion-pot{position:relative;width:120px;height:86px;}
+#igs-overlay .igs-dfx-potion-body{position:absolute;left:0;right:0;bottom:0;height:76px;border-radius:14px 14px 60px 60px/14px 14px 70px 70px;background:radial-gradient(ellipse at 34% 30%,#4a4f5c,#1d2027 60%,#0e1014);box-shadow:0 10px 22px rgba(0,0,0,.5),inset 0 -6px 12px rgba(0,0,0,.5);}
+#igs-overlay .igs-dfx-potion-body::before{content:"";position:absolute;left:-6px;right:-6px;top:-4px;height:12px;border-radius:6px;background:linear-gradient(#5a5f6c,#23262e);}
+#igs-overlay .igs-dfx-potion-brew{position:absolute;z-index:1;left:8px;right:8px;top:4px;height:16px;border-radius:50%;background:radial-gradient(ellipse at 50% 40%,#fff 0,var(--igs-magic) 30%,rgba(0,0,0,.55) 100%),var(--igs-magic);box-shadow:0 0 18px var(--igs-magic);}
+#igs-overlay .igs-dfx-potion-bubbles{position:absolute;z-index:2;left:10px;right:10px;top:-6px;height:20px;}
+#igs-overlay .igs-dfx-potion-bubbles i{position:absolute;bottom:0;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;border:1.5px solid var(--igs-magic);background:rgba(255,255,255,.22);animation:igs-dfx-potion-bubble 1.2s ease-out infinite;}
+#igs-overlay .igs-dfx-potion-smoke{position:absolute;z-index:0;left:50%;top:-58px;width:80px;margin-left:-40px;height:60px;}
+#igs-overlay .igs-dfx-potion-smoke i{position:absolute;bottom:0;left:30%;width:30px;height:30px;border-radius:50%;background:radial-gradient(circle,var(--igs-magic),transparent 70%);opacity:0;animation:igs-dfx-potion-smoke 2.2s ease-out infinite;}
+#igs-overlay .igs-dfx-potion-smoke i:nth-child(2){left:6%;animation-delay:.7s;}
+#igs-overlay .igs-dfx-potion-smoke i:nth-child(3){left:54%;animation-delay:1.4s;}
+#igs-overlay .igs-dfx-potion-label{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 18px;border:1px solid #9c7a46;border-radius:3px;background:linear-gradient(160deg,#f1e3c0,#e2cc98);color:#2b1d10;font-family:"IM Fell English",Georgia,"Times New Roman",serif;box-shadow:0 6px 16px rgba(0,0,0,.35);opacity:0;animation:igs-dfx-magic-rise .5s ease-out .5s both;}
+#igs-overlay .igs-dfx-potion-label span{font-size:12px;letter-spacing:.3em;color:#7a1f2b;}
+#igs-overlay .igs-dfx-potion-label b{font-size:18px;font-weight:400;letter-spacing:.08em;}
+@keyframes igs-dfx-magic-rise{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
+@keyframes igs-dfx-potion-bubble{0%{opacity:0;transform:translateY(0) scale(.4);}30%{opacity:1;}100%{opacity:0;transform:translateY(-34px) scale(1.15);}}
+@keyframes igs-dfx-potion-smoke{0%{opacity:0;transform:translateY(0) scale(.5);}30%{opacity:.75;}100%{opacity:0;transform:translateY(-46px) scale(1.6);}}
+#igs-overlay .igs-dfx-owl{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-owl-flight{position:absolute;left:0;top:16%;width:86px;animation:igs-dfx-owl-fly 1.9s cubic-bezier(.4,.1,.6,.9) both;}
+#igs-overlay .igs-dfx-owl-bird{display:block;width:100%;fill:#3b2c22;filter:drop-shadow(0 4px 6px rgba(0,0,0,.35));}
+#igs-overlay .igs-dfx-owl-wing{transform-box:fill-box;animation:igs-dfx-owl-flap .22s ease-in-out infinite alternate;}
+#igs-overlay .igs-dfx-owl-wing.is-left{transform-origin:100% 60%;}
+#igs-overlay .igs-dfx-owl-wing.is-right{transform-origin:0 60%;}
+#igs-overlay .igs-dfx-owl-drop{position:absolute;left:50%;top:50%;display:flex;flex-direction:column;align-items:center;gap:8px;transform:translate(-50%,-50%);animation:igs-dfx-owl-drop .9s cubic-bezier(.3,.7,.4,1) .75s both;}
+#igs-overlay .igs-dfx-owl-letter{position:relative;width:120px;height:78px;border-radius:3px;background:linear-gradient(160deg,#f1e3c0,#dcc391);box-shadow:0 10px 22px rgba(0,0,0,.4),inset 0 0 14px rgba(120,80,30,.25);overflow:hidden;}
+#igs-overlay .igs-dfx-owl-letter::before{content:"";position:absolute;left:0;right:0;top:0;height:44px;background:linear-gradient(160deg,#e8d5a8,#d4b981);clip-path:polygon(0 0,100% 0,50% 100%);}
+#igs-overlay .igs-dfx-owl-seal{position:absolute;left:50%;top:30px;width:24px;height:24px;margin-left:-12px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#b8323e,#7a1f2b 62%,#5a141e);box-shadow:0 2px 3px rgba(0,0,0,.35);}
+#igs-overlay .igs-dfx-owl-from{padding:3px 12px;border-radius:2px;background:rgba(20,24,48,.78);color:#f3e2b6;font:15px/1.5 "IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.1em;}
+@keyframes igs-dfx-owl-fly{0%{transform:translate(110vw,6vh) scale(.7);}55%{transform:translate(48vw,0) scale(1);}100%{transform:translate(-30vw,-10vh) scale(.8);}}
+@keyframes igs-dfx-owl-flap{from{transform:scaleY(1);}to{transform:scaleY(-.55);}}
+@keyframes igs-dfx-owl-drop{0%{opacity:0;transform:translate(-50%,-140%) rotate(-14deg);}60%{opacity:1;transform:translate(-50%,-44%) rotate(4deg);}100%{opacity:1;transform:translate(-50%,-50%) rotate(-2deg);}}
+#igs-overlay .igs-dfx-broom{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-broom-wind i{position:absolute;left:0;width:34%;height:2px;border-radius:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);opacity:0;animation:igs-dfx-broom-wind .7s ease-out both;}
+#igs-overlay .igs-dfx-broom-flight{position:absolute;left:0;top:30%;width:140px;animation:igs-dfx-broom-fly 1.3s cubic-bezier(.5,0,.5,1) .15s both;}
+#igs-overlay .igs-dfx-broom-stick{display:block;width:100%;filter:drop-shadow(0 4px 5px rgba(0,0,0,.35));}
+#igs-overlay .igs-dfx-broom-trail{position:absolute;right:100%;top:40%;width:160px;height:6px;border-radius:3px;background:linear-gradient(90deg,transparent,rgba(255,226,150,.85));box-shadow:0 0 10px rgba(255,214,120,.7);}
+@keyframes igs-dfx-broom-wind{0%{opacity:0;transform:translateX(110vw);}30%{opacity:1;}100%{opacity:0;transform:translateX(-40vw);}}
+@keyframes igs-dfx-broom-fly{0%{transform:translate(-30vw,10vh) rotate(-8deg);}50%{transform:translate(45vw,-2vh) rotate(-12deg);}100%{transform:translate(115vw,-14vh) rotate(-16deg);}}
+#igs-overlay .igs-dfx-hourglass{position:relative;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 0 10px rgba(255,214,120,.45));}
+#igs-overlay .igs-dfx-hg-cap{display:block;width:70px;height:7px;border-radius:3px;background:linear-gradient(180deg,#f0cf78,#9c7a2e);}
+#igs-overlay .igs-dfx-hg-glass{position:relative;width:54px;height:92px;background:rgba(200,220,255,.14);clip-path:polygon(0 0,100% 0,58% 50%,100% 100%,0 100%,42% 50%);}
+#igs-overlay .igs-dfx-hg-sand{position:absolute;left:0;right:0;background:linear-gradient(180deg,#f6dc8e,#d9b45a);transform-origin:50% 100%;}
+#igs-overlay .igs-dfx-hg-sand.is-top{top:12%;height:38%;animation:igs-dfx-hg-drain var(--igs-dfx-life) linear both;}
+#igs-overlay .igs-dfx-hg-sand.is-bottom{bottom:0;height:40%;animation:igs-dfx-hg-fill var(--igs-dfx-life) linear both;}
+#igs-overlay .igs-dfx-hg-stream{position:absolute;left:50%;top:48%;width:2px;height:52%;margin-left:-1px;background:#f0cf78;opacity:.9;}
+@keyframes igs-dfx-hg-drain{from{transform:scaleY(1);}to{transform:scaleY(.08);}}
+@keyframes igs-dfx-hg-fill{from{transform:scaleY(.1);}to{transform:scaleY(1);}}
+#igs-overlay .igs-dfx-howler{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;animation:igs-dfx-fade var(--igs-dfx-life) ease both,igs-dfx-howler-quake .12s linear .9s 8;}
+#igs-overlay .igs-dfx-howler-env{position:relative;width:130px;height:84px;border-radius:4px;background:linear-gradient(160deg,#c62f3a,#8a1620);box-shadow:0 10px 24px rgba(0,0,0,.45),inset 0 0 16px rgba(60,0,0,.4);perspective:300px;animation:igs-dfx-howler-rattle .09s linear 10,igs-dfx-howler-burst .4s ease-out .9s both;}
+#igs-overlay .igs-dfx-howler-flap{position:absolute;left:0;right:0;top:0;height:48px;background:linear-gradient(160deg,#d8434d,#9e1d27);clip-path:polygon(0 0,100% 0,50% 100%);transform-origin:50% 0;animation:igs-dfx-howler-open .3s ease-out .85s both;}
+#igs-overlay .igs-dfx-howler-mouth{max-width:min(86%,720px);text-align:center;color:#fff1e8;font:900 clamp(24px,5vw,44px)/1.3 "Source Han Serif CN","Songti SC",serif;letter-spacing:.06em;text-shadow:0 0 2px #ff2a1a,0 0 14px rgba(255,40,20,.85),0 3px 0 #6a0a10;}
+#igs-overlay .igs-dfx-howler-mouth span{display:inline-block;opacity:0;animation:igs-dfx-howler-char .26s cubic-bezier(.2,1.6,.4,1) both;}
+#igs-overlay .igs-dfx-howler-from{padding:3px 12px;border-radius:2px;background:rgba(80,8,14,.82);color:#ffd9cf;font:15px/1.5 "IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.12em;}
+@keyframes igs-dfx-howler-rattle{0%,100%{transform:rotate(0);}25%{transform:rotate(-6deg) translateX(-3px);}75%{transform:rotate(6deg) translateX(3px);}}
+@keyframes igs-dfx-howler-burst{0%{transform:scale(1);}40%{transform:scale(1.18);}100%{transform:scale(.86);opacity:.85;}}
+@keyframes igs-dfx-howler-open{to{transform:rotateX(180deg);}}
+@keyframes igs-dfx-howler-char{0%{opacity:0;transform:scale(2.4) rotate(-8deg);}100%{opacity:1;transform:none;}}
+@keyframes igs-dfx-howler-quake{0%,100%{transform:translate(0,0);}25%{transform:translate(-4px,2px);}50%{transform:translate(3px,-3px);}75%{transform:translate(-2px,-2px);}}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-hg-sand,#igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-env,#igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-flap{animation:none;}
+#igs-overlay .igs-dfx.is-reduced.igs-dfx-howler{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-mouth span{animation:none;opacity:1;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-beam,#igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-burst i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-bubbles i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-smoke i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-owl-flight,#igs-overlay .igs-dfx.is-reduced .igs-dfx-broom-wind,#igs-overlay .igs-dfx.is-reduced .igs-dfx-broom-flight{display:none;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-words,#igs-overlay .igs-dfx.is-reduced .igs-dfx-owl-drop,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-label{animation:none;opacity:1;}
 
 `;
 
@@ -37804,11 +38456,12 @@ const BATTLE_FX_STYLE_TEXT = `
 @keyframes igs-battle-shake-heavy{0%,100%{transform:none}12%{transform:translate3d(12px,-5px,0)}28%{transform:translate3d(-11px,4px,0)}44%{transform:translate3d(8px,3px,0)}60%{transform:translate3d(-6px,-2px,0)}78%{transform:translate3d(3px,1px,0)}}
 .igs-fx-battle-skip{position:absolute;inset:0;z-index:8;pointer-events:auto;cursor:pointer;background:transparent;}
 .igs-fx-battle-vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(120,10,20,.28) 100%);animation:igs-battle-fade-in .6s ease-out both;}
-.igs-fx-battle-plate{position:absolute;left:50%;top:clamp(8px,2.5%,22px);transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:min(420px,80%);padding:5px 14px 5px 6px;border:2px solid rgba(255,255,255,.88);border-radius:6px;background:linear-gradient(180deg,rgba(30,44,110,.92),rgba(10,16,52,.92));color:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 4px 14px rgba(0,0,0,.4);font-size:14px;letter-spacing:.06em;white-space:nowrap;animation:igs-battle-drop .4s cubic-bezier(.2,1.4,.4,1) both;}
-.igs-fx-battle-plate-mark{flex:none;padding:1px 6px;border-radius:3px;background:var(--igs-battle-accent);color:#1a1030;font-size:11px;font-weight:800;font-style:italic;}
-.igs-fx-battle-plate-name{overflow:hidden;text-overflow:ellipsis;text-shadow:1px 1px 0 #000;}
+.igs-fx-battle-plate,.igs-fx-battle-encounter,.igs-fx-battle-hit,.igs-fx-battle-result{--igs-bt-veil:rgba(8,9,14,.68);--igs-bt-rule:color-mix(in srgb,var(--igs-battle-accent) 70%,transparent);--igs-bt-ink:#f4f1ea;--igs-bt-halo:0 1px 4px rgba(0,0,0,.75);--igs-bt-title-halo:0 0 18px color-mix(in srgb,var(--igs-battle-accent) 40%,transparent),0 2px 4px rgba(0,0,0,.55);--igs-bt-lose:#ff6a6a;--igs-bt-escape:#cfe3f5;--igs-bt-wipe:rgba(6,7,12,.9);}
+.igs-fx-battle-plate{position:absolute;left:50%;top:clamp(8px,2.5%,22px);transform:translateX(-50%);display:flex;align-items:baseline;gap:10px;max-width:min(460px,82%);padding:5px 44px 6px;background:linear-gradient(90deg,transparent,var(--igs-bt-rule) 28%,var(--igs-bt-rule) 72%,transparent) left bottom/100% 1px no-repeat,linear-gradient(90deg,transparent,var(--igs-bt-veil) 20%,var(--igs-bt-veil) 80%,transparent);color:var(--igs-bt-ink);text-shadow:var(--igs-bt-halo);font-size:13px;letter-spacing:.16em;white-space:nowrap;animation:igs-battle-drop .5s cubic-bezier(.2,.8,.3,1) both;}
+.igs-fx-battle-plate-mark{flex:none;color:var(--igs-battle-accent);font-size:11px;font-weight:700;letter-spacing:.2em;}
+.igs-fx-battle-plate-name{overflow:hidden;text-overflow:ellipsis;}
 .igs-fx-battle-encounter{position:absolute;inset:0;overflow:hidden;z-index:6;}
-.igs-fx-battle-wipe{position:absolute;left:-30%;right:-30%;height:36%;background:repeating-linear-gradient(90deg,rgba(8,10,30,.94) 0 26px,rgba(20,26,70,.94) 26px 52px);transform:skewY(-8deg) translateX(-110%);}
+.igs-fx-battle-wipe{position:absolute;left:-30%;right:-30%;height:36%;background:linear-gradient(90deg,transparent,var(--igs-bt-rule) 28%,var(--igs-bt-rule) 72%,transparent) left 16%/100% 1px no-repeat,linear-gradient(90deg,transparent,var(--igs-bt-rule) 28%,var(--igs-bt-rule) 72%,transparent) left 84%/100% 1px no-repeat,linear-gradient(180deg,transparent,var(--igs-bt-wipe) 16%,var(--igs-bt-wipe) 84%,transparent);transform:skewY(-8deg) translateX(-110%);}
 .igs-fx-battle-wipe.is-a{top:13%;animation:igs-battle-wipe-a var(--igs-battle-life,1.9s) cubic-bezier(.7,0,.2,1) both;}
 .igs-fx-battle-wipe.is-b{top:49%;animation:igs-battle-wipe-b var(--igs-battle-life,1.9s) cubic-bezier(.7,0,.2,1) both;}
 .igs-fx-battle-vs-portrait{position:absolute;right:4%;bottom:0;height:94%;max-width:52%;object-fit:contain;object-position:bottom;pointer-events:none;animation:igs-battle-portrait-in var(--igs-battle-life,1.9s) ease-out both;}
@@ -37819,14 +38472,14 @@ const BATTLE_FX_STYLE_TEXT = `
 .igs-fx-battle-foe[data-igs-battle-result="miss"] .igs-fx-battle-foe-body{animation-name:igs-battle-foe-dodge;animation-duration:.46s;}
 .igs-fx-battle-foe[data-igs-battle-result="heal"] .igs-fx-battle-foe-body{animation-name:igs-battle-foe-heal;animation-duration:.8s;}
 .igs-fx-battle-foe[data-igs-battle-result="ko"] .igs-fx-battle-foe-body{animation-name:igs-battle-foe-ko;animation-duration:.9s;animation-fill-mode:forwards;}
-.igs-fx-battle-vs{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px;color:#fff;text-align:center;white-space:nowrap;animation:igs-battle-vs var(--igs-battle-life,1.9s) ease-out both;}
-.igs-fx-battle-vs-cap{font-size:13px;font-weight:800;letter-spacing:.5em;color:var(--igs-battle-accent);text-shadow:0 0 8px rgba(0,0,0,.8);}
-.igs-fx-battle-vs-foe{font-size:clamp(26px,6vw,46px);font-weight:900;letter-spacing:.08em;text-shadow:3px 3px 0 #000,0 0 18px rgba(255,80,80,.55);}
-.igs-fx-battle-vs-title{font-size:13px;opacity:.85;letter-spacing:.2em;text-shadow:1px 1px 0 #000;}
+.igs-fx-battle-vs{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--igs-bt-ink);text-align:center;white-space:nowrap;animation:igs-battle-vs var(--igs-battle-life,1.9s) ease-out both;}
+.igs-fx-battle-vs-cap{font-size:12px;font-weight:600;letter-spacing:.5em;text-indent:.5em;color:var(--igs-battle-accent);text-shadow:var(--igs-bt-halo);}
+.igs-fx-battle-vs-foe{font-size:clamp(26px,6vw,46px);font-weight:800;letter-spacing:.14em;text-indent:.14em;text-shadow:var(--igs-bt-halo),0 0 26px rgba(255,70,70,.35);}
+.igs-fx-battle-vs-title{font-size:13px;opacity:.8;letter-spacing:.3em;text-indent:.3em;text-shadow:var(--igs-bt-halo);}
 .igs-fx-battle-hit{position:absolute;inset:0;z-index:5;}
-.igs-fx-battle-skill{position:absolute;left:50%;top:clamp(46px,11%,90px);transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;min-width:min(220px,60%);max-width:80%;padding:6px 22px;border:2px solid rgba(255,255,255,.9);border-radius:6px;background:linear-gradient(180deg,rgba(30,44,110,.94),rgba(10,16,52,.94));color:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 6px 18px rgba(0,0,0,.45);text-align:center;animation:igs-battle-skill var(--igs-battle-life,1.3s) ease-out both;}
-.igs-fx-battle-skill-who{font-size:11px;opacity:.75;letter-spacing:.12em;}
-.igs-fx-battle-skill-name{font-size:18px;font-weight:800;letter-spacing:.12em;text-shadow:2px 2px 0 #000;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+.igs-fx-battle-skill{position:absolute;left:50%;top:clamp(46px,11%,90px);transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:1px;box-sizing:border-box;min-width:min(260px,64%);max-width:84%;padding:7px 56px 8px;background:linear-gradient(90deg,transparent,var(--igs-bt-rule) 28%,var(--igs-bt-rule) 72%,transparent) left top/100% 1px no-repeat,linear-gradient(90deg,transparent,var(--igs-bt-rule) 28%,var(--igs-bt-rule) 72%,transparent) left bottom/100% 1px no-repeat,linear-gradient(90deg,transparent,var(--igs-bt-veil) 20%,var(--igs-bt-veil) 80%,transparent);color:var(--igs-bt-ink);text-shadow:var(--igs-bt-halo);text-align:center;animation:igs-battle-skill var(--igs-battle-life,1.3s) ease-out both;}
+.igs-fx-battle-skill-who{font-size:11px;opacity:.72;letter-spacing:.3em;text-indent:.3em;}
+.igs-fx-battle-skill-name{font-size:20px;font-weight:700;letter-spacing:.24em;text-indent:.24em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
 .igs-fx-battle-impact{position:absolute;left:50%;top:40%;height:56%;max-height:340px;aspect-ratio:1/1;transform:translate(-50%,-50%);}
 .igs-fx-battle-hit[data-igs-battle-target="sprite"] .igs-fx-battle-impact{height:44%;}
 .igs-fx-battle-slash{position:absolute;left:-10%;right:-10%;top:50%;height:10px;margin-top:-5px;border-radius:50%;background:linear-gradient(90deg,transparent,#fff 45%,#fff 55%,transparent);box-shadow:0 0 14px 4px var(--igs-battle-accent);transform:rotate(-32deg) scaleX(0);animation:igs-battle-slash .5s cubic-bezier(.2,.9,.3,1) both;}
@@ -37840,9 +38493,9 @@ const BATTLE_FX_STYLE_TEXT = `
 .igs-fx-battle-shield{position:absolute;inset:14%;color:#8fd8ff;filter:drop-shadow(0 0 10px rgba(120,200,255,.9));animation:igs-battle-shield .9s ease-out both;}
 .igs-fx-battle-spark{position:absolute;left:calc(22% + var(--i,0) * 11%);bottom:22%;width:12px;height:12px;border-radius:50%;background:radial-gradient(circle,#fff,#7dffb0 45%,transparent 70%);animation:igs-battle-spark 1.1s ease-out both;animation-delay:calc(var(--i,0) * .07s);}
 .igs-fx-battle-pop{position:absolute;left:50%;top:60%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;white-space:nowrap;animation:igs-battle-pop calc(var(--igs-battle-life,1.3s) * .85) cubic-bezier(.2,1.5,.4,1) both;animation-delay:.1s;}
-.igs-fx-battle-pop-label{font-size:clamp(24px,5vw,38px);font-weight:900;font-style:italic;letter-spacing:.06em;color:#fff;-webkit-text-stroke:1.5px #1a1030;text-shadow:3px 3px 0 #1a1030;}
-.igs-fx-battle-pop-dice{font-size:11px;font-weight:700;letter-spacing:.2em;color:#1a1030;background:var(--igs-battle-accent);padding:1px 8px;border-radius:3px;margin-bottom:3px;}
-.igs-fx-battle-pop-target{font-size:12px;color:#fff;padding:1px 8px;border-radius:999px;background:rgba(10,16,52,.75);text-shadow:1px 1px 0 #000;}
+.igs-fx-battle-pop-label{font-size:clamp(24px,5vw,38px);font-weight:800;font-style:italic;letter-spacing:.08em;color:#fff;text-shadow:0 0 1px rgba(0,0,0,.9),0 2px 12px rgba(0,0,0,.6);}
+.igs-fx-battle-pop-dice{margin-bottom:4px;padding:0 6px 2px;background:linear-gradient(90deg,transparent,var(--igs-bt-rule),transparent) left bottom/100% 1px no-repeat;color:var(--igs-battle-accent);font-size:11px;font-weight:600;letter-spacing:.24em;text-shadow:0 1px 3px rgba(0,0,0,.85);}
+.igs-fx-battle-pop-target{margin-top:2px;color:rgba(255,255,255,.84);font-size:12px;letter-spacing:.16em;text-shadow:0 1px 3px rgba(0,0,0,.85);}
 .igs-fx-battle-hit[data-igs-battle-result="crit"] .igs-fx-battle-pop-label{color:var(--igs-battle-accent);font-size:clamp(30px,6.5vw,48px);}
 .igs-fx-battle-hit[data-igs-battle-result="miss"] .igs-fx-battle-pop-label{color:#c8d0e0;}
 .igs-fx-battle-hit[data-igs-battle-result="guard"] .igs-fx-battle-pop-label{color:#8fd8ff;}
@@ -37853,25 +38506,36 @@ const BATTLE_FX_STYLE_TEXT = `
 .igs-fx-battle-result{position:absolute;inset:0;z-index:6;display:flex;align-items:center;justify-content:center;}
 .igs-fx-battle-result-veil{position:absolute;inset:0;background:rgba(0,0,0,.35);animation:igs-battle-veil var(--igs-battle-life,3s) ease-in-out both;}
 .igs-fx-battle-result[data-igs-battle-result="lose"] .igs-fx-battle-result-veil{background:rgba(40,0,6,.55);backdrop-filter:grayscale(.85);-webkit-backdrop-filter:grayscale(.85);}
-.igs-fx-battle-ribbon{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:min(420px,78%);padding:14px 36px;background:linear-gradient(90deg,transparent,rgba(10,16,52,.92) 14%,rgba(10,16,52,.92) 86%,transparent);border-top:2px solid var(--igs-battle-accent);border-bottom:2px solid var(--igs-battle-accent);color:#fff;text-align:center;animation:igs-battle-ribbon var(--igs-battle-life,3s) cubic-bezier(.2,1,.3,1) both;}
-.igs-fx-battle-ribbon-title{font-size:clamp(30px,7vw,54px);font-weight:900;font-style:italic;letter-spacing:.14em;color:var(--igs-battle-accent);text-shadow:3px 3px 0 #000,0 0 22px rgba(255,215,106,.5);}
-.igs-fx-battle-ribbon-text{font-size:15px;letter-spacing:.4em;text-shadow:1px 1px 0 #000;}
-.igs-fx-battle-result[data-igs-battle-result="lose"] .igs-fx-battle-ribbon{border-color:#b3262e;}
-.igs-fx-battle-result[data-igs-battle-result="lose"] .igs-fx-battle-ribbon-title{color:#ff5a5a;text-shadow:3px 3px 0 #000,0 0 22px rgba(200,20,30,.6);}
-.igs-fx-battle-result[data-igs-battle-result="escape"] .igs-fx-battle-ribbon{border-color:#8fb4d8;}
-.igs-fx-battle-result[data-igs-battle-result="escape"] .igs-fx-battle-ribbon-title{color:#cfe3f5;text-shadow:3px 3px 0 #000;}
+.igs-fx-battle-ribbon{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;box-sizing:border-box;min-width:min(460px,80%);padding:16px 64px 14px;background:linear-gradient(90deg,transparent,var(--igs-bt-rule) 28%,var(--igs-bt-rule) 72%,transparent) left top/100% 1px no-repeat,linear-gradient(90deg,transparent,var(--igs-bt-rule) 28%,var(--igs-bt-rule) 72%,transparent) left bottom/100% 1px no-repeat,linear-gradient(90deg,transparent,var(--igs-bt-veil) 18%,var(--igs-bt-veil) 82%,transparent);color:var(--igs-bt-ink);text-align:center;animation:igs-battle-ribbon var(--igs-battle-life,3s) cubic-bezier(.2,1,.3,1) both;}
+.igs-fx-battle-ribbon-title{font-size:clamp(30px,7vw,54px);font-weight:800;font-style:italic;letter-spacing:.16em;text-indent:.16em;line-height:1.15;color:var(--igs-battle-accent);text-shadow:var(--igs-bt-title-halo);}
+.igs-fx-battle-ribbon-text{font-size:14px;letter-spacing:.5em;text-indent:.5em;opacity:.88;text-shadow:var(--igs-bt-halo);}
+.igs-fx-battle-result[data-igs-battle-result="lose"]{--igs-bt-rule:color-mix(in srgb,var(--igs-bt-lose) 70%,transparent);}
+.igs-fx-battle-result[data-igs-battle-result="lose"] .igs-fx-battle-ribbon-title{color:var(--igs-bt-lose);}
+.igs-fx-battle-result[data-igs-battle-result="escape"]{--igs-bt-rule:color-mix(in srgb,var(--igs-bt-escape) 70%,transparent);}
+.igs-fx-battle-result[data-igs-battle-result="escape"] .igs-fx-battle-ribbon-title{color:var(--igs-bt-escape);}
 .igs-fx-battle-vignette.is-fantasy{background:radial-gradient(ellipse at center,transparent 50%,rgba(40,24,8,.45) 100%);}
 .igs-fx-battle-vignette.is-scifi{background:radial-gradient(ellipse at center,transparent 50%,rgba(4,30,46,.5) 100%);}
 .igs-fx-battle-vignette.is-apocalypse{background:radial-gradient(ellipse at center,transparent 45%,rgba(30,24,16,.55) 100%);}
-.igs-fx-battle-plate.is-fantasy{border:1px solid #9c7a46;background:linear-gradient(180deg,#efe2c2,#e2d0a6);color:#3a2614;font-family:Georgia,"Times New Roman",serif;}
-.igs-fx-battle-plate.is-scifi{border:1px solid rgba(80,220,255,.7);background:rgba(8,24,36,.9);color:#d8fbff;box-shadow:0 0 12px rgba(60,200,255,.45);}
-.igs-fx-battle-plate.is-apocalypse{border:1px dashed rgba(200,150,80,.6);background:rgba(48,40,32,.93);color:#e8dfcf;font-family:"Courier New",monospace;}
+.igs-fx-battle-plate.is-fantasy{--igs-bt-veil:rgba(36,24,12,.72);--igs-bt-rule:rgba(201,164,106,.8);--igs-bt-ink:#f1e4c6;--igs-bt-wipe:rgba(36,24,12,.9);font-family:Georgia,"Times New Roman",serif;}
+.igs-fx-battle-encounter.is-fantasy,.igs-fx-battle-hit.is-fantasy,.igs-fx-battle-result.is-fantasy{--igs-bt-veil:rgba(36,24,12,.72);--igs-bt-rule:rgba(201,164,106,.8);--igs-bt-ink:#f1e4c6;--igs-bt-wipe:rgba(36,24,12,.9);}
+.igs-fx-battle-plate.is-scifi{--igs-bt-veil:rgba(4,20,32,.72);--igs-bt-rule:rgba(80,220,255,.75);--igs-bt-ink:#d8fbff;--igs-bt-wipe:rgba(4,20,32,.9);--igs-bt-halo:0 0 8px rgba(60,200,255,.55),0 1px 3px rgba(0,0,0,.8);}
+.igs-fx-battle-encounter.is-scifi,.igs-fx-battle-hit.is-scifi,.igs-fx-battle-result.is-scifi{--igs-bt-veil:rgba(4,20,32,.72);--igs-bt-rule:rgba(80,220,255,.75);--igs-bt-ink:#d8fbff;--igs-bt-wipe:rgba(4,20,32,.9);--igs-bt-halo:0 0 8px rgba(60,200,255,.55),0 1px 3px rgba(0,0,0,.8);}
+.igs-fx-battle-plate.is-apocalypse{--igs-bt-veil:rgba(38,32,24,.72);--igs-bt-rule:rgba(200,150,80,.6);--igs-bt-ink:#e8dfcf;--igs-bt-wipe:rgba(38,32,24,.9);font-family:"Courier New",monospace;}
+.igs-fx-battle-encounter.is-apocalypse,.igs-fx-battle-hit.is-apocalypse,.igs-fx-battle-result.is-apocalypse{--igs-bt-veil:rgba(38,32,24,.72);--igs-bt-rule:rgba(200,150,80,.6);--igs-bt-ink:#e8dfcf;--igs-bt-wipe:rgba(38,32,24,.9);}
 .igs-fx-battle-encounter.is-fantasy .igs-fx-battle-vs,.igs-fx-battle-hit.is-fantasy .igs-fx-battle-skill,.igs-fx-battle-result.is-fantasy .igs-fx-battle-ribbon{font-family:Georgia,"Times New Roman",serif;}
 .igs-fx-battle-encounter.is-scifi .igs-fx-battle-vs,.igs-fx-battle-hit.is-scifi .igs-fx-battle-skill,.igs-fx-battle-result.is-scifi .igs-fx-battle-ribbon{letter-spacing:.08em;filter:drop-shadow(0 0 8px rgba(60,200,255,.7));}
 .igs-fx-battle-encounter.is-apocalypse .igs-fx-battle-vs,.igs-fx-battle-hit.is-apocalypse .igs-fx-battle-skill,.igs-fx-battle-result.is-apocalypse .igs-fx-battle-ribbon{font-family:"Courier New",monospace;filter:sepia(.35) saturate(.8);}
 .igs-fx-battle-vignette.is-taisho{background:radial-gradient(ellipse at center,transparent 50%,rgba(50,16,12,.45) 100%);}
-.igs-fx-battle-plate.is-taisho{border:1px solid #7b2e2a;background:linear-gradient(180deg,#f4ead6,#e8dabb);color:#2a1c18;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+.igs-fx-battle-plate.is-taisho{--igs-bt-veil:rgba(40,16,14,.72);--igs-bt-rule:rgba(192,87,79,.75);--igs-bt-ink:#f4ead6;--igs-bt-wipe:rgba(40,16,14,.9);font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+.igs-fx-battle-encounter.is-taisho,.igs-fx-battle-hit.is-taisho,.igs-fx-battle-result.is-taisho{--igs-bt-veil:rgba(40,16,14,.72);--igs-bt-rule:rgba(192,87,79,.75);--igs-bt-ink:#f4ead6;--igs-bt-wipe:rgba(40,16,14,.9);}
 .igs-fx-battle-encounter.is-taisho .igs-fx-battle-vs,.igs-fx-battle-hit.is-taisho .igs-fx-battle-skill,.igs-fx-battle-result.is-taisho .igs-fx-battle-ribbon{font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;filter:sepia(.25);}
+.igs-fx-battle-vignette.is-magic{background:radial-gradient(ellipse at center,transparent 48%,rgba(10,14,46,.55) 100%);}
+.igs-fx-battle-plate.is-magic{--igs-bt-veil:rgba(14,18,42,.72);--igs-bt-rule:rgba(201,162,74,.85);--igs-bt-ink:#f3e2b6;--igs-bt-wipe:rgba(14,18,42,.9);--igs-bt-halo:0 0 8px rgba(255,214,120,.45),0 1px 3px rgba(0,0,0,.85);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+.igs-fx-battle-encounter.is-magic,.igs-fx-battle-hit.is-magic,.igs-fx-battle-result.is-magic{--igs-bt-veil:rgba(14,18,42,.72);--igs-bt-rule:rgba(201,162,74,.85);--igs-bt-ink:#f3e2b6;--igs-bt-wipe:rgba(14,18,42,.9);--igs-bt-halo:0 0 8px rgba(255,214,120,.45),0 1px 3px rgba(0,0,0,.85);}
+.igs-fx-battle-encounter.is-magic .igs-fx-battle-vs,.igs-fx-battle-hit.is-magic .igs-fx-battle-skill,.igs-fx-battle-result.is-magic .igs-fx-battle-ribbon{font-family:"IM Fell English",Georgia,"Times New Roman",serif;filter:drop-shadow(0 0 8px rgba(255,214,120,.55));}
+.igs-fx-battle-hit.is-magic .igs-fx-battle-slash{height:6px;margin-top:-3px;background:linear-gradient(90deg,transparent,rgba(255,236,170,.9) 30%,#fff 50%,rgba(170,210,255,.9) 70%,transparent);box-shadow:0 0 16px 5px rgba(255,214,120,.75),0 0 34px 10px rgba(140,180,255,.35);}
+.igs-fx-battle-hit.is-magic[data-igs-battle-result="guard"] .igs-fx-battle-slash{background:linear-gradient(90deg,transparent,rgba(190,225,255,.9) 35%,#fff 50%,rgba(190,225,255,.9) 65%,transparent);box-shadow:0 0 18px 6px rgba(150,200,255,.75);}
+.igs-fx-battle-hit.is-magic[data-igs-battle-result="heal"] .igs-fx-battle-slash{background:linear-gradient(90deg,transparent,rgba(170,255,190,.9) 35%,#fff 50%,rgba(170,255,190,.9) 65%,transparent);box-shadow:0 0 18px 6px rgba(120,240,160,.7);}
 .igs-fx-battle-vignette.is-ancient{background:radial-gradient(ellipse at center,transparent 50%,rgba(26,18,12,.42) 100%);}
 .igs-fx-battle-plate.is-ancient{padding:4px 16px 4px 5px;border:1px solid rgba(43,29,18,.8);border-radius:2px;background:linear-gradient(180deg,#f6ecd4,#e9dab4);color:#1a120c;box-shadow:0 3px 12px rgba(26,18,12,.35);font-family:"STKaiti","KaiTi","Kaiti SC","楷体",serif;font-size:16px;letter-spacing:.12em;}
 .igs-fx-battle-plate.is-ancient .igs-fx-battle-plate-mark{padding:1px 4px;border-radius:2px;background:#b8452f;color:#f6ecd4;font-size:13px;font-weight:400;font-style:normal;box-shadow:inset 0 0 0 1px rgba(246,236,212,.7);}
@@ -37936,7 +38600,7 @@ const BATTLE_FX_STYLE_TEXT = `
 @keyframes igs-battle-wipe-a{0%{transform:skewY(-8deg) translateX(-110%)}28%,72%{transform:skewY(-8deg) translateX(0)}100%{transform:skewY(-8deg) translateX(110%)}}
 @keyframes igs-battle-wipe-b{0%{transform:skewY(-8deg) translateX(110%)}28%,72%{transform:skewY(-8deg) translateX(0)}100%{transform:skewY(-8deg) translateX(-110%)}}
 @keyframes igs-battle-vs{0%,20%{opacity:0;transform:translate(-50%,-50%) scale(1.8)}32%{opacity:1;transform:translate(-50%,-50%) scale(1)}74%{opacity:1;transform:translate(-50%,-50%) scale(1.04)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.1)}}
-@keyframes igs-battle-skill{0%{opacity:0;transform:translate(-50%,-10px) scaleY(.2)}14%{opacity:1;transform:translateX(-50%) scaleY(1)}80%{opacity:1}100%{opacity:0}}
+@keyframes igs-battle-skill{0%{opacity:0;transform:translate(-50%,-8px)}14%{opacity:1;transform:translateX(-50%)}80%{opacity:1}100%{opacity:0}}
 @keyframes igs-battle-slash{0%{transform:rotate(-32deg) scaleX(0);opacity:1}40%{transform:rotate(-32deg) scaleX(1);opacity:1}100%{transform:rotate(-32deg) scaleX(1.05) scaleY(.1);opacity:0}}
 @keyframes igs-battle-slash-cross{0%{transform:rotate(32deg) scaleX(0);opacity:1}40%{transform:rotate(32deg) scaleX(1);opacity:1}100%{transform:rotate(32deg) scaleX(1.05) scaleY(.1);opacity:0}}
 @keyframes igs-battle-slash-miss{0%{transform:rotate(-32deg) translateY(-40px) scaleX(0)}50%{transform:rotate(-32deg) translateY(-40px) scaleX(1);opacity:.45}100%{transform:rotate(-32deg) translateY(-40px) scaleX(1);opacity:0}}
@@ -39217,6 +39881,9 @@ const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer[data-igs-chat-world="apocalypse"]{font-family:"Courier New",monospace;}
 #igs-chat-layer[data-igs-chat-world="apocalypse"] .igs-chat-head{background:rgba(48,40,32,.93);color:#e8dfcf;border:1px dashed rgba(200,150,80,.6);}
 #igs-chat-layer[data-igs-chat-world="apocalypse"] .igs-chat-bubble{box-shadow:0 0 0 1px rgba(200,150,80,.45);}
+#igs-chat-layer[data-igs-chat-world="magic"]{font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+#igs-chat-layer[data-igs-chat-world="magic"] .igs-chat-head{background:#1c2248;color:#f3e2b6;border:1px solid rgba(201,162,74,.8);}
+#igs-chat-layer[data-igs-chat-world="magic"] .igs-chat-bubble{box-shadow:0 0 0 1px rgba(201,162,74,.55),0 0 10px rgba(255,214,120,.18);}
 #igs-chat-layer[data-igs-chat-world="taisho"]{font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 #igs-chat-layer[data-igs-chat-world="taisho"] .igs-chat-head{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;}
 #igs-chat-layer[data-igs-chat-world="taisho"] .igs-chat-bubble{box-shadow:0 0 0 1px rgba(123,46,42,.5);}
@@ -40205,6 +40872,7 @@ const READER_DIALOG_TEMPLATE = `
     <div class="igs-source-filter-title">风格{{resetReaderDialogStyle}}</div>
     {{dialogSkinField}}
     {{gradientVeilFields}}
+    {{magicHouseField}}
     <div class="igs-settings-row">{{statusLineToggle}}</div>
   </div>
   <div class="igs-source-filter">
@@ -50510,6 +51178,7 @@ const { addGeneratedAssetToLibrary, bindGeneratedBackground, bindGeneratedSprite
 const { resolveCharacterDna } = require("src/scene/character-dna.js");
 const { resolveCharacterKey } = require("src/scene/scene-directives.js");
 const { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } = require("src/scene/character-dna.js");
+const { normalizeCharacterHouses } = require("src/visual/igs-ui/magic-house.js");
 const { handleOutfitAction } = require("src/visual/igs-ui/settings-outfit-actions.js");
 const { markSettingsButtonBusy, showSettingsProgress } = require("src/visual/igs-ui/settings-notice.js");
 const { createSettingsDialogs } = require("src/visual/igs-ui/settings-dialog.js");
@@ -52504,6 +53173,9 @@ async function handleSettingsAction(action, ctx) {
         if (draftAssetLibrary(settingsState).statusAvatars && typeof draftAssetLibrary(settingsState).statusAvatars === 'object') {
             delete draftAssetLibrary(settingsState).statusAvatars[name];
         }
+        if (settingsState.draft.bridge.sceneAssets.characterHouses && typeof settingsState.draft.bridge.sceneAssets.characterHouses === 'object') {
+            delete settingsState.draft.bridge.sceneAssets.characterHouses[name];
+        }
         draftAssetLibrary(settingsState).characterDna = removeCharacterDna(draftAssetLibrary(settingsState).characterDna, name);
         if (draftAssetLibrary(settingsState).characterOutfits && typeof draftAssetLibrary(settingsState).characterOutfits === 'object') {
             delete draftAssetLibrary(settingsState).characterOutfits[name];
@@ -52641,6 +53313,13 @@ async function handleSettingsAction(action, ctx) {
             sceneAssets.characterAliases = reorderKey(aliases, oldName, newName);
             if (sceneAssets.statusAvatars && typeof sceneAssets.statusAvatars === 'object') {
                 sceneAssets.statusAvatars = reorderKey(sceneAssets.statusAvatars, oldName, newName);
+            }
+            if (sceneAssets.characterHouses && typeof sceneAssets.characterHouses === 'object') {
+                sceneAssets.characterHouses = reorderKey(sceneAssets.characterHouses, oldName, newName);
+            }
+            const rootAssets = settingsState.draft.bridge.sceneAssets;
+            if (rootAssets && rootAssets !== sceneAssets && rootAssets.characterHouses && typeof rootAssets.characterHouses === 'object') {
+                rootAssets.characterHouses = reorderKey(rootAssets.characterHouses, oldName, newName);
             }
             if (sceneAssets.characterDna && typeof sceneAssets.characterDna === 'object') {
                 sceneAssets.characterDna = dnaRename.map;
@@ -54360,7 +55039,7 @@ const SETTINGS_SECTIONS = Object.freeze({
         label: '标签解析',
         paths: () => ['enabled', 'stripHtmlComments', 'allowUntaggedFallback', 'textIncludeTags', 'textExcludeTags', 'htmlCardTags', 'imageIncludeTags'].map((key) => `bridge.sourceFilter.${key}`),
     },
-    'reader-dialog-style': { label: '风格', paths: () => reader('dialogSkin', 'gradientVeil', 'showStatusLine') },
+    'reader-dialog-style': { label: '风格', paths: () => reader('dialogSkin', 'gradientVeil', 'magicHouse', 'showStatusLine') },
     'reader-dialog-size': { label: '尺寸', paths: () => reader('dialogWidth', 'classicDialogWidthPercent', 'skinDialogScale', 'dialogHeight', 'inputScale') },
     'reader-dialog-background': { label: '背景', paths: (draft) => [...reader('glassOpacity', 'glassBackdropFilter'), `${themePath(draft)}.bgOpacity`, `${themePath(draft)}.dialogBg`] },
     'reader-text-layout': { label: '排版', paths: () => reader('fontSize', 'dialogFontWeight') },
@@ -55742,6 +56421,11 @@ const DAILY_PROMPT_LINES = Object.freeze({
     edict: '[igs-fx:edict|内容]：宣读圣旨、张贴告示或榜文，内容不超过40字',
     tea: '[igs-fx:tea]：奉茶、敬茶',
     bow: '[igs-fx:bow|角色名]：角色行礼、作揖或下拜',
+    spell: '[igs-fx:spell|咒语]：有人挥动魔杖施咒，咒语写咒文本身，不超过10字，可省略',
+    potion: '[igs-fx:potion|魔药名]：坩埚里的魔药熬好或调配完成，魔药名可省略',
+    owl: '[igs-fx:owl|寄件人]：猫头鹰飞来送信或包裹，寄件人可省略；信的内容另用 letter 标签',
+    broom: '[igs-fx:broom]：骑上飞天扫帚起飞或掠过天空',
+    howler: '[igs-fx:howler|寄件人|怒吼内容]：收到一封吼叫信，信封当众炸开、用寄件人的声音怒吼，内容不超过40字',
 });
 function resolveDailyFxPromptRule(settings) {
     const kinds = enabledDailyFxKinds(settings);
@@ -55786,6 +56470,11 @@ const DAILY_GRAMMAR_LINES = Object.freeze({
     edict: 'edict|内容：宣读圣旨或张贴告示，内容不超过40字',
     tea: 'tea：奉茶、敬茶',
     bow: 'bow|角色名：角色行礼、作揖',
+    spell: 'spell|咒语：挥动魔杖施咒，咒语不超过10字，可省',
+    potion: 'potion|魔药名：魔药熬好或调配完成，魔药名可省',
+    owl: 'owl|寄件人：猫头鹰送来信件或包裹，寄件人可省',
+    broom: 'broom：骑飞天扫帚起飞或掠过天空',
+    howler: 'howler|寄件人|怒吼内容：吼叫信当众炸开怒吼，内容不超过40字',
 });
 function dailyGrammarLines(settings) {
     return enabledDailyFxKinds(settings).map((kind) => DAILY_GRAMMAR_LINES[kind]);
@@ -55839,6 +56528,8 @@ __igsDefine(exports, "danmakuGrammarBlocks", () => danmakuGrammarBlocks);
 __igsDefine(exports, "resolveDanmakuPromptRule", () => resolveDanmakuPromptRule);
 });
 __igsRegister("src/visual/igs-ui/reader-dom-render.js", function(module, exports, require) {
+const { magicHouseVars } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
+const { resolveSpeakerMagicHouse } = require("src/visual/igs-ui/magic-house.js");
 const { normalizeSkinDialogScale } = require("src/visual/igs-ui/dialog-skin-frame.js");
 const { RECORD_ICONS } = require("src/visual/igs-ui/record-icons.js");
 const { ORIGINAL_READER_ICONS, ORIGINAL_READER_TOOLBAR_BUTTONS } = require("src/visual/igs-ui/original-reader-source.js");
@@ -55857,7 +56548,7 @@ const { renderItemFx } = require("src/visual/igs-ui/fx-item-render.js");
 const { renderBattleFx } = require("src/visual/igs-ui/fx-battle-render.js");
 const { renderDailyFx } = require("src/visual/igs-ui/fx-daily.js");
 const { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } = require("src/visual/igs-ui/fx-anchor.js");
-const { applyWeatherFx } = require("src/visual/igs-ui/weather-fx-runtime.js");
+const { applyWeatherFx, resolveWeatherFxTime } = require("src/visual/igs-ui/weather-fx-runtime.js");
 const { applySceneGrade } = require("src/visual/igs-ui/scene-grade.js");
 const { applyStageDirection } = require("src/visual/igs-ui/stage-direction-runtime.js");
 const { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances } = require("src/visual/igs-ui/stage-cast-render.js");
@@ -56425,6 +57116,14 @@ function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     });
     applyDialogBgOverride(root, snapshot, materialDialog);
     if (root.style) root.style.setProperty('--igs-skin-scale', String(normalizeSkinDialogScale(readerSettings.skinDialogScale)));
+    if (root.style) {
+        // 魔法世界观下魔法星夜随说话角色换学院色；旁白、系统台词、没学院的角色与其他世界观一律用全局配色。
+        const content = snapshot.content || {};
+        const byCharacter = readerSettings._worldview === 'magic' && content.textType !== 'narration' && content.textType !== 'system';
+        const speaker = byCharacter ? (content.spriteCharacter || content.speaker) : '';
+        const house = resolveSpeakerMagicHouse(readerSettings._sceneAssets, speaker, readerSettings.magicHouse);
+        for (const [name, value] of Object.entries(magicHouseVars(house))) root.style.setProperty(name, value);
+    }
     applyGradientVeilToDom(root, dialog, readerSettings);
 
     if (textEl) {
@@ -57231,6 +57930,10 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 背景是素材自带时段变体（如夜景图）时不再叠时段调色。
         timedAsset: Boolean(snapshot.content && snapshot.content.backgroundTimed === true && snapshot.content.illustrationActive !== true),
     });
+    // 场景时段挂到 overlay 上，供对话框等界面随昼夜调整明暗；不受天气/夜间调色开关影响，夜景底图本身就暗。
+    const sceneTime = resolveWeatherFxTime(snapshot.content && snapshot.content.sceneTime);
+    if (sceneTime) root.setAttribute('data-igs-scene-time', sceneTime);
+    else root.removeAttribute('data-igs-scene-time');
     applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
     const stageDirection = applyStageDirection(root, snapshot, {
         bgUrl: backgroundAssetUrl,
@@ -57596,7 +58299,7 @@ function renderBattleFx(root, snapshot, ctx = {}) {
         motion: style.motion,
         ancient: readerSettings._ancientEra === true,
         worldview: String(readerSettings._worldview || ''),
-        onEvent: (event) => play(battleSfxKind(event)),
+        onEvent: (event) => play(battleSfxKind(event, String(readerSettings._worldview || ''))),
     });
     mountedRoots.add(root);
     return result;
@@ -57663,11 +58366,35 @@ const BATTLE_SFX_PARTIALS = Object.freeze({
         p('square', 440, 440, 0.16, 0.06, 0.12, { attack: 0.002 }),
         p('sine', 900, 300, 0.26, 0.3, 0.16, { attack: 0.01, sweep: 1 }),
     ]),
+    // 魔法世界：拔杖对峙为上扬泛音，命中为咒光划过的下扫频，护盾为长鸣的晶质和弦。
+    'battle-encounter-magic': Object.freeze([
+        p('sine', 330, 1320, 0, 0.4, 0.22, { attack: 0.02, sweep: 1 }),
+        p('triangle', 660, 660, 0.42, 0.6, 0.24, { attack: 0.004 }),
+        p('triangle', 831, 831, 0.42, 0.6, 0.2, { attack: 0.004 }),
+        p('sine', 988, 988, 0.42, 0.6, 0.2, { attack: 0.004 }),
+        p('sine', 2637, 2637, 0.5, 0.4, 0.06, { attack: 0.003 }),
+    ]),
+    'battle-hit-magic': Object.freeze([
+        p('sine', 3200, 600, 0, 0.18, 0.22, { attack: 0.004, sweep: 1 }),
+        p('triangle', 1800, 900, 0.02, 0.14, 0.1, { attack: 0.004, sweep: 1 }),
+        p('sine', 140, 60, 0.12, 0.2, 0.6, { attack: 0.003, sweep: 1 }),
+    ]),
+    'battle-crit-magic': Object.freeze([
+        p('sine', 4200, 500, 0, 0.22, 0.24, { attack: 0.004, sweep: 1 }),
+        p('noise', 3000, 1200, 0.08, 0.3, 0.3, { filter: 'bandpass', q: 0.9, attack: 0.004, sweep: 1 }),
+        p('sine', 100, 40, 0.14, 0.36, 0.85, { attack: 0.003, sweep: 1 }),
+    ]),
+    'battle-guard-magic': Object.freeze([
+        p('sine', 1318, 1318, 0, 0.6, 0.24, { attack: 0.03 }),
+        p('sine', 1661, 1661, 0, 0.6, 0.18, { attack: 0.03 }),
+        p('sine', 1976, 1976, 0, 0.6, 0.16, { attack: 0.03 }),
+        p('triangle', 660, 640, 0, 0.08, 0.14, { attack: 0.002, sweep: 1 }),
+    ]),
 });
-function battleSfxKind(event) {
+function battleSfxKind(event, worldview = '') {
     if (!event) return '';
-    if (event.type === 'encounter') return 'battle-encounter';
-    return `battle-${event.result}`;
+    const kind = event.type === 'encounter' ? 'battle-encounter' : `battle-${event.result}`;
+    return worldview && BATTLE_SFX_PARTIALS[`${kind}-${worldview}`] ? `${kind}-${worldview}` : kind;
 }
 function playBattleSfx(kind, sound, { audioScheduler } = {}) {
     if (!sound || sound.enabled === false || !(sound.volume > 0)) return null;
@@ -58685,6 +59412,7 @@ const { CLASSIC_DIALOG_STYLE_TEXT, DIALOG_SKIN_WESTERN_CLASSIC, normalizeDialogS
 const { DIALOG_THEME_CHOICE_STYLE_BY_SKIN } = require("src/visual/igs-ui/dialog-theme-choices.js");
 const { getDialogThemeHudStyleText, getDialogThemeItemFxStyleText, getDialogThemeToastStyleText } = require("src/visual/igs-ui/dialog-theme-hud.js");
 const { ILLUSTRATED_DIALOG_STYLE_BY_SKIN } = require("src/visual/igs-ui/dialog-theme-skins.js");
+const { getDialogThemeBattleFxStyleText } = require("src/visual/igs-ui/fx-battle-themes.js");
 const DIALOG_SKIN_STYLE_ID = 'igs-dialog-skin-style';
 const DIALOG_SKIN_FALLBACK_ATTR = 'data-igs-skin-fallback';
 const DIALOG_SKIN_ASSET_TIMEOUT_MS = 4000;
@@ -58735,6 +59463,7 @@ function getDialogSkinStyleText(value, { base } = {}) {
         getDialogThemeHudStyleText(skin),
         getDialogThemeItemFxStyleText(skin),
         getDialogThemeToastStyleText(skin),
+        getDialogThemeBattleFxStyleText(skin),
         fallbackCss(skin),
     ].filter(Boolean);
     return resolveSkinAssetUrls(parts.join('\n'), base);
@@ -58841,6 +59570,8 @@ __igsDefine(exports, "DIALOG_SKIN_ASSET_TIMEOUT_MS", () => DIALOG_SKIN_ASSET_TIM
 });
 __igsRegister("src/visual/igs-ui/dialog-theme-hud.js", function(module, exports, require) {
 const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-dialog-skin.js");
+const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
+const { DIALOG_SKIN_QINGLV, QINGLV_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-skins.js");
 const CLASSIC = 'western-classic';
 
@@ -58966,6 +59697,21 @@ const HUD_THEMES = Object.freeze({
         fill: `background:${fillMix(60, '#c4b0ff')} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(70, '#c4b0ff')};`,
         value: 'font-weight:400;',
     },
+    [DIALOG_SKIN_MAGIC_ACADEMY]: {
+        neutral: '#c8c6dc',
+        toast: `background:linear-gradient(180deg,${magicVeil(82)},${magicVeil(90)});border:0;border-bottom:1px solid ${magicTint(MAGIC_METAL, 65)};border-radius:0;box-shadow:0 0 14px ${magicTint(MAGIC_METAL_HI, 22)};color:#ecebf7;`,
+        panel: `background:linear-gradient(90deg,${magicTint(MAGIC_METAL, 60)},transparent) left top/100% 1px no-repeat,linear-gradient(90deg,${magicTint(MAGIC_METAL, 40)},transparent) left bottom/100% 1px no-repeat,linear-gradient(90deg,${magicVeil(80)},${magicVeil(56)} 70%,transparent);border:0;border-radius:0;box-shadow:none;`,
+        ink: '#e6e4f2',
+        emotion: `padding:${s(1)} ${s(4)} ${s(1)} ${s(16)};border:0;border-bottom:1px solid ${magicTint(MAGIC_METAL, 65)};border-radius:0;background:transparent;color:#f1effa;letter-spacing:.14em;text-shadow:0 0 8px ${magicTint(MAGIC_METAL_HI, 60)},0 1px 3px rgba(0,0,0,.9);position:relative;`,
+        emotionBefore: `content:"";position:absolute;left:0;top:50%;width:${s(9)};height:${s(9)};margin-top:${s(-4.5)};background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;`,
+        avatar: `filter:${ring(magicTint(MAGIC_METAL, 85), 1)} drop-shadow(0 0 5px ${magicTint(MAGIC_METAL_HI, 55)});`,
+        placeholder: `background:radial-gradient(circle at 50% 30%,${magicTint(MAGIC_METAL, 30)},${magicVeil(90)});color:${MAGIC_METAL_HI};`,
+        placeholderSvg: `stroke:${MAGIC_METAL_HI};stroke-width:1.1;`,
+        track: `height:${s(2)};border:0;border-radius:0;background:${magicTint(MAGIC_METAL, 22)};overflow:visible;`,
+        fill: `background:${fillMix(60, MAGIC_METAL_HI)} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(70, MAGIC_METAL_HI)};`,
+        value: 'font-weight:400;',
+    },
+    [DIALOG_SKIN_QINGLV]: QINGLV_HUD_THEME,
     [DIALOG_SKIN_PLANT_COFFEE]: {
         neutral: '#a49186',
         panel: `background:#f6f1eb;border:1.5px solid #5c4949;border-radius:${s(18)};box-shadow:0 ${s(3)} 0 rgba(92,73,73,.2);`,
@@ -59063,6 +59809,212 @@ __igsDefine(exports, "getDialogThemeHudStyleText", () => getDialogThemeHudStyleT
 __igsDefine(exports, "getDialogThemeItemFxStyleText", () => getDialogThemeItemFxStyleText);
 __igsDefine(exports, "DIALOG_THEME_HUD_STYLE_TEXT", () => DIALOG_THEME_HUD_STYLE_TEXT);
 __igsDefine(exports, "DIALOG_THEME_ITEM_FX_STYLE_TEXT", () => DIALOG_THEME_ITEM_FX_STYLE_TEXT);
+});
+__igsRegister("src/visual/igs-ui/fx-battle-themes.js", function(module, exports, require) {
+const { stroke } = require("src/visual/igs-ui/dialog-skin-frame.js");
+const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, MAGIC_VEIL, magicTint } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
+const { DIALOG_SKIN_QINGLV, qinglvSilk } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
+const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-skins.js");
+const { DIALOG_FONT_CINZEL, DIALOG_FONT_HUIWEN, DIALOG_FONT_NEO_XIHEI, DIALOG_FONT_NEO_ZHISONG, DIALOG_FONT_SERIF, DIALOG_FONT_SMILEY, DIALOG_FONT_WENKAI, DIALOG_FONT_WENKAI_LITE, DIALOG_FONT_ZCOOL_KUAILE } = require("src/visual/igs-ui/dialog-theme-typography.js");
+const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-dialog-skin.js");
+// 战斗演出跟随对话框皮肤：名牌、招式条、判定字、结算带与遭遇横幅取主题的底色、墨色、细线与字体，
+// 剑光、闪光、受击红边等打击效果不变。暗色纱底主题沿用默认的两端渐隐通栏，只换变量；
+// 卡片类主题（素材框、绘本、漫画）改用与对话框同款的实底卡片。古代背景（is-ancient）保留水墨换皮，不受皮肤影响。
+const CONTAINERS = ['plate', 'encounter', 'hit', 'result'];
+const PART_SELECTORS = Object.freeze({
+    plate: '.igs-fx-battle-plate:not(.is-ancient)',
+    mark: '.igs-fx-battle-plate:not(.is-ancient) .igs-fx-battle-plate-mark',
+    skill: '.igs-fx-battle-hit:not(.is-ancient) .igs-fx-battle-skill',
+    skillName: '.igs-fx-battle-hit:not(.is-ancient) .igs-fx-battle-skill-name',
+    pop: '.igs-fx-battle-hit:not(.is-ancient) .igs-fx-battle-pop-label',
+    dice: '.igs-fx-battle-hit:not(.is-ancient) .igs-fx-battle-pop-dice',
+    target: '.igs-fx-battle-hit:not(.is-ancient) .igs-fx-battle-pop-target',
+    ribbon: '.igs-fx-battle-result:not(.is-ancient) .igs-fx-battle-ribbon',
+    title: '.igs-fx-battle-result:not(.is-ancient) .igs-fx-battle-ribbon-title',
+    veil: '.igs-fx-battle-result:not(.is-ancient) .igs-fx-battle-result-veil',
+    wipe: '.igs-fx-battle-encounter:not(.is-ancient) .igs-fx-battle-wipe',
+    foe: '.igs-fx-battle-encounter:not(.is-ancient) .igs-fx-battle-vs-foe',
+});
+const CARD_PADDING = Object.freeze({ plate: 'padding:4px 18px 5px 10px;', skill: 'min-width:min(200px,56%);padding:6px 30px 7px;', ribbon: 'min-width:min(380px,76%);padding:14px 44px 12px;' });
+
+const vars = (v) => Object.entries(v).map(([k, value]) => `--igs-bt-${k}:${value};`).join('');
+// 学院暮色压暗一半再用：整块通栏直接铺学院色会显得像蓝色色块。
+const nightVeil = (percent) => magicTint(`color-mix(in srgb,${MAGIC_VEIL} 34%,#05050a)`, percent);
+const softRule = (color, edge) => `linear-gradient(90deg,transparent,${color} 28%,${color} 72%,transparent) left ${edge}/100% 1px no-repeat`;
+
+const BATTLE_THEMES = Object.freeze({
+    // 渐变黑幕：没有任何线与框，通栏改成四面都化开的一团黑雾，颜色与浓度取用户的黑幕设置。
+    [DIALOG_SKIN_GRADIENT_VEIL]: {
+        accent: '#ffeeb8',
+        vars: { veil: 'var(--igs-gradient-veil-color,rgba(0,0,0,.85))', rule: 'transparent', ink: '#fff', halo: '0 1px 3px rgba(0,0,0,.9)', 'title-halo': '0 0 16px rgba(255,238,184,.35),0 2px 6px rgba(0,0,0,.8)', wipe: 'var(--igs-gradient-veil-color,rgba(0,0,0,.85))' },
+        band: 'background:none;isolation:isolate;',
+        extra: (scope) => [
+            `${scope} ${PART_SELECTORS.plate}::before,${scope} ${PART_SELECTORS.skill}::before,${scope} ${PART_SELECTORS.ribbon}::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,transparent,var(--igs-bt-veil) 24%,var(--igs-bt-veil) 76%,transparent);-webkit-mask:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent);mask:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent);pointer-events:none;}`,
+        ],
+        plate: 'padding:8px 64px;',
+        skill: 'padding:12px 80px;',
+        ribbon: 'padding:28px 120px 24px;',
+        dice: 'background:none;padding:0;',
+        wipe: 'background:linear-gradient(180deg,transparent,var(--igs-bt-wipe) 34%,var(--igs-bt-wipe) 66%,transparent);',
+    },
+    // 优雅欧式：黑纱通栏 + 淡紫银线与星光。
+    [DIALOG_SKIN_ELEGANT_EUROPEAN]: {
+        accent: '#d6c8ff',
+        font: DIALOG_FONT_SERIF,
+        vars: { veil: 'rgba(6,6,12,.74)', rule: 'rgba(196,176,255,.6)', ink: '#eeeaf3', halo: '0 0 8px rgba(160,136,255,.5),0 1px 3px rgba(0,0,0,.9)', 'title-halo': '0 0 18px rgba(160,136,255,.6),0 2px 4px rgba(0,0,0,.7)', wipe: 'rgba(6,6,12,.9)' },
+        title: 'font-style:normal;font-weight:600;',
+    },
+    // 魔法星夜：暮色薄纱、学院银线，名牌标记换成四芒星。
+    [DIALOG_SKIN_MAGIC_ACADEMY]: {
+        accent: MAGIC_METAL_HI,
+        font: DIALOG_FONT_HUIWEN,
+        vars: { veil: nightVeil(80), rule: magicTint(MAGIC_METAL, 62), ink: '#ecebf7', halo: `0 0 10px ${magicTint(MAGIC_METAL_HI, 50)},0 1px 3px rgba(0,0,0,.9)`, 'title-halo': `0 0 20px ${magicTint(MAGIC_METAL_HI, 60)},0 2px 4px rgba(0,0,0,.7)`, wipe: nightVeil(92) },
+        mark: `width:11px;height:11px;align-self:center;font-size:0;background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;filter:drop-shadow(0 0 3px ${magicTint(MAGIC_METAL_HI, 80)});`,
+        title: 'font-style:normal;font-weight:600;',
+    },
+    // 西欧古典：橄榄墨底、金线。
+    'western-classic': {
+        accent: '#e2bf72',
+        font: DIALOG_FONT_SERIF,
+        vars: { veil: 'rgba(42,45,33,.9)', rule: 'rgba(184,144,63,.9)', ink: '#eadfbf', halo: '0 1px 3px rgba(0,0,0,.8)', wipe: 'rgba(38,40,29,.94)' },
+        title: 'font-style:normal;font-weight:700;',
+    },
+    // 青绿山水：绢色烟岚、石青细线，名牌标记是一方朱砂小印；判定字用墨色衬绢边。
+    [DIALOG_SKIN_QINGLV]: {
+        accent: '#2f5d7c',
+        light: true,
+        font: DIALOG_FONT_HUIWEN,
+        vars: { veil: qinglvSilk('.9'), rule: 'rgba(47,93,124,.55)', ink: '#26332f', halo: `0 1px 0 ${qinglvSilk('.6')}`, 'title-halo': `0 1px 0 ${qinglvSilk('.8')}`, wipe: qinglvSilk('.94'), lose: '#8f2616', escape: '#56625d' },
+        mark: `padding:0 3px;border-radius:2px;background:#b23a2a;color:${qinglvSilk(1)};font-size:0;line-height:1;text-shadow:none;--igs-bt-seal:"战";`,
+        extra: (scope) => [
+            `${scope} ${PART_SELECTORS.mark}::before{content:var(--igs-bt-seal);font-size:12px;letter-spacing:0;}`,
+            `${scope} ${PART_SELECTORS.pop}{color:#26332f;font-style:normal;font-weight:700;letter-spacing:.2em;text-shadow:${stroke(qinglvSilk('.85'))},0 0 14px ${qinglvSilk('.9')};}`,
+            `${scope} .igs-fx-battle-hit:not(.is-ancient)[data-igs-battle-result="crit"] .igs-fx-battle-pop-label{color:#1f4c66;}`,
+            `${scope} .igs-fx-battle-hit:not(.is-ancient)[data-igs-battle-result="ko"] .igs-fx-battle-pop-label{color:#8f2616;}`,
+            `${scope} .igs-fx-battle-hit:not(.is-ancient)[data-igs-battle-result="heal"] .igs-fx-battle-pop-label{color:#3f7f6f;}`,
+            `${scope} .igs-fx-battle-hit:not(.is-ancient)[data-igs-battle-result="miss"] .igs-fx-battle-pop-label{color:#6f7a75;}`,
+            `${scope} ${PART_SELECTORS.dice},${scope} ${PART_SELECTORS.target}{color:#26332f;text-shadow:${stroke(qinglvSilk('.8'))};}`,
+            `${scope} ${PART_SELECTORS.foe}{text-shadow:${stroke(qinglvSilk('.7'))},0 0 18px ${qinglvSilk('.9')};}`,
+        ],
+        title: 'font-style:normal;font-weight:400;letter-spacing:.3em;text-indent:.3em;',
+        veil: 'background:rgba(30,40,38,.22);',
+    },
+    // 日间简约：暗色渐隐名条 + 三色竖标，正文条为半透明白。
+    [DIALOG_SKIN_DAY_MINIMAL]: {
+        accent: '#d0705a',
+        light: true,
+        font: DIALOG_FONT_NEO_XIHEI,
+        vars: { veil: 'rgba(250,249,244,.88)', rule: 'rgba(120,118,104,.45)', ink: '#3a3935', halo: '0 1px 0 rgba(255,255,255,.8)', 'title-halo': '0 1px 0 rgba(255,255,255,.9)', wipe: 'rgba(250,249,244,.92)', lose: '#b0503f', escape: '#5f6f7a' },
+        plate: 'padding:5px 56px 6px 18px;background:linear-gradient(180deg,#e0826c 0 33.3%,#ebe5d0 33.3% 66.6%,#b9c4a2 66.6%) left top/3px 100% no-repeat,linear-gradient(90deg,#333,#3a3935 50%,rgba(95,94,83,.75) 75%,transparent);color:#f7f5ee;text-shadow:0 1px 2px rgba(0,0,0,.45);',
+        mark: 'color:#ebe5d0;font-weight:400;',
+        skill: 'padding:7px 40px 8px 44px;background:linear-gradient(180deg,#e0826c 0 33.3%,#ebe5d0 33.3% 66.6%,#b9c4a2 66.6%) left top/3px 100% no-repeat,linear-gradient(90deg,var(--igs-bt-veil),var(--igs-bt-veil) 70%,transparent);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);',
+        title: 'font-style:normal;font-weight:400;letter-spacing:.24em;text-indent:.24em;',
+        foe: 'text-shadow:0 1px 0 rgba(255,255,255,.8);',
+    },
+    // 温暖绘本：米白圆角卡、深灰描边与底部压条，薄荷强调。
+    [DIALOG_SKIN_WARM_PICTUREBOOK]: {
+        accent: '#4f9a92',
+        light: true,
+        font: DIALOG_FONT_WENKAI,
+        vars: { ink: '#4f4a45', halo: 'none', 'title-halo': '0 2px 0 rgba(79,74,69,.15)', wipe: '#f1ede9', lose: '#b55a4a', escape: '#6d7f8c' },
+        card: 'background:#f1ede9;border:2px solid #4f4a45;border-radius:14px;box-shadow:inset 0 -5px 0 #55514b,0 2px 0 rgba(79,74,69,.18);',
+        cardPad: 'padding-bottom:10px;',
+        mark: 'padding:0 8px;border-radius:999px;background:#4f4a45;color:#f4efe9;font-weight:400;',
+        wipe: 'background:repeating-linear-gradient(135deg,#f1ede9 0 12px,#ebe6e0 12px 24px);box-shadow:inset 0 2px 0 #4f4a45,inset 0 -2px 0 #4f4a45;',
+        foe: 'text-shadow:0 2px 0 #f1ede9,0 3px 0 rgba(79,74,69,.2);',
+        title: 'font-style:normal;',
+    },
+    // 植物咖啡：奶白胶囊卡、咖啡色描边、叶绿强调。
+    [DIALOG_SKIN_PLANT_COFFEE]: {
+        accent: '#6f8f3a',
+        light: true,
+        font: DIALOG_FONT_WENKAI_LITE,
+        vars: { ink: '#5b4643', halo: 'none', 'title-halo': '0 2px 0 rgba(92,73,73,.15)', wipe: '#f3ecdf', lose: '#a8564a', escape: '#6f7f86' },
+        card: 'background:#f6f1eb;border:1.5px solid #5c4949;border-radius:18px;box-shadow:0 3px 0 rgba(92,73,73,.2);',
+        mark: 'padding:0 8px;border-radius:999px;background:#a5bf6b;color:#fff;font-weight:600;text-shadow:0 1px 0 rgba(70,96,36,.45);',
+        wipe: 'background:radial-gradient(rgba(165,191,107,.3) 1.2px,transparent 1.6px) 0 0/10px 10px,#f3ecdf;box-shadow:inset 0 1.5px 0 #5c4949,inset 0 -1.5px 0 #5c4949;',
+        foe: 'text-shadow:0 2px 0 #f6f1eb;',
+        title: 'font-style:normal;',
+    },
+    // 黑白漫画：网点纸卡、粗黑框与硬投影；判定字是白描边的黑字。
+    [DIALOG_SKIN_BLACK_WHITE_MANGA]: {
+        accent: '#171412',
+        light: true,
+        font: DIALOG_FONT_SMILEY,
+        vars: { ink: '#171412', halo: 'none', 'title-halo': `${stroke('#fff')},3px 3px 0 rgba(23,20,18,.2)`, wipe: '#f3eee4', lose: '#171412', escape: '#5e5750' },
+        card: 'background:radial-gradient(rgba(23,20,18,.1) 1px,transparent 1.3px) 0 0/5px 5px,#f3eee4;border:2.5px solid #171412;border-radius:2px;box-shadow:4px 4px 0 #171412;',
+        mark: 'padding:0 6px;background:#171412;color:#fff;font-style:italic;font-weight:800;',
+        wipe: 'background:radial-gradient(rgba(23,20,18,.5) 1.1px,transparent 1.4px) 0 0/6px 6px,#f3eee4;box-shadow:inset 0 3px 0 #171412,inset 0 -3px 0 #171412;',
+        foe: `text-shadow:${stroke('#fff')},4px 4px 0 rgba(23,20,18,.25);`,
+        extra: (scope) => [
+            `${scope} .igs-fx-battle-hit:not(.is-ancient)[data-igs-battle-result] .igs-fx-battle-pop-label{color:#171412;text-shadow:${stroke('#fff')},3px 3px 0 #fff;}`,
+            `${scope} ${PART_SELECTORS.dice}{color:#fff;background:#171412;padding:0 8px;}`,
+            `${scope} ${PART_SELECTORS.target}{color:#171412;text-shadow:${stroke('#fff')};}`,
+        ],
+    },
+    // 超可爱粉：白底圆角卡、深灰描边、粉色压边。
+    [DIALOG_SKIN_CUTE_PINK]: {
+        accent: '#e5779a',
+        light: true,
+        font: DIALOG_FONT_ZCOOL_KUAILE,
+        vars: { ink: '#6b4454', halo: 'none', 'title-halo': '0 2px 0 #fff,0 3px 0 rgba(176,62,100,.25)', wipe: '#ffd6e3', lose: '#c24a6f', escape: '#7a8fb0' },
+        card: 'background:#fff;border:2px solid #5e5356;border-radius:16px;box-shadow:0 4px 0 #d9416f;',
+        mark: 'padding:0 8px;border-radius:999px;background:linear-gradient(180deg,#f29ab5,#e5779a);color:#fff;text-shadow:0 1px 0 #c24a6f;',
+        wipe: 'background:repeating-linear-gradient(135deg,#ffe1ea 0 14px,#ffd0de 14px 28px);box-shadow:inset 0 2px 0 #5e5356,inset 0 -2px 0 #5e5356;',
+        foe: `color:#fff;text-shadow:${stroke('#d4557c')},0 3px 0 #b03e64;`,
+        title: 'font-style:normal;',
+    },
+    // 复古日式：生成纸卡、茶色双线框、胭脂红强调。
+    [DIALOG_SKIN_RETRO_JAPANESE]: {
+        accent: '#8e2c2c',
+        light: true,
+        font: DIALOG_FONT_HUIWEN,
+        vars: { ink: '#4a3527', halo: 'none', 'title-halo': '0 2px 0 rgba(255,255,255,.4)', wipe: '#f3e7cf', lose: '#8e2c2c', escape: '#4f5d63' },
+        card: 'background:#f3e7cf;border:2px solid #6b4a36;border-radius:3px;box-shadow:inset 0 0 0 3px #f3e7cf,inset 0 0 0 4px #b98c5d,0 2px 6px rgba(0,0,0,.28);',
+        mark: 'padding:0 6px;border-radius:2px;background:#69493e;color:#f6e6c4;font-weight:400;',
+        wipe: 'background:linear-gradient(180deg,#e6d3b4,#f3e7cf 14%,#f3e7cf 86%,#e6d3b4);box-shadow:inset 0 2px 0 #6b4a36,inset 0 -2px 0 #6b4a36;',
+        foe: 'text-shadow:0 2px 0 rgba(255,255,255,.45);',
+        title: 'font-style:normal;font-weight:700;letter-spacing:.3em;text-indent:.3em;',
+    },
+    // 冒险旅途：深皮革卡、铜线内框、琥珀强调。
+    [DIALOG_SKIN_ADVENTURE_JOURNEY]: {
+        accent: '#e0b06e',
+        font: DIALOG_FONT_NEO_ZHISONG,
+        vars: { ink: '#ecdcbc', halo: '0 1px 2px rgba(0,0,0,.6)', 'title-halo': '0 2px 4px rgba(0,0,0,.5)', wipe: '#3a2d26' },
+        card: 'background:linear-gradient(180deg,#4d3c32,#3a2d26);border:2px solid #2a201b;border-radius:6px;box-shadow:inset 0 0 0 1px #b98a5a,inset 0 0 0 4px #3a2d26,inset 0 0 0 5px rgba(217,170,110,.45),0 3px 8px rgba(0,0,0,.35);',
+        mark: 'padding:0 6px;border-radius:2px;background:#c8893a;color:#2a201b;font-family:' + DIALOG_FONT_CINZEL + ';',
+        wipe: `background:${softRule('rgba(217,170,110,.6)', '10%')},${softRule('rgba(217,170,110,.6)', '90%')},linear-gradient(180deg,#4d3c32,#3a2d26);box-shadow:inset 0 2px 0 #2a201b,inset 0 -2px 0 #2a201b;`,
+        title: 'font-style:normal;font-weight:700;',
+    },
+});
+
+function battleThemeRules(skin, theme) {
+    const scope = `#igs-overlay[data-igs-dialog-skin="${skin}"]`;
+    const at = (key) => `${scope} ${PART_SELECTORS[key]}`;
+    const containers = CONTAINERS.map((kind) => `${scope} .igs-fx-battle-${kind}:not(.is-ancient)`).join(',');
+    const font = theme.font ? `font-family:${theme.font};` : '';
+    const rules = [`${containers}{--igs-battle-accent:${theme.accent};${vars(theme.vars || {})}${font}}`];
+    if (theme.band) rules.push(`${at('plate')},${at('skill')},${at('ribbon')}{${theme.band}}`);
+    if (theme.card) {
+        rules.push(`${at('plate')},${at('skill')},${at('ribbon')}{${theme.card}color:var(--igs-bt-ink);text-shadow:var(--igs-bt-halo);}`);
+        for (const part of ['plate', 'skill', 'ribbon']) rules.push(`${at(part)}{${CARD_PADDING[part]}${theme.cardPad || ''}}`);
+    }
+    for (const part of ['plate', 'mark', 'skill', 'dice', 'ribbon', 'title', 'veil', 'wipe', 'foe']) {
+        if (theme[part]) rules.push(`${at(part)}{${theme[part]}}`);
+    }
+    // 浅底主题：骰点与目标名落在场景上，改用主题墨色衬浅色描边，免得白字在浅卡片旁发灰。
+    if (theme.light && !theme.extra) rules.push(`${at('dice')},${at('target')}{color:var(--igs-bt-ink);text-shadow:${stroke('rgba(255,255,255,.75)')};}`);
+    if (theme.extra) rules.push(...theme.extra(scope));
+    return rules.join('\n');
+}
+function getDialogThemeBattleFxStyleText(skin) {
+    const theme = BATTLE_THEMES[skin];
+    return theme ? battleThemeRules(skin, theme) : '';
+}
+const BATTLE_THEMED_DIALOG_SKINS = Object.freeze(Object.keys(BATTLE_THEMES));
+
+__igsDefine(exports, "getDialogThemeBattleFxStyleText", () => getDialogThemeBattleFxStyleText);
+__igsDefine(exports, "BATTLE_THEMED_DIALOG_SKINS", () => BATTLE_THEMED_DIALOG_SKINS);
 });
 __igsRegister("src/core/event-bus.js", function(module, exports, require) {
 function createEventBus() {
@@ -63991,7 +64943,7 @@ const DEFAULT_TRIGGER_LOOKBACK = 3;
 // 成对标签可能跨很多层才闭合（一场战斗、一段书信），未闭合判断看更长的窗口。
 const PAIR_TRIGGER_LOOKBACK = 12;
 
-const DAILY_KINDS = 'timeskip|photo|letter|note|bell|broadcast|fireworks|touch|alarm|omikuji|receipt|tv|rps|gacha|game|score|pat|poke|fever|cheers|cook|cat|guqin|go|poem|edict|tea|bow';
+const DAILY_KINDS = 'timeskip|photo|letter|note|bell|broadcast|fireworks|touch|alarm|omikuji|receipt|tv|rps|gacha|game|score|pat|poke|fever|cheers|cook|cat|guqin|go|poem|edict|tea|bow|spell|potion|owl|broom|howler';
 
 const BLOCK_TRIGGERS = Object.freeze({
     chat: {

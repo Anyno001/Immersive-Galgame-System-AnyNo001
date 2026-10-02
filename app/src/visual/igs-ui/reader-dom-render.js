@@ -1,3 +1,5 @@
+import { magicHouseVars } from './dialog-theme-css-skins.js';
+import { resolveSpeakerMagicHouse } from './magic-house.js';
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
 import {
@@ -31,7 +33,7 @@ import { renderItemFx } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
 import { renderDailyFx } from './fx-daily.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
-import { applyWeatherFx } from './weather-fx-runtime.js';
+import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
 import { applyStageDirection } from './stage-direction-runtime.js';
 import { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances } from './stage-cast-render.js';
@@ -611,6 +613,14 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     });
     applyDialogBgOverride(root, snapshot, materialDialog);
     if (root.style) root.style.setProperty('--igs-skin-scale', String(normalizeSkinDialogScale(readerSettings.skinDialogScale)));
+    if (root.style) {
+        // 魔法世界观下魔法星夜随说话角色换学院色；旁白、系统台词、没学院的角色与其他世界观一律用全局配色。
+        const content = snapshot.content || {};
+        const byCharacter = readerSettings._worldview === 'magic' && content.textType !== 'narration' && content.textType !== 'system';
+        const speaker = byCharacter ? (content.spriteCharacter || content.speaker) : '';
+        const house = resolveSpeakerMagicHouse(readerSettings._sceneAssets, speaker, readerSettings.magicHouse);
+        for (const [name, value] of Object.entries(magicHouseVars(house))) root.style.setProperty(name, value);
+    }
     applyGradientVeilToDom(root, dialog, readerSettings);
 
     if (textEl) {
@@ -1421,6 +1431,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 背景是素材自带时段变体（如夜景图）时不再叠时段调色。
         timedAsset: Boolean(snapshot.content && snapshot.content.backgroundTimed === true && snapshot.content.illustrationActive !== true),
     });
+    // 场景时段挂到 overlay 上，供对话框等界面随昼夜调整明暗；不受天气/夜间调色开关影响，夜景底图本身就暗。
+    const sceneTime = resolveWeatherFxTime(snapshot.content && snapshot.content.sceneTime);
+    if (sceneTime) root.setAttribute('data-igs-scene-time', sceneTime);
+    else root.removeAttribute('data-igs-scene-time');
     applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
     const stageDirection = applyStageDirection(root, snapshot, {
         bgUrl: backgroundAssetUrl,

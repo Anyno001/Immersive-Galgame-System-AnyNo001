@@ -1,4 +1,6 @@
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
+import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } from './dialog-theme-css-skins.js';
+import { DIALOG_SKIN_QINGLV, QINGLV_HUD_THEME } from './dialog-theme-guofeng.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -134,6 +136,21 @@ const HUD_THEMES = Object.freeze({
         fill: `background:${fillMix(60, '#c4b0ff')} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(70, '#c4b0ff')};`,
         value: 'font-weight:400;',
     },
+    [DIALOG_SKIN_MAGIC_ACADEMY]: {
+        neutral: '#c8c6dc',
+        toast: `background:linear-gradient(180deg,${magicVeil(82)},${magicVeil(90)});border:0;border-bottom:1px solid ${magicTint(MAGIC_METAL, 65)};border-radius:0;box-shadow:0 0 14px ${magicTint(MAGIC_METAL_HI, 22)};color:#ecebf7;`,
+        panel: `background:linear-gradient(90deg,${magicTint(MAGIC_METAL, 60)},transparent) left top/100% 1px no-repeat,linear-gradient(90deg,${magicTint(MAGIC_METAL, 40)},transparent) left bottom/100% 1px no-repeat,linear-gradient(90deg,${magicVeil(80)},${magicVeil(56)} 70%,transparent);border:0;border-radius:0;box-shadow:none;`,
+        ink: '#e6e4f2',
+        emotion: `padding:${s(1)} ${s(4)} ${s(1)} ${s(16)};border:0;border-bottom:1px solid ${magicTint(MAGIC_METAL, 65)};border-radius:0;background:transparent;color:#f1effa;letter-spacing:.14em;text-shadow:0 0 8px ${magicTint(MAGIC_METAL_HI, 60)},0 1px 3px rgba(0,0,0,.9);position:relative;`,
+        emotionBefore: `content:"";position:absolute;left:0;top:50%;width:${s(9)};height:${s(9)};margin-top:${s(-4.5)};background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;`,
+        avatar: `filter:${ring(magicTint(MAGIC_METAL, 85), 1)} drop-shadow(0 0 5px ${magicTint(MAGIC_METAL_HI, 55)});`,
+        placeholder: `background:radial-gradient(circle at 50% 30%,${magicTint(MAGIC_METAL, 30)},${magicVeil(90)});color:${MAGIC_METAL_HI};`,
+        placeholderSvg: `stroke:${MAGIC_METAL_HI};stroke-width:1.1;`,
+        track: `height:${s(2)};border:0;border-radius:0;background:${magicTint(MAGIC_METAL, 22)};overflow:visible;`,
+        fill: `background:${fillMix(60, MAGIC_METAL_HI)} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(70, MAGIC_METAL_HI)};`,
+        value: 'font-weight:400;',
+    },
+    [DIALOG_SKIN_QINGLV]: QINGLV_HUD_THEME,
     [DIALOG_SKIN_PLANT_COFFEE]: {
         neutral: '#a49186',
         panel: `background:#f6f1eb;border:1.5px solid #5c4949;border-radius:${s(18)};box-shadow:0 ${s(3)} 0 rgba(92,73,73,.2);`,

@@ -30,6 +30,7 @@ import { addGeneratedAssetToLibrary, bindGeneratedBackground, bindGeneratedSprit
 import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
+import { normalizeCharacterHouses } from './magic-house.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
 import { markSettingsButtonBusy, showSettingsProgress } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
@@ -2028,6 +2029,9 @@ export async function handleSettingsAction(action, ctx) {
         if (draftAssetLibrary(settingsState).statusAvatars && typeof draftAssetLibrary(settingsState).statusAvatars === 'object') {
             delete draftAssetLibrary(settingsState).statusAvatars[name];
         }
+        if (settingsState.draft.bridge.sceneAssets.characterHouses && typeof settingsState.draft.bridge.sceneAssets.characterHouses === 'object') {
+            delete settingsState.draft.bridge.sceneAssets.characterHouses[name];
+        }
         draftAssetLibrary(settingsState).characterDna = removeCharacterDna(draftAssetLibrary(settingsState).characterDna, name);
         if (draftAssetLibrary(settingsState).characterOutfits && typeof draftAssetLibrary(settingsState).characterOutfits === 'object') {
             delete draftAssetLibrary(settingsState).characterOutfits[name];
@@ -2165,6 +2169,13 @@ export async function handleSettingsAction(action, ctx) {
             sceneAssets.characterAliases = reorderKey(aliases, oldName, newName);
             if (sceneAssets.statusAvatars && typeof sceneAssets.statusAvatars === 'object') {
                 sceneAssets.statusAvatars = reorderKey(sceneAssets.statusAvatars, oldName, newName);
+            }
+            if (sceneAssets.characterHouses && typeof sceneAssets.characterHouses === 'object') {
+                sceneAssets.characterHouses = reorderKey(sceneAssets.characterHouses, oldName, newName);
+            }
+            const rootAssets = settingsState.draft.bridge.sceneAssets;
+            if (rootAssets && rootAssets !== sceneAssets && rootAssets.characterHouses && typeof rootAssets.characterHouses === 'object') {
+                rootAssets.characterHouses = reorderKey(rootAssets.characterHouses, oldName, newName);
             }
             if (sceneAssets.characterDna && typeof sceneAssets.characterDna === 'object') {
                 sceneAssets.characterDna = dnaRename.map;

@@ -213,6 +213,7 @@ const READER_DIALOG_TEMPLATE = `
     <div class="igs-source-filter-title">风格{{resetReaderDialogStyle}}</div>
     {{dialogSkinField}}
     {{gradientVeilFields}}
+    {{magicHouseField}}
     <div class="igs-settings-row">{{statusLineToggle}}</div>
   </div>
   <div class="igs-source-filter">

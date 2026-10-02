@@ -54,7 +54,7 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
     };
     const current = detectPerformancePreset(src);
     const fx = renderFxFeatureFields(src, more);
-    const stage = renderStageDirectionFields(src, more);
+    const stage = renderStageDirectionFields(src, more, { worldview: extras.worldviewId });
     const danmaku = renderDanmakuFields(src, more);
     const bodies = {
         text: [extras.typewriter, stage.clickWaitMark, stage.textFx, extras.sentencePaging],

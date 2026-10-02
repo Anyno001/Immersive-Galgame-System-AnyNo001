@@ -79,6 +79,17 @@ export const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-omikuji.is-taisho .igs-dfx-slip{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 #igs-overlay .igs-dfx-broadcast.is-taisho .igs-dfx-banner{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 
+/* 魔法换皮：午夜蓝星空报幕、羊皮纸 + 火漆、会动的照片；结构与时长沿用现代。 */
+#igs-overlay .igs-dfx-timeskip.is-magic .igs-dfx-veil{background:radial-gradient(1px 1px at 18% 30%,rgba(255,240,200,.9),transparent),radial-gradient(1px 1px at 72% 22%,rgba(255,240,200,.8),transparent),radial-gradient(1.5px 1.5px at 40% 70%,rgba(200,220,255,.8),transparent),radial-gradient(1px 1px at 86% 64%,rgba(255,240,200,.7),transparent),radial-gradient(ellipse at center,rgba(28,34,72,.78),rgba(8,10,26,.94));}
+#igs-overlay .igs-dfx-timeskip.is-magic .igs-dfx-timeskip-text{color:#f3e2b6;font-family:"IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.14em;text-shadow:0 0 12px rgba(255,214,120,.55),0 2px 8px rgba(0,0,0,.6);}
+#igs-overlay .igs-dfx-photo.is-magic .igs-dfx-photo-img{filter:sepia(.35) saturate(.9) contrast(1.05);animation:igs-dfx-magic-photo 2.6s ease-in-out infinite alternate;}
+@keyframes igs-dfx-magic-photo{from{transform:scale(1) translateX(0);}to{transform:scale(1.04) translateX(-1.5%);}}
+#igs-overlay .igs-dfx-letter.is-magic .igs-dfx-paper{background:radial-gradient(ellipse at 30% 20%,rgba(255,250,232,.6),transparent 60%),linear-gradient(160deg,#f1e3c0,#e2cc98);color:#2b1d10;border:1px solid #9c7a46;box-shadow:inset 0 0 26px rgba(120,80,30,.28),0 10px 26px rgba(0,0,0,.4);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-letter.is-magic .igs-dfx-paper::after{content:"";position:absolute;right:18px;bottom:-14px;width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#b8323e,#7a1f2b 62%,#5a141e);box-shadow:0 2px 4px rgba(0,0,0,.35),inset 0 0 0 3px rgba(255,255,255,.08);}
+#igs-overlay .igs-dfx-note.is-magic .igs-dfx-sticky{background:linear-gradient(160deg,#f1e3c0,#e2cc98);color:#2b1d10;font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-omikuji.is-magic .igs-dfx-slip{background:#f1e3c0;color:#2b1d10;border:1px solid #9c7a46;font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-broadcast.is-magic .igs-dfx-banner{background:linear-gradient(180deg,rgba(28,34,72,.92),rgba(14,18,42,.94));color:#f3e2b6;border:1px solid rgba(201,162,74,.75);box-shadow:0 0 18px rgba(255,214,120,.25),0 6px 20px rgba(0,0,0,.35);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+
 /* 古代背景：一炷香（香身随演出时长燃短，烟从香头升起）、对折字条、竖排信笺。 */
 #igs-overlay .igs-dfx-timeskip.is-ancient .igs-dfx-veil{background:radial-gradient(ellipse at center,rgba(40,26,12,.72),rgba(12,8,4,.92));}
 #igs-overlay .igs-dfx-timeskip.is-ancient .igs-dfx-timeskip-text{font-family:"STKaiti","KaiTi","Kaiti SC","楷体",serif;}
@@ -305,5 +316,80 @@ export const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-tea-steam i:nth-child(2){animation-delay:.4s;}
 #igs-overlay .igs-dfx-tea-steam i:nth-child(3){animation-delay:.8s;}
 #igs-overlay .igs-dfx-bow{display:none;}
+
+/* 魔法世界独有：魔杖光束 + 咒语、坩埚冒泡、猫头鹰投信、扫帚掠空。光色由 --igs-magic 给出。 */
+#igs-overlay .igs-dfx-spell{--igs-magic:#ffd36a;animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-spell-beam{position:absolute;left:6%;bottom:22%;width:50%;height:3px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--igs-magic) 30%,#fff);box-shadow:0 0 10px var(--igs-magic),0 0 24px var(--igs-magic);transform-origin:0 50%;transform:rotate(-24deg) scaleX(0);animation:igs-dfx-spell-beam .9s cubic-bezier(.2,.8,.3,1) both;}
+#igs-overlay .igs-dfx-spell-burst{position:absolute;left:51%;top:47%;width:0;height:0;}
+#igs-overlay .igs-dfx-spell-core{position:absolute;left:-60px;top:-60px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,#fff 0,var(--igs-magic) 22%,transparent 68%);opacity:0;mix-blend-mode:screen;animation:igs-dfx-spell-core 1.1s ease-out .45s both;}
+#igs-overlay .igs-dfx-spell-burst i:not(.igs-dfx-spell-core){position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 8px var(--igs-magic),0 0 14px var(--igs-magic);opacity:0;animation:igs-dfx-spell-spark .9s ease-out both;}
+#igs-overlay .igs-dfx-spell-words{position:absolute;left:0;right:0;top:24%;text-align:center;color:#fff8e6;font:italic 400 clamp(26px,5.4vw,48px)/1.2 "IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.18em;text-shadow:0 0 10px var(--igs-magic),0 0 26px var(--igs-magic),0 2px 6px rgba(0,0,0,.6);opacity:0;animation:igs-dfx-spell-words var(--igs-dfx-life) ease both;}
+@keyframes igs-dfx-spell-beam{0%{transform:rotate(-24deg) scaleX(0);opacity:1;}45%{transform:rotate(-24deg) scaleX(1);opacity:1;}100%{transform:rotate(-24deg) scaleX(1);opacity:0;}}
+@keyframes igs-dfx-spell-core{0%{opacity:0;transform:scale(.2);}25%{opacity:1;transform:scale(1);}100%{opacity:0;transform:scale(1.6);}}
+@keyframes igs-dfx-spell-spark{0%{opacity:0;transform:rotate(var(--igs-spark-a)) translateX(0);}20%{opacity:1;}100%{opacity:0;transform:rotate(var(--igs-spark-a)) translateX(var(--igs-spark-d));}}
+@keyframes igs-dfx-spell-words{0%,14%{opacity:0;transform:translateY(10px);letter-spacing:.4em;}30%{opacity:1;transform:none;letter-spacing:.18em;}84%{opacity:1;}100%{opacity:0;transform:translateY(-8px);}}
+#igs-overlay .igs-dfx-potion{--igs-magic:#8ff0a4;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:14px;padding-bottom:26%;animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-potion-pot{position:relative;width:120px;height:86px;}
+#igs-overlay .igs-dfx-potion-body{position:absolute;left:0;right:0;bottom:0;height:76px;border-radius:14px 14px 60px 60px/14px 14px 70px 70px;background:radial-gradient(ellipse at 34% 30%,#4a4f5c,#1d2027 60%,#0e1014);box-shadow:0 10px 22px rgba(0,0,0,.5),inset 0 -6px 12px rgba(0,0,0,.5);}
+#igs-overlay .igs-dfx-potion-body::before{content:"";position:absolute;left:-6px;right:-6px;top:-4px;height:12px;border-radius:6px;background:linear-gradient(#5a5f6c,#23262e);}
+#igs-overlay .igs-dfx-potion-brew{position:absolute;z-index:1;left:8px;right:8px;top:4px;height:16px;border-radius:50%;background:radial-gradient(ellipse at 50% 40%,#fff 0,var(--igs-magic) 30%,rgba(0,0,0,.55) 100%),var(--igs-magic);box-shadow:0 0 18px var(--igs-magic);}
+#igs-overlay .igs-dfx-potion-bubbles{position:absolute;z-index:2;left:10px;right:10px;top:-6px;height:20px;}
+#igs-overlay .igs-dfx-potion-bubbles i{position:absolute;bottom:0;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;border:1.5px solid var(--igs-magic);background:rgba(255,255,255,.22);animation:igs-dfx-potion-bubble 1.2s ease-out infinite;}
+#igs-overlay .igs-dfx-potion-smoke{position:absolute;z-index:0;left:50%;top:-58px;width:80px;margin-left:-40px;height:60px;}
+#igs-overlay .igs-dfx-potion-smoke i{position:absolute;bottom:0;left:30%;width:30px;height:30px;border-radius:50%;background:radial-gradient(circle,var(--igs-magic),transparent 70%);opacity:0;animation:igs-dfx-potion-smoke 2.2s ease-out infinite;}
+#igs-overlay .igs-dfx-potion-smoke i:nth-child(2){left:6%;animation-delay:.7s;}
+#igs-overlay .igs-dfx-potion-smoke i:nth-child(3){left:54%;animation-delay:1.4s;}
+#igs-overlay .igs-dfx-potion-label{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 18px;border:1px solid #9c7a46;border-radius:3px;background:linear-gradient(160deg,#f1e3c0,#e2cc98);color:#2b1d10;font-family:"IM Fell English",Georgia,"Times New Roman",serif;box-shadow:0 6px 16px rgba(0,0,0,.35);opacity:0;animation:igs-dfx-magic-rise .5s ease-out .5s both;}
+#igs-overlay .igs-dfx-potion-label span{font-size:12px;letter-spacing:.3em;color:#7a1f2b;}
+#igs-overlay .igs-dfx-potion-label b{font-size:18px;font-weight:400;letter-spacing:.08em;}
+@keyframes igs-dfx-magic-rise{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
+@keyframes igs-dfx-potion-bubble{0%{opacity:0;transform:translateY(0) scale(.4);}30%{opacity:1;}100%{opacity:0;transform:translateY(-34px) scale(1.15);}}
+@keyframes igs-dfx-potion-smoke{0%{opacity:0;transform:translateY(0) scale(.5);}30%{opacity:.75;}100%{opacity:0;transform:translateY(-46px) scale(1.6);}}
+#igs-overlay .igs-dfx-owl{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-owl-flight{position:absolute;left:0;top:16%;width:86px;animation:igs-dfx-owl-fly 1.9s cubic-bezier(.4,.1,.6,.9) both;}
+#igs-overlay .igs-dfx-owl-bird{display:block;width:100%;fill:#3b2c22;filter:drop-shadow(0 4px 6px rgba(0,0,0,.35));}
+#igs-overlay .igs-dfx-owl-wing{transform-box:fill-box;animation:igs-dfx-owl-flap .22s ease-in-out infinite alternate;}
+#igs-overlay .igs-dfx-owl-wing.is-left{transform-origin:100% 60%;}
+#igs-overlay .igs-dfx-owl-wing.is-right{transform-origin:0 60%;}
+#igs-overlay .igs-dfx-owl-drop{position:absolute;left:50%;top:50%;display:flex;flex-direction:column;align-items:center;gap:8px;transform:translate(-50%,-50%);animation:igs-dfx-owl-drop .9s cubic-bezier(.3,.7,.4,1) .75s both;}
+#igs-overlay .igs-dfx-owl-letter{position:relative;width:120px;height:78px;border-radius:3px;background:linear-gradient(160deg,#f1e3c0,#dcc391);box-shadow:0 10px 22px rgba(0,0,0,.4),inset 0 0 14px rgba(120,80,30,.25);overflow:hidden;}
+#igs-overlay .igs-dfx-owl-letter::before{content:"";position:absolute;left:0;right:0;top:0;height:44px;background:linear-gradient(160deg,#e8d5a8,#d4b981);clip-path:polygon(0 0,100% 0,50% 100%);}
+#igs-overlay .igs-dfx-owl-seal{position:absolute;left:50%;top:30px;width:24px;height:24px;margin-left:-12px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#b8323e,#7a1f2b 62%,#5a141e);box-shadow:0 2px 3px rgba(0,0,0,.35);}
+#igs-overlay .igs-dfx-owl-from{padding:3px 12px;border-radius:2px;background:rgba(20,24,48,.78);color:#f3e2b6;font:15px/1.5 "IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.1em;}
+@keyframes igs-dfx-owl-fly{0%{transform:translate(110vw,6vh) scale(.7);}55%{transform:translate(48vw,0) scale(1);}100%{transform:translate(-30vw,-10vh) scale(.8);}}
+@keyframes igs-dfx-owl-flap{from{transform:scaleY(1);}to{transform:scaleY(-.55);}}
+@keyframes igs-dfx-owl-drop{0%{opacity:0;transform:translate(-50%,-140%) rotate(-14deg);}60%{opacity:1;transform:translate(-50%,-44%) rotate(4deg);}100%{opacity:1;transform:translate(-50%,-50%) rotate(-2deg);}}
+#igs-overlay .igs-dfx-broom{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-broom-wind i{position:absolute;left:0;width:34%;height:2px;border-radius:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);opacity:0;animation:igs-dfx-broom-wind .7s ease-out both;}
+#igs-overlay .igs-dfx-broom-flight{position:absolute;left:0;top:30%;width:140px;animation:igs-dfx-broom-fly 1.3s cubic-bezier(.5,0,.5,1) .15s both;}
+#igs-overlay .igs-dfx-broom-stick{display:block;width:100%;filter:drop-shadow(0 4px 5px rgba(0,0,0,.35));}
+#igs-overlay .igs-dfx-broom-trail{position:absolute;right:100%;top:40%;width:160px;height:6px;border-radius:3px;background:linear-gradient(90deg,transparent,rgba(255,226,150,.85));box-shadow:0 0 10px rgba(255,214,120,.7);}
+@keyframes igs-dfx-broom-wind{0%{opacity:0;transform:translateX(110vw);}30%{opacity:1;}100%{opacity:0;transform:translateX(-40vw);}}
+@keyframes igs-dfx-broom-fly{0%{transform:translate(-30vw,10vh) rotate(-8deg);}50%{transform:translate(45vw,-2vh) rotate(-12deg);}100%{transform:translate(115vw,-14vh) rotate(-16deg);}}
+#igs-overlay .igs-dfx-hourglass{position:relative;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 0 10px rgba(255,214,120,.45));}
+#igs-overlay .igs-dfx-hg-cap{display:block;width:70px;height:7px;border-radius:3px;background:linear-gradient(180deg,#f0cf78,#9c7a2e);}
+#igs-overlay .igs-dfx-hg-glass{position:relative;width:54px;height:92px;background:rgba(200,220,255,.14);clip-path:polygon(0 0,100% 0,58% 50%,100% 100%,0 100%,42% 50%);}
+#igs-overlay .igs-dfx-hg-sand{position:absolute;left:0;right:0;background:linear-gradient(180deg,#f6dc8e,#d9b45a);transform-origin:50% 100%;}
+#igs-overlay .igs-dfx-hg-sand.is-top{top:12%;height:38%;animation:igs-dfx-hg-drain var(--igs-dfx-life) linear both;}
+#igs-overlay .igs-dfx-hg-sand.is-bottom{bottom:0;height:40%;animation:igs-dfx-hg-fill var(--igs-dfx-life) linear both;}
+#igs-overlay .igs-dfx-hg-stream{position:absolute;left:50%;top:48%;width:2px;height:52%;margin-left:-1px;background:#f0cf78;opacity:.9;}
+@keyframes igs-dfx-hg-drain{from{transform:scaleY(1);}to{transform:scaleY(.08);}}
+@keyframes igs-dfx-hg-fill{from{transform:scaleY(.1);}to{transform:scaleY(1);}}
+#igs-overlay .igs-dfx-howler{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;animation:igs-dfx-fade var(--igs-dfx-life) ease both,igs-dfx-howler-quake .12s linear .9s 8;}
+#igs-overlay .igs-dfx-howler-env{position:relative;width:130px;height:84px;border-radius:4px;background:linear-gradient(160deg,#c62f3a,#8a1620);box-shadow:0 10px 24px rgba(0,0,0,.45),inset 0 0 16px rgba(60,0,0,.4);perspective:300px;animation:igs-dfx-howler-rattle .09s linear 10,igs-dfx-howler-burst .4s ease-out .9s both;}
+#igs-overlay .igs-dfx-howler-flap{position:absolute;left:0;right:0;top:0;height:48px;background:linear-gradient(160deg,#d8434d,#9e1d27);clip-path:polygon(0 0,100% 0,50% 100%);transform-origin:50% 0;animation:igs-dfx-howler-open .3s ease-out .85s both;}
+#igs-overlay .igs-dfx-howler-mouth{max-width:min(86%,720px);text-align:center;color:#fff1e8;font:900 clamp(24px,5vw,44px)/1.3 "Source Han Serif CN","Songti SC",serif;letter-spacing:.06em;text-shadow:0 0 2px #ff2a1a,0 0 14px rgba(255,40,20,.85),0 3px 0 #6a0a10;}
+#igs-overlay .igs-dfx-howler-mouth span{display:inline-block;opacity:0;animation:igs-dfx-howler-char .26s cubic-bezier(.2,1.6,.4,1) both;}
+#igs-overlay .igs-dfx-howler-from{padding:3px 12px;border-radius:2px;background:rgba(80,8,14,.82);color:#ffd9cf;font:15px/1.5 "IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.12em;}
+@keyframes igs-dfx-howler-rattle{0%,100%{transform:rotate(0);}25%{transform:rotate(-6deg) translateX(-3px);}75%{transform:rotate(6deg) translateX(3px);}}
+@keyframes igs-dfx-howler-burst{0%{transform:scale(1);}40%{transform:scale(1.18);}100%{transform:scale(.86);opacity:.85;}}
+@keyframes igs-dfx-howler-open{to{transform:rotateX(180deg);}}
+@keyframes igs-dfx-howler-char{0%{opacity:0;transform:scale(2.4) rotate(-8deg);}100%{opacity:1;transform:none;}}
+@keyframes igs-dfx-howler-quake{0%,100%{transform:translate(0,0);}25%{transform:translate(-4px,2px);}50%{transform:translate(3px,-3px);}75%{transform:translate(-2px,-2px);}}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-hg-sand,#igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-env,#igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-flap{animation:none;}
+#igs-overlay .igs-dfx.is-reduced.igs-dfx-howler{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-mouth span{animation:none;opacity:1;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-beam,#igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-burst i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-bubbles i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-smoke i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-owl-flight,#igs-overlay .igs-dfx.is-reduced .igs-dfx-broom-wind,#igs-overlay .igs-dfx.is-reduced .igs-dfx-broom-flight{display:none;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-words,#igs-overlay .igs-dfx.is-reduced .igs-dfx-owl-drop,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-label{animation:none;opacity:1;}
 
 `;

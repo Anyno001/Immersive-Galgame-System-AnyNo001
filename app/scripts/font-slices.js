@@ -30,6 +30,20 @@ export function renderSliceFontFaces({ family, weight, style }, slices) {
     return slices.map(({ file, unicodeRange }) => `@font-face{font-family:"${family}";font-style:${style};font-weight:${weight};font-display:swap;src:url("./${file}") format("woff2");unicode-range:${unicodeRange};}`).join('\n') + '\n';
 }
 
+// 截断的字体签名完好，浏览器却整体拒收并静默回退到下一个字体；按表目录核对每张表都落在文件内。
+export function findTruncatedFontTables(buf) {
+    const signature = buf.toString('latin1', 0, 4);
+    if (signature === 'wOF2') return buf.length < buf.readUInt32BE(8) ? ['wOF2'] : [];
+    const numTables = buf.readUInt16BE(4);
+    if (buf.length < 12 + numTables * 16) return ['tableDirectory'];
+    const truncated = [];
+    for (let i = 0; i < numTables; i += 1) {
+        const entry = 12 + i * 16;
+        if (buf.readUInt32BE(entry + 8) + buf.readUInt32BE(entry + 12) > buf.length) truncated.push(buf.toString('latin1', entry, entry + 4));
+    }
+    return truncated;
+}
+
 export function contentHash(text, length = 8) {
     return createHash('sha256').update(text).digest('hex').slice(0, length);
 }

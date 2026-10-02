@@ -91,7 +91,7 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
         motion: style.motion,
         ancient: readerSettings._ancientEra === true,
         worldview: String(readerSettings._worldview || ''),
-        onEvent: (event) => play(battleSfxKind(event)),
+        onEvent: (event) => play(battleSfxKind(event, String(readerSettings._worldview || ''))),
     });
     mountedRoots.add(root);
     return result;

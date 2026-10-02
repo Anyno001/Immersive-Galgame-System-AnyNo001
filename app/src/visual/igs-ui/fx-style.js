@@ -250,6 +250,13 @@ export const FX_STYLE_TEXT = `
 .igs-fx-promise.is-taisho{color:#2a1c18;background:#f4ead6;border:1px solid #7b2e2a;box-shadow:0 8px 20px rgba(0,0,0,.3),inset 0 0 0 3px #f4ead6,inset 0 0 0 4px rgba(123,46,42,.4);font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 .igs-fx-promise.is-taisho .igs-fx-promise-seal{border-color:#7b2e2a;color:#7b2e2a;}
 
+/* 魔法换皮：午夜蓝 + 金线 + 星光辉，契约为羊皮纸配火漆。只改配色字体，不改位置与动画。 */
+.igs-fx-notify.is-magic{color:#f3e2b6;background:linear-gradient(180deg,rgba(28,34,72,.94),rgba(14,18,42,.95));border:1px solid rgba(201,162,74,.8);border-radius:4px;box-shadow:0 0 16px rgba(255,214,120,.28),0 6px 22px rgba(0,0,0,.4),inset 0 0 0 3px rgba(14,18,42,.95),inset 0 0 0 4px rgba(201,162,74,.35);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+.igs-fx-title-card.is-magic{color:#f6e7c1;font-family:"IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.14em;text-shadow:0 0 14px rgba(255,214,120,.65),0 2px 10px rgba(10,12,40,.9);}
+.igs-fx-title-card.is-magic::before,.igs-fx-title-card.is-magic::after{background:linear-gradient(90deg,transparent,rgba(255,214,120,.95),transparent);box-shadow:0 0 8px rgba(255,214,120,.6);}
+.igs-fx-promise.is-magic{color:#2b1d10;background:linear-gradient(160deg,#f1e3c0,#e2cc98);border:1px solid #9c7a46;box-shadow:0 8px 22px rgba(0,0,0,.35),0 0 18px rgba(255,214,120,.3),inset 0 0 20px rgba(120,80,30,.25);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+.igs-fx-promise.is-magic .igs-fx-promise-seal{border-color:#7a1f2b;background:radial-gradient(circle at 38% 34%,#b8323e,#7a1f2b 62%,#5a141e);color:#f3e2b6;border-radius:50%;}
+
 .igs-fx-notify.is-ancient .igs-fx-notify-sender{margin:0 0 0 8px;font-size:13px;color:#7a2a1a;opacity:1;}
 .igs-fx-notify.is-ancient .igs-fx-notify-text{font-size:16px;line-height:1.7;letter-spacing:.08em;white-space:normal;}
 .igs-fx-eye,.igs-fx-eye-hold{position:absolute;inset:0;overflow:hidden;}

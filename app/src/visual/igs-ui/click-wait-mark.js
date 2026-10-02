@@ -59,6 +59,7 @@ const SHAPES = Object.freeze({
     leaf: "<path fill-rule='evenodd' d='M4.5 19.5C4.5 10.6 10.6 4.2 20.2 3.8C20.2 13.6 13.6 19.5 4.5 19.5ZM6.2 18.4Q11.6 12.4 17.6 6.4Q12.4 13.2 6.8 19Z'/><path d='M2.8 21.2L6.4 17.6' stroke='#000' stroke-width='1.6' stroke-linecap='round'/>",
     star: "<path d='M12 4.2L14.29 9.64L20.18 10.14L15.71 14.01L17.05 19.76L12 16.7L6.95 19.76L8.29 14.01L3.82 10.14L9.71 9.64Z' stroke='#000' stroke-width='2.4' stroke-linejoin='round'/>",
     caret: "<path d='M6 9.2L12 15.2L18 9.2' fill='none' stroke='#000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/>",
+    seal: "<rect x='6.5' y='6.5' width='11' height='11' rx='1.4'/>",
     heart: "<path d='M12 20.5C5.5 16 2.5 12.4 2.5 8.6C2.5 5.8 4.7 3.8 7.3 3.8C9.3 3.8 10.9 4.9 12 6.6C13.1 4.9 14.7 3.8 16.7 3.8C19.3 3.8 21.5 5.8 21.5 8.6C21.5 12.4 18.5 16 12 20.5Z'/>",
 });
 
@@ -98,6 +99,8 @@ export const CLICK_WAIT_MARK_SKINS = Object.freeze({
     default: { shape: 'diamond', animation: 'breathe', color: 'rgba(236,230,218,.95)' },
     'western-classic': { shape: 'fleuron', animation: 'bob', color: '#e2bd6b' },
     'elegant-european': { shape: 'sparkle', animation: 'twinkle', color: '#dccff7' },
+    'magic-academy': { shape: 'sparkle', animation: 'twinkle', color: '#f0cf78' },
+    'qinglv-shanshui': { shape: 'seal', animation: 'breathe', color: '#b23a2a' },
     'retro-japanese': { shape: 'triangle-brush', animation: 'bounce-slow', color: '#c23a24' },
     'adventure-journey': { shape: 'chevron', animation: 'nudge', color: '#9a6a2c' },
     'plant-coffee': { shape: 'leaf', animation: 'sway', color: '#6f8446' },

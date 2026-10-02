@@ -589,9 +589,9 @@ function playEffect(effect, ctx) {
         // 约定便笺：只播放卡片，不写存储；古代背景换宣纸竖排「立契」，印文「契」。
         const el = node(doc, (ctx.ancient ? 'igs-fx-promise is-ancient' : 'igs-fx-promise') + (ctx.worldSkin || ''));
         el.setAttribute('role', 'status');
-        el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '立契' : '约定'));
+        el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '立契' : ctx.worldview === 'magic' ? '魔法契约' : '约定'));
         el.appendChild(node(doc, 'igs-fx-promise-text', effect.place ? [effect.time, effect.place].join(' · ') : effect.time));
-        el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : '约'));
+        el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : ctx.worldview === 'magic' ? '誓' : '约'));
         spawn(state, layers.front, el, life);
         sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'eye') {
@@ -600,9 +600,9 @@ function playEffect(effect, ctx) {
         // 到期提醒复用约定便笺，标题换成当天提醒；古代背景为「契期」。
         const el = node(doc, (ctx.ancient ? 'igs-fx-promise is-due is-ancient' : 'igs-fx-promise is-due') + (ctx.worldSkin || ''));
         el.setAttribute('role', 'status');
-        el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '契期已至' : '今天是约定的日子'));
+        el.appendChild(node(doc, 'igs-fx-promise-title', ctx.ancient ? '契期已至' : ctx.worldview === 'magic' ? '誓约之日已至' : '今天是约定的日子'));
         el.appendChild(node(doc, 'igs-fx-promise-text', effect.place ? [effect.time, effect.place].join(' · ') : effect.time));
-        el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : '约'));
+        el.appendChild(node(doc, 'igs-fx-promise-seal', ctx.ancient ? '契' : ctx.worldview === 'magic' ? '誓' : '约'));
         spawn(state, layers.front, el, life);
         sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'call') {

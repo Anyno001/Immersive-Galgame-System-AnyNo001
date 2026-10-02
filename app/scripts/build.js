@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { contentHash, fontSliceName, JSDELIVR_FILE_LIMIT_BYTES, readSliceManifest, renderSliceFontFaces } from './font-slices.js';
+import { contentHash, findTruncatedFontTables, fontSliceName, JSDELIVR_FILE_LIMIT_BYTES, readSliceManifest, renderSliceFontFaces, SPLIT_FONT_MIN_BYTES } from './font-slices.js';
 import { externalizeSkinAssets, verifySkinAssets } from './skin-assets.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
@@ -248,9 +248,11 @@ function renderBundle(graph, entryId) {
 }
 
 function publishFont(source, name) {
+    const truncated = findTruncatedFontTables(fs.readFileSync(source));
+    if (truncated.length) throw new Error(`Bundled font is truncated (${truncated.join(', ')}); re-download it: ${source}`);
     const sliced = slicedFonts.get(name);
     if (!sliced) {
-        if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Bundled font exceeds the jsDelivr file limit; run \`npm run build:fonts ${name}\`: ${source}`);
+        if (fs.statSync(source).size >= SPLIT_FONT_MIN_BYTES) throw new Error(`Bundled font must be sliced; run \`npm run build:fonts ${name}\`: ${source}`);
         fs.copyFileSync(source, path.join(fontTargetDir, name));
         return;
     }

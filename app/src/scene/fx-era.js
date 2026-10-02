@@ -17,16 +17,25 @@ export const ANCIENT_ERA_PROMPT_RULE = `[igs时代背景]
 export const FX_ERA_ANCIENT_ONLY = Object.freeze({
     dailyFx: Object.freeze(['guqin', 'go', 'poem', 'edict', 'tea', 'bow']),
 });
+// 魔法世界专属演出：施咒、魔药、猫头鹰送信、骑扫帚、吼叫信，其他世界观一律拨成关。
+export const FX_MAGIC_ONLY = Object.freeze({
+    dailyFx: Object.freeze(['spell', 'potion', 'owl', 'broom', 'howler']),
+});
+// 世界观专属演出表：当前世界观以外的表全部拨成关。
+export const FX_WORLDVIEW_ONLY = Object.freeze({ ancient: FX_ERA_ANCIENT_ONLY, magic: FX_MAGIC_ONLY });
 
-function stripAncientOnly(readerSettings) {
+function stripExclusive(readerSettings, worldview) {
     let out = null;
-    for (const [key, kinds] of Object.entries(FX_ERA_ANCIENT_ONLY)) {
-        const group = plain(readerSettings[key]);
-        const on = kinds.filter((kind) => group[kind] === true);
-        if (!on.length) continue;
-        out = out || { ...readerSettings };
-        out[key] = { ...group };
-        for (const kind of on) out[key][kind] = false;
+    for (const [owner, table] of Object.entries(FX_WORLDVIEW_ONLY)) {
+        if (owner === worldview) continue;
+        for (const [key, kinds] of Object.entries(table)) {
+            const group = plain(out ? out[key] : readerSettings[key]);
+            const on = kinds.filter((kind) => group[kind] === true);
+            if (!on.length) continue;
+            out = out || { ...readerSettings };
+            out[key] = { ...group };
+            for (const kind of on) out[key][kind] = false;
+        }
     }
     return out || readerSettings;
 }
@@ -39,11 +48,11 @@ function plain(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-// 不改入参：古代模式返回拨掉现代专属项的新对象；现代模式只在有古代专属项开启时返回副本，否则原样返回。
+// 不改入参：古代模式返回拨掉现代专属项的新对象；现代模式只在有其他世界观专属项开启时返回副本，否则原样返回。
 export function applyFxEra(readerSettings, ancient) {
     if (!readerSettings || typeof readerSettings !== 'object') return readerSettings;
-    if (ancient !== true) return stripAncientOnly(readerSettings);
-    const out = { ...readerSettings };
+    if (ancient !== true) return stripExclusive(readerSettings, '');
+    const out = { ...stripExclusive(readerSettings, 'ancient') };
     for (const [key, kinds] of Object.entries(FX_ERA_MODERN_ONLY)) {
         out[key] = { ...plain(out[key]) };
         for (const kind of kinds) out[key][kind] = false;
@@ -53,7 +62,7 @@ export function applyFxEra(readerSettings, ancient) {
 }
 
 
-// 西幻 / 科幻 / 末日：在现代基线（先拨掉古代专属项）上，再拨掉与该世界观冲突的演出。
+// 西幻 / 科幻 / 末日 / 大正 / 魔法：在现代基线（先拨掉其他世界观专属项）上，再拨掉与该世界观冲突的演出。
 // fxTags / dailyFx 列出要拨成关的类型，features 列出整块拨成关（enabled:false）的功能。
 export const FX_WORLDVIEW_OFF = Object.freeze({
     // 西幻没有现代电子设备：与古代共用现代专属表。
@@ -72,6 +81,12 @@ export const FX_WORLDVIEW_OFF = Object.freeze({
         dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
         features: Object.freeze(['liveFx']),
     }),
+    // 魔法世界没有麻瓜电子设备，传讯靠猫头鹰与魔法；照片会动、城堡有钟声、魔法扩音可作广播，这三项保留。
+    magic: Object.freeze({
+        fxTags: FX_ERA_MODERN_ONLY.fxTags,
+        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
+        features: FX_ERA_MODERN_FEATURES,
+    }),
 });
 
 export const FANTASY_ERA_PROMPT_RULE = `[igs时代背景]
@@ -86,12 +101,16 @@ export const APOCALYPSE_ERA_PROMPT_RULE = `[igs时代背景]
 export const TAISHO_ERA_PROMPT_RULE = `[igs时代背景]
 本故事发生在大正时代（和洋折衷的近代日本）。上述igs标签里填写的文字使用大正时代的说法与器物：通讯写电报、黑色座机、书信或差人传话，电话指要接线员转接的座机；娱乐写活动写真、留声机、咖啡馆；时间可写钟点；不要出现手机、电视、网络、直播等现代事物。`;
 
+export const MAGIC_ERA_PROMPT_RULE = `[igs时代背景]
+本故事发生在魔法世界（隐藏在现实中的巫师社会与魔法学院）。上述igs标签里填写的文字使用魔法世界的说法与器物：书信由猫头鹰送达，通报写猫头鹰、守护神传话或魔法广播；时间写「宵禁钟声后」「第二节魔药课后」「次日清晨」这类说法，不写「07:00」；照片会动、画像会说话、烛火悬在半空都属寻常；咒语、魔杖、魔药、扫帚、学院、级长、禁林等是日常用语；不要出现手机、电话、电视、网络等麻瓜电子设备，除非剧情明确提到麻瓜世界。`;
+
 export const WORLDVIEW_PROMPT_RULES = Object.freeze({
     ancient: ANCIENT_ERA_PROMPT_RULE,
     fantasy: FANTASY_ERA_PROMPT_RULE,
     scifi: SCIFI_ERA_PROMPT_RULE,
     apocalypse: APOCALYPSE_ERA_PROMPT_RULE,
     taisho: TAISHO_ERA_PROMPT_RULE,
+    magic: MAGIC_ERA_PROMPT_RULE,
 });
 
 // 现代与未知 id 返回空串（不追加时代规则）。
@@ -115,7 +134,7 @@ function stripKinds(readerSettings, off) {
 export function applyFxWorldview(readerSettings, worldview) {
     if (!readerSettings || typeof readerSettings !== 'object') return readerSettings;
     if (worldview === 'ancient') return applyFxEra(readerSettings, true);
-    const base = stripAncientOnly(readerSettings);
+    const base = stripExclusive(readerSettings, worldview);
     const off = FX_WORLDVIEW_OFF[worldview];
     return off ? stripKinds(base, off) : base;
 }

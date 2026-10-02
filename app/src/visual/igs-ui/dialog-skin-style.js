@@ -2,6 +2,7 @@ import { CLASSIC_DIALOG_STYLE_TEXT, DIALOG_SKIN_WESTERN_CLASSIC, normalizeDialog
 import { DIALOG_THEME_CHOICE_STYLE_BY_SKIN } from './dialog-theme-choices.js';
 import { getDialogThemeHudStyleText, getDialogThemeItemFxStyleText, getDialogThemeToastStyleText } from './dialog-theme-hud.js';
 import { ILLUSTRATED_DIALOG_STYLE_BY_SKIN } from './dialog-theme-skins.js';
+import { getDialogThemeBattleFxStyleText } from './fx-battle-themes.js';
 
 export const DIALOG_SKIN_STYLE_ID = 'igs-dialog-skin-style';
 export const DIALOG_SKIN_FALLBACK_ATTR = 'data-igs-skin-fallback';
@@ -55,6 +56,7 @@ export function getDialogSkinStyleText(value, { base } = {}) {
         getDialogThemeHudStyleText(skin),
         getDialogThemeItemFxStyleText(skin),
         getDialogThemeToastStyleText(skin),
+        getDialogThemeBattleFxStyleText(skin),
         fallbackCss(skin),
     ].filter(Boolean);
     return resolveSkinAssetUrls(parts.join('\n'), base);

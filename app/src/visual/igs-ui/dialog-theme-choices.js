@@ -1,4 +1,6 @@
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
+import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } from './dialog-theme-css-skins.js';
+import { DIALOG_SKIN_QINGLV, QINGLV_CHOICE_STYLE } from './dialog-theme-guofeng.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -94,6 +96,15 @@ export const DIALOG_THEME_CHOICE_STYLE_BY_SKIN = Object.freeze({
         '': `box-sizing:border-box;min-height:44px;padding:10px 40px;border:0;border-radius:0;background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(8,8,16,0),rgba(8,8,16,.55) 20%,rgba(8,8,16,.55) 80%,rgba(8,8,16,0));box-shadow:none;color:#eeeaf3;letter-spacing:.12em;text-shadow:0 1px 3px rgba(0,0,0,.8);`,
         ':hover': `background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(96,78,168,0),rgba(96,78,168,.72) 22%,rgba(112,92,186,.78) 50%,rgba(96,78,168,.72) 78%,rgba(96,78,168,0));color:#fff;text-shadow:0 0 8px rgba(196,176,255,.6);`,
     }),
+    // 星夜选项：暮色薄纱横带 + 上下两道渐隐银线，上线正中一颗四芒星，悬停时星光亮起。
+    [DIALOG_SKIN_MAGIC_ACADEMY]: bubbleRules(DIALOG_SKIN_MAGIC_ACADEMY, {
+        '': `box-sizing:border-box;min-height:44px;padding:10px 44px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,${magicTint(MAGIC_METAL, 60)},transparent) left top/100% 1px no-repeat,linear-gradient(90deg,transparent,${magicTint(MAGIC_METAL, 35)},transparent) left bottom/100% 1px no-repeat,linear-gradient(90deg,transparent,${magicVeil(74)} 20%,${magicVeil(74)} 80%,transparent);box-shadow:none;color:#ecebf7;letter-spacing:.12em;text-shadow:0 1px 3px rgba(6,6,24,.85);`,
+        '::before': `content:"";position:absolute;left:50%;top:-5px;width:10px;height:10px;margin-left:-5px;background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;opacity:.55;transition:opacity .2s,filter .2s;`,
+        ':hover': `background:linear-gradient(90deg,transparent,${magicTint(MAGIC_METAL_HI, 90)},transparent) left top/100% 1px no-repeat,linear-gradient(90deg,transparent,${magicTint(MAGIC_METAL_HI, 55)},transparent) left bottom/100% 1px no-repeat,radial-gradient(ellipse 45% 120% at 50% 50%,${magicTint(MAGIC_METAL, 22)},transparent),linear-gradient(90deg,transparent,${magicVeil(84)} 16%,${magicVeil(84)} 84%,transparent);color:#fff;text-shadow:0 0 10px ${magicTint(MAGIC_METAL_HI, 60)},0 1px 3px rgba(6,6,24,.85);`,
+        ':hover::before': `opacity:1;filter:drop-shadow(0 0 4px ${MAGIC_METAL_HI});`,
+        ':active': 'transform:translateY(1px);',
+    }),
+    [DIALOG_SKIN_QINGLV]: QINGLV_CHOICE_STYLE,
     [DIALOG_SKIN_GRADIENT_VEIL]: bubbleRules(DIALOG_SKIN_GRADIENT_VEIL, {
         '': 'padding:11px 32px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.6) 18%,rgba(0,0,0,.6) 82%,transparent);box-shadow:none;color:rgba(255,255,255,.88);text-shadow:0 1px 3px rgba(0,0,0,.85);letter-spacing:.1em;',
         '::after': 'content:"";position:absolute;left:20%;right:20%;bottom:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);transition:background .18s;',

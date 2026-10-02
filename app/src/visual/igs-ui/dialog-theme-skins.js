@@ -6,13 +6,14 @@ import {
     DIALOG_SKIN_WARM_PICTUREBOOK,
 } from './dialog-theme-css-skins.js';
 import { buildDialogFrameCss, halo, stroke, threeSliceCss } from './dialog-skin-frame.js';
+import { DIALOG_SKIN_QINGLV, QINGLV_DIALOG_STYLE } from './dialog-theme-guofeng.js';
 
 export const DIALOG_SKIN_PLANT_COFFEE = 'plant-coffee';
 export const DIALOG_SKIN_BLACK_WHITE_MANGA = 'black-white-manga';
 export const DIALOG_SKIN_CUTE_PINK = 'cute-pink';
 export const DIALOG_SKIN_RETRO_JAPANESE = 'retro-japanese';
 export const DIALOG_SKIN_ADVENTURE_JOURNEY = 'adventure-journey';
-export { DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_WARM_PICTUREBOOK };
+export { DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_QINGLV, DIALOG_SKIN_WARM_PICTUREBOOK };
 
 const SLICED_DIALOG_SKINS = Object.freeze([
     DIALOG_SKIN_PLANT_COFFEE,
@@ -23,7 +24,7 @@ const SLICED_DIALOG_SKINS = Object.freeze([
 ]);
 
 // 「插画式」= 固定高度、自带排版默认值的主题，含三片素材主题与纯 CSS 还原主题。
-export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS]);
+export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV]);
 
 export function isIllustratedDialogSkin(value) {
     const skin = typeof value === 'string' ? value : value && value.dialogSkin;
@@ -130,6 +131,7 @@ function slicedSkinCss(skin) {
 export const ILLUSTRATED_DIALOG_STYLE_BY_SKIN = Object.freeze({
     ...Object.fromEntries(SLICED_DIALOG_SKINS.map((skin) => [skin, slicedSkinCss(skin)])),
     ...CSS_DIALOG_STYLE_BY_SKIN,
+    [DIALOG_SKIN_QINGLV]: QINGLV_DIALOG_STYLE,
 });
 
 export const ILLUSTRATED_DIALOG_STYLE_TEXT = ILLUSTRATED_DIALOG_SKINS
