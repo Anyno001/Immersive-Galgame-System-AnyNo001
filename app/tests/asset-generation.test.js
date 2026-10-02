@@ -1060,6 +1060,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     let active = 0;
     let maxActive = 0;
     let angryFailed = false;
+    const seeds = [];
     const painted = [];
     const nai = {
         describe: () => ({ via: 'dbgen', ownPrompts: true, ready: { ok: true } }),
@@ -1095,6 +1096,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
             maxActive = Math.max(maxActive, active);
             const text = meta.caption.v4_prompt.caption.base_caption;
             painted.push(text);
+            seeds.push(meta.seed);
             await Promise.resolve();
             active -= 1;
             assert.equal(meta.transparent, true);
@@ -1136,13 +1138,15 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.equal(dna.identity, '银发，说话很冲');
     assert.equal(promptCalls, 1);
     assert.equal(maxActive, 1);
-    assert.deepEqual(painted, labels.map((label) => `fuyuko, ${moodPresetTags(label)}, expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
+    assert.deepEqual(painted, labels.map((label) => `fuyuko, ${moodPresetTags(label)}, silver hair, expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
+    assert.equal(new Set(seeds).size, 1, 'one seed for the whole set');
+    assert.ok(Number.isInteger(seeds[0]) && seeds[0] >= 0);
     assert.equal(result.items.length, 8);
     assert.equal(result.items[0].ok, true);
     assert.equal(result.items[0].imageId, 'expr-1');
     assert.equal(result.items[1].ok, false);
     assert.equal(result.items[1].mood, '愤怒');
-    assert.equal(result.items[1].caption.v4_prompt.caption.base_caption, `fuyuko, ${moodPresetTags('愤怒')}, expr 愤怒, cowboy shot, standing, facing viewer, straight-on`);
+    assert.equal(result.items[1].caption.v4_prompt.caption.base_caption, `fuyuko, ${moodPresetTags('愤怒')}, silver hair, expr 愤怒, cowboy shot, standing, facing viewer, straight-on`);
     assert.equal(progress[0].phase, 'write');
     assert.equal(progress[0].done, 0);
     assert.equal(progress[0].total, 8);
@@ -1420,4 +1424,26 @@ test('gate:assets:expression-mood-tags-beat-copied-neutral-face-and-dna-pose', a
     const legacy = '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}';
     assert.equal(normalizeAutoIllustrationSettings({ assets: { templates: { sprite: legacy } } }).assets.templates.sprite.includes('arms at sides'), false);
     assert.equal(normalizeAutoIllustrationSettings({ assets: { templates: { sprite: '{tags}, arms at sides' } } }).assets.templates.sprite, '{tags}, arms at sides');
+});
+
+test('gate:assets:expression-look-keeps-clothes-from-one-source', async () => {
+    const { expressionLookTags, expressionPaintDna, applyLookToCaption } = await import('../src/generated-images/dbgen-prompt.js');
+    const { expressionSeed } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const base = { caption: {
+        v4_prompt: { caption: { base_caption: 'solo', char_captions: [{ char_caption: '1girl, black hair, red hoodie, shorts, expressionless, closed mouth, arms at sides, cowboy shot, standing, transparent background' }] } },
+        v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } },
+    } };
+    assert.equal(expressionLookTags(base, null), '1girl, black hair, red hoodie, shorts');
+    assert.equal(expressionLookTags(base, { name: '泳装', prompt: 'white bikini, 白色泳衣, sun hat', ownImage: false }), 'white bikini, sun hat');
+    assert.equal(expressionLookTags(base, { name: '泳装', prompt: '', ownImage: false }), '', 'old clothes must not leak into a new outfit');
+    assert.equal(expressionLookTags(base, { name: '泳装', prompt: '', ownImage: true }), '1girl, black hair, red hoodie, shorts');
+    assert.equal(expressionLookTags({ positive: '1girl, maid outfit, smile' }, null), '1girl, maid outfit');
+    const dna = { identity: 'black hair', defaultAppearance: 'red hoodie' };
+    assert.equal(expressionPaintDna(dna, null), dna);
+    assert.deepEqual(expressionPaintDna(dna, { name: '泳装' }), { identity: 'black hair', defaultAppearance: '' });
+    const caption = { v4_prompt: { caption: { base_caption: 'laughing, red jacket', char_captions: [] } }, v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } } };
+    assert.equal(applyLookToCaption(caption, 'red hoodie, shorts').v4_prompt.caption.base_caption, 'red hoodie, shorts, laughing, red jacket');
+    assert.equal(applyLookToCaption(caption, ''), caption);
+    assert.equal(expressionSeed('冬月', ''), expressionSeed('冬月', ''));
+    assert.notEqual(expressionSeed('冬月', ''), expressionSeed('冬月', '泳装'));
 });

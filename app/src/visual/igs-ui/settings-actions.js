@@ -1121,11 +1121,13 @@ export async function handleSettingsAction(action, ctx) {
         const onProgress = (event) => reportExpressionProgress(globalObj, event);
         const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction);
         const stopControl = createStopControl(() => restoreBusy());
+        // 格子里已有图是「不满意重画」，换一颗种子；失败的空格沿用整套那颗。
+        const reseed = retry && Boolean(String(slots[mood] || '').trim());
         try {
             result = retry && savedCaption && typeof service.generateExpressionImage === 'function'
-                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, onProgress, signal: stopControl.signal })
+                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, outfit, reseed, onProgress, signal: stopControl.signal })
                 : retry
-                    ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
+                    ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, reseed, onProgress, signal: stopControl.signal })
                     : await service.generateExpressionSet({ name, basePrompt, moods: missingLabels, dna, outfit, onProgress, signal: stopControl.signal });
         } catch (error) {
             stopControl.done();

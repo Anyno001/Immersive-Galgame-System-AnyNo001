@@ -247,6 +247,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         const params = {
             ...(size || {}),
             ...(meta.transparent === true && { straight_alpha: true, tag_hint_transparent_background: true }),
+            ...(Number.isInteger(meta.seed) && meta.seed >= 0 && { seed: meta.seed }),
         };
         let result;
         try {

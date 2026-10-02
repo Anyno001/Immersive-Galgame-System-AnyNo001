@@ -6,7 +6,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyMoodToCaption, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
@@ -19,6 +19,16 @@ const AVATAR_NEGATIVE = 'full body, multiple views, realistic, text, watermark, 
 // review：等待楼层结束时让用户处理；chat：用户选择仅本聊天使用；
 // library：已加入素材库（由生成区条目接管）；discarded：丢弃。
 const ACTIVE_TEMP_STATUSES = new Set(['review', 'chat']);
+
+// 同一角色同一套衣服的差分共用一颗种子（按名字算，换窗口、补画也一样）。
+export function expressionSeed(name, outfitName) {
+    let hash = 0x811c9dc5;
+    for (const ch of `${String(name || '')}${String(outfitName || '')}`) {
+        hash ^= ch.codePointAt(0);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash;
+}
 
 function toReadableText(raw) {
     return numberParagraphs(raw).paragraphs.map((p) => p.text).join('\n');
@@ -561,12 +571,13 @@ export function createAssetGenerationService(deps) {
         };
     }
 
-    async function paintExpressionCaption(name, mood, caption, dna) {
-        const upright = uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(caption, mood), dna)) || caption;
+    // 标签顺序：DNA → 表情 → 衣服与长相 → 写词结果。seed 给了就整套共用，衣服和画风更稳。
+    async function paintExpressionCaption(name, mood, caption, dna, { look = '', seed } = {}) {
+        const upright = uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(applyLookToCaption(caption, look), mood), dna)) || caption;
         const meta = expressionPaintMeta();
         let painted;
         try {
-            painted = await nai.generateDbgenCaption({ ...meta, caption: upright });
+            painted = await nai.generateDbgenCaption({ ...meta, caption: upright, ...(seed != null && { seed }) });
         } catch (error) {
             painted = { ok: false, error: (error && error.message) || '出图失败' };
         }
@@ -595,12 +606,17 @@ export function createAssetGenerationService(deps) {
 
     // 一次写完所有提示词，再按顺序逐张出图；某一张失败不影响后面的。
     // 插件少给某几份时只补写那几份；signal 中止后已画好的图保留。
-    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress, signal } = {}) {
+    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress, signal, reseed = false } = {}) {
         const labels = (Array.isArray(moods) ? moods : []).map((item) => String(item || '').trim()).filter(Boolean);
         if (!labels.length) return { ok: false, error: '没有表情分组' };
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
             return { ok: false, error: '当前图像来源不能写表情差分' };
         }
+        const paint = {
+            look: expressionLookTags(basePrompt, outfit),
+            seed: reseed ? undefined : expressionSeed(name, outfit && outfit.name),
+        };
+        const paintDna = expressionPaintDna(dna, outfit);
         const stopped = () => Boolean(signal && signal.aborted);
         const items = [];
         let pending = labels.slice();
@@ -643,7 +659,7 @@ export function createAssetGenerationService(deps) {
                     items.push({ mood: pending[i], ok: false, error: '写提示词没有返回这一份' });
                     continue;
                 }
-                const result = await paintExpressionCaption(name, pending[i], caption, dna);
+                const result = await paintExpressionCaption(name, pending[i], caption, paintDna, paint);
                 items.push(result);
             }
             pending = round === 0 ? missing : [];
@@ -651,16 +667,17 @@ export function createAssetGenerationService(deps) {
         return { ok: true, items, stopped: stopped() };
     }
 
-    // 失败槽重画：已有 caption 就只出这一张，不再写词。
-    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, onProgress } = {}) {
+    // 失败槽重画：已有 caption 就只出这一张，不再写词。格子里已有图（不满意重画）时 reseed 换一颗种子，否则画出来一模一样。
+    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, onProgress, reseed = false } = {}) {
         const label = String(mood || '').trim();
         if (!label) return { ok: false, error: '没有表情' };
         if (caption) {
             reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: label });
-            const item = await paintExpressionCaption(name, label, caption);
+            const seed = reseed ? undefined : expressionSeed(name, outfit && outfit.name);
+            const item = await paintExpressionCaption(name, label, caption, null, { seed });
             return { ok: true, items: [item] };
         }
-        return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, onProgress });
+        return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, onProgress, reseed });
     }
 
     // 状态栏头像：Q 版大头，方图、不抠图，直接把图交回去，由设置页缩小后存进头像。

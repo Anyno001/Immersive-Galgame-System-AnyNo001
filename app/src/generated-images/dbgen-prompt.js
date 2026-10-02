@@ -336,9 +336,48 @@ const NEUTRAL_FACE_TAGS = new Set(['expressionless', 'emotionless', 'neutral exp
 export function applyMoodToCaption(caption, mood) {
     const label = String(mood || '').trim();
     const tags = label === '默认' ? '' : moodPresetTags(label);
+    return prependCharTags(caption, tags, (tag) => !NEUTRAL_FACE_TAGS.has(tagKey(tag)));
+}
+
+// 衣服跟着同一份来源走，不靠写词插件每份重写：换装有服装词就用服装词；
+// 原装或这套有自己的立绘时，用那张立绘的提示词去掉表情、姿势后剩下的长相和衣服。
+const LOOK_SKIP_TAGS = new Set(['solo', 'cowboy shot', 'facing viewer', 'straight-on', 'centered', 'transparent background', 'simple background', 'grey background', 'light grey background', 'flat color background', 'no background'].map(tagKey));
+
+function storedCharTags(prompt) {
+    const stored = prompt && typeof prompt === 'object' ? prompt : {};
+    const pos = stored.caption && stored.caption.v4_prompt && stored.caption.v4_prompt.caption;
+    if (pos) {
+        const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
+        return String((chars[0] && chars[0].char_caption) || pos.base_caption || '');
+    }
+    return String(stored.positive || '');
+}
+
+export function expressionLookTags(basePrompt, outfit) {
+    const clothes = outfit && typeof outfit === 'object' ? outfit : null;
+    const clothesPrompt = clothes ? String(clothes.prompt || '').trim() : '';
+    if (clothesPrompt) return dnaEnglishTags(clothesPrompt).join(', ');
+    if (clothes && !clothes.ownImage) return '';
+    return splitTags(storedCharTags(basePrompt))
+        .filter((tag) => !isExpressionPoseTag(tag) && !LOOK_SKIP_TAGS.has(tagKey(tag)))
+        .join(', ');
+}
+
+// 换了衣服的那一套，DNA 的默认外观里是原装的衣服，硬合会和新衣服打架。
+export function expressionPaintDna(dna, outfit) {
+    if (!dna || typeof dna !== 'object' || !outfit || typeof outfit !== 'object') return dna;
+    return { ...dna, defaultAppearance: '' };
+}
+
+export function applyLookToCaption(caption, tags) {
+    return prependCharTags(caption, tags);
+}
+
+// 把一组标签放到角色 caption（没有角色块时放 base）最前，原有标签按 keep 过滤后接在后面。
+function prependCharTags(caption, tags, keep = () => true) {
     const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
-    if (!tags || !pos) return caption;
-    const merge = (text) => mergeTags(tags, splitTags(text).filter((tag) => !NEUTRAL_FACE_TAGS.has(tagKey(tag))).join(', '));
+    if (!String(tags || '').trim() || !pos) return caption;
+    const merge = (text) => mergeTags(tags, splitTags(text).filter(keep).join(', '));
     const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
     return {
         ...caption,
