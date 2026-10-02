@@ -125,6 +125,41 @@ export function bindCharacterDnaToSlots(slots, sceneAssets, contextCharacters = 
     return { slots: next, warnings };
 }
 
+// 数据库生图返回的 NaiCaption 没有角色名：按同一规则（单人且上下文唯一角色）把 DNA 并进 char caption。
+export function bindCharacterDnaToCaption(caption, sceneAssets, contextCharacters = [], slotId) {
+    const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
+    const neg = caption && caption.v4_negative_prompt && caption.v4_negative_prompt.caption;
+    const chars = pos && Array.isArray(pos.char_captions) ? pos.char_captions : [];
+    if (!chars.length) return { caption, warnings: [] };
+    const ucs = neg && Array.isArray(neg.char_captions) ? neg.char_captions : [];
+    const bound = bindCharacterDnaToSlots([{
+        slot: slotId,
+        chars: chars.map((item, i) => ({ tags: (item && item.char_caption) || '', uc: (ucs[i] && ucs[i].char_caption) || '' })),
+    }], sceneAssets, contextCharacters);
+    const next = bound.slots[0].chars;
+    return {
+        warnings: bound.warnings,
+        caption: {
+            ...caption,
+            v4_prompt: {
+                ...caption.v4_prompt,
+                caption: { ...pos, char_captions: chars.map((item, i) => ({ ...item, char_caption: next[i].tags })) },
+            },
+            v4_negative_prompt: {
+                ...(caption.v4_negative_prompt || {}),
+                caption: {
+                    ...(neg || {}),
+                    base_caption: (neg && neg.base_caption) || '',
+                    char_captions: chars.map((item, i) => ({
+                        ...(ucs[i] && typeof ucs[i] === 'object' ? ucs[i] : (item && item.centers ? { centers: item.centers } : {})),
+                        char_caption: next[i].uc || '',
+                    })),
+                },
+            },
+        },
+    };
+}
+
 export function createAutoIllustrationService(deps) {
     const { messageHost, llm, nai, store, getSettings, events } = deps;
     const random = deps.random || Math.random;
@@ -187,7 +222,7 @@ export function createAutoIllustrationService(deps) {
     }
 
     // 数据库生图：只调插件的写词接口和出图接口。生成点按本插件的插图标记写回正文。
-    async function planDbgenCg(messageId, floor, key, s, expected, decision, base) {
+    async function planDbgenCg(messageId, floor, key, s, expected, decision, base, characters = []) {
         report('info', `第 ${messageId} 楼向数据库生图插件要 ${decision.want} 张 CG…`);
         progress(floor, { phase: 'write' });
         await store.putFloor(key, { ...base, status: 'planning', updatedAt: now() });
@@ -225,6 +260,7 @@ export function createAutoIllustrationService(deps) {
             report('warn', `第 ${messageId} 楼数据库生图插件返回了 ${Array.isArray(written.captions) ? written.captions.length : 0} 张，按 ${returned.length} 张生成`);
         }
         const slots = [];
+        const sceneAssets = readSceneAssets();
         for (const item of returned) {
             const anchorSentence = String(item.anchorSentence || item.anchor || '').trim();
             const found = findAnchorInsertIndex(floor.text, anchorSentence);
@@ -232,7 +268,10 @@ export function createAutoIllustrationService(deps) {
                 report('warn', `第 ${messageId} 楼第 ${item.slotId} 张没有能对上正文的生成点，跳过`);
                 continue;
             }
-            slots.push({ slot: Number(item.slotId) || slots.length + 1, caption: item.caption, anchorSentence });
+            const slot = Number(item.slotId) || slots.length + 1;
+            const bound = bindCharacterDnaToCaption(item.caption, sceneAssets, characters, slot);
+            for (const warning of bound.warnings) report('warn', `第 ${messageId} 楼${warning}`);
+            slots.push({ slot, caption: bound.caption, anchorSentence });
         }
         if (!slots.length) {
             const error = '数据库生图插件没有返回能对上正文的生成点';
@@ -337,7 +376,7 @@ export function createAutoIllustrationService(deps) {
             report('error', `第 ${messageId} 楼插图未开始：${backend.ready.error}`);
             return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
         }
-        if (backend.via === 'dbgen') return planDbgenCg(messageId, floor, key, s, expected, decision, base);
+        if (backend.via === 'dbgen') return planDbgenCg(messageId, floor, key, s, expected, decision, base, numbered.characters);
         report('info', `第 ${messageId} 楼开始规划插图（${decision.kind === 'nsfw' ? 'NSFW' : '过场'}），正在请求副 LLM…`);
         progress(floor, { phase: 'write' });
         await store.putFloor(key, { ...base, status: 'planning', updatedAt: now() });

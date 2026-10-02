@@ -11,6 +11,7 @@ import {
     resolveIllustrationForPage,
 } from '../src/scene/scene-directives.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
+import { bindCharacterDnaToCaption } from '../src/generated-images/illustration/auto-illustration-service.js';
 
 test('gate:illustration:marker-does-not-shift-scene-directives', () => {
     const plain = '[igs-scene:卧室|夜晚|晴]\n[igs-char:小雪|开心|你好]\n一\n二';
@@ -870,4 +871,19 @@ test('gate:illustration:nsfw-cg-keeps-floor-wide-behaviour', () => {
     assert.deepEqual(cgSlots(src, segments), [1, 1, 1, 1, 1, 1, 1]);
     // 本楼没写场景时沿用上一楼的 NSFW 状态。
     assert.deepEqual(cgSlots(src.replace(/^.*\n/, ''), segments, { inheritedNsfw: true }), [1, 1, 1, 1, 1, 1, 1]);
+});
+
+test('数据库生图 CG：单人且上下文唯一角色时 DNA 并进 char caption，多人不注入', () => {
+    const assets = { characters: { 小雪: {} }, characterAliases: {}, characterDna: { 小雪: { triggerWords: 'xiaoxue', identity: '1girl, white hair', negative: 'short hair' } } };
+    const caption = (n) => ({
+        v4_prompt: { caption: { base_caption: 'room', char_captions: Array.from({ length: n }, () => ({ char_caption: 'smile', centers: [{ x: 0.5, y: 0.5 }] })) } },
+        v4_negative_prompt: { caption: { base_caption: 'bad', char_captions: [] } },
+    });
+    const single = bindCharacterDnaToCaption(caption(1), assets, ['小雪'], 1);
+    assert.equal(single.caption.v4_prompt.caption.char_captions[0].char_caption, 'xiaoxue, 1girl, white hair, smile');
+    assert.equal(single.caption.v4_negative_prompt.caption.char_captions[0].char_caption, 'short hair');
+    assert.deepEqual(single.caption.v4_negative_prompt.caption.char_captions[0].centers, [{ x: 0.5, y: 0.5 }]);
+    const pair = bindCharacterDnaToCaption(caption(2), assets, ['小雪'], 2);
+    assert.equal(pair.caption.v4_prompt.caption.char_captions[0].char_caption, 'smile');
+    assert.equal(pair.warnings.length, 1);
 });
