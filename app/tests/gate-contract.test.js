@@ -34,6 +34,7 @@ import {
 import { GRADIENT_VEIL_STYLE_TEXT } from '../src/visual/igs-ui/gradient-veil-dialog-skin.js';
 import { getDialogSkinStyleText, listDialogSkinAssetUrls, watchDialogSkinAssets } from '../src/visual/igs-ui/dialog-skin-style.js';
 import { getSettingsShellTemplate } from '../src/visual/igs-ui/settings-shell.js';
+import { findTruncatedFontTables } from '../scripts/font-slices.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import { DIALOG_FONT_OPTIONS } from '../src/visual/igs-ui/reader-host-constants.js';
 import {
@@ -1054,8 +1055,11 @@ test('gate:igs-ui:bundled-dialog-fonts-keep-assets-and-licenses', () => {
         const font = fs.readFileSync(path.join(root, file));
         assert.ok(font.length > 1024, file);
         assert.ok(['OTTO', 'wOF2', '\0\x01\0\0'].includes(font.subarray(0, 4).toString('ascii')), file);
+        assert.deepEqual(findTruncatedFontTables(font), [], file);
         assert.match(build, new RegExp(file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     }
+    const yozai = fs.readFileSync(path.join(root, 'Yozai-Regular.ttf'));
+    assert.ok(findTruncatedFontTables(yozai.subarray(0, 2109440)).includes('glyf'));
     const licenses = [
         'OFL.txt', 'SourceHanSerifCN-LICENSE.txt', 'SourceHanSansCN-LICENSE.txt',
         'Cormorant-OFL.txt', 'Cormorant-OFL-FAQ.txt', 'LXGW-OFL.txt', 'Yozai-OFL.txt',

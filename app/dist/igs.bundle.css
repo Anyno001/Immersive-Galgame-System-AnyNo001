@@ -8,12 +8,12 @@
 @import url("./fonts/LXGWNeoZhiSong/font.css?v=c4324d5f");
 @import url("./fonts/LXGWNeoXiHei/font.css?v=c254d326");
 @import url("./fonts/SourceHanSansCN-Medium/font.css?v=57398e48");
+@import url("./fonts/HuiwenMincho/font.css?v=7c496731");
+@import url("./fonts/Yozai-Regular/font.css?v=ca1ec3ef");
 @import url("./fonts/SourceHanSerifCN-Regular/font.css?v=6f3b4dcb");
-@font-face { font-family: "Huiwen Mincho"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/HuiwenMincho.otf") format("opentype"); }
 @font-face { font-family: "Tsanger YuYang"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/TsangerYuYangT-W05.woff2") format("woff2"); }
 @font-face { font-family: "Smiley Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/SmileySans-Oblique.ttf") format("truetype"); }
 @font-face { font-family: "ZCOOL KuaiLe"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/ZCOOLKuaiLe-Regular.ttf") format("truetype"); }
-@font-face { font-family: "Yozai"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/Yozai-Regular.ttf") format("truetype"); }
 @font-face { font-family: "Cinzel"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("./fonts/Cinzel-Variable.ttf") format("truetype"); }
 @font-face { font-family: "Great Vibes"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/GreatVibes-Regular.ttf") format("truetype"); }
 @font-face { font-family: "Pinyon Script"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/PinyonScript-Regular.ttf") format("truetype"); }

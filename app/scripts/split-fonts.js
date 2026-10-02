@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { contentHash, fontSliceManifestPath, fontSliceName, parseSliceCss, rebrotliWoff2, SPLIT_FONT_MIN_BYTES } from './font-slices.js';
+import { contentHash, findTruncatedFontTables, fontSliceManifestPath, fontSliceName, parseSliceCss, rebrotliWoff2, SPLIT_FONT_MIN_BYTES } from './font-slices.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
 const fontSourceDir = path.join(appRoot, 'src', 'visual', 'igs-ui', 'assets', 'fonts');
@@ -38,6 +38,8 @@ async function splitOne(file) {
     }
     const source = path.join(fontSourceDir, file);
     const input = fs.readFileSync(source);
+    const truncated = findTruncatedFontTables(input);
+    if (truncated.length) throw new Error(`${file} is truncated (${truncated.join(', ')}); re-download it before splitting.`);
     const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'igs-font-split-'));
     try {
         await fontSplit({
