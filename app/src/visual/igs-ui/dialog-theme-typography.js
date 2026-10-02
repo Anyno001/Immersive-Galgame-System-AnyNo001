@@ -122,16 +122,17 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#c3b4e6',
         narrationColor: '#d4cfdc',
     }),
+    // 魔法星夜：月光银白，内心独白取淡长春花蓝，旁白再淡一层；姓名用纤细的 Cormorant 衬线。
     'magic-academy': Object.freeze({
-        nameAlign: 'center',
-        nameFont: DIALOG_FONT_IM_FELL,
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_CORMORANT,
         textFont: DIALOG_FONT_HUIWEN,
         thoughtFont: DIALOG_FONT_HUIWEN,
         narrationFont: DIALOG_FONT_HUIWEN,
-        nameColor: '#f6e7c1',
-        textColor: '#efe4c8',
-        thoughtColor: '#a9c8ff',
-        narrationColor: '#c9b98e',
+        nameColor: '#f1effb',
+        textColor: '#ecebf7',
+        thoughtColor: '#b8c3ff',
+        narrationColor: '#c9c7dd',
     }),
     // 青绿山水：明朝体托住绢本气质，内心独白换楷书以示区别；墨色取黛青，旁白淡一层。
     'qinglv-shanshui': Object.freeze({

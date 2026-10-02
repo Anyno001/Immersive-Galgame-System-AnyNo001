@@ -1175,7 +1175,7 @@ test('gate:igs-ui:new-dialog-skins-register-frames-and-typography', () => {
     assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__adventure-journey\/name\.png__/);
     assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__elegant-european\/dialog\.png__"\);[^}]*100% 100%;background-repeat:no-repeat/);
     assert.ok(!/elegant-european"\]\{[^}]*border-image/.test(ILLUSTRATED_SKIN_CSS), '优雅欧式两侧细线不得穿过中央饰纹');
-    assert.match(ILLUSTRATED_SKIN_CSS, /__IGS_ASSET__elegant-european\/ornament-top\.png__/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /elegant-european"\]\{[^}]*background-image:url\("data:image\/svg\+xml,/, '优雅欧式饰纹用矢量绘制，高倍屏不糊');
     for (const skin of ['day-minimal', 'elegant-european']) {
         assert.ok(ILLUSTRATED_SKIN_CSS.includes(`#igs-overlay.igs-floating .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-floating-mobile .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{left:0;right:0;bottom:0;width:auto;margin:0;transform:none;}`), skin);
     }

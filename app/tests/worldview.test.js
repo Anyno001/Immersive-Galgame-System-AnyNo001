@@ -197,10 +197,10 @@ test('gate:worldview:magic-refinements-spell-hue-house-colors-and-world-scoped-d
     assert.equal(spellHue('呼神护卫'), '#e4ecff');
     assert.equal(spellHue('Avada Kedavra'), '#4dff6e');
     assert.equal(spellHue('某个自创咒语'), spellHue('某个自创咒语'));
-    assert.deepEqual(MAGIC_HOUSES.map((h) => h.id), ['scarlet', 'emerald', 'sapphire', 'amber']);
-    assert.equal(normalizeMagicHouse('nope'), 'scarlet');
-    assert.equal(magicHouseVars('emerald')['--igs-ma-plate-a'], '#1f6b47');
-    assert.match(CSS_DIALOG_STYLE_BY_SKIN['magic-academy'], /var\(--igs-ma-plate-a,#8f2636\)/);
+    assert.deepEqual(MAGIC_HOUSES.map((h) => h.id), ['starlight', 'scarlet', 'emerald', 'sapphire', 'amber']);
+    assert.equal(normalizeMagicHouse('nope'), 'starlight');
+    assert.equal(magicHouseVars('emerald')['--igs-ma-veil'], '#0f2b2c');
+    assert.match(CSS_DIALOG_STYLE_BY_SKIN['magic-academy'], /var\(--igs-ma-veil,#1b1a44\)/);
     const reader = { dailyFx: { enabled: true } };
     const list = (worldview) => renderStageDirectionFields(reader, (key, label, body) => body, { worldview }).daily;
     assert.ok(list('magic').includes('dailyFx.spell') && !list('magic').includes('dailyFx.guqin'));
