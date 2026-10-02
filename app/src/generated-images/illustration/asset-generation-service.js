@@ -20,16 +20,6 @@ const AVATAR_NEGATIVE = 'body, shoulders, neck, upper body, cowboy shot, full bo
 // library：已加入素材库（由生成区条目接管）；discarded：丢弃。
 const ACTIVE_TEMP_STATUSES = new Set(['review', 'chat']);
 
-// 同一角色同一套衣服的差分共用一颗种子（按名字算，换窗口、补画也一样）。
-export function expressionSeed(name, outfitName) {
-    let hash = 0x811c9dc5;
-    for (const ch of `${String(name || '')}${String(outfitName || '')}`) {
-        hash ^= ch.codePointAt(0);
-        hash = Math.imul(hash, 0x01000193) >>> 0;
-    }
-    return hash;
-}
-
 function randomSeed() {
     return Math.floor(Math.random() * 4294967295);
 }
@@ -575,7 +565,7 @@ export function createAssetGenerationService(deps) {
         };
     }
 
-    // 标签顺序：DNA → 表情 → 衣服与长相 → 写词结果。seed 给了就整套共用，衣服和画风更稳。
+    // 标签顺序：DNA → 表情 → 衣服与长相 → 写词结果。
     async function paintExpressionCaption(name, mood, caption, dna, { look = '', seed } = {}) {
         const upright = uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(applyLookToCaption(caption, look), mood), dna)) || caption;
         const meta = expressionPaintMeta();
@@ -610,7 +600,8 @@ export function createAssetGenerationService(deps) {
 
     // 一次写完所有提示词，再按顺序逐张出图；某一张失败不影响后面的。
     // 插件少给某几份时只补写那几份；signal 中止后已画好的图保留。
-    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress, signal, reseed = false } = {}) {
+    // 一次点击里画的这一批共用一颗新种子：同批衣服、画风接近；删掉重来、补画都是新种子，不会画回旧图。
+    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress, signal } = {}) {
         const labels = (Array.isArray(moods) ? moods : []).map((item) => String(item || '').trim()).filter(Boolean);
         if (!labels.length) return { ok: false, error: '没有表情分组' };
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
@@ -618,7 +609,7 @@ export function createAssetGenerationService(deps) {
         }
         const paint = {
             look: expressionLookTags(basePrompt, outfit),
-            seed: reseed ? randomSeed() : expressionSeed(name, outfit && outfit.name),
+            seed: randomSeed(),
         };
         const paintDna = expressionPaintDna(dna, outfit);
         const stopped = () => Boolean(signal && signal.aborted);
@@ -671,19 +662,18 @@ export function createAssetGenerationService(deps) {
         return { ok: true, items, stopped: stopped() };
     }
 
-    // 失败的空格：已有 caption 就只出这一张，不再写词，种子沿用整套那颗。
-    // 格子里已有图（不满意重画）：旧图的提示词可能是修复前写的，按当前流程重新写词，并显式换一颗随机种子
-    // ——不传种子时插件用自己的运行配置，配置是固定种子就会画出同一张。没有底图提示词时才退回旧词。
-    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, onProgress, reseed = false } = {}) {
+    // 单张重画：有这一格的提示词就不再写词（写词要等插件的模型，单张也得几十秒），
+    // 直接叠上当前的表情、衣服、DNA 硬合再出图；显式换一颗随机种子——不传种子时插件用自己的配置，固定种子会画出同一张。
+    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, onProgress } = {}) {
         const label = String(mood || '').trim();
         if (!label) return { ok: false, error: '没有表情' };
-        if (caption && !(reseed && basePrompt)) {
+        if (caption) {
             reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: label });
-            const seed = reseed ? randomSeed() : expressionSeed(name, outfit && outfit.name);
-            const item = await paintExpressionCaption(name, label, caption, null, { seed });
+            const look = expressionLookTags(basePrompt, outfit);
+            const item = await paintExpressionCaption(name, label, caption, expressionPaintDna(dna, outfit), { look, seed: randomSeed() });
             return { ok: true, items: [item] };
         }
-        return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, onProgress, reseed });
+        return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, onProgress });
     }
 
     // 状态栏头像：Q 版大头，方图、不抠图，直接把图交回去，由设置页缩小后存进头像。

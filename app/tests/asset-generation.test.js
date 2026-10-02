@@ -1428,7 +1428,6 @@ test('gate:assets:expression-mood-tags-beat-copied-neutral-face-and-dna-pose', a
 
 test('gate:assets:expression-look-keeps-clothes-from-one-source', async () => {
     const { expressionLookTags, expressionPaintDna, applyLookToCaption } = await import('../src/generated-images/dbgen-prompt.js');
-    const { expressionSeed } = await import('../src/generated-images/illustration/asset-generation-service.js');
     const base = { caption: {
         v4_prompt: { caption: { base_caption: 'solo', char_captions: [{ char_caption: '1girl, black hair, red hoodie, shorts, expressionless, closed mouth, arms at sides, cowboy shot, standing, transparent background' }] } },
         v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } },
@@ -1444,16 +1443,14 @@ test('gate:assets:expression-look-keeps-clothes-from-one-source', async () => {
     const caption = { v4_prompt: { caption: { base_caption: 'laughing, red jacket', char_captions: [] } }, v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } } };
     assert.equal(applyLookToCaption(caption, 'red hoodie, shorts').v4_prompt.caption.base_caption, 'red hoodie, shorts, laughing, red jacket');
     assert.equal(applyLookToCaption(caption, ''), caption);
-    assert.equal(expressionSeed('冬月', ''), expressionSeed('冬月', ''));
-    assert.notEqual(expressionSeed('冬月', ''), expressionSeed('冬月', '泳装'));
 });
 
-test('gate:assets:regenerating-a-filled-expression-rewrites-with-a-fresh-seed', async () => {
+test('gate:assets:reroll-paints-the-slot-prompt-with-a-fresh-seed-and-no-rewrite', async () => {
     const cap = (t) => ({ v4_prompt: { caption: { base_caption: t, char_captions: [] } }, v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } } });
     const writes = [];
     const paints = [];
     const nai = {
-        writeDbgenPrompt: async (meta) => { writes.push(meta.description); return { ok: true, caption: cap('fresh'), captions: [{ slotId: 1, caption: cap('fresh') }] }; },
+        writeDbgenPrompt: async (meta) => { writes.push(meta.description); return { ok: true, caption: cap('fresh'), captions: [1, 2].map((slotId) => ({ slotId, caption: cap('fresh') })) }; },
         generateDbgenCaption: async (meta) => { paints.push(meta); return { ok: true, dataUrl: 'data:image/png;base64,QQ==', prompt: { positive: 'x', negative: '' } }; },
     };
     let seq = 0;
@@ -1464,15 +1461,19 @@ test('gate:assets:regenerating-a-filled-expression-rewrites-with-a-fresh-seed', 
         newId: () => `r-${seq += 1}`,
         matte: async (dataUrl) => dataUrl,
     });
-    const basePrompt = { positive: '1girl, red hoodie', negative: '', caption: cap('1girl, red hoodie') };
-    await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: cap('old, expressionless'), basePrompt, reseed: true });
-    await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: cap('old, expressionless'), basePrompt, reseed: true });
-    assert.equal(writes.length, 2, 'filled slot is rewritten, not repainted from the old prompt');
-    assert.match(paints[0].caption.v4_prompt.caption.base_caption, /^laughing/);
-    assert.doesNotMatch(paints[0].caption.v4_prompt.caption.base_caption, /old/);
+    const basePrompt = { positive: '1girl, red hoodie', negative: '', caption: cap('1girl, red hoodie, expressionless') };
+    const old = cap('old pose, expressionless, closed mouth');
+    await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: old, basePrompt });
+    await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: old, basePrompt });
+    assert.equal(writes.length, 0, 'reroll paints straight away, no slow prompt writing');
+    const text = paints[0].caption.v4_prompt.caption.base_caption;
+    assert.match(text, /^laughing, open mouth/);
+    assert.match(text, /red hoodie/);
+    assert.doesNotMatch(text, /expressionless|closed mouth/);
     assert.ok(Number.isInteger(paints[0].seed) && Number.isInteger(paints[1].seed));
-    await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: cap('noted') });
-    assert.equal(writes.length, 2, 'failed empty slot repaints its saved caption');
-    const { expressionSeed } = await import('../src/generated-images/illustration/asset-generation-service.js');
-    assert.equal(paints[2].seed, expressionSeed('冬月', ''));
+    assert.notEqual(paints[0].seed, paints[1].seed, 'each reroll gets a new seed');
+    await service.generateExpressionSet({ name: '冬月', basePrompt, moods: ['喜悦', '愤怒'] });
+    await service.generateExpressionSet({ name: '冬月', basePrompt, moods: ['喜悦', '愤怒'] });
+    assert.equal(paints[2].seed, paints[3].seed, 'one batch shares a seed');
+    assert.notEqual(paints[2].seed, paints[4].seed, 'deleting and redoing gets a new seed');
 });
