@@ -557,3 +557,51 @@ test('gate:settings-sections:import-action-confirms-and-runs-through-normalize',
         globalThis.FileReader = prevReader;
     }
 });
+
+test('gate:expression-set:custom-groups-only-when-asked', async () => {
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
+    const run = async (takeCustom) => {
+        const asks = [];
+        const seen = [];
+        const draft = {
+            bridge: {
+                sceneAssets: {
+                    characters: { 冬月: { 默认: 'igs-gen:def', 旧组甲: 'igs-gen:has' } },
+                    moodGroups: [{ label: '喜悦', words: [] }, { label: '旧组甲', words: [] }, { label: '旧组乙', words: [] }, { label: '旧组丙', words: [] }],
+                },
+            },
+            readerSettings: {},
+        };
+        const ctx = {
+            state: { activeSettings: { draft, asyncState: {} } },
+            options: {
+                global: { alert() {}, document: { getElementById() { return null; } } },
+                generatedAssets: {
+                    getImagePrompt: async () => ({ positive: '1girl', negative: 'lowres', caption }),
+                    generateExpressionSet: async (input) => {
+                        seen.push(input.moods.slice());
+                        return { ok: true, items: input.moods.map((mood) => ({ mood, ok: true, imageId: `new-${mood}` })) };
+                    },
+                },
+            },
+            persistSettingsDraft: () => ({ ok: true }),
+            rerenderSettings: () => ({ ok: true }),
+            dialogs: {
+                prompt: async () => '18',
+                confirm: async (message) => { asks.push(message); return message.includes('自建') ? takeCustom : true; },
+            },
+        };
+        await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
+        return { asks, seen };
+    };
+    const skipped = await run(false);
+    assert.match(skipped.asks[0], /另有 2 个自建情绪组还没图：旧组乙、旧组丙/);
+    assert.match(skipped.asks[1], /生成「冬月」的 18 张表情差分/);
+    assert.equal(skipped.seen[0].length, 18);
+    const taken = await run(true);
+    assert.equal(taken.seen[0].length, 20);
+    assert.deepEqual(taken.seen[0].slice(-2), ['旧组乙', '旧组丙']);
+});

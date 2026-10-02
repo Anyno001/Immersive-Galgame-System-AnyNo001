@@ -25,13 +25,17 @@ const bool = (v) => v === true || v === 'true' || v === 1 || v === '1';
 const str = (v, d = '') => (typeof v === 'string' ? v : d);
 
 // 模板留空视为恢复内置模板；背景/立绘正向模板必须含 {tags}，否则 LLM 的内容会被丢掉。
+// 旧内置立绘模板带双手下垂，存下来的原样副本换成新内置的。
+const LEGACY_SPRITE_TEMPLATE = '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}';
+
 function normalizeTemplates(value) {
     const src = value && typeof value === 'object' ? value : {};
     const out = {};
     for (const [key, fallback] of Object.entries(DEFAULT_ASSET_TEMPLATES)) {
         const text = typeof src[key] === 'string' ? src[key].trim() : '';
         const needsTags = key === 'background' || key === 'sprite';
-        out[key] = text && (!needsTags || text.includes('{tags}')) ? text : fallback;
+        const legacy = key === 'sprite' && text === LEGACY_SPRITE_TEMPLATE;
+        out[key] = text && !legacy && (!needsTags || text.includes('{tags}')) ? text : fallback;
     }
     return out;
 }

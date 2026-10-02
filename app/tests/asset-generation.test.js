@@ -1047,7 +1047,7 @@ test('gate:assets:bind-generated-sprite-to-character-default', () => {
 });
 
 test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async () => {
-    const { DEFAULT_MOOD_GROUPS, moodTierLabels } = await import('../src/scene/mood-groups.js');
+    const { DEFAULT_MOOD_GROUPS, moodTierLabels, moodPresetTags } = await import('../src/scene/mood-groups.js');
     const { renderCharacterAssetList, renderGeneratedAssetPane } = await import('../src/visual/igs-ui/settings-fields.js');
     const { buildExpressionDiffDescription, uprightSpriteCaption } = await import('../src/generated-images/dbgen-prompt.js');
     const labels = moodTierLabels(8);
@@ -1136,13 +1136,13 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.equal(dna.identity, '银发，说话很冲');
     assert.equal(promptCalls, 1);
     assert.equal(maxActive, 1);
-    assert.deepEqual(painted, labels.map((label) => `fuyuko, expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
+    assert.deepEqual(painted, labels.map((label) => `fuyuko, ${moodPresetTags(label)}, expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
     assert.equal(result.items.length, 8);
     assert.equal(result.items[0].ok, true);
     assert.equal(result.items[0].imageId, 'expr-1');
     assert.equal(result.items[1].ok, false);
     assert.equal(result.items[1].mood, '愤怒');
-    assert.equal(result.items[1].caption.v4_prompt.caption.base_caption, 'fuyuko, expr 愤怒, cowboy shot, standing, facing viewer, straight-on');
+    assert.equal(result.items[1].caption.v4_prompt.caption.base_caption, `fuyuko, ${moodPresetTags('愤怒')}, expr 愤怒, cowboy shot, standing, facing viewer, straight-on`);
     assert.equal(progress[0].phase, 'write');
     assert.equal(progress[0].done, 0);
     assert.equal(progress[0].total, 8);
@@ -1387,4 +1387,37 @@ test('gate:assets:floor-sprite-descriptions-carry-dna', async () => {
     const single = buildDbgenAssetDescription(alice);
     assert.match(single, /默认外观：\nblack hair, blue eyes/);
     assert.equal(buildDbgenAssetDescription(plain).includes('默认外观'), false);
+});
+
+test('gate:assets:expression-mood-tags-beat-copied-neutral-face-and-dna-pose', async () => {
+    const { applyMoodToCaption, applyCharacterDnaToCaption, buildExpressionDiffDescription, buildCharacterSpriteDescription, buildDbgenSpriteBatchDescription } = await import('../src/generated-images/dbgen-prompt.js');
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl, black hair, expressionless, closed mouth, arms at sides, red hoodie', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } },
+    };
+    const laugh = applyMoodToCaption(caption, '大笑').v4_prompt.caption.base_caption;
+    assert.match(laugh, /^laughing, open mouth/);
+    assert.doesNotMatch(laugh, /expressionless|closed mouth|arms at sides/);
+    assert.match(laugh, /red hoodie/);
+    assert.equal(applyMoodToCaption(caption, '默认'), caption);
+    assert.equal(applyMoodToCaption(caption, '自建组'), caption);
+    const withChar = { ...caption, v4_prompt: { caption: { base_caption: 'solo', char_captions: [{ char_caption: '1girl, expressionless', centers: [{ x: 0.5, y: 0.5 }] }] } } };
+    const charOut = applyMoodToCaption(withChar, '哭泣').v4_prompt.caption;
+    assert.equal(charOut.base_caption, 'solo');
+    assert.match(charOut.char_captions[0].char_caption, /^crying, tears/);
+    assert.doesNotMatch(charOut.char_captions[0].char_caption, /expressionless/);
+    const dna = { defaultAppearance: 'black hair, red eyes, expressionless, light smile, closed mouth, arms at sides, hands on hips, red hoodie', negative: 'smile' };
+    const merged = applyCharacterDnaToCaption(applyMoodToCaption(caption, '喜悦'), dna);
+    const positive = merged.v4_prompt.caption.base_caption;
+    assert.match(positive, /^black hair, red eyes, red hoodie, smile, happy/);
+    assert.doesNotMatch(positive, /expressionless|light smile|closed mouth|arms at sides|hands on hips/);
+    assert.equal(merged.v4_negative_prompt.caption.base_caption.includes('smile'), false);
+    const text = buildExpressionDiffDescription('冬月', { caption }, ['大笑'], null, null);
+    assert.match(text, /表情和动作不要沿用/);
+    assert.match(buildCharacterSpriteDescription('冬月', null), /轻量的日常小动作/);
+    assert.match(buildDbgenSpriteBatchDescription([{ name: '冬月' }]), /轻量的日常小动作/);
+    assert.equal(buildAssetSlot({ need: { type: 'sprite', name: '冬月' }, tags: '1girl', uc: '' }).scene.includes('arms at sides'), false);
+    const legacy = '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}';
+    assert.equal(normalizeAutoIllustrationSettings({ assets: { templates: { sprite: legacy } } }).assets.templates.sprite.includes('arms at sides'), false);
+    assert.equal(normalizeAutoIllustrationSettings({ assets: { templates: { sprite: '{tags}, arms at sides' } } }).assets.templates.sprite, '{tags}, arms at sides');
 });

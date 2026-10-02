@@ -6,7 +6,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyMoodToCaption, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
@@ -336,6 +336,7 @@ export function createAssetGenerationService(deps) {
                 const found = captions.find((entry) => Number(entry.slotId) === index + 1);
                 const caption = found && found.caption;
                 const slot = buildAssetSlot(item, { transparent: true, templates: s.auto.assets.templates });
+                const prompts = expressionSpritePrompts(slot.scene, slot.sceneUc);
                 let result;
                 if (!caption) {
                     result = { ok: false, error: '没有对应的立绘提示词' };
@@ -346,7 +347,7 @@ export function createAssetGenerationService(deps) {
                             size: s.auto.assets.spriteSize,
                             messageId: floor.messageId,
                             transparent: true,
-                            userPrompts: { positive: slot.scene, negative: slot.sceneUc },
+                            userPrompts: { positive: prompts.positive, negative: prompts.negative },
                         });
                     } catch (error) {
                         result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` };
@@ -558,7 +559,7 @@ export function createAssetGenerationService(deps) {
     }
 
     async function paintExpressionCaption(name, mood, caption, dna) {
-        const upright = uprightSpriteCaption(applyCharacterDnaToCaption(caption, dna)) || caption;
+        const upright = uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(caption, mood), dna)) || caption;
         const meta = expressionPaintMeta();
         let painted;
         try {

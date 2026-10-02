@@ -28,7 +28,7 @@ const ASSET_TASK = [
     '1. 第一个 tag 写性别与人数：1girl 或 1boy（性别不明时按正文称呼推断）。',
     '2. 再写外观年龄（如 mature female, young man）、体型、发色、发长、发型、瞳色、特征（如 animal ears, glasses, scar）。',
     '3. 写完整服装：上装、下装、外套、配饰，颜色写清楚；正文未交代时，按身份与场景推断合理服装（如女仆 maid outfit，学生 school uniform，骑士 armor）。服装一律写穿着完整的日常状态。',
-    '4. 表情写平静或符合其性格的常态表情（如 light smile, expressionless, serious）；不要写动作、道具、镜头、背景、底色、其他角色。',
+    '4. 表情写平静或符合其性格的常态表情（如 light smile, expressionless, serious），再写一个轻量的日常小动作（如 hand in pocket, hands behind back, hand on own hip, adjusting hair），不要双手僵直下垂；不要写大幅动作、道具、镜头、背景、底色、其他角色。',
     '',
     '【通用规则】',
     ...TAG_WRITING_RULES.map((rule, i) => `${i + 1}. ${rule}`),

@@ -75,7 +75,7 @@ export async function requestWithSoftRetry(llm, { system, user, softSystem, soft
 export const DEFAULT_ASSET_TEMPLATES = Object.freeze({
     background: '{tags}, no humans, scenery, wide shot, detailed background, visual novel background',
     backgroundNegative: '1girl, 1boy, people, person, character, crowd, silhouette, human, animal, text, speech bubble, watermark, signature, frame, border, ui, letterboxed',
-    sprite: '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}',
+    sprite: '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
     spriteNegative: 'multiple views, 2girls, 2boys, multiple girls, multiple boys, crowd, close-up, portrait, upper body, full body, feet, head out of frame, cropped arms, scenery, detailed background, white background, gradient background, patterned background, drop shadow, floor, furniture, holding weapon, text, speech bubble, watermark, signature, frame, border',
     nsfwExtra: 'nsfw',
 });

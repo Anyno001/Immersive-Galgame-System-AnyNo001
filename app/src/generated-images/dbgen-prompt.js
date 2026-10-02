@@ -1,4 +1,4 @@
-import { moodPresetAct } from '../scene/mood-groups.js';
+import { moodPresetAct, moodPresetTags } from '../scene/mood-groups.js';
 
 // 楼内补立绘一次最多写 8 份。表情差分不再分批，一次写完。
 export const EXPRESSION_WRITE_BATCH_MAX = 8;
@@ -107,6 +107,7 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
         '情绪须写入肢体：手势、肩线、重心随该情绪变化。禁止仅替换面部。',
         '各表情的动作按下面的说明写，不要把不同表情画成同一张脸。',
+        caption ? '上面那份立绘的表情和动作不要沿用，每份的表情、嘴型、眼神和手势都按各自的情绪重写。' : '',
         '无背景，透明底。',
         ...characterDnaLines(name, dna),
         ...moods.map((mood, index) => {
@@ -181,12 +182,16 @@ function characterDnaLines(name, dna) {
     ].filter(Boolean);
 }
 
+// 立绘站得太板正：要一个不挡身体的日常小动作。
+const SPRITE_DAILY_POSE_LINE = '姿势带一个轻量的日常小动作（如一只手拨头发、手背在身后、手插口袋、轻抓衣角），不要双手僵直下垂，也不要大幅动作或拿道具挡住身体。';
+
 // 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
 export function buildCharacterSpriteDescription(name, dna) {
     return [
         `画角色「${name || ''}」的立绘。`,
         '外貌与服装按下面的角色设定来画。设定里没写到的，按这个角色补一个日常样子。',
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
+        SPRITE_DAILY_POSE_LINE,
         '无背景，透明底。',
         ...characterDnaLines(name, dna),
         '只写一份，slotid 为 1。',
@@ -222,6 +227,7 @@ export function buildDbgenSpriteBatchDescription(needs = []) {
         list.join('\n'),
         profiles.length ? '角色外貌与服装依据正文补充；下面列了设定的角色，长相按设定写。' : '角色外貌与服装依据正文补充。',
         ...profiles,
+        SPRITE_DAILY_POSE_LINE,
         '无背景，透明底。',
         '不要写生成点，不要从正文摘挂载句。',
     ].join('\n');
@@ -248,6 +254,7 @@ export function buildDbgenAssetDescription(need = {}) {
         return [
             `画角色「${need.name || ''}」的立绘。`,
             '角色外貌与服装依据正文补充。无背景，透明底。',
+            SPRITE_DAILY_POSE_LINE,
             ...characterDnaLines(need.name, need.dna),
         ].join('\n');
     }
@@ -302,12 +309,46 @@ function dnaEnglishTags(text) {
     return splitTags(text).filter((tag) => /[a-z]/i.test(tag) && !/[\u3040-\u30ff\u3400-\u9fff]/.test(tag));
 }
 
+// DNA 只管长相和衣服。表情、嘴型、眼神、手势硬合进去会把每张差分都盖成同一张脸。
+const EXPRESSION_POSE_RE = /^(?:expressionless|emotionless|blank stare|straight face|serious|calm|happy|sad|angry|annoyed|smug|shy|embarrassed|surprised|nervous|worried|crying|tears|blush|laughing|smiling|grin|smirk|frown|pout|open mouth|closed mouth|parted lips|closed eyes|half-closed eyes|wide-eyed|narrowed eyes|looking (?:at viewer|away|down|up|to the side)|head tilt|standing|arms at sides|arms behind back|hands behind back|crossed arms|arms crossed|hands? on (?:own )?(?:hips?|chest|chin|cheek)|.*\b(?:smile|expression)|:\)|:d|\^_\^)$/;
+
+function isExpressionPoseTag(tag) {
+    return EXPRESSION_POSE_RE.test(tagKey(tag));
+}
+
+// 默认立绘被写成无表情时，差分照抄会带上这些词。
+const NEUTRAL_FACE_TAGS = new Set(['expressionless', 'emotionless', 'neutral expression', 'blank expression', 'blank stare', 'straight face', 'closed mouth', 'arms at sides'].map(tagKey));
+
+// 写词插件常常整份漏写表情（只写了长相和衣服）。预设组的英文表情标签放到角色 caption 最前，
+// 并去掉照抄来的无表情词；默认组和自建组不动。
+export function applyMoodToCaption(caption, mood) {
+    const label = String(mood || '').trim();
+    const tags = label === '默认' ? '' : moodPresetTags(label);
+    const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
+    if (!tags || !pos) return caption;
+    const merge = (text) => mergeTags(tags, splitTags(text).filter((tag) => !NEUTRAL_FACE_TAGS.has(tagKey(tag))).join(', '));
+    const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
+    return {
+        ...caption,
+        v4_prompt: {
+            ...caption.v4_prompt,
+            caption: {
+                ...pos,
+                base_caption: chars.length ? pos.base_caption : merge(pos.base_caption),
+                char_captions: chars.map((item, index) => (index === 0
+                    ? { ...(item && typeof item === 'object' ? item : {}), char_caption: merge(item && item.char_caption) }
+                    : item)),
+            },
+        },
+    };
+}
+
 export function applyCharacterDnaToCaption(caption, dna) {
     const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
     const neg = caption && caption.v4_negative_prompt && caption.v4_negative_prompt.caption;
     if (!pos || !neg || !dna || typeof dna !== 'object') return caption;
-    const positive = dnaEnglishTags([dna.triggerWords, dna.identity, dna.defaultAppearance].join(','));
-    const negative = dnaEnglishTags(dna.negative);
+    const positive = dnaEnglishTags([dna.triggerWords, dna.identity, dna.defaultAppearance].join(',')).filter((tag) => !isExpressionPoseTag(tag));
+    const negative = dnaEnglishTags(dna.negative).filter((tag) => !isExpressionPoseTag(tag));
     if (!positive.length && !negative.length) return caption;
     const fixed = new Set();
     for (const tag of positive) {

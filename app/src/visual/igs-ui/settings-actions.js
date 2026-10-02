@@ -1044,7 +1044,7 @@ export async function handleSettingsAction(action, ctx) {
         const tier = retry ? 8 : await chooseMoodTier(dialogs, savedTiers[name], name);
         if (!retry && tier === 0) return rerenderSettings();
         const labels = tier
-            ? moodTierLabels(tier, { nsfw: nsfwEnabledForAssets(settingsState.draft), extra: allGroups.map((group) => group.label) })
+            ? moodTierLabels(tier, { nsfw: nsfwEnabledForAssets(settingsState.draft) })
             : allGroups.map((group) => group.label);
         const ownUrl = outfitMode ? firstGeneratedOutfitUrl(outfitEntry) : '';
         const baseUrl = ownUrl || String(character['默认'] || '');
@@ -1090,6 +1090,13 @@ export async function handleSettingsAction(action, ctx) {
         const outfit = outfitMode ? { name: outfitName, words: outfitEntry.words, ownImage: Boolean(ownUrl), prompt: clothes ? clothes.prompt : '' } : null;
         if (retry && !mood) return rerenderSettings();
         const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
+        // 自建组不进档位：还没图的问一句要不要一起画。
+        const customMissing = retry ? [] : allGroups.map((group) => group.label)
+            .filter((label) => !moodPresetEntry(label) && !labels.includes(label) && !String(slots[label] || '').trim());
+        if (customMissing.length) {
+            const shown = `${customMissing.slice(0, 8).join('、')}${customMissing.length > 8 ? ' 等' : ''}`;
+            if (await dialogs.confirm(`另有 ${customMissing.length} 个自建情绪组还没图：${shown}。要一起画吗？`)) labels.push(...customMissing);
+        }
         const filledLabels = labels.filter((label) => String(slots[label] || '').trim());
         const missingLabels = labels.filter((label) => !String(slots[label] || '').trim());
         if (!retry) {
