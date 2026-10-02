@@ -38,11 +38,11 @@ import { findTruncatedFontTables } from '../scripts/font-slices.js';
 import { getSettingsStyleText } from '../src/visual/igs-ui/settings-style.js';
 import { DIALOG_FONT_OPTIONS } from '../src/visual/igs-ui/reader-host-constants.js';
 import {
-    getSceneSettingsSubTabTemplate,
     getReaderSubTabTemplate,
     getSettingsTabTemplate,
     normalizeReaderSubTab,
-    SCENE_SETTINGS_SUBTAB_DEFS,
+    SCENE_SUBTAB_DEFS,
+    SCENE_RULES_TEMPLATE,
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
 } from '../src/visual/igs-ui/settings-tabs.js';
@@ -778,8 +778,8 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(readerSourceText, /#igs-stage-motion\.igs-stage-shake-active/);
     assert.match(readerSourceText, /prefers-reduced-motion: reduce\)\{#igs-stage-motion/);
     assert.match(readerHostText, /readerSettings\.typewriter\.enabled/);
-    assert.match(readerHostText, /switchSceneSettingsSubTab\(subTab\)/);
-    assert.match(readerHostText, /data-scene-settings-subtab/);
+    assert.match(readerHostText, /switchSceneSubTab\(subTab\)/);
+    assert.match(readerHostText, /data-scene-subtab/);
     assert.match(readerHostText, /switchReaderSubTab\(subTab\)/);
     assert.match(readerHostText, /data-reader-subtab/);
     assert.match(readerHostText, /data-prompt-rule-draft/);
@@ -825,21 +825,15 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
         assert.ok(getSettingsTabTemplate(tab.id).length > 0);
     }
 
-    assert.match(getSettingsTabTemplate('scene'), /sceneSettingsSubTabs/);
-    for (const subTab of fixture.sceneSettingsSubTabs) {
-        const defined = SCENE_SETTINGS_SUBTAB_DEFS.find(([id]) => id === subTab.id);
-        assert.ok(defined);
-        assert.equal(defined[1], subTab.label);
-        assert.ok(getSceneSettingsSubTabTemplate(subTab.id).length > 0);
-    }
-    const rulesTemplate = getSceneSettingsSubTabTemplate('rules');
-    const assetsTemplate = getSceneSettingsSubTabTemplate('assets');
-    assert.match(rulesTemplate, /data-action="reset-prompt-rule"/);
-    assert.match(rulesTemplate, /data-action="save-prompt-rule"/);
-    assert.match(rulesTemplate, /data-result="prompt-rule"/);
-    assert.doesNotMatch(rulesTemplate, /scenePresetBar|sceneSubTabs/);
-    assert.doesNotMatch(assetsTemplate, /scenePresetBar/);
-    assert.match(assetsTemplate, /sceneSubTabs/);
+    // 素材页只有一层页签：角色 / 场景 / 待确认 / 规则。衣柜提示词在规则页。
+    assert.match(getSettingsTabTemplate('scene'), /sceneSubTabs/);
+    assert.match(getSettingsTabTemplate('scene'), /assetScopeBar/);
+    assert.deepEqual(SCENE_SUBTAB_DEFS.map(([id, label]) => ({ id, label })), fixture.sceneSubTabs);
+    assert.match(SCENE_RULES_TEMPLATE, /data-action="reset-prompt-rule"/);
+    assert.match(SCENE_RULES_TEMPLATE, /data-action="save-prompt-rule"/);
+    assert.match(SCENE_RULES_TEMPLATE, /data-result="prompt-rule"/);
+    assert.match(SCENE_RULES_TEMPLATE, /wardrobeSection/);
+    assert.doesNotMatch(SCENE_RULES_TEMPLATE, /scenePresetBar|sceneSubTabs/);
 
     assert.match(getSettingsTabTemplate('reader'), /readerSubTabs/);
     for (const subTab of fixture.readerSubTabs) {

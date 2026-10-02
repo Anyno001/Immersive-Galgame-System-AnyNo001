@@ -291,16 +291,18 @@ const SCENE_TAB_TEMPLATE = `
 <div class="igs-scene-settings">
   <div class="igs-settings-row">{{sceneToggle}}</div>
   <div class="igs-scene-settings-content"{{sceneHidden}}>
-    <div class="igs-scene-settings-subtabs" role="tablist" aria-label="场景设置分类">{{sceneSettingsSubTabs}}</div>
-    <div class="igs-scene-settings-subpane">{{sceneSettingsSubPane}}</div>
+    {{assetScopeBar}}
+    <div class="igs-scene-settings-subtabs" role="tablist" aria-label="素材分类">{{sceneSubTabs}}</div>
+    <div class="igs-scene-settings-subpane">{{sceneSubPane}}</div>
   </div>
 </div>
 `.trim();
 
-const SCENE_RULES_TEMPLATE = `
+// 规则页：上面是发给聊天模型的格式规则，下面是只在生图时用的衣柜提示词，两样分开写清楚。
+export const SCENE_RULES_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="rules">
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">AI 格式规则</div>
+    <div class="igs-source-filter-title">AI 格式规则<span class="igs-outfit-muted">（发给聊天模型）</span></div>
     {{promptRuleField}}
     <div class="igs-settings-row">
       <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认提示词</button>
@@ -310,29 +312,23 @@ const SCENE_RULES_TEMPLATE = `
     {{promptRuleOutfitHint}}
     {{promptAdvanced}}
   </div>
-</div>
-`.trim();
-
-const SCENE_ASSETS_TEMPLATE = `
-<div class="igs-settings-grid" data-scene-settings-pane="assets">
-  <div class="igs-source-filter">
-    {{sceneSubTabs}}
-    {{sceneSubPane}}
+  <div class="igs-source-filter" data-wardrobe-section>
+    <div class="igs-source-filter-title">衣柜提示词<span class="igs-outfit-muted">（只在生图时用）</span><button class="igs-btn-mgr-icon igs-title-add" data-action="wardrobe-add" type="button" title="添加一条衣柜提示词" aria-label="添加一条衣柜提示词">+</button></div>
+    <div class="igs-source-filter-note">给服装画立绘或表情时，取这里写的衣服样子。角色的服装没点名时，按同名的那条取。</div>
+    {{wardrobeSection}}
   </div>
 </div>
 `.trim();
 
-export const SCENE_SETTINGS_SUBTAB_DEFS = Object.freeze([
-    ['assets', '素材'],
+export const SCENE_SUBTAB_DEFS = Object.freeze([
+    ['characters', '角色'],
+    ['scenes', '场景'],
+    ['review', '待确认'],
     ['rules', '规则'],
 ]);
 
-export const SCENE_SUBTAB_DEFS = Object.freeze([
-    ['scenes', '场景素材'],
-    ['characters', '角色立绘'],
-    ['wardrobe', '衣柜'],
-    ['generated', '生成素材'],
-]);
+// 旧页签名：衣柜并进规则，生成素材并进待确认。
+const SCENE_SUBTAB_ALIASES = Object.freeze({ wardrobe: 'rules', generated: 'review' });
 
 export const IMAGE_SUBTAB_DEFS = Object.freeze([
     ['source', '图像来源'],
@@ -359,24 +355,10 @@ export const SETTINGS_TAB_ALIASES = Object.freeze({
     regex: 'basic',
 });
 
-export function normalizeSceneSettingsSubTab(subTab) {
-    const normalized = String(subTab || 'assets').trim();
-    return SCENE_SETTINGS_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'assets';
-}
-
 export function normalizeSceneSubTab(subTab) {
-    const normalized = String(subTab || 'scenes').trim();
-    return SCENE_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'scenes';
-}
-
-export function getSceneSettingsSubTabTemplate(subTab) {
-    switch (normalizeSceneSettingsSubTab(subTab)) {
-        case 'assets':
-            return SCENE_ASSETS_TEMPLATE;
-        case 'rules':
-        default:
-            return SCENE_RULES_TEMPLATE;
-    }
+    const raw = String(subTab || 'characters').trim();
+    const normalized = SCENE_SUBTAB_ALIASES[raw] || raw;
+    return SCENE_SUBTAB_DEFS.some(([id]) => id === normalized) ? normalized : 'characters';
 }
 
 const READER_SUBTAB_ALIASES = Object.freeze({

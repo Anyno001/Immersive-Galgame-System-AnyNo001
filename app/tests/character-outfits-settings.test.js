@@ -209,19 +209,19 @@ test('gate:outfits:legacy-character-and-mood-actions-migrate-and-clean-sprite-ke
     assert.deepEqual(t.rs().spriteHeads['小林'], H(8));
 });
 
-test('gate:outfits:binding-can-pick-global-wardrobe-the-card-does-not-have', () => {
-    const html = renderCharacterAssetList({ 小林: { 默认: '' } }, {
-        characterOutfits: { 小林: { 校服: { moods: {}, wardrobe: '晚礼服' } } },
+// 素材页传进来的是本卡盖在全局上的一份衣柜，下拉里每个名字只出现一次，旁边的按钮跳到规则页编辑。
+test('gate:outfits:binding-lists-merged-wardrobe-and-jumps-to-rules', () => {
+    const render = (wardrobe, outfit) => renderCharacterAssetList({ 小林: { 默认: '' } }, {
+        characterOutfits: { 小林: { 校服: outfit } },
         outfitTabs: { 小林: '校服' },
-        sceneAssets: {
-            wardrobe: { 校服: { prompt: 'card' } },
-            characters: { 小林: { 默认: '' } },
-            characterOutfits: { 小林: { 校服: { moods: {}, wardrobe: '晚礼服' } } },
-        },
-        globalWardrobe: { 晚礼服: { prompt: 'gown' }, 校服: { prompt: 'global-uniform' } },
+        isOpen: () => true,
+        sceneAssets: { wardrobe, characters: { 小林: { 默认: '' } }, characterOutfits: { 小林: { 校服: outfit } } },
     });
-    assert.match(html, /value="晚礼服" selected>晚礼服（全局）/);
-    assert.match(html, /value="校服">校服</);
-    assert.doesNotMatch(html, /校服（全局）/);
+    const html = render({ 校服: { prompt: 'card' }, 晚礼服: { prompt: 'gown' } }, { moods: {}, wardrobe: '晚礼服' });
+    assert.match(html, /value="晚礼服" selected>晚礼服</);
+    assert.equal(html.match(/value="校服"/g).length, 1);
+    assert.match(html, /data-action="wardrobe-for-outfit:%E5%B0%8F%E6%9E%97:%E6%A0%A1%E6%9C%8D">编辑提示词</);
+    const missing = render({}, { moods: {} });
+    assert.match(missing, /data-action="wardrobe-for-outfit:%E5%B0%8F%E6%9E%97:%E6%A0%A1%E6%9C%8D">写提示词</);
 });
 

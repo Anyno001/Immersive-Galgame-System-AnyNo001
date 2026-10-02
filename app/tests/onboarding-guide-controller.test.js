@@ -12,7 +12,6 @@ function setup(initial = {}) {
     const settings = {
         switchTab: (t) => calls.push(['tab', t]),
         switchReaderSubTab: (s) => calls.push(['reader', s]),
-        switchSceneSettingsSubTab: (s) => calls.push(['sceneSettings', s]),
         switchSceneSubTab: (s) => calls.push(['scene', s]),
         switchImageSubTab: (s) => calls.push(['image', s]),
     };
@@ -32,7 +31,7 @@ test('onboarding controller: 换步只切页签，不写设置', () => {
     ctl.handleAction('onboarding-start');
     for (let i = 0; i < 7; i += 1) ctl.handleAction('onboarding-next');
     assert.deepEqual(calls.filter(([k]) => k !== 'tab').map((c) => c.join(':')),
-        ['open:basic', 'reader:dialog', 'sceneSettings:assets', 'scene:scenes', 'sceneSettings:assets', 'scene:scenes', 'image:source']);
+        ['open:basic', 'reader:dialog', 'scene:scenes', 'scene:scenes', 'image:source']);
     assert.equal(ctl.getState().step, 7);
     ctl.handleAction('onboarding-prev');
     assert.equal(ctl.getState().step, 6);

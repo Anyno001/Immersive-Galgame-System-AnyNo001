@@ -22,6 +22,7 @@ import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/
 import { resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
 import { resolveDanmakuPromptRule } from '../visual/igs-ui/danmaku-prompt.js';
 import { resolveTextFxPromptRule } from '../visual/igs-ui/text-fx.js';
+import { resolveBilingualPromptRule } from '../visual/igs-ui/bilingual-text.js';
 import { resolveDailyFxPromptRule } from '../visual/igs-ui/fx-daily-prompt.js';
 import { beginMetaDigestSend, clearMetaDigest, finishMetaDigestSend, onMetaDigestChange, resolveMetaDigestRule } from '../visual/igs-ui/meta-digest.js';
 import { applyFxWorldview, resolveWorldviewPromptRule } from '../scene/fx-era.js';
@@ -49,7 +50,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.0';
+const IGS_VERSION = '0.34.1';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -568,6 +569,8 @@ export function bootstrapIGS(options = {}) {
         if (itemFxRule) rules.push(itemFxRule);
         const textFxRule = resolveTextFxPromptRule(Boolean(readerSettings && readerSettings.textFx && readerSettings.textFx.enabled));
         if (textFxRule) rules.push(textFxRule);
+        const bilingualRule = resolveBilingualPromptRule(readerSettings && readerSettings.bilingual);
+        if (bilingualRule) rules.push(bilingualRule);
         const dailyFxRule = resolveDailyFxPromptRule(readerSettings && readerSettings.dailyFx);
         if (dailyFxRule) rules.push(dailyFxRule);
         const battleFxRule = resolveBattleFxPromptRule(Boolean(readerSettings && readerSettings.battleFx && readerSettings.battleFx.enabled));

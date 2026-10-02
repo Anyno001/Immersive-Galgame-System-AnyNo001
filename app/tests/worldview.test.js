@@ -226,11 +226,13 @@ test('gate:worldview:magic-house-follows-speaker-manual-then-dna-then-global', a
     assert.equal(resolveSpeakerMagicHouse(assets, '马尔福', 'amber'), 'emerald', '别名按主名识别 DNA');
     assert.equal(resolveSpeakerMagicHouse(assets, '卢娜', 'amber'), 'amber', 'DNA 没写学院用全局');
     assert.equal(resolveSpeakerMagicHouse(assets, '', 'nope'), 'starlight', '旁白用全局，全局非法回默认');
-    const withRow = renderCharacterAssetList({ 赫敏: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' } });
+    // 学院在毛笔打开的「角色设定」里。
+    const open = () => true;
+    const withRow = renderCharacterAssetList({ 赫敏: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' }, isOpen: open });
     assert.match(withRow, /data-char-house="赫敏"/);
     assert.match(withRow, /<option value="sapphire" selected>/);
-    assert.match(renderCharacterAssetList({ 德拉科: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' } }), /自动（DNA 识别为绿银）/);
-    assert.doesNotMatch(renderCharacterAssetList({ 赫敏: {} }, {}), /data-char-house/);
+    assert.match(renderCharacterAssetList({ 德拉科: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' }, isOpen: open }), /自动（DNA 识别为绿银）/);
+    assert.doesNotMatch(renderCharacterAssetList({ 赫敏: {} }, { isOpen: open }), /data-char-house/);
 });
 
 test('gate:worldview:magic-house-vars-switch-with-speaker-on-render', async () => {
@@ -260,6 +262,7 @@ test('gate:worldview:house-settings-only-in-magic-worldview', async () => {
         const controller = vn.openSettings({ tab: 'reader', mode: 'pc' }).controller;
         controller.setValue('readerSettings.dialogSkin', 'magic-academy');
         controller.setValue('bridge.sceneAssets.characters', { 赫敏: { 默认: '' } });
+        await controller.invoke(`scene-toggle-dna:${encodeURIComponent('赫敏')}`);
         const view = () => {
             controller.switchTab('reader');
             const reader = controller.getSnapshot().html;

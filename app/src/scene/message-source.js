@@ -293,7 +293,7 @@ function splitSentenceLine(line, narrationOnly) {
     // \x00IMG\x00 是图片占位，不能被句号切断；保护标签/心理/插图块内部的句号。
     if (/\x00IMG\x00/.test(line) || /image###/i.test(line) || /^\s*\[[^\]]+\]\s*$/.test(trimmed)) return line;
     return line.replace(
-        new RegExp(`${SENTENCE_PAGING_TERMINATOR}(?!\\s*$)(?![\\s${SENTENCE_PAGING_TERMINATOR}」』”’）)\\]】])`, 'g'),
+        new RegExp(`${SENTENCE_PAGING_TERMINATOR}(?!\\s*$)(?![\\s${SENTENCE_PAGING_TERMINATOR}」』”’）)\\]】〖〗])`, 'g'),
         `${SENTENCE_PAGING_TERMINATOR}\n`,
     );
 }

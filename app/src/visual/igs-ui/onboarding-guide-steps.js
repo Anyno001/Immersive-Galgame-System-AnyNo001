@@ -28,14 +28,14 @@ export const ONBOARDING_STEPS = Object.freeze([
         body: '在这里换对话框皮肤、调整大小和背景。字号和字体在旁边的「文字」页。',
     }),
     Object.freeze({
-        id: 'scene', tab: 'scene', subTabs: [['sceneSettings', 'assets'], ['scene', 'scenes']], target: ['.igs-scene-subtabs'],
+        id: 'scene', tab: 'scene', subTabs: [['scene', 'scenes']], target: ['.igs-scene-settings-subtabs'],
         title: '场景背景与角色立绘',
         body: '给地点配背景图，给角色配不同情绪的立绘。剧情里出现对应的地点和情绪时会自动切换。',
     }),
     Object.freeze({
-        id: 'assets', tab: 'scene', subTabs: [['sceneSettings', 'assets'], ['scene', 'scenes']], target: ['[data-add-menu="scenes"]', '.igs-scene-subtabs'],
+        id: 'assets', tab: 'scene', subTabs: [['scene', 'scenes']], target: ['[data-add-menu="scenes"]', '.igs-scene-settings-subtabs'],
         title: '配置素材',
-        body: '点「背景场景」右侧的「+」：选「下载默认素材」一次装好常用背景，同名不会覆盖；也可以「新增空白场景」，填图片地址和别名。立绘在「角色立绘」页同样添加。',
+        body: '点「背景场景」右侧的「+」：选「下载默认素材」一次装好常用背景，同名不会覆盖；也可以「新增空白场景」，填图片地址和别名。立绘在「角色」页同样添加。',
     }),
     Object.freeze({
         id: 'image', tab: 'image', subTabs: [['image', 'source']], target: ['.igs-image-subpane'], optional: true,

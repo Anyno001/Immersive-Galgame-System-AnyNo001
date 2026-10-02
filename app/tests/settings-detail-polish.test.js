@@ -24,7 +24,7 @@ test('gate:settings-polish:mood-review-actions-sit-outside-chip', () => {
     const chip = html.match(/<span class="igs-mood-review-chip">[\s\S]*?<\/span>/)[0];
     assert.doesNotMatch(chip, /<button/);
     assert.doesNotMatch(html, /爱丽丝/, '标签不带所属角色');
-    assert.match(html, /<\/span><button type="button" class="igs-review-link is-primary" data-action="mood-review-assign:[^"]+"[^>]*>加入<\/button>/);
+    assert.match(html, /<\/b><\/span><span class="igs-review-actions"><button type="button" class="igs-review-link is-primary" data-action="mood-review-assign:[^"]+"[^>]*>加入<\/button>/);
     assert.match(html, /data-action="mood-review-dismiss:[^"]+"[^>]*>忽略<\/button>/);
     assert.doesNotMatch(html, />×</);
 });
@@ -83,7 +83,8 @@ test('gate:settings-polish:mood-review-rows-align-buttons', async () => {
     const mod = await import('../src/visual/igs-ui/settings-style.js');
     const css = Object.values(mod).filter((v) => typeof v === 'string').join('\n')
         || (typeof mod.getSettingsStyleText === 'function' ? mod.getSettingsStyleText() : '');
-    assert.ok(css.includes('.igs-mood-review-list{display:flex;flex-direction:column;'));
-    assert.ok(css.includes('.igs-mood-review-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto;'));
-    assert.ok(css.includes('.igs-mood-review-item .igs-review-link{min-width:52px;min-height:28px;'));
+    assert.ok(css.includes('.igs-review-list{display:flex;flex-direction:column;'));
+    assert.ok(css.includes('.igs-review-item{display:flex;flex-wrap:wrap;align-items:center;'));
+    assert.ok(css.includes('.igs-review-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;'));
+    assert.ok(css.includes('.igs-review-actions .igs-review-link{min-width:52px;min-height:28px;'));
 });

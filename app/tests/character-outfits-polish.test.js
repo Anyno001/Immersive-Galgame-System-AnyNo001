@@ -76,8 +76,11 @@ test('gate:outfits:outfit-review-store-dedupes-and-clears', () => {
     assert.deepEqual(loadOutfitReview(storage), []);
     recordOutfitReview(storage, { character: '小林海斗', word: '晚礼服' });
     recordOutfitReview(storage, { character: '小林海斗', word: '浴衣' });
-    assert.deepEqual(dropConfirmedOutfitReview(storage, { 晚礼服: { prompt: 'gown' } }), [{ character: '小林海斗', word: '浴衣' }]);
-    assert.deepEqual(loadOutfitReview(storage), [{ character: '小林海斗', word: '浴衣' }]);
+    recordOutfitReview(storage, { character: '雪乃', word: '晚礼服' });
+    // 按角色判断：小林海斗登记了晚礼服就不再待确认，雪乃没登记的晚礼服留着。
+    const registered = (character, word) => character === '小林海斗' && word === '晚礼服';
+    assert.deepEqual(dropConfirmedOutfitReview(storage, registered), [{ character: '雪乃', word: '晚礼服' }, { character: '小林海斗', word: '浴衣' }]);
+    assert.deepEqual(loadOutfitReview(storage), [{ character: '雪乃', word: '晚礼服' }, { character: '小林海斗', word: '浴衣' }]);
 });
 
 test('gate:outfits:status-hud-avatar-follows-outfit-of-sprite-character', () => {
@@ -119,6 +122,7 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     const assets = sceneAssets();
     const render = (outfitTabs) => renderCharacterAssetList(assets.characters, {
         characterOutfits: assets.characterOutfits, aliases: assets.characterAliases, moodGroups: assets.moodGroups, outfitTabs, sceneAssets: assets,
+        isOpen: (key) => key.startsWith('outfit-meta:') || key.startsWith('char-open:'),
     });
     const base = render({});
     assert.match(base, /class="igs-outfit-tab is-active"[^>]*data-action="scene-outfit-tab:%E5%B0%8F%E6%9E%97%E6%B5%B7%E6%96%97:">原装/);
@@ -131,11 +135,13 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     assert.doesNotMatch(swim, /data-scene-char="小林海斗" data-scene-mood=/);
     assert.match(swim, /data-scene-outfit-mood="喜悦" value="https:\/\/x\/swim-joy\.png"/);
     // 服装里「开心」槽没填图：同组的「喜悦」有图 → 借用。
-    assert.match(swim, /data-outfit-slot="开心">.*?is-ghost.*?未填 · 借用「喜悦」/);
-    // 服装没有「害羞」：回落原装，提供「补这一格」；「默认」不列出。
+    assert.match(swim, /data-outfit-slot="开心">.*?is-ghost.*?<span class="igs-outfit-hint">借用「喜悦」/);
+    // 服装没有「害羞」：和有的格子排在同一个列表里，淡色显示回落原装，右边一个 + 补上；「默认」不列出。
     assert.match(swim, /data-outfit-fallback="害羞">.*?base-shy\.png.*?回落原装「害羞」.*?data-action="scene-add-outfit-mood:[^"]+:%E5%AE%B3%E7%BE%9E"/);
     assert.doesNotMatch(swim, /data-outfit-fallback="默认"/);
-    assert.match(swim, /按原装补齐 1 格/);
+    assert.doesNotMatch(swim, /缺图时|全部补上/, '只缺一格时不放整批补齐');
+    // 这套服装的操作都在页签行末尾的 ⋯ 里，不再单独占一行。
+    assert.match(swim, /data-outfit-tabs="小林海斗">[\s\S]*?igs-outfit-tab-add[\s\S]*?class="igs-add-menu igs-row-menu"[\s\S]*?data-action="outfit-expression-set:[^"]+"[^>]*>表情差分[\s\S]*?<\/details><\/div>/);
     assert.match(swim, /海边<button type="button" class="igs-mood-word-del" data-action="scene-remove-outfit-scene:/);
     assert.match(swim, /data-scene-outfit-avatar="泳装" value="https:\/\/x\/swim-avatar\.png"/);
 
@@ -146,12 +152,15 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     assert.match(render({ 小林海斗: '已删除' }), /class="igs-outfit-tab is-active"[^>]*>原装/);
 
     const review = renderOutfitReviewList([{ character: '小林海斗', word: '浴衣' }, { character: '路人', word: '西装' }], assets.characterOutfits, assets.characters);
-    assert.match(review, /data-action="outfit-review-assign:[^"]+:%E6%B5%B4%E8%A1%A3:%E6%B3%B3%E8%A3%85">归入「泳装」/);
+    assert.match(review, /<select [^>]*data-outfit-review-char="小林海斗" data-outfit-review-word="浴衣"[^>]*><option value="">归入…<\/option><option value="泳装">泳装<\/option>/);
     assert.match(review, /outfit-review-create:[^"]+:%E6%B5%B4%E8%A1%A3/);
     // 待确认服装行只标角色；无立绘角色保留「角色未登记立绘」说明为何没有归入按钮。
-    assert.match(review, /<span class="igs-source-filter-note">路人<\/span><span class="igs-source-filter-note">角色未登记立绘<\/span>/);
+    assert.match(review, /<b>西装<\/b><span class="igs-review-who">路人<\/span><\/span><span class="igs-review-actions"><span class="igs-review-card-note">角色未登记立绘<\/span>/);
     assert.doesNotMatch(review, /未登记的服装|按原装显示/);
-    assert.equal(renderOutfitReviewList([], {}, {}), '');
+    // 没有待确认的词时这块仍在，只剩一行标题和「没有」，待确认页的三块位置不跳。
+    const idle = renderOutfitReviewList([], {}, {});
+    assert.match(idle, /class="igs-review-card is-empty" data-review-card="outfit"/);
+    assert.doesNotMatch(idle, /igs-review-item|outfit-review-clear/);
 });
 
 function createCtx(prompts = []) {

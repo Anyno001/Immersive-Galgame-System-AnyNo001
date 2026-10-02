@@ -57,7 +57,7 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
     const stage = renderStageDirectionFields(src, more, { worldview: extras.worldviewId });
     const danmaku = renderDanmakuFields(src, more);
     const bodies = {
-        text: [extras.typewriter, stage.clickWaitMark, stage.textFx, extras.sentencePaging],
+        text: [extras.typewriter, stage.clickWaitMark, stage.textFx, stage.bilingual, extras.sentencePaging],
         stage: [stage.transition, stage.tint, stage.camera, pair('weather', '强度与室内外地点词', extras.weatherFx), pair('stage-shake', '强度与触发情绪', extras.stageShake)],
         character: [stage.motion, stage.actions, stage.cast, extras.narrationFilter],
         emotion: [fx.manga, fx.heartbeat, fx.flash, danmaku.inner],

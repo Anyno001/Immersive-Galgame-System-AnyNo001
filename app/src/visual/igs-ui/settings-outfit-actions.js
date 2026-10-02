@@ -3,11 +3,12 @@ import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { classifySceneKey } from '../../scene/scene-directives.js';
 import { clearOutfitReview, loadOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
 import { migrateSpriteKeys } from './sprite-key-migration.js';
-import { draftAssetLibrary, rememberAssetScope } from '../../scene/asset-scope.js';
+import { draftAssetLibrary, draftEffectiveAssets, rememberAssetScope } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 
 const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 const plain = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
 
@@ -95,10 +96,32 @@ async function handleWardrobe(command, segs, ctx) {
     const { settingsState, options, persistSettingsDraft, rerenderSettings } = ctx;
     const globalObj = options.global || globalThis;
     rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
-    const sceneAssets = draftAssetLibrary(settingsState);
+    const name = decodeSeg(segs[0] || '');
+    if (command === 'wardrobe-for-outfit') {
+        const outfitName = decodeSeg(segs[1] || '');
+        const effective = draftEffectiveAssets(settingsState);
+        const own = plain(plain(effective.characterOutfits) || {});
+        const outfit = plain((plain(own[name]) || {})[outfitName]);
+        if (!outfit) return rerenderSettings();
+        const linked = typeof outfit.wardrobe === 'string' && outfit.wardrobe.trim() ? outfit.wardrobe.trim() : outfitName;
+        if (!isValidOutfitName(linked)) return rerenderSettings();
+        settingsState.asyncState.sceneSubTab = 'rules';
+        settingsState.asyncState.wardrobeFocus = linked;
+        if (hasOwn(plain(effective.wardrobe) || {}, linked)) return rerenderSettings();
+        const library = draftAssetLibrary(settingsState, { collections: CHARACTER_FIELDS, name });
+        library.wardrobe = { ...normalizeWardrobe(library.wardrobe), [linked]: { prompt: '' } };
+        const created = persistSettingsDraft();
+        if (created.ok === false) return created;
+        return rerenderSettings();
+    }
+    // 「待确认」里的生成提示词带着 角色:词，写的是那个词；其余按衣柜条目名找它所在的一边。
+    const entryName = command === 'wardrobe-generate-prompt' && segs.length > 1 ? decodeSeg(segs[1] || '') : name;
+    const sceneAssets = draftAssetLibrary(settingsState, command === 'wardrobe-add' ? null : { collections: ['wardrobe'], name: entryName });
     const wardrobe = normalizeWardrobe(sceneAssets.wardrobe);
     sceneAssets.wardrobe = wardrobe;
-    const name = decodeSeg(segs[0] || '');
+    // 服装点名引用衣柜条目时，全局和本卡的服装都可能指着它，改名、删除两边一起跟上。
+    const linkedOutfits = [plain(settingsState.draft.bridge.sceneAssets) || {}, draftAssetLibrary(settingsState)]
+        .map((library) => library.characterOutfits);
     if (command === 'wardrobe-add') {
         const next = await ask(ctx, '服装名称：', '');
         if (!next) return rerenderSettings();
@@ -114,7 +137,7 @@ async function handleWardrobe(command, segs, ctx) {
         const renamed = {};
         for (const [key, value] of Object.entries(wardrobe)) renamed[key === name ? next : key] = value;
         sceneAssets.wardrobe = renamed;
-        retargetWardrobe(sceneAssets.characterOutfits, name, next);
+        for (const outfits of linkedOutfits) retargetWardrobe(outfits, name, next);
     } else if (command === 'wardrobe-generate-prompt') {
         const word = decodeSeg(segs[1] || '');
         const character = name;
@@ -196,7 +219,7 @@ async function handleWardrobe(command, segs, ctx) {
     } else if (command === 'wardrobe-remove') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         delete wardrobe[name];
-        retargetWardrobe(sceneAssets.characterOutfits, name, '');
+        for (const outfits of linkedOutfits) retargetWardrobe(outfits, name, '');
     }
     const persisted = persistSettingsDraft();
     if (persisted.ok === false) return persisted;
@@ -206,6 +229,8 @@ async function handleWardrobe(command, segs, ctx) {
 function selectTab(settingsState, charName, outfitName) {
     const tabs = plain(settingsState.asyncState.outfitTabs) || (settingsState.asyncState.outfitTabs = {});
     if (outfitName) tabs[charName] = outfitName; else delete tabs[charName];
+    // 切到某套服装时，这个角色在列表里一定是展开的。
+    settingsState.asyncState.advancedOpen = { ...(settingsState.asyncState.advancedOpen || {}), [`char-open:${charName}`]: true };
 }
 
 // 待确认服装词：归入已有服装、新建为服装、忽略、清空。存储独立于设置，处理成功后从列表移除。
@@ -218,7 +243,7 @@ function handleOutfitReview(command, segs, ctx) {
     const word = decodeSeg(segs[1] || '');
     if (command === 'outfit-review-dismiss') { const written = removeOutfitReview(storage, charName, word); return written.ok === false ? written : rerenderSettings(); }
     rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
-    const sceneAssets = draftAssetLibrary(settingsState);
+    const sceneAssets = draftAssetLibrary(settingsState, { collections: CHARACTER_FIELDS, name: charName });
     if (!charName || BLOCKED_KEYS.has(charName) || !hasOwn(plain(sceneAssets.characters) || {}, charName)) return rerenderSettings();
     const outfits = outfitMapOf(sceneAssets, charName);
     let changed = false;
@@ -237,7 +262,7 @@ function handleOutfitReview(command, segs, ctx) {
     return rerenderSettings();
 }
 
-const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-note|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference))(?::(.*))?$/;
+const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-note|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference|for-outfit))(?::(.*))?$/;
 
 // 服装区 action：返回 null 表示不归本模块处理。位置 / 头部标定 key 随改名迁移、随删除清理。
 export function handleOutfitAction(normalizedAction, ctx) {
@@ -254,9 +279,9 @@ async function runOutfitAction(match, ctx) {
     const globalObj = options.global || globalThis;
     const draft = settingsState.draft;
     rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
-    const sceneAssets = draftAssetLibrary(settingsState);
-    const readerSettings = draft.readerSettings = draft.readerSettings || {};
     const charName = decodeSeg(segs[0]);
+    const sceneAssets = draftAssetLibrary(settingsState, { collections: CHARACTER_FIELDS, name: charName });
+    const readerSettings = draft.readerSettings = draft.readerSettings || {};
     if (!charName || BLOCKED_KEYS.has(charName) || !hasOwn(plain(sceneAssets.characters) || {}, charName)) return rerenderSettings();
     const outfits = outfitMapOf(sceneAssets, charName);
     const outfitName = decodeSeg(segs[1] || '');
@@ -328,7 +353,7 @@ async function runOutfitAction(match, ctx) {
         return done();
     }
     case 'scene-add-outfit-scene': {
-        const scenes = plain(sceneAssets.scenes) || {};
+        const scenes = plain(draftEffectiveAssets(settingsState).scenes) || {};
         const known = Object.keys(scenes);
         if (!known.length) { warn(globalObj, '还没有登记任何场景，请先在「场景背景」里添加'); return rerenderSettings(); }
         const input = await ask(ctx, `服装「${outfitName}」适用的场景（填场景名或别名）：\n已登记：${known.slice(0, 12).join('、')}${known.length > 12 ? ' 等' : ''}`);

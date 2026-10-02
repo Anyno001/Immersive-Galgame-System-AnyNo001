@@ -7,6 +7,7 @@ import { normalizeAudioMasterSettings } from './audio-bus.js';
 import { DANMAKU_SETTINGS_NORMALIZERS, DANMAKU_WORD_LIST_PATHS } from './danmaku-settings.js';
 import { normalizeAmbientSoundSettings, normalizeBgmSettings } from './scene-audio.js';
 import { normalizeTextFxSettings } from './text-fx.js';
+import { normalizeBilingualSettings } from './bilingual-text.js';
 import { normalizeClickWaitMarkSettings } from './click-wait-mark.js';
 import { normalizeDailyFxSettings } from './fx-daily-model.js';
 import { normalizeBattleFxSettings } from './fx-battle-model.js';
@@ -147,6 +148,7 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     uiSound: normalizeUiSoundSettings,
     audioMaster: normalizeAudioMasterSettings,
     textFx: normalizeTextFxSettings,
+    bilingual: normalizeBilingualSettings,
     clickWaitMark: normalizeClickWaitMarkSettings,
     dailyFx: normalizeDailyFxSettings,
     // 结果展示（选项检定掷骰卡）独立渲染（fx-result），不进入 FX_FEATURE_KEYS。

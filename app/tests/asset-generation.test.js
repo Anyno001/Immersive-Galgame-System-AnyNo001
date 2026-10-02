@@ -1079,6 +1079,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
         冬月: { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy', 愤怒: '' },
     }, {
         expressionNotes: { 冬月: { 愤怒: { positive: 'angry face', negative: 'lowres', error: '上游拒绝' } } },
+        isOpen: (key) => key === 'char-open:冬月',
     });
     assert.ok(html.includes('data-action="char-expression-set:%E5%86%AC%E6%9C%88"'));
     assert.ok(html.includes('data-action="char-expression-prompt:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6"'));
@@ -1102,6 +1103,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
         characterOutfits: { 冬月: { 泳装: { words: ['泳衣'], moods: { 愤怒: '', 喜悦: 'igs-gen:joy' } } } },
         outfitTabs: { 冬月: '泳装' },
         expressionNotes: { '冬月\u0001泳装': { 愤怒: { error: '上游拒绝' } } },
+        isOpen: () => true,
     });
     assert.ok(outfitHtml.includes('data-action="outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%B3%B3%E8%A3%85"'));
     assert.equal(outfitHtml.includes('char-expression-set:'), false);

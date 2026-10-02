@@ -4,7 +4,7 @@ import {
     ONBOARDING_STEPS, getOnboardingStep, nextOnboardingStep, prevOnboardingStep, isLastOnboardingStep,
 } from '../src/visual/igs-ui/onboarding-guide.js';
 import {
-    SETTINGS_TAB_DEFS, READER_SUBTAB_DEFS, SCENE_SETTINGS_SUBTAB_DEFS, SCENE_SUBTAB_DEFS, IMAGE_SUBTAB_DEFS,
+    SETTINGS_TAB_DEFS, READER_SUBTAB_DEFS, SCENE_SUBTAB_DEFS, IMAGE_SUBTAB_DEFS,
 } from '../src/visual/igs-ui/settings-tabs.js';
 
 test('onboarding steps: 九步顺序、翻页教学与可选生图', () => {
@@ -27,7 +27,7 @@ test('onboarding steps: 前后导航边界', () => {
 
 test('onboarding steps: 只指向已注册的设置页签与子页签', () => {
     const ids = (defs) => defs.map(([id]) => id);
-    const subDefs = { reader: READER_SUBTAB_DEFS, sceneSettings: SCENE_SETTINGS_SUBTAB_DEFS, scene: SCENE_SUBTAB_DEFS, image: IMAGE_SUBTAB_DEFS };
+    const subDefs = { reader: READER_SUBTAB_DEFS, scene: SCENE_SUBTAB_DEFS, image: IMAGE_SUBTAB_DEFS };
     for (const step of ONBOARDING_STEPS) {
         assert.ok(ids(SETTINGS_TAB_DEFS).includes(step.tab), step.id);
         for (const [kind, id] of step.subTabs) {

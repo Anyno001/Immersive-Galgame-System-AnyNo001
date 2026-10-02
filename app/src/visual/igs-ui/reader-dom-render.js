@@ -45,6 +45,7 @@ import { applyRomanceToDom } from './romance-runtime.js';
 import { applyMetaFx } from './meta-runtime.js';
 import { applySceneAudio } from './scene-audio.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
+import { renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
 import { cgSizeForMode } from '../../generated-images/illustration/auto-illustration-service.js';
@@ -414,7 +415,6 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     if (typeof ctx.renderSettingsBody === 'function') {
         body.innerHTML = ctx.renderSettingsBody(snapshot.tab, snapshot.draft, {
             readerSubTab: snapshot.readerSubTab,
-            sceneSettingsSubTab: snapshot.sceneSettingsSubTab,
             sceneSubTab: snapshot.sceneSubTab,
             promptRuleStatus: snapshot.resultText && snapshot.resultText.promptRule,
             promptRuleDraft: snapshot.resultText && snapshot.resultText.promptRuleDraft,
@@ -1331,7 +1331,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
         const textType = snapshot.content.textType || 'narration';
         const textFxOn = Boolean(snapshot.readerSettings.textFx && snapshot.readerSettings.textFx.enabled);
-        const renderedHtml = applyTextFxMarkup(renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled), textFxOn);
+        const bilingualDisplay = resolveBilingualDisplay(snapshot.readerSettings.bilingual, snapshot.readerSettings._bilingualDisplay);
+        const renderedHtml = applyTextFxMarkup(renderBilingualHtml(renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled), bilingualDisplay), textFxOn);
         const textRenderKey = [snapshot.messageId, snapshot.content.currentIndex, textType, renderedHtml].join(':');
 
         typewriterTextType = textType === 'system' ? 'narration' : textType;

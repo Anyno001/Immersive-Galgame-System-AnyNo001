@@ -22,6 +22,7 @@ test('gate:scene:rows-offer-download-and-stored-prompt', () => {
     const charHtml = renderCharacterAssetList({ 雪乃: { 默认: 'igs-gen:sp-a' } }, {
         aliases: {},
         moodGroups: [],
+        isOpen: () => true,
     });
     assert.match(charHtml, /gen-asset-download:sp-a/);
     assert.match(charHtml, /char-expression-prompt:/);

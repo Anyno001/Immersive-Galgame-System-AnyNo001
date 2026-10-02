@@ -8,7 +8,7 @@ import {
 import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
 import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
-import { draftAssetLibrary, effectiveSceneAssets, ensureCardLibrary, normalizeAssetCards, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { assetOwnerKey, assetShadowsGlobal, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, normalizeAssetCards, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { renderOutfitReviewList, renderWardrobe } from './settings-outfit-fields.js';
 
@@ -47,7 +47,7 @@ import { clearCastDom } from './stage-cast-render.js';
 import { CHARACTER_DNA_FIELDS, normalizeCharacterDnaMap, resolveCharacterDna } from '../../scene/character-dna.js';
 import { createOutfitResolver, normalizeCharacterOutfits, normalizeWardrobe, resolveSpriteOutfit } from '../../scene/character-outfits.js';
 import { collectOutfitClues } from '../../data/shujuku/outfit-clues.js';
-import { renderDnaCandidateBar, renderDnaOnlyCharacterList } from './settings-fields.js';
+import { DNA_ADD_BUTTON, renderDnaCandidateBar, renderDnaOnlyCharacterList } from './settings-fields.js';
 import { loadMatteEditor } from './sprite-matte-editor.js';
 import { mountMatteEditor } from './sprite-matte-editor-mount.js';
 import { createCanvasImageCodec } from './sprite-matte-editor-view.js';
@@ -69,15 +69,13 @@ import { getSettingsShellTemplate } from './settings-shell.js';
 import { getSettingsStyleText } from './settings-style.js';
 import {
     getImageSubTabTemplate,
-    getSceneSettingsSubTabTemplate,
     getReaderSubTabTemplate,
     getSettingsTabTemplate,
     normalizeImageSubTab,
-    normalizeSceneSettingsSubTab,
     normalizeSceneSubTab,
     normalizeReaderSubTab,
     IMAGE_SUBTAB_DEFS,
-    SCENE_SETTINGS_SUBTAB_DEFS,
+    SCENE_RULES_TEMPLATE,
     SCENE_SUBTAB_DEFS,
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
@@ -122,6 +120,7 @@ import {
     renderPinnedButtons,
     renderSceneAssetList,
     renderGeneratedAssetPane,
+    countGeneratedWaiting,
     renderStageShakeSettings,
     renderChatShowSettings,
     renderSystemRoleSettings,
@@ -215,7 +214,8 @@ import { createOnboardingController } from './onboarding-guide-controller.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { resolveWorldview } from '../../scene/worldview.js';
-import { loadAssetFolders } from './asset-folders.js';
+import { loadAssetFoldersFor } from './asset-folders.js';
+import { loadLegacyPresets } from '../../scene/legacy-preset.js';
 import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview, recordMoodReview } from '../../scene/mood-review-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
@@ -258,6 +258,9 @@ import { resolveChatTheme } from './chat-themes.js';
 import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import { normalizePromptPlacement } from './tag-grammar.js';
+import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay, stripBilingualTranslation } from './bilingual-text.js';
+
+const ASSET_MOVE_ALL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>';
 import {
     applyReaderSnapshotToDom,
     applyToolbarState,
@@ -266,12 +269,17 @@ import {
     normalizeReaderStableLayers,
 } from './reader-dom-render.js';
 
+// 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
+const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
+
 export function createIgsReaderHost(options = {}) {
     let statusHudClient = null;
     let statusHudCallback = null;
     const state = {
         activeReader: null,
         activeSettings: null,
+        // T 键临时切换的双语显示方式 { base, value }：只在本次会话内有效，不写入设置；设置里改了显示方式即失效。
+        bilingualDisplay: null,
     };
     const settingsDialogs = createSettingsDialogs({
         getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
@@ -327,7 +335,7 @@ export function createIgsReaderHost(options = {}) {
                 if (settings.tab === 'scene') scheduleSettingsImageRefresh();
                 return;
             }
-            if (settings.asyncState.sceneSubTab === 'generated') rerenderSettings();
+            if (settings.asyncState.sceneSubTab === 'review') rerenderSettings();
         })
         : () => {};
     // 日志更新时只替换列表 DOM，不整页重渲染，避免打断正在输入的设置项。
@@ -1116,14 +1124,10 @@ export function createIgsReaderHost(options = {}) {
                 asyncState.settingsSearch = '';
                 return rerenderSettings();
             },
-            switchSceneSettingsSubTab(subTab) {
-                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-                state.activeSettings.asyncState.sceneSettingsSubTab = normalizeSceneSettingsSubTab(subTab);
-                return rerenderSettings();
-            },
             switchSceneSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.asyncState.sceneSubTab = normalizeSceneSubTab(subTab);
+                state.activeSettings.asyncState.wardrobeFocus = '';
                 return rerenderSettings();
             },
             setValue(path, value, editOptions) {
@@ -2414,16 +2418,15 @@ export function createIgsReaderHost(options = {}) {
     function noteUnlistedOutfits(directives, sceneAssets) {
         const storage = (options.global || globalThis).localStorage;
         if (!storage) return;
-        const wardrobe = sceneAssets.wardrobe && typeof sceneAssets.wardrobe === 'object' ? sceneAssets.wardrobe : {};
-        dropConfirmedOutfitReview(storage, wardrobe);
+        const resolveOutfit = createOutfitResolver(sceneAssets);
+        dropConfirmedOutfitReview(storage, (character, word) => Boolean(resolveOutfit(character, word)));
         const fresh = [];
         for (const d of directives) {
             if (!d || !d.unknownOutfit || !d.character) continue;
-            if (Object.prototype.hasOwnProperty.call(wardrobe, d.unknownOutfit)) continue;
             const character = resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, d.character) || d.character;
             if (recordOutfitReview(storage, { character, word: d.unknownOutfit })) fresh.push(`「${character}」的「${d.unknownOutfit}」`);
         }
-        if (fresh.length) writeToast(`有新服装待确认：${fresh.join('、')}。打开衣柜可以生成提示词，或删除这条。`, 4200);
+        if (fresh.length) writeToast(`有新服装待确认：${fresh.join('、')}。到「素材 → 待确认」里归入已有服装或新建。`, 4200);
     }
 
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
@@ -2722,8 +2725,8 @@ export function createIgsReaderHost(options = {}) {
             // fingerprint, not by row ordinal. Reformatting (image blocks, italic narration,
             // merged/stripped lines) desyncs any positional counter, so we look the source
             // text up directly. normalizeFingerprint strips the translation tail *（…）*,
-            // brackets and whitespace so a substring compare is stable.
-            const normalizeFingerprint = (s) => String(s || '')
+            // bilingual 〖…〗 translations, brackets and whitespace so a substring compare is stable.
+            const normalizeFingerprint = (s) => stripBilingualTranslation(s)
                 .replace(/\*（[^）]*）\*/g, '')
                 .replace(/[\[\]\*（）]/g, '')
                 .replace(/\s+/g, '')
@@ -3037,7 +3040,6 @@ export function createIgsReaderHost(options = {}) {
         const tab = normalizeSettingsTab(settingsState.tab);
         const imageSubTab = tab === 'image' ? normalizeImageSubTab(settingsState.asyncState.imageSubTab) : null;
         const readerSubTab = tab === 'reader' ? normalizeReaderSubTab(settingsState.asyncState.readerSubTab) : null;
-        const sceneSettingsSubTab = tab === 'scene' ? normalizeSceneSettingsSubTab(settingsState.asyncState.sceneSettingsSubTab) : null;
         const sceneSubTab = tab === 'scene' ? normalizeSceneSubTab(settingsState.asyncState.sceneSubTab) : null;
         const settingsTheme = normalizeSettingsTheme(draft.bridge.settingsTheme);
         const body = renderSettingsBody(tab, draft, settingsState.asyncState);
@@ -3049,7 +3051,6 @@ export function createIgsReaderHost(options = {}) {
             tab,
             imageSubTab,
             readerSubTab,
-            sceneSettingsSubTab,
             sceneSubTab,
             settingsTheme,
             settingsThemeSwitch: renderSettingsThemeSwitch(settingsTheme),
@@ -3113,7 +3114,7 @@ export function createIgsReaderHost(options = {}) {
         }
 
         const bridge = draft.bridge;
-        const worldviewAssets = (asyncState.assetScopeMode === 'card' && asyncState.assetScopeKey)
+        const worldviewAssets = asyncState.assetScopeKey
             ? effectiveSceneAssets(bridge.sceneAssets, asyncState.assetScopeKey)
             : bridge.sceneAssets;
         const imageApi = bridge.imageApi;
@@ -3285,49 +3286,77 @@ export function createIgsReaderHost(options = {}) {
 
         if (tab === 'scene') {
             const scopeState = rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-            const library = draftAssetLibrary(state.activeSettings);
-            const sceneAssets = {
-                ...(bridge.sceneAssets || {}),
-                scenes: library.scenes || {},
-                characters: library.characters || {},
-                characterAliases: library.characterAliases || {},
-                characterDna: library.characterDna || {},
-                characterOutfits: library.characterOutfits || {},
-                wardrobe: library.wardrobe || {},
-                generated: library.generated || {},
-                statusAvatars: library.statusAvatars || {},
+            // 列表显示这张卡实际会用的一份（本卡盖在全局上）。每条带「本卡 / 全局」标签，改哪条就写回它所在的那一边。
+            const sceneAssets = draftEffectiveAssets(state.activeSettings);
+            const assetRoot = bridge.sceneAssets || {};
+            const cardKey = String(scopeState.assetScopeKey || '');
+            const storage = (options.global || globalThis).localStorage;
+            const scopeTag = (collection, name) => {
+                if (!cardKey) return '';
+                const inCard = Boolean(assetOwnerKey(assetRoot, cardKey, [collection], name));
+                // 两格切换：亮的那格是现在放的地方，点另一格就迁过去。
+                const move = `asset-move:${collection}:${encodeURIComponent(String(name))}`;
+                const seg = (here, label, title) => (here
+                    ? `<span class="igs-scope-seg is-on" aria-current="true">${label}</span>`
+                    : `<button type="button" class="igs-scope-seg" data-action="${move}" title="${title}">${label}</button>`);
+                return `<span class="igs-asset-scope-switch" role="group" aria-label="放在本卡还是全局">${seg(inCard, '本卡', '收进本卡：只有这张角色卡用')}${seg(!inCard, '全局', '放到全局：所有角色卡共用')}</span>`
+                    + (inCard && assetShadowsGlobal(assetRoot, cardKey, collection, name) ? '<span class="igs-asset-scope-note" title="全局另有一份同名的，这张卡用本卡这份">覆盖全局</span>' : '');
             };
-            const scopeMode = scopeState.assetScopeMode === 'card' && scopeState.assetScopeKey ? 'card' : 'global';
-            const scopeLabel = scopeState.assetScopeKey ? scopeState.assetScopeLabel : '未打开角色卡';
-            const assetScopeBar = `<div class="igs-scene-subtabs" role="tablist">`
-                + `<button type="button" class="igs-scene-subtab${scopeMode === 'card' ? ' is-active' : ''}" data-action="asset-scope:card"${scopeState.assetScopeKey ? '' : ' disabled'}>当前角色卡：${esc(scopeLabel)}</button>`
-                + `<button type="button" class="igs-scene-subtab${scopeMode === 'global' ? ' is-active' : ''}" data-action="asset-scope:global">全局兜底</button>`
-                + `</div><div class="igs-source-filter-note">${scopeMode === 'card' ? '按角色卡的名字分开。这里只显示这张卡自己的场景、角色和衣柜；卡里没有的名字才用全局兜底。以前混在一起的资料在「全局兜底」。' : '全局只在当前角色卡没有同名资料时才用。打开角色卡后，可以把条目收进那张卡。'}</div>`
-                + (scopeState.assetScopeKind === 'card' && scopeState.assetScopeKey
-                    ? `<div class="igs-scene-preset-bar"><button type="button" class="igs-settings-action" data-action="asset-card-export">导出这张角色卡</button><button type="button" class="igs-settings-action" data-action="asset-card-import">导入角色卡素材包</button></div><div class="igs-source-filter-note">导出的是这张卡实际会用到的场景、角色、衣柜、立绘、提示词、世界观，以及这些角色自己的立绘位置和大小。卡里没有的名字会带上全局兜底。压缩包按角色卡名字认。</div>`
+            const legacyPresets = Object.keys(loadLegacyPresets(storage));
+            const assetScopeBar = `<div class="igs-asset-scope-bar"><span class="igs-asset-scope-name">${cardKey ? `当前角色卡：${esc(scopeState.assetScopeLabel)}` : '没打开角色卡，素材都在全局'}</span>`
+                + (scopeState.assetScopeKind === 'card' && cardKey ? '<button type="button" class="igs-settings-action" data-action="asset-card-export">导出这张角色卡</button>' : '')
+                + '<button type="button" class="igs-settings-action" data-action="asset-card-import">导入角色卡素材包</button></div>'
+                + (cardKey ? '<div class="igs-source-filter-note">列表里是这张卡实际会用的素材。标「本卡」的只有这张卡用，标「全局」的所有卡共用，点标签可以换。新加的素材放进本卡。</div>' : '')
+                + (legacyPresets.length
+                    ? `<details class="igs-asset-legacy"><summary>找回旧版预设（${legacyPresets.length} 个）</summary>`
+                        + '<div class="igs-source-filter-note">以前存在本机的素材预设。点一个放进本卡或全局，同名的换成预设里的，其他不动。</div><div class="igs-asset-legacy-list">'
+                        + legacyPresets.map((name) => `<button type="button" class="igs-settings-action" data-action="legacy-preset-restore:${encodeURIComponent(name)}">${esc(name)}</button>`).join('')
+                        + '</div></details>'
                     : '');
             const disabled = !sceneAssets.enabled;
-            const sceneSettingsSubTab = normalizeSceneSettingsSubTab(asyncState.sceneSettingsSubTab);
             const subTab = normalizeSceneSubTab(asyncState.sceneSubTab);
-            // 文件夹只是本地界面归类：全局和当前角色卡分开，素材数据原样传给原有列表渲染器。
-            const folderScope = scopeMode === 'card' && scopeState.assetScopeKey ? scopeState.assetScopeKey : '';
-            const assetFolders = loadAssetFolders((options.global || globalThis).localStorage, folderScope);
+            // 文件夹只是本地界面归类：按当前角色卡存，卡里还没建过就沿用全局的。
+            const assetFolders = loadAssetFoldersFor(storage, cardKey);
             const firstUrl = (values) => (values.map((v) => String(v || '').trim()).find(Boolean) || '');
             const generatedService = options.generatedAssets || null;
             const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
                 ? (generatedService && typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '')
                 : (url || ''));
-            const assetMove = scopeState.assetScopeKey ? (scopeMode === 'card' ? 'global' : 'card') : '';
             const sceneListOptions = {
                 expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
                 timeGroups: sceneAssets.timeGroups || [],
                 weatherGroups: sceneAssets.weatherGroups || [],
                 resolveUrl: resolveGenerated,
                 folderSelect: (name) => renderAssetFolderSelect('scenes', name, assetFolders.scenes),
-                assetMove,
+                scopeTag,
             };
-            const scenesHtml = renderAssetFolderView('scenes', sceneAssets.scenes || {}, {
+            const scopeFilters = asyncState.assetScopeFilter && typeof asyncState.assetScopeFilter === 'object' ? asyncState.assetScopeFilter : {};
+            const ownedBy = (collection, name) => (assetOwnerKey(assetRoot, cardKey, [collection], name) ? 'card' : 'global');
+            const filterOf = (collection) => (cardKey && (scopeFilters[collection] === 'card' || scopeFilters[collection] === 'global') ? scopeFilters[collection] : 'all');
+            const scopedEntries = (collection) => {
+                const all = sceneAssets[collection] || {};
+                const filter = filterOf(collection);
+                if (filter === 'all') return all;
+                return Object.fromEntries(Object.entries(all).filter(([name]) => ownedBy(collection, name) === filter));
+            };
+            // 只在打开了角色卡时出现。切到「本卡」可以一键全放到全局，切到「全局」可以一键全收进本卡。
+            const scopeFilterBar = (collection) => {
+                if (!cardKey) return '';
+                const names = Object.keys(sceneAssets[collection] || {});
+                const cardCount = names.filter((name) => ownedBy(collection, name) === 'card').length;
+                const counts = { all: names.length, card: cardCount, global: names.length - cardCount };
+                const filter = filterOf(collection);
+                const chip = (id, label) => `<button type="button" class="igs-asset-filter${filter === id ? ' is-active' : ''}" data-action="asset-filter:${collection}:${id}" aria-pressed="${filter === id}">${label}<span class="igs-asset-filter-count">${counts[id]}</span></button>`;
+                // 整批迁移只是筛选旁的一个小图标，点了先弹确认，手机上也不占一整行。
+                const bulkTo = filter === 'card' && counts.card ? ['global', '全部放到全局'] : (filter === 'global' && counts.global ? ['card', '全部收进本卡'] : null);
+                const bulk = bulkTo
+                    ? `<button type="button" class="igs-btn-mgr-icon igs-asset-bulk" data-action="asset-move-all:${collection}:${bulkTo[0]}" title="${bulkTo[1]}" aria-label="${bulkTo[1]}">${ASSET_MOVE_ALL_SVG}</button>`
+                    : '';
+                return `<span class="igs-asset-filter-group" role="group" aria-label="按归属筛选" data-asset-filter="${collection}">${chip('all', '全部')}${chip('card', '本卡')}${chip('global', '全局')}</span>${bulk}`;
+            };
+            const scenesHtml = renderAssetFolderView('scenes', scopedEntries('scenes'), {
                 state: assetFolders,
+                lead: scopeFilterBar('scenes'),
                 renderList: (subset) => renderSceneAssetList(subset, sceneListOptions),
                 thumbOf: (name, value) => resolveGenerated(typeof value === 'string' ? value : firstUrl([value && value.url].concat(Object.values((value && value.times) || {}).map((t) => (typeof t === 'string' ? t : t && t.url))))),
             });
@@ -3344,26 +3373,33 @@ export function createIgsReaderHost(options = {}) {
                 magicHouse: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY && resolveWorldview(worldviewAssets) === 'magic' ? { sceneAssets, fallback: reader.magicHouse } : null,
                 resolveUrl: resolveGenerated,
                 expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
-                folderSelect: (name) => renderAssetFolderSelect('characters', name, assetFolders.characters),
-                assetMove,
-                globalWardrobe: scopeMode === 'card' ? ((bridge.sceneAssets || {}).wardrobe || {}) : {},
+                folderSelect: (name, opts) => renderAssetFolderSelect('characters', name, assetFolders.characters, opts),
+                scopeTag,
+                isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]),
             };
-            const charsHtml = renderAssetFolderView('characters', sceneAssets.characters || {}, {
+            const charsHtml = renderAssetFolderView('characters', scopedEntries('characters'), {
                 state: assetFolders,
+                lead: scopeFilterBar('characters'),
                 renderList: (subset) => renderCharacterAssetList(subset, charListOptions),
                 thumbOf: (name, moods) => resolveGenerated(firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]]))),
             });
-            const generatedPane = renderGeneratedAssetPane({
+            const generatedArgs = {
                 library: normalizeGeneratedLibrary(sceneAssets.generated),
                 characters: sceneAssets.characters || {},
                 scenes: sceneAssets.scenes || {},
                 temp: generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
                 resolveUrl: resolveGenerated,
                 moodGroups: sceneAssets.moodGroups || [],
-                assetMove,
-            });
-            const subTabsHtml = `<div class="igs-scene-subtabs" role="tablist">`
-                + SCENE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-scene-subtab${subTab === id ? ' is-active' : ''}" data-scene-subtab="${id}" role="tab" aria-selected="${subTab === id ? 'true' : 'false'}">${label}</button>`).join('')
+            };
+            // 待确认：AI 写出但没登记的服装词、词库外的情绪词、生成了还没入库的图。
+            const resolveOutfit = createOutfitResolver(sceneAssets);
+            const outfitReview = dropConfirmedOutfitReview(storage, (character, word) => Boolean(resolveOutfit(character, word)));
+            const moodReview = loadMoodReview(storage);
+            const waitingCount = outfitReview.length + moodReview.length + countGeneratedWaiting(generatedArgs);
+            const reviewPane = `<div class="igs-settings-section igs-review-pane">`
+                + renderOutfitReviewList(outfitReview, sceneAssets.characterOutfits || {}, sceneAssets.characters || {})
+                + renderMoodReviewList(moodReview)
+                + renderGeneratedAssetPane(generatedArgs)
                 + `</div>`;
             const scenesPane = `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
@@ -3381,21 +3417,16 @@ export function createIgsReaderHost(options = {}) {
             const charactersPane = `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
           <div class="igs-settings-subhead">角色立绘</div>
-          <button class="igs-btn-mgr-icon" data-action="scene-add-char" type="button" title="添加角色">+</button>
+          <span class="igs-settings-section-actions">${DNA_ADD_BUTTON}<button class="igs-btn-mgr-icon" data-action="scene-add-char" type="button" title="添加角色">+</button></span>
         </div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
-        <div class="igs-source-filter-note">词库里没有的相近情绪词也会自动归组（如「嘲弄」归入「嘲讽」）。可能归错，可在下方「待确认情绪词」里核对。</div>
-        ${renderMoodReviewList(loadMoodReview((options.global || globalThis).localStorage))}
-        ${renderOutfitReviewList(dropConfirmedOutfitReview((options.global || globalThis).localStorage, sceneAssets.wardrobe), sceneAssets.characterOutfits || {}, sceneAssets.characters || {})}
+        <div class="igs-source-filter-note">词库里没有的相近情绪词也会自动归组（如「嘲弄」归入「嘲讽」）。可能归错，可在「待确认」页核对。</div>
         ${renderDnaCandidateBar(asyncState.dnaCandidate)}
         ${charsHtml}
         ${renderDnaOnlyCharacterList(sceneAssets.characterDna || {}, sceneAssets.characters || {})}
         <div class="igs-settings-row"><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认词库</button></div>
       </div>`;
-            const sceneSettingsSubTabs = SCENE_SETTINGS_SUBTAB_DEFS.map(([id, label]) => (
-                `<button type="button" class="igs-scene-settings-subtab${sceneSettingsSubTab === id ? ' is-active' : ''}" data-scene-settings-subtab="${id}" role="tab" aria-selected="${sceneSettingsSubTab === id ? 'true' : 'false'}">${label}</button>`
-            )).join('');
             const promptRuleDraft = typeof asyncState.promptRuleDraft === 'string'
                 ? asyncState.promptRuleDraft
                 : String(sceneAssets.promptRule || '');
@@ -3409,14 +3440,22 @@ export function createIgsReaderHost(options = {}) {
                         'AI 不按标签输出时改回聊天末尾。')
                     + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入')
                     + '<div class="igs-source-filter-note">只在用得上时附完整说明。</div></details>',
-                sceneSubTabs: assetScopeBar + subTabsHtml,
-                sceneSubPane: subTab === 'wardrobe' ? renderWardrobe(sceneAssets.wardrobe, dropConfirmedOutfitReview((options.global || globalThis).localStorage, sceneAssets.wardrobe), resolveGenerated, assetMove) : (subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane)),
+                wardrobeSection: renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
             };
+            const sceneSubTabs = SCENE_SUBTAB_DEFS.map(([id, label]) => {
+                const count = id === 'review' && waitingCount ? `<span class="igs-scene-subtab-count">${waitingCount}</span>` : '';
+                return `<button type="button" class="igs-scene-settings-subtab${subTab === id ? ' is-active' : ''}" data-scene-subtab="${id}" role="tab" aria-selected="${subTab === id ? 'true' : 'false'}">${label}${count}</button>`;
+            }).join('');
+            const assetPane = (html) => `<div class="igs-settings-grid" data-scene-settings-pane="assets"><div class="igs-source-filter">${html}</div></div>`;
+            const sceneSubPane = subTab === 'rules'
+                ? renderTemplate(SCENE_RULES_TEMPLATE, sceneValues)
+                : assetPane(subTab === 'review' ? reviewPane : (subTab === 'scenes' ? scenesPane : charactersPane));
             return renderTemplate(getSettingsTabTemplate('scene'), {
                 sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
                 sceneHidden: hiddenAttr(disabled),
-                sceneSettingsSubTabs,
-                sceneSettingsSubPane: renderTemplate(getSceneSettingsSubTabTemplate(sceneSettingsSubTab), sceneValues),
+                assetScopeBar,
+                sceneSubTabs,
+                sceneSubPane,
             });
         }
 
@@ -3710,6 +3749,15 @@ export function createIgsReaderHost(options = {}) {
             if (event.key === 'h' || event.key === 'H') {
                 event.preventDefault();
                 controller.invokeAction('hide');
+                return;
+            }
+            if ((event.key === 't' || event.key === 'T') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                const reader = state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                const display = reader ? resolveBilingualDisplay(reader.bilingual, reader._bilingualDisplay) : '';
+                if (!display) return;
+                event.preventDefault();
+                state.bilingualDisplay = { base: normalizeBilingualSettings(reader.bilingual).display, value: nextBilingualDisplay(display) };
+                rerenderActiveReader();
             }
         };
         // 内嵌模式：点挂载楼层的小铅笔（.mes_edit）时先关闭阅读器并恢复原文；
@@ -3977,11 +4025,6 @@ export function createIgsReaderHost(options = {}) {
                 controller.goToSetting(settingGo.getAttribute('data-setting-go'));
                 return;
             }
-            const sceneSettingsSubTab = event.target.closest('[data-scene-settings-subtab]');
-            if (sceneSettingsSubTab) {
-                controller.switchSceneSettingsSubTab(sceneSettingsSubTab.getAttribute('data-scene-settings-subtab'));
-                return;
-            }
             const sceneSubTab = event.target.closest('[data-scene-subtab]');
             if (sceneSubTab) {
                 controller.switchSceneSubTab(sceneSubTab.getAttribute('data-scene-subtab'));
@@ -4083,7 +4126,7 @@ export function createIgsReaderHost(options = {}) {
             const statusAvatarChar = target.getAttribute('data-status-avatar-char');
             if (statusAvatarChar) {
                 rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-                const assets = draftAssetLibrary(state.activeSettings);
+                const assets = draftAssetLibrary(state.activeSettings, { collections: ASSET_CHARACTER_FIELDS, name: statusAvatarChar });
                 const avatars = assets.statusAvatars || (assets.statusAvatars = {});
                 if (Object.hasOwn(avatars, statusAvatarChar) || !['__proto__', 'constructor', 'prototype'].includes(statusAvatarChar)) {
                     avatars[statusAvatarChar] = target.value;
@@ -4104,7 +4147,7 @@ export function createIgsReaderHost(options = {}) {
             if (wardrobeName) {
                 if (['__proto__', 'constructor', 'prototype'].includes(wardrobeName)) return;
                 rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-                const assets = draftAssetLibrary(state.activeSettings);
+                const assets = draftAssetLibrary(state.activeSettings, { collections: ['wardrobe'], name: wardrobeName });
                 const wardrobe = assets.wardrobe && typeof assets.wardrobe === 'object' && !Array.isArray(assets.wardrobe)
                     ? assets.wardrobe : (assets.wardrobe = {});
                 const entry = wardrobe[wardrobeName] && typeof wardrobe[wardrobeName] === 'object' && !Array.isArray(wardrobe[wardrobeName])
@@ -4119,7 +4162,7 @@ export function createIgsReaderHost(options = {}) {
                 // 角色 DNA 输入只更新草稿，关闭设置时统一保存；不重绘，避免丢焦点。
                 if (!CHARACTER_DNA_FIELDS.includes(dnaField) || ['__proto__', 'constructor', 'prototype'].includes(dnaChar)) return;
                 rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-                const assets = draftAssetLibrary(state.activeSettings);
+                const assets = draftAssetLibrary(state.activeSettings, { collections: ASSET_CHARACTER_FIELDS, name: dnaChar });
                 const dnaMap = assets.characterDna && typeof assets.characterDna === 'object' && !Array.isArray(assets.characterDna)
                     ? assets.characterDna : (assets.characterDna = {});
                 const entry = Object.hasOwn(dnaMap, dnaChar) && dnaMap[dnaChar] && typeof dnaMap[dnaChar] === 'object' ? dnaMap[dnaChar] : (dnaMap[dnaChar] = {});
@@ -4178,6 +4221,13 @@ export function createIgsReaderHost(options = {}) {
                 controller.invoke(`asset-folder-move:${folderMoveKind}:${encodeURIComponent(assetName)}:${encodeURIComponent(event.target.value)}`);
                 return;
             }
+            const reviewChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-review-char') : '';
+            if (reviewChar) {
+                if (!event.target.value) return;
+                const reviewWord = event.target.getAttribute('data-outfit-review-word') || '';
+                controller.invoke(`outfit-review-assign:${[reviewChar, reviewWord, event.target.value].map((value) => encodeURIComponent(value || '')).join(':')}`);
+                return;
+            }
             const wardrobeChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-wardrobe-char') : '';
             if (wardrobeChar) {
                 const wardrobeOutfit = event.target.getAttribute('data-outfit-wardrobe') || '';
@@ -4195,6 +4245,14 @@ export function createIgsReaderHost(options = {}) {
             if (!path) return;
             controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
         });
+        // 点下拉菜单（⋯、＋）以外的地方，把开着的菜单收起。
+        root.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!root.querySelectorAll) return;
+            for (const menu of root.querySelectorAll('details.igs-add-menu[open]')) {
+                if (!(target && typeof menu.contains === 'function' && menu.contains(target))) menu.open = false;
+            }
+        }, true);
         // toggle 不冒泡，用捕获阶段记住「高级」折叠区的展开状态，避免重渲染后被收起。
         root.addEventListener('toggle', (event) => {
             const target = event.target;
@@ -4526,6 +4584,8 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._worldview = worldview;
         readerSettings._sceneAssets = sceneAssets;
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
+        const bilingualOverride = state.bilingualDisplay;
+        readerSettings._bilingualDisplay = bilingualOverride && bilingualOverride.base === normalizeBilingualSettings(readerSettings.bilingual).display ? bilingualOverride.value : '';
         readerSettings._vnTheme = readerSettings.vnTheme || null;
         readerSettings._strictBackgroundMatch = isStrictBackgroundMatch(bridge.autoIllustration);
         readerSettings._cgBackgroundSize = normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.backgroundSize;

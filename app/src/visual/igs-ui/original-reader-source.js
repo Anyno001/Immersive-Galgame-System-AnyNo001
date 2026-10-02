@@ -12,6 +12,7 @@ import { ROMANCE_STYLE_TEXT } from './romance-style.js';
 import { INTIMATE_STYLE_TEXT } from './romance-intimate-style.js';
 import { META_STYLE_TEXT } from './meta-style.js';
 import { TEXT_FX_STYLE_TEXT } from './text-fx.js';
+import { BILINGUAL_STYLE_TEXT } from './bilingual-text.js';
 import { DIALOG_TYPESETTING_STYLE_TEXT } from './dialog-theme-typography.js';
 import { CLICK_WAIT_MARK_STYLE_TEXT } from './click-wait-mark.js';
 import { DAILY_FX_STYLE_TEXT } from './fx-daily-style.js';
@@ -307,6 +308,7 @@ ${INTIMATE_STYLE_TEXT}
 ${META_STYLE_TEXT}
 ${DIALOG_TYPESETTING_STYLE_TEXT}
 ${TEXT_FX_STYLE_TEXT}
+${BILINGUAL_STYLE_TEXT}
 ${CLICK_WAIT_MARK_STYLE_TEXT}
 ${DAILY_FX_STYLE_TEXT}
 ${ITEM_FX_STYLE_TEXT}

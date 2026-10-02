@@ -2233,6 +2233,7 @@ test('gate:igs-ui:settings-repaints-thumbs-when-generated-images-arrive', () => 
     host.openReader({ message: { text: '旁白。' } }, { mode: 'pc' });
     const opened = host.openSettings({ tab: 'scene' });
     opened.controller.switchSceneSubTab('characters');
+    opened.controller.invoke(`ui-toggle-open:${encodeURIComponent('char-open:Kaito')}`);
     assert.equal(opened.controller.getSnapshot().html.includes('data:image/png;base64,aaa'), false);
     images.set('igs-gen:abc', 'data:image/png;base64,aaa');
     notify({ reason: 'image-loaded', imageId: 'abc' });
@@ -2266,8 +2267,9 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
     const opened = host.openSettings({ tab: 'scene' });
     const controller = opened.controller;
     controller.switchTab('scene');
-    controller.switchSceneSettingsSubTab('assets');
     controller.switchSceneSubTab('characters');
+    // 角色平时只有一行，先展开 Kaito 才看得到情绪槽。
+    await controller.invoke(`ui-toggle-open:${encodeURIComponent('char-open:Kaito')}`);
 
     // 折叠态：不含缩略图
     const snap = controller.getSnapshot();
@@ -3554,9 +3556,11 @@ test('gate:simulation:status-hud-table-picker-wires-actions-and-only-highlights-
 test('gate:scene:character-assets-render-status-avatar-row', () => {
     const html = renderCharacterAssetList(
         { H: { 默认: '' } },
-        { aliases: { H: [] }, moodGroups: [], statusAvatars: { H: 'data:image/png;base64,AAA' } },
+        { aliases: { H: [] }, moodGroups: [], statusAvatars: { H: 'data:image/png;base64,AAA' }, isOpen: () => true },
     );
-    assert.equal((html.match(/状态栏头像/g) || []).length, 1);
+    // 头像本身就是上传按钮；地址和清除在毛笔打开的「角色设定」里。
+    assert.match(html, /<button type="button" class="igs-char-avatar" data-action="status-avatar-pick:H"/);
+    assert.match(renderCharacterAssetList({ H: { 默认: '' } }, { statusAvatars: { H: 'x' } }), /^(?![\s\S]*status-avatar-url)/);
     assert.match(html, /class="igs-scene-url-input igs-status-avatar-url"[^>]*data-status-avatar-char="H"[^>]*value="data:image\/png;base64,AAA"/);
     assert.match(html, /data-action="status-avatar-pick:H"/);
     assert.match(html, /data-action="status-avatar-clear:H"/);
@@ -4085,9 +4089,17 @@ test('gate:igs-ui:character-dna-editor-renders-escaped-name-and-values', async (
     const empty = renderCharacterDnaEditor('白墨', null);
     assert.ok(empty.includes('角色 DNA（未填写）'));
     assert.equal((empty.match(/data-dna-field="/g) || []).length, 4);
-    const html = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
+    // 角色卡上 DNA 平时只是名字旁的星星画笔（已填时高亮），点开才出编辑区。
+    const closed = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
         characterDna: { 'A.<b>': { identity: 'silver hair', triggerWords: 'alice_v2' } },
     });
+    assert.match(closed, /class="igs-btn-mgr-icon igs-char-dna-btn is-on" data-action="scene-toggle-dna:A.%3Cb%3E"[^>]*aria-expanded="false"/);
+    assert.ok(!closed.includes('data-dna-field='));
+    const html = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
+        characterDna: { 'A.<b>': { identity: 'silver hair', triggerWords: 'alice_v2' } },
+        isOpen: (key) => key === 'char-dna:A.<b>',
+    });
+    assert.ok(html.includes('aria-expanded="true"'));
     assert.ok(html.includes('data-dna-char="A.&lt;b&gt;"'));
     assert.ok(!html.includes('data-dna-char="A.<b>"'));
     assert.ok(html.includes('data-dna-field="identity" placeholder='));
@@ -4163,7 +4175,8 @@ test('gate:scene:dna-only-character-add-rename-remove-and-list', async () => {
 
     await handleSettingsAction('scene-remove-dna-char:' + encodeURIComponent('路人乙'), ctx);
     assert.deepEqual(Object.keys(sa().characterDna), ['爱丽丝']);
-    assert.ok(renderDnaOnlyCharacterList(sa().characterDna, sa().characters).includes('igs-scene-empty'));
+    // 没有只有 DNA 的角色时整块不出现，入口在「角色立绘」标题旁。
+    assert.equal(renderDnaOnlyCharacterList(sa().characterDna, sa().characters), '');
 });
 
 

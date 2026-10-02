@@ -39,11 +39,11 @@ export function removeOutfitReview(storage, character, word) {
     return next.length !== items.length ? saveOutfitReview(storage, next) : { ok: true };
 }
 
-// 已经写进衣柜的衣服名不再算待确认。生成提示词之后正文里还会出现这个名字，不能再记回来。
-export function dropConfirmedOutfitReview(storage, wardrobe) {
-    const names = new Set(Object.keys(wardrobe && typeof wardrobe === 'object' && !Array.isArray(wardrobe) ? wardrobe : {}));
+// 这个角色已经登记了这件衣服（服装名或服装词），就不再算待确认。isRegistered(character, word) 由调用方按素材判断。
+export function dropConfirmedOutfitReview(storage, isRegistered) {
+    const registered = typeof isRegistered === 'function' ? isRegistered : () => false;
     const items = loadOutfitReview(storage);
-    const next = items.filter((item) => !names.has(item.word));
+    const next = items.filter((item) => !registered(item.character, item.word));
     if (next.length !== items.length) saveOutfitReview(storage, next);
     return next;
 }

@@ -40,6 +40,7 @@ const VISUAL_REVEAL_KEYFRAMES = Object.freeze([
 function readText(root) {
     if (!root) return '';
     if (root.nodeType === 3) return String(root.nodeValue || '');
+    if (String(root.nodeName || '').toUpperCase() === 'RT') return '';
     return Array.from(root.childNodes || [], readText).join('');
 }
 

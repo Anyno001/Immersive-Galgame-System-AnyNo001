@@ -10,7 +10,6 @@ import { ONBOARDING_STYLE_ID, getOnboardingStyleText } from './onboarding-guide-
 
 const SUBTAB_SWITCHERS = Object.freeze({
     reader: 'switchReaderSubTab',
-    sceneSettings: 'switchSceneSettingsSubTab',
     scene: 'switchSceneSubTab',
     image: 'switchImageSubTab',
 });

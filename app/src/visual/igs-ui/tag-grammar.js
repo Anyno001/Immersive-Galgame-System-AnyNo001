@@ -2,6 +2,7 @@ import { fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGra
 import { dailyGrammarLines } from './fx-daily-prompt.js';
 import { BATTLE_GRAMMAR_LINES } from './fx-battle-model.js';
 import { textFxGrammarBlock } from './text-fx.js';
+import { bilingualGrammarBlock, normalizeBilingualSettings } from './bilingual-text.js';
 import { normalizeChatShowSettings, resolveChatShowGrammar } from './chat-show-runtime.js';
 import { enabledFxTagKinds } from './fx-settings.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
@@ -28,6 +29,9 @@ function plain(value) {
 export function collectGrammarBlocks(readerSettings, { ancient = false } = {}) {
     const rs = plain(readerSettings);
     const blocks = [];
+    if (normalizeBilingualSettings(rs.bilingual).enabled) {
+        blocks.push({ key: 'bilingual', full: bilingualGrammarBlock(rs.bilingual), index: '双语台词 原文〖译文〗' });
+    }
     if (plain(rs.textFx).enabled === true) {
         blocks.push({ key: 'text', full: textFxGrammarBlock(), index: '文字演出 {效果:文字}' });
     }

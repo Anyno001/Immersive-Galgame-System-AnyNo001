@@ -27,7 +27,7 @@ const previewPath = page === 'stage-cast' ? 'fixtures/stage-cast/preview.html'
     : page === 'stage-cast-reader' ? 'fixtures/stage-cast/reader.html'
     : 'fixtures/record-pages/preview.html';
 
-const SIZES = { desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768], mobile: [390, 844], short: [390, 500], tiny: [320, 568] };
+const SIZES = { desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768], tall: [900, 1700], mobile: [390, 844], short: [390, 500], tiny: [320, 568] };
 const [width, height] = SIZES[size] || SIZES.desktop;
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const CDP_PORT = 9333;

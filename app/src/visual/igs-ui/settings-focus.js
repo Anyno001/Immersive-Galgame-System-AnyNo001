@@ -9,7 +9,6 @@ const FOCUS_KEY_ATTRS = Object.freeze([
     ['data-tab'],
     ['data-image-subtab'],
     ['data-reader-subtab'],
-    ['data-scene-settings-subtab'],
     ['data-scene-subtab'],
     ['data-model-sync'],
     ['data-prompt-rule-draft'],

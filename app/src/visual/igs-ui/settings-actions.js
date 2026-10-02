@@ -5,7 +5,7 @@ import { findDbgenApi } from '../../generated-images/image-backend.js';
 import { formatEditablePrompt, formatStoredPrompt, normalizeStoredPrompt, parseEditablePrompt } from '../../generated-images/generation-prompt.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
-import { draftAssetLibrary, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { buildCharacterCardPack, mergeLabelGroups, parseCharacterCardPack, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
@@ -39,8 +39,12 @@ import { normalizeCharacterOutfits, normalizeWardrobe, renameOutfitScene, resolv
 
 import { migrateSpriteKeys } from './sprite-key-migration.js';
 import { NAI_OFFICIAL_MODELS } from '../../generated-images/request-builders/nai-v4-builder.js';
-import { ASSET_FOLDER_KINDS, addAssetFolder, forgetAssetItem, loadAssetFolders, moveAssetToFolder, removeAssetFolder, renameAssetFolder, renameAssetItem, saveAssetFolders, setAssetView, toggleAssetFolder } from './asset-folders.js';
+import { ASSET_FOLDER_KINDS, addAssetFolder, forgetAssetItem, loadAssetFoldersFor as loadAssetFolders, mergeAssetFolderScope, moveAssetToFolder, removeAssetFolder, renameAssetFolder, renameAssetItem, saveAssetFolders, setAssetView, toggleAssetFolder } from './asset-folders.js';
 import { mergeDefaultBackgrounds } from '../../backgrounds/merge-default-backgrounds.js';
+
+// 能按「本卡 / 全局」筛选和整批迁移的素材，值是确认框里的叫法。
+const SCOPED_COLLECTION_KINDS = Object.freeze({ scenes: '场景', characters: '角色', wardrobe: '衣柜提示词' });
+import { isLegacyPresetData, legacyPackConflicts, legacyPackSummary, legacyPresetToPack, loadLegacyPresets, mergeLegacyLibrary, storeLegacyPresets } from '../../scene/legacy-preset.js';
 
 // 草稿深拷贝后顶层 imageApi 与 bridge.imageApi 不再是同一对象，面板只改后者；生图读取优先顶层，这里对齐为面板当前值。
 function cloneImageDraft(draft) {
@@ -64,8 +68,35 @@ function operationFailed(result) {
 function assetFolderScope(settingsState, options) {
     const globalObj = options.global || globalThis;
     const asyncState = settingsState.asyncState || {};
-    const scope = asyncState.assetScopeMode === 'card' && asyncState.assetScopeKey ? asyncState.assetScopeKey : '';
-    return { globalObj, storage: globalObj.localStorage, scope };
+    return { globalObj, storage: globalObj.localStorage, scope: String(asyncState.assetScopeKey || '') };
+}
+
+const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
+const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url)|char-expression-(?:prompt|set|retry)|outfit-expression-(?:prompt|set|retry))$/;
+
+// 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
+function linkedCharacterOutfits(settingsState) {
+    const root = settingsState.draft.bridge.sceneAssets || {};
+    const key = String((settingsState.asyncState && settingsState.asyncState.assetScopeKey) || '');
+    const card = key && root.cards && root.cards[key];
+    return [root.characterOutfits, card && card.characterOutfits].filter(Boolean);
+}
+
+// 设置页列表里本卡和全局混在一起。按 action 找出改的是哪一条，写回它所在的那一边；新建的条目进本卡。
+export function assetEditTarget(action) {
+    const match = /^([a-z-]+):(.*)$/.exec(String(action || ''));
+    if (!match) return null;
+    const [, verb, rest] = match;
+    const segs = rest.split(':').map(decodeSeg);
+    if (SCENE_ACTION.test(verb)) return { collections: ['scenes'], name: segs[0] };
+    if (CHARACTER_ACTION.test(verb)) return { collections: CHARACTER_FIELDS, name: segs[0] };
+    if (verb === 'gen-lib-rename' || verb === 'gen-lib-remove') {
+        return { collections: [segs[0] === 'background' ? 'generated.scenes' : 'generated.characters'], name: segs[1] };
+    }
+    if (verb === 'gen-file-scene') return { collections: ['generated.scenes'], name: segs[0] };
+    if (verb === 'gen-adopt-sprite') return { collections: ['generated.characters', 'characters'], name: segs[0] };
+    return null;
 }
 
 // 素材文件夹只是本地界面归类：不改草稿、不触发设置持久化。
@@ -278,8 +309,12 @@ function generatedOperationFailure(globalObj, message, reason) {
 }
 
 // 图片只跟全局和角色卡里的配置走。这些地方不再引用，图就可以清掉。
-export function unreferencedGeneratedImageIds(imageIds, sceneAssets) {
+export function unreferencedGeneratedImageIds(imageIds, sceneAssets, storage) {
     const inUse = new Set(collectGeneratedImageIds(sceneAssets));
+    // 本机还留着的旧版预设也算在用：找回之前，它们引用的图不能删。
+    for (const preset of Object.values(loadLegacyPresets(storage))) {
+        for (const id of collectGeneratedImageIds(preset)) inUse.add(id);
+    }
     return (Array.isArray(imageIds) ? imageIds : []).filter((id) => id && !inUse.has(id));
 }
 
@@ -417,36 +452,77 @@ export async function handleSettingsAction(action, ctx) {
     const normalizedAction = String(action || '').trim();
     const settingsState = state.activeSettings;
     rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
-    if (normalizedAction === 'asset-scope:card' || normalizedAction === 'asset-scope:global') {
-        settingsState.asyncState.assetScopeMode = normalizedAction === 'asset-scope:global' || !settingsState.asyncState.assetScopeKey
-            ? 'global'
-            : 'card';
+    const editTarget = assetEditTarget(normalizedAction);
+    const dialogs = ctx.dialogs || createSettingsDialogs({ global: options.global || globalThis });
+    if (normalizedAction.startsWith('asset-filter:')) {
+        const [collection, filter] = normalizedAction.slice('asset-filter:'.length).split(':');
+        if (!SCOPED_COLLECTION_KINDS[collection]) return rerenderSettings();
+        const filters = settingsState.asyncState.assetScopeFilter = { ...(settingsState.asyncState.assetScopeFilter || {}) };
+        filters[collection] = filter === 'card' || filter === 'global' ? filter : 'all';
         return rerenderSettings();
     }
+    // 一键把本卡的场景 / 角色 / 衣柜提示词全放到全局，或把全局的全收进本卡。角色连同别名、DNA、服装、头像、生成图一起走。
+    if (normalizedAction.startsWith('asset-move-all:')) {
+        const [collection, dest] = normalizedAction.slice('asset-move-all:'.length).split(':');
+        const cardKey = String(settingsState.asyncState.assetScopeKey || '');
+        if (!cardKey || !SCOPED_COLLECTION_KINDS[collection] || (dest !== 'card' && dest !== 'global')) return rerenderSettings();
+        const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const card = (root.cards && root.cards[cardKey]) || {};
+        const inCard = (name) => Object.prototype.hasOwnProperty.call(card[collection] || {}, name);
+        const names = dest === 'global'
+            ? Object.keys(card[collection] || {})
+            : Object.keys(root[collection] || {}).filter((name) => !inCard(name));
+        if (!names.length) return rerenderSettings();
+        const kind = SCOPED_COLLECTION_KINDS[collection];
+        const cardLabel = settingsState.asyncState.assetScopeLabel || '当前角色卡';
+        const taken = dest === 'global' ? names.filter((name) => Object.prototype.hasOwnProperty.call(root[collection] || {}, name)) : [];
+        const shown = taken.slice(0, 6).join('、') + (taken.length > 6 ? ' 等' : '');
+        const message = dest === 'global'
+            ? `把角色卡「${cardLabel}」的 ${names.length} 个${kind}全部放到全局？之后所有角色卡都能用。`
+                + (taken.length ? `\n全局里已有同名的 ${taken.length} 个会换成本卡这份：${shown}。` : '')
+            : `把全局的 ${names.length} 个${kind}全部收进角色卡「${cardLabel}」？之后别的角色卡就用不到它们了。`;
+        if (!await dialogs.confirm(message, { okLabel: dest === 'global' ? '全部放到全局' : '全部收进本卡' })) return rerenderSettings();
+        for (const name of names) moveLibraryEntry(root, dest === 'global' ? cardKey : '', dest === 'global' ? '' : cardKey, collection, name);
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+    // 点条目上的「本卡 / 全局」标签：本卡的挪回全局，全局的收进本卡。挪回全局时全局已有同名的先问。
     if (normalizedAction.startsWith('asset-move:')) {
         const rest = normalizedAction.slice('asset-move:'.length);
-        const first = rest.indexOf(':');
-        const second = first < 0 ? -1 : rest.indexOf(':', first + 1);
-        if (second < 0) return rerenderSettings();
-        const dest = rest.slice(0, first);
-        const collection = rest.slice(first + 1, second);
-        const name = decodeSeg(rest.slice(second + 1));
-        const cardKey = settingsState.asyncState.assetScopeKey || '';
-        if (!cardKey || (dest !== 'card' && dest !== 'global')) return rerenderSettings();
+        const colon = rest.indexOf(':');
+        if (colon < 0) return rerenderSettings();
+        const collection = rest.slice(0, colon);
+        const name = decodeSeg(rest.slice(colon + 1));
+        const cardKey = String(settingsState.asyncState.assetScopeKey || '');
+        if (!cardKey) return rerenderSettings();
         const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        const moved = moveLibraryEntry(root, dest === 'card' ? '' : cardKey, dest === 'card' ? cardKey : '', collection, name);
+        const owner = assetOwnerKey(root, cardKey, [collection], name);
+        if (owner) {
+            const taken = Object.prototype.hasOwnProperty.call(root[collection] || {}, name);
+            const message = taken
+                ? `全局已经有一份「${name}」。挪回全局会用本卡这份把它换掉，所有角色卡都会用这份。继续？`
+                : `把「${name}」放到全局？之后所有角色卡都能用。`;
+            if (!await dialogs.confirm(message, { okLabel: '放到全局' })) return rerenderSettings();
+        }
+        const moved = moveLibraryEntry(root, owner ? cardKey : '', owner ? '' : cardKey, collection, name);
         if (!moved.ok) return rerenderSettings();
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
-    const dialogs = ctx.dialogs || createSettingsDialogs({ global: options.global || globalThis });
 
     if (normalizedAction === 'asset-card-export') {
         return exportCharacterCardPack(settingsState, options);
     }
     if (normalizedAction === 'asset-card-import') {
         return importCharacterCardPack(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings);
+    }
+    if (normalizedAction.startsWith('legacy-preset-restore:')) {
+        const name = decodeSeg(normalizedAction.slice('legacy-preset-restore:'.length));
+        const preset = loadLegacyPresets((options.global || globalThis).localStorage)[name];
+        if (!preset) return rerenderSettings();
+        return importLegacyPreset(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings, preset, name);
     }
 
     if (normalizedAction.startsWith('settings-reset-section:')) {
@@ -507,7 +583,7 @@ export async function handleSettingsAction(action, ctx) {
         const newName = ((await dialogs.prompt(`生成素材「${oldName}」的新名称：`, oldName)) || '').trim();
         if (!newName || newName === oldName) return rerenderSettings();
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const previousLibrary = normalizeGeneratedLibrary(sceneAssets.generated);
         const result = renameGeneratedLibraryEntry(sceneAssets.generated, type, oldName, newName);
         if (!result.ok) {
@@ -534,7 +610,7 @@ export async function handleSettingsAction(action, ctx) {
         if (type !== 'background' && type !== 'sprite') return rerenderSettings();
         const globalObj = options.global || globalThis;
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const library = normalizeGeneratedLibrary(sceneAssets.generated);
         const previousLibrary = library;
         const bucket = type === 'background' ? library.scenes : library.characters;
@@ -586,7 +662,7 @@ export async function handleSettingsAction(action, ctx) {
         const name = String(requestedName == null ? '' : requestedName).trim();
         if (!name) return rerenderSettings();
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         let previousLibrary = null;
         let previousScenes = null;
         let previousCharacters = null;
@@ -683,7 +759,7 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction.startsWith('gen-file-scene:')) {
         const name = decodeSeg(normalizedAction.slice('gen-file-scene:'.length));
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const library = normalizeGeneratedLibrary(sceneAssets.generated);
         const entry = library.scenes[name];
         if (!entry) return rerenderSettings();
@@ -707,7 +783,7 @@ export async function handleSettingsAction(action, ctx) {
         const name = decodeSeg(normalizedAction.slice('gen-adopt-sprite:'.length));
         const globalObj = options.global || globalThis;
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const adopted = installGeneratedCharacter(sceneAssets, name, true);
         if (!adopted.ok) return generatedOperationFailure(globalObj, '这份生成立绘没有可绑定的图片。', 'generated-sprite-adopt-failed');
         const library = normalizeGeneratedLibrary(sceneAssets.generated);
@@ -731,7 +807,7 @@ export async function handleSettingsAction(action, ctx) {
         const globalObj = options.global || globalThis;
         const service = options.generatedAssets;
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const character = (sceneAssets.characters || {})[name];
         const outfitEntry = outfitMode ? (((sceneAssets.characterOutfits || {})[name] || {})[outfitName]) : null;
         if (!name || !mood || !character || (outfitMode && !outfitEntry)) return rerenderSettings();
@@ -801,7 +877,7 @@ export async function handleSettingsAction(action, ctx) {
         const globalObj = options.global || globalThis;
         const service = options.generatedAssets;
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const character = (sceneAssets.characters || {})[name];
         const outfitEntry = outfitMode ? (((sceneAssets.characterOutfits || {})[name] || {})[outfitName]) : null;
         if (!name || !character || (outfitMode && !outfitEntry)) return rerenderSettings();
@@ -849,8 +925,7 @@ export async function handleSettingsAction(action, ctx) {
                 : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
         }
         const dna = characterExpressionDna(sceneAssets, name);
-        const rootWardrobe = (settingsState.draft.bridge.sceneAssets || {}).wardrobe || {};
-        const clothes = outfitMode ? resolveWardrobePrompt({ ...rootWardrobe, ...(sceneAssets.wardrobe || {}) }, outfitEntry, outfitName) : null
+        const clothes = outfitMode ? resolveWardrobePrompt(draftEffectiveAssets(settingsState).wardrobe || {}, outfitEntry, outfitName) : null;
         const outfit = outfitMode ? { name: outfitName, words: outfitEntry.words, ownImage: Boolean(ownUrl), prompt: clothes ? clothes.prompt : '' } : null;
         if (retry && !mood) return rerenderSettings();
         if (!retry) {
@@ -882,7 +957,7 @@ export async function handleSettingsAction(action, ctx) {
             return generatedOperationFailure(globalObj, (result && result.error) || '表情差分生成失败。', 'expression-generate-failed');
         }
         const liveBridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        const liveAssets = draftAssetLibrary(settingsState);
+        const liveAssets = draftAssetLibrary(settingsState, editTarget);
         for (const item of result.items || []) {
             if (outfitMode) applyOutfitExpression(liveAssets, name, outfitName, item);
             else applyCharacterExpression(liveAssets, name, item);
@@ -968,7 +1043,7 @@ export async function handleSettingsAction(action, ctx) {
         if (colon > 0) {
             const charName = decodeSeg(rest.slice(0, colon));
             const url = decodeSeg(rest.slice(colon + 1)).trim();
-            const sceneAssets = draftAssetLibrary(settingsState);
+            const sceneAssets = draftAssetLibrary(settingsState, editTarget);
             const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
             if (url) {
                 const normalized = normalizeStatusAvatars({ [charName]: url });
@@ -1114,7 +1189,7 @@ export async function handleSettingsAction(action, ctx) {
     const worldviewAction = normalizedAction.match(/^worldview:([a-z-]+)$/);
     if (worldviewAction) {
         const bridgeDraft = settingsState.draft.bridge = settingsState.draft.bridge || {};
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         applyWorldview(sceneAssets, worldviewAction[1]);
         return rerenderSettings();
     }
@@ -1302,7 +1377,7 @@ export async function handleSettingsAction(action, ctx) {
             if (globalObj.alert) globalObj.alert(picked.reason === 'too-large' ? '图片过大，请选择更小的图片。' : '仅支持图片文件。');
             return rerenderSettings();
         }
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
         avatars[charName] = picked.dataUrl;
         sceneAssets.statusAvatars = avatars;
@@ -1313,7 +1388,7 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction.startsWith('status-avatar-clear:')) {
         const charName = decodeSeg(normalizedAction.slice('status-avatar-clear:'.length));
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
         delete avatars[charName];
         sceneAssets.statusAvatars = avatars;
@@ -1581,10 +1656,10 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'scene-add-bg') {
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        draftAssetLibrary(settingsState).scenes = draftAssetLibrary(settingsState).scenes || {};
-        const existingKeys = Object.keys(draftAssetLibrary(settingsState).scenes);
+        draftAssetLibrary(settingsState, editTarget).scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
+        const existingKeys = Object.keys(draftAssetLibrary(settingsState, editTarget).scenes);
         const newName = '场景' + (existingKeys.length + 1);
-        draftAssetLibrary(settingsState).scenes[newName] = { url: '', times: {} };
+        draftAssetLibrary(settingsState, editTarget).scenes[newName] = { url: '', times: {} };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -1594,7 +1669,7 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'scene-add-default-bg') {
         const globalObj = options.global || globalThis;
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const merged = mergeDefaultBackgrounds(sceneAssets.scenes);
         if (!merged.added.length) {
             if (globalObj.alert) globalObj.alert(`默认素材已全部在素材库里（${merged.skipped.length} 个同名场景已跳过）。`);
@@ -1624,9 +1699,9 @@ export async function handleSettingsAction(action, ctx) {
         const name = decodeSeg(normalizedAction.slice('scene-remove-bg:'.length));
         forgetAssetFolderItem(settingsState, options, 'scenes', name);
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        draftAssetLibrary(settingsState).scenes = draftAssetLibrary(settingsState).scenes || {};
-        delete draftAssetLibrary(settingsState).scenes[name];
-        renameOutfitScene(draftAssetLibrary(settingsState).characterOutfits, name, '');
+        draftAssetLibrary(settingsState, editTarget).scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
+        delete draftAssetLibrary(settingsState, editTarget).scenes[name];
+        for (const outfits of linkedCharacterOutfits(settingsState)) renameOutfitScene(outfits, name, '');
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -1638,13 +1713,13 @@ export async function handleSettingsAction(action, ctx) {
         const newName = ((await dialogs.prompt(`重命名场景「${oldName}」为：`, oldName)) || '').trim();
         if (newName && newName !== oldName) {
             settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-            const scenes = draftAssetLibrary(settingsState).scenes || {};
+            const scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
             if (Object.prototype.hasOwnProperty.call(scenes, newName)) {
                 if (globalObj.alert) globalObj.alert(`场景「${newName}」已存在（同名），已阻止`);
                 return rerenderSettings();
             }
-            draftAssetLibrary(settingsState).scenes = reorderKey(scenes, oldName, newName);
-            renameOutfitScene(draftAssetLibrary(settingsState).characterOutfits, oldName, newName);
+            draftAssetLibrary(settingsState, editTarget).scenes = reorderKey(scenes, oldName, newName);
+            for (const outfits of linkedCharacterOutfits(settingsState)) renameOutfitScene(outfits, oldName, newName);
             const sl = settingsState.asyncState.expandedSceneSlots;
             renameSetPrefix(sl, `bg\x00${oldName}`, `bg\x00${newName}`);
             renameSetPrefix(sl, `time\x00${oldName}\x00`, `time\x00${newName}\x00`);
@@ -1663,12 +1738,12 @@ export async function handleSettingsAction(action, ctx) {
             const name = decodeSeg(rest.slice(0, colonIdx));
             const url = rest.slice(colonIdx + 1);
             settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-            draftAssetLibrary(settingsState).scenes = draftAssetLibrary(settingsState).scenes || {};
-            const scene = draftAssetLibrary(settingsState).scenes[name];
+            draftAssetLibrary(settingsState, editTarget).scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
+            const scene = draftAssetLibrary(settingsState, editTarget).scenes[name];
             if (scene && typeof scene === 'object') {
                 scene.url = url;
             } else {
-                draftAssetLibrary(settingsState).scenes[name] = { url, times: {} };
+                draftAssetLibrary(settingsState, editTarget).scenes[name] = { url, times: {} };
             }
         }
         return { ok: true };
@@ -1702,7 +1777,7 @@ export async function handleSettingsAction(action, ctx) {
         if (colonIdx > 0) {
             const sceneName = decodeSeg(rest.slice(0, colonIdx));
             const timeName = decodeSeg(rest.slice(colonIdx + 1));
-            const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState).scenes || {};
+            const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState, editTarget).scenes || {};
             const scene = scenes[sceneName];
             if (scene && scene.times) delete scene.times[timeName];
             const persisted = persistSettingsDraft();
@@ -1720,7 +1795,7 @@ export async function handleSettingsAction(action, ctx) {
             const globalObj = options.global || globalThis;
             const newTime = ((await dialogs.prompt(`重命名时间「${oldTime}」为：`, oldTime)) || '').trim();
             if (newTime && newTime !== oldTime) {
-                const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState).scenes || {};
+                const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState, editTarget).scenes || {};
                 const scene = scenes[sceneName];
                 if (scene && scene.times) {
                     if (Object.prototype.hasOwnProperty.call(scene.times, newTime)) {
@@ -1768,7 +1843,7 @@ export async function handleSettingsAction(action, ctx) {
             if (second > 0) {
                 const timeName = decodeSeg(after.slice(0, second));
                 const url = after.slice(second + 1);
-                const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState).scenes || {};
+                const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState, editTarget).scenes || {};
                 const scene = scenes[sceneName];
                 if (scene && scene.times && scene.times[timeName] != null) {
                     const t = scene.times[timeName];
@@ -1820,7 +1895,7 @@ export async function handleSettingsAction(action, ctx) {
             if (second > 0) {
                 const timeName = decodeSeg(after.slice(0, second));
                 const weatherName = decodeSeg(after.slice(second + 1));
-                const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState).scenes || {};
+                const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState, editTarget).scenes || {};
                 const scene = scenes[sceneName];
                 if (scene && scene.times && scene.times[timeName]) {
                     const t = scene.times[timeName];
@@ -1846,7 +1921,7 @@ export async function handleSettingsAction(action, ctx) {
                 const globalObj = options.global || globalThis;
                 const newWeather = ((await dialogs.prompt(`重命名天气「${oldWeather}」为：`, oldWeather)) || '').trim();
                 if (newWeather && newWeather !== oldWeather) {
-                    const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState).scenes || {};
+                    const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState, editTarget).scenes || {};
                     const scene = scenes[sceneName];
                     if (scene && scene.times && scene.times[timeName]) {
                         const t = scene.times[timeName];
@@ -1909,7 +1984,7 @@ export async function handleSettingsAction(action, ctx) {
                 if (third > 0) {
                     const weatherName = decodeSeg(after2.slice(0, third));
                     const url = after2.slice(third + 1);
-                    const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState).scenes || {};
+                    const scenes = settingsState.draft.bridge.sceneAssets && draftAssetLibrary(settingsState, editTarget).scenes || {};
                     const scene = scenes[sceneName];
                     if (scene && scene.times && scene.times[timeName]) {
                         const t = scene.times[timeName];
@@ -1933,12 +2008,13 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'scene-add-char') {
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        draftAssetLibrary(settingsState).characters = draftAssetLibrary(settingsState).characters || {};
-        draftAssetLibrary(settingsState).characterAliases = draftAssetLibrary(settingsState).characterAliases || {};
-        const existingKeys = Object.keys(draftAssetLibrary(settingsState).characters);
+        draftAssetLibrary(settingsState, editTarget).characters = draftAssetLibrary(settingsState, editTarget).characters || {};
+        draftAssetLibrary(settingsState, editTarget).characterAliases = draftAssetLibrary(settingsState, editTarget).characterAliases || {};
+        const existingKeys = Object.keys(draftAssetLibrary(settingsState, editTarget).characters);
         const newName = '角色' + (existingKeys.length + 1);
-        draftAssetLibrary(settingsState).characters[newName] = { '默认': '' };
-        draftAssetLibrary(settingsState).characterAliases[newName] = [];
+        draftAssetLibrary(settingsState, editTarget).characters[newName] = { '默认': '' };
+        draftAssetLibrary(settingsState, editTarget).characterAliases[newName] = [];
+        settingsState.asyncState.advancedOpen = { ...(settingsState.asyncState.advancedOpen || {}), [`char-open:${newName}`]: true };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -1951,9 +2027,9 @@ export async function handleSettingsAction(action, ctx) {
         const oldName = renaming ? decodeSeg(normalizedAction.slice('scene-rename-dna-char:'.length)) : '';
         const name = ((await dialogs.prompt(renaming ? `重命名角色 DNA「${oldName}」为：` : '新增角色 DNA，角色名：', oldName)) || '').trim();
         if (!name || name === oldName) return rerenderSettings();
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const characters = sceneAssets.characters || {};
-        const aliases = ensureCharacterAliases(settingsState);
+        const aliases = ensureCharacterAliases(settingsState, editTarget);
         const alertFn = (msg) => { if (globalObj.alert) globalObj.alert(msg); };
         if (['__proto__', 'constructor', 'prototype'].includes(name)) { alertFn(`「${name}」不能用作角色名`); return rerenderSettings(); }
         const aliasOwner = Object.keys(aliases).find((n) => Array.isArray(aliases[n]) && aliases[n].includes(name));
@@ -1977,7 +2053,7 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction.startsWith('scene-remove-dna-char:')) {
         const name = decodeSeg(normalizedAction.slice('scene-remove-dna-char:'.length));
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const globalObj = options.global || globalThis;
         if (!await dialogs.confirm(`删除角色「${name}」的 DNA？`)) return rerenderSettings();
         sceneAssets.characterDna = removeCharacterDna(sceneAssets.characterDna, name);
@@ -1994,7 +2070,7 @@ export async function handleSettingsAction(action, ctx) {
             settingsState.asyncState.dnaCandidate = null;
             return rerenderSettings();
         }
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const dnaMap = normalizeCharacterDnaMap(sceneAssets.characterDna);
         const entry = Object.prototype.hasOwnProperty.call(dnaMap, name) ? dnaMap[name] : normalizeCharacterDna(null);
         if (!entry.defaultAppearance) entry.defaultAppearance = String(candidate.tags || '').trim();
@@ -2022,19 +2098,19 @@ export async function handleSettingsAction(action, ctx) {
         const name = decodeSeg(normalizedAction.slice('scene-remove-char:'.length));
         forgetAssetFolderItem(settingsState, options, 'characters', name);
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        draftAssetLibrary(settingsState).characters = draftAssetLibrary(settingsState).characters || {};
-        draftAssetLibrary(settingsState).characterAliases = draftAssetLibrary(settingsState).characterAliases || {};
-        delete draftAssetLibrary(settingsState).characters[name];
-        delete draftAssetLibrary(settingsState).characterAliases[name];
-        if (draftAssetLibrary(settingsState).statusAvatars && typeof draftAssetLibrary(settingsState).statusAvatars === 'object') {
-            delete draftAssetLibrary(settingsState).statusAvatars[name];
+        draftAssetLibrary(settingsState, editTarget).characters = draftAssetLibrary(settingsState, editTarget).characters || {};
+        draftAssetLibrary(settingsState, editTarget).characterAliases = draftAssetLibrary(settingsState, editTarget).characterAliases || {};
+        delete draftAssetLibrary(settingsState, editTarget).characters[name];
+        delete draftAssetLibrary(settingsState, editTarget).characterAliases[name];
+        if (draftAssetLibrary(settingsState, editTarget).statusAvatars && typeof draftAssetLibrary(settingsState, editTarget).statusAvatars === 'object') {
+            delete draftAssetLibrary(settingsState, editTarget).statusAvatars[name];
         }
         if (settingsState.draft.bridge.sceneAssets.characterHouses && typeof settingsState.draft.bridge.sceneAssets.characterHouses === 'object') {
             delete settingsState.draft.bridge.sceneAssets.characterHouses[name];
         }
-        draftAssetLibrary(settingsState).characterDna = removeCharacterDna(draftAssetLibrary(settingsState).characterDna, name);
-        if (draftAssetLibrary(settingsState).characterOutfits && typeof draftAssetLibrary(settingsState).characterOutfits === 'object') {
-            delete draftAssetLibrary(settingsState).characterOutfits[name];
+        draftAssetLibrary(settingsState, editTarget).characterDna = removeCharacterDna(draftAssetLibrary(settingsState, editTarget).characterDna, name);
+        if (draftAssetLibrary(settingsState, editTarget).characterOutfits && typeof draftAssetLibrary(settingsState, editTarget).characterOutfits === 'object') {
+            delete draftAssetLibrary(settingsState, editTarget).characterOutfits[name];
         }
         migrateSpriteKeys(settingsState.draft.readerSettings, { character: name }, null);
         const persisted = persistSettingsDraft();
@@ -2047,9 +2123,9 @@ export async function handleSettingsAction(action, ctx) {
         const globalObj = options.global || globalThis;
         const alias = ((await dialogs.prompt(`为角色「${charName}」添加别名：`, '')) || '').trim();
         if (!alias) return rerenderSettings();
-        const sceneAssets = draftAssetLibrary(settingsState);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const characters = sceneAssets.characters || {};
-        const aliases = ensureCharacterAliases(settingsState);
+        const aliases = ensureCharacterAliases(settingsState, editTarget);
         if (Object.prototype.hasOwnProperty.call(characters, alias)) {
             if (globalObj.alert) globalObj.alert(`「${alias}」已是角色主名称`);
             return rerenderSettings();
@@ -2072,7 +2148,7 @@ export async function handleSettingsAction(action, ctx) {
         if (colonIdx > 0) {
             const charName = decodeSeg(rest.slice(0, colonIdx));
             const alias = decodeSeg(rest.slice(colonIdx + 1));
-            const aliases = ensureCharacterAliases(settingsState);
+            const aliases = ensureCharacterAliases(settingsState, editTarget);
             aliases[charName] = (aliases[charName] || []).filter((value) => value !== alias);
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
@@ -2084,8 +2160,8 @@ export async function handleSettingsAction(action, ctx) {
         const charName = decodeSeg(normalizedAction.slice('scene-add-mood:'.length));
         const globalObj = options.global || globalThis;
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        draftAssetLibrary(settingsState).characters = draftAssetLibrary(settingsState).characters || {};
-        const char = draftAssetLibrary(settingsState).characters[charName];
+        draftAssetLibrary(settingsState, editTarget).characters = draftAssetLibrary(settingsState, editTarget).characters || {};
+        const char = draftAssetLibrary(settingsState, editTarget).characters[charName];
         if (char && typeof char === 'object') {
             const newMood = ((await dialogs.prompt('情绪/槽名称（建议与情绪组名一致）：', '')) || '').trim();
             if (!newMood) return rerenderSettings();
@@ -2112,8 +2188,8 @@ export async function handleSettingsAction(action, ctx) {
             const charName = decodeSeg(rest.slice(0, colonIdx));
             const mood = decodeSeg(rest.slice(colonIdx + 1));
             settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-            draftAssetLibrary(settingsState).characters = draftAssetLibrary(settingsState).characters || {};
-            const char = draftAssetLibrary(settingsState).characters[charName];
+            draftAssetLibrary(settingsState, editTarget).characters = draftAssetLibrary(settingsState, editTarget).characters || {};
+            const char = draftAssetLibrary(settingsState, editTarget).characters[charName];
             if (char && typeof char === 'object') delete char[mood];
             migrateSpriteKeys(settingsState.draft.readerSettings, { character: charName, outfit: '', mood }, null);
         }
@@ -2133,11 +2209,11 @@ export async function handleSettingsAction(action, ctx) {
                 const mood = decodeSeg(afterChar.slice(0, secondColon));
                 const url = afterChar.slice(secondColon + 1);
                 settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-                draftAssetLibrary(settingsState).characters = draftAssetLibrary(settingsState).characters || {};
-                if (!draftAssetLibrary(settingsState).characters[charName]) {
-                    draftAssetLibrary(settingsState).characters[charName] = {};
+                draftAssetLibrary(settingsState, editTarget).characters = draftAssetLibrary(settingsState, editTarget).characters || {};
+                if (!draftAssetLibrary(settingsState, editTarget).characters[charName]) {
+                    draftAssetLibrary(settingsState, editTarget).characters[charName] = {};
                 }
-                draftAssetLibrary(settingsState).characters[charName][mood] = url;
+                draftAssetLibrary(settingsState, editTarget).characters[charName][mood] = url;
             }
         }
         return { ok: true };
@@ -2148,9 +2224,9 @@ export async function handleSettingsAction(action, ctx) {
         const globalObj = options.global || globalThis;
         const newName = ((await dialogs.prompt(`重命名角色「${oldName}」为：`, oldName)) || '').trim();
         if (newName && newName !== oldName) {
-            const sceneAssets = draftAssetLibrary(settingsState);
+            const sceneAssets = draftAssetLibrary(settingsState, editTarget);
             const chars = sceneAssets.characters || {};
-            const aliases = ensureCharacterAliases(settingsState);
+            const aliases = ensureCharacterAliases(settingsState, editTarget);
             if (Object.prototype.hasOwnProperty.call(chars, newName)) {
                 if (globalObj.alert) globalObj.alert(`角色「${newName}」已存在（同名）`);
                 return rerenderSettings();
@@ -2202,7 +2278,7 @@ export async function handleSettingsAction(action, ctx) {
             const newMood = ((await dialogs.prompt(`重命名情绪「${oldMood}」为：`, oldMood)) || '').trim();
             if (newMood && newMood !== oldMood) {
                 settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-                const chars = draftAssetLibrary(settingsState).characters || {};
+                const chars = draftAssetLibrary(settingsState, editTarget).characters || {};
                 // 同名检查：该角色已有同名槽，或词库已有同名情绪组 → 阻止，避免覆盖丢失
                 if (chars[charName] && Object.prototype.hasOwnProperty.call(chars[charName], newMood)) {
                     if (globalObj.alert) globalObj.alert(`「${charName}」已有「${newMood}」槽（同名），改名会覆盖，已阻止`);
@@ -2374,6 +2450,22 @@ export async function handleSettingsAction(action, ctx) {
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
         }
+        return rerenderSettings();
+    }
+
+    // 角色名那行的 DNA 画笔：只开合下方的 DNA 编辑区，状态和其他折叠区记在一起。
+    if (normalizedAction.startsWith('scene-toggle-dna:')) {
+        const key = `char-dna:${decodeSeg(normalizedAction.slice('scene-toggle-dna:'.length))}`;
+        const open = settingsState.asyncState.advancedOpen || {};
+        settingsState.asyncState.advancedOpen = { ...open, [key]: !open[key] };
+        return rerenderSettings();
+    }
+
+    // 界面上的开合（如服装设置）：只记在界面状态里，和「高级」折叠区放在一起。
+    if (normalizedAction.startsWith('ui-toggle-open:')) {
+        const key = decodeSeg(normalizedAction.slice('ui-toggle-open:'.length));
+        const open = settingsState.asyncState.advancedOpen || {};
+        if (key) settingsState.asyncState.advancedOpen = { ...open, [key]: !open[key] };
         return rerenderSettings();
     }
 
@@ -2680,6 +2772,10 @@ async function importAllSettings(settingsState, options, dialogs, ctx, persistSe
     const file = await pickSettingsFile(doc);
     if (!file) return rerenderSettings();
     const archive = file.archive;
+    // 选的其实是旧版素材预设：按预设导入，不当全局配置处理。
+    if (!archive && isLegacyPresetData(file.data)) {
+        return importLegacyPreset(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings, file.data, file.fileName);
+    }
     const parsed = parseSettingsImport(archive ? archive.settings : file.data, settingsState.draft);
     if (!parsed.ok) {
         if (globalObj.alert) globalObj.alert(`导入失败：${parsed.message}`);
@@ -2691,6 +2787,73 @@ async function importAllSettings(settingsState, options, dialogs, ctx, persistSe
     settingsState.draft.readerSettings = normalized.readerSettings;
     const persisted = persistSettingsDraft();
     if (persisted.ok === false) return persisted;
+    const rescued = await rescueLegacyAssets(file, options);
+    if (rescued.count && globalObj.alert) {
+        globalObj.alert(`这份配置里带着旧版的素材（${rescued.count} 套），已经存下来了。到「素材」页顶部的「找回旧版预设」里，放进角色卡或全局。`);
+    }
+    return rerenderSettings();
+}
+
+// 旧版全局配置把场景、角色等素材一起导出，zip 里还可能带着预设和图片。新版导入只收设置，
+// 这些素材不能丢：存成旧版预设，让用户在素材页自己决定放进哪张卡或全局。
+async function rescueLegacyAssets(file, options) {
+    const globalObj = options.global || globalThis;
+    const archive = file.archive;
+    const raw = archive ? archive.settings : file.data;
+    const presets = { ...((archive && archive.scenePresets && archive.scenePresets.presets) || {}) };
+    const oldAssets = raw && raw.bridge && raw.bridge.sceneAssets;
+    if (isLegacyPresetData(oldAssets)) {
+        const summary = legacyPackSummary(legacyPresetToPack(oldAssets));
+        if (summary.scenes || summary.characters) {
+            const reader = (raw && raw.readerSettings) || {};
+            presets[`${file.fileName || '导入的配置'} 里的素材`] = { ...oldAssets, spriteLayouts: reader.spriteLayouts || {}, spriteHeads: reader.spriteHeads || {} };
+        }
+    }
+    const service = options.generatedAssets;
+    for (const image of (archive && archive.images) || []) {
+        if (!service || typeof service.writeStoredImage !== 'function') break;
+        try { await service.writeStoredImage(image); } catch (error) { /* 图写不进本机时，预设里只缺这一张 */ }
+    }
+    const stored = storeLegacyPresets(globalObj.localStorage, presets);
+    return { count: stored.ok === false ? 0 : stored.count };
+}
+
+// 旧版素材预设（浏览器里留着的，或导出的 json）→ 按名字合并进当前角色卡或全局。已有的其他条目不动。
+async function importLegacyPreset(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings, data, label) {
+    const globalObj = options.global || globalThis;
+    const pack = legacyPresetToPack(data);
+    const summary = legacyPackSummary(pack);
+    const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+    const asyncState = settingsState.asyncState || {};
+    const cardKey = asyncState.assetScopeKind === 'card' ? String(asyncState.assetScopeKey || '') : '';
+    const cardLabel = String(asyncState.assetScopeLabel || '');
+    let dest = '';
+    if (cardKey) {
+        const toCard = await dialogs.confirm(`「${label}」放到哪里？\n放进本卡：只有角色卡「${cardLabel}」用。\n放进全局：所有角色卡都能用。`,
+            { okLabel: `放进本卡「${cardLabel}」`, cancelLabel: '放进全局' });
+        dest = toCard ? cardKey : '';
+    }
+    const target = dest ? ensureCardLibrary(root, dest) : root;
+    const where = dest ? `角色卡「${cardLabel}」` : '全局';
+    const conflicts = legacyPackConflicts(target, pack);
+    const shown = conflicts.slice(0, 6).join('、') + (conflicts.length > 6 ? ' 等' : '');
+    const message = `把「${label}」导入${where}：${summary.scenes} 个场景、${summary.characters} 个角色、${summary.outfits} 套服装，连同立绘位置和词库。`
+        + (conflicts.length ? `\n${where}里已有的同名条目（${conflicts.length} 条）会换成预设里的：${shown}。` : '')
+        + '\n其他已有的素材不动。';
+    if (!await dialogs.confirm(message, { okLabel: '导入' })) return rerenderSettings();
+    mergeLegacyLibrary(target, pack);
+    mergeAssetFolderScope(globalObj.localStorage, label, dest);
+    if (pack.worldview) applyWorldview(target, pack.worldview);
+    root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
+    root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
+    root.timeGroups = mergeLabelGroups(root.timeGroups, pack.timeGroups);
+    root.weatherGroups = mergeLabelGroups(root.weatherGroups, pack.weatherGroups);
+    const reader = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+    reader.spriteLayouts = { ...(reader.spriteLayouts || {}), ...cloneData(pack.spriteLayouts) };
+    reader.spriteHeads = { ...(reader.spriteHeads || {}), ...normalizeSpriteHeads(pack.spriteHeads) };
+    const persisted = persistSettingsDraft();
+    if (persisted.ok === false) return persisted;
+    if (globalObj.alert) globalObj.alert(`已把「${label}」导入${where}。`);
     return rerenderSettings();
 }
 
@@ -2740,6 +2903,17 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
     if (!doc) return { ok: false, reason: 'no-document' };
     const file = await pickCardPackFile(doc);
     if (!file) return rerenderSettings();
+    const zipped = file.bytes.length >= 2 && file.bytes[0] === 0x50 && file.bytes[1] === 0x4b;
+    if (!zipped) {
+        let data = null;
+        try { data = JSON.parse(new TextDecoder().decode(file.bytes)); } catch (error) { data = null; }
+        if (isLegacyPresetData(data)) {
+            const label = String(file.fileName || '').replace(/\.json$/i, '') || '旧版预设';
+            return importLegacyPreset(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings, data, label);
+        }
+        if (globalObj.alert) globalObj.alert('这个文件既不是角色卡素材包，也不是旧版素材预设');
+        return rerenderSettings();
+    }
     const pack = parseCharacterCardPack(file.bytes);
     if (!pack) {
         if (globalObj.alert) globalObj.alert('这个压缩包不是角色卡素材包');
@@ -2780,9 +2954,6 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
         ...(settingsState.draft.readerSettings.spriteHeads || {}),
         ...(pack.spriteHeads || {}),
     };
-    if (settingsState.asyncState && settingsState.asyncState.assetScopeKey === key) {
-        settingsState.asyncState.assetScopeMode = 'card';
-    }
     const persisted = persistSettingsDraft();
     if (persisted.ok === false) return persisted;
     const extra = failed ? `有 ${failed} 张图没有写进本机。` : '';
@@ -2812,7 +2983,7 @@ function pickCardPackFile(doc) {
     return new Promise((resolve) => {
         const input = doc.createElement('input');
         input.type = 'file';
-        input.accept = '.zip,application/zip';
+        input.accept = '.zip,.json,application/zip,application/json';
         let done = false;
         let timeoutId = null;
         const finish = (val) => {
@@ -2901,9 +3072,9 @@ function ensureMoodGroups(settingsState) {    settingsState.draft.bridge.sceneAs
     return sa.moodGroups;
 }
 
-function ensureCharacterAliases(settingsState) {
+function ensureCharacterAliases(settingsState, editTarget) {
     settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-    const sceneAssets = draftAssetLibrary(settingsState);
+    const sceneAssets = draftAssetLibrary(settingsState, editTarget);
     if (!sceneAssets.characterAliases || typeof sceneAssets.characterAliases !== 'object' || Array.isArray(sceneAssets.characterAliases)) {
         sceneAssets.characterAliases = {};
     }

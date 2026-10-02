@@ -98,7 +98,7 @@ const record = createRecordPanelController(document, globalShim, async () => ({ 
 const map = createMapPanelController(document, globalShim, async () => ({ ok: true }), { getChatId: () => 'preview-chat' });
 const SIZES = {
   desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768],
-  mobile: [390, 844], short: [390, 500], tiny: [320, 568],
+  tall: [900, 1700], mobile: [390, 844], short: [390, 500], tiny: [320, 568],
 };
 let current = null;
 // 设置器素材页截图入口：真实设置器 + 内存存储（不写浏览器 localStorage）+ 示例素材与本地文件夹归类。
@@ -108,11 +108,24 @@ function openSettingsScene() {
   const q = new URLSearchParams(location.search);
   const img = new URL('./assets/scene-demo-clean-night.png', location.href).href;
   const mem = createMemoryStorage();
+  // ?card=卡名：模拟打开了一张角色卡，小雪和睡衣提示词放在这张卡里，其余在全局。
+  const cardAssets = {
+    characters: { 小雪: { 默认: img, 微笑: img, 害羞: '' } },
+    characterAliases: { 小雪: ['雪'] },
+    characterOutfits: { 小雪: { 校服: { moods: { 微笑: img }, words: ['制服'], scenes: [], note: '' }, 睡衣: { moods: {}, words: [], scenes: ['卧室'], note: '晚上在家' } } },
+    wardrobe: { 睡衣: { prompt: 'pink pajamas' } },
+  };
   mem.setItem('igs_bridge_config', JSON.stringify({ sceneAssets: {
     enabled: true, promptRule: '规则', characterAliases: {}, moodGroups: [],
     scenes: { 教室: { url: img, times: {} }, 走廊: { url: img, times: {} }, 海边: { url: img, times: {} }, 天台: { url: '', times: {} } },
     characters: { 林夏: { 普通: img, 微笑: img }, 陈屿: { 普通: img }, 路人: { 普通: '' } },
+    characterDna: { 林夏: { identity: '黑色长发，琥珀色眼睛' } },
+    wardrobe: { 校服: { prompt: 'white shirt, pleated skirt' }, 泳装: { prompt: '' } },
+    ...(q.get('card') ? { cards: { [`card:${q.get('card')}`]: cardAssets } } : cardAssets),
   } }));
+  // 待确认页示例：未登记的服装词和词库外的情绪词。
+  mem.setItem('igs:outfit-review:v1', JSON.stringify({ version: 1, items: [{ character: '小雪', word: '泳装' }, { character: '林夏', word: '校服' }, { character: '路人', word: '西装' }] }));
+  mem.setItem('igs:mood-review:v1', JSON.stringify({ version: 1, items: [{ word: '幽怨' }, { word: '嘲弄' }] }));
   const view = q.get('view') === 'list' ? 'list' : 'grid';
   mem.setItem('igs-asset-folders-v1', JSON.stringify({ scopes: { '': {
     scenes: { view, folders: ['学校', '户外'], collapsed: [], assign: { 教室: '学校', 走廊: '学校', 海边: '户外' } },
@@ -121,6 +134,7 @@ function openSettingsScene() {
   // 只替换 localStorage，其余全局能力沿用真实 window；小写方法绑定到 window，避免 Illegal invocation。
   const globalProxy = new Proxy(window, { get(target, key) {
     if (key === 'localStorage') return mem;
+    if (key === 'SillyTavern' && q.get('card')) return { getContext: () => ({ name2: q.get('card'), characters: [] }) };
     const value = Reflect.get(target, key, target);
     return typeof value === 'function' && typeof key === 'string' && /^[a-z]/.test(key) ? value.bind(target) : value;
   } });
@@ -134,6 +148,25 @@ function openSettingsScene() {
   if (!opened || opened.ok === false) throw new Error('settings-scene: openSettings failed ' + JSON.stringify(opened));
   const subtab = q.get('subtab');
   if (subtab) document.querySelector(`[data-scene-subtab="${CSS.escape(subtab)}"]`)?.click();
+  // ?act=命令:参数:参数,… 依次点设置里的 data-action 按钮（参数按原文写，这里替它编码）。
+  for (const step of (q.get('act') || '').split(',').filter(Boolean)) {
+    const [command, ...rest] = step.split(':');
+    // ui-toggle-open 的键本身带冒号，整段当一个参数。
+    const segs = command === 'ui-toggle-open' ? [rest.join(':')] : rest;
+    const action = [command, ...segs.map(encodeURIComponent)].join(':');
+    document.querySelector(`[data-action="${CSS.escape(action)}"]`)?.click();
+  }
+  // ?menu=CSS 选择器：打开对应的 ⋯ 下拉菜单。
+  const menuSel = q.get('menu');
+  if (menuSel) { const menu = document.querySelector(menuSel); if (menu) menu.open = true; }
+  // ?focus=CSS 选择器：把该元素滚到设置面板顶部再截图。
+  const focus = q.get('focus');
+  if (focus) setTimeout(() => { const el = document.querySelector(focus); if (el) { el.style.scrollMarginTop = '96px'; el.scrollIntoView({ block: 'start' }); } }, 0);
+  // ?open=折叠区键,… 展开对应的 data-advanced 折叠区。
+  for (const key of (q.get('open') || '').split(',').filter(Boolean)) {
+    const node = document.querySelector(`[data-advanced="${CSS.escape(key)}"]`);
+    if (node) node.open = true;
+  }
   return { close: () => opened.controller?.close?.() };
 }
 function openPage(page) {

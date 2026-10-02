@@ -60,6 +60,36 @@ export function saveAssetFolders(storage, scope, state) {
     }
 }
 
+// 打开角色卡时，这张卡还没建过文件夹就先沿用全局的分类，免得全局素材的文件夹一下子全没了。
+export function loadAssetFoldersFor(storage, scope = '') {
+    try {
+        const scopes = readScopes(storage);
+        const key = String(scope || '');
+        return normalizeAssetFolders(own(scopes, key) ? scopes[key] : scopes['']);
+    } catch (error) {
+        return loadAssetFolders(storage, scope);
+    }
+}
+
+// 旧版按预设名字存文件夹。找回预设时把那份分类并进目标（全局或角色卡），目标里已有的分配不改。
+export function mergeAssetFolderScope(storage, fromScope, toScope) {
+    try {
+        const scopes = readScopes(storage);
+        const from = String(fromScope || '');
+        const to = String(toScope || '');
+        if (!own(scopes, from) || from === to) return false;
+        const source = normalizeAssetFolders(scopes[from]);
+        const target = normalizeAssetFolders(own(scopes, to) ? scopes[to] : scopes['']);
+        for (const kind of ASSET_FOLDER_KINDS) {
+            for (const folder of source[kind].folders) if (!target[kind].folders.includes(folder)) target[kind].folders.push(folder);
+            for (const [item, folder] of Object.entries(source[kind].assign)) if (!own(target[kind].assign, item)) target[kind].assign[item] = folder;
+        }
+        return saveAssetFolders(storage, to, target);
+    } catch (error) {
+        return false;
+    }
+}
+
 function edit(state, kind, fn) {
     const next = normalizeAssetFolders(state);
     if (ASSET_FOLDER_KINDS.includes(kind)) fn(next[kind]);

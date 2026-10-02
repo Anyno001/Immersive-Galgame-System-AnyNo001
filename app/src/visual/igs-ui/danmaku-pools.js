@@ -1,4 +1,6 @@
 // 弹幕本地词池：AI 只写关键弹幕，密度由这里补足，零 token 成本。全部纯文字，不含 emoji。
+import { stripBilingualTranslation } from './bilingual-text.js';
+
 const f = (list) => Object.freeze(list.slice());
 
 export const LIVE_AMBIENT_LINES = f([
@@ -63,7 +65,7 @@ export function classifyAudienceMood(emotion) {
 
 // 从心声正文截出 2–8 字的短句，给内心弹幕用；截不出来时返回空数组，由词池兜底。
 export function thoughtFragments(text, limit = 6) {
-    const parts = String(text || '')
+    const parts = stripBilingualTranslation(text)
         .replace(/\[[^\]]*\]/g, '')
         .split(/[，。！？、…—\-~～,.!?;；:：（）()「」『』"“”'‘’*\s]+/)
         .map((part) => part.trim())

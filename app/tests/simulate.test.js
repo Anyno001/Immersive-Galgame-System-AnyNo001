@@ -3263,16 +3263,23 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
     settings.switchTab('scene');
 
-    const rulesView = settings.switchSceneSettingsSubTab('rules');
-    assert.equal(rulesView.snapshot.sceneSettingsSubTab, 'rules');
+    // 素材页一层页签：角色 / 场景 / 待确认 / 规则。衣柜提示词在规则页。
+    const rulesView = settings.switchSceneSubTab('rules');
+    assert.equal(rulesView.snapshot.sceneSubTab, 'rules');
     assert.match(rulesView.snapshot.html, /data-scene-settings-pane="rules"/);
     assert.match(rulesView.snapshot.html, /保存提示词/);
+    assert.match(rulesView.snapshot.html, /衣柜提示词/);
     assert.doesNotMatch(rulesView.snapshot.html, /背景场景/);
+    assert.equal(settings.switchSceneSubTab('wardrobe').snapshot.sceneSubTab, 'rules', '旧的衣柜页签落到规则');
 
-    const assetsView = settings.switchSceneSettingsSubTab('assets');
-    assert.equal(assetsView.snapshot.sceneSettingsSubTab, 'assets');
+    const reviewView = settings.switchSceneSubTab('review');
+    // 待确认页固定三块：服装词、情绪词、刚生成的图，没东西时也在，只剩一行标题。
+    assert.deepEqual([...reviewView.snapshot.html.matchAll(/data-review-card="([a-z]+)"/g)].map((m) => m[1]), ['outfit', 'mood', 'generated']);
+    assert.match(reviewView.snapshot.html, /刚生成的图/);
+    assert.match(reviewView.snapshot.html, /data-action="asset-card-import"/);
+
+    const assetsView = settings.switchSceneSubTab('scenes');
     assert.match(assetsView.snapshot.html, /data-scene-settings-pane="assets"/);
-    settings.switchSceneSubTab('scenes');
     const scenesView = await settings.invoke(`scene-toggle-bg:${encodeURIComponent('旧城')}`);
     assert.match(scenesView.snapshot.html, /背景场景/);
     assert.match(scenesView.snapshot.html, /场景别名/);
@@ -3280,8 +3287,9 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     const charsView = settings.switchSceneSubTab('characters');
     assert.match(charsView.snapshot.html, /统一角色立绘位置/);
     assert.doesNotMatch(charsView.snapshot.html, />角色别名<\/div>/);
-    assert.match(charsView.snapshot.html, /data-status-avatar-char=/);
-    assert.match(charsView.snapshot.html, /https:\/\/\.\.\. 或 data:image\/\.\.\./);
+    // 头像地址在毛笔打开的「角色设定」里；头部的头像本身是上传按钮。
+    assert.match(charsView.snapshot.html, /class="igs-char-avatar" data-action="status-avatar-pick:/);
+    assert.doesNotMatch(charsView.snapshot.html, /data-status-avatar-char=/);
     assert.match(charsView.snapshot.html, /爱丽/);
 
     vn.destroy();
@@ -8257,14 +8265,18 @@ test('gate:simulation:outfit-settings-add-slot-url-persist-reopen-and-custom-rul
         assert.deepEqual(JSON.parse(storage.getItem('igs:outfit-review:v1')).items, [{ character: '小林海斗', word: '泳装' }]);
         const respond = (kind) => (kind === 'confirm' ? true : answers.shift() || '');
         let settings = withSettingsDialogs(document, opened.reader.controller.openSettings('scene').controller, respond);
-        settings.switchSceneSubTab('characters');
-        let html = settings.getSnapshot().html;
-        assert.match(html, /待确认服装词/);
-        assert.match(html, /data-outfit-tabs="小林海斗"><button[^>]*is-active[^>]*>原装<\/button><button[^>]*igs-outfit-tab-add/);
+        // 待确认服装词在「待确认」页，页签上带数字；新建之后回到角色页看这套服装。
+        let html = settings.switchSceneSubTab('review').snapshot.html;
+        assert.match(html, /data-review-card="outfit"[\s\S]*?outfit-review-dismiss:/);
+        assert.match(html, /data-scene-subtab="review"[^>]*>待确认<span class="igs-scene-subtab-count">\d+<\/span>/);
+        html = settings.switchSceneSubTab('characters').snapshot.html;
+        assert.doesNotMatch(html, /data-review-card=/);
+        // 角色平时只占一行；新建服装后会自动展开到那套。
+        assert.doesNotMatch(html, /data-outfit-tabs="小林海斗"/);
 
         await settings.invoke(`outfit-review-create:${c}:${o}`);
-        html = settings.getSnapshot().html;
-        assert.doesNotMatch(html, /待确认服装词/);
+        assert.match(settings.switchSceneSubTab('review').snapshot.html, /class="igs-review-card is-empty" data-review-card="outfit"/);
+        html = settings.switchSceneSubTab('characters').snapshot.html;
         assert.match(html, /data-outfit-panel="泳装"/, 'created outfit opens as the active tab');
         assert.match(html, /data-outfit-fallback="喜悦">.*?回落原装「喜悦」/);
         answers.push('比基尼');
@@ -8285,7 +8297,7 @@ test('gate:simulation:outfit-settings-add-slot-url-persist-reopen-and-custom-rul
         root.dispatchEvent({ type: 'input', target: input });
         assert.equal(storage.getItem('igs_bridge_config'), savedBefore, 'typing must not save');
 
-        settings.switchSceneSettingsSubTab('rules');
+        settings.switchSceneSubTab('rules');
         assert.match(settings.getSnapshot().html, /data-result="prompt-rule-outfit">当前为自定义规则，未包含服装栏说明/);
         assert.equal(settings.close().ok, true);
 
@@ -8293,13 +8305,12 @@ test('gate:simulation:outfit-settings-add-slot-url-persist-reopen-and-custom-rul
         assert.deepEqual(saved, { 小林海斗: { 泳装: { words: ['比基尼'], moods: { 喜悦: 'https://example.com/swim-new.png' } } } });
 
         settings = withSettingsDialogs(document, opened.reader.controller.openSettings('scene').controller, respond);
-        settings.switchSceneSettingsSubTab('assets');
         settings.switchSceneSubTab('characters');
         await settings.invoke(`scene-outfit-tab:${c}:${o}`);
         assert.match(settings.getSnapshot().html, /data-scene-outfit="泳装" data-scene-outfit-mood="喜悦" value="https:\/\/example\.com\/swim-new\.png"/);
         assert.match(settings.getSnapshot().html, />泳装<span class="igs-outfit-tab-count">1<\/span>/);
         await settings.invoke('reset-prompt-rule');
-        settings.switchSceneSettingsSubTab('rules');
+        settings.switchSceneSubTab('rules');
         assert.doesNotMatch(settings.getSnapshot().html, /data-result="prompt-rule-outfit"/);
         settings.close();
     } finally {

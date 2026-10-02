@@ -212,18 +212,54 @@ export function rememberAssetScope(settingsState, ctx) {
     asyncState.assetScopeKey = scope.key;
     asyncState.assetScopeLabel = scope.label;
     asyncState.assetScopeKind = scope.kind;
-    if (asyncState.assetScopeMode !== 'global' && asyncState.assetScopeMode !== 'card') {
-        asyncState.assetScopeMode = scope.key ? 'card' : 'global';
-    }
-    if (!scope.key) asyncState.assetScopeMode = 'global';
     return asyncState;
 }
 
-// 设置里正在编辑的那一份。全局模式写根上的库，角色卡模式写 cards[key]。
-export function draftAssetLibrary(settingsState) {
+function holds(library, collection, name) {
+    const lib = plain(library);
+    const [field, group] = String(collection || '').split('.');
+    const bucket = group ? plain(plain(lib[field])[group]) : plain(lib[field]);
+    return Object.prototype.hasOwnProperty.call(bucket, name);
+}
+
+// 设置页显示合并后的一份：本卡和全局混在一起，同名时本卡优先。
+// 改一条素材要写回它所在的那一边：本卡有就写本卡，只有全局有就写全局，都没有（新建）时进本卡。
+// collections 可给多个字段（如角色连同服装、DNA），任一字段里有这个名字就算归属。返回 '' 表示全局。
+export function assetOwnerKey(sceneAssets, cardKey, collections, name) {
+    const key = String(cardKey || '');
+    if (!key) return '';
+    const label = String(name == null ? '' : name);
+    const list = (Array.isArray(collections) ? collections : [collections]).filter(Boolean);
+    if (!label || !list.length) return key;
+    const card = plain(plain(plain(sceneAssets).cards)[key]);
+    if (list.some((field) => holds(card, field, label))) return key;
+    if (list.some((field) => holds(sceneAssets, field, label))) return '';
+    return key;
+}
+
+// 本卡和全局都有同名条目：显示的是本卡那份，全局那份在这张卡里不生效。
+export function assetShadowsGlobal(sceneAssets, cardKey, collection, name) {
+    const key = String(cardKey || '');
+    if (!key) return false;
+    const card = plain(plain(plain(sceneAssets).cards)[key]);
+    return holds(card, collection, String(name)) && holds(sceneAssets, collection, String(name));
+}
+
+// 设置里要改的那一份。target = { collections, name } 指明改的是哪一条；不给时按新建处理，打开了角色卡就进本卡。
+export function draftAssetLibrary(settingsState, target) {
     const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
     const root = bridge.sceneAssets = bridge.sceneAssets || {};
     const asyncState = settingsState.asyncState || {};
-    const key = asyncState.assetScopeMode === 'card' ? String(asyncState.assetScopeKey || '') : '';
-    return key ? ensureCardLibrary(root, key) : root;
+    const cardKey = String(asyncState.assetScopeKey || '');
+    if (!cardKey) return root;
+    const owner = target ? assetOwnerKey(root, cardKey, target.collections, target.name) : cardKey;
+    return owner ? ensureCardLibrary(root, owner) : root;
+}
+
+// 设置页读用的合并视图。没打开角色卡时就是全局本身。
+export function draftEffectiveAssets(settingsState) {
+    const bridge = (settingsState && settingsState.draft && settingsState.draft.bridge) || {};
+    const root = bridge.sceneAssets || {};
+    const cardKey = String((settingsState && settingsState.asyncState && settingsState.asyncState.assetScopeKey) || '');
+    return cardKey ? effectiveSceneAssets(root, cardKey) : root;
 }

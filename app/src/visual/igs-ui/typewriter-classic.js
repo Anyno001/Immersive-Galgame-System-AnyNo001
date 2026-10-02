@@ -44,6 +44,14 @@ function visualLineOverlap(line, rect) {
 // 文字演出 span.igs-tfx.igs-tfx-<id>：取文本节点所在的演出类型（逐字包装的 igs-tfx-ch 不算类型）。
 const TFX_CLASS_RE = /(?:^|\s)igs-tfx-(?!ch(?:\s|$))([a-z]+)/;
 
+// 双语注音的 <rt> 译文不逐字揭示、不发打字音，只把高度并入正文所在行，随该行一起揭开。
+function inRubyText(node, root) {
+    for (let el = node && node.parentNode; el && el !== root; el = el.parentNode) {
+        if (String(el.nodeName || '').toUpperCase() === 'RT') return true;
+    }
+    return false;
+}
+
 function textFxKind(node, root) {
     for (let el = node && node.parentNode; el && el !== root; el = el.parentNode) {
         const name = typeof el.className === 'string' ? el.className
@@ -65,6 +73,13 @@ export function measureClassicReveal(target, speed, options = {}) {
     const parts = [];
     try {
         for (const node of textNodes(target)) {
+            if (inRubyText(node, target)) {
+                const owner = parts.length ? parts[parts.length - 1].line : null;
+                range.selectNodeContents(node);
+                const rect = Array.from(range.getClientRects()).find(item => item.width > 0 && item.height > 0);
+                if (owner && rect) owner.top = Math.max(bounds.top, Math.min(owner.top, rect.top));
+                continue;
+            }
             for (const part of graphemes(String(node.nodeValue || ''))) {
                 range.setStart(node, part.start);
                 range.setEnd(node, part.end);
