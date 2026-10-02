@@ -10,7 +10,7 @@ import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directi
 import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
 import { assetOwnerKey, assetShadowsGlobal, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, normalizeAssetCards, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
-import { menuItem, renderOutfitReviewList, renderRowMenu, renderWardrobe } from './settings-outfit-fields.js';
+import { menuItem, placeRowMenu, renderOutfitReviewList, renderRowMenu, renderWardrobe } from './settings-outfit-fields.js';
 
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
@@ -4278,6 +4278,7 @@ export function createIgsReaderHost(options = {}) {
         // toggle 不冒泡，用捕获阶段记住「高级」折叠区的展开状态，避免重渲染后被收起。
         root.addEventListener('toggle', (event) => {
             const target = event.target;
+            if (target && target.classList && target.classList.contains('igs-add-menu')) placeRowMenu(target, doc.defaultView || globalThis);
             const key = target && target.getAttribute ? target.getAttribute('data-advanced') : '';
             if (!key || !state.activeSettings || !state.activeSettings.asyncState) return;
             const asyncState = state.activeSettings.asyncState;

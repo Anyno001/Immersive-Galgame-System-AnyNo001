@@ -661,3 +661,26 @@ test('gate:status-avatar:generates-a-chibi-avatar-and-default-slot-can-regenerat
     assert.ok(html.includes('重画Q版'));
     assert.match(html, /data-action="char-generate-sprite:%E5%86%AC%E6%9C%88"[^>]*>重新生成</);
 });
+
+test('gate:row-menu:flips-up-or-clamps-near-the-bottom-of-the-scroll-area', async () => {
+    const { placeRowMenu } = await import('../src/visual/igs-ui/settings-outfit-fields.js');
+    const make = (anchorTop, menuHeight) => {
+        const classes = new Set();
+        const scroller = { parentElement: null, getBoundingClientRect: () => ({ top: 100, bottom: 600 }), overflowY: 'auto' };
+        const list = { style: {}, scrollHeight: menuHeight, getBoundingClientRect: () => ({ height: menuHeight }) };
+        const details = {
+            open: true, parentElement: scroller,
+            classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) },
+            querySelector: () => list,
+            getBoundingClientRect: () => ({ top: anchorTop, bottom: anchorTop + 28 }),
+        };
+        const win = { innerHeight: 900, getComputedStyle: (el) => ({ overflowY: el.overflowY || 'visible' }) };
+        placeRowMenu(details, win);
+        return { up: classes.has('is-up'), max: list.style.maxHeight };
+    };
+    assert.deepEqual(make(150, 200), { up: false, max: '' }, 'room below: opens down');
+    assert.deepEqual(make(520, 200), { up: true, max: '' }, 'near bottom: flips up');
+    const tight = make(380, 400);
+    assert.equal(tight.up, true);
+    assert.equal(tight.max, '272px', 'no room either way: clamp and scroll inside');
+});

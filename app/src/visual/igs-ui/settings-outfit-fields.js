@@ -17,6 +17,36 @@ export function renderRowMenu(items, label = '更多操作') {
         + `<div class="igs-add-menu-list" role="menu">${list}</div></details>`;
 }
 
+// 下拉菜单默认往下开。列表很长、这一行靠近滚动区底部时，最后的「删除」会被裁掉：
+// 打开时量一下上下各剩多少空间，往下放不下就往上开；两边都放不下就限高，菜单内滚动。
+export function placeRowMenu(details, win = globalThis) {
+    if (!details || !details.open || typeof details.querySelector !== 'function') return;
+    const list = details.querySelector('.igs-add-menu-list');
+    if (!list || typeof list.getBoundingClientRect !== 'function') return;
+    details.classList.remove('is-up');
+    list.style.maxHeight = '';
+    const getStyle = win && typeof win.getComputedStyle === 'function' ? (el) => win.getComputedStyle(el) : null;
+    let top = 0;
+    let bottom = Number(win && win.innerHeight) || 0;
+    for (let el = details.parentElement; el && getStyle; el = el.parentElement) {
+        if (!/(auto|scroll|hidden)/.test(String(getStyle(el).overflowY || ''))) continue;
+        const box = el.getBoundingClientRect();
+        top = Math.max(top, box.top);
+        bottom = bottom ? Math.min(bottom, box.bottom) : box.bottom;
+    }
+    if (!bottom) return;
+    const anchor = details.getBoundingClientRect();
+    const need = list.scrollHeight || list.getBoundingClientRect().height;
+    const gap = 8;
+    const below = bottom - anchor.bottom - gap;
+    const above = anchor.top - top - gap;
+    if (need <= below) return;
+    const up = above > below;
+    if (up) details.classList.add('is-up');
+    const room = Math.floor(up ? above : below);
+    if (need > room && room > 0) list.style.maxHeight = `${room}px`;
+}
+
 export const menuItem = (action, label, extra = '') => `<button type="button" class="igs-add-menu-item${extra}" data-action="${action}" role="menuitem">${esc(label)}</button>`;
 
 const PERSON_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
@@ -282,6 +312,8 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-quick .igs-outfit-quick-btn:hover,.igs-outfit-quick .igs-outfit-quick-btn:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-outfit-tabs>.igs-row-menu>summary{height:28px}
 .igs-add-menu-item.is-danger{color:var(--igs-settings-danger)}
+.igs-add-menu>.igs-add-menu-list{overflow-y:auto;overscroll-behavior:contain}
+.igs-add-menu.is-up>.igs-add-menu-list{top:auto;bottom:calc(100% + 6px);transform-origin:bottom right}
 .igs-folder-pick-item{position:relative;gap:8px}
 .igs-folder-pick-where{margin-left:auto;padding-left:12px;color:var(--igs-settings-ink-4)}
 .igs-outfit-tab-count{min-width:16px;padding:0 4px;border-radius:8px;background:var(--igs-settings-highlight);color:var(--igs-settings-ink-3);font-size:10px;font-weight:500;line-height:16px;text-align:center}
