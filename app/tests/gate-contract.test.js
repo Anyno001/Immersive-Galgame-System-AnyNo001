@@ -837,7 +837,7 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(rulesTemplate, /data-action="save-prompt-rule"/);
     assert.match(rulesTemplate, /data-result="prompt-rule"/);
     assert.doesNotMatch(rulesTemplate, /scenePresetBar|sceneSubTabs/);
-    assert.match(assetsTemplate, /scenePresetBar/);
+    assert.doesNotMatch(assetsTemplate, /scenePresetBar/);
     assert.match(assetsTemplate, /sceneSubTabs/);
 
     assert.match(getSettingsTabTemplate('reader'), /readerSubTabs/);

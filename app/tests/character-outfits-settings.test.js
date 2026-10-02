@@ -209,3 +209,19 @@ test('gate:outfits:legacy-character-and-mood-actions-migrate-and-clean-sprite-ke
     assert.deepEqual(t.rs().spriteHeads['小林'], H(8));
 });
 
+test('gate:outfits:binding-can-pick-global-wardrobe-the-card-does-not-have', () => {
+    const html = renderCharacterAssetList({ 小林: { 默认: '' } }, {
+        characterOutfits: { 小林: { 校服: { moods: {}, wardrobe: '晚礼服' } } },
+        outfitTabs: { 小林: '校服' },
+        sceneAssets: {
+            wardrobe: { 校服: { prompt: 'card' } },
+            characters: { 小林: { 默认: '' } },
+            characterOutfits: { 小林: { 校服: { moods: {}, wardrobe: '晚礼服' } } },
+        },
+        globalWardrobe: { 晚礼服: { prompt: 'gown' }, 校服: { prompt: 'global-uniform' } },
+    });
+    assert.match(html, /value="晚礼服" selected>晚礼服（全局）/);
+    assert.match(html, /value="校服">校服</);
+    assert.doesNotMatch(html, /校服（全局）/);
+});
+

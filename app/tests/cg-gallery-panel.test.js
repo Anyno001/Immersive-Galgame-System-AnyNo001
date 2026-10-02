@@ -109,6 +109,18 @@ test('cg-gallery-panel:delete-requires-confirmation-then-clears-floor-cg', async
     assert.equal(accepted.panel.getState().notice, '已删除');
 });
 
+test('cg-gallery-panel:delete-listed-confirms-then-clears-every-shown-cg', async () => {
+    const declined = await setup({ confirm: () => false });
+    await declined.click('delete-listed');
+    assert.equal(declined.panel.getState().count, 3);
+    assert.equal(declined.cleared.length, 0);
+    const accepted = await setup();
+    await accepted.click('delete-listed');
+    assert.equal(accepted.cleared.length, 3);
+    assert.equal(accepted.panel.getState().count, 0);
+    assert.match(accepted.panel.getState().notice, /已删除 3 张/);
+});
+
 test('cg-gallery-panel:keys-do-not-bubble-and-close-unbinds', async () => {
     const { panel, root, container } = await setup();
     let stopped = 0;

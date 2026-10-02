@@ -49,6 +49,15 @@ test('cg-gallery-service:remove-calls-clear-illustration-then-drops-mark', async
     assert.equal((await service.loadPage()).items.length, 2);
 });
 
+test('cg-gallery-service:remove-all-clears-every-done-slot', async () => {
+    const { service, illustrationStore } = await setup();
+    const result = await service.removeAll();
+    assert.equal(result.removed, 3);
+    assert.equal(result.failed, 0);
+    assert.equal((await service.loadPage()).items.length, 0);
+    assert.equal((await illustrationStore.getSlots('chat|x|3|0')).length, 0);
+});
+
 test('cg-gallery-service:failed-remove-keeps-mark-and-entry', async () => {
     const { service, galleryStore } = await setup({ ok: false, reason: 'delete-failed' });
     await service.setFavorite('other|5|0|1', true);

@@ -617,8 +617,25 @@ export function createAssetGenerationService(deps) {
         return { ok: true, prompt: stored };
     }
 
+    async function readStoredImage(id) {
+        const key = String(id || '');
+        if (!key || !store || typeof store.getImage !== 'function') return null;
+        const record = normalizeGeneratedImageRecord(await store.getImage(key));
+        return record ? JSON.parse(JSON.stringify(record)) : null;
+    }
+
+    async function writeStoredImage(record) {
+        const image = record && typeof record === 'object' ? record : null;
+        const key = image && String(image.id || '');
+        if (!key || !store || typeof store.putImage !== 'function') return { ok: false, error: '图片存不了' };
+        const stored = { ...image, id: key };
+        await store.putImage(stored);
+        if (stored.dataUrl) rememberImage(key, stored.dataUrl);
+        return { ok: true };
+    }
+
     return {
-        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt,
+        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage,
         generateExpressionSet, generateExpressionImage, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,

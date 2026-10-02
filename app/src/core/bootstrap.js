@@ -1,5 +1,6 @@
 import { createPublicApi, attachPublicApi, detachPublicApi } from '../api/public-api.js';
-import { createTavernHelperAdapter } from '../host/tavern-helper-adapter.js';
+import { createTavernHelperAdapter, getSillyTavernContext } from '../host/tavern-helper-adapter.js';
+import { sceneAssetsForContext } from '../scene/asset-scope.js';
 import { createPresetRegistry } from '../presets/preset-registry.js';
 import { createInputChannel } from '../host/input-channel.js';
 import { parseSceneText } from '../scene/text-parser.js';
@@ -48,7 +49,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.33.17';
+const IGS_VERSION = '0.34.0';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -69,6 +70,9 @@ function createImageJobReporter(globalObject, getBridge, log) {
 
 export function bootstrapIGS(options = {}) {
     const globalObject = options.global || globalThis.window || globalThis;
+    function sceneAssetsNow(sceneAssets) {
+        return sceneAssetsForContext(sceneAssets, getSillyTavernContext(globalObject));
+    }
     const events = options.events || createEventBus();
     const hostAdapter = options.hostAdapter || createTavernHelperAdapter(globalObject);
     const storageLike = options.storage || getStorageLike(globalObject);
@@ -128,7 +132,7 @@ export function bootstrapIGS(options = {}) {
             return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
         },
         getViewport: () => readCgViewport(globalObject),
-        getSceneAssets: () => readImageBridge().sceneAssets,
+        getSceneAssets: () => sceneAssetsNow(readImageBridge().sceneAssets),
         events,
         random: options.random,
         report: reportImageJob,
@@ -143,7 +147,7 @@ export function bootstrapIGS(options = {}) {
         matte: options.alphaMatte || createAlphaMatte(globalObject),
         getSettings: () => {
             const bridge = readImageBridge();
-            return { autoIllustration: bridge.autoIllustration, sceneAssets: bridge.sceneAssets };
+            return { autoIllustration: bridge.autoIllustration, sceneAssets: sceneAssetsNow(bridge.sceneAssets) };
         },
         events,
         report: reportImageJob,
@@ -514,7 +518,7 @@ export function bootstrapIGS(options = {}) {
 
     function syncSceneAssetsInjection(generationType = null) {
         const unified = getUnifiedSettingsSnapshot();
-        const sceneAssets = unified.bridge && unified.bridge.sceneAssets;
+        const sceneAssets = sceneAssetsNow(unified.bridge && unified.bridge.sceneAssets);
         // 世界观：与之冲突的演出开关在这里拨成关，AI 不会收到它们的语法说明；时代规则按世界观追加（现代为空）。
         const worldview = resolveWorldview(sceneAssets);
         const ancient = worldview === 'ancient';

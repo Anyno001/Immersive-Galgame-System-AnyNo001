@@ -8,6 +8,8 @@ import {
 import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
 import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
+import { draftAssetLibrary, effectiveSceneAssets, ensureCardLibrary, normalizeAssetCards, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { renderOutfitReviewList, renderWardrobe } from './settings-outfit-fields.js';
 
 
@@ -37,7 +39,7 @@ import { renderWorldviewRow } from './worldview-fields.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
-import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, addGeneratedAssetToLibrary, normalizeGeneratedLibrary, isNonSpriteSpeaker } from '../../scene/asset-match.js';
+import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, bindGeneratedBackground, bindGeneratedSprite, fileGeneratedHoldings, normalizeGeneratedLibrary, isNonSpriteSpeaker, collectGeneratedImageIds } from '../../scene/asset-match.js';
 import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveCastOffset, resolveStageCast } from '../../scene/stage-cast.js';
 import { normalizeStageCastSettings } from './stage-direction-settings.js';
 import { resolveRomanceRivalTarget } from './romance-settings.js';
@@ -120,7 +122,6 @@ import {
     renderPinnedButtons,
     renderSceneAssetList,
     renderGeneratedAssetPane,
-    renderScenePresetBar,
     renderStageShakeSettings,
     renderChatShowSettings,
     renderSystemRoleSettings,
@@ -154,7 +155,6 @@ import {
 import { buildReaderSourceSignature, createReaderSourceCache } from './reader-source-cache.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
 import { createChatStreamObserver } from '../../host/chat-stream-observer.js';
-import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
 import { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } from './fx-result-model.js';
 import { cancelResultFx, playResultFx } from './fx-result.js';
@@ -206,14 +206,13 @@ import { createRecordPanelController } from './record-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildStatusHudModel, listStatusHudTables, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
-import { handleSettingsAction as runSettingsAction } from './settings-actions.js';
+import { handleSettingsAction as runSettingsAction, releasedGeneratedImageIds } from './settings-actions.js';
 import { SETTINGS_NOTICE_MS, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, settingsBusyLabel } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { createOnboardingController } from './onboarding-guide-controller.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
-import { loadScenePresets, loadActiveScenePresetName } from '../../scene/scene-preset-store.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { loadAssetFolders } from './asset-folders.js';
@@ -575,7 +574,8 @@ export function createIgsReaderHost(options = {}) {
             tab: normalizedTab,
             draft: cloneData(initialSnapshot),
             initialOpenMode: initialSnapshot.bridge.openMode,
-            asyncState: { scenePresetName: loadActiveScenePresetName((options.global || globalThis).localStorage) },
+            asyncState: {},
+            committedImageIds: collectGeneratedImageIds(initialSnapshot.bridge && initialSnapshot.bridge.sceneAssets),
             controller,
             dom: null,
         };
@@ -1395,6 +1395,7 @@ export function createIgsReaderHost(options = {}) {
             : null;
         if (!save) return { ok: false, reason: 'missing-save-handler' };
 
+        if (draft.bridge && draft.bridge.sceneAssets) fileGeneratedHoldings(draft.bridge.sceneAssets);
         let result;
         try {
             result = save({
@@ -1410,6 +1411,17 @@ export function createIgsReaderHost(options = {}) {
         }
 
         const snapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
+        const savedAssets = snapshot.bridge && snapshot.bridge.sceneAssets;
+        const previousIds = state.activeSettings.committedImageIds || [];
+        state.activeSettings.committedImageIds = collectGeneratedImageIds(savedAssets);
+        const released = releasedGeneratedImageIds(previousIds, savedAssets, (options.global || globalThis).localStorage);
+        const imageService = options.generatedAssets;
+        if (released.length && imageService && typeof imageService.deleteImages === 'function') {
+            Promise.resolve(imageService.deleteImages(released)).catch(() => {
+                const globalObj = options.global || globalThis;
+                if (globalObj.alert) globalObj.alert('配置已保存，但有图片没能从本机清掉。');
+            });
+        }
         state.activeSettings.draft = cloneData(snapshot);
         if (state.activeReader) {
             const current = state.activeReader.payload;
@@ -1463,12 +1475,14 @@ export function createIgsReaderHost(options = {}) {
             }
             return '<div class="igs-scene-empty">正在读取…</div>';
         }
+        const selected = asyncState.imageCgSelected instanceof Set ? asyncState.imageCgSelected : new Set();
         const tiles = asyncState.imageCgEntries.map((entry, index) => {
             const url = String((entry && entry.dataUrl) || '').trim();
             if (!/^(?:data:image\/|https?:\/\/|blob:)/i.test(url)) return '';
             const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;
+            const on = selected.has(entry.key);
             // 大图按序号回查已读列表，避免把整段 data URL 再塞进 data-action。
-            return `<button type="button" class="igs-image-cg-tile" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><img src="${esc(url)}" decoding="async" alt=""><span>${esc(label)}</span></button>`;
+            return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><img src="${esc(url)}" decoding="async" alt=""><span>${esc(label)}</span></button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></article>`;
         }).join('');
         return tiles || '<div class="igs-scene-empty">还没有生成过 CG</div>';
     }
@@ -1523,7 +1537,8 @@ export function createIgsReaderHost(options = {}) {
     // 按生成素材库里引用该图片的角色名取 DNA（经 DNA 主名/原名匹配）；找不到时不注入。
     function findDnaForGeneratedImage(imageId) {
         const draft = state.activeSettings && state.activeSettings.draft;
-        const sa = (draft && draft.bridge && draft.bridge.sceneAssets) || {};
+        const raw = (draft && draft.bridge && draft.bridge.sceneAssets) || {};
+        const sa = sceneAssetsForContext(raw, getSillyTavernContext(options.global || globalThis)) || {};
         const chars = normalizeGeneratedLibrary(sa.generated).characters;
         const token = `igs-gen:${imageId}`;
         const name = Object.keys(chars).find((n) => JSON.stringify(chars[n] || {}).includes(token));
@@ -3095,6 +3110,9 @@ export function createIgsReaderHost(options = {}) {
         }
 
         const bridge = draft.bridge;
+        const worldviewAssets = (asyncState.assetScopeMode === 'card' && asyncState.assetScopeKey)
+            ? effectiveSceneAssets(bridge.sceneAssets, asyncState.assetScopeKey)
+            : bridge.sceneAssets;
         const imageApi = bridge.imageApi;
         const sourceFilter = bridge.sourceFilter;
         const reader = draft.readerSettings;
@@ -3103,7 +3121,7 @@ export function createIgsReaderHost(options = {}) {
 
         if (tab === 'basic') {
             return renderTemplate(getSettingsTabTemplate('basic'), {
-                performancePresetBar: renderPerformancePresetBar(reader, { home: true, extraRows: renderWorldviewRow(bridge.sceneAssets) + renderQualityRow(reader) }),
+                performancePresetBar: renderPerformancePresetBar(reader, { home: true, extraRows: renderWorldviewRow(worldviewAssets) + renderQualityRow(reader) }),
                 advancedFilterOpen: advancedOpen('source-filter'),
                 advancedRegexOpen: advancedOpen('virtual-regex'),
                 openModeField: `<div class="igs-segmented-field">${field(
@@ -3263,23 +3281,47 @@ export function createIgsReaderHost(options = {}) {
         }
 
         if (tab === 'scene') {
-            const sceneAssets = bridge.sceneAssets || {};
+            const scopeState = rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
+            const library = draftAssetLibrary(state.activeSettings);
+            const sceneAssets = {
+                ...(bridge.sceneAssets || {}),
+                scenes: library.scenes || {},
+                characters: library.characters || {},
+                characterAliases: library.characterAliases || {},
+                characterDna: library.characterDna || {},
+                characterOutfits: library.characterOutfits || {},
+                wardrobe: library.wardrobe || {},
+                generated: library.generated || {},
+                statusAvatars: library.statusAvatars || {},
+            };
+            const scopeMode = scopeState.assetScopeMode === 'card' && scopeState.assetScopeKey ? 'card' : 'global';
+            const scopeLabel = scopeState.assetScopeKey ? scopeState.assetScopeLabel : '未打开角色卡';
+            const assetScopeBar = `<div class="igs-scene-subtabs" role="tablist">`
+                + `<button type="button" class="igs-scene-subtab${scopeMode === 'card' ? ' is-active' : ''}" data-action="asset-scope:card"${scopeState.assetScopeKey ? '' : ' disabled'}>当前角色卡：${esc(scopeLabel)}</button>`
+                + `<button type="button" class="igs-scene-subtab${scopeMode === 'global' ? ' is-active' : ''}" data-action="asset-scope:global">全局兜底</button>`
+                + `</div><div class="igs-source-filter-note">${scopeMode === 'card' ? '按角色卡的名字分开。这里只显示这张卡自己的场景、角色和衣柜；卡里没有的名字才用全局兜底。以前混在一起的资料在「全局兜底」。' : '全局只在当前角色卡没有同名资料时才用。打开角色卡后，可以把条目收进那张卡。'}</div>`
+                + (scopeState.assetScopeKind === 'card' && scopeState.assetScopeKey
+                    ? `<div class="igs-scene-preset-bar"><button type="button" class="igs-settings-action" data-action="asset-card-export">导出这张角色卡</button><button type="button" class="igs-settings-action" data-action="asset-card-import">导入角色卡素材包</button></div><div class="igs-source-filter-note">导出的是这张卡实际会用到的场景、角色、衣柜、立绘、提示词、世界观，以及这些角色自己的立绘位置和大小。卡里没有的名字会带上全局兜底。压缩包按角色卡名字认。</div>`
+                    : '');
             const disabled = !sceneAssets.enabled;
             const sceneSettingsSubTab = normalizeSceneSettingsSubTab(asyncState.sceneSettingsSubTab);
             const subTab = normalizeSceneSubTab(asyncState.sceneSubTab);
-            // 文件夹只是本地界面归类：按当前预设读取，素材数据原样传给原有列表渲染器。
-            const assetFolders = loadAssetFolders((options.global || globalThis).localStorage, asyncState.scenePresetName || '');
+            // 文件夹只是本地界面归类：全局和当前角色卡分开，素材数据原样传给原有列表渲染器。
+            const folderScope = scopeMode === 'card' && scopeState.assetScopeKey ? scopeState.assetScopeKey : '';
+            const assetFolders = loadAssetFolders((options.global || globalThis).localStorage, folderScope);
             const firstUrl = (values) => (values.map((v) => String(v || '').trim()).find(Boolean) || '');
             const generatedService = options.generatedAssets || null;
             const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
                 ? (generatedService && typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '')
                 : (url || ''));
+            const assetMove = scopeState.assetScopeKey ? (scopeMode === 'card' ? 'global' : 'card') : '';
             const sceneListOptions = {
                 expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
                 timeGroups: sceneAssets.timeGroups || [],
                 weatherGroups: sceneAssets.weatherGroups || [],
                 resolveUrl: resolveGenerated,
                 folderSelect: (name) => renderAssetFolderSelect('scenes', name, assetFolders.scenes),
+                assetMove,
             };
             const scenesHtml = renderAssetFolderView('scenes', sceneAssets.scenes || {}, {
                 state: assetFolders,
@@ -3298,22 +3340,22 @@ export function createIgsReaderHost(options = {}) {
                 resolveUrl: resolveGenerated,
                 expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
                 folderSelect: (name) => renderAssetFolderSelect('characters', name, assetFolders.characters),
+                assetMove,
+                globalWardrobe: scopeMode === 'card' ? ((bridge.sceneAssets || {}).wardrobe || {}) : {},
             };
             const charsHtml = renderAssetFolderView('characters', sceneAssets.characters || {}, {
                 state: assetFolders,
                 renderList: (subset) => renderCharacterAssetList(subset, charListOptions),
                 thumbOf: (name, moods) => resolveGenerated(firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]]))),
             });
-            const scenePresets = loadScenePresets((options.global || globalThis).localStorage);
-            const scenePresetBarHtml = renderScenePresetBar(scenePresets, asyncState.scenePresetName || '');
             const generatedPane = renderGeneratedAssetPane({
                 library: normalizeGeneratedLibrary(sceneAssets.generated),
                 characters: sceneAssets.characters || {},
+                scenes: sceneAssets.scenes || {},
                 temp: generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
                 resolveUrl: resolveGenerated,
-                presetNames: Object.keys(scenePresets || {}),
-                currentPreset: asyncState.scenePresetName || '',
                 moodGroups: sceneAssets.moodGroups || [],
+                assetMove,
             });
             const subTabsHtml = `<div class="igs-scene-subtabs" role="tablist">`
                 + SCENE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-scene-subtab${subTab === id ? ' is-active' : ''}" data-scene-subtab="${id}" role="tab" aria-selected="${subTab === id ? 'true' : 'false'}">${label}</button>`).join('')
@@ -3362,9 +3404,8 @@ export function createIgsReaderHost(options = {}) {
                         'AI 不按标签输出时改回聊天末尾。')
                     + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入')
                     + '<div class="igs-source-filter-note">只在用得上时附完整说明。</div></details>',
-                scenePresetBar: scenePresetBarHtml,
-                sceneSubTabs: subTabsHtml,
-                sceneSubPane: subTab === 'wardrobe' ? renderWardrobe(sceneAssets.wardrobe, dropConfirmedOutfitReview((options.global || globalThis).localStorage, sceneAssets.wardrobe), resolveGenerated) : (subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane)),
+                sceneSubTabs: assetScopeBar + subTabsHtml,
+                sceneSubPane: subTab === 'wardrobe' ? renderWardrobe(sceneAssets.wardrobe, dropConfirmedOutfitReview((options.global || globalThis).localStorage, sceneAssets.wardrobe), resolveGenerated, assetMove) : (subTab === 'generated' ? generatedPane : (subTab === 'characters' ? charactersPane : scenesPane)),
             };
             return renderTemplate(getSettingsTabTemplate('scene'), {
                 sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
@@ -3494,7 +3535,7 @@ export function createIgsReaderHost(options = {}) {
             dialogBgOpacityField: !dialogBgEditable ? '' : field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随玻璃'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], !themeCustom)),
         };
         if (readerSubTab === 'performance') {
-            readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(bridge.sceneAssets),
+            readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(worldviewAssets),
                 typewriter: readerValues.playbackSpeed + readerValues.typewriterToggle + readerValues.typewriterControls,
                 stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
                 weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
@@ -4035,7 +4076,8 @@ export function createIgsReaderHost(options = {}) {
             }
             const statusAvatarChar = target.getAttribute('data-status-avatar-char');
             if (statusAvatarChar) {
-                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
+                const assets = draftAssetLibrary(state.activeSettings);
                 const avatars = assets.statusAvatars || (assets.statusAvatars = {});
                 if (Object.hasOwn(avatars, statusAvatarChar) || !['__proto__', 'constructor', 'prototype'].includes(statusAvatarChar)) {
                     avatars[statusAvatarChar] = target.value;
@@ -4046,7 +4088,8 @@ export function createIgsReaderHost(options = {}) {
             const wardrobeName = target.getAttribute('data-wardrobe-name');
             if (wardrobeName) {
                 if (['__proto__', 'constructor', 'prototype'].includes(wardrobeName)) return;
-                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
+                const assets = draftAssetLibrary(state.activeSettings);
                 const wardrobe = assets.wardrobe && typeof assets.wardrobe === 'object' && !Array.isArray(assets.wardrobe)
                     ? assets.wardrobe : (assets.wardrobe = {});
                 const entry = wardrobe[wardrobeName] && typeof wardrobe[wardrobeName] === 'object' && !Array.isArray(wardrobe[wardrobeName])
@@ -4060,7 +4103,8 @@ export function createIgsReaderHost(options = {}) {
             if (dnaChar && dnaField) {
                 // 角色 DNA 输入只更新草稿，关闭设置时统一保存；不重绘，避免丢焦点。
                 if (!CHARACTER_DNA_FIELDS.includes(dnaField) || ['__proto__', 'constructor', 'prototype'].includes(dnaChar)) return;
-                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
+                const assets = draftAssetLibrary(state.activeSettings);
                 const dnaMap = assets.characterDna && typeof assets.characterDna === 'object' && !Array.isArray(assets.characterDna)
                     ? assets.characterDna : (assets.characterDna = {});
                 const entry = Object.hasOwn(dnaMap, dnaChar) && dnaMap[dnaChar] && typeof dnaMap[dnaChar] === 'object' ? dnaMap[dnaChar] : (dnaMap[dnaChar] = {});
@@ -4119,24 +4163,10 @@ export function createIgsReaderHost(options = {}) {
                 controller.invoke(`asset-folder-move:${folderMoveKind}:${encodeURIComponent(assetName)}:${encodeURIComponent(event.target.value)}`);
                 return;
             }
-            // 生成素材「移到 / 复制到预设」：选项值为 move|copy:<编码后的预设名>。
-            const genTransferType = event.target && event.target.getAttribute ? event.target.getAttribute('data-gen-transfer') : '';
-            if (genTransferType) {
-                const choice = String(event.target.value || '');
-                const colon = choice.indexOf(':');
-                if (colon < 0) return;
-                const genName = event.target.getAttribute('data-gen-name') || '';
-                controller.invoke(`gen-lib-transfer:${choice.slice(0, colon)}:${encodeURIComponent(genTransferType)}:${encodeURIComponent(genName)}:${choice.slice(colon + 1)}`);
-                return;
-            }
             const wardrobeChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-wardrobe-char') : '';
             if (wardrobeChar) {
                 const wardrobeOutfit = event.target.getAttribute('data-outfit-wardrobe') || '';
                 controller.invoke(`scene-set-outfit-wardrobe-url:${[wardrobeChar, wardrobeOutfit, event.target.value].map((value) => encodeURIComponent(value || '')).join(':')}`);
-                return;
-            }
-            if (event.target && event.target.getAttribute && event.target.getAttribute('data-preset-select') !== null) {
-                controller.invoke('scene-preset-apply:' + encodeURIComponent(event.target.value));
                 return;
             }
             // 一键档位条的「适配世界」下拉：转成 worldview:<id> 动作，未就绪的世界观由动作层拒绝。
@@ -4258,7 +4288,8 @@ export function createIgsReaderHost(options = {}) {
     function mutateGeneratedLibrary(mutator) {
         if (state.activeSettings) {
             const bridge = state.activeSettings.draft.bridge = state.activeSettings.draft.bridge || {};
-            const sceneAssets = bridge.sceneAssets = bridge.sceneAssets || {};
+            rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
+            const sceneAssets = draftAssetLibrary(state.activeSettings);
             const result = mutator(sceneAssets.generated);
             if (!result || result.ok === false) return result || { ok: false };
             sceneAssets.generated = result.library;
@@ -4268,9 +4299,38 @@ export function createIgsReaderHost(options = {}) {
         }
         let result = null;
         const saved = saveBridgePatch((bridge) => {
-            result = mutator(bridge.sceneAssets && bridge.sceneAssets.generated);
+            const root = bridge.sceneAssets = bridge.sceneAssets || {};
+            const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis));
+            relocateLegacyCard(root, scope.key, scope.legacyKey);
+            const bucket = scope.key ? ensureCardLibrary(root, scope.key) : root;
+            result = mutator(bucket.generated);
             if (!result || result.ok === false) return null;
-            return { sceneAssets: { ...(bridge.sceneAssets || {}), generated: result.library } };
+            bucket.generated = result.library;
+            return { sceneAssets: root };
+        });
+        if (!result || result.ok === false) return saved.reason === 'missing-save-handler' ? saved : (result || { ok: false });
+        return saved && saved.ok !== false ? result : (saved || { ok: false, reason: 'save-failed' });
+    }
+
+    function mutateSceneLibrary(mutator) {
+        if (state.activeSettings) {
+            rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
+            const sceneAssets = draftAssetLibrary(state.activeSettings);
+            const result = mutator(sceneAssets);
+            if (!result || result.ok === false) return result || { ok: false };
+            const persisted = persistSettingsDraft();
+            if (persisted.ok !== false) rerenderSettings();
+            return persisted.ok === false ? persisted : result;
+        }
+        let result = null;
+        const saved = saveBridgePatch((bridge) => {
+            const root = bridge.sceneAssets = bridge.sceneAssets || {};
+            const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis));
+            relocateLegacyCard(root, scope.key, scope.legacyKey);
+            const bucket = scope.key ? ensureCardLibrary(root, scope.key) : root;
+            result = mutator(bucket);
+            if (!result || result.ok === false) return null;
+            return { sceneAssets: root };
         });
         if (!result || result.ok === false) return saved.reason === 'missing-save-handler' ? saved : (result || { ok: false });
         return saved && saved.ok !== false ? result : (saved || { ok: false, reason: 'save-failed' });
@@ -4294,14 +4354,33 @@ export function createIgsReaderHost(options = {}) {
         const withDna = status === 'library-dna' && item.type === 'sprite';
         if (status === 'library-dna') status = 'library';
         let addedName = '';
-        if (status === 'library') {
-            const added = mutateGeneratedLibrary((library) => addGeneratedAssetToLibrary(library, item, name || item.name));
+        if (status === 'library' && item.type === 'background') {
+            const added = mutateSceneLibrary((assets) => {
+                const bound = bindGeneratedBackground(assets, item, name || item.name);
+                if (!bound.ok) return bound;
+                assets.scenes = bound.scenes;
+                return bound;
+            });
             if (!added || added.ok === false) {
-                writeToastSafe('加入素材库失败：名称不能为空');
+                writeToastSafe('加入场景素材失败：名称不能为空');
                 return;
             }
             addedName = added.name;
-            writeToastSafe(`已加入素材库「${added.name}」`);
+            writeToastSafe(`已放入场景素材「${added.name}」`);
+        } else if (status === 'library') {
+            const added = mutateSceneLibrary((assets) => {
+                const bound = bindGeneratedSprite(assets, name || item.name, item.imageId ? `igs-gen:${item.imageId}` : '', { replace: true });
+                if (!bound.ok) return bound;
+                assets.characters = bound.characters;
+                assets.characterAliases = bound.characterAliases;
+                return bound;
+            });
+            if (!added || added.ok === false) {
+                writeToastSafe('放入角色立绘失败：名称不能为空');
+                return;
+            }
+            addedName = added.name;
+            writeToastSafe(`已放入角色立绘「${added.name}」`);
         }
         if (typeof service.setStatus === 'function') await service.setStatus(item.key, status);
         if (state.activeReader) rerenderActiveReader();
@@ -4422,12 +4501,15 @@ export function createIgsReaderHost(options = {}) {
 
     function attachBridgeReaderExtras(readerSettings, bridge) {
         // readerSettings 是每次新克隆的快照，按世界观拨掉冲突演出不会写回存档。
-        const worldview = resolveWorldview(bridge.sceneAssets);
+        const sceneAssets = bridge.sceneAssets
+            ? sceneAssetsForContext(bridge.sceneAssets, getSillyTavernContext(options.global || globalThis))
+            : null;
+        const worldview = resolveWorldview(sceneAssets);
         Object.assign(readerSettings, applyFxWorldview(readerSettings, worldview));
         // 演出与聊天层据此换皮：_ancientEra 保留给既有古风分支，_worldview 供西幻 / 科幻 / 末日换皮。
         readerSettings._ancientEra = worldview === 'ancient';
         readerSettings._worldview = worldview;
-        readerSettings._sceneAssets = bridge.sceneAssets || null;
+        readerSettings._sceneAssets = sceneAssets;
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
         readerSettings._vnTheme = readerSettings.vnTheme || null;
         readerSettings._strictBackgroundMatch = isStrictBackgroundMatch(bridge.autoIllustration);
@@ -4582,6 +4664,7 @@ export function createIgsReaderHost(options = {}) {
         }
         normalized.unifiedSpriteLayout = normalizeBoolean(normalized.unifiedSpriteLayout, false);
         normalized.moodFuzzyMatch = normalizeBoolean(normalized.moodFuzzyMatch, false);
+        normalizeAssetCards(normalized);
         return normalized;
     }
 

@@ -1,4 +1,4 @@
-// 素材页文件夹：只是界面归类（与折叠状态同类），按预设分别存本地；不写入素材、预设或导入导出数据。
+// 素材页文件夹：只是界面归类（与折叠状态同类），按全局或当前角色卡分别存本地；不写入素材或导入导出数据。
 const STORAGE_KEY = 'igs-asset-folders-v1';
 export const ASSET_FOLDER_KINDS = Object.freeze(['scenes', 'characters']);
 const VIEWS = ['list', 'grid'];

@@ -270,7 +270,7 @@ export function createAutoIllustrationService(deps) {
             }
             const slot = Number(item.slotId) || slots.length + 1;
             const bound = bindCharacterDnaToCaption(item.caption, sceneAssets, characters, slot);
-            for (const warning of bound.warnings) report('warn', `第 ${messageId} 楼${warning}`);
+            for (const warning of bound.warnings) report('info', `第 ${messageId} 楼${warning}`);
             slots.push({ slot, caption: bound.caption, anchorSentence });
         }
         if (!slots.length) {
@@ -419,7 +419,7 @@ export function createAutoIllustrationService(deps) {
         {
             const bound = bindCharacterDnaToSlots(plan.slots, readSceneAssets(), numbered.characters);
             plan.slots = bound.slots;
-            for (const warning of bound.warnings) report('warn', `第 ${messageId} 楼${warning}`);
+            for (const warning of bound.warnings) report('info', `第 ${messageId} 楼${warning}`);
         }
 
         const latest = messageHost.readFloor(messageId);

@@ -1,5 +1,7 @@
 import { resolveSpriteLayout } from './settings-normalize.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
+import { sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { igsDebug } from './reader-value-utils.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteDrawRect, spriteHeadKey } from './fx-anchor.js';
 import { startHeadEdit } from './sprite-head-edit.js';
@@ -230,16 +232,10 @@ export function exitSpriteEditMode(overlay, current, save, ctx = {}) {
             : { readerSettings: {} };
         const layouts = { ...(unified.readerSettings.spriteLayouts || {}) };
         const value = { posX: save.posX, posY: save.posY, scale: save.scale };
-        const prevMode = layouts[em.mode];
-        layouts[em.mode] = {
-            posX: prevMode && Number.isFinite(Number(prevMode.posX)) ? Number(prevMode.posX) : 50,
-            posY: prevMode && Number.isFinite(Number(prevMode.posY)) ? Number(prevMode.posY) : 100,
-            scale: save.scale,
-        };
         if (!em.character) {
             layouts[em.mode] = value;
         } else {
-            const sceneAssets = (unified.bridge && unified.bridge.sceneAssets) || {};
+            const sceneAssets = sceneAssetsForContext(unified.bridge && unified.bridge.sceneAssets, getSillyTavernContext()) || {};
             const unified_ = sceneAssets.unifiedSpriteLayout === true;
             // 服装立绘的位置写到「角色|服装」身份下，不影响原有立绘位置。
             const identity = spriteIdentity(em.character, em.outfit);

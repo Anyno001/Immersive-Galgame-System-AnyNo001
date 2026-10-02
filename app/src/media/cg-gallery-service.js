@@ -57,10 +57,39 @@ export function createCgGalleryService({ illustrationStore, galleryStore, clearI
         return { ok: true };
     }
 
+    async function removeMany(entries) {
+        const keys = [];
+        let failed = 0;
+        for (const entry of entries || []) {
+            const result = await remove(entry);
+            if (result && result.ok) keys.push(entry.key);
+            else failed += 1;
+        }
+        return { ok: failed === 0, removed: keys.length, failed, keys };
+    }
+
+    // 按页删完库里的 CG。某一页一张都删不掉就停，避免失败记录被反复读到。
+    async function removeAll() {
+        let removed = 0;
+        let failed = 0;
+        for (let guard = 0; guard < 500; guard += 1) {
+            const page = await loadPage({ limit: 48, showHidden: true });
+            if (!page.ok) return { ok: false, reason: page.reason, removed, failed, keys: [] };
+            if (!page.items.length) break;
+            const batch = await removeMany(page.items);
+            removed += batch.removed;
+            failed += batch.failed;
+            if (!batch.removed) break;
+        }
+        return { ok: failed === 0, removed, failed, keys: [] };
+    }
+
     return {
         loadPage,
         setHidden: (key, hidden) => setMark(key, { hidden: hidden === true }),
         setFavorite: (key, favorite) => setMark(key, { favorite: favorite === true }),
         remove,
+        removeMany,
+        removeAll,
     };
 }

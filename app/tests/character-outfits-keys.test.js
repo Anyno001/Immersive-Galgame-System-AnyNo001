@@ -5,7 +5,6 @@ import { resolveSpriteLayout } from '../src/visual/igs-ui/settings-normalize.js'
 import { resolveSpriteHead, spriteHeadKey } from '../src/visual/igs-ui/fx-anchor.js';
 
 const L = (n) => ({ posX: n, posY: n, scale: n });
-const placed = (n) => ({ posX: n, posY: n, scale: 1 });
 
 test('gate:outfits:sprite-identity-keeps-legacy-key-without-outfit', () => {
     assert.equal(spriteIdentity('小林', ''), '小林');
@@ -24,13 +23,13 @@ test('gate:outfits:layout-isolated-by-outfit-with-character-fallback', () => {
         'pc::小林|泳装': L(4),
         'pc::小林|泳装::害羞': L(5),
     };
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '喜悦'), placed(3));
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '平和'), placed(2));
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '害羞', '泳装'), placed(5));
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '喜悦', '泳装'), placed(4));
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '喜悦', '睡衣'), placed(2));
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '喜悦'), L(3));
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '平和'), L(2));
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '害羞', '泳装'), L(5));
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '喜悦', '泳装'), L(4));
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '喜悦', '睡衣'), L(2));
     assert.deepEqual(resolveSpriteLayout({ pc: L(1), 'pc::小林::喜悦': L(3) }, 'pc', '小林', '喜悦', '睡衣'), L(1));
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '喜悦', '默认'), placed(3));
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林', '喜悦', '默认'), L(3));
 });
 
 test('gate:outfits:head-isolated-by-outfit-with-character-fallback', () => {

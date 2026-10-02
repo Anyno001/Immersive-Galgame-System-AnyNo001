@@ -373,17 +373,36 @@ test('gate:settings-sections:export-omits-secrets-and-import-keeps-local-secrets
             imageApi: { source: 'nai', apiKey: 'local-image-key' },
             autoIllustration: { llm: { apiKey: 'local-llm-key', model: 'm1' }, nai: { apiKey: 'local-nai-key' } },
         },
-        readerSettings: { fontSize: 18 },
+        readerSettings: { fontSize: 18, spriteLayouts: { 'pc::小雪': { posX: 1, posY: 2, scale: 3 } } },
+    };
+    draft.bridge.sceneAssets = {
+        enabled: true,
+        promptRule: '规则',
+        scenes: { 教室: { url: 'igs-gen:room' } },
+        cards: { 'card:小雪': { characters: { 小雪: { 默认: 'igs-gen:snow' } } } },
     };
     const exported = buildSettingsExport(draft, { version: '0.30.0', now: new Date('2026-09-30T00:00:00Z') });
     assert.equal(exported.format, 'igs-settings');
     assert.equal(exported.version, '0.30.0');
     assert.doesNotMatch(JSON.stringify(exported), /local-(image|llm|nai)-key/);
     assert.equal(exported.bridge.autoIllustration.llm.model, 'm1');
+    assert.equal(exported.bridge.sceneAssets.enabled, true);
+    assert.equal(exported.bridge.sceneAssets.promptRule, '规则');
+    assert.equal(exported.bridge.sceneAssets.scenes, undefined);
+    assert.equal(exported.bridge.sceneAssets.cards, undefined);
+    assert.equal(exported.readerSettings.spriteLayouts, undefined);
     assert.equal(draft.bridge.imageApi.apiKey, 'local-image-key', 'export does not mutate the draft');
+    assert.equal(draft.bridge.sceneAssets.scenes.教室.url, 'igs-gen:room');
 
     const text = JSON.stringify({ ...exported, readerSettings: { fontSize: 24 }, bridge: { ...exported.bridge, openMode: 'mobile' } });
-    const other = { bridge: { imageApi: { apiKey: 'other-device-key' }, autoIllustration: { llm: { apiKey: 'other-llm' } } }, readerSettings: {} };
+    const other = {
+        bridge: {
+            imageApi: { apiKey: 'other-device-key' },
+            autoIllustration: { llm: { apiKey: 'other-llm' } },
+            sceneAssets: { scenes: { 街道: { url: 'local' } }, cards: { 'card:林': { scenes: {} } } },
+        },
+        readerSettings: { spriteLayouts: { pc: { posX: 50, posY: 100, scale: 100 } } },
+    };
     const imported = parseSettingsImport(text, other);
     assert.equal(imported.ok, true);
     assert.equal(imported.readerSettings.fontSize, 24);
@@ -391,10 +410,13 @@ test('gate:settings-sections:export-omits-secrets-and-import-keeps-local-secrets
     assert.equal(imported.bridge.imageApi.apiKey, 'other-device-key', 'import keeps the secrets already on this device');
     assert.equal(imported.bridge.autoIllustration.llm.apiKey, 'other-llm');
     assert.equal(imported.bridge.autoIllustration.llm.model, 'm1');
+    assert.equal(imported.bridge.sceneAssets.scenes.街道.url, 'local');
+    assert.ok(imported.bridge.sceneAssets.cards['card:林']);
+    assert.equal(imported.readerSettings.spriteLayouts.pc.scale, 100);
 
     const explicit = parseSettingsImport(JSON.stringify({ bridge: { imageApi: { apiKey: 'from-file' } } }), other);
     assert.equal(explicit.bridge.imageApi.apiKey, 'from-file', 'a key written into the file by hand wins');
-    assert.deepEqual(explicit.readerSettings, {}, 'missing half falls back to the current settings');
+    assert.deepEqual(explicit.readerSettings, other.readerSettings, 'missing half falls back to the current settings');
 
     assert.equal(parseSettingsImport('{oops', {}).reason, 'invalid-json');
     assert.equal(parseSettingsImport('[1,2]', {}).reason, 'invalid-format');
@@ -453,13 +475,13 @@ test('gate:settings-sections:import-action-confirms-and-runs-through-normalize',
     const doc = {
         body: { appendChild() {}, removeChild() {} },
         createElement() {
-            const input = { files: null, onchange: null, click() { input.files = [{ name: 'backup.json', text: JSON.stringify(file) }]; input.onchange(); } };
+            const input = { files: null, onchange: null, click() { input.files = [{ name: 'backup.json', bytes: new TextEncoder().encode(JSON.stringify(file)) }]; input.onchange(); } };
             return input;
         },
     };
     const prevReader = globalThis.FileReader;
     globalThis.FileReader = class {
-        readAsText(blob) { queueMicrotask(() => this.onload({ target: { result: blob.text } })); }
+        readAsArrayBuffer(blob) { queueMicrotask(() => this.onload({ target: { result: blob.bytes.buffer } })); }
     };
     try {
         const declined = actionCtx(draft, [false], { options: { global: { document: doc } } });

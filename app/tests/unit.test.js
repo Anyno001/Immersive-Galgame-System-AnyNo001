@@ -1236,8 +1236,9 @@ test('gate:igs-ui:resolve-sprite-layout-keeps-mode-isolated', () => {
         mobile: { posX: 50, posY: 100, scale: 110 },
         'mobile::小林海斗::平和': { posX: 40, posY: 90, scale: 200 },
     };
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林海斗', '平和'), { posX: 70, posY: 30, scale: 90 });
-    assert.deepEqual(resolveSpriteLayout(layouts, 'mobile', '小林海斗', '平和'), { posX: 40, posY: 90, scale: 110 });
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林海斗', '平和'), { posX: 70, posY: 30, scale: 180 });
+    assert.deepEqual(resolveSpriteLayout(layouts, 'mobile', '小林海斗', '平和'), { posX: 40, posY: 90, scale: 200 });
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '没摆过', ''), { posX: 50, posY: 100, scale: 90 });
     // 切到没有该 key 的模式回退默认，不会串用其他模式的数据
     assert.deepEqual(resolveSpriteLayout(layouts, 'web', '小林海斗', '平和'), { posX: 50, posY: 100, scale: 100 });
 });
@@ -1763,10 +1764,11 @@ test('gate:settings:generated-asset-actions-manage-library-and-temp-status', asy
     assert.equal(draft.bridge.sceneAssets.generated.scenes['新夜景'], undefined);
     assert.deepEqual(deleted, [['bg-old']]);
 
-    // 临时背景入库必须同步 sceneAssets.generated 与服务状态；丢弃只写回临时状态。
+    // 临时背景入库进场景素材，不进生成素材库。
     promptValue = '临时夜景';
     await handleSettingsAction(`gen-temp-accept:${enc('temp/bg')}`, ctx);
-    assert.equal(draft.bridge.sceneAssets.generated.scenes['临时夜景'].times['夜晚'].url, 'igs-gen:bg-temp');
+    assert.equal(draft.bridge.sceneAssets.scenes['临时夜景'].times['夜晚'].url, 'igs-gen:bg-temp');
+    assert.equal(draft.bridge.sceneAssets.generated.scenes['临时夜景'], undefined);
     await handleSettingsAction(`gen-temp-discard:${enc('temp/bg')}`, ctx);
     assert.deepEqual(statuses, [
         { key: 'temp/bg', status: 'library' },
@@ -1842,6 +1844,7 @@ test('gate:settings:generated-asset-actions-rollback-on-persist-and-service-fail
         assert.equal(result.reason, 'status-failed');
         assert.equal(persistCount, 2);
         assert.equal(draft.bridge.sceneAssets.generated.scenes['临时景'], undefined);
+        assert.equal(draft.bridge.sceneAssets.scenes['临时景'], undefined);
     }
 
     {
@@ -1871,14 +1874,12 @@ test('gate:settings:generated-asset-download-button-and-action', async () => {
         ],
         resolveUrl: () => '',
     });
-    assert.ok(html.includes(`data-action="gen-asset-prompt:${enc('bg-lib')}"`));
-    assert.ok(html.includes(`data-action="gen-asset-prompt:${enc('sp-lib')}"`));
-    assert.ok(html.includes(`data-action="gen-asset-prompt:${enc('sp-temp')}"`));
-    assert.equal((html.match(/gen-asset-prompt:/g) || []).length, 3, '没有图片的失败记录不显示提示词按钮');
-    assert.ok(html.includes(`data-action="gen-asset-download:${enc('bg-lib')}:${enc('夜景-背景.png')}"`));
-    assert.ok(html.includes(`data-action="gen-asset-download:${enc('sp-lib')}:${enc('爱丽丝-立绘.png')}"`));
-    assert.ok(html.includes(`data-action="gen-asset-download:${enc('sp-temp')}:${enc('若叶睦-立绘.png')}"`));
-    assert.equal((html.match(/gen-asset-download:/g) || []).length, 3, '没有图片的失败记录不显示下载按钮');
+    assert.equal(html.includes('gen-asset-prompt:'), false);
+    assert.equal(html.includes('gen-asset-download:'), false);
+    assert.equal(html.includes('gen-lib-remove:'), false);
+    assert.ok(html.includes(`data-action="gen-temp-accept:${enc('temp/sp')}"`));
+    assert.ok(html.includes(`data-action="gen-matte-edit:${enc('sp-temp')}"`));
+    assert.equal(html.includes('gen-matte-edit:'), true);
 
     const clicks = [];
     const created = [];
@@ -1933,7 +1934,7 @@ test('gate:settings:generated-asset-download-button-and-action', async () => {
 });
 
 
-test('gate:scene:asset-alias-actions-and-presets-reuse-existing-entries', async () => {
+test('gate:scene:asset-alias-actions-reuse-existing-entries', async () => {
     const storage = createMemoryStorage();
     const prompts = ['爱丽', '古城', '艾莉西亚'];
     const draft = {
@@ -1971,13 +1972,6 @@ test('gate:scene:asset-alias-actions-and-presets-reuse-existing-entries', async 
     assert.deepEqual(draft.bridge.sceneAssets.characterAliases['爱丽丝'], ['爱丽']);
     assert.deepEqual(draft.bridge.sceneAssets.scenes['旧城'].words, ['古城']);
 
-    await handleSettingsAction('scene-preset-save', ctx);
-    draft.bridge.sceneAssets.characterAliases['爱丽丝'] = [];
-    draft.bridge.sceneAssets.scenes['旧城'].words = [];
-    await handleSettingsAction(`scene-preset-apply:${encodeURIComponent('别名预设')}`, ctx);
-    assert.deepEqual(draft.bridge.sceneAssets.characterAliases['爱丽丝'], ['爱丽']);
-    assert.deepEqual(draft.bridge.sceneAssets.scenes['旧城'].words, ['古城']);
-
     await handleSettingsAction(`scene-rename-char:${encodeURIComponent('爱丽丝')}`, ctx);
     assert.deepEqual(draft.bridge.sceneAssets.characterAliases['艾莉西亚'], ['爱丽']);
     assert.equal(draft.bridge.sceneAssets.characterAliases['爱丽丝'], undefined);
@@ -1986,7 +1980,7 @@ test('gate:scene:asset-alias-actions-and-presets-reuse-existing-entries', async 
     assert.deepEqual(draft.bridge.sceneAssets.characterAliases['艾莉西亚'], []);
     assert.deepEqual(draft.bridge.sceneAssets.scenes['旧城'].words, []);
     assert.equal(alerts, 0);
-    assert.ok(persistCount >= 6);
+    assert.ok(persistCount >= 5);
 });
 
 test('gate:scene:settings-action-mood-groups-toggle-and-reset', async () => {
@@ -3827,38 +3821,6 @@ test('gate:scene:status-avatar-rename-migrates-avatar-key', async () => {
     assert.equal(draft.bridge.sceneAssets.statusAvatars['爱丽丝'], undefined);
 });
 
-test('gate:scene:scene-preset-round-trip-keeps-status-avatars', async () => {
-    const storage = createMemoryStorage();
-    const draft = {
-        bridge: {
-            sceneAssets: {
-                enabled: true,
-                scenes: {},
-                characters: { '爱丽丝': { '平和': 'sprite' } },
-                characterAliases: { '爱丽丝': ['爱丽'] },
-                statusAvatars: { '爱丽丝': 'data:image/png;base64,AAA' },
-                moodGroups: [],
-            },
-        },
-        readerSettings: {},
-    };
-    const ctx = {
-        state: { activeSettings: { draft, readerMode: 'pc', asyncState: { scenePresetName: '头像预设' } } },
-        options: { global: { localStorage: storage, alert: () => {} } },
-        closeSettings: () => ({ ok: true }),
-        persistSettingsDraft: () => ({ ok: true }),
-        rerenderSettings: () => ({ ok: true }),
-        buildRegexPreview: () => '',
-    };
-    await handleSettingsAction('scene-preset-save', ctx);
-    const saved = JSON.parse(storage.getItem('igs:scene-presets:v1')).presets['头像预设'];
-    assert.equal(saved.statusAvatars['爱丽丝'], 'data:image/png;base64,AAA');
-
-    draft.bridge.sceneAssets.statusAvatars = {};
-    await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('头像预设'), ctx);
-    assert.equal(draft.bridge.sceneAssets.statusAvatars['爱丽丝'], 'data:image/png;base64,AAA');
-});
-
 test('gate:igs-ui:gradient-veil-normalizes-values-and-shares-default-theme', () => {
     assert.equal(normalizeDialogSkin(DIALOG_SKIN_GRADIENT_VEIL), DIALOG_SKIN_GRADIENT_VEIL);
     assert.deepEqual(normalizeGradientVeil({
@@ -4069,7 +4031,7 @@ test('character dna: prompt tags keep weight groups, dedupe case-insensitively a
 });
 
 
-test('gate:scene:character-dna-lifecycle-and-preset-round-trip', async () => {
+test('gate:scene:character-dna-lifecycle', async () => {
     const storage = createMemoryStorage();
     const dnaAlice = { identity: 'silver hair', defaultAppearance: 'uniform', negative: 'glasses', triggerWords: 'alice_v2' };
     const draft = {
@@ -4097,22 +4059,6 @@ test('gate:scene:character-dna-lifecycle-and-preset-round-trip', async () => {
     };
     const sa = () => draft.bridge.sceneAssets;
 
-    await handleSettingsAction('scene-preset-save', ctx);
-    const stored = JSON.parse(storage.getItem('igs:scene-presets:v1'));
-    assert.equal(stored.presets['DNA预设'].characterDna['爱丽丝'].triggerWords, 'alice_v2');
-    assert.equal(stored.presets['DNA预设'].characterDna['路人甲'].identity, 'brown hair');
-
-    sa().characterDna = {};
-    await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('DNA预设'), ctx);
-    assert.equal(sa().characterDna['爱丽丝'].identity, 'silver hair');
-
-    // 旧预设没有 characterDna 字段：应用后保留当前 DNA，不静默清空。
-    stored.presets['旧预设'] = { scenes: {}, characters: cloneForTest(sa().characters), characterAliases: { '爱丽丝': ['爱丽'], '白墨': [] } };
-    storage.setItem('igs:scene-presets:v1', JSON.stringify(stored));
-    await handleSettingsAction('scene-preset-apply:' + encodeURIComponent('旧预设'), ctx);
-    assert.equal(sa().characterDna['爱丽丝'].identity, 'silver hair');
-    assert.deepEqual(Object.keys(sa().characterDna), ['爱丽丝', '白墨', '路人甲']);
-
     prompts.push('艾莉西亚');
     await handleSettingsAction('scene-rename-char:' + encodeURIComponent('爱丽丝'), ctx);
     assert.equal(sa().characterDna['艾莉西亚'].identity, 'silver hair');
@@ -4133,11 +4079,6 @@ test('gate:scene:character-dna-lifecycle-and-preset-round-trip', async () => {
     assert.equal(sa().characterDna['白墨'], undefined);
     assert.equal(sa().characterDna['路人甲'].identity, 'brown hair');
 });
-
-function cloneForTest(value) {
-    return JSON.parse(JSON.stringify(value));
-}
-
 
 test('gate:igs-ui:character-dna-editor-renders-escaped-name-and-values', async () => {
     const { renderCharacterAssetList, renderCharacterDnaEditor } = await import('../src/visual/igs-ui/settings-fields.js');
@@ -4586,7 +4527,7 @@ test('gate:igs-ui:sprite-matte-editor-mode-and-save-errors', async () => {
         temp: [{ key: 'k1', type: 'sprite', name: '路人', imageId: 'sp2' }, { key: 'k2', type: 'background', name: '街道', imageId: 'bg2' }],
         resolveUrl: () => '',
     });
-    assert.ok(pane.includes('data-action="gen-matte-edit:sp1"'));
+    assert.ok(!pane.includes('gen-matte-edit:sp1'));
     assert.ok(pane.includes('data-action="gen-matte-edit:sp2"'));
     assert.ok(!pane.includes('gen-matte-edit:bg1'));
     assert.ok(!pane.includes('gen-matte-edit:bg2'));

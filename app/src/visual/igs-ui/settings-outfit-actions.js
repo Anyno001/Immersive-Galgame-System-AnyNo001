@@ -3,6 +3,8 @@ import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { classifySceneKey } from '../../scene/scene-directives.js';
 import { clearOutfitReview, loadOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
 import { migrateSpriteKeys } from './sprite-key-migration.js';
+import { draftAssetLibrary, rememberAssetScope } from '../../scene/asset-scope.js';
+import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 
 const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -72,9 +74,9 @@ function addOutfitWord(globalObj, outfits, entry, word) {
     return true;
 }
 
-function addOutfitSlot(sceneAssets, entry, mood) {
+function addOutfitSlot(moodRoot, entry, mood) {
     entry.moods[mood] = '';
-    const groups = Array.isArray(sceneAssets.moodGroups) ? sceneAssets.moodGroups : (sceneAssets.moodGroups = normalizeMoodGroups(sceneAssets.moodGroups));
+    const groups = Array.isArray(moodRoot.moodGroups) ? moodRoot.moodGroups : (moodRoot.moodGroups = normalizeMoodGroups(moodRoot.moodGroups));
     if (!groups.some((g) => g && g.label === mood)) groups.unshift({ label: mood, words: [mood] });
 }
 
@@ -92,7 +94,8 @@ function retargetWardrobe(characterOutfits, from, to) {
 async function handleWardrobe(command, segs, ctx) {
     const { settingsState, options, persistSettingsDraft, rerenderSettings } = ctx;
     const globalObj = options.global || globalThis;
-    const sceneAssets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+    rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
+    const sceneAssets = draftAssetLibrary(settingsState);
     const wardrobe = normalizeWardrobe(sceneAssets.wardrobe);
     sceneAssets.wardrobe = wardrobe;
     const name = decodeSeg(segs[0] || '');
@@ -214,7 +217,8 @@ function handleOutfitReview(command, segs, ctx) {
     const charName = decodeSeg(segs[0]);
     const word = decodeSeg(segs[1] || '');
     if (command === 'outfit-review-dismiss') { const written = removeOutfitReview(storage, charName, word); return written.ok === false ? written : rerenderSettings(); }
-    const sceneAssets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+    rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
+    const sceneAssets = draftAssetLibrary(settingsState);
     if (!charName || BLOCKED_KEYS.has(charName) || !hasOwn(plain(sceneAssets.characters) || {}, charName)) return rerenderSettings();
     const outfits = outfitMapOf(sceneAssets, charName);
     let changed = false;
@@ -249,7 +253,8 @@ async function runOutfitAction(match, ctx) {
     if (command.startsWith('wardrobe-')) return handleWardrobe(command, segs, ctx);
     const globalObj = options.global || globalThis;
     const draft = settingsState.draft;
-    const sceneAssets = draft.bridge.sceneAssets = draft.bridge.sceneAssets || {};
+    rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
+    const sceneAssets = draftAssetLibrary(settingsState);
     const readerSettings = draft.readerSettings = draft.readerSettings || {};
     const charName = decodeSeg(segs[0]);
     if (!charName || BLOCKED_KEYS.has(charName) || !hasOwn(plain(sceneAssets.characters) || {}, charName)) return rerenderSettings();
@@ -355,7 +360,7 @@ async function runOutfitAction(match, ctx) {
         const mood = preset || await ask(ctx, `服装「${outfitName}」的情绪/槽名称（建议与情绪组名一致）：`);
         if (!mood || !validateSlotName(globalObj, mood)) return rerenderSettings();
         if (hasOwn(entry.moods, mood)) { warn(globalObj, `服装「${outfitName}」已有「${mood}」槽（同名）`); return rerenderSettings(); }
-        addOutfitSlot(sceneAssets, entry, mood);
+        addOutfitSlot(settingsState.draft.bridge.sceneAssets, entry, mood);
         return done();
     }
     case 'scene-rename-outfit-mood':

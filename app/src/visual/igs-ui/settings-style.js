@@ -265,9 +265,13 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-mood-review-item .igs-review-link{min-width:52px;min-height:28px;padding:2px 10px;text-align:center;background:var(--igs-settings-raised)}
 .igs-mood-review-item .igs-review-link:hover,.igs-mood-review-item .igs-review-link:focus-visible{background:var(--igs-settings-highlight)}
 .igs-image-cg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;min-width:0}
-.igs-image-cg-tile{display:flex;flex-direction:column;gap:4px;min-width:0;padding:0;border:0;background:transparent;color:var(--igs-settings-ink-3);font:inherit;font-size:11px;line-height:16px;text-align:left;cursor:zoom-in}
+.igs-image-cg-tile{position:relative;display:flex;flex-direction:column;gap:4px;min-width:0;color:var(--igs-settings-ink-3);font-size:11px;line-height:16px}
+.igs-image-cg-check{position:absolute;top:4px;left:4px;z-index:1;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:rgba(0,0,0,.45)}
+.igs-image-cg-check input{width:16px;height:16px;margin:0}
+.igs-image-cg-view{display:flex;flex-direction:column;gap:4px;min-width:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;font-size:11px;line-height:16px;text-align:left;cursor:zoom-in}
 .igs-image-cg-tile img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-paper)}
-.igs-image-cg-tile:focus-visible{outline:2px solid var(--igs-settings-accent);outline-offset:2px}
+.igs-image-cg-view:focus-visible,.igs-image-cg-delete:focus-visible{outline:2px solid var(--igs-settings-accent);outline-offset:2px}
+.igs-image-cg-delete{align-self:flex-start;min-height:28px;padding:0 8px;border:0;border-radius:6px;background:rgba(220,60,60,.18);color:inherit;cursor:pointer}
 .igs-review-link.is-primary{color:var(--igs-settings-accent);font-weight:500}
 .igs-mood-review-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;padding:2px 4px 2px 8px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-highlight);font-size:12px;color:var(--igs-settings-ink-2);white-space:nowrap}
 .igs-mood-review-chip b{min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis}

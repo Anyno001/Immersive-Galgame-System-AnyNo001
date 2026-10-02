@@ -69,7 +69,8 @@ export function createCgGalleryPanel(doc, options = {}) {
         const toggle = (act, on, label) => `<button type="button" class="igs-cg-filter" data-cg-act="${act}" aria-pressed="${on}">${label}</button>`;
         const list = entries.length ? `<ul class="igs-cg-grid">${entries.map(tileHtml).join('')}</ul>` : '<p class="igs-cg-empty">还没有 CG</p>';
         const more = exhausted ? '' : '<button type="button" class="igs-cg-more" data-cg-act="more">加载更多</button>';
-        root.innerHTML = `<header class="igs-cg-head"><h2>CG 库</h2><button type="button" data-cg-act="close" aria-label="关闭 CG 库">×</button></header>`
+        const batch = entries.length ? `<button type="button" class="is-danger" data-cg-act="delete-listed">删除已列出的 ${entries.length} 张</button>` : '';
+        root.innerHTML = `<header class="igs-cg-head"><h2>CG 库</h2><span class="igs-cg-head-actions">${batch}<button type="button" data-cg-act="close" aria-label="关闭 CG 库">×</button></span></header>`
             + `<div class="igs-cg-filters" role="group" aria-label="筛选">${toggle('filter-favorite', filters.favoritesOnly, '只看收藏')}${toggle('filter-hidden', filters.showHidden, '显示已隐藏')}${toggle('filter-chat', filters.currentChatOnly, '只看当前聊天')}</div>`
             + (notice ? `<p class="igs-cg-notice" role="status">${escapeHtml(notice)}</p>` : '')
             + list + more;
@@ -136,6 +137,21 @@ export function createCgGalleryPanel(doc, options = {}) {
             return;
         }
         if (act === 'close-view') { closeViewer(); return; }
+        if (act === 'delete-listed') {
+            const ask = typeof options.confirm === 'function' ? options.confirm : () => false;
+            const list = entries.slice();
+            if (!list.length || !service) return;
+            const ok = await ask(`删除已列出的 ${list.length} 张 CG？聊天里的这些图也会一起消失，无法恢复。`);
+            if (!ok) return;
+            const batch = typeof service.removeMany === 'function' ? await service.removeMany(list) : { keys: [], failed: list.length };
+            const gone = new Set(batch.keys || []);
+            entries = entries.filter((item) => !gone.has(item.key));
+            for (const goneKey of gone) thumbs.delete(goneKey);
+            if (viewing && gone.has(viewing)) closeViewer();
+            notice = batch.failed ? `已删除 ${gone.size} 张，${batch.failed} 张没能删掉。` : `已删除 ${gone.size} 张。`;
+            render();
+            return;
+        }
         if (!entry) return;
         if (act === 'view') { openViewer(entry); return; }
         if (act === 'jump') { if (entry.chatId === chatId()) options.onJump?.(entry); return; }
@@ -226,7 +242,8 @@ export function createCgGalleryPanel(doc, options = {}) {
 
 export const CG_GALLERY_STYLE_TEXT = `
 #igs-cg-gallery{position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;overflow:auto;background:rgba(14,14,18,.94);color:#fff;}
-#igs-cg-gallery .igs-cg-head{display:flex;align-items:center;justify-content:space-between;}
+#igs-cg-gallery .igs-cg-head{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+#igs-cg-gallery .igs-cg-head-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;}
 #igs-cg-gallery .igs-cg-head h2{margin:0;font-size:16px;}
 #igs-cg-gallery button{min-height:44px;min-width:44px;border:none;border-radius:8px;background:rgba(255,255,255,.1);color:inherit;cursor:pointer;padding:0 12px;}
 #igs-cg-gallery button[aria-pressed="true"]{background:rgba(255,255,255,.26);}

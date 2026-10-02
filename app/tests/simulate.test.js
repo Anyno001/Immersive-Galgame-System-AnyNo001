@@ -1184,7 +1184,7 @@ test('gate:simulation:scene-and-character-aliases-reuse-original-assets-and-layo
     assert.equal(snapshot.content.spriteCharacter, '爱丽丝');
     const sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(sprite.style.backgroundPosition, '14% 78%');
-    assert.equal(sprite.style.backgroundSize, 'auto 100%');
+    assert.equal(sprite.style.backgroundSize, 'auto 126%');
     vn.destroy();
 });
 
@@ -3147,7 +3147,7 @@ test('gate:simulation:sprite-layout-save-survives-mode-mismatch', async () => {
     const opened = await vn.openLatestAvailable('mobile');
     let sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(opened.reader.snapshot.mode, 'mobile');
-    assert.equal(sprite.style.backgroundSize, 'auto 100%');
+    assert.equal(sprite.style.backgroundSize, 'auto 156%');
     assert.equal(sprite.style.backgroundPosition, '12% 34%');
 
     const settings = (await opened.reader.controller.invokeAction('settings')).controller;
@@ -3156,7 +3156,7 @@ test('gate:simulation:sprite-layout-save-survives-mode-mismatch', async () => {
     sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(vn.getState().igsUi.activeReader.mode, 'mobile');
     assert.equal(vn.getState().igsUi.activeReader.snapshot.mode, 'mobile');
-    assert.equal(sprite.style.backgroundSize, 'auto 100%');
+    assert.equal(sprite.style.backgroundSize, 'auto 156%');
     assert.equal(sprite.style.backgroundPosition, '12% 34%');
 
     vn.destroy();
@@ -7834,12 +7834,11 @@ test('gate:simulation:ancient-era-filters-modern-fx-from-prompt-and-reader', asy
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     const storage = createMemoryStorage();
     const injected = [];
-    const names = ['古风卡', '现代卡'];
     const vn = bootstrapIGS({
         global: {
             document,
             localStorage: storage,
-            prompt: () => names.shift() || '',
+            prompt: () => '',
             confirm: () => true,
             SillyTavern: { getContext: () => ({ setExtensionPrompt: (id, text) => injected.push([id, text]) }) },
         },
@@ -7872,7 +7871,6 @@ test('gate:simulation:ancient-era-filters-modern-fx-from-prompt-and-reader', asy
         // 时代只在一键档位条的「适配世界」下拉里切换，场景素材页不再有勾选框。
         assert.doesNotMatch(settings.getSnapshot().html, /data-path="bridge\.sceneAssets\.ancient"/);
         await settings.invoke('worldview:ancient');
-        await settings.invoke('scene-preset-save');
         assert.equal(settings.close().ok, true);
         const ancientPrompt = mainPrompt();
         assert.match(ancientPrompt, /igs时代背景/);
@@ -7893,18 +7891,6 @@ test('gate:simulation:ancient-era-filters-modern-fx-from-prompt-and-reader', asy
         const saved = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
         assert.notEqual(saved.fxTags.call, false);
         assert.notEqual(saved.dailyFx.photo, false);
-
-        // 预设保存带上时代；切到旧预设（无该字段）按现代处理，切换预设会立即落盘并重新注入。
-        const presets = JSON.parse(storage.getItem('igs:scene-presets:v1')).presets;
-        assert.equal(presets['古风卡'].ancient, true);
-        presets['旧预设'] = { scenes: {}, characters: {} };
-        storage.setItem('igs:scene-presets:v1', JSON.stringify({ version: 1, presets, active: '古风卡' }));
-        settings = await openSettings();
-        settings.switchTab('scene');
-        await settings.invoke(`scene-preset-apply:${encodeURIComponent('旧预设')}`);
-        assert.doesNotMatch(mainPrompt(), /igs时代背景/);
-        await settings.invoke(`scene-preset-apply:${encodeURIComponent('古风卡')}`);
-        assert.match(mainPrompt(), /igs时代背景/);
     } finally {
         vn.destroy();
     }

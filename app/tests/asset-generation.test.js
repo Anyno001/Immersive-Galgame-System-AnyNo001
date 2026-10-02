@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { classifySceneKey, lookupSceneBackground } from '../src/scene/scene-directives.js';
 import {
     resolveBackgroundAsset, resolveSpriteAsset, collectAssetNeeds,
-    addGeneratedAssetToLibrary, bindGeneratedSprite, renameGeneratedLibraryEntry, removeGeneratedLibraryEntry, normalizeGeneratedLibrary,
+    addGeneratedAssetToLibrary, bindGeneratedSprite, fileGeneratedHoldings, renameGeneratedLibraryEntry, removeGeneratedLibraryEntry, normalizeGeneratedLibrary,
 } from '../src/scene/asset-match.js';
 import { parseAssetPlan, buildAssetSlot, buildDictionaryAssetItems, ASSET_PLANNER_SYSTEM_PROMPT } from '../src/generated-images/illustration/asset-prompt.js';
 import { looksLikeRefusal, requestWithSoftRetry, applyTemplate } from '../src/generated-images/illustration/prompt-kit.js';
@@ -72,6 +72,27 @@ test('gate:assets:generated-library-is-separate-and-renamable', () => {
     const removed = removeGeneratedLibraryEntry(bg.library, 'background', '工厂');
     assert.deepEqual(removed.imageIds, ['img2']);
     assert.equal(removed.library.scenes.工厂, undefined);
+});
+
+test('gate:assets:filing-generated-holdings-leaves-one-reference', () => {
+    const assets = {
+        characters: { 莉莉: { 默认: 'igs-gen:img1' } },
+        scenes: {},
+        generated: {
+            characters: { 莉莉: { 默认: 'igs-gen:img1' }, 新角色: { 默认: 'igs-gen:img2', 喜悦: 'igs-gen:img3' } },
+            scenes: { 工厂: { url: 'igs-gen:bg1', words: [], times: {} } },
+            expressionNotes: { 莉莉: { 喜悦: { positive: 'smile' } } },
+        },
+    };
+    fileGeneratedHoldings(assets);
+    assert.equal(assets.characters.莉莉.默认, 'igs-gen:img1');
+    assert.equal(assets.characters.新角色.默认, 'igs-gen:img2');
+    assert.equal(assets.characters.新角色.喜悦, 'igs-gen:img3');
+    assert.equal(assets.scenes.工厂.url, 'igs-gen:bg1');
+    assert.equal(assets.generated.characters.莉莉, undefined);
+    assert.equal(assets.generated.characters.新角色, undefined);
+    assert.equal(assets.generated.scenes.工厂, undefined);
+    assert.equal(assets.generated.expressionNotes.莉莉.喜悦.positive, 'smile');
 });
 
 test('gate:assets:generated-library-normalizes-buckets', () => {
@@ -1088,12 +1109,14 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.ok(outfitHtml.includes('data-action="outfit-expression-prompt:%E5%86%AC%E6%9C%88:%E6%B3%B3%E8%A3%85:%E5%96%9C%E6%82%A6"'));
     assert.ok(outfitHtml.includes('data-action="outfit-expression-retry:%E5%86%AC%E6%9C%88:%E6%B3%B3%E8%A3%85:%E5%96%9C%E6%82%A6"'));
     const pane = renderGeneratedAssetPane({
-        library: { characters: { 冬月: { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy' } } },
-        characters: { 冬月: { 默认: 'igs-gen:def' } },
+        temp: [{ key: 'k1', type: 'sprite', name: '冬月', imageId: 'def' }],
         resolveUrl: () => '',
     });
-    assert.ok(pane.includes('已绑定为默认立绘'));
+    assert.ok(pane.includes('入库到角色'));
+    assert.ok(pane.includes('修复抠图'));
     assert.equal(pane.includes('绑定到角色'), false);
+    assert.equal(pane.includes('提示词'), false);
+    assert.equal(pane.includes('下载'), false);
     assert.equal(pane.includes('表情差分'), false);
     assert.equal(pane.includes('igs-expression-cell'), false);
     const leaned = uprightSpriteCaption({

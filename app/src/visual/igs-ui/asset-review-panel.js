@@ -25,7 +25,7 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
     }
     const title = doc.createElement('div');
     title.className = 'igs-asset-review-title';
-    title.textContent = `本层生成了 ${items.length} 个新素材，是否加入素材库？`;
+    title.textContent = `本层生成了 ${items.length} 个新素材，是否入库？`;
     container.appendChild(title);
     for (const item of items) {
         const row = doc.createElement('div');
@@ -45,9 +45,9 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
         input.addEventListener('keydown', (event) => event.stopPropagation());
         const actions = doc.createElement('div');
         actions.className = 'igs-asset-review-actions';
-        // 立绘额外提供「加入素材库并编辑 DNA」：先完成入库，再把 tags 作为 DNA 候选交给设置页，由用户确认后才写入。
-        const acts = [['library', '加入素材库'], ['chat', '仅本聊天'], ['discarded', '丢弃']];
-        if (item.type === 'sprite') acts.splice(1, 0, ['library-dna', '加入素材库并编辑 DNA']);
+        // 立绘额外提供「入库并编辑 DNA」：先收入角色立绘，再把 tags 作为 DNA 候选交给设置页，由用户确认后才写入。
+        const acts = [['library', item.type === 'background' ? '入库到场景' : '入库到角色'], ['chat', '仅本聊天'], ['discarded', '丢弃']];
+        if (item.type === 'sprite') acts.splice(1, 0, ['library-dna', '入库并编辑 DNA']);
         for (const [act, text] of acts) {
             const button = doc.createElement('button');
             button.type = 'button';

@@ -6,11 +6,11 @@ const BASIC_TAB_TEMPLATE = `
     {{openModeField}}
     <div class="igs-settings-row">{{settingsToggles}}</div>
     <div class="igs-settings-row">
-      <button class="igs-settings-action" data-action="settings-export-all" type="button">导出全部设置</button>
-      <button class="igs-settings-action" data-action="settings-import-all" type="button">导入设置</button>
+      <button class="igs-settings-action" data-action="settings-export-all" type="button">导出全局配置</button>
+      <button class="igs-settings-action" data-action="settings-import-all" type="button">导入全局配置</button>
       <button class="igs-settings-action" data-action="onboarding-start" type="button">新手引导</button>
     </div>
-    <div class="igs-source-filter-note">导出文件不含 API Key；导入时保留本机已填的 Key。</div>
+    <div class="igs-source-filter-note">导出基础、阅读器、素材规则和生图内容。不含场景、角色、衣柜、图片，也不含各角色卡里的资料。不含 API Key。导入不会覆盖本机已有的素材。</div>
   </div>
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">标签解析{{resetBasicSourceFilter}}</div>
@@ -119,6 +119,9 @@ const IMAGE_CG_TEMPLATE = `
     <div class="igs-source-filter-note">生成过的剧情 CG 和 NSFW 图都在这里，点缩略图看大图。</div>
     <div class="igs-settings-row">
       <button class="igs-settings-action" data-action="image-cg-refresh" type="button">刷新</button>
+      <button class="igs-settings-action" data-action="image-cg-select-all" type="button">全选</button>
+      <button class="igs-settings-action" data-action="image-cg-delete-selected" type="button">删除选中</button>
+      <button class="igs-settings-action" data-action="image-cg-delete-all" type="button">删除全部</button>
       <button class="igs-settings-action" data-action="open-cg-gallery" type="button">收藏与隐藏</button>
     </div>
     <div class="igs-settings-result" data-result="image-cg">{{imageCgStatus}}</div>
@@ -311,10 +314,6 @@ const SCENE_RULES_TEMPLATE = `
 
 const SCENE_ASSETS_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="assets">
-  <div class="igs-source-filter">
-    <div class="igs-source-filter-title">预设</div>
-    {{scenePresetBar}}
-  </div>
   <div class="igs-source-filter">
     {{sceneSubTabs}}
     {{sceneSubPane}}

@@ -74,6 +74,12 @@ export function resetSettingsSection(draft, sectionId, defaults) {
 
 export const SETTINGS_EXPORT_FORMAT = 'igs-settings';
 const SECRET_KEY = /^(?:api[-_]?key|apikey|token|secret|password|authorization)$/i;
+// 素材内容：场景、角色、衣柜、生成图、各角色卡。全局配置不带走这些，导入也不覆盖本机已有的。
+const ASSET_CONTENT_KEYS = Object.freeze([
+    'scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits',
+    'wardrobe', 'generated', 'statusAvatars', 'cards',
+]);
+const READER_CONTENT_KEYS = Object.freeze(['spriteLayouts', 'spriteHeads']);
 
 function isPlainObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -103,6 +109,35 @@ function keepLocalSecrets(imported, current) {
     return imported;
 }
 
+function stripAssetContent(bridge) {
+    if (!isPlainObject(bridge) || !isPlainObject(bridge.sceneAssets)) return bridge;
+    for (const key of ASSET_CONTENT_KEYS) delete bridge.sceneAssets[key];
+    return bridge;
+}
+
+function stripReaderContent(readerSettings) {
+    if (!isPlainObject(readerSettings)) return readerSettings;
+    for (const key of READER_CONTENT_KEYS) delete readerSettings[key];
+    return readerSettings;
+}
+
+function keepLocalAssetContent(imported, current) {
+    const currentAssets = isPlainObject(current) ? current.sceneAssets : null;
+    if (!isPlainObject(imported && imported.sceneAssets) || !isPlainObject(currentAssets)) return imported;
+    for (const key of ASSET_CONTENT_KEYS) {
+        if (currentAssets[key] !== undefined) imported.sceneAssets[key] = cloneData(currentAssets[key]);
+    }
+    return imported;
+}
+
+function keepLocalReaderContent(imported, current) {
+    if (!isPlainObject(imported) || !isPlainObject(current)) return imported;
+    for (const key of READER_CONTENT_KEYS) {
+        if (current[key] !== undefined) imported[key] = cloneData(current[key]);
+    }
+    return imported;
+}
+
 export function buildSettingsExport(draft, { version = '', now = new Date() } = {}) {
     const src = draft || {};
     return {
@@ -111,8 +146,8 @@ export function buildSettingsExport(draft, { version = '', now = new Date() } = 
         version: String(version || ''),
         exportedAt: now.toISOString(),
         secretsOmitted: true,
-        bridge: stripSecrets(cloneData(src.bridge || {})),
-        readerSettings: stripSecrets(cloneData(src.readerSettings || {})),
+        bridge: stripAssetContent(stripSecrets(cloneData(src.bridge || {}))),
+        readerSettings: stripReaderContent(stripSecrets(cloneData(src.readerSettings || {}))),
     };
 }
 
@@ -131,7 +166,7 @@ export function parseSettingsImport(text, current = {}) {
     const hasBridge = isPlainObject(data.bridge);
     const hasReader = isPlainObject(data.readerSettings);
     if (!hasBridge && !hasReader) return { ok: false, reason: 'invalid-format', message: '文件里没有可导入的设置' };
-    const bridge = hasBridge ? keepLocalSecrets(cloneData(data.bridge), (current && current.bridge) || {}) : cloneData((current && current.bridge) || {});
-    const readerSettings = hasReader ? keepLocalSecrets(cloneData(data.readerSettings), (current && current.readerSettings) || {}) : cloneData((current && current.readerSettings) || {});
+    const bridge = hasBridge ? keepLocalAssetContent(keepLocalSecrets(cloneData(data.bridge), (current && current.bridge) || {}), (current && current.bridge) || {}) : cloneData((current && current.bridge) || {});
+    const readerSettings = hasReader ? keepLocalReaderContent(keepLocalSecrets(cloneData(data.readerSettings), (current && current.readerSettings) || {}), (current && current.readerSettings) || {}) : cloneData((current && current.readerSettings) || {});
     return { ok: true, bridge, readerSettings, version: String(data.version || '') };
 }

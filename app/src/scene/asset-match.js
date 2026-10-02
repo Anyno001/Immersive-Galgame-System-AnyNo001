@@ -106,6 +106,28 @@ export function bindGeneratedSprite(sceneAssets, assetName, imageUrl, { replace 
     return { ok: true, created, name: key, characters, characterAliases: aliases };
 }
 
+// 背景入库进场景素材，不进生成素材库。已有同名场景时补上这个时段的图，不覆盖用户已经放好的主图。
+export function bindGeneratedBackground(sceneAssets, record, name) {
+    const finalName = String(name || (record && record.name) || '').trim();
+    const imageId = String(record && record.imageId || '').trim();
+    const assets = sceneAssets && typeof sceneAssets === 'object' ? sceneAssets : {};
+    const scenes = { ...plainObject(assets.scenes) };
+    if (!finalName || !imageId) return { ok: false, reason: 'empty-name', name: '', scenes };
+    const url = `${GENERATED_ASSET_URL_PREFIX}${imageId}`;
+    const entry = { ...plainObject(scenes[finalName]) };
+    const words = Array.isArray(entry.words) ? entry.words.slice() : [];
+    const original = String(record.name || '').trim();
+    if (original && original !== finalName && !words.includes(original)) words.push(original);
+    const times = { ...plainObject(entry.times) };
+    const time = String(record.time || '').trim();
+    if (time) {
+        const slot = plainObject(times[time]);
+        times[time] = { ...slot, url, weathers: plainObject(slot.weathers) };
+    }
+    scenes[finalName] = { ...entry, url: String(entry.url || '').trim() || url, words, times };
+    return { ok: true, name: finalName, scenes };
+}
+
 export function addGeneratedAssetToLibrary(library, record, name) {
     const next = JSON.parse(JSON.stringify(normalizeGeneratedLibrary(library)));
     const finalName = String(name || record.name || '').trim();
@@ -174,6 +196,76 @@ export function collectGeneratedImageIds(value, out = []) {
         for (const item of Object.values(value)) collectGeneratedImageIds(item, out);
     }
     return Array.from(new Set(out));
+}
+
+// 生成素材库只是刚生成时的暂存。已经写进场景或角色的图，从这里拿掉，图片文件仍留在那一处引用上。
+export function fileGeneratedHoldings(sceneAssets) {
+    if (!sceneAssets || typeof sceneAssets !== 'object') return sceneAssets;
+    fileGeneratedBucket(sceneAssets);
+    const cards = sceneAssets.cards;
+    if (cards && typeof cards === 'object' && !Array.isArray(cards)) {
+        for (const card of Object.values(cards)) fileGeneratedBucket(card);
+    }
+    return sceneAssets;
+}
+
+function placeSpriteUrl(bucket, name, mood, url) {
+    if (!name || !isGeneratedAssetUrl(url)) return false;
+    const characters = { ...plainObject(bucket.characters) };
+    const current = { ...plainObject(characters[name]) };
+    const existing = String(current[mood] || '').trim();
+    if (existing && existing !== url) return existing === url;
+    if (!existing) current[mood] = url;
+    characters[name] = current;
+    bucket.characters = characters;
+    const aliases = { ...plainObject(bucket.characterAliases) };
+    if (!Array.isArray(aliases[name])) aliases[name] = [];
+    bucket.characterAliases = aliases;
+    return true;
+}
+
+function placeBackgroundUrls(bucket, name, entry) {
+    const scene = plainObject(entry);
+    const mainId = generatedAssetIdOf(scene.url);
+    if (mainId) {
+        const bound = bindGeneratedBackground(bucket, { imageId: mainId, name }, name);
+        if (bound.ok) bucket.scenes = bound.scenes;
+    }
+    for (const [time, slot] of Object.entries(plainObject(scene.times))) {
+        const id = generatedAssetIdOf(plainObject(slot).url);
+        if (!id) continue;
+        const bound = bindGeneratedBackground(bucket, { imageId: id, name, time }, name);
+        if (bound.ok) bucket.scenes = bound.scenes;
+    }
+}
+
+function fileGeneratedBucket(bucket) {
+    if (!bucket || typeof bucket !== 'object' || !bucket.generated) return;
+    const generated = normalizeGeneratedLibrary(bucket.generated);
+    for (const [name, entry] of Object.entries({ ...generated.characters })) {
+        const moods = plainObject(entry);
+        let blocked = false;
+        for (const [mood, url] of Object.entries(moods)) {
+            if (!isGeneratedAssetUrl(url)) continue;
+            const characters = plainObject(bucket.characters);
+            const existing = String(plainObject(characters[name])[mood] || '').trim();
+            if (existing && existing !== url) { blocked = true; continue; }
+            placeSpriteUrl(bucket, name, mood, url);
+        }
+        const placed = new Set(collectGeneratedImageIds((bucket.characters || {})[name]));
+        const held = collectGeneratedImageIds(moods);
+        if (!blocked && held.every((id) => placed.has(id))) {
+            delete generated.characters[name];
+            delete generated.characterAliases[name];
+        }
+    }
+    for (const [name, entry] of Object.entries({ ...generated.scenes })) {
+        placeBackgroundUrls(bucket, name, entry);
+        const placed = new Set(collectGeneratedImageIds((bucket.scenes || {})[name]));
+        const held = collectGeneratedImageIds(entry);
+        if (held.every((id) => placed.has(id))) delete generated.scenes[name];
+    }
+    bucket.generated = generated;
 }
 
 // 把一条生成素材从 source 库移到 / 复制到 target 库（角色连同别名）。只改库记录，不碰 IndexedDB 图片；

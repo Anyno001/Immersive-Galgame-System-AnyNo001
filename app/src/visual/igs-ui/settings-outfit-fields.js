@@ -3,6 +3,12 @@ import { resolveSpriteAsset } from '../../scene/asset-match.js';
 import { OUTFIT_RESET } from '../../scene/character-outfits.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
+
+function assetMoveButton(dest, name) {
+    if (dest !== 'card' && dest !== 'global') return '';
+    const title = dest === 'card' ? '收到当前角色卡' : '放到全局兜底';
+    return `<button type="button" class="igs-settings-action" data-action="asset-move:${dest}:wardrobe:${encSeg(name)}">${title}</button>`;
+}
 const plain = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 const isImageUrl = (url) => /^(?:https?:\/\/|data:image\/|blob:)/i.test(String(url || '').trim());
 
@@ -37,16 +43,20 @@ function chipList(items, removeAction, addAction, emptyText, addTitle) {
     return `<div class="igs-mood-word-list">${tags || `<span class="igs-outfit-muted">${esc(emptyText)}</span>`}<button type="button" class="igs-btn-mgr-icon" data-action="${addAction}" title="${esc(addTitle)}">+</button></div>`;
 }
 
-function wardrobeChoices(charName, outfitName, entry, wardrobe) {
+function wardrobeChoices(charName, outfitName, entry, wardrobe, globalWardrobe) {
     const names = Object.keys(plain(wardrobe));
+    const own = new Set(names);
+    const globalNames = Object.keys(plain(globalWardrobe)).filter((item) => item && !own.has(item));
     const selected = typeof entry.wardrobe === 'string' ? entry.wardrobe.trim() : '';
-    const options = ['<option value="">同名服装</option>'].concat(names.map((item) => (
-        `<option value="${esc(item)}"${item === selected ? ' selected' : ''}>${esc(item)}</option>`
-    )));
+    const option = (item, label) => `<option value="${esc(item)}"${item === selected ? ' selected' : ''}>${esc(label)}</option>`;
+    const options = ['<option value="">同名服装</option>']
+        .concat(names.map((item) => option(item, item)))
+        .concat(globalNames.map((item) => option(item, `${item}（全局）`)));
+    if (selected && !own.has(selected) && !globalNames.includes(selected)) options.push(option(selected, selected));
     return `<select class="igs-asset-move" data-outfit-wardrobe-char="${esc(charName)}" data-outfit-wardrobe="${esc(outfitName)}" aria-label="使用衣柜">${options.join('')}</select>`;
 }
 
-function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl) {
+function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, globalWardrobe) {
     const c = encSeg(charName);
     const o = encSeg(name);
     const moods = plain(entry.moods);
@@ -61,7 +71,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-outfit-mood:${c}:${o}" title="添加情绪槽">+</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-outfit:${c}:${o}" title="删除服装">${icons.trash}</button></div>`;
     const meta = `<div class="igs-outfit-meta">`
-        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">衣柜</span>${wardrobeChoices(charName, name, entry, sceneAssets.wardrobe)}</div>`
+        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">衣柜</span>${wardrobeChoices(charName, name, entry, sceneAssets.wardrobe, globalWardrobe)}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">说明</span><input class="igs-scene-url-input" data-scene-outfit-note-char="${esc(charName)}" data-scene-outfit-note="${esc(name)}" value="${esc(note)}" placeholder="什么情形穿这套"></div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">服装词</span>${chipList(words, `scene-remove-outfit-word:${c}:${o}`, `scene-add-outfit-word:${c}:${o}`, '只认服装名', '添加服装词（AI 写出或表格里出现该词即视为这套服装）')}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">适用场景</span>${chipList(scenes, `scene-remove-outfit-scene:${c}:${o}`, `scene-add-outfit-scene:${c}:${o}`, '不限', '添加适用场景（换到其他场景时，继承来的这套服装自动失效）')}</div>`
@@ -79,6 +89,9 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const promptBtn = canPrompt
             ? `<button type="button" class="igs-settings-action" data-action="outfit-expression-prompt:${c}:${o}:${encSeg(mood)}">提示词</button>`
             : '';
+        const downloadBtn = imageId
+            ? `<button type="button" class="igs-btn-mgr-icon" data-action="gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${name}-${mood}-立绘.png`)}" title="下载"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>`
+            : '';
         const retry = imageId || (note && note.error)
             ? `<button type="button" class="igs-settings-action" data-action="outfit-expression-retry:${c}:${o}:${encSeg(mood)}">重新生成</button>`
             : '';
@@ -87,6 +100,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
             + `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`
             + promptBtn
+            + downloadBtn
             + retry
             + (filled ? '' : `<span class="igs-outfit-badge is-${preview.kind}">未填 · ${esc(preview.label)}</span>`)
             + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}" title="重命名">${icons.pencil}</button>`
@@ -108,7 +122,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
 }
 
 // 角色卡的立绘区：「原装 · 服装…」标签切换。原装标签显示原有情绪槽；服装标签显示该服装的槽、词、场景、头像与缺图预览。
-export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, outfits, activeOutfit, sceneAssets, icons, expressionNotes, resolveUrl }) {
+export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, outfits, activeOutfit, sceneAssets, icons, expressionNotes, resolveUrl, globalWardrobe }) {
     const map = plain(outfits);
     const names = Object.keys(map);
     const active = names.includes(activeOutfit) ? activeOutfit : '';
@@ -124,12 +138,12 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, out
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
         + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">＋ 服装</button></div>`;
     const panel = active
-        ? renderOutfitPanel(charName, active, plain(map[active]), baseMoods, sceneAssets, icons, expressionNotes, resolveUrl)
+        ? renderOutfitPanel(charName, active, plain(map[active]), baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, globalWardrobe)
         : baseListHtml;
     return `<div class="igs-outfit-area" data-outfit-area="${esc(charName)}">${bar}${panel}</div>`;
 }
 
-export function renderWardrobe(wardrobe, pending = [], resolveUrl) {
+export function renderWardrobe(wardrobe, pending = [], resolveUrl, assetMove = '') {
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const map = plain(wardrobe);
@@ -141,6 +155,7 @@ export function renderWardrobe(wardrobe, pending = [], resolveUrl) {
             + `<input class="igs-scene-url-input igs-wardrobe-prompt" data-wardrobe-name="${esc(name)}" value="${esc(prompt)}" placeholder="提示词">`
             + `<button type="button" class="igs-settings-action" data-action="wardrobe-generate-prompt:${encoded}">生成提示词</button>`
             + `<button type="button" class="igs-settings-action" data-action="wardrobe-reference:${encoded}">生图参考</button>`
+            + assetMoveButton(assetMove, name)
             + `<button type="button" class="igs-btn-mgr-icon" data-action="wardrobe-rename:${encoded}" title="重命名">${pencil}</button>`
             + `<button type="button" class="igs-btn-mgr-icon" data-action="wardrobe-remove:${encoded}" title="删除">${trash}</button></div>`
             + (reference ? `<div class="igs-wardrobe-reference">${thumb(reference, `${name} 参考图`, '', resolveUrl)}</div>` : '')

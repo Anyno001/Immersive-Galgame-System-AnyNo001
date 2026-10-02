@@ -15,8 +15,6 @@ const FOCUS_KEY_ATTRS = Object.freeze([
     ['data-prompt-rule-draft'],
     ['data-chat-prompt-draft'],
     ['data-asset-folder-move', 'data-asset-name'],
-    ['data-gen-transfer', 'data-gen-name'],
-    ['data-preset-select'],
     ['data-advanced'],
     ['id'],
 ]);
