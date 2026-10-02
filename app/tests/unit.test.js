@@ -2273,13 +2273,14 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
 
     // 折叠态：不含缩略图
     const snap = controller.getSnapshot();
-    assert.equal(/igs-sprite-thumb/.test(snap.html), false);
+    // 收起时每格只有小缩略图（igs-outfit-thumb），没有展开后的大图。
+    assert.equal(/class="igs-sprite-thumb[ "]/.test(snap.html), false);
     assert.doesNotMatch(snap.html, />角色别名<\/div>/);
     assert.match(snap.html, /海斗/);
 
     // 展开后：含缩略图和该情绪组的词
     const after = await controller.invoke(`scene-toggle-mood:${encodeURIComponent('Kaito')}:${encodeURIComponent('喜悦')}`);
-    assert.match(after.snapshot.html, /igs-sprite-thumb/);
+    assert.match(after.snapshot.html, /class="igs-sprite-thumb[ "]/);
     assert.match(after.snapshot.html, /开心/);
 
     host.destroy();
@@ -4089,17 +4090,17 @@ test('gate:igs-ui:character-dna-editor-renders-escaped-name-and-values', async (
     const empty = renderCharacterDnaEditor('白墨', null);
     assert.ok(empty.includes('角色 DNA（未填写）'));
     assert.equal((empty.match(/data-dna-field="/g) || []).length, 4);
-    // 角色卡上 DNA 平时只是名字旁的星星画笔（已填时高亮），点开才出编辑区。
+    // DNA 在角色那一行的 ⋯ 里（「角色设定」），点开才出编辑区。
     const closed = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
         characterDna: { 'A.<b>': { identity: 'silver hair', triggerWords: 'alice_v2' } },
     });
-    assert.match(closed, /class="igs-btn-mgr-icon igs-char-dna-btn is-on" data-action="scene-toggle-dna:A.%3Cb%3E"[^>]*aria-expanded="false"/);
+    assert.match(closed, /class="igs-add-menu igs-row-menu"[\s\S]*?data-action="scene-toggle-dna:A.%3Cb%3E" role="menuitem">角色设定（别名、头像、DNA）</);
     assert.ok(!closed.includes('data-dna-field='));
     const html = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
         characterDna: { 'A.<b>': { identity: 'silver hair', triggerWords: 'alice_v2' } },
         isOpen: (key) => key === 'char-dna:A.<b>',
     });
-    assert.ok(html.includes('aria-expanded="true"'));
+    assert.ok(html.includes('>收起角色设定<'));
     assert.ok(html.includes('data-dna-char="A.&lt;b&gt;"'));
     assert.ok(!html.includes('data-dna-char="A.<b>"'));
     assert.ok(html.includes('data-dna-field="identity" placeholder='));

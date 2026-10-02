@@ -402,30 +402,28 @@ export function renderCharacterAssetList(characters, options = {}) {
             const rawUrl = String(url || '').trim();
             const imageId = rawUrl.startsWith('igs-gen:') ? rawUrl.slice('igs-gen:'.length) : '';
             const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
-            const promptBtn = canPrompt
-                ? `<button type="button" class="igs-settings-action" data-action="char-expression-prompt:${encSeg(charName)}:${encSeg(mood)}">提示词</button>`
-                : '';
-            const retry = mood !== '默认' && (Boolean(imageId) || (note && note.error))
-                ? `<button type="button" class="igs-settings-action" data-action="char-expression-retry:${encSeg(charName)}:${encSeg(mood)}">重新生成</button>`
-                : '';
-            const shown = rawUrl.startsWith('igs-gen:') && typeof options.resolveUrl === 'function'
-                ? String(options.resolveUrl(rawUrl) || '')
-                : '';
-            const rowThumb = rawUrl.startsWith('igs-gen:') && /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
-                ? `<img class="igs-sprite-thumb" src="${esc(shown)}" alt="${esc(mood)}" data-action="sprite-preview:${encSeg(shown)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
-                : '';
-            const boundNote = rawUrl.startsWith('igs-gen:') ? '<span class="igs-source-filter-note">已绑定生成立绘</span>' : '';
+            const shown = imageId && typeof options.resolveUrl === 'function' ? String(options.resolveUrl(rawUrl) || '') : '';
+            // 生成图的格子只留缩略图和名字：编号地址对用户没用，不再放输入框和「已绑定」说明；其余操作收进 ⋯。
+            // 每格都留缩略图位置，名字才对得齐：生成图看解析结果，自填地址直接显示，没图放空位。
+            const thumbUrl = imageId ? shown : rawUrl;
+            const rowThumb = /^(?:https?:\/\/|data:image\/|blob:)/i.test(thumbUrl)
+                ? `<img class="igs-outfit-thumb" src="${esc(thumbUrl)}" alt="${esc(mood)}" data-action="sprite-preview:${encSeg(thumbUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+                : `<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true">${imageId ? '载入中' : ''}</span>`;
+            const c = encSeg(charName);
+            const m = encSeg(mood);
+            const slotMenu = renderRowMenu([
+                canPrompt ? menuItem(`char-expression-prompt:${c}:${m}`, '提示词') : '',
+                imageId ? menuItem(`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${mood}-立绘.png`)}`, '下载') : '',
+                mood !== '默认' && (imageId || (note && note.error)) ? menuItem(`char-expression-retry:${c}:${m}`, '重新生成') : '',
+                menuItem(`scene-rename-mood:${c}:${m}`, '重命名'),
+                menuItem(`scene-remove-mood:${c}:${m}`, '删除', ' is-danger'),
+            ], `「${mood}」的操作`);
             const collapsedRow = `<div class="igs-btn-mgr-row igs-scene-mood-row">`
-                + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
                 + rowThumb
-                + boundNote
-                + `<input class="igs-scene-url-input" data-scene-char="${esc(charName)}" data-scene-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`
-                + promptBtn
-                + storedImageDownload(rawUrl, `${charName}-${mood}-立绘.png`)
-                + retry
-                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-mood:${encSeg(charName)}:${encSeg(mood)}" title="重命名">${pencil}</button>`
-                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-mood:${encSeg(charName)}:${encSeg(mood)}" title="删除">${trash}</button>`
-                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-mood:${encSeg(charName)}:${encSeg(mood)}" title="展开/折叠">${expanded ? chevronUp : chevronDown}</button>`
+                + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
+                + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-char="${esc(charName)}" data-scene-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`)
+                + slotMenu
+                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-mood:${c}:${m}" title="展开/折叠">${expanded ? chevronUp : chevronDown}</button>`
                 + `</div>`;
             const expandedBody = expanded ? renderSpriteSlotExpansion(charName, mood, url, moodGroups, { pencil, trash, resolveUrl: options.resolveUrl }) : '';
             return `<div class="igs-sprite-slot">${collapsedRow}${expandedBody}</div>`;
@@ -450,8 +448,9 @@ export function renderCharacterAssetList(characters, options = {}) {
         const meta = aliases.join('、');
         const head = `<div class="igs-char-head"><button type="button" class="igs-char-avatar" data-action="status-avatar-pick:${encSeg(charName)}" title="上传状态栏头像">${avatarPreview}</button>`
             + `<button type="button" class="igs-char-title" data-action="${toggle}" aria-expanded="${open}"><b class="igs-char-name">${esc(charName)}</b><span class="igs-char-aliases">${esc(meta)}</span></button>`
-            + `${scopeTag(options, 'characters', charName)}${renderCharacterDnaButton(charName, dna, dnaOpen)}`
+            + `${scopeTag(options, 'characters', charName)}`
             + renderRowMenu([
+                menuItem(`scene-toggle-dna:${encSeg(charName)}`, dnaOpen ? '收起角色设定' : `角色设定（别名、头像、DNA${characterDnaFilled(dna) ? '' : '，DNA 未填'}）`),
                 folderSelect(charName, { menu: true }),
                 menuItem(`scene-rename-char:${encSeg(charName)}`, '重命名'),
                 menuItem(`scene-remove-char:${encSeg(charName)}`, '删除角色', ' is-danger'),
@@ -502,17 +501,10 @@ function renderCharacterDnaFields(charName, dna) {
     return `<div class="igs-dna-fields" data-dna-editor="${esc(charName)}">${rows}</div>`;
 }
 
-// 带星星的毛笔：DNA 是给生图用的长相设定，和普通的重命名铅笔区分开。
-const DNA_PEN_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.5 12.6 7.6-7.6a2.4 2.4 0 1 1 3.4 3.4l-7.6 7.6"/><path d="M8.6 15.1c-1.5 0-2.7 1.2-2.7 2.7 0 1.2-2.3 1.4-1.8 1.8 1 1 2.2 1.8 3.6 1.8 2 0 3.6-1.6 3.6-3.6a2.7 2.7 0 0 0-2.7-2.7z"/><path d="M6 2.2l.8 1.9 1.9.8-1.9.8L6 7.6l-.8-1.9-1.9-.8 1.9-.8z" fill="currentColor" stroke="none"/></svg>';
-
-export const DNA_ADD_BUTTON = `<button class="igs-btn-mgr-icon igs-char-dna-btn" data-action="scene-add-dna-char" type="button" title="新增只有 DNA 的角色（还没立绘，先登记长相）" aria-label="新增只有 DNA 的角色">${DNA_PEN_SVG}</button>`;
-
-// 毛笔打开「角色设定」：别名、头像地址、学院和 DNA 都在里面，角色卡头部只留一行。
-function renderCharacterDnaButton(charName, dna, open) {
-    const filled = characterDnaFilled(dna);
-    const title = `${open ? '收起' : ''}角色设定（别名、头像、DNA${filled ? '' : '，DNA 未填'}）`;
-    return `<button type="button" class="igs-btn-mgr-icon igs-char-dna-btn${filled ? ' is-on' : ''}${open ? ' is-open' : ''}" data-action="scene-toggle-dna:${encSeg(charName)}" title="${title}" aria-label="${title}" aria-expanded="${open}">${DNA_PEN_SVG}</button>`;
-}
+// 「角色立绘」标题旁的 ＋：和场景页一样是个下拉，新增角色或只有 DNA 的角色。
+export const CHARACTER_ADD_MENU = `<details class="igs-add-menu" data-add-menu="characters"><summary class="igs-btn-mgr-icon" title="新增角色" aria-label="新增角色">+</summary>`
+    + '<div class="igs-add-menu-list" role="menu"><button class="igs-add-menu-item" data-action="scene-add-char" type="button" role="menuitem">新增角色</button>'
+    + '<button class="igs-add-menu-item" data-action="scene-add-dna-char" type="button" role="menuitem">新增只有 DNA 的角色（先登记长相）</button></div></details>';
 
 function renderCharacterSetupPanel(charName, dna, profileRows) {
     return `<div class="igs-char-dna-panel"><div class="igs-char-dna-panel-head">角色设定`
@@ -543,8 +535,8 @@ export function renderDnaOnlyCharacterList(characterDna, characters) {
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const names = Object.keys(dnaMap).filter((name) => !Object.prototype.hasOwnProperty.call(chars, name));
-    const head = `<div class="igs-settings-section-head"><div class="igs-settings-subhead">仅有 DNA 的角色</div>${DNA_ADD_BUTTON}</div>`;
-    // 没有时整块不出现，入口是「角色立绘」标题旁的星星画笔。
+    const head = `<div class="igs-settings-section-head"><div class="igs-settings-subhead">仅有 DNA 的角色</div><button class="igs-btn-mgr-icon" data-action="scene-add-dna-char" type="button" title="新增只有 DNA 的角色">+</button></div>`;
+    // 没有时整块不出现，入口在「角色立绘」标题旁的 ＋ 里。
     if (!names.length) return '';
     const rows = names.map((name) => (
         `<div class="igs-scene-char-group igs-dna-only-char"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(name)}</span>`
@@ -651,24 +643,26 @@ export function countGeneratedWaiting({ library = {}, temp = [], characters = {}
 }
 
 export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, characters = {}, scenes = {} } = {}) {
-    const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
-    // 只修刚生成的立绘。背景不提供入口。
-    const matteButton = (imageId, type) => {
-        const id = String(imageId || '').trim();
-        if (!id || type !== 'sprite') return '';
-        return `<button type="button" class="igs-settings-action" data-action="gen-matte-edit:${encSeg(id)}" title="修复抠图">修复抠图</button>`;
-    };
+    // 修复抠图只给刚生成的立绘，背景不提供入口。
     const resolve = (url) => {
         const raw = String(url || '').trim();
         if (!raw) return '';
         try { return typeof resolveUrl === 'function' ? String(resolveUrl(raw) || '') : raw; }
         catch (error) { return ''; }
     };
-    const preview = (url, alt) => {
+    // 每张图一张同样大小的卡：方形图框（立绘完整放进去，背景铺满裁切），下面是名字、类型和「入库」，修复抠图、丢弃收进 ⋯。
+    const tile = ({ url, name, type, status, adopt, adoptLabel, extra = [] }) => {
         const resolved = resolve(url);
-        return resolved
-            ? `<img class="igs-sprite-thumb" src="${esc(resolved)}" alt="${esc(alt)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
-            : '<div class="igs-sprite-thumb igs-sprite-thumb-empty">等待载入</div>';
+        const img = resolved
+            ? `<img class="igs-gen-tile-img" src="${esc(resolved)}" alt="${esc(name)}" data-action="sprite-preview:${encSeg(resolved)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+            : '<span class="igs-gen-tile-img igs-gen-tile-empty">等待载入</span>';
+        return `<div class="igs-gen-tile${type === 'background' ? ' is-wide' : ''}">${img}`
+            + `<div class="igs-gen-tile-meta"><b title="${esc(name)}">${esc(name)}</b><span>${type === 'background' ? '背景' : '立绘'} · ${esc(status)}</span></div>`
+            + `<div class="igs-gen-tile-actions"><button type="button" class="igs-review-link is-primary" data-action="${adopt}"${adopt ? '' : ' disabled'}>${adoptLabel}</button>${renderRowMenu(extra, `「${name}」的操作`)}</div></div>`;
+    };
+    const matteItem = (imageId, type) => {
+        const id = String(imageId || '').trim();
+        return id && type === 'sprite' ? menuItem(`gen-matte-edit:${encSeg(id)}`, '修复抠图') : '';
     };
     const source = library && typeof library === 'object' ? library : {};
     const left = generatedLeftovers(source, characters, scenes);
@@ -677,20 +671,26 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, 
         const value = source.characters[name];
         const raw = value && typeof value === 'object' ? String(value['默认'] || '') : '';
         const imageId = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
-        leftoverRows.push(`<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(name)}</span><span class="igs-source-filter-note">立绘 · 还没进角色</span><button type="button" class="igs-settings-action" data-action="gen-adopt-sprite:${encSeg(name)}">入库到角色</button>${matteButton(imageId, 'sprite')}</div>${preview(raw, name)}</div>`);
+        leftoverRows.push(tile({ url: raw, name, type: 'sprite', status: '还没进角色', adopt: `gen-adopt-sprite:${encSeg(name)}`, adoptLabel: '入库到角色', extra: [matteItem(imageId, 'sprite')] }));
     }
     for (const name of left.backgrounds) {
         const value = source.scenes[name];
         const raw = value && typeof value === 'object' ? String(value.url || '') : '';
-        leftoverRows.push(`<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(name)}</span><span class="igs-source-filter-note">背景 · 还没进场景</span><button type="button" class="igs-settings-action" data-action="gen-file-scene:${encSeg(name)}">入库到场景</button></div>${preview(raw, name)}</div>`);
+        leftoverRows.push(tile({ url: raw, name, type: 'background', status: '还没进场景', adopt: `gen-file-scene:${encSeg(name)}`, adoptLabel: '入库到场景' }));
     }
     const tempRows = (Array.isArray(temp) ? temp : []).map((record) => {
         const item = record && typeof record === 'object' ? record : {};
-        const url = item.url || (item.imageId ? `igs-gen:${item.imageId}` : '');
         const key = String(item.key || '');
-        const typeLabel = item.type === 'background' ? '背景' : '立绘';
-        const fileLabel = item.type === 'background' ? '入库到场景' : '入库到角色';
-        return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(item.name || '未命名素材')}</span><span class="igs-source-filter-note">${typeLabel} · ${esc(item.status || '临时')}</span><button type="button" class="igs-settings-action" data-action="gen-temp-accept:${encSeg(key)}"${key ? '' : ' disabled'}>${fileLabel}</button>${matteButton(item.imageId, item.type)}<button type="button" class="igs-btn-mgr-icon" data-action="gen-temp-discard:${encSeg(key)}"${key ? '' : ' disabled'} title="丢弃">${trash}</button></div>${preview(url, item.name || '')}</div>`;
+        const type = item.type === 'background' ? 'background' : 'sprite';
+        return tile({
+            url: item.url || (item.imageId ? `igs-gen:${item.imageId}` : ''),
+            name: item.name || '未命名素材',
+            type,
+            status: item.status || '临时',
+            adopt: key ? `gen-temp-accept:${encSeg(key)}` : '',
+            adoptLabel: type === 'background' ? '入库到场景' : '入库到角色',
+            extra: [matteItem(item.imageId, item.type), key ? menuItem(`gen-temp-discard:${encSeg(key)}`, '丢弃', ' is-danger') : ''],
+        });
     }).join('');
     const count = (Array.isArray(temp) ? temp.length : 0) + leftoverRows.length;
     return renderReviewCard({
@@ -698,7 +698,7 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, 
         title: '刚生成的图',
         count,
         hint: '入库后进入场景或角色，这里不再留一份。',
-        body: count ? `<div class="igs-review-list igs-review-generated">${tempRows}${leftoverRows.join('')}</div>` : '',
+        body: count ? `<div class="igs-gen-grid">${tempRows}${leftoverRows.join('')}</div>` : '',
         empty: '暂无刚生成的素材',
     });
 }

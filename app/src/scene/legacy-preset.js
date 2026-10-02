@@ -24,6 +24,11 @@ export function isLegacyPresetData(data) {
     return isPlain(data.scenes) || isPlain(data.characters);
 }
 
+// 设置页只列真有素材的旧预设；空壳不算「识别到」，免得顶部常驻一块点了也没东西的入口。
+export function legacyPresetHasContent(preset) {
+    return ['scenes', 'characters', 'wardrobe', 'characterOutfits'].some((key) => Object.keys(cleanMap(plain(preset)[key])).length > 0);
+}
+
 function cleanMap(value) {
     const out = {};
     for (const [key, item] of Object.entries(plain(value))) {

@@ -99,25 +99,20 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const raw = String(url || '').trim();
         const imageId = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
         const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
-        const promptBtn = canPrompt
-            ? `<button type="button" class="igs-settings-action" data-action="outfit-expression-prompt:${c}:${o}:${encSeg(mood)}">提示词</button>`
-            : '';
-        const downloadBtn = imageId
-            ? `<button type="button" class="igs-btn-mgr-icon" data-action="gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${name}-${mood}-立绘.png`)}" title="下载"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>`
-            : '';
-        const retry = imageId || (note && note.error)
-            ? `<button type="button" class="igs-settings-action" data-action="outfit-expression-retry:${c}:${o}:${encSeg(mood)}">重新生成</button>`
-            : '';
+        const slotMenu = renderRowMenu([
+            canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
+            imageId ? menuItem(`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${name}-${mood}-立绘.png`)}`, '下载') : '',
+            imageId || (note && note.error) ? menuItem(`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, '重新生成') : '',
+            menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
+            menuItem(`scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}`, '删除', ' is-danger'),
+        ], `「${mood}」的操作`);
+        // 生成图的格子不放编号地址输入框；自己填地址的格子才有输入框。
         return `<div class="igs-outfit-slot${filled ? '' : ' is-fallback'}" data-outfit-slot="${esc(mood)}">`
             + (filled ? thumb(url, mood, '', resolveUrl) : thumb(preview.url, mood, ' is-ghost', resolveUrl))
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
-            + `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`
-            + promptBtn
-            + downloadBtn
-            + retry
+            + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`)
             + (filled ? '' : `<span class="igs-outfit-hint">${esc(preview.label)}</span>`)
-            + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}" title="重命名">${icons.pencil}</button>`
-            + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}" title="删除">${icons.trash}</button>`
+            + slotMenu
             + `</div>`;
     }).join('');
     const missing = baseMoods.filter((mood) => mood !== OUTFIT_RESET && !Object.prototype.hasOwnProperty.call(moods, mood));
@@ -341,6 +336,8 @@ button.igs-scope-seg:hover,button.igs-scope-seg:focus-visible{color:var(--igs-se
 .igs-asset-filter-count{font-size:10px;color:var(--igs-settings-ink-4);font-weight:400}
 .igs-asset-bulk{width:28px;height:28px;color:var(--igs-settings-ink-3)}
 .igs-asset-bulk:hover,.igs-asset-bulk:focus-visible{color:var(--igs-settings-ink);background:var(--igs-settings-highlight);outline:none}
+.igs-asset-bulk-menu>.igs-add-menu-list{left:0;right:auto;transform-origin:top left}
+.igs-add-menu-item:disabled{color:var(--igs-settings-ink-4);background:transparent;cursor:default}
 .igs-review-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:12px;border:1px solid var(--igs-settings-line);border-radius:var(--igs-settings-radius-control)}
 .igs-review-card+.igs-review-card{margin-top:10px}
 .igs-review-card.is-empty{gap:0;padding:10px 12px}
@@ -360,6 +357,18 @@ button.igs-scope-seg:hover,button.igs-scope-seg:focus-visible{color:var(--igs-se
 .igs-review-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin-left:auto}
 .igs-review-actions .igs-review-link{min-width:52px;min-height:28px;padding:2px 10px;text-align:center;background:var(--igs-settings-field)}
 .igs-review-actions .igs-review-link.is-primary{color:var(--igs-settings-ink)}
+.igs-gen-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;min-width:0}
+.igs-gen-tile{display:flex;flex-direction:column;gap:6px;min-width:0}
+.igs-gen-tile-img{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1/1;object-fit:contain;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);font-size:11px;color:var(--igs-settings-ink-4);cursor:zoom-in}
+.igs-gen-tile.is-wide .igs-gen-tile-img{object-fit:cover}
+.igs-gen-tile-empty{cursor:default}
+.igs-gen-tile-meta{display:flex;flex-direction:column;gap:2px;min-width:0}
+.igs-gen-tile-meta b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:600;color:var(--igs-settings-ink)}
+.igs-gen-tile-meta span{font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-gen-tile-actions{display:flex;align-items:center;gap:4px}
+.igs-gen-tile-actions>.igs-review-link{flex:1;min-height:28px;background:var(--igs-settings-field);text-align:center}
+.igs-gen-tile-actions>.igs-review-link.is-primary{color:var(--igs-settings-ink)}
+@media (max-width:420px){.igs-gen-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .igs-review-select{width:auto;max-width:8em;height:28px;padding:0 6px;font-size:12px}
 .igs-scene-subtab-count{margin-left:4px;padding:0 5px;border-radius:8px;background:var(--igs-settings-accent);color:#fff;font-size:10px;line-height:16px}
 `.trim();

@@ -47,7 +47,7 @@ import { clearCastDom } from './stage-cast-render.js';
 import { CHARACTER_DNA_FIELDS, normalizeCharacterDnaMap, resolveCharacterDna } from '../../scene/character-dna.js';
 import { createOutfitResolver, normalizeCharacterOutfits, normalizeWardrobe, resolveSpriteOutfit } from '../../scene/character-outfits.js';
 import { collectOutfitClues } from '../../data/shujuku/outfit-clues.js';
-import { DNA_ADD_BUTTON, renderDnaCandidateBar, renderDnaOnlyCharacterList } from './settings-fields.js';
+import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList } from './settings-fields.js';
 import { loadMatteEditor } from './sprite-matte-editor.js';
 import { mountMatteEditor } from './sprite-matte-editor-mount.js';
 import { createCanvasImageCodec } from './sprite-matte-editor-view.js';
@@ -215,7 +215,7 @@ import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLa
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
-import { loadLegacyPresets } from '../../scene/legacy-preset.js';
+import { loadLegacyPresets, legacyPresetHasContent } from '../../scene/legacy-preset.js';
 import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview, recordMoodReview } from '../../scene/mood-review-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
@@ -3302,11 +3302,10 @@ export function createIgsReaderHost(options = {}) {
                 return `<span class="igs-asset-scope-switch" role="group" aria-label="放在本卡还是全局">${seg(inCard, '本卡', '收进本卡：只有这张角色卡用')}${seg(!inCard, '全局', '放到全局：所有角色卡共用')}</span>`
                     + (inCard && assetShadowsGlobal(assetRoot, cardKey, collection, name) ? '<span class="igs-asset-scope-note" title="全局另有一份同名的，这张卡用本卡这份">覆盖全局</span>' : '');
             };
-            const legacyPresets = Object.keys(loadLegacyPresets(storage));
+            const legacyPresets = Object.entries(loadLegacyPresets(storage)).filter(([, preset]) => legacyPresetHasContent(preset)).map(([name]) => name);
             const assetScopeBar = `<div class="igs-asset-scope-bar"><span class="igs-asset-scope-name">${cardKey ? `当前角色卡：${esc(scopeState.assetScopeLabel)}` : '没打开角色卡，素材都在全局'}</span>`
                 + (scopeState.assetScopeKind === 'card' && cardKey ? '<button type="button" class="igs-settings-action" data-action="asset-card-export">导出这张角色卡</button>' : '')
                 + '<button type="button" class="igs-settings-action" data-action="asset-card-import">导入角色卡素材包</button></div>'
-                + (cardKey ? '<div class="igs-source-filter-note">列表里是这张卡实际会用的素材。标「本卡」的只有这张卡用，标「全局」的所有卡共用，点标签可以换。新加的素材放进本卡。</div>' : '')
                 + (legacyPresets.length
                     ? `<details class="igs-asset-legacy"><summary>找回旧版预设（${legacyPresets.length} 个）</summary>`
                         + '<div class="igs-source-filter-note">以前存在本机的素材预设。点一个放进本卡或全局，同名的换成预设里的，其他不动。</div><div class="igs-asset-legacy-list">'
@@ -3347,11 +3346,10 @@ export function createIgsReaderHost(options = {}) {
                 const counts = { all: names.length, card: cardCount, global: names.length - cardCount };
                 const filter = filterOf(collection);
                 const chip = (id, label) => `<button type="button" class="igs-asset-filter${filter === id ? ' is-active' : ''}" data-action="asset-filter:${collection}:${id}" aria-pressed="${filter === id}">${label}<span class="igs-asset-filter-count">${counts[id]}</span></button>`;
-                // 整批迁移只是筛选旁的一个小图标，点了先弹确认，手机上也不占一整行。
-                const bulkTo = filter === 'card' && counts.card ? ['global', '全部放到全局'] : (filter === 'global' && counts.global ? ['card', '全部收进本卡'] : null);
-                const bulk = bulkTo
-                    ? `<button type="button" class="igs-btn-mgr-icon igs-asset-bulk" data-action="asset-move-all:${collection}:${bulkTo[0]}" title="${bulkTo[1]}" aria-label="${bulkTo[1]}">${ASSET_MOVE_ALL_SVG}</button>`
-                    : '';
+                // 一键迁移常驻在筛选旁：点开选方向，数量为 0 的那项不能点，选了还会再确认一次。
+                const bulkItem = (dest, label, count) => `<button type="button" class="igs-add-menu-item" data-action="asset-move-all:${collection}:${dest}" role="menuitem"${count ? '' : ' disabled'}>${label}</button>`;
+                const bulk = `<details class="igs-add-menu igs-asset-bulk-menu" data-asset-bulk="${collection}"><summary class="igs-btn-mgr-icon igs-asset-bulk" title="一键迁移" aria-label="一键迁移">${ASSET_MOVE_ALL_SVG}</summary>`
+                    + `<div class="igs-add-menu-list" role="menu">${bulkItem('global', `本卡的 ${counts.card} 个全部放到全局`, counts.card)}${bulkItem('card', `全局的 ${counts.global} 个全部收进本卡`, counts.global)}</div></details>`;
                 return `<span class="igs-asset-filter-group" role="group" aria-label="按归属筛选" data-asset-filter="${collection}">${chip('all', '全部')}${chip('card', '本卡')}${chip('global', '全局')}</span>${bulk}`;
             };
             const scenesHtml = renderAssetFolderView('scenes', scopedEntries('scenes'), {
@@ -3417,7 +3415,7 @@ export function createIgsReaderHost(options = {}) {
             const charactersPane = `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
           <div class="igs-settings-subhead">角色立绘</div>
-          <span class="igs-settings-section-actions">${DNA_ADD_BUTTON}<button class="igs-btn-mgr-icon" data-action="scene-add-char" type="button" title="添加角色">+</button></span>
+          ${CHARACTER_ADD_MENU}
         </div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}

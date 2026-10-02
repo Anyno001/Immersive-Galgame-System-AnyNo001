@@ -110,7 +110,7 @@ function openSettingsScene() {
   const mem = createMemoryStorage();
   // ?card=卡名：模拟打开了一张角色卡，小雪和睡衣提示词放在这张卡里，其余在全局。
   const cardAssets = {
-    characters: { 小雪: { 默认: img, 微笑: img, 害羞: '' } },
+    characters: { 小雪: q.get('gen') ? { 默认: 'igs-gen:snow-default', 微笑: 'igs-gen:snow-smile', 害羞: '' } : { 默认: img, 微笑: img, 害羞: '' } },
     characterAliases: { 小雪: ['雪'] },
     characterOutfits: { 小雪: { 校服: { moods: { 微笑: img }, words: ['制服'], scenes: [], note: '' }, 睡衣: { moods: {}, words: [], scenes: ['卧室'], note: '晚上在家' } } },
     wardrobe: { 睡衣: { prompt: 'pink pajamas' } },
@@ -138,8 +138,17 @@ function openSettingsScene() {
     const value = Reflect.get(target, key, target);
     return typeof value === 'function' && typeof key === 'string' && /^[a-z]/.test(key) ? value.bind(target) : value;
   } });
+  // ?gen=1：假的生成图服务，igs-gen: 地址都显示成示例图，另放两张刚生成的图。
+  const fakeGen = q.get('gen') ? new Proxy({
+    resolveUrl: (url) => (String(url || '').startsWith('igs-gen:') ? img : url),
+    listTemp: () => [
+      { key: 'temp/sp', type: 'sprite', name: '小雪 · 泳装', status: '临时', imageId: 'tmp-sp', url: img },
+      { key: 'temp/bg', type: 'background', name: '海边黄昏', status: '临时', imageId: 'tmp-bg', url: img },
+    ],
+  }, { get: (target, key) => (key in target ? target[key] : (typeof key === 'string' ? () => undefined : undefined)) }) : undefined;
   settingsVn = settingsVn || bootstrapIGS({
     global: globalProxy,
+    ...(fakeGen ? { assetGenerationService: fakeGen } : {}),
     autoAttachMagicWand: false,
     hostAdapter: { getCurrentMessage: async () => ({ id: 1, text: '素材设置预览。' }), typeAndSend: async () => ({ ok: true }) },
   });

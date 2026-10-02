@@ -227,3 +227,21 @@ test('asset scope: 角色名旁的 DNA 画笔只开合编辑区，不写设置',
     assert.equal(ctx.state.activeSettings.asyncState.advancedOpen['char-dna:小雪'], false);
     assert.equal(JSON.stringify(draft), before);
 });
+
+test('asset scope: 打开角色卡时筛选旁一直有一键迁移，两个方向都在，没东西的那项不能点', async () => {
+    const { bootstrapIGS } = await import('../src/index.js');
+    const global = { SillyTavern: { getContext: () => ({ name2: '小雪', characters: [] }) } };
+    const vn = bootstrapIGS({ global, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const controller = vn.openSettings({ tab: 'scene', mode: 'pc' }).controller;
+        controller.setValue('bridge.sceneAssets.enabled', true);
+        controller.setValue('bridge.sceneAssets.scenes', { 教室: { url: '', times: {} } });
+        const html = controller.switchSceneSubTab('scenes').html || controller.getSnapshot().html;
+        assert.match(html, /data-asset-bulk="scenes"[\s\S]*?data-action="asset-move-all:scenes:global"[^>]*disabled[^>]*>本卡的 0 个全部放到全局</);
+        assert.match(html, /data-action="asset-move-all:scenes:card" role="menuitem">全局的 1 个全部收进本卡</);
+        assert.doesNotMatch(html, /列表里是这张卡实际会用的素材/);
+        controller.close();
+    } finally {
+        vn.destroy();
+    }
+});
