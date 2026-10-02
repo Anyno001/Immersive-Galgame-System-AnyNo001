@@ -10,7 +10,7 @@ import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directi
 import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
 import { assetOwnerKey, assetShadowsGlobal, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, normalizeAssetCards, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
-import { renderOutfitReviewList, renderWardrobe } from './settings-outfit-fields.js';
+import { menuItem, renderOutfitReviewList, renderRowMenu, renderWardrobe } from './settings-outfit-fields.js';
 
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
@@ -215,7 +215,7 @@ import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLa
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
-import { loadLegacyPresets, legacyPresetHasContent } from '../../scene/legacy-preset.js';
+import { isLayeredPreset, loadLegacyPresets, legacyPresetHasContent, presetCardLayers } from '../../scene/legacy-preset.js';
 import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview, recordMoodReview } from '../../scene/mood-review-store.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
@@ -3302,16 +3302,33 @@ export function createIgsReaderHost(options = {}) {
                 return `<span class="igs-asset-scope-switch" role="group" aria-label="放在本卡还是全局">${seg(inCard, '本卡', '收进本卡：只有这张角色卡用')}${seg(!inCard, '全局', '放到全局：所有角色卡共用')}</span>`
                     + (inCard && assetShadowsGlobal(assetRoot, cardKey, collection, name) ? '<span class="igs-asset-scope-note" title="全局另有一份同名的，这张卡用本卡这份">覆盖全局</span>' : '');
             };
-            const legacyPresets = Object.entries(loadLegacyPresets(storage)).filter(([, preset]) => legacyPresetHasContent(preset)).map(([name]) => name);
+            const presetMap = loadLegacyPresets(storage);
+            const presetNames = Object.entries(presetMap).filter(([, preset]) => legacyPresetHasContent(preset) || presetCardLayers(preset).length).map(([name]) => name);
+            // 预设是存档 / 模板：存这张卡实际在用的一套，套用时整层换成预设。旧版存的预设也在这里。
+            const presetRow = (name) => {
+                const n = encodeURIComponent(name);
+                // 分层预设各回各层，一个「套用」就够；旧版不分层的预设才问套到本卡还是全局。
+                const layered = isLayeredPreset(presetMap[name]);
+                const cards = presetCardLayers(presetMap[name]).map((layer) => layer.label);
+                const where = layered ? `<span class="igs-asset-preset-where">全局${cards.length ? ` + ${esc(cards.join('、'))}` : ''}</span>` : '';
+                const apply = layered
+                    ? `<button type="button" class="igs-review-link is-primary" data-action="preset-apply:${n}">套用</button>`
+                    : cardKey
+                    ? `<details class="igs-add-menu igs-asset-preset-apply"><summary class="igs-review-link is-primary">套用</summary><div class="igs-add-menu-list" role="menu">`
+                        + menuItem(`preset-apply:${n}:card`, `套到本卡「${scopeState.assetScopeLabel}」`) + menuItem(`preset-apply:${n}:global`, '套到全局') + '</div></details>'
+                    : `<button type="button" class="igs-review-link is-primary" data-action="preset-apply:${n}:global">套用</button>`;
+                return `<div class="igs-asset-preset-row"><span class="igs-asset-preset-name" title="${esc(name)}">${esc(name)}</span>${where}${apply}`
+                    + renderRowMenu([menuItem(`preset-export:${n}`, '导出文件'), menuItem(`preset-rename:${n}`, '重命名'), menuItem(`preset-delete:${n}`, '删除', ' is-danger')], `预设「${name}」的操作`)
+                    + '</div>';
+            };
+            const presetOpen = asyncState.advancedOpen && asyncState.advancedOpen['asset-presets'] ? ' open' : '';
+            const presetSection = `<details class="igs-asset-presets" data-advanced="asset-presets"${presetOpen}><summary class="igs-asset-presets-summary">预设</summary>`
+                + `<div class="igs-asset-presets-body">${presetNames.map(presetRow).join('') || '<div class="igs-asset-presets-empty">还没有预设。把现在这一套存下来，以后可以套到别的角色卡。</div>'}`
+                + '<div class="igs-asset-presets-tools"><button type="button" class="igs-settings-action" data-action="preset-save">存为预设</button><button type="button" class="igs-settings-action" data-action="preset-import">导入预设</button></div></div></details>';
             const assetScopeBar = `<div class="igs-asset-scope-bar"><span class="igs-asset-scope-name">${cardKey ? `当前角色卡：${esc(scopeState.assetScopeLabel)}` : '没打开角色卡，素材都在全局'}</span>`
                 + (scopeState.assetScopeKind === 'card' && cardKey ? '<button type="button" class="igs-settings-action" data-action="asset-card-export">导出这张角色卡</button>' : '')
                 + '<button type="button" class="igs-settings-action" data-action="asset-card-import">导入角色卡素材包</button></div>'
-                + (legacyPresets.length
-                    ? `<details class="igs-asset-legacy"><summary>找回旧版预设（${legacyPresets.length} 个）</summary>`
-                        + '<div class="igs-source-filter-note">以前存在本机的素材预设。点一个放进本卡或全局，同名的换成预设里的，其他不动。</div><div class="igs-asset-legacy-list">'
-                        + legacyPresets.map((name) => `<button type="button" class="igs-settings-action" data-action="legacy-preset-restore:${encodeURIComponent(name)}">${esc(name)}</button>`).join('')
-                        + '</div></details>'
-                    : '');
+                + presetSection;
             const disabled = !sceneAssets.enabled;
             const subTab = normalizeSceneSubTab(asyncState.sceneSubTab);
             // 文件夹只是本地界面归类：按当前角色卡存，卡里还没建过就沿用全局的。

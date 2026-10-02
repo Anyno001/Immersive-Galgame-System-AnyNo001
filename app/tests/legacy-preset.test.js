@@ -28,7 +28,7 @@ function oldPreset() {
     };
 }
 
-function makeCtx({ card = '小雪', confirms = [], sceneAssets = {} } = {}) {
+function makeCtx({ card = '小雪', confirms = [], prompts = [], sceneAssets = {} } = {}) {
     const storage = memoryStorage();
     const draft = { bridge: { sceneAssets: { enabled: true, ...sceneAssets } }, readerSettings: {} };
     const alerts = [];
@@ -38,10 +38,11 @@ function makeCtx({ card = '小雪', confirms = [], sceneAssets = {} } = {}) {
         SillyTavern: card ? { getContext: () => ({ characterId: 0, characters: [{ name: card }], name2: card }) } : undefined,
     };
     const answers = [...confirms];
+    const typed = [...prompts];
     const ctx = {
         state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
         options: { global },
-        dialogs: { confirm: async () => (answers.length ? answers.shift() : true), prompt: async () => '' },
+        dialogs: { confirm: async () => (answers.length ? answers.shift() : true), prompt: async () => (typed.length ? typed.shift() : '') },
         closeSettings: () => ({ ok: true }),
         persistSettingsDraft: () => ({ ok: true }),
         rerenderSettings: () => ({ ok: true }),
@@ -244,4 +245,61 @@ test('asset scope: 打开角色卡时筛选旁一直有一键迁移，两个方�
     } finally {
         vn.destroy();
     }
+});
+
+test('preset: 全局和存时那张卡分开记；套用各回各层，在别的卡套用也不会塞进别的卡', async () => {
+    const { loadLegacyPresets } = await import('../src/scene/legacy-preset.js');
+    const { ctx, draft, storage } = makeCtx({
+        // 存预设不问；第一次套用先取消再确认；在 B 卡再套一次确认；删除确认。
+        confirms: [false, true, true, true],
+        prompts: ['学园', '新学园'],
+        sceneAssets: {
+            scenes: { 教室: { url: 'g-room' } },
+            characters: { 林: { 默认: 'lin' } },
+            cards: { 'card:小雪': { scenes: { 小雪的房间: { url: 'c-room' } }, characters: { 小雪: { 默认: 'snow' } } } },
+        },
+    });
+    const root = draft.bridge.sceneAssets;
+    await handleSettingsAction('preset-save', ctx);
+    const saved = loadLegacyPresets(storage).学园;
+    assert.deepEqual(Object.keys(saved.scenes), ['教室'], '顶层只记全局');
+    assert.deepEqual(Object.keys(saved.scopeCards['card:小雪'].library.scenes), ['小雪的房间'], '本卡部分记在小雪名下');
+
+    root.scenes = { 海边: { url: 'beach' } };
+    root.cards['card:小雪'].scenes = {};
+    await handleSettingsAction(`preset-apply:${encodeURIComponent('学园')}`, ctx);
+    assert.deepEqual(Object.keys(root.scenes), ['海边'], '取消后不动');
+    await handleSettingsAction(`preset-apply:${encodeURIComponent('学园')}`, ctx);
+    assert.deepEqual(Object.keys(root.scenes), ['教室'], '全局回全局');
+    assert.deepEqual(Object.keys(root.cards['card:小雪'].scenes), ['小雪的房间'], '本卡部分回小雪');
+    assert.deepEqual(Object.keys(loadLegacyPresets(storage)['套用前备份 · 学园'].scenes), ['海边'], '原来那两层先存成备份');
+
+    // 换到 B 卡再套用：小雪的东西回小雪，B 卡不变。
+    ctx.options.global.SillyTavern = { getContext: () => ({ characterId: 0, characters: [{ name: '阿B' }], name2: '阿B' }) };
+    root.cards['card:小雪'].scenes = {};
+    root.cards['card:阿B'] = { scenes: { B的屋子: { url: 'b' } }, characters: {} };
+    await handleSettingsAction(`preset-apply:${encodeURIComponent('学园')}`, ctx);
+    assert.deepEqual(Object.keys(root.cards['card:小雪'].scenes), ['小雪的房间']);
+    assert.deepEqual(Object.keys(root.cards['card:阿B'].scenes), ['B的屋子'], '别的卡不受影响');
+
+    await handleSettingsAction(`preset-rename:${encodeURIComponent('学园')}`, ctx);
+    assert.ok(loadLegacyPresets(storage).新学园);
+    assert.equal(loadLegacyPresets(storage).学园, undefined);
+    await handleSettingsAction(`preset-delete:${encodeURIComponent('新学园')}`, ctx);
+    assert.equal(loadLegacyPresets(storage).新学园, undefined);
+    assert.deepEqual(Object.keys(root.scenes), ['教室'], '删预设不动素材');
+});
+
+test('preset: 旧版不分层的预设仍然选套到本卡或全局，整层替换', async () => {
+    const { ctx, draft, storage } = makeCtx({
+        confirms: [true, true],
+        sceneAssets: { scenes: { 海边: { url: 'beach' } }, cards: { 'card:小雪': { scenes: { 卧室: { url: 'bed' } }, characters: {} } } },
+    });
+    storage.setItem(LEGACY_PRESET_KEY, JSON.stringify({ version: 1, presets: { 现代: oldPreset() } }));
+    const root = draft.bridge.sceneAssets;
+    await handleSettingsAction(`preset-apply:${encodeURIComponent('现代')}:card`, ctx);
+    assert.deepEqual(Object.keys(root.cards['card:小雪'].scenes).sort(), Object.keys(oldPreset().scenes).sort());
+    assert.deepEqual(Object.keys(root.scenes), ['海边'], '套到本卡不动全局');
+    await handleSettingsAction(`preset-apply:${encodeURIComponent('现代')}:global`, ctx);
+    assert.deepEqual(Object.keys(root.scenes).sort(), Object.keys(oldPreset().scenes).sort());
 });

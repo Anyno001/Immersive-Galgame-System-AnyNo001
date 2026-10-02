@@ -125,6 +125,11 @@ function openSettingsScene() {
   } }));
   // 待确认页示例：未登记的服装词和词库外的情绪词。
   mem.setItem('igs:outfit-review:v1', JSON.stringify({ version: 1, items: [{ character: '小雪', word: '泳装' }, { character: '林夏', word: '校服' }, { character: '路人', word: '西装' }] }));
+  mem.setItem('igs:scene-presets:v1', JSON.stringify({ version: 1, active: '', presets: {
+    现代校园: { scenes: { 教室: { url: img, times: {} } }, characters: { 林夏: { 普通: img } } },
+    古风江湖: { scenes: { 客栈: { url: img, times: {} } }, characters: { 沈青: { 默认: img } } },
+    雪之国日常: { scenes: { 教室: { url: img, times: {} } }, characters: {}, scopeCards: { 'card:雪之国': { label: '雪之国', library: { scenes: { 小雪的房间: { url: img } }, characters: { 小雪: { 默认: img } } } } } },
+  } }));
   mem.setItem('igs:mood-review:v1', JSON.stringify({ version: 1, items: [{ word: '幽怨' }, { word: '嘲弄' }] }));
   const view = q.get('view') === 'list' ? 'list' : 'grid';
   mem.setItem('igs-asset-folders-v1', JSON.stringify({ scopes: { '': {

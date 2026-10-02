@@ -137,3 +137,109 @@ export function storeLegacyPresets(storage, presets) {
         return { ok: false, reason: 'store-write-failed', saveError: error };
     }
 }
+
+// ── 预设库：v0.34.2 起把预设当存档 / 模板用，和旧版共用同一个存储位置，旧预设直接出现在列表里。──
+
+function readPresetStore(storage) {
+    const raw = storage && typeof storage.getItem === 'function' ? storage.getItem(LEGACY_PRESET_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+        presets: parsed && isPlain(parsed.presets) ? parsed.presets : {},
+        active: parsed && typeof parsed.active === 'string' ? parsed.active : '',
+    };
+}
+
+function writePresetStore(storage, update) {
+    try {
+        const store = readPresetStore(storage);
+        const presets = update({ ...store.presets });
+        storage.setItem(LEGACY_PRESET_KEY, JSON.stringify({ version: 1, presets, active: store.active }));
+        return { ok: true };
+    } catch (error) {
+        return { ok: false, reason: 'store-write-failed', saveError: error };
+    }
+}
+
+export function isValidPresetName(name) {
+    const label = String(name || '').trim();
+    return Boolean(label) && !BLOCKED.has(label) && label.length <= 40;
+}
+
+// 这张卡实际在用的一套素材（本卡盖在全局上），存成和旧版一样格式的预设，导出的文件旧版也能读。
+export function presetFromAssets(effective, { root = {}, readerSettings = {} } = {}) {
+    const source = plain(effective);
+    const preset = {};
+    for (const field of NAME_FIELDS) preset[field] = clone(cleanMap(source[field]));
+    preset.generated = clone(plain(source.generated));
+    preset.characterHouses = clone(cleanMap(plain(root).characterHouses));
+    for (const field of ['moodGroups', 'timeGroups', 'weatherGroups']) {
+        preset[field] = Array.isArray(plain(root)[field]) ? clone(root[field]) : [];
+    }
+    preset.worldview = resolveWorldview(source);
+    preset.spriteLayouts = clone(cleanMap(plain(readerSettings).spriteLayouts));
+    preset.spriteHeads = clone(cleanMap(plain(readerSettings).spriteHeads));
+    return preset;
+}
+
+export function writeNamedPreset(storage, name, preset) {
+    if (!isValidPresetName(name) || !isLegacyPresetData(preset)) return { ok: false, reason: 'bad-preset' };
+    return writePresetStore(storage, (presets) => ({ ...presets, [String(name).trim()]: preset }));
+}
+
+export function removeNamedPreset(storage, name) {
+    return writePresetStore(storage, (presets) => {
+        delete presets[name];
+        return presets;
+    });
+}
+
+export function renameNamedPreset(storage, from, to) {
+    const next = String(to || '').trim();
+    if (!isValidPresetName(next)) return { ok: false, reason: 'bad-name' };
+    return writePresetStore(storage, (presets) => {
+        if (!Object.prototype.hasOwnProperty.call(presets, from)) return presets;
+        const out = {};
+        for (const [key, value] of Object.entries(presets)) out[key === from ? next : key] = value;
+        return out;
+    });
+}
+
+// 整层换成预设：场景、角色、衣柜等按名字的素材和生成图索引都以预设为准，原来的不留。
+export function replaceLibraryWithPack(target, pack) {
+    const lib = plain(pack && pack.library);
+    for (const field of NAME_FIELDS) target[field] = clone(plain(lib[field]));
+    const incoming = plain(lib.generated);
+    target.generated = {};
+    for (const field of GENERATED_FIELDS) target.generated[field] = clone(plain(incoming[field]));
+    return target;
+}
+
+// 分层预设：顶层字段是全局那一层（旧版也能当普通预设读），scopeCards 记着存的时候所在那张卡的本卡素材，
+// 套用时各回各层：全局回全局，本卡部分回它原来那张卡，不会塞进当前打开的别的卡。
+export function layeredPresetFromRoot(root, { cardKey = '', cardLabel = '', readerSettings = {} } = {}) {
+    const source = plain(root);
+    const preset = presetFromAssets(source, { root: source, readerSettings });
+    const card = cardKey ? plain(plain(source.cards)[cardKey]) : null;
+    if (card) {
+        const library = {};
+        for (const field of NAME_FIELDS) library[field] = clone(cleanMap(card[field]));
+        library.generated = clone(plain(card.generated));
+        if (typeof card.worldview === 'string') library.worldview = card.worldview;
+        preset.scopeCards = { [cardKey]: { label: cardLabel || cardKey.replace(/^card:/, ''), library } };
+    }
+    return preset;
+}
+
+export function presetCardLayers(preset) {
+    const out = [];
+    for (const [key, entry] of Object.entries(plain(plain(preset).scopeCards))) {
+        if (!key.trim() || BLOCKED.has(key) || !isPlain(entry) || !isPlain(entry.library)) continue;
+        const pack = legacyPresetToPack({ ...entry.library, scenes: plain(entry.library.scenes), characters: plain(entry.library.characters) });
+        out.push({ key, label: typeof entry.label === 'string' && entry.label ? entry.label : key, pack, worldview: typeof entry.library.worldview === 'string' ? entry.library.worldview : '' });
+    }
+    return out;
+}
+
+export function isLayeredPreset(preset) {
+    return isPlain(plain(preset).scopeCards);
+}

@@ -44,7 +44,7 @@ import { mergeDefaultBackgrounds } from '../../backgrounds/merge-default-backgro
 
 // 能按「本卡 / 全局」筛选和整批迁移的素材，值是确认框里的叫法。
 const SCOPED_COLLECTION_KINDS = Object.freeze({ scenes: '场景', characters: '角色', wardrobe: '衣柜提示词' });
-import { isLegacyPresetData, legacyPackConflicts, legacyPackSummary, legacyPresetToPack, loadLegacyPresets, mergeLegacyLibrary, storeLegacyPresets } from '../../scene/legacy-preset.js';
+import { isLayeredPreset, isLegacyPresetData, isValidPresetName, layeredPresetFromRoot, legacyPackConflicts, legacyPackSummary, legacyPresetToPack, loadLegacyPresets, mergeLegacyLibrary, presetCardLayers, presetFromAssets, removeNamedPreset, renameNamedPreset, replaceLibraryWithPack, storeLegacyPresets, writeNamedPreset } from '../../scene/legacy-preset.js';
 
 // 草稿深拷贝后顶层 imageApi 与 bridge.imageApi 不再是同一对象，面板只改后者；生图读取优先顶层，这里对齐为面板当前值。
 function cloneImageDraft(draft) {
@@ -518,6 +518,10 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'asset-card-import') {
         return importCharacterCardPack(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings);
     }
+    if (normalizedAction === 'preset-save' || normalizedAction === 'preset-import' || /^preset-(?:apply|rename|delete|export):/.test(normalizedAction)) {
+        return handlePresetAction(normalizedAction, settingsState, options, dialogs, persistSettingsDraft, rerenderSettings);
+    }
+
     if (normalizedAction.startsWith('legacy-preset-restore:')) {
         const name = decodeSeg(normalizedAction.slice('legacy-preset-restore:'.length));
         const preset = loadLegacyPresets((options.global || globalThis).localStorage)[name];
@@ -2789,7 +2793,7 @@ async function importAllSettings(settingsState, options, dialogs, ctx, persistSe
     if (persisted.ok === false) return persisted;
     const rescued = await rescueLegacyAssets(file, options);
     if (rescued.count && globalObj.alert) {
-        globalObj.alert(`这份配置里带着旧版的素材（${rescued.count} 套），已经存下来了。到「素材」页顶部的「找回旧版预设」里，放进角色卡或全局。`);
+        globalObj.alert(`这份配置里带着旧版的素材（${rescued.count} 套），已经存下来了。到「素材」页顶部「预设」里套用到本卡或全局。`);
     }
     return rerenderSettings();
 }
@@ -2819,6 +2823,140 @@ async function rescueLegacyAssets(file, options) {
 }
 
 // 旧版素材预设（浏览器里留着的，或导出的 json）→ 按名字合并进当前角色卡或全局。已有的其他条目不动。
+// 预设当存档 / 模板：全局和存的时候所在那张卡的本卡素材分开记；套用时各回各层（本卡部分回原来那张卡），
+// 换之前把要被换掉的层存成「套用前备份」。旧版不分层的预设，套用时选本卡或全局。
+async function handlePresetAction(action, settingsState, options, dialogs, persistSettingsDraft, rerenderSettings) {
+    const globalObj = options.global || globalThis;
+    const storage = globalObj.localStorage;
+    const alertFn = (msg) => { if (globalObj.alert) globalObj.alert(msg); };
+    const failed = (written) => {
+        alertFn('预设没存上，可能是浏览器存储满了');
+        return written;
+    };
+    const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+    const asyncState = settingsState.asyncState || {};
+    const cardKey = asyncState.assetScopeKind === 'card' ? String(asyncState.assetScopeKey || '') : '';
+    const cardLabel = String(asyncState.assetScopeLabel || '');
+    const presets = loadLegacyPresets(storage);
+    const askName = async (message, initial) => {
+        const name = String((await dialogs.prompt(message, initial)) || '').trim();
+        if (!name) return '';
+        if (!isValidPresetName(name)) { alertFn(`「${name}」不能用作预设名`); return ''; }
+        return name;
+    };
+    const readerSettings = settingsState.draft.readerSettings || {};
+    const folderScope = (presetName, key) => (key ? `${presetName}\u0001${key}` : presetName);
+
+    if (action === 'preset-save') {
+        const name = await askName('存为预设，名字：', cardLabel || '全局');
+        if (!name) return rerenderSettings();
+        if (presets[name] && !await dialogs.confirm(`已经有预设「${name}」了，用现在这一套覆盖它？`, { okLabel: '覆盖' })) return rerenderSettings();
+        const written = writeNamedPreset(storage, name, layeredPresetFromRoot(root, { cardKey, cardLabel, readerSettings }));
+        if (written.ok === false) return failed(written);
+        saveAssetFolders(storage, folderScope(name, ''), loadAssetFolders(storage, ''));
+        if (cardKey) saveAssetFolders(storage, folderScope(name, cardKey), loadAssetFolders(storage, cardKey));
+        alertFn(`已存为预设「${name}」。`);
+        return rerenderSettings();
+    }
+
+    if (action === 'preset-import') {
+        const doc = globalObj.document;
+        if (!doc) return { ok: false, reason: 'no-document' };
+        const file = await pickCardPackFile(doc);
+        if (!file) return rerenderSettings();
+        let data = null;
+        try { data = JSON.parse(new TextDecoder().decode(file.bytes)); } catch (error) { data = null; }
+        if (!isLegacyPresetData(data)) {
+            alertFn('这个文件不是素材预设');
+            return rerenderSettings();
+        }
+        const name = await askName('导入预设，名字：', String(file.fileName || '').replace(/\.json$/i, '') || '导入的预设');
+        if (!name) return rerenderSettings();
+        if (presets[name] && !await dialogs.confirm(`已经有预设「${name}」了，用文件里的覆盖它？`, { okLabel: '覆盖' })) return rerenderSettings();
+        const written = writeNamedPreset(storage, name, data);
+        if (written.ok === false) return failed(written);
+        return rerenderSettings();
+    }
+
+    const rest = action.slice(action.indexOf(':') + 1);
+    const command = action.slice(0, action.indexOf(':'));
+    const colon = rest.indexOf(':');
+    const name = decodeSeg(colon < 0 ? rest : rest.slice(0, colon));
+    const preset = presets[name];
+    if (!preset) return rerenderSettings();
+
+    if (command === 'preset-export') {
+        const bytes = new TextEncoder().encode(JSON.stringify(preset, null, 2));
+        return triggerBytesDownload(globalObj, bytes, `${sanitizeDownloadName(name)}.json`, 'application/json');
+    }
+
+    if (command === 'preset-rename') {
+        const next = await askName(`重命名预设「${name}」为：`, name);
+        if (!next || next === name) return rerenderSettings();
+        if (presets[next]) { alertFn(`已经有预设「${next}」了`); return rerenderSettings(); }
+        const written = renameNamedPreset(storage, name, next);
+        if (written.ok === false) return failed(written);
+        mergeAssetFolderScope(storage, name, next);
+        return rerenderSettings();
+    }
+
+    if (command === 'preset-delete') {
+        if (!await dialogs.confirm(`删除预设「${name}」？素材本身不受影响，只是以后不能再套用它。`, { okLabel: '删除' })) return rerenderSettings();
+        const written = removeNamedPreset(storage, name);
+        if (written.ok === false) return failed(written);
+        return rerenderSettings();
+    }
+
+    // preset-apply:<名字>（分层预设）或 preset-apply:<名字>:card|global（旧版不分层的预设）
+    const pack = legacyPresetToPack(preset);
+    const counts = (library) => {
+        const sum = legacyPackSummary({ library });
+        return `${sum.scenes} 个场景、${sum.characters} 个角色`;
+    };
+    const layers = isLayeredPreset(preset)
+        ? [{ key: '', label: '全局', pack }].concat(presetCardLayers(preset).map((layer) => ({ ...layer, label: `角色卡「${layer.label}」` })))
+        : [{ key: decodeSeg(colon < 0 ? '' : rest.slice(colon + 1)) === 'card' && cardKey ? cardKey : '', pack }];
+    if (!isLayeredPreset(preset)) layers[0].label = layers[0].key ? `本卡「${cardLabel}」` : '全局';
+    const targetOf = (key) => (key ? ensureCardLibrary(root, key) : root);
+    const backupName = `套用前备份 · ${name.replace(/^套用前备份 · /, '')}`;
+    const keepBackup = name !== backupName && layers.some((layer) => libraryHasContent(targetOf(layer.key)));
+    const lines = layers.map((layer) => `${layer.label}：现在的 ${counts(targetOf(layer.key))} 整套换成预设里的 ${counts(layer.pack.library)}。`);
+    const message = `套用预设「${name}」？\n${lines.join('\n')}`
+        + (layers.length > 1 ? '\n别的角色卡不受影响。' : '')
+        + (keepBackup ? `\n原来的会先存成预设「${backupName}」，想回去再套用它就行。` : '');
+    if (!await dialogs.confirm(message, { okLabel: '套用' })) return rerenderSettings();
+    if (keepBackup) {
+        const cardLayer = layers.find((layer) => layer.key);
+        const backup = cardLayer
+            ? layeredPresetFromRoot(root, { cardKey: cardLayer.key, cardLabel: cardLayer.label.replace(/^(?:角色卡|本卡)「|」$/g, ''), readerSettings })
+            : presetFromAssets(root, { root, readerSettings });
+        if (!layers.some((layer) => !layer.key)) {
+            // 只换本卡时备份的是那张卡，顶层放它的本卡素材，旧版读出来也是那一套。
+            Object.assign(backup, presetFromAssets(targetOf(cardLayer.key), { root, readerSettings }));
+            delete backup.scopeCards;
+        }
+        const written = writeNamedPreset(storage, backupName, backup);
+        if (written.ok === false) return failed(written);
+    }
+    for (const layer of layers) {
+        const target = targetOf(layer.key);
+        replaceLibraryWithPack(target, layer.pack);
+        const worldview = layer.key && isLayeredPreset(preset) ? layer.worldview : layer.pack.worldview;
+        if (worldview) applyWorldview(target, worldview);
+        mergeAssetFolderScope(storage, isLayeredPreset(preset) ? folderScope(name, layer.key) : name, layer.key);
+    }
+    root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
+    root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
+    root.timeGroups = mergeLabelGroups(root.timeGroups, pack.timeGroups);
+    root.weatherGroups = mergeLabelGroups(root.weatherGroups, pack.weatherGroups);
+    const reader = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+    reader.spriteLayouts = { ...(reader.spriteLayouts || {}), ...cloneData(pack.spriteLayouts) };
+    reader.spriteHeads = { ...(reader.spriteHeads || {}), ...normalizeSpriteHeads(pack.spriteHeads) };
+    const persisted = persistSettingsDraft();
+    if (persisted.ok === false) return persisted;
+    return rerenderSettings();
+}
+
 async function importLegacyPreset(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings, data, label) {
     const globalObj = options.global || globalThis;
     const pack = legacyPresetToPack(data);

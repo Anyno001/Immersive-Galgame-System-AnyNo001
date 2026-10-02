@@ -322,10 +322,22 @@ button.igs-scope-seg:hover,button.igs-scope-seg:focus-visible{color:var(--igs-se
 .igs-asset-scope-note{flex-shrink:0;font-size:11px;color:var(--igs-settings-ink-4);white-space:nowrap}
 .igs-asset-scope-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 10px}
 .igs-asset-scope-name{flex:1;min-width:0;font-size:12px;color:var(--igs-settings-ink-2)}
-.igs-asset-legacy{margin:0 0 10px;padding:8px 10px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-highlight);font-size:12px;color:var(--igs-settings-ink-2)}
-.igs-asset-legacy>summary{cursor:pointer}
-.igs-asset-legacy[open]>summary{margin-bottom:6px}
-.igs-asset-legacy-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.igs-asset-presets{margin:0 0 10px;border:1px solid var(--igs-settings-line);border-radius:var(--igs-settings-radius-control)}
+.igs-asset-presets-summary{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 12px;font-size:12px;font-weight:600;color:var(--igs-settings-ink-2);cursor:pointer;list-style:none;user-select:none}
+.igs-asset-presets-summary::-webkit-details-marker{display:none}
+.igs-asset-presets-summary::before{content:"";flex-shrink:0;width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);opacity:.55;transition:transform .14s}
+.igs-asset-presets[open]>.igs-asset-presets-summary::before{transform:rotate(45deg)}
+.igs-asset-presets-body{display:flex;flex-direction:column;padding:0 12px 10px}
+.igs-asset-preset-row{display:flex;align-items:center;gap:6px;min-width:0;min-height:36px;border-top:1px solid var(--igs-settings-line)}
+.igs-asset-preset-row:first-child{border-top:0}
+.igs-asset-preset-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--igs-settings-ink)}
+.igs-asset-preset-row .igs-review-link{min-width:52px;min-height:28px;padding:2px 10px;background:var(--igs-settings-field);text-align:center;color:var(--igs-settings-ink)}
+.igs-asset-preset-where{flex-shrink:1;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-asset-preset-apply>summary{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;list-style:none}
+.igs-asset-preset-apply>summary::-webkit-details-marker{display:none}
+.igs-asset-presets-empty{padding:4px 0 8px;font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-asset-presets-tools{display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--igs-settings-line)}
+.igs-asset-presets-tools>.igs-settings-action{flex:1}
 .igs-asset-scope-bar+.igs-source-filter-note{margin:-4px 0 10px}
 .igs-source-filter-title>.igs-title-add{margin-left:auto}
 .igs-outfit-wardrobe-edit{flex-shrink:0;white-space:nowrap}
