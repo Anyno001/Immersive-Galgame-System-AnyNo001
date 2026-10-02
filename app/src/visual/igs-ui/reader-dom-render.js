@@ -1,4 +1,5 @@
 import { magicHouseVars } from './dialog-theme-css-skins.js';
+import { resolveSpeakerMagicHouse } from './magic-house.js';
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
 import {
@@ -612,7 +613,14 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     });
     applyDialogBgOverride(root, snapshot, materialDialog);
     if (root.style) root.style.setProperty('--igs-skin-scale', String(normalizeSkinDialogScale(readerSettings.skinDialogScale)));
-    if (root.style) for (const [name, value] of Object.entries(magicHouseVars(readerSettings.magicHouse))) root.style.setProperty(name, value);
+    if (root.style) {
+        // 魔法世界观下魔法星夜随说话角色换学院色；旁白、系统台词、没学院的角色与其他世界观一律用全局配色。
+        const content = snapshot.content || {};
+        const byCharacter = readerSettings._worldview === 'magic' && content.textType !== 'narration' && content.textType !== 'system';
+        const speaker = byCharacter ? (content.spriteCharacter || content.speaker) : '';
+        const house = resolveSpeakerMagicHouse(readerSettings._sceneAssets, speaker, readerSettings.magicHouse);
+        for (const [name, value] of Object.entries(magicHouseVars(house))) root.style.setProperty(name, value);
+    }
     applyGradientVeilToDom(root, dialog, readerSettings);
 
     if (textEl) {

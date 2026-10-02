@@ -17,6 +17,7 @@ const NARRATION_LINE_Y = 56;
 const SILK_BY_TIME = Object.freeze({ dawn: '243,236,232', dusk: '241,229,210', night: '178,186,192', midnight: '150,160,168' });
 const SILK_DAY = '244,240,229';
 const silk = (alpha) => `rgba(var(--qlv-silk,${SILK_DAY}),${alpha})`;
+export const qinglvSilk = silk;
 const overlayScope = `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_QINGLV}"]`;
 
 const MOUNTAINS = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 480 100' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='f' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%234c7d9b'/%3E%3Cstop offset='1' stop-color='%237fb3a0' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='n' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%232f5d7c'/%3E%3Cstop offset='.5' stop-color='%234f8f7f'/%3E%3Cstop offset='1' stop-color='%234f8f7f' stop-opacity='0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg opacity='.16'%3E%3Cpath fill='url(%23f)' opacity='.55' d='M0 100C40 96 70 84 98 78C120 73 132 60 150 56C166 52 178 62 194 66C214 70 228 58 246 52C262 47 276 56 290 62C320 74 360 70 400 76C430 80 456 86 480 88V100Z'/%3E%3Cpath fill='url(%23n)' d='M150 100C180 94 204 82 224 74C238 68 244 50 256 36C264 27 272 30 278 40C286 54 294 60 306 58C318 56 324 42 334 38C344 34 352 46 360 56C372 70 392 74 414 80C440 86 462 92 480 94V100Z'/%3E%3C/g%3E%3C/svg%3E";

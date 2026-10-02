@@ -466,3 +466,22 @@ test('gate:fx-battle:world-skin-marks-every-node-and-keeps-modern-text', async (
         for (const kind of ['vignette', 'plate']) assert.ok(BATTLE_FX_STYLE_TEXT.includes(`.igs-fx-battle-${kind}.is-${id}{`), `${id} ${kind}`);
     }
 });
+
+test('gate:fx-battle:chrome-follows-every-dialog-skin', async () => {
+    const { ILLUSTRATED_DIALOG_SKINS } = await import('../src/visual/igs-ui/dialog-theme-skins.js');
+    const { getDialogSkinStyleText } = await import('../src/visual/igs-ui/dialog-skin-style.js');
+    const { getDialogThemeBattleFxStyleText, BATTLE_THEMED_DIALOG_SKINS } = await import('../src/visual/igs-ui/fx-battle-themes.js');
+    const skins = [...ILLUSTRATED_DIALOG_SKINS, 'western-classic', 'gradient-veil'];
+    assert.deepEqual([...BATTLE_THEMED_DIALOG_SKINS].sort(), [...skins].sort());
+    for (const skin of skins) {
+        const css = getDialogThemeBattleFxStyleText(skin);
+        assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-fx-battle-plate:not(.is-ancient)`), skin);
+        assert.match(css, /--igs-battle-accent:/, skin);
+        assert.ok(getDialogSkinStyleText(skin).includes(css), `${skin} injected with the skin style`);
+    }
+    assert.equal(getDialogThemeBattleFxStyleText('default'), '');
+    const veil = getDialogThemeBattleFxStyleText('gradient-veil');
+    assert.doesNotMatch(veil, /border:|box-shadow:/, 'gradient veil battle chrome has no frame');
+    assert.match(veil, /var\(--igs-gradient-veil-color/);
+    assert.doesNotMatch(BATTLE_FX_STYLE_TEXT, /\.igs-fx-battle-(plate|skill)\{[^}]*border:2px solid rgba\(255,255,255/, 'default chrome drops the white outline');
+});

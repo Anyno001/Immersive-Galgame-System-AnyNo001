@@ -209,3 +209,72 @@ test('gate:worldview:magic-refinements-spell-hue-house-colors-and-world-scoped-d
     assert.deepEqual(dailyFxOf(parseDailyFxBody('howler', ['罗恩', '你竟敢偷开飞车'])), { type: 'howler', from: '罗恩', text: '你竟敢偷开飞车' });
     assert.equal(parseDailyFxBody('howler', []), null);
 });
+
+test('gate:worldview:magic-house-follows-speaker-manual-then-dna-then-global', async () => {
+    const { normalizeCharacterHouses, detectMagicHouse, resolveSpeakerMagicHouse } = await import('../src/visual/igs-ui/magic-house.js');
+    const { renderCharacterAssetList } = await import('../src/visual/igs-ui/settings-fields.js');
+    assert.deepEqual(normalizeCharacterHouses({ 哈利: 'scarlet', 坏值: 'pink', __proto__: 'emerald', ' ': 'amber' }), { 哈利: 'scarlet' });
+    assert.equal(detectMagicHouse('七年级，Slytherin 级长，后来被分到格兰芬多'), 'emerald');
+    assert.equal(detectMagicHouse('普通麻瓜'), '');
+    const assets = {
+        characters: { 德拉科: {}, 赫敏: {} },
+        characterAliases: { 德拉科: ['马尔福'] },
+        characterHouses: { 赫敏: 'sapphire' },
+        characterDna: { 德拉科: { identity: '铂金色头发，斯莱特林学生' }, 赫敏: { identity: '格兰芬多' }, 卢娜: { identity: '金发' } },
+    };
+    assert.equal(resolveSpeakerMagicHouse(assets, '赫敏', 'amber'), 'sapphire', '手动指定优先于 DNA');
+    assert.equal(resolveSpeakerMagicHouse(assets, '马尔福', 'amber'), 'emerald', '别名按主名识别 DNA');
+    assert.equal(resolveSpeakerMagicHouse(assets, '卢娜', 'amber'), 'amber', 'DNA 没写学院用全局');
+    assert.equal(resolveSpeakerMagicHouse(assets, '', 'nope'), 'starlight', '旁白用全局，全局非法回默认');
+    const withRow = renderCharacterAssetList({ 赫敏: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' } });
+    assert.match(withRow, /data-char-house="赫敏"/);
+    assert.match(withRow, /<option value="sapphire" selected>/);
+    assert.match(renderCharacterAssetList({ 德拉科: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' } }), /自动（DNA 识别为绿银）/);
+    assert.doesNotMatch(renderCharacterAssetList({ 赫敏: {} }, {}), /data-char-house/);
+});
+
+test('gate:worldview:magic-house-vars-switch-with-speaker-on-render', async () => {
+    const { applyReaderSettingsToDom } = await import('../src/visual/igs-ui/reader-dom-render.js');
+    const props = {};
+    const root = {
+        style: { setProperty: (key, value) => { props[key] = value; }, removeProperty() {} },
+        querySelector: () => null, querySelectorAll: () => [], classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
+        setAttribute() {}, removeAttribute() {}, getAttribute: () => null, ownerDocument: null, getBoundingClientRect: () => ({ width: 800, height: 600 }),
+    };
+    const readerSettings = { dialogSkin: 'magic-academy', magicHouse: 'scarlet', _worldview: 'magic', _sceneAssets: { characters: { 德拉科: {} }, characterDna: { 德拉科: { identity: '斯莱特林' } } } };
+    const veil = (content) => {
+        applyReaderSettingsToDom(root, { mode: 'mobile', readerSettings, content }, null, {});
+        return props['--igs-ma-veil'];
+    };
+    assert.equal(veil({ speaker: '德拉科', spriteCharacter: '德拉科', textType: 'dialogue' }), '#0f2b2c');
+    assert.equal(veil({ speaker: '德拉科', textType: 'narration' }), '#36172f');
+    assert.equal(veil({ speaker: '路人', textType: 'dialogue' }), '#36172f');
+    readerSettings._worldview = 'modern';
+    assert.equal(veil({ speaker: '德拉科', spriteCharacter: '德拉科', textType: 'dialogue' }), '#36172f', '非魔法世界观不按角色换色');
+});
+
+test('gate:worldview:house-settings-only-in-magic-worldview', async () => {
+    const { bootstrapIGS } = await import('../src/index.js');
+    const vn = bootstrapIGS({ global: {}, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const controller = vn.openSettings({ tab: 'reader', mode: 'pc' }).controller;
+        controller.setValue('readerSettings.dialogSkin', 'magic-academy');
+        controller.setValue('bridge.sceneAssets.characters', { 赫敏: { 默认: '' } });
+        const view = () => {
+            controller.switchTab('reader');
+            const reader = controller.getSnapshot().html;
+            controller.switchTab('scene');
+            return { reader, chars: controller.switchSceneSubTab('characters').html || controller.getSnapshot().html };
+        };
+        let html = view();
+        assert.ok(!/学院配色/.test(html.reader) && />配色</.test(html.reader), '非魔法世界观只叫「配色」');
+        assert.doesNotMatch(html.chars, /data-char-house/, '非魔法世界观不显示角色学院');
+        await controller.invoke('worldview:magic');
+        html = view();
+        assert.match(html.reader, /学院配色/);
+        assert.match(html.chars, /data-char-house="赫敏"/);
+        controller.close();
+    } finally {
+        vn.destroy();
+    }
+});

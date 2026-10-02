@@ -156,6 +156,10 @@ const magicAcademy = [
     scalePx(`${scope(DIALOG_SKIN_MAGIC_ACADEMY)}::after{content:"";position:absolute;left:50%;top:${MAGIC_LINE_Y - MAGIC_EMBLEM.height / 2}px;width:${MAGIC_EMBLEM.width}px;height:${MAGIC_EMBLEM.height}px;transform:translateX(-50%);background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_EMBLEM_MASK} center/100% 100% no-repeat;mask:${MAGIC_EMBLEM_MASK} center/100% 100% no-repeat;filter:drop-shadow(0 0 4px ${magicTint(MAGIC_METAL_HI, 75)});pointer-events:none;}`),
     `${scope(DIALOG_SKIN_MAGIC_ACADEMY)}::before{content:"";position:absolute;inset:0;background:${MAGIC_TWINKLE} 0 0/100% 100% no-repeat;pointer-events:none;opacity:.5;animation:igs-ma-twinkle 4.8s ease-in-out infinite alternate;will-change:opacity;}`,
     '@keyframes igs-ma-twinkle{0%{opacity:.25}55%{opacity:.9}100%{opacity:.5}}',
+    // 学院色按说话角色切换：注册为颜色属性才能补间，换人时薄纱与细线 0.6s 渐变；不支持 @property 的浏览器直接切换。
+    // 同一条 transition 带上 overlay 淡出的 opacity，免得覆盖 .igs-fading。
+    ...[['metal', '#cfd5f2'], ['hi', '#f3f1ff'], ['veil', '#1b1a44']].map(([name, initial]) => `@property --igs-ma-${name}{syntax:"<color>";inherits:true;initial-value:${initial};}`),
+    `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_MAGIC_ACADEMY}"]{transition:opacity .25s,--igs-ma-metal .6s ease,--igs-ma-hi .6s ease,--igs-ma-veil .6s ease;}`,
     `#igs-overlay[data-igs-paused] .igs-dialog[data-igs-dialog-skin="${DIALOG_SKIN_MAGIC_ACADEMY}"]::before{animation-play-state:paused;}`,
     `@media (prefers-reduced-motion: reduce){${scope(DIALOG_SKIN_MAGIC_ACADEMY)}::before{animation:none;opacity:.6;}}`,
     // 窄屏左右留白减半，正文多出一两个字宽；姓名随之左移。

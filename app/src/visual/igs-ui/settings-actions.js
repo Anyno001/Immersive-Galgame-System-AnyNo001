@@ -28,6 +28,7 @@ import { addGeneratedAssetToLibrary, bindGeneratedSprite, collectGeneratedImageI
 import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
+import { normalizeCharacterHouses } from './magic-house.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
 import { markSettingsButtonBusy, showSettingsProgress } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
@@ -1915,6 +1916,9 @@ export async function handleSettingsAction(action, ctx) {
         if (settingsState.draft.bridge.sceneAssets.statusAvatars && typeof settingsState.draft.bridge.sceneAssets.statusAvatars === 'object') {
             delete settingsState.draft.bridge.sceneAssets.statusAvatars[name];
         }
+        if (settingsState.draft.bridge.sceneAssets.characterHouses && typeof settingsState.draft.bridge.sceneAssets.characterHouses === 'object') {
+            delete settingsState.draft.bridge.sceneAssets.characterHouses[name];
+        }
         settingsState.draft.bridge.sceneAssets.characterDna = removeCharacterDna(settingsState.draft.bridge.sceneAssets.characterDna, name);
         if (settingsState.draft.bridge.sceneAssets.characterOutfits && typeof settingsState.draft.bridge.sceneAssets.characterOutfits === 'object') {
             delete settingsState.draft.bridge.sceneAssets.characterOutfits[name];
@@ -2052,6 +2056,9 @@ export async function handleSettingsAction(action, ctx) {
             sceneAssets.characterAliases = reorderKey(aliases, oldName, newName);
             if (sceneAssets.statusAvatars && typeof sceneAssets.statusAvatars === 'object') {
                 sceneAssets.statusAvatars = reorderKey(sceneAssets.statusAvatars, oldName, newName);
+            }
+            if (sceneAssets.characterHouses && typeof sceneAssets.characterHouses === 'object') {
+                sceneAssets.characterHouses = reorderKey(sceneAssets.characterHouses, oldName, newName);
             }
             if (sceneAssets.characterDna && typeof sceneAssets.characterDna === 'object') {
                 sceneAssets.characterDna = dnaRename.map;
@@ -2303,6 +2310,7 @@ export async function handleSettingsAction(action, ctx) {
             wardrobe: normalizeWardrobe(sa.wardrobe),
             moodGroups: cloneData(sa.moodGroups || []),
             statusAvatars: cloneData(sa.statusAvatars || {}),
+            characterHouses: normalizeCharacterHouses(sa.characterHouses),
             timeGroups: cloneData(sa.timeGroups || []),
             weatherGroups: cloneData(sa.weatherGroups || []),
             ancient: sa.ancient === true,
@@ -2347,6 +2355,10 @@ export async function handleSettingsAction(action, ctx) {
                 }
                 settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(preset.moodGroups || []);
                 settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(preset.statusAvatars || {});
+                // 旧预设没有 characterHouses 字段：保留当前角色学院。
+                if (Object.prototype.hasOwnProperty.call(preset, 'characterHouses')) {
+                    settingsState.draft.bridge.sceneAssets.characterHouses = normalizeCharacterHouses(preset.characterHouses);
+                }
                 settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(preset.timeGroups || []);
                 settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(preset.weatherGroups || []);
                 // 世界观随预设走（同步写 worldview 与 ancient）；早于该开关的旧预设按现代，只有 ancient:true 的按古代。
@@ -2410,6 +2422,7 @@ export async function handleSettingsAction(action, ctx) {
             ...(Object.prototype.hasOwnProperty.call(fileResult.data, 'wardrobe') ? { wardrobe: normalizeWardrobe(fileResult.data.wardrobe) } : {}),
             moodGroups: fileResult.data.moodGroups || [],
             statusAvatars: (fileResult.data.statusAvatars && typeof fileResult.data.statusAvatars === 'object') ? fileResult.data.statusAvatars : {},
+            ...(Object.prototype.hasOwnProperty.call(fileResult.data, 'characterHouses') ? { characterHouses: normalizeCharacterHouses(fileResult.data.characterHouses) } : {}),
             timeGroups: fileResult.data.timeGroups || [],
             weatherGroups: fileResult.data.weatherGroups || [],
             // 早于时代开关的旧文件都是现代背景。
@@ -2435,6 +2448,9 @@ export async function handleSettingsAction(action, ctx) {
             settingsState.draft.bridge.sceneAssets.wardrobe = cloneData(presets[name].wardrobe);
         }
         settingsState.draft.bridge.sceneAssets.statusAvatars = cloneData(presets[name].statusAvatars || {});
+        if (Object.prototype.hasOwnProperty.call(presets[name], 'characterHouses')) {
+            settingsState.draft.bridge.sceneAssets.characterHouses = cloneData(presets[name].characterHouses);
+        }
         settingsState.draft.bridge.sceneAssets.moodGroups = cloneData(presets[name].moodGroups);
         settingsState.draft.bridge.sceneAssets.timeGroups = cloneData(presets[name].timeGroups || []);
         settingsState.draft.bridge.sceneAssets.weatherGroups = cloneData(presets[name].weatherGroups || []);
@@ -2456,7 +2472,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!preset) return rerenderSettings();
         const doc = globalObj.document;
         if (!doc) return { ok: false, reason: 'no-document' };
-        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'wardrobe') ? { wardrobe: preset.wardrobe } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, worldview: resolveWorldview(preset), spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
+        const json = JSON.stringify({ scenes: preset.scenes || {}, characters: preset.characters || {}, characterAliases: preset.characterAliases || {}, ...(Object.prototype.hasOwnProperty.call(preset, 'characterDna') ? { characterDna: preset.characterDna } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterOutfits') ? { characterOutfits: preset.characterOutfits } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'characterHouses') ? { characterHouses: preset.characterHouses } : {}), ...(Object.prototype.hasOwnProperty.call(preset, 'wardrobe') ? { wardrobe: preset.wardrobe } : {}), moodGroups: preset.moodGroups || [], timeGroups: preset.timeGroups || [], weatherGroups: preset.weatherGroups || [], ancient: preset.ancient === true, worldview: resolveWorldview(preset), spriteLayouts: preset.spriteLayouts || {}, spriteHeads: preset.spriteHeads || {}, statusAvatars: preset.statusAvatars || {} }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = doc.createElement('a');
