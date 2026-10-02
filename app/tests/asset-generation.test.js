@@ -656,6 +656,7 @@ test('gate:assets:dbgen-sprite-passes-frontend-templates', async () => {
 test('gate:image-backend:dbgen-merges-frontend-prompts-into-caption', async () => {
     const { createImageBackend } = await import('../src/generated-images/image-backend.js');
     const calls = [];
+    const logs = [];
     const globalObject = {
         btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
         NaiDbGen: {
@@ -669,7 +670,7 @@ test('gate:image-backend:dbgen-merges-frontend-prompts-into-caption', async () =
             async generate(req) { calls.push(['gen', req]); return { ok: true, value: [{ blob: new Blob([Uint8Array.from([1])], { type: 'image/png' }), mimeType: 'image/png' }] }; },
         },
     };
-    const backend = createImageBackend({ nai: {}, global: globalObject, getBridge: () => ({ imageApi: { mode: 'dbgen' } }) });
+    const backend = createImageBackend({ nai: {}, global: globalObject, getBridge: () => ({ imageApi: { mode: 'dbgen' } }), report: (level, message) => logs.push([level, message]) });
     const result = await backend.generate({}, {}, {
         messageId: 7, description: '画角色', size: '832x1216',
         userPrompts: { positive: 'cowboy shot, 1.2::grey background::', negative: 'Full Body, feet' },
@@ -693,6 +694,13 @@ test('gate:image-backend:dbgen-merges-frontend-prompts-into-caption', async () =
         '正面：smile',
         '位置：0.50, 0.50',
     ].join('\n'));
+    const logged = logs.map((entry) => entry[1]).join('\n');
+    assert.match(logged, /拼之前/);
+    assert.match(logged, /1girl, full body, blonde hair/);
+    assert.match(logged, /要拼的模板/);
+    assert.match(logged, /cowboy shot, 1\.2::grey background::/);
+    assert.match(logged, /发出去/);
+    assert.match(logged, /1girl, blonde hair, cowboy shot, 1\.2::grey background::/);
 });
 
 test('gate:llm:user-head-and-tail-wrap-requests-and-default-empty', async () => {

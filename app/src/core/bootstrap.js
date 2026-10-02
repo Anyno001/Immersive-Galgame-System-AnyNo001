@@ -48,7 +48,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.33.16';
+const IGS_VERSION = '0.33.17';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -102,12 +102,19 @@ export function bootstrapIGS(options = {}) {
         const bridge = (getUnifiedSettingsSnapshot() || {}).bridge || {};
         return { ...bridge, autoIllustration: mergeLegacyNaiSettings(bridge.autoIllustration, bridge.imageApi) };
     };
-    const imageBackend = options.imageBackend || createImageBackend({ nai: naiOfficialClient, getBridge: readImageBridge, global: globalObject });
     const imageJobLog = options.imageJobLog || createImageJobLog({
         storage: storageLike,
         getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).imageJobLog,
     });
     const reportImageJob = options.reportImageJob || createImageJobReporter(globalObject, () => (getUnifiedSettingsSnapshot() || {}).bridge || {}, imageJobLog);
+    const imageBackend = options.imageBackend || createImageBackend({
+        nai: naiOfficialClient,
+        getBridge: readImageBridge,
+        global: globalObject,
+        report: (level, message) => {
+            if (imageJobLog && typeof imageJobLog.add === 'function') imageJobLog.add(level, message);
+        },
+    });
     // CG 库与自动插图共用同一个插图存储实例。
     const illustrationStore = options.illustrationStore || createIndexedDbIllustrationStore(globalObject);
     const illustrationService = options.illustrationService || createAutoIllustrationService({

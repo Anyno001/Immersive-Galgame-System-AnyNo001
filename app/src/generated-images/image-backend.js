@@ -1,7 +1,7 @@
 import { normalizeAutoIllustrationSettings } from './illustration/auto-illustration-settings.js';
 import { resolveNaiNativeEndpoint } from './request-builders/nai-v4-builder.js';
 import { applyUserPromptsToCaption } from './dbgen-prompt.js';
-import { promptFromCaption, promptFromText } from './generation-prompt.js';
+import { formatStoredPrompt, promptFromCaption, promptFromText } from './generation-prompt.js';
 import { findChatu8Host, requestChatu8Image } from './chatu8-client.js';
 
 // 生图来源：nai = IGS 内置 NAI；dbgen = 数据库生图插件（window.NaiDbGen）；
@@ -96,7 +96,24 @@ async function chatu8ImageToDataUrl(imageData, win) {
     return blobToDataUrl(blob, blob.type, win);
 }
 
-export function createImageBackend({ nai, getBridge, global: globalObject = globalThis, chatu8 } = {}) {
+function captionLogText(caption) {
+    const stored = promptFromCaption(caption);
+    return formatStoredPrompt(stored) || '（空）';
+}
+
+// 生图日志单条最多 600 字。提示词拆开写，避免被截断后看起来像没拼上。
+function reportLong(report, title, text) {
+    const body = String(text || '（空）');
+    if (typeof report !== 'function') return;
+    const limit = 520;
+    const parts = Math.max(1, Math.ceil(body.length / limit));
+    for (let index = 0; index < parts; index += 1) {
+        const head = parts === 1 ? title : `${title} ${index + 1}/${parts}`;
+        report('info', `${head}\n${body.slice(index * limit, (index + 1) * limit)}`);
+    }
+}
+
+export function createImageBackend({ nai, getBridge, global: globalObject = globalThis, chatu8, report } = {}) {
     const readBridge = (override) => (override && typeof override === 'object' ? override : (getBridge ? getBridge() || {} : {}));
     // chatu8 可注入 { findHost, request } 供测试替换；默认走真实的智绘姬事件桥。
     const chatu8Bridge = chatu8 && typeof chatu8 === 'object' ? chatu8 : {};
@@ -218,6 +235,13 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
     async function paintDbgenCaption(api, meta, caption) {
         const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
         const merged = userPrompts ? applyUserPromptsToCaption(caption, userPrompts) : caption;
+        const positive = userPrompts ? String(userPrompts.positive || '').trim() : '';
+        const negative = userPrompts ? String(userPrompts.negative || '').trim() : '';
+        reportLong(report, '拼之前', captionLogText(caption));
+        reportLong(report, '要拼的模板', positive || negative
+            ? `正向：${positive || '（空）'}\n负面：${negative || '（空）'}`
+            : '（这次没带模板）');
+        reportLong(report, '发出去', captionLogText(merged));
         const size = parseSize(meta.size);
         // 立绘走数据库生图时默认打开透明底。模型用插件自己的运行配置，这里不传 model。
         const params = {
