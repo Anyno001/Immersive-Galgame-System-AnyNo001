@@ -71,6 +71,8 @@ test('gate:igs-ui:toolbar-top-first-row-aligns-with-toggle-and-close', () => {
     assert.match(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar\{[^}]*align-items:flex-start[^}]*flex-wrap:nowrap/);
     // 按钮区限宽（约 8 个一行）提前换行，行内左对齐。
     assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*max-width:336px[^}]*justify-content:flex-start[^}]*flex-wrap:wrap/);
+    // 和楼层内嵌一样离顶边、左右 14px，不贴边。
+    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-toolbar-layer\{inset:14px 14px auto 14px;/);
 });
 
 

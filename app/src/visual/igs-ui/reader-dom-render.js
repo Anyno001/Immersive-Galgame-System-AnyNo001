@@ -1017,6 +1017,21 @@ export function syncEmbeddedHostFrame(root, sizeText) {
     if (typeof host.setAttribute === 'function') host.setAttribute('data-igs-frame', 'size');
 }
 
+// 楼层被酒馆重绘或暂时隐藏时量到宽 0。这时不能按「不是手机」钉横屏，沿用上次钉好的比例；
+// 还没钉过就按窗口宽度判断。
+export function pinEmbeddedHostFrame(root, backgroundSize, mode) {
+    const host = root && typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
+    const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
+    const measured = Boolean(rect && rect.width > 0);
+    const pinned = Boolean(host && typeof host.getAttribute === 'function' && host.getAttribute('data-igs-frame') === 'size');
+    if (!measured && pinned) return;
+    const win = root && root.ownerDocument && root.ownerDocument.defaultView;
+    const viewport = measured
+        ? { width: rect.width, height: rect.height }
+        : (win && win.innerWidth > 0 ? { width: win.innerWidth, height: win.innerHeight } : null);
+    syncEmbeddedHostFrame(root, cgSizeForMode(backgroundSize, mode, viewport));
+}
+
 function writeBackgroundImage(element, url) {
     const value = url ? `url("${url.replace(/"/g, '&quot;')}")` : '';
     if (backgroundImageKeys.get(element) === value) return;
@@ -1076,16 +1091,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         }
     }
     const backgroundAssetUrl = resolveAssetUrl(snapshot.content.backgroundImage);
-    const frameHost = typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
-    const frameRect = frameHost && typeof frameHost.getBoundingClientRect === 'function' ? frameHost.getBoundingClientRect() : null;
-    const frameViewport = frameRect && frameRect.width > 0
-        ? { width: frameRect.width, height: frameRect.height }
-        : null;
-    syncEmbeddedHostFrame(root, cgSizeForMode(
-        snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize,
-        snapshot.mode,
-        frameViewport,
-    ));
+    pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
 
     if (bg && backgroundAssetUrl) {
         writeBackgroundImage(bg, backgroundAssetUrl);

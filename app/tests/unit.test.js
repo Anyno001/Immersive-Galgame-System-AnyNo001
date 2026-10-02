@@ -20,7 +20,7 @@ import {
     parseImageSlots,
 } from '../src/scene/image-slots.js';
 import { parseSceneText } from '../src/scene/text-parser.js';
-import { applyAlignStyle, syncEmbeddedHostFrame } from '../src/visual/igs-ui/reader-dom-render.js';
+import { applyAlignStyle, pinEmbeddedHostFrame, syncEmbeddedHostFrame } from '../src/visual/igs-ui/reader-dom-render.js';
 import { resolveSpriteLayout, resolveActiveTheme, renderDialogueHtml } from '../src/visual/igs-ui/settings-normalize.js';
 import {
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -235,6 +235,34 @@ test('gate:igs-ui:embedded-frame-locks-configured-size', () => {
     const portrait = host();
     syncEmbeddedHostFrame({ className: 'igs-mode-embedded', closest: () => portrait }, '832x1216');
     assert.equal(portrait.style.aspectRatio, '832 / 1216');
+});
+
+test('gate:igs-ui:embedded-frame-keeps-pinned-ratio-when-host-unmeasured', () => {
+    // 手机上楼层暂时量到宽 0，不能掉回横屏比例；量得到时照常按宽度判断。
+    let width = 390;
+    const host = {
+        style: {},
+        attrs: {},
+        getAttribute(key) { return this.attrs[key] || null; },
+        setAttribute(key, value) { this.attrs[key] = value; },
+        removeAttribute(key) { delete this.attrs[key]; },
+        getBoundingClientRect: () => ({ width, height: width ? 570 : 0 }),
+    };
+    const win = { innerWidth: 390, innerHeight: 844 };
+    const root = { className: 'igs-mode-embedded', closest: () => host, ownerDocument: { defaultView: win } };
+    pinEmbeddedHostFrame(root, '1216x832', 'embedded');
+    assert.equal(host.style.aspectRatio, '832 / 1216');
+    width = 0;
+    pinEmbeddedHostFrame(root, '1216x832', 'embedded');
+    assert.equal(host.style.aspectRatio, '832 / 1216');
+    width = 900;
+    pinEmbeddedHostFrame(root, '1216x832', 'embedded');
+    assert.equal(host.style.aspectRatio, '1216 / 832');
+
+    // 第一次就量不到：按窗口宽度判断，手机钉竖屏。
+    const fresh = { ...host, style: {}, attrs: {}, getBoundingClientRect: () => ({ width: 0, height: 0 }) };
+    pinEmbeddedHostFrame({ ...root, closest: () => fresh }, '1216x832', 'embedded');
+    assert.equal(fresh.style.aspectRatio, '832 / 1216');
 });
 
 test('gate:igs-ui:embedded-host-mounts-beside-mes-text-and-restores', () => {
