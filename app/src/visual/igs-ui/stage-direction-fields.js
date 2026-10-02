@@ -10,7 +10,7 @@ import {
 import { normalizeStageDirectionSettings } from './stage-direction-runtime.js';
 import { AMBIENT_KINDS, AMBIENT_LABELS, normalizeAmbientSoundSettings, normalizeBgmSettings } from './scene-audio.js';
 import { normalizeTextFxSettings } from './text-fx.js';
-import { BILINGUAL_DISPLAYS, BILINGUAL_DISPLAY_LABELS, BILINGUAL_FOREIGN_LABELS, BILINGUAL_TARGET_LABELS, normalizeBilingualSettings } from './bilingual-text.js';
+import { BILINGUAL_DISPLAYS, BILINGUAL_DISPLAY_LABELS, BILINGUAL_FOREIGN_LABELS, BILINGUAL_LAYOUTS, BILINGUAL_LAYOUT_LABELS, BILINGUAL_TARGET_LABELS, normalizeBilingualSettings } from './bilingual-text.js';
 import { CLICK_WAIT_MARK_LABELS, normalizeClickWaitMarkSettings } from './click-wait-mark.js';
 import { DAILY_FX_LABELS, normalizeDailyFxSettings } from './fx-daily-model.js';
 import { DAILY_FX_KINDS } from '../../scene/daily-fx-directives.js';
@@ -74,13 +74,15 @@ function renderTextFields(textFx, clickWait) {
 
 function renderBilingualField(bilingual) {
     const displays = BILINGUAL_DISPLAYS.map((id) => [id, BILINGUAL_DISPLAY_LABELS[id]]);
+    const layouts = BILINGUAL_LAYOUTS.map((id) => [id, BILINGUAL_LAYOUT_LABELS[id]]);
     return checkbox(`${P}.bilingual.enabled`, bilingual.enabled, '双语台词')
         + (bilingual.enabled ? sub(field(`${P}.bilingual.display`, '显示方式', segmentedInput(`${P}.bilingual.display`, bilingual.display, displays, '显示方式'))
+            + field(`${P}.bilingual.layout`, '注音排版', segmentedInput(`${P}.bilingual.layout`, bilingual.layout, layouts, '注音排版'))
             + `<div class="igs-source-filter-grid">`
             + field(`${P}.bilingual.foreign`, '角色语言', selectInput(`${P}.bilingual.foreign`, bilingual.foreign, Object.entries(BILINGUAL_FOREIGN_LABELS)))
             + field(`${P}.bilingual.target`, '译文语言', selectInput(`${P}.bilingual.target`, bilingual.target, Object.entries(BILINGUAL_TARGET_LABELS)))
             + `</div>`
-            + '<div class="igs-source-filter-note">AI 会用外语写所有角色的台词和心里话，并在每个分句后用〖〗附上译文，注音显示在原文上方；旁白不受影响。电脑端按 T 键可临时切换注音、仅原文、仅译文。</div>') : '');
+            + '<div class="igs-source-filter-note">AI 会用外语写所有角色的台词和心里话，并用〖〗附上译文，以小字显示在原文上方；旁白不受影响。注音排版：交错＝整段译文随原文逐行交错；译文在上＝完整译文放在原文上方；按分句＝每个分句各自注音（AI 也会一句一个〖〗）。电脑端按 T 键可临时切换注音、仅原文、仅译文。</div>') : '');
 }
 
 function renderTrackRow(track) {

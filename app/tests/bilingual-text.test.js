@@ -22,8 +22,9 @@ import { measureClassicReveal } from '../src/visual/igs-ui/typewriter-classic.js
 const JA = 'おはよう〖早上好〗、今日はいい天気ですね〖今天天气真好呢〗';
 
 test('gate: bilingual settings default off and normalize unknown values', () => {
-    assert.deepEqual(normalizeBilingualSettings(null), { enabled: false, display: 'ruby', foreign: 'auto', target: 'zh-Hans' });
-    assert.deepEqual(normalizeBilingualSettings({ enabled: true, display: 'x', foreign: 'fr', target: 'en' }), { enabled: true, display: 'ruby', foreign: 'auto', target: 'zh-Hans' });
+    assert.deepEqual(normalizeBilingualSettings(null), { enabled: false, display: 'ruby', layout: 'interleave', foreign: 'auto', target: 'zh-Hans' });
+    assert.deepEqual(normalizeBilingualSettings({ enabled: true, display: 'x', layout: 'y', foreign: 'fr', target: 'en' }), { enabled: true, display: 'ruby', layout: 'interleave', foreign: 'auto', target: 'zh-Hans' });
+    assert.equal(normalizeBilingualSettings({ layout: 'stack' }).layout, 'stack');
     assert.equal(typeof FX_SETTINGS_NORMALIZERS.bilingual, 'function');
     assert.equal(normalizeSettingsValue('readerSettings.bilingual.enabled', 'true'), true);
     assert.equal(normalizeSettingsValue('readerSettings.bilingual.display', 'source'), 'source');
@@ -53,11 +54,27 @@ test('gate: bilingual ruby never pairs across thought markup or line breaks', ()
     assert.equal(renderBilingualHtml('〖孤立的译文〗', 'ruby'), '<span class="igs-bi-loose">孤立的译文</span>');
 });
 
-test('gate: long bilingual units split by matching clauses so ruby can wrap', () => {
-    const html = renderBilingualHtml('あのね、昨日の夜ずっと考えてたんだけど、やっぱり行く。〖那个啊，昨晚我一直在想，还是去吧。〗', 'ruby');
+test('gate: interleave keeps one whole ruby per 〖〗 and stack puts the full translation above', () => {
+    const line = 'あのね、昨日の夜ずっと考えてたんだけど、やっぱり行く。〖那个啊，昨晚我一直在想，还是去吧。〗';
+    assert.equal(renderBilingualHtml(line, 'ruby'),
+        '<ruby class="igs-bi">あのね、昨日の夜ずっと考えてたんだけど、やっぱり行く。<rt>那个啊，昨晚我一直在想，还是去吧。</rt></ruby>');
+    assert.equal(renderBilingualHtml('Wait. 〖等等。〗 Go!〖走！〗', 'ruby', 'stack'),
+        '<span class="igs-bi-stack"><span class="igs-bi-note">等等。</span>Wait.</span> <span class="igs-bi-stack"><span class="igs-bi-note">走！</span>Go!</span>');
+    assert.equal(renderBilingualHtml(line, 'source', 'stack'), 'あのね、昨日の夜ずっと考えてたんだけど、やっぱり行く。');
+});
+
+test('gate: bilingual prompt asks for one 〖〗 per segment unless layout is clause', () => {
+    assert.match(bilingualGrammarBlock({}), /只在末尾跟一个〖〗/);
+    assert.doesNotMatch(bilingualGrammarBlock({}), /每个分句或短句后/);
+    assert.match(bilingualGrammarBlock({ layout: 'stack' }), /只在末尾跟一个〖〗/);
+    assert.match(bilingualGrammarBlock({ layout: 'clause' }), /每个分句或短句后紧跟一个〖〗/);
+});
+
+test('gate: clause layout splits long bilingual units by matching clauses', () => {
+    const html = renderBilingualHtml('あのね、昨日の夜ずっと考えてたんだけど、やっぱり行く。〖那个啊，昨晚我一直在想，还是去吧。〗', 'ruby', 'clause');
     assert.equal((html.match(/<ruby/g) || []).length, 3);
     assert.match(html, /<ruby class="igs-bi">あのね、<rt>那个啊，<\/rt><\/ruby>/);
-    const mismatch = renderBilingualHtml('あのね、昨日の夜ずっと考えてたんだけど。〖那个啊昨晚我一直在想。〗', 'ruby');
+    const mismatch = renderBilingualHtml('あのね、昨日の夜ずっと考えてたんだけど。〖那个啊昨晚我一直在想。〗', 'ruby', 'clause');
     assert.equal((mismatch.match(/<ruby/g) || []).length, 1);
 });
 
@@ -133,6 +150,32 @@ test('gate: classic typewriter skips ruby text and lifts its line top to include
     assert.deepEqual(result.events.map((event) => event.text), ['あ', 'い']);
     assert.equal(result.layout.lines.length, 2);
     assert.equal(result.layout.lines[1].top, 28);
+});
+
+test('gate: classic typewriter lifts each wrapped line under its own ruby text fragment', () => {
+    const a = textNode('ab');
+    const rt = textNode('甲乙');
+    const root = node('DIV', node('RUBY', a, node('RT', rt)));
+    root.getBoundingClientRect = () => ({ top: 0, left: 0, right: 100, bottom: 80, width: 100, height: 80 });
+    const rects = [
+        { top: 14, bottom: 34, left: 0, right: 10, width: 10, height: 20 },
+        { top: 54, bottom: 74, left: 0, right: 10, width: 10, height: 20 },
+    ];
+    root.ownerDocument = { createRange() {
+        let start = 0;
+        let current;
+        return {
+            setStart(value, offset) { current = value; start = offset; },
+            setEnd() {},
+            selectNodeContents(value) { current = value; },
+            getClientRects() {
+                if (current === rt) return [{ top: 2, bottom: 12, left: 0, right: 10, width: 10, height: 10 }, { top: 42, bottom: 52, left: 0, right: 10, width: 10, height: 10 }];
+                return [rects[start]];
+            },
+        };
+    } };
+    const result = measureClassicReveal(root, 10);
+    assert.deepEqual(result.layout.lines.map((line) => line.top), [0, 42]);
 });
 
 test('gate: classic typewriter skips a stacked bilingual note and lifts the next line to include it', () => {

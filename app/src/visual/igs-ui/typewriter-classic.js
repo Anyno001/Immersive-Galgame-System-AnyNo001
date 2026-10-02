@@ -46,7 +46,7 @@ function visualLineOverlap(line, rect) {
 const TFX_CLASS_RE = /(?:^|\s)igs-tfx-(?!ch(?:\s|$))([a-z]+)/;
 
 // 双语译文不逐字揭示、不发打字音，只把高度并入正文所在行，随该行一起揭开：
-// <rt> 并入它上方注音的那一行；放不下而单独成行的译文并入它下面原文的第一行。
+// <rt> 跟原文折行时分成几段，每段并入它正下方那一行；单独成行的译文并入它下面原文的第一行。
 function bilingualNoteOf(node, root) {
     for (let el = node && node.parentNode; el && el !== root; el = el.parentNode) {
         if (isBilingualNote(el)) return el;
@@ -79,11 +79,20 @@ export function measureClassicReveal(target, speed, options = {}) {
             const note = bilingualNoteOf(node, target);
             if (note) {
                 range.selectNodeContents(node);
-                const rect = Array.from(range.getClientRects()).find(item => item.width > 0 && item.height > 0);
-                if (!rect) continue;
-                const top = Math.max(bounds.top, rect.top);
-                if (String(note.nodeName).toUpperCase() !== 'RT') noteTop = noteTop == null ? top : Math.min(noteTop, top);
-                else if (parts.length) parts[parts.length - 1].line.top = Math.min(parts[parts.length - 1].line.top, top);
+                const isRt = String(note.nodeName).toUpperCase() === 'RT';
+                for (const rect of Array.from(range.getClientRects())) {
+                    if (!(rect.width > 0 && rect.height > 0)) continue;
+                    const top = Math.max(bounds.top, rect.top);
+                    if (!isRt) {
+                        noteTop = noteTop == null ? top : Math.min(noteTop, top);
+                        continue;
+                    }
+                    let below = null;
+                    for (const line of lines) {
+                        if (line.top >= rect.top && (!below || line.top < below.top)) below = line;
+                    }
+                    if (below) below.top = Math.min(below.top, top);
+                }
                 continue;
             }
             for (const part of graphemes(String(node.nodeValue || ''))) {

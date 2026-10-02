@@ -45,7 +45,7 @@ import { applyRomanceToDom } from './romance-runtime.js';
 import { applyMetaFx } from './meta-runtime.js';
 import { applySceneAudio } from './scene-audio.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
-import { fitBilingualRuby, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
+import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
 import { cgSizeForMode } from '../../generated-images/illustration/auto-illustration-service.js';
@@ -1332,7 +1332,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const textType = snapshot.content.textType || 'narration';
         const textFxOn = Boolean(snapshot.readerSettings.textFx && snapshot.readerSettings.textFx.enabled);
         const bilingualDisplay = resolveBilingualDisplay(snapshot.readerSettings.bilingual, snapshot.readerSettings._bilingualDisplay);
-        const renderedHtml = applyTextFxMarkup(renderBilingualHtml(renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled), bilingualDisplay), textFxOn);
+        const renderedHtml = applyTextFxMarkup(renderBilingualHtml(renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled), bilingualDisplay, normalizeBilingualSettings(snapshot.readerSettings.bilingual).layout), textFxOn);
         const textRenderKey = [snapshot.messageId, snapshot.content.currentIndex, textType, renderedHtml].join(':');
 
         typewriterTextType = textType === 'system' ? 'narration' : textType;

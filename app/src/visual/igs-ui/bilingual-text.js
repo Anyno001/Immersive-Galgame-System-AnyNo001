@@ -1,8 +1,14 @@
 // 双语台词：正文写作 原文〖译文〗，每个〖〗注音它前面那一段原文（从上一个〗或行首算起）。
 export const BILINGUAL_DISPLAYS = Object.freeze(['ruby', 'source', 'translation']);
 export const BILINGUAL_DISPLAY_LABELS = Object.freeze({ ruby: '注音', source: '仅原文', translation: '仅译文' });
+// 注音排版：交错＝整段译文随原文逐行交错（默认）；译文在上＝完整译文小字放在原文上方；按分句＝长句按分句各自注音。
+export const BILINGUAL_LAYOUTS = Object.freeze(['interleave', 'stack', 'clause']);
+export const BILINGUAL_LAYOUT_LABELS = Object.freeze({ interleave: '交错', stack: '译文在上', clause: '按分句' });
 export const BILINGUAL_FOREIGN_LABELS = Object.freeze({ auto: '按角色设定', ja: '日语', en: '英语' });
 export const BILINGUAL_TARGET_LABELS = Object.freeze({ 'zh-Hans': '简体中文', 'zh-Hant': '繁体中文' });
+
+// 译文单独成行时的标记类；打字机按 <rt> 同样对待它：不逐字揭示、不发打字音。
+export const BILINGUAL_NOTE_CLASS = 'igs-bi-note';
 
 const PAIR_RE = /〖([^〖〗\n]*)〗/g;
 const TAG_SPLIT_RE = /(<[^>]*>)/;
@@ -10,11 +16,15 @@ const TAG_SPLIT_RE = /(<[^>]*>)/;
 const LEAD_RE = /^(?:\s|&quot;|[、。，,.!?！？…—～~「」『』“”‘’'（）()：:；])*/;
 // 分句尾标点。半角分号不算：已转义 HTML 的实体以它结尾。
 const CLAUSE_RE = /[^、，,。．.！!？?；…～~]+[、，,。．.！!？?；…～~]*\s*/g;
-// 超过这个长度的注音按分句拆开，避免整句注音在窄对话框里无法折行。
+// 按分句排版时，超过这个长度的注音按分句拆开。
 const SPLIT_MIN_LENGTH = 14;
 
 const FOREIGN_PHRASES = Object.freeze({ auto: '各自设定的母语（如日语、英语）', ja: '日语', en: '英语' });
-const FOREIGN_EXAMPLES = Object.freeze({
+const SEGMENT_EXAMPLES = Object.freeze({
+    ja: '[igs-char:アリス|微笑|制服|おはよう。今日はいい天気ですね〖早上好。今天天气真好呢〗]',
+    en: '[igs-char:Alice|微笑|制服|Morning! Lovely weather today, isn\'t it?〖早上好！今天天气真好，对吧？〗]',
+});
+const CLAUSE_EXAMPLES = Object.freeze({
     ja: '[igs-char:アリス|微笑|制服|おはよう〖早上好〗、今日はいい天気ですね〖今天天气真好呢〗]',
     en: '[igs-char:Alice|微笑|制服|Morning!〖早上好！〗 Lovely weather today, isn\'t it?〖今天天气真好，对吧？〗]',
 });
@@ -24,6 +34,7 @@ export function normalizeBilingualSettings(value) {
     return {
         enabled: source.enabled === true,
         display: BILINGUAL_DISPLAYS.includes(source.display) ? source.display : 'ruby',
+        layout: BILINGUAL_LAYOUTS.includes(source.layout) ? source.layout : 'interleave',
         foreign: Object.hasOwn(BILINGUAL_FOREIGN_LABELS, source.foreign) ? source.foreign : 'auto',
         target: Object.hasOwn(BILINGUAL_TARGET_LABELS, source.target) ? source.target : 'zh-Hans',
     };
@@ -57,18 +68,25 @@ function clausePairs(base, translation) {
     return bases.map((part, index) => [part, translations[index].trim()]);
 }
 
-function renderPair(base, translation, display) {
+function renderPair(base, translation, display, layout) {
     if (display === 'source') return base;
     if (display === 'translation') return translation;
     if (!base) return translation ? `<span class="igs-bi-loose">${translation}</span>` : '';
     if (!translation) return base;
+    if (layout === 'stack') return stackHtml(base, translation);
+    // 交错：整段原文配整段译文，能折行的内核里译文随原文逐行交错；不能折行的由 fitBilingualRuby 改成译文在上。
+    if (layout !== 'clause') return `<ruby class="igs-bi">${base}<rt>${translation}</rt></ruby>`;
     return clausePairs(base, translation).map(([part, text]) => {
         const body = part.replace(/\s+$/, '');
         return `<ruby class="igs-bi">${body}<rt>${text}</rt></ruby>${part.slice(body.length)}`;
     }).join('');
 }
 
-function renderRun(run, display) {
+function stackHtml(base, translation) {
+    return `<span class="igs-bi-stack"><span class="${BILINGUAL_NOTE_CLASS}">${translation}</span>${base}</span>`;
+}
+
+function renderRun(run, display, layout) {
     if (!run.includes('〖')) return run;
     let out = '';
     let cursor = 0;
@@ -80,23 +98,20 @@ function renderRun(run, display) {
         const lead = rest.match(LEAD_RE)[0];
         // 〖前的空白只是原文与译文的分隔，不保留。
         const base = rest.slice(lead.length).replace(/\s+$/, '');
-        out += before.slice(0, lineStart) + lead + renderPair(base, match[1].trim(), display);
+        out += before.slice(0, lineStart) + lead + renderPair(base, match[1].trim(), display, layout);
     }
     return out + run.slice(cursor);
 }
 
 // 输入是已转义的对话框 HTML；注音不跨标签（心里话 span 等）配对。
-export function renderBilingualHtml(escapedHtml, display) {
+export function renderBilingualHtml(escapedHtml, display, layout = 'interleave') {
     const html = String(escapedHtml ?? '');
     if (!display || !html.includes('〖')) return html;
     return html
         .split(TAG_SPLIT_RE)
-        .map((part, index) => (index % 2 === 1 ? part : renderRun(part, display)))
+        .map((part, index) => (index % 2 === 1 ? part : renderRun(part, display, layout)))
         .join('');
 }
-
-// 译文单独成行时的标记类；打字机按 <rt> 同样对待它：不逐字揭示、不发打字音。
-export const BILINGUAL_NOTE_CLASS = 'igs-bi-note';
 
 export function isBilingualNote(el) {
     if (!el) return false;
@@ -109,7 +124,7 @@ function overflowsBox(el, left, right) {
 }
 
 // iOS Safari、旧版安卓 WebView 里整段 <ruby> 不能折行，长句会把对话框撑出横向滚动。
-// 排版后逐个检查：超出文字框的注音改成译文单独一行、原文照常折行。
+// 排版后逐个检查：超出文字框的注音改成完整译文小字在上（紧凑折行）、原文照常折行。
 export function fitBilingualRuby(textEl) {
     if (!textEl || typeof textEl.querySelectorAll !== 'function' || typeof textEl.getBoundingClientRect !== 'function') return 0;
     const rubies = Array.from(textEl.querySelectorAll('ruby.igs-bi'));
@@ -143,10 +158,15 @@ export function bilingualGrammarBlock(settings) {
     const s = normalizeBilingualSettings(settings);
     const lang = FOREIGN_PHRASES[s.foreign];
     const target = BILINGUAL_TARGET_LABELS[s.target];
-    const example = FOREIGN_EXAMPLES[s.foreign] || FOREIGN_EXAMPLES.ja;
-    return `【双语台词】所有角色（包括主角）的对白和心里话用${lang}原文书写，并按分句在原文后紧跟〖${target}译文〗，前端会把译文以注音形式显示在原文上方：
+    const clause = s.layout === 'clause';
+    const examples = clause ? CLAUSE_EXAMPLES : SEGMENT_EXAMPLES;
+    const example = examples[s.foreign] || examples.ja;
+    const unit = clause
+        ? '- 每个分句或短句后紧跟一个〖〗，不要整段只在末尾标一次；〖〗内只写译文，不嵌套、不换行'
+        : '- 一段连续的台词或心里话只在末尾跟一个〖〗，写这一整段的完整译文，不要一句一个；被旁白、动作或换行隔开的各段各跟一个〖〗\n- 〖〗内只写译文，不嵌套、不换行';
+    return `【双语台词】所有角色（包括主角）的对白和心里话用${lang}原文书写，并${clause ? '按分句' : ''}在原文后紧跟〖${target}译文〗，前端会把译文以小字显示在原文上方：
 - 写在 [igs-char] 的对白栏和 [igs-thought] 的心里话栏里；不用这些标签时，写在正文的台词和心里话里。如 ${example}
-- 每个分句或短句后紧跟一个〖〗，不要整段只在末尾标一次；〖〗内只写译文，不嵌套、不换行
+${unit}
 - 旁白照常用${target}书写，不加〖〗；角色名、表情、服装、选项和其他标签字段也不写〖〗
 - 本来就是${target}的话不加〖〗；其他行内标记只包住原文，不要跨过〖〗`;
 }
@@ -158,9 +178,9 @@ export function resolveBilingualPromptRule(settings) {
 
 // 注音页加大行高并留出顶部空间：首行译文不被滚动区裁掉，经典打字机测量也不越界。
 export const BILINGUAL_STYLE_TEXT = `
-#igs-overlay #igs-text:has(ruby.igs-bi,.igs-bi-stack){line-height:2.2;padding-top:.3em;}
-#igs-overlay #igs-text .igs-bi-note{display:block;font-size:max(.52em,10px);line-height:1.4;letter-spacing:0;font-style:normal;opacity:.78;}
+#igs-overlay #igs-text:has(ruby.igs-bi){line-height:2.2;padding-top:.3em;}
+#igs-overlay #igs-text .igs-bi-note{display:block;margin-bottom:.1em;font-size:max(.52em,10px);line-height:1.35;letter-spacing:0;font-style:normal;opacity:.78;}
 #igs-overlay #igs-text ruby.igs-bi{ruby-position:over;ruby-align:center;}
-#igs-overlay #igs-text ruby.igs-bi>rt{font-size:max(.52em,10px);line-height:1.1;letter-spacing:0;font-style:normal;white-space:nowrap;opacity:.78;}
+#igs-overlay #igs-text ruby.igs-bi>rt{font-size:max(.52em,10px);line-height:1.1;letter-spacing:0;font-style:normal;opacity:.78;}
 #igs-overlay #igs-text .igs-bi-loose{margin-left:.2em;font-size:.62em;opacity:.78;}
 `;
