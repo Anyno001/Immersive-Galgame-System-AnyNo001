@@ -14,8 +14,8 @@ import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-
 export const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
 const IMAGE_CACHE_LIMIT = 60;
 const AVATAR_SIZE = '1024x1024';
-const AVATAR_POSITIVE = 'chibi, solo, portrait, head and shoulders, looking at viewer, simple background';
-const AVATAR_NEGATIVE = 'full body, multiple views, realistic, text, watermark, signature, frame, border';
+const AVATAR_POSITIVE = 'chibi, solo, round face, face focus, head only, close-up, centered, looking at viewer, smile, simple background';
+const AVATAR_NEGATIVE = 'body, shoulders, neck, upper body, cowboy shot, full body, hands, multiple views, realistic, text, watermark, signature, frame, border';
 // review：等待楼层结束时让用户处理；chat：用户选择仅本聊天使用；
 // library：已加入素材库（由生成区条目接管）；discarded：丢弃。
 const ACTIVE_TEMP_STATUSES = new Set(['review', 'chat']);
@@ -28,6 +28,10 @@ export function expressionSeed(name, outfitName) {
         hash = Math.imul(hash, 0x01000193) >>> 0;
     }
     return hash;
+}
+
+function randomSeed() {
+    return Math.floor(Math.random() * 4294967295);
 }
 
 function toReadableText(raw) {
@@ -614,7 +618,7 @@ export function createAssetGenerationService(deps) {
         }
         const paint = {
             look: expressionLookTags(basePrompt, outfit),
-            seed: reseed ? undefined : expressionSeed(name, outfit && outfit.name),
+            seed: reseed ? randomSeed() : expressionSeed(name, outfit && outfit.name),
         };
         const paintDna = expressionPaintDna(dna, outfit);
         const stopped = () => Boolean(signal && signal.aborted);
@@ -667,13 +671,15 @@ export function createAssetGenerationService(deps) {
         return { ok: true, items, stopped: stopped() };
     }
 
-    // 失败槽重画：已有 caption 就只出这一张，不再写词。格子里已有图（不满意重画）时 reseed 换一颗种子，否则画出来一模一样。
+    // 失败的空格：已有 caption 就只出这一张，不再写词，种子沿用整套那颗。
+    // 格子里已有图（不满意重画）：旧图的提示词可能是修复前写的，按当前流程重新写词，并显式换一颗随机种子
+    // ——不传种子时插件用自己的运行配置，配置是固定种子就会画出同一张。没有底图提示词时才退回旧词。
     async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, onProgress, reseed = false } = {}) {
         const label = String(mood || '').trim();
         if (!label) return { ok: false, error: '没有表情' };
-        if (caption) {
+        if (caption && !(reseed && basePrompt)) {
             reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: label });
-            const seed = reseed ? undefined : expressionSeed(name, outfit && outfit.name);
+            const seed = reseed ? randomSeed() : expressionSeed(name, outfit && outfit.name);
             const item = await paintExpressionCaption(name, label, caption, null, { seed });
             return { ok: true, items: [item] };
         }

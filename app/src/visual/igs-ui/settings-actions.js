@@ -1120,12 +1120,13 @@ export async function handleSettingsAction(action, ctx) {
         let result;
         const onProgress = (event) => reportExpressionProgress(globalObj, event);
         const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction);
-        const stopControl = createStopControl(() => restoreBusy());
+        // 单张重画不接停止键：只有一张，按了也停不下来，别把「表情差分」按钮变成摆设。
+        const stopControl = retry ? { signal: { aborted: false }, done() {} } : createStopControl(() => restoreBusy());
         // 格子里已有图是「不满意重画」，换一颗种子；失败的空格沿用整套那颗。
         const reseed = retry && Boolean(String(slots[mood] || '').trim());
         try {
             result = retry && savedCaption && typeof service.generateExpressionImage === 'function'
-                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, outfit, reseed, onProgress, signal: stopControl.signal })
+                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, basePrompt, dna, outfit, reseed, onProgress, signal: stopControl.signal })
                 : retry
                     ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, reseed, onProgress, signal: stopControl.signal })
                     : await service.generateExpressionSet({ name, basePrompt, moods: missingLabels, dna, outfit, onProgress, signal: stopControl.signal });
@@ -2959,7 +2960,8 @@ function shrinkAvatarDataUrl(globalObj, dataUrl) {
                 const ctx = canvas.getContext('2d');
                 const crop = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
                 const sx = ((img.naturalWidth || img.width) - crop) / 2;
-                ctx.drawImage(img, sx, 0, crop, crop, 0, 0, side, side);
+                const sy = ((img.naturalHeight || img.height) - crop) / 2;
+                ctx.drawImage(img, sx, sy, crop, crop, 0, 0, side, side);
                 resolve(canvas.toDataURL('image/webp', 0.9));
             } catch (error) {
                 resolve(dataUrl);

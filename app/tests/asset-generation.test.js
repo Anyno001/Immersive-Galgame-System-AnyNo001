@@ -1447,3 +1447,32 @@ test('gate:assets:expression-look-keeps-clothes-from-one-source', async () => {
     assert.equal(expressionSeed('冬月', ''), expressionSeed('冬月', ''));
     assert.notEqual(expressionSeed('冬月', ''), expressionSeed('冬月', '泳装'));
 });
+
+test('gate:assets:regenerating-a-filled-expression-rewrites-with-a-fresh-seed', async () => {
+    const cap = (t) => ({ v4_prompt: { caption: { base_caption: t, char_captions: [] } }, v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } } });
+    const writes = [];
+    const paints = [];
+    const nai = {
+        writeDbgenPrompt: async (meta) => { writes.push(meta.description); return { ok: true, caption: cap('fresh'), captions: [{ slotId: 1, caption: cap('fresh') }] }; },
+        generateDbgenCaption: async (meta) => { paints.push(meta); return { ok: true, dataUrl: 'data:image/png;base64,QQ==', prompt: { positive: 'x', negative: '' } }; },
+    };
+    let seq = 0;
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'chat', readFloor: () => null, readPreviousAiTexts: () => [], on: () => () => {} },
+        llm: {}, nai, store: createMemoryGeneratedAssetStore(),
+        getSettings: () => ({ autoIllustration: {}, sceneAssets: {} }),
+        newId: () => `r-${seq += 1}`,
+        matte: async (dataUrl) => dataUrl,
+    });
+    const basePrompt = { positive: '1girl, red hoodie', negative: '', caption: cap('1girl, red hoodie') };
+    await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: cap('old, expressionless'), basePrompt, reseed: true });
+    await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: cap('old, expressionless'), basePrompt, reseed: true });
+    assert.equal(writes.length, 2, 'filled slot is rewritten, not repainted from the old prompt');
+    assert.match(paints[0].caption.v4_prompt.caption.base_caption, /^laughing/);
+    assert.doesNotMatch(paints[0].caption.v4_prompt.caption.base_caption, /old/);
+    assert.ok(Number.isInteger(paints[0].seed) && Number.isInteger(paints[1].seed));
+    await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: cap('noted') });
+    assert.equal(writes.length, 2, 'failed empty slot repaints its saved caption');
+    const { expressionSeed } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    assert.equal(paints[2].seed, expressionSeed('冬月', ''));
+});
