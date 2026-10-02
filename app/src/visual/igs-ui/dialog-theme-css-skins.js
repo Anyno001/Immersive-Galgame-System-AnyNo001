@@ -140,6 +140,8 @@ const MAGIC_TWINKLE = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="100
 // 星尘：百分比坐标随框宽铺开，一张 SVG 一层背景，免得多层渐变与 size/position 列表错位。
 const MAGIC_DUST = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">${[[6, 12, 1], [17, 34, 1.3], [24, 8, 0.8], [33, 40, 1], [46, 14, 1.1], [55, 32, 0.8], [68, 10, 1], [77, 38, 1.2], [93, 22, 0.9], [3, 72, 0.9], [97, 60, 1], [12, 92, 0.8], [88, 86, 0.9], [40, 94, 0.7], [64, 90, 0.8]]
     .map(([x, y, r], i) => `<circle cx="${x}%" cy="${y}%" r="${r}" fill="#f0f0ff" fill-opacity="${i % 3 ? 0.5 : 0.85}"/>`).join('')}</svg>`);
+// 薄纱下段偏黑：学院底色先压向近黑再做透明度，只留一层色调，正文底更沉。
+const magicVeilDark = (percent, keep) => magicTint(`color-mix(in srgb,${MAGIC_VEIL} ${keep}%,#04040a)`, percent);
 const magicHalfLine = (dir) => `linear-gradient(${dir},transparent 3%,${magicTint(MAGIC_METAL, 70)} 34%)`;
 const MAGIC_SIDE = `calc(50% - ${MAGIC_EMBLEM.width / 2 + 6}px) 1px`;
 const magicAcademy = [
@@ -148,7 +150,7 @@ const magicAcademy = [
         text: { top: 58, speakerTop: 60, right: 72, bottom: 20, left: 72 },
         rise: 0,
         flush: true,
-        frameCss: `background-color:transparent;background-image:${magicHalfLine('90deg')},${magicHalfLine('270deg')},${MAGIC_CONSTELLATION},${MAGIC_DUST},radial-gradient(ellipse 28% 70px at 50% ${MAGIC_LINE_Y}px,${magicTint(MAGIC_METAL, 16)},transparent),linear-gradient(180deg,transparent 0,${magicVeil(28)} ${MAGIC_LINE_Y}px,${magicVeil(62)} 62%,${magicVeil(78)});background-position:left ${MAGIC_LINE_Y}px,right ${MAGIC_LINE_Y}px,right 56px top 4px,0 0,0 0,0 0;background-size:${MAGIC_SIDE},${MAGIC_SIDE},132px 36px,100% 100%,100% 100%,100% 100%;background-repeat:no-repeat;${NO_CHROME}`,
+        frameCss: `background-color:transparent;background-image:${magicHalfLine('90deg')},${magicHalfLine('270deg')},${MAGIC_CONSTELLATION},${MAGIC_DUST},radial-gradient(ellipse 28% 70px at 50% ${MAGIC_LINE_Y}px,${magicTint(MAGIC_METAL, 16)},transparent),linear-gradient(180deg,transparent 0,${magicVeil(28)} ${MAGIC_LINE_Y}px,${magicVeilDark(66, 45)} 62%,${magicVeilDark(84, 30)});background-position:left ${MAGIC_LINE_Y}px,right ${MAGIC_LINE_Y}px,right 56px top 4px,0 0,0 0,0 0;background-size:${MAGIC_SIDE},${MAGIC_SIDE},132px 36px,100% 100%,100% 100%,100% 100%;background-repeat:no-repeat;${NO_CHROME}`,
         speakerCss: `left:56px;top:${MAGIC_LINE_Y - 38}px;${NAME_TEXT}max-width:calc(100% - 112px);height:34px;line-height:34px;padding:0 0 0 24px;background:none;border:0;font-size:21px;font-weight:400;letter-spacing:.1em;text-shadow:${stroke('rgba(8,8,30,.45)')},0 0 12px ${magicTint(MAGIC_METAL_HI, 55)};`,
         textCss: `letter-spacing:.06em;text-shadow:${stroke('rgba(8,8,30,.4)')},0 1px 2px rgba(6,6,24,.85);`,
     }),
