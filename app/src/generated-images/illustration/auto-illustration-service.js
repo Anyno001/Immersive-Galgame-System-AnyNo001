@@ -13,7 +13,7 @@ export const ILLUSTRATION_UPDATED_EVENT = 'igs:illustration-updated';
 export const ILLUSTRATION_PROGRESS_EVENT = 'igs:illustration-progress';
 
 // 手机内嵌栏宽。框高是我们按尺寸钉出来的，不能拿高来判断横竖。
-const EMBEDDED_PHONE_MAX_WIDTH = 640;
+export const EMBEDDED_PHONE_MAX_WIDTH = 640;
 
 // 电脑、网页全屏、全屏用背景尺寸。窄屏模式把宽高对调。
 // 楼层内嵌：正文栏不超过 640 像素就是手机，钉竖屏尺寸；更宽钉横屏尺寸。

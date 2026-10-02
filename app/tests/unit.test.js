@@ -20,7 +20,7 @@ import {
     parseImageSlots,
 } from '../src/scene/image-slots.js';
 import { parseSceneText } from '../src/scene/text-parser.js';
-import { applyAlignStyle, pinEmbeddedHostFrame, syncEmbeddedHostFrame } from '../src/visual/igs-ui/reader-dom-render.js';
+import { applyAlignStyle, pinEmbeddedHostFrame, syncEmbeddedHostFrame, watchEmbeddedFrameResize } from '../src/visual/igs-ui/reader-dom-render.js';
 import { resolveSpriteLayout, resolveActiveTheme, renderDialogueHtml } from '../src/visual/igs-ui/settings-normalize.js';
 import {
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -263,6 +263,84 @@ test('gate:igs-ui:embedded-frame-keeps-pinned-ratio-when-host-unmeasured', () =>
     const fresh = { ...host, style: {}, attrs: {}, getBoundingClientRect: () => ({ width: 0, height: 0 }) };
     pinEmbeddedHostFrame({ ...root, closest: () => fresh }, '1216x832', 'embedded');
     assert.equal(fresh.style.aspectRatio, '832 / 1216');
+});
+
+test('gate:igs-ui:embedded-frame-relocks-on-orientation-crossing', () => {
+    // 横屏打开钉横屏；转回竖屏（栏宽 ≤640）后重钉竖屏，再转横屏恢复，宿主断开自解绑。
+   let width = 844;
+    const host = {
+        style: {},
+        attrs: {},
+        isConnected: true,
+        getBoundingClientRect() { return { width, height: width * 832 / 1216 }; },
+        getAttribute(key) { return this.attrs[key] || null; },
+        setAttribute(key, value) { this.attrs[key] = value; },
+        removeAttribute(key) { delete this.attrs[key]; },
+    };
+    let observerCallback = null;
+    let disconnected = 0;
+    const overlay = {
+        className: 'igs-mode-embedded',
+        closest() { return host; },
+        ownerDocument: {
+            defaultView: {
+                ResizeObserver: class {
+                    constructor(callback) { observerCallback = callback; }
+                    observe() {}
+                    disconnect() { disconnected += 1; observerCallback = null; }
+                },
+            },
+        },
+    };
+    syncEmbeddedHostFrame(overlay, '1216x832');
+    assert.equal(host.style.aspectRatio, '1216 / 832');
+    const unwatch = watchEmbeddedFrameResize(overlay, { backgroundSize: '1216x832', mode: 'embedded' });
+    assert.equal(typeof unwatch, 'function');
+    width = 390;
+    observerCallback();
+    assert.equal(host.style.aspectRatio, '832 / 1216');
+    width = 844;
+    observerCallback();
+    assert.equal(host.style.aspectRatio, '1216 / 832');
+    observerCallback();
+    assert.equal(host.style.aspectRatio, '1216 / 832');
+    host.isConnected = false;
+    width = 390;
+    observerCallback();
+    assert.equal(disconnected, 1);
+    assert.equal(host.style.aspectRatio, '1216 / 832');
+});
+
+test('gate:igs-ui:embedded-frame-watch-unobserve-stops-relock', () => {
+    let width = 390;
+    const host = {
+        style: {},
+        isConnected: true,
+        getBoundingClientRect() { return { width, height: width * 1216 / 832 }; },
+        setAttribute() {},
+        removeAttribute() {},
+    };
+    let observerCallback = null;
+    let disconnected = 0;
+    const overlay = {
+        className: 'igs-mode-embedded',
+        closest() { return host; },
+        ownerDocument: {
+            defaultView: {
+                ResizeObserver: class {
+                    constructor(callback) { observerCallback = callback; }
+                    observe() {}
+                    disconnect() { disconnected += 1; observerCallback = null; }
+                },
+            },
+        },
+    };
+    syncEmbeddedHostFrame(overlay, '832x1216');
+    assert.equal(host.style.aspectRatio, '832 / 1216');
+    const unwatch = watchEmbeddedFrameResize(overlay, { backgroundSize: '1216x832', mode: 'embedded' });
+    unwatch();
+    assert.equal(disconnected, 1);
+    assert.equal(observerCallback, null);
 });
 
 test('gate:igs-ui:embedded-host-mounts-beside-mes-text-and-restores', () => {

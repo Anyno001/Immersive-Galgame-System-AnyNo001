@@ -48,7 +48,7 @@ import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
-import { cgSizeForMode } from '../../generated-images/illustration/auto-illustration-service.js';
+import { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH } from '../../generated-images/illustration/auto-illustration-service.js';
 import { applyClickWaitMark } from './click-wait-mark.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
@@ -1032,6 +1032,43 @@ export function pinEmbeddedHostFrame(root, backgroundSize, mode) {
     syncEmbeddedHostFrame(root, cgSizeForMode(backgroundSize, mode, viewport));
 }
 
+// 内嵌框横竖恢复：旋转屏幕只改宿主栏宽，渲染快照不会自动重跑，钉错的 aspect-ratio 会一直残留。
+// 观察宿主宽度跨过手机阈值（EMBEDDED_PHONE_MAX_WIDTH）时按同一 cgSizeForMode 规则重钉一次，
+// 只写宿主 aspect-ratio，不重绘阅读器。宿主断开或阅读器退出内嵌时解绑。
+export function watchEmbeddedFrameResize(overlay, frameState) {
+    if (!overlay || !frameState) return null;
+    const host = typeof overlay.closest === 'function' ? overlay.closest('.igs-embedded-host') : null;
+    const doc = overlay.ownerDocument || null;
+    const win = (doc && doc.defaultView) || null;
+    if (!host || !win || typeof win.ResizeObserver !== 'function') return null;
+    const measure = () => {
+        const rect = typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
+        return rect ? Number(rect.width) || 0 : 0;
+    };
+    const isPhoneWidth = (width) => width > 0 && width <= EMBEDDED_PHONE_MAX_WIDTH;
+    let lastPhone = isPhoneWidth(measure());
+    let observer = null;
+    const unobserve = () => {
+        if (!observer) return;
+        try { observer.disconnect(); } catch (error) { /* best-effort */ }
+        observer = null;
+    };
+    observer = new win.ResizeObserver(() => {
+        if (host.isConnected === false) { unobserve(); return; }
+        const width = measure();
+        const phone = isPhoneWidth(width);
+        if (phone === lastPhone) return;
+        lastPhone = phone;
+        const sizeText = cgSizeForMode(frameState.backgroundSize, frameState.mode, { width, height: 0 });
+        const match = String(sizeText || '').match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+        if (!match) return;
+        if (host.style && host.style.aspectRatio === `${match[1]} / ${match[2]}`) return;
+        syncEmbeddedHostFrame(overlay, sizeText);
+    });
+    observer.observe(host);
+    return unobserve;
+}
+
 function writeBackgroundImage(element, url) {
     const value = url ? `url("${url.replace(/"/g, '&quot;')}")` : '';
     if (backgroundImageKeys.get(element) === value) return;
@@ -1091,6 +1128,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         }
     }
     const backgroundAssetUrl = resolveAssetUrl(snapshot.content.backgroundImage);
+    if (current && typeof current === 'object') {
+        // 渲染主路径每张快照刷新钉尺寸输入；宽度观察器跨阈值时按同一份输入重算。
+        const frameState = current.embeddedFrame || (current.embeddedFrame = {});
+        frameState.backgroundSize = snapshot.readerSettings ? snapshot.readerSettings._cgBackgroundSize : '';
+        frameState.mode = snapshot.mode;
+    }
     pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
 
     if (bg && backgroundAssetUrl) {
@@ -1612,6 +1655,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     applyReaderModeRuntime(root, snapshot, current, {
         isActiveReader: (reader) => (typeof ctx.isActiveReader === 'function' ? ctx.isActiveReader(reader) : true),
         requestClose: () => { if (typeof ctx.closeReader === 'function') ctx.closeReader(); },
+        watchEmbeddedFrame: () => watchEmbeddedFrameResize(root, current && current.embeddedFrame),
     });
     if (textEl && typewriterRenderKey) {
         const typewriterSettings = snapshot.readerSettings.typewriter || {};

@@ -26,7 +26,7 @@ export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
     current.runtime = runtime;
 
     if (isEmbeddedReaderMode(snapshot.mode)) {
-        applyEmbeddedReaderRuntime(root, runtime);
+        applyEmbeddedReaderRuntime(root, runtime, ctx);
         return;
     }
     if (snapshot.mode === 'pc' || snapshot.mode === 'mobile') {
@@ -45,7 +45,7 @@ export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
 // 楼层内嵌：阅读器完全受宿主楼层容器约束，不做 fixed、不锁滚动、不请求全屏、不可拖动。
 // 尺寸交给 .igs-mode-embedded 的 CSS（固定高度、16:9 上限、移动端 dVH 上限）统一控制，
 // 这里只清掉可能从上一次内联模式残留下来的几何属性。
-function applyEmbeddedReaderRuntime(root, runtime) {
+function applyEmbeddedReaderRuntime(root, runtime, ctx = {}) {
     if (!root || !root.style) return;
     for (const prop of [
         'top', 'right', 'bottom', 'left', 'width', 'height',
@@ -59,6 +59,12 @@ function applyEmbeddedReaderRuntime(root, runtime) {
         runtime.cleanup.push(() => {
             if (root.classList) root.classList.remove('igs-mode-embedded');
         });
+    }
+    // 横竖恢复监听由渲染层注入并挂进同一 runtime，切模式/关闭时随 cleanup 解绑。
+    const watchEmbeddedFrame = ctx && typeof ctx.watchEmbeddedFrame === 'function' ? ctx.watchEmbeddedFrame : null;
+    if (runtime && watchEmbeddedFrame) {
+        const unwatch = watchEmbeddedFrame(runtime);
+        if (typeof unwatch === 'function') addRuntimeCleanup(runtime, unwatch);
     }
 }
 
