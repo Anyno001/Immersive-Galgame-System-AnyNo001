@@ -6,13 +6,16 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyMoodToCaption, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyMoodToCaption, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
 
 export const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
 const IMAGE_CACHE_LIMIT = 60;
+const AVATAR_SIZE = '1024x1024';
+const AVATAR_POSITIVE = 'chibi, solo, portrait, head and shoulders, looking at viewer, simple background';
+const AVATAR_NEGATIVE = 'full body, multiple views, realistic, text, watermark, signature, frame, border';
 // review：等待楼层结束时让用户处理；chat：用户选择仅本聊天使用；
 // library：已加入素材库（由生成区条目接管）；discarded：丢弃。
 const ACTIVE_TEMP_STATUSES = new Set(['review', 'chat']);
@@ -660,6 +663,38 @@ export function createAssetGenerationService(deps) {
         return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, onProgress });
     }
 
+    // 状态栏头像：Q 版大头，方图、不抠图，直接把图交回去，由设置页缩小后存进头像。
+    async function generateCharacterAvatar({ name, dna, onProgress } = {}) {
+        const who = String(name || '').trim();
+        if (!who) return { ok: false, error: '没有角色' };
+        if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
+            return { ok: false, error: '当前图像来源不能生成头像' };
+        }
+        reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: 1, mood: '头像' });
+        let written;
+        try {
+            written = await nai.writeDbgenPrompt({ description: buildCharacterAvatarDescription(who, dna) });
+        } catch (error) {
+            return { ok: false, error: (error && error.message) || '写提示词失败' };
+        }
+        if (!written || !written.ok || !written.caption) {
+            return { ok: false, error: (written && written.error) || '写提示词失败' };
+        }
+        reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: '头像' });
+        let painted;
+        try {
+            painted = await nai.generateDbgenCaption({
+                caption: applyCharacterDnaToCaption(written.caption, dna),
+                size: AVATAR_SIZE,
+                userPrompts: { positive: AVATAR_POSITIVE, negative: AVATAR_NEGATIVE },
+            });
+        } catch (error) {
+            painted = { ok: false, error: (error && error.message) || '出图失败' };
+        }
+        if (!painted || !painted.ok || !painted.dataUrl) return { ok: false, error: (painted && painted.error) || '出图失败' };
+        return { ok: true, dataUrl: painted.dataUrl };
+    }
+
     // 设置页主动出一张默认立绘：写一份提示词，再出图。不经过楼内补图。
     async function generateCharacterSprite({ name, dna, onProgress } = {}) {
         const who = String(name || '').trim();
@@ -771,7 +806,7 @@ export function createAssetGenerationService(deps) {
 
     return {
         processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage,
-        generateExpressionSet, generateExpressionImage, generateCharacterSprite, writeWardrobePrompt, paintWardrobeReference,
+        generateExpressionSet, generateExpressionImage, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
         start() {

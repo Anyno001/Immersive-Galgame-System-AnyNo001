@@ -198,6 +198,18 @@ export function buildCharacterSpriteDescription(name, dna) {
     ].filter(Boolean).join('\n');
 }
 
+// 状态栏头像：Q 版大头，只画到肩膀。长相和衣服按角色设定写。
+export function buildCharacterAvatarDescription(name, dna) {
+    return [
+        `画角色「${name || ''}」的 Q 版头像（chibi）。`,
+        '大头小身的 Q 版比例，只画头和肩膀，正面看向画面，表情自然、带一点笑。',
+        '外貌与服装按下面的角色设定来画，发色、瞳色、发型不能改。设定里没写到的，按这个角色补一个日常样子。',
+        '纯色浅底，不要背景，不要文字。',
+        ...characterDnaLines(name, dna),
+        '只写一份，slotid 为 1。',
+    ].filter(Boolean).join('\n');
+}
+
 // 待确认服装：只写这一套衣服的生图标签，不写出图。
 export function buildWardrobeClothingDescription(_character, outfitName) {
     const outfit = String(outfitName || '').trim();

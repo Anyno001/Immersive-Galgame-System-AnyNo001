@@ -384,7 +384,7 @@ export function renderCharacterAssetList(characters, options = {}) {
         const avatarPreview = avatarUrl
             ? `<img class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
-        const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/..."><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
+        const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/..."><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button><button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成 Q 版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
         const houseHtml = magicHouse ? renderCharacterHouseRow(charName, magicHouse) : '';
         const dna = Object.prototype.hasOwnProperty.call(dnaMap, charName) ? dnaMap[charName] : null;
         const dnaOpen = isOpen(`char-dna:${charName}`);
@@ -417,6 +417,7 @@ export function renderCharacterAssetList(characters, options = {}) {
                 canPrompt ? menuItem(`char-expression-prompt:${c}:${m}`, '提示词') : '',
                 imageId ? menuItem(`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${mood}-立绘.png`)}`, '下载') : '',
                 mood !== '默认' && (imageId || (note && note.error)) ? menuItem(`char-expression-retry:${c}:${m}`, '重新生成') : '',
+                mood === '默认' && rawUrl ? menuItem(`char-generate-sprite:${c}`, '重新生成') : '',
                 menuItem(`scene-rename-mood:${c}:${m}`, '重命名'),
                 menuItem(`scene-remove-mood:${c}:${m}`, '删除', ' is-danger'),
             ], `「${mood}」的操作`);

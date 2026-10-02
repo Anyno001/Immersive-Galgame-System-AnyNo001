@@ -74,7 +74,7 @@ function assetFolderScope(settingsState, options) {
 
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
-const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url)|char-generate-sprite|char-expression-(?:prompt|set|retry)|outfit-expression-(?:prompt|set|retry))$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|char-expression-(?:prompt|set|retry)|outfit-expression-(?:prompt|set|retry))$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
 function linkedCharacterOutfits(settingsState) {
@@ -307,12 +307,17 @@ function restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDr
 // 角色记一个档位；没记过按 8。用户取消返回 0。
 async function chooseMoodTier(dialogs, saved, name) {
     const current = [8, 12, 18].includes(Number(saved)) ? Number(saved) : 8;
-    if (!dialogs || typeof dialogs.prompt !== 'function') return current;
-    const hint = `「${name}」要画多少张表情差分？
-8 普通角色
-12 重要配角
-18 主角`;
-    const raw = await dialogs.prompt(hint, String(current));
+    const title = `「${name}」要画多少张表情差分？`;
+    let raw;
+    if (dialogs && typeof dialogs.choose === 'function') {
+        raw = await dialogs.choose(title, [
+            { value: '8', label: '8', note: '普通角色' },
+            { value: '12', label: '12', note: '重要配角' },
+            { value: '18', label: '18', note: '主角' },
+        ], String(current));
+    } else if (dialogs && typeof dialogs.prompt === 'function') {
+        raw = await dialogs.prompt(`${title}\n8 普通角色\n12 重要配角\n18 主角`, String(current));
+    } else return current;
     if (raw == null) return 0;
     const picked = Number(String(raw).trim());
     return [8, 12, 18].includes(picked) ? picked : current;
@@ -1569,6 +1574,41 @@ export async function handleSettingsAction(action, ctx) {
         const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
         avatars[charName] = picked.dataUrl;
         sceneAssets.statusAvatars = avatars;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('status-avatar-generate:')) {
+        const charName = decodeSeg(normalizedAction.slice('status-avatar-generate:'.length));
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        if (!charName) return rerenderSettings();
+        if (!service || typeof service.generateCharacterAvatar !== 'function') {
+            return generatedOperationFailure(globalObj, '头像生成当前不可用。', 'avatar-generate-unavailable');
+        }
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
+        const had = Boolean(normalizeStatusAvatars(sceneAssets.statusAvatars)[charName]);
+        const confirmed = await dialogs.confirm(had
+            ? `重新生成「${charName}」的 Q 版头像。现在的头像会被换掉。`
+            : `生成「${charName}」的 Q 版头像。`);
+        if (!confirmed) return rerenderSettings();
+        let result;
+        const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction);
+        try {
+            result = await service.generateCharacterAvatar({ name: charName, dna: characterExpressionDna(sceneAssets, charName), onProgress: (event) => reportExpressionProgress(globalObj, event) });
+        } catch (error) {
+            result = { ok: false, error: '头像生成失败。' };
+        }
+        clearExpressionProgress(globalObj);
+        restoreBusy();
+        if (!result || !result.ok || !result.dataUrl) {
+            return generatedOperationFailure(globalObj, (result && result.error) || '头像生成失败。', 'avatar-generate-failed');
+        }
+        const liveAssets = draftAssetLibrary(settingsState, editTarget);
+        const avatars = normalizeStatusAvatars(liveAssets.statusAvatars);
+        avatars[charName] = await shrinkAvatarDataUrl(globalObj, result.dataUrl);
+        liveAssets.statusAvatars = avatars;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -2897,6 +2937,35 @@ function removeSceneWordEntry(scenes, entry) {
     else if (entry.type === 'time') arr = scenes[sn] && scenes[sn].times && scenes[sn].times[tn] && scenes[sn].times[tn].words;
     else arr = scenes[sn] && scenes[sn].times && scenes[sn].times[tn] && scenes[sn].times[tn].weathers && scenes[sn].times[tn].weathers[wn] && scenes[sn].times[tn].weathers[wn].words;
     if (Array.isArray(arr)) { const i = arr.indexOf(entry.word); if (i >= 0) arr.splice(i, 1); }
+}
+
+// 生成的头像原图有 1024 见方，缩到 256 再存进设置，避免设置体积暴涨；没有画布时原样存。
+const STATUS_AVATAR_GENERATED_SIZE = 256;
+
+function shrinkAvatarDataUrl(globalObj, dataUrl) {
+    const doc = globalObj && globalObj.document;
+    const ImageCtor = globalObj && globalObj.Image;
+    if (!doc || typeof doc.createElement !== 'function' || typeof ImageCtor !== 'function') return Promise.resolve(dataUrl);
+    return new Promise((resolve) => {
+        const img = new ImageCtor();
+        img.onload = () => {
+            try {
+                const side = STATUS_AVATAR_GENERATED_SIZE;
+                const canvas = doc.createElement('canvas');
+                canvas.width = side;
+                canvas.height = side;
+                const ctx = canvas.getContext('2d');
+                const crop = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
+                const sx = ((img.naturalWidth || img.width) - crop) / 2;
+                ctx.drawImage(img, sx, 0, crop, crop, 0, 0, side, side);
+                resolve(canvas.toDataURL('image/webp', 0.9));
+            } catch (error) {
+                resolve(dataUrl);
+            }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+    });
 }
 
 function pickStatusAvatarFile(doc) {

@@ -9,6 +9,14 @@ export const SETTINGS_DIALOG_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-dialog .igs-settings-field{margin:0}
 #igs-unified-settings .igs-settings-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
 #igs-unified-settings .igs-settings-dialog-actions [data-settings-dialog="ok"]{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
+#igs-unified-settings .igs-settings-dialog.is-choose .igs-settings-dialog-msg{font-size:14px;font-weight:600}
+#igs-unified-settings .igs-settings-dialog-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:8px}
+#igs-unified-settings .igs-settings-dialog-choice{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:58px;padding:8px 4px;border:1px solid var(--igs-settings-line);border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-raised);color:var(--igs-settings-ink);font:inherit;cursor:pointer}
+#igs-unified-settings .igs-settings-dialog-choice b{font-size:20px;line-height:1.1;font-weight:600;font-variant-numeric:tabular-nums}
+#igs-unified-settings .igs-settings-dialog-choice span{font-size:12px;line-height:1.3;opacity:.72}
+#igs-unified-settings .igs-settings-dialog-choice.is-current{border-color:var(--igs-settings-accent)}
+#igs-unified-settings .igs-settings-dialog-choice.is-current b{color:var(--igs-settings-accent)}
+#igs-unified-settings .igs-settings-dialog-choice:focus-visible{outline:2px solid var(--igs-settings-accent);outline-offset:2px}
 `;
 
 function nativeFallback(globalObj) {
@@ -17,6 +25,11 @@ function nativeFallback(globalObj) {
         if (kind === 'view') {
             if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
             return true;
+        }
+        if (kind === 'choose') {
+            if (!globalObj || typeof globalObj.prompt !== 'function') return value;
+            const answer = globalObj.prompt(message, value);
+            return answer == null ? null : String(answer).trim();
         }
         if (kind === 'edit') {
             if (!globalObj || typeof globalObj.prompt !== 'function') return null;
@@ -59,7 +72,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         const doc = host.ownerDocument;
         if (!doc || typeof doc.createElement !== 'function') return null;
         const el = doc.createElement('div');
-        el.className = entry.kind === 'view' || entry.kind === 'edit'
+        el.className = entry.kind === 'view' || entry.kind === 'edit' || entry.kind === 'choose'
             ? `igs-settings-dialog is-${entry.kind}`
             : 'igs-settings-dialog';
         el.setAttribute('role', entry.kind === 'confirm' ? 'alertdialog' : 'dialog');
@@ -82,9 +95,34 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             wrap.appendChild(input);
             el.appendChild(wrap);
         }
+        let current = null;
+        if (entry.kind === 'choose') {
+            const list = doc.createElement('div');
+            list.className = 'igs-settings-dialog-choices';
+            for (const choice of entry.choices) {
+                const btn = doc.createElement('button');
+                btn.type = 'button';
+                btn.className = choice.value === entry.value ? 'igs-settings-dialog-choice is-current' : 'igs-settings-dialog-choice';
+                btn.setAttribute('data-settings-dialog', 'choice');
+                btn.setAttribute('data-settings-choice', choice.value);
+                if (choice.value === entry.value) { btn.setAttribute('aria-current', 'true'); current = btn; }
+                const big = doc.createElement('b');
+                big.textContent = choice.label;
+                btn.appendChild(big);
+                if (choice.note) {
+                    const small = doc.createElement('span');
+                    small.textContent = choice.note;
+                    btn.appendChild(small);
+                }
+                list.appendChild(btn);
+            }
+            el.appendChild(list);
+        }
         const actions = doc.createElement('div');
         actions.className = 'igs-settings-dialog-actions';
-        const buttons = entry.kind === 'view' ? [['ok', entry.okLabel]] : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
+        const buttons = entry.kind === 'view' ? [['ok', entry.okLabel]]
+            : entry.kind === 'choose' ? [['cancel', entry.cancelLabel]]
+                : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
         for (const [role, label] of buttons) {
             const btn = doc.createElement('button');
             btn.type = 'button';
@@ -99,7 +137,9 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             event.stopPropagation();
             const btn = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-settings-dialog]') : null;
             if (!btn) return;
-            if (btn.getAttribute('data-settings-dialog') === 'ok') accept();
+            const role = btn.getAttribute('data-settings-dialog');
+            if (role === 'choice') settle(entry, btn.getAttribute('data-settings-choice'));
+            else if (role === 'ok') accept();
             else settle(entry, cancelValue(entry));
         });
         el.addEventListener('keydown', (event) => {
@@ -107,13 +147,13 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 event.preventDefault();
                 event.stopPropagation();
                 settle(entry, cancelValue(entry));
-            } else if (event.key === 'Enter' && !entry.multiline && !event.isComposing && (input ? event.target === input : true)) {
+            } else if (event.key === 'Enter' && entry.kind !== 'choose' && !entry.multiline && !event.isComposing && (input ? event.target === input : true)) {
                 event.preventDefault();
                 event.stopPropagation();
                 accept();
             }
         });
-        entry.focusTarget = () => input || actions.lastChild;
+        entry.focusTarget = () => input || current || actions.lastChild;
         return el;
     }
 
@@ -135,7 +175,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         return el;
     }
 
-    function open(kind, message, value, labels = {}) {
+    function open(kind, message, value, labels = {}, choices = []) {
         const container = getContainer();
         if (!findHost(container)) return Promise.resolve(askNative(kind, message, value));
         if (pending) settle(pending, cancelValue(pending));
@@ -147,6 +187,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 okLabel: labels.okLabel || (kind === 'edit' ? '保存' : '确定'),
                 cancelLabel: labels.cancelLabel || '取消',
                 multiline: kind === 'edit',
+                choices,
                 resolve,
                 el: null,
             };
@@ -163,6 +204,10 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         prompt: (message, value = '', labels) => open('prompt', message, value, labels),
         view: (message, labels) => open('view', message, '', { okLabel: '关闭', ...labels }),
         edit: (message, value = '', labels) => open('edit', message, value, { okLabel: '保存', ...labels }),
+        // 几个固定选项直接点选，不用手打；choices 为 [{ value, label, note }]，value 等于当前值的高亮。原生兜底退回输入框。
+        choose: (message, choices = [], value = '', labels) => open('choose', message, value, labels || {}, (Array.isArray(choices) ? choices : [])
+            .map((item) => ({ value: String(item && item.value != null ? item.value : ''), label: String(item && item.label != null ? item.label : item && item.value), note: String((item && item.note) || '') }))
+            .filter((item) => item.value)),
         remount(container) {
             const el = mount(container || getContainer());
             if (!el && pending) settle(pending, cancelValue(pending));

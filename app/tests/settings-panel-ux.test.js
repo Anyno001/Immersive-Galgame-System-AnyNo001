@@ -605,3 +605,59 @@ test('gate:expression-set:custom-groups-only-when-asked', async () => {
     assert.equal(taken.seen[0].length, 20);
     assert.deepEqual(taken.seen[0].slice(-2), ['旧组乙', '旧组丙']);
 });
+
+test('gate:settings-dialog:choose-picks-a-button-and-highlights-current', async () => {
+    const panel = makePanel();
+    const dialogs = createSettingsDialogs({ getContainer: () => panel.container, fallback: () => { throw new Error('native dialog must not be used'); } });
+    const choices = [{ value: '8', label: '8', note: '普通角色' }, { value: '12', label: '12', note: '重要配角' }, { value: '18', label: '18', note: '主角' }];
+    const answer = dialogs.choose('「冬月」要画多少张表情差分？', choices, '12');
+    const bar = panel.overlay.querySelector('.igs-settings-dialog');
+    assert.match(bar.className, /is-choose/);
+    assert.equal(bar.querySelector('.igs-settings-dialog-input'), null, 'no text input to type into');
+    assert.equal(bar.querySelector('[data-settings-dialog="ok"]'), null);
+    const current = bar.querySelector('.igs-settings-dialog-choice.is-current');
+    assert.equal(current.getAttribute('data-settings-choice'), '12');
+    assert.ok(panel.doc.activeElement === current);
+    rebuildPanel(panel, () => {});
+    dialogs.remount(panel.container);
+    panel.overlay.querySelector('[data-settings-choice="18"]').dispatch('click');
+    assert.equal(await answer, '18');
+    const cancelled = dialogs.choose('再选一次', choices, '8');
+    panel.overlay.querySelector('[data-settings-dialog="cancel"]').dispatch('click');
+    assert.equal(await cancelled, null);
+});
+
+test('gate:status-avatar:generates-a-chibi-avatar-and-default-slot-can-regenerate', async () => {
+    const { buildCharacterAvatarDescription } = await import('../src/generated-images/dbgen-prompt.js');
+    const { renderCharacterAssetList } = await import('../src/visual/igs-ui/settings-fields.js');
+    assert.match(buildCharacterAvatarDescription('冬月', null), /Q 版头像（chibi）/);
+    const asks = [];
+    const seen = [];
+    const draft = {
+        bridge: { sceneAssets: { characters: { 冬月: { 默认: 'igs-gen:def' } }, characterDna: { 冬月: { identity: 'black hair', defaultAppearance: '', negative: '', triggerWords: '' } } } },
+        readerSettings: {},
+    };
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: {
+            global: { alert() {}, document: { getElementById() { return null; } } },
+            generatedAssets: {
+                generateCharacterAvatar: async (input) => { seen.push(input); return { ok: true, dataUrl: 'data:image/png;base64,QUJD' }; },
+            },
+        },
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: { confirm: async (message) => { asks.push(message); return true; } },
+    };
+    const made = await handleSettingsAction('status-avatar-generate:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(made.ok, true);
+    assert.match(asks[0], /生成「冬月」的 Q 版头像/);
+    assert.equal(seen[0].dna.identity, 'black hair');
+    assert.equal(draft.bridge.sceneAssets.statusAvatars['冬月'], 'data:image/png;base64,QUJD');
+    await handleSettingsAction('status-avatar-generate:%E5%86%AC%E6%9C%88', ctx);
+    assert.match(asks[1], /现在的头像会被换掉/);
+    const html = renderCharacterAssetList({ 冬月: { 默认: 'igs-gen:def', 喜悦: '' } }, { isOpen: () => true, statusAvatars: draft.bridge.sceneAssets.statusAvatars });
+    assert.ok(html.includes('data-action="status-avatar-generate:%E5%86%AC%E6%9C%88"'));
+    assert.ok(html.includes('重画Q版'));
+    assert.match(html, /data-action="char-generate-sprite:%E5%86%AC%E6%9C%88"[^>]*>重新生成</);
+});
