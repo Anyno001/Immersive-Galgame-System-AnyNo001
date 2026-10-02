@@ -61,6 +61,12 @@ export const FX_SFX_PARTIALS = Object.freeze({
         p('triangle', 1760, 1760, i * 0.06, 0.05, 0.4, { attack: 0.001 }),
         p('sine', 2637, 2637, i * 0.06, 0.04, 0.16, { attack: 0.001 }),
     ]).flat()),
+    // 魔法通报：猫头鹰「咕—咕」两声，尾随一串细碎的魔法泛音。
+    'notify-magic': Object.freeze([
+        p('sine', 420, 380, 0, 0.2, 0.42, { attack: 0.04, sweep: 1 }),
+        p('sine', 400, 360, 0.26, 0.36, 0.42, { attack: 0.04, sweep: 1 }),
+        ...[2093, 2637, 3136, 3951].map((freq, i) => p('sine', freq, freq, 0.5 + i * 0.06, 0.3, 0.07, { attack: 0.003 })),
+    ]),
 
     heartbeat: Object.freeze([
         p('sine', 70, 48, 0, 0.16, 1, { attack: 0.004, sweep: 1 }),

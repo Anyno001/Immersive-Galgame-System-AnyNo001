@@ -24,12 +24,12 @@
 - 三片素材（含西欧古典）预先横向拼成单张 `dialog.png` / `name.png`，以 `border-image … fill` 一次绘制、高度随框拉伸；禁止拆成三层背景分别定位（缩放后各层独立取整会漏缝，半透明纸面重叠会叠出亮线）。
 - 日间简约、优雅欧式为通栏主题（`buildDialogFrameCss` 的 `flush`），全部阅读模式贴合阅读器左右与底边、与阅读器等宽；其余主题保持卡片边距。优雅欧式底板取作者 `frame_message` 左右两片拼成（两端 200px 渐隐线保形、中段拉伸），中央饰纹由原图反合成抠出、按原尺寸单独叠放，不随宽度拉伸。
 - 复古日式、冒险旅途同为三片素材主题（裁自作者素材库 `messgeframe_01`/`text_ribbon_06`、`message_frame_02_light`/`name_tag_02`）；复古日式在 `max-width:640px` 下切换 `compact` 几何，避免两侧花簇挤占正文。
-- 日间简约、温暖绘本、优雅欧式为纯 CSS 还原主题（`dialog-theme-css-skins.js`），与三片主题共用 `dialog-skin-frame.js` 骨架并计入 `ILLUSTRATED_DIALOG_SKINS`；优雅欧式内嵌通栏底板与两枚饰纹 PNG。温暖绘本的断开外描边依赖 `overflow-clip-margin`，不支持时只丢描边。
+- 日间简约、温暖绘本、优雅欧式、魔法学院为纯 CSS 主题（`dialog-theme-css-skins.js`），与三片主题共用 `dialog-skin-frame.js` 骨架并计入 `ILLUSTRATED_DIALOG_SKINS`；优雅欧式内嵌一列黑纱底板与两枚饰纹 PNG，照作者三切片拼法：饰纹（含穿过它的线段）居中不动，两侧细线用渐变向外延伸、两端渐隐，细线不得穿过饰纹（否则会填满花纹间隙）。魔法学院的角花、星点与徽带全用渐变绘制，无素材。温暖绘本的断开外描边依赖 `overflow-clip-margin`，不支持时只丢描边。
 - 选项跟随皮肤：西欧古典、植物咖啡、黑白漫画、超可爱粉、复古日式、冒险旅途使用作者选项按钮 PNG 的 `border-image` 九宫格（`choice`/`choice-hover`/`choice-active`），其余主题为 CSS。
 - 状态栏 HUD 与情绪标签跟随皮肤（`dialog-theme-hud.js`）：各主题分别定义面板、情绪标签、头像描边与角标、兜底头像、HUD 条轨道与填充；填充颜色经 `--igs-hud-fill-color` 传入，灰白模式改用主题的 `--igs-hud-fill-neutral`。复古日式、冒险旅途的情绪标签用作者缎带/名牌 PNG（`tag.png`）。资料小菜单（箭头与四个入口）不随皮肤变化。
 - 素材/CSS 主题几何（框高、两端宽、姓名牌、正文内距、装饰伪元素）统一写成 `calc(Npx * var(--igs-skin-scale,1))`；`readerSettings.skinDialogScale` 取 `1/0.9/0.8/0.7/0.6`（默认 `1`），由渲染层写到 `#igs-overlay`。字号与文字光晕不参与缩放。正文直接压在花纹上排版，各主题用同底色光晕描边保证可读，不再为避让装饰内缩。主题不再强制字体，排版默认值只含颜色与对齐。
 - 复古日式、冒险旅途同为三片素材主题（裁自作者素材库 `messgeframe_01`/`text_ribbon_06`、`message_frame_02_light`/`name_tag_02`）；复古日式在 `max-width:640px` 下切换 `compact` 几何，避免两侧花簇挤占正文。
-- 日间简约、温暖绘本、优雅欧式为纯 CSS 还原主题（`dialog-theme-css-skins.js`），与三片主题共用 `dialog-skin-frame.js` 骨架并计入 `ILLUSTRATED_DIALOG_SKINS`；优雅欧式内嵌通栏底板与两枚饰纹 PNG。温暖绘本的断开外描边依赖 `overflow-clip-margin`，不支持时只丢描边。
+- 日间简约、温暖绘本、优雅欧式、魔法学院为纯 CSS 主题（`dialog-theme-css-skins.js`），与三片主题共用 `dialog-skin-frame.js` 骨架并计入 `ILLUSTRATED_DIALOG_SKINS`；优雅欧式内嵌一列黑纱底板与两枚饰纹 PNG，照作者三切片拼法：饰纹（含穿过它的线段）居中不动，两侧细线用渐变向外延伸、两端渐隐，细线不得穿过饰纹（否则会填满花纹间隙）。魔法学院的角花、星点与徽带全用渐变绘制，无素材。温暖绘本的断开外描边依赖 `overflow-clip-margin`，不支持时只丢描边。
 - 选项跟随皮肤：西欧古典、植物咖啡、黑白漫画、超可爱粉、复古日式、冒险旅途使用作者选项按钮 PNG 的 `border-image` 九宫格（`choice`/`choice-hover`/`choice-active`），其余主题为 CSS。
 - 西欧古典皮肤使用内嵌三片背景：高度 `184px`、左右端各 `110px` 保形、中段横向伸缩，常规最小目标宽度 `280px`；正文继续在现有安全区和滚动节点内排版。`readerSettings.classicDialogWidthPercent` 取 `60–100`，默认 `100`，只在电脑浮窗模式按阅读器可用宽度自动计算并居中；手机与楼层内嵌保持原有满宽。
 - 西欧古典姓名牌复用 `#igs-speaker` 及其既有显隐条件；常规起点相对主框为 `left:35px; top:-22px`，常规尺寸 `300×50px`，两端各 `40px`、中段占主要宽度。窄屏视口（`max-width:640px`）的五种阅读模式统一使用相对主框 `41.667%` 宽度、`left:38px; top:-14px` 与原始 `50px` 高度；姓名使用 `13px` 深色字与细白描边并垂直居中。无姓名时不得出现空牌，切回默认必须恢复原姓名与分隔线布局。
@@ -115,6 +115,7 @@
 - 区间氛围（`fxTags.movie / light / umbrella`，属 `FX_TAG_OPT_IN`，需显式开启）：`movie … movie-end`、`light|off … light|on`（或 `light-end`；模式词限 off/on/关/开/关灯/开灯/吹灯/点灯，其余整条丢弃）、`umbrella … umbrella-end` 为区间标签，由 `planPageFx` 顶层 `atmos` 驱动 `#igs-stage-motion[data-igs-fx-movie / -lightsoff / -umbrella]`，`filterFxByKinds` 与 `plan.ranges` 结构不变。只改展示层：关灯压暗挂 `#igs-fx-stage` 背景（压过时段调色），关灯页另播一次「啪」拟声；看电影为屏幕光闪烁；撑伞只画伞面剪影，天气粒子不做遮挡（粒子模块无遮挡接口）。movie 现代专属，light / umbrella 通用；古代背景关灯为「吹灯」：提示词写「吹灯」，关灯页在 `#igs-fx-stage` 出一支蜡烛（`.igs-fx-candle`，烛火一晃熄灭、升起青烟，`aria-hidden`），拟声换「呼」（whoosh）；减少动态效果时不出蜡烛，只留压暗与音效。
 - 其余日常演出（`dailyFx.cheers / cook / cat`，属 `DAILY_FX_OPT_IN`，需显式开启，时代通用）：碰杯为双杯相碰卡片；`[igs-fx:cook|料理名]` 料理名必填，只出料理卡，不走物品演出、不写物品表；撸猫为舞台层肉球印，不出猫叫声。音效复用 touch / lantern / sticky。
 - 古风独有日常演出（`dailyFx.guqin / go / poem / edict / tea / bow`，属 `DAILY_FX_OPT_IN`，需显式开启，古代专属）：`scene/fx-era.js` 的 `FX_ERA_ANCIENT_ONLY` 在现代模式把它们拨成关（不注入提示词、不播放）；现代模式无古代专属项开启时 `applyFxEra` 原样返回入参。题诗、告示内容必填，对弈结果可省（写错按省略）。题诗为宣纸竖排 CSS 遮罩揭示后盖印，播放期不改写文本；告示为卷轴展开；行礼经 `playSpriteSpec` 以 add 合成下沉再起，无立绘、无 WAAPI 或减少动态效果时不播放。音效复用 lantern / sticky / paper，未新增古琴音色（`DAILY_SFX_KINDS` 有全集断言）。
+- 魔法世界独有日常演出（`dailyFx.spell / potion / owl / broom / howler`，属 `DAILY_FX_OPT_IN`，需显式开启）：`scene/fx-era.js` 的 `FX_MAGIC_ONLY` 经 `FX_WORLDVIEW_ONLY` 在魔法以外的世界观拨成关。字段均可省；施咒、魔药按文字从 `MAGIC_HUES` 取光色（同名同色），猫头鹰投下火漆信封，扫帚掠空；各有专属合成音（spell / potion / owl / broom）。减少动态效果时只留咒语、信封与魔药标签。施咒光色先经 `spellHue` 按语义归类（黑魔法绿、攻击红、守护治愈银白、照明白、石化冰冻蓝），归不了类再按字取色；吼叫信信封抖动后炸开、逐字吼出。魔法世界观的时间跳跃换成沙漏 + 塔钟（`hourglass`）。设置页「日常类型」只列当前世界观可用的类型（`FX_WORLDVIEW_ONLY` 中其他世界观的专属项隐藏，存值保留）。魔法学院的学院配色存 `readerSettings.magicHouse`（scarlet / emerald / sapphire / amber），由 reader-dom-render 以 `--igs-ma-*` 变量写到 #igs-overlay，对话框、选项与状态栏共用。魔法世界观的战斗音效经 `battleSfxKind(event, worldview)` 优先取 `battle-<结果>-magic`，没有对应变体时回落通用音色。
 
 
 

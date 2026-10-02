@@ -165,11 +165,35 @@ function nowClock() {
 }
 
 // 结果类日常演出的停留时长（未并入导出的 DAILY_FX_LIFETIME_MS，避免改变其既有结构）。
-const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900 });
+const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200 });
+// 吼叫信：抖动 900ms 后炸开，逐字吼出，吼完再停留。
+const HOWLER_MS = Object.freeze({ shake: 900, perChar: 70, hold: 2400 });
 // 行礼：立绘微沉再起，add 合成叠加，结束后自动还原。
 const BOW_SPEC = Object.freeze({ duration: 760, easing: 'ease-in-out', frames: ['translate(0,0)', 'translate(0,2.2%)', 'translate(0,2.2%)', 'translate(0,0)'] });
 // 捏脸：横向挤扁再回弹，composite:'add' 叠加在呼吸与动作之上，结束后自动还原。
 const POKE_SPEC = Object.freeze({ duration: 420, easing: 'ease-out', frames: ['scale(1,1)', 'scale(.92,1.03)', 'scale(1.03,.99)', 'scale(1,1)'] });
+// 魔法光色：咒语 / 魔药名按字取色，同名每次同色。
+const MAGIC_HUES = Object.freeze(['#ffd36a', '#8fd3ff', '#ff7a7a', '#8ff0a4', '#d9a8ff', '#ffa8d8']);
+function magicHue(text) {
+    let h = 0;
+    for (const ch of String(text || '')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return MAGIC_HUES[h % MAGIC_HUES.length];
+}
+// 咒语先按语义归类取色，归不了类再按字取色。
+const SPELL_HUES = Object.freeze([
+    [/阿瓦达|索命|钻心|剜骨|魂魄出窍|夺魂|不可饶恕|黑魔法|诅咒|死咒|avada|kedavra|crucio|imperio/iu, '#4dff6e'],
+    [/除你武器|缴械|昏昏倒地|昏迷|击晕|障碍|粉身碎骨|爆炸|火焰|烈火|expelliarmus|stupefy|reducto|confringo|incendio/iu, '#ff6b5a'],
+    [/守护神|呼神护卫|铁甲护身|护盾|守护|屏障|治愈|愈合|恢复|patronum|protego|episkey|vulnera/iu, '#e4ecff'],
+    [/荧光闪烁|照明|光明|点亮|lumos/iu, '#fffbe8'],
+    [/统统石化|石化|冰冻|冻结|定身|禁锢|束缚|petrificus|glacius|incarcerous|immobulus/iu, '#7fc8ff'],
+]);
+export function spellHue(words) {
+    const hit = SPELL_HUES.find(([pattern]) => pattern.test(String(words || '')));
+    return hit ? hit[1] : magicHue(words);
+}
+const HOURGLASS_HTML = '<div class="igs-dfx-hourglass"><i class="igs-dfx-hg-cap"></i><div class="igs-dfx-hg-glass"><i class="igs-dfx-hg-sand is-top"></i><i class="igs-dfx-hg-stream"></i><i class="igs-dfx-hg-sand is-bottom"></i></div><i class="igs-dfx-hg-cap"></i></div>';
+const OWL_SVG = '<svg class="igs-dfx-owl-bird" viewBox="0 0 64 48" aria-hidden="true"><path class="igs-dfx-owl-wing is-left" d="M28 22C18 8 6 9 0 17c10 1 17 7 26 13Z"/><path class="igs-dfx-owl-wing is-right" d="M36 22C46 8 58 9 64 17c-10 1-17 7-26 13Z"/><path d="M24 20l2-8 4 5h4l4-5 2 8c2 10-2 20-8 22-6-2-10-12-8-22Z"/><circle cx="29" cy="21" r="2.2" fill="#ffd46a"/><circle cx="35" cy="21" r="2.2" fill="#ffd46a"/></svg>';
+const BROOM_SVG = '<svg class="igs-dfx-broom-stick" viewBox="0 0 120 30" aria-hidden="true"><path d="M4 13 82 15" stroke="#6b4423" stroke-width="3.5" stroke-linecap="round"/><path d="M80 10 118 2l-4 13 4 13-38-8Z" fill="#c9a25a"/><path d="M80 9v12" stroke="#4a2e14" stroke-width="3"/></svg>';
 const HAND_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V6.5a1.5 1.5 0 0 1 3 0V10h.5V4.5a1.5 1.5 0 0 1 3 0V10h.5V5.5a1.5 1.5 0 0 1 3 0V11h.5V8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.5A6.5 6.5 0 0 1 7 14.5Z"/></svg>';
 
 // 立绘 background-position 横向百分比；读不到时居中，并收在 10–90 之间避免贴边。
@@ -190,6 +214,13 @@ const BUILDERS = {
             return {
                 layer: 'front', life, sounds: ['drum'],
                 node: make(env.doc, 'igs-dfx igs-dfx-timeskip is-ancient', `<div class="igs-dfx-veil"></div><div class="igs-dfx-incense"><i class="igs-dfx-stick"><i class="igs-dfx-smoke"></i><i class="igs-dfx-smoke is-b"></i></i><i class="igs-dfx-censer"></i></div>${text}`),
+            };
+        }
+        // 魔法世界：沙漏流沙 + 城堡钟声；星空底与字体由 is-magic 换皮提供。
+        if (env.worldview === 'magic') {
+            return {
+                layer: 'front', life, sounds: ['hourglass'],
+                node: make(env.doc, 'igs-dfx igs-dfx-timeskip is-hourglass', `<div class="igs-dfx-veil"></div>${HOURGLASS_HTML}${text}`),
             };
         }
         return {
@@ -381,6 +412,40 @@ const BUILDERS = {
         if (!visible || env.reduced) return null;
         if (!playSpriteSpec(sprite, BOW_SPEC)) return null;
         return { layer: 'stage', life: DAILY_RESULT_LIFE_MS.bow, sounds: [], node: make(env.doc, 'igs-dfx igs-dfx-bow') };
+    },
+    // 魔法世界独有：只在魔法世界观可用（fx-era 在其他世界观拨掉）。
+    spell(item, env) {
+        const sparks = Array.from({ length: 10 }, (_, i) => {
+            const angle = i * 36 + (i % 2) * 14;
+            return `<i style="--igs-spark-a:${angle}deg;--igs-spark-d:${46 + (i % 3) * 18}px;animation-delay:${520 + (i % 4) * 40}ms"></i>`;
+        }).join('');
+        const words = item.words ? `<div class="igs-dfx-spell-words">${esc(item.words)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-spell', `<i class="igs-dfx-spell-beam"></i><div class="igs-dfx-spell-burst"><i class="igs-dfx-spell-core"></i>${sparks}</div>${words}`);
+        if (node.style && typeof node.style.setProperty === 'function') node.style.setProperty('--igs-magic', spellHue(item.words));
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.spell * env.hold), sounds: ['spell'], node };
+    },
+    potion(item, env) {
+        const bubbles = [22, 40, 58, 74, 32, 66].map((x, i) => `<i style="left:${x}%;animation-delay:${i * 230}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-potion', `<div class="igs-dfx-potion-pot"><div class="igs-dfx-potion-smoke"><i></i><i></i><i></i></div><i class="igs-dfx-potion-brew"></i><div class="igs-dfx-potion-bubbles">${bubbles}</div><i class="igs-dfx-potion-body"></i></div><div class="igs-dfx-potion-label"><span>魔药完成</span>${item.name ? `<b>${esc(item.name)}</b>` : ''}</div>`);
+        if (node.style && typeof node.style.setProperty === 'function') node.style.setProperty('--igs-magic', magicHue(item.name || 'potion'));
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.potion * env.hold), sounds: ['potion'], node };
+    },
+    owl(item, env) {
+        const from = item.from ? `<div class="igs-dfx-owl-from">来自 ${esc(item.from)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-owl', `<div class="igs-dfx-owl-flight">${OWL_SVG}</div><div class="igs-dfx-owl-drop"><div class="igs-dfx-owl-letter"><i class="igs-dfx-owl-seal"></i></div>${from}</div>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.owl * env.hold), sounds: ['owl'], node };
+    },
+    howler(item, env) {
+        const n = chars(item.text).length;
+        const life = HOWLER_MS.shake + n * HOWLER_MS.perChar + Math.round(HOWLER_MS.hold * env.hold);
+        const from = item.from ? `<div class="igs-dfx-howler-from">${esc(item.from)} 的吼叫信</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-howler', `<div class="igs-dfx-howler-env"><i class="igs-dfx-howler-flap"></i></div><div class="igs-dfx-howler-mouth">${charSpans(item.text, HOWLER_MS.perChar, HOWLER_MS.shake + 120)}</div>${from}`);
+        return { layer: 'front', life, sounds: ['howler'], node };
+    },
+    broom(item, env) {
+        const streaks = [18, 34, 52, 66, 80].map((y, i) => `<i style="top:${y}%;animation-delay:${i * 90}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-broom', `<div class="igs-dfx-broom-wind">${streaks}</div><div class="igs-dfx-broom-flight">${BROOM_SVG}<i class="igs-dfx-broom-trail"></i></div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.broom * env.hold), sounds: ['broom'], node };
     },
 
 };

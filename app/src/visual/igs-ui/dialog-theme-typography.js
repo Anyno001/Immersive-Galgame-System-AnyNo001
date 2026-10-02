@@ -122,6 +122,29 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#c3b4e6',
         narrationColor: '#d4cfdc',
     }),
+    'magic-academy': Object.freeze({
+        nameAlign: 'center',
+        nameFont: DIALOG_FONT_IM_FELL,
+        textFont: DIALOG_FONT_HUIWEN,
+        thoughtFont: DIALOG_FONT_HUIWEN,
+        narrationFont: DIALOG_FONT_HUIWEN,
+        nameColor: '#f6e7c1',
+        textColor: '#efe4c8',
+        thoughtColor: '#a9c8ff',
+        narrationColor: '#c9b98e',
+    }),
+    // 青绿山水：明朝体托住绢本气质，内心独白换楷书以示区别；墨色取黛青，旁白淡一层。
+    'qinglv-shanshui': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_HUIWEN,
+        textFont: DIALOG_FONT_HUIWEN,
+        thoughtFont: DIALOG_FONT_WENKAI,
+        narrationFont: DIALOG_FONT_HUIWEN,
+        nameColor: '#1f2b28',
+        textColor: '#26332f',
+        thoughtColor: '#2f5d7c',
+        narrationColor: '#56625d',
+    }),
 });
 
 export function getReferenceDialogTypography(dialogSkin) {

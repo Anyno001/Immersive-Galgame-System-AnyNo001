@@ -154,3 +154,58 @@ test('gate:worldview:era-prompt-rule-and-notify-sfx-per-worldview', async () => 
         assert.ok(Array.isArray(partials) && partials.length > 0, id);
     }
 });
+
+test('gate:worldview:magic-filters-modern-devices-and-owns-magic-daily-fx', async () => {
+    const { parseDailyFxBody, dailyFxOf } = await import('../src/scene/daily-fx-directives.js');
+    const { battleSfxKind, BATTLE_SFX_PARTIALS } = await import('../src/visual/igs-ui/fx-battle-sfx.js');
+    assert.equal(isReadyWorldview('magic'), true);
+    const sa = {};
+    assert.equal(applyWorldview(sa, 'magic'), true);
+    assert.equal(resolveWorldview(sa), 'magic');
+    assert.equal(sa.ancient, false);
+    assert.match(resolveWorldviewPromptRule('magic'), /猫头鹰/);
+    const magicKinds = { spell: true, potion: true, owl: true, broom: true, howler: true };
+    const settings = { fxTags: { enabled: true, call: true }, dailyFx: { enabled: true, photo: true, tv: true, guqin: true, ...magicKinds }, liveFx: { enabled: true } };
+    const magic = applyFxWorldview(settings, 'magic');
+    assert.equal(magic.fxTags.call, false);
+    assert.equal(magic.dailyFx.tv, false);
+    assert.equal(magic.dailyFx.photo, true, '魔法世界保留会动的照片');
+    assert.equal(magic.dailyFx.alarm, false);
+    assert.equal(magic.dailyFx.guqin, false, '古风专属在魔法世界拨掉');
+    assert.equal(magic.liveFx.enabled, false);
+    for (const kind of Object.keys(magicKinds)) assert.equal(magic.dailyFx[kind], true, kind);
+    for (const id of ['modern', 'ancient', 'fantasy', 'scifi', 'apocalypse', 'taisho']) {
+        const out = applyFxWorldview(settings, id);
+        for (const kind of Object.keys(magicKinds)) assert.equal(out.dailyFx[kind], false, `${id} ${kind}`);
+    }
+    for (const kind of Object.keys(magicKinds)) assert.equal(applyFxEra(settings, true).dailyFx[kind], false, kind);
+    assert.equal(settings.dailyFx.spell, true, '不改入参');
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('spell', ['除你武器'])), { type: 'spell', words: '除你武器' });
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('owl', [])), { type: 'owl', from: '' });
+    assert.equal(battleSfxKind({ type: 'hit', result: 'hit' }, 'magic'), 'battle-hit-magic');
+    assert.equal(battleSfxKind({ type: 'hit', result: 'miss' }, 'magic'), 'battle-miss');
+    assert.equal(battleSfxKind({ type: 'hit', result: 'hit' }), 'battle-hit');
+    assert.ok(BATTLE_SFX_PARTIALS['battle-encounter-magic'].length > 0);
+});
+
+test('gate:worldview:magic-refinements-spell-hue-house-colors-and-world-scoped-daily-list', async () => {
+    const { spellHue } = await import('../src/visual/igs-ui/fx-daily.js');
+    const { MAGIC_HOUSES, normalizeMagicHouse, magicHouseVars, CSS_DIALOG_STYLE_BY_SKIN } = await import('../src/visual/igs-ui/dialog-theme-css-skins.js');
+    const { renderStageDirectionFields } = await import('../src/visual/igs-ui/stage-direction-fields.js');
+    const { parseDailyFxBody, dailyFxOf } = await import('../src/scene/daily-fx-directives.js');
+    assert.equal(spellHue('除你武器'), '#ff6b5a');
+    assert.equal(spellHue('呼神护卫'), '#e4ecff');
+    assert.equal(spellHue('Avada Kedavra'), '#4dff6e');
+    assert.equal(spellHue('某个自创咒语'), spellHue('某个自创咒语'));
+    assert.deepEqual(MAGIC_HOUSES.map((h) => h.id), ['scarlet', 'emerald', 'sapphire', 'amber']);
+    assert.equal(normalizeMagicHouse('nope'), 'scarlet');
+    assert.equal(magicHouseVars('emerald')['--igs-ma-plate-a'], '#1f6b47');
+    assert.match(CSS_DIALOG_STYLE_BY_SKIN['magic-academy'], /var\(--igs-ma-plate-a,#8f2636\)/);
+    const reader = { dailyFx: { enabled: true } };
+    const list = (worldview) => renderStageDirectionFields(reader, (key, label, body) => body, { worldview }).daily;
+    assert.ok(list('magic').includes('dailyFx.spell') && !list('magic').includes('dailyFx.guqin'));
+    assert.ok(list('ancient').includes('dailyFx.guqin') && !list('ancient').includes('dailyFx.howler'));
+    assert.ok(!list('modern').includes('dailyFx.spell') && list('modern').includes('dailyFx.photo'));
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('howler', ['罗恩', '你竟敢偷开飞车'])), { type: 'howler', from: '罗恩', text: '你竟敢偷开飞车' });
+    assert.equal(parseDailyFxBody('howler', []), null);
+});

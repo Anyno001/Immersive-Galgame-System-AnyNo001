@@ -88,7 +88,82 @@ const touchGlints = Array.from({ length: 6 }, (_, i) => {
     return p('sine', freq, freq * 1.02, 0.34 + i * 0.1 + touchRand() * 0.05, 0.28, 0.05 + touchRand() * 0.03, { attack: 0.01 });
 });
 
+// 魔法世界：施咒的上扬泛音与火花、坩埚咕嘟、猫头鹰振翅与「咕—咕」、扫帚破风。
+const spellRand = seeded(59);
+const spellGlints = Array.from({ length: 9 }, (_, i) => {
+    const freq = 2600 + spellRand() * 1800;
+    return p('sine', freq, freq * 1.04, 0.36 + i * 0.05 + spellRand() * 0.04, 0.22, 0.05 + spellRand() * 0.04, { attack: 0.004 });
+});
+const potionRand = seeded(67);
+const potionBubbles = Array.from({ length: 11 }, () => {
+    const start = 0.1 + potionRand() * 2.2;
+    const freq = 260 + potionRand() * 260;
+    return p('sine', freq, freq * 2.2, start, 0.06, 0.22 + potionRand() * 0.12, { attack: 0.004, sweep: 1 });
+}).sort((a, b) => a.start - b.start);
+const owlFlaps = [0, 0.2, 0.4, 0.6];
+const owlHoot = (start, ring) => [
+    p('sine', 410, 372, start, ring, 0.4, { attack: 0.05, sweep: 1 }),
+    p('sine', 820, 744, start, ring * 0.8, 0.06, { attack: 0.05, sweep: 1 }),
+];
+
+const howlerRand = seeded(73);
+const howlerRattle = Array.from({ length: 10 }, (_, i) => n(i * 0.085 + howlerRand() * 0.02, 0.03, 0.3 + howlerRand() * 0.15, {
+    filter: 'lowpass', freq: 1400 + howlerRand() * 600, q: 0.8, attack: 0.002,
+}));
+
 const DEFS = {
+    // 魔法时间跳跃：细沙流泻，接一声城堡塔钟。
+    hourglass: {
+        partials: bellNote(196, 1.1, 1.6, 0.34),
+        noise: [
+            n(0, 2.4, 0.1, { filter: 'highpass', freq: 5200, q: 0.7, attack: 0.3, env: 'flat', am: Object.freeze({ rate: 38, depth: 0.6 }) }),
+        ],
+    },
+    // 吼叫信：信封在桌上乱抖，炸开后一声粗粝的怒吼。
+    howler: {
+        partials: [
+            p('sawtooth', 150, 112, 0.9, 1.3, 0.2, { attack: 0.04, sweep: 1 }),
+            p('sawtooth', 157, 116, 0.9, 1.3, 0.16, { attack: 0.04, sweep: 1 }),
+            p('square', 300, 228, 0.9, 1.1, 0.05, { attack: 0.04, sweep: 1 }),
+        ],
+        noise: [
+            ...howlerRattle,
+            n(0.86, 0.12, 0.5, { filter: 'lowpass', freq: 900, q: 0.7, attack: 0.002 }),
+            n(0.9, 1.3, 0.3, { freq: 950, freqTo: 620, q: 1.4, attack: 0.05 }),
+        ],
+    },
+    spell: {
+        partials: [
+            p('sine', 520, 2100, 0, 0.36, 0.2, { attack: 0.02, sweep: 1 }),
+            p('triangle', 1040, 4200, 0.02, 0.32, 0.06, { attack: 0.02, sweep: 1 }),
+            p('sine', 1568, 1568, 0.38, 0.5, 0.16, { attack: 0.003 }),
+            p('sine', 2349, 2349, 0.38, 0.4, 0.08, { attack: 0.003 }),
+            ...spellGlints,
+        ],
+        noise: [
+            n(0, 0.4, 0.14, { filter: 'highpass', freq: 3000, freqTo: 6000, q: 0.7, attack: 0.2 }),
+        ],
+    },
+    potion: {
+        partials: potionBubbles,
+        noise: [
+            n(0, 2.6, 0.12, { filter: 'lowpass', freq: 320, q: 0.7, attack: 0.4, env: 'flat', am: Object.freeze({ rate: 7, depth: 0.5 }) }),
+        ],
+    },
+    owl: {
+        partials: [...owlHoot(0.95, 0.24), ...owlHoot(1.3, 0.5)],
+        noise: owlFlaps.map((start) => n(start, 0.13, 0.32, { filter: 'lowpass', freq: 900, freqTo: 420, q: 0.8, attack: 0.03 })),
+    },
+    broom: {
+        partials: [
+            p('sine', 2400, 2400, 0.55, 0.3, 0.05, { attack: 0.02 }),
+            p('sine', 3200, 3200, 0.62, 0.26, 0.04, { attack: 0.02 }),
+        ],
+        noise: [
+            n(0, 1.1, 0.4, { freq: 500, freqTo: 2600, q: 1.1, attack: 0.5 }),
+            n(0.2, 0.9, 0.12, { filter: 'highpass', freq: 3500, q: 0.7, attack: 0.4 }),
+        ],
+    },
     shutter: {
         partials: [
             p('triangle', 2400, 2200, 0.004, 0.014, 0.1, { attack: 0.001, sweep: 1 }),

@@ -1,4 +1,6 @@
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
+import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_PLATE } from './dialog-theme-css-skins.js';
+import { DIALOG_SKIN_QINGLV, QINGLV_CHOICE_STYLE } from './dialog-theme-guofeng.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -94,6 +96,12 @@ export const DIALOG_THEME_CHOICE_STYLE_BY_SKIN = Object.freeze({
         '': `box-sizing:border-box;min-height:44px;padding:10px 40px;border:0;border-radius:0;background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(8,8,16,0),rgba(8,8,16,.55) 20%,rgba(8,8,16,.55) 80%,rgba(8,8,16,0));box-shadow:none;color:#eeeaf3;letter-spacing:.12em;text-shadow:0 1px 3px rgba(0,0,0,.8);`,
         ':hover': `background:${ELEGANT_LINE} left top/100% 1px no-repeat,${ELEGANT_LINE} left bottom/100% 1px no-repeat,linear-gradient(90deg,rgba(96,78,168,0),rgba(96,78,168,.72) 22%,rgba(112,92,186,.78) 50%,rgba(96,78,168,.72) 78%,rgba(96,78,168,0));color:#fff;text-shadow:0 0 8px rgba(196,176,255,.6);`,
     }),
+    [DIALOG_SKIN_MAGIC_ACADEMY]: bubbleRules(DIALOG_SKIN_MAGIC_ACADEMY, {
+        '': `box-sizing:border-box;min-height:44px;padding:10px 42px;border:1px solid ${MAGIC_METAL};border-radius:4px;background:radial-gradient(circle at 18px 50%,${MAGIC_METAL} 0 2px,transparent 2.5px),radial-gradient(circle at calc(100% - 18px) 50%,${MAGIC_METAL} 0 2px,transparent 2.5px),linear-gradient(180deg,rgba(28,34,72,.94),rgba(12,15,38,.95));box-shadow:inset 0 0 0 3px rgba(12,15,38,.95),inset 0 0 0 4px color-mix(in srgb,${MAGIC_METAL} 35%,transparent),0 3px 10px rgba(0,0,0,.35);color:#efe4c8;letter-spacing:.1em;text-shadow:0 1px 2px rgba(0,0,0,.7);`,
+        ':hover': `background:radial-gradient(circle at 18px 50%,${MAGIC_METAL_HI} 0 2px,transparent 2.5px),radial-gradient(circle at calc(100% - 18px) 50%,${MAGIC_METAL_HI} 0 2px,transparent 2.5px),${MAGIC_PLATE};box-shadow:inset 0 0 0 3px rgba(60,12,20,.9),inset 0 0 0 4px color-mix(in srgb,${MAGIC_METAL_HI} 50%,transparent),0 0 16px rgba(255,214,120,.45);color:#fff6dc;`,
+        ':active': 'transform:translateY(1px);',
+    }),
+    [DIALOG_SKIN_QINGLV]: QINGLV_CHOICE_STYLE,
     [DIALOG_SKIN_GRADIENT_VEIL]: bubbleRules(DIALOG_SKIN_GRADIENT_VEIL, {
         '': 'padding:11px 32px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.6) 18%,rgba(0,0,0,.6) 82%,transparent);box-shadow:none;color:rgba(255,255,255,.88);text-shadow:0 1px 3px rgba(0,0,0,.85);letter-spacing:.1em;',
         '::after': 'content:"";position:absolute;left:20%;right:20%;bottom:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);transition:background .18s;',

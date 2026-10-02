@@ -4,6 +4,7 @@ export const DAILY_FX_KINDS = Object.freeze([
     'timeskip', 'photo', 'letter', 'note', 'bell', 'broadcast', 'fireworks', 'touch', 'alarm', 'omikuji', 'receipt', 'tv', 'rps', 'gacha', 'game', 'score',
     'pat', 'poke', 'fever', 'cheers', 'cook', 'cat',
     'guqin', 'go', 'poem', 'edict', 'tea', 'bow',
+    'spell', 'potion', 'owl', 'broom', 'howler',
 ]);
 export const DAILY_OMIKUJI_RESULTS = Object.freeze(['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶']);
 // 同页日常演出上限：都是全屏或大卡片，连发只会互相遮挡。
@@ -79,6 +80,15 @@ export function parseDailyFxBody(type, fields) {
     case 'edict': return a ? ['edict', a] : null;
     case 'tea': return ['tea'];
     case 'bow': return ['bow', a];
+    // 魔法世界独有：咒语、魔药名、寄件人均可省。
+    case 'spell': return ['spell', a];
+    case 'potion': return ['potion', a];
+    case 'owl': return ['owl', a];
+    case 'broom': return ['broom'];
+    // 吼叫信同信件：只写一栏时视为内容。
+    case 'howler':
+        if (!a) return null;
+        return b ? ['howler', a, b] : ['howler', '', a];
     default: return null;
     }
 }
@@ -115,6 +125,11 @@ export function dailyFxOf(args) {
     case 'edict': return { type, text: a };
     case 'tea': return { type };
     case 'bow': return { type, who: a };
+    case 'spell': return { type, words: a };
+    case 'potion': return { type, name: a };
+    case 'owl': return { type, from: a };
+    case 'broom': return { type };
+    case 'howler': return { type, from: a, text: b };
     case 'pat': return { type, who: a };
     case 'poke': return { type, who: a };
     case 'fever': {

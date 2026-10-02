@@ -13,6 +13,7 @@ import { normalizeTextFxSettings } from './text-fx.js';
 import { CLICK_WAIT_MARK_LABELS, normalizeClickWaitMarkSettings } from './click-wait-mark.js';
 import { DAILY_FX_LABELS, normalizeDailyFxSettings } from './fx-daily-model.js';
 import { DAILY_FX_KINDS } from '../../scene/daily-fx-directives.js';
+import { FX_WORLDVIEW_ONLY } from '../../scene/fx-era.js';
 import { normalizeUiSoundSettings } from './ui-sfx.js';
 import { normalizeAudioMasterSettings } from './audio-bus.js';
 
@@ -94,9 +95,17 @@ function renderSoundFields(bgm, ambient, ui, master, more) {
     return { master: masterBody, bgm: bgmBody, ambient: ambientBody, ui: uiBody };
 }
 
-function renderDailyField(daily, more) {
+// 其他世界观的专属日常（古风抚琴、魔法施咒等）不列出；已存的勾选保留，切回对应世界观时照常显示。
+function dailyKindsFor(worldview) {
+    const foreign = new Set(Object.entries(FX_WORLDVIEW_ONLY)
+        .filter(([owner]) => owner !== worldview)
+        .flatMap(([, table]) => table.dailyFx || []));
+    return DAILY_FX_KINDS.filter((kind) => !foreign.has(kind));
+}
+
+function renderDailyField(daily, more, worldview) {
     return checkbox(`${P}.dailyFx.enabled`, daily.enabled, '日常演出')
-        + (daily.enabled ? sub(more('daily-kinds', '选择日常类型', `<div class="igs-source-filter-grid">${DAILY_FX_KINDS.map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')}`
+        + (daily.enabled ? sub(more('daily-kinds', '选择日常类型', `<div class="igs-source-filter-grid">${dailyKindsFor(worldview).map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')}`
             + checkbox(`${P}.dailyFx.petals`, daily.petals, '樱花、落叶飘落')
             + checkbox(`${P}.dailyFx.photoAlbum`, daily.photoAlbum, '拍照存入 CG 库')
             + `</div>`
@@ -104,12 +113,12 @@ function renderDailyField(daily, more) {
 }
 
 // 舞台调度、文字演出、日常演出与场景声音的设置片段，由「演出」页按分类重新编排；持久化路径不变。
-export function renderStageDirectionFields(reader, more = collapsible) {
+export function renderStageDirectionFields(reader, more = collapsible, { worldview = 'modern' } = {}) {
     const src = reader && typeof reader === 'object' ? reader : {};
     return {
         ...renderStageFields(normalizeStageDirectionSettings(src), more),
         ...renderTextFields(normalizeTextFxSettings(src.textFx), normalizeClickWaitMarkSettings(src.clickWaitMark)),
-        daily: renderDailyField(normalizeDailyFxSettings(src.dailyFx), more),
+        daily: renderDailyField(normalizeDailyFxSettings(src.dailyFx), more, worldview),
         ...renderSoundFields(normalizeBgmSettings(src.bgm), normalizeAmbientSoundSettings(src.ambientSound), normalizeUiSoundSettings(src.uiSound), normalizeAudioMasterSettings(src.audioMaster), more),
     };
 }

@@ -1,4 +1,6 @@
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
+import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_PLATE } from './dialog-theme-css-skins.js';
+import { DIALOG_SKIN_QINGLV, QINGLV_HUD_THEME } from './dialog-theme-guofeng.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -134,6 +136,19 @@ const HUD_THEMES = Object.freeze({
         fill: `background:${fillMix(60, '#c4b0ff')} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(70, '#c4b0ff')};`,
         value: 'font-weight:400;',
     },
+    [DIALOG_SKIN_MAGIC_ACADEMY]: {
+        neutral: '#c9b98e',
+        toast: `background:linear-gradient(180deg,rgba(28,34,72,.94),rgba(12,15,38,.95));border:1px solid ${MAGIC_METAL};border-radius:4px;box-shadow:0 0 14px rgba(255,214,120,.3);color:#efe4c8;`,
+        panel: `background:linear-gradient(180deg,rgba(28,34,72,.94),rgba(12,15,38,.95));border:1px solid ${MAGIC_METAL};border-radius:${s(5)};box-shadow:inset 0 0 0 2px rgba(12,15,38,.95),inset 0 0 0 3px color-mix(in srgb,${MAGIC_METAL} 35%,transparent),0 3px 10px rgba(0,0,0,.4);`,
+        ink: '#efe4c8',
+        emotion: `padding:${s(1)} ${s(14)};border:1px solid ${MAGIC_METAL};border-radius:${s(3)};background:${MAGIC_PLATE};color:#f6e7c1;letter-spacing:.12em;text-shadow:0 1px 2px rgba(0,0,0,.6);`,
+        avatar: `filter:${ring(MAGIC_METAL, 1.5)} drop-shadow(0 0 5px rgba(255,214,120,.5));`,
+        placeholder: `background:radial-gradient(circle at 50% 30%,#2c3570,#0e1230);color:${MAGIC_METAL_HI};`,
+        placeholderSvg: `stroke:${MAGIC_METAL_HI};stroke-width:1.3;`,
+        track: `height:${s(6)};border:1px solid ${MAGIC_METAL};border-radius:${s(3)};background:rgba(8,10,28,.6);`,
+        fill: `background:linear-gradient(180deg,rgba(255,240,200,.35),transparent 60%),${fillMix(55, MAGIC_METAL_HI)} !important;border-radius:${s(3)};box-shadow:0 0 6px rgba(255,214,120,.5);`,
+    },
+    [DIALOG_SKIN_QINGLV]: QINGLV_HUD_THEME,
     [DIALOG_SKIN_PLANT_COFFEE]: {
         neutral: '#a49186',
         panel: `background:#f6f1eb;border:1.5px solid #5c4949;border-radius:${s(18)};box-shadow:0 ${s(3)} 0 rgba(92,73,73,.2);`,

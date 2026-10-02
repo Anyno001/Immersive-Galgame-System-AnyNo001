@@ -29,6 +29,11 @@ const DAILY_PROMPT_LINES = Object.freeze({
     edict: '[igs-fx:edict|内容]：宣读圣旨、张贴告示或榜文，内容不超过40字',
     tea: '[igs-fx:tea]：奉茶、敬茶',
     bow: '[igs-fx:bow|角色名]：角色行礼、作揖或下拜',
+    spell: '[igs-fx:spell|咒语]：有人挥动魔杖施咒，咒语写咒文本身，不超过10字，可省略',
+    potion: '[igs-fx:potion|魔药名]：坩埚里的魔药熬好或调配完成，魔药名可省略',
+    owl: '[igs-fx:owl|寄件人]：猫头鹰飞来送信或包裹，寄件人可省略；信的内容另用 letter 标签',
+    broom: '[igs-fx:broom]：骑上飞天扫帚起飞或掠过天空',
+    howler: '[igs-fx:howler|寄件人|怒吼内容]：收到一封吼叫信，信封当众炸开、用寄件人的声音怒吼，内容不超过40字',
 });
 
 export function resolveDailyFxPromptRule(settings) {
@@ -75,6 +80,11 @@ export const DAILY_GRAMMAR_LINES = Object.freeze({
     edict: 'edict|内容：宣读圣旨或张贴告示，内容不超过40字',
     tea: 'tea：奉茶、敬茶',
     bow: 'bow|角色名：角色行礼、作揖',
+    spell: 'spell|咒语：挥动魔杖施咒，咒语不超过10字，可省',
+    potion: 'potion|魔药名：魔药熬好或调配完成，魔药名可省',
+    owl: 'owl|寄件人：猫头鹰送来信件或包裹，寄件人可省',
+    broom: 'broom：骑飞天扫帚起飞或掠过天空',
+    howler: 'howler|寄件人|怒吼内容：吼叫信当众炸开怒吼，内容不超过40字',
 });
 
 export function dailyGrammarLines(settings) {

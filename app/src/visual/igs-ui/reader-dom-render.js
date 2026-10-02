@@ -1,3 +1,4 @@
+import { magicHouseVars } from './dialog-theme-css-skins.js';
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
 import {
@@ -31,7 +32,7 @@ import { renderItemFx } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
 import { renderDailyFx } from './fx-daily.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
-import { applyWeatherFx } from './weather-fx-runtime.js';
+import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
 import { applyStageDirection } from './stage-direction-runtime.js';
 import { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances } from './stage-cast-render.js';
@@ -611,6 +612,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     });
     applyDialogBgOverride(root, snapshot, materialDialog);
     if (root.style) root.style.setProperty('--igs-skin-scale', String(normalizeSkinDialogScale(readerSettings.skinDialogScale)));
+    if (root.style) for (const [name, value] of Object.entries(magicHouseVars(readerSettings.magicHouse))) root.style.setProperty(name, value);
     applyGradientVeilToDom(root, dialog, readerSettings);
 
     if (textEl) {
@@ -1421,6 +1423,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 背景是素材自带时段变体（如夜景图）时不再叠时段调色。
         timedAsset: Boolean(snapshot.content && snapshot.content.backgroundTimed === true && snapshot.content.illustrationActive !== true),
     });
+    // 场景时段挂到 overlay 上，供对话框等界面随昼夜调整明暗；不受天气/夜间调色开关影响，夜景底图本身就暗。
+    const sceneTime = resolveWeatherFxTime(snapshot.content && snapshot.content.sceneTime);
+    if (sceneTime) root.setAttribute('data-igs-scene-time', sceneTime);
+    else root.removeAttribute('data-igs-scene-time');
     applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
     const stageDirection = applyStageDirection(root, snapshot, {
         bgUrl: backgroundAssetUrl,
