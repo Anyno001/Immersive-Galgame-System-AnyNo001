@@ -277,6 +277,9 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-tab:hover,.igs-outfit-tab:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-outfit-tab.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);font-weight:600}
 .igs-outfit-tab-add{margin-left:auto;color:var(--igs-settings-ink-4)}
+.igs-outfit-quick{display:inline-flex;align-items:center;gap:4px;margin-left:4px;padding-left:6px;border-left:1px solid var(--igs-settings-line)}
+.igs-outfit-quick .igs-outfit-quick-btn{height:28px;padding:0 10px;background:var(--igs-settings-raised);border-radius:var(--igs-settings-radius-small);white-space:nowrap}
+.igs-outfit-quick .igs-outfit-quick-btn:hover,.igs-outfit-quick .igs-outfit-quick-btn:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-outfit-tabs>.igs-row-menu>summary{height:28px}
 .igs-add-menu-item.is-danger{color:var(--igs-settings-danger)}
 .igs-folder-pick-item{position:relative;gap:8px}

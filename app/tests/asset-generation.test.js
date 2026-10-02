@@ -1136,13 +1136,13 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.equal(dna.identity, '银发，说话很冲');
     assert.equal(promptCalls, 1);
     assert.equal(maxActive, 1);
-    assert.deepEqual(painted, labels.map((label) => `expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
+    assert.deepEqual(painted, labels.map((label) => `fuyuko, expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
     assert.equal(result.items.length, 8);
     assert.equal(result.items[0].ok, true);
     assert.equal(result.items[0].imageId, 'expr-1');
     assert.equal(result.items[1].ok, false);
     assert.equal(result.items[1].mood, '愤怒');
-    assert.equal(result.items[1].caption.v4_prompt.caption.base_caption, 'expr 愤怒, cowboy shot, standing, facing viewer, straight-on');
+    assert.equal(result.items[1].caption.v4_prompt.caption.base_caption, 'fuyuko, expr 愤怒, cowboy shot, standing, facing viewer, straight-on');
     assert.equal(progress[0].phase, 'write');
     assert.equal(progress[0].done, 0);
     assert.equal(progress[0].total, 8);

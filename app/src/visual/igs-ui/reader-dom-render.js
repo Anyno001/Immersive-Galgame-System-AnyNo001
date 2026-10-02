@@ -48,7 +48,7 @@ import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
-import { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH } from '../../generated-images/illustration/auto-illustration-service.js';
+import { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH, isPortraitTouchWindow } from '../../generated-images/illustration/auto-illustration-service.js';
 import { applyClickWaitMark } from './click-wait-mark.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
@@ -1026,9 +1026,10 @@ export function pinEmbeddedHostFrame(root, backgroundSize, mode) {
     const pinned = Boolean(host && typeof host.getAttribute === 'function' && host.getAttribute('data-igs-frame') === 'size');
     if (!measured && pinned) return;
     const win = root && root.ownerDocument && root.ownerDocument.defaultView;
+    const portrait = isPortraitTouchWindow(win);
     const viewport = measured
-        ? { width: rect.width, height: rect.height }
-        : (win && win.innerWidth > 0 ? { width: win.innerWidth, height: win.innerHeight } : null);
+        ? { width: rect.width, height: rect.height, portrait }
+        : (win && win.innerWidth > 0 ? { width: win.innerWidth, height: win.innerHeight, portrait } : null);
     syncEmbeddedHostFrame(root, cgSizeForMode(backgroundSize, mode, viewport));
 }
 
@@ -1045,7 +1046,7 @@ export function watchEmbeddedFrameResize(overlay, frameState) {
         const rect = typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
         return rect ? Number(rect.width) || 0 : 0;
     };
-    const isPhoneWidth = (width) => width > 0 && width <= EMBEDDED_PHONE_MAX_WIDTH;
+    const isPhoneWidth = (width) => (width > 0 && width <= EMBEDDED_PHONE_MAX_WIDTH) || isPortraitTouchWindow(win);
     let lastPhone = isPhoneWidth(measure());
     let observer = null;
     const unobserve = () => {
@@ -1059,7 +1060,7 @@ export function watchEmbeddedFrameResize(overlay, frameState) {
         const phone = isPhoneWidth(width);
         if (phone === lastPhone) return;
         lastPhone = phone;
-        const sizeText = cgSizeForMode(frameState.backgroundSize, frameState.mode, { width, height: 0 });
+        const sizeText = cgSizeForMode(frameState.backgroundSize, frameState.mode, { width, height: 0, portrait: phone });
         const match = String(sizeText || '').match(/^(\d+)\s*[xX×]\s*(\d+)$/);
         if (!match) return;
         if (host.style && host.style.aspectRatio === `${match[1]} / ${match[2]}`) return;

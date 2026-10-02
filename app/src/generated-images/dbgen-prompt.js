@@ -293,3 +293,54 @@ export function applyUserPromptsToCaption(caption, prompts = {}) {
         },
     };
 }
+
+// 写词模型仍可能不照 DNA 写（世界书、角色库按名字联想）。出图前把 DNA 里的英文标签硬合进角色 caption：
+// 触发词、身份、默认外观进正面，「不要出现」进负面；写词结果里和 DNA 冲突的发色、瞳色去掉。中文描述 NAI 读不懂，不合入。
+const COLOR_FEATURE_RE = /^(?:(?:light|dark|pale|deep)\s+)?(?:platinum\s+)?(?:blonde|blond|black|brown|red|blue|green|pink|purple|violet|white|silver|grey|gray|orange|aqua|yellow|golden|gold)\s+(hair|eyes)$/;
+
+function dnaEnglishTags(text) {
+    return splitTags(text).filter((tag) => /[a-z]/i.test(tag) && !/[\u3040-\u30ff\u3400-\u9fff]/.test(tag));
+}
+
+export function applyCharacterDnaToCaption(caption, dna) {
+    const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
+    const neg = caption && caption.v4_negative_prompt && caption.v4_negative_prompt.caption;
+    if (!pos || !neg || !dna || typeof dna !== 'object') return caption;
+    const positive = dnaEnglishTags([dna.triggerWords, dna.identity, dna.defaultAppearance].join(','));
+    const negative = dnaEnglishTags(dna.negative);
+    if (!positive.length && !negative.length) return caption;
+    const fixed = new Set();
+    for (const tag of positive) {
+        const hit = tagKey(tag).match(COLOR_FEATURE_RE);
+        if (hit) fixed.add(hit[1]);
+    }
+    const blocked = new Set(negative.map(tagKey));
+    const keep = (text) => splitTags(text).filter((tag) => {
+        const key = tagKey(tag);
+        if (blocked.has(key)) return false;
+        const hit = key.match(COLOR_FEATURE_RE);
+        return !(hit && fixed.has(hit[1]) && !positive.some((p) => tagKey(p) === key));
+    }).join(', ');
+    const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
+    const ucs = Array.isArray(neg.char_captions) ? neg.char_captions : [];
+    const dnaPositive = positive.join(', ');
+    const dnaNegative = negative.join(', ');
+    return {
+        ...caption,
+        v4_prompt: {
+            ...caption.v4_prompt,
+            caption: {
+                ...pos,
+                base_caption: chars.length ? keep(pos.base_caption) : mergeTags(dnaPositive, keep(pos.base_caption)),
+                char_captions: chars.map((item, index) => ({
+                    ...(item && typeof item === 'object' ? item : {}),
+                    char_caption: index === 0 ? mergeTags(dnaPositive, keep(item && item.char_caption)) : (item && item.char_caption),
+                })),
+            },
+        },
+        v4_negative_prompt: {
+            ...caption.v4_negative_prompt,
+            caption: { ...neg, base_caption: mergeTags(neg.base_caption, dnaNegative), char_captions: ucs },
+        },
+    };
+}

@@ -6,7 +6,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
@@ -342,7 +342,7 @@ export function createAssetGenerationService(deps) {
                 } else {
                     try {
                         result = await nai.generateDbgenCaption({
-                            caption,
+                            caption: applyCharacterDnaToCaption(caption, item.need && item.need.dna),
                             size: s.auto.assets.spriteSize,
                             messageId: floor.messageId,
                             transparent: true,
@@ -557,8 +557,8 @@ export function createAssetGenerationService(deps) {
         };
     }
 
-    async function paintExpressionCaption(name, mood, caption) {
-        const upright = uprightSpriteCaption(caption) || caption;
+    async function paintExpressionCaption(name, mood, caption, dna) {
+        const upright = uprightSpriteCaption(applyCharacterDnaToCaption(caption, dna)) || caption;
         const meta = expressionPaintMeta();
         let painted;
         try {
@@ -639,7 +639,7 @@ export function createAssetGenerationService(deps) {
                     items.push({ mood: pending[i], ok: false, error: '写提示词没有返回这一份' });
                     continue;
                 }
-                const result = await paintExpressionCaption(name, pending[i], caption);
+                const result = await paintExpressionCaption(name, pending[i], caption, dna);
                 items.push(result);
             }
             pending = round === 0 ? missing : [];
@@ -677,7 +677,7 @@ export function createAssetGenerationService(deps) {
             return { ok: false, error: (written && written.error) || '写提示词失败' };
         }
         reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: '默认' });
-        const painted = await paintExpressionCaption(who, '默认', written.caption);
+        const painted = await paintExpressionCaption(who, '默认', written.caption, dna);
         if (!painted.ok) return { ok: false, error: painted.error || '出图失败', prompt: painted.prompt };
         return { ok: true, imageId: painted.imageId, prompt: painted.prompt };
     }
