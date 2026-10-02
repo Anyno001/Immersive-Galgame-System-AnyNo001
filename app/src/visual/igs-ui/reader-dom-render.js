@@ -435,8 +435,9 @@ export function applyToolbarState(root, current) {
     const pins = new Set(Array.isArray(readerSettings.pinnedBtns) ? readerSettings.pinnedBtns : []);
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
-    const compactChrome = embeddedMode || Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
-    const dockTop = !compactChrome && readerSettings.toolbarDock === 'top';
+    const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
+    const dockTop = !embeddedMode && readerSettings.toolbarDock === 'top';
+    const compactChrome = embeddedMode || defaultChrome || dockTop;
     const toolbarExpanded = current.toolbarCollapsed === false;
     if (root.classList) {
         root.classList.toggle('igs-toolbar-expanded', toolbarExpanded);
@@ -689,8 +690,8 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         dialog.style.background = '';
     }
 
-    const compactChrome = embeddedMode || !materialDialog;
-    const toolbarDock = compactChrome ? 'float' : (readerSettings.toolbarDock === 'top' ? 'top' : 'float');
+    const compactChrome = embeddedMode;
+    const toolbarDock = embeddedMode ? 'float' : (readerSettings.toolbarDock === 'top' ? 'top' : 'float');
     if (root && root.classList) {
         root.classList.toggle('igs-toolbar-top', toolbarDock === 'top');
     }

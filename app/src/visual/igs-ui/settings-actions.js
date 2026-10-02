@@ -8,7 +8,7 @@ import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-group
 import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { buildCharacterCardPack, mergeLabelGroups, parseCharacterCardPack, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
-import { clearMoodReview, loadMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
+import { clearMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
@@ -73,7 +73,7 @@ function assetFolderScope(settingsState, options) {
 
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
-const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url)|char-expression-(?:prompt|set|retry)|outfit-expression-(?:prompt|set|retry))$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url)|char-generate-sprite|char-expression-(?:prompt|set|retry)|outfit-expression-(?:prompt|set|retry))$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
 function linkedCharacterOutfits(settingsState) {
@@ -870,6 +870,49 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction.startsWith('char-generate-sprite:')) {
+        const name = decodeSeg(normalizedAction.slice('char-generate-sprite:'.length));
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
+        const character = (sceneAssets.characters || {})[name];
+        const dna = characterExpressionDna(sceneAssets, name);
+        if (!name || (!character && !dna)) return rerenderSettings();
+        if (!service || typeof service.generateCharacterSprite !== 'function') {
+            return generatedOperationFailure(globalObj, '立绘生成当前不可用。', 'sprite-generate-unavailable');
+        }
+        const current = String((character && character['默认']) || '').trim();
+        const confirmed = await dialogs.confirm(current
+            ? `重新生成「${name}」的默认立绘。现在这张会被换掉。`
+            : `生成「${name}」的默认立绘。先写提示词，再出一张图。`);
+        if (!confirmed) return rerenderSettings();
+        let result;
+        const onProgress = (event) => reportExpressionProgress(globalObj, event);
+        const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction);
+        try {
+            result = await service.generateCharacterSprite({ name, dna, onProgress });
+        } catch (error) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return generatedOperationFailure(globalObj, '立绘生成失败。', 'sprite-generate-failed');
+        }
+        if (!result || !result.ok || !result.imageId) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return generatedOperationFailure(globalObj, (result && result.error) || '立绘生成失败。', 'sprite-generate-failed');
+        }
+        const liveAssets = draftAssetLibrary(settingsState, editTarget);
+        const characters = { ...(liveAssets.characters || {}) };
+        characters[name] = { ...(characters[name] || {}), '默认': `igs-gen:${result.imageId}` };
+        liveAssets.characters = characters;
+        ensureCharacterAliases(settingsState, editTarget);
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        clearExpressionProgress(globalObj);
+        restoreBusy();
+        if (operationFailed(persisted)) return persisted;
+        return rerenderSettings();
+    }
+
     if (/^(?:char|outfit)-expression-(?:set|retry):/.test(normalizedAction)) {
         const outfitMode = normalizedAction.startsWith('outfit-expression-');
         const retry = normalizedAction.includes('-expression-retry:');
@@ -934,12 +977,17 @@ export async function handleSettingsAction(action, ctx) {
         if (retry && !mood) return rerenderSettings();
         if (!retry) {
             const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
-            const filled = labels.filter((label) => String(slots[label] || '').trim()).length;
+            const missing = labels.filter((label) => !String(slots[label] || '').trim());
             const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
-            const confirmed = await dialogs.confirm(filled
-                ? `重新生成${who}的全部 ${labels.length} 张表情差分。已有 ${filled} 张将被替换。`
-                : `生成${who}的 ${labels.length} 张表情差分。先写提示词，再按顺序出图。`);
+            if (!missing.length) {
+                const message = `${who}的表情组都有图了。`;
+                if (typeof dialogs.view === 'function') await dialogs.view(message);
+                else if (globalObj.alert) globalObj.alert(message);
+                return rerenderSettings();
+            }
+            const confirmed = await dialogs.confirm(`生成${who}还没有图的 ${missing.length} 张表情差分：${missing.join('、')}。已有的图不动。`);
             if (!confirmed) return rerenderSettings();
+            labels.splice(0, labels.length, ...missing);
         }
         let result;
         const onProgress = (event) => reportExpressionProgress(globalObj, event);
@@ -2396,22 +2444,18 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
-    // 待确认情绪词只有一个「加入」：填写情绪组（模糊匹配到的组预填），加入后从列表移除。
+    // 待确认情绪词从已有情绪组里选一个加入，加入后从列表移除。
     if (normalizedAction.startsWith('mood-review-assign:')) {
-        const word = decodeSeg(normalizedAction.slice('mood-review-assign:'.length));
+        const rest = normalizedAction.slice('mood-review-assign:'.length);
+        const colonIdx = rest.indexOf(':');
+        const word = decodeSeg(colonIdx >= 0 ? rest.slice(0, colonIdx) : rest);
+        const picked = colonIdx >= 0 ? decodeSeg(rest.slice(colonIdx + 1)).trim() : '';
         const globalObj = options.global || globalThis;
         const storage = globalObj.localStorage;
-        const item = loadMoodReview(storage).find((entry) => entry.word === word);
         const groups = ensureMoodGroups(settingsState);
-        const suggested = item && groups.some((g) => g.label === item.group) ? item.group : '';
-        const names = groups.map((g) => g.label).join('、');
-        const label = ((await dialogs.prompt(`把「${word}」加入哪个情绪组？\n可选：${names}`, suggested)) || '').trim();
+        const label = picked && groups.some((group) => group.label === picked) ? picked : '';
         if (!label) return rerenderSettings();
-        const group = groups.find((g) => g.label === label);
-        if (!group) {
-            if (globalObj.alert) globalObj.alert(`情绪组「${label}」不存在`);
-            return rerenderSettings();
-        }
+        const group = groups.find((entry) => entry.label === label);
         for (const other of groups) {
             if (other !== group && Array.isArray(other.words)) other.words = other.words.filter((w) => w !== word);
         }

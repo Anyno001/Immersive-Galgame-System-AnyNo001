@@ -54,6 +54,21 @@ function formatReturnedCaption(caption) {
     return lines.join('\n');
 }
 
+export const EXPRESSION_WRITE_BATCH_MAX = 8;
+
+// 单次写词最多 8 份。超过 8 份均分成两批（10 份是 5 和 5），由调用方串行写。
+export function splitWriteBatches(items) {
+    const list = Array.isArray(items) ? items : [];
+    if (list.length <= EXPRESSION_WRITE_BATCH_MAX) return list.length ? [list] : [];
+    const half = Math.ceil(list.length / 2);
+    return [list.slice(0, half), list.slice(half)];
+}
+
+export function splitExpressionMoodBatches(labels) {
+    const moods = (Array.isArray(labels) ? labels : []).map((item) => String(item || '').trim()).filter(Boolean);
+    return splitWriteBatches(moods);
+}
+
 export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit) {
     const moods = (Array.isArray(labels) ? labels : []).map((item) => String(item || '').trim()).filter(Boolean);
     const stored = prompt && typeof prompt === 'object' ? prompt : {};
@@ -148,6 +163,26 @@ export function uprightSpriteCaption(caption) {
     };
 }
 
+// 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
+export function buildCharacterSpriteDescription(name, dna) {
+    const profile = dna && typeof dna === 'object' ? dna : {};
+    const identity = String(profile.identity || '').trim();
+    const appearance = String(profile.defaultAppearance || '').trim();
+    const dnaNegative = String(profile.negative || '').trim();
+    const triggers = String(profile.triggerWords || '').trim();
+    return [
+        `画角色「${name || ''}」的立绘。`,
+        '外貌与服装按下面的角色设定来画。设定里没写到的，按这个角色补一个日常样子。',
+        '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
+        '无背景，透明底。',
+        identity ? `固定身份：\n${identity}` : '',
+        appearance ? `默认外观：\n${appearance}` : '',
+        triggers ? `触发词：\n${triggers}` : '',
+        dnaNegative ? `不要出现：\n${dnaNegative}` : '',
+        '只写一份，slotid 为 1。',
+    ].filter(Boolean).join('\n');
+}
+
 // 待确认服装：只写这一套衣服的生图标签，不写出图。
 export function buildWardrobeClothingDescription(_character, outfitName) {
     const outfit = String(outfitName || '').trim();
@@ -158,6 +193,18 @@ export function buildWardrobeClothingDescription(_character, outfitName) {
         '每件都写清款式、颜色和材质。',
         '不要写人，不要写表情、姿势、背景。',
         '只写一份，slotid 为 1。',
+    ].join('\n');
+}
+
+// 本楼还缺的立绘一次写完。名单里只有尚未生成的，已有的不进来。
+export function buildDbgenSpriteBatchDescription(needs = []) {
+    const list = (Array.isArray(needs) ? needs : []).map((need, index) => `${index + 1}. ${need && need.name ? need.name : ''}`);
+    const count = list.length;
+    return [
+        `写${count}张立绘的提示词，按下面的顺序各一份，slotid 从 1 数到 ${count}。`,
+        list.join('\n'),
+        '角色外貌与服装依据正文补充。无背景，透明底。',
+        '不要写生成点，不要从正文摘挂载句。',
     ].join('\n');
 }
 

@@ -785,7 +785,7 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(readerHostText, /data-prompt-rule-draft/);
     assert.doesNotMatch(readerHostText, /data-path="bridge\.sceneAssets\.promptRule"/);
     assert.doesNotMatch(readerHostText, /emptyBackgroundColorField|optionBubbleFontSizeField|readerSettings\.emptyBackgroundColor/);
-    assert.match(rendererText, /const dockTop = !compactChrome && readerSettings\.toolbarDock === 'top'/);
+    assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock === 'top'/);
     assert.match(rendererText, /statusHud\.classList\.toggle\('igs-hud-collapsed', persistedCollapsed \|\| toolbarExpanded\)/);
     assert.match(rendererText, /class="igs-hud-icon-expand" d="M12 5v14M5 12h14"/);
     assert.doesNotMatch(rendererText, /igs-hud-icon-collapse/);

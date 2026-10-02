@@ -24,8 +24,9 @@ test('gate:settings-polish:mood-review-actions-sit-outside-chip', () => {
     const chip = html.match(/<span class="igs-mood-review-chip">[\s\S]*?<\/span>/)[0];
     assert.doesNotMatch(chip, /<button/);
     assert.doesNotMatch(html, /爱丽丝/, '标签不带所属角色');
-    assert.match(html, /<\/b><\/span><span class="igs-review-actions"><button type="button" class="igs-review-link is-primary" data-action="mood-review-assign:[^"]+"[^>]*>加入<\/button>/);
+    assert.match(html, /<\/b><\/span><span class="igs-review-actions"><select class="igs-asset-move igs-review-select" data-mood-review-word="/);
     assert.match(html, /data-action="mood-review-dismiss:[^"]+"[^>]*>忽略<\/button>/);
+    assert.doesNotMatch(html, /建为情绪组|mood-review-assign/);
     assert.doesNotMatch(html, />×</);
 });
 

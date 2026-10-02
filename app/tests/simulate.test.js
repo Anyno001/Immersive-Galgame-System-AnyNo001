@@ -2547,18 +2547,20 @@ test('gate:simulation:igs-ui-default-skin-unifies-dialog-and-toolbar-with-embedd
     const pinned = overlay.querySelector('#igs-bar-pinned');
     assert.equal(opened.reader.snapshot.readerSettings.toolbarDock, 'top');
     assert.equal(overlay.classList.contains('igs-default-reader-chrome'), true);
-    assert.equal(overlay.classList.contains('igs-toolbar-top'), false);
-    assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'float');
-    assert.equal(toolbar.style.transformOrigin, 'right top');
+    assert.equal(overlay.classList.contains('igs-toolbar-top'), true);
+    assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'top');
+    assert.equal(toolbar.style.transformOrigin, '');
     assert.equal(collapsible.style.gap, '2px');
     assert.equal(pinned.style.gap, '2px');
 
     opened.reader.controller.toggleToolbar();
-    assert.equal(overlay.querySelector('#igs-btn-settings').parentNode, collapsible);
+    assert.equal(overlay.querySelector('#igs-btn-settings').parentNode, pinned);
     const css = getOriginalReaderStyleText();
     assert.match(css, /#igs-overlay\.igs-default-reader-chrome \.igs-dialog\{[^}]*display:flex[^}]*overflow:hidden[^}]*padding:9px 18px 14px/);
-    assert.match(css, /#igs-overlay\.igs-default-reader-chrome #igs-toolbar-layer\{inset:14px 14px auto auto;width:auto;height:auto;transform:none;\}/);
-    assert.match(css, /#igs-overlay\.igs-default-reader-chrome \.igs-ctrl-bar\{[^}]*position:static[^}]*gap:1\.5px[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none/);
+    assert.doesNotMatch(css, /#igs-overlay\.igs-default-reader-chrome #igs-toolbar-layer\{inset:14px/);
+    assert.match(css, /#igs-overlay\.igs-default-reader-chrome \.igs-ctrl-bar\{[^}]*gap:1\.5px[^}]*padding:0[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none/);
+    assert.match(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar\{[^}]*background:transparent[^}]*border:0[^}]*box-shadow:none[^}]*backdrop-filter:none/);
+    assert.match(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;transform:scale\(1\.2\);transform-origin:center;\}/);
     assert.match(css, /#igs-overlay\.igs-default-reader-chrome \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;transform:scale\(1\.2\);transform-origin:center;\}/);
     // 按钮换行成两排时工具栏层会撑满可用宽度，按钮必须保持靠右，不能退回左上角。
     assert.match(css, /#igs-overlay\.igs-default-reader-chrome:not\(\.igs-toolbar-top\) \.igs-ctrl-bar,[^{]*\{justify-content:flex-end;\}/);
@@ -2590,8 +2592,11 @@ test('gate:simulation:igs-ui-toolbar-top-wraps-early-without-clipping-rows', () 
 test('gate:simulation:igs-ui-toolbar-dock-invalid-falls-back-to-float', async () => {
     const storage = createMemoryStorage();
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ toolbarDock: 'bogus' }));
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const globalObject = document.defaultView;
+    globalObject.localStorage = storage;
     const vn = bootstrapIGS({
-        global: { localStorage: storage },
+        global: globalObject,
         autoAttachMagicWand: false,
         hostAdapter: {
             getCurrentMessage: async () => ({ id: 1, text: '旁白。' }),
@@ -2600,7 +2605,40 @@ test('gate:simulation:igs-ui-toolbar-dock-invalid-falls-back-to-float', async ()
     });
 
     const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const toolbar = overlay.querySelector('#igs-ctrl-bar');
     assert.equal(opened.reader.snapshot.readerSettings.toolbarDock, 'float');
+    assert.equal(overlay.classList.contains('igs-default-reader-chrome'), true);
+    assert.equal(overlay.classList.contains('igs-toolbar-top'), false);
+    assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'float');
+    assert.equal(toolbar.style.transformOrigin, 'right bottom');
+
+    vn.destroy();
+});
+
+test('gate:simulation:igs-ui-gradient-veil-toolbar-dock-follows-the-setting', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ toolbarDock: 'top', dialogSkin: 'gradient-veil' }));
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const globalObject = document.defaultView;
+    globalObject.localStorage = storage;
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '旁白。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const toolbar = overlay.querySelector('#igs-ctrl-bar');
+    assert.equal(opened.reader.snapshot.readerSettings.toolbarDock, 'top');
+    assert.equal(overlay.classList.contains('igs-gradient-veil-active'), true);
+    assert.equal(overlay.classList.contains('igs-default-reader-chrome'), true);
+    assert.equal(overlay.classList.contains('igs-toolbar-top'), true);
+    assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'top');
 
     vn.destroy();
 });

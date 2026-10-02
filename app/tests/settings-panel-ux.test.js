@@ -211,12 +211,13 @@ test('gate:expression-prompt:edit-saves-caption-and-redraw-uses-it', async () =>
     assert.match(painted[0].v4_prompt.caption.char_captions[0].char_caption, /smile/);
 });
 
-test('gate:expression-set:replaces-every-existing-slot', async () => {
+test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     const caption = {
         v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } },
         v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
     };
     const asks = [];
+    const seen = [];
     const draft = {
         bridge: {
             sceneAssets: {
@@ -233,10 +234,13 @@ test('gate:expression-set:replaces-every-existing-slot', async () => {
             generatedAssets: {
                 getImagePrompt: async () => ({ positive: '1girl', negative: 'lowres', caption }),
                 generateExpressionImage: async () => { throw new Error('整套不应走单张'); },
-                generateExpressionSet: async (input) => ({
-                    ok: true,
-                    items: input.moods.map((mood) => ({ mood, ok: true, imageId: `new-${mood}` })),
-                }),
+                generateExpressionSet: async (input) => {
+                    seen.push(input.moods.slice());
+                    return {
+                        ok: true,
+                        items: input.moods.map((mood) => ({ mood, ok: true, imageId: `new-${mood}` })),
+                    };
+                },
             },
         },
         persistSettingsDraft: () => ({ ok: true }),
@@ -245,15 +249,68 @@ test('gate:expression-set:replaces-every-existing-slot', async () => {
     };
     const character = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(character.ok, true);
-    assert.match(asks[0], /重新生成「冬月」的全部 8 张表情差分/);
-    assert.match(asks[0], /已有 2 张将被替换/);
-    assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:new-喜悦');
-    assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'igs-gen:new-愤怒');
+    assert.match(asks[0], /生成「冬月」还没有图的 6 张表情差分：悲伤、紧张、平和、害羞、嫌弃、爱恋/);
+    assert.match(asks[0], /已有的图不动/);
+    assert.deepEqual(seen[0], ['悲伤', '紧张', '平和', '害羞', '嫌弃', '爱恋']);
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:old-joy');
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'https://kept.example/a.png');
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['悲伤'], 'igs-gen:new-悲伤');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['默认'], 'igs-gen:def');
+    const again = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(again.ok, true);
+    assert.equal(seen.length, 1);
     const outfit = await handleSettingsAction('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8', ctx);
     assert.equal(outfit.ok, true);
-    assert.match(asks[1], /服装「日常」的全部 8 张/);
-    assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['喜悦'], 'igs-gen:new-喜悦');
+    assert.match(asks[1], /服装「日常」还没有图的 7 张/);
+    assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['喜悦'], 'igs-gen:old-outfit');
+    assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['愤怒'], 'igs-gen:new-愤怒');
+});
+
+test('gate:character-sprite:generates-default-from-the-character-page', async () => {
+    const asks = [];
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                characters: { 冬月: { 默认: '' } },
+                characterDna: { 路人甲: { identity: '黑发', defaultAppearance: '', negative: '', triggerWords: '' } },
+            },
+        },
+        readerSettings: {},
+    };
+    const seen = [];
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: {
+            global: { alert() {}, document: { getElementById() { return null; } } },
+            generatedAssets: {
+                generateCharacterSprite: async (input) => {
+                    seen.push(input);
+                    return { ok: true, imageId: input.name === '冬月' ? 'made-1' : 'made-2' };
+                },
+            },
+        },
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: { confirm: async (message) => { asks.push(message); return true; } },
+    };
+    const first = await handleSettingsAction('char-generate-sprite:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(first.ok, true);
+    assert.match(asks[0], /生成「冬月」的默认立绘/);
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['默认'], 'igs-gen:made-1');
+    assert.deepEqual(draft.bridge.sceneAssets.characterDna['冬月'], undefined);
+    assert.equal(seen[0].dna, null);
+
+    draft.bridge.sceneAssets.characters['冬月']['默认'] = 'https://kept.example/a.png';
+    const replaced = await handleSettingsAction('char-generate-sprite:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(replaced.ok, true);
+    assert.match(asks[1], /现在这张会被换掉/);
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['默认'], 'igs-gen:made-1');
+
+    const dnaOnly = await handleSettingsAction('char-generate-sprite:%E8%B7%AF%E4%BA%BA%E7%94%B2', ctx);
+    assert.equal(dnaOnly.ok, true);
+    assert.equal(draft.bridge.sceneAssets.characters['路人甲']['默认'], 'igs-gen:made-2');
+    assert.deepEqual(draft.bridge.sceneAssets.characterAliases['路人甲'], []);
+    assert.equal(seen[2].dna.identity, '黑发');
 });
 
 test('gate:settings-dialog:falls-back-to-native-dialogs-without-a-mounted-panel', async () => {

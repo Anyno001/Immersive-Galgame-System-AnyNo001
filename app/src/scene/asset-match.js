@@ -350,7 +350,7 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     }
     const temp = typeof ctx.tempSprite === 'function' ? ctx.tempSprite(name) : '';
     if (temp) return { url: temp, slot: '默认', character: name, source: 'temp', needsGeneration: false };
-    return { url: '', slot: '', character: name, source: 'none', needsGeneration: !isNonSpriteSpeaker(name, ctx.userName) && !isKnownCharacterName(name, userAssets, ctx.knownCharacters) };
+    return { url: '', slot: '', character: name, source: 'none', needsGeneration: !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets, ctx.knownCharacters) };
 }
 
 // 正文常用简称/全名互指（「雪乃」↔「雪之下雪乃」）：至少两个字且互为子串即视为同一已登记角色。
@@ -365,10 +365,9 @@ function isKnownCharacterName(name, userAssets, knownCharacters) {
     return candidates.some((c) => c === name || c.includes(name) || name.includes(c));
 }
 
-export function isNonSpriteSpeaker(name, userName) {
+export function isNonSpriteSpeaker(name) {
     const lower = name.toLowerCase();
     if (NON_SPRITE_SPEAKERS.has(name) || NON_SPRITE_SPEAKERS.has(lower)) return true;
-    if (userName && name === String(userName).trim()) return true;
     return /^[?？…·.\s]+$/.test(name);
 }
 

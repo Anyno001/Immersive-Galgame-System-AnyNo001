@@ -116,6 +116,7 @@ import {
     colorInput,
     field,
     renderCharacterAssetList,
+    renderMoodGroupList,
     renderMoodReviewList,
     renderPinnedButtons,
     renderSceneAssetList,
@@ -2884,7 +2885,6 @@ export function createIgsReaderHost(options = {}) {
                     spriteMood = spriteHit.slot || spriteMood;
                 }
                 if (!chatPage && normalizeStageCastSettings(readerSettings.stageCast).enabled) {
-                    const castUser = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
                     const castKeyOf = (name) => resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, name) || name;
                     const speakerKey = castKeyOf(spriteChar);
                     // 修罗场：恋爱对象先于最近开口的人入选，保证对象在台上（romanceDuo 关闭时不钉）。
@@ -2895,7 +2895,7 @@ export function createIgsReaderHost(options = {}) {
                         // 定位失败时按页码取最近一条台词重新定位，避免名单整体清空。
                         offset: resolveCastOffset({ offset: outfitOffset, directives: sceneDirectives, segmentIndex: normalizedIndex, locate: (t) => locateTextOffsetInSource(sceneSourceForOffset, t) }),
                         keyOf: castKeyOf,
-                        isEligible: (name) => !isNonSpriteSpeaker(name, castUser) && !isSystemRole(name, readerSettings.systemRole),
+                        isEligible: (name) => !isNonSpriteSpeaker(name) && !isSystemRole(name, readerSettings.systemRole),
                         limit: STAGE_CAST_SCAN_LIMIT,
                         // 站位「离开」（castStage 开启时）：离开后没再开口的人不进名单，再次开口即回台。
                         goneAt: normalizeStageCastSettings(readerSettings.stageCast).castStage ? pageFx.goneAt : null,
@@ -3413,7 +3413,7 @@ export function createIgsReaderHost(options = {}) {
             const waitingCount = outfitReview.length + moodReview.length + countGeneratedWaiting(generatedArgs);
             const reviewPane = `<div class="igs-settings-section igs-review-pane">`
                 + renderOutfitReviewList(outfitReview, sceneAssets.characterOutfits || {}, sceneAssets.characters || {})
-                + renderMoodReviewList(moodReview)
+                + renderMoodReviewList(moodReview, sceneAssets.moodGroups)
                 + renderGeneratedAssetPane(generatedArgs)
                 + `</div>`;
             const scenesPane = `<div class="igs-settings-section">
@@ -3440,6 +3440,7 @@ export function createIgsReaderHost(options = {}) {
         ${renderDnaCandidateBar(asyncState.dnaCandidate)}
         ${charsHtml}
         ${renderDnaOnlyCharacterList(sceneAssets.characterDna || {}, sceneAssets.characters || {})}
+        ${renderMoodGroupList(sceneAssets.moodGroups, { isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]) })}
         <div class="igs-settings-row"><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认词库</button></div>
       </div>`;
             const promptRuleDraft = typeof asyncState.promptRuleDraft === 'string'
@@ -4241,6 +4242,12 @@ export function createIgsReaderHost(options = {}) {
                 if (!event.target.value) return;
                 const reviewWord = event.target.getAttribute('data-outfit-review-word') || '';
                 controller.invoke(`outfit-review-assign:${[reviewChar, reviewWord, event.target.value].map((value) => encodeURIComponent(value || '')).join(':')}`);
+                return;
+            }
+            const moodReviewWord = event.target && event.target.getAttribute ? event.target.getAttribute('data-mood-review-word') : '';
+            if (moodReviewWord) {
+                if (!event.target.value) return;
+                controller.invoke(`mood-review-assign:${encodeURIComponent(moodReviewWord)}:${encodeURIComponent(event.target.value)}`);
                 return;
             }
             const wardrobeChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-wardrobe-char') : '';

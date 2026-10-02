@@ -1,4 +1,5 @@
 import { esc } from './reader-value-utils.js';
+import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
 import { CHAT_SHOW_BUBBLE_RADIUS_LEVELS, CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } from './chat-show-runtime.js';
@@ -391,6 +392,7 @@ export function renderCharacterAssetList(characters, options = {}) {
         const outfitNames = outfitForChar && typeof outfitForChar === 'object' ? Object.keys(outfitForChar) : [];
         const activeOutfit = outfitNames.includes(outfitTabs[charName]) ? outfitTabs[charName] : '';
         const baseMenuItems = [
+            menuItem(`char-generate-sprite:${encSeg(charName)}`, '生成立绘'),
             String((moods && moods['默认']) || '').startsWith('igs-gen:') ? menuItem(`char-expression-set:${encSeg(charName)}`, '表情差分') : '',
             menuItem(`scene-add-mood:${encSeg(charName)}`, '添加情绪'),
         ];
@@ -528,7 +530,7 @@ export function renderDnaCandidateBar(candidate) {
         + `<button type="button" class="igs-settings-action" data-action="scene-dismiss-dna-candidate">忽略</button></div></div>`;
 }
 
-// 仅有 DNA、尚无立绘的角色：先登记资料，后由手动素材补全生成立绘。
+// 仅有 DNA、尚无立绘的角色：在这里直接生成默认立绘，生成后进入角色立绘列表。
 export function renderDnaOnlyCharacterList(characterDna, characters) {
     const dnaMap = characterDna && typeof characterDna === 'object' && !Array.isArray(characterDna) ? characterDna : {};
     const chars = characters && typeof characters === 'object' && !Array.isArray(characters) ? characters : {};
@@ -540,6 +542,7 @@ export function renderDnaOnlyCharacterList(characterDna, characters) {
     if (!names.length) return '';
     const rows = names.map((name) => (
         `<div class="igs-scene-char-group igs-dna-only-char"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label" style="font-weight:600">${esc(name)}</span>`
+        + `<button type="button" class="igs-settings-action" data-action="char-generate-sprite:${encSeg(name)}">生成立绘</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-dna-char:${encSeg(name)}" title="重命名">${pencil}</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-dna-char:${encSeg(name)}" title="删除角色 DNA">${trash}</button></div>`
         + `${renderCharacterDnaEditor(name, dnaMap[name])}</div>`
@@ -548,18 +551,66 @@ export function renderDnaOnlyCharacterList(characterDna, characters) {
 }
 
 // 待确认情绪词：词库外的情绪词。标签里只放词本身，不带所属角色；「加入」「忽略」放在标签外，避免用户只注意到 ×。
-export function renderMoodReviewList(items) {
+function storedMoodGroups(value) {
+    if (!Array.isArray(value)) return normalizeMoodGroups(value);
+    return value.filter((group) => group && String(group.label || '').trim());
+}
+
+// 情绪组是词库里的容器，和角色上的表情槽分开列。标题上的数字就是当前有多少组。
+export function renderMoodGroupList(groups, options = {}) {
+    const list = storedMoodGroups(groups);
+    const isOpen = typeof options.isOpen === 'function' ? options.isOpen : () => false;
+    const chevronDown = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+    const chevronUp = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
+    const rows = list.map((group) => {
+        const label = String(group.label || '').trim();
+        const words = Array.isArray(group.words) ? group.words.map((word) => String(word || '').trim()).filter(Boolean) : [];
+        const key = `mood-group:${label}`;
+        const open = isOpen(key);
+        const toggle = `ui-toggle-open:${encSeg(key)}`;
+        const tags = words.map((word) => (
+            `<span class="igs-mood-word-tag">${esc(word)}<button type="button" class="igs-mood-word-del" data-action="mood-remove-word:${encSeg(label)}:${encSeg(word)}" title="删除词">×</button></span>`
+        )).join('');
+        const wordsHtml = open
+            ? `<div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无情绪词</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="mood-add-word:${encSeg(label)}" title="添加词">+</button></div>`
+            : '';
+        return `<div class="igs-mood-group" data-mood-group="${esc(label)}">`
+            + `<div class="igs-btn-mgr-row">`
+            + `<span class="igs-btn-mgr-label">${esc(label)}</span>`
+            + `<span class="igs-mood-group-words">${words.length} 个词</span>`
+            + renderRowMenu([
+                menuItem(`mood-rename-group:${encSeg(label)}`, '重命名'),
+                menuItem(`mood-remove-group:${encSeg(label)}`, '删除', ' is-danger'),
+            ], `情绪组「${label}」的操作`)
+            + `<button type="button" class="igs-btn-mgr-icon" data-action="${toggle}" title="${open ? '收起' : '展开这个组里的词'}" aria-expanded="${open}">${open ? chevronUp : chevronDown}</button>`
+            + `</div>${wordsHtml}</div>`;
+    }).join('');
+    return `<div class="igs-mood-groups" data-mood-group-count="${list.length}">`
+        + `<div class="igs-settings-section-head"><div class="igs-settings-subhead">情绪组 <span class="igs-mood-group-total">${list.length}</span></div>`
+        + `<button type="button" class="igs-btn-mgr-icon" data-action="mood-add-group" title="新增情绪组" aria-label="新增情绪组">+</button></div>`
+        + `<div class="igs-source-filter-note">组名用来对表情槽。展开后是这个组里的词，正文里的叫法归到这里。</div>`
+        + `<div class="igs-btn-mgr-list">${rows || '<div class="igs-scene-empty">还没有情绪组</div>'}</div>`
+        + `</div>`;
+}
+
+export function renderMoodReviewList(items, groups) {
     const list = Array.isArray(items) ? items : [];
-    const rows = list.map((item) => `<div class="igs-review-item"><span class="igs-mood-review-chip"><b>${esc(item.word)}</b></span>`
-        + `<span class="igs-review-actions">`
-        + `<button type="button" class="igs-review-link is-primary" data-action="mood-review-assign:${encSeg(item.word)}" aria-label="加入「${esc(item.word)}」">加入</button>`
-        + `<button type="button" class="igs-review-link" data-action="mood-review-dismiss:${encSeg(item.word)}" aria-label="忽略「${esc(item.word)}」">忽略</button>`
-        + `</span></div>`).join('');
+    const labels = storedMoodGroups(groups).map((group) => String(group.label || '').trim()).filter(Boolean);
+    const rows = list.map((item) => {
+        const suggested = item && labels.includes(String(item.group || '').trim()) ? String(item.group).trim() : '';
+        const ordered = suggested ? [suggested, ...labels.filter((label) => label !== suggested)] : labels;
+        const options = ordered.map((label) => `<option value="${esc(label)}">${esc(label)}</option>`).join('');
+        const select = `<select class="igs-asset-move igs-review-select" data-mood-review-word="${esc(item.word)}" aria-label="把「${esc(item.word)}」归入哪一组"><option value="">加入…</option>${options}</select>`;
+        return `<div class="igs-review-item"><span class="igs-mood-review-chip"><b>${esc(item.word)}</b></span>`
+            + `<span class="igs-review-actions">${select}`
+            + `<button type="button" class="igs-review-link" data-action="mood-review-dismiss:${encSeg(item.word)}" aria-label="忽略「${esc(item.word)}」">忽略</button>`
+            + `</span></div>`;
+    }).join('');
     return renderReviewCard({
         key: 'mood',
         title: '情绪词',
         count: list.length,
-        hint: '词库里没有的情绪词。加入时选一个情绪组，相近的组会预先选好。',
+        hint: '词库里没有的情绪词。从已有情绪组里选一个加入，相近的组排在最前。',
         clearAction: 'mood-review-clear',
         body: rows ? `<div class="igs-review-list">${rows}</div>` : '',
         empty: '暂无，词库外的情绪词出现时会记在这里',
@@ -575,16 +626,12 @@ function renderSpriteSlotExpansion(charName, mood, url, moodGroups, icons) {
         ? `<img class="igs-sprite-thumb" src="${esc(shownUrl)}" alt="${esc(mood)}" data-action="sprite-preview:${encSeg(shownUrl)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">${trimmedUrl ? '等待载入' : '未配置'}</div>`;
     const group = moodGroups.find((g) => g && g.label === mood);
-    let wordsHtml;
-    if (group) {
-        const words = Array.isArray(group.words) ? group.words : [];
-        const tags = words.map((word) => {
-            return `<span class="igs-mood-word-tag">${esc(word)}<button type="button" class="igs-mood-word-del" data-action="mood-remove-word:${encSeg(mood)}:${encSeg(word)}" title="删除词">×</button></span>`;
-        }).join('');
-        wordsHtml = `<div class="igs-sprite-words"><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无情绪词</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="mood-add-word:${encSeg(mood)}" title="添加词">+</button></div></div>`;
-    } else {
-        wordsHtml = `<div class="igs-sprite-words"><div class="igs-source-filter-note">「${esc(mood)}」在词库中无对应情绪组。</div><button type="button" class="igs-settings-action" data-action="mood-create-group:${encSeg(mood)}">建为情绪组</button></div>`;
-    }
+    if (!group) return `<div class="igs-sprite-slot-body">${thumb}</div>`;
+    const words = Array.isArray(group.words) ? group.words : [];
+    const tags = words.map((word) => {
+        return `<span class="igs-mood-word-tag">${esc(word)}<button type="button" class="igs-mood-word-del" data-action="mood-remove-word:${encSeg(mood)}:${encSeg(word)}" title="删除词">×</button></span>`;
+    }).join('');
+    const wordsHtml = `<div class="igs-sprite-words"><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无情绪词</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="mood-add-word:${encSeg(mood)}" title="添加词">+</button></div></div>`;
     return `<div class="igs-sprite-slot-body">${thumb}${wordsHtml}</div>`;
 }
 

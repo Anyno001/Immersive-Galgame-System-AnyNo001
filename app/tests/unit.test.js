@@ -1445,12 +1445,11 @@ test('gate:scene:mood-review-list-renders-one-add-per-word-as-compact-chips', ()
     const html = renderMoodReviewList([
         { word: '嘲弄', character: '爱丽丝', quality: 'fuzzy', group: '嫌弃' },
         { word: '冷笑', character: '', quality: 'default', group: '' },
-    ]);
-    assert.match(html, /mood-review-assign:%E5%98%B2%E5%BC%84/);
-    assert.match(html, /mood-review-assign:%E5%86%B7%E7%AC%91/);
-    assert.equal((html.match(/>加入</g) || []).length, 2);
-    // 每个词只有一个「加入」，不再有确认 / 改到其他组等多步按钮，也不用带框的大按钮。
-    assert.doesNotMatch(html, /mood-review-accept|确认加入|改到其他组|加入情绪组|igs-settings-action/);
+    ], [{ label: '嫌弃', words: ['嘲讽'] }, { label: '平和', words: ['平静'] }]);
+    assert.match(html, /data-mood-review-word="嘲弄"/);
+    assert.match(html, /data-mood-review-word="冷笑"/);
+    assert.match(html, /<option value="">加入…<\/option><option value="嫌弃">嫌弃<\/option>/);
+    assert.doesNotMatch(html, /mood-review-assign|确认加入|改到其他组|加入情绪组|建为情绪组/);
     assert.doesNotMatch(html, /未命中|显示默认立绘|模糊归入|请核对/);
     assert.doesNotMatch(html, /igs-mood-review-who/, '待确认情绪词标签不带所属角色');
     assert.match(html, /class="igs-review-clear" data-action="mood-review-clear"/);
@@ -1594,18 +1593,17 @@ test('gate:scene:mood-review-assign-moves-word-into-group-and-clears-entry', asy
         readerSettings: {},
     };
     let persistCount = 0;
-    const answers = ['嫌弃', '平和'];
     const ctx = {
         state: { activeSettings: { draft, readerMode: 'pc', asyncState: {} } },
-        options: { global: { localStorage: storage, prompt: () => answers.shift() || '', alert: () => {} } },
+        options: { global: { localStorage: storage, alert: () => {} } },
         closeSettings: () => ({ ok: true }),
         persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
         rerenderSettings: () => ({ ok: true }),
         buildRegexPreview: () => '',
     };
-    await handleSettingsAction(`mood-review-assign:${encodeURIComponent('嘲弄')}`, ctx);
+    await handleSettingsAction(`mood-review-assign:${encodeURIComponent('嘲弄')}:${encodeURIComponent('嫌弃')}`, ctx);
     assert.deepEqual(draft.bridge.sceneAssets.moodGroups[0].words, ['嘲讽', '嘲弄']);
-    await handleSettingsAction(`mood-review-assign:${encodeURIComponent('冷笑')}`, ctx);
+    await handleSettingsAction(`mood-review-assign:${encodeURIComponent('冷笑')}:${encodeURIComponent('平和')}`, ctx);
     assert.deepEqual(draft.bridge.sceneAssets.moodGroups[1].words, ['平静', '冷笑']);
     assert.equal(persistCount, 2);
     assert.deepEqual(loadMoodReview(storage), []);
@@ -2005,6 +2003,40 @@ test('gate:scene:settings-action-mood-groups-toggle-and-reset', async () => {
     assert.ok(rerenders >= 3);
 });
 
+test('gate:scene:mood-group-list-shows-the-containers-and-their-count', () => {
+    const extra = DEFAULT_MOOD_GROUPS.concat([{ label: '嘲讽', words: ['嘲弄', '讥讽'] }]);
+    const host = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({
+            version: '0.34.3',
+            bridge: {
+                openMode: 'pc',
+                sceneAssets: {
+                    enabled: true,
+                    scenes: {},
+                    characters: { 冬月星见: { 默认: '' } },
+                    moodGroups: extra,
+                },
+            },
+            readerMode: 'pc',
+            readerSettings: {},
+        }),
+        saveUnifiedSettings: () => ({ ok: true }),
+    });
+    host.openReader({ message: { text: '旁白。' } }, { mode: 'pc' });
+    const opened = host.openSettings({ tab: 'scene' });
+    opened.controller.switchSceneSubTab('characters');
+    const html = opened.controller.getSnapshot().html;
+    assert.match(html, /data-mood-group-count="9"/);
+    assert.match(html, /class="igs-mood-group-total">9</);
+    for (const group of extra) {
+        assert.match(html, new RegExp(`data-mood-group="${group.label}"`));
+    }
+    assert.match(html, /嘲讽/);
+    assert.match(html, /2 个词/);
+    host.destroy();
+});
+
 test('gate:scene:mood-create-group-auto-first-word-and-blocks-dup', async () => {
     const draft = { bridge: { sceneAssets: { enabled: true, scenes: {}, characters: {}, moodGroups: [{ label: '喜悦', words: ['开心'] }] } }, readerSettings: {} };
     let alerts = 0;
@@ -2282,6 +2314,7 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
     const after = await controller.invoke(`scene-toggle-mood:${encodeURIComponent('Kaito')}:${encodeURIComponent('喜悦')}`);
     assert.match(after.snapshot.html, /class="igs-sprite-thumb[ "]/);
     assert.match(after.snapshot.html, /开心/);
+    assert.doesNotMatch(after.snapshot.html, /建为情绪组|无对应情绪组/);
 
     host.destroy();
 });
