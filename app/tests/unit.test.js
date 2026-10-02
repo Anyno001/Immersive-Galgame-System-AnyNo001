@@ -2053,10 +2053,10 @@ test('gate:scene:mood-group-list-shows-the-containers-and-their-count', () => {
     });
     host.openReader({ message: { text: '旁白。' } }, { mode: 'pc' });
     const opened = host.openSettings({ tab: 'scene' });
-    opened.controller.switchSceneSubTab('characters');
+    opened.controller.switchSceneSubTab('rules');
     const html = opened.controller.getSnapshot().html;
-    assert.match(html, /data-mood-group-count="9"/);
-    assert.match(html, /class="igs-mood-group-total">9</);
+    assert.match(html, new RegExp(`data-mood-group-count="${extra.length}"`));
+    assert.match(html, new RegExp(`class="igs-mood-group-total">${extra.length}</`));
     for (const group of extra) {
         assert.match(html, new RegExp(`data-mood-group="${group.label}"`));
     }
@@ -2080,7 +2080,10 @@ test('gate:scene:mood-create-group-auto-first-word-and-blocks-dup', async () => 
     await handleSettingsAction(`mood-create-group:${encodeURIComponent('愤怒')}`, ctx);
     const created = draft.bridge.sceneAssets.moodGroups.find((g) => g.label === '愤怒');
     assert.ok(created);
-    assert.deepEqual(created.words, ['愤怒']);
+    // 组名命中预设：自动填入这一组的预设近义词（别的组已占用的词跳过）。
+    assert.equal(created.words[0], '愤怒');
+    assert.ok(created.words.includes('怒喝'));
+    assert.equal(created.words.includes('开心'), false);
     // 组名撞名：阻止 + alert
     const before = draft.bridge.sceneAssets.moodGroups.length;
     await handleSettingsAction(`mood-create-group:${encodeURIComponent('喜悦')}`, ctx);

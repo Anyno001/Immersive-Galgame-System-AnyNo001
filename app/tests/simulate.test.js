@@ -507,7 +507,7 @@ test('gate:simulation:scene-assets-injects-prompt-and-renders-single-configured-
     assert.match(injected.value, /\[igs-scene:/);
     assert.match(injected.value, /NSFW场景加第4栏大写NSFW/);
     assert.doesNotMatch(injected.value, /\{\{mood_groups\}\}/);
-    assert.match(injected.value, /喜悦：开心、欢喜、欣喜/);
+    assert.match(injected.value, /喜悦：开心、高兴、愉快/);
     assert.match(injected.value, /\[igs-char:角色名\|表情\|服装\|对白\]/);
     assert.doesNotMatch(injected.value, /\{\{outfit_groups\}\}/);
     assert.match(injected.value, /对上哪套就写哪套的名字/);
@@ -8318,7 +8318,7 @@ test('gate:simulation:outfit-settings-add-slot-url-persist-reopen-and-custom-rul
         assert.match(settings.switchSceneSubTab('review').snapshot.html, /class="igs-review-card is-empty" data-review-card="outfit"/);
         html = settings.switchSceneSubTab('characters').snapshot.html;
         assert.match(html, /data-outfit-panel="泳装"/, 'created outfit opens as the active tab');
-        assert.match(html, /data-outfit-fallback="喜悦">.*?回落原装「喜悦」/);
+        assert.match(html, /data-outfit-fallback="喜悦">.*?回落原装「默认」/);
         answers.push('比基尼');
 
         await settings.invoke(`scene-add-outfit-word:${c}:${o}`);

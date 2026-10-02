@@ -589,49 +589,62 @@ export function createAssetGenerationService(deps) {
         if (typeof onProgress === 'function') onProgress(event);
     }
 
-    // 按实际情绪组写词。不超过 8 个一次写完；超过 8 个均分成两批，一批写完并出完图再写下一批。某一张失败不影响后面的。
-    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress } = {}) {
+    // 一次写完所有提示词，再按顺序逐张出图；某一张失败不影响后面的。
+    // 插件少给某几份时只补写那几份；signal 中止后已画好的图保留。
+    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress, signal } = {}) {
         const labels = (Array.isArray(moods) ? moods : []).map((item) => String(item || '').trim()).filter(Boolean);
         if (!labels.length) return { ok: false, error: '没有表情分组' };
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
             return { ok: false, error: '当前图像来源不能写表情差分' };
         }
-        const batches = splitExpressionMoodBatches(labels);
+        const stopped = () => Boolean(signal && signal.aborted);
         const items = [];
+        let pending = labels.slice();
         let painted = 0;
-        for (const batch of batches) {
+        // 最多两轮：第一轮写全部，第二轮只补插件漏掉的那几份。
+        for (let round = 0; round < 2 && pending.length; round += 1) {
+            if (stopped()) break;
             reportExpressionProgress(onProgress, { phase: 'write', done: painted, total: labels.length });
             let written;
             try {
                 written = await nai.writeDbgenPrompt({
-                    description: buildExpressionDiffDescription(name, basePrompt, batch, dna, outfit),
+                    description: buildExpressionDiffDescription(name, basePrompt, pending, dna, outfit),
                 });
             } catch (error) {
                 const message = (error && error.message) || '写提示词失败';
                 if (!items.length) return { ok: false, error: message };
-                for (const mood of batch) items.push({ mood, ok: false, error: message });
+                for (const mood of pending) items.push({ mood, ok: false, error: message });
                 break;
             }
             if (!written || !written.ok) {
                 const message = (written && written.error) || '写提示词失败';
                 if (!items.length) return { ok: false, error: message };
-                for (const mood of batch) items.push({ mood, ok: false, error: message });
+                for (const mood of pending) items.push({ mood, ok: false, error: message });
                 break;
             }
             const captions = Array.isArray(written.captions) ? written.captions : [];
-            for (let i = 0; i < batch.length; i += 1) {
+            const missing = [];
+            for (let i = 0; i < pending.length; i += 1) {
+                if (stopped()) {
+                    for (const mood of pending.slice(i)) items.push({ mood, ok: false, error: '已停止' });
+                    pending = [];
+                    break;
+                }
                 painted += 1;
-                reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: batch[i] });
+                reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: pending[i] });
                 const slot = captions.find((item) => Number(item && item.slotId) === i + 1);
                 const caption = slot && slot.caption;
                 if (!caption) {
-                    items.push({ mood: batch[i], ok: false, error: '写提示词没有返回这一份' });
+                    missing.push(pending[i]);
+                    items.push({ mood: pending[i], ok: false, error: '写提示词没有返回这一份' });
                     continue;
                 }
-                items.push(await paintExpressionCaption(name, batch[i], caption));
+                const result = await paintExpressionCaption(name, pending[i], caption);
+                items.push(result);
             }
+            pending = round === 0 ? missing : [];
         }
-        return { ok: true, items };
+        return { ok: true, items, stopped: stopped() };
     }
 
     // 失败槽重画：已有 caption 就只出这一张，不再写词。

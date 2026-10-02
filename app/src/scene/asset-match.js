@@ -330,8 +330,11 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
         const found = outfitsOfCharacter(userAssets.characterOutfits, userAssets.characterAliases, name);
         const entry = found.outfits[outfitName];
         if (entry && entry.moods) {
+            // 服装内按当条表情找（精确 → 情绪组 → 模糊 → 同方向另一档）。没命中就用原装的默认图，
+            // 最后才落到这一套的「平和」——那是旧数据没有默认图时的老行为。
             const hit = lookupAssetValue(entry.moods, mood, userAssets.moodGroups, userAssets.moodFuzzyMatch === true, false);
-            const calm = hit.url ? hit : lookupAssetValue(entry.moods, '平和', userAssets.moodGroups, false, false);
+            const base = hit.url ? hit : lookupAssetValue((userAssets.characters || {})[found.key || name], '默认', userAssets.moodGroups, false, false);
+            const calm = base.url ? base : lookupAssetValue(entry.moods, '平和', userAssets.moodGroups, false, false);
             if (calm.url) return { url: calm.url, slot: calm.slot, outfit: outfitName, character: found.key || name, source: 'user-outfit', quality: hit.url ? hit.quality : 'group', needsGeneration: false };
         }
     }

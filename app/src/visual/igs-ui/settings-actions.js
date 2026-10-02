@@ -4,11 +4,12 @@ import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-consta
 import { findDbgenApi } from '../../generated-images/image-backend.js';
 import { formatEditablePrompt, formatStoredPrompt, normalizeStoredPrompt, parseEditablePrompt } from '../../generated-images/generation-prompt.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
-import { DEFAULT_MOOD_GROUPS, normalizeMoodGroups } from '../../scene/mood-groups.js';
+import { DEFAULT_MOOD_GROUPS, MOOD_PRESET, moodPresetEntry, moodTierLabels, normalizeMoodGroups, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { buildCharacterCardPack, mergeLabelGroups, parseCharacterCardPack, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { clearMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
+import { SETTINGS_NOTICE_MS } from './settings-notice.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
@@ -301,6 +302,113 @@ function restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDr
     } catch (error) {
         return false;
     }
+}
+
+// 角色记一个档位；没记过按 8。用户取消返回 0。
+async function chooseMoodTier(dialogs, saved, name) {
+    const current = [8, 12, 18].includes(Number(saved)) ? Number(saved) : 8;
+    if (!dialogs || typeof dialogs.prompt !== 'function') return current;
+    const hint = `「${name}」要画多少张表情差分？
+8 普通角色
+12 重要配角
+18 主角`;
+    const raw = await dialogs.prompt(hint, String(current));
+    if (raw == null) return 0;
+    const picked = Number(String(raw).trim());
+    return [8, 12, 18].includes(picked) ? picked : current;
+}
+
+function nsfwEnabledForAssets(draft) {
+    const bridge = draft && draft.bridge ? draft.bridge : {};
+    const auto = bridge.autoIllustration && typeof bridge.autoIllustration === 'object' ? bridge.autoIllustration : {};
+    return auto.nsfwEnabled === true;
+}
+
+// 跑的时候把生成按钮换成「停止生成」；按一下就置 abort，已画好的图保留。
+function createStopControl(onRestore) {
+    const controller = { aborted: false };
+    const globalObj = typeof globalThis !== 'undefined' ? globalThis : null;
+    const doc = globalObj && globalObj.document;
+    const host = doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-unified-settings') : null;
+    const buttons = host ? Array.from(host.querySelectorAll('[data-action^="char-expression-set:"],[data-action^="outfit-expression-set:"]')) : [];
+    const restoreAll = () => {
+        for (const button of buttons) {
+            if (button.isConnected === false) continue;
+            button.disabled = false;
+            button.removeAttribute('aria-busy');
+            button.textContent = '停止生成';
+        }
+    };
+    const state = { restore: restoreAll };
+    const onClick = (event) => {
+        const target = event.target && event.target.closest ? event.target.closest('[data-action^="char-expression-set:"],[data-action^="outfit-expression-set:"]') : null;
+        if (!target) return;
+        if (!controller.aborted && state.restore) {
+            controller.aborted = true;
+            target.textContent = '正在收尾…';
+            target.disabled = true;
+        }
+    };
+    if (host) {
+        host.addEventListener('click', onClick, true);
+        for (const button of buttons) {
+            button.disabled = false;
+            button.removeAttribute('aria-busy');
+            button.textContent = '停止生成';
+        }
+    }
+    return {
+        signal: controller,
+        stopButton: {
+            set restore(fn) { state.restore = fn; },
+        },
+        done() {
+            if (host) host.removeEventListener('click', onClick, true);
+            restoreAll();
+            if (typeof onRestore === 'function') onRestore();
+        },
+    };
+}
+
+// 出图结果用页面上的提示条说，不弹 alert，免得一张失败糊一屏。
+function showGeneratedNotice(globalObj, message) {
+    const doc = globalObj && globalObj.document;
+    const host = doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-unified-settings') : null;
+    if (!host || !message) return;
+    remountSettingsNotice(host, { message, until: Date.now() + SETTINGS_NOTICE_MS }, Date.now());
+}
+
+// 预设里没有的组、或者词已经被别的组占了，都跳过。
+function fillPresetWordsFor(label, groups, fallback) {
+    const preset = moodPresetEntry(label);
+    if (!preset) return fallback;
+    const taken = new Set();
+    for (const group of groups) {
+        if (!group || group.label === label) continue;
+        for (const word of Array.isArray(group.words) ? group.words : []) taken.add(String(word || '').trim());
+    }
+    const words = preset.words.filter((word) => !taken.has(word));
+    return words.length ? words : fallback;
+}
+
+// 套用预设：预设的组按预设词全量覆盖；用户自建的组不动。
+// 冲突的词（同一个词出现在两组）按预设归属挪走。返回是否真的改了。
+function applyMoodPreset(groups) {
+    const presetLabels = new Set(MOOD_PRESET.map((entry) => entry.label));
+    const custom = groups.filter((group) => group && !presetLabels.has(String(group.label || '').trim()));
+    const customWords = new Set();
+    for (const group of custom) {
+        for (const word of Array.isArray(group.words) ? group.words : []) customWords.add(String(word || '').trim());
+    }
+    const built = MOOD_PRESET.map((entry) => ({
+        label: entry.label,
+        words: entry.words.filter((word) => !customWords.has(word)),
+    }));
+    const next = [...built, ...custom.map((group) => ({ label: String(group.label).trim(), words: (group.words || []).slice() }))];
+    const before = JSON.stringify(groups.map((group) => ({ label: group.label, words: group.words })));
+    const after = JSON.stringify(next.map((group) => ({ label: group.label, words: group.words })));
+    groups.splice(0, groups.length, ...next);
+    return before !== after;
 }
 
 function generatedOperationFailure(globalObj, message, reason) {
@@ -931,7 +1039,13 @@ export async function handleSettingsAction(action, ctx) {
         if (!service || typeof service.generateExpressionSet !== 'function' || typeof service.getImagePrompt !== 'function') {
             return generatedOperationFailure(globalObj, '表情差分当前不可用。', 'expression-unavailable');
         }
-        const labels = normalizeMoodGroups(settingsState.draft.bridge.sceneAssets.moodGroups).map((group) => group.label);
+        const allGroups = normalizeMoodGroups(settingsState.draft.bridge.sceneAssets.moodGroups);
+        const savedTiers = sceneAssets.characterMoodTiers && typeof sceneAssets.characterMoodTiers === 'object' ? sceneAssets.characterMoodTiers : {};
+        const tier = retry ? 8 : await chooseMoodTier(dialogs, savedTiers[name], name);
+        if (!retry && tier === 0) return rerenderSettings();
+        const labels = tier
+            ? moodTierLabels(tier, { nsfw: nsfwEnabledForAssets(settingsState.draft), extra: allGroups.map((group) => group.label) })
+            : allGroups.map((group) => group.label);
         const ownUrl = outfitMode ? firstGeneratedOutfitUrl(outfitEntry) : '';
         const baseUrl = ownUrl || String(character['默认'] || '');
         const defaultId = generatedAssetIdOf(baseUrl);
@@ -975,34 +1089,39 @@ export async function handleSettingsAction(action, ctx) {
         const clothes = outfitMode ? resolveWardrobePrompt(draftEffectiveAssets(settingsState).wardrobe || {}, outfitEntry, outfitName) : null;
         const outfit = outfitMode ? { name: outfitName, words: outfitEntry.words, ownImage: Boolean(ownUrl), prompt: clothes ? clothes.prompt : '' } : null;
         if (retry && !mood) return rerenderSettings();
+        const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
+        const filledLabels = labels.filter((label) => String(slots[label] || '').trim());
+        const missingLabels = labels.filter((label) => !String(slots[label] || '').trim());
         if (!retry) {
-            const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
-            const missing = labels.filter((label) => !String(slots[label] || '').trim());
             const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
-            if (!missing.length) {
-                const message = `${who}的表情组都有图了。`;
+            if (!missingLabels.length) {
+                const message = `${who}这一档的表情组都有图了。`;
                 if (typeof dialogs.view === 'function') await dialogs.view(message);
                 else if (globalObj.alert) globalObj.alert(message);
                 return rerenderSettings();
             }
-            const confirmed = await dialogs.confirm(`生成${who}还没有图的 ${missing.length} 张表情差分：${missing.join('、')}。已有的图不动。`);
+            const confirmed = await dialogs.confirm(missingLabels.length === labels.length
+                ? `生成${who}的 ${missingLabels.length} 张表情差分：${missingLabels.join('、')}。`
+                : `这一档还有 ${missingLabels.length} 张没画：${missingLabels.join('、')}。只画这 ${missingLabels.length} 张，已有的 ${filledLabels.length} 张不动。`);
             if (!confirmed) return rerenderSettings();
-            labels.splice(0, labels.length, ...missing);
         }
         let result;
         const onProgress = (event) => reportExpressionProgress(globalObj, event);
         const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction);
+        const stopControl = createStopControl(() => restoreBusy());
         try {
             result = retry && savedCaption && typeof service.generateExpressionImage === 'function'
-                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, onProgress })
+                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, onProgress, signal: stopControl.signal })
                 : retry
-                    ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, onProgress })
-                    : await service.generateExpressionSet({ name, basePrompt, moods: labels, dna, outfit, onProgress });
+                    ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
+                    : await service.generateExpressionSet({ name, basePrompt, moods: missingLabels, dna, outfit, onProgress, signal: stopControl.signal });
         } catch (error) {
+            stopControl.done();
             clearExpressionProgress(globalObj);
             restoreBusy();
             return generatedOperationFailure(globalObj, '表情差分生成失败。', 'expression-generate-failed');
         }
+        stopControl.done();
         if (!result || !result.ok) {
             clearExpressionProgress(globalObj);
             restoreBusy();
@@ -1010,7 +1129,14 @@ export async function handleSettingsAction(action, ctx) {
         }
         const liveBridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
         const liveAssets = draftAssetLibrary(settingsState, editTarget);
+        if (!retry) {
+            const tiers = liveAssets.characterMoodTiers && typeof liveAssets.characterMoodTiers === 'object'
+                ? liveAssets.characterMoodTiers : (liveAssets.characterMoodTiers = {});
+            tiers[name] = tier;
+        }
         for (const item of result.items || []) {
+            // 停止后没画的格子连空槽都不建，不留下带错误注记的空格。
+            if (item.error === '已停止' || item.error === '已跳过') continue;
             if (outfitMode) applyOutfitExpression(liveAssets, name, outfitName, item);
             else applyCharacterExpression(liveAssets, name, item);
         }
@@ -1020,9 +1146,12 @@ export async function handleSettingsAction(action, ctx) {
             restoreBusy();
             return persisted;
         }
+        const painted = (result.items || []).filter((item) => item.ok).length;
         const rendered = await rerenderSettings();
         clearExpressionProgress(globalObj);
         restoreBusy();
+        if (result.stopped) showGeneratedNotice(globalObj, `已停止，画好了 ${painted} 张。`);
+        else if (!painted) showGeneratedNotice(globalObj, '没有画出可用的图。');
         return rendered;
     }
 
@@ -2379,6 +2508,16 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'mood-apply-preset') {
+        const groups = ensureMoodGroups(settingsState);
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        const looked = await dialogs.confirm(applyMoodPreset(groups)
+            ? '已按预设整理词库：缺的组补齐、词挪回它该在的组，你自己加的组和词都在。'
+            : '词库已经是预设的样子了，没改。');
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'mood-add-group') {
         const globalObj = options.global || globalThis;
         const groups = ensureMoodGroups(settingsState);
@@ -2388,8 +2527,7 @@ export async function handleSettingsAction(action, ctx) {
             if (globalObj.alert) globalObj.alert(`情绪组「${raw}」已存在（同名）`);
             return rerenderSettings();
         }
-        // 组名自动作为该组第一个词
-        groups.unshift({ label: raw, words: [raw] });
+        groups.unshift({ label: raw, words: fillPresetWordsFor(raw, groups, [raw]) });
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -2541,8 +2679,7 @@ export async function handleSettingsAction(action, ctx) {
             if (globalObj.alert) globalObj.alert(`情绪组「${label}」已存在（同名）`);
             return rerenderSettings();
         }
-        // 组名自动作为该组第一个词
-        groups.unshift({ label, words: [label] });
+        groups.unshift({ label, words: fillPresetWordsFor(label, groups, [label]) });
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();

@@ -1,3 +1,7 @@
+import { moodPresetAct } from '../scene/mood-groups.js';
+
+// 楼内补立绘一次最多写 8 份。表情差分不再分批，一次写完。
+export const EXPRESSION_WRITE_BATCH_MAX = 8;
 // 数据库生图模式下的前端提示词接线：写词接口只说明画什么。
 // 正负模板在出图前合并进插件返回的 NaiCaption，不交给写词模型照抄。
 
@@ -54,7 +58,6 @@ function formatReturnedCaption(caption) {
     return lines.join('\n');
 }
 
-export const EXPRESSION_WRITE_BATCH_MAX = 8;
 
 // 单次写词最多 8 份。超过 8 份均分成两批（10 份是 5 和 5），由调用方串行写。
 export function splitWriteBatches(items) {
@@ -73,16 +76,11 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
     const moods = (Array.isArray(labels) ? labels : []).map((item) => String(item || '').trim()).filter(Boolean);
     const stored = prompt && typeof prompt === 'object' ? prompt : {};
     const caption = formatReturnedCaption(stored.caption);
-    const profile = dna && typeof dna === 'object' ? dna : {};
     const clothes = outfit && typeof outfit === 'object' ? outfit : null;
     const outfitName = clothes ? String(clothes.name || '').trim() : '';
     const words = clothes && Array.isArray(clothes.words)
         ? clothes.words.map((item) => String(item || '').trim()).filter(Boolean)
         : [];
-    const identity = String(profile.identity || '').trim();
-    const appearance = String(profile.defaultAppearance || '').trim();
-    const dnaNegative = String(profile.negative || '').trim();
-    const triggers = String(profile.triggerWords || '').trim();
     const clothesPrompt = clothes ? String(clothes.prompt || '').trim() : '';
     const wordText = words.length ? `，衣服按这些词来画：${words.join('、')}` : '';
     const wear = caption
@@ -108,11 +106,13 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
         '表情依据该角色的性格、脾气与行为习惯分别撰写，禁止套用统一表情模板。',
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
         '情绪须写入肢体：手势、肩线、重心随该情绪变化。禁止仅替换面部。',
+        '各表情的动作按下面的说明写，不要把不同表情画成同一张脸。',
         '无背景，透明底。',
-        identity ? `固定身份：\n${identity}` : '',
-        appearance ? `默认外观：\n${appearance}` : '',
-        triggers ? `触发词：\n${triggers}` : '',
-        dnaNegative ? `不要出现：\n${dnaNegative}` : '',
+        ...characterDnaLines(name, dna),
+        ...moods.map((mood, index) => {
+            const act = moodPresetAct(mood);
+            return act ? `${index + 1} ${mood}：${act}` : '';
+        }).filter(Boolean),
         `按 slotid 1 到 ${moods.length} 的顺序另写 ${moods.length} 份：${moods.map((label, index) => `${index + 1} ${label}`).join('、')}。`,
     ].filter(Boolean).join('\n');
 }
@@ -163,22 +163,32 @@ export function uprightSpriteCaption(caption) {
     };
 }
 
-// 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
-export function buildCharacterSpriteDescription(name, dna) {
+// 插件写词会带上世界书、聊天上下文和它自己的角色库，同名角色容易被写成别的长相。
+// 有 DNA 时先声明以设定为准，再列字段；没有 DNA 返回空数组。
+function characterDnaLines(name, dna) {
     const profile = dna && typeof dna === 'object' ? dna : {};
     const identity = String(profile.identity || '').trim();
     const appearance = String(profile.defaultAppearance || '').trim();
     const dnaNegative = String(profile.negative || '').trim();
     const triggers = String(profile.triggerWords || '').trim();
+    if (!identity && !appearance && !dnaNegative && !triggers) return [];
+    return [
+        `「${name || ''}」的长相以下面的设定为准，优先于上下文、世界书和角色库里的任何描写；发色、瞳色、发型照设定写，不得改动，不要按名字联想。`,
+        identity ? `固定身份：\n${identity}` : '',
+        appearance ? `默认外观：\n${appearance}` : '',
+        triggers ? `触发词：\n${triggers}` : '',
+        dnaNegative ? `不要出现：\n${dnaNegative}` : '',
+    ].filter(Boolean);
+}
+
+// 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
+export function buildCharacterSpriteDescription(name, dna) {
     return [
         `画角色「${name || ''}」的立绘。`,
         '外貌与服装按下面的角色设定来画。设定里没写到的，按这个角色补一个日常样子。',
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
         '无背景，透明底。',
-        identity ? `固定身份：\n${identity}` : '',
-        appearance ? `默认外观：\n${appearance}` : '',
-        triggers ? `触发词：\n${triggers}` : '',
-        dnaNegative ? `不要出现：\n${dnaNegative}` : '',
+        ...characterDnaLines(name, dna),
         '只写一份，slotid 为 1。',
     ].filter(Boolean).join('\n');
 }
@@ -198,12 +208,21 @@ export function buildWardrobeClothingDescription(_character, outfitName) {
 
 // 本楼还缺的立绘一次写完。名单里只有尚未生成的，已有的不进来。
 export function buildDbgenSpriteBatchDescription(needs = []) {
-    const list = (Array.isArray(needs) ? needs : []).map((need, index) => `${index + 1}. ${need && need.name ? need.name : ''}`);
+    const items = Array.isArray(needs) ? needs : [];
+    const list = items.map((need, index) => `${index + 1}. ${need && need.name ? need.name : ''}`);
     const count = list.length;
+    const profiles = items
+        .map((need, index) => {
+            const lines = characterDnaLines(need && need.name, need && need.dna);
+            return lines.length ? [`第 ${index + 1} 份：`, ...lines].join('\n') : '';
+        })
+        .filter(Boolean);
     return [
         `写${count}张立绘的提示词，按下面的顺序各一份，slotid 从 1 数到 ${count}。`,
         list.join('\n'),
-        '角色外貌与服装依据正文补充。无背景，透明底。',
+        profiles.length ? '角色外貌与服装依据正文补充；下面列了设定的角色，长相按设定写。' : '角色外貌与服装依据正文补充。',
+        ...profiles,
+        '无背景，透明底。',
         '不要写生成点，不要从正文摘挂载句。',
     ].join('\n');
 }
@@ -229,6 +248,7 @@ export function buildDbgenAssetDescription(need = {}) {
         return [
             `画角色「${need.name || ''}」的立绘。`,
             '角色外貌与服装依据正文补充。无背景，透明底。',
+            ...characterDnaLines(need.name, need.dna),
         ].join('\n');
     }
     if (need.type === 'background') {

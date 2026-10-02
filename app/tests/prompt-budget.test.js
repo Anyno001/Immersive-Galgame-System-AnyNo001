@@ -90,7 +90,7 @@ test('gate:prompt-budget:triggers-follow-recent-tags-user-words-and-unclosed-pai
 
 test('gate:prompt-budget:compact-vocab-keeps-slot-words-and-unlisted-words-still-resolve', () => {
     const compact = buildCompactMoodGroupsText(DEFAULT_MOOD_GROUPS, new Set(['狂喜']));
-    assert.match(compact, /喜悦：狂喜、开心、欢喜/);
+    assert.match(compact, /大笑：狂喜/);
     for (const group of DEFAULT_MOOD_GROUPS) {
         for (const word of group.words) {
             assert.equal(resolveMoodGroup(word, DEFAULT_MOOD_GROUPS), group.label, word);

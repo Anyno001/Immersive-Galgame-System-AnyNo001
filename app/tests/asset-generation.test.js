@@ -1047,10 +1047,11 @@ test('gate:assets:bind-generated-sprite-to-character-default', () => {
 });
 
 test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async () => {
-    const { DEFAULT_MOOD_GROUPS } = await import('../src/scene/mood-groups.js');
+    const { DEFAULT_MOOD_GROUPS, moodTierLabels } = await import('../src/scene/mood-groups.js');
     const { renderCharacterAssetList, renderGeneratedAssetPane } = await import('../src/visual/igs-ui/settings-fields.js');
     const { buildExpressionDiffDescription, uprightSpriteCaption } = await import('../src/generated-images/dbgen-prompt.js');
-    const labels = DEFAULT_MOOD_GROUPS.map((group) => group.label);
+    const labels = moodTierLabels(8);
+    const moodGroups = DEFAULT_MOOD_GROUPS;
     const captionOf = (text) => ({
         v4_prompt: { caption: { base_caption: text, char_captions: [] } },
         v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
@@ -1081,7 +1082,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
             assert.match(meta.description, /slotid: 1\nscene: 1girl, silver hair\nscene_uc: lowres\nchar: 0\.5,0\.5 \| silver hair\nchar_uc: blonde hair/);
             assert.equal(meta.caption, undefined);
             assert.match(meta.description, /下面这份是已有立绘，外貌和构图按它画。这不是要回写的图。\nslotid: 1\nscene: 1girl, silver hair/);
-            assert.match(meta.description, /按 slotid 1 到 8 的顺序另写 8 份：1 喜悦、2 愤怒、3 悲伤、4 紧张、5 平和、6 害羞、7 嫌弃、8 爱恋/);
+            assert.match(meta.description, /按 slotid 1 到 8 的顺序另写 8 份：1 喜悦、2 愤怒、3 悲伤、4 平和、5 害羞、6 爱恋、7 嫌弃、8 紧张/);
             assert.ok(meta.description.indexOf('下面这份是已有立绘') < meta.description.indexOf('按 slotid 1 到 8'));
             return {
                 ok: true,
@@ -1161,7 +1162,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
         sceneAssets: {
             characters: { 冬月: { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy' } },
             characterAliases: {},
-            moodGroups: DEFAULT_MOOD_GROUPS,
+            moodGroups,
         },
     });
     assert.equal(hit.url, 'igs-gen:joy');
@@ -1226,13 +1227,11 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.equal(leaned.v4_negative_prompt.caption.char_captions[0].char_caption.includes('head tilt'), false);
 });
 
-test('gate:assets:expression-set-splits-more-than-eight-moods-into-two-serial-batches', async () => {
+test('gate:assets:expression-set-writes-all-moods-in-one-request', async () => {
     const { splitExpressionMoodBatches } = await import('../src/generated-images/dbgen-prompt.js');
     const ten = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+    // 楼内补立绘仍按 8 份拆批；表情差分走 generateExpressionSet，不再用这个函数。
     assert.deepEqual(splitExpressionMoodBatches(ten), [ten.slice(0, 5), ten.slice(5)]);
-    assert.deepEqual(splitExpressionMoodBatches(ten.slice(0, 8)).length, 1);
-    assert.deepEqual(splitExpressionMoodBatches(ten.concat(['k', 'l', 'm', 'n', 'o', 'p'])).map((batch) => batch.length), [8, 8]);
-    assert.deepEqual(splitExpressionMoodBatches(ten.concat('k')).map((batch) => batch.length), [6, 5]);
 
     const captionOf = (text) => ({
         v4_prompt: { caption: { base_caption: text, char_captions: [] } },
@@ -1240,28 +1239,20 @@ test('gate:assets:expression-set-splits-more-than-eight-moods-into-two-serial-ba
     });
     const order = [];
     const nai = {
-        describe: () => ({ via: 'dbgen', ownPrompts: true, ready: { ok: true } }),
-        writeDbgenPrompt: async (meta) => {
-            order.push(`write:${(meta.description.match(/写 (\d+) 份/) || [])[1]}`);
-            const listed = meta.description.split('：').pop();
-            const labels = listed.split('、').map((item) => item.replace(/^\d+\s/, '').replace(/。$/, ''));
-            return {
-                ok: true,
-                captions: labels.map((label, index) => ({ slotId: index + 1, caption: captionOf(label) })),
-            };
+        writeDbgenPrompt: async ({ description }) => {
+            order.push(`write:${description.includes('写 10 份') ? 10 : 0}`);
+            return { ok: true, captions: ten.map((mood, index) => ({ slotId: index + 1, caption: captionOf(`expr ${mood}`) })) };
         },
-        generateDbgenCaption: async (meta) => {
-            order.push(`paint:${meta.caption.v4_prompt.caption.base_caption.split(',')[0]}`);
-            return { ok: true, dataUrl: 'data:image/png;base64,QQ==', prompt: { positive: 'x', negative: 'y' } };
+        generateDbgenCaption: async ({ caption }) => {
+            const text = caption.v4_prompt.caption.base_caption;
+            order.push(`paint:${text.replace('expr ', '')}`);
+            return { ok: true, dataUrl: 'data:image/png;base64,AAA', prompt: { positive: text, negative: '' } };
         },
     };
-    let seq = 0;
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
     const service = createAssetGenerationService({
-        messageHost: { getChatId: () => 'chat', readFloor: () => null, readPreviousAiTexts: () => [], on: () => () => {} },
-        llm: {}, nai, store: createMemoryGeneratedAssetStore(),
-        getSettings: () => ({ autoIllustration: {}, sceneAssets: {} }),
-        newId: () => `expr-${seq += 1}`,
-        matte: async (dataUrl) => dataUrl,
+        messageHost: { getChatId: () => 'c1', getUserName: () => '', readPreviousAiTexts: () => [] },
+        llm: null, nai, store: createMemoryGeneratedAssetStore(), getSettings: () => ({}), events: null, matte: async (dataUrl) => dataUrl,
     });
     const result = await service.generateExpressionSet({
         name: '冬月',
@@ -1270,9 +1261,7 @@ test('gate:assets:expression-set-splits-more-than-eight-moods-into-two-serial-ba
     });
     assert.equal(result.ok, true);
     assert.deepEqual(result.items.map((item) => item.mood), ten);
-    assert.deepEqual(order.filter((step) => step.startsWith('write')), ['write:5', 'write:5']);
-    assert.ok(order.indexOf('write:5') < order.lastIndexOf('paint:e'));
-    assert.ok(order.lastIndexOf('paint:e') < order.lastIndexOf('write:5'));
+    assert.deepEqual(order.filter((step) => step.startsWith('write')), ['write:10']);
 });
 
 test('gate:assets:wardrobe-prompt-writes-once-and-does-not-paint', async () => {
@@ -1345,6 +1334,8 @@ test('gate:assets:character-sprite-writes-from-dna-then-paints-default', async (
     const bare = buildCharacterSpriteDescription('路人甲', null);
     assert.match(bare, /按这个角色补一个日常样子/);
     assert.equal(bare.includes('固定身份'), false);
+    assert.match(text, /以下面的设定为准，优先于上下文、世界书和角色库/);
+    assert.equal(bare.includes('优先于上下文'), false);
 
     const caption = {
         v4_prompt: { caption: { base_caption: '1girl, silver hair', char_captions: [] } },
@@ -1381,4 +1372,19 @@ test('gate:assets:character-sprite-writes-from-dna-then-paints-default', async (
     assert.ok(html.includes('生成立绘'));
     const dnaOnly = renderDnaOnlyCharacterList({ 路人甲: { identity: '' } }, {});
     assert.ok(dnaOnly.includes('data-action="char-generate-sprite:%E8%B7%AF%E4%BA%BA%E7%94%B2"'));
+});
+
+test('gate:assets:floor-sprite-descriptions-carry-dna', async () => {
+    const { buildDbgenSpriteBatchDescription, buildDbgenAssetDescription } = await import('../src/generated-images/dbgen-prompt.js');
+    const alice = { type: 'sprite', name: '爱丽丝', dna: { identity: '', defaultAppearance: 'black hair, blue eyes', negative: 'blonde hair', triggerWords: '' } };
+    const plain = { type: 'sprite', name: '路人甲' };
+    const batch = buildDbgenSpriteBatchDescription([plain, alice]);
+    assert.match(batch, /第 2 份：\n「爱丽丝」的长相以下面的设定为准/);
+    assert.match(batch, /默认外观：\nblack hair, blue eyes/);
+    assert.match(batch, /不要出现：\nblonde hair/);
+    assert.equal(batch.includes('第 1 份'), false);
+    assert.equal(buildDbgenSpriteBatchDescription([plain]).includes('长相按设定写'), false);
+    const single = buildDbgenAssetDescription(alice);
+    assert.match(single, /默认外观：\nblack hair, blue eyes/);
+    assert.equal(buildDbgenAssetDescription(plain).includes('默认外观'), false);
 });

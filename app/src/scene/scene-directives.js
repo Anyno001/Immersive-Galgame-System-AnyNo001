@@ -1,4 +1,4 @@
-import { resolveMoodGroup, fuzzyResolveMoodGroup } from './mood-groups.js';
+import { resolveMoodGroup, fuzzyResolveMoodGroup, moodFallbackChain } from './mood-groups.js';
 import { resolveSceneTimeAsset } from './scene-time.js';
 import { IGS_DIRECTIVE_START_RE, matchOutfitDirectiveAt } from './directive-tags.js';
 
@@ -490,9 +490,14 @@ export function lookupAssetValue(record, requestedKey, moodGroups, fuzzy = false
     if (requestedKey && record[requestedKey]) return { url: record[requestedKey], slot: requestedKey, quality: 'exact' };
     const groupLabel = resolveMoodGroup(requestedKey, moodGroups);
     if (groupLabel && record[groupLabel]) return { url: record[groupLabel], slot: groupLabel, quality: 'group' };
+    let fuzzyLabel = '';
     if (fuzzy && !groupLabel) {
-        const fuzzyLabel = fuzzyResolveMoodGroup(requestedKey, moodGroups);
+        fuzzyLabel = fuzzyResolveMoodGroup(requestedKey, moodGroups);
         if (fuzzyLabel && record[fuzzyLabel]) return { url: record[fuzzyLabel], slot: fuzzyLabel, quality: 'fuzzy' };
+    }
+    // 同方向的另一档兜底：8 档角色遇到「不满」用愤怒那张，「嘲讽」用喜悦那张。
+    for (const name of moodFallbackChain(groupLabel || fuzzyLabel)) {
+        if (record[name]) return { url: record[name], slot: name, quality: 'tier-fallback' };
     }
     if (allowDefault && record['默认']) return { url: record['默认'], slot: '默认', quality: 'default' };
     return { url: null, slot: '', quality: 'none' };

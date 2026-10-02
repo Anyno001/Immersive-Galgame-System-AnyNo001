@@ -249,9 +249,9 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     };
     const character = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(character.ok, true);
-    assert.match(asks[0], /生成「冬月」还没有图的 6 张表情差分：悲伤、紧张、平和、害羞、嫌弃、爱恋/);
-    assert.match(asks[0], /已有的图不动/);
-    assert.deepEqual(seen[0], ['悲伤', '紧张', '平和', '害羞', '嫌弃', '爱恋']);
+    assert.match(asks[0], /这一档还有 6 张没画：悲伤、平和、害羞、爱恋、嫌弃、紧张/);
+    assert.match(asks[0], /已有的 2 张不动/);
+    assert.deepEqual(seen[0], ['悲伤', '平和', '害羞', '爱恋', '嫌弃', '紧张']);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:old-joy');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'https://kept.example/a.png');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['悲伤'], 'igs-gen:new-悲伤');
@@ -261,7 +261,7 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     assert.equal(seen.length, 1);
     const outfit = await handleSettingsAction('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8', ctx);
     assert.equal(outfit.ok, true);
-    assert.match(asks[1], /服装「日常」还没有图的 7 张/);
+    assert.match(asks[1], /这一档还有 7 张没画：愤怒、悲伤、平和、害羞、爱恋、嫌弃、紧张/);
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['喜悦'], 'igs-gen:old-outfit');
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['愤怒'], 'igs-gen:new-愤怒');
 });

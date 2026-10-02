@@ -38,7 +38,8 @@ function thumb(url, alt, extraClass = '', resolveUrl) {
 // 该服装缺这一格（或这一格没填图）时阅读器实际显示什么：借用服装内同组槽，或这一套的平和。
 function previewOf(sceneAssets, charName, mood, outfit) {
     const hit = resolveSpriteAsset(charName, mood, { sceneAssets }, outfit);
-    if (hit.source === 'user-outfit') return { url: hit.url, label: `借用「${hit.slot}」`, kind: 'borrow' };
+    // 这一套里没有、借的是角色默认立绘：说成回落原装，不说成借这一套的格子。
+    if (hit.source === 'user-outfit' && hit.slot !== '默认') return { url: hit.url, label: `借用「${hit.slot}」`, kind: 'borrow' };
     if (hit.url) return { url: hit.url, label: `回落原装「${hit.slot || mood}」`, kind: 'base' };
     return { url: '', label: '无图可显示', kind: 'none' };
 }
@@ -144,9 +145,14 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
         const filled = Object.values(moods).filter((url) => String(url || '').trim()).length;
         return tab(name, esc(name), `<span class="igs-outfit-tab-count">${filled}</span>`, `AI 写法：[igs-char:${charName}|表情|${name}|对白]`);
     })).join('');
-    // 当前页签（原装或某套服装）的操作都在页签行末尾的「⋯」里。
     const o = encSeg(active);
     const metaKey = `outfit-meta:${charName}\u0001${active}`;
+    // 生成立绘和表情差分提到页签行上，不再埋在 ⋯ 里；其余操作仍在页签行末尾的「⋯」里。
+    const exprAction = active ? `outfit-expression-set:${c}:${o}` : `char-expression-set:${c}`;
+    const quickButtons = `<span class="igs-outfit-quick">`
+        + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="char-generate-sprite:${c}">生成立绘</button>`
+        + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>`
+        + `</span>`;
     const menu = active
         ? renderRowMenu([
             menuItem(`outfit-expression-set:${c}:${o}`, '表情差分'),
@@ -157,7 +163,7 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
         ], `「${active}」的操作`)
         : renderRowMenu(baseMenuItems, '原装的操作');
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
-        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">＋ 服装</button>${menu}</div>`;
+        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">＋ 服装</button>${quickButtons}${menu}</div>`;
     const panel = active
         ? renderOutfitPanel(charName, active, plain(map[active]), baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
         : baseListHtml;

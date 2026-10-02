@@ -317,6 +317,11 @@ export const SCENE_RULES_TEMPLATE = `
     <div class="igs-source-filter-note">给服装画立绘或表情时，取这里写的衣服样子。角色的服装没点名时，按同名的那条取。</div>
     {{wardrobeSection}}
   </div>
+  <div class="igs-source-filter" data-mood-section>
+    <div class="igs-source-filter-title">情绪组<span class="igs-outfit-muted">（发给聊天模型与生图）</span></div>
+    <div class="igs-source-filter-note">AI 写的情绪词按这里归类，再取对应的立绘。没有的图按同方向的另一档回退，最后用角色的默认立绘。</div>
+    {{moodSection}}
+  </div>
 </div>
 `.trim();
 
