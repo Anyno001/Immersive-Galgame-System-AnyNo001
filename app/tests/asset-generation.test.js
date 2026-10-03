@@ -1192,6 +1192,12 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.match(written, /服装提示词：\nschool swimsuit, one-piece/);
     assert.match(written, /不要沿用原装的衣服/);
     assert.equal(written.includes('衣服按这些词来画'), false);
+    const nude = buildExpressionDiffDescription('冬月', { positive: '1girl' }, ['喜悦'], null, { name: '裸体', words: ['全裸'], ownImage: false, prompt: 'completely nude', nude: true });
+    assert.match(nude, /这一套是裸体/);
+    assert.match(nude, /不要画任何衣服/);
+    assert.equal(nude.includes('服装提示词：'), false);
+    assert.equal(nude.includes('completely nude'), false);
+    assert.equal(nude.includes('全裸'), false);
     const own = buildExpressionDiffDescription('冬月', { positive: '1girl' }, ['喜悦'], null, { name: '泳装', words: ['泳衣'], ownImage: true });
     assert.match(own, /不要画成别的衣服/);
     assert.equal(own.includes('不要沿用原装的衣服'), false);
@@ -1349,6 +1355,11 @@ test('gate:assets:character-sprite-writes-from-dna-then-paints-default', async (
     assert.match(text, /只写一份，slotid 为 1/);
     assert.equal(text.includes('楼层'), false);
     assert.equal(text.includes('正文'), false);
+    const nudeSprite = buildCharacterSpriteDescription('冬月', { identity: '银发' }, { nude: true });
+    assert.match(nudeSprite, /画角色「冬月」的裸体立绘/);
+    assert.match(nudeSprite, /不要画任何衣服、内衣和配饰/);
+    assert.match(nudeSprite, /不要套用现成的服装提示词/);
+    assert.equal(nudeSprite.includes('完全裸体'), false);
     const bare = buildCharacterSpriteDescription('路人甲', null);
     assert.match(bare, /按这个角色补一个日常样子/);
     assert.equal(bare.includes('固定身份'), false);

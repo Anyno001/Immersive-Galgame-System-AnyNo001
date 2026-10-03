@@ -1,4 +1,4 @@
-import { isValidOutfitName, isValidOutfitWord, normalizeWardrobe, OUTFIT_RESET } from '../../scene/character-outfits.js';
+import { BUILTIN_NUDE_OUTFIT, isBuiltinNudeOutfit, isValidOutfitName, isValidOutfitWord, normalizeWardrobe, OUTFIT_RESET } from '../../scene/character-outfits.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { classifySceneKey } from '../../scene/scene-directives.js';
 import { clearOutfitReview, loadOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
@@ -60,6 +60,7 @@ function validateSlotName(globalObj, name) {
 }
 
 function createOutfit(globalObj, charName, outfits, name) {
+    if (isBuiltinNudeOutfit(name)) { warn(globalObj, `「${name}」是内置项，在衣柜里选，不会进服装库`); return false; }
     if (!isValidOutfitName(name)) { warn(globalObj, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return false; }
     const owner = outfitTokenOwner(outfits, name);
     if (owner) { warn(globalObj, owner === name ? `「${charName}」已有服装「${name}」（同名）` : `「${name}」已是服装「${owner}」的词`); return false; }
@@ -125,6 +126,7 @@ async function handleWardrobe(command, segs, ctx) {
     if (command === 'wardrobe-add') {
         const next = await ask(ctx, '服装名称：', '');
         if (!next) return rerenderSettings();
+        if (isBuiltinNudeOutfit(next)) { warn(globalObj, `「${next}」是内置的，不会进服装库`); return rerenderSettings(); }
         if (!isValidOutfitName(next)) { warn(globalObj, `「${next}」不能用作服装名`); return rerenderSettings(); }
         if (hasOwn(wardrobe, next)) { warn(globalObj, `衣柜里已有「${next}」`); return rerenderSettings(); }
         wardrobe[next] = { prompt: '' };
@@ -132,6 +134,7 @@ async function handleWardrobe(command, segs, ctx) {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         const next = await ask(ctx, `把「${name}」改名为：`, name);
         if (!next || next === name) return rerenderSettings();
+        if (isBuiltinNudeOutfit(next)) { warn(globalObj, `「${next}」是内置的，不会进服装库`); return rerenderSettings(); }
         if (!isValidOutfitName(next)) { warn(globalObj, `「${next}」不能用作服装名`); return rerenderSettings(); }
         if (hasOwn(wardrobe, next)) { warn(globalObj, `衣柜里已有「${next}」`); return rerenderSettings(); }
         const renamed = {};
@@ -310,7 +313,7 @@ async function runOutfitAction(match, ctx) {
         if (!entry) return rerenderSettings();
         const picked = decodeSeg(segs[2] || '');
         if (!picked) delete entry.wardrobe;
-        else if (isValidOutfitName(picked)) entry.wardrobe = picked;
+        else if (isBuiltinNudeOutfit(picked) || isValidOutfitName(picked)) entry.wardrobe = picked;
         return done();
     }
     if (command === 'scene-outfit-tab') {
@@ -329,6 +332,7 @@ async function runOutfitAction(match, ctx) {
     case 'scene-rename-outfit': {
         const name = await ask(ctx, `重命名服装「${outfitName}」为：`, outfitName);
         if (!name || name === outfitName) return rerenderSettings();
+        if (isBuiltinNudeOutfit(name)) { warn(globalObj, `「${BUILTIN_NUDE_OUTFIT}」是内置项，在衣柜里选`); return rerenderSettings(); }
         if (!isValidOutfitName(name)) { warn(globalObj, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return rerenderSettings(); }
         const owner = outfitTokenOwner(outfits, name, outfitName);
         if (owner) { warn(globalObj, owner === name ? `「${charName}」已有服装「${name}」（同名），改名会覆盖，已阻止` : `「${name}」已是服装「${owner}」的词`); return rerenderSettings(); }

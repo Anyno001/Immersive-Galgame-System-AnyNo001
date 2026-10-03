@@ -37,7 +37,7 @@ import { handleOutfitAction } from './settings-outfit-actions.js';
 import { markSettingsButtonBusy, showSettingsProgress } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { SETTINGS_SECTIONS, buildSettingsExport, parseSettingsImport, resetSettingsSection, settingsExportFileName } from './settings-sections.js';
-import { normalizeCharacterOutfits, normalizeWardrobe, renameOutfitScene, resolveWardrobePrompt } from '../../scene/character-outfits.js';
+import { isBuiltinNudeOutfit, normalizeCharacterOutfits, normalizeWardrobe, renameOutfitScene, resolveWardrobePrompt } from '../../scene/character-outfits.js';
 
 import { migrateSpriteKeys } from './sprite-key-migration.js';
 import { NAI_OFFICIAL_MODELS } from '../../generated-images/request-builders/nai-v4-builder.js';
@@ -75,7 +75,7 @@ function assetFolderScope(settingsState, options) {
 
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
-const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
 function linkedCharacterOutfits(settingsState) {
@@ -185,6 +185,8 @@ function expressionNoteKey(name, outfit) {
 }
 
 function firstGeneratedOutfitUrl(entry) {
+    const base = String(entry && entry.base || '').trim();
+    if (isGeneratedAssetUrl(base)) return base;
     const moods = entry && entry.moods && typeof entry.moods === 'object' ? entry.moods : {};
     for (const url of Object.values(moods)) {
         const text = String(url || '').trim();
@@ -1013,10 +1015,14 @@ export async function handleSettingsAction(action, ctx) {
             return generatedOperationFailure(globalObj, '立绘生成当前不可用。', 'sprite-generate-unavailable');
         }
         const current = String((character && character['默认']) || '').trim();
+        reportExpressionProgress(globalObj, { phase: 'write' });
         const confirmed = await dialogs.confirm(current
             ? `重新生成「${name}」的默认立绘。现在这张会被换掉。`
             : `生成「${name}」的默认立绘。先写提示词，再出一张图。`);
-        if (!confirmed) return rerenderSettings();
+        if (!confirmed) {
+            clearExpressionProgress(globalObj);
+            return rerenderSettings();
+        }
         let result;
         const onProgress = (event) => reportExpressionProgress(globalObj, event);
         const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction);
@@ -1044,6 +1050,61 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction.startsWith('outfit-generate-nude:')) {
+        const parts = normalizedAction.slice('outfit-generate-nude:'.length).split(':').map(decodeSeg);
+        const name = parts[0] || '';
+        const outfitName = parts[1] || '';
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
+        const character = (sceneAssets.characters || {})[name];
+        const dna = characterExpressionDna(sceneAssets, name);
+        const outfitsNow = (sceneAssets.characterOutfits || {})[name] || {};
+        const outfitNow = outfitsNow[outfitName];
+        if (!name || !outfitName || !outfitNow || !isBuiltinNudeOutfit(outfitNow.wardrobe) || (!character && !dna)) return rerenderSettings();
+        if (!service || typeof service.generateCharacterSprite !== 'function') {
+            return generatedOperationFailure(globalObj, '立绘生成当前不可用。', 'sprite-generate-unavailable');
+        }
+        const current = String(outfitNow.base || '').trim();
+        reportExpressionProgress(globalObj, { phase: 'write' });
+        const confirmed = await dialogs.confirm(current
+            ? `重新生成「${name}」的「${outfitName}」裸体立绘。现在这张会被换掉，原装不动。`
+            : `生成「${name}」的「${outfitName}」裸体立绘。先按这个角色写提示词，再出一张图。这张记在这套服装上，不换掉原装。`);
+        if (!confirmed) {
+            clearExpressionProgress(globalObj);
+            return rerenderSettings();
+        }
+        let result;
+        const onProgress = (event) => reportExpressionProgress(globalObj, event);
+        const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction);
+        try {
+            result = await service.generateCharacterSprite({ name, dna, nude: true, onProgress });
+        } catch (error) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return generatedOperationFailure(globalObj, '立绘生成失败。', 'sprite-generate-failed');
+        }
+        if (!result || !result.ok || !result.imageId) {
+            clearExpressionProgress(globalObj);
+            restoreBusy();
+            return generatedOperationFailure(globalObj, (result && result.error) || '立绘生成失败。', 'sprite-generate-failed');
+        }
+        const liveAssets = draftAssetLibrary(settingsState, editTarget);
+        const all = { ...(liveAssets.characterOutfits || {}) };
+        const mine = { ...(all[name] || {}) };
+        const entry = { ...(mine[outfitName] || { words: [], moods: {} }) };
+        entry.base = `igs-gen:${result.imageId}`;
+        mine[outfitName] = entry;
+        all[name] = mine;
+        liveAssets.characterOutfits = all;
+        ensureCharacterAliases(settingsState, editTarget);
+        const persisted = persistGeneratedLibrary(persistSettingsDraft);
+        clearExpressionProgress(globalObj);
+        restoreBusy();
+        if (operationFailed(persisted)) return persisted;
+        return rerenderSettings();
+    }
+
     if (/^(?:char|outfit)-expression-(?:set|retry|resume):/.test(normalizedAction)) {
         const outfitMode = normalizedAction.startsWith('outfit-expression-');
         const retry = normalizedAction.includes('-expression-retry:');
@@ -1063,6 +1124,8 @@ export async function handleSettingsAction(action, ctx) {
         if (!service || typeof service.generateExpressionSet !== 'function' || typeof service.getImagePrompt !== 'function') {
             return generatedOperationFailure(globalObj, '表情差分当前不可用。', 'expression-unavailable');
         }
+        // 单张重画菜单一点就收起，先把「生图中」亮出来，后面读提示词、出图都看得见。
+        if (retry || resume) reportExpressionProgress(globalObj, { phase: 'paint' });
         const allGroups = normalizeMoodGroups(settingsState.draft.bridge.sceneAssets.moodGroups);
         const savedTiers = sceneAssets.characterMoodTiers && typeof sceneAssets.characterMoodTiers === 'object' ? sceneAssets.characterMoodTiers : {};
         const tier = retry || resume ? 8 : await chooseMoodTier(dialogs, savedTiers[name], name);
@@ -1105,9 +1168,13 @@ export async function handleSettingsAction(action, ctx) {
             }
         }
         const dna = characterExpressionDna(sceneAssets, name);
-        const clothes = outfitMode ? resolveWardrobePrompt(draftEffectiveAssets(settingsState).wardrobe || {}, outfitEntry, outfitName) : null;
-        const outfit = outfitMode ? { name: outfitName, words: outfitEntry.words, ownImage: Boolean(ownUrl), prompt: clothes ? clothes.prompt : '' } : null;
-        if (retry && !mood) return rerenderSettings();
+        const nude = outfitMode && isBuiltinNudeOutfit(outfitEntry.wardrobe);
+        const clothes = outfitMode && !nude ? resolveWardrobePrompt(draftEffectiveAssets(settingsState).wardrobe || {}, outfitEntry, outfitName) : null;
+        const outfit = outfitMode ? { name: outfitName, words: nude ? [] : outfitEntry.words, ownImage: Boolean(ownUrl), prompt: nude ? '' : (clothes ? clothes.prompt : ''), nude } : null;
+        if (retry && !mood) {
+            clearExpressionProgress(globalObj);
+            return rerenderSettings();
+        }
         const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
         // 自建组不进档位：还没图的问一句要不要一起画。
         const customMissing = retry || resume ? [] : allGroups.map((group) => group.label)
@@ -1123,6 +1190,7 @@ export async function handleSettingsAction(action, ctx) {
         const writeLabels = missingLabels.filter((label) => !captionByMood.has(label));
         const resumeItems = resume ? pendingExpressionCaptions(library.expressionNotes[noteKey], slots) : paintItems;
         if (resume && !resumeItems.length) {
+            clearExpressionProgress(globalObj);
             showGeneratedNotice(globalObj, '没有写好词、还没出图的表情。');
             return rerenderSettings();
         }
@@ -1132,6 +1200,7 @@ export async function handleSettingsAction(action, ctx) {
                 : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
         }
         if (retry && !savedCaption && !basePrompt) {
+            clearExpressionProgress(globalObj);
             return generatedOperationFailure(globalObj, outfitMode
                 ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
                 : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
@@ -1157,7 +1226,7 @@ export async function handleSettingsAction(action, ctx) {
         }
         let result;
         const onProgress = (event) => reportExpressionProgress(globalObj, event);
-        const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction, '生图中');
+        const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction, '生图中');
         // 单张重画不接停止键：只有一张，按了也停不下来，别把「表情差分」按钮变成摆设。
         const stopControl = retry ? { signal: { aborted: false }, done() {} } : createStopControl(() => restoreBusy());
         try {

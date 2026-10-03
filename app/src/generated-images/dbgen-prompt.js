@@ -99,12 +99,15 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
     const words = clothes && Array.isArray(clothes.words)
         ? clothes.words.map((item) => String(item || '').trim()).filter(Boolean)
         : [];
-    const clothesPrompt = clothes ? String(clothes.prompt || '').trim() : '';
+    const nude = Boolean(clothes && clothes.nude);
+    const clothesPrompt = nude ? '' : (clothes ? String(clothes.prompt || '').trim() : '');
     const wordText = words.length ? `，衣服按这些词来画：${words.join('、')}` : '';
     const wear = caption
         ? '上面 char 里的衣服换成下面的服装提示词，人还是上面那个。'
         : '衣服按下面的服装提示词来画。';
-    const clothesLine = !outfitName
+    const clothesLine = nude
+        ? '这一套是裸体。不要画任何衣服、内衣和配饰，按这个角色的长相画裸体立绘。不要沿用原装的衣服，也不要另附服装提示词。'
+        : !outfitName
         ? (caption ? '服装也按上面这份画。' : '外貌、服装和构图与已有立绘保持一致。')
         : clothesPrompt
             ? (clothes.ownImage
@@ -204,10 +207,13 @@ function characterDnaLines(name, dna) {
 const SPRITE_DAILY_POSE_LINE = '姿势带一个轻量的日常小动作（如一只手拨头发、手背在身后、手插口袋、轻抓衣角），不要双手僵直下垂，也不要大幅动作或拿道具挡住身体。';
 
 // 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
-export function buildCharacterSpriteDescription(name, dna) {
+export function buildCharacterSpriteDescription(name, dna, options) {
+    const nude = Boolean(options && options.nude);
     return [
-        `画角色「${name || ''}」的立绘。`,
-        '外貌与服装按下面的角色设定来画。设定里没写到的，按这个角色补一个日常样子。',
+        nude ? `画角色「${name || ''}」的裸体立绘。` : `画角色「${name || ''}」的立绘。`,
+        nude
+            ? '不要画任何衣服、内衣和配饰。长相按下面的角色设定，人还是这个角色。不要套用现成的服装提示词，按这个角色自己写裸体该怎么画。'
+            : '外貌与服装按下面的角色设定来画。设定里没写到的，按这个角色补一个日常样子。',
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
         SPRITE_DAILY_POSE_LINE,
         '无背景，透明底。',

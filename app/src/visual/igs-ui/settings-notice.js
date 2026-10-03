@@ -6,8 +6,8 @@ const SAVE_FAILURE_REASONS = new Set(['save-failed', 'generated-asset-persist-fa
 export const SETTINGS_NOTICE_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-notice{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:3;max-width:min(520px,calc(100% - 48px));padding:10px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-danger,#c0392b);color:#fff;font-size:13px;line-height:1.5;pointer-events:auto;}
 #igs-unified-settings .igs-settings-shell>.igs-settings-progress{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:2;width:max-content;min-width:148px;max-width:min(240px,calc(100% - 48px));margin:0;padding:10px 18px 12px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-raised);color:var(--igs-settings-ink);box-shadow:var(--igs-settings-shell-shadow);font-size:13px;font-weight:500;letter-spacing:.04em;line-height:1.4;text-align:center;pointer-events:none}
-#igs-unified-settings .igs-settings-progress-track{height:3px;margin-top:8px;border-radius:999px;background:var(--igs-settings-field);overflow:hidden}
-#igs-unified-settings .igs-settings-progress-fill{height:100%;width:0;border-radius:999px;background:var(--igs-settings-accent)}
+#igs-unified-settings .igs-settings-progress-track{height:3px;margin-top:8px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);overflow:hidden}
+#igs-unified-settings .igs-settings-progress-fill{height:100%;width:0;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-accent)}
 #igs-unified-settings .igs-settings-progress.is-writing .igs-settings-progress-fill{width:38%;animation:igs-settings-progress-slide 1.1s ease-in-out infinite}
 @keyframes igs-settings-progress-slide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 `;
@@ -62,7 +62,7 @@ const SETTINGS_BUSY_LABELS = Object.freeze({
 export function settingsBusyLabel(action) {
     const name = String(action || '');
     if (SETTINGS_BUSY_LABELS[name]) return SETTINGS_BUSY_LABELS[name];
-    if (/^(?:char|outfit)-expression-retry:/.test(name)) return '生图中';
+    if (/^(?:char-generate-sprite|outfit-generate-nude|(?:char|outfit)-expression-retry):/.test(name)) return '生图中';
     return '';
 }
 

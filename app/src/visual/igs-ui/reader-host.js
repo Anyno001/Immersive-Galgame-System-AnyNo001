@@ -318,6 +318,7 @@ export function createIgsReaderHost(options = {}) {
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
     let settingsImageRefreshTimer = 0;
+    const settingsBusyActions = new Set();
     function scheduleSettingsImageRefresh() {
         if (settingsImageRefreshTimer) return;
         const g = options.global || globalThis;
@@ -4575,8 +4576,6 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 保存失败或动作抛异常时在面板内提示原因；面板重绘时由 updateMountedSettings 补回。
-    const settingsBusyActions = new Set();
-
     function reportSettingsFailure(result) {
         const message = describeSettingsFailure(result);
         if (!message) return;

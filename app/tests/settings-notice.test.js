@@ -73,6 +73,8 @@ test('gate:settings-notice:slow-actions-show-busy-state-and-restore', () => {
     assert.equal(settingsBusyLabel('scene-add-bg'), '');
     assert.equal(settingsBusyLabel('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8'), '');
     assert.equal(settingsBusyLabel('char-expression-retry:%E5%86%AC%E6%9C%88:%E6%84%A4%E6%80%92'), '生图中');
+    assert.equal(settingsBusyLabel('char-generate-sprite:%E5%86%AC%E6%9C%88'), '生图中');
+    assert.equal(settingsBusyLabel('outfit-generate-nude:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8'), '生图中');
     const attrs = new Map();
     const button = { textContent: '测试生图', disabled: false, isConnected: true, setAttribute: (k, v) => attrs.set(k, v), removeAttribute: (k) => attrs.delete(k) };
     const restore = markSettingsButtonBusy(button, '测试中…');

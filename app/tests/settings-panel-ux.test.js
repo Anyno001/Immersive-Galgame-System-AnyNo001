@@ -745,4 +745,31 @@ test('gate:row-menu:flips-up-or-clamps-near-the-bottom-of-the-scroll-area', asyn
     const tight = make(380, 400);
     assert.equal(tight.up, true);
     assert.equal(tight.max, '272px', 'no room either way: clamp and scroll inside');
+
+    const placeX = (anchorLeft, menuWidth) => {
+        const classes = new Set();
+        const scroller = {
+            parentElement: null,
+            getBoundingClientRect: () => ({ top: 0, bottom: 800, left: 40, right: 400 }),
+            overflowY: 'auto', overflowX: 'hidden',
+        };
+        const list = {
+            style: {}, scrollHeight: 120, scrollWidth: menuWidth,
+            getBoundingClientRect: () => ({ height: 120, width: menuWidth }),
+        };
+        const details = {
+            open: true, parentElement: scroller,
+            classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) },
+            querySelector: () => list,
+            getBoundingClientRect: () => ({ top: 80, bottom: 108, left: anchorLeft, right: anchorLeft + 28 }),
+        };
+        const win = {
+            innerHeight: 900, innerWidth: 800,
+            getComputedStyle: (el) => ({ overflowY: el.overflowY || 'visible', overflowX: el.overflowX || 'visible' }),
+        };
+        placeRowMenu(details, win);
+        return classes.has('is-flip-x');
+    };
+    assert.equal(placeX(340, 180), false, 'button on the right: menu still opens left');
+    assert.equal(placeX(48, 180), true, 'button on the left: menu opens right so it stays inside');
 });

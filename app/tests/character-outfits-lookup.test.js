@@ -33,6 +33,15 @@ test('gate:outfits:sprite-lookup-miss-uses-this-outfit-calm', () => {
     assert.equal(resolveSpriteAsset('小林海斗', '平和', ctx, '睡衣').url, 'base.png');
     assert.equal(resolveSpriteAsset('小林海斗', '喜悦', ctx, '默认').url, 'base-joy.png');
     assert.equal(resolveSpriteAsset('小林海斗', '喜悦', ctx, '不存在').url, 'base-joy.png');
+    const nudeCtx = {
+        sceneAssets: {
+            ...sceneAssets,
+            characterOutfits: {
+                小林海斗: { 日常: { words: [], moods: {}, wardrobe: '裸体', base: 'nude.png' } },
+            },
+        },
+    };
+    assert.equal(resolveSpriteAsset('小林海斗', '害羞', nudeCtx, '日常').url, 'nude.png');
     const legacy = resolveSpriteAsset('小林海斗', '喜悦', ctx);
     assert.deepEqual([legacy.url, legacy.source, 'outfit' in legacy], ['base-joy.png', 'user', false]);
 });

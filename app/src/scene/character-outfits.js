@@ -1,7 +1,12 @@
 import { resolveCharacterKey } from './scene-directives.js';
 
 export const OUTFIT_RESET = '默认';
+export const BUILTIN_NUDE_OUTFIT = '裸体';
 const OUTFIT_BASE_WORDS = new Set([OUTFIT_RESET, '原装']);
+
+export function isBuiltinNudeOutfit(name) {
+    return String(name || '').trim() === BUILTIN_NUDE_OUTFIT;
+}
 export const NO_OUTFIT_GROUPS_TEXT = '（暂无登记服装。）';
 export const OUTFIT_GROUPS_PLACEHOLDER = '{{outfit_groups}}';
 const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -49,7 +54,7 @@ export function normalizeCharacterOutfits(value) {
         const outfits = {};
         for (const [rawName, rawEntry] of Object.entries(source)) {
             const name = rawName.trim();
-            if (!isValidOutfitName(name) || hasOwn(outfits, name)) continue;
+            if (!isValidOutfitName(name) || isBuiltinNudeOutfit(name) || hasOwn(outfits, name)) continue;
             const entry = plain(rawEntry) || {};
             const words = [];
             for (const word of Array.isArray(entry.words) ? entry.words : []) {
@@ -66,6 +71,8 @@ export function normalizeCharacterOutfits(value) {
             if (isValidOutfitName(wardrobe)) outfits[name].wardrobe = wardrobe;
             const note = normalizeOutfitNote(entry.note);
             if (note) outfits[name].note = note;
+            const base = typeof entry.base === 'string' ? entry.base.trim() : '';
+            if (base) outfits[name].base = base;
         }
         out[character] = outfits;
     }
@@ -77,7 +84,7 @@ export function normalizeWardrobe(raw) {
     const out = {};
     for (const [key, value] of Object.entries(plain(raw) || {})) {
         const name = typeof key === 'string' ? key.trim() : '';
-        if (!isValidOutfitName(name) || hasOwn(out, name)) continue;
+        if (!isValidOutfitName(name) || isBuiltinNudeOutfit(name) || hasOwn(out, name)) continue;
         const source = typeof value === 'string' ? { prompt: value } : (plain(value) || {});
         const prompt = typeof source.prompt === 'string' ? source.prompt.replace(/\r\n?/g, '\n').trim() : '';
         const reference = typeof source.reference === 'string' ? source.reference.trim() : '';

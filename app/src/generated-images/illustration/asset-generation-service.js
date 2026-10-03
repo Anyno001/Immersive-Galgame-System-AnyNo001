@@ -753,7 +753,7 @@ export function createAssetGenerationService(deps) {
     }
 
     // 设置页主动出一张默认立绘：写一份提示词，再出图。不经过楼内补图。
-    async function generateCharacterSprite({ name, dna, onProgress } = {}) {
+    async function generateCharacterSprite({ name, dna, nude = false, onProgress } = {}) {
         const who = String(name || '').trim();
         if (!who) return { ok: false, error: '没有角色' };
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
@@ -762,7 +762,7 @@ export function createAssetGenerationService(deps) {
         reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: 1, mood: '默认' });
         let written;
         try {
-            written = await nai.writeDbgenPrompt({ description: buildCharacterSpriteDescription(who, dna) });
+            written = await nai.writeDbgenPrompt({ description: buildCharacterSpriteDescription(who, dna, { nude: nude === true }) });
         } catch (error) {
             return { ok: false, error: (error && error.message) || '写提示词失败' };
         }

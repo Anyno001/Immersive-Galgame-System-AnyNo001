@@ -1,6 +1,6 @@
 import { esc } from './reader-value-utils.js';
 import { resolveSpriteAsset } from '../../scene/asset-match.js';
-import { OUTFIT_RESET } from '../../scene/character-outfits.js';
+import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -17,37 +17,58 @@ export function renderRowMenu(items, label = '更多操作') {
         + `<div class="igs-add-menu-list" role="menu">${list}</div></details>`;
 }
 
-// 下拉菜单默认往下开。列表很长、这一行靠近滚动区底部时，最后的「删除」会被裁掉：
-// 打开时量一下上下各剩多少空间，往下放不下就往上开；两边都放不下就限高，菜单内滚动。
+// 下拉默认贴着按钮右缘往左、往下开。靠左的 ⋯ 左边放不下就改往右开；靠近滚动区底部往上开。
+// 两边都放不下就限高，菜单内滚动。
 export function placeRowMenu(details, win = globalThis) {
     // 情绪列表外框为了圆角设了 overflow:hidden，菜单开着时放开，否则下拉被裁、只剩一截。
     const clipper = details && typeof details.closest === 'function' ? details.closest('.igs-btn-mgr-list') : null;
     if (clipper) clipper.classList.toggle('is-menu-open', details.open === true);
+    if (details && details.classList) {
+        details.classList.remove('is-up');
+        details.classList.remove('is-flip-x');
+    }
     if (!details || !details.open || typeof details.querySelector !== 'function') return;
     const list = details.querySelector('.igs-add-menu-list');
     if (!list || typeof list.getBoundingClientRect !== 'function') return;
-    details.classList.remove('is-up');
-    list.style.maxHeight = '';
+    if (list.style) list.style.maxHeight = '';
     const getStyle = win && typeof win.getComputedStyle === 'function' ? (el) => win.getComputedStyle(el) : null;
     let top = 0;
     let bottom = Number(win && win.innerHeight) || 0;
+    let left = 0;
+    let right = Number(win && win.innerWidth) || 0;
     for (let el = details.parentElement; el && getStyle; el = el.parentElement) {
-        if (!/(auto|scroll|hidden)/.test(String(getStyle(el).overflowY || ''))) continue;
-        const box = el.getBoundingClientRect();
-        top = Math.max(top, box.top);
-        bottom = bottom ? Math.min(bottom, box.bottom) : box.bottom;
+        const style = getStyle(el) || {};
+        const box = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+        if (!box) continue;
+        if (/(auto|scroll|hidden)/.test(String(style.overflowY || ''))) {
+            top = Math.max(top, box.top);
+            bottom = bottom ? Math.min(bottom, box.bottom) : box.bottom;
+        }
+        if (/(auto|scroll|hidden)/.test(`${style.overflowX || ''}${style.overflow || ''}`)) {
+            left = Math.max(left, box.left);
+            right = right ? Math.min(right, box.right) : box.right;
+        }
+    }
+    const anchor = details.getBoundingClientRect();
+    const menuBox = list.getBoundingClientRect();
+    const gap = 8;
+    const width = Math.max(Number(list.scrollWidth) || 0, Number(menuBox.width) || 0);
+    const anchorLeft = Number(anchor.left);
+    const anchorRight = Number(anchor.right);
+    if (width && right && Number.isFinite(anchorLeft) && Number.isFinite(anchorRight)) {
+        const roomLeft = anchorRight - left;
+        const roomRight = right - anchorLeft;
+        if (width + gap > roomLeft && roomRight > roomLeft) details.classList.add('is-flip-x');
     }
     if (!bottom) return;
-    const anchor = details.getBoundingClientRect();
-    const need = list.scrollHeight || list.getBoundingClientRect().height;
-    const gap = 8;
+    const need = list.scrollHeight || menuBox.height;
     const below = bottom - anchor.bottom - gap;
     const above = anchor.top - top - gap;
     if (need <= below) return;
     const up = above > below;
     if (up) details.classList.add('is-up');
     const room = Math.floor(up ? above : below);
-    if (need > room && room > 0) list.style.maxHeight = `${room}px`;
+    if (need > room && room > 0 && list.style) list.style.maxHeight = `${room}px`;
 }
 
 // 词写好了、图还没出的格子：已有空槽的出图失败，或者停下时还没轮到、没建槽的。
@@ -94,16 +115,23 @@ function chipList(items, removeAction, addAction, emptyText, addTitle) {
     return `<div class="igs-mood-word-list">${tags || `<span class="igs-outfit-muted">${esc(emptyText)}</span>`}<button type="button" class="igs-btn-mgr-icon" data-action="${addAction}" title="${esc(addTitle)}">+</button></div>`;
 }
 
-// 衣柜提示词在「规则」页。这里只选用哪一条，旁边的按钮跳过去编辑（没有就按服装名新建一条）。
+// 衣柜提示词在「规则」页。这里只选用哪一条。「裸体」是内置项，不进服装库，选中后生图按这个角色写裸体。
 function wardrobeChoices(charName, outfitName, entry, wardrobe) {
-    const names = Object.keys(plain(wardrobe));
+    const names = Object.keys(plain(wardrobe)).filter((item) => !isBuiltinNudeOutfit(item));
     const selected = typeof entry.wardrobe === 'string' ? entry.wardrobe.trim() : '';
-    const option = (item, label) => `<option value="${esc(item)}"${item === selected ? ' selected' : ''}>${esc(label)}</option>`;
-    const options = ['<option value="">同名服装</option>'].concat(names.map((item) => option(item, item)));
-    if (selected && !names.includes(selected)) options.push(option(selected, selected));
-    const label = names.includes(selected || outfitName) ? '编辑提示词' : '写提示词';
-    return `<select class="igs-asset-move" data-outfit-wardrobe-char="${esc(charName)}" data-outfit-wardrobe="${esc(outfitName)}" aria-label="使用衣柜">${options.join('')}</select>`
-        + `<button type="button" class="igs-settings-action igs-outfit-wardrobe-edit" data-action="wardrobe-for-outfit:${encSeg(charName)}:${encSeg(outfitName)}">${label}</button>`;
+    const nude = isBuiltinNudeOutfit(selected);
+    const choice = (value, label) => menuItem(
+        `scene-set-outfit-wardrobe-url:${encSeg(charName)}:${encSeg(outfitName)}:${encSeg(value)}`,
+        label,
+        (value ? value === selected : !selected) ? ' is-current' : '',
+    );
+    const options = [choice('', '同名服装'), choice(BUILTIN_NUDE_OUTFIT, BUILTIN_NUDE_OUTFIT)]
+        .concat(names.map((item) => choice(item, item)));
+    if (selected && !nude && !names.includes(selected)) options.push(choice(selected, selected));
+    const current = nude ? BUILTIN_NUDE_OUTFIT : (selected || '同名服装');
+    const edit = nude ? '' : `<button type="button" class="igs-settings-action igs-outfit-wardrobe-edit" data-action="wardrobe-for-outfit:${encSeg(charName)}:${encSeg(outfitName)}">${names.includes(selected || outfitName) ? '编辑提示词' : '写提示词'}</button>`;
+    return `<details class="igs-add-menu igs-wardrobe-pick"><summary class="igs-asset-move" aria-label="使用衣柜">${esc(current)}</summary>`
+        + `<div class="igs-add-menu-list" role="listbox">${options.join('')}</div></details>${edit}`;
 }
 
 // 服装设置折起来时，摘要里仍能看到这套衣服的要点，不用展开也知道怎么配的。
@@ -177,7 +205,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
 // 角色卡的立绘区：「原装 · 服装…」标签切换。原装标签显示原有情绪槽；服装标签显示该服装的槽、词、场景、头像与缺图预览。
 export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, baseMenuItems = [], outfits, activeOutfit, sceneAssets, icons, expressionNotes, resolveUrl, isOpen = () => false }) {
     const map = plain(outfits);
-    const names = Object.keys(map);
+    const names = Object.keys(map).filter((item) => !isBuiltinNudeOutfit(item));
     const active = names.includes(activeOutfit) ? activeOutfit : '';
     const c = encSeg(charName);
     const tab = (value, label, extra = '', title = '') => (
@@ -197,8 +225,11 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
         ? pendingExpressionCaptions(notesMap[`${charName}\u0001${active}`], plain(map[active] && map[active].moods))
         : pendingExpressionCaptions(notesMap[charName], plain(plain(plain(sceneAssets).characters)[charName]));
     const resumeAction = active ? `outfit-expression-resume:${c}:${o}` : `char-expression-resume:${c}`;
+    const spriteAction = active && isBuiltinNudeOutfit(plain(map[active]).wardrobe)
+        ? `outfit-generate-nude:${c}:${o}`
+        : `char-generate-sprite:${c}`;
     const quickButtons = `<span class="igs-outfit-quick">`
-        + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="char-generate-sprite:${c}">生成立绘</button>`
+        + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${spriteAction}">生成立绘</button>`
         + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>`
         + (pending.length ? `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${resumeAction}" title="词已经写好，直接出图，不重写">继续生图（${pending.length}）</button>` : '')
         + `</span>`;
@@ -214,7 +245,7 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
         + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">＋ 服装</button>${quickButtons}${menu}</div>`;
     const panel = active
-        ? renderOutfitPanel(charName, active, plain(map[active]), baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
+        ? renderOutfitPanel(charName, active, plain(map[active]) || { words: [], moods: {} }, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
         : baseListHtml;
     return `<div class="igs-outfit-area" data-outfit-area="${esc(charName)}">${bar}${panel}</div>`;
 }
@@ -224,7 +255,7 @@ export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, focus = '', lea
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const tag = typeof scopeTag === 'function' ? scopeTag : () => '';
-    const rows = Object.entries(plain(wardrobe)).map(([name, entry]) => {
+    const rows = Object.entries(plain(wardrobe)).filter(([name]) => !isBuiltinNudeOutfit(name)).map(([name, entry]) => {
         const prompt = entry && typeof entry.prompt === 'string' ? entry.prompt : '';
         const reference = entry && typeof entry.reference === 'string' ? entry.reference : '';
         const encoded = encSeg(name);
@@ -334,6 +365,14 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-add-menu>.igs-add-menu-list{overflow-y:auto;overscroll-behavior:contain}
 .igs-btn-mgr-list.is-menu-open{overflow:visible}
 .igs-add-menu.is-up>.igs-add-menu-list{top:auto;bottom:calc(100% + 6px);transform-origin:bottom right}
+.igs-add-menu.is-flip-x>.igs-add-menu-list{left:0;right:auto;transform-origin:top left}
+.igs-add-menu.is-up.is-flip-x>.igs-add-menu-list{transform-origin:bottom left}
+.igs-wardrobe-pick{flex:1;min-width:0}
+.igs-wardrobe-pick>summary.igs-asset-move{display:flex;align-items:center;width:100%;gap:8px}
+.igs-wardrobe-pick>summary.igs-asset-move::after{content:"";flex-shrink:0;width:6px;height:6px;margin-left:auto;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);opacity:.55}
+.igs-wardrobe-pick>.igs-add-menu-list,.igs-wardrobe-pick.is-flip-x>.igs-add-menu-list{left:0;right:auto;width:100%;min-width:100%;max-width:none;transform-origin:top left}
+.igs-wardrobe-pick.is-up>.igs-add-menu-list,.igs-wardrobe-pick.is-up.is-flip-x>.igs-add-menu-list{transform-origin:bottom left}
+.igs-add-menu-item.is-current{color:var(--igs-settings-ink);font-weight:600}
 .igs-folder-pick-item{position:relative;gap:8px}
 .igs-folder-pick-where{margin-left:auto;padding-left:12px;color:var(--igs-settings-ink-4)}
 .igs-outfit-tab-count{min-width:16px;padding:0 4px;border-radius:8px;background:var(--igs-settings-highlight);color:var(--igs-settings-ink-3);font-size:10px;font-weight:500;line-height:16px;text-align:center}
@@ -409,7 +448,6 @@ button.igs-scope-seg:hover,button.igs-scope-seg:focus-visible{color:var(--igs-se
 .igs-asset-filter-count{font-size:10px;color:var(--igs-settings-ink-4);font-weight:400}
 .igs-asset-bulk{width:28px;height:28px;color:var(--igs-settings-ink-3)}
 .igs-asset-bulk:hover,.igs-asset-bulk:focus-visible{color:var(--igs-settings-ink);background:var(--igs-settings-highlight);outline:none}
-.igs-asset-bulk-menu>.igs-add-menu-list{left:0;right:auto;transform-origin:top left}
 .igs-add-menu-item:disabled{color:var(--igs-settings-ink-4);background:transparent;cursor:default}
 .igs-review-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:12px;border:1px solid var(--igs-settings-line);border-radius:var(--igs-settings-radius-control)}
 .igs-review-card+.igs-review-card{margin-top:10px}

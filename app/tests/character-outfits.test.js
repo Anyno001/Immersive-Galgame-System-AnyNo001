@@ -63,6 +63,11 @@ test('gate:outfits:wardrobe-prompt-is-shared-and-named-link-wins', () => {
     assert.equal(resolveWardrobePrompt(wardrobe, { wardrobe: '没有' }, '便服'), null);
     assert.deepEqual(normalizeWardrobe({ 校服: { prompt: 'a', reference: 'igs-gen:ref' } }).校服, { prompt: 'a', reference: 'igs-gen:ref' });
     assert.equal(normalizeWardrobe({ 校服: { prompt: 'a', reference: 'https://x' } }).校服.reference, undefined);
+    assert.equal(Object.prototype.hasOwnProperty.call(normalizeWardrobe({ 裸体: { prompt: 'nude' }, 校服: { prompt: 'a' } }), '裸体'), false);
+    const kept = normalizeCharacterOutfits({ 冬月: { 日常: { words: [], moods: {}, wardrobe: '裸体', base: 'igs-gen:nude' }, 裸体: { words: [], moods: {} } } });
+    assert.equal(kept['冬月']['日常'].wardrobe, '裸体');
+    assert.equal(kept['冬月']['日常'].base, 'igs-gen:nude');
+    assert.equal(kept['冬月']['裸体'], undefined);
 });
 
 // 衣柜提示词在规则页：只列已有的条目；AI 写出的陌生服装词在「待确认」页处理，不在这里。
@@ -85,6 +90,24 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     assert.match(empty, new RegExp(`data-action="wardrobe-generate-prompt:${encodeURIComponent('冬月星见日常')}"`));
     assert.match(empty, /<input class="igs-scene-url-input igs-wardrobe-prompt"/);
     assert.doesNotMatch(empty, /<textarea/);
+    const hidden = renderWardrobe({ 裸体: { prompt: 'nude, nude' }, 校服: { prompt: '' } });
+    assert.equal(hidden.includes('裸体'), false);
+    assert.equal(hidden.includes('nude'), false);
+    const { renderCharacterSlotTabs } = await import('../src/visual/igs-ui/settings-outfit-fields.js');
+    const tabs = renderCharacterSlotTabs({
+        charName: '冬月',
+        baseMoods: [],
+        baseListHtml: '',
+        outfits: { 日常: { words: [], moods: {}, wardrobe: '裸体' } },
+        activeOutfit: '日常',
+        sceneAssets: { wardrobe: { 冬月星见日常: { prompt: 'daily' } } },
+        isOpen: () => true,
+    });
+    assert.match(tabs, /igs-wardrobe-pick/);
+    assert.match(tabs, /scene-set-outfit-wardrobe-url:[^"]*%E8%A3%B8%E4%BD%93/);
+    assert.match(tabs, /outfit-generate-nude:/);
+    assert.equal(tabs.includes('scene-outfit-tab:%E5%86%AC%E6%9C%88:%E8%A3%B8%E4%BD%93'), false);
+    assert.equal(tabs.includes('编辑提示词'), false);
 });
 
 test('gate:outfits:prompt-groups-text', () => {
