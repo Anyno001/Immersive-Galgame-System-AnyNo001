@@ -3220,24 +3220,12 @@ export function createIgsReaderHost(options = {}) {
                 autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW 自动生图'),
                 autoNsfwHidden: hiddenAttr(!auto.nsfwEnabled),
                 autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', '每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, NSFW_COUNT_MAX)),
-                autoAssetSpriteField: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '自动补全无名角色立绘'),
-                autoAssetBackgroundField: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '自动补全缺失场景背景'),
-                autoAssetStrictField: checkbox('bridge.autoIllustration.assets.strictMatch', auto.assets.strictMatch, '精准场景匹配'),
-                autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多生成数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 16)),
-                autoAssetSpriteSizeField: field('bridge.autoIllustration.assets.spriteSize', '立绘尺寸', textInput('bridge.autoIllustration.assets.spriteSize', auto.assets.spriteSize, '832x1216')),
-                autoAssetBackgroundSizeField: field('bridge.autoIllustration.assets.backgroundSize', '背景尺寸', textInput('bridge.autoIllustration.assets.backgroundSize', auto.assets.backgroundSize, '1216x832')),
-                autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '场景正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '必须包含 {tags}')),
-                autoAssetBackgroundNegativeTemplateField: field('bridge.autoIllustration.assets.templates.backgroundNegative', '场景负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.backgroundNegative', auto.assets.templates.backgroundNegative, '不希望场景出现的 tag')),
-                autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
-                autoAssetSpriteNegativeTemplateField: field('bridge.autoIllustration.assets.templates.spriteNegative', '人物负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.spriteNegative', auto.assets.templates.spriteNegative, '不希望人物立绘出现的 tag')),
-                autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, 'NSFW 被拒后重试时追加的提示词')),
                 autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图'),
                 autoInterludeHidden: hiddenAttr(!auto.interludeEnabled),
                 autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
                 autoInterludeMaxField: field('bridge.autoIllustration.interludeMaxCount', '每层最多张数', numberInput('bridge.autoIllustration.interludeMaxCount', auto.interludeMaxCount, 1, 16)),
                 autoAssetSpriteField: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '自动生成角色立绘'),
                 autoAssetBackgroundField: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '自动生成场景背景'),
-                autoAssetStrictField: checkbox('bridge.autoIllustration.assets.strictMatch', auto.assets.strictMatch, '严格匹配背景素材'),
                 autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多素材数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 16)),
                 autoAssetSpriteSizeField: field('bridge.autoIllustration.assets.spriteSize', '立绘尺寸', textInput('bridge.autoIllustration.assets.spriteSize', auto.assets.spriteSize, '832x1216')),
                 autoAssetBackgroundSizeField: field('bridge.autoIllustration.assets.backgroundSize', '背景尺寸', textInput('bridge.autoIllustration.assets.backgroundSize', auto.assets.backgroundSize, '1216x832')),
@@ -3427,6 +3415,8 @@ export function createIgsReaderHost(options = {}) {
             </div>
           </details>
         </div>
+        ${checkbox('bridge.autoIllustration.assets.strictMatch', normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.strictMatch, '严格匹配场景素材')}
+        <div class="igs-source-filter-note">开启后只认精确与别名命中的背景，不拿相近场景的图顶替；匹配不到就按缺失补画。</div>
         ${scenesHtml}
       </div>`;
             const charactersPane = `<div class="igs-settings-section">
@@ -3603,6 +3593,7 @@ export function createIgsReaderHost(options = {}) {
                 chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],
                 narrationFilter: readerValues.narrationFilterToggle,
                 sentencePaging: readerValues.sentencePagingToggle,
+                sentencePagingOn: Boolean(bridge.sentencePaging),
                 nsfw: readerValues.nsfwSpriteModeField + readerValues.nsfwVeilLevelField,
             }, (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]));
         }

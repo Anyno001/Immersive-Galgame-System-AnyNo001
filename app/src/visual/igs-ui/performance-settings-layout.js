@@ -6,6 +6,7 @@ import { renderDanmakuFields } from './danmaku-settings-fields.js';
 import { renderMetaFxFields } from './meta-fields.js';
 import { PERFORMANCE_FEATURES, PERFORMANCE_PRESETS, detectPerformancePreset, isPerformanceFeatureOn } from './performance-presets.js';
 import { renderQualityRow } from './render-quality-fields.js';
+import { FX_SETTINGS_NORMALIZERS } from './fx-settings.js';
 
 export const PERFORMANCE_GROUPS = Object.freeze([
     Object.freeze(['text', '文字']),
@@ -32,12 +33,32 @@ export function renderPerformancePresetBar(reader, { home = false, extraRows = '
     return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
 }
 
-// 「全部关闭」时默认开着的演出音效单独无效果，摘要里一并按关闭显示，和档位高亮一致。
-function groupSummary(reader, groupId, allOff) {
+// 档位不切换、但也摆在分组里的开关（改 AI 输出格式、实验功能、玩法或非演出设置）：
+// 胶囊要按页面上实际能看到的开关数计，否则「0/2」底下却有 4 个开关。没传进来的片段不计。
+function extraSwitches(reader, extras) {
+    const on = (key) => FX_SETTINGS_NORMALIZERS[key](reader[key]).enabled === true;
+    const hud = reader.statusHud && typeof reader.statusHud === 'object' ? reader.statusHud : {};
+    return {
+        text: [
+            ['双语台词', on('bilingual')],
+            extras.sentencePaging ? ['旁白按句号分页', extras.sentencePagingOn === true] : null,
+        ],
+        character: [
+            ['多角色同屏', on('stageCast')],
+            extras.narrationFilter ? ['旁白时压暗立绘', hud.dimSpriteOnNarration !== false] : null,
+        ],
+        story: [['选项检定掷骰', on('resultFx')]],
+    };
+}
+
+// 「全部关闭」时默认开着的演出音效单独无效果，摘要里一并按关闭显示，和档位高亮一致；档位不管的开关照实显示。
+function groupSummary(reader, groupId, allOff, extra = []) {
     const features = PERFORMANCE_FEATURES.filter((feature) => feature.group === groupId);
-    const on = allOff ? [] : features.filter((feature) => isPerformanceFeatureOn(reader, feature.key));
-    const brief = on.length ? on.map((feature) => feature.label).join('、') : '未开启';
-    return `<span class="igs-perf-count${on.length ? ' is-on' : ''}">${on.length}/${features.length}</span><span class="igs-perf-brief">${esc(brief)}</span>`;
+    const switches = features.map((feature) => [feature.label, !allOff && isPerformanceFeatureOn(reader, feature.key)])
+        .concat(extra.filter(Boolean));
+    const on = switches.filter(([, enabled]) => enabled === true);
+    const brief = on.length ? on.map(([label]) => label).join('、') : '未开启';
+    return `<span class="igs-perf-count${on.length ? ' is-on' : ''}">${on.length}/${switches.length}</span><span class="igs-perf-brief">${esc(brief)}</span>`;
 }
 
 function groupCard(id, title, summaryHtml, body, open) {
@@ -66,7 +87,8 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
         romance: [renderRomanceFxFields(src, more), extras.nsfw || ''],
         sound: [stage.master, fx.sound, stage.ambient, stage.ui, stage.bgm],
     };
-    const groups = PERFORMANCE_GROUPS.map(([id, title]) => groupCard(id, title, groupSummary(src, id, current === 'off'), bodies[id].filter(Boolean).join(''), isOpen(`perf-group-${id}`)));
+    const extra = extraSwitches(src, extras);
+    const groups = PERFORMANCE_GROUPS.map(([id, title]) => groupCard(id, title, groupSummary(src, id, current === 'off', extra[id]), bodies[id].filter(Boolean).join(''), isOpen(`perf-group-${id}`)));
     const metaOn = Boolean(src.metaFx && src.metaFx.enabled === true);
     const meta = groupCard('meta', 'Meta 互动', `<span class="igs-perf-count${metaOn ? ' is-on' : ''}">${metaOn ? '开' : '关'}</span><span class="igs-perf-brief">TA在注视着你</span>`, renderMetaFxFields(src, more), isOpen('perf-group-meta'));
     const rhythm = groupCard('rhythm', '节奏', '<span class="igs-perf-brief">演出风格、停留时间与重播</span>', fx.style, isOpen('perf-group-rhythm'));

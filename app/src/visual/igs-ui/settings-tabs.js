@@ -154,7 +154,7 @@ const IMAGE_AUTO_TEMPLATE = `
     <div class="igs-source-filter-grid">{{autoAssetSpriteField}}<button type="button" class="igs-settings-action" data-action="open-character-dna" title="在素材 → 角色立绘中编辑角色 DNA">管理角色 DNA</button>{{autoAssetBackgroundField}}</div>
     <div class="igs-settings-sub" data-image-feature="asset-options"{{autoAssetOptionsHidden}}>
       <div class="igs-source-filter-grid">
-        {{autoAssetMaxField}}{{autoAssetStrictField}}
+        {{autoAssetMaxField}}
         {{autoAssetSpriteSizeField}}{{autoAssetBackgroundSizeField}}
       </div>
       <details class="igs-settings-sub igs-settings-advanced" data-advanced="asset-templates"{{advancedAssetTemplatesOpen}}>

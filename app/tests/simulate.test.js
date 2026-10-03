@@ -3320,6 +3320,9 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
 
     const assetsView = settings.switchSceneSubTab('scenes');
     assert.match(assetsView.snapshot.html, /data-scene-settings-pane="assets"/);
+    // 「严格匹配场景素材」从生图页迁到场景子页：跟随背景列表，不在生图页出现。
+    assert.match(assetsView.snapshot.html, /data-switch="bridge\.autoIllustration\.assets\.strictMatch"/);
+    assert.match(assetsView.snapshot.html, /严格匹配场景素材/);
     const scenesView = await settings.invoke(`scene-toggle-bg:${encodeURIComponent('旧城')}`);
     assert.match(scenesView.snapshot.html, /背景场景/);
     assert.match(scenesView.snapshot.html, /场景别名/);

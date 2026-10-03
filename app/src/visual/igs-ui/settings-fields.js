@@ -23,16 +23,17 @@ function storedImageId(url) {
     return raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
 }
 
-function storedImageDownload(url, fileName) {
+// 「下载 / 提示词」只进 ⋯ 菜单，行内不再单独放图标按钮。
+function storedImageDownloadItem(url, fileName) {
     const id = storedImageId(url);
     if (!id) return '';
-    return `<button type="button" class="igs-btn-mgr-icon" data-action="gen-asset-download:${encSeg(id)}:${encSeg(fileName)}" title="下载">${STORED_IMAGE_DOWNLOAD_ICON}</button>`;
+    return menuItem(`gen-asset-download:${encSeg(id)}:${encSeg(fileName)}`, '下载');
 }
 
-function storedImagePrompt(url) {
+function storedImagePromptItem(url) {
     const id = storedImageId(url);
     if (!id) return '';
-    return `<button type="button" class="igs-settings-action" data-action="gen-asset-prompt:${encSeg(id)}">提示词</button>`;
+    return menuItem(`gen-asset-prompt:${encSeg(id)}`, '提示词');
 }
 
 const STATUS_AVATAR_PLACEHOLDER_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
@@ -245,8 +246,6 @@ export function renderSceneAssetList(scenes, options = {}) {
     const folderSelect = typeof options.folderSelect === 'function' ? options.folderSelect : () => '';
     const timeGroups = Array.isArray(options.timeGroups) ? options.timeGroups : [];
     const weatherGroups = Array.isArray(options.weatherGroups) ? options.weatherGroups : [];
-    const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-    const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const chevronDown = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
     const chevronUp = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
     const entries = Object.entries(scenes || {});
@@ -268,11 +267,13 @@ export function renderSceneAssetList(scenes, options = {}) {
                 return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row">`
                     + badge('天气')
                     + `<span class="igs-btn-mgr-label">${esc(weatherName)}</span>`
-                    + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="重命名">${pencil}</button>`
                     + `<input class="igs-scene-url-input" data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}" value="${esc(weatherObj.url || '')}" placeholder="URL 或 data:image/...">`
-                    + storedImageDownload(weatherObj.url, `${sceneName}-${timeName}-${weatherName}-背景.png`)
-                    + storedImagePrompt(weatherObj.url)
-                    + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="删除">${trash}</button>`
+                    + renderRowMenu([
+                        menuItem(`scene-rename-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '重命名'),
+                        storedImageDownloadItem(weatherObj.url, `${sceneName}-${timeName}-${weatherName}-背景.png`),
+                        storedImagePromptItem(weatherObj.url),
+                        menuItem(`scene-remove-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '删除', ' is-danger'),
+                    ], `「${weatherName}」的操作`)
                     + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="展开/折叠">${wExpanded ? chevronUp : chevronDown}</button>`
                     + `</div>${wBody}</div>`;
             }).join('');
@@ -280,12 +281,14 @@ export function renderSceneAssetList(scenes, options = {}) {
             return `<div class="igs-scene-char-group igs-scene-time-group"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
                 + badge('时间')
                 + `<span class="igs-btn-mgr-label">${esc(timeName)}</span>`
-                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="重命名">${pencil}</button>`
                 + `<input class="igs-scene-url-input" data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" value="${esc(timeObj.url || '')}" placeholder="URL 或 data:image/...">`
-                + storedImageDownload(timeObj.url, `${sceneName}-${timeName}-背景.png`)
-                + storedImagePrompt(timeObj.url)
-                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-weather:${encSeg(sceneName)}:${encSeg(timeName)}" title="添加天气">+</button>`
-                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="删除">${trash}</button>`
+                + renderRowMenu([
+                    menuItem(`scene-rename-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '重命名'),
+                    storedImageDownloadItem(timeObj.url, `${sceneName}-${timeName}-背景.png`),
+                    storedImagePromptItem(timeObj.url),
+                    menuItem(`scene-add-weather:${encSeg(sceneName)}:${encSeg(timeName)}`, '添加天气'),
+                    menuItem(`scene-remove-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '删除', ' is-danger'),
+                ], `「${timeName}」的操作`)
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="展开/折叠">${timeExpanded ? chevronUp : chevronDown}</button>`
                 + `</div>${timeBody}</div>${weatherRows}</div>`;
         }).join('');
@@ -294,13 +297,15 @@ export function renderSceneAssetList(scenes, options = {}) {
             + badge('场景')
             + `<span class="igs-btn-mgr-label" style="font-weight:600">${esc(sceneName)}</span>`
             + scopeTag(options, 'scenes', sceneName)
-            + folderSelect(sceneName)
-            + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-rename-bg:${encSeg(sceneName)}" title="重命名">${pencil}</button>`
             + `<input class="igs-scene-url-input" data-scene-bg="${esc(sceneName)}" value="${esc(sceneObj.url || '')}" placeholder="URL 或 data:image/...">`
-            + storedImageDownload(sceneObj.url, `${sceneName}-背景.png`)
-            + storedImagePrompt(sceneObj.url)
-            + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-time:${encSeg(sceneName)}" title="添加时间">+</button>`
-            + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-remove-bg:${encSeg(sceneName)}" title="删除场景">${trash}</button>`
+            + renderRowMenu([
+                menuItem(`scene-rename-bg:${encSeg(sceneName)}`, '重命名'),
+                folderSelect(sceneName, { menu: true }),
+                storedImageDownloadItem(sceneObj.url, `${sceneName}-背景.png`),
+                storedImagePromptItem(sceneObj.url),
+                menuItem(`scene-add-time:${encSeg(sceneName)}`, '添加时间'),
+                menuItem(`scene-remove-bg:${encSeg(sceneName)}`, '删除场景', ' is-danger'),
+            ], `「${sceneName}」的操作`)
             + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-bg:${encSeg(sceneName)}" title="展开/折叠">${bgExpanded ? chevronUp : chevronDown}</button>`
             + `</div>${bgBody}</div>${timeRows}</div>`;
     }).join('');

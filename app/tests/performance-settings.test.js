@@ -49,11 +49,22 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
     for (const [id] of PERFORMANCE_GROUPS) assert.match(html, new RegExp(`<details data-advanced="perf-group-${id}">`));
     assert.match(html, /data-action="perf-preset:standard"/);
     assert.match(html, /<b>情绪反应<\/b><span class="igs-perf-count is-on">1\/4<\/span><span class="igs-perf-brief">情绪符号<\/span>/);
-    assert.match(html, /<b>立绘<\/b><span class="igs-perf-count">0\/2<\/span>/);
+    assert.match(html, /<b>立绘<\/b><span class="igs-perf-count">0\/3<\/span>/);
     assert.match(html, /<b>事件演出<\/b><span class="igs-perf-count">0\/6<\/span>/);
     assert.match(html, /<details class="igs-settings-advanced igs-perf-more" data-advanced="perf-manga-words"><summary>自定义触发情绪<\/summary>/);
     assert.match(html, /data-advanced="perf-stage-shake"><summary>强度与触发情绪<\/summary><i data-shake-detail><\/i>/);
     assert.match(html, /data-tw/);
+});
+
+// 胶囊数字按分组里实际摆出来的开关算：档位不管的双语、按句分页、同屏、压暗立绘、掷骰也要计入。
+test('gate:performance-layout:capsule-counts-every-visible-switch', () => {
+    const html = renderPerformanceSettings({ bilingual: { enabled: true }, resultFx: { enabled: true } }, {
+        sentencePaging: '<i data-paging></i>', sentencePagingOn: true,
+        narrationFilter: '<i data-dim></i>',
+    });
+    assert.match(html, /<b>文字<\/b><span class="igs-perf-count is-on">2\/5<\/span><span class="igs-perf-brief">双语台词、旁白按句号分页<\/span>/);
+    assert.match(html, /<b>立绘<\/b><span class="igs-perf-count is-on">1\/4<\/span><span class="igs-perf-brief">旁白时压暗立绘<\/span>/);
+    assert.match(html, /<b>剧情提示<\/b><span class="igs-perf-count is-on">1\/4<\/span>/);
 });
 
 test('gate:performance-layout:remembers-open-sections', () => {

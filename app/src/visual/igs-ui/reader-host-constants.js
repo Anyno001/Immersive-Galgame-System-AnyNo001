@@ -214,7 +214,6 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.interludeMaxCount',
             'bridge.autoIllustration.assets.spriteEnabled',
             'bridge.autoIllustration.assets.backgroundEnabled',
-            'bridge.autoIllustration.assets.strictMatch',
             'bridge.autoIllustration.assets.maxPerFloor',
             'bridge.autoIllustration.assets.spriteSize',
             'bridge.itemImages.enabled',
@@ -263,6 +262,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
         requiredPaths: Object.freeze([
             'bridge.sceneAssets.enabled',
             'bridge.sceneAssets.promptRule',
+            'bridge.autoIllustration.assets.strictMatch',
         ]),
         requiredActions: Object.freeze([
             'reset-prompt-rule',

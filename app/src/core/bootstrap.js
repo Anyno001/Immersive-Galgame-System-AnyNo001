@@ -50,7 +50,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.19';
+const IGS_VERSION = '0.34.20';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -150,6 +150,11 @@ export function bootstrapIGS(options = {}) {
             const bridge = readImageBridge();
             return { autoIllustration: bridge.autoIllustration, sceneAssets: sceneAssetsNow(bridge.sceneAssets) };
         },
+        getReaderMode: () => {
+            const snapshot = getUnifiedSettingsSnapshot() || {};
+            return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
+        },
+        getViewport: () => readCgViewport(globalObject),
         events,
         report: reportImageJob,
     });

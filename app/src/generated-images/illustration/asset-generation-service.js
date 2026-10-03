@@ -2,6 +2,7 @@ import { numberParagraphs } from './marker-placer.js';
 import { buildAssetPlannerUserPrompt, parseAssetPlan, buildAssetSlot, buildDictionaryAssetItems } from './asset-prompt.js';
 import { requestWithSoftRetry } from './prompt-kit.js';
 import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './auto-illustration-settings.js';
+import { cgSizeForMode } from './auto-illustration-service.js';
 import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-builder.js';
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -63,6 +64,13 @@ export function createAssetGenerationService(deps) {
             sceneAssets: raw.sceneAssets && typeof raw.sceneAssets === 'object' ? raw.sceneAssets : {},
         };
     };
+
+    // 场景背景补全与剧情 CG 用同一套横竖规则：手机内嵌/竖屏触屏把背景尺寸宽高对调。
+    const backgroundSize = (s) => cgSizeForMode(
+        s.auto.assets.backgroundSize,
+        typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc',
+        typeof deps.getViewport === 'function' ? deps.getViewport() : null,
+    );
 
     function emit(detail) {
         if (events && typeof events.emit === 'function') events.emit(GENERATED_ASSET_UPDATED_EVENT, detail);
@@ -190,7 +198,7 @@ export function createAssetGenerationService(deps) {
         const transparent = isSprite && plannedVia !== 'chatu8'
             && (plannedVia === 'dbgen' || supportsNaiTransparentBackground(s.auto.nai.model));
         const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
-        const size = isSprite ? s.auto.assets.spriteSize : s.auto.assets.backgroundSize;
+        const size = isSprite ? s.auto.assets.spriteSize : backgroundSize(s);
         // 数据库生图：描述只说明画什么。正负模板随 userPrompts 传出，出图前合并进最终 caption。
         const userPrompts = { positive: slot.scene, negative: slot.sceneUc };
         const meta = {
@@ -254,7 +262,7 @@ export function createAssetGenerationService(deps) {
                 try {
                     result = await nai.generateDbgenCaption({
                         caption,
-                        size: s.auto.assets.backgroundSize,
+                        size: backgroundSize(s),
                         messageId: floor.messageId,
                         userPrompts: { positive: slot.scene, negative: slot.sceneUc },
                     });
