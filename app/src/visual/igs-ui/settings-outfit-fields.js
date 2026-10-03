@@ -36,7 +36,9 @@ export function placeRowMenu(details, win = globalThis) {
     let bottom = Number(win && win.innerHeight) || 0;
     let left = 0;
     let right = Number(win && win.innerWidth) || 0;
-    for (let el = details.parentElement; el && getStyle; el = el.parentElement) {
+    // 只往上查到设置正文滚动区为止：再往外都是固定的遮罩与面板，逐层取样式只会白白强制排版。
+    const stop = typeof details.closest === 'function' ? details.closest('.igs-settings-body') : null;
+    for (let el = details.parentElement; el && getStyle; el = el === stop ? null : el.parentElement) {
         const style = getStyle(el) || {};
         const box = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
         if (!box) continue;
@@ -94,7 +96,7 @@ function shownUrl(url, resolveUrl) {
 function thumb(url, alt, extraClass = '', resolveUrl) {
     const value = shownUrl(url, resolveUrl);
     if (isImageUrl(value)) {
-        return `<img class="igs-outfit-thumb${extraClass}" src="${esc(value)}" alt="${esc(alt)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`;
+        return `<img loading="lazy" decoding="async" class="igs-outfit-thumb${extraClass}" src="${esc(value)}" alt="${esc(alt)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`;
     }
     return `<span class="igs-outfit-thumb igs-outfit-thumb-empty${extraClass}" aria-hidden="true">${value ? '生成' : PERSON_SVG}</span>`;
 }

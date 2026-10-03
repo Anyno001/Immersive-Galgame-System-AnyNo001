@@ -331,6 +331,16 @@ export function createIgsReaderHost(options = {}) {
     let settingsImageRefreshPending = false;
     // 设置面板全屏盖住阅读器时不重绘后面的舞台，记一笔，关面板时补一次。
     let readerStaleBehindSettings = false;
+    // 手指按着或 ⋯ 菜单开着时不整页重绘：重绘会收掉菜单、换掉按下的按钮，点击落空。
+    let settingsPointerDown = false;
+    function settingsInteracting() {
+        const root = state.activeSettings && state.activeSettings.dom && state.activeSettings.dom.root;
+        if (settingsPointerDown) return true;
+        return Boolean(root && typeof root.querySelector === 'function' && root.querySelector('details.igs-add-menu[open]'));
+    }
+    function flushDeferredImageRefresh() {
+        if (settingsImageRefreshPending && !imageRefreshTimer) scheduleImageRefresh();
+    }
     function scheduleImageRefresh({ reader = false, settings = false } = {}) {
         if (reader) readerImageRefreshPending = true;
         if (settings) settingsImageRefreshPending = true;
@@ -347,7 +357,11 @@ export function createIgsReaderHost(options = {}) {
                 if (state.activeSettings) readerStaleBehindSettings = true;
                 else rerenderActiveReader();
             }
-            if (doSettings && state.activeSettings && state.activeSettings.tab === 'scene') rerenderSettings();
+            if (doSettings && state.activeSettings && state.activeSettings.tab === 'scene') {
+                // 交互中先搁着，松手或菜单收起时由 flushDeferredImageRefresh 补刷。
+                if (settingsInteracting()) settingsImageRefreshPending = true;
+                else rerenderSettings();
+            }
         }, IMAGE_REFRESH_BATCH_MS);
     }
     const offGeneratedAssetUpdated = typeof options.onGeneratedAssetUpdated === 'function'
@@ -831,6 +845,7 @@ export function createIgsReaderHost(options = {}) {
         }
         unmountNode(current.dom && current.dom.root);
         state.activeSettings = null;
+        settingsPointerDown = false;
         onboarding.onSettingsClosed();
         syncSettingsStagePause();
         if (readerStaleBehindSettings) {
@@ -3412,9 +3427,13 @@ export function createIgsReaderHost(options = {}) {
             const assetFolders = loadAssetFoldersFor(storage, cardKey);
             const firstUrl = (values) => (values.map((v) => String(v || '').trim()).find(Boolean) || '');
             const generatedService = options.generatedAssets || null;
-            const resolveGenerated = (url) => (isGeneratedAssetUrl(url)
-                ? (generatedService && typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '')
-                : (url || ''));
+            // 设置页缩略图优先用 blob: 短地址，HTML 不再夹带整段 dataUrl。
+            const resolveGenerated = (url) => {
+                if (!isGeneratedAssetUrl(url)) return url || '';
+                if (!generatedService) return '';
+                if (typeof generatedService.resolveThumbUrl === 'function') return generatedService.resolveThumbUrl(url);
+                return typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '';
+            };
             const sceneListOptions = {
                 expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
                 timeGroups: sceneAssets.timeGroups || [],
@@ -4379,10 +4398,22 @@ export function createIgsReaderHost(options = {}) {
                 if (!(target && typeof menu.contains === 'function' && menu.contains(target))) menu.open = false;
             }
         }, true);
+        const pointerDown = () => { settingsPointerDown = true; };
+        const pointerUp = () => {
+            settingsPointerDown = false;
+            // 让这次点击先落到按钮上，再补刷搁着的缩略图。
+            (doc.defaultView || globalThis).setTimeout(flushDeferredImageRefresh, 0);
+        };
+        root.addEventListener('pointerdown', pointerDown, true);
+        root.addEventListener('pointerup', pointerUp, true);
+        root.addEventListener('pointercancel', pointerUp, true);
         // toggle 不冒泡，用捕获阶段记住「高级」折叠区的展开状态，避免重渲染后被收起。
         root.addEventListener('toggle', (event) => {
             const target = event.target;
-            if (target && target.classList && target.classList.contains('igs-add-menu')) placeRowMenu(target, doc.defaultView || globalThis);
+            if (target && target.classList && target.classList.contains('igs-add-menu')) {
+                placeRowMenu(target, doc.defaultView || globalThis);
+                if (!target.open) flushDeferredImageRefresh();
+            }
             const key = target && target.getAttribute ? target.getAttribute('data-advanced') : '';
             if (!key || !state.activeSettings || !state.activeSettings.asyncState) return;
             const asyncState = state.activeSettings.asyncState;

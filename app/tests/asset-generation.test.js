@@ -1704,3 +1704,46 @@ test('gate:assets:resume-button-shows-only-when-captions-wait-for-paint', async 
     assert.ok(waiting.includes('data-action="char-expression-resume:%E5%86%AC%E6%9C%88"'));
     assert.ok(waiting.includes('继续生图（1）'));
 });
+
+test('gate:asset-gen:image-cache-keeps-on-screen-thumbs-beyond-limit', async () => {
+    let t = 0;
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'chat', readFloor: () => null, readPreviousAiTexts: () => [], on: () => () => {} },
+        llm: {}, nai: {}, store: { getImage: async (id) => ({ dataUrl: `data:image/png;base64,${id}` }) },
+        getSettings: () => ({ autoIllustration: {}, sceneAssets: {} }),
+        clock: () => t,
+    });
+    const refs = Array.from({ length: 80 }, (_, i) => `igs-gen:p${i}`);
+    const missing = () => refs.filter((ref) => !service.resolveUrl(ref)).length;
+    assert.equal(missing(), 80);
+    await new Promise((resolve) => setImmediate(resolve));
+    t += 120;
+    assert.equal(missing(), 0, '一页 80 张缩略图读回后不能被上限挤掉再闪载入中');
+    t += 10000;
+    for (let i = 0; i < 5; i++) service.resolveUrl(`igs-gen:other${i}`);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(service.resolveUrl('igs-gen:p0'), '', '离开页面后旧图按上限回收');
+});
+
+test('gate:asset-gen:settings-thumbs-use-short-blob-urls-and-revoke-on-delete', async () => {
+    const created = [];
+    const revoked = [];
+    const store = createMemoryGeneratedAssetStore();
+    await store.putImage({ id: 't1', dataUrl: 'data:image/png;base64,QUJD' });
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'chat', readFloor: () => null, readPreviousAiTexts: () => [], on: () => () => {} },
+        llm: {}, nai: {}, store,
+        getSettings: () => ({ autoIllustration: {}, sceneAssets: {} }),
+        urlApi: { createObjectURL: () => { created.push(`blob:t${created.length}`); return created[created.length - 1]; }, revokeObjectURL: (url) => revoked.push(url) },
+        Blob: class { constructor(parts, opts) { this.parts = parts; this.type = opts.type; } },
+    });
+    assert.equal(service.resolveThumbUrl('igs-gen:t1'), '', '未读回时等待异步恢复');
+    await new Promise((resolve) => setImmediate(resolve));
+    const thumb = service.resolveThumbUrl('igs-gen:t1');
+    assert.equal(thumb, 'blob:t0');
+    assert.equal(service.resolveThumbUrl('igs-gen:t1'), thumb, '重绘复用同一个短地址，浏览器不重载不闪');
+    assert.equal(service.resolveUrl('igs-gen:t1'), 'data:image/png;base64,QUJD', '舞台等其他用途仍拿 dataUrl');
+    assert.equal(service.resolveThumbUrl('https://example.com/a.png'), 'https://example.com/a.png');
+    await service.deleteImages(['t1']);
+    assert.deepEqual(revoked, ['blob:t0']);
+});

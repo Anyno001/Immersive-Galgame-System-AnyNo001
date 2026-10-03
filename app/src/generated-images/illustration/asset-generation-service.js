@@ -14,6 +14,9 @@ import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-
 
 export const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
 const IMAGE_CACHE_LIMIT = 60;
+// 正在显示的图不淘汰：一页缩略图超过上限时，按张数硬淘汰会把刚读回的图挤掉，
+// 重绘后又缺图再读，循环闪「载入中」。近几秒内被取用过的图保留，离开页面后再按上限回收。
+const IMAGE_IN_USE_MS = 5000;
 const AVATAR_SIZE = '1024x1024';
 const AVATAR_POSITIVE = 'chibi, solo, round face, face focus, head only, close-up, centered, looking at viewer, smile, simple background';
 const AVATAR_NEGATIVE = 'body, shoulders, neck, upper body, cowboy shot, full body, hands, multiple views, realistic, text, watermark, signature, frame, border';
@@ -50,7 +53,15 @@ export function createAssetGenerationService(deps) {
     const newId = deps.newId || (() => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
     const locks = new Map();
     const images = new Map();
+    const imageUsedAt = new Map();
+    const clock = deps.clock || (() => Date.now());
     const pendingImages = new Set();
+    // 设置页缩略图用 blob: 短地址：dataUrl 直接拼进 HTML 时一页几十 MB，重绘、开菜单都卡；
+    // 短地址浏览器按地址缓存已解码的图，重绘不重载、不闪。
+    const urlApi = deps.urlApi || globalThis.URL;
+    const BlobCtor = deps.Blob || globalThis.Blob;
+    const canThumbUrl = Boolean(urlApi && typeof urlApi.createObjectURL === 'function' && BlobCtor);
+    const thumbUrls = new Map();
     let tempChatId = '';
     let tempRecords = new Map();
     let tempLoading = null;
@@ -76,10 +87,35 @@ export function createAssetGenerationService(deps) {
         if (events && typeof events.emit === 'function') events.emit(GENERATED_ASSET_UPDATED_EVENT, detail);
     }
 
-    function rememberImage(id, dataUrl) {
+    function dropThumb(id) {
+        const url = thumbUrls.get(id);
+        if (!url) return;
+        thumbUrls.delete(id);
+        try { if (typeof urlApi.revokeObjectURL === 'function') urlApi.revokeObjectURL(url); } catch (error) { /* 已失效 */ }
+    }
+
+    function forgetImage(id) {
+        images.delete(id);
+        imageUsedAt.delete(id);
+        dropThumb(id);
+    }
+
+    function touchImage(id, dataUrl) {
+        if (images.get(id) !== dataUrl) dropThumb(id);
         images.delete(id);
         images.set(id, dataUrl);
-        while (images.size > IMAGE_CACHE_LIMIT) images.delete(images.keys().next().value);
+        imageUsedAt.set(id, clock());
+    }
+
+    function rememberImage(id, dataUrl) {
+        touchImage(id, dataUrl);
+        const cutoff = clock() - IMAGE_IN_USE_MS;
+        // Map 按取用先后排序，最旧的都还在用就说明整页都在用，停止淘汰。
+        while (images.size > IMAGE_CACHE_LIMIT) {
+            const oldest = images.keys().next().value;
+            if ((imageUsedAt.get(oldest) || 0) > cutoff) break;
+            forgetImage(oldest);
+        }
     }
 
     function loadTempRecords(chatId) {
@@ -127,7 +163,10 @@ export function createAssetGenerationService(deps) {
         if (!isGeneratedAssetUrl(url)) return String(url || '');
         const id = generatedAssetIdOf(url);
         const hit = images.get(id);
-        if (hit) return hit;
+        if (hit) {
+            touchImage(id, hit);
+            return hit;
+        }
         if (!pendingImages.has(id)) {
             pendingImages.add(id);
             store.getImage(id).then((record) => {
@@ -138,6 +177,34 @@ export function createAssetGenerationService(deps) {
             }).catch(() => {}).finally(() => pendingImages.delete(id));
         }
         return '';
+    }
+
+    function dataUrlToBlob(dataUrl) {
+        const m = /^data:([^;,]+);base64,/i.exec(dataUrl);
+        if (!m || typeof globalThis.atob !== 'function') return null;
+        const bin = globalThis.atob(dataUrl.slice(m[0].length));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+        return new BlobCtor([bytes], { type: m[1] });
+    }
+
+    // 设置页缩略图取图：返回 blob: 短地址，内存里已有图就当场转好，不多等一轮重绘；
+    // 还没从存储读回返回空串，读回后发 image-loaded。环境不支持 blob 地址时退回 dataUrl。
+    function resolveThumbUrl(url) {
+        if (!isGeneratedAssetUrl(url) || !canThumbUrl) return resolveUrl(url);
+        const id = generatedAssetIdOf(url);
+        const dataUrl = images.get(id);
+        if (!dataUrl) return resolveUrl(url);
+        touchImage(id, dataUrl);
+        let ready = thumbUrls.get(id);
+        if (!ready) {
+            let blob = null;
+            try { blob = dataUrlToBlob(dataUrl); } catch (error) { blob = null; }
+            if (!blob) return dataUrl;
+            ready = urlApi.createObjectURL(blob);
+            thumbUrls.set(id, ready);
+        }
+        return ready;
     }
 
     function matchContext(s, knownCharacters = []) {
@@ -512,7 +579,7 @@ export function createAssetGenerationService(deps) {
         const next = { ...record, status, updatedAt: now() };
         if (status === 'discarded' && record.imageId) {
             await store.deleteImage(record.imageId);
-            images.delete(record.imageId);
+            forgetImage(record.imageId);
             next.imageId = '';
         }
         tempRecords.set(key, next);
@@ -547,7 +614,7 @@ export function createAssetGenerationService(deps) {
         for (const id of ids || []) {
             try {
                 await store.deleteImage(id);
-                images.delete(id);
+                forgetImage(id);
             } catch (error) { failed = true; }
         }
         return failed ? { ok: false, reason: 'image-delete-failed' } : { ok: true };
@@ -918,7 +985,7 @@ export function createAssetGenerationService(deps) {
     }
 
     return {
-        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
+        processMessage, resolveUrl, resolveThumbUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
         generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,

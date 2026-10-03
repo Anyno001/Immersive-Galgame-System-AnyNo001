@@ -225,10 +225,10 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-add-menu>summary{list-style:none}
 .igs-add-menu>summary::-webkit-details-marker{display:none}
 .igs-add-menu[open]>summary{background:var(--igs-settings-highlight);color:var(--igs-settings-ink)}
-.igs-add-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:flex;flex-direction:column;gap:2px;min-width:10.5em;padding:4px;border:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);box-shadow:var(--igs-settings-shell-shadow);transform-origin:top right;animation:igs-add-menu-in .14s ease-out both}
+.igs-add-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:flex;flex-direction:column;gap:2px;min-width:10.5em;padding:4px;border:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);box-shadow:var(--igs-settings-shell-shadow);transform-origin:top right;animation:igs-add-menu-in .09s ease-out both}
 .igs-add-menu-item{display:flex;align-items:center;border:0;background:transparent;color:var(--igs-settings-ink-2);text-align:left;white-space:nowrap;min-height:30px;padding:0 12px;border-radius:var(--igs-settings-radius-small);cursor:pointer;font:inherit;font-size:12px;letter-spacing:.02em;transition:background-color .14s ease,color .14s ease}
 .igs-add-menu-item:hover,.igs-add-menu-item:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
-@keyframes igs-add-menu-in{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes igs-add-menu-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.igs-add-menu-list{animation:none}}
 @media (pointer:coarse){.igs-add-menu-list{gap:14px;padding:9px 4px}.igs-add-menu-item{position:relative}.igs-add-menu-item:not(.igs-folder-pick-item)::after{content:"";position:absolute;inset:-7px 0}}
 
@@ -339,6 +339,9 @@ const SETTINGS_TOUCH_STYLE_TEXT = `
 @media (pointer:coarse){
 ${touchSel()}{position:relative}
 ${touchSel('::after')}{content:"";position:absolute;left:0;right:0;top:50%;height:max(100%,44px);transform:translateY(-50%)}
+#igs-unified-settings{touch-action:manipulation}
+#igs-unified-settings .igs-add-menu>summary.igs-btn-mgr-icon{position:relative}
+#igs-unified-settings .igs-add-menu>summary.igs-btn-mgr-icon::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,40px);height:max(100%,40px);transform:translate(-50%,-50%)}
 #igs-unified-settings .igs-settings-close{position:relative}
 #igs-unified-settings .igs-settings-close::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
 }`;

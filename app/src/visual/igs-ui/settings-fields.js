@@ -324,7 +324,7 @@ function renderSceneBgExpansion(sceneName, url, words, resolveUrl) {
     const trimmedUrl = String(url || '').trim();
     const shown = shownAssetUrl(trimmedUrl, resolveUrl);
     const thumb = /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
-        ? `<img class="igs-sprite-thumb" src="${esc(shown)}" alt="" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        ? `<img loading="lazy" decoding="async" class="igs-sprite-thumb" src="${esc(shown)}" alt="" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">${trimmedUrl ? '等待载入' : '未配置'}</div>`;
     const tags = words.map((alias) =>
         `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="scene-remove-bg-word:${encSeg(sceneName)}:${encSeg(alias)}" title="删除别名">×</button></span>`
@@ -337,7 +337,7 @@ function renderSceneGroupExpansion(type, label, url, groups, resolveUrl) {
     const trimmedUrl = String(url || '').trim();
     const shown = shownAssetUrl(trimmedUrl, resolveUrl);
     const thumb = /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
-        ? `<img class="igs-sprite-thumb" src="${esc(shown)}" alt="" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        ? `<img loading="lazy" decoding="async" class="igs-sprite-thumb" src="${esc(shown)}" alt="" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">${trimmedUrl ? '等待载入' : '未配置'}</div>`;
     const isTime = type === 'time';
     const addAction = isTime ? `time-add-word:${encSeg(label)}` : `weather-add-word:${encSeg(label)}`;
@@ -390,7 +390,7 @@ export function renderCharacterAssetList(characters, options = {}) {
         const aliasesHtml = `<div class="igs-mood-word-list">${aliasTags}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-char-alias:${encSeg(charName)}" title="添加别名">+</button></div>`;
         const avatarUrl = String(statusAvatars[charName] || '').trim();
         const avatarPreview = avatarUrl
-            ? `<img class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+            ? `<img loading="lazy" decoding="async" class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
         const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/..."><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button><button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成 Q 版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
         const houseHtml = magicHouse ? renderCharacterHouseRow(charName, magicHouse) : '';
@@ -417,7 +417,7 @@ export function renderCharacterAssetList(characters, options = {}) {
             // 每格都留缩略图位置，名字才对得齐：生成图看解析结果，自填地址直接显示，没图放空位。
             const thumbUrl = imageId ? shown : rawUrl;
             const rowThumb = /^(?:https?:\/\/|data:image\/|blob:)/i.test(thumbUrl)
-                ? `<img class="igs-outfit-thumb" src="${esc(thumbUrl)}" alt="${esc(mood)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+                ? `<img loading="lazy" decoding="async" class="igs-outfit-thumb" src="${esc(thumbUrl)}" alt="${esc(mood)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
                 : `<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true">${imageId ? '载入中' : ''}</span>`;
             const c = encSeg(charName);
             const m = encSeg(mood);
@@ -634,7 +634,7 @@ function renderSpriteSlotExpansion(charName, mood, url, moodGroups, icons) {
         ? String(icons.resolveUrl(trimmedUrl) || '')
         : trimmedUrl;
     const thumb = shownUrl
-        ? `<img class="igs-sprite-thumb" src="${esc(shownUrl)}" alt="${esc(mood)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        ? `<img loading="lazy" decoding="async" class="igs-sprite-thumb" src="${esc(shownUrl)}" alt="${esc(mood)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : `<div class="igs-sprite-thumb igs-sprite-thumb-empty">${trimmedUrl ? '等待载入' : '未配置'}</div>`;
     const group = moodGroups.find((g) => g && g.label === mood);
     if (!group) return `<div class="igs-sprite-slot-body">${thumb}</div>`;
@@ -712,7 +712,7 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], resolveUrl, 
     const tile = ({ url, name, type, status, adopt, adoptLabel, extra = [] }) => {
         const resolved = resolve(url);
         const img = resolved
-            ? `<img class="igs-gen-tile-img" src="${esc(resolved)}" alt="${esc(name)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+            ? `<img loading="lazy" decoding="async" class="igs-gen-tile-img" src="${esc(resolved)}" alt="${esc(name)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : '<span class="igs-gen-tile-img igs-gen-tile-empty">等待载入</span>';
         return `<div class="igs-gen-tile${type === 'background' ? ' is-wide' : ''}">${img}`
             + `<div class="igs-gen-tile-meta"><b title="${esc(name)}">${esc(name)}</b><span>${type === 'background' ? '背景' : '立绘'} · ${esc(status)}</span></div>`
