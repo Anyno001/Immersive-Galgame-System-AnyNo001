@@ -7,6 +7,7 @@ import {
 } from '../../scene/message-source.js';
 import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
+import { normalizeSpriteEnhance } from './sprite-enhance.js';
 import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
 import { assetOwnerKey, assetShadowsGlobal, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, normalizeAssetCards, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
@@ -3421,12 +3422,23 @@ export function createIgsReaderHost(options = {}) {
         <div class="igs-source-filter-note">开启后只认精确与别名命中的背景，不拿相近场景的图顶替；匹配不到就按缺失补画。</div>
         ${scenesHtml}
       </div>`;
+            const spriteEnhance = sceneAssets.spriteEnhance || {};
             const charactersPane = `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
           <div class="igs-settings-subhead">角色立绘</div>
           ${CHARACTER_ADD_MENU}
         </div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
+        ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强')}
+        <div class="igs-source-filter-note">开启后可能增加性能开销，手机上尤其明显。</div>
+        ${spriteEnhance.enabled === true ? `<div class="igs-settings-sub">
+          ${field('bridge.sceneAssets.spriteEnhance.mode', '效果', selectInput('bridge.sceneAssets.spriteEnhance.mode', spriteEnhance.mode || 'outline', [['outline', '硬描边'], ['shadow', '投影式']]))}
+          <div class="igs-sprite-enhance-options">
+            ${field('bridge.sceneAssets.spriteEnhance.color', '增强颜色', colorInput('bridge.sceneAssets.spriteEnhance.color', spriteEnhance.color || '#000000'))}
+            ${field('bridge.sceneAssets.spriteEnhance.strength', '增强浓淡', selectInput('bridge.sceneAssets.spriteEnhance.strength', spriteEnhance.strength ?? 20, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`])))}
+            ${field('bridge.sceneAssets.spriteEnhance.size', '增强大小', selectInput('bridge.sceneAssets.spriteEnhance.size', spriteEnhance.size ?? 0.8, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`])))}
+          </div>
+        </div>` : ''}
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
         <div class="igs-source-filter-note">词库里没有的相近情绪词也会自动归组（如「嘲弄」归入「嘲讽」）。可能归错，可在「待确认」页核对。</div>
         ${renderDnaCandidateBar(asyncState.dnaCandidate)}
@@ -4699,6 +4711,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.generated = normalizeGeneratedLibrary(normalized.generated);
         normalized.promptRule = normalizeScenePromptRule(normalized.promptRule);
         normalized.promptPlacement = normalizePromptPlacement(normalized.promptPlacement);
+        normalized.spriteEnhance = normalizeSpriteEnhance(normalized.spriteEnhance);
         normalized.promptAdaptive = normalized.promptAdaptive !== false;
         if (!normalized.scenes || typeof normalized.scenes !== 'object' || Array.isArray(normalized.scenes)) {
             normalized.scenes = {};

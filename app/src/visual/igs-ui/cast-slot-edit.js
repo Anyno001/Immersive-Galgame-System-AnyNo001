@@ -1,6 +1,7 @@
 import { esc } from './reader-value-utils.js';
 import { peekSpriteHead, probeSpriteHead, spriteBackgroundSize } from './fx-anchor.js';
 import { enterSpriteEditMode, spriteDragPosition } from './sprite-edit.js';
+import { spriteEnhanceFilter } from './sprite-enhance.js';
 
 const SCALE_MIN = -500;
 const SCALE_MAX = 500;
@@ -48,6 +49,29 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         reset: false,
     }));
     let selected = Math.max(0, work.findIndex((w) => w.speaker));
+    const sceneAssets = current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings._sceneAssets;
+    const enhance = spriteEnhanceFilter(sceneAssets && sceneAssets.enabled === true ? sceneAssets.spriteEnhance : null);
+    const originalFilters = new Map();
+    const originalEnhance = new Map();
+    if (enhance) {
+        for (const w of work) {
+            const el = targetEl(overlay, w);
+            if (!el) continue;
+            if (w.speaker) {
+                const value = typeof el.style.getPropertyValue === 'function'
+                    ? el.style.getPropertyValue('--igs-sprite-enhance')
+                    : (el.style['--igs-sprite-enhance'] || '');
+                originalEnhance.set(el, value);
+                el.style.removeProperty('--igs-sprite-enhance');
+                continue;
+            }
+            if (!String(el.style.filter).endsWith(enhance)) continue;
+            originalFilters.set(el, el.style.filter);
+            const baseFrame = el.style.filter.slice(0, -enhance.length).trimEnd();
+            el.style.filter = baseFrame;
+            el.style.setProperty('-webkit-filter', baseFrame);
+        }
+    }
     const clickLayer = overlay.querySelector('#igs-click-layer');
     if (clickLayer) clickLayer.style.pointerEvents = 'none';
     const surface = doc.createElement('div');
@@ -57,7 +81,7 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
     editBar.id = 'igs-sprite-edit-bar';
     overlay.appendChild(editBar);
     motion.setAttribute(EDITING_ATTR, '1');
-    const em = { kind: 'cast', editBar, surface, clickLayer, motion, work };
+    const em = { kind: 'cast', editBar, surface, clickLayer, motion, work, originalFilters, originalEnhance };
     current.spriteEditMode = em;
 
     const mark = () => {
@@ -156,6 +180,16 @@ export function exitCastSlotEdit(overlay, current, save, ctx = {}) {
     if (em.editBar && em.editBar.parentNode) em.editBar.parentNode.removeChild(em.editBar);
     if (em.surface && em.surface.parentNode) em.surface.parentNode.removeChild(em.surface);
     if (em.motion) em.motion.removeAttribute(EDITING_ATTR);
+    for (const [el, value] of em.originalEnhance || []) {
+        if (!el.parentNode) continue;
+        if (value) el.style.setProperty('--igs-sprite-enhance', value);
+        else el.style.removeProperty('--igs-sprite-enhance');
+    }
+    for (const [el, frame] of em.originalFilters || []) {
+        if (!el.parentNode) continue;
+        el.style.filter = frame;
+        el.style.setProperty('-webkit-filter', frame);
+    }
     for (const w of em.work) {
         const el = targetEl(overlay, w);
         if (el && el.classList) el.classList.remove('igs-cast-editing');

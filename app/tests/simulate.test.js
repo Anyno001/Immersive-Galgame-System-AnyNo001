@@ -1393,11 +1393,11 @@ test('gate:simulation:scene-assets-sprite-follows-bubble-speaker-across-mixed-se
     vn.destroy();
 });
 
-async function openStageCastReader({ mode = 'pc', stageCast = true, characters, lines, readerSettings = {} }) {
+async function openStageCastReader({ mode = 'pc', stageCast = true, characters, lines, readerSettings = {}, spriteEnhance, sceneAssetsEnabled = true }) {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     const storage = createMemoryStorage({
         igs_bridge_config: JSON.stringify({
-            sceneAssets: { enabled: true, promptRule: '规则', scenes: {}, characters },
+            sceneAssets: { enabled: sceneAssetsEnabled, promptRule: '规则', scenes: {}, characters, ...(spriteEnhance ? { spriteEnhance } : {}) },
         }),
     });
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ stageCast: { enabled: stageCast }, ...readerSettings }));
@@ -1422,7 +1422,7 @@ async function openStageCastReader({ mode = 'pc', stageCast = true, characters, 
     const overlay = document.getElementById('igs-overlay');
     const castLayer = overlay.querySelector('#igs-cast');
     const castEls = castLayer ? castLayer.children.filter((el) => el.getAttribute('data-igs-cast-char') != null) : [];
-    return { vn, snap, overlay, castLayer, castEls };
+    return { vn, ctrl, snap, overlay, castLayer, castEls };
 }
 
 const STAGE_CAST_CHARACTERS = {
@@ -1448,6 +1448,76 @@ test('gate:simulation:stage-cast-shows-recent-speakers', async () => {
     const mobile = await openStageCastReader({ mode: 'mobile', characters: STAGE_CAST_CHARACTERS, lines: STAGE_CAST_LINES });
     assert.equal(mobile.castEls.length, 1);
     mobile.vn.destroy();
+});
+
+test('gate:simulation:sprite-enhance-default-off-and-cast-filters', async () => {
+    const style = getOriginalReaderStyleText();
+    assert.match(style, /#igs-sprite:not\(\.igs-sprite-editing\)[^}]*var\(--igs-sprite-enhance,\)/);
+    assert.match(style, /igs-mode-embedded #igs-sprite\.igs-sprite-narration[^}]*var\(--igs-sprite-enhance,\)/);
+    assert.match(style, /-webkit-filter:[^}]*var\(--igs-sprite-enhance,\)/);
+    const off = await openStageCastReader({ characters: STAGE_CAST_CHARACTERS, lines: STAGE_CAST_LINES });
+    try {
+        const sprite = off.overlay.querySelector('#igs-sprite');
+        assert.equal(sprite.style['--igs-sprite-enhance'] || '', '');
+        assert.ok(off.castEls.length > 0);
+        assert.ok(off.castEls.every((el) => !String(el.style.filter).includes('drop-shadow(')));
+    } finally { off.vn.destroy(); }
+
+    const shadow = await openStageCastReader({ characters: STAGE_CAST_CHARACTERS, lines: STAGE_CAST_LINES,
+        spriteEnhance: { enabled: true, mode: 'shadow', color: '#123456', strength: 10, size: 1.6 } });
+    try {
+        const expected = 'drop-shadow(0 2px 4px rgba(18,52,86,0.1))';
+        assert.equal(shadow.overlay.querySelector('#igs-sprite').style['--igs-sprite-enhance'], expected);
+        assert.ok(shadow.castEls.length > 0);
+        assert.ok(shadow.castEls.every((el) => el.style.filter.includes(expected) && el.style.filter.includes('brightness(')));
+        assert.ok(shadow.castEls.every((el) => el.style['-webkit-filter'] === el.style.filter));
+        assert.equal((await shadow.ctrl.invokeAction('sprite-edit')).ok, true);
+        const editBar = shadow.overlay.querySelector('#igs-sprite-edit-bar');
+        assert.ok(editBar, '多人槽位编辑入口已打开');
+        assert.equal(shadow.overlay.querySelector('#igs-sprite').style['--igs-sprite-enhance'] || '', '');
+        assert.ok(shadow.castEls.every((el) => !el.style.filter.includes(expected) && el.style.filter.includes('brightness(')));
+        assert.ok(shadow.castEls.every((el) => el.style['-webkit-filter'] === el.style.filter));
+        editBar.dispatchEvent({ type: 'click', target: { closest: () => ({ getAttribute: () => 'cancel' }) } });
+        assert.equal(shadow.overlay.querySelector('#igs-sprite').style['--igs-sprite-enhance'], expected);
+        assert.ok(shadow.castEls.every((el) => el.style.filter.includes(expected)));
+    } finally { shadow.vn.destroy(); }
+
+    const single = await openStageCastReader({ stageCast: false, characters: STAGE_CAST_CHARACTERS,
+        lines: ['[igs-char:Alice|默认|Hi.]'], spriteEnhance: { enabled: true, mode: 'shadow' } });
+    try {
+        const sprite = single.overlay.querySelector('#igs-sprite');
+        const filter = sprite.style['--igs-sprite-enhance'];
+        assert.ok(filter && filter.includes('drop-shadow('));
+        assert.equal((await single.ctrl.invokeAction('sprite-edit')).ok, true);
+        assert.ok(single.overlay.querySelector('#igs-sprite-edit-bar'));
+        assert.equal(sprite.style['--igs-sprite-enhance'] || '', '');
+        const bar = single.overlay.querySelector('#igs-sprite-edit-bar');
+        bar.dispatchEvent({ type: 'click', target: { closest: () => ({ getAttribute: () => 'cancel' }) } });
+        assert.equal(sprite.style['--igs-sprite-enhance'], filter);
+    } finally { single.vn.destroy(); }
+
+    const outline = await openStageCastReader({ mode: 'mobile', characters: STAGE_CAST_CHARACTERS, lines: STAGE_CAST_LINES,
+        spriteEnhance: { enabled: true, mode: 'outline', color: '#abcdef', strength: 20, size: 0.8 } });
+    try {
+        const filter = outline.overlay.querySelector('#igs-sprite').style['--igs-sprite-enhance'];
+        assert.equal((filter.match(/drop-shadow\(/g) || []).length, 4);
+        assert.ok(filter.includes('rgba(171,205,239,0.2)'));
+        assert.ok(outline.castEls.every((el) => el.style.filter.includes(filter)));
+    } finally { outline.vn.destroy(); }
+
+    const noImage = await openStageCastReader({ stageCast: false, characters: { Alice: {} },
+        lines: ['[igs-char:Alice|默认|Hi.]'], spriteEnhance: { enabled: true } });
+    try {
+        assert.equal(noImage.overlay.querySelector('#igs-sprite').style['--igs-sprite-enhance'] || '', '');
+        assert.equal(noImage.castEls.length, 0);
+    } finally { noImage.vn.destroy(); }
+
+    const disabledAssets = await openStageCastReader({ characters: STAGE_CAST_CHARACTERS, lines: STAGE_CAST_LINES,
+        sceneAssetsEnabled: false, spriteEnhance: { enabled: true } });
+    try {
+        assert.equal(disabledAssets.overlay.querySelector('#igs-sprite').style['--igs-sprite-enhance'] || '', '');
+        assert.ok(disabledAssets.castEls.every((el) => !String(el.style.filter).includes('drop-shadow(')));
+    } finally { disabledAssets.vn.destroy(); }
 });
 
 test('gate:simulation:stage-cast-drops-members-without-image', async () => {
@@ -3372,11 +3442,34 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     assert.match(scenesView.snapshot.html, /古城/);
     const charsView = settings.switchSceneSubTab('characters');
     assert.match(charsView.snapshot.html, /统一角色立绘位置/);
+    assert.match(charsView.snapshot.html, /data-switch="bridge\.sceneAssets\.spriteEnhance\.enabled" aria-pressed="false"/);
+    assert.match(charsView.snapshot.html, /可能增加性能开销/);
+    assert.doesNotMatch(charsView.snapshot.html, /data-path="bridge\.sceneAssets\.spriteEnhance\.mode"/);
     assert.doesNotMatch(charsView.snapshot.html, />角色别名<\/div>/);
     // 头像地址在毛笔打开的「角色设定」里；头部的头像本身是上传按钮。
     assert.match(charsView.snapshot.html, /class="igs-char-avatar" data-action="status-avatar-pick:/);
     assert.doesNotMatch(charsView.snapshot.html, /data-status-avatar-char=/);
     assert.match(charsView.snapshot.html, /爱丽/);
+
+    settings.setValue('bridge.sceneAssets.spriteEnhance.enabled', true);
+    let enabledView = settings.switchSceneSubTab('characters');
+    assert.match(enabledView.snapshot.html, /data-switch="bridge\.sceneAssets\.spriteEnhance\.enabled" aria-pressed="true"/);
+    for (const key of ['mode', 'color', 'strength', 'size']) {
+        assert.ok(enabledView.snapshot.html.includes(`data-path="bridge.sceneAssets.spriteEnhance.${key}"`), key);
+    }
+    settings.setValue('bridge.sceneAssets.spriteEnhance.mode', 'shadow');
+    settings.setValue('bridge.sceneAssets.spriteEnhance.color', '#123456');
+    settings.setValue('bridge.sceneAssets.spriteEnhance.strength', '10');
+    settings.setValue('bridge.sceneAssets.spriteEnhance.size', '1.6');
+    assert.equal(settings.close().ok, true);
+    const savedEnhance = JSON.parse(storage.getItem('igs_bridge_config')).sceneAssets.spriteEnhance;
+    assert.deepEqual(savedEnhance, { enabled: true, mode: 'shadow', color: '#123456', strength: 10, size: 1.6 });
+    const reopened = opened.reader.controller.openSettings('scene').controller;
+    enabledView = reopened.switchSceneSubTab('characters');
+    assert.match(enabledView.snapshot.html, /data-switch="bridge\.sceneAssets\.spriteEnhance\.enabled" aria-pressed="true"/);
+    reopened.setValue('bridge.sceneAssets.spriteEnhance.enabled', false);
+    assert.doesNotMatch(reopened.switchSceneSubTab('characters').snapshot.html, /data-path="bridge\.sceneAssets\.spriteEnhance\.mode"/);
+    assert.equal(reopened.close().ok, true);
 
     vn.destroy();
 });

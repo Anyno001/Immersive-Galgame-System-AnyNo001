@@ -315,7 +315,9 @@ export function applyCastToDom(root, members = [], motion = {}) {
         el.style.backgroundSize = spriteBackgroundSize(m.scale);
         el.style.backgroundPosition = `${m.posX}% ${m.posY}%`;
         const focused = Boolean(focus) && m.character === focus;
-        const frame = focused ? CAST_FOCUS_FRAME : (m.called === true || m.front === true) ? CAST_CALLED_FRAME : CAST_DIM_FRAME;
+        const baseFrame = focused ? CAST_FOCUS_FRAME : (m.called === true || m.front === true) ? CAST_CALLED_FRAME : CAST_DIM_FRAME;
+        const enhance = typeof motion.spriteEnhance === 'string' ? motion.spriteEnhance : '';
+        const frame = enhance ? `${baseFrame} ${enhance}` : baseFrame;
         const prevFrame = el.style.filter;
         el.style.filter = frame;
         el.style.setProperty('-webkit-filter', frame);

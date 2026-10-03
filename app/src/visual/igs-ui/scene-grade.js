@@ -50,7 +50,7 @@ let filterSeq = 0;
 export const SCENE_GRADE_STYLE_TEXT = `
 #igs-overlay #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) var(--igs-grade-bg,);-webkit-filter:brightness(var(--igs-bg-brightness,1)) var(--igs-grade-bg,);}
 #igs-overlay #igs-bg-blur{filter:blur(40px) brightness(.55) saturate(1.3) var(--igs-grade-bg,);-webkit-filter:blur(40px) brightness(.55) saturate(1.3) var(--igs-grade-bg,);}
-#igs-overlay #igs-sprite:not(.igs-sprite-editing),#igs-overlay .igs-sd-sprite-ghost{filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,);-webkit-filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,);}
+#igs-overlay #igs-sprite:not(.igs-sprite-editing),#igs-overlay .igs-sd-sprite-ghost{filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,) var(--igs-sprite-enhance,);-webkit-filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,) var(--igs-sprite-enhance,);}
 #igs-overlay #igs-sprite.igs-sprite-narration{--igs-sprite-dim:brightness(.86) saturate(.86);}
 #igs-overlay #igs-cast{filter:var(--igs-grade-sprite,);-webkit-filter:var(--igs-grade-sprite,);}
 #igs-overlay .igs-grade-layer{position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply;opacity:0;transition:opacity 1.4s ease;}

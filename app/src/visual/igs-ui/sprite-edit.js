@@ -72,7 +72,11 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
         bottom: spriteEl.style.bottom,
         left: spriteEl.style.left,
     };
+    const origEnhance = typeof spriteEl.style.getPropertyValue === 'function'
+        ? spriteEl.style.getPropertyValue('--igs-sprite-enhance')
+        : (spriteEl.style['--igs-sprite-enhance'] || '');
     spriteEl.style.cssText += ';position:absolute;inset:0;width:100%;height:100%;transform:none;bottom:auto;left:auto';
+    spriteEl.style.removeProperty('--igs-sprite-enhance');
     spriteEl.classList.add('igs-sprite-editing');
 
     const doc = overlay.ownerDocument;
@@ -80,7 +84,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     editBar.id = 'igs-sprite-edit-bar';
     editBar.innerHTML = MAIN_BAR;
     overlay.appendChild(editBar);
-    const em = { orig, editBar, clickLayer, mode, character, mood, outfit, origSpriteStyle, headEdit: null, headPending: null };
+    const em = { orig, origEnhance, editBar, clickLayer, mode, character, mood, outfit, origSpriteStyle, headEdit: null, headPending: null };
     current.spriteEditMode = em;
     const storedHead = resolveSpriteHead(rs.spriteHeads, character, mood, outfit);
     const head = { moodOnly: Boolean(mood && rs.spriteHeads && rs.spriteHeads[spriteHeadKey(character, mood, outfit)]), dirty: false, info: null };
@@ -223,6 +227,8 @@ export function exitSpriteEditMode(overlay, current, save, ctx = {}) {
     const spriteEl = overlay.querySelector('#igs-sprite');
     if (spriteEl) {
         spriteEl.classList.remove('igs-sprite-editing', 'is-dragging');
+        if (em.origEnhance) spriteEl.style.setProperty('--igs-sprite-enhance', em.origEnhance);
+        else spriteEl.style.removeProperty('--igs-sprite-enhance');
     }
     if (em.clickLayer) em.clickLayer.style.pointerEvents = '';
     if (em.editBar && em.editBar.parentNode) em.editBar.remove();

@@ -102,7 +102,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-bg:not([data-igs-has-image="1"])::after{display:none;}
 #igs-overlay.igs-scene-nsfw #igs-bg::after{display:block;background:radial-gradient(ellipse at center,rgba(12,14,18,var(--igs-nsfw-veil-center,.30)) 20%,rgba(12,14,18,var(--igs-nsfw-veil-edge,.72)) 100%);}
 #igs-sprite{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:40%;height:85%;background-size:100%;background-repeat:no-repeat;background-position:50% 100%;pointer-events:none;z-index:2;display:none;}
-#igs-overlay.igs-mode-embedded #igs-sprite.igs-sprite-narration{filter:brightness(.86) saturate(.86) var(--igs-grade-sprite,)!important;-webkit-filter:brightness(.86) saturate(.86) var(--igs-grade-sprite,)!important;}
+#igs-overlay.igs-mode-embedded #igs-sprite.igs-sprite-narration{filter:brightness(.86) saturate(.86) var(--igs-grade-sprite,) var(--igs-sprite-enhance,)!important;-webkit-filter:brightness(.86) saturate(.86) var(--igs-grade-sprite,) var(--igs-sprite-enhance,)!important;}
 
 #igs-sprite.igs-sprite-editing{pointer-events:all;cursor:grab;outline:2px dashed rgba(255,255,255,.5);outline-offset:-2px;}
 #igs-sprite.igs-sprite-editing.is-dragging{cursor:grabbing;}

@@ -48,6 +48,7 @@ import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
+import { spriteEnhanceFilter } from './sprite-enhance.js';
 import { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH, isPortraitTouchWindow } from '../../generated-images/illustration/auto-illustration-service.js';
 import { applyClickWaitMark } from './click-wait-mark.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
@@ -1180,6 +1181,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         if (cgActive) bgBlur.style.display = 'none';
     }
     const spriteEl = root.querySelector('#igs-sprite');
+    const sceneAssets = snapshot.readerSettings && snapshot.readerSettings._sceneAssets;
+    const spriteEnhance = current.spriteEditMode ? '' : spriteEnhanceFilter(sceneAssets && sceneAssets.enabled === true
+        ? sceneAssets.spriteEnhance : null);
     let stageSprite = null;
     let fxSprite = null;
     const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
@@ -1248,6 +1252,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const castFocus = castRomancePin;
     const castFxTargets = castPlan ? castPlan.members.map((m) => ({ character: m.character, url: m.url, posX: m.posX, posY: m.posY, scale: m.scale, head: m.head, flip: m.flip === true })) : [];
     if (spriteEl && spriteAssetUrl) {
+        if (spriteEnhance && !current.spriteEditMode) spriteEl.style.setProperty('--igs-sprite-enhance', spriteEnhance);
+        else spriteEl.style.removeProperty('--igs-sprite-enhance');
         const spriteNarration = ['narration', 'chat', 'system'].includes(snapshot.content.textType) && spriteSettings.dimSpriteOnNarration !== false;
         // 旁白压暗由 .igs-sprite-narration 写入 --igs-sprite-dim，与环境滤镜在样式表里合成。
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
@@ -1281,6 +1287,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, outfit: spriteOutfit, index: snapshot.content.currentIndex, layout: { ...layout } });
         }
     } else if (spriteEl) {
+        spriteEl.style.removeProperty('--igs-sprite-enhance');
         current.spriteLook = null;
         clearSpriteOutfitSwap(spriteEl);
         applySpeakerFlip(spriteEl, false);
@@ -1314,7 +1321,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 头部对齐探测未就绪时，新上台的陪衬等下方对齐重排完成再滑入（applyCastToDom 内有超时兜底）。
         let releaseCastAlign = () => {};
         const castAlignReady = castPlan.pending.length ? new Promise((resolve) => { releaseCastAlign = resolve; }) : null;
-        applyCastToDom(root, markCalledCast(castPlan.members, castReact.called), { reduced: castReduced, handoff, focus: castFocus, lean: castLean, entrances: castStageEntrances(snapshot), ready: castAlignReady });
+        applyCastToDom(root, markCalledCast(castPlan.members, castReact.called), { reduced: castReduced, handoff, focus: castFocus, lean: castLean, entrances: castStageEntrances(snapshot), ready: castAlignReady, spriteEnhance });
         const castReactKey = `${snapshot.messageId}:${snapshot.content.currentIndex}`;
         if (current.castReactKey !== castReactKey) {
             current.castReactKey = castReactKey;
@@ -1344,7 +1351,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                     spriteEl.style.backgroundPosition = `${again.speaker.posX}% ${again.speaker.posY}%`;
                     if (fxSprite) Object.assign(fxSprite, { posY: Number(again.speaker.posY), scale: Number(again.speaker.scale) });
                 }
-                applyCastToDom(root, markCalledCast(again.members, castReact.called), { reduced: true, focus: castFocus, lean: castLean });
+                applyCastToDom(root, markCalledCast(again.members, castReact.called), { reduced: true, focus: castFocus, lean: castLean, spriteEnhance });
                 const fxTargetOf = new Map(castFxTargets.map((t) => [t.character, t]));
                 for (const m of again.members) {
                     const t = fxTargetOf.get(m.character);

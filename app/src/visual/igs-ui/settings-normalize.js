@@ -75,6 +75,11 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
     }
+    if (path === 'bridge.sceneAssets.spriteEnhance.enabled') return value === true || value === 'true' || value === 1 || value === '1';
+    if (path === 'bridge.sceneAssets.spriteEnhance.mode') return value === 'shadow' ? 'shadow' : 'outline';
+    if (path === 'bridge.sceneAssets.spriteEnhance.color') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
+    if (path === 'bridge.sceneAssets.spriteEnhance.strength') return [5, 10, 15, 20, 30, 40, 50].includes(Number(value)) ? Number(value) : 20;
+    if (path === 'bridge.sceneAssets.spriteEnhance.size') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
     if (path === 'bridge.sceneAssets.promptPlacement') return value === 'depth0' ? 'depth0' : 'system';
     if (path === 'bridge.sceneAssets.promptAdaptive') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|assets\.(spriteEnabled|backgroundEnabled|strictMatch))$/.test(path)) {
