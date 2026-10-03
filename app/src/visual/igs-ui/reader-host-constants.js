@@ -123,6 +123,7 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.dialogTextEffect',
     'readerSettings.dialogTextEffectColor',
     'readerSettings.dialogTextEffectStrength',
+    'readerSettings.dialogTextEffectSize',
     'readerSettings.dialogSkin',
     'readerSettings.gradientVeil.color',
     'readerSettings.gradientVeil.heightPercent',

@@ -64,6 +64,7 @@ export function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.dialogTextEffect') return ['off', 'outline', 'shadow'].includes(value) ? value : 'off';
         if (path === 'readerSettings.dialogTextEffectColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
         if (path === 'readerSettings.dialogTextEffectStrength') return Math.max(5, Math.min(50, Number(value) || 20));
+        if (path === 'readerSettings.dialogTextEffectSize') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
         if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|skinDialogScale|toolbarScale|inputScale|imageCountOverride|imgBrightness|cgHoldPages|gradientVeil\.(heightPercent|opacity)/.test(path)) {
             return Number(value);
         }

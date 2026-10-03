@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { createMemoryStorage } from '../src/index.js';
 import {
@@ -89,4 +90,17 @@ test('asset-folder-view: list keeps original renderer, grid shows thumbnails', (
     assert.doesNotMatch(collapsed, /src="https:\/\/example\.com\/a\.png"/);
 
     assert.equal(renderAssetFolderView('scenes', {}, { state, renderList: () => '暂无' }), '暂无');
+});
+
+test('asset-folder-view: touch menu leaves the folder selector clickable', () => {
+    const state = addAssetFolder(null, 'scenes', '学校');
+    const menu = renderAssetFolderSelect('scenes', '教室', state.scenes, { menu: true });
+    assert.match(menu, /class="igs-add-menu-item igs-folder-pick-item"/);
+    assert.match(menu, /<select class="igs-folder-pick-select" data-asset-folder-move="scenes" data-asset-name="教室"/);
+    assert.match(menu, /<option value="学校">学校<\/option>/);
+    const moved = moveAssetToFolder(state, 'scenes', '教室', '学校');
+    assert.match(renderAssetFolderSelect('scenes', '教室', moved.scenes, { menu: true }), /<option value="学校" selected>学校<\/option>/);
+    const css = readFileSync(new URL('../src/visual/igs-ui/settings-style.js', import.meta.url), 'utf8');
+    assert.match(css, /\.igs-add-menu-item:not\(\.igs-folder-pick-item\)::after\{content:/);
+    assert.doesNotMatch(css, /\.igs-add-menu-item::after\{content:/);
 });

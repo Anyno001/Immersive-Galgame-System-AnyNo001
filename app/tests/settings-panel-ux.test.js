@@ -563,7 +563,7 @@ function actionCtx(draft, answers, extra = {}) {
             confirm: async (message) => { calls.asked.push(message); return answers.shift(); },
             prompt: async (message) => { calls.asked.push(message); return answers.shift(); },
         },
-        getDefaultSettings: () => ({ bridge: { sourceFilter: { enabled: false, textIncludeTags: 'content' } }, readerSettings: { fontSize: 16, dialogFontWeight: null, dialogTextEffect: 'off', dialogTextEffectColor: '#000000', dialogTextEffectStrength: 20 } }),
+        getDefaultSettings: () => ({ bridge: { sourceFilter: { enabled: false, textIncludeTags: 'content' } }, readerSettings: { fontSize: 16, dialogFontWeight: null, dialogTextEffect: 'off', dialogTextEffectColor: '#000000', dialogTextEffectStrength: 20, dialogTextEffectSize: 0.8 } }),
         normalizeImportedSettings: (imported) => ({
             bridge: { ...imported.bridge, normalized: true },
             readerSettings: { ...imported.readerSettings, fontSize: Math.min(30, Number(imported.readerSettings.fontSize) || 16) },
@@ -574,7 +574,7 @@ function actionCtx(draft, answers, extra = {}) {
 }
 
 test('gate:settings-sections:reset-action-asks-first-and-only-touches-its-section', async () => {
-    const draft = { bridge: { sourceFilter: { enabled: true, textIncludeTags: 'story' }, openMode: 'mobile' }, readerSettings: { fontSize: 24, dialogFontWeight: 700, dialogTextEffect: 'outline', dialogTextEffectColor: '#123456', dialogTextEffectStrength: 40, dialogWidth: 520 } };
+    const draft = { bridge: { sourceFilter: { enabled: true, textIncludeTags: 'story' }, openMode: 'mobile' }, readerSettings: { fontSize: 24, dialogFontWeight: 700, dialogTextEffect: 'outline', dialogTextEffectColor: '#123456', dialogTextEffectStrength: 40, dialogTextEffectSize: 1.6, dialogWidth: 520 } };
     const { ctx, calls } = actionCtx(draft, [false, true, true]);
 
     await handleSettingsAction('settings-reset-section:reader-text-layout', ctx);
@@ -588,6 +588,7 @@ test('gate:settings-sections:reset-action-asks-first-and-only-touches-its-sectio
     assert.equal(draft.readerSettings.dialogTextEffect, 'off');
     assert.equal(draft.readerSettings.dialogTextEffectColor, '#000000');
     assert.equal(draft.readerSettings.dialogTextEffectStrength, 20);
+    assert.equal(draft.readerSettings.dialogTextEffectSize, 0.8);
     assert.equal(draft.readerSettings.dialogWidth, 520);
     assert.equal(calls.persisted, 1);
 

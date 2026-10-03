@@ -152,6 +152,8 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 .igs-source-filter-title{font-size:13px;line-height:20px;font-weight:600;letter-spacing:.04em;color:var(--igs-settings-ink)}
 .igs-source-filter-note{font-size:11px;line-height:16px;font-weight:400;color:var(--igs-settings-ink-4);overflow-wrap:anywhere}
 .igs-source-filter-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0;align-items:end}
+.igs-settings-grid[data-reader-pane="text"] .igs-reader-text-effect-options{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0;align-items:end}
+.igs-reader-text-effect-options>.igs-settings-field{min-width:0}
 .igs-settings-grid[data-reader-pane="dialog"] .igs-gradient-veil-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px;min-width:0}
 .igs-scene-preset-bar{display:flex;align-items:center;gap:6px;min-width:0}
 .igs-scene-preset-bar .igs-scene-preset-select{flex:1;min-width:0}
@@ -226,7 +228,7 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-add-menu-item:hover,.igs-add-menu-item:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 @keyframes igs-add-menu-in{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.igs-add-menu-list{animation:none}}
-@media (pointer:coarse){.igs-add-menu-list{gap:14px;padding:9px 4px}.igs-add-menu-item{position:relative}.igs-add-menu-item::after{content:"";position:absolute;inset:-7px 0}}
+@media (pointer:coarse){.igs-add-menu-list{gap:14px;padding:9px 4px}.igs-add-menu-item{position:relative}.igs-add-menu-item:not(.igs-folder-pick-item)::after{content:"";position:absolute;inset:-7px 0}}
 
 .igs-btn-mgr-icon.is-on:hover{color:var(--igs-settings-on-accent);background:var(--igs-settings-accent)}
 .igs-scene-url-input{flex:1;min-width:0;height:28px;border:0;border-bottom:1px solid transparent;background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:0 8px;font:inherit;font-size:11px;outline:none}
