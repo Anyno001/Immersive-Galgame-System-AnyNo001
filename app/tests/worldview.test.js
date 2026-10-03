@@ -197,7 +197,7 @@ test('gate:worldview:magic-refinements-spell-hue-house-colors-and-world-scoped-d
     assert.equal(spellHue('呼神护卫'), '#e4ecff');
     assert.equal(spellHue('Avada Kedavra'), '#4dff6e');
     assert.equal(spellHue('某个自创咒语'), spellHue('某个自创咒语'));
-    assert.deepEqual(MAGIC_HOUSES.map((h) => h.id), ['starlight', 'scarlet', 'emerald', 'sapphire', 'amber']);
+    assert.deepEqual(MAGIC_HOUSES.map((h) => h.id), ['starlight', 'scarlet', 'emerald', 'sapphire', 'amber', 'obsidian']);
     assert.equal(normalizeMagicHouse('nope'), 'starlight');
     assert.equal(magicHouseVars('emerald')['--igs-ma-veil'], '#0f2b2c');
     assert.match(CSS_DIALOG_STYLE_BY_SKIN['magic-academy'], /var\(--igs-ma-veil,#1b1a44\)/);
@@ -276,6 +276,25 @@ test('gate:worldview:house-settings-only-in-magic-worldview', async () => {
         html = view();
         assert.match(html.reader, /学院配色/);
         assert.match(html.chars, /data-char-house="赫敏"/);
+        controller.close();
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:worldview:obsidian-scheme-takes-user-accent', async () => {
+    const { magicHouseVars } = await import('../src/visual/igs-ui/dialog-theme-css-skins.js');
+    assert.deepEqual(magicHouseVars('obsidian', '#80a0ff'), { '--igs-ma-metal': '#80a0ff', '--igs-ma-hi': '#c0d0ff', '--igs-ma-veil': '#08080b' });
+    assert.equal(magicHouseVars('obsidian', 'bad')['--igs-ma-metal'], '#d4b98a');
+    assert.equal(magicHouseVars('scarlet', '#80a0ff')['--igs-ma-metal'], '#e2c48e', '只有墨夜吃自定义色');
+    const { bootstrapIGS } = await import('../src/index.js');
+    const vn = bootstrapIGS({ global: {}, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const controller = vn.openSettings({ tab: 'reader', mode: 'pc' }).controller;
+        controller.setValue('readerSettings.dialogSkin', 'magic-academy');
+        assert.doesNotMatch(controller.getSnapshot().html, /readerSettings\.magicAccent/);
+        controller.setValue('readerSettings.magicHouse', 'obsidian');
+        assert.match(controller.getSnapshot().html, /data-path="readerSettings\.magicAccent" type="color" value="#d4b98a"/);
         controller.close();
     } finally {
         vn.destroy();

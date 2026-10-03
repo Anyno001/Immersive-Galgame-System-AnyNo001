@@ -45,6 +45,7 @@ const SKIN_FAMILIES = Object.freeze({
     'qinglv-shanshui': 'wood',
     'black-white-manga': 'paper',
     'warm-picturebook': 'paper',
+    'fairy-tale': 'paper',
     'plant-coffee': 'paper',
     'western-classic': 'paper',
     'cute-pink': 'soft',

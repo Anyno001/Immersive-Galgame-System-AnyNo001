@@ -134,6 +134,18 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#b8c3ff',
         narrationColor: '#c9c7dd',
     }),
+    // 童话小镇：姓名用悠哉手写体，正文文楷，心里话转鼠尾草绿；墨色取暖棕，不用纯黑。
+    'fairy-tale': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_YOZAI,
+        textFont: DIALOG_FONT_WENKAI,
+        thoughtFont: DIALOG_FONT_WENKAI,
+        narrationFont: DIALOG_FONT_WENKAI,
+        nameColor: '#5e6b3c',
+        textColor: '#4a4034',
+        thoughtColor: '#6f8250',
+        narrationColor: '#776c5c',
+    }),
     // 青绿山水：明朝体托住绢本气质，内心独白换楷书以示区别；墨色取黛青，旁白淡一层。
     'qinglv-shanshui': Object.freeze({
         nameAlign: 'left',

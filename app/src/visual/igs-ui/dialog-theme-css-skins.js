@@ -111,13 +111,25 @@ export const MAGIC_HOUSES = Object.freeze([
     Object.freeze({ id: 'emerald', label: '绿银', metal: '#c7d6d8', hi: '#ecfaf6', veil: '#0f2b2c' }),
     Object.freeze({ id: 'sapphire', label: '蓝铜', metal: '#d7a87c', hi: '#f6cfa6', veil: '#141d47' }),
     Object.freeze({ id: 'amber', label: '黄黑', metal: '#e6c763', hi: '#fde6a0', veil: '#1f1b15' }),
+    // 墨夜：底色近黑、不带蓝紫，装饰默认香槟金，可在设置里改色（readerSettings.magicAccent）。
+    Object.freeze({ id: 'obsidian', label: '墨夜', metal: '#d4b98a', hi: '#f3e6c8', veil: '#08080b', custom: true }),
 ]);
+export const MAGIC_ACCENT_DEFAULT = '#d4b98a';
+export function normalizeMagicAccent(value) {
+    return /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : MAGIC_ACCENT_DEFAULT;
+}
+// 高光取装饰色与白色各半，用十六进制写死，@property 补间不必解析 color-mix。
+const lighten = (hex) => `#${[1, 3, 5].map((i) => Math.round((parseInt(hex.slice(i, i + 2), 16) + 255) / 2).toString(16).padStart(2, '0')).join('')}`;
 export const MAGIC_HOUSE_DEFAULT = 'starlight';
 export function normalizeMagicHouse(value) {
     return MAGIC_HOUSES.some((house) => house.id === value) ? value : MAGIC_HOUSE_DEFAULT;
 }
-export function magicHouseVars(value) {
+export function magicHouseVars(value, accent) {
     const house = MAGIC_HOUSES.find((item) => item.id === normalizeMagicHouse(value));
+    if (house.custom && accent) {
+        const metal = normalizeMagicAccent(accent);
+        return { '--igs-ma-metal': metal, '--igs-ma-hi': lighten(metal), '--igs-ma-veil': house.veil };
+    }
     return { '--igs-ma-metal': house.metal, '--igs-ma-hi': house.hi, '--igs-ma-veil': house.veil };
 }
 export const MAGIC_METAL = 'var(--igs-ma-metal,#cfd5f2)';
@@ -142,7 +154,7 @@ const MAGIC_DUST = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" 
     .map(([x, y, r], i) => `<circle cx="${x}%" cy="${y}%" r="${r}" fill="#f0f0ff" fill-opacity="${i % 3 ? 0.5 : 0.85}"/>`).join('')}</svg>`);
 // 薄纱下段偏黑：学院底色先压向近黑再做透明度，只留一层色调，正文底更沉。
 const magicVeilDark = (percent, keep) => magicTint(`color-mix(in srgb,${MAGIC_VEIL} ${keep}%,#04040a)`, percent);
-const magicHalfLine = (dir) => `linear-gradient(${dir},transparent 3%,${magicTint(MAGIC_METAL, 70)} 34%)`;
+const magicHalfLine = (dir) => `linear-gradient(${dir},${magicTint(MAGIC_METAL, 22)},${magicTint(MAGIC_METAL, 70)} 34%)`;
 const MAGIC_SIDE = `calc(50% - ${MAGIC_EMBLEM.width / 2 + 6}px) 1px`;
 const magicAcademy = [
     buildDialogFrameCss(DIALOG_SKIN_MAGIC_ACADEMY, {
@@ -150,7 +162,7 @@ const magicAcademy = [
         text: { top: 58, speakerTop: 60, right: 72, bottom: 20, left: 72 },
         rise: 0,
         flush: true,
-        frameCss: `background-color:transparent;background-image:${magicHalfLine('90deg')},${magicHalfLine('270deg')},${MAGIC_CONSTELLATION},${MAGIC_DUST},radial-gradient(ellipse 28% 70px at 50% ${MAGIC_LINE_Y}px,${magicTint(MAGIC_METAL, 16)},transparent),linear-gradient(180deg,transparent 0,${magicVeil(28)} ${MAGIC_LINE_Y}px,${magicVeilDark(66, 45)} 62%,${magicVeilDark(84, 30)});background-position:left ${MAGIC_LINE_Y}px,right ${MAGIC_LINE_Y}px,right 56px top 4px,0 0,0 0,0 0;background-size:${MAGIC_SIDE},${MAGIC_SIDE},132px 36px,100% 100%,100% 100%,100% 100%;background-repeat:no-repeat;${NO_CHROME}`,
+        frameCss: `background-color:transparent;background-image:${magicHalfLine('90deg')},${magicHalfLine('270deg')},${MAGIC_CONSTELLATION},${MAGIC_DUST},radial-gradient(ellipse 28% 70px at 50% ${MAGIC_LINE_Y}px,${magicTint(MAGIC_METAL, 16)},transparent),linear-gradient(180deg,transparent 0,${magicVeil(28)} ${MAGIC_LINE_Y}px,${magicVeilDark(72, 45)} 62%,${magicVeilDark(94, 30)});background-position:left ${MAGIC_LINE_Y}px,right ${MAGIC_LINE_Y}px,right 56px top 4px,0 0,0 0,0 0;background-size:${MAGIC_SIDE},${MAGIC_SIDE},132px 36px,100% 100%,100% 100%,100% 100%;background-repeat:no-repeat;${NO_CHROME}`,
         speakerCss: `left:56px;top:${MAGIC_LINE_Y - 38}px;${NAME_TEXT}max-width:calc(100% - 112px);height:34px;line-height:34px;padding:0 0 0 24px;background:none;border:0;font-size:21px;font-weight:400;letter-spacing:.1em;text-shadow:${stroke('rgba(8,8,30,.45)')},0 0 12px ${magicTint(MAGIC_METAL_HI, 55)};`,
         textCss: `letter-spacing:.06em;text-shadow:${stroke('rgba(8,8,30,.4)')},0 1px 2px rgba(6,6,24,.85);`,
     }),

@@ -620,7 +620,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         const byCharacter = readerSettings._worldview === 'magic' && content.textType !== 'narration' && content.textType !== 'system';
         const speaker = byCharacter ? (content.spriteCharacter || content.speaker) : '';
         const house = resolveSpeakerMagicHouse(readerSettings._sceneAssets, speaker, readerSettings.magicHouse);
-        for (const [name, value] of Object.entries(magicHouseVars(house))) root.style.setProperty(name, value);
+        for (const [name, value] of Object.entries(magicHouseVars(house, readerSettings.magicAccent))) root.style.setProperty(name, value);
     }
     applyGradientVeilToDom(root, dialog, readerSettings);
 

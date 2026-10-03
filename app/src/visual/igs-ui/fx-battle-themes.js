@@ -1,6 +1,7 @@
 import { stroke } from './dialog-skin-frame.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, MAGIC_VEIL, magicTint } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
+import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -20,6 +21,7 @@ import {
     DIALOG_FONT_SMILEY,
     DIALOG_FONT_WENKAI,
     DIALOG_FONT_WENKAI_LITE,
+    DIALOG_FONT_YOZAI,
     DIALOG_FONT_ZCOOL_KUAILE,
 } from './dialog-theme-typography.js';
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
@@ -105,6 +107,17 @@ const BATTLE_THEMES = Object.freeze({
         ],
         title: 'font-style:normal;font-weight:400;letter-spacing:.3em;text-indent:.3em;',
         veil: 'background:rgba(30,40,38,.22);',
+    },
+    // 童话小镇：奶油纸通栏、鼠尾草绿细线，名牌标记是一颗灯火色小星。
+    [DIALOG_SKIN_FAIRY_TALE]: {
+        accent: '#6f8250',
+        light: true,
+        font: DIALOG_FONT_YOZAI,
+        vars: { veil: fairyPaper('.9'), rule: 'rgba(122,138,82,.55)', ink: '#4a4034', halo: `0 1px 0 ${fairyPaper('.6')}`, 'title-halo': `0 1px 0 ${fairyPaper('.85')}`, wipe: fairyPaper('.94'), lose: '#a8564a', escape: '#6d7f8c' },
+        mark: `width:11px;height:11px;align-self:center;font-size:0;background:#e0b45a;-webkit-mask:${FAIRY_SPARKLE_MASK} center/contain no-repeat;mask:${FAIRY_SPARKLE_MASK} center/contain no-repeat;`,
+        title: 'font-style:normal;font-weight:400;letter-spacing:.2em;text-indent:.2em;',
+        veil: 'background:rgba(60,50,30,.18);',
+        foe: `text-shadow:${stroke(fairyPaper('.7'))},0 0 18px ${fairyPaper('.9')};`,
     },
     // 日间简约：暗色渐隐名条 + 三色竖标，正文条为半透明白。
     [DIALOG_SKIN_DAY_MINIMAL]: {

@@ -100,6 +100,7 @@ export const CLICK_WAIT_MARK_SKINS = Object.freeze({
     'western-classic': { shape: 'fleuron', animation: 'bob', color: '#e2bd6b' },
     'elegant-european': { shape: 'sparkle', animation: 'twinkle', color: '#dccff7' },
     'magic-academy': { shape: 'sparkle', animation: 'twinkle', color: '#f0cf78' },
+    'fairy-tale': { shape: 'sparkle', animation: 'twinkle', color: '#c8973c' },
     'qinglv-shanshui': { shape: 'seal', animation: 'breathe', color: '#b23a2a' },
     'retro-japanese': { shape: 'triangle-brush', animation: 'bounce-slow', color: '#c23a24' },
     'adventure-journey': { shape: 'chevron', animation: 'nudge', color: '#9a6a2c' },

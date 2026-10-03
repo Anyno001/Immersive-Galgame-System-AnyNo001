@@ -1,4 +1,4 @@
-export const SKIN_DIALOG_SCALE_OPTIONS = Object.freeze([1, 0.9, 0.8, 0.7, 0.6]);
+export const SKIN_DIALOG_SCALE_OPTIONS = Object.freeze([1.3, 1.2, 1.1, 1, 0.9, 0.8, 0.7, 0.6]);
 export const SKIN_DIALOG_SCALE_DEFAULT = 1;
 
 export function normalizeSkinDialogScale(value) {
