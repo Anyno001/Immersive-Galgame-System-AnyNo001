@@ -67,7 +67,15 @@ export function settingsBusyLabel(action) {
 }
 
 // 表情差分写词和逐张出图都要几分钟。进度条挂在设置层上，面板重绘前一直看得见。
+// 面板重绘会冲掉进度条；单张重画只报一次进度，所以记住最后一次，重绘后由 remountSettingsProgress 补回。
+let liveProgress = null;
+
+export function remountSettingsProgress(container) {
+    return liveProgress ? showSettingsProgress(container, liveProgress) : null;
+}
+
 export function showSettingsProgress(container, progress) {
+    liveProgress = progress && progress.text ? progress : null;
     if (!container || typeof container.querySelector !== 'function') return null;
     const host = container.id === 'igs-unified-settings'
         ? container

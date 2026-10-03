@@ -237,7 +237,7 @@ function reportExpressionProgress(globalObj, event) {
     showSettingsProgress(host, {
         text: writing
             ? '写词'
-            : `${done}/${total} ${event.mood || ''}`.trim(),
+            : total === 1 ? `正在画「${event.mood || ''}」` : `${done}/${total} ${event.mood || ''}`.trim(),
         ratio: writing || !total ? 0 : done / total,
         indeterminate: writing,
         button: writing ? '写词' : `${done}/${total}`,
@@ -245,8 +245,8 @@ function reportExpressionProgress(globalObj, event) {
 }
 
 function clearExpressionProgress(globalObj) {
-    const host = settingsProgressHost(globalObj);
-    if (host) showSettingsProgress(host, null);
+    // 面板关着也要清：记住的进度不清掉，下次打开会补回一条过期的进度条。
+    showSettingsProgress(settingsProgressHost(globalObj), null);
 }
 
 function markExpressionActionBusy(globalObj, action) {

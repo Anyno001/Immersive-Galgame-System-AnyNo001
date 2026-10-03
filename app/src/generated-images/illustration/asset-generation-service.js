@@ -6,7 +6,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionMoodBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';

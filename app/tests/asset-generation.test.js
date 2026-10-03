@@ -1232,10 +1232,10 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
 });
 
 test('gate:assets:expression-set-writes-all-moods-in-one-request', async () => {
-    const { splitExpressionMoodBatches } = await import('../src/generated-images/dbgen-prompt.js');
+    const { splitWriteBatches } = await import('../src/generated-images/dbgen-prompt.js');
     const ten = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
-    // 楼内补立绘仍按 8 份拆批；表情差分走 generateExpressionSet，不再用这个函数。
-    assert.deepEqual(splitExpressionMoodBatches(ten), [ten.slice(0, 5), ten.slice(5)]);
+    // 楼内补立绘仍按 8 份拆批；表情差分走 generateExpressionSet，一档一次写完。
+    assert.deepEqual(splitWriteBatches(ten), [ten.slice(0, 5), ten.slice(5)]);
 
     const captionOf = (text) => ({
         v4_prompt: { caption: { base_caption: text, char_captions: [] } },
@@ -1476,4 +1476,18 @@ test('gate:assets:reroll-paints-the-slot-prompt-with-a-fresh-seed-and-no-rewrite
     await service.generateExpressionSet({ name: '冬月', basePrompt, moods: ['喜悦', '愤怒'] });
     assert.equal(paints[2].seed, paints[3].seed, 'one batch shares a seed');
     assert.notEqual(paints[2].seed, paints[4].seed, 'deleting and redoing gets a new seed');
+});
+
+test('gate:dbgen:plugin-calls-time-out-instead-of-hanging', async () => {
+    const { createImageBackend } = await import('../src/generated-images/image-backend.js');
+    const never = () => new Promise(() => {});
+    const NaiDbGen = { generate: never, generateSinglePrompt: never };
+    const backend = createImageBackend({ global: { NaiDbGen }, dbgenTimeouts: { write: 20, paint: 20 } });
+    const caption = { v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } } };
+    const painted = await backend.generateDbgenCaption({ caption });
+    assert.equal(painted.ok, false);
+    assert.match(painted.error, /没有返回，已放弃等待/);
+    const written = await backend.writeDbgenPrompt({ description: '画一张' });
+    assert.equal(written.ok, false);
+    assert.match(written.error, /没有返回，已放弃等待/);
 });

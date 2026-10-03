@@ -1,6 +1,6 @@
 import { moodPresetAct, moodPresetTags } from '../scene/mood-groups.js';
 
-// 楼内补立绘一次最多写 8 份。表情差分不再分批，一次写完。
+// 楼内补立绘一次最多写 8 份。表情差分不分批，一档一次写完。
 export const EXPRESSION_WRITE_BATCH_MAX = 8;
 // 数据库生图模式下的前端提示词接线：写词接口只说明画什么。
 // 正负模板在出图前合并进插件返回的 NaiCaption，不交给写词模型照抄。
@@ -65,11 +65,6 @@ export function splitWriteBatches(items) {
     if (list.length <= EXPRESSION_WRITE_BATCH_MAX) return list.length ? [list] : [];
     const half = Math.ceil(list.length / 2);
     return [list.slice(0, half), list.slice(half)];
-}
-
-export function splitExpressionMoodBatches(labels) {
-    const moods = (Array.isArray(labels) ? labels : []).map((item) => String(item || '').trim()).filter(Boolean);
-    return splitWriteBatches(moods);
 }
 
 export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit) {

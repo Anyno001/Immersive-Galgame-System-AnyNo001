@@ -16,6 +16,18 @@ export function normalizeImageSourceMode(value) {
     return IMAGE_SOURCE_MODES.includes(mode) ? mode : 'extension';
 }
 
+// 插件调用不带超时会一直挂着：设置页按钮锁住、单张重画再点也没反应。超时只是不再等，插件那边可能仍在跑。
+export const DBGEN_TIMEOUTS = Object.freeze({ write: 5 * 60 * 1000, paint: 3 * 60 * 1000 });
+
+function withTimeout(promise, ms) {
+    if (!(ms > 0)) return promise;
+    let timer;
+    const expired = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`超过 ${Math.round(ms / 1000)} 秒没有返回，已放弃等待`)), ms);
+    });
+    return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
 export function findDbgenApi(globalObject = globalThis) {
     const candidates = [];
     const push = (read) => { try { candidates.push(read()); } catch (error) { /* 跨域窗口 */ } };
@@ -113,7 +125,8 @@ function reportLong(report, title, text) {
     }
 }
 
-export function createImageBackend({ nai, getBridge, global: globalObject = globalThis, chatu8, report } = {}) {
+export function createImageBackend({ nai, getBridge, global: globalObject = globalThis, chatu8, report, dbgenTimeouts } = {}) {
+    const timeouts = { ...DBGEN_TIMEOUTS, ...(dbgenTimeouts && typeof dbgenTimeouts === 'object' ? dbgenTimeouts : {}) };
     const readBridge = (override) => (override && typeof override === 'object' ? override : (getBridge ? getBridge() || {} : {}));
     // chatu8 可注入 { findHost, request } 供测试替换；默认走真实的智绘姬事件桥。
     const chatu8Bridge = chatu8 && typeof chatu8 === 'object' ? chatu8 : {};
@@ -149,11 +162,11 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         let written = null;
         try {
             if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
-            written = await api.generateSinglePrompt({
+            written = await withTimeout(api.generateSinglePrompt({
                 description,
                 ...(meta.skipRecall === true && { skipRecall: true }),
                 ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
-            });
+            }), timeouts.write);
             if (!written || !written.ok || !written.value || !written.value.caption) {
                 return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${describeResultError(written, '未返回提示词')}` };
             }
@@ -173,11 +186,11 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
         let written;
         try {
-            written = await api.generateSinglePrompt({
+            written = await withTimeout(api.generateSinglePrompt({
                 description,
                 skipRecall: true,
                 ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
-            });
+            }), timeouts.write);
         } catch (error) {
             return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
         }
@@ -205,10 +218,10 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
         let written;
         try {
-            written = await api.generateSinglePrompt({
+            written = await withTimeout(api.generateSinglePrompt({
                 description,
                 ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
-            });
+            }), timeouts.write);
         } catch (error) {
             return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
         }
@@ -251,7 +264,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         };
         let result;
         try {
-            result = await api.generate({ caption: merged, replaceCharacterKeywords: true, ...(Object.keys(params).length && { params }) });
+            result = await withTimeout(api.generate({ caption: merged, replaceCharacterKeywords: true, ...(Object.keys(params).length && { params }) }), timeouts.paint);
         } catch (error) {
             return { ok: false, error: `${DBGEN_LABEL}出图失败：${(error && error.message) || error}`, prompt: promptFromCaption(merged) };
         }

@@ -20,6 +20,9 @@ export function renderRowMenu(items, label = '更多操作') {
 // 下拉菜单默认往下开。列表很长、这一行靠近滚动区底部时，最后的「删除」会被裁掉：
 // 打开时量一下上下各剩多少空间，往下放不下就往上开；两边都放不下就限高，菜单内滚动。
 export function placeRowMenu(details, win = globalThis) {
+    // 情绪列表外框为了圆角设了 overflow:hidden，菜单开着时放开，否则下拉被裁、只剩一截。
+    const clipper = details && typeof details.closest === 'function' ? details.closest('.igs-btn-mgr-list') : null;
+    if (clipper) clipper.classList.toggle('is-menu-open', details.open === true);
     if (!details || !details.open || typeof details.querySelector !== 'function') return;
     const list = details.querySelector('.igs-add-menu-list');
     if (!list || typeof list.getBoundingClientRect !== 'function') return;
@@ -313,6 +316,7 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-tabs>.igs-row-menu>summary{height:28px}
 .igs-add-menu-item.is-danger{color:var(--igs-settings-danger)}
 .igs-add-menu>.igs-add-menu-list{overflow-y:auto;overscroll-behavior:contain}
+.igs-btn-mgr-list.is-menu-open{overflow:visible}
 .igs-add-menu.is-up>.igs-add-menu-list{top:auto;bottom:calc(100% + 6px);transform-origin:bottom right}
 .igs-folder-pick-item{position:relative;gap:8px}
 .igs-folder-pick-where{margin-left:auto;padding-left:12px;color:var(--igs-settings-ink-4)}

@@ -207,7 +207,7 @@ import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildStatusHudModel, listStatusHudTables, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
 import { handleSettingsAction as runSettingsAction, releasedGeneratedImageIds } from './settings-actions.js';
-import { SETTINGS_NOTICE_MS, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, settingsBusyLabel } from './settings-notice.js';
+import { SETTINGS_NOTICE_MS, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, remountSettingsProgress, settingsBusyLabel } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
@@ -4089,7 +4089,13 @@ export function createIgsReaderHost(options = {}) {
                 event.preventDefault();
                 const busyLabel = settingsBusyLabel(actName);
                 if (busyLabel) {
-                    if (settingsBusyActions.has(actName)) return;
+                    // 菜单项点完就收起菜单，进度看底部进度条；同一格还在画时说一声，不再静默吞掉。
+                    const menu = action.closest('details.igs-add-menu');
+                    if (menu) menu.open = false;
+                    if (settingsBusyActions.has(actName)) {
+                        showSettingsNotice('这一张还在画，画好会自动换上。');
+                        return;
+                    }
                     settingsBusyActions.add(actName);
                     const restore = markSettingsButtonBusy(action, busyLabel);
                     try {
@@ -4572,6 +4578,7 @@ export function createIgsReaderHost(options = {}) {
         if (nextBody && scrollTop) nextBody.scrollTop = scrollTop;
         restoreSettingsFocus(container, focus);
         remountSettingsNotice(container, current.notice);
+        remountSettingsProgress(container);
         settingsDialogs.remount(container);
         onboarding.mountInSettings(container);
     }
@@ -4580,10 +4587,15 @@ export function createIgsReaderHost(options = {}) {
     const settingsBusyActions = new Set();
 
     function reportSettingsFailure(result) {
-        const current = state.activeSettings;
         const message = describeSettingsFailure(result);
-        if (!current || !message) return;
+        if (!message) return;
         if (result && result.thrown) console.warn('[IGS] 设置操作失败', result.thrown);
+        showSettingsNotice(message);
+    }
+
+    function showSettingsNotice(message) {
+        const current = state.activeSettings;
+        if (!current || !message) return;
         const notice = { message, until: Date.now() + SETTINGS_NOTICE_MS };
         current.notice = notice;
         remountSettingsNotice(current.dom && current.dom.root, notice);
