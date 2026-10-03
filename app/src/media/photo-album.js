@@ -222,12 +222,50 @@ export function withPhotoAlbum(service, store, options = {}) {
         return result;
     }
 
+    async function remove(entry) {
+        if (entry && entry.kind === 'photo') {
+            if (!store || typeof store.remove !== 'function') return { ok: false, reason: 'delete-unavailable' };
+            return store.remove(entry.photoId);
+        }
+        if (!base.remove) return { ok: false, reason: 'delete-unavailable' };
+        return base.remove(entry);
+    }
+
+    // 勾选删除走 removeMany。内层那份只认识楼层 CG，照片会全部失败。
+    async function removeMany(entries) {
+        const keys = [];
+        let failed = 0;
+        for (const entry of entries || []) {
+            const result = await remove(entry);
+            if (result && result.ok && entry && entry.key) keys.push(entry.key);
+            else failed += 1;
+        }
+        return { ok: failed === 0, removed: keys.length, failed, keys };
+    }
+
+    async function removeAll() {
+        let removed = 0;
+        let failed = 0;
+        for (let guard = 0; guard < 500; guard += 1) {
+            const page = await loadPage({ limit: 48, showHidden: true });
+            if (!page || page.ok === false) return { ok: false, reason: page && page.reason, removed, failed, keys: [] };
+            if (!page.items || !page.items.length) break;
+            const batch = await removeMany(page.items);
+            removed += batch.removed;
+            failed += batch.failed;
+            if (!batch.removed) break;
+        }
+        return { ok: failed === 0, removed, failed, keys: [] };
+    }
+
     return {
         ...base,
         loadPage,
         capturePhoto,
         setHidden: (key, hidden) => (isPhotoKey(key) ? patchPhoto(key, { hidden: hidden === true }) : base.setHidden(key, hidden)),
         setFavorite: (key, favorite) => (isPhotoKey(key) ? patchPhoto(key, { favorite: favorite === true }) : base.setFavorite(key, favorite)),
-        remove: (entry) => (entry && entry.kind === 'photo' ? store.remove(entry.photoId) : base.remove(entry)),
+        remove,
+        removeMany,
+        removeAll,
     };
 }

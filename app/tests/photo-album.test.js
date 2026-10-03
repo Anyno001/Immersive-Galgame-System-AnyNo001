@@ -72,6 +72,10 @@ test('gate: photo-album marks and deletes photos in its own store and delegates 
     assert.deepEqual(base.calls.at(-1), ['fav', 'c|1|0|1', true]);
     await album.remove({ kind: 'photo', photoId: 'p1', key: 'photo|p1' });
     assert.equal(await store.get('p1'), null);
+    await store.put({ id: 'p2', dataUrl: JPEG });
+    const batch = await album.removeMany([{ kind: 'photo', photoId: 'p2', key: 'photo|p2' }]);
+    assert.deepEqual(batch, { ok: true, removed: 1, failed: 0, keys: ['photo|p2'] });
+    assert.equal(await store.get('p2'), null);
     await album.remove({ key: 'c|1|0|1' });
     assert.deepEqual(base.calls.at(-1), ['remove', 'c|1|0|1']);
     assert.equal((await withPhotoAlbum(base, store, { compose: async () => '' }).capturePhoto({})).ok, false);

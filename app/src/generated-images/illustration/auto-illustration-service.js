@@ -602,7 +602,9 @@ export function createAutoIllustrationService(deps) {
         if (locks.has(key)) return locks.get(key);
         const job = (async () => {
             const removed = await removeMarkers(floor, identity.slot);
-            if (!removed.ok) return removed;
+            // 楼层已经对不上（换了聊天、换了分支、这一楼没了）时，挂载点不在当前正文里。
+            // 图仍然删掉，否则 CG 库里这些图永远删不掉。正文还对得上但写不回去时，不删图。
+            if (!removed.ok && removed.reason !== 'stale') return removed;
             try {
                 await store.deleteSlot(key, identity.slot);
             } catch (error) {

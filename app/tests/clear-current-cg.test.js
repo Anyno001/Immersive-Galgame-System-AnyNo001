@@ -97,6 +97,53 @@ test('gate:illustration:clear-removes-the-marker-and-keeps-the-other-cg', async 
     assert.deepEqual((await store.getSlots(key)).map((item) => item.slot), [2]);
 });
 
+test('gate:illustration:clear-deletes-the-image-when-the-floor-no-longer-matches', async () => {
+    const store = createMemoryIllustrationStore();
+    const floor = { chatId: 'old-chat', messageId: 8, swipeId: 0 };
+    const key = floorKeyOf(floor);
+    await store.putSlot(key, { slot: 1, status: 'done', dataUrl: 'blob:old' });
+    let writes = 0;
+    const service = createAutoIllustrationService({
+        store,
+        llm: {},
+        nai: { describe: () => ({ ready: { ok: true } }) },
+        getSettings: () => ({}),
+        events: { emit() {} },
+        messageHost: {
+            readFloor: () => ({ chatId: 'current-chat', messageId: 8, swipeId: 0, isAi: true, text: '[igs-img:1]\n别的聊天' }),
+            writeFloor: async () => { writes += 1; return { ok: true }; },
+            getChatId: () => 'current-chat',
+        },
+    });
+    const result = await service.clearIllustration({ ...floor, slot: 1 });
+    assert.equal(result.ok, true);
+    assert.equal(writes, 0);
+    assert.equal((await store.getSlots(key)).length, 0);
+});
+
+test('gate:illustration:clear-keeps-the-image-when-the-marker-cannot-be-written', async () => {
+    const store = createMemoryIllustrationStore();
+    const floor = { chatId: 'chat-1', messageId: 8, swipeId: 0, isAi: true };
+    const key = floorKeyOf(floor);
+    await store.putSlot(key, { slot: 1, status: 'done', dataUrl: 'blob:cg-1' });
+    const service = createAutoIllustrationService({
+        store,
+        llm: {},
+        nai: { describe: () => ({ ready: { ok: true } }) },
+        getSettings: () => ({}),
+        events: { emit() {} },
+        messageHost: {
+            readFloor: () => ({ ...floor, text: '[igs-img:1]\n正文' }),
+            writeFloor: async () => ({ ok: false, reason: 'write-failed' }),
+            getChatId: () => floor.chatId,
+        },
+    });
+    const result = await service.clearIllustration({ ...floor, slot: 1 });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'write-failed');
+    assert.equal((await store.getSlots(key)).length, 1);
+});
+
 test('gate:illustration:clear-floor-removes-every-marker-and-image', async () => {
     const store = createMemoryIllustrationStore();
     const floor = { chatId: 'chat-1', messageId: 8, swipeId: 0, isAi: true, isLatest: true };
