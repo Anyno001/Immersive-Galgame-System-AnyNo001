@@ -274,6 +274,7 @@ import {
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
 const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
+const LAST_SETTINGS_PAGE_KEY = 'igs:settings-last-page:v1';
 
 export function createIgsReaderHost(options = {}) {
     let statusHudClient = null;
@@ -571,11 +572,36 @@ export function createIgsReaderHost(options = {}) {
             optionsForRender.index ?? current.index);
     }
 
+    function rememberSettingsPage(current) {
+        try {
+            const storage = (options.global || globalThis).localStorage;
+            if (!storage || typeof storage.setItem !== 'function') return;
+            const page = current.asyncState || {};
+            storage.setItem(LAST_SETTINGS_PAGE_KEY, JSON.stringify({
+                tab: normalizeSettingsTab(current.tab),
+                readerSubTab: normalizeReaderSubTab(page.readerSubTab),
+                sceneSubTab: normalizeSceneSubTab(page.sceneSubTab),
+                imageSubTab: normalizeImageSubTab(page.imageSubTab),
+            }));
+        } catch (error) {
+            try { console.warn('[IGS] 设置页记忆写入失败：', error); } catch { /* 控制台不可用时不影响切页 */ }
+        }
+    }
+
     function openSettings(openOptions = {}) {
-        const normalizedTab = normalizeSettingsTab(openOptions.tab);
+        // 显式指定页签（阅读器工具按钮、引导跳转）始终优先于上次停留的位置。
+        let lastPage = null;
+        try {
+            const storage = (options.global || globalThis).localStorage;
+            const stored = storage && storage.getItem(LAST_SETTINGS_PAGE_KEY);
+            const parsed = stored ? JSON.parse(stored) : null;
+            lastPage = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+        } catch { /* 无存储权限时仍可打开设置 */ }
+        const normalizedTab = normalizeSettingsTab(openOptions.tab || (state.activeSettings && state.activeSettings.tab) || (lastPage && lastPage.tab));
         const fallbackMode = state.activeReader ? state.activeReader.mode : undefined;
         if (state.activeSettings) {
             state.activeSettings.tab = normalizedTab;
+            rememberSettingsPage(state.activeSettings);
             return rerenderSettings();
         }
 
@@ -589,7 +615,11 @@ export function createIgsReaderHost(options = {}) {
             tab: normalizedTab,
             draft: cloneData(initialSnapshot),
             initialOpenMode: initialSnapshot.bridge.openMode,
-            asyncState: {},
+            asyncState: {
+                readerSubTab: normalizeReaderSubTab(lastPage && lastPage.readerSubTab),
+                sceneSubTab: normalizeSceneSubTab(lastPage && lastPage.sceneSubTab),
+                imageSubTab: normalizeImageSubTab(lastPage && lastPage.imageSubTab),
+            },
             committedImageIds: collectGeneratedImageIds(initialSnapshot.bridge && initialSnapshot.bridge.sceneAssets),
             controller,
             dom: null,
@@ -598,6 +628,7 @@ export function createIgsReaderHost(options = {}) {
         settingsState.dom = mountSettingsDom(controller);
         syncSettingsStagePause();
         playReaderUiSfx('open');
+        rememberSettingsPage(settingsState);
         return rerenderSettings();
     }
 
@@ -1086,7 +1117,7 @@ export function createIgsReaderHost(options = {}) {
             invokeAction(action) {
                 return handleReaderAction(action);
             },
-            openSettings(tab = 'basic') {
+            openSettings(tab) {
                 return openSettings({ tab, mode: state.activeReader ? state.activeReader.mode : 'pc' });
             },
             close() {
@@ -1103,16 +1134,19 @@ export function createIgsReaderHost(options = {}) {
             switchTab(tab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.tab = normalizeSettingsTab(tab);
+                rememberSettingsPage(state.activeSettings);
                 return rerenderSettings();
             },
             switchImageSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.asyncState.imageSubTab = normalizeImageSubTab(subTab);
+                rememberSettingsPage(state.activeSettings);
                 return rerenderSettings();
             },
             switchReaderSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.asyncState.readerSubTab = normalizeReaderSubTab(subTab);
+                rememberSettingsPage(state.activeSettings);
                 return rerenderSettings();
             },
             // 设置搜索：跳到搜索结果所在的分页 / 子页，并展开所在分组与折叠区。
@@ -1126,12 +1160,14 @@ export function createIgsReaderHost(options = {}) {
                 asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}) };
                 for (const key of entry.target.open) asyncState.advancedOpen[key] = true;
                 asyncState.settingsSearch = '';
+                rememberSettingsPage(state.activeSettings);
                 return rerenderSettings();
             },
             switchSceneSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
                 state.activeSettings.asyncState.sceneSubTab = normalizeSceneSubTab(subTab);
                 state.activeSettings.asyncState.wardrobeFocus = '';
+                rememberSettingsPage(state.activeSettings);
                 return rerenderSettings();
             },
             setValue(path, value, editOptions) {
@@ -1570,7 +1606,7 @@ export function createIgsReaderHost(options = {}) {
             return runManualAssetGeneration();
         }
         if (normalizedAction === 'settings') {
-            return state.activeReader.controller.openSettings('basic');
+            return state.activeReader.controller.openSettings();
         }
         if (normalizedAction === 'hide') {
             return state.activeReader.controller.toggleHidden();
@@ -3308,7 +3344,7 @@ export function createIgsReaderHost(options = {}) {
                     ? `<details class="igs-add-menu igs-asset-preset-apply"><summary class="igs-review-link is-primary">套用</summary><div class="igs-add-menu-list" role="menu">`
                         + menuItem(`preset-apply:${n}:card`, `套到本卡「${scopeState.assetScopeLabel}」`) + menuItem(`preset-apply:${n}:global`, '套到全局') + '</div></details>'
                     : `<button type="button" class="igs-review-link is-primary" data-action="preset-apply:${n}:global">套用</button>`;
-                return `<div class="igs-asset-preset-row"><span class="igs-asset-preset-name" title="${esc(name)}">${esc(name)}</span>${where}${apply}`
+                return `<div class="igs-asset-preset-row"><span class="igs-asset-preset-name" title="${esc(name)}">${esc(name)}</span>${where}${apply}<button type="button" class="igs-review-link" data-action="preset-overwrite:${n}" aria-label="用当前配置覆盖预设「${esc(name)}」">覆盖</button>`
                     + renderRowMenu([menuItem(`preset-export:${n}`, '导出文件'), menuItem(`preset-rename:${n}`, '重命名'), menuItem(`preset-delete:${n}`, '删除', ' is-danger')], `预设「${name}」的操作`)
                     + '</div>';
             };
@@ -3404,7 +3440,7 @@ export function createIgsReaderHost(options = {}) {
             const waitingCount = outfitReview.length + moodReview.length + countGeneratedWaiting(generatedArgs);
             const reviewPane = `<div class="igs-settings-section igs-review-pane">`
                 + renderOutfitReviewList(outfitReview, sceneAssets.characterOutfits || {}, sceneAssets.characters || {})
-                + renderMoodReviewList(moodReview, sceneAssets.moodGroups)
+                + renderMoodReviewList(moodReview, sceneAssets.moodGroups, { busy: Boolean(asyncState.moodReviewClassifying) })
                 + renderGeneratedAssetPane(generatedArgs)
                 + `</div>`;
             const scenesPane = `<div class="igs-settings-section">
@@ -4566,6 +4602,8 @@ export function createIgsReaderHost(options = {}) {
     function updateMountedSettings(snapshot) {
         const current = state.activeSettings;
         if (!current || !current.dom || !current.dom.root) return;
+        // 输入弹窗期间保留真实输入节点；整页重建会反复关闭、唤起手机软键盘。
+        if (settingsDialogs.hasTextInput()) return;
         const container = current.dom.root;
         const prevBody = container.querySelector('.igs-settings-body');
         const scrollTop = prevBody ? prevBody.scrollTop : 0;

@@ -445,6 +445,57 @@ test('gate:simulation:igs-ui-open-settings-renders-five-tabs', () => {
 
     vn.destroy();
 });
+test('gate:simulation:settings-last-page-restores-subtab-after-reopen-and-restart', () => {
+    const storage = createMemoryStorage();
+    const createApp = () => bootstrapIGS({
+        global: { localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    const vn = createApp();
+    try {
+        let opened = vn.openSettings();
+        assert.equal(opened.snapshot.tabs.find((tab) => tab.active).label, '基础');
+        opened.controller.switchTab('reader');
+        opened.controller.switchReaderSubTab('text');
+        assert.equal(JSON.parse(storage.getItem('igs:settings-last-page:v1'))?.tab, 'reader', 'navigation writes last tab');
+        assert.equal(opened.controller.close().ok, true);
+        assert.equal(JSON.parse(storage.getItem('igs:settings-last-page:v1'))?.readerSubTab, 'text', 'close preserves last subtab');
+
+        opened = vn.openSettings();
+        assert.equal(opened.snapshot.tabs.find((tab) => tab.active).label, '阅读器');
+        assert.equal(opened.snapshot.readerSubTab, 'text');
+        assert.equal(opened.controller.close().ok, true);
+
+        opened = vn.openSettings({ tab: 'scene' });
+        assert.equal(opened.snapshot.tabs.find((tab) => tab.active).label, '素材', 'explicit navigation wins');
+        opened.controller.switchSceneSubTab('review');
+        assert.equal(opened.controller.close().ok, true);
+    } finally {
+        vn.destroy();
+    }
+    const restarted = createApp();
+    try {
+        let opened = restarted.openSettings();
+        assert.equal(opened.snapshot.tabs.find((tab) => tab.active).label, '素材');
+        assert.equal(opened.snapshot.sceneSubTab, 'review');
+        opened.controller.switchTab('image');
+        opened.controller.switchImageSubTab('logs');
+        assert.equal(opened.controller.close().ok, true);
+        opened = restarted.openSettings();
+        assert.equal(opened.snapshot.tabs.find((tab) => tab.active).label, '生图');
+        assert.equal(opened.snapshot.imageSubTab, 'logs');
+        assert.equal(opened.controller.close().ok, true);
+        storage.setItem('igs:settings-last-page:v1', '{broken');
+        opened = restarted.openSettings();
+        assert.equal(opened.snapshot.tabs.find((tab) => tab.active).label, '基础', 'broken preference falls back safely');
+        assert.equal(opened.controller.close().ok, true);
+    } finally {
+        restarted.destroy();
+    }
+});
+
+
 
 test('gate:simulation:scene-assets-injects-prompt-and-renders-single-configured-assets', async () => {
     const extensionPrompts = {};

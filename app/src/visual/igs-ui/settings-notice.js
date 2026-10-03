@@ -58,6 +58,7 @@ const SETTINGS_BUSY_LABELS = Object.freeze({
     'test-image': '测试中…',
     'fetch-llm-models': '拉取中…',
     'fetch-image-models': '拉取中…',
+    'mood-review-ai-classify': '分类中…',
 });
 
 export function settingsBusyLabel(action) {

@@ -290,6 +290,33 @@ test('preset: 全局和存时那张卡分开记；套用各回各层，在别的
     assert.deepEqual(Object.keys(root.scenes), ['教室'], '删预设不动素材');
 });
 
+test('gate:preset:overwrite-confirmed-target-only-preserves-card-and-folder-snapshot', async () => {
+    const { ctx, draft, storage } = makeCtx({
+        confirms: [false, true],
+        sceneAssets: {
+            scenes: { 新场景: { url: 'new' } },
+            cards: { 'card:小雪': { scenes: { 小雪房间: { url: 'snow' } }, characters: {} } },
+        },
+    });
+    storage.setItem(LEGACY_PRESET_KEY, JSON.stringify({ version: 1, presets: { 旧预设: oldPreset(), 另一份: oldPreset() } }));
+    saveAssetFolders(storage, '', normalizeAssetFolders({ scenes: { folders: ['新'], assign: { 新场景: '新' } } }));
+    saveAssetFolders(storage, 'card:小雪', normalizeAssetFolders({ scenes: { folders: ['房间'], assign: { 小雪房间: '房间' } } }));
+    const before = storage.getItem(LEGACY_PRESET_KEY);
+    const command = `preset-overwrite:${encodeURIComponent('旧预设')}`;
+    await handleSettingsAction(command, ctx);
+    assert.equal(storage.getItem(LEGACY_PRESET_KEY), before, '取消时预设存储不变');
+    await handleSettingsAction(command, ctx);
+    const saved = loadLegacyPresets(storage);
+    assert.deepEqual(Object.keys(saved).sort(), ['另一份', '旧预设'].sort());
+    assert.deepEqual(saved.另一份, oldPreset(), '另一份不被覆盖');
+    assert.deepEqual(Object.keys(saved.旧预设.scenes), ['新场景']);
+    assert.deepEqual(Object.keys(saved.旧预设.scopeCards['card:小雪'].library.scenes), ['小雪房间']);
+    assert.equal(loadAssetFolders(storage, '旧预设').scenes.assign.新场景, '新');
+    assert.equal(loadAssetFolders(storage, '旧预设\u0001card:小雪').scenes.assign.小雪房间, '房间');
+    assert.deepEqual(Object.keys(draft.bridge.sceneAssets.scenes), ['新场景'], '覆盖预设不套用到当前素材');
+});
+
+
 test('preset: 旧版不分层的预设仍然选套到本卡或全局，整层替换', async () => {
     const { ctx, draft, storage } = makeCtx({
         confirms: [true, true],

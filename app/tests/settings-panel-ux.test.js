@@ -158,6 +158,31 @@ test('gate:settings-dialog:prompt-keeps-typed-text-across-rerender-and-cancels-t
     assert.equal(await second, false, 'closing the panel cancels the pending dialog');
 });
 
+test('gate:settings-dialog:preset-name-input-keeps-same-node-through-panel-refresh', async () => {
+    const panel = makePanel();
+    const dialogs = createSettingsDialogs({ getContainer: () => panel.container, fallback: () => { throw new Error('native dialog must not be used'); } });
+    const answer = dialogs.prompt('存为预设，名字：', '全局');
+    const input = panel.overlay.querySelector('.igs-settings-dialog-input');
+    assert.equal(dialogs.hasTextInput(), true);
+    input.value = '正在输入的预设名';
+    input.dispatch('input');
+    for (let i = 0; i < 3; i += 1) {
+        if (!dialogs.hasTextInput()) rebuildPanel(panel, () => {});
+        dialogs.remount();
+        assert.ok(panel.overlay.querySelector('.igs-settings-dialog-input') === input, 'refresh does not replace the focused input');
+        assert.ok(panel.doc.activeElement === input);
+        assert.equal(input.value, '正在输入的预设名');
+    }
+    input.dispatch('keydown', { key: 'Enter' });
+    assert.equal(await answer, '正在输入的预设名');
+    assert.equal(dialogs.hasTextInput(), false);
+    const confirm = dialogs.confirm('覆盖已有预设？');
+    assert.equal(dialogs.hasTextInput(), false, 'confirmation still permits panel refresh');
+    dialogs.cancel();
+    assert.equal(await confirm, false);
+});
+
+
 test('gate:settings-dialog:edit-keeps-multiline-prompt-until-save', async () => {
     const panel = makePanel();
     const dialogs = createSettingsDialogs({ getContainer: () => panel.container, fallback: () => { throw new Error('native dialog must not be used'); } });

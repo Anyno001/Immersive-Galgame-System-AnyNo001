@@ -599,7 +599,7 @@ export function renderMoodGroupList(groups, options = {}) {
         + `</div>`;
 }
 
-export function renderMoodReviewList(items, groups) {
+export function renderMoodReviewList(items, groups, { busy = false } = {}) {
     const list = Array.isArray(items) ? items : [];
     const labels = storedMoodGroups(groups).map((group) => String(group.label || '').trim()).filter(Boolean);
     const rows = list.map((item) => {
@@ -616,6 +616,7 @@ export function renderMoodReviewList(items, groups) {
         key: 'mood',
         title: '情绪词',
         count: list.length,
+        headerAction: list.length ? `<button type="button" class="igs-review-link" data-action="mood-review-ai-classify"${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '分类中…' : 'AI 分类'}</button>` : '',
         hint: '词库里没有的情绪词。从已有情绪组里选一个加入，相近的组排在最前。',
         clearAction: 'mood-review-clear',
         body: rows ? `<div class="igs-review-list">${rows}</div>` : '',

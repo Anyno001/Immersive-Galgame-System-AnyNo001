@@ -9,7 +9,8 @@ import { DEFAULT_MOOD_GROUPS, MOOD_PRESET, moodPresetEntry, moodTierLabels, norm
 import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { buildCharacterCardPack, mergeLabelGroups, parseCharacterCardPack, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
-import { clearMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
+import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
+import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { SETTINGS_NOTICE_MS } from './settings-notice.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
@@ -702,7 +703,7 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'asset-card-import') {
         return importCharacterCardPack(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings);
     }
-    if (normalizedAction === 'preset-save' || normalizedAction === 'preset-import' || /^preset-(?:apply|rename|delete|export):/.test(normalizedAction)) {
+    if (normalizedAction === 'preset-save' || normalizedAction === 'preset-import' || /^preset-(?:apply|overwrite|rename|delete|export):/.test(normalizedAction)) {
         return handlePresetAction(normalizedAction, settingsState, options, dialogs, persistSettingsDraft, rerenderSettings);
     }
 
@@ -2832,6 +2833,81 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'mood-review-ai-classify') {
+        const globalObj = options.global || globalThis;
+        const storage = globalObj.localStorage;
+        const pending = loadMoodReview(storage);
+        const groups = ensureMoodGroups(settingsState);
+        const labels = groups.map((group) => String(group.label || '').trim()).filter(Boolean);
+        if (settingsState.asyncState.moodReviewClassifying) return { ok: false, reason: 'mood-classification-busy' };
+        if (!pending.length || !labels.length) return rerenderSettings();
+        if (typeof options.requestMoodClassification !== 'function') return generationFailure(globalObj, dialogs, '当前无法调用 AI 分类。', 'mood-classification-unavailable');
+        const originalAssets = settingsState.draft.bridge.sceneAssets;
+        const originalGroups = cloneData(groups);
+        settingsState.asyncState.moodReviewClassifying = true;
+        rerenderSettings();
+        let failure = '';
+        let count = 0;
+        let draftChanged = false;
+        try {
+            const configured = normalizeAutoIllustrationSettings(settingsState.draft.bridge.autoIllustration).llm;
+            const llm = configured.source === 'openai' && configured.endpoint.trim() && configured.model.trim()
+                ? configured : { ...configured, source: 'tavern' };
+            const system = '你只负责将待确认情绪词归入给出的已有情绪组。每个词恰好出现一次，不新建组，不删词。只返回 JSON：{"assignments":[{"word":"原词","group":"已有组名"}]}。';
+            const user = JSON.stringify({ groups: groups.map((group) => ({ label: group.label, words: group.words })), words: pending.map((item) => item.word) });
+            const raw = await options.requestMoodClassification({ system, user }, llm);
+            if (state.activeSettings !== settingsState) return { ok: false, reason: 'settings-closed' };
+            const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+            const parsed = JSON.parse(text);
+            const assignments = parsed && parsed.assignments;
+            const expected = new Set(pending.map((item) => item.word));
+            const results = new Map();
+            if (!Array.isArray(assignments) || assignments.length !== expected.size) throw new Error('invalid-assignments');
+            for (const entry of assignments) {
+                if (!entry || !expected.has(entry.word) || !labels.includes(entry.group) || results.has(entry.word)) throw new Error('invalid-assignment');
+                results.set(entry.word, entry.group);
+            }
+            const live = loadMoodReview(storage);
+            if (JSON.stringify(live) !== JSON.stringify(pending) || JSON.stringify(groups) !== JSON.stringify(originalGroups)) {
+                throw new Error('classification-input-changed');
+            }
+            const nextGroups = cloneData(groups);
+            for (const item of pending) {
+                const group = nextGroups.find((entry) => entry.label === results.get(item.word));
+                for (const other of nextGroups) if (other !== group) other.words = other.words.filter((word) => word !== item.word);
+                if (!group.words.includes(item.word)) group.words.push(item.word);
+            }
+            settingsState.draft.bridge.sceneAssets.moodGroups = nextGroups;
+            draftChanged = true;
+            const saved = persistSettingsDraft();
+            if (saved.ok === false) {
+                originalAssets.moodGroups = originalGroups;
+                settingsState.draft.bridge.sceneAssets.moodGroups = originalGroups;
+                return saved;
+            }
+            const cleared = saveMoodReview(storage, []);
+            if (cleared.ok === false) {
+                // 保存成功后宿主会用持久化快照替换 draft；旧引用与当前草稿都必须回滚。
+                originalAssets.moodGroups = originalGroups;
+                settingsState.draft.bridge.sceneAssets.moodGroups = originalGroups;
+                const rollback = persistSettingsDraft();
+                return rollback.ok === false ? rollback : cleared;
+            }
+            count = pending.length;
+        } catch (error) {
+            if (draftChanged) {
+                originalAssets.moodGroups = originalGroups;
+                settingsState.draft.bridge.sceneAssets.moodGroups = originalGroups;
+            }
+            failure = 'AI 分类失败：请检查模型连接或返回格式，情绪词未改动。';
+        } finally {
+            settingsState.asyncState.moodReviewClassifying = false;
+            if (state.activeSettings === settingsState) rerenderSettings();
+        }
+        if (failure) return generationFailure(globalObj, dialogs, failure, 'mood-classification-failed');
+        return { ok: true, count };
+    }
+
     // 待确认情绪词从已有情绪组里选一个加入，加入后从列表移除。
     if (normalizedAction.startsWith('mood-review-assign:')) {
         const rest = normalizedAction.slice('mood-review-assign:'.length);
@@ -3345,6 +3421,15 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     const name = decodeSeg(colon < 0 ? rest : rest.slice(0, colon));
     const preset = presets[name];
     if (!preset) return rerenderSettings();
+
+    if (command === 'preset-overwrite') {
+        if (!await dialogs.confirm(`用现在的配置覆盖预设「${name}」？原预设内容将被替换。`, { okLabel: '覆盖' })) return rerenderSettings();
+        const written = writeNamedPreset(storage, name, layeredPresetFromRoot(root, { cardKey, cardLabel, readerSettings }));
+        if (written.ok === false) return failed(written);
+        saveAssetFolders(storage, folderScope(name, ''), loadAssetFolders(storage, ''));
+        if (cardKey) saveAssetFolders(storage, folderScope(name, cardKey), loadAssetFolders(storage, cardKey));
+        return rerenderSettings();
+    }
 
     if (command === 'preset-export') {
         const bytes = new TextEncoder().encode(JSON.stringify(preset, null, 2));

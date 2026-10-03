@@ -274,12 +274,12 @@ export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, focus = '', lea
 }
 
 // 待确认页的一块：标题、数量、一句说明、清空，下面是条目。三块（服装词 / 情绪词 / 刚生成的图）长得一样。
-export function renderReviewCard({ key, title, count = 0, hint = '', clearAction = '', body = '', empty = '' }) {
+export function renderReviewCard({ key, title, count = 0, hint = '', clearAction = '', headerAction = '', body = '', empty = '' }) {
     const badge = count ? `<span class="igs-review-card-count">${count}</span>` : '';
     const clear = count && clearAction ? `<button type="button" class="igs-review-clear" data-action="${clearAction}">清空</button>` : '';
     const idle = !count && !body;
     return `<section class="igs-review-card${idle ? ' is-empty' : ''}" data-review-card="${esc(key)}">`
-        + `<div class="igs-review-card-head"><span class="igs-review-card-title">${esc(title)}</span>${badge}${clear}${idle ? `<span class="igs-review-card-empty">${esc(empty)}</span>` : ''}</div>`
+        + `<div class="igs-review-card-head"><span class="igs-review-card-title">${esc(title)}</span>${badge}${headerAction}${clear}${idle ? `<span class="igs-review-card-empty">${esc(empty)}</span>` : ''}</div>`
         + (hint && !idle ? `<div class="igs-review-card-hint">${esc(hint)}</div>` : '')
         + (idle ? '' : body) + `</section>`;
 }

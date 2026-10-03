@@ -217,5 +217,6 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             if (pending) settle(pending, cancelValue(pending));
         },
         isOpen: () => Boolean(pending),
+        hasTextInput: () => Boolean(pending && (pending.kind === 'prompt' || pending.kind === 'edit')),
     };
 }
