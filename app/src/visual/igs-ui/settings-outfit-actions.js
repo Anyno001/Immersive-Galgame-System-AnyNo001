@@ -217,12 +217,30 @@ async function handleWardrobe(command, segs, ctx) {
             warn(globalObj, (painted && painted.error) || '出参考图失败。');
             return rerenderSettings();
         }
-        const previous = String((wardrobe[name] && wardrobe[name].reference) || '');
+        const previousEntry = wardrobe[name];
+        const previous = String((previousEntry && previousEntry.reference) || '');
         wardrobe[name] = { ...wardrobe[name], reference: `igs-gen:${painted.imageId}` };
         const previousId = previous.startsWith('igs-gen:') ? previous.slice('igs-gen:'.length) : '';
-        if (previousId && previousId !== painted.imageId && typeof service.deleteImages === 'function') {
-            try { await service.deleteImages([previousId]); } catch (error) { /* 旧参考图删不掉时保留新图 */ }
+        let persisted;
+        try { persisted = persistSettingsDraft(); }
+        catch (error) { persisted = { ok: false, reason: 'save-failed', saveError: error }; }
+        if (!persisted || persisted === false || persisted.ok === false) {
+            wardrobe[name] = previousEntry;
+            if (!persisted || !persisted.rollbackFailed) {
+                try {
+                    const deleted = typeof service.deleteImages === 'function' && await service.deleteImages([painted.imageId]);
+                    if (!deleted || deleted.ok === false) warn(globalObj, '新参考图未能从本机清除。');
+                } catch (error) { warn(globalObj, '新参考图未能从本机清除。'); }
+            }
+            return persisted && persisted !== false ? persisted : { ok: false, reason: 'save-failed' };
         }
+        if (previousId && previousId !== painted.imageId && typeof service.deleteImages === 'function') {
+            try {
+                const deleted = await service.deleteImages([previousId]);
+                if (deleted === false || (deleted && deleted.ok === false)) warn(globalObj, '旧参考图未能从本机清除。');
+            } catch (error) { warn(globalObj, '旧参考图未能从本机清除。'); }
+        }
+        return rerenderSettings();
     } else if (command === 'wardrobe-remove') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         delete wardrobe[name];

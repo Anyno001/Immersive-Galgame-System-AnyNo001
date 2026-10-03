@@ -543,10 +543,14 @@ export function createAssetGenerationService(deps) {
     }
 
     async function deleteImagesImpl(ids) {
+        let failed = false;
         for (const id of ids || []) {
-            images.delete(id);
-            try { await store.deleteImage(id); } catch (error) { /* 图片已不存在时忽略 */ }
+            try {
+                await store.deleteImage(id);
+                images.delete(id);
+            } catch (error) { failed = true; }
         }
+        return failed ? { ok: false, reason: 'image-delete-failed' } : { ok: true };
     }
 
     // 下载用：取 IGS 实际存储的图片 dataUrl（立绘为裁边后的版本），找不到返回空串。
@@ -757,6 +761,38 @@ export function createAssetGenerationService(deps) {
     async function generateCharacterSprite({ name, dna, nude = false, onProgress } = {}) {
         const who = String(name || '').trim();
         if (!who) return { ok: false, error: '没有角色' };
+        const backend = nai && typeof nai.describe === 'function' ? nai.describe() : null;
+        if (!nude && backend && backend.mode && backend.mode !== 'dbgen') {
+            if (backend.ready && !backend.ready.ok) return { ok: false, error: backend.ready.error || '图像来源不可用' };
+            if (typeof nai.generate !== 'function') return { ok: false, error: '当前图像来源不能生成立绘' };
+            const s = readSettings();
+            const transparent = backend.via !== 'chatu8' && supportsNaiTransparentBackground(s.auto.nai.model);
+            const slot = buildAssetSlot({ need: { type: 'sprite', name: who, dna }, tags: '', uc: '' }, {
+                transparent, templates: s.auto.assets.templates,
+            });
+            reportExpressionProgress(onProgress, { phase: 'paint', done: 0, total: 1, mood: '默认' });
+            let painted;
+            try {
+                painted = await nai.generate(slot, { ...s.auto.nai, size: s.auto.assets.spriteSize });
+            } catch (error) {
+                return { ok: false, error: (error && error.message) || '出图失败' };
+            }
+            if (!painted || !painted.ok || !painted.dataUrl) {
+                return { ok: false, error: (painted && painted.error) || '出图失败' };
+            }
+            try {
+                const imageId = newId();
+                const createdAt = now();
+                const image = await buildSpriteImageRecord(imageId, painted.dataUrl, transparent, createdAt);
+                const prompt = normalizeStoredPrompt(painted.prompt);
+                if (prompt) image.prompt = prompt;
+                await putImageWithQuotaFallback(image);
+                rememberImage(imageId, image.dataUrl);
+                return { ok: true, imageId, prompt };
+            } catch (error) {
+                return { ok: false, error: (error && error.message) || '立绘保存失败' };
+            }
+        }
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
             return { ok: false, error: '当前图像来源不能写立绘' };
         }
@@ -853,6 +889,24 @@ export function createAssetGenerationService(deps) {
         return record ? JSON.parse(JSON.stringify(record)) : null;
     }
 
+    async function importAssetImage(dataUrl, type) {
+        if (!['sprite', 'background'].includes(type) || !/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(String(dataUrl || ''))) {
+            return { ok: false, error: '图片格式不受支持' };
+        }
+        const imageId = newId();
+        const createdAt = now();
+        const record = type === 'sprite'
+            ? { schemaVersion: GENERATED_IMAGE_SCHEMA_VERSION, id: imageId, type, dataUrl, originalDataUrl: dataUrl, workingDataUrl: '', alphaMaskDataUrl: '', revision: 1, createdAt, updatedAt: createdAt }
+            : { id: imageId, type, dataUrl, createdAt };
+        try {
+            await store.putImage(record);
+        } catch (error) {
+            return { ok: false, error: isQuotaError(error) ? '图片存储空间不足' : ((error && error.message) || '图片保存失败') };
+        }
+        rememberImage(imageId, dataUrl);
+        return { ok: true, imageId };
+    }
+
     async function writeStoredImage(record) {
         const image = record && typeof record === 'object' ? record : null;
         const key = image && String(image.id || '');
@@ -864,7 +918,7 @@ export function createAssetGenerationService(deps) {
     }
 
     return {
-        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage,
+        processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
         generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,

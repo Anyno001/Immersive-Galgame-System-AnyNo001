@@ -1425,6 +1425,107 @@ test('gate:assets:character-sprite-writes-from-dna-then-paints-default', async (
     assert.ok(dnaOnly.includes('data-action="char-generate-sprite:%E8%B7%AF%E4%BA%BA%E7%94%B2"'));
 });
 
+test('gate:assets:character-sprite-honors-nai-and-extension-image-source', async () => {
+    for (const mode of ['nai', 'extension']) {
+        const calls = [];
+        const store = createMemoryGeneratedAssetStore();
+        const service = createAssetGenerationService({
+            messageHost: { getChatId: () => 'chat', readFloor: () => null, readPreviousAiTexts: () => [], on: () => () => {} },
+            llm: {}, store, matte: async (url, options) => { calls.push(['matte', options.alreadyTransparent]); return url; },
+            nai: {
+                describe: () => ({ mode, via: mode === 'extension' ? 'chatu8' : 'nai', ready: { ok: true } }),
+                writeDbgenPrompt: () => { throw new Error('non-dbgen must not request plugin prompt'); },
+                generate: async (slot, settings) => {
+                    calls.push(['generate', slot, settings]);
+                    return { ok: true, dataUrl: 'data:image/png;base64,QQ==', prompt: { positive: 'sprite', negative: '' } };
+                },
+            },
+            getSettings: () => ({ imageApi: { mode }, autoIllustration: {}, sceneAssets: {} }),
+            newId: () => `sprite-${mode}`,
+        });
+        const result = await service.generateCharacterSprite({ name: '冬月', dna: { identity: 'silver hair' } });
+        assert.equal(result.ok, true);
+        assert.equal(calls[0][0], 'generate');
+        assert.match(calls[0][1].scene, /silver hair/);
+        assert.equal(calls[1][1], mode === 'nai' ? calls[0][1].transparent : false);
+        assert.equal((await store.getImage(result.imageId)).dataUrl, 'data:image/png;base64,QQ==');
+    }
+});
+
+
+test('gate:assets:default-sprite-extension-failure-falls-back-through-image-backend', async () => {
+    const { createImageBackend } = await import('../src/generated-images/image-backend.js');
+    const calls = [];
+    const bridge = { imageApi: { mode: 'extension' }, autoIllustration: { nai: { apiKey: 'test-key' } } };
+    const image = 'data:image/png;base64,QQ==';
+    const backend = createImageBackend({
+        global: {}, getBridge: () => bridge,
+        nai: { generate: async (slot, config) => {
+            calls.push(['nai', slot, config.apiKey]);
+            return { ok: true, dataUrl: image };
+        } },
+        chatu8: { findHost: () => ({ win: {} }), request: async () => {
+            calls.push(['chatu8']);
+            return { ok: false, error: '绘图失败' };
+        } },
+    });
+    const store = createMemoryGeneratedAssetStore();
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'chat' }, llm: {}, nai: backend, store,
+        getSettings: () => ({ autoIllustration: bridge.autoIllustration, sceneAssets: {} }),
+        matte: async (url, options) => { calls.push(['matte', options.alreadyTransparent]); return url; },
+        newId: () => 'fallback-sprite',
+    });
+    const result = await service.generateCharacterSprite({ name: '冬月', dna: { identity: 'silver hair' } });
+    assert.deepEqual([result.ok, result.imageId], [true, 'fallback-sprite']);
+    assert.deepEqual(calls.map(([name]) => name), ['chatu8', 'nai', 'matte']);
+    assert.equal(calls[1][2], 'test-key');
+    assert.match(calls[1][1].scene, /silver hair/);
+    assert.equal(calls[2][1], false, '智绘姬失败后的 NAI 图片按非透明底抠图');
+    assert.equal((await store.getImage(result.imageId)).dataUrl, image);
+});
+
+test('gate:asset-upload:stored-records-hydrate-in-a-new-service-and-report-failure', async () => {
+    const image = 'data:image/png;base64,QQ==';
+    const store = createMemoryGeneratedAssetStore();
+    let next = 0;
+    const makeService = (assetStore = store) => createAssetGenerationService({
+        messageHost: { getChatId: () => 'chat' }, llm: {}, nai: {}, store: assetStore,
+        getSettings: () => ({ autoIllustration: {}, sceneAssets: {} }),
+        newId: () => `manual-${++next}`,
+    });
+    const first = makeService();
+    for (const type of ['sprite', 'background']) {
+        const imported = await first.importAssetImage(image, type);
+        assert.equal(imported.ok, true);
+        const record = await store.getImage(imported.imageId);
+        assert.equal(record.type, type);
+        assert.equal(record.dataUrl, image);
+        assert.equal(await first.getImageDataUrl(imported.imageId), image);
+        if (type === 'sprite') {
+            assert.equal(record.originalDataUrl, image);
+            assert.equal((await first.readStoredImage(imported.imageId)).revision, 1);
+        }
+        const reopened = makeService();
+        const ref = `igs-gen:${imported.imageId}`;
+        assert.equal(reopened.resolveUrl(ref), '', '新实例初次读取等待存储异步恢复');
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(reopened.resolveUrl(ref), image);
+    }
+    for (const bad of ['data:text/html;base64,QQ==', 'data:image/svg+xml;base64,QQ==', 'data:image/png;base64,???']) {
+        assert.equal((await first.importAssetImage(bad, 'sprite')).ok, false);
+    }
+    assert.equal((await first.importAssetImage(image, 'other')).ok, false);
+    const brokenStore = { ...store, async putImage() { throw Object.assign(new Error('quota'), { name: 'QuotaExceededError' }); } };
+    const failed = await makeService(brokenStore).importAssetImage(image, 'background');
+    assert.equal(failed.ok, false);
+    assert.match(failed.error, /空间不足/);
+    assert.equal(await store.getImage('manual-3'), null);
+    const deletionsFail = makeService({ ...store, async deleteImage() { throw new Error('blocked'); } });
+    assert.equal((await deletionsFail.deleteImages(['manual-1'])).reason, 'image-delete-failed');
+    assert.equal((await store.getImage('manual-1')).dataUrl, image);
+});
+
 test('gate:assets:floor-sprite-descriptions-carry-dna', async () => {
     const { buildDbgenSpriteBatchDescription, buildDbgenAssetDescription } = await import('../src/generated-images/dbgen-prompt.js');
     const alice = { type: 'sprite', name: '爱丽丝', dna: { identity: '', defaultAppearance: 'black hair, blue eyes', negative: 'blonde hair', triggerWords: '' } };

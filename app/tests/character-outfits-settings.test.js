@@ -226,3 +226,31 @@ test('gate:outfits:binding-lists-merged-wardrobe-and-jumps-to-rules', () => {
     assert.match(missing, /data-action="wardrobe-for-outfit:%E5%B0%8F%E6%9E%97:%E6%A0%A1%E6%9C%8D">写提示词</);
 });
 
+
+test('gate:outfits:reference-replacement-preserves-old-image-until-save-and-reports-delete-failure', async () => {
+    const t = createCtx();
+    t.sa().wardrobe = { 校服: { prompt: 'uniform', reference: 'igs-gen:old-ref' } };
+    const deleted = [];
+    let saveSucceeds = false;
+    let deleteSucceeds = true;
+    t.ctx.dialogs = { confirm: async () => true };
+    t.ctx.options.generatedAssets = {
+        paintWardrobeReference: async () => ({ ok: true, imageId: 'new-ref' }),
+        deleteImages: async (ids) => { deleted.push(...ids); return { ok: deleteSucceeds }; },
+    };
+    t.ctx.persistSettingsDraft = () => {
+        if (!saveSucceeds) return { ok: false, reason: 'save-failed' };
+        assert.deepEqual(deleted, ['new-ref'], '旧图只能在成功提交后删除');
+        return { ok: true };
+    };
+    const action = `wardrobe-reference:${enc('校服')}`;
+    assert.equal((await handleOutfitAction(action, { ...t.ctx, settingsState: t.state.activeSettings })).ok, false);
+    assert.equal(t.sa().wardrobe.校服.reference, 'igs-gen:old-ref');
+    assert.deepEqual(deleted, ['new-ref']);
+    saveSucceeds = true;
+    deleteSucceeds = false;
+    assert.equal((await handleOutfitAction(action, { ...t.ctx, settingsState: t.state.activeSettings })).ok, true);
+    assert.equal(t.sa().wardrobe.校服.reference, 'igs-gen:new-ref');
+    assert.deepEqual(deleted, ['new-ref', 'old-ref']);
+    assert.ok(t.alerts.some((message) => message.includes('旧参考图未能从本机清除')));
+});

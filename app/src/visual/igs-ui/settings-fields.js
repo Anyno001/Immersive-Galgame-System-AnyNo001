@@ -268,6 +268,7 @@ export function renderSceneAssetList(scenes, options = {}) {
                     + badge('天气')
                     + `<span class="igs-btn-mgr-label">${esc(weatherName)}</span>`
                     + `<input class="igs-scene-url-input" data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}" value="${esc(weatherObj.url || '')}" placeholder="URL 或 data:image/...">`
+                    + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="上传天气背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
                     + renderRowMenu([
                         menuItem(`scene-rename-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '重命名'),
                         storedImageDownloadItem(weatherObj.url, `${sceneName}-${timeName}-${weatherName}-背景.png`),
@@ -282,6 +283,7 @@ export function renderSceneAssetList(scenes, options = {}) {
                 + badge('时间')
                 + `<span class="igs-btn-mgr-label">${esc(timeName)}</span>`
                 + `<input class="igs-scene-url-input" data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" value="${esc(timeObj.url || '')}" placeholder="URL 或 data:image/...">`
+                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="上传时间背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
                 + renderRowMenu([
                     menuItem(`scene-rename-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '重命名'),
                     storedImageDownloadItem(timeObj.url, `${sceneName}-${timeName}-背景.png`),
@@ -298,6 +300,7 @@ export function renderSceneAssetList(scenes, options = {}) {
             + `<span class="igs-btn-mgr-label" style="font-weight:600">${esc(sceneName)}</span>`
             + scopeTag(options, 'scenes', sceneName)
             + `<input class="igs-scene-url-input" data-scene-bg="${esc(sceneName)}" value="${esc(sceneObj.url || '')}" placeholder="URL 或 data:image/...">`
+            + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-bg:${encSeg(sceneName)}" title="上传场景背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
             + renderRowMenu([
                 menuItem(`scene-rename-bg:${encSeg(sceneName)}`, '重命名'),
                 folderSelect(sceneName, { menu: true }),
@@ -430,6 +433,7 @@ export function renderCharacterAssetList(characters, options = {}) {
                 + rowThumb
                 + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
                 + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-char="${esc(charName)}" data-scene-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`)
+                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-mood:${c}:${m}" title="上传${esc(mood)}立绘">${STATUS_AVATAR_UPLOAD_ICON}</button>`
                 + slotMenu
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-mood:${c}:${m}" title="展开/折叠">${expanded ? chevronUp : chevronDown}</button>`
                 + `</div>`;
@@ -616,7 +620,7 @@ export function renderMoodReviewList(items, groups, { busy = false } = {}) {
         key: 'mood',
         title: '情绪词',
         count: list.length,
-        headerAction: list.length ? `<button type="button" class="igs-review-link" data-action="mood-review-ai-classify"${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '分类中…' : 'AI 分类'}</button>` : '',
+        headerAction: `<button type="button" class="igs-review-link" data-action="mood-review-ai-classify"${!list.length || busy ? ' disabled' : ''}${busy ? ' aria-busy="true"' : ''}${!list.length ? ' title="暂无待分类情绪词"' : ''}>${busy ? '分类中…' : 'AI 分类'}</button>`,
         hint: '词库里没有的情绪词。从已有情绪组里选一个加入，相近的组排在最前。',
         clearAction: 'mood-review-clear',
         body: rows ? `<div class="igs-review-list">${rows}</div>` : '',

@@ -58,6 +58,9 @@ function cloneImageDraft(draft) {
 
 const STATUS_AVATAR_MAX_BYTES = 512 * 1024;
 const STATUS_AVATAR_MIME = /^image\/(?:png|jpeg|jpg|webp|gif|bmp|svg\+xml)$/i;
+const ASSET_UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
+const ASSET_UPLOAD_MIME = /^image\/(?:png|jpeg|webp|gif)$/i;
+
 
 function decodeSeg(value) {
     try { return decodeURIComponent(String(value == null ? '' : value)); }
@@ -75,8 +78,8 @@ function assetFolderScope(settingsState, options) {
 }
 
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
-const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
-const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
+const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle|pick)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
 function linkedCharacterOutfits(settingsState) {
@@ -1758,6 +1761,73 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    const assetPick = /^scene-pick-(bg|time|weather|mood):(.+)$/.exec(normalizedAction);
+    if (assetPick) {
+        const kind = assetPick[1];
+        const parts = assetPick[2].split(':').map(decodeSeg);
+        if (parts.length !== (kind === 'bg' ? 1 : kind === 'weather' ? 3 : 2)
+            || parts.some((part) => !part || ['__proto__', 'constructor', 'prototype'].includes(part))) {
+            return { ok: false, reason: 'invalid-asset-slot' };
+        }
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        if (!globalObj.document || !service || typeof service.importAssetImage !== 'function') {
+            return generationFailure(globalObj, dialogs, '图片上传当前不可用。', 'asset-upload-unavailable');
+        }
+        const initialDraft = settingsState.draft;
+        const library = draftAssetLibrary(settingsState, editTarget);
+        const scene = library.scenes && Object.hasOwn(library.scenes, parts[0]) ? library.scenes[parts[0]] : null;
+        const character = library.characters && Object.hasOwn(library.characters, parts[0]) ? library.characters[parts[0]] : null;
+        const time = scene && typeof scene === 'object' && scene.times && Object.hasOwn(scene.times, parts[1]) ? scene.times[parts[1]] : null;
+        const weather = time && typeof time === 'object' && time.weathers && Object.hasOwn(time.weathers, parts[2]) ? time.weathers[parts[2]] : null;
+        const owner = kind === 'mood' ? character : kind === 'bg' ? library.scenes : kind === 'time' ? scene && scene.times : time && time.weathers;
+        const key = kind === 'bg' ? parts[0] : kind === 'mood' ? parts[1] : kind === 'time' ? parts[1] : parts[2];
+        if (!owner || !Object.hasOwn(owner, key) || (kind === 'mood' && (!character || typeof character !== 'object'))) {
+            return { ok: false, reason: 'invalid-asset-slot' };
+        }
+        const before = owner[key];
+        const picked = await pickAssetImageFile(globalObj.document, globalObj);
+        if (state.activeSettings !== settingsState || settingsState.draft !== initialDraft) return { ok: false, reason: 'settings-closed' };
+        if (!picked) return rerenderSettings();
+        if (!picked.ok) return generationFailure(globalObj, dialogs,
+            picked.reason === 'too-large' ? '图片不能超过 8 MB。' : picked.reason === 'read-failed' ? '图片读取失败。' : '仅支持 PNG、JPEG、WebP 和 GIF 图片。',
+            'asset-upload-invalid');
+        if (owner[key] !== before) return { ok: false, reason: 'asset-slot-changed' };
+        let imported;
+        try {
+            imported = await service.importAssetImage(picked.dataUrl, kind === 'mood' ? 'sprite' : 'background');
+        } catch (error) {
+            imported = { ok: false, error: errorText(error, '图片保存失败') };
+        }
+        if (!imported || !imported.ok || !imported.imageId) {
+            return generationFailure(globalObj, dialogs, `图片上传失败：${errorText(imported && imported.error, '图片保存失败')}`, 'asset-upload-failed');
+        }
+        const discard = async () => {
+            if (typeof service.deleteImages !== 'function') return false;
+            try { return !operationFailed(await service.deleteImages([imported.imageId])); }
+            catch (error) { return false; }
+        };
+        if (state.activeSettings !== settingsState || settingsState.draft !== initialDraft) {
+            const cleaned = await discard();
+            return { ok: false, reason: 'settings-closed', rollbackFailed: !cleaned };
+        }
+        if (owner[key] !== before) {
+            const cleaned = await discard();
+            return { ok: false, reason: 'asset-slot-changed', rollbackFailed: !cleaned };
+        }
+        const url = `igs-gen:${imported.imageId}`;
+        owner[key] = kind === 'mood' ? url : typeof before === 'string' ? url : { ...before, url };
+        let persisted;
+        try { persisted = persistSettingsDraft(); }
+        catch (error) { persisted = { ok: false, reason: 'save-failed', saveError: error }; }
+        if (operationFailed(persisted)) {
+            owner[key] = before;
+            const cleaned = persisted && persisted.rollbackFailed ? false : await discard();
+            return { ...persisted, ok: false, reason: 'save-failed', rollbackFailed: Boolean((persisted && persisted.rollbackFailed) || !cleaned) };
+        }
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('status-avatar-pick:')) {
         const charName = decodeSeg(normalizedAction.slice('status-avatar-pick:'.length));
         const globalObj = options.global || globalThis;
@@ -3245,6 +3315,42 @@ function shrinkAvatarDataUrl(globalObj, dataUrl) {
         };
         img.onerror = () => resolve(dataUrl);
         img.src = dataUrl;
+    });
+}
+
+function pickAssetImageFile(doc, globalObj) {
+    return new Promise((resolve) => {
+        const input = doc.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/png,image/jpeg,image/webp,image/gif';
+        let done = false;
+        let timeoutId = null;
+        const finish = (result) => {
+            if (done) return;
+            done = true;
+            if (timeoutId !== null) clearTimeout(timeoutId);
+            resolve(result);
+        };
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file) return finish(null);
+            if (!ASSET_UPLOAD_MIME.test(String(file.type || ''))) return finish({ ok: false, reason: 'not-image' });
+            if (!Number.isFinite(file.size) || file.size > ASSET_UPLOAD_MAX_BYTES || file.size <= 0) return finish({ ok: false, reason: 'too-large' });
+            const Reader = globalObj.FileReader || globalThis.FileReader;
+            if (typeof Reader !== 'function') return finish({ ok: false, reason: 'read-failed' });
+            const reader = new Reader();
+            reader.onload = (event) => {
+                const dataUrl = String((event && event.target && event.target.result) || '');
+                if (!/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(dataUrl)
+                    || dataUrl.length > Math.ceil(ASSET_UPLOAD_MAX_BYTES / 3) * 4 + 64) return finish({ ok: false, reason: 'not-image' });
+                finish({ ok: true, dataUrl });
+            };
+            reader.onerror = () => finish({ ok: false, reason: 'read-failed' });
+            try { reader.readAsDataURL(file); } catch (error) { finish({ ok: false, reason: 'read-failed' }); }
+        };
+        input.oncancel = () => finish(null);
+        timeoutId = setTimeout(() => finish(null), 300000);
+        try { input.click(); } catch (error) { finish({ ok: false, reason: 'read-failed' }); }
     });
 }
 

@@ -1480,10 +1480,13 @@ export function createIgsReaderHost(options = {}) {
         const released = releasedGeneratedImageIds(previousIds, savedAssets, (options.global || globalThis).localStorage);
         const imageService = options.generatedAssets;
         if (released.length && imageService && typeof imageService.deleteImages === 'function') {
-            Promise.resolve(imageService.deleteImages(released)).catch(() => {
+            const reportDeleteFailure = () => {
                 const globalObj = options.global || globalThis;
                 if (globalObj.alert) globalObj.alert('配置已保存，但有图片没能从本机清掉。');
-            });
+            };
+            Promise.resolve().then(() => imageService.deleteImages(released)).then((result) => {
+                if (result === false || (result && result.ok === false)) reportDeleteFailure();
+            }).catch(reportDeleteFailure);
         }
         state.activeSettings.draft = cloneData(snapshot);
         if (state.activeReader) {

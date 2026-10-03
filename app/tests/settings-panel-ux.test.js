@@ -407,6 +407,105 @@ test('gate:character-sprite:generates-default-from-the-character-page', async ()
     assert.equal(seen[2].dna.identity, '黑发');
 });
 
+test('gate:asset-upload:binds-scene-variants-and-sprite-and-restores-on-save-failure', async () => {
+    const image = 'data:image/png;base64,QQ==';
+    const draft = { bridge: { sceneAssets: {
+        scenes: { 庭院: { url: 'old-bg', times: { 夜: { url: 'old-time', weathers: { 雨: { url: 'old-weather' } } } } } },
+        characters: { 冬月: { 默认: 'old-sprite' } },
+    } }, readerSettings: {} };
+    const doc = makeDoc();
+    doc.createElement = (tag) => {
+        const el = makeEl(doc, tag);
+        if (tag === 'input') el.click = () => {
+            el.files = [{ type: 'image/png', size: 1 }];
+            el.onchange();
+        };
+        return el;
+    };
+    class Reader { readAsDataURL() { this.onload({ target: { result: image } }); } }
+    const stored = new Map();
+    let next = 0;
+    let fail = false;
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: { global: { document: doc, FileReader: Reader }, generatedAssets: {
+            async importAssetImage(data, type) { const id = `uploaded-${++next}`; stored.set(id, { data, type }); return { ok: true, imageId: id }; },
+            async deleteImages(ids) { ids.forEach((id) => stored.delete(id)); return { ok: true }; },
+        } },
+        persistSettingsDraft: () => fail ? { ok: false, reason: 'save-failed' } : { ok: true },
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: { view() {} },
+    };
+    const cases = [
+        ['scene-pick-bg:%E5%BA%AD%E9%99%A2', () => draft.bridge.sceneAssets.scenes.庭院.url, 'background'],
+        ['scene-pick-time:%E5%BA%AD%E9%99%A2:%E5%A4%9C', () => draft.bridge.sceneAssets.scenes.庭院.times.夜.url, 'background'],
+        ['scene-pick-weather:%E5%BA%AD%E9%99%A2:%E5%A4%9C:%E9%9B%A8', () => draft.bridge.sceneAssets.scenes.庭院.times.夜.weathers.雨.url, 'background'],
+        ['scene-pick-mood:%E5%86%AC%E6%9C%88:%E9%BB%98%E8%AE%A4', () => draft.bridge.sceneAssets.characters.冬月.默认, 'sprite'],
+    ];
+    for (const [action, getUrl, type] of cases) {
+        assert.equal((await handleSettingsAction(action, ctx)).ok, true);
+        const id = getUrl().slice('igs-gen:'.length);
+        assert.equal(stored.get(id).type, type);
+        assert.equal(stored.get(id).data, image);
+        const reopened = JSON.parse(JSON.stringify(draft));
+        assert.match(JSON.stringify(reopened.bridge.sceneAssets), new RegExp(`igs-gen:${id}`));
+    }
+    const before = JSON.stringify(draft.bridge.sceneAssets);
+    fail = true;
+    const failed = await handleSettingsAction(cases[0][0], ctx);
+    assert.equal(failed.ok, false);
+    assert.equal(JSON.stringify(draft.bridge.sceneAssets), before);
+    assert.equal(stored.size, 4);
+    assert.equal((await handleSettingsAction('scene-pick-time:%E4%B8%8D%E5%AD%98%E5%9C%A8:%E5%A4%9C', ctx)).reason, 'invalid-asset-slot');
+});
+
+test('gate:asset-upload:closed-or-replaced-settings-never-bind-a-late-image', async () => {
+    const draft = { bridge: { sceneAssets: { scenes: { 庭院: { url: 'old', times: {} } } } }, readerSettings: {} };
+    const doc = makeDoc();
+    let input;
+    doc.createElement = (tag) => {
+        const el = makeEl(doc, tag);
+        if (tag === 'input') { input = el; el.click = () => {}; }
+        return el;
+    };
+    class Reader { readAsDataURL() { this.onload({ target: { result: 'data:image/png;base64,QQ==' } }); } }
+    let imported = 0;
+    let removed = 0;
+    let resolveImport;
+    const settings = { draft, asyncState: {} };
+    const ctx = {
+        state: { activeSettings: settings },
+        options: { global: { document: doc, FileReader: Reader }, generatedAssets: {
+            importAssetImage: () => { imported++; return new Promise((resolve) => { resolveImport = resolve; }); },
+            deleteImages: async (ids) => { removed += ids.length; return { ok: true }; },
+        } },
+        persistSettingsDraft: () => { throw new Error('must not persist stale settings'); },
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: { view() {} },
+    };
+    const action = 'scene-pick-bg:%E5%BA%AD%E9%99%A2';
+    const first = handleSettingsAction(action, ctx);
+    ctx.state.activeSettings = null;
+    input.files = [{ type: 'image/png', size: 1 }];
+    input.onchange();
+    assert.equal((await first).reason, 'settings-closed');
+    assert.equal(imported, 0);
+    assert.equal(draft.bridge.sceneAssets.scenes.庭院.url, 'old');
+
+    ctx.state.activeSettings = settings;
+    const second = handleSettingsAction(action, ctx);
+    input.files = [{ type: 'image/png', size: 1 }];
+    input.onchange();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(imported, 1);
+    settings.draft = JSON.parse(JSON.stringify(draft));
+    resolveImport({ ok: true, imageId: 'late-image' });
+    assert.equal((await second).reason, 'settings-closed');
+    assert.equal(removed, 1);
+    assert.equal(draft.bridge.sceneAssets.scenes.庭院.url, 'old');
+    assert.equal(settings.draft.bridge.sceneAssets.scenes.庭院.url, 'old');
+});
+
 test('gate:settings-dialog:falls-back-to-native-dialogs-without-a-mounted-panel', async () => {
     const calls = [];
     const globalObj = {

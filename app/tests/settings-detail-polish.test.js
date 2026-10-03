@@ -30,6 +30,19 @@ test('gate:settings-polish:mood-review-actions-sit-outside-chip', () => {
     assert.doesNotMatch(html, />×</);
 });
 
+test('gate:settings-polish:mood-ai-classify-entry-visible-when-empty-and-busy', () => {
+    const empty = renderMoodReviewList([], []);
+    assert.match(empty, /data-action="mood-review-ai-classify" disabled[^>]*>AI 分类<\/button>/);
+    assert.match(empty, /暂无待分类情绪词/);
+    const pending = renderMoodReviewList([{ word: '迟疑' }], [{ label: '思考', words: [] }]);
+    assert.match(pending, /data-action="mood-review-ai-classify">AI 分类<\/button>/);
+    assert.doesNotMatch(pending, /data-action="mood-review-ai-classify" disabled/);
+    const busy = renderMoodReviewList([{ word: '迟疑' }], [{ label: '思考', words: [] }], { busy: true });
+    assert.match(busy, /data-action="mood-review-ai-classify" disabled aria-busy="true">分类中…<\/button>/);
+    const emptyBusy = renderMoodReviewList([], [], { busy: true });
+    assert.match(emptyBusy, /data-action="mood-review-ai-classify" disabled aria-busy="true" title="暂无待分类情绪词">分类中…<\/button>/);
+});
+
 test('gate:settings-polish:daily-petals-share-the-kind-grid', () => {
     const reader = { dailyFx: { enabled: true, petals: true, photoAlbum: true } };
     const { daily } = renderStageDirectionFields(reader, (key, label, body) => body);
