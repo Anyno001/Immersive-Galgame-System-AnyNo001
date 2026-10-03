@@ -1083,7 +1083,8 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
             assert.match(meta.description, /slotid: 1\nscene: 1girl, silver hair\nscene_uc: lowres\nchar: 0\.5,0\.5 \| silver hair\nchar_uc: blonde hair/);
             assert.equal(meta.caption, undefined);
             assert.match(meta.description, /下面这份是已有立绘，外貌和构图按它画。这不是要回写的图。\nslotid: 1\nscene: 1girl, silver hair/);
-            assert.match(meta.description, /按 slotid 1 到 8 的顺序另写 8 份：1 喜悦、2 愤怒、3 悲伤、4 平和、5 害羞、6 爱恋、7 嫌弃、8 紧张/);
+            const slotOrder = labels.map((label, index) => `${index + 1} ${label}`).join('、');
+            assert.match(meta.description, new RegExp(`按 slotid 1 到 8 的顺序另写 8 份：${slotOrder}`));
             assert.ok(meta.description.indexOf('下面这份是已有立绘') < meta.description.indexOf('按 slotid 1 到 8'));
             return {
                 ok: true,
@@ -1141,12 +1142,14 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.deepEqual(painted, labels.map((label) => `fuyuko, ${moodPresetTags(label)}, silver hair, expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
     assert.equal(new Set(seeds).size, 1, 'one seed for the whole set');
     assert.ok(Number.isInteger(seeds[0]) && seeds[0] >= 0);
+    const angryIndex = labels.indexOf('愤怒');
+    assert.ok(angryIndex >= 0);
     assert.equal(result.items.length, 8);
     assert.equal(result.items[0].ok, true);
     assert.equal(result.items[0].imageId, 'expr-1');
-    assert.equal(result.items[1].ok, false);
-    assert.equal(result.items[1].mood, '愤怒');
-    assert.equal(result.items[1].caption.v4_prompt.caption.base_caption, `fuyuko, ${moodPresetTags('愤怒')}, silver hair, expr 愤怒, cowboy shot, standing, facing viewer, straight-on`);
+    assert.equal(result.items[angryIndex].ok, false);
+    assert.equal(result.items[angryIndex].mood, '愤怒');
+    assert.equal(result.items[angryIndex].caption.v4_prompt.caption.base_caption, `fuyuko, ${moodPresetTags('愤怒')}, silver hair, expr 愤怒, cowboy shot, standing, facing viewer, straight-on`);
     assert.equal(progress[0].phase, 'write');
     assert.equal(progress[0].done, 0);
     assert.equal(progress[0].total, 8);
@@ -1154,7 +1157,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.equal(progress[1].done, 1);
     const retryProgress = [];
     const retry = await service.generateExpressionImage({
-        name: '冬月', mood: '愤怒', caption: result.items[1].caption,
+        name: '冬月', mood: '愤怒', caption: result.items[angryIndex].caption,
         onProgress: (event) => retryProgress.push(event),
     });
     assert.deepEqual(retryProgress, [{ phase: 'paint', done: 1, total: 1, mood: '愤怒' }]);

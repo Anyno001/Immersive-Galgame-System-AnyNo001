@@ -6,6 +6,7 @@ import {
     SETTINGS_SECTIONS, buildSettingsExport, parseSettingsImport, renderSectionResetButton, resetSettingsSection, settingsSectionPaths,
 } from '../src/visual/igs-ui/settings-sections.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
+import { moodTierLabels } from '../src/scene/mood-groups.js';
 
 function parseCompound(sel) {
     const tokens = [];
@@ -247,11 +248,13 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
         rerenderSettings: () => ({ ok: true }),
         dialogs: { confirm: async (message) => { asks.push(message); return true; } },
     };
+    // 喜悦、愤怒已有图，剩下的才是这档要画的；组名和顺序都从预设取。
+    const missingTier8 = moodTierLabels(8).filter((mood) => mood !== '喜悦' && mood !== '愤怒');
     const character = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(character.ok, true);
-    assert.match(asks[0], /这一档还有 6 张没画：悲伤、平和、害羞、爱恋、嫌弃、紧张/);
+    assert.match(asks[0], new RegExp(`这一档还有 ${missingTier8.length} 张没画：${missingTier8.join('、')}`));
     assert.match(asks[0], /已有的 2 张不动/);
-    assert.deepEqual(seen[0], ['悲伤', '平和', '害羞', '爱恋', '嫌弃', '紧张']);
+    assert.deepEqual(seen[0], missingTier8);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:old-joy');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'https://kept.example/a.png');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['悲伤'], 'igs-gen:new-悲伤');
@@ -261,7 +264,8 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     assert.equal(seen.length, 1);
     const outfit = await handleSettingsAction('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8', ctx);
     assert.equal(outfit.ok, true);
-    assert.match(asks[1], /这一档还有 7 张没画：愤怒、悲伤、平和、害羞、爱恋、嫌弃、紧张/);
+    const missingOutfit = moodTierLabels(8).filter((mood) => mood !== '喜悦');
+    assert.match(asks[1], new RegExp(`这一档还有 ${missingOutfit.length} 张没画：${missingOutfit.join('、')}`));
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['喜悦'], 'igs-gen:old-outfit');
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['愤怒'], 'igs-gen:new-愤怒');
 });
@@ -278,7 +282,8 @@ test('gate:expression-set:repaints-failed-slots-without-rewriting-prompts', asyn
     const asks = [];
     const painted = [];
     const written = [];
-    const moods = ['喜悦', '愤怒', '悲伤', '平和', '害羞', '爱恋', '嫌弃', '紧张'];
+    // 档位 8 的组名从预设来，预设调整时这里跟着走，不再手抄一份。
+    const moods = moodTierLabels(8);
     const notes = {};
     const slots = { 默认: 'igs-gen:def' };
     for (const mood of moods) {
@@ -318,14 +323,16 @@ test('gate:expression-set:repaints-failed-slots-without-rewriting-prompts', asyn
     assert.deepEqual(painted[0], moods);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'igs-gen:paint-愤怒');
 
+    // 喜悦已有图、愤怒有词没图，其余这一档的组都要现写词；组序从预设取。
+    const mixedTier8 = moodTierLabels(8).filter((mood) => mood !== '喜悦' && mood !== '愤怒');
     draft.bridge.sceneAssets.characters['冬月'] = { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy', 愤怒: '' };
     draft.bridge.sceneAssets.generated = { expressionNotes: { 冬月: { 愤怒: { error: '出图失败', caption: failed } } } };
     const mixed = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(mixed.ok, true);
     assert.match(asks[1], /只补画：愤怒/);
-    assert.match(asks[1], /要先写提示词：悲伤、平和、害羞、爱恋、嫌弃、紧张/);
+    assert.match(asks[1], new RegExp(`要先写提示词：${mixedTier8.join('、')}`));
     assert.deepEqual(painted[1], ['愤怒']);
-    assert.deepEqual(written, [['悲伤', '平和', '害羞', '爱恋', '嫌弃', '紧张']]);
+    assert.deepEqual(written, [mixedTier8]);
 });
 
 test('gate:character-sprite:generates-default-from-the-character-page', async () => {
@@ -620,6 +627,53 @@ test('gate:settings-sections:import-action-confirms-and-runs-through-normalize',
     }
 });
 
+// v0.34.8 起出图结果提示漏了 remountSettingsNotice 的引用：面板开着时一弹就 ReferenceError，重画半路中断。
+test('gate:expression-retry:failed-paint-reports-without-throwing-while-panel-open', async () => {
+    const makeEl = () => {
+        const el = { className: '', textContent: '', parentNode: null, setAttribute() {}, getAttribute: () => null,
+            querySelector: () => null, querySelectorAll: () => [], removeChild(c) { if (c) c.parentNode = null; },
+            appendChild(c) { if (c) c.parentNode = el; }, addEventListener() {} };
+        return el;
+    };
+    const host = makeEl();
+    host.id = 'igs-unified-settings';
+    host.ownerDocument = { createElement: makeEl };
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
+    const draft = { bridge: { sceneAssets: { characters: { 冬月: { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy' } }, generated: {} } }, readerSettings: {} };
+    const shown = [];
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: {
+            global: { document: { getElementById: (id) => (id === 'igs-unified-settings' ? host : null) }, alert() {}, setTimeout: () => 0 },
+            generatedAssets: {
+                getImagePrompt: async () => ({ positive: '1girl', negative: 'lowres', caption }),
+                generateExpressionSet: async () => ({ ok: true, items: [] }),
+                generateExpressionImage: async () => ({ ok: true, items: [{ mood: '喜悦', ok: false, error: '出图超时（3 分钟）' }] }),
+            },
+        },
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: { confirm: async () => true, view: async (message) => { shown.push(message); }, isOpen: () => false },
+    };
+    const result = await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx);
+    assert.equal(result.ok, true);
+    assert.match(shown[0], /「冬月」的「喜悦」没画出来：出图超时（3 分钟）/);
+    assert.match(shown[0], /原来那张没动/);
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:joy');
+
+    // 别的弹窗正开着时改走底部提示条，这条路径要用到 remountSettingsNotice。
+    const notices = [];
+    host.appendChild = (child) => { if (child) { child.parentNode = host; notices.push(child); } };
+    ctx.dialogs.isOpen = () => true;
+    const barred = await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx);
+    assert.equal(barred.ok, true);
+    assert.equal(shown.length, 1, 'no second dialog over the open one');
+    assert.match(notices.map((el) => el.textContent).join(' '), /「冬月」的「喜悦」没画出来/);
+});
+
 test('gate:expression-set:custom-groups-only-when-asked', async () => {
     const caption = {
         v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } },
@@ -652,7 +706,7 @@ test('gate:expression-set:custom-groups-only-when-asked', async () => {
             persistSettingsDraft: () => ({ ok: true }),
             rerenderSettings: () => ({ ok: true }),
             dialogs: {
-                prompt: async () => '18',
+                prompt: async () => '20',
                 confirm: async (message) => { asks.push(message); return message.includes('自建') ? takeCustom : true; },
             },
         };
@@ -661,10 +715,10 @@ test('gate:expression-set:custom-groups-only-when-asked', async () => {
     };
     const skipped = await run(false);
     assert.match(skipped.asks[0], /另有 2 个自建情绪组还没图：旧组乙、旧组丙/);
-    assert.match(skipped.asks[1], /生成「冬月」的 18 张表情差分/);
-    assert.equal(skipped.seen[0].length, 18);
+    assert.match(skipped.asks[1], /生成「冬月」的 20 张表情差分/);
+    assert.equal(skipped.seen[0].length, 20);
     const taken = await run(true);
-    assert.equal(taken.seen[0].length, 20);
+    assert.equal(taken.seen[0].length, 22);
     assert.deepEqual(taken.seen[0].slice(-2), ['旧组乙', '旧组丙']);
 });
 
@@ -772,4 +826,45 @@ test('gate:row-menu:flips-up-or-clamps-near-the-bottom-of-the-scroll-area', asyn
     };
     assert.equal(placeX(340, 180), false, 'button on the right: menu still opens left');
     assert.equal(placeX(48, 180), true, 'button on the left: menu opens right so it stays inside');
+});
+
+test('gate:regenerate:failure-pops-a-panel-dialog-with-the-reason', async () => {
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
+    const draft = { bridge: { sceneAssets: { characters: { 冬月: { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy' } } } }, readerSettings: {} };
+    const views = [];
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: {
+            global: { alert() { throw new Error('native alert must not be used'); }, document: { getElementById() { return null; } } },
+            generatedAssets: {
+                getImagePrompt: async () => ({ positive: '1girl', negative: 'lowres', caption }),
+                generateExpressionSet: async () => { throw new Error('重画不该重写提示词'); },
+                generateExpressionImage: async ({ mood }) => ({ ok: true, items: [{ mood, ok: false, error: '数据库生图插件出图超时（3 分钟）' }] }),
+                generateCharacterSprite: async () => { throw new Error('插件没有响应'); },
+            },
+        },
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: { confirm: async () => true, view: async (message) => { views.push(message); return true; }, isOpen: () => false },
+    };
+    await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx);
+    assert.match(views[0], /「冬月」的「喜悦」没画出来/);
+    assert.match(views[0], /出图超时（3 分钟）/);
+    assert.match(views[0], /原来那张没动/);
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:joy', 'old image is kept');
+
+    const sprite = await handleSettingsAction('char-generate-sprite:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(sprite.ok, false);
+    assert.match(views[1], /默认立绘没画出来：插件没有响应/);
+
+    // 用户正在答别的对话框时不顶掉它，改走提示条（这里面板没开，退回 alert）。
+    const alerts = [];
+    ctx.options.global.alert = (message) => alerts.push(message);
+    ctx.dialogs.isOpen = () => true;
+    await handleSettingsAction('char-generate-sprite:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(views.length, 2);
+    assert.match(alerts[0], /插件没有响应/);
 });

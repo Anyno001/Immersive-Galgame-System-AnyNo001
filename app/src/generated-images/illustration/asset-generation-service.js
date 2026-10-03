@@ -574,8 +574,8 @@ export function createAssetGenerationService(deps) {
     }
 
     // 标签顺序：DNA → 表情 → 衣服与长相 → 写词结果。
-    async function paintExpressionCaption(name, mood, caption, dna, { look = '', seed } = {}) {
-        const upright = uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(applyLookToCaption(caption, look), mood), dna)) || caption;
+    async function paintExpressionCaption(name, mood, caption, dna, { look = '', seed, nsfw = false } = {}) {
+        const upright = uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(applyLookToCaption(caption, look), mood, { nsfw }), dna)) || caption;
         const meta = expressionPaintMeta();
         let painted;
         try {
@@ -610,7 +610,7 @@ export function createAssetGenerationService(deps) {
     // 一批写完并逐张出完，再写下一批；某一张失败不影响后面的。
     // 插件少给某几份时只在这一批里补写；signal 中止后已画好的图保留，还没写的批不再写。
     // 一次点击里各批共用一颗新种子：衣服、画风接近；删掉重来、补画都是新种子，不会画回旧图。
-    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress, signal } = {}) {
+    async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, note, nsfw, onProgress, signal } = {}) {
         const labels = (Array.isArray(moods) ? moods : []).map((item) => String(item || '').trim()).filter(Boolean);
         if (!labels.length) return { ok: false, error: '没有表情分组' };
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
@@ -619,6 +619,7 @@ export function createAssetGenerationService(deps) {
         const paint = {
             look: expressionLookTags(basePrompt, outfit),
             seed: randomSeed(),
+            nsfw: nsfw === true,
         };
         const paintDna = expressionPaintDna(dna, outfit);
         const stopped = () => Boolean(signal && signal.aborted);
@@ -639,7 +640,7 @@ export function createAssetGenerationService(deps) {
                 let written;
                 try {
                     written = await nai.writeDbgenPrompt({
-                        description: buildExpressionDiffDescription(name, basePrompt, pending, dna, outfit),
+                        description: buildExpressionDiffDescription(name, basePrompt, pending, dna, outfit, { note, nsfw: paint.nsfw }),
                     });
                 } catch (error) {
                     const message = (error && error.message) || '写提示词失败';
@@ -686,11 +687,11 @@ export function createAssetGenerationService(deps) {
     }
 
     // 继续生图：词已经写好（停下、超时、出图失败留下的），直接按存下的词出图，不重写；这一批共用一颗新种子。
-    async function paintExpressionCaptions({ name, items, basePrompt, dna, outfit, onProgress, signal } = {}) {
+    async function paintExpressionCaptions({ name, items, basePrompt, dna, outfit, nsfw, onProgress, signal } = {}) {
         const list = (Array.isArray(items) ? items : []).filter((item) => item && item.mood && item.caption);
         if (!list.length) return { ok: false, error: '没有写好词、还没出图的表情' };
         if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出图' };
-        const paint = { look: expressionLookTags(basePrompt, outfit), seed: randomSeed() };
+        const paint = { look: expressionLookTags(basePrompt, outfit), seed: randomSeed(), nsfw: nsfw === true };
         const paintDna = expressionPaintDna(dna, outfit);
         const stopped = () => Boolean(signal && signal.aborted);
         const results = [];
@@ -708,16 +709,16 @@ export function createAssetGenerationService(deps) {
 
     // 单张重画：有这一格的提示词就不再写词（写词要等插件的模型，单张也得几十秒），
     // 直接叠上当前的表情、衣服、DNA 硬合再出图；显式换一颗随机种子——不传种子时插件用自己的配置，固定种子会画出同一张。
-    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, onProgress } = {}) {
+    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, note, nsfw, onProgress } = {}) {
         const label = String(mood || '').trim();
         if (!label) return { ok: false, error: '没有表情' };
         if (caption) {
             reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: label });
             const look = expressionLookTags(basePrompt, outfit);
-            const item = await paintExpressionCaption(name, label, caption, expressionPaintDna(dna, outfit), { look, seed: randomSeed() });
+            const item = await paintExpressionCaption(name, label, caption, expressionPaintDna(dna, outfit), { look, seed: randomSeed(), nsfw: nsfw === true });
             return { ok: true, items: [item] };
         }
-        return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, onProgress });
+        return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, note, nsfw, onProgress });
     }
 
     // 状态栏头像：Q 版大头，方图、不抠图，直接把图交回去，由设置页缩小后存进头像。

@@ -34,7 +34,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
 import { normalizeCharacterHouses } from './magic-house.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
-import { markSettingsButtonBusy, showSettingsProgress } from './settings-notice.js';
+import { beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { SETTINGS_SECTIONS, buildSettingsExport, parseSettingsImport, resetSettingsSection, settingsExportFileName } from './settings-sections.js';
 import { isBuiltinNudeOutfit, normalizeCharacterOutfits, normalizeWardrobe, renameOutfitScene, resolveWardrobePrompt } from '../../scene/character-outfits.js';
@@ -232,29 +232,49 @@ function settingsProgressHost(globalObj) {
     return doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-unified-settings') : null;
 }
 
-function reportExpressionProgress(globalObj, event) {
-    const host = settingsProgressHost(globalObj);
-    if (!host || !event) return;
-    showSettingsProgress(host, {
-        text: '生图中',
-        indeterminate: true,
-        button: '生图中',
-    });
+// 进度条写明在画谁：写词和出图分开说，一批多张带上第几张。
+function expressionProgressText(who, event) {
+    if (event && event.phase === 'write') return `写提示词：${who}`;
+    const total = Number(event && event.total) || 0;
+    if (total > 1) return `生图中：${who}·${event.mood || ''} ${Number(event.done) || 0}/${total}`;
+    return `生图中：${who}`;
 }
 
-function clearExpressionProgress(globalObj) {
-    // 面板关着也要清：记住的进度不清掉，下次打开会补回一条过期的进度条。
-    showSettingsProgress(settingsProgressHost(globalObj), null);
+// 点下去就挂一条进度，结束时只收自己这一条；同时在画的其他格子进度还在。
+// 面板关着也要收：记住的进度不清掉，下次打开会补回一条过期的进度条。
+function startExpressionProgress(globalObj, who) {
+    const task = beginSettingsProgress(() => settingsProgressHost(globalObj), `生图中：${who}`);
+    return {
+        onProgress: (event) => { if (event) task.update(expressionProgressText(who, event)); },
+        end: () => task.end(),
+    };
+}
+
+function errorText(error, fallback) {
+    const message = typeof error === 'string' ? error : String((error && (error.message || error.error)) || '');
+    return message.trim() || fallback;
+}
+
+// 生图失败用面板里的弹窗说清原因。别的对话框正开着（比如正在选档位）就改用底部提示条，不顶掉用户正在答的那个。
+function generationFailure(globalObj, dialogs, message, reason) {
+    if (dialogs && typeof dialogs.view === 'function' && !(typeof dialogs.isOpen === 'function' && dialogs.isOpen())) {
+        dialogs.view(message);
+    } else if (settingsProgressHost(globalObj)) {
+        showGeneratedNotice(globalObj, message);
+    } else if (globalObj && typeof globalObj.alert === 'function') {
+        globalObj.alert(message);
+    }
+    return { ok: false, reason };
 }
 
 // 已有提示词的先补画，不重写；剩下没有词的再写再画。补画中途停下就不再写。
-async function paintThenWriteExpressions({ service, name, paintItems, writeLabels, basePrompt, dna, outfit, onProgress, signal }) {
+async function paintThenWriteExpressions({ service, name, paintItems, writeLabels, basePrompt, dna, outfit, note, nsfw, onProgress, signal }) {
     const paint = paintItems.length && typeof service.paintExpressionCaptions === 'function'
-        ? await service.paintExpressionCaptions({ name, items: paintItems, basePrompt, dna, outfit, onProgress, signal })
+        ? await service.paintExpressionCaptions({ name, items: paintItems, basePrompt, dna, outfit, nsfw, onProgress, signal })
         : null;
     if (paint && !paint.ok) return paint;
     if (paint && (paint.stopped || (signal && signal.aborted))) return paint;
-    const written = await service.generateExpressionSet({ name, basePrompt, moods: writeLabels, dna, outfit, onProgress, signal });
+    const written = await service.generateExpressionSet({ name, basePrompt, moods: writeLabels, dna, outfit, note, nsfw, onProgress, signal });
     if (!paint) return written;
     const paintedItems = paint.items || [];
     const wroteItems = written && written.items;
@@ -324,23 +344,50 @@ function restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDr
     }
 }
 
-// 角色记一个档位；没记过按 8。用户取消返回 0。
+// 角色记一个档位；没记过按 8。用户取消返回 0。老存档记的 18 按 20 处理。
+export const MOOD_TIERS = [8, 12, 16, 20];
+
+function normalizeMoodTier(value) {
+    const picked = Number(value);
+    if (picked === 18) return 20;
+    return MOOD_TIERS.includes(picked) ? picked : 0;
+}
+
 async function chooseMoodTier(dialogs, saved, name) {
-    const current = [8, 12, 18].includes(Number(saved)) ? Number(saved) : 8;
+    const remembered = normalizeMoodTier(saved);
+    const current = remembered || 8;
     const title = `「${name}」要画多少张表情差分？`;
+    const choices = [
+        { value: '8', label: '8', note: '普通角色' },
+        { value: '12', label: '12', note: '重要配角' },
+        { value: '16', label: '16', note: '主要角色' },
+        { value: '20', label: '20', note: '主角' },
+    ];
     let raw;
     if (dialogs && typeof dialogs.choose === 'function') {
-        raw = await dialogs.choose(title, [
-            { value: '8', label: '8', note: '普通角色' },
-            { value: '12', label: '12', note: '重要配角' },
-            { value: '18', label: '18', note: '主角' },
-        ], String(current));
+        raw = await dialogs.choose(title, choices, String(current));
     } else if (dialogs && typeof dialogs.prompt === 'function') {
-        raw = await dialogs.prompt(`${title}\n8 普通角色\n12 重要配角\n18 主角`, String(current));
+        raw = await dialogs.prompt(`${title}\n${choices.map((item) => `${item.label} ${item.note}`).join('\n')}`, String(current));
     } else return current;
     if (raw == null) return 0;
-    const picked = Number(String(raw).trim());
-    return [8, 12, 18].includes(picked) ? picked : current;
+    const picked = normalizeMoodTier(raw);
+    return picked || current;
+}
+
+// 生图前的额外要求：性格、某个情绪的特别表现。按角色记着，下次预填。
+// 返回 null 表示用户取消（这次不生图），空串表示没写。
+async function askExpressionNote(dialogs, name, saved) {
+    const message = `「${name}」的表情差分有没有要注意的点？\n比如性格、某个情绪的特别表现（可留空）\n例：三无性格，表情幅度要极小；大笑也不要张嘴\n这条只影响这次写提示词，不影响已经画好的图。`;
+    const current = String(saved || '');
+    if (dialogs && typeof dialogs.edit === 'function') {
+        const raw = await dialogs.edit(message, current, { okLabel: '开始生成', cancelLabel: '取消' });
+        return raw == null ? null : String(raw);
+    }
+    if (dialogs && typeof dialogs.prompt === 'function') {
+        const raw = await dialogs.prompt(message, current);
+        return raw == null ? null : String(raw);
+    }
+    return current;
 }
 
 function nsfwEnabledForAssets(draft) {
@@ -396,11 +443,15 @@ function createStopControl(onRestore) {
 }
 
 // 出图结果用页面上的提示条说，不弹 alert，免得一张失败糊一屏。
-function showGeneratedNotice(globalObj, message) {
-    const doc = globalObj && globalObj.document;
-    const host = doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-unified-settings') : null;
+// tone 为 info 时是「已换上」这类结果提示，不用红底。几秒后自己收起。
+function showGeneratedNotice(globalObj, message, tone) {
+    const host = settingsProgressHost(globalObj);
     if (!host || !message) return;
-    remountSettingsNotice(host, { message, until: Date.now() + SETTINGS_NOTICE_MS }, Date.now());
+    const el = remountSettingsNotice(host, { message, tone, until: Date.now() + SETTINGS_NOTICE_MS }, Date.now());
+    if (!el || typeof globalObj.setTimeout !== 'function') return;
+    globalObj.setTimeout(() => {
+        if (el.textContent === message && el.parentNode) el.parentNode.removeChild(el);
+    }, SETTINGS_NOTICE_MS);
 }
 
 // 预设里没有的组、或者词已经被别的组占了，都跳过。
@@ -1012,42 +1063,43 @@ export async function handleSettingsAction(action, ctx) {
         const dna = characterExpressionDna(sceneAssets, name);
         if (!name || (!character && !dna)) return rerenderSettings();
         if (!service || typeof service.generateCharacterSprite !== 'function') {
-            return generatedOperationFailure(globalObj, '立绘生成当前不可用。', 'sprite-generate-unavailable');
+            return generationFailure(globalObj, dialogs, '立绘生成当前不可用。', 'sprite-generate-unavailable');
         }
         const current = String((character && character['默认']) || '').trim();
-        reportExpressionProgress(globalObj, { phase: 'write' });
+        const progress = startExpressionProgress(globalObj, `${name}·默认立绘`);
+        progress.onProgress({ phase: 'write' });
         const confirmed = await dialogs.confirm(current
             ? `重新生成「${name}」的默认立绘。现在这张会被换掉。`
             : `生成「${name}」的默认立绘。先写提示词，再出一张图。`);
         if (!confirmed) {
-            clearExpressionProgress(globalObj);
+            progress.end();
             return rerenderSettings();
         }
         let result;
-        const onProgress = (event) => reportExpressionProgress(globalObj, event);
-        const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction);
+        const failed = (error) => {
+            progress.end();
+            return generationFailure(globalObj, dialogs, `「${name}」的默认立绘没画出来：${errorText(error, '未返回原因')}${current ? '\n原来那张没动。' : ''}`, 'sprite-generate-failed');
+        };
         try {
-            result = await service.generateCharacterSprite({ name, dna, onProgress });
+            result = await service.generateCharacterSprite({ name, dna, onProgress: progress.onProgress });
         } catch (error) {
-            clearExpressionProgress(globalObj);
-            restoreBusy();
-            return generatedOperationFailure(globalObj, '立绘生成失败。', 'sprite-generate-failed');
+            return failed(error);
         }
-        if (!result || !result.ok || !result.imageId) {
-            clearExpressionProgress(globalObj);
-            restoreBusy();
-            return generatedOperationFailure(globalObj, (result && result.error) || '立绘生成失败。', 'sprite-generate-failed');
-        }
+        if (!result || !result.ok || !result.imageId) return failed(result && result.error);
         const liveAssets = draftAssetLibrary(settingsState, editTarget);
         const characters = { ...(liveAssets.characters || {}) };
         characters[name] = { ...(characters[name] || {}), '默认': `igs-gen:${result.imageId}` };
         liveAssets.characters = characters;
         ensureCharacterAliases(settingsState, editTarget);
         const persisted = persistGeneratedLibrary(persistSettingsDraft);
-        clearExpressionProgress(globalObj);
-        restoreBusy();
-        if (operationFailed(persisted)) return persisted;
-        return rerenderSettings();
+        if (operationFailed(persisted)) {
+            progress.end();
+            return persisted;
+        }
+        const rendered = await rerenderSettings();
+        progress.end();
+        showGeneratedNotice(globalObj, `「${name}」的默认立绘已换上。`, 'info');
+        return rendered;
     }
 
     if (normalizedAction.startsWith('outfit-generate-nude:')) {
@@ -1063,32 +1115,31 @@ export async function handleSettingsAction(action, ctx) {
         const outfitNow = outfitsNow[outfitName];
         if (!name || !outfitName || !outfitNow || !isBuiltinNudeOutfit(outfitNow.wardrobe) || (!character && !dna)) return rerenderSettings();
         if (!service || typeof service.generateCharacterSprite !== 'function') {
-            return generatedOperationFailure(globalObj, '立绘生成当前不可用。', 'sprite-generate-unavailable');
+            return generationFailure(globalObj, dialogs, '立绘生成当前不可用。', 'sprite-generate-unavailable');
         }
         const current = String(outfitNow.base || '').trim();
-        reportExpressionProgress(globalObj, { phase: 'write' });
+        const progress = startExpressionProgress(globalObj, `${name}（${outfitName}）`);
+        progress.onProgress({ phase: 'write' });
         const confirmed = await dialogs.confirm(current
             ? `重新生成「${name}」的「${outfitName}」裸体立绘。现在这张会被换掉，原装不动。`
             : `生成「${name}」的「${outfitName}」裸体立绘。先按这个角色写提示词，再出一张图。这张记在这套服装上，不换掉原装。`);
         if (!confirmed) {
-            clearExpressionProgress(globalObj);
+            progress.end();
             return rerenderSettings();
         }
         let result;
-        const onProgress = (event) => reportExpressionProgress(globalObj, event);
         const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction);
+        const failed = (error) => {
+            progress.end();
+            restoreBusy();
+            return generationFailure(globalObj, dialogs, `「${name}」的「${outfitName}」裸体立绘没画出来：${errorText(error, '未返回原因')}${current ? '\n原来那张没动。' : ''}`, 'sprite-generate-failed');
+        };
         try {
-            result = await service.generateCharacterSprite({ name, dna, nude: true, onProgress });
+            result = await service.generateCharacterSprite({ name, dna, nude: true, onProgress: progress.onProgress });
         } catch (error) {
-            clearExpressionProgress(globalObj);
-            restoreBusy();
-            return generatedOperationFailure(globalObj, '立绘生成失败。', 'sprite-generate-failed');
+            return failed(error);
         }
-        if (!result || !result.ok || !result.imageId) {
-            clearExpressionProgress(globalObj);
-            restoreBusy();
-            return generatedOperationFailure(globalObj, (result && result.error) || '立绘生成失败。', 'sprite-generate-failed');
-        }
+        if (!result || !result.ok || !result.imageId) return failed(result && result.error);
         const liveAssets = draftAssetLibrary(settingsState, editTarget);
         const all = { ...(liveAssets.characterOutfits || {}) };
         const mine = { ...(all[name] || {}) };
@@ -1099,10 +1150,16 @@ export async function handleSettingsAction(action, ctx) {
         liveAssets.characterOutfits = all;
         ensureCharacterAliases(settingsState, editTarget);
         const persisted = persistGeneratedLibrary(persistSettingsDraft);
-        clearExpressionProgress(globalObj);
+        if (operationFailed(persisted)) {
+            progress.end();
+            restoreBusy();
+            return persisted;
+        }
+        const rendered = await rerenderSettings();
+        progress.end();
         restoreBusy();
-        if (operationFailed(persisted)) return persisted;
-        return rerenderSettings();
+        showGeneratedNotice(globalObj, `「${name}」的「${outfitName}」裸体立绘已换上。`, 'info');
+        return rendered;
     }
 
     if (/^(?:char|outfit)-expression-(?:set|retry|resume):/.test(normalizedAction)) {
@@ -1122,16 +1179,27 @@ export async function handleSettingsAction(action, ctx) {
         const outfitEntry = outfitMode ? (((sceneAssets.characterOutfits || {})[name] || {})[outfitName]) : null;
         if (!name || !character || (outfitMode && !outfitEntry)) return rerenderSettings();
         if (!service || typeof service.generateExpressionSet !== 'function' || typeof service.getImagePrompt !== 'function') {
-            return generatedOperationFailure(globalObj, '表情差分当前不可用。', 'expression-unavailable');
+            return generationFailure(globalObj, dialogs, '表情差分当前不可用。', 'expression-unavailable');
         }
-        // 单张重画菜单一点就收起，先把「生图中」亮出来，后面读提示词、出图都看得见。
-        if (retry || resume) reportExpressionProgress(globalObj, { phase: 'paint' });
+        // 单张重画、继续生图的菜单一点就收起，先把「生图中」亮出来，后面读提示词、出图都看得见。
+        // 整套差分要先选档位、填注意事项，确认后才挂进度。之后每个提前返回都要收掉自己这一条。
+        const subject = outfitMode ? `${name}（${outfitName}）` : name;
+        let progress = retry || resume ? startExpressionProgress(globalObj, retry ? `${subject}·${mood}` : subject) : null;
+        const endProgress = () => { if (progress) progress.end(); };
         const allGroups = normalizeMoodGroups(settingsState.draft.bridge.sceneAssets.moodGroups);
         const savedTiers = sceneAssets.characterMoodTiers && typeof sceneAssets.characterMoodTiers === 'object' ? sceneAssets.characterMoodTiers : {};
         const tier = retry || resume ? 8 : await chooseMoodTier(dialogs, savedTiers[name], name);
         if (!retry && !resume && tier === 0) return rerenderSettings();
+        const nsfw = nsfwEnabledForAssets(settingsState.draft);
+        // 性格、某个情绪的特别表现：这次写词要遵守的额外要求。按角色记住，下次预填。
+        const savedNotes = sceneAssets.characterMoodNotes && typeof sceneAssets.characterMoodNotes === 'object' ? sceneAssets.characterMoodNotes : {};
+        let moodNote = '';
+        if (!retry && !resume) {
+            moodNote = await askExpressionNote(dialogs, name, savedNotes[name]);
+            if (moodNote === null) return rerenderSettings();
+        }
         const labels = tier
-            ? moodTierLabels(tier, { nsfw: nsfwEnabledForAssets(settingsState.draft) })
+            ? moodTierLabels(tier, { nsfw })
             : allGroups.map((group) => group.label);
         const ownUrl = outfitMode ? firstGeneratedOutfitUrl(outfitEntry) : '';
         const baseUrl = ownUrl || String(character['默认'] || '');
@@ -1172,7 +1240,7 @@ export async function handleSettingsAction(action, ctx) {
         const clothes = outfitMode && !nude ? resolveWardrobePrompt(draftEffectiveAssets(settingsState).wardrobe || {}, outfitEntry, outfitName) : null;
         const outfit = outfitMode ? { name: outfitName, words: nude ? [] : outfitEntry.words, ownImage: Boolean(ownUrl), prompt: nude ? '' : (clothes ? clothes.prompt : ''), nude } : null;
         if (retry && !mood) {
-            clearExpressionProgress(globalObj);
+            endProgress();
             return rerenderSettings();
         }
         const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
@@ -1190,18 +1258,18 @@ export async function handleSettingsAction(action, ctx) {
         const writeLabels = missingLabels.filter((label) => !captionByMood.has(label));
         const resumeItems = resume ? pendingExpressionCaptions(library.expressionNotes[noteKey], slots) : paintItems;
         if (resume && !resumeItems.length) {
-            clearExpressionProgress(globalObj);
+            endProgress();
             showGeneratedNotice(globalObj, '没有写好词、还没出图的表情。');
             return rerenderSettings();
         }
         if (!retry && !resume && writeLabels.length && !basePrompt) {
-            return generatedOperationFailure(globalObj, outfitMode
+            return generationFailure(globalObj, dialogs, outfitMode
                 ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
                 : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
         }
         if (retry && !savedCaption && !basePrompt) {
-            clearExpressionProgress(globalObj);
-            return generatedOperationFailure(globalObj, outfitMode
+            endProgress();
+            return generationFailure(globalObj, dialogs, outfitMode
                 ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
                 : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
         }
@@ -1225,39 +1293,48 @@ export async function handleSettingsAction(action, ctx) {
             if (!confirmed) return rerenderSettings();
         }
         let result;
-        const onProgress = (event) => reportExpressionProgress(globalObj, event);
-        const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction, '生图中');
+        if (!progress) progress = startExpressionProgress(globalObj, subject);
+        const onProgress = progress.onProgress;
+        // 单张重画的按钮由宿主按 settingsBusyLabel 锁住，这里只锁整套差分的按钮。
+        const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction, '生图中');
         // 单张重画不接停止键：只有一张，按了也停不下来，别把「表情差分」按钮变成摆设。
         const stopControl = retry ? { signal: { aborted: false }, done() {} } : createStopControl(() => restoreBusy());
+        const hadImage = retry && Boolean(String(slots[mood] || '').trim());
+        const failed = (error) => {
+            progress.end();
+            restoreBusy();
+            const message = retry
+                ? `「${subject}」的「${mood}」没画出来：${errorText(error, '未返回原因')}${hadImage ? '\n原来那张没动。' : ''}`
+                : `「${subject}」的表情差分没画出来：${errorText(error, '未返回原因')}`;
+            return generationFailure(globalObj, dialogs, message, 'expression-generate-failed');
+        };
         try {
             const paintOnly = !retry && !writeLabels.length;
             result = resume || paintOnly
-                ? await service.paintExpressionCaptions({ name, items: resumeItems, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
+                ? await service.paintExpressionCaptions({ name, items: resumeItems, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal })
                 : retry && savedCaption && typeof service.generateExpressionImage === 'function'
-                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
+                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal })
                 : retry
-                    ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
+                    ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal })
                     : await paintThenWriteExpressions({
-                        service, name, paintItems, writeLabels, basePrompt, dna, outfit, onProgress, signal: stopControl.signal,
+                        service, name, paintItems, writeLabels, basePrompt, dna, outfit, note: moodNote, nsfw, onProgress, signal: stopControl.signal,
                     });
         } catch (error) {
             stopControl.done();
-            clearExpressionProgress(globalObj);
-            restoreBusy();
-            return generatedOperationFailure(globalObj, '表情差分生成失败。', 'expression-generate-failed');
+            return failed(error);
         }
         stopControl.done();
-        if (!result || !result.ok) {
-            clearExpressionProgress(globalObj);
-            restoreBusy();
-            return generatedOperationFailure(globalObj, (result && result.error) || '表情差分生成失败。', 'expression-generate-failed');
-        }
+        if (!result || !result.ok) return failed(result && result.error);
         const liveBridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
         const liveAssets = draftAssetLibrary(settingsState, editTarget);
         if (!retry && !resume) {
             const tiers = liveAssets.characterMoodTiers && typeof liveAssets.characterMoodTiers === 'object'
                 ? liveAssets.characterMoodTiers : (liveAssets.characterMoodTiers = {});
             tiers[name] = tier;
+            const notes = liveAssets.characterMoodNotes && typeof liveAssets.characterMoodNotes === 'object'
+                ? liveAssets.characterMoodNotes : (liveAssets.characterMoodNotes = {});
+            if (String(moodNote || '').trim()) notes[name] = String(moodNote).trim();
+            else delete notes[name];
         }
         for (const item of result.items || []) {
             // 停止后没画的格子连空槽都不建；词写好了的只记注记，留给「继续生图」。
@@ -1267,17 +1344,24 @@ export async function handleSettingsAction(action, ctx) {
         }
         const persisted = persistGeneratedLibrary(persistSettingsDraft);
         if (operationFailed(persisted)) {
-            clearExpressionProgress(globalObj);
+            progress.end();
             restoreBusy();
             return persisted;
         }
         const painted = (result.items || []).filter((item) => item.ok).length;
+        const failedItems = (result.items || []).filter((item) => !item.ok && item.error !== '已停止' && item.error !== '已跳过');
+        const firstError = errorText(failedItems[0] && failedItems[0].error, '未返回原因');
         const rendered = await rerenderSettings();
-        clearExpressionProgress(globalObj);
+        progress.end();
         restoreBusy();
         const kept = (result.items || []).filter((item) => item.error === '已停止' && item.caption).length;
-        if (result.stopped) showGeneratedNotice(globalObj, `已停止，画好了 ${painted} 张。${kept ? `剩下 ${kept} 张的词已写好，点「继续生图」接着画。` : ''}`);
-        else if (!painted) showGeneratedNotice(globalObj, '没有画出可用的图。');
+        // 失败原因（超时、插件报错）也记在格子的注记里，但界面上看不到，这里直接说出来。
+        if (result.stopped) showGeneratedNotice(globalObj, `已停止，画好了 ${painted} 张。${kept ? `剩下 ${kept} 张的词已写好，点「继续生图」接着画。` : ''}`, 'info');
+        else if (retry && painted) showGeneratedNotice(globalObj, `「${subject}」的「${mood}」已换上。`, 'info');
+        else if (retry) generationFailure(globalObj, dialogs, `「${subject}」的「${mood}」没画出来：${firstError}${hadImage ? '\n原来那张没动。' : ''}`, 'expression-generate-failed');
+        else if (!painted) generationFailure(globalObj, dialogs, `「${subject}」没有画出可用的图：${firstError}`, 'expression-generate-failed');
+        else if (failedItems.length) showGeneratedNotice(globalObj, `画好 ${painted} 张，${failedItems.length} 张没画出来：${firstError}。失败的格子可以单独「重新生成」。`);
+        else showGeneratedNotice(globalObj, `「${subject}」画好 ${painted} 张表情差分。`, 'info');
         return rendered;
     }
 
@@ -1699,7 +1783,7 @@ export async function handleSettingsAction(action, ctx) {
         const service = options.generatedAssets;
         if (!charName) return rerenderSettings();
         if (!service || typeof service.generateCharacterAvatar !== 'function') {
-            return generatedOperationFailure(globalObj, '头像生成当前不可用。', 'avatar-generate-unavailable');
+            return generationFailure(globalObj, dialogs, '头像生成当前不可用。', 'avatar-generate-unavailable');
         }
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const had = Boolean(normalizeStatusAvatars(sceneAssets.statusAvatars)[charName]);
@@ -1708,24 +1792,29 @@ export async function handleSettingsAction(action, ctx) {
             : `生成「${charName}」的 Q 版头像。`);
         if (!confirmed) return rerenderSettings();
         let result;
-        const restoreBusy = markExpressionActionBusy(globalObj, normalizedAction);
+        const progress = startExpressionProgress(globalObj, `${charName}·Q版头像`);
         try {
-            result = await service.generateCharacterAvatar({ name: charName, dna: characterExpressionDna(sceneAssets, charName), onProgress: (event) => reportExpressionProgress(globalObj, event) });
+            result = await service.generateCharacterAvatar({ name: charName, dna: characterExpressionDna(sceneAssets, charName), onProgress: progress.onProgress });
         } catch (error) {
-            result = { ok: false, error: '头像生成失败。' };
+            result = { ok: false, error: errorText(error, '') };
         }
-        clearExpressionProgress(globalObj);
-        restoreBusy();
         if (!result || !result.ok || !result.dataUrl) {
-            return generatedOperationFailure(globalObj, (result && result.error) || '头像生成失败。', 'avatar-generate-failed');
+            progress.end();
+            return generationFailure(globalObj, dialogs, `「${charName}」的 Q 版头像没画出来：${errorText(result && result.error, '未返回原因')}${had ? '\n原来的头像没动。' : ''}`, 'avatar-generate-failed');
         }
         const liveAssets = draftAssetLibrary(settingsState, editTarget);
         const avatars = normalizeStatusAvatars(liveAssets.statusAvatars);
         avatars[charName] = await shrinkAvatarDataUrl(globalObj, result.dataUrl);
         liveAssets.statusAvatars = avatars;
         const persisted = persistSettingsDraft();
-        if (persisted.ok === false) return persisted;
-        return rerenderSettings();
+        if (persisted.ok === false) {
+            progress.end();
+            return persisted;
+        }
+        const rendered = await rerenderSettings();
+        progress.end();
+        showGeneratedNotice(globalObj, `「${charName}」的 Q 版头像已换上。`, 'info');
+        return rendered;
     }
 
     if (normalizedAction.startsWith('status-avatar-clear:')) {

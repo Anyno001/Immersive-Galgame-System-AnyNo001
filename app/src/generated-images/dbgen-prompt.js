@@ -1,4 +1,4 @@
-import { moodPresetAct, moodPresetTags } from '../scene/mood-groups.js';
+import { moodPresetAct, moodPresetTags, moodPresetUse } from '../scene/mood-groups.js';
 
 // 楼内补立绘一次最多写 8 份，超过则平分 2 批。
 export const EXPRESSION_WRITE_BATCH_MAX = 8;
@@ -90,7 +90,9 @@ export function splitExpressionWriteBatches(items) {
     return splitEven(list, list.length <= EXPRESSION_DIFF_BATCH_MAX * 2 ? 2 : 3);
 }
 
-export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit) {
+// note 是用户这次临时补的要求（性格、某个情绪的特别表现），只影响写词这一步；
+// nsfw 为 true 时「动情」改用它在 NSFW 下的动作说明。
+export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit, { note = '', nsfw = false } = {}) {
     const moods = (Array.isArray(labels) ? labels : []).map((item) => String(item || '').trim()).filter(Boolean);
     const stored = prompt && typeof prompt === 'object' ? prompt : {};
     const caption = formatReturnedCaption(stored.caption);
@@ -128,12 +130,16 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
         '情绪须写入肢体：手势、肩线、重心随该情绪变化。禁止仅替换面部。',
         '各表情的动作按下面的说明写，不要把不同表情画成同一张脸。',
+        '下面的动作是基准，不是照抄的模板。先按角色的性格改幅度和形式：三无、高冷、内敛的性格幅度极小，靠眼神和嘴角的细微变化，动作克制；开朗、外向的性格按基准写；狂躁、元气、暴烈的性格幅度夸张，带动肩、手、重心，甚至打破站姿。',
+        String(note || '').trim() ? `这次额外的要求：\n${String(note).trim()}` : '',
         caption ? '上面那份立绘的表情和动作不要沿用，每份的表情、嘴型、眼神和手势都按各自的情绪重写。' : '',
         '无背景，透明底。',
         ...characterDnaLines(name, dna),
         ...moods.map((mood, index) => {
-            const act = moodPresetAct(mood);
-            return act ? `${index + 1} ${mood}：${act}` : '';
+            const act = moodPresetAct(mood, { nsfw });
+            if (!act) return '';
+            const use = moodPresetUse(mood);
+            return use ? `${index + 1} ${mood}：${act}。用在${use}。` : `${index + 1} ${mood}：${act}`;
         }).filter(Boolean),
         `按 slotid 1 到 ${moods.length} 的顺序另写 ${moods.length} 份：${moods.map((label, index) => `${index + 1} ${label}`).join('、')}。`,
     ].filter(Boolean).join('\n');
@@ -356,10 +362,10 @@ function isExpressionPoseTag(tag) {
 const NEUTRAL_FACE_TAGS = new Set(['expressionless', 'emotionless', 'neutral expression', 'blank expression', 'blank stare', 'straight face', 'closed mouth', 'arms at sides'].map(tagKey));
 
 // 写词插件常常整份漏写表情（只写了长相和衣服）。预设组的英文表情标签放到角色 caption 最前，
-// 并去掉照抄来的无表情词；默认组和自建组不动。
-export function applyMoodToCaption(caption, mood) {
+// 并去掉照抄来的无表情词；默认组和自建组不动。nsfw 为 true 时「动情」换成 NSFW 那套标签。
+export function applyMoodToCaption(caption, mood, { nsfw = false } = {}) {
     const label = String(mood || '').trim();
-    const tags = label === '默认' ? '' : moodPresetTags(label);
+    const tags = label === '默认' ? '' : moodPresetTags(label, { nsfw });
     return prependCharTags(caption, tags, (tag) => !NEUTRAL_FACE_TAGS.has(tagKey(tag)));
 }
 
