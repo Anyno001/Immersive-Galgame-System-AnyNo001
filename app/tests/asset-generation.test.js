@@ -1491,3 +1491,68 @@ test('gate:dbgen:plugin-calls-time-out-instead-of-hanging', async () => {
     assert.equal(written.ok, false);
     assert.match(written.error, /没有返回，已放弃等待/);
 });
+
+test('gate:assets:stopped-expression-set-keeps-captions-and-resume-paints-without-rewriting', async () => {
+    const moods = ['喜悦', '愤怒', '悲伤'];
+    const captionOf = (text) => ({
+        v4_prompt: { caption: { base_caption: text, char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    });
+    let writes = 0;
+    const painted = [];
+    const signal = { aborted: false };
+    const nai = {
+        writeDbgenPrompt: async () => {
+            writes += 1;
+            return { ok: true, captions: moods.map((mood, index) => ({ slotId: index + 1, caption: captionOf(`expr ${mood}`) })) };
+        },
+        generateDbgenCaption: async ({ caption }) => {
+            painted.push(JSON.stringify(caption));
+            signal.aborted = true; // 画完第一张就按停止
+            return { ok: true, dataUrl: 'data:image/png;base64,AAA', prompt: { positive: 'x', negative: '' } };
+        },
+    };
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'c1', getUserName: () => '', readPreviousAiTexts: () => [] },
+        llm: null, nai, store: createMemoryGeneratedAssetStore(), getSettings: () => ({}), events: null, matte: async (dataUrl) => dataUrl,
+    });
+    const first = await service.generateExpressionSet({ name: '冬月', basePrompt: { positive: '1girl' }, moods, signal });
+    assert.equal(first.stopped, true);
+    const left = first.items.filter((item) => item.error === '已停止');
+    assert.deepEqual(left.map((item) => item.mood), ['愤怒', '悲伤']);
+    assert.ok(left.every((item) => item.caption));
+
+    const { pendingExpressionCaptions } = await import('../src/visual/igs-ui/settings-outfit-fields.js');
+    const notes = {
+        愤怒: { error: '已停止', caption: left[0].caption },
+        悲伤: { error: '已停止', caption: left[1].caption },
+        害羞: { error: '出图失败', caption: captionOf('expr 害羞') },
+        被删: { error: '出图失败', caption: captionOf('expr 被删') },
+    };
+    const pending = pendingExpressionCaptions(notes, { 默认: 'igs-gen:a', 喜悦: 'igs-gen:b', 害羞: '' });
+    assert.deepEqual(pending.map((item) => item.mood), ['愤怒', '悲伤', '害羞']);
+
+    signal.aborted = false;
+    nai.generateDbgenCaption = async ({ caption }) => {
+        painted.push(JSON.stringify(caption));
+        return { ok: true, dataUrl: 'data:image/png;base64,AAA', prompt: { positive: 'x', negative: '' } };
+    };
+    const resumed = await service.paintExpressionCaptions({ name: '冬月', items: pending, basePrompt: { positive: '1girl' }, signal });
+    assert.equal(resumed.ok, true);
+    assert.deepEqual(resumed.items.map((item) => item.ok), [true, true, true]);
+    assert.equal(writes, 1, '继续生图不重写词');
+    assert.match(painted.at(-1), /expr 害羞/);
+});
+
+test('gate:assets:resume-button-shows-only-when-captions-wait-for-paint', async () => {
+    const { renderCharacterSlotTabs } = await import('../src/visual/igs-ui/settings-outfit-fields.js');
+    const caption = { v4_prompt: { caption: { base_caption: 'x', char_captions: [] } } };
+    const base = { charName: '冬月', baseMoods: ['默认'], baseListHtml: '', outfits: {}, activeOutfit: '', icons: {} };
+    const sceneAssets = { characters: { 冬月: { 默认: 'igs-gen:a' } } };
+    const idle = renderCharacterSlotTabs({ ...base, sceneAssets, expressionNotes: {} });
+    assert.equal(idle.includes('expression-resume'), false);
+    const waiting = renderCharacterSlotTabs({ ...base, sceneAssets, expressionNotes: { 冬月: { 愤怒: { error: '已停止', caption } } } });
+    assert.ok(waiting.includes('data-action="char-expression-resume:%E5%86%AC%E6%9C%88"'));
+    assert.ok(waiting.includes('继续生图（1）'));
+});

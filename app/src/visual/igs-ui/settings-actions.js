@@ -1,4 +1,5 @@
 import { DEFAULT_VIRTUAL_REGEX } from '../../scene/message-source.js';
+import { pendingExpressionCaptions } from './settings-outfit-fields.js';
 import { cloneData } from './reader-value-utils.js';
 import { DEFAULT_SCENE_PROMPT_RULE, TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { findDbgenApi } from '../../generated-images/image-backend.js';
@@ -74,7 +75,7 @@ function assetFolderScope(settingsState, options) {
 
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
-const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|char-expression-(?:prompt|set|retry)|outfit-expression-(?:prompt|set|retry))$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
 function linkedCharacterOutfits(settingsState) {
@@ -209,7 +210,8 @@ function applyCharacterExpression(sceneAssets, name, item) {
         current[item.mood] = `igs-gen:${item.imageId}`;
         library = clearExpressionNote(library, name, item.mood);
     } else {
-        if (!Object.prototype.hasOwnProperty.call(current, item.mood)) current[item.mood] = '';
+        // 停下没画的不建空槽，只把写好的词记在注记里，给「继续生图」用。
+        if (!Object.prototype.hasOwnProperty.call(current, item.mood) && item.error !== '已停止') current[item.mood] = '';
         const noted = setGeneratedExpressionNote(library, name, item.mood, {
             positive: item && item.prompt ? item.prompt.positive : '',
             negative: item && item.prompt ? item.prompt.negative : '',
@@ -249,12 +251,12 @@ function clearExpressionProgress(globalObj) {
     showSettingsProgress(settingsProgressHost(globalObj), null);
 }
 
-function markExpressionActionBusy(globalObj, action) {
+function markExpressionActionBusy(globalObj, action, label = '写词') {
     const host = settingsProgressHost(globalObj);
     const button = host && typeof host.querySelector === 'function'
         ? host.querySelector(`[data-action="${action}"]`)
         : null;
-    return markSettingsButtonBusy(button, '写词');
+    return markSettingsButtonBusy(button, label);
 }
 
 function applyOutfitExpression(sceneAssets, name, outfitName, item) {
@@ -270,7 +272,7 @@ function applyOutfitExpression(sceneAssets, name, outfitName, item) {
         moods[mood] = `igs-gen:${item.imageId}`;
         library = clearExpressionNote(library, noteKey, mood);
     } else {
-        if (!Object.prototype.hasOwnProperty.call(moods, mood)) moods[mood] = '';
+        if (!Object.prototype.hasOwnProperty.call(moods, mood) && item.error !== '已停止') moods[mood] = '';
         const noted = setGeneratedExpressionNote(library, noteKey, mood, {
             positive: item && item.prompt ? item.prompt.positive : '',
             negative: item && item.prompt ? item.prompt.negative : '',
@@ -1026,10 +1028,11 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
-    if (/^(?:char|outfit)-expression-(?:set|retry):/.test(normalizedAction)) {
+    if (/^(?:char|outfit)-expression-(?:set|retry|resume):/.test(normalizedAction)) {
         const outfitMode = normalizedAction.startsWith('outfit-expression-');
         const retry = normalizedAction.includes('-expression-retry:');
-        const prefix = `${outfitMode ? 'outfit' : 'char'}-expression-${retry ? 'retry' : 'set'}:`;
+        const resume = normalizedAction.includes('-expression-resume:');
+        const prefix = `${outfitMode ? 'outfit' : 'char'}-expression-${retry ? 'retry' : resume ? 'resume' : 'set'}:`;
         const parts = normalizedAction.slice(prefix.length).split(':').map(decodeSeg);
         const name = parts[0] || '';
         const outfitName = outfitMode ? (parts[1] || '') : '';
@@ -1046,8 +1049,8 @@ export async function handleSettingsAction(action, ctx) {
         }
         const allGroups = normalizeMoodGroups(settingsState.draft.bridge.sceneAssets.moodGroups);
         const savedTiers = sceneAssets.characterMoodTiers && typeof sceneAssets.characterMoodTiers === 'object' ? sceneAssets.characterMoodTiers : {};
-        const tier = retry ? 8 : await chooseMoodTier(dialogs, savedTiers[name], name);
-        if (!retry && tier === 0) return rerenderSettings();
+        const tier = retry || resume ? 8 : await chooseMoodTier(dialogs, savedTiers[name], name);
+        if (!retry && !resume && tier === 0) return rerenderSettings();
         const labels = tier
             ? moodTierLabels(tier, { nsfw: nsfwEnabledForAssets(settingsState.draft) })
             : allGroups.map((group) => group.label);
@@ -1085,7 +1088,7 @@ export async function handleSettingsAction(action, ctx) {
                 } catch (error) { savedCaption = null; }
             }
         }
-        if (!savedCaption && !basePrompt) {
+        if (!resume && !savedCaption && !basePrompt) {
             return generatedOperationFailure(globalObj, outfitMode
                 ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
                 : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
@@ -1096,7 +1099,7 @@ export async function handleSettingsAction(action, ctx) {
         if (retry && !mood) return rerenderSettings();
         const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
         // 自建组不进档位：还没图的问一句要不要一起画。
-        const customMissing = retry ? [] : allGroups.map((group) => group.label)
+        const customMissing = retry || resume ? [] : allGroups.map((group) => group.label)
             .filter((label) => !moodPresetEntry(label) && !labels.includes(label) && !String(slots[label] || '').trim());
         if (customMissing.length) {
             const shown = `${customMissing.slice(0, 8).join('、')}${customMissing.length > 8 ? ' 等' : ''}`;
@@ -1104,7 +1107,12 @@ export async function handleSettingsAction(action, ctx) {
         }
         const filledLabels = labels.filter((label) => String(slots[label] || '').trim());
         const missingLabels = labels.filter((label) => !String(slots[label] || '').trim());
-        if (!retry) {
+        const resumeItems = resume ? pendingExpressionCaptions(library.expressionNotes[noteKey], slots) : [];
+        if (resume && !resumeItems.length) {
+            showGeneratedNotice(globalObj, '没有写好词、还没出图的表情。');
+            return rerenderSettings();
+        }
+        if (!retry && !resume) {
             const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
             if (!missingLabels.length) {
                 const message = `${who}这一档的表情组都有图了。`;
@@ -1119,11 +1127,13 @@ export async function handleSettingsAction(action, ctx) {
         }
         let result;
         const onProgress = (event) => reportExpressionProgress(globalObj, event);
-        const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction);
+        const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction, resume ? '出图中…' : '写词');
         // 单张重画不接停止键：只有一张，按了也停不下来，别把「表情差分」按钮变成摆设。
         const stopControl = retry ? { signal: { aborted: false }, done() {} } : createStopControl(() => restoreBusy());
         try {
-            result = retry && savedCaption && typeof service.generateExpressionImage === 'function'
+            result = resume
+                ? await service.paintExpressionCaptions({ name, items: resumeItems, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
+                : retry && savedCaption && typeof service.generateExpressionImage === 'function'
                 ? await service.generateExpressionImage({ name, mood, caption: savedCaption, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
                 : retry
                     ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
@@ -1142,14 +1152,14 @@ export async function handleSettingsAction(action, ctx) {
         }
         const liveBridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
         const liveAssets = draftAssetLibrary(settingsState, editTarget);
-        if (!retry) {
+        if (!retry && !resume) {
             const tiers = liveAssets.characterMoodTiers && typeof liveAssets.characterMoodTiers === 'object'
                 ? liveAssets.characterMoodTiers : (liveAssets.characterMoodTiers = {});
             tiers[name] = tier;
         }
         for (const item of result.items || []) {
-            // 停止后没画的格子连空槽都不建，不留下带错误注记的空格。
-            if (item.error === '已停止' || item.error === '已跳过') continue;
+            // 停止后没画的格子连空槽都不建；词写好了的只记注记，留给「继续生图」。
+            if (item.error === '已跳过' || (item.error === '已停止' && !item.caption)) continue;
             if (outfitMode) applyOutfitExpression(liveAssets, name, outfitName, item);
             else applyCharacterExpression(liveAssets, name, item);
         }
@@ -1163,7 +1173,8 @@ export async function handleSettingsAction(action, ctx) {
         const rendered = await rerenderSettings();
         clearExpressionProgress(globalObj);
         restoreBusy();
-        if (result.stopped) showGeneratedNotice(globalObj, `已停止，画好了 ${painted} 张。`);
+        const kept = (result.items || []).filter((item) => item.error === '已停止' && item.caption).length;
+        if (result.stopped) showGeneratedNotice(globalObj, `已停止，画好了 ${painted} 张。${kept ? `剩下 ${kept} 张的词已写好，点「继续生图」接着画。` : ''}`);
         else if (!painted) showGeneratedNotice(globalObj, '没有画出可用的图。');
         return rendered;
     }

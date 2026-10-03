@@ -50,6 +50,16 @@ export function placeRowMenu(details, win = globalThis) {
     if (need > room && room > 0) list.style.maxHeight = `${room}px`;
 }
 
+// 词写好了、图还没出的格子：已有空槽的出图失败，或者停下时还没轮到、没建槽的。
+// 用户删掉的格子注记可能还在，但它不是「已停止」，不算进来。
+export function pendingExpressionCaptions(notes, slots) {
+    const own = slots && typeof slots === 'object' ? slots : {};
+    return Object.entries(notes && typeof notes === 'object' ? notes : {})
+        .filter(([mood, note]) => note && note.caption && mood !== '默认' && !String(own[mood] || '').trim()
+            && (Object.prototype.hasOwnProperty.call(own, mood) || note.error === '已停止'))
+        .map(([mood, note]) => ({ mood, caption: note.caption }));
+}
+
 export const menuItem = (action, label, extra = '') => `<button type="button" class="igs-add-menu-item${extra}" data-action="${action}" role="menuitem">${esc(label)}</button>`;
 
 const PERSON_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
@@ -182,9 +192,15 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
     const metaKey = `outfit-meta:${charName}\u0001${active}`;
     // 生成立绘和表情差分提到页签行上，不再埋在 ⋯ 里；其余操作仍在页签行末尾的「⋯」里。
     const exprAction = active ? `outfit-expression-set:${c}:${o}` : `char-expression-set:${c}`;
+    const notesMap = plain(expressionNotes);
+    const pending = active
+        ? pendingExpressionCaptions(notesMap[`${charName}\u0001${active}`], plain(map[active] && map[active].moods))
+        : pendingExpressionCaptions(notesMap[charName], plain(plain(plain(sceneAssets).characters)[charName]));
+    const resumeAction = active ? `outfit-expression-resume:${c}:${o}` : `char-expression-resume:${c}`;
     const quickButtons = `<span class="igs-outfit-quick">`
         + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="char-generate-sprite:${c}">生成立绘</button>`
         + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>`
+        + (pending.length ? `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${resumeAction}" title="词已经写好，直接出图，不重写">继续生图（${pending.length}）</button>` : '')
         + `</span>`;
     const menu = active
         ? renderRowMenu([

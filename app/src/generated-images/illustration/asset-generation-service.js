@@ -641,7 +641,11 @@ export function createAssetGenerationService(deps) {
             const missing = [];
             for (let i = 0; i < pending.length; i += 1) {
                 if (stopped()) {
-                    for (const mood of pending.slice(i)) items.push({ mood, ok: false, error: '已停止' });
+                    // 词已经写好的带上，存成注记，之后「继续生图」不用重写。
+                    for (let j = i; j < pending.length; j += 1) {
+                        const left = captions.find((item) => Number(item && item.slotId) === j + 1);
+                        items.push({ mood: pending[j], ok: false, error: '已停止', ...(left && left.caption && { caption: left.caption }) });
+                    }
                     pending = [];
                     break;
                 }
@@ -660,6 +664,27 @@ export function createAssetGenerationService(deps) {
             pending = round === 0 ? missing : [];
         }
         return { ok: true, items, stopped: stopped() };
+    }
+
+    // 继续生图：词已经写好（停下、超时、出图失败留下的），直接按存下的词出图，不重写；这一批共用一颗新种子。
+    async function paintExpressionCaptions({ name, items, basePrompt, dna, outfit, onProgress, signal } = {}) {
+        const list = (Array.isArray(items) ? items : []).filter((item) => item && item.mood && item.caption);
+        if (!list.length) return { ok: false, error: '没有写好词、还没出图的表情' };
+        if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出图' };
+        const paint = { look: expressionLookTags(basePrompt, outfit), seed: randomSeed() };
+        const paintDna = expressionPaintDna(dna, outfit);
+        const stopped = () => Boolean(signal && signal.aborted);
+        const results = [];
+        for (let i = 0; i < list.length; i += 1) {
+            const { mood, caption } = list[i];
+            if (stopped()) {
+                results.push({ mood, ok: false, error: '已停止', caption });
+                continue;
+            }
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: list.length, mood });
+            results.push(await paintExpressionCaption(name, mood, caption, paintDna, paint));
+        }
+        return { ok: true, items: results, stopped: stopped() };
     }
 
     // 单张重画：有这一格的提示词就不再写词（写词要等插件的模型，单张也得几十秒），
@@ -819,7 +844,7 @@ export function createAssetGenerationService(deps) {
 
     return {
         processMessage, resolveUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage,
-        generateExpressionSet, generateExpressionImage, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
+        generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
         start() {
