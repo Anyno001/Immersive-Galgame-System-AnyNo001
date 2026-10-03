@@ -1238,7 +1238,7 @@ export async function handleSettingsAction(action, ctx) {
         const dna = characterExpressionDna(sceneAssets, name);
         const nude = outfitMode && isBuiltinNudeOutfit(outfitEntry.wardrobe);
         const clothes = outfitMode && !nude ? resolveWardrobePrompt(draftEffectiveAssets(settingsState).wardrobe || {}, outfitEntry, outfitName) : null;
-        const outfit = outfitMode ? { name: outfitName, words: nude ? [] : outfitEntry.words, ownImage: Boolean(ownUrl), prompt: nude ? '' : (clothes ? clothes.prompt : ''), nude } : null;
+        const outfit = outfitMode ? { name: outfitName, words: nude ? [] : outfitEntry.words, ownImage: Boolean(ownUrl), prompt: nude ? '' : (clothes ? clothes.prompt : ''), nude, nsfwBoost: Boolean(!nude && clothes && clothes.nsfwBoost) } : null;
         if (retry && !mood) {
             endProgress();
             return rerenderSettings();

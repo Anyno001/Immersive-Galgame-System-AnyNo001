@@ -64,6 +64,9 @@ test('gate:outfits:wardrobe-prompt-is-shared-and-named-link-wins', () => {
     assert.deepEqual(normalizeWardrobe({ 校服: { prompt: 'a', reference: 'igs-gen:ref' } }).校服, { prompt: 'a', reference: 'igs-gen:ref' });
     assert.equal(normalizeWardrobe({ 校服: { prompt: 'a', reference: 'https://x' } }).校服.reference, undefined);
     assert.equal(Object.prototype.hasOwnProperty.call(normalizeWardrobe({ 裸体: { prompt: 'nude' }, 校服: { prompt: 'a' } }), '裸体'), false);
+    assert.deepEqual(normalizeWardrobe({ 校服: { prompt: 'a', nsfwBoost: true } }).校服, { prompt: 'a', nsfwBoost: true });
+    assert.equal(normalizeWardrobe({ 校服: { prompt: 'a', nsfwBoost: false } }).校服.nsfwBoost, undefined);
+    assert.deepEqual(resolveWardrobePrompt({ 校服: { prompt: 'a', nsfwBoost: true } }, {}, '校服'), { name: '校服', prompt: 'a', nsfwBoost: true });
     const kept = normalizeCharacterOutfits({ 冬月: { 日常: { words: [], moods: {}, wardrobe: '裸体', base: 'igs-gen:nude' }, 裸体: { words: [], moods: {} } } });
     assert.equal(kept['冬月']['日常'].wardrobe, '裸体');
     assert.equal(kept['冬月']['日常'].base, 'igs-gen:nude');
@@ -85,6 +88,11 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     assert.match(tagged, /igs-wardrobe-item is-focus/);
     const filled = renderWardrobe({ 校服: { prompt: 'uniform', reference: 'igs-gen:ref' } }, { resolveUrl: () => 'data:image/png;base64,QQ==' });
     assert.match(filled, /data-action="wardrobe-reference:%E6%A0%A1%E6%9C%8D"/);
+    assert.match(filled, /data-action="wardrobe-nsfw:%E6%A0%A1%E6%9C%8D"/);
+    assert.match(filled, /aria-pressed="false"/);
+    const spicy = renderWardrobe({ 校服: { prompt: 'uniform', nsfwBoost: true } });
+    assert.match(spicy, /igs-wardrobe-nsfw is-on/);
+    assert.match(spicy, /aria-pressed="true"/);
     assert.match(filled, /src="data:image\/png;base64,QQ=="/);
     const empty = renderWardrobe({ 冬月星见日常: { prompt: '' } });
     assert.match(empty, new RegExp(`data-action="wardrobe-generate-prompt:${encodeURIComponent('冬月星见日常')}"`));

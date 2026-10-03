@@ -1194,6 +1194,11 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     const written = buildExpressionDiffDescription('冬月', { positive: '1girl' }, ['喜悦'], null, { name: '泳装', words: ['泳衣'], ownImage: false, prompt: 'school swimsuit, one-piece' });
     assert.match(written, /服装提示词：\nschool swimsuit, one-piece/);
     assert.match(written, /不要沿用原装的衣服/);
+    assert.equal(written.includes('不要回避'), false);
+    const spicy = buildExpressionDiffDescription('冬月', { positive: '1girl' }, ['喜悦'], null, { name: '泳装', words: ['泳衣'], ownImage: false, prompt: 'school swimsuit, one-piece', nsfwBoost: true });
+    assert.match(spicy, /角色是成年人/);
+    assert.match(spicy, /不要回避/);
+    assert.match(spicy, /不要改成普通/);
     assert.equal(written.includes('衣服按这些词来画'), false);
     const nude = buildExpressionDiffDescription('冬月', { positive: '1girl' }, ['喜悦'], null, { name: '裸体', words: ['全裸'], ownImage: false, prompt: 'completely nude', nude: true });
     assert.match(nude, /这一套是裸体/);
@@ -1296,10 +1301,13 @@ test('gate:assets:wardrobe-prompt-writes-once-and-does-not-paint', async () => {
     const nai = {
         describe: () => ({ via: 'dbgen', ownPrompts: true, ready: { ok: true } }),
         writeDbgenPrompt: async (meta) => {
-            assert.match(meta.description, /浴衣/);
+            const spicy = meta.description.includes('情趣内衣');
+            assert.match(meta.description, spicy ? /情趣内衣/ : /浴衣/);
             assert.match(meta.description, /一套衣服，而不是角色，没有角色/);
             assert.match(meta.description, /从上到下写完整/);
             assert.match(meta.description, /不要只写其中一件/);
+            assert.equal(meta.description.includes('不要回避'), spicy);
+            assert.equal(meta.description.includes('成年人'), spicy);
             assert.equal(meta.description.includes('冬月'), false);
             assert.equal(meta.description.includes('楼层'), false);
             return {
@@ -1320,6 +1328,8 @@ test('gate:assets:wardrobe-prompt-writes-once-and-does-not-paint', async () => {
     const written = await service.writeWardrobePrompt({ character: '冬月', outfit: '浴衣' });
     assert.deepEqual(written, { ok: true, prompt: 'yukata, floral pattern' });
     assert.equal(paints, 0);
+    const spicy = await service.writeWardrobePrompt({ character: '', outfit: '情趣内衣', nsfwBoost: true });
+    assert.equal(spicy.ok, true);
 });
 
 test('gate:assets:wardrobe-reference-paints-the-saved-prompt', async () => {
@@ -1328,7 +1338,14 @@ test('gate:assets:wardrobe-reference-paints-the-saved-prompt', async () => {
         describe: () => ({ via: 'dbgen', ownPrompts: true, ready: { ok: true } }),
         writeDbgenPrompt: async () => { writes += 1; return { ok: false, error: '不该写词' }; },
         generateDbgenCaption: async (meta) => {
-            assert.equal(meta.caption.v4_prompt.caption.base_caption, 'yukata, floral pattern');
+            const caption = meta.caption.v4_prompt.caption.base_caption;
+            const spicy = caption.includes('不要回避');
+            if (spicy) {
+                assert.match(caption, /^yukata, floral pattern\n/);
+                assert.match(caption, /成年人/);
+            } else {
+                assert.equal(caption, 'yukata, floral pattern');
+            }
             assert.equal(meta.transparent, true);
             return { ok: true, dataUrl: 'data:image/png;base64,QQ==', prompt: { positive: 'yukata, floral pattern', negative: '' } };
         },
@@ -1341,6 +1358,8 @@ test('gate:assets:wardrobe-reference-paints-the-saved-prompt', async () => {
     });
     const painted = await service.paintWardrobeReference({ prompt: 'yukata, floral pattern' });
     assert.deepEqual(painted, { ok: true, imageId: 'ref-1' });
+    const spicyPaint = await service.paintWardrobeReference({ prompt: 'yukata, floral pattern', nsfwBoost: true });
+    assert.equal(spicyPaint.ok, true);
     assert.equal(writes, 0);
     assert.equal(await service.resolveUrl('igs-gen:ref-1'), 'data:image/png;base64,QQ==');
 });

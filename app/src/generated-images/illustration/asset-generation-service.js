@@ -7,7 +7,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, nsfwClothingBoostLine, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
@@ -776,23 +776,24 @@ export function createAssetGenerationService(deps) {
         return { ok: true, imageId: painted.imageId, prompt: painted.prompt };
     }
 
-    function clothingCaption(prompt) {
+    function clothingCaption(prompt, { nsfwBoost = false } = {}) {
         const text = String(prompt || '').trim();
+        const boost = nsfwBoost ? nsfwClothingBoostLine('clothes') : '';
         return {
-            v4_prompt: { caption: { base_caption: text, char_captions: [] } },
+            v4_prompt: { caption: { base_caption: [text, boost].filter(Boolean).join('\n'), char_captions: [] } },
             v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } },
         };
     }
 
     // 衣柜参考图：用已有服装提示词直接出图，不再写提示词。
-    async function paintWardrobeReference({ prompt } = {}) {
+    async function paintWardrobeReference({ prompt, nsfwBoost = false } = {}) {
         const text = String(prompt || '').trim();
         if (!text) return { ok: false, error: '这套衣服还没有提示词' };
         if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出参考图' };
         const meta = expressionPaintMeta();
         let painted;
         try {
-            painted = await nai.generateDbgenCaption({ ...meta, caption: clothingCaption(text) });
+            painted = await nai.generateDbgenCaption({ ...meta, caption: clothingCaption(text, { nsfwBoost }) });
         } catch (error) {
             return { ok: false, error: (error && error.message) || '出参考图失败' };
         }
@@ -807,14 +808,14 @@ export function createAssetGenerationService(deps) {
         return { ok: true, imageId };
     }
 
-    async function writeWardrobePrompt({ character, outfit } = {}) {
+    async function writeWardrobePrompt({ character, outfit, nsfwBoost = false } = {}) {
         const name = String(character || '').trim();
         const clothes = String(outfit || '').trim();
         if (!clothes) return { ok: false, error: '没有待确认的服装' };
         if (!nai || typeof nai.writeDbgenPrompt !== 'function') return { ok: false, error: '当前图像来源不能写服装提示词' };
         let written;
         try {
-            written = await nai.writeDbgenPrompt({ description: buildWardrobeClothingDescription(name, clothes) });
+            written = await nai.writeDbgenPrompt({ description: buildWardrobeClothingDescription(name, clothes, { nsfwBoost }) });
         } catch (error) {
             return { ok: false, error: (error && error.message) || '写服装提示词失败' };
         }

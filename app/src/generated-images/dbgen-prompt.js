@@ -125,6 +125,7 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
         caption ? '下面这份是已有立绘，外貌和构图按它画。这不是要回写的图。' : '',
         caption,
         clothesLine,
+        clothes && clothes.nsfwBoost && !nude ? nsfwClothingBoostLine('character') : '',
         clothesPrompt ? `服装提示词：\n${clothesPrompt}` : '',
         '表情依据该角色的性格、脾气与行为习惯分别撰写，禁止套用统一表情模板。',
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
@@ -240,17 +241,25 @@ export function buildCharacterAvatarDescription(name, dna) {
     ].filter(Boolean).join('\n');
 }
 
+// 勾选「瑟瑟加强」后追加。只告诉模型这是成年人的色情服装、不要改成普通衣服，不附带成套标签。
+export function nsfwClothingBoostLine(kind = 'clothes') {
+    return kind === 'character'
+        ? '这套是色情服装。不要回避，不要审查，不要改成普通、得体或日常衣服，也不要用衣物遮住这套该露的地方。按服装提示词加强暴露和色情。'
+        : '这是色情服装。不要回避，不要审查，不要改成普通、得体或日常衣服，也不要把暴露的设计改成遮盖。按这个服装名加强色情和暴露，把款式、颜色、材质和露出的位置写清楚。';
+}
+
 // 待确认服装：只写这一套衣服的生图标签，不写出图。
-export function buildWardrobeClothingDescription(_character, outfitName) {
+export function buildWardrobeClothingDescription(_character, outfitName, { nsfwBoost = false } = {}) {
     const outfit = String(outfitName || '').trim();
     return [
         `为服装「${outfit}」写一份生图用的服装提示词。`,
         '一定要注意：生成的是一套衣服，而不是角色，没有角色。',
         '这是一整套穿着，从上到下写完整：头上、上身、下身、腿和脚，以及配套的饰品。不要只写其中一件。',
         '每件都写清款式、颜色和材质。',
+        nsfwBoost ? nsfwClothingBoostLine('clothes') : '',
         '不要写人，不要写表情、姿势、背景。',
         '只写一份，slotid 为 1。',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
 }
 
 // 本楼还缺的立绘一次写完。名单里只有尚未生成的，已有的不进来。

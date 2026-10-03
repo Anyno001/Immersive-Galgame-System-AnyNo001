@@ -259,8 +259,10 @@ export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, focus = '', lea
         const prompt = entry && typeof entry.prompt === 'string' ? entry.prompt : '';
         const reference = entry && typeof entry.reference === 'string' ? entry.reference : '';
         const encoded = encSeg(name);
+        const nsfwBoost = Boolean(entry && entry.nsfwBoost);
         return `<div class="igs-wardrobe-item${name === focus ? ' is-focus' : ''}" data-wardrobe-item="${esc(name)}"><div class="igs-btn-mgr-row"><span class="igs-btn-mgr-label">${esc(name)}</span>${tag('wardrobe', name)}`
             + `<input class="igs-scene-url-input igs-wardrobe-prompt" data-wardrobe-name="${esc(name)}" value="${esc(prompt)}" placeholder="提示词">`
+            + `<button type="button" class="igs-switch igs-wardrobe-nsfw${nsfwBoost ? ' is-on' : ''}" data-action="wardrobe-nsfw:${encoded}" aria-pressed="${nsfwBoost ? 'true' : 'false'}"><i></i><span>瑟瑟加强</span></button>`
             + `<button type="button" class="igs-settings-action" data-action="wardrobe-generate-prompt:${encoded}">生成提示词</button>`
             + `<button type="button" class="igs-settings-action" data-action="wardrobe-reference:${encoded}">生图参考</button>`
             + `<button type="button" class="igs-btn-mgr-icon" data-action="wardrobe-rename:${encoded}" title="重命名">${pencil}</button>`
@@ -412,6 +414,10 @@ img.igs-outfit-avatar{padding:0}
 .igs-wardrobe-item .igs-btn-mgr-row{height:auto;min-height:36px;flex-wrap:wrap}
 .igs-wardrobe-item .igs-btn-mgr-label{flex:0 1 auto;max-width:9em}
 .igs-wardrobe-prompt{flex:1;min-width:0;width:auto;height:26px}
+.igs-wardrobe-nsfw{height:26px;flex-shrink:0;padding:0 8px;font-size:12px;gap:6px}
+.igs-wardrobe-nsfw i{width:26px;height:16px}
+.igs-wardrobe-nsfw i:after{width:12px;height:12px}
+.igs-wardrobe-nsfw.is-on i:after{left:12px}
 .igs-wardrobe-reference{padding:0 8px 4px}
 .igs-wardrobe-item.is-focus{border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-highlight)}
 .igs-asset-scope-switch{display:inline-flex;flex-shrink:0;gap:2px;padding:2px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field)}

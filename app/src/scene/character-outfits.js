@@ -90,6 +90,7 @@ export function normalizeWardrobe(raw) {
         const reference = typeof source.reference === 'string' ? source.reference.trim() : '';
         out[name] = { prompt };
         if (reference.startsWith('igs-gen:')) out[name].reference = reference;
+        if (source.nsfwBoost === true) out[name].nsfwBoost = true;
     }
     return out;
 }
@@ -99,7 +100,10 @@ export function resolveWardrobePrompt(wardrobe, outfitEntry, outfitName) {
     const linked = outfitEntry && typeof outfitEntry.wardrobe === 'string' ? outfitEntry.wardrobe.trim() : '';
     const key = linked && hasOwn(map, linked) ? linked : (hasOwn(map, outfitName) ? outfitName : '');
     if (!key) return null;
-    return { name: key, prompt: String((map[key] && map[key].prompt) || '').trim() };
+    const entry = map[key] || {};
+    const resolved = { name: key, prompt: String(entry.prompt || '').trim() };
+    if (entry.nsfwBoost === true) resolved.nsfwBoost = true;
+    return resolved;
 }
 
 export function outfitsOfCharacter(characterOutfits, characterAliases, character) {

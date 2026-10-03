@@ -141,11 +141,15 @@ async function handleWardrobe(command, segs, ctx) {
         for (const [key, value] of Object.entries(wardrobe)) renamed[key === name ? next : key] = value;
         sceneAssets.wardrobe = renamed;
         for (const outfits of linkedOutfits) retargetWardrobe(outfits, name, next);
+    } else if (command === 'wardrobe-nsfw') {
+        if (!hasOwn(wardrobe, name)) return rerenderSettings();
+        if (wardrobe[name].nsfwBoost === true) delete wardrobe[name].nsfwBoost;
+        else wardrobe[name].nsfwBoost = true;
     } else if (command === 'wardrobe-generate-prompt') {
         const word = decodeSeg(segs[1] || '');
         const character = name;
         if (!word && hasOwn(wardrobe, name)) {
-            const subject = { character: '', outfit: name };
+            const subject = { character: '', outfit: name, nsfwBoost: wardrobe[name].nsfwBoost === true };
             const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
             const existing = String((wardrobe[name] && wardrobe[name].prompt) || '').trim();
             const confirmed = typeof dialogs.confirm === 'function'
@@ -207,7 +211,7 @@ async function handleWardrobe(command, segs, ctx) {
             return rerenderSettings();
         }
         let painted;
-        try { painted = await service.paintWardrobeReference({ prompt }); }
+        try { painted = await service.paintWardrobeReference({ prompt, nsfwBoost: wardrobe[name].nsfwBoost === true }); }
         catch (error) { painted = { ok: false, error: '出参考图失败' }; }
         if (!painted || !painted.ok || !painted.imageId) {
             warn(globalObj, (painted && painted.error) || '出参考图失败。');
@@ -265,7 +269,7 @@ function handleOutfitReview(command, segs, ctx) {
     return rerenderSettings();
 }
 
-const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-note|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference|for-outfit))(?::(.*))?$/;
+const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-note|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit))(?::(.*))?$/;
 
 // 服装区 action：返回 null 表示不归本模块处理。位置 / 头部标定 key 随改名迁移、随删除清理。
 export function handleOutfitAction(normalizedAction, ctx) {
