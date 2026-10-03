@@ -233,16 +233,10 @@ function settingsProgressHost(globalObj) {
 function reportExpressionProgress(globalObj, event) {
     const host = settingsProgressHost(globalObj);
     if (!host || !event) return;
-    const total = Math.max(0, Number(event.total) || 0);
-    const done = Math.max(0, Number(event.done) || 0);
-    const writing = event.phase === 'write';
     showSettingsProgress(host, {
-        text: writing
-            ? '写词'
-            : total === 1 ? `正在画「${event.mood || ''}」` : `${done}/${total} ${event.mood || ''}`.trim(),
-        ratio: writing || !total ? 0 : done / total,
-        indeterminate: writing,
-        button: writing ? '写词' : `${done}/${total}`,
+        text: '生图中',
+        indeterminate: true,
+        button: '生图中',
     });
 }
 
@@ -251,7 +245,29 @@ function clearExpressionProgress(globalObj) {
     showSettingsProgress(settingsProgressHost(globalObj), null);
 }
 
-function markExpressionActionBusy(globalObj, action, label = '写词') {
+// 已有提示词的先补画，不重写；剩下没有词的再写再画。补画中途停下就不再写。
+async function paintThenWriteExpressions({ service, name, paintItems, writeLabels, basePrompt, dna, outfit, onProgress, signal }) {
+    const paint = paintItems.length && typeof service.paintExpressionCaptions === 'function'
+        ? await service.paintExpressionCaptions({ name, items: paintItems, basePrompt, dna, outfit, onProgress, signal })
+        : null;
+    if (paint && !paint.ok) return paint;
+    if (paint && (paint.stopped || (signal && signal.aborted))) return paint;
+    const written = await service.generateExpressionSet({ name, basePrompt, moods: writeLabels, dna, outfit, onProgress, signal });
+    if (!paint) return written;
+    const paintedItems = paint.items || [];
+    const wroteItems = written && written.items;
+    const failedWrite = !written || !written.ok
+        ? writeLabels.map((mood) => ({ mood, ok: false, error: (written && written.error) || '写提示词失败' }))
+        : [];
+    return {
+        ok: Boolean(written && written.ok) || paintedItems.some((item) => item.ok),
+        stopped: Boolean(written && written.stopped),
+        items: paintedItems.concat(wroteItems || failedWrite),
+        error: written && written.ok ? '' : (written && written.error),
+    };
+}
+
+function markExpressionActionBusy(globalObj, action, label = '生图中') {
     const host = settingsProgressHost(globalObj);
     const button = host && typeof host.querySelector === 'function'
         ? host.querySelector(`[data-action="${action}"]`)
@@ -1088,11 +1104,6 @@ export async function handleSettingsAction(action, ctx) {
                 } catch (error) { savedCaption = null; }
             }
         }
-        if (!resume && !savedCaption && !basePrompt) {
-            return generatedOperationFailure(globalObj, outfitMode
-                ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
-                : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
-        }
         const dna = characterExpressionDna(sceneAssets, name);
         const clothes = outfitMode ? resolveWardrobePrompt(draftEffectiveAssets(settingsState).wardrobe || {}, outfitEntry, outfitName) : null;
         const outfit = outfitMode ? { name: outfitName, words: outfitEntry.words, ownImage: Boolean(ownUrl), prompt: clothes ? clothes.prompt : '' } : null;
@@ -1107,10 +1118,23 @@ export async function handleSettingsAction(action, ctx) {
         }
         const filledLabels = labels.filter((label) => String(slots[label] || '').trim());
         const missingLabels = labels.filter((label) => !String(slots[label] || '').trim());
-        const resumeItems = resume ? pendingExpressionCaptions(library.expressionNotes[noteKey], slots) : [];
+        const captionByMood = new Map(pendingExpressionCaptions(library.expressionNotes[noteKey], slots).map((item) => [item.mood, item.caption]));
+        const paintItems = missingLabels.filter((label) => captionByMood.has(label)).map((label) => ({ mood: label, caption: captionByMood.get(label) }));
+        const writeLabels = missingLabels.filter((label) => !captionByMood.has(label));
+        const resumeItems = resume ? pendingExpressionCaptions(library.expressionNotes[noteKey], slots) : paintItems;
         if (resume && !resumeItems.length) {
             showGeneratedNotice(globalObj, '没有写好词、还没出图的表情。');
             return rerenderSettings();
+        }
+        if (!retry && !resume && writeLabels.length && !basePrompt) {
+            return generatedOperationFailure(globalObj, outfitMode
+                ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
+                : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
+        }
+        if (retry && !savedCaption && !basePrompt) {
+            return generatedOperationFailure(globalObj, outfitMode
+                ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
+                : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
         }
         if (!retry && !resume) {
             const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
@@ -1120,24 +1144,33 @@ export async function handleSettingsAction(action, ctx) {
                 else if (globalObj.alert) globalObj.alert(message);
                 return rerenderSettings();
             }
-            const confirmed = await dialogs.confirm(missingLabels.length === labels.length
-                ? `生成${who}的 ${missingLabels.length} 张表情差分：${missingLabels.join('、')}。`
-                : `这一档还有 ${missingLabels.length} 张没画：${missingLabels.join('、')}。只画这 ${missingLabels.length} 张，已有的 ${filledLabels.length} 张不动。`);
+            const paintNames = paintItems.map((item) => item.mood).join('、');
+            const writeNames = writeLabels.join('、');
+            const confirmed = await dialogs.confirm(!writeLabels.length
+                ? `这一档还有 ${paintItems.length} 张词写好了、图没出：${paintNames}。只补画这 ${paintItems.length} 张，不重写提示词。`
+                : !paintItems.length
+                    ? (missingLabels.length === labels.length
+                        ? `生成${who}的 ${missingLabels.length} 张表情差分：${writeNames}。`
+                        : `这一档还有 ${missingLabels.length} 张没画：${writeNames}。只画这 ${missingLabels.length} 张，已有的 ${filledLabels.length} 张不动。`)
+                    : `这一档还有 ${missingLabels.length} 张没画。${paintItems.length} 张已有提示词，只补画：${paintNames}。另外 ${writeLabels.length} 张要先写提示词：${writeNames}。已有的 ${filledLabels.length} 张不动。`);
             if (!confirmed) return rerenderSettings();
         }
         let result;
         const onProgress = (event) => reportExpressionProgress(globalObj, event);
-        const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction, resume ? '出图中…' : '写词');
+        const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction, '生图中');
         // 单张重画不接停止键：只有一张，按了也停不下来，别把「表情差分」按钮变成摆设。
         const stopControl = retry ? { signal: { aborted: false }, done() {} } : createStopControl(() => restoreBusy());
         try {
-            result = resume
+            const paintOnly = !retry && !writeLabels.length;
+            result = resume || paintOnly
                 ? await service.paintExpressionCaptions({ name, items: resumeItems, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
                 : retry && savedCaption && typeof service.generateExpressionImage === 'function'
                 ? await service.generateExpressionImage({ name, mood, caption: savedCaption, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
                 : retry
                     ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, onProgress, signal: stopControl.signal })
-                    : await service.generateExpressionSet({ name, basePrompt, moods: missingLabels, dna, outfit, onProgress, signal: stopControl.signal });
+                    : await paintThenWriteExpressions({
+                        service, name, paintItems, writeLabels, basePrompt, dna, outfit, onProgress, signal: stopControl.signal,
+                    });
         } catch (error) {
             stopControl.done();
             clearExpressionProgress(globalObj);

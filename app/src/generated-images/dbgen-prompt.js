@@ -1,7 +1,9 @@
 import { moodPresetAct, moodPresetTags } from '../scene/mood-groups.js';
 
-// 楼内补立绘一次最多写 8 份。表情差分不分批，一档一次写完。
+// 楼内补立绘一次最多写 8 份，超过则平分 2 批。
 export const EXPRESSION_WRITE_BATCH_MAX = 8;
+// 表情差分：不超过 9 份一次写完；10–18 份平分 2 批；超过 18 份平分 3 批。一批写完并出完再写下一批。
+export const EXPRESSION_DIFF_BATCH_MAX = 9;
 // 数据库生图模式下的前端提示词接线：写词接口只说明画什么。
 // 正负模板在出图前合并进插件返回的 NaiCaption，不交给写词模型照抄。
 
@@ -59,12 +61,33 @@ function formatReturnedCaption(caption) {
 }
 
 
-// 单次写词最多 8 份。超过 8 份均分成两批（10 份是 5 和 5），由调用方串行写。
+function splitEven(list, parts) {
+    const base = Math.floor(list.length / parts);
+    let extra = list.length % parts;
+    const out = [];
+    let offset = 0;
+    for (let i = 0; i < parts; i += 1) {
+        const size = base + (extra > 0 ? 1 : 0);
+        if (extra > 0) extra -= 1;
+        out.push(list.slice(offset, offset + size));
+        offset += size;
+    }
+    return out;
+}
+
+// 楼内补立绘：单次写词最多 8 份。超过 8 份均分成两批（10 份是 5 和 5），由调用方串行写。
 export function splitWriteBatches(items) {
     const list = Array.isArray(items) ? items : [];
     if (list.length <= EXPRESSION_WRITE_BATCH_MAX) return list.length ? [list] : [];
-    const half = Math.ceil(list.length / 2);
-    return [list.slice(0, half), list.slice(half)];
+    return splitEven(list, 2);
+}
+
+// 表情差分写词：9 份及以内一批；超过 9 份平分 2 批；超过 18 份平分 3 批。
+export function splitExpressionWriteBatches(items) {
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) return [];
+    if (list.length <= EXPRESSION_DIFF_BATCH_MAX) return [list];
+    return splitEven(list, list.length <= EXPRESSION_DIFF_BATCH_MAX * 2 ? 2 : 3);
 }
 
 export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit) {

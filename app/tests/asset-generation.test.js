@@ -1231,11 +1231,17 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.equal(leaned.v4_negative_prompt.caption.char_captions[0].char_caption.includes('head tilt'), false);
 });
 
-test('gate:assets:expression-set-writes-all-moods-in-one-request', async () => {
-    const { splitWriteBatches } = await import('../src/generated-images/dbgen-prompt.js');
+test('gate:assets:expression-set-splits-writes-by-nine', async () => {
+    const { splitWriteBatches, splitExpressionWriteBatches } = await import('../src/generated-images/dbgen-prompt.js');
     const ten = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
-    // 楼内补立绘仍按 8 份拆批；表情差分走 generateExpressionSet，一档一次写完。
+    const eighteen = Array.from({ length: 18 }, (_, index) => `m${index + 1}`);
+    const nineteen = eighteen.concat('m19');
+    // 楼内补立绘仍按 8 份拆成两批。表情差分：9 及以内一批，超过 9 平分 2 批，超过 18 平分 3 批。
     assert.deepEqual(splitWriteBatches(ten), [ten.slice(0, 5), ten.slice(5)]);
+    assert.deepEqual(splitExpressionWriteBatches(ten.slice(0, 9)), [ten.slice(0, 9)]);
+    assert.deepEqual(splitExpressionWriteBatches(ten), [ten.slice(0, 5), ten.slice(5)]);
+    assert.deepEqual(splitExpressionWriteBatches(eighteen), [eighteen.slice(0, 9), eighteen.slice(9)]);
+    assert.deepEqual(splitExpressionWriteBatches(nineteen), [nineteen.slice(0, 7), nineteen.slice(7, 13), nineteen.slice(13)]);
 
     const captionOf = (text) => ({
         v4_prompt: { caption: { base_caption: text, char_captions: [] } },
@@ -1244,12 +1250,15 @@ test('gate:assets:expression-set-writes-all-moods-in-one-request', async () => {
     const order = [];
     const nai = {
         writeDbgenPrompt: async ({ description }) => {
-            order.push(`write:${description.includes('写 10 份') ? 10 : 0}`);
-            return { ok: true, captions: ten.map((mood, index) => ({ slotId: index + 1, caption: captionOf(`expr ${mood}`) })) };
+            const listed = String(description || '').match(/另写 (\d+) 份：([^。]+)/);
+            const names = listed ? listed[2].split('、').map((part) => part.replace(/^\d+\s*/, '')) : [];
+            order.push(`write:${names.length}`);
+            return { ok: true, captions: names.map((mood, index) => ({ slotId: index + 1, caption: captionOf(`expr ${mood}`) })) };
         },
         generateDbgenCaption: async ({ caption }) => {
             const text = caption.v4_prompt.caption.base_caption;
-            order.push(`paint:${text.replace('expr ', '')}`);
+            const mood = text.match(/expr ([a-j])/)?.[1] || text;
+            order.push(`paint:${mood}`);
             return { ok: true, dataUrl: 'data:image/png;base64,AAA', prompt: { positive: text, negative: '' } };
         },
     };
@@ -1265,7 +1274,12 @@ test('gate:assets:expression-set-writes-all-moods-in-one-request', async () => {
     });
     assert.equal(result.ok, true);
     assert.deepEqual(result.items.map((item) => item.mood), ten);
-    assert.deepEqual(order.filter((step) => step.startsWith('write')), ['write:10']);
+    assert.deepEqual(order, [
+        'write:5',
+        ...ten.slice(0, 5).map((mood) => `paint:${mood}`),
+        'write:5',
+        ...ten.slice(5).map((mood) => `paint:${mood}`),
+    ]);
 });
 
 test('gate:assets:wardrobe-prompt-writes-once-and-does-not-paint', async () => {

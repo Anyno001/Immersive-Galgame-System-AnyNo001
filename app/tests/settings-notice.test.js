@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeSettingsFailure, isQuotaError, markSettingsButtonBusy, remountSettingsNotice, settingsBusyLabel, showSettingsProgress } from '../src/visual/igs-ui/settings-notice.js';
+import { SETTINGS_NOTICE_STYLE_TEXT, describeSettingsFailure, isQuotaError, markSettingsButtonBusy, remountSettingsNotice, settingsBusyLabel, showSettingsProgress } from '../src/visual/igs-ui/settings-notice.js';
 import { bootstrapIGS, createMemoryStorage } from '../src/index.js';
 import { saveScenePresets } from '../src/scene/scene-preset-store.js';
 import { clearMoodReview, removeMoodReview, recordMoodReview } from '../src/scene/mood-review-store.js';
@@ -72,7 +72,7 @@ test('gate:settings-notice:slow-actions-show-busy-state-and-restore', () => {
     assert.equal(settingsBusyLabel('fetch-llm-models'), '拉取中…');
     assert.equal(settingsBusyLabel('scene-add-bg'), '');
     assert.equal(settingsBusyLabel('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8'), '');
-    assert.equal(settingsBusyLabel('char-expression-retry:%E5%86%AC%E6%9C%88:%E6%84%A4%E6%80%92'), '生成中…');
+    assert.equal(settingsBusyLabel('char-expression-retry:%E5%86%AC%E6%9C%88:%E6%84%A4%E6%80%92'), '生图中');
     const attrs = new Map();
     const button = { textContent: '测试生图', disabled: false, isConnected: true, setAttribute: (k, v) => attrs.set(k, v), removeAttribute: (k) => attrs.delete(k) };
     const restore = markSettingsButtonBusy(button, '测试中…');
@@ -140,6 +140,9 @@ test('gate:settings-notice:expression-progress-shows-write-then-each-image', () 
     assert.equal(button.textContent, '2/8');
     assert.equal(showSettingsProgress(host, null), null);
     assert.equal(host.querySelector('.igs-settings-progress'), null);
+    assert.match(SETTINGS_NOTICE_STYLE_TEXT, /igs-settings-progress\{[^}]*background:var\(--igs-settings-raised\)/);
+    assert.match(SETTINGS_NOTICE_STYLE_TEXT, /color:var\(--igs-settings-ink\)/);
+    assert.equal(SETTINGS_NOTICE_STYLE_TEXT.includes('#2f5f78'), false);
 });
 
 test('gate:settings-notice:full-storage-keeps-panel-open-with-readable-reason', () => {

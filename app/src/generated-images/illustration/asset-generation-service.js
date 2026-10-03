@@ -6,7 +6,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
@@ -598,9 +598,10 @@ export function createAssetGenerationService(deps) {
         if (typeof onProgress === 'function') onProgress(event);
     }
 
-    // 一次写完所有提示词，再按顺序逐张出图；某一张失败不影响后面的。
-    // 插件少给某几份时只补写那几份；signal 中止后已画好的图保留。
-    // 一次点击里画的这一批共用一颗新种子：同批衣服、画风接近；删掉重来、补画都是新种子，不会画回旧图。
+    // 按 9 张分批写词：不超过 9 张一次写完，超过 9 张平分 2 批，超过 18 张平分 3 批。
+    // 一批写完并逐张出完，再写下一批；某一张失败不影响后面的。
+    // 插件少给某几份时只在这一批里补写；signal 中止后已画好的图保留，还没写的批不再写。
+    // 一次点击里各批共用一颗新种子：衣服、画风接近；删掉重来、补画都是新种子，不会画回旧图。
     async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, onProgress, signal } = {}) {
         const labels = (Array.isArray(moods) ? moods : []).map((item) => String(item || '').trim()).filter(Boolean);
         if (!labels.length) return { ok: false, error: '没有表情分组' };
@@ -614,54 +615,64 @@ export function createAssetGenerationService(deps) {
         const paintDna = expressionPaintDna(dna, outfit);
         const stopped = () => Boolean(signal && signal.aborted);
         const items = [];
-        let pending = labels.slice();
         let painted = 0;
-        // 最多两轮：第一轮写全部，第二轮只补插件漏掉的那几份。
-        for (let round = 0; round < 2 && pending.length; round += 1) {
+        let writeError = '';
+        for (const batch of splitExpressionWriteBatches(labels)) {
             if (stopped()) break;
-            reportExpressionProgress(onProgress, { phase: 'write', done: painted, total: labels.length });
-            let written;
-            try {
-                written = await nai.writeDbgenPrompt({
-                    description: buildExpressionDiffDescription(name, basePrompt, pending, dna, outfit),
-                });
-            } catch (error) {
-                const message = (error && error.message) || '写提示词失败';
-                if (!items.length) return { ok: false, error: message };
-                for (const mood of pending) items.push({ mood, ok: false, error: message });
-                break;
+            if (writeError) {
+                for (const mood of batch) items.push({ mood, ok: false, error: writeError });
+                continue;
             }
-            if (!written || !written.ok) {
-                const message = (written && written.error) || '写提示词失败';
-                if (!items.length) return { ok: false, error: message };
-                for (const mood of pending) items.push({ mood, ok: false, error: message });
-                break;
-            }
-            const captions = Array.isArray(written.captions) ? written.captions : [];
-            const missing = [];
-            for (let i = 0; i < pending.length; i += 1) {
-                if (stopped()) {
-                    // 词已经写好的带上，存成注记，之后「继续生图」不用重写。
-                    for (let j = i; j < pending.length; j += 1) {
-                        const left = captions.find((item) => Number(item && item.slotId) === j + 1);
-                        items.push({ mood: pending[j], ok: false, error: '已停止', ...(left && left.caption && { caption: left.caption }) });
-                    }
-                    pending = [];
+            let pending = batch.slice();
+            // 每一批最多两轮：第一轮写这一批，第二轮只补插件漏掉的那几份。
+            for (let round = 0; round < 2 && pending.length; round += 1) {
+                if (stopped()) break;
+                reportExpressionProgress(onProgress, { phase: 'write', done: painted, total: labels.length });
+                let written;
+                try {
+                    written = await nai.writeDbgenPrompt({
+                        description: buildExpressionDiffDescription(name, basePrompt, pending, dna, outfit),
+                    });
+                } catch (error) {
+                    const message = (error && error.message) || '写提示词失败';
+                    if (!items.length) return { ok: false, error: message };
+                    for (const mood of pending) items.push({ mood, ok: false, error: message });
+                    writeError = message;
                     break;
                 }
-                painted += 1;
-                reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: pending[i] });
-                const slot = captions.find((item) => Number(item && item.slotId) === i + 1);
-                const caption = slot && slot.caption;
-                if (!caption) {
-                    missing.push(pending[i]);
-                    items.push({ mood: pending[i], ok: false, error: '写提示词没有返回这一份' });
-                    continue;
+                if (!written || !written.ok) {
+                    const message = (written && written.error) || '写提示词失败';
+                    if (!items.length) return { ok: false, error: message };
+                    for (const mood of pending) items.push({ mood, ok: false, error: message });
+                    writeError = message;
+                    break;
                 }
-                const result = await paintExpressionCaption(name, pending[i], caption, paintDna, paint);
-                items.push(result);
+                const captions = Array.isArray(written.captions) ? written.captions : [];
+                const missing = [];
+                for (let i = 0; i < pending.length; i += 1) {
+                    if (stopped()) {
+                        // 词已经写好的带上，存成注记，之后「继续生图」不用重写。
+                        for (let j = i; j < pending.length; j += 1) {
+                            const left = captions.find((item) => Number(item && item.slotId) === j + 1);
+                            items.push({ mood: pending[j], ok: false, error: '已停止', ...(left && left.caption && { caption: left.caption }) });
+                        }
+                        pending = [];
+                        break;
+                    }
+                    painted += 1;
+                    reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: pending[i] });
+                    const slot = captions.find((item) => Number(item && item.slotId) === i + 1);
+                    const caption = slot && slot.caption;
+                    if (!caption) {
+                        missing.push(pending[i]);
+                        items.push({ mood: pending[i], ok: false, error: '写提示词没有返回这一份' });
+                        continue;
+                    }
+                    const result = await paintExpressionCaption(name, pending[i], caption, paintDna, paint);
+                    items.push(result);
+                }
+                pending = round === 0 ? missing : [];
             }
-            pending = round === 0 ? missing : [];
         }
         return { ok: true, items, stopped: stopped() };
     }

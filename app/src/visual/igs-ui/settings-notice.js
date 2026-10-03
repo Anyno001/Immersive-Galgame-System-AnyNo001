@@ -5,10 +5,10 @@ const SAVE_FAILURE_REASONS = new Set(['save-failed', 'generated-asset-persist-fa
 
 export const SETTINGS_NOTICE_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-notice{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:3;max-width:min(520px,calc(100% - 48px));padding:10px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-danger,#c0392b);color:#fff;font-size:13px;line-height:1.5;pointer-events:auto;}
-#igs-unified-settings .igs-settings-shell>.igs-settings-progress{position:static;left:auto;right:auto;bottom:auto;transform:none;z-index:2;flex:0 0 auto;width:auto;max-width:none;margin:0;padding:10px 16px 12px;border-radius:0;background:var(--igs-settings-accent,#2f5f78);color:var(--igs-settings-on-accent,#fff);font-size:13px;line-height:1.4;pointer-events:none}
-#igs-unified-settings .igs-settings-progress-track{height:6px;margin-top:8px;border-radius:var(--igs-settings-radius-small);background:rgba(255,255,255,.28);overflow:hidden}
-#igs-unified-settings .igs-settings-progress-fill{height:100%;width:0;border-radius:var(--igs-settings-radius-small);background:#fff}
-#igs-unified-settings .igs-settings-progress.is-writing .igs-settings-progress-fill{width:38%;animation:igs-settings-progress-slide 1s ease-in-out infinite}
+#igs-unified-settings .igs-settings-shell>.igs-settings-progress{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:2;width:max-content;min-width:148px;max-width:min(240px,calc(100% - 48px));margin:0;padding:10px 18px 12px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-raised);color:var(--igs-settings-ink);box-shadow:var(--igs-settings-shell-shadow);font-size:13px;font-weight:500;letter-spacing:.04em;line-height:1.4;text-align:center;pointer-events:none}
+#igs-unified-settings .igs-settings-progress-track{height:3px;margin-top:8px;border-radius:999px;background:var(--igs-settings-field);overflow:hidden}
+#igs-unified-settings .igs-settings-progress-fill{height:100%;width:0;border-radius:999px;background:var(--igs-settings-accent)}
+#igs-unified-settings .igs-settings-progress.is-writing .igs-settings-progress-fill{width:38%;animation:igs-settings-progress-slide 1.1s ease-in-out infinite}
 @keyframes igs-settings-progress-slide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 `;
 
@@ -62,7 +62,7 @@ const SETTINGS_BUSY_LABELS = Object.freeze({
 export function settingsBusyLabel(action) {
     const name = String(action || '');
     if (SETTINGS_BUSY_LABELS[name]) return SETTINGS_BUSY_LABELS[name];
-    if (/^(?:char|outfit)-expression-retry:/.test(name)) return '生成中…';
+    if (/^(?:char|outfit)-expression-retry:/.test(name)) return '生图中';
     return '';
 }
 
@@ -114,49 +114,12 @@ export function showSettingsProgress(container, progress) {
     const ratio = writing ? 0 : Math.max(0, Math.min(1, Number(progress.ratio) || 0));
     fill.setAttribute('data-ratio', String(ratio));
     if (fill.style) fill.style.width = writing ? '' : `${Math.round(ratio * 100)}%`;
-    pinSettingsProgress(el, track, fill);
     if (el.parentNode !== parent) parent.appendChild(el);
     if (progress.button) {
         const busy = host.querySelector('[aria-busy="true"]');
         if (busy) busy.textContent = progress.button;
     }
     return el;
-}
-
-function pinSettingsProgress(el, track, fill) {
-    const bar = el && el.style;
-    if (bar) {
-        bar.position = 'static';
-        bar.left = 'auto';
-        bar.right = 'auto';
-        bar.bottom = 'auto';
-        bar.transform = 'none';
-        bar.width = '100%';
-        bar.maxWidth = 'none';
-        bar.boxSizing = 'border-box';
-        bar.flex = '0 0 auto';
-        bar.margin = '0';
-        bar.padding = '10px 16px 12px';
-        bar.borderRadius = '0';
-        bar.background = '#2f5f78';
-        bar.color = '#fff';
-        bar.fontSize = '13px';
-        bar.lineHeight = '1.4';
-        bar.zIndex = '2';
-    }
-    if (track && track.style) {
-        track.style.height = '6px';
-        track.style.marginTop = '8px';
-        track.style.borderRadius = '999px';
-        track.style.background = 'rgba(255,255,255,.28)';
-        track.style.overflow = 'hidden';
-    }
-    if (fill && fill.style) {
-        fill.style.height = '100%';
-        fill.style.display = 'block';
-        fill.style.background = '#fff';
-        fill.style.borderRadius = '999px';
-    }
 }
 
 export function markSettingsButtonBusy(button, label) {

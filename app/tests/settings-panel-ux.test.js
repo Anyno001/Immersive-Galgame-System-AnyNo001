@@ -266,6 +266,68 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['愤怒'], 'igs-gen:new-愤怒');
 });
 
+test('gate:expression-set:repaints-failed-slots-without-rewriting-prompts', async () => {
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
+    const failed = {
+        v4_prompt: { caption: { base_caption: 'angry face', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
+    const asks = [];
+    const painted = [];
+    const written = [];
+    const moods = ['喜悦', '愤怒', '悲伤', '平和', '害羞', '爱恋', '嫌弃', '紧张'];
+    const notes = {};
+    const slots = { 默认: 'igs-gen:def' };
+    for (const mood of moods) {
+        slots[mood] = '';
+        notes[mood] = { error: '出图失败', caption: { ...failed, mood } };
+    }
+    const draft = {
+        bridge: {
+            sceneAssets: {
+                characters: { 冬月: slots },
+                generated: { expressionNotes: { 冬月: notes } },
+            },
+        },
+        readerSettings: {},
+    };
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: {
+            global: { alert() {}, document: { getElementById() { return null; } } },
+            generatedAssets: {
+                getImagePrompt: async () => ({ positive: '1girl', negative: 'lowres', caption }),
+                generateExpressionSet: async (input) => { written.push(input.moods.slice()); return { ok: true, items: [] }; },
+                paintExpressionCaptions: async (input) => {
+                    painted.push(input.items.map((item) => item.mood));
+                    return { ok: true, items: input.items.map((item) => ({ mood: item.mood, ok: true, imageId: `paint-${item.mood}` })) };
+                },
+            },
+        },
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: { confirm: async (message) => { asks.push(message); return true; } },
+    };
+    const allReady = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(allReady.ok, true);
+    assert.match(asks[0], /只补画这 8 张，不重写提示词/);
+    assert.deepEqual(written, []);
+    assert.deepEqual(painted[0], moods);
+    assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'igs-gen:paint-愤怒');
+
+    draft.bridge.sceneAssets.characters['冬月'] = { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy', 愤怒: '' };
+    draft.bridge.sceneAssets.generated = { expressionNotes: { 冬月: { 愤怒: { error: '出图失败', caption: failed } } } };
+    const mixed = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
+    assert.equal(mixed.ok, true);
+    assert.match(asks[1], /只补画：愤怒/);
+    assert.match(asks[1], /要先写提示词：悲伤、平和、害羞、爱恋、嫌弃、紧张/);
+    assert.deepEqual(painted[1], ['愤怒']);
+    assert.deepEqual(written, [['悲伤', '平和', '害羞', '爱恋', '嫌弃', '紧张']]);
+});
+
 test('gate:character-sprite:generates-default-from-the-character-page', async () => {
     const asks = [];
     const draft = {
