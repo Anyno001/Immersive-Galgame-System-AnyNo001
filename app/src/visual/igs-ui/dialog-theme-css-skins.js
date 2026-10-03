@@ -154,7 +154,7 @@ const MAGIC_DUST = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" 
     .map(([x, y, r], i) => `<circle cx="${x}%" cy="${y}%" r="${r}" fill="#f0f0ff" fill-opacity="${i % 3 ? 0.5 : 0.85}"/>`).join('')}</svg>`);
 // 薄纱下段偏黑：学院底色先压向近黑再做透明度，只留一层色调，正文底更沉。
 const magicVeilDark = (percent, keep) => magicTint(`color-mix(in srgb,${MAGIC_VEIL} ${keep}%,#04040a)`, percent);
-const magicHalfLine = (dir) => `linear-gradient(${dir},${magicTint(MAGIC_METAL, 22)},${magicTint(MAGIC_METAL, 70)} 34%)`;
+const magicHalfLine = (dir) => `linear-gradient(${dir},transparent 3%,${magicTint(MAGIC_METAL, 70)} 34%)`;
 const MAGIC_SIDE = `calc(50% - ${MAGIC_EMBLEM.width / 2 + 6}px) 1px`;
 const magicAcademy = [
     buildDialogFrameCss(DIALOG_SKIN_MAGIC_ACADEMY, {
