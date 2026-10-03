@@ -2931,6 +2931,40 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     commit();
     assert.match(textEl.style.fontFamily, /Source Han Serif CN/);
 
+    const textSettings = settings.switchReaderSubTab('text');
+    for (const path of ['dialogTextEffect', 'dialogTextEffectColor', 'dialogTextEffectStrength']) {
+        assert.ok(textSettings.snapshot.html.includes(`readerSettings.${path}`), path);
+    }
+    assert.match(textSettings.snapshot.html, /硬描边/);
+    assert.match(textSettings.snapshot.html, /投影式/);
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogTextEffect, 'off');
+    assert.equal(textEl.style.textShadow || '', '');
+    assert.equal(textEl.style.webkitTextStroke || '', '');
+    settings.setValue('readerSettings.dialogTextEffect', 'outline');
+    settings.setValue('readerSettings.dialogTextEffectColor', '#123456');
+    settings.setValue('readerSettings.dialogTextEffectStrength', '10');
+    commit();
+    assert.equal(overlay.querySelector('#igs-text').style.webkitTextStroke, '0.8px rgba(18,52,86,0.1)');
+    assert.equal(overlay.querySelector('#igs-text').style.textShadow, 'none', 'hard outline suppresses skin shadow');
+    assert.deepEqual([JSON.parse(storage.getItem('igs-reader-settings-v9-default')).dialogTextEffect, JSON.parse(storage.getItem('igs-reader-settings-v9-default')).dialogTextEffectColor, JSON.parse(storage.getItem('igs-reader-settings-v9-default')).dialogTextEffectStrength], ['outline', '#123456', 10]);
+    assert.equal(overlay.querySelector('#igs-speaker').style.webkitTextStroke || '', '');
+    assert.equal(overlay.querySelector('#igs-ctrl-bar').style.textShadow || '', '');
+    settings.setValue('readerSettings.dialogTextEffect', 'shadow');
+    commit();
+    assert.equal(overlay.querySelector('#igs-text').style.textShadow, '0 1px 2px rgba(18,52,86,0.1)');
+    assert.equal(overlay.querySelector('#igs-text').style.webkitTextStroke, '');
+    settings.setValue('readerSettings.dialogTextEffect', 'off');
+    commit();
+    assert.equal(overlay.querySelector('#igs-text').style.textShadow, '');
+    assert.equal(overlay.querySelector('#igs-text').style.webkitTextStroke, '');
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogTextEffect, 'off');
+    settings.setValue('readerSettings.dialogTextEffect', 'invalid');
+    settings.setValue('readerSettings.dialogTextEffectColor', 'red; background: url(bad)');
+    settings.setValue('readerSettings.dialogTextEffectStrength', 999);
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogTextEffect, 'off');
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogTextEffectColor, '#000000');
+    assert.equal(settings.getSnapshot().draft.readerSettings.dialogTextEffectStrength, 50);
+
     settings.setValue('readerSettings.dialogFontWeight', '700');
     commit();
     overlay = document.getElementById('igs-overlay');
@@ -7742,6 +7776,14 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     assert.equal(name.style.display, 'block');
     assert.equal(name.style.fontWeight || '', '');
     assert.equal(text.style.fontWeight || '', '');
+    settings.setValue('readerSettings.dialogTextEffect', 'outline');
+    commit();
+    assert.equal(text.style.textShadow, 'none', 'hard outline replaces illustrated skin shadow');
+    assert.match(text.style.webkitTextStroke, /^0\.8px rgba\(0,0,0,0\.2\)$/);
+    settings.setValue('readerSettings.dialogTextEffect', 'off');
+    commit();
+    assert.equal(text.style.textShadow, '', 'off restores skin CSS');
+    assert.equal(text.style.webkitTextStroke, '');
     settings.setValue('readerSettings.dialogFontWeight', '700');
     commit();
     assert.equal(name.style.fontWeight, '700');

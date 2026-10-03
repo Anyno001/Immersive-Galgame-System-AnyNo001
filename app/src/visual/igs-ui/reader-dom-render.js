@@ -1397,6 +1397,20 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         }
         applyDialogTextSize(textEl, snapshot.readerSettings.fontSize);
         textEl.style.fontWeight = snapshot.readerSettings.dialogFontWeight == null ? '' : String(snapshot.readerSettings.dialogFontWeight);
+        const textEffect = snapshot.readerSettings.dialogTextEffect;
+        const effectColor = snapshot.readerSettings.dialogTextEffectColor;
+        const effectStrength = Number(snapshot.readerSettings.dialogTextEffectStrength);
+        if ((textEffect === 'outline' || textEffect === 'shadow')
+            && /^#[0-9a-fA-F]{6}$/.test(effectColor)
+            && Number.isFinite(effectStrength)) {
+            const rgb = [1, 3, 5].map((index) => parseInt(effectColor.slice(index, index + 2), 16)).join(',');
+            const ink = `rgba(${rgb},${Math.max(5, Math.min(50, effectStrength)) / 100})`;
+            textEl.style.webkitTextStroke = textEffect === 'outline' ? `0.8px ${ink}` : '';
+            textEl.style.textShadow = textEffect === 'shadow' ? `0 1px 2px ${ink}` : 'none';
+        } else {
+            textEl.style.webkitTextStroke = '';
+            textEl.style.textShadow = '';
+        }
         textEl.style.marginTop = '';
         textEl.style.paddingTop = '';
         const isNarration = textType === 'narration';

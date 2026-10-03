@@ -3496,6 +3496,9 @@ export function createIgsReaderHost(options = {}) {
             ...sectionResetPlaceholders(),
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
             dialogFontWeightField: field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])),
+            dialogTextEffectField: field('readerSettings.dialogTextEffect', '文字增强', segmentedInput('readerSettings.dialogTextEffect', reader.dialogTextEffect, [['off', '关闭'], ['outline', '硬描边'], ['shadow', '投影式']], '文字增强')),
+            dialogTextEffectColorField: field('readerSettings.dialogTextEffectColor', '增强颜色', colorInput('readerSettings.dialogTextEffectColor', reader.dialogTextEffectColor)),
+            dialogTextEffectStrengthField: field('readerSettings.dialogTextEffectStrength', '增强浓淡', selectInput('readerSettings.dialogTextEffectStrength', reader.dialogTextEffectStrength, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`]))),
             dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_MAGIC_ACADEMY, '魔法星夜'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_QINGLV, '青绿山水'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_FAIRY_TALE, '童话小镇'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
             gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
             magicHouseField: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : '',
@@ -4813,6 +4816,9 @@ export function createIgsReaderHost(options = {}) {
             magicAccent: MAGIC_ACCENT_DEFAULT,
             fontSize: 18,
             dialogFontWeight: null,
+            dialogTextEffect: 'off',
+            dialogTextEffectColor: '#000000',
+            dialogTextEffectStrength: 20,
             optionFontSize: 14,
             dialogWidth: null,
             dialogHeight: null,
@@ -4851,6 +4857,12 @@ export function createIgsReaderHost(options = {}) {
         normalized.dialogFontWeight = normalized.dialogFontWeight != null
             && [300, 400, 500, 700].includes(Number(normalized.dialogFontWeight))
             ? Number(normalized.dialogFontWeight) : null;
+        normalized.dialogTextEffect = ['off', 'outline', 'shadow'].includes(normalized.dialogTextEffect)
+            ? normalized.dialogTextEffect : base.dialogTextEffect;
+        normalized.dialogTextEffectColor = /^#[0-9a-fA-F]{6}$/.test(normalized.dialogTextEffectColor)
+            ? normalized.dialogTextEffectColor : base.dialogTextEffectColor;
+        normalized.dialogTextEffectStrength = clampNumber(
+            normalizeFiniteNumber(normalized.dialogTextEffectStrength, base.dialogTextEffectStrength), 5, 50);
         normalized.optionFontSize = clampNumber(normalizeFiniteNumber(normalized.optionFontSize, base.optionFontSize), 10, 30);
         normalized.dialogWidth = normalizeNullableNumber(normalized.dialogWidth);
         const normalizedDialogHeight = normalizeNullableNumber(normalized.dialogHeight);
