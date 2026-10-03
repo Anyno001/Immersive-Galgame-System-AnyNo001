@@ -50,22 +50,45 @@ export function writeLegacyIgsSettings(storageLike, nextState = {}) {
     }
 
     const normalized = normalizeLegacySnapshot(nextState);
-
+    const entries = [
+        [LEGACY_VN_KEYS.bridge, JSON.stringify(normalized.bridge)],
+        [LEGACY_VN_KEYS.displayMode, normalized.displayMode],
+        ...LEGACY_READER_MODES.map((mode) => [
+            `${LEGACY_VN_KEYS.readerPrefix}${mode}`,
+            JSON.stringify(normalized.readerSettingsByMode[mode]),
+        ]),
+    ];
+    const written = [];
     try {
-        storageLike.setItem(LEGACY_VN_KEYS.bridge, JSON.stringify(normalized.bridge));
-        storageLike.setItem(LEGACY_VN_KEYS.displayMode, normalized.displayMode);
-        for (const mode of LEGACY_READER_MODES) {
-            storageLike.setItem(`${LEGACY_VN_KEYS.readerPrefix}${mode}`, JSON.stringify(normalized.readerSettingsByMode[mode]));
+        // Keep the old values for compensation: localStorage has no multi-key transaction.
+        const changes = entries.map(([key, value]) => ({ key, value, previous: storageLike.getItem(key) }))
+            .filter(({ value, previous }) => previous !== value);
+        if (changes.some(({ previous }) => previous == null) && typeof storageLike.removeItem !== 'function') {
+            return { ok: false, reason: 'legacy-storage-write-failed', message: 'Storage cannot restore newly created keys', legacy: normalized };
+        }
+        for (const change of changes) {
+            written.push(change);
+            storageLike.setItem(change.key, change.value);
         }
         return {
             ok: true,
             legacy: normalized,
         };
     } catch (error) {
+        let rollbackFailed = false;
+        for (const { key, previous } of written.reverse()) {
+            try {
+                if (previous == null) storageLike.removeItem(key);
+                else storageLike.setItem(key, previous);
+            } catch (rollbackError) {
+                rollbackFailed = true;
+            }
+        }
         return {
             ok: false,
             reason: 'legacy-storage-write-failed',
             message: error instanceof Error ? error.message : String(error),
+            ...(rollbackFailed ? { rollbackFailed: true } : {}),
             legacy: normalized,
         };
     }

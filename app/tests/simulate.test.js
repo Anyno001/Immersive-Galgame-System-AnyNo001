@@ -2851,6 +2851,54 @@ test('gate:simulation:reader-settings-shared-across-modes', async () => {
     vn.destroy();
 });
 
+test('gate:simulation:unified-settings-merge-and-copy-isolation', () => {
+    const storage = createMemoryStorage();
+    storage.setItem('igs_bridge_config', JSON.stringify({ sceneAssets: { enabled: false, generated: { expressionNotes: { 角色: { 开心: { positive: 'old' } } } } }, imageApi: { marker: 'legacy' } }));
+    storage.setItem('igs-reader-settings-v9-pc', JSON.stringify({ fontSize: 19 }));
+    const vn = bootstrapIGS({
+        global: { localStorage: storage }, autoAttachMagicWand: false,
+        config: { imageApi: { marker: 'config' } },
+    });
+    try {
+        assert.equal(vn.getUnifiedSettings().bridge.imageApi.marker, 'config', 'current config wins over historical bridge');
+        const payload = {
+            bridge: { sceneAssets: { enabled: true, generated: { expressionNotes: { 角色: { 开心: { positive: 'new' } } } } }, imageApi: { marker: 'payload' } },
+            readerSettings: { fontSize: 24, nested: { marker: 'reader' } },
+        };
+        const settings = vn.openSettings({ mode: 'pc' }).controller;
+        settings.setValue('bridge.sceneAssets', payload.bridge.sceneAssets, { liveInput: true });
+        settings.setValue('bridge.imageApi', payload.bridge.imageApi, { liveInput: true });
+        settings.setValue('readerSettings.fontSize', payload.readerSettings.fontSize, { liveInput: true });
+        settings.setValue('readerSettings.nested', payload.readerSettings.nested, { liveInput: true });
+        assert.equal(settings.close().ok, true);
+        const saved = vn.getUnifiedSettings();
+        assert.equal(saved.bridge.sceneAssets.generated.expressionNotes.角色.开心.positive, 'new');
+        assert.equal(saved.bridge.imageApi.marker, 'payload');
+        assert.equal(saved.readerSettings.fontSize, 24);
+        assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-pc')).fontSize, 19, 'historical bucket survives shared-default save');
+        payload.bridge.sceneAssets.generated.expressionNotes.角色.开心.positive = 'mutated input';
+        payload.bridge.imageApi.marker = 'mutated input';
+        payload.readerSettings.nested.marker = 'mutated input';
+        saved.bridge.sceneAssets.generated.expressionNotes.角色.开心.positive = 'mutated return';
+        saved.imageApi.marker = 'mutated return';
+        saved.readerSettings.nested.marker = 'mutated return';
+        const again = vn.getUnifiedSettings({ mode: 'mobile' });
+        assert.equal(again.bridge.sceneAssets.generated.expressionNotes.角色.开心.positive, 'new');
+        assert.equal(again.bridge.imageApi.marker, 'payload');
+        assert.equal(again.imageApi.marker, 'payload');
+        assert.equal(again.readerSettings.nested.marker, 'reader');
+        assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-pc')).fontSize, 19);
+        assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).nested.marker, 'reader');
+        again.bridge.sceneAssets.generated.expressionNotes.角色.开心.positive = 'mutated snapshot';
+        again.readerSettings.nested.marker = 'mutated snapshot';
+        assert.equal(vn.getUnifiedSettings().bridge.sceneAssets.generated.expressionNotes.角色.开心.positive, 'new');
+        assert.equal(vn.getUnifiedSettings().readerSettings.nested.marker, 'reader');
+        assert.equal(JSON.parse(storage.getItem('igs_bridge_config')).sceneAssets.generated.expressionNotes.角色.开心.positive, 'new');
+    } finally {
+        vn.destroy();
+    }
+});
+
 test('gate:simulation:default-dialog-height-controls-floating-box', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     let pluginIframeHeight = 500;
@@ -3258,6 +3306,20 @@ test('gate:simulation:tag-filter-input-stays-draft-until-settings-close', async 
     const opened = await vn.openLatestAvailable('pc');
     const settings = opened.reader.controller.openSettings('regex').controller;
     const root = document.getElementById('igs-unified-settings').parentNode;
+    let renderedHtml = root.innerHTML;
+    let rebuilds = 0;
+    let clears = 0;
+    Object.defineProperty(root, 'innerHTML', {
+        configurable: true,
+        get() { return renderedHtml; },
+        set(value) { if (value) rebuilds++; else clears++; renderedHtml = value; },
+    });
+    const originalSetItem = storage.setItem.bind(storage);
+    const legacyWrites = [];
+    storage.setItem = (key, value) => {
+        if (key === 'igs_bridge_config' || key.startsWith('igs-reader-settings-v9-')) legacyWrites.push(key);
+        originalSetItem(key, value);
+    };
     const original = storage.getItem('igs_bridge_config');
     const tags = {
         textIncludeTags: 'content', textExcludeTags: 'thinking', imageIncludeTags: 'image\ntext_to_image',
@@ -3271,15 +3333,128 @@ test('gate:simulation:tag-filter-input-stays-draft-until-settings-close', async 
         document.activeElement = input;
         input.value = value;
         root.dispatchEvent({ type: 'input', target: input });
+        root.dispatchEvent({ type: 'input', target: input });
         assert.ok(root.contains(input), 'typing must keep the input node mounted');
         assert.ok(document.activeElement === input, 'typing must preserve focus');
         assert.equal(settings.getSnapshot().draft.bridge.sourceFilter[name], value);
         assert.equal(storage.getItem('igs_bridge_config'), original, 'typing must not save');
     }
+    assert.equal(rebuilds, 0, 'six input events do not replace the settings page');
+    assert.deepEqual(legacyWrites, [], 'six input events do not write legacy settings');
+    const external = settings.getSnapshot();
+    external.draft.bridge.sourceFilter.textIncludeTags = 'tampered';
+    assert.equal(settings.getSnapshot().draft.bridge.sourceFilter.textIncludeTags, 'content', 'public snapshots do not alias the draft');
+    assert.equal(settings.setValue('readerSettings.fontSize', 21).ok, true);
+    assert.equal(rebuilds, 1, 'one non-live change loads the settings page once');
+    assert.equal(clears, 1, 'a full redraw first clears the existing DOM');
+    assert.deepEqual(legacyWrites, [], 'non-live change still waits for close before saving');
     assert.equal(settings.close().ok, true);
+    assert.equal(legacyWrites.filter((key) => key === 'igs_bridge_config').length, 1);
+    assert.equal(legacyWrites.filter((key) => key === 'igs-reader-settings-v9-default').length, 1);
     const saved = JSON.parse(storage.getItem('igs_bridge_config')).sourceFilter;
     for (const [name, value] of Object.entries(tags)) assert.equal(saved[name], value);
+    assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).fontSize, 21);
     vn.destroy();
+});
+
+test('gate:simulation:large-settings-draft-typing-does-not-copy-or-persist-per-character', (t) => {
+    const generatedNotes = {};
+    for (let index = 0; index < 500; index++) {
+        generatedNotes[`角色${index}`] = { 常态: { positive: 'prompt '.repeat(96), negative: '' } };
+    }
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({ sceneAssets: { generated: { expressionNotes: generatedNotes } } }),
+    });
+    const document = createFakeDocument();
+    const vn = bootstrapIGS({ global: { document, localStorage: storage }, autoAttachMagicWand: false });
+    let originalStringify;
+    try {
+        const settings = vn.openSettings({ tab: 'image' }).controller;
+        assert.equal(settings.switchImageSubTab('auto').ok, true);
+        const root = document.getElementById('igs-unified-settings').parentNode;
+        let html = root.innerHTML;
+        let rebuilds = 0;
+        let clears = 0;
+        Object.defineProperty(root, 'innerHTML', {
+            configurable: true,
+            get() { return html; },
+            set(value) { if (value) rebuilds++; else clears++; html = value; },
+        });
+        const legacyWrites = [];
+        const setItem = storage.setItem.bind(storage);
+        storage.setItem = (key, value) => {
+            if (key === 'igs_bridge_config' || key.startsWith('igs-reader-settings-v9-')) {
+                assert.ok(storage.getItem(key) !== value, 'unchanged legacy value must not be rewritten');
+                legacyWrites.push(key);
+            }
+            setItem(key, value);
+        };
+        const keyPath = 'bridge.autoIllustration.llm.apiKey';
+        const promptPath = 'bridge.autoIllustration.assets.templates.background';
+        assert.ok(settings.getSnapshot().html.includes(`data-path="${keyPath}"`));
+        assert.ok(settings.getSnapshot().html.includes(`data-path="${promptPath}"`));
+        const input = document.createElement('input');
+        input.setAttribute('data-path', keyPath);
+        input.type = 'password';
+        root.appendChild(input);
+        const promptInput = document.createElement('textarea');
+        promptInput.setAttribute('data-path', promptPath);
+        root.appendChild(promptInput);
+        document.activeElement = input;
+        const secret = 'test-only-credential-'.repeat(16);
+        const prompt = '{tags} ' + 'long prompt '.repeat(1200);
+        let serialized = 0;
+        originalStringify = JSON.stringify;
+        JSON.stringify = (...args) => { serialized++; return originalStringify(...args); };
+        const liveStart = performance.now();
+        for (let length = 1; length <= 12; length++) {
+            input.value = secret.slice(0, length);
+            root.dispatchEvent({ type: 'input', target: input });
+            assert.ok(root.contains(input), 'live typing keeps the same DOM input');
+            assert.ok(document.activeElement === input, 'live typing retains focus');
+        }
+        assert.ok(settings.getSnapshot().draft.bridge.autoIllustration.llm.apiKey === secret.slice(0, 12), 'input events update the key draft before direct controller edits');
+        assert.equal(settings.setValue(keyPath, secret, { liveInput: true }).ok, true);
+        document.activeElement = promptInput;
+        promptInput.value = prompt;
+        root.dispatchEvent({ type: 'input', target: promptInput });
+        assert.ok(root.contains(promptInput) && document.activeElement === promptInput, 'long prompt typing retains its input and focus');
+        assert.ok(settings.getSnapshot().draft.bridge.autoIllustration.assets.templates.background === prompt, 'prompt input event updates the draft before direct controller edits');
+        assert.equal(settings.setValue('bridge.sceneAssets.generated.expressionNotes.角色0.常态.positive', prompt, { liveInput: true }).ok, true);
+        const liveMs = performance.now() - liveStart;
+        JSON.stringify = originalStringify;
+        originalStringify = null;
+        assert.equal(serialized, 0, 'live edits must not stringify the large draft');
+        assert.equal(rebuilds, 0, 'live edits must not rebuild the settings DOM');
+        assert.equal(clears, 0);
+        assert.equal(legacyWrites.length, 0, 'live edits must not write settings');
+        const redrawStart = performance.now();
+        assert.equal(settings.setValue('readerSettings.fontSize', 21).ok, true);
+        const redrawMs = performance.now() - redrawStart;
+        assert.equal(rebuilds, 1);
+        assert.equal(clears, 1);
+        assert.equal(legacyWrites.length, 0);
+        const saveStart = performance.now();
+        assert.equal(settings.close().ok, true);
+        const saveMs = performance.now() - saveStart;
+        const saved = JSON.parse(storage.getItem('igs_bridge_config'));
+        assert.equal(saved.sceneAssets.generated.expressionNotes.角色0.常态.positive, prompt);
+        assert.equal(saved.sceneAssets.generated.expressionNotes.角色499.常态.positive.length > 0, true);
+        assert.ok(saved.autoIllustration.llm.apiKey === secret, 'latest key is saved without exposing its value in failure output');
+        assert.ok(saved.autoIllustration.assets.templates.background === prompt.trim(), 'asset template is saved in its existing normalized form');
+        assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).fontSize, 21);
+        assert.equal(legacyWrites.filter((key) => key === 'igs_bridge_config').length, 1);
+        assert.equal(legacyWrites.filter((key) => key === 'igs-reader-settings-v9-default').length, 1);
+        assert.equal(new Set(legacyWrites).size, legacyWrites.length, 'no legacy key is written twice on close');
+        const writesOnFirstClose = legacyWrites.length;
+        const reopened = vn.openSettings({ tab: 'image' }).controller;
+        assert.equal(reopened.close().ok, true);
+        assert.equal(legacyWrites.length, writesOnFirstClose, 'closing an unchanged large draft does not rewrite storage');
+        t.diagnostic(`large draft: live=${liveMs.toFixed(1)}ms redraw=${redrawMs.toFixed(1)}ms close=${saveMs.toFixed(1)}ms; live JSON=${serialized}, DOM rebuilds=${rebuilds}, legacy writes=${legacyWrites.length}`);
+    } finally {
+        if (originalStringify) JSON.stringify = originalStringify;
+        vn.destroy();
+    }
 });
 
 

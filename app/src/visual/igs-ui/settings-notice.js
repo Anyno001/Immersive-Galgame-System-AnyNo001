@@ -31,7 +31,10 @@ export function describeSaveError(error) {
 export function describeSettingsFailure(result) {
     if (!result || typeof result !== 'object' || result.ok !== false) return '';
     if (result.thrown) return `操作失败：${describeSaveError(result.thrown)}`;
-    if (result.saveError || SAVE_FAILURE_REASONS.has(result.reason)) return `保存失败：${describeSaveError(result.saveError || result.message || result.reason)}`;
+    if (result.saveError || SAVE_FAILURE_REASONS.has(result.reason)) {
+        const detail = describeSaveError(result.saveError || result.message || result.reason);
+        return `保存失败：${detail}${result.rollbackFailed ? '。部分设置可能已写入，请勿关闭设置，检查后重试' : ''}`;
+    }
     return '';
 }
 

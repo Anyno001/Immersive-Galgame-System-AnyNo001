@@ -50,7 +50,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.30';
+const IGS_VERSION = '0.34.31';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -440,13 +440,15 @@ export function bootstrapIGS(options = {}) {
     }
 
     function getUnifiedSettingsSnapshot(input = {}) {
-        const bridge = {
-            ...cloneData(state.legacyIgs && state.legacyIgs.bridge || {}),
-            ...cloneData(state.config || {}),
-        };
+        // The shallow merge picks one value per key. Clone only the winning graph;
+        // cloning the overwritten sceneAssets tree and then cloning it again is costly.
+        const bridge = cloneData({
+            ...(state.legacyIgs && state.legacyIgs.bridge || {}),
+            ...(state.config || {}),
+        });
         if (bridge.sceneAssets && typeof bridge.sceneAssets === 'object' && !Array.isArray(bridge.sceneAssets)) {
             bridge.sceneAssets = {
-                ...cloneData(bridge.sceneAssets),
+                ...bridge.sceneAssets,
                 promptRule: normalizeScenePromptRule(bridge.sceneAssets.promptRule),
             };
         }
@@ -455,7 +457,7 @@ export function bootstrapIGS(options = {}) {
             state.legacyIgs && state.legacyIgs.displayMode,
             bridge,
         );
-        const readerSettingsByMode = cloneData(state.legacyIgs && state.legacyIgs.readerSettingsByMode || {});
+        const readerSettingsByMode = state.legacyIgs && state.legacyIgs.readerSettingsByMode || {};
         // 优先 default 桶；老用户 default 为空时回退到旧的 pc/mobile 分桶或顶层 readerSettings。
         const hasKeys = (obj) => obj && typeof obj === 'object' && Object.keys(obj).length > 0;
         const resolvedReaderSettings = hasKeys(readerSettingsByMode['default']) ? readerSettingsByMode['default']
@@ -473,11 +475,13 @@ export function bootstrapIGS(options = {}) {
 
     function saveUnifiedSettings(payload = {}) {
         const currentLegacy = state.legacyIgs || readLegacyIgsSettings(storageLike);
-        const nextBridge = {
-            ...cloneData(currentLegacy.bridge || {}),
-            ...cloneData(state.config || {}),
-            ...cloneData(payload.bridge || {}),
-        };
+        // Merge first, then copy the winning values once. Copying each source before
+        // the shallow merge duplicates large sceneAssets libraries that get overwritten.
+        const nextBridge = cloneData({
+            ...(currentLegacy.bridge || {}),
+            ...(state.config || {}),
+            ...(payload.bridge || {}),
+        });
         const displayMode = resolveLegacyReaderMode(
             nextBridge.openMode,
             currentLegacy.displayMode,
@@ -510,10 +514,10 @@ export function bootstrapIGS(options = {}) {
             : { ok: true, legacy: nextLegacy, persisted: false };
         if (writeResult.ok === false) return writeResult;
         state.legacyIgs = cloneData(writeResult.legacy);
-        state.config = {
-            ...cloneData(state.config || {}),
-            ...cloneData(nextBridge),
-        };
+        state.config = cloneData({
+            ...(state.config || {}),
+            ...nextBridge,
+        });
         events.emit('igs:legacy-settings-updated', cloneData(state.legacyIgs));
         // 用户改了日志保留天数 / 条数后立即按新规则清理。
         if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();

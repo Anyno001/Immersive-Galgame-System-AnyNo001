@@ -1196,7 +1196,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.match(written, /不要沿用原装的衣服/);
     assert.equal(written.includes('不要回避'), false);
     const spicy = buildExpressionDiffDescription('冬月', { positive: '1girl' }, ['喜悦'], null, { name: '泳装', words: ['泳衣'], ownImage: false, prompt: 'school swimsuit, one-piece', nsfwBoost: true });
-    assert.match(spicy, /角色是成年人/);
+    assert.match(spicy, /这套是色情服装/);
     assert.match(spicy, /不要回避/);
     assert.match(spicy, /不要改成普通/);
     assert.equal(written.includes('衣服按这些词来画'), false);
@@ -1307,7 +1307,7 @@ test('gate:assets:wardrobe-prompt-writes-once-and-does-not-paint', async () => {
             assert.match(meta.description, /从上到下写完整/);
             assert.match(meta.description, /不要只写其中一件/);
             assert.equal(meta.description.includes('不要回避'), spicy);
-            assert.equal(meta.description.includes('成年人'), spicy);
+            assert.equal(meta.description.includes('这是色情服装'), spicy);
             assert.equal(meta.description.includes('冬月'), false);
             assert.equal(meta.description.includes('楼层'), false);
             return {
@@ -1342,7 +1342,7 @@ test('gate:assets:wardrobe-reference-paints-the-saved-prompt', async () => {
             const spicy = caption.includes('不要回避');
             if (spicy) {
                 assert.match(caption, /^yukata, floral pattern\n/);
-                assert.match(caption, /成年人/);
+                assert.match(caption, /这是色情服装/);
             } else {
                 assert.equal(caption, 'yukata, floral pattern');
             }

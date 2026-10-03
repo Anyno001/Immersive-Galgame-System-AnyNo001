@@ -1428,7 +1428,9 @@ export function createIgsReaderHost(options = {}) {
             setPath(draft, `${themeRoot}.preset`, 'custom');
         }
         if (editOptions.liveInput) {
-            state.activeSettings.snapshot.draft = cloneData(draft);
+            // getSnapshot() clones before exposing this value; do not deep-copy the entire
+            // asset library for every keystroke (including long prompts and API keys).
+            state.activeSettings.snapshot.draft = draft;
             return { ok: true };
         }
         return rerenderSettings();
@@ -1443,10 +1445,19 @@ export function createIgsReaderHost(options = {}) {
         if (!save) return { ok: false, reason: 'missing-save-handler' };
 
         if (draft.bridge && draft.bridge.sceneAssets) fileGeneratedHoldings(draft.bridge.sceneAssets);
+        // The next settings open trims and validates asset templates. Persist the same
+        // canonical values now, otherwise an unchanged second close rewrites the bridge.
+        // Keep the draft intact on failure and avoid copying the large sceneAssets tree.
+        const auto = draft.bridge && draft.bridge.autoIllustration;
+        const bridgeToSave = auto && auto.assets && auto.assets.templates
+            ? { ...draft.bridge, autoIllustration: {
+                ...auto, assets: { ...auto.assets, templates: normalizeAutoIllustrationSettings(auto).assets.templates },
+            } }
+            : draft.bridge;
         let result;
         try {
             result = save({
-                bridge: draft.bridge,
+                bridge: bridgeToSave,
                 readerMode: 'default',
                 readerSettings: draft.readerSettings,
             });
@@ -1454,7 +1465,12 @@ export function createIgsReaderHost(options = {}) {
             return { ok: false, reason: 'save-failed', saveError: error };
         }
         if (!result || result.ok === false) {
-            return { ok: false, reason: 'save-failed', saveError: result && (result.message || result.reason) };
+            return {
+                ok: false,
+                reason: 'save-failed',
+                saveError: result && (result.message || result.reason),
+                ...(result && result.rollbackFailed ? { rollbackFailed: true } : {}),
+            };
         }
 
         const snapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
@@ -4197,7 +4213,7 @@ export function createIgsReaderHost(options = {}) {
                 const avatars = assets.statusAvatars || (assets.statusAvatars = {});
                 if (Object.hasOwn(avatars, statusAvatarChar) || !['__proto__', 'constructor', 'prototype'].includes(statusAvatarChar)) {
                     avatars[statusAvatarChar] = target.value;
-                    state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
+                    state.activeSettings.snapshot.draft = state.activeSettings.draft;
                 }
                 return;
             }
@@ -4207,7 +4223,7 @@ export function createIgsReaderHost(options = {}) {
                 const houses = assets.characterHouses || (assets.characterHouses = {});
                 if (target.value) houses[charHouse] = target.value;
                 else delete houses[charHouse];
-                state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
+                state.activeSettings.snapshot.draft = state.activeSettings.draft;
                 return;
             }
             const wardrobeName = target.getAttribute('data-wardrobe-name');
@@ -4220,7 +4236,7 @@ export function createIgsReaderHost(options = {}) {
                 const entry = wardrobe[wardrobeName] && typeof wardrobe[wardrobeName] === 'object' && !Array.isArray(wardrobe[wardrobeName])
                     ? wardrobe[wardrobeName] : (wardrobe[wardrobeName] = { prompt: '' });
                 entry.prompt = target.value;
-                state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
+                state.activeSettings.snapshot.draft = state.activeSettings.draft;
                 return;
             }
             const dnaChar = target.getAttribute('data-dna-char');
@@ -4234,7 +4250,7 @@ export function createIgsReaderHost(options = {}) {
                     ? assets.characterDna : (assets.characterDna = {});
                 const entry = Object.hasOwn(dnaMap, dnaChar) && dnaMap[dnaChar] && typeof dnaMap[dnaChar] === 'object' ? dnaMap[dnaChar] : (dnaMap[dnaChar] = {});
                 entry[dnaField] = target.value;
-                state.activeSettings.snapshot.draft = cloneData(state.activeSettings.draft);
+                state.activeSettings.snapshot.draft = state.activeSettings.draft;
                 return;
             }
             const sceneBg = target.getAttribute('data-scene-bg');
@@ -4744,7 +4760,9 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function normalizeSceneAssets(value) {
-        const normalized = cloneData(value || {});
+        // normalizeBridgeConfig already cloned the entire bridge before calling here.
+        // Re-cloning a large sceneAssets library on every settings redraw is redundant.
+        const normalized = value || {};
         normalized.enabled = normalizeBoolean(normalized.enabled, false);
         normalized.generated = normalizeGeneratedLibrary(normalized.generated);
         normalized.promptRule = normalizeScenePromptRule(normalized.promptRule);

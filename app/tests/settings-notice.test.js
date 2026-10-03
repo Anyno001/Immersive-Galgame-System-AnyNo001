@@ -20,6 +20,8 @@ test('gate:settings-notice:only-real-save-failures-and-throws-are-reported', () 
     assert.match(describeSettingsFailure({ ok: false, reason: 'save-failed', saveError: quotaError() }), /^保存失败：浏览器本地存储已满/);
     assert.match(describeSettingsFailure({ ok: false, reason: 'save-failed', saveError: 'The quota has been exceeded.' }), /本地存储已满/);
     assert.equal(describeSettingsFailure({ ok: false, reason: 'save-failed', saveError: 'disk busy' }), '保存失败：disk busy');
+    const partial = describeSettingsFailure({ ok: false, reason: 'save-failed', saveError: 'disk busy', rollbackFailed: true });
+    assert.match(partial, /部分设置可能已写入.*检查后重试/);
     assert.equal(describeSettingsFailure({ ok: false, reason: 'save-failed' }), '保存失败：save-failed');
     assert.equal(describeSettingsFailure({ ok: false, reason: 'action-threw', thrown: new TypeError('x is undefined') }), '操作失败：x is undefined');
     assert.equal(isQuotaError({ code: 22 }), true);
@@ -164,6 +166,40 @@ test('gate:settings-notice:full-storage-keeps-panel-open-with-readable-reason', 
         assert.match(describeSettingsFailure(closed), /^保存失败：浏览器本地存储已满/);
         assert.ok(controller.getSnapshot(), 'panel stays open so the edit is not lost');
     } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:settings-notice:failed-compensation-keeps-draft-open-and-warns-about-partial-write', () => {
+    const storage = createMemoryStorage();
+    const vn = bootstrapIGS({
+        global: { localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    const originalSetItem = storage.setItem.bind(storage);
+    try {
+        assert.equal(vn.openSettings({ tab: 'basic' }).controller.close().ok, true);
+        const oldBridge = storage.getItem('igs_bridge_config');
+        const controller = vn.openSettings({ tab: 'basic' }).controller;
+        const next = !controller.getSnapshot().draft.bridge.showToasts;
+        controller.toggle('bridge.showToasts');
+        storage.setItem = (key, value) => {
+            if (key === 'igs_bridge_config') {
+                if (value === oldBridge) throw new Error('rollback blocked');
+                originalSetItem(key, value);
+                throw new Error('write failed after mutation');
+            }
+            originalSetItem(key, value);
+        };
+        const closed = controller.close();
+        assert.equal(closed.ok, false);
+        assert.equal(closed.rollbackFailed, true);
+        assert.match(describeSettingsFailure(closed), /部分设置可能已写入/);
+        assert.equal(controller.getSnapshot().draft.bridge.showToasts, next, 'draft is retained for recovery');
+        assert.notEqual(storage.getItem('igs_bridge_config'), oldBridge, 'the warning reflects a real partial write');
+    } finally {
+        storage.setItem = originalSetItem;
         vn.destroy();
     }
 });
