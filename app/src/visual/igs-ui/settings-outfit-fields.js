@@ -94,7 +94,7 @@ function shownUrl(url, resolveUrl) {
 function thumb(url, alt, extraClass = '', resolveUrl) {
     const value = shownUrl(url, resolveUrl);
     if (isImageUrl(value)) {
-        return `<img class="igs-outfit-thumb${extraClass}" src="${esc(value)}" alt="${esc(alt)}" data-action="sprite-preview:${encSeg(value)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`;
+        return `<img class="igs-outfit-thumb${extraClass}" src="${esc(value)}" alt="${esc(alt)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`;
     }
     return `<span class="igs-outfit-thumb igs-outfit-thumb-empty${extraClass}" aria-hidden="true">${value ? '生成' : PERSON_SVG}</span>`;
 }

@@ -31,7 +31,7 @@ export function renderAssetFolderSelect(kind, name, kindState, { menu = false } 
 function tile(kind, name, url, kindState) {
     const u = String(url || '').trim();
     const thumb = u
-        ? `<img class="igs-asset-tile-thumb" src="${esc(u)}" alt="${esc(name)}" data-action="sprite-preview:${encSeg(u)}" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        ? `<img class="igs-asset-tile-thumb" src="${esc(u)}" alt="${esc(name)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : '<div class="igs-asset-tile-thumb igs-asset-tile-empty">未配置</div>';
     // 缩略图模式的「修改」入口：由 asset-edit 动作切回列表并展开该条目，不改动素材数据。
     const edit = `<button type="button" class="igs-btn-mgr-icon igs-asset-tile-edit" data-action="asset-edit:${kind}:${encSeg(name)}" title="修改" aria-label="修改 ${esc(name)}">${PENCIL}</button>`;

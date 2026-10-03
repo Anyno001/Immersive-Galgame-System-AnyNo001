@@ -320,24 +320,48 @@ export function createIgsReaderHost(options = {}) {
         ? options.onItemImageUpdated(() => { if (state.activeReader) rerenderActiveReader(); })
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
-    let settingsImageRefreshTimer = 0;
+    // 快照 → 遮罩内层 HTML；不放进快照字段，免得 getSnapshot/克隆多带一份。
+    const settingsShellHtml = new WeakMap();
     const settingsBusyActions = new Set();
-    function scheduleSettingsImageRefresh() {
-        if (settingsImageRefreshTimer) return;
+    // 生图从 IndexedDB 一张张异步补回，每张都会发 image-loaded。按窗口合并成一次重绘，
+    // 否则 N 张图触发 N 次整页重绘、每次又带上已到的全部 dataUrl，开销随张数平方增长。
+    const IMAGE_REFRESH_BATCH_MS = 120;
+    let imageRefreshTimer = 0;
+    let readerImageRefreshPending = false;
+    let settingsImageRefreshPending = false;
+    // 设置面板全屏盖住阅读器时不重绘后面的舞台，记一笔，关面板时补一次。
+    let readerStaleBehindSettings = false;
+    function scheduleImageRefresh({ reader = false, settings = false } = {}) {
+        if (reader) readerImageRefreshPending = true;
+        if (settings) settingsImageRefreshPending = true;
+        if (imageRefreshTimer) return;
         const g = options.global || globalThis;
         const schedule = typeof g.setTimeout === 'function' ? g.setTimeout.bind(g) : setTimeout;
-        settingsImageRefreshTimer = schedule(() => {
-            settingsImageRefreshTimer = 0;
-            if (state.activeSettings && state.activeSettings.tab === 'scene') rerenderSettings();
-        }, 0);
+        imageRefreshTimer = schedule(() => {
+            imageRefreshTimer = 0;
+            const doReader = readerImageRefreshPending;
+            const doSettings = settingsImageRefreshPending;
+            readerImageRefreshPending = false;
+            settingsImageRefreshPending = false;
+            if (doReader && state.activeReader) {
+                if (state.activeSettings) readerStaleBehindSettings = true;
+                else rerenderActiveReader();
+            }
+            if (doSettings && state.activeSettings && state.activeSettings.tab === 'scene') rerenderSettings();
+        }, IMAGE_REFRESH_BATCH_MS);
     }
     const offGeneratedAssetUpdated = typeof options.onGeneratedAssetUpdated === 'function'
         ? options.onGeneratedAssetUpdated((detail) => {
-            if (state.activeReader) rerenderActiveReader();
             const settings = state.activeSettings;
+            const imageLoaded = Boolean(detail && detail.reason === 'image-loaded');
+            if (state.activeReader) {
+                if (settings) readerStaleBehindSettings = true;
+                else if (imageLoaded) scheduleImageRefresh({ reader: true });
+                else rerenderActiveReader();
+            }
             if (!settings) return;
-            if (detail && detail.reason === 'image-loaded') {
-                if (settings.tab === 'scene') scheduleSettingsImageRefresh();
+            if (imageLoaded) {
+                if (settings.tab === 'scene') scheduleImageRefresh({ settings: true });
                 return;
             }
             if (settings.asyncState.sceneSubTab === 'review') rerenderSettings();
@@ -809,6 +833,10 @@ export function createIgsReaderHost(options = {}) {
         state.activeSettings = null;
         onboarding.onSettingsClosed();
         syncSettingsStagePause();
+        if (readerStaleBehindSettings) {
+            readerStaleBehindSettings = false;
+            if (state.activeReader) rerenderActiveReader();
+        }
         playReaderUiSfx('close');
         return { ok: true };
     }
@@ -3104,8 +3132,14 @@ export function createIgsReaderHost(options = {}) {
         const tabsHtml = SETTINGS_TAB_DEFS.map(([id, label]) => {
             return `<button type="button" class="igs-settings-tab${tab === id ? ' is-active' : ''}" data-tab="${id}">${label}</button>`;
         }).join('');
+        const shellHtml = renderTemplate(getSettingsShellTemplate(), {
+            version: esc(options.version || '0.5.4'),
+            tabs: tabsHtml,
+            body,
+            settingsThemeSwitch: renderSettingsThemeSwitch(settingsTheme),
+        });
 
-        return {
+        const snapshot = {
             tab,
             imageSubTab,
             readerSubTab,
@@ -3121,12 +3155,7 @@ export function createIgsReaderHost(options = {}) {
                 requiredActions: Array.from((SETTINGS_PANEL_TAB_CONTRACT[id] || {}).requiredActions || []),
             })),
             activeContract: SETTINGS_PANEL_TAB_CONTRACT[tab],
-            html: `<div id="igs-unified-settings" data-igs-igs-ui="true" data-igs-settings-theme="${settingsTheme}">${renderTemplate(getSettingsShellTemplate(), {
-                version: esc(options.version || '0.5.4'),
-                tabs: tabsHtml,
-                body,
-                settingsThemeSwitch: renderSettingsThemeSwitch(settingsTheme),
-            })}</div>`,
+            html: `<div id="igs-unified-settings" data-igs-igs-ui="true" data-igs-settings-theme="${settingsTheme}">${shellHtml}</div>`,
             resultText: {
                 image: settingsState.asyncState.imageResult || '',
                 imageModels: settingsState.asyncState.imageModelsMessage || '',
@@ -3138,6 +3167,8 @@ export function createIgsReaderHost(options = {}) {
             },
             draft,
         };
+        settingsShellHtml.set(snapshot, { theme: settingsTheme, html: shellHtml });
+        return snapshot;
     }
 
     function renderSettingsBody(tab, draft, asyncState) {
@@ -4134,10 +4165,13 @@ export function createIgsReaderHost(options = {}) {
                     }
                     return;
                 }
-                if (actName.startsWith('sprite-preview:')) {
+                // 缩略图大图预览：URL 直接取 <img> 自己的 src，不在 data-action 里再嵌一份（dataUrl 动辄几百 KB）。
+                if (actName === 'sprite-preview' || actName.startsWith('sprite-preview:')) {
                     event.preventDefault();
-                    const url = decodeURIComponent(actName.slice('sprite-preview:'.length));
-                    showSpritePreviewOverlay(root, url);
+                    const url = actName === 'sprite-preview'
+                        ? String(action.getAttribute('src') || '')
+                        : decodeURIComponent(actName.slice('sprite-preview:'.length));
+                    if (url) showSpritePreviewOverlay(root, url);
                     return;
                 }
                 // 生图 › CG 库缩略图：按序号回查已读列表，用同一个预览层铺满显示大图。
@@ -4627,9 +4661,21 @@ export function createIgsReaderHost(options = {}) {
         const prevBody = container.querySelector('.igs-settings-body');
         const scrollTop = prevBody ? prevBody.scrollTop : 0;
         const focus = captureSettingsFocus(container);
-        clearChildren(container);
-        container.innerHTML = snapshot.html;
-        current.dom.overlay = container.querySelector('#igs-unified-settings');
+        // 遮罩层带全屏 backdrop-filter 与焦散动画：重绘只换遮罩里的内容，遮罩节点本身留着，
+        // 免得每次改设置都重建一次全屏模糊合成层、焦散动画从头播。
+        // 兜底遮罩（宿主不解析 innerHTML 时手搭的）不复用，仍按旧路整块重建。
+        const prevOverlay = current.dom.overlayParsed && current.dom.overlay && current.dom.overlay.parentNode === container
+            ? current.dom.overlay : null;
+        const shell = settingsShellHtml.get(snapshot);
+        if (prevOverlay && shell) {
+            prevOverlay.setAttribute('data-igs-settings-theme', shell.theme);
+            prevOverlay.innerHTML = shell.html;
+        } else {
+            clearChildren(container);
+            container.innerHTML = snapshot.html;
+            current.dom.overlay = container.querySelector('#igs-unified-settings');
+            current.dom.overlayParsed = Boolean(current.dom.overlay);
+        }
         if (!current.dom.overlay) {
             current.dom.overlay = buildFallbackSettingsOverlay(container.ownerDocument || getRootDocument(options.global), snapshot, {
                 version: options.version,
