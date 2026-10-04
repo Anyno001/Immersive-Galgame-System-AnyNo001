@@ -24,8 +24,8 @@ import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import { FX_SETTINGS_NORMALIZERS, FX_WORD_LIST_PATHS } from './fx-settings.js';
 import { ROMANCE_ACTIONS_MAX, normalizeRomanceFxSettings } from './romance-settings.js';
 import { META_GLOBAL_SCOPE, META_LINE_KINDS, META_LINES_MAX, normalizeMetaFxSettings } from './meta-settings.js';
-import { PERFORMANCE_PRESETS, applyPerformancePreset, detectPerformancePreset } from './performance-presets.js';
-import { applyPerformanceProfile, hasPerformanceProfile, profileFromReader } from './performance-profile.js';
+import { applyPerformancePreset, capturePerformancePreset, detectPerformancePreset, performancePresetLabel, restorePerformancePreset } from './performance-presets.js';
+import { applyPerformanceProfile, hasPerformanceProfile, profileDiff, profileFromReader } from './performance-profile.js';
 import { WORLDVIEWS, applyWorldview, resolveWorldview } from '../../scene/worldview.js';
 import { normalizeHorrorGore, normalizeHorrorStyle } from '../../scene/horror.js';
 import { BGM_ACTION_RE, handleBgmSettingsAction } from './bgm-settings-actions.js';
@@ -658,16 +658,16 @@ const RISKY_ACTIONS = [
     ['chat-show-reset-prompt', () => '线上交流提示词恢复默认？现在改过的内容会被覆盖。'],
 ];
 
-function riskyActionMessage(action, settingsState, editTarget) {
-    const preset = /^perf-preset:([a-z]+)$/.exec(action);
-    if (preset) {
-        const reader = settingsState.draft.readerSettings || {};
-        const profile = reader.performanceProfile;
-        const current = profile && typeof profile === 'object' ? profile.level : detectPerformancePreset(reader);
-        const found = PERFORMANCE_PRESETS.find(([id]) => id === preset[1]);
-        if (!found || current === preset[1]) return '';
-        return `切换到「${found[1]}」？各演出的开关会按这一档重设，手动改过的开关会被覆盖，细项设置保留。`;
+// 当前演出开关是不是手调出来的自定义组合：有快速配置时看是否偏离配置，没有时看能否对上某一档。
+function isCustomPerformanceCombo(reader) {
+    if (hasPerformanceProfile(reader)) {
+        const diff = profileDiff(reader);
+        return Boolean(diff && (diff.added.length || diff.removed.length));
     }
+    return detectPerformancePreset(reader) === '';
+}
+
+function riskyActionMessage(action, settingsState, editTarget) {
     const worldview = /^worldview:([a-z-]+)$/.exec(action);
     if (worldview) {
         const found = WORLDVIEWS.find((item) => item.id === worldview[1]);
@@ -1712,12 +1712,36 @@ export async function handleSettingsAction(action, ctx) {
     const perfPresetAction = normalizedAction.match(/^perf-preset:([a-z]+)$/);
     if (perfPresetAction) {
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const presetId = perfPresetAction[1];
+        const label = performancePresetLabel(presetId);
+        if (!label) return rerenderSettings();
+        // 只有会覆盖自定义组合时才确认（同档重按、档位之间切换直接生效）；确认后记下快照，可「撤销档位切换」。
+        if (isCustomPerformanceCombo(readerDraft)) {
+            const snapshot = {
+                switches: capturePerformancePreset(readerDraft),
+                profile: hasPerformanceProfile(readerDraft) ? JSON.parse(JSON.stringify(readerDraft.performanceProfile)) : null,
+            };
+            if (!await dialogs.confirm(`当前是自定义的演出组合，切到「${label}」档会按档位重设各演出的开关，细项设置保留。`, { okLabel: '覆盖' })) {
+                return rerenderSettings();
+            }
+            settingsState.asyncState.perfPresetUndo = snapshot;
+        }
         // 有快速配置时，档位只换热闹程度，卡片类型、声音、亲密保留。
         if (hasPerformanceProfile(readerDraft)) {
-            applyPerformanceProfile(readerDraft, { ...profileFromReader(readerDraft), level: perfPresetAction[1] });
+            applyPerformanceProfile(readerDraft, { ...profileFromReader(readerDraft), level: presetId });
         } else {
-            applyPerformancePreset(readerDraft, perfPresetAction[1]);
+            applyPerformancePreset(readerDraft, presetId);
         }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'perf-preset-undo') {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const snapshot = settingsState.asyncState.perfPresetUndo;
+        if (!snapshot || !restorePerformancePreset(readerDraft, snapshot.switches)) return rerenderSettings();
+        if (snapshot.profile) readerDraft.performanceProfile = snapshot.profile;
+        else delete readerDraft.performanceProfile;
+        settingsState.asyncState.perfPresetUndo = null;
         return rerenderSettings();
     }
 
