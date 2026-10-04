@@ -125,3 +125,33 @@ test('stretch: keeps pitch-period content and scales length by the ratio', () =>
     const hz = crossings / 2 / (mid.length / rate);
     assert.ok(Math.abs(hz - 220) / 220 < 0.05, `got ${hz}Hz`);
 });
+
+test('settings: choosing a character voice, pitch and speed is saved and shown', async () => {
+    const { bootstrapIGS } = await import('../src/index.js');
+    const vn = bootstrapIGS({ global: {}, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const controller = vn.openSettings({ tab: 'reader', mode: 'pc' }).controller;
+        controller.setValue('readerSettings.voiceBark.enabled', true);
+        controller.setValue('bridge.sceneAssets.characters', { 雷恩: { 默认: '' } });
+        await controller.invoke(`scene-toggle-dna:${encodeURIComponent('雷恩')}`);
+        const name = encodeURIComponent('雷恩');
+        await controller.invoke(`char-voice:pack:${name}:${male.id}`);
+        await controller.invoke(`char-voice:pitch:${name}:-1.5`);
+        await controller.invoke(`char-voice:speed:${name}:1.2`);
+        const saved = controller.getSnapshot().draft.bridge.sceneAssets.characterVoices;
+        assert.deepEqual(saved, { 雷恩: { pack: male.id, pitch: -1.5, speed: 1.2 } });
+        controller.switchTab('scene');
+        const html = controller.switchSceneSubTab('characters').html || controller.getSnapshot().html;
+        assert.match(html, new RegExp(`value="${male.id}" selected`));
+        assert.match(html, /value="-1.5" selected/);
+        assert.match(html, /value="1.2" selected/);
+        // 选回「自动」且音高语速复原时整条删掉。
+        await controller.invoke(`char-voice:pack:${name}:`);
+        await controller.invoke(`char-voice:pitch:${name}:0`);
+        await controller.invoke(`char-voice:speed:${name}:1`);
+        assert.deepEqual(controller.getSnapshot().draft.bridge.sceneAssets.characterVoices, {});
+        controller.close();
+    } finally {
+        vn.destroy();
+    }
+});

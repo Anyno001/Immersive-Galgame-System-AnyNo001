@@ -37,7 +37,7 @@ import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
 import { normalizeCharacterHouses } from './magic-house.js';
-import { normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, resolveCharacterVoice } from './voice-bark.js';
+import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, resolveCharacterVoice } from './voice-bark.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
 import { beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
@@ -2038,6 +2038,34 @@ export async function handleSettingsAction(action, ctx) {
         progress.end();
         showGeneratedNotice(globalObj, `「${charName}」的 Q 版头像已换上。`, 'info');
         return rendered;
+    }
+
+    // 角色学院、声线存在根素材库（和角色卡素材库分开），按主名记。
+    if (normalizedAction.startsWith('char-house:') || normalizedAction.startsWith('char-voice:')) {
+        const voice = normalizedAction.startsWith('char-voice:');
+        const parts = normalizedAction.slice(voice ? 'char-voice:'.length : 'char-house:'.length).split(':');
+        const field = voice ? parts.shift() : 'house';
+        const charName = decodeSeg(parts[0]);
+        const value = decodeSeg(parts[1]);
+        if (!charName || ['__proto__', 'constructor', 'prototype'].includes(charName)) return { ok: false, error: '角色名无效' };
+        const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        if (voice) {
+            if (!['pack', 'pitch', 'speed'].includes(field)) return { ok: false, error: '未知的声线设置' };
+            const voices = assets.characterVoices = normalizeCharacterVoices(assets.characterVoices);
+            const entry = normalizeCharacterVoice(voices[charName]);
+            entry[field] = field === 'pack' ? value : Number(value);
+            const next = normalizeCharacterVoices({ [charName]: entry })[charName];
+            if (next) voices[charName] = next;
+            else delete voices[charName];
+        } else {
+            const houses = assets.characterHouses = normalizeCharacterHouses(assets.characterHouses);
+            if (value) houses[charName] = value;
+            else delete houses[charName];
+            assets.characterHouses = normalizeCharacterHouses(houses);
+        }
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
     }
 
     if (normalizedAction.startsWith('voice-bark-preview:')) {
