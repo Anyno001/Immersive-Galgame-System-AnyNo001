@@ -10,7 +10,7 @@ import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneA
 import { buildCharacterCardPack, mergeLabelGroups, parseCharacterCardPack, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
-import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { SETTINGS_NOTICE_MS } from './settings-notice.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
@@ -2920,33 +2920,16 @@ export async function handleSettingsAction(action, ctx) {
         let count = 0;
         let draftChanged = false;
         try {
-            const configured = normalizeAutoIllustrationSettings(settingsState.draft.bridge.autoIllustration).llm;
-            const llm = configured.source === 'openai' && configured.endpoint.trim() && configured.model.trim()
-                ? configured : { ...configured, source: 'tavern' };
-            const system = '你只负责将待确认情绪词归入给出的已有情绪组。每个词恰好出现一次，不新建组，不删词。只返回 JSON：{"assignments":[{"word":"原词","group":"已有组名"}]}。';
-            const user = JSON.stringify({ groups: groups.map((group) => ({ label: group.label, words: group.words })), words: pending.map((item) => item.word) });
-            const raw = await options.requestMoodClassification({ system, user }, llm);
+            const words = pending.map((item) => item.word);
+            const llm = resolveSecondaryLlm(settingsState.draft.bridge.autoIllustration);
+            const raw = await options.requestMoodClassification(buildMoodClassificationRequest(groups, words), llm);
             if (state.activeSettings !== settingsState) return { ok: false, reason: 'settings-closed' };
-            const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-            const parsed = JSON.parse(text);
-            const assignments = parsed && parsed.assignments;
-            const expected = new Set(pending.map((item) => item.word));
-            const results = new Map();
-            if (!Array.isArray(assignments) || assignments.length !== expected.size) throw new Error('invalid-assignments');
-            for (const entry of assignments) {
-                if (!entry || !expected.has(entry.word) || !labels.includes(entry.group) || results.has(entry.word)) throw new Error('invalid-assignment');
-                results.set(entry.word, entry.group);
-            }
+            const results = parseMoodClassification(raw, words, labels);
             const live = loadMoodReview(storage);
             if (JSON.stringify(live) !== JSON.stringify(pending) || JSON.stringify(groups) !== JSON.stringify(originalGroups)) {
                 throw new Error('classification-input-changed');
             }
-            const nextGroups = cloneData(groups);
-            for (const item of pending) {
-                const group = nextGroups.find((entry) => entry.label === results.get(item.word));
-                for (const other of nextGroups) if (other !== group) other.words = other.words.filter((word) => word !== item.word);
-                if (!group.words.includes(item.word)) group.words.push(item.word);
-            }
+            const nextGroups = applyMoodAssignments(groups, results);
             settingsState.draft.bridge.sceneAssets.moodGroups = nextGroups;
             draftChanged = true;
             const saved = persistSettingsDraft();

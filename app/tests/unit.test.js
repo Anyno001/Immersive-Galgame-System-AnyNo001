@@ -62,6 +62,7 @@ import {
     fuzzyResolveMoodGroup,
 } from '../src/scene/mood-groups.js';
 import { loadMoodReview, recordMoodReview, MOOD_REVIEW_LIMIT } from '../src/scene/mood-review-store.js';
+import { applyMoodAssignments, parseMoodClassification } from '../src/scene/mood-classify.js';
 import { renderMoodReviewList } from '../src/visual/igs-ui/settings-fields.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from '../src/visual/igs-ui/settings-theme.js';
@@ -1740,6 +1741,9 @@ test('gate:scene:mood-review-ai-classify-manual-single-request-and-existing-grou
     assert.equal(requests, 1, 'one click starts one LLM request');
     assert.equal(sent.llm.source, 'tavern', 'unfilled independent API falls back to Tavern');
     assert.deepEqual(JSON.parse(sent.input.user).words, ['迟疑', '嘲弄']);
+    assert.deepEqual(JSON.parse(sent.input.user).groups[0], { label: '嫌弃', words: ['反感'] });
+    assert.match(sent.input.system, /分类习惯/);
+    assert.match(sent.input.system, /最合适/);
     assert.equal((await handleSettingsAction('mood-review-ai-classify', ctx)).reason, 'mood-classification-busy');
     assert.equal(requests, 1, 'second click while pending cannot start another request');
     resolveAnswer(JSON.stringify({ assignments: [{ word: '嘲弄', group: '嫌弃' }, { word: '迟疑', group: '思考' }] }));
@@ -1749,6 +1753,14 @@ test('gate:scene:mood-review-ai-classify-manual-single-request-and-existing-grou
     assert.deepEqual(loadMoodReview(storage), []);
 });
 
+
+test('gate:scene:mood-classification-rejects-a-new-group-and-keeps-words-in-the-chosen-group', () => {
+    const groups = [{ label: '思考', words: ['沉思'] }, { label: '喜悦', words: ['开心'] }];
+    assert.throws(() => parseMoodClassification('{"assignments":[{"word":"迟疑","group":"新建"}]}', ['迟疑'], ['思考', '喜悦']), /invalid-assignment/);
+    const parsed = parseMoodClassification('说明\n{"assignments":[{"word":"迟疑","group":"思考"}]}', ['迟疑'], ['思考', '喜悦']);
+    assert.deepEqual(applyMoodAssignments(groups, parsed)[0].words, ['沉思', '迟疑']);
+    assert.deepEqual(groups[0].words, ['沉思']);
+});
 
 test('gate:scene:mood-review-ai-classify-rejects-incomplete-or-unknown-assignments', async () => {
     for (const answer of [

@@ -460,11 +460,14 @@ export function applyToolbarState(root, current) {
         playButton.setAttribute('aria-pressed', String(autoPlay.enabled));
     }
     const currentCgShown = Boolean(contentForCg.illustrationActive && contentForCg.illustrationUrl);
+    const currentCgSlot = Boolean(contentForCg.illustrationSlot);
     for (const id of ['clear-cg', 'reroll-cg']) {
         const button = root.querySelector(`#igs-btn-${id}`);
         if (!button) continue;
-        button.disabled = !currentCgShown;
-        button.setAttribute('aria-disabled', String(!currentCgShown));
+        // 没画出来的 CG 点没有图，清扫仍不可用；重画只认挂载点，失败的那张也能点。
+        const enabled = id === 'reroll-cg' ? currentCgSlot : currentCgShown;
+        button.disabled = !enabled;
+        button.setAttribute('aria-disabled', String(!enabled));
     }
 
     for (const id of order) {

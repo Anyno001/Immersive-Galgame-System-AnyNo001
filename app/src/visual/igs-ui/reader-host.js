@@ -219,7 +219,8 @@ import { resolveWorldview } from '../../scene/worldview.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
 import { isLayeredPreset, loadLegacyPresets, legacyPresetHasContent, presetCardLayers } from '../../scene/legacy-preset.js';
 import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
-import { loadMoodReview, recordMoodReview } from '../../scene/mood-review-store.js';
+import { loadMoodReview, recordMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
+import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
 import {
     CLASSIC_DIALOG_HEIGHT,
@@ -302,6 +303,12 @@ export function createIgsReaderHost(options = {}) {
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
     const imageResourceCache = createImageResourceCache(options.global || globalThis);
+    let moodAutoTimer = 0;
+    let moodAutoRunning = false;
+    let moodAutoAgain = false;
+    let moodAutoDisposed = false;
+    let moodAutoFloorSent = '';
+    let moodAutoFloorWaiting = '';
     let embeddedStoryObserver = null;
     let embeddedStoryTimer = null;
     const streamObserver = createChatStreamObserver({
@@ -848,6 +855,7 @@ export function createIgsReaderHost(options = {}) {
         settingsPointerDown = false;
         onboarding.onSettingsClosed();
         syncSettingsStagePause();
+        scheduleMoodAutoClassify();
         if (readerStaleBehindSettings) {
             readerStaleBehindSettings = false;
             if (state.activeReader) rerenderActiveReader();
@@ -879,6 +887,9 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function destroy() {
+        moodAutoDisposed = true;
+        if (moodAutoTimer) moodAutoTimers().clearTimeout(moodAutoTimer);
+        moodAutoTimer = 0;
         const closed = closeSettings();
         if (closed.ok === false) return closed;
         offIllustrationUpdated();
@@ -1060,6 +1071,11 @@ export function createIgsReaderHost(options = {}) {
         current.streamBaselineRaw = '';
         current.streamBaselineVisible = '';
         current.streamPhase = 'idle';
+        if (moodAutoFloorWaiting && moodAutoFloorWaiting !== moodAutoFloorSent) {
+            moodAutoFloorSent = moodAutoFloorWaiting;
+            moodAutoFloorWaiting = '';
+            scheduleMoodAutoClassify();
+        }
         const mount = current.dom && current.dom.embeddedMount;
         const host = mount && mount.host;
         if (host && host.removeAttribute) host.removeAttribute('data-igs-embedded-loading');
@@ -1476,6 +1492,7 @@ export function createIgsReaderHost(options = {}) {
             state.activeSettings.snapshot.draft = draft;
             return { ok: true };
         }
+        if (path === 'bridge.sceneAssets.moodAutoClassify' && value === true) scheduleMoodAutoClassify();
         return rerenderSettings();
     }
 
@@ -2083,7 +2100,7 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
         const content = current.snapshot && current.snapshot.content || {};
-        if (!content.illustrationActive || !content.illustrationUrl || !content.illustrationSlot) {
+        if (!content.illustrationSlot) {
             writeToastSafe('当前页没有可重画的 CG。');
             return { ok: true, reason: 'no-current-cg' };
         }
@@ -2504,6 +2521,125 @@ export function createIgsReaderHost(options = {}) {
         }
     }
 
+    function moodAutoTimers() {
+        const clock = options.global || globalThis;
+        return {
+            setTimeout: typeof clock.setTimeout === 'function' ? clock.setTimeout.bind(clock) : globalThis.setTimeout.bind(globalThis),
+            clearTimeout: typeof clock.clearTimeout === 'function' ? clock.clearTimeout.bind(clock) : globalThis.clearTimeout.bind(globalThis),
+        };
+    }
+
+    function moodAutoContext() {
+        const draft = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge;
+        if (draft) {
+            return {
+                enabled: draft.sceneAssets && draft.sceneAssets.moodAutoClassify === true,
+                groups: normalizeMoodGroups(draft.sceneAssets && draft.sceneAssets.moodGroups),
+                llm: resolveSecondaryLlm(draft.autoIllustration),
+            };
+        }
+        const unified = resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' });
+        const assets = unified.bridge && unified.bridge.sceneAssets;
+        return {
+            enabled: Boolean(assets && assets.moodAutoClassify === true),
+            groups: normalizeMoodGroups(assets && assets.moodGroups),
+            llm: resolveSecondaryLlm(unified.bridge && unified.bridge.autoIllustration),
+        };
+    }
+
+    function reportMoodAuto(message) {
+        if (state.activeSettings) {
+            state.activeSettings.asyncState.moodAutoStatus = message;
+            if (!moodAutoDisposed) rerenderSettings();
+            return;
+        }
+        if (message) writeToastSafe(message);
+    }
+
+    function commitAutoMoodGroups(nextGroups) {
+        if (state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge) {
+            const assets = state.activeSettings.draft.bridge.sceneAssets || (state.activeSettings.draft.bridge.sceneAssets = {});
+            assets.moodGroups = cloneData(nextGroups);
+            return persistSettingsDraft();
+        }
+        const save = typeof options.saveUnifiedSettings === 'function' ? options.saveUnifiedSettings : null;
+        if (!save) return { ok: false, reason: 'missing-save-handler' };
+        const unified = resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' });
+        unified.bridge.sceneAssets.moodGroups = nextGroups;
+        const result = save({
+            bridge: unified.bridge,
+            readerMode: unified.readerMode,
+            readerSettings: unified.readerSettings,
+        });
+        return result || { ok: false, reason: 'save-failed' };
+    }
+
+    function scheduleMoodAutoClassify() {
+        if (moodAutoDisposed) return;
+        const clock = moodAutoTimers();
+        if (moodAutoTimer) clock.clearTimeout(moodAutoTimer);
+        moodAutoTimer = clock.setTimeout(() => {
+            moodAutoTimer = 0;
+            void runMoodAutoClassify();
+        }, 280);
+    }
+
+    async function runMoodAutoClassify() {
+        if (moodAutoDisposed) return;
+        if (moodAutoRunning) {
+            moodAutoAgain = true;
+            return;
+        }
+        const storage = (options.global || globalThis).localStorage;
+        const context = moodAutoContext();
+        if (!context.enabled || !storage || typeof options.requestMoodClassification !== 'function') return;
+        const labels = context.groups.map((group) => String(group.label || '').trim()).filter(Boolean);
+        if (!labels.length) return;
+        const pending = loadMoodReview(storage);
+        const fresh = [];
+        for (const item of pending) {
+            const word = String(item && item.word || '').trim();
+            if (!word) continue;
+            if (resolveMoodGroup(word, context.groups)) removeMoodReview(storage, word);
+            else fresh.push(word);
+        }
+        if (!fresh.length) return;
+        const groupsSnapshot = JSON.stringify(context.groups);
+        moodAutoRunning = true;
+        try {
+            const raw = await options.requestMoodClassification(
+                buildMoodClassificationRequest(context.groups, fresh),
+                context.llm,
+            );
+            if (moodAutoDisposed) return;
+            const live = moodAutoContext();
+            if (!live.enabled || JSON.stringify(live.groups) !== groupsSnapshot) {
+                moodAutoAgain = true;
+                return;
+            }
+            const results = parseMoodClassification(raw, fresh, labels);
+            const still = fresh.filter((word) => loadMoodReview(storage).some((item) => item.word === word));
+            if (!still.length) return;
+            const kept = new Map([...results].filter(([word]) => still.includes(word)));
+            const saved = commitAutoMoodGroups(applyMoodAssignments(live.groups, kept));
+            if (!saved || saved.ok === false) {
+                reportMoodAuto('归类失败，新情绪仍留在待确认。');
+                return;
+            }
+            for (const word of still) removeMoodReview(storage, word);
+            if (state.activeReader) rerenderActiveReader();
+            reportMoodAuto(state.activeSettings ? `已归入 ${still.length} 个新情绪。` : `已把 ${still.length} 个新情绪归入情绪组。`);
+        } catch {
+            if (!moodAutoDisposed) reportMoodAuto('归类失败，新情绪仍留在待确认。');
+        } finally {
+            moodAutoRunning = false;
+            if (moodAutoAgain && !moodAutoDisposed) {
+                moodAutoAgain = false;
+                scheduleMoodAutoClassify();
+            }
+        }
+    }
+
     function noteUnlistedMood(spriteHit, mood, sceneAssets) {
         const word = String(mood || '').trim();
         const quality = spriteHit && spriteHit.quality;
@@ -2514,6 +2650,37 @@ export function createIgsReaderHost(options = {}) {
         const storage = (options.global || globalThis).localStorage;
         if (!storage) return;
         recordMoodReview(storage, { word, character: spriteHit.character, quality, group: spriteHit.slot });
+    }
+
+    // 一楼里的新情绪收成一份，只请求一次副 API。翻页不再逐条请求。
+    function noteFloorMoods(messageId, directives, sceneAssets) {
+        if (!sceneAssets || sceneAssets.enabled !== true) return;
+        const storage = (options.global || globalThis).localStorage;
+        if (!storage || !Array.isArray(directives)) return;
+        const seen = new Set();
+        const words = [];
+        for (const directive of directives) {
+            if (!directive || (directive.type !== 'char' && directive.type !== 'thought')) continue;
+            const word = String(directive.mood || '').trim();
+            if (!word || seen.has(word)) continue;
+            seen.add(word);
+            if (resolveMoodGroup(word, sceneAssets.moodGroups)) continue;
+            const character = resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, directive.character) || directive.character;
+            const slots = sceneAssets.characters && sceneAssets.characters[character];
+            if (slots && Object.prototype.hasOwnProperty.call(slots, word)) continue;
+            words.push(word);
+            recordMoodReview(storage, { word, character, quality: 'default' });
+        }
+        if (sceneAssets.moodAutoClassify !== true || !words.length) return;
+        const signature = `${messageId}|${words.join('\n')}`;
+        if (signature === moodAutoFloorSent) return;
+        if (state.activeReader && state.activeReader.streamPhase === 'streaming') {
+            moodAutoFloorWaiting = signature;
+            return;
+        }
+        moodAutoFloorSent = signature;
+        moodAutoFloorWaiting = '';
+        scheduleMoodAutoClassify();
     }
 
     // 服装栏写了该角色没登记的服装名：记入待确认服装词，供设置页一键归入或新建。
@@ -2672,6 +2839,7 @@ export function createIgsReaderHost(options = {}) {
         };
         const sceneDirectives = Array.isArray(extracted.sceneDirectives) ? extracted.sceneDirectives
             : Array.isArray(payload.sceneDirectives) ? payload.sceneDirectives : [];
+        noteFloorMoods(firstDefined(payload.messageId, payload.message && payload.message.id, ''), sceneDirectives, sceneAssets);
         const hasIgsDirectives = sceneDirectives.length > 0;
         let finalBackgroundImage = backgroundImage;
         let finalBackgroundTimed = false;
@@ -2786,14 +2954,16 @@ export function createIgsReaderHost(options = {}) {
                 slot: illustrationHit.slot,
             }) || '')
             : '';
-        const markerImageUrl = illustrationHit && !illustrationUrl
-            ? resolveIllustrationMarkerImageUrl(displayImageState, illustrationHit.slot)
+        // 没生成出自己的图时，只用这条标记已经绑上的槽位图（数据库生图）。
+        // 不拿未绑定的图、也不拿别的数组位置上的图来顶。
+        const boundMarkerUrl = illustrationHit && !illustrationUrl
+            ? resolveBoundSlotImageUrl(displayImageState, illustrationHit.slot)
             : '';
         if (illustrationUrl) {
             finalBackgroundImage = illustrationUrl;
             spriteImage = null;
-        } else if (markerImageUrl) {
-            finalBackgroundImage = markerImageUrl;
+        } else if (boundMarkerUrl) {
+            finalBackgroundImage = boundMarkerUrl;
             spriteImage = null;
         } else if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
@@ -2808,7 +2978,7 @@ export function createIgsReaderHost(options = {}) {
             }
             spriteImage = null;
         }
-        const cgActive = Boolean(illustrationUrl || markerImageUrl);
+        const cgActive = Boolean(illustrationUrl);
         // Per-segment classification from the formatted segment text itself.
         // Order matters: thought (*...*) is checked before dialogue ([名字]：) because
         // a thought segment looks like *[名字]：...* and would otherwise match dialogue.
@@ -3564,7 +3734,9 @@ export function createIgsReaderHost(options = {}) {
                     + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入')
                     + '<div class="igs-source-filter-note">只在用得上时附完整说明。</div></details>',
                 wardrobeSection: renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
-                moodSection: renderMoodGroupList(sceneAssets.moodGroups, { isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]) })
+                moodSection: checkbox('bridge.sceneAssets.moodAutoClassify', sceneAssets.moodAutoClassify === true, '自动归类（按各组已有的情绪，用副 API 把新情绪放进最合适的组）')
+                    + (asyncState.moodAutoStatus ? `<div class="igs-source-filter-note" data-mood-auto-status>${esc(asyncState.moodAutoStatus)}</div>` : '')
+                    + renderMoodGroupList(sceneAssets.moodGroups, { isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]) })
                     + '<div class="igs-settings-row"><button class="igs-settings-action" data-action="mood-apply-preset" type="button">套用预设词库</button><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认词库</button></div>',
             };
             const sceneSubTabs = SCENE_SUBTAB_DEFS.map(([id, label]) => {
@@ -4919,6 +5091,7 @@ export function createIgsReaderHost(options = {}) {
         }
         normalized.unifiedSpriteLayout = normalizeBoolean(normalized.unifiedSpriteLayout, false);
         normalized.moodFuzzyMatch = normalizeBoolean(normalized.moodFuzzyMatch, false);
+        normalized.moodAutoClassify = normalizeBoolean(normalized.moodAutoClassify, false);
         normalizeAssetCards(normalized);
         return normalized;
     }
@@ -5275,22 +5448,21 @@ function locateTextOffsetInSource(source, segText, from = 0) {
     return -1;
 }
 
-function resolveIllustrationMarkerImageUrl(imageState, slot) {
+function resolveBoundSlotImageUrl(imageState, slot) {
     const numericSlot = Number(slot);
     if (!Number.isInteger(numericSlot) || numericSlot < 1) return '';
     const targetIndex = numericSlot - 1;
-    const sources = [
-        imageState && imageState.slots,
-        imageState && imageState.images,
-        imageState && imageState.unboundImages,
-    ];
+    const unbound = new Set((Array.isArray(imageState.unboundImages) ? imageState.unboundImages : [])
+        .map((image) => String(image && image.url || '').trim())
+        .filter(Boolean));
+    const sources = [imageState.slots, imageState.images];
     for (const source of sources) {
         if (!Array.isArray(source)) continue;
         const exact = source.find((image) => Number(image && image.slotIndex) === targetIndex);
         const indexed = source[targetIndex];
         for (const image of [exact, indexed]) {
             const url = String(image && image.url || '').trim();
-            if (url) return url;
+            if (url && !unbound.has(url)) return url;
         }
     }
     return '';

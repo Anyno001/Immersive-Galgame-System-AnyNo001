@@ -10,6 +10,7 @@ import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel
 import { createImageResourceCache, createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
+import { loadMoodReview, recordMoodReview } from '../src/scene/mood-review-store.js';
 import { CHAT_LAYER_STYLE_TEXT, advanceChatReveal, applyChatToDom, cancelChatShow, getChatRevealState } from '../src/visual/igs-ui/chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from '../src/visual/igs-ui/chat-show-runtime.js';
 import { resolveChatTheme } from '../src/visual/igs-ui/chat-themes.js';
@@ -842,6 +843,187 @@ test('gate:illustration:reader-rerenders-after-marker-write-and-keeps-veil-until
     host.destroy();
 });
 
+test('gate:illustration:failed-cg-point-can-reroll-and-does-not-borrow-another-image', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const raw = '[igs-scene:Room|night|clear]\n[igs-img:1]\n这一页的 CG 没画出来。';
+    const calls = [];
+    const host = createIgsReaderHost({
+        global: { document, confirm: () => true },
+        getUnifiedSettings: () => ({
+            bridge: {
+                sceneAssets: {
+                    enabled: true,
+                    scenes: { Room: { url: 'https://example.com/room.png', times: {} } },
+                    characters: {},
+                },
+            },
+            readerSettings: {},
+        }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 39, swipeId: 0, text: raw }),
+        getIllustrationUrl: () => '',
+        illustrations: {
+            async rerollSlot(query) {
+                calls.push(query);
+                return { ok: true, reason: 'done' };
+            },
+        },
+    });
+    try {
+        const opened = host.openReader({
+            messageId: 39,
+            message: { id: 39, text: raw },
+            raw,
+            imageState: {
+                images: [{ url: 'https://example.com/other.png', slotIndex: 0 }],
+                unboundImages: [{ url: 'https://example.com/other.png', slotIndex: 0 }],
+            },
+        }, { mode: 'pc' });
+        assert.equal(opened.ok, true);
+        const content = host.getState().activeReader.snapshot.content;
+        assert.equal(content.illustrationSlot, 1);
+        assert.equal(content.illustrationActive, false);
+        assert.equal(content.backgroundImage, 'https://example.com/room.png');
+        const reroll = document.getElementById('igs-btn-reroll-cg');
+        const clear = document.getElementById('igs-btn-clear-cg');
+        assert.equal(reroll.disabled, false);
+        assert.equal(clear.disabled, true);
+        const result = await opened.controller.invokeAction('reroll-cg');
+        assert.equal(result.ok, true);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].slot, 1);
+        assert.equal(calls[0].messageId, 39);
+    } finally {
+        host.destroy();
+    }
+});
+
+test('gate:scene:new-mood-auto-classifies-by-existing-group-habit', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    const raw = '[igs-char:Alice|迟疑|这话让她停了一下。]';
+    let settings = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                moodAutoClassify: true,
+                characters: { Alice: { 默认: 'https://example.com/alice.png' } },
+                moodGroups: [
+                    { label: '思考', words: ['沉思', '犹豫', '琢磨'] },
+                    { label: '喜悦', words: ['开心', '高兴'] },
+                ],
+            },
+            autoIllustration: { llm: { source: 'openai', endpoint: 'https://llm.example/v1', model: 'habit-model', apiKey: 'k' } },
+        },
+        readerSettings: {},
+    };
+    let sent;
+    const host = createIgsReaderHost({
+        global: { document, localStorage: storage },
+        getUnifiedSettings: () => settings,
+        saveUnifiedSettings: (next) => {
+            settings = { bridge: next.bridge, readerSettings: next.readerSettings, readerMode: next.readerMode };
+            return { ok: true };
+        },
+        requestMoodClassification: async (input, llm) => {
+            sent = { input, llm };
+            return '{"assignments":[{"word":"迟疑","group":"思考"}]}';
+        },
+    });
+    try {
+        const opened = host.openReader({ messageId: 7, message: { id: 7, text: raw }, raw }, { mode: 'pc' });
+        assert.equal(opened.ok, true);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        assert.equal(sent.llm.model, 'habit-model');
+        assert.match(sent.input.system, /分类习惯/);
+        const payload = JSON.parse(sent.input.user);
+        assert.deepEqual(payload.words, ['迟疑']);
+        assert.deepEqual(payload.groups[0].words, ['沉思', '犹豫', '琢磨']);
+        const thinking = settings.bridge.sceneAssets.moodGroups.find((group) => group.label === '思考');
+        assert.equal(thinking.words.includes('迟疑'), true);
+        assert.equal(loadMoodReview(storage).some((item) => item.word === '迟疑'), false);
+    } finally {
+        host.destroy();
+    }
+});
+
+test('gate:scene:one-floor-of-new-moods-classifies-in-one-request', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    const raw = '[igs-char:Alice|迟疑|第一句。]\n[igs-char:Alice|心虚|第二句。]';
+    let settings = {
+        bridge: {
+            sceneAssets: {
+                enabled: true,
+                moodAutoClassify: true,
+                characters: { Alice: { 默认: 'https://example.com/alice.png' } },
+                moodGroups: [{ label: '思考', words: ['沉思', '犹豫'] }],
+            },
+            autoIllustration: { llm: { source: 'openai', endpoint: 'https://llm.example/v1', model: 'habit-model' } },
+        },
+        readerSettings: {},
+    };
+    const sent = [];
+    const host = createIgsReaderHost({
+        global: { document, localStorage: storage },
+        getUnifiedSettings: () => settings,
+        saveUnifiedSettings: (next) => {
+            settings = { bridge: next.bridge, readerSettings: next.readerSettings, readerMode: next.readerMode };
+            return { ok: true };
+        },
+        requestMoodClassification: async (input) => {
+            sent.push(JSON.parse(input.user).words);
+            return JSON.stringify({
+                assignments: [
+                    { word: '迟疑', group: '思考' },
+                    { word: '心虚', group: '思考' },
+                ],
+            });
+        },
+    });
+    try {
+        const opened = host.openReader({ messageId: 8, message: { id: 8, text: raw }, raw }, { mode: 'pc' });
+        assert.equal(opened.ok, true);
+        opened.controller.invokeAction('next');
+        opened.controller.invokeAction('prev');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        assert.equal(sent.length, 1);
+        assert.deepEqual([...sent[0]].sort(), ['心虚', '迟疑'].sort());
+        const words = settings.bridge.sceneAssets.moodGroups[0].words;
+        assert.equal(words.includes('迟疑') && words.includes('心虚'), true);
+    } finally {
+        host.destroy();
+    }
+});
+
+test('gate:scene:mood-auto-classify-stays-off-until-the-switch-is-on', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    recordMoodReview(storage, { word: '迟疑', quality: 'default' });
+    const raw = '[igs-char:Alice|迟疑|她没有立刻回答。]';
+    let calls = 0;
+    const host = createIgsReaderHost({
+        global: { document, localStorage: storage },
+        getUnifiedSettings: () => ({
+            bridge: {
+                sceneAssets: {
+                    enabled: true,
+                    characters: { Alice: { 默认: 'https://example.com/alice.png' } },
+                    moodGroups: [{ label: '思考', words: ['沉思'] }],
+                },
+            },
+            readerSettings: {},
+        }),
+        requestMoodClassification: async () => { calls += 1; return '{"assignments":[]}'; },
+    });
+    try {
+        host.openReader({ messageId: 7, message: { id: 7, text: raw }, raw }, { mode: 'pc' });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        assert.equal(calls, 0);
+        assert.equal(loadMoodReview(storage).some((item) => item.word === '迟疑'), true);
+    } finally {
+        host.destroy();
+    }
+});
 
 test('gate:illustration:reader-clear-cg-removes-only-current-slot-and-rerenders', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
@@ -3648,6 +3830,9 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     assert.match(rulesView.snapshot.html, /data-scene-settings-pane="rules"/);
     assert.match(rulesView.snapshot.html, /保存提示词/);
     assert.match(rulesView.snapshot.html, /衣柜提示词/);
+    assert.match(rulesView.snapshot.html, /data-mood-section/);
+    assert.match(rulesView.snapshot.html, /data-switch="bridge\.sceneAssets\.moodAutoClassify"/);
+    assert.match(rulesView.snapshot.html, /自动归类/);
     assert.doesNotMatch(rulesView.snapshot.html, /背景场景/);
     assert.equal(settings.switchSceneSubTab('wardrobe').snapshot.sceneSubTab, 'rules', '旧的衣柜页签落到规则');
 

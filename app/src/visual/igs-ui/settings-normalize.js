@@ -75,6 +75,7 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
     }
+    if (path === 'bridge.sceneAssets.moodAutoClassify') return value === true || value === 'true' || value === 1 || value === '1';
     if (path === 'bridge.sceneAssets.spriteEnhance.enabled') return value === true || value === 'true' || value === 1 || value === '1';
     if (path === 'bridge.sceneAssets.spriteEnhance.mode') return value === 'shadow' ? 'shadow' : 'outline';
     if (path === 'bridge.sceneAssets.spriteEnhance.color') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
