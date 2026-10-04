@@ -42,7 +42,7 @@ import { findLastDreadLevel } from '../../scene/horror.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
-import { resolveBackgroundAsset, resolveSpriteAsset, isGeneratedAssetUrl, bindGeneratedBackground, bindGeneratedSprite, fileGeneratedHoldings, normalizeGeneratedLibrary, isNonSpriteSpeaker, collectGeneratedImageIds } from '../../scene/asset-match.js';
+import { resolveBackgroundAsset, resolveSpriteAsset, resolveNudeSpriteAsset, isGeneratedAssetUrl, bindGeneratedBackground, bindGeneratedSprite, fileGeneratedHoldings, normalizeGeneratedLibrary, isNonSpriteSpeaker, collectGeneratedImageIds } from '../../scene/asset-match.js';
 import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveCastOffset, resolveStageCast } from '../../scene/stage-cast.js';
 import { normalizeStageCastSettings } from './stage-direction-settings.js';
 import { resolveRomanceRivalTarget } from './romance-settings.js';
@@ -60,6 +60,7 @@ import { clearCurrentCg } from '../../generated-images/illustration/clear-curren
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { normalizeMoodGroups, resolveMoodGroup } from '../../scene/mood-groups.js';
 import { NSFW_COUNT_MAX, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { describeLlmReady } from '../../generated-images/illustration/caption-writer.js';
 import { normalizeImageSourceMode, mergeLegacyNaiSettings } from '../../generated-images/image-backend.js';
 import {
     getOriginalReaderHtml,
@@ -197,6 +198,7 @@ import {
     normalizeReaderMode,
     normalizeSettingsTab,
     normalizeSettingsValue,
+    normalizeSpriteDefaultScale,
     normalizeSpriteLayouts,
     setPath,
 } from './settings-normalize.js';
@@ -2871,6 +2873,7 @@ export function createIgsReaderHost(options = {}) {
         let resolvedSpeaker = scene.speaker || '';
         let spriteCharacter = '';
         let spriteOutfit = '';
+        let nsfwCgPortrait = '';
         let castSprites = [];
         let speakerCastOrder = null;
         const extractedSegmentImageSlots = Array.isArray(extracted.segmentImageSlots) ? extracted.segmentImageSlots : [];
@@ -3150,6 +3153,12 @@ export function createIgsReaderHost(options = {}) {
                 spriteChar = sceneStateForBg.character;
                 spriteMood = sceneStateForBg.mood || '';
             }
+            // NSFW 挂 CG 时对话框左侧的裸体头像：只跟本页自己的说话人（旁白页不继承上一位，直接不显示）。
+            if (cgActive && htmlCardIndex < 0 && bubbleSpeaker && sceneStateForBg && sceneStateForBg.nsfw && sceneAssets && sceneAssets.enabled
+                && (textType === 'dialogue' || textType === 'thought')
+                && normalizeStatusHudSettings(readerSettings.statusHud).nsfwCgPortrait) {
+                nsfwCgPortrait = resolveGenerated(resolveNudeSpriteAsset(bubbleSpeaker, bubbleMood, assetMatchCtx).url) || '';
+            }
             // HTML 卡片独占舞台前景：不继承上一段角色的立绘，也不发起素材解析。
             if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !cgActive && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
                 // 服装按当前页在原文中的位置取该角色最近一次服装栏，本楼没写时取跨楼继承，再按表格 / 装备 / DNA 兜底；指令与偏移同源于原文。
@@ -3321,6 +3330,7 @@ export function createIgsReaderHost(options = {}) {
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
                 cgActive,
+                nsfwCgPortrait,
                 illustrationSlot: illustrationHit ? illustrationHit.slot : null,
                 illustrationUrl,
                 statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw), { character: spriteCharacter, outfit: spriteOutfit }),
@@ -3446,6 +3456,8 @@ export function createIgsReaderHost(options = {}) {
                 resetBasicSourceFilter: renderSectionResetButton('basic-source-filter'),
                 filterToggle: checkbox('bridge.sourceFilter.enabled', sourceFilter.enabled, '启用标签筛选'),
                 filterHidden: hiddenAttr(!sourceFilter.enabled),
+                // 低频设置：平时整块收成一行，摘要只说开没开。
+                filterBrief: sourceFilter.enabled ? '已启用' : '未启用',
                 filterOptionToggles: checkbox('bridge.sourceFilter.stripHtmlComments', sourceFilter.stripHtmlComments, '排除 HTML 注释')
                     + checkbox(
                         'bridge.sourceFilter.allowUntaggedFallback',
@@ -3486,13 +3498,16 @@ export function createIgsReaderHost(options = {}) {
                 nai: '使用你的 NAI Key 直接生成剧情 CG、素材和重画。',
                 dbgen: '提示词、画师串和 NAI Key 在数据库生图插件里设置。',
                 extension: '画风沿用智绘姬的设置；填写下方 NAI Key 后，智绘姬出图失败时会改用 NAI。',
+                baibai: '后端、画师串与尺寸沿用柏宝绘的设置；填写下方 NAI Key 后，柏宝绘出图失败时会改用 NAI。',
             };
             const contentNotes = {
                 nai: '当前图像来源：IGS 内置 NAI。',
                 dbgen: '当前图像来源：数据库生图插件。',
                 extension: '当前图像来源：智绘姬。',
+                baibai: '当前图像来源：柏宝绘。',
             };
             const openaiDisabled = auto.llm.source !== 'openai';
+            const llmReady = describeLlmReady(auto.llm);
             const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
             const imageSubTab = normalizeImageSubTab(asyncState.imageSubTab);
             const logSettings = normalizeImageJobLogSettings(bridge.imageJobLog);
@@ -3503,7 +3518,7 @@ export function createIgsReaderHost(options = {}) {
                 imageLogList: imageSubTab === 'logs' ? renderImageJobLogList() : '',
                 imageCgStatus: esc(asyncState.imageCgStatus || ''),
                 imageCgList: imageSubTab === 'cg' ? renderImageCgList() : '',
-                imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS 内置 NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬']], '图像来源')),
+                imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS 内置 NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬'], ['baibai', '柏宝绘']], '图像来源')),
                 imageSourceNote: esc(sourceNotes[sourceMode]),
                 imageContentNote: esc(contentNotes[sourceMode]),
                 sourceNaiHidden: hiddenAttr(sourceMode === 'dbgen'),
@@ -3515,7 +3530,9 @@ export function createIgsReaderHost(options = {}) {
                 advancedAssetTemplatesOpen: advancedOpen('asset-templates'),
                 autoAssetOptionsHidden: hiddenAttr(!auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
                 assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
-                autoLlmNote: esc('用于规划剧情 CG 的画面，可沿用酒馆 API 或单独配置。'),
+                autoLlmNote: esc(sourceMode === 'dbgen'
+                    ? '负责规划剧情 CG 画面与素材补全的标签；表情差分、头像、立绘与服装提示词由数据库生图插件自己写。'
+                    : '负责规划剧情 CG 画面、素材补全的标签，以及表情差分、头像、立绘与服装提示词。可沿用酒馆 API 或单独配置。'),
                 adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
                 pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：查询间隔（毫秒）', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
                 pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：查询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
@@ -3538,8 +3555,8 @@ export function createIgsReaderHost(options = {}) {
                 autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
                 autoAssetSpriteNegativeTemplateField: field('bridge.autoIllustration.assets.templates.spriteNegative', '人物负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.spriteNegative', auto.assets.templates.spriteNegative, '不希望人物立绘出现的 tag')),
                 autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW 附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, 'NSFW 被拒后重试时追加的提示词')),
-                autoSharedHidden: hiddenAttr((!auto.nsfwEnabled && !auto.interludeEnabled && !auto.assets.spriteEnabled && !auto.assets.backgroundEnabled)
-                    || (sourceMode === 'dbgen' && !auto.nsfwEnabled && !auto.interludeEnabled)),
+                autoLlmWarn: esc(llmReady.error),
+                autoLlmWarnHidden: hiddenAttr(llmReady.ok),
                 // 物品图：独立开关（默认关闭，关闭时不读表、不联网）；背包格子图标是用户显示偏好。
                 itemImageFields: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '自动生成物品图')
                     + field('bridge.itemImages.inventoryIcon', '背包格子图标', selectInput('bridge.itemImages.inventoryIcon', normalizeItemImageSettings(bridge.itemImages).inventoryIcon, [['image', '生图'], ['svg', 'SVG']])),
@@ -3618,7 +3635,7 @@ export function createIgsReaderHost(options = {}) {
                 + `<div class="igs-asset-presets-body">${presetNames.map(presetRow).join('') || '<div class="igs-asset-presets-empty">还没有预设。把现在这一套存下来，以后可以套到别的角色卡。</div>'}`
                 + '<div class="igs-asset-presets-tools"><button type="button" class="igs-settings-action" data-action="preset-save">存为预设</button><button type="button" class="igs-settings-action" data-action="preset-import">导入预设</button></div></div></details>';
             const assetScopeBar = `<div class="igs-asset-scope-bar"><span class="igs-asset-scope-name">${cardKey ? `当前角色卡：${esc(scopeState.assetScopeLabel)}` : '没打开角色卡，素材都在全局'}</span>`
-                + (scopeState.assetScopeKind === 'card' && cardKey ? '<button type="button" class="igs-settings-action" data-action="asset-card-export">导出这张角色卡</button>' : '')
+                + (scopeState.assetScopeKind === 'card' && cardKey ? '<button type="button" class="igs-settings-action" data-action="asset-card-export">导出本卡素材</button>' : '')
                 + '<button type="button" class="igs-settings-action" data-action="asset-card-import">导入角色卡素材包</button></div>'
                 + presetSection;
             const disabled = !sceneAssets.enabled;
@@ -3669,6 +3686,7 @@ export function createIgsReaderHost(options = {}) {
                 state: assetFolders,
                 lead: scopeFilterBar('scenes'),
                 renderList: (subset) => renderSceneAssetList(subset, sceneListOptions),
+                rawOf: (name, value) => (typeof value === 'string' ? value : (value && value.url) || ''),
                 thumbOf: (name, value) => resolveGenerated(typeof value === 'string' ? value : firstUrl([value && value.url].concat(Object.values((value && value.times) || {}).map((t) => (typeof t === 'string' ? t : t && t.url))))),
             });
             const charListOptions = {
@@ -3715,6 +3733,7 @@ export function createIgsReaderHost(options = {}) {
             const scenesPane = `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
           <div class="igs-settings-subhead">背景场景</div>
+          <button type="button" class="igs-settings-action igs-asset-zip" data-action="asset-zip:scenes">下载本区素材</button>
           <details class="igs-add-menu" data-add-menu="scenes">
             <summary class="igs-btn-mgr-icon" title="新增背景" aria-label="新增背景">+</summary>
             <div class="igs-add-menu-list" role="menu">
@@ -3731,9 +3750,12 @@ export function createIgsReaderHost(options = {}) {
             const charactersPane = `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
           <div class="igs-settings-subhead">角色立绘</div>
+          <button type="button" class="igs-settings-action igs-asset-zip" data-action="asset-zip:characters">下载本区素材</button>
           ${CHARACTER_ADD_MENU}
         </div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
+        ${field('readerSettings.spriteDefaultScale', '立绘默认高度', selectInput('readerSettings.spriteDefaultScale', reader.spriteDefaultScale || 100, [60, 70, 80, 90, 100, 110, 120, 130, 150].map((n) => [n, `${n}%`])))}
+        <div class="igs-source-filter-note">没单独拖动调过的立绘按这个高度显示，自己上传的图大小不一时统一用它压一压；调过位置的立绘不受影响。</div>
         ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强')}
         <div class="igs-source-filter-note">开启后可能增加性能开销，手机上尤其明显。</div>
         ${spriteEnhance.enabled === true ? `<div class="igs-settings-sub">
@@ -3798,7 +3820,8 @@ export function createIgsReaderHost(options = {}) {
         // 对话主题已取消预设选择，恒为自定义：自定义项始终可编辑（仅受场景素材开关 themeDisabled 控制）。
         const themeCustom = true;
         const displayTheme = classicDialog ? classicVnTheme : vnTheme;
-        const dialogBgEditable = !themeDisabled && !classicDialog;
+        // 背景色 / 不透明度只有默认皮肤的对话框会读；渐变纱、西式古典和插画皮肤都自带底色，显示了也改不动。
+        const dialogBgEditable = !themeDisabled && !classicDialog && !illustratedDialog && !gradientVeilDialog;
         const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
         const typewriter = normalizeTypewriterSettings(reader.typewriter);
         const stageShake = normalizeStageShakeSettings(reader.stageShake);
@@ -3836,9 +3859,12 @@ export function createIgsReaderHost(options = {}) {
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
             statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
-            backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '启用背景滤镜'),
+            backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '毛玻璃模糊'),
+            // 玻璃作用于工具栏、选项、数据库、地图和记录面板；对话框只有默认皮肤跟随，其余皮肤自带底色。
+            glassScopeNote: esc(dialogBgEditable
+                ? '工具栏、选项气泡、数据库、地图和记录面板都用这层玻璃，默认对话框也跟着它。'
+                : '工具栏、选项气泡、数据库、地图和记录面板都用这层玻璃；当前对话框皮肤自带底色，不受影响。'),
             advancedDialogSizeOpen: advancedOpen('dialog-size'),
-            advancedDialogBackgroundOpen: advancedOpen('dialog-background'),
             typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '打字机'),
             playbackSpeed: field('readerSettings.typewriter.speed', '播放速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '播放速度'), '自动播放与打字机共用'),
             typewriterControls: typewriter.enabled ? `<div class="igs-settings-sub">${[
@@ -3876,13 +3902,22 @@ export function createIgsReaderHost(options = {}) {
             }) : '',
             weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '天气'),
             weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
-            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘')
-                + field('readerSettings.cgHoldPages', '日常 CG 停留', selectInput('readerSettings.cgHoldPages', reader.cgHoldPages || 4, [[2, '2 页'], [3, '3 页'], [4, '4 页'], [6, '6 页'], [8, '8 页']]))
+            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'),
+            cgHoldField: field('readerSettings.cgHoldPages', '日常 CG 停留', selectInput('readerSettings.cgHoldPages', reader.cgHoldPages || 4, [[2, '2 页'], [3, '3 页'], [4, '4 页'], [6, '6 页'], [8, '8 页']]))
                 + '<div class="igs-source-filter-note">非 NSFW 的插图至少停留这么多页，之后有新角色开口、换场景或到下一张图时回到立绘；NSFW 插图保持到下一张。</div>',
             sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'),
             nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', normalizeStatusHudSettings(reader.statusHud).nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW 场景立绘')}</div>`
                 + '<div class="igs-source-filter-note">仅露脸剪影：头部以下压成剪影。需要先在立绘编辑里标定头部，未标定的立绘整张显示为剪影。</div>',
             nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')),
+            nsfwCgPortraitField: (() => {
+                const hud = normalizeStatusHudSettings(reader.statusHud);
+                return checkbox('readerSettings.statusHud.nsfwCgPortrait', hud.nsfwCgPortrait, 'CG 时对话框旁显示裸体头像')
+                    + '<div class="igs-source-filter-note">NSFW 挂 CG 时，在对话框左边显示说话人裸体立绘的头颈肩（到锁骨，下缘渐隐），跟着表情换；旁白时隐藏。只用衣柜里引用「裸体」的那套服装，没有就不显示。</div>'
+                    + (hud.nsfwCgPortrait
+                        ? field('readerSettings.statusHud.nsfwCgPortraitShift', '头像上下', selectInput('readerSettings.statusHud.nsfwCgPortraitShift', hud.nsfwCgPortraitShift, [[-30, '上移 3'], [-20, '上移 2'], [-10, '上移 1'], [0, '自动'], [10, '下移 1'], [20, '下移 2'], [30, '下移 3']]))
+                            + field('readerSettings.statusHud.nsfwCgPortraitZoom', '头像缩放', selectInput('readerSettings.statusHud.nsfwCgPortraitZoom', hud.nsfwCgPortraitZoom, [[80, '80%'], [90, '90%'], [100, '100%'], [115, '115%'], [130, '130%'], [150, '150%']]))
+                        : '');
+            })(),
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
             optionBubbleHidden: hiddenAttr(!(bridge.optionBubble && bridge.optionBubble.enabled)),
@@ -3893,10 +3928,6 @@ export function createIgsReaderHost(options = {}) {
             themeNoteHidden: hiddenAttr(!themeDisabled),
             themeHidden: hiddenAttr(themeDisabled),
             dividerHidden: hiddenAttr(themeDisabled || classicDialog),
-            nameAlignField: field(`${themePath}.nameAlign`, '对齐', selectInput(`${themePath}.nameAlign`, displayTheme.nameAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
-            textAlignField: field(`${themePath}.textAlign`, '对齐', selectInput(`${themePath}.textAlign`, displayTheme.textAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
-            narrationAlignField: field(`${themePath}.narrationAlign`, '对齐', selectInput(`${themePath}.narrationAlign`, displayTheme.narrationAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
-            thoughtAlignField: field(`${themePath}.thoughtAlign`, '对齐', selectInput(`${themePath}.thoughtAlign`, displayTheme.thoughtAlign || 'left', [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], themeDisabled || !themeCustom)),
             dividerField: field(`${themePath}.dividerSymbol`, '样式', selectInput(`${themePath}.dividerSymbol`, displayTheme.dividerSymbol || 'none', [['gradient', '渐变线'], ['none', '无']], themeDisabled || classicDialog || !themeCustom)),
             nameFontField: field(`${themePath}.nameFont`, '字体', selectInput(`${themePath}.nameFont`, displayTheme.nameFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
             textFontField: field(`${themePath}.textFont`, '字体', selectInput(`${themePath}.textFont`, displayTheme.textFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
@@ -3918,9 +3949,10 @@ export function createIgsReaderHost(options = {}) {
                 weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
                 chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],
                 narrationFilter: readerValues.narrationFilterToggle,
+                cgHold: readerValues.cgHoldField,
                 sentencePaging: readerValues.sentencePagingToggle,
                 sentencePagingOn: Boolean(bridge.sentencePaging),
-                nsfw: readerValues.nsfwSpriteModeField + readerValues.nsfwVeilLevelField,
+                nsfw: readerValues.nsfwSpriteModeField + readerValues.nsfwVeilLevelField + readerValues.nsfwCgPortraitField,
             }, (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]));
         }
         return renderTemplate(getSettingsTabTemplate('reader'), {
@@ -5191,6 +5223,7 @@ export function createIgsReaderHost(options = {}) {
             imgMode: 'adaptive',
             imgBrightness: 100,
             cgHoldPages: 4,
+            spriteDefaultScale: 100,
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),
@@ -5259,6 +5292,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
         normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
         normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);
+        normalized.spriteDefaultScale = normalizeSpriteDefaultScale(normalized.spriteDefaultScale);
         normalized.spriteHeads = normalizeSpriteHeads(normalized.spriteHeads);
         normalized.castSlotLayouts = normalizeSpriteLayouts(normalized.castSlotLayouts);
         // 对话主题（vnTheme）按模式存进 readerSettings。独立于 _v 门控处理，避免 schema 版本

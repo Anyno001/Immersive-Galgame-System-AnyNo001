@@ -5,7 +5,7 @@ import { renderMoodReviewList } from '../src/visual/igs-ui/settings-fields.js';
 import { renderStageDirectionFields } from '../src/visual/igs-ui/stage-direction-fields.js';
 
 test('gate:settings-polish:image-tab-has-cg-gallery-pane', () => {
-    assert.deepEqual(IMAGE_SUBTAB_DEFS.map(([id]) => id), ['source', 'auto', 'logs', 'cg']);
+    assert.deepEqual(IMAGE_SUBTAB_DEFS.map(([id]) => id), ['source', 'llm', 'auto', 'logs', 'cg']);
     const cg = getImageSubTabTemplate('cg');
     assert.match(cg, /data-image-pane="cg"/);
     assert.match(cg, /\{\{imageCgList\}\}/);

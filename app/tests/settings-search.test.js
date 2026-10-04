@@ -25,7 +25,7 @@ test('gate:settings-search:deep-camera-option-resolves-to-folded-section', () =>
     assert.ok(first, 'impact option must be found');
     assert.equal(first.label, '情绪冲击推近');
     assert.deepEqual([...first.target.open], ['perf-group-stage', 'perf-camera']);
-    assert.equal(first.location, '阅读器 › 演出 › 画面与镜头');
+    assert.equal(first.location, '阅读器 › 演出 › 画面');
 });
 
 test('gate:settings-search:ranking-empty-and-no-match', () => {
@@ -44,7 +44,7 @@ test('gate:settings-search:results-html-empty-hint-and-escaping', async () => {
     assert.match(renderSettingsSearchResults('zzzz-no-such-setting'), /没有找到相关设置/);
     const html = renderSettingsSearchResults('冲击');
     assert.match(html, /data-setting-go="camera-impact"/);
-    assert.match(html, /阅读器 › 演出 › 画面与镜头/);
+    assert.match(html, /阅读器 › 演出 › 画面/);
     const evil = [{ id: '"><img>', label: '<b>x</b>', location: 'a&b', nameKey: 'x', aliasKeys: [], groupKey: '' }];
     const escaped = renderSettingsSearchResults('x', evil);
     assert.doesNotMatch(escaped, /<img>|<b>x<\/b>/);

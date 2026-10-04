@@ -76,14 +76,19 @@ test('asset-folder-view: list keeps original renderer, grid shows thumbnails', (
 
     state = setAssetView(state, 'scenes', 'grid');
     const grid = renderAssetFolderView('scenes', entries, { state, renderList, thumbOf: (n, v) => v });
-    assert.match(grid, /class="igs-asset-grid"/);
+    assert.match(grid, /class="igs-asset-grid is-scenes"/);
     assert.match(grid, /igs-asset-tile-thumb" src="https:\/\/example\.com\/a\.png"/);
     assert.match(grid, /未配置/);
     assert.match(grid, /data-asset-folder-move="scenes" data-asset-name="教室"/);
-    // 缩略图卡片提供「修改」入口，列表模式不重复渲染。
-    assert.match(grid, /data-action="asset-edit:scenes:%E6%95%99%E5%AE%A4"/);
-    assert.match(grid, /aria-label="修改 教室"/);
+    // 缩略图卡片等大：修改 / 下载 / 移到文件夹都收进 ⋯，列表模式不重复渲染。
+    assert.match(grid, /class="igs-asset-grid is-scenes"/);
+    assert.match(grid, /<details class="igs-add-menu igs-row-menu"><summary class="igs-btn-mgr-icon" title="「教室」的操作"/);
+    assert.match(grid, /data-action="asset-edit:scenes:%E6%95%99%E5%AE%A4" role="menuitem">修改<\/button>/);
+    assert.match(grid, /class="igs-add-menu-item igs-folder-pick-item"/);
+    assert.doesNotMatch(grid, /class="igs-folder-pick( is-set)?"/);
     assert.doesNotMatch(plain, /asset-edit:/);
+    const withRaw = renderAssetFolderView('scenes', { 教室: 'igs-gen:abc' }, { state, renderList, thumbOf: () => 'blob:x', rawOf: (n, v) => v });
+    assert.match(withRaw, /data-action="gen-asset-download:abc:%E6%95%99%E5%AE%A4-%E8%83%8C%E6%99%AF\.png" role="menuitem">下载<\/button>/);
 
 
     const collapsed = renderAssetFolderView('scenes', entries, { state: toggleAssetFolder(state, 'scenes', '学校'), renderList, thumbOf: (n, v) => v });

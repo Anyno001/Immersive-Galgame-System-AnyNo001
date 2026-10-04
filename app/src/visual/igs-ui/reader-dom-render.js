@@ -43,6 +43,7 @@ import { prefersReducedMotion } from './reduced-motion.js';
 import { applyRenderQualityToDom } from './render-quality.js';
 import { applyRomanceToDom } from './romance-runtime.js';
 import { applyMetaFx } from './meta-runtime.js';
+import { applyCgPortrait } from './cg-portrait.js';
 import { applySceneAudio } from './scene-audio.js';
 import { applyBgmNoteToDom } from './bgm-note.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
@@ -1233,14 +1234,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         stageH: stageMotion.clientHeight,
         align: isCastAlignEnabled(snapshot),
         speaker: spriteAssetUrl ? withCastSlot({
-            ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
+            ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, castSpeakerKey, castSpeakerMood, castSpeakerOutfit, snapshot.readerSettings.spriteDefaultScale),
             ...(speakerSlotX != null ? { posX: speakerSlotX } : {}),
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
         }, castSpeakerKey, castSpeakerOutfit, castLayout.speakerSlot) : null,
         members: castLayout.members.map((m) => {
-            const layout = resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, m.character, m.mood, m.outfit);
+            const layout = resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, m.character, m.mood, m.outfit, snapshot.readerSettings.spriteDefaultScale);
             return withCastSlot({
                 character: m.character,
                 url: resolveAssetUrl(m.image),
@@ -1281,7 +1282,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
             const spriteMood = snapshot.content.spriteMood || '';
             const spriteOutfit = snapshot.content.spriteOutfit || '';
-            const layout = { ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood, spriteOutfit) };
+            const layout = { ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood, spriteOutfit, snapshot.readerSettings.spriteDefaultScale) };
             if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
             else if (speakerSlotX != null) layout.posX = speakerSlotX;
             spriteEl.style.backgroundSize = spriteBackgroundSize(layout.scale);
@@ -1546,6 +1547,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory });
     // Meta 互动：头部热区在亲密演出之后同步，心形快捷按钮已在前层时热区插到它下面。
     applyMetaFx(root, snapshot, { sprite: fxSprite, chatId: ctx.chatId, cast: castFxTargets });
+    // NSFW 挂 CG 时对话框左侧的裸体头像（开关默认关，旁白页为空即撤下）。
+    applyCgPortrait(root, snapshot, { resolveAssetUrl });
     const sceneAudio = applySceneAudio(root, {
         master: snapshot.readerSettings && snapshot.readerSettings.audioMaster,
         bgm: snapshot.readerSettings && snapshot.readerSettings.bgm,

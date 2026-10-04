@@ -190,6 +190,12 @@ function embedImageRecords(records, files) {
             if (!PIXEL_FIELDS.includes(field)) meta[field] = value;
         }
         for (const field of PIXEL_FIELDS) {
+            // 同一张图的原图和当前图常常一样，只存一份文件。
+            const twin = Object.keys(stored).find((other) => record[other] === record[field]);
+            if (twin) {
+                stored[field] = stored[twin];
+                continue;
+            }
             const parsed = parseDataUrl(record[field]);
             if (!parsed) {
                 if (typeof record[field] === 'string' && record[field]) meta[field] = record[field];
@@ -273,6 +279,37 @@ export function parseCharacterCardPack(bytes) {
     };
 }
 
+const PRESET_FORMAT = 'igs-scene-preset';
+
+// 素材预设连同它引用的生成图一起打包。预设本身只记 igs-gen 编号，图在本机，
+// 只导出 json 的话换浏览器或清了浏览器数据，图就找不回来。
+export function buildPresetArchive(input = {}) {
+    const files = [];
+    const images = embedImageRecords(input.images, files);
+    const manifest = {
+        format: PRESET_FORMAT,
+        version: 1,
+        name: String(input.name || '').trim(),
+        preset: input.preset && typeof input.preset === 'object' ? input.preset : {},
+        images,
+    };
+    files.unshift({ name: 'pack.json', bytes: new TextEncoder().encode(JSON.stringify(manifest)) });
+    return zipStore(files);
+}
+
+export function parsePresetArchive(bytes) {
+    const packed = readPackManifest(bytes);
+    if (!packed) return null;
+    const { files, manifest } = packed;
+    if (!manifest || manifest.format !== PRESET_FORMAT || !manifest.preset || typeof manifest.preset !== 'object') return null;
+    const byName = new Map(files.map((file) => [file.name, file.bytes]));
+    return {
+        name: typeof manifest.name === 'string' ? manifest.name : '',
+        preset: manifest.preset,
+        images: restoreImageRecords(manifest.images, byName),
+    };
+}
+
 const SETTINGS_FORMAT = 'igs-settings-pack';
 
 // 整份插件配置：基础、阅读器、素材、生图，外加这些设置引用的图片。不含密钥。
@@ -305,4 +342,21 @@ export function parseSettingsArchive(bytes) {
         },
         images: restoreImageRecords(manifest.images, byName),
     };
+}
+
+// 「下载本区素材」：图片按目录摆进一个 zip。entries 为 { path, dataUrl }，解不出的跳过并计数。
+export function buildImageZip(entries) {
+    const files = [];
+    let skipped = 0;
+    const used = new Set();
+    for (const entry of Array.isArray(entries) ? entries : []) {
+        const parsed = parseDataUrl(entry && entry.dataUrl);
+        if (!parsed) { skipped += 1; continue; }
+        const base = String(entry.path || 'image');
+        let name = `${base}.${extOf(parsed.mime)}`;
+        for (let n = 2; used.has(name); n += 1) name = `${base}-${n}.${extOf(parsed.mime)}`;
+        used.add(name);
+        files.push({ name, bytes: parsed.bytes });
+    }
+    return { bytes: files.length ? zipStore(files) : null, count: files.length, skipped };
 }

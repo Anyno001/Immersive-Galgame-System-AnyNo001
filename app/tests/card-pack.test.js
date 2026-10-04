@@ -76,3 +76,21 @@ test('立绘位置只带走这张卡的角色，情绪组合并而不是覆盖',
         { label: '害羞', words: ['脸红'] },
     ]);
 });
+
+test('素材预设压缩包往返，同一张图的原图和当前图只存一份', async () => {
+    const { buildPresetArchive, parsePresetArchive } = await import('../src/scene/card-pack.js');
+    const bytes = buildPresetArchive({
+        name: 'HP',
+        preset: { scenes: { 对角巷: { url: 'igs-gen:alley' } } },
+        images: [{ id: 'alley', dataUrl: PNG, originalDataUrl: PNG, workingDataUrl: '', revision: 3 }],
+    });
+    const text = new TextDecoder('latin1').decode(bytes);
+    assert.equal(text.split('PK').length - 1, 2, '压缩包里只有清单和一个图片文件');
+    const pack = parsePresetArchive(bytes);
+    assert.equal(pack.name, 'HP');
+    assert.equal(pack.preset.scenes.对角巷.url, 'igs-gen:alley');
+    assert.equal(pack.images[0].dataUrl, PNG);
+    assert.equal(pack.images[0].originalDataUrl, PNG);
+    assert.equal(pack.images[0].revision, 3);
+    assert.equal(parsePresetArchive(buildCharacterCardPack({ characterName: '小雪' })), null, '角色卡素材包不当预设认');
+});

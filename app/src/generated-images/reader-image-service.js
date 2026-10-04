@@ -195,10 +195,10 @@ export function createReaderImageService(options = {}) {
             const message = context.message || null;
             const unifiedSettings = context.unifiedSettings || context.settings || {};
             const imageApi = resolveImageApi(unifiedSettings);
-            if (imageApi.mode === 'dbgen' && typeof imageGenerator !== 'function') {
+            if ((imageApi.mode === 'dbgen' || imageApi.mode === 'baibai') && typeof imageGenerator !== 'function') {
                 return { ok: false, reason: 'provider-not-enabled' };
             }
-            if (imageApi.mode === 'nai' || imageApi.mode === 'dbgen') {
+            if (imageApi.mode === 'nai' || imageApi.mode === 'dbgen' || imageApi.mode === 'baibai') {
                 const result = await this.generate({
                     ...context,
                     message,
@@ -209,7 +209,7 @@ export function createReaderImageService(options = {}) {
                 if (result.ok === false) return result;
                 return {
                     ok: true,
-                    message: imageApi.mode === 'dbgen' ? '数据库生图插件真实生成测试成功' : '图像 API 真实生成测试成功',
+                    message: { dbgen: '数据库生图插件真实生成测试成功', baibai: `柏宝绘真实生成测试成功${result.providerId === 'vn.provider.nai' ? '（未检测到柏宝绘或出图失败，由内置 NAI 兜底）' : ''}` }[imageApi.mode] || '图像 API 真实生成测试成功',
                     url: result.url,
                     providerId: result.providerId,
                 };
@@ -246,7 +246,7 @@ export function createReaderImageService(options = {}) {
                 providers: context.providers,
             });
 
-            if (imageApi.mode === 'nai' || imageApi.mode === 'dbgen') {
+            if (imageApi.mode === 'nai' || imageApi.mode === 'dbgen' || imageApi.mode === 'baibai') {
                 const generated = await this.generate({
                     ...context,
                     messageId,

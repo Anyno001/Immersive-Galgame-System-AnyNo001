@@ -1,5 +1,6 @@
 import { esc } from './reader-value-utils.js';
 import { groupAssetsByFolder } from './asset-folders.js';
+import { menuItem, renderRowMenu } from './settings-outfit-fields.js';
 
 const encSeg = (v) => encodeURIComponent(String(v == null ? '' : v));
 const icon = (d, s = 12) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -28,14 +29,21 @@ export function renderAssetFolderSelect(kind, name, kindState, { menu = false } 
         + `<select class="igs-folder-pick-select" data-asset-folder-move="${kind}" data-asset-name="${esc(name)}" aria-label="移到文件夹，现在在 ${esc(where)}">${opts}</select></label>`;
 }
 
-function tile(kind, name, url, kindState) {
+// 缩略图卡片等大：图 + 一行名字，修改 / 下载 / 移到文件夹都收进名字右边的 ⋯，格子里不再挤图标。
+function tile(kind, name, url, kindState, raw) {
     const u = String(url || '').trim();
     const thumb = u
         ? `<img loading="lazy" decoding="async" class="igs-asset-tile-thumb" src="${esc(u)}" alt="${esc(name)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : '<div class="igs-asset-tile-thumb igs-asset-tile-empty">未配置</div>';
-    // 缩略图模式的「修改」入口：由 asset-edit 动作切回列表并展开该条目，不改动素材数据。
-    const edit = `<button type="button" class="igs-btn-mgr-icon igs-asset-tile-edit" data-action="asset-edit:${kind}:${encSeg(name)}" title="修改" aria-label="修改 ${esc(name)}">${PENCIL}</button>`;
-    return `<div class="igs-asset-tile">${thumb}<div class="igs-asset-tile-head"><div class="igs-asset-tile-name" title="${esc(name)}">${esc(name)}</div>${edit}</div>${renderAssetFolderSelect(kind, name, kindState)}</div>`;
+    const stored = String(raw || '').trim();
+    const id = stored.startsWith('igs-gen:') ? stored.slice('igs-gen:'.length) : '';
+    // 「修改」由 asset-edit 动作切回列表并展开该条目，不改动素材数据。
+    const menu = renderRowMenu([
+        menuItem(`asset-edit:${kind}:${encSeg(name)}`, '修改'),
+        id ? menuItem(`gen-asset-download:${encSeg(id)}:${encSeg(`${name}-背景.png`)}`, '下载') : '',
+        renderAssetFolderSelect(kind, name, kindState, { menu: true }),
+    ], `「${name}」的操作`);
+    return `<div class="igs-asset-tile">${thumb}<div class="igs-asset-tile-head"><div class="igs-asset-tile-name" title="${esc(name)}">${esc(name)}</div>${menu}</div></div>`;
 }
 
 // 只改变素材的展示方式；renderList 仍用原来的列表渲染器，数据原样传入。
@@ -57,7 +65,8 @@ export function renderAssetFolderView(kind, entries, options = {}) {
         if (!items.length) return '<div class="igs-scene-empty">文件夹为空</div>';
         if (!grid) return renderList(pick(items));
         const thumbOf = typeof options.thumbOf === 'function' ? options.thumbOf : () => '';
-        return `<div class="igs-asset-grid">${items.map((n) => tile(kind, n, thumbOf(n, source[n]), k)).join('')}</div>`;
+        const rawOf = typeof options.rawOf === 'function' ? options.rawOf : () => '';
+        return `<div class="igs-asset-grid is-${kind}">${items.map((n) => tile(kind, n, thumbOf(n, source[n]), k, rawOf(n, source[n]))).join('')}</div>`;
     };
     if (!k.folders.length) return bar + body(names);
     const html = groupAssetsByFolder(options.state, kind, names).filter((g) => g.folder || g.items.length).map((g) => {

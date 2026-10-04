@@ -115,7 +115,7 @@ test('交互摘要暂存：只清掉生成开始前已送出的事件', () => {
 
 test('演出页有独立的 Meta 互动卡片，关闭时只显示总开关', () => {
     const off = renderPerformanceSettings({});
-    assert.match(off, /data-advanced="perf-group-meta"/);
+    assert.match(off, /data-advanced="perf-group-rhythm"/);
     assert.match(off, /data-switch="readerSettings\.metaFx\.enabled"/);
     assert.doesNotMatch(off, /metaFx\.poke/);
     const on = renderPerformanceSettings({ metaFx: { enabled: true, digest: true } });

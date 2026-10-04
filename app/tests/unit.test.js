@@ -1350,6 +1350,17 @@ test('gate:igs-ui:resolve-sprite-layout-keeps-mode-isolated', () => {
     assert.deepEqual(resolveSpriteLayout(layouts, 'web', '小林海斗', '平和'), { posX: 50, posY: 100, scale: 100 });
 });
 
+test('gate:igs-ui:resolve-sprite-layout-default-scale-only-fills-unplaced', () => {
+    const layouts = { 'pc::小林海斗::平和': { posX: 70, posY: 30, scale: 180 } };
+    // 没调过的立绘按默认高度；调过的保持自己的大小
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '上传角色', '平和', '', 80), { posX: 50, posY: 100, scale: 80 });
+    assert.deepEqual(resolveSpriteLayout(null, 'pc', '上传角色', '', '', 120), { posX: 50, posY: 100, scale: 120 });
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林海斗', '平和', '', 80), { posX: 70, posY: 30, scale: 180 });
+    // 旧设置没有这项、或值异常时仍是 100
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '上传角色', '', '', undefined), { posX: 50, posY: 100, scale: 100 });
+    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '上传角色', '', '', 'abc'), { posX: 50, posY: 100, scale: 100 });
+});
+
 test('gate:scene:igs-message-source:formats-default-bubble-body', () => {
     const payload = buildIgsTextPayload({
         text: '<content>[igs-char:玉子|开心|欢迎来到图书馆。]</content>',

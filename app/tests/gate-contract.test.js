@@ -751,7 +751,8 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.styleText, /#igs-status-hud\{[^}]*grid-template-columns:auto minmax\(0,1fr\) auto[^}]*width:calc\(340px \* var\(--igs-hud-scale,1\)\)/);
     assert.match(source.styleText, /\.igs-hud-metric\{[^}]*grid-template-columns:max-content minmax\(0,1fr\) auto[^}]*gap:calc\(3px \* var\(--igs-hud-scale,1\)\)/);
     assert.match(source.styleText, /\.igs-hud-metric-value\{width:7ch;[^}]*text-align:left/);
-    assert.match(source.styleText, /#igs-status-hud\.igs-hud-bg-dialog\{[^}]*background:color-mix\(in srgb,var\(--igs-dialog-bg[^}]*50%,transparent\)[^}]*backdrop-filter:var\(--igs-dialog-blur,none\)[^}]*border-radius:calc\(6px \* var\(--igs-hud-scale,1\)\)/);
+    assert.match(source.styleText, /#igs-status-hud\.igs-hud-bg-dialog\{[^}]*background:color-mix\(in srgb,var\(--igs-dialog-bg[^}]*50%,transparent\)[^}]*border-radius:calc\(6px \* var\(--igs-hud-scale,1\)\)/);
+    assert.doesNotMatch(source.styleText, /#igs-status-hud\.igs-hud-bg-dialog\{[^}]*backdrop-filter/);
     assert.match(source.styleText, /#igs-status-hud \.igs-hud-toggle\{position:absolute;inset:0;width:100%;height:100%;[^}]*pointer-events:auto[^}]*border:0;background:transparent;border-radius:0/);
     assert.match(source.styleText, /#igs-status-hud \.igs-hud-toggle svg\{display:none;width:calc\(18px \* var\(--igs-hud-scale,1\)\);height:calc\(18px \* var\(--igs-hud-scale,1\)\);transform:translateY\(4\.5px\);\}/);
     assert.match(source.styleText, /#igs-status-hud\.igs-hud-collapsed \.igs-hud-identity,#igs-status-hud\.igs-hud-collapsed \.igs-hud-metrics,#igs-status-hud\.igs-hud-collapsed \.igs-hud-overflow\{display:none;\}/);
@@ -854,7 +855,7 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
         '风格', 'dialogSkinField', 'gradientVeilFields', 'statusLineToggle',
         '尺寸', 'dialogWidthField', 'classicDialogWidthPercentField',
         'dialogHeightField', 'inputScaleField',
-        '背景', 'glassOpacityField', 'dialogBgOpacityField', 'dialogBgField',
+        '面板玻璃', 'glassOpacityField', 'dialogBgOpacityField', 'dialogBgField',
         'backdropFilterToggle',
     ];
     for (const [index, item] of dialogHierarchy.entries()) {

@@ -33,10 +33,24 @@ test('gate:performance-profile:apply-writes-switches-keeps-details-and-diff-list
     assert.deepEqual(profileDiff(reader), { added: [], removed: [] });
     reader.battleFx.enabled = true;
     reader.bgm.enabled = false;
-    assert.deepEqual(profileDiff(reader), { added: ['战斗'], removed: ['背景音乐'] });
+    // 「题材专属」开关归用户自己管：多开战斗不算偏离配置。
+    assert.deepEqual(profileDiff(reader), { added: [], removed: ['背景音乐'] });
     const bar = renderPerformancePresetBar(reader);
-    assert.match(bar, /比配置多开了：战斗；关掉了：背景音乐/);
-    assert.match(bar, /data-action="perf-type:online" aria-pressed="true"/);
+    assert.match(bar, /关掉了：背景音乐/);
+    assert.doesNotMatch(bar, /perf-type:|剧情题材|卡片类型/);
+});
+
+test('gate:performance-profile:preset-switch-keeps-special-switches-except-all-off', () => {
+    const reader = {};
+    applyPerformanceProfile(reader, { level: 'standard', types: ['online'], sound: 'sfx', adult: 'no' });
+    reader.liveFx.enabled = false;
+    reader.battleFx = { enabled: true };
+    applyPerformanceProfile(reader, { ...reader.performanceProfile, level: 'full' }, { keepSpecial: true });
+    assert.equal(isPerformanceFeatureOn(reader, 'liveFx'), false, '用户关掉的直播间不被档位打开');
+    assert.equal(isPerformanceFeatureOn(reader, 'battleFx'), true, '用户开着的战斗不被档位关掉');
+    assert.equal(isPerformanceFeatureOn(reader, 'textFx'), true);
+    applyPerformanceProfile(reader, { ...reader.performanceProfile, level: 'off' }, { keepSpecial: true });
+    assert.equal(isPerformanceFeatureOn(reader, 'battleFx'), false, '全部关闭仍一律关');
 });
 
 test('gate:performance-profile:first-chip-click-infers-profile-from-current-switches', () => {

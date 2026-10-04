@@ -1,5 +1,5 @@
-// 快速配置演出：新手问卷与「阅读器 › 演出」的卡片类型胶囊共用。
-// 常用演出按热闹程度（tier）开；特定类型的演出只在勾了对应卡片类型时开；声音、亲密各由一题单独决定。
+// 快速配置演出：新手问卷写一份配置，演出页的档位按它换热闹程度。
+// 常用演出按热闹程度（tier）开；特定类型的演出只在问卷里勾了对应卡片类型时开，之后由用户在「题材专属」里自己管；声音、亲密各由一题单独决定。
 import { PERFORMANCE_FEATURES, isPerformanceFeatureOn } from './performance-presets.js';
 
 export const PROFILE_PATH = 'performanceProfile';
@@ -92,10 +92,13 @@ export function profileFeatureStates(profile) {
     return states;
 }
 
-export function applyPerformanceProfile(reader, profile) {
+// keepSpecial：演出页切档位时不动「题材专属」开关（「全部关闭」仍一律关）。
+export function applyPerformanceProfile(reader, profile, { keepSpecial = false } = {}) {
     if (!reader || typeof reader !== 'object') return false;
     const p = normalizePerformanceProfile(profile);
+    const skipSpecial = keepSpecial && LEVELS[p.level] > 0;
     for (const [key, enabled] of Object.entries(profileFeatureStates(p))) {
+        if (skipSpecial && SPECIAL_FEATURES.includes(key)) continue;
         reader[key] = { ...plain(reader[key]), enabled };
     }
     const typewriter = plain(reader.typewriter);
@@ -117,13 +120,16 @@ export function profileFromReader(reader, level) {
     });
 }
 
-// 和配置相比用户手动多开、关掉了哪些，显示在档位条下面。
+// 和配置相比用户手动多开、关掉了哪些，显示在档位条下面。「题材专属」开关归用户自己管，不算偏离（全部关闭时除外）。
 export function profileDiff(reader) {
     if (!hasPerformanceProfile(reader)) return null;
-    const expected = profileFeatureStates(plain(reader)[PROFILE_PATH]);
+    const profile = normalizePerformanceProfile(plain(reader)[PROFILE_PATH]);
+    const expected = profileFeatureStates(profile);
+    const userManaged = LEVELS[profile.level] > 0;
     const added = [];
     const removed = [];
     for (const { key, label } of PERFORMANCE_FEATURES) {
+        if (userManaged && SPECIAL_FEATURES.includes(key)) continue;
         const actual = isPerformanceFeatureOn(reader, key);
         if (actual === expected[key]) continue;
         if (key === 'fxSound' && !Object.values(expected).some(Boolean)) continue;
@@ -139,7 +145,3 @@ export function profileSummary(profile) {
     return LEVELS[p.level] > 0 && p.sound.includes('typing') ? labels.concat('打字机音') : labels;
 }
 
-export function typeFeatureLabels() {
-    const labelOf = Object.fromEntries(PERFORMANCE_FEATURES.map(({ key, label }) => [key, label]));
-    return SPECIAL_FEATURES.map((key) => [labelOf[key], CARD_TYPES.filter(([id]) => TYPE_FEATURES[id].includes(key)).map(([, name]) => name)]);
-}

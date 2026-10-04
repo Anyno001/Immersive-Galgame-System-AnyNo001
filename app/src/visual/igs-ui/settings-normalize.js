@@ -60,9 +60,11 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.metaFx\.(enabled|poke|hover|reading|clock|festivals|digest)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (path === 'readerSettings.metaFx.cooldownSec') return Number(value);
         if (path === 'readerSettings.metaFx.birthday') return String(value || '').trim();
+        if (path === 'readerSettings.statusHud.nsfwCgPortraitShift' || path === 'readerSettings.statusHud.nsfwCgPortraitZoom') return Number(value);
         if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
         if (path === 'readerSettings.dialogTextEffect') return ['off', 'outline', 'shadow'].includes(value) ? value : 'off';
         if (path === 'readerSettings.dialogTextEffectColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
+        if (path === 'readerSettings.spriteDefaultScale') return normalizeSpriteDefaultScale(value);
         if (path === 'readerSettings.dialogTextEffectStrength') return Math.max(5, Math.min(50, Number(value) || 20));
         if (path === 'readerSettings.dialogTextEffectSize') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
         if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|skinDialogScale|toolbarScale|inputScale|imageCountOverride|imgBrightness|cgHoldPages|gradientVeil\.(heightPercent|opacity)/.test(path)) {
@@ -71,7 +73,7 @@ export function normalizeSettingsValue(path, value) {
         if (/glassOpacity/.test(path)) {
             return Number(value);
         }
-        if (/^readerSettings\.typewriter\.(enabled|sound\.enabled|sound\.speakerPitch)$/.test(path) || /^readerSettings\.stageShake\.enabled$/.test(path) || /^readerSettings\.weatherFx\.enabled$/.test(path) || /^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path) || /^readerSettings\.statusHud\.showLocation$/.test(path) || /^readerSettings\.statusHud\.showLocationDetails$/.test(path) || /^readerSettings\.statusHud\.showSpriteOnNsfw$/.test(path) || /^readerSettings\.statusHud\.dimSpriteOnNarration$/.test(path)) {
+        if (/^readerSettings\.typewriter\.(enabled|sound\.enabled|sound\.speakerPitch)$/.test(path) || /^readerSettings\.stageShake\.enabled$/.test(path) || /^readerSettings\.weatherFx\.enabled$/.test(path) || /^readerSettings\.statusHud\.enabled$/.test(path) || /^readerSettings\.statusHud\.showEmotion$/.test(path) || /^readerSettings\.statusHud\.showLocation$/.test(path) || /^readerSettings\.statusHud\.showLocationDetails$/.test(path) || /^readerSettings\.statusHud\.showSpriteOnNsfw$/.test(path) || /^readerSettings\.statusHud\.dimSpriteOnNarration$/.test(path) || path === 'readerSettings.statusHud.nsfwCgPortrait') {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
     }
@@ -176,8 +178,14 @@ export function normalizeSpriteLayouts(value) {
     return out;
 }
 
-export function resolveSpriteLayout(layouts, mode, character, mood, outfit = '') {
-    const def = { posX: 50, posY: 100, scale: 100 };
+export function normalizeSpriteDefaultScale(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.max(40, Math.min(200, n)) : 100;
+}
+
+// defaultScale：没单独调过位置的立绘用的默认高度（舞台高度百分比），来自 readerSettings.spriteDefaultScale。
+export function resolveSpriteLayout(layouts, mode, character, mood, outfit = '', defaultScale = 100) {
+    const def = { posX: 50, posY: 100, scale: normalizeSpriteDefaultScale(defaultScale) };
     const modeLayout = layouts && layouts[mode];
     const placed = (layout) => ({
         posX: layout.posX,

@@ -1630,7 +1630,7 @@ test('gate:dbgen:plugin-calls-time-out-instead-of-hanging', async () => {
     const { createImageBackend } = await import('../src/generated-images/image-backend.js');
     const never = () => new Promise(() => {});
     const NaiDbGen = { generate: never, generateSinglePrompt: never };
-    const backend = createImageBackend({ global: { NaiDbGen }, dbgenTimeouts: { write: 20, paint: 20 } });
+    const backend = createImageBackend({ global: { NaiDbGen }, getBridge: () => ({ imageApi: { mode: 'dbgen' } }), dbgenTimeouts: { write: 20, paint: 20 } });
     const caption = { v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } } };
     const painted = await backend.generateDbgenCaption({ caption });
     assert.equal(painted.ok, false);

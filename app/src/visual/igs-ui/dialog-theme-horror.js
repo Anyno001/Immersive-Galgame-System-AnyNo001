@@ -234,7 +234,14 @@ const eyeBody = ({ style, sclera, iris, width = 1.3 }) => (style === 'line'
         + `<path d="M-6-6.4L-8.2-10.2M0-7.4V-11.8M6-6.4L8.2-10.2" stroke="${sclera}" vector-effect="non-scaling-stroke"/></g><circle r="1.9" fill="${iris}"/>`
     : `<path d="${EYE_LID}" fill="${sclera}"/><circle r="5" fill="${iris}"/><circle r="2" fill="#000"/>`);
 // 眨眼：SVG 内置动画，各只眼周期与起点都不同，绝大部分时间睁着，偶尔闭一下。暂停与减少动态时换成静态图。
-const blink = (period, delay) => `<animateTransform attributeName="transform" type="scale" values="1 1;1 1;1 .06;1 1;1 1" keyTimes="0;.955;.972;.988;1" dur="${period}s" begin="${delay}s" repeatCount="indefinite"/>`;
+// 只让动画在眨眼那一小段（周期末 4.5%）处于激活态，靠 id.end 自己接下一轮：睁眼期间没有激活的动画，
+// 浏览器不必每帧重绘这张背景图（整周期 repeatCount 会让图片 60fps 重栅格化，手机发热）。时间点与原写法一致。
+let blinkSeq = 0;
+const blink = (period, delay) => {
+    const id = `k${blinkSeq++}`;
+    const t = (v) => +v.toFixed(3);
+    return `<animateTransform id="${id}" attributeName="transform" type="scale" values="1 1;1 .06;1 1;1 1" keyTimes="0;.378;.733;1" dur="${t(period * 0.045)}s" begin="${t(delay + period * 0.955)}s;${id}.end+${t(period * 0.955)}s"/>`;
+};
 const eyeAt = (e, rand, animated) => `<g transform="translate(${r1(e.x)} ${r1(e.y)}) scale(${r1(e.k)})" opacity="${r1(e.opacity)}"><g>${animated ? blink(r1(5 + rand() * 8), r1(rand() * 7)) : ''}${eyeBody(e)}</g></g>`;
 // 崩溃档：右下角挤着一整团眼睛，持续往上浮。把眼睛当成圆来排：先落几只真正大的，再用中、小眼填满缝隙，
 // 圆与圆相切或互相压进一部分（眼睛半透明，重叠处叠出层次），不留零散空白。平涂：眼白、虹膜、瞳孔三个圆，
@@ -327,7 +334,7 @@ export const PSYCH_DIALOG_STYLE = [
         speakerCss: `left:30px;top:-20px;width:max-content;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 60px);height:38px;line-height:38px;padding:0 20px 0 44px;${tagIcon(HEART_ICON)}border:0;border-radius:999px;box-shadow:0 0 0 3px ${CREAM},0 3px 0 3px rgba(224,119,157,.3);font-size:21px;font-weight:400;letter-spacing:.1em;text-shadow:none;transition:transform .6s;`,
         textCss: 'letter-spacing:.04em;',
     }),
-    scalePx(`${psychScope}::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;${decoLayer(0)}}`),
+    scalePx(`${psychScope}::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;will-change:transform;${decoLayer(0)}}`),
     `${psychScope}::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;opacity:0;}`,
     // 1 有点怪：几乎察觉不到的偏差。
     `${psych(1)}{filter:saturate(.82);border-radius:24px 24px 24px 19px;}`,

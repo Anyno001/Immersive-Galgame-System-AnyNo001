@@ -88,12 +88,25 @@ export const menuItem = (action, label, extra = '') => `<button type="button" cl
 const svg12 = (body) => `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 export const SLOT_ICONS = {
     download: svg12('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+    upload: svg12('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
     retry: svg12('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
     rename: svg12('<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>'),
     outfit: svg12('<path d="M12 6a2 2 0 1 1 2-2"/><path d="M12 6v2L2.5 15.5A1.5 1.5 0 0 0 3.4 18h17.2a1.5 1.5 0 0 0 .9-2.5L12 8"/>'),
     mood: svg12('<circle cx="11" cy="12" r="8"/><path d="M7.5 14.5a4.5 4.5 0 0 0 7 0"/><line x1="8.5" y1="9.5" x2="8.51" y2="9.5"/><line x1="13.5" y1="9.5" x2="13.51" y2="9.5"/><line x1="20" y1="2" x2="20" y2="8"/><line x1="17" y1="5" x2="23" y2="5"/>'),
     variants: svg12('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/><path d="M19 3a3 3 0 0 0 2 5 4 4 0 0 1-4-5z"/>'),
 };
+
+// 下载 / 上传成对外露、同一套图标：没存图（外链或空格）时下载位留空占位，整列按钮才对得齐。
+// pick 为 [action, title]，不给就只放下载位。
+export function transferIcons(url, fileName, pick) {
+    const raw = String(url || '').trim();
+    const id = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
+    const down = id
+        ? `<button type="button" class="igs-btn-mgr-icon igs-asset-transfer" data-action="gen-asset-download:${encSeg(id)}:${encSeg(fileName)}" title="下载" aria-label="下载">${SLOT_ICONS.download}</button>`
+        : `<span class="igs-btn-mgr-icon igs-asset-transfer is-spacer" aria-hidden="true">${SLOT_ICONS.download}</span>`;
+    const up = pick ? `<button type="button" class="igs-btn-mgr-icon igs-asset-transfer" data-action="${pick[0]}" title="${esc(pick[1])}" aria-label="${esc(pick[1])}">${SLOT_ICONS.upload}</button>` : '';
+    return down + up;
+}
 
 // 差分格的下载 / 重新生成 / 重命名：宽屏外露成图标；细窄屏藏起图标，仍走 ⋯ 里的同名项。
 // list：[action, label, iconKey]，空项跳过。返回 { inline, items }：inline 放行内，items 塞进 ⋯。
@@ -194,13 +207,12 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const imageId = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
         const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
         const acts = slotActions([
-            imageId ? [`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${name}-${mood}-立绘.png`)}`, '下载', 'download'] : null,
             imageId || (note && note.error) ? [`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, '重新生成', 'retry'] : null,
-            [`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名', 'rename'],
         ]);
-        const slotMenu = acts.inline + renderRowMenu([
+        const slotMenu = acts.inline + transferIcons(raw, `${charName}-${name}-${mood}-立绘.png`) + renderRowMenu([
             canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
             ...acts.items,
+            menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
             menuItem(`scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}`, '删除', ' is-danger'),
         ], `「${mood}」的操作`);
         // 生成图的格子不放编号地址输入框；自己填地址的格子才有输入框。
@@ -388,6 +400,8 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-quick .igs-outfit-quick-btn{height:28px;padding:0 10px;background:var(--igs-settings-raised);border-radius:var(--igs-settings-radius-small);white-space:nowrap}
 .igs-outfit-quick .igs-outfit-quick-btn:hover,.igs-outfit-quick .igs-outfit-quick-btn:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-outfit-tabs>.igs-row-menu>summary{height:28px}
+/* 窄屏放不下一行时，生成按钮整组单独成第二行、等宽排开，不再半截折下去带着分隔线。 */
+@media (max-width:640px){.igs-outfit-quick{order:10;flex:1 0 100%;margin:4px 0 0;padding:4px 0 0;border-left:0;border-top:1px solid var(--igs-settings-line)}.igs-outfit-quick .igs-outfit-quick-btn{flex:1 1 0;min-width:0}}
 .igs-add-menu-item.is-danger{color:var(--igs-settings-danger)}
 .igs-add-menu>.igs-add-menu-list{overflow-y:auto;overscroll-behavior:contain}
 .igs-btn-mgr-list.is-menu-open{overflow:visible}
@@ -420,6 +434,7 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-slot .igs-scene-url-input{flex:0 1 160px;min-width:0;margin-right:auto}
 .igs-scene-mood-row .igs-scene-url-input{flex:0 1 160px}
 .igs-outfit-tab-icon{color:var(--igs-settings-ink-4)}
+.igs-asset-transfer.is-spacer{visibility:hidden;pointer-events:none}
 .igs-add-menu-list .igs-slot-act-menu{display:none}
 @media (max-width:420px){.igs-slot-act{display:none}.igs-add-menu-list .igs-slot-act-menu{display:flex}}
 .igs-outfit-slot.is-fallback>.igs-btn-mgr-label{color:var(--igs-settings-ink-3)}

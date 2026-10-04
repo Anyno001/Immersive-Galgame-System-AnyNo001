@@ -158,7 +158,10 @@ function openSettingsScene() {
     hostAdapter: { getCurrentMessage: async () => ({ id: 1, text: '素材设置预览。' }), typeAndSend: async () => ({ ok: true }) },
   });
   const mode = (q.get('size') || 'desktop').match(/^(mobile|short|tiny)$/) ? 'mobile' : 'pc';
-  const opened = settingsVn.openSettings({ tab: 'scene', mode });
+  // ?tab=basic|reader|image 打开别的设置页；?readersub= 切阅读器子页。
+  const opened = settingsVn.openSettings({ tab: q.get('tab') || 'scene', mode });
+  const readerSub = q.get('readersub');
+  if (readerSub) document.querySelector(`[data-reader-subtab="${CSS.escape(readerSub)}"]`)?.click();
   if (!opened || opened.ok === false) throw new Error('settings-scene: openSettings failed ' + JSON.stringify(opened));
   const subtab = q.get('subtab');
   if (subtab) document.querySelector(`[data-scene-subtab="${CSS.escape(subtab)}"]`)?.click();

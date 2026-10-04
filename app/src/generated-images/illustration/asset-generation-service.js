@@ -19,8 +19,9 @@ const IMAGE_CACHE_LIMIT = 60;
 // 重绘后又缺图再读，循环闪「载入中」。近几秒内被取用过的图保留，离开页面后再按上限回收。
 const IMAGE_IN_USE_MS = 5000;
 const AVATAR_SIZE = '1024x1024';
-const AVATAR_POSITIVE = 'chibi, solo, round face, face focus, head only, close-up, centered, looking at viewer, smile, simple background';
-const AVATAR_NEGATIVE = 'body, shoulders, neck, upper body, cowboy shot, full body, hands, multiple views, realistic, text, watermark, signature, frame, border';
+// 头像按圆形裁切：只到头、颈、肩，脸占画面大半；胸以下一律进负面。
+const AVATAR_POSITIVE = 'chibi, solo, portrait, head and shoulders, neck, face focus, close-up, large face, centered, looking at viewer, smile, simple background';
+const AVATAR_NEGATIVE = 'upper body, cowboy shot, full body, lower body, waist, hips, midriff, navel, legs, feet, hands, arms, cleavage, multiple views, realistic, text, watermark, signature, frame, border';
 // review：等待楼层结束时让用户处理；chat：用户选择仅本聊天使用；
 // library：已加入素材库（由生成区条目接管）；discarded：丢弃。
 const ACTIVE_TEMP_STATUSES = new Set(['review', 'chat']);
@@ -260,10 +261,10 @@ export function createAssetGenerationService(deps) {
 
     async function generateItem(item, s, floor, floorKey) {
         const isSprite = item.need.type === 'sprite';
-        // 智绘姬出图不保证透明底：走智绘姬时按浅灰底模板出图并抠图，不信任 NAI 模型的原生透明能力。
+        // 智绘姬 / 柏宝绘出图不保证透明底：走它们时按浅灰底模板出图并抠图，不信任 NAI 模型的原生透明能力。
         // 数据库生图的立绘默认要透明底，不看沉浸式插件自己填的 NAI 模型。
         const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
-        const transparent = isSprite && plannedVia !== 'chatu8'
+        const transparent = isSprite && plannedVia !== 'chatu8' && plannedVia !== 'baibai'
             && (plannedVia === 'dbgen' || supportsNaiTransparentBackground(s.auto.nai.model));
         const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
         const size = isSprite ? s.auto.assets.spriteSize : backgroundSize(s);
@@ -631,17 +632,20 @@ export function createAssetGenerationService(deps) {
         return record && record.dataUrl ? record.dataUrl : '';
     }
 
+    // 透明底只信数据库生图与支持原生透明的 NAI 模型；智绘姬 / 柏宝绘 / 其余 NAI 模型按浅灰底出图再抠图。
     function expressionPaintMeta() {
         const s = readSettings();
+        const via = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
+        const transparent = via === 'dbgen' || (via === 'nai' && supportsNaiTransparentBackground(s.auto.nai.model));
         const slot = buildAssetSlot(
             { need: { type: 'sprite', name: '' }, tags: '', uc: '' },
-            { transparent: true, templates: s.auto.assets.templates },
+            { transparent, templates: s.auto.assets.templates },
         );
         const prompts = expressionSpritePrompts(slot.scene, slot.sceneUc);
         return {
             size: s.auto.assets.spriteSize,
             userPrompts: { positive: prompts.positive, negative: prompts.negative },
-            transparent: true,
+            transparent,
         };
     }
 
@@ -666,7 +670,7 @@ export function createAssetGenerationService(deps) {
         }
         const imageId = newId();
         const createdAt = now();
-        const image = await buildSpriteImageRecord(imageId, painted.dataUrl, true, createdAt);
+        const image = await buildSpriteImageRecord(imageId, painted.dataUrl, meta.transparent, createdAt);
         const prompt = normalizeStoredPrompt(painted.prompt) || promptFromCaption(upright);
         if (prompt) image.prompt = prompt;
         await putImageWithQuotaFallback(image);
@@ -949,7 +953,7 @@ export function createAssetGenerationService(deps) {
         if (!painted || !painted.ok || !painted.dataUrl) return { ok: false, error: (painted && painted.error) || '出参考图失败' };
         const imageId = newId();
         const createdAt = now();
-        const image = await buildSpriteImageRecord(imageId, painted.dataUrl, true, createdAt);
+        const image = await buildSpriteImageRecord(imageId, painted.dataUrl, meta.transparent, createdAt);
         const stored = normalizeStoredPrompt(painted.prompt) || { positive: text, negative: '' };
         if (stored) image.prompt = stored;
         await putImageWithQuotaFallback(image);

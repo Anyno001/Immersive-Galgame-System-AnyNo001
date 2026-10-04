@@ -5,19 +5,16 @@ import { renderRomanceFxFields } from './romance-fields.js';
 import { renderDanmakuFields } from './danmaku-settings-fields.js';
 import { renderMetaFxFields } from './meta-fields.js';
 import { PERFORMANCE_FEATURES, PERFORMANCE_PRESETS, detectPerformancePreset, isPerformanceFeatureOn } from './performance-presets.js';
-import { CARD_TYPES, PROFILE_PATH, hasPerformanceProfile, profileDiff, typeFeatureLabels } from './performance-profile.js';
+import { PROFILE_PATH, hasPerformanceProfile, profileDiff } from './performance-profile.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { FX_SETTINGS_NORMALIZERS } from './fx-settings.js';
 
+// 六张卡：组内用小标题分段，不再一类一张卡。节奏与 Meta 互动合成最后一张，单独渲染。
 export const PERFORMANCE_GROUPS = Object.freeze([
     Object.freeze(['text', '文字']),
-    Object.freeze(['stage', '画面与镜头']),
-    Object.freeze(['character', '立绘']),
-    Object.freeze(['emotion', '情绪反应']),
-    Object.freeze(['story', '剧情提示']),
-    Object.freeze(['event', '事件演出']),
-    Object.freeze(['special', '特定类型才用']),
-    Object.freeze(['romance', '亲密']),
+    Object.freeze(['stage', '画面']),
+    Object.freeze(['story', '情绪与提示']),
+    Object.freeze(['special', '题材专属']),
     Object.freeze(['sound', '声音']),
 ]);
 
@@ -32,11 +29,6 @@ export function renderPerformancePresetBar(reader, { home = false, extraRows = '
     const buttons = PERFORMANCE_PRESETS.map(([id, label]) => (
         `<button type="button" class="igs-perf-preset${current === id ? ' is-active' : ''}" data-action="perf-preset:${id}" aria-pressed="${current === id ? 'true' : 'false'}">${esc(label)}</button>`
     )).join('');
-    const picked = new Set(profile && Array.isArray(profile.types) ? profile.types : []);
-    const chips = CARD_TYPES.map(([id, label]) => (
-        `<button type="button" class="igs-perf-type${picked.has(id) ? ' is-active' : ''}" data-action="perf-type:${id}" aria-pressed="${picked.has(id) ? 'true' : 'false'}">${esc(label)}</button>`
-    )).join('');
-    const typeRow = `<div class="igs-perf-type-row"><span class="igs-perf-type-label">卡片类型</span>${chips}</div>`;
     let state = '';
     if (changed) {
         state = [diff.added.length ? `比配置多开了：${diff.added.join('、')}` : '', diff.removed.length ? `关掉了：${diff.removed.join('、')}` : ''].filter(Boolean).join('；') + '。点档位会恢复。';
@@ -46,7 +38,7 @@ export function renderPerformancePresetBar(reader, { home = false, extraRows = '
     const note = home ? `${state}细项前往「阅读器 › 演出」调整。` : state;
     const undo = canUndo ? '<button type="button" class="igs-settings-action" data-action="perf-preset-undo">撤销档位切换</button>' : '';
     const title = home ? '演出档位' : '一键档位';
-    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${undo}${typeRow}${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
+    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${undo}${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
 }
 
 // 档位不切换、但也摆在分组里的开关（改 AI 输出格式、实验功能、玩法或非演出设置）：
@@ -59,7 +51,7 @@ function extraSwitches(reader, extras) {
             ['双语台词', on('bilingual')],
             extras.sentencePaging ? ['旁白按句号分页', extras.sentencePagingOn === true] : null,
         ],
-        character: [
+        stage: [
             ['多角色同屏', on('stageCast')],
             extras.narrationFilter ? ['旁白时压暗立绘', hud.dimSpriteOnNarration !== false] : null,
         ],
@@ -77,10 +69,10 @@ function groupSummary(reader, groupId, allOff, extra = []) {
     return `<span class="igs-perf-count${on.length ? ' is-on' : ''}">${on.length}/${switches.length}</span><span class="igs-perf-brief">${esc(brief)}</span>`;
 }
 
-function specialNote() {
-    const lines = typeFeatureLabels().map(([label, types]) => `${label}：${types.join('、')}`).join('；');
-    return `<div class="igs-source-filter-note">只在特定剧情里用到。在上面勾选卡片类型会自动开启——${esc(lines)}。</div>`;
-}
+const section = (title, parts) => {
+    const body = parts.filter(Boolean).join('');
+    return body ? `<div class="igs-settings-subhead">${esc(title)}</div>${body}` : '';
+};
 
 function groupCard(id, title, summaryHtml, body, open) {
     return `<div class="igs-source-filter igs-perf-group"><details data-advanced="perf-group-${id}"${open ? ' open' : ''}><summary><b>${esc(title)}</b>${summaryHtml}</summary><div class="igs-perf-group-body">${body}</div></details></div>`;
@@ -100,19 +92,25 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
     const danmaku = renderDanmakuFields(src, more);
     const bodies = {
         text: [extras.typewriter, stage.clickWaitMark, stage.textFx, stage.bilingual, extras.sentencePaging],
-        stage: [stage.transition, stage.tint, stage.camera, pair('weather', '强度与室内外地点词', extras.weatherFx), pair('stage-shake', '强度与触发情绪', extras.stageShake)],
-        character: [stage.motion, stage.actions, stage.cast, extras.narrationFilter],
-        emotion: [fx.manga, fx.heartbeat],
-        story: [fx.title, fx.favor, fx.itemFx, fx.resultFx],
-        event: [fx.tags],
-        special: [specialNote(), stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow), danmaku.live, danmaku.audience, fx.flash, danmaku.inner],
-        romance: [renderRomanceFxFields(src, more), extras.nsfw || ''],
+        stage: [
+            section('镜头与环境', [stage.transition, stage.tint, stage.camera, pair('weather', '强度与室内外地点词', extras.weatherFx), pair('stage-shake', '强度与触发情绪', extras.stageShake)]),
+            section('立绘与 CG', [stage.motion, stage.actions, stage.cast, extras.narrationFilter, extras.cgHold]),
+        ],
+        story: [
+            section('情绪', [fx.manga, fx.heartbeat]),
+            section('剧情提示', [fx.title, fx.favor, fx.itemFx, fx.resultFx]),
+            section('事件演出', [fx.tags]),
+        ],
+        special: [
+            section('日常与冒险', [stage.daily, fx.battleFx, fx.flash]),
+            section('线上与直播', [pair('chat-show', '线上交流详细设置', extras.chatShow), danmaku.live, danmaku.audience, danmaku.inner]),
+            section('亲密', [renderRomanceFxFields(src, more), extras.nsfw || '']),
+        ],
         sound: [stage.master, fx.sound, stage.ambient, stage.ui, stage.bgm],
     };
     const extra = extraSwitches(src, extras);
     const groups = PERFORMANCE_GROUPS.map(([id, title]) => groupCard(id, title, groupSummary(src, id, current === 'off', extra[id]), bodies[id].filter(Boolean).join(''), isOpen(`perf-group-${id}`)));
-    const metaOn = Boolean(src.metaFx && src.metaFx.enabled === true);
-    const meta = groupCard('meta', 'Meta 互动', `<span class="igs-perf-count${metaOn ? ' is-on' : ''}">${metaOn ? '开' : '关'}</span><span class="igs-perf-brief">TA在注视着你</span>`, renderMetaFxFields(src, more), isOpen('perf-group-meta'));
-    const rhythm = groupCard('rhythm', '节奏', '<span class="igs-perf-brief">演出风格、停留时间与重播</span>', fx.style, isOpen('perf-group-rhythm'));
-    return renderPerformancePresetBar(src, { canUndo: extras.canUndo === true, extraRows: (extras.worldview || '') + renderQualityRow(src) }) + groups.join('') + meta + rhythm;
+    const rhythm = groupCard('rhythm', '节奏与互动', '<span class="igs-perf-brief">演出风格、停留时间、重播与 Meta 互动</span>',
+        section('节奏', [fx.style]) + section('Meta 互动', [renderMetaFxFields(src, more)]), isOpen('perf-group-rhythm'));
+    return renderPerformancePresetBar(src, { canUndo: extras.canUndo === true, extraRows: (extras.worldview || '') + renderQualityRow(src) }) + groups.join('') + rhythm;
 }

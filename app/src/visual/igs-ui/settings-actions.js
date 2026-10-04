@@ -6,8 +6,9 @@ import { findDbgenApi } from '../../generated-images/image-backend.js';
 import { formatEditablePrompt, formatStoredPrompt, normalizeStoredPrompt, parseEditablePrompt } from '../../generated-images/generation-prompt.js';
 import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, MOOD_PRESET, moodPresetEntry, moodTierLabels, normalizeMoodGroups, resolvePresetGroup } from '../../scene/mood-groups.js';
+import { collectAssetZipEntries } from '../../scene/asset-zip.js';
 import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
-import { buildCharacterCardPack, mergeLabelGroups, parseCharacterCardPack, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
+import { buildCharacterCardPack, buildImageZip, buildPresetArchive, mergeLabelGroups, parseCharacterCardPack, parsePresetArchive, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
@@ -702,6 +703,12 @@ export async function handleSettingsAction(action, ctx) {
         const filters = settingsState.asyncState.assetScopeFilter = { ...(settingsState.asyncState.assetScopeFilter || {}) };
         filters[collection] = filter === 'card' || filter === 'global' ? filter : 'all';
         return rerenderSettings();
+    }
+    // 一键下载本区素材：按当前「全部 · 本卡 · 全局」筛选，把列表里的图按目录打成一个 zip。
+    if (normalizedAction.startsWith('asset-zip:')) {
+        const collection = normalizedAction.slice('asset-zip:'.length);
+        if (collection !== 'characters' && collection !== 'scenes') return rerenderSettings();
+        return downloadAssetZip(settingsState, collection, options);
     }
     // 一键把本卡的场景 / 角色 / 衣柜提示词全放到全局，或把全局的全收进本卡。角色连同别名、DNA、服装、头像、生成图一起走。
     if (normalizedAction.startsWith('asset-move-all:')) {
@@ -1726,9 +1733,9 @@ export async function handleSettingsAction(action, ctx) {
             }
             settingsState.asyncState.perfPresetUndo = snapshot;
         }
-        // 有快速配置时，档位只换热闹程度，卡片类型、声音、亲密保留。
+        // 有快速配置时，档位只换热闹程度；声音、亲密保留，「题材专属」开关不动。
         if (hasPerformanceProfile(readerDraft)) {
-            applyPerformanceProfile(readerDraft, { ...profileFromReader(readerDraft), level: presetId });
+            applyPerformanceProfile(readerDraft, { ...profileFromReader(readerDraft), level: presetId }, { keepSpecial: true });
         } else {
             applyPerformancePreset(readerDraft, presetId);
         }
@@ -1742,18 +1749,6 @@ export async function handleSettingsAction(action, ctx) {
         if (snapshot.profile) readerDraft.performanceProfile = snapshot.profile;
         else delete readerDraft.performanceProfile;
         settingsState.asyncState.perfPresetUndo = null;
-        return rerenderSettings();
-    }
-
-    const perfTypeAction = normalizedAction.match(/^perf-type:([a-z]+)$/);
-    if (perfTypeAction) {
-        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
-        const profile = profileFromReader(readerDraft, detectPerformancePreset(readerDraft) || 'standard');
-        // 全关的时候点类型，是想打开这类演出：顺带回到「推荐」。
-        if (profile.level === 'off') profile.level = 'standard';
-        const id = perfTypeAction[1];
-        profile.types = profile.types.includes(id) ? profile.types.filter((item) => item !== id) : profile.types.concat(id);
-        applyPerformanceProfile(readerDraft, profile);
         return rerenderSettings();
     }
 
@@ -2991,7 +2986,7 @@ export async function handleSettingsAction(action, ctx) {
         if (persisted.ok === false) return persisted;
         const looked = await dialogs.confirm(applyMoodPreset(groups)
             ? '已按预设整理词库：缺的组补齐、词挪回它该在的组，你自己加的组和词都在。'
-            : '词库已经是预设的样子了，没改。');
+            : '词库已经是预设的样子了。');
         return rerenderSettings();
     }
 
@@ -3646,17 +3641,22 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
         if (!doc) return { ok: false, reason: 'no-document' };
         const file = await pickCardPackFile(doc);
         if (!file) return rerenderSettings();
-        let data = null;
-        try { data = JSON.parse(new TextDecoder().decode(file.bytes)); } catch (error) { data = null; }
+        const archive = isZipBytes(file.bytes) ? parsePresetArchive(file.bytes) : null;
+        let data = archive ? archive.preset : null;
+        if (!archive && !isZipBytes(file.bytes)) {
+            try { data = JSON.parse(new TextDecoder().decode(file.bytes)); } catch (error) { data = null; }
+        }
         if (!isLegacyPresetData(data)) {
-            alertFn('这个文件不是素材预设');
+            alertFn(isZipBytes(file.bytes) ? '这个压缩包不是素材预设（角色卡素材包请用「导入角色卡素材包」）' : '这个文件不是素材预设');
             return rerenderSettings();
         }
-        const name = await askName('导入预设，名字：', String(file.fileName || '').replace(/\.json$/i, '') || '导入的预设');
+        const name = await askName('导入预设，名字：', (archive && archive.name) || String(file.fileName || '').replace(/\.(?:json|zip)$/i, '') || '导入的预设');
         if (!name) return rerenderSettings();
         if (presets[name] && !await dialogs.confirm(`已经有预设「${name}」了，用文件里的覆盖它？`, { okLabel: '覆盖' })) return rerenderSettings();
+        const lost = archive ? await writePackImages(archive.images, options) : 0;
         const written = writeNamedPreset(storage, name, data);
         if (written.ok === false) return failed(written);
+        if (lost) alertFn(`预设已导入，有 ${lost} 张图没能存进本机。`);
         return rerenderSettings();
     }
 
@@ -3677,8 +3677,19 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     }
 
     if (command === 'preset-export') {
-        const bytes = new TextEncoder().encode(JSON.stringify(preset, null, 2));
-        return triggerBytesDownload(globalObj, bytes, `${sanitizeDownloadName(name)}.json`, 'application/json');
+        const fileBase = String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || '素材预设';
+        const ids = collectGeneratedImageIds(preset);
+        if (!ids.length) {
+            const bytes = new TextEncoder().encode(JSON.stringify(preset, null, 2));
+            return triggerBytesDownload(globalObj, bytes, `${fileBase}.json`, 'application/json');
+        }
+        // 预设只记图片编号，图在本机；导出时把图一起打进压缩包，清了浏览器数据或换设备也能整套找回。
+        const { images, missing } = await readPackImages(ids, options);
+        const bytes = buildPresetArchive({ name, preset, images });
+        const downloaded = triggerBytesDownload(globalObj, bytes, `${fileBase}.zip`, 'application/zip');
+        if (downloaded.ok === false) return downloaded;
+        if (missing) alertFn(`已导出。有 ${missing} 张图在本机找不到，压缩包里没有这几张。`);
+        return { ...downloaded, images: images.length, missing };
     }
 
     if (command === 'preset-rename') {
@@ -3798,14 +3809,7 @@ async function exportCharacterCardPack(settingsState, options) {
     const root = (settingsState.draft.bridge && settingsState.draft.bridge.sceneAssets) || {};
     const effective = sceneAssetsForContext(root, getSillyTavernContext(globalObj));
     const library = cardLibrarySnapshot(effective);
-    const service = options.generatedAssets;
-    const images = [];
-    const missing = [];
-    for (const id of collectGeneratedImageIds(library)) {
-        const record = service && typeof service.readStoredImage === 'function' ? await service.readStoredImage(id) : null;
-        if (record && record.dataUrl) images.push(record);
-        else missing.push(id);
-    }
+    const { images, missing } = await readPackImages(collectGeneratedImageIds(library), options);
     const readerSettings = settingsState.draft.readerSettings || {};
     const names = cardCharacterNames(library);
     const bytes = buildCharacterCardPack({
@@ -3822,8 +3826,8 @@ async function exportCharacterCardPack(settingsState, options) {
     const fileName = `${String(characterName).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || '角色卡'}.zip`;
     const downloaded = triggerBytesDownload(globalObj, bytes, fileName, 'application/zip');
     if (downloaded.ok === false) return downloaded;
-    if (missing.length && globalObj.alert) globalObj.alert(`已导出。有 ${missing.length} 张图在本机找不到，压缩包里没有这几张。`);
-    return { ok: true, fileName, missing: missing.length };
+    if (missing && globalObj.alert) globalObj.alert(`已导出。有 ${missing} 张图在本机找不到，压缩包里没有这几张。`);
+    return { ok: true, fileName, missing };
 }
 
 async function importCharacterCardPack(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings) {
@@ -3832,8 +3836,7 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
     if (!doc) return { ok: false, reason: 'no-document' };
     const file = await pickCardPackFile(doc);
     if (!file) return rerenderSettings();
-    const zipped = file.bytes.length >= 2 && file.bytes[0] === 0x50 && file.bytes[1] === 0x4b;
-    if (!zipped) {
+    if (!isZipBytes(file.bytes)) {
         let data = null;
         try { data = JSON.parse(new TextDecoder().decode(file.bytes)); } catch (error) { data = null; }
         if (isLegacyPresetData(data)) {
@@ -3844,6 +3847,12 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
         return rerenderSettings();
     }
     const pack = parseCharacterCardPack(file.bytes);
+    const presetArchive = pack ? null : parsePresetArchive(file.bytes);
+    if (presetArchive && isLegacyPresetData(presetArchive.preset)) {
+        await writePackImages(presetArchive.images, options);
+        const label = presetArchive.name || String(file.fileName || '').replace(/\.zip$/i, '') || '导入的预设';
+        return importLegacyPreset(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings, presetArchive.preset, label);
+    }
     if (!pack) {
         if (globalObj.alert) globalObj.alert('这个压缩包不是角色卡素材包');
         return rerenderSettings();
@@ -3857,17 +3866,7 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
         const confirmed = await dialogs.confirm(`导入会覆盖角色卡「${pack.characterName}」里现有的场景、角色和衣柜${extra}。继续？`);
         if (!confirmed) return rerenderSettings();
     }
-    const service = options.generatedAssets;
-    let failed = 0;
-    for (const image of pack.images) {
-        if (!service || typeof service.writeStoredImage !== 'function') { failed += 1; continue; }
-        try {
-            const written = await service.writeStoredImage(image);
-            if (!written || written.ok === false) failed += 1;
-        } catch (error) {
-            failed += 1;
-        }
-    }
+    const failed = await writePackImages(pack.images, options);
     ensureCardLibrary(root, key);
     root.cards[key] = cardLibrarySnapshot(pack.library);
     if (pack.worldview) applyWorldview(root.cards[key], pack.worldview);
@@ -3888,6 +3887,91 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
     const extra = failed ? `有 ${failed} 张图没有写进本机。` : '';
     if (globalObj.alert) globalObj.alert(`已导入角色卡「${pack.characterName}」。打开同名角色卡就能用。${extra}`);
     return rerenderSettings();
+}
+
+function isZipBytes(bytes) {
+    return Boolean(bytes) && bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+}
+
+// 按编号从本机读出生成图（含原图、遮罩），读不到的计数。
+async function readPackImages(ids, options) {
+    const service = options.generatedAssets;
+    const images = [];
+    let missing = 0;
+    for (const id of ids) {
+        const record = service && typeof service.readStoredImage === 'function' ? await service.readStoredImage(id).catch(() => null) : null;
+        if (record && record.dataUrl) images.push(record);
+        else missing += 1;
+    }
+    return { images, missing };
+}
+
+// 包里的图写回本机，返回没写进去的张数。
+async function writePackImages(images, options) {
+    const service = options.generatedAssets;
+    let failed = 0;
+    for (const image of Array.isArray(images) ? images : []) {
+        try {
+            const written = service && typeof service.writeStoredImage === 'function' ? await service.writeStoredImage(image) : null;
+            if (!written || written.ok === false) failed += 1;
+        } catch (error) {
+            failed += 1;
+        }
+    }
+    return failed;
+}
+
+async function readAssetDataUrl(url, globalObj, service) {
+    if (/^data:image\//i.test(url)) return url;
+    if (isGeneratedAssetUrl(url)) {
+        if (!service || typeof service.getImageDataUrl !== 'function') return '';
+        try { return (await service.getImageDataUrl(generatedAssetIdOf(url))) || ''; } catch (error) { return ''; }
+    }
+    // 外链图跨域可能拿不到，拿不到就算缺一张，下载完一起说。
+    const fetchFn = globalObj.fetch || globalThis.fetch;
+    const Reader = globalObj.FileReader || globalThis.FileReader;
+    if (typeof fetchFn !== 'function' || !Reader) return '';
+    try {
+        const res = await fetchFn(url);
+        if (!res || !res.ok) return '';
+        const blob = await res.blob();
+        return await new Promise((resolve) => {
+            const reader = new Reader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(blob);
+        });
+    } catch (error) {
+        return '';
+    }
+}
+
+async function downloadAssetZip(settingsState, collection, options) {
+    const globalObj = options.global || globalThis;
+    const asyncState = settingsState.asyncState || {};
+    const root = (settingsState.draft.bridge && settingsState.draft.bridge.sceneAssets) || {};
+    const assets = draftEffectiveAssets(settingsState);
+    const cardKey = String(asyncState.assetScopeKey || '');
+    const filter = cardKey && asyncState.assetScopeFilter ? asyncState.assetScopeFilter[collection] : '';
+    const names = Object.keys(assets[collection] || {}).filter((name) => (filter !== 'card' && filter !== 'global')
+        || (assetOwnerKey(root, cardKey, [collection], name) ? 'card' : 'global') === filter);
+    const listed = collectAssetZipEntries(assets, collection, names);
+    const kind = collection === 'characters' ? '角色' : '场景';
+    if (!listed.length) {
+        if (globalObj.alert) globalObj.alert(`这里还没有${kind}图片可以下载。`);
+        return { ok: false, reason: 'empty' };
+    }
+    const entries = [];
+    for (const item of listed) entries.push({ path: item.path, dataUrl: await readAssetDataUrl(item.url, globalObj, options.generatedAssets) });
+    const zip = buildImageZip(entries);
+    if (!zip.bytes) {
+        if (globalObj.alert) globalObj.alert(`${kind}图片一张都没读到，可能是外链图不允许下载。`);
+        return { ok: false, reason: 'no-images' };
+    }
+    const scope = filter === 'global' ? '全局' : (asyncState.assetScopeLabel || '全局');
+    const downloaded = triggerBytesDownload(globalObj, zip.bytes, `${String(`${scope}-${kind}素材`).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')}.zip`, 'application/zip');
+    if (downloaded.ok !== false && zip.skipped && globalObj.alert) globalObj.alert(`已下载 ${zip.count} 张。有 ${zip.skipped} 张没读到（外链图跨域或本机已删），没放进压缩包。`);
+    return { ...downloaded, images: zip.count, missing: zip.skipped };
 }
 
 function triggerBytesDownload(globalObj, bytes, fileName, type) {

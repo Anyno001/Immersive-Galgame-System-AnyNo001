@@ -2152,9 +2152,13 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(content.imageSubTab, 'auto');
         assert.match(content.html, /data-image-feature="nsfw" hidden/);
         assert.match(content.html, /data-image-feature="interlude" hidden/);
-        assert.match(content.html, /data-image-feature="llm" hidden/);
-        assert.match(content.html, /data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*disabled/);
-        const rendered = initial.html + content.html;
+        assert.doesNotMatch(content.html, /data-image-feature="llm"[\s>]/, '副 LLM 单独成页，不在生图内容里');
+        assert.match(content.html, /data-image-feature="llm-warn" hidden/, '沿用酒馆 API 时不提醒');
+        const llmPane = opened.controller.switchImageSubTab('llm').snapshot;
+        assert.equal(llmPane.imageSubTab, 'llm');
+        assert.match(llmPane.html, /data-image-feature="llm"(?![^>]*\shidden)/);
+        assert.match(llmPane.html, /data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*disabled/);
+        const rendered = initial.html + content.html + llmPane.html;
         for (const path of initial.activeContract.requiredPaths.filter((item) => item.startsWith('bridge.autoIllustration.'))) {
             assert.ok(rendered.includes(`data-path="${path}"`) || rendered.includes(`data-switch="${path}"`), `Missing image field: ${path}`);
         }
@@ -2165,7 +2169,6 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(opened.controller.setValue('bridge.autoIllustration.nsfwCount', '2').ok, true);
         assert.equal(opened.controller.toggle('bridge.autoIllustration.interludeEnabled').ok, true);
         assert.match(opened.controller.getSnapshot().html, /data-image-feature="interlude"(?![^>]*\shidden)/);
-        assert.match(opened.controller.getSnapshot().html, /data-image-feature="llm"(?![^>]*\shidden)/);
         assert.ok(/data-path="bridge\.autoIllustration\.interludeMaxCount"[^>]*max="16"/.test(opened.controller.getSnapshot().html));
         assert.ok(/data-path="bridge\.autoIllustration\.assets\.maxPerFloor"[^>]*max="16"/.test(opened.controller.getSnapshot().html));
         assert.equal(opened.controller.setValue('bridge.autoIllustration.interludeMaxCount', '16').ok, true);
@@ -2204,7 +2207,7 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(saved.nai.scale, 5.5);
         assert.equal(saved.nai.transport, 'st-proxy');
         const reopenedController = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
-        reopenedController.switchImageSubTab('auto');
+        reopenedController.switchImageSubTab('llm');
         const reopened = reopenedController.getSnapshot();
         assert.equal(reopened.draft.bridge.autoIllustration.nsfwCount, 2);
         assert.equal(reopened.draft.bridge.autoIllustration.interludeMaxCount, 16);
@@ -2229,7 +2232,7 @@ test('gate:simulation:auto-illustration-llm-fetch-models-and-select', async () =
     });
     try {
         const controller = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
-        controller.switchImageSubTab('auto');
+        controller.switchImageSubTab('llm');
         controller.toggle('bridge.autoIllustration.nsfwEnabled');
         controller.setValue('bridge.autoIllustration.llm.source', 'openai');
         controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1');
@@ -3566,6 +3569,9 @@ test('gate:simulation:large-settings-draft-typing-does-not-copy-or-persist-per-c
     let originalStringify;
     try {
         const settings = vn.openSettings({ tab: 'image' }).controller;
+        // 副 LLM 单独成页：先确认 Key 输入框在副 LLM 页，再回到生图内容页测模板输入。
+        assert.equal(settings.switchImageSubTab('llm').ok, true);
+        assert.ok(settings.getSnapshot().html.includes('data-path="bridge.autoIllustration.llm.apiKey"'));
         assert.equal(settings.switchImageSubTab('auto').ok, true);
         const root = document.getElementById('igs-unified-settings').parentNode;
         let html = root.innerHTML;
@@ -3587,7 +3593,6 @@ test('gate:simulation:large-settings-draft-typing-does-not-copy-or-persist-per-c
         };
         const keyPath = 'bridge.autoIllustration.llm.apiKey';
         const promptPath = 'bridge.autoIllustration.assets.templates.background';
-        assert.ok(settings.getSnapshot().html.includes(`data-path="${keyPath}"`));
         assert.ok(settings.getSnapshot().html.includes(`data-path="${promptPath}"`));
         const input = document.createElement('input');
         input.setAttribute('data-path', keyPath);
@@ -3955,7 +3960,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.match(dialogView.snapshot.html, /data-reader-pane="dialog"/);
     assert.match(dialogView.snapshot.html, /风格/);
     assert.match(dialogView.snapshot.html, /尺寸/);
-    assert.match(dialogView.snapshot.html, /背景/);
+    assert.match(dialogView.snapshot.html, /面板玻璃/);
     assert.match(dialogView.snapshot.html, /对话框宽度/);
     assert.match(dialogView.snapshot.html, /对话框风格/);
     assert.doesNotMatch(dialogView.snapshot.html, /文字排版|外观细节|角色名|分隔线/);
@@ -5154,7 +5159,7 @@ test('gate:simulation:igs-ui-auto-llm-fetch-models-and-select', async () => {
     try {
         const settings = vn.openSettings({ tab: 'image', mode: 'pc' });
         const controller = settings.controller;
-        controller.switchImageSubTab('auto');
+        controller.switchImageSubTab('llm');
         controller.toggle('bridge.autoIllustration.nsfwEnabled');
         controller.setValue('bridge.autoIllustration.llm.source', 'openai');
         controller.setValue('bridge.autoIllustration.llm.endpoint', 'https://example.com/v1');
@@ -7344,7 +7349,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(enabled, /显示地点栏（仅旁白）/);
     assert.match(enabled, /显示更多的场景信息/);
     assert.match(enabled, /显示左上角状态栏[\s\S]*显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息/);
-    assert.doesNotMatch(enabled, /启用背景滤镜|旁白时压暗立绘|显示NSFW场景下的人物立绘/);
+    assert.doesNotMatch(enabled, /毛玻璃模糊|旁白时压暗立绘|显示NSFW场景下的人物立绘/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
     assert.match(enabled, /data-segment-path="readerSettings\.statusHud\.background"/);
@@ -7367,7 +7372,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(performance, /<span>黑幕强度<\/span>/);
     assert.doesNotMatch(performance, /NSFW场景立绘|NSFW黑幕强度|NSFW 场景立绘与黑幕/);
     const dialog = settings.switchReaderSubTab('dialog').snapshot.html;
-    assert.match(dialog, /启用背景滤镜/);
+    assert.match(dialog, /毛玻璃模糊/);
     assert.match(dialog, /显示对话框内状态行/);
 
     settings.setValue('readerSettings.statusHud.showLocation', true);
@@ -7405,7 +7410,7 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.doesNotMatch(disabled, /显示情绪标签/);
     assert.doesNotMatch(disabled, /显示地点栏/);
     assert.doesNotMatch(disabled, /显示更多的场景信息/);
-    assert.doesNotMatch(disabled, /启用背景滤镜|旁白时压暗立绘|显示NSFW场景下的人物立绘/);
+    assert.doesNotMatch(disabled, /毛玻璃模糊|旁白时压暗立绘|显示NSFW场景下的人物立绘/);
     assert.match(settings.switchReaderSubTab('performance').snapshot.html, /旁白时压暗立绘/);
     assert.match(settings.switchReaderSubTab('dialog').snapshot.html, /显示对话框内状态行/);
 
@@ -9162,7 +9167,7 @@ test('gate:simulation:settings-search-go-to-setting-opens-performance-group', as
         assert.notEqual(jumped && jumped.ok, false);
         const html = settings.switchReaderSubTab('performance').snapshot.html;
         assert.match(html, /<details data-advanced="perf-group-stage" open>/);
-        assert.match(html, /画面与镜头/);
+        assert.match(html, /<b>画面<\/b>/);
         assert.match(html, /data-settings-search/);
         settings.close();
     } finally {

@@ -233,8 +233,9 @@ export function buildCharacterSpriteDescription(name, dna, options) {
 export function buildCharacterAvatarDescription(name, dna) {
     return [
         `画角色「${name || ''}」的 Q 版头像（chibi）。`,
-        '只画一张圆圆的 Q 版脸：一颗头放在画面正中，脸圆、眼睛大，正面看向画面，带一点笑。不要画脖子、肩膀和身体，也不要画手。',
-        '发色、瞳色、发型和头上的饰品按下面的角色设定来画，不能改；衣服不用画。',
+        '头像会裁成圆形：只画头、脖子和肩膀，脸放在画面正中，占画面的大半。脸圆、眼睛大，正面看向画面，带一点笑。',
+        '肩膀以下绝对不要出现：不画胸口以下的身体，不画腰、腿、脚，也不要画手。',
+        '发色、瞳色、发型和头上的饰品按下面的角色设定来画，不能改；肩颈处的衣领按角色日常服装画一点即可。',
         '纯色浅底，不要背景，不要文字。',
         ...characterDnaLines(name, dna),
         '只写一份，slotid 为 1。',

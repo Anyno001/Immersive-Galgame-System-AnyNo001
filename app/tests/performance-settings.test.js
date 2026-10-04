@@ -48,12 +48,16 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
     });
     for (const [id] of PERFORMANCE_GROUPS) assert.match(html, new RegExp(`<details data-advanced="perf-group-${id}">`));
     assert.match(html, /data-action="perf-preset:standard"/);
-    assert.match(html, /<b>情绪反应<\/b><span class="igs-perf-count is-on">1\/2<\/span><span class="igs-perf-brief">情绪符号<\/span>/);
-    assert.match(html, /<b>立绘<\/b><span class="igs-perf-count">0\/3<\/span>/);
-    assert.match(html, /<b>事件演出<\/b><span class="igs-perf-count">0\/1<\/span>/);
-    // 战斗、直播、线上交流这类只在特定剧情用的，收进「特定类型才用」，勾卡片类型自动开。
-    assert.match(html, /<b>特定类型才用<\/b><span class="igs-perf-count">0\/7<\/span>/);
-    assert.match(html, /data-action="perf-type:battle"/);
+    // 情绪、剧情提示、事件演出合进「情绪与提示」一张卡，组内用小标题分段。
+    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/7<\/span><span class="igs-perf-brief">情绪符号<\/span>/);
+    assert.match(html, /<div class="igs-settings-subhead">情绪<\/div>[\s\S]*<div class="igs-settings-subhead">剧情提示<\/div>[\s\S]*<div class="igs-settings-subhead">事件演出<\/div>/);
+    // 镜头环境与立绘合成「画面」：5 个画面开关 + 立绘活动、情绪动作、多角色同屏。
+    assert.match(html, /<b>画面<\/b><span class="igs-perf-count">0\/8<\/span>/);
+    // 战斗、直播、线上交流、亲密这类只在特定剧情用的，收进「题材专属」，由用户自己勾；演出页不再有剧情题材胶囊。
+    assert.match(html, /<b>题材专属<\/b><span class="igs-perf-count">0\/8<\/span>/);
+    assert.doesNotMatch(html, /剧情题材|perf-type:/);
+    assert.match(html, /<details data-advanced="perf-group-rhythm"><summary><b>节奏与互动<\/b>/);
+    assert.equal(PERFORMANCE_GROUPS.length, 5);
     assert.match(html, /<details class="igs-settings-advanced igs-perf-more" data-advanced="perf-manga-words"><summary>自定义触发情绪<\/summary>/);
     assert.match(html, /data-advanced="perf-stage-shake"><summary>强度与触发情绪<\/summary><i data-shake-detail><\/i>/);
     assert.match(html, /data-tw/);
@@ -66,13 +70,13 @@ test('gate:performance-layout:capsule-counts-every-visible-switch', () => {
         narrationFilter: '<i data-dim></i>',
     });
     assert.match(html, /<b>文字<\/b><span class="igs-perf-count is-on">2\/5<\/span><span class="igs-perf-brief">双语台词、旁白按句号分页<\/span>/);
-    assert.match(html, /<b>立绘<\/b><span class="igs-perf-count is-on">1\/4<\/span><span class="igs-perf-brief">旁白时压暗立绘<\/span>/);
-    assert.match(html, /<b>剧情提示<\/b><span class="igs-perf-count is-on">1\/4<\/span>/);
+    assert.match(html, /<b>画面<\/b><span class="igs-perf-count is-on">1\/9<\/span><span class="igs-perf-brief">旁白时压暗立绘<\/span>/);
+    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/7<\/span>/);
 });
 
 test('gate:performance-layout:remembers-open-sections', () => {
-    const html = renderPerformanceSettings({ mangaFx: { enabled: true } }, {}, (key) => key === 'perf-group-character' || key === 'perf-manga-words');
-    assert.match(html, /data-advanced="perf-group-character" open/);
+    const html = renderPerformanceSettings({ mangaFx: { enabled: true } }, {}, (key) => key === 'perf-group-story' || key === 'perf-manga-words');
+    assert.match(html, /data-advanced="perf-group-story" open/);
     assert.match(html, /data-advanced="perf-manga-words" open/);
     assert.doesNotMatch(html, /data-advanced="perf-group-text" open/);
 });

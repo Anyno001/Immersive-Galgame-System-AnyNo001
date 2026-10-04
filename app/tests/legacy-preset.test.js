@@ -330,3 +330,61 @@ test('preset: 旧版不分层的预设仍然选套到本卡或全局，整层替
     await handleSettingsAction(`preset-apply:${encodeURIComponent('现代')}:global`, ctx);
     assert.deepEqual(Object.keys(root.scenes).sort(), Object.keys(oldPreset().scenes).sort());
 });
+
+test('preset: 导出把引用的生成图一起打进压缩包，清了本机再导入，图和预设都回来', async () => {
+    const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+    const JPG = 'data:image/jpeg;base64,/9j/4AAQ';
+    const { ctx, storage, alerts } = makeCtx({
+        prompts: ['HP', 'HP'],
+        sceneAssets: {
+            scenes: { 对角巷: { url: 'igs-gen:alley', times: { 上午: { url: 'igs-gen:alley' } } }, 外链: { url: 'https://img/x' } },
+            cards: { 'card:小雪': { characters: { 哪吒: { 默认: 'igs-gen:nezha', 丢了: 'igs-gen:gone' } } } },
+        },
+    });
+    const images = new Map([
+        ['alley', { id: 'alley', type: 'background', dataUrl: JPG, createdAt: 't' }],
+        ['nezha', { id: 'nezha', type: 'sprite', dataUrl: PNG, originalDataUrl: PNG, revision: 2 }],
+    ]);
+    ctx.options.generatedAssets = {
+        readStoredImage: async (id) => (images.has(id) ? structuredClone(images.get(id)) : null),
+        writeStoredImage: async (record) => { images.set(record.id, structuredClone(record)); return { ok: true }; },
+    };
+    let downloaded = null;
+    let picked = null;
+    const global = ctx.options.global;
+    global.Blob = Blob;
+    global.URL = { createObjectURL: (blob) => { downloaded = blob; return 'blob:x'; }, revokeObjectURL() {} };
+    global.document = {
+        body: { appendChild() {}, removeChild() {} },
+        createElement: (tag) => (tag === 'input'
+            ? { click() { setTimeout(() => { this.files = [picked]; this.onchange(); }); } }
+            : { click() {} }),
+    };
+    const RealFileReader = globalThis.FileReader;
+    globalThis.FileReader = class {
+        readAsArrayBuffer(file) { this.onload({ target: { result: file.bytes.buffer } }); }
+    };
+    try {
+        await handleSettingsAction('preset-save', ctx);
+        const result = await handleSettingsAction(`preset-export:${encodeURIComponent('HP')}`, ctx);
+        assert.equal(result.fileName, 'HP.zip');
+        assert.equal(result.images, 2);
+        assert.equal(result.missing, 1);
+        assert.match(alerts.at(-1), /1 张图在本机找不到/);
+
+        // 模拟清了浏览器数据：图和预设都没了。
+        images.clear();
+        storeLegacyPresets(storage, {});
+        storage.removeItem(LEGACY_PRESET_KEY);
+        picked = { name: 'HP.zip', bytes: new Uint8Array(await downloaded.arrayBuffer()) };
+        await handleSettingsAction('preset-import', ctx);
+        assert.equal(images.get('alley').dataUrl, JPG);
+        assert.equal(images.get('nezha').originalDataUrl, PNG, '原图也带回来');
+        assert.equal(images.get('nezha').revision, 2);
+        const back = loadLegacyPresets(storage).HP;
+        assert.equal(back.scenes.对角巷.url, 'igs-gen:alley');
+        assert.equal(back.scopeCards['card:小雪'].library.characters.哪吒.默认, 'igs-gen:nezha');
+    } finally {
+        globalThis.FileReader = RealFileReader;
+    }
+});

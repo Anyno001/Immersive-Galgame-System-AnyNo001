@@ -90,7 +90,7 @@ const HUD_THEMES = Object.freeze({
     },
     [DIALOG_SKIN_DAY_MINIMAL]: {
         neutral: '#8a8778',
-        panel: `background:linear-gradient(180deg,#e0826c 0 33.3%,#d8d3bf 33.3% 66.6%,#b9c4a2 66.6%) left top/3px 100% no-repeat,rgba(255,255,255,.86);border:0;border-radius:0;box-shadow:0 1px 0 rgba(120,118,104,.35);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);padding-left:${s(12)};`,
+        panel: `background:linear-gradient(180deg,#e0826c 0 33.3%,#d8d3bf 33.3% 66.6%,#b9c4a2 66.6%) left top/3px 100% no-repeat,rgba(255,255,255,.86);border:0;border-radius:0;box-shadow:0 1px 0 rgba(120,118,104,.35);padding-left:${s(12)};`,
         ink: '#3a3935',
         emotion: `padding:${s(2)} ${s(10)} ${s(2)} ${s(12)};border:0;border-radius:0;background:linear-gradient(#e0826c 0 0) left top/3px 100% no-repeat,#3a3935;color:#f7f5ee;letter-spacing:.14em;`,
         avatar: `filter:${ring('#f7f5ee', 1)} ${ring('#3a3935', 1)};`,

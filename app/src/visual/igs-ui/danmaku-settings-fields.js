@@ -14,7 +14,7 @@ function sub(body) {
     return `<div class="igs-settings-sub">${body}</div>`;
 }
 
-// 弹幕三件套的设置片段，由「演出」页编进对应分组：直播间、观众弹幕进「事件演出」，内心弹幕进「情绪反应」。
+// 弹幕三件套的设置片段，由「演出」页编进「题材专属」分组。
 export function renderDanmakuFields(reader, more = collapsible) {
     const s = normalizeDanmakuSettings(reader);
     const p = 'readerSettings';

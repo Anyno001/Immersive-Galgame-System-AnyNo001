@@ -4,7 +4,7 @@ import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
 import { CHAT_SHOW_BUBBLE_RADIUS_LEVELS, CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } from './chat-show-runtime.js';
 import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
-import { SLOT_ICONS, menuItem, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions } from './settings-outfit-fields.js';
+import { SLOT_ICONS, menuItem, transferIcons, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions } from './settings-outfit-fields.js';
 import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
 
@@ -23,13 +23,7 @@ function storedImageId(url) {
     return raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
 }
 
-// 「下载 / 提示词」只进 ⋯ 菜单，行内不再单独放图标按钮。
-function storedImageDownloadItem(url, fileName) {
-    const id = storedImageId(url);
-    if (!id) return '';
-    return menuItem(`gen-asset-download:${encSeg(id)}:${encSeg(fileName)}`, '下载');
-}
-
+// 「提示词」只进 ⋯ 菜单；下载与上传成对外露（transferIcons）。
 function storedImagePromptItem(url) {
     const id = storedImageId(url);
     if (!id) return '';
@@ -37,7 +31,6 @@ function storedImagePromptItem(url) {
 }
 
 const STATUS_AVATAR_PLACEHOLDER_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
-const STATUS_AVATAR_UPLOAD_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>';
 
 export function renderTemplate(template, values) {
     return String(template || '').replace(/\{\{(\w+)\}\}/g, (_, key) => {
@@ -209,7 +202,6 @@ export function renderSystemRoleSettings(settings, options = {}) {
         '<div class="igs-settings-row">',
         field(`${p}.font`, '字体', selectInput(`${p}.font`, s.font, fontItems, disabled)),
         `<label class="igs-settings-field"><span>颜色</span>${colorInput(`${p}.color`, s.color || options.narrationColor, disabled)}${colorNote}</label>`,
-        field(`${p}.align`, '对齐', selectInput(`${p}.align`, s.align, [['left', '左对齐'], ['center', '居中'], ['indent', '首行缩进']], disabled)),
         '</div>',
         checkbox(`${p}.showName`, s.showName, '显示角色名'),
         `<div class="igs-settings-field"><span>角色词池（这些发送者的台词用本样式；线上交流里显示为居中提示条；自动忽略【】等括号）</span><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="system-role-add-word" title="添加系统类角色">+</button></div></div>`,
@@ -269,10 +261,9 @@ export function renderSceneAssetList(scenes, options = {}) {
                     + badge('天气')
                     + `<span class="igs-btn-mgr-label">${esc(weatherName)}</span>`
                     + sceneUrlField(weatherObj.url, `data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}"`, weatherName, options.resolveUrl)
-                    + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="上传天气背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
+                    + transferIcons(weatherObj.url, `${sceneName}-${timeName}-${weatherName}-背景.png`, [`scene-pick-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '上传天气背景图'])
                     + renderRowMenu([
                         menuItem(`scene-rename-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '重命名'),
-                        storedImageDownloadItem(weatherObj.url, `${sceneName}-${timeName}-${weatherName}-背景.png`),
                         storedImagePromptItem(weatherObj.url),
                         canVary ? menuItem(`scene-variant-retry:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, storedImageId(weatherObj.url) ? '重新生成' : '按场景提示词生成') : '',
                         menuItem(`scene-remove-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '删除', ' is-danger'),
@@ -285,10 +276,9 @@ export function renderSceneAssetList(scenes, options = {}) {
                 + badge('时间')
                 + `<span class="igs-btn-mgr-label">${esc(timeName)}</span>`
                 + sceneUrlField(timeObj.url, `data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}"`, timeName, options.resolveUrl)
-                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="上传时间背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
+                + transferIcons(timeObj.url, `${sceneName}-${timeName}-背景.png`, [`scene-pick-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '上传时间背景图'])
                 + renderRowMenu([
                     menuItem(`scene-rename-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '重命名'),
-                    storedImageDownloadItem(timeObj.url, `${sceneName}-${timeName}-背景.png`),
                     storedImagePromptItem(timeObj.url),
                     canVary ? menuItem(`scene-variant-retry:${encSeg(sceneName)}:${encSeg(timeName)}:`, storedImageId(timeObj.url) ? '重新生成' : '按场景提示词生成') : '',
                     menuItem(`scene-add-weather:${encSeg(sceneName)}:${encSeg(timeName)}`, '添加天气'),
@@ -304,11 +294,10 @@ export function renderSceneAssetList(scenes, options = {}) {
             + scopeTag(options, 'scenes', sceneName)
             + sceneUrlField(sceneObj.url, `data-scene-bg="${esc(sceneName)}"`, sceneName, options.resolveUrl)
             + (canVary ? `<button type="button" class="igs-btn-mgr-icon" data-action="scene-variant-set:${encSeg(sceneName)}" title="按这张的提示词生成时间/天气差分" aria-label="时间/天气差分">${SLOT_ICONS.variants}</button>` : '')
-            + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-bg:${encSeg(sceneName)}" title="上传场景背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
+            + transferIcons(sceneObj.url, `${sceneName}-背景.png`, [`scene-pick-bg:${encSeg(sceneName)}`, '上传场景背景图'])
             + renderRowMenu([
                 menuItem(`scene-rename-bg:${encSeg(sceneName)}`, '重命名'),
                 folderSelect(sceneName, { menu: true }),
-                storedImageDownloadItem(sceneObj.url, `${sceneName}-背景.png`),
                 storedImagePromptItem(sceneObj.url),
                 menuItem(`scene-add-time:${encSeg(sceneName)}`, '添加时间'),
                 menuItem(`scene-remove-bg:${encSeg(sceneName)}`, '删除场景', ' is-danger'),
@@ -389,7 +378,6 @@ export function renderCharacterAssetList(characters, options = {}) {
     const isOpen = typeof options.isOpen === 'function' ? options.isOpen : () => false;
     // 魔法星夜才显示学院行；未指定时按 DNA 自动识别，识别不出用全局配色。
     const magicHouse = options.magicHouse && typeof options.magicHouse === 'object' ? options.magicHouse : null;
-    const upload = STATUS_AVATAR_UPLOAD_ICON;
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const chevronDown = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
@@ -406,7 +394,7 @@ export function renderCharacterAssetList(characters, options = {}) {
         const avatarPreview = avatarUrl
             ? `<img loading="lazy" decoding="async" class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
-        const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/..."><button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-pick:${encSeg(charName)}" title="上传头像">${upload}</button><button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成 Q 版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
+        const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/...">${transferIcons(avatarUrl, `${charName}-头像.png`, [`status-avatar-pick:${encSeg(charName)}`, '上传头像'])}<button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成 Q 版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
         const houseHtml = magicHouse ? renderCharacterHouseRow(charName, magicHouse) : '';
         const dna = Object.prototype.hasOwnProperty.call(dnaMap, charName) ? dnaMap[charName] : null;
         const dnaOpen = isOpen(`char-dna:${charName}`);
@@ -431,21 +419,22 @@ export function renderCharacterAssetList(characters, options = {}) {
             const c = encSeg(charName);
             const m = encSeg(mood);
             const acts = slotActions([
-                imageId ? [`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${mood}-立绘.png`)}`, '下载', 'download'] : null,
                 mood !== '默认' && (imageId || (note && note.error)) ? [`char-expression-retry:${c}:${m}`, '重新生成', 'retry'] : null,
                 mood === '默认' && rawUrl ? [`char-generate-sprite:${c}`, '重新生成', 'retry'] : null,
-                [`scene-rename-mood:${c}:${m}`, '重命名', 'rename'],
             ]);
-            const slotMenu = acts.inline + renderRowMenu([
+            const slotMenu = renderRowMenu([
                 canPrompt ? menuItem(`char-expression-prompt:${c}:${m}`, '提示词') : '',
                 ...acts.items,
+                menuItem(`scene-rename-mood:${c}:${m}`, '重命名'),
                 menuItem(`scene-remove-mood:${c}:${m}`, '删除', ' is-danger'),
             ], `「${mood}」的操作`);
             const collapsedRow = `<div class="igs-btn-mgr-row igs-scene-mood-row">`
                 + rowThumb
                 + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
                 + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-char="${esc(charName)}" data-scene-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`)
-                + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-mood:${c}:${m}" title="上传${esc(mood)}立绘">${STATUS_AVATAR_UPLOAD_ICON}</button>`
+                // 重新生成放在最左，下载 / 上传固定在 ⋯ 前两列，有没有重新生成都对得齐。
+                + acts.inline
+                + transferIcons(rawUrl, `${charName}-${mood}-立绘.png`, [`scene-pick-mood:${c}:${m}`, `上传${mood}立绘`])
                 + slotMenu
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-mood:${c}:${m}" title="展开/折叠">${expanded ? chevronUp : chevronDown}</button>`
                 + `</div>`;

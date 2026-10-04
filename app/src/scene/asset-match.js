@@ -360,6 +360,24 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     return { url: '', slot: '', character: name, source: 'none', needsGeneration: !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets, ctx.knownCharacters) };
 }
 
+// NSFW 挂 CG 时的对话框头像：只在衣柜引用「裸体」的那几套里找（当条表情 → 裸体底图 → 这一套的「平和」），
+// 找不到就返回空，不退回穿衣立绘。
+export function resolveNudeSpriteAsset(character, mood, ctx = {}) {
+    const name = String(character || '').trim();
+    if (!name) return { url: '', character: '' };
+    const userAssets = ctx.sceneAssets || {};
+    const found = outfitsOfCharacter(userAssets.characterOutfits, userAssets.characterAliases, name);
+    for (const entry of Object.values(found.outfits || {})) {
+        if (!entry || !isBuiltinNudeOutfit(entry.wardrobe)) continue;
+        const hit = entry.moods ? lookupAssetValue(entry.moods, mood, userAssets.moodGroups, userAssets.moodFuzzyMatch === true, false) : {};
+        const base = String(entry.base || '').trim();
+        const calm = !hit.url && !base && entry.moods ? lookupAssetValue(entry.moods, '平和', userAssets.moodGroups, false, false) : {};
+        const url = hit.url || base || calm.url || '';
+        if (url) return { url, character: found.key || name };
+    }
+    return { url: '', character: found.key || name };
+}
+
 // 正文常用简称/全名互指（「雪乃」↔「雪之下雪乃」）：至少两个字且互为子串即视为同一已登记角色。
 function isKnownCharacterName(name, userAssets, knownCharacters) {
     if (Array.from(name).length < 2) return false;

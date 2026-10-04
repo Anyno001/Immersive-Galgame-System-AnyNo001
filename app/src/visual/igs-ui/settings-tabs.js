@@ -12,23 +12,22 @@ const BASIC_TAB_TEMPLATE = `
     </div>
     <div class="igs-source-filter-note">导出基础、阅读器、素材规则和生图内容。不含场景、角色、衣柜、图片，也不含各角色卡里的资料。不含 API Key。导入不会覆盖本机已有的素材。</div>
   </div>
-  <div class="igs-source-filter">
-    <div class="igs-source-filter-title">标签解析{{resetBasicSourceFilter}}</div>
-    {{filterToggle}}
-    <div class="igs-settings-sub"{{filterHidden}}>
-      <div class="igs-source-filter-grid">
-        {{textIncludeField}}
-        {{textExcludeField}}
-      </div>
-      <details class="igs-settings-sub igs-settings-advanced" data-advanced="source-filter"{{advancedFilterOpen}}>
-        <summary>高级：图片标签、HTML 卡片与注释处理</summary>
-        <div class="igs-settings-section">{{filterOptionToggles}}</div>
-        <div class="igs-source-filter-grid">
-          <div class="igs-settings-full">{{imageIncludeField}}</div>
-          <div class="igs-settings-full">{{htmlCardField}}</div>
+  <div class="igs-source-filter igs-perf-group">
+    <details data-advanced="source-filter"{{advancedFilterOpen}}>
+      <summary><b>标签解析</b><span class="igs-perf-brief">{{filterBrief}}</span></summary>
+      <div class="igs-perf-group-body">
+        <div class="igs-settings-row igs-filter-toggle-row">{{filterToggle}}{{resetBasicSourceFilter}}</div>
+        <div class="igs-settings-sub"{{filterHidden}}>
+          <div class="igs-source-filter-grid">
+            {{textIncludeField}}
+            {{textExcludeField}}
+            {{imageIncludeField}}
+            {{htmlCardField}}
+          </div>
+          <div class="igs-settings-section">{{filterOptionToggles}}</div>
         </div>
-      </details>
-    </div>
+      </div>
+    </details>
   </div>
   <div class="igs-source-filter igs-body-format">
     <div class="igs-source-filter-title">正文格式化</div>
@@ -95,6 +94,38 @@ const IMAGE_SOURCE_TEMPLATE = `
 </div>
 `.trim();
 
+const IMAGE_LLM_TEMPLATE = `
+<div class="igs-settings-grid" data-image-pane="llm">
+  <div class="igs-source-filter" data-image-feature="llm">
+    <div class="igs-source-filter-title">副 LLM</div>
+    <div class="igs-source-filter-note">{{autoLlmNote}}</div>
+    <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
+    <div class="igs-source-filter-grid">
+      {{autoLlmSourceField}}{{autoLlmContextField}}
+    </div>
+    <div class="igs-settings-sub"{{autoLlmApiHidden}}>
+      <div class="igs-source-filter-grid">
+        {{autoLlmEndpointField}}{{autoLlmKeyField}}
+        {{autoLlmModelField}}
+      </div>
+      <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
+    </div>
+    <details class="igs-settings-sub igs-settings-advanced" data-image-feature="llm-prompts" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
+      <summary>高级：副 LLM 系统提示词（清空即恢复内置）</summary>
+      <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptAssetSoftField}}</div>
+    </details>
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-jailbreak"{{advancedJailbreakOpen}}>
+      <summary>高级：自定义附加词（头部 / 尾部）</summary>
+      <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
+      <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
+    </details>
+  </div>
+</div>
+`.trim();
+
 const IMAGE_LOGS_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="logs">
   <div class="igs-source-filter">
@@ -133,6 +164,7 @@ const IMAGE_CG_TEMPLATE = `
 const IMAGE_AUTO_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="auto">
   <div class="igs-source-filter-note">{{imageContentNote}}</div>
+  <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">剧情 CG</div>
     {{autoNsfwField}}
@@ -171,32 +203,6 @@ const IMAGE_AUTO_TEMPLATE = `
     <div class="igs-source-filter-note">背包图标可选「生图」或「SVG」。</div>
     <div class="igs-source-filter-grid">{{itemImageFields}}</div>
   </div>
-  <div class="igs-source-filter" data-image-feature="llm"{{autoSharedHidden}}>
-    <div class="igs-source-filter-title">副 LLM · 规划画面与标签</div>
-    <div class="igs-source-filter-note">{{autoLlmNote}}</div>
-    <div class="igs-source-filter-grid">
-      {{autoLlmSourceField}}{{autoLlmContextField}}
-    </div>
-    <div class="igs-settings-sub"{{autoLlmApiHidden}}>
-      <div class="igs-source-filter-grid">
-        {{autoLlmEndpointField}}{{autoLlmKeyField}}
-        {{autoLlmModelField}}
-      </div>
-      <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
-    </div>
-    <details class="igs-settings-sub igs-settings-advanced" data-image-feature="llm-prompts" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
-      <summary>高级：副 LLM 系统提示词（清空即恢复内置）</summary>
-      <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptAssetSoftField}}</div>
-    </details>
-    <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-jailbreak"{{advancedJailbreakOpen}}>
-      <summary>高级：自定义附加词（头部 / 尾部）</summary>
-      <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
-      <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
-    </details>
-  </div>
 </div>
 `.trim();
 
@@ -230,16 +236,14 @@ const READER_DIALOG_TEMPLATE = `
     </details>
   </div>
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">背景{{resetReaderDialogBackground}}</div>
+    <div class="igs-source-filter-title">面板玻璃{{resetReaderDialogBackground}}</div>
+    <div class="igs-source-filter-note">{{glassScopeNote}}</div>
     <div class="igs-source-filter-grid">
       {{glassOpacityField}}
       {{dialogBgOpacityField}}
       {{dialogBgField}}
     </div>
-    <details class="igs-settings-sub igs-settings-advanced" data-advanced="dialog-background"{{advancedDialogBackgroundOpen}}>
-      <summary>高级：模糊滤镜</summary>
-      <div class="igs-settings-row">{{backdropFilterToggle}}</div>
-    </details>
+    <div class="igs-settings-row">{{backdropFilterToggle}}</div>
   </div>
 </div>
 `.trim();
@@ -262,10 +266,10 @@ const READER_TEXT_TEMPLATE = `
   <div class="igs-source-filter igs-text-style">
     <div class="igs-source-filter-title">文字样式{{resetReaderTextStyle}}</div>
     <div class="igs-source-filter-note"{{themeNoteHidden}}>开启素材页的场景素材模式后可自定义</div>
-    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">角色名</div><div class="igs-settings-row">{{nameFontField}}{{nameColorField}}{{nameAlignField}}</div></div>
-    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}{{textAlignField}}</div></div>
-    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}{{narrationAlignField}}</div></div>
-    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}{{thoughtAlignField}}</div></div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">角色名</div><div class="igs-settings-row">{{nameFontField}}{{nameColorField}}</div></div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}</div></div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}</div></div>
+    <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}</div></div>
     <div class="igs-settings-group"{{themeHidden}}><div class="igs-settings-subhead">系统角色</div>{{systemRoleFields}}</div>
     <div class="igs-settings-group"{{dividerHidden}}><div class="igs-settings-subhead">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
   </div>
@@ -343,6 +347,7 @@ const SCENE_SUBTAB_ALIASES = Object.freeze({ wardrobe: 'rules', generated: 'revi
 
 export const IMAGE_SUBTAB_DEFS = Object.freeze([
     ['source', '图像来源'],
+    ['llm', '副 LLM'],
     ['auto', '生图内容'],
     ['logs', '日志'],
     ['cg', 'CG 库'],
@@ -408,6 +413,7 @@ export function normalizeImageSubTab(subTab) {
 export function getImageSubTabTemplate(subTab) {
     const id = normalizeImageSubTab(subTab);
     if (id === 'source') return IMAGE_SOURCE_TEMPLATE;
+    if (id === 'llm') return IMAGE_LLM_TEMPLATE;
     if (id === 'logs') return IMAGE_LOGS_TEMPLATE;
     if (id === 'cg') return IMAGE_CG_TEMPLATE;
     return IMAGE_AUTO_TEMPLATE;

@@ -1,4 +1,4 @@
-import { resolveSpriteLayout } from './settings-normalize.js';
+import { normalizeSpriteDefaultScale, resolveSpriteLayout } from './settings-normalize.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
 import { sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
@@ -56,7 +56,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     const character = current.snapshot.content.spriteCharacter || current.snapshot.content.speaker || '';
     const mood = current.snapshot.content.spriteMood || '';
     const outfit = current.snapshot.content.spriteOutfit || '';
-    const modeLayout = resolveSpriteLayout(rs.spriteLayouts, mode, character, mood, outfit);
+    const modeLayout = resolveSpriteLayout(rs.spriteLayouts, mode, character, mood, outfit, rs.spriteDefaultScale);
     const orig = { ...modeLayout };
     let posX = orig.posX, posY = orig.posY, scale = orig.scale;
     igsDebug('[DEBUG-sprite] enter-edit', { mode, character, mood, outfit, resolved: { ...orig }, allLayouts: rs.spriteLayouts });
@@ -145,7 +145,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
         const btn = event.target.closest('[data-se]');
         if (!btn) return;
         const act = btn.getAttribute('data-se');
-        if (act === 'reset') { posX = 50; posY = 100; scale = 100; apply(); }
+        if (act === 'reset') { posX = 50; posY = 100; scale = normalizeSpriteDefaultScale(rs.spriteDefaultScale); apply(); }
         else if (act === 'cancel') { exitSpriteEditMode(overlay, current, null, ctx); }
         else if (act === 'save') { exitSpriteEditMode(overlay, current, { posX, posY, scale, head: pendingHead() }, ctx); }
         else if (act === 'head') { enterHead(); }

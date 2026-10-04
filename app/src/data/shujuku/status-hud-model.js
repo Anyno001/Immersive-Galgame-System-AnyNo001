@@ -32,6 +32,11 @@ export function resolveNsfwSpriteMode(src) {
     return src.showSpriteOnNsfw === false ? 'hide' : 'shade';
 }
 
+// NSFW 挂 CG 时对话框左侧的裸体头像（头颈到锁骨，下缘渐隐）：自动按头部探测取景，档位只做手动微调。
+// 上下偏移单位为头宽的百分比（正数 = 取景框下移，露出更多胸口以上）；缩放为百分比。
+export const NSFW_CG_PORTRAIT_SHIFTS = Object.freeze([-30, -20, -10, 0, 10, 20, 30]);
+export const NSFW_CG_PORTRAIT_ZOOMS = Object.freeze([80, 90, 100, 115, 130, 150]);
+
 export const STATUS_HUD_DEFAULTS = Object.freeze({
     enabled: false,
     collapsed: false,
@@ -43,6 +48,9 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     nsfwSpriteMode: 'shade',
     dimSpriteOnNarration: true,
     nsfwVeilLevel: 'medium',
+    nsfwCgPortrait: false,
+    nsfwCgPortraitShift: 0,
+    nsfwCgPortraitZoom: 100,
     avatarRadius: 'circle',
     background: 'none',
     barColor: 'color',
@@ -63,6 +71,9 @@ export function normalizeStatusHudSettings(raw) {
         nsfwSpriteMode,
         dimSpriteOnNarration: src.dimSpriteOnNarration === false ? false : true,
         nsfwVeilLevel: NSFW_VEIL_LEVEL_IDS.includes(src.nsfwVeilLevel) ? src.nsfwVeilLevel : STATUS_HUD_DEFAULTS.nsfwVeilLevel,
+        nsfwCgPortrait: src.nsfwCgPortrait === true,
+        nsfwCgPortraitShift: NSFW_CG_PORTRAIT_SHIFTS.includes(Number(src.nsfwCgPortraitShift)) ? Number(src.nsfwCgPortraitShift) : 0,
+        nsfwCgPortraitZoom: NSFW_CG_PORTRAIT_ZOOMS.includes(Number(src.nsfwCgPortraitZoom)) ? Number(src.nsfwCgPortraitZoom) : 100,
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
         barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,
