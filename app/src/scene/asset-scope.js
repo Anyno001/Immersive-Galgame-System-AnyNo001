@@ -39,6 +39,10 @@ function ownedWorldview(card) {
     if (hasWorldview) patch.worldview = card.worldview;
     if (hasAncient) patch.ancient = card.ancient === true;
     else if (hasWorldview) patch.ancient = card.worldview === 'ancient';
+    // 恐怖世界观的风格与血腥尺度跟着角色卡走。
+    for (const key of ['horrorStyle', 'horrorGore']) {
+        if (Object.prototype.hasOwnProperty.call(card, key)) patch[key] = card[key];
+    }
     return patch;
 }
 

@@ -10,6 +10,20 @@ import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel
 import { createImageResourceCache, createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
+
+// 删除、清空、恢复默认、切世界观会先弹面板内的确认条：点「确定」后再等动作完成。
+async function invokeConfirmed(controller, doc, action) {
+    const pending = controller.invoke(action);
+    for (let i = 0; i < 50; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const bar = doc.querySelector('.igs-settings-dialog');
+        if (bar) {
+            bar.dispatchEvent({ type: 'click', target: { closest: () => ({ getAttribute: () => 'ok' }) } });
+            break;
+        }
+    }
+    return pending;
+}
 import { loadMoodReview, recordMoodReview } from '../src/scene/mood-review-store.js';
 import { CHAT_LAYER_STYLE_TEXT, advanceChatReveal, applyChatToDom, cancelChatShow, getChatRevealState } from '../src/visual/igs-ui/chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from '../src/visual/igs-ui/chat-show-runtime.js';
@@ -56,7 +70,7 @@ test('gate:simulation:virtual-regex-extra-rules-render-add-save-and-remove', asy
         assert.deepEqual(vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex.rules, [{ pattern: 'foo', flags: 'g', replacement: 'bar' }]);
 
         const reopened = vn.openSettings({ tab: 'regex', mode: 'pc' }).controller;
-        const removed = await reopened.invoke('remove-virtual-regex:0');
+        const removed = await invokeConfirmed(reopened, document, 'remove-virtual-regex:0');
         assert.equal(removed.ok, true);
         assert.deepEqual(reopened.getSnapshot().draft.bridge.virtualRegex.rules, []);
         assert.deepEqual(vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex.rules, []);
@@ -7671,6 +7685,56 @@ test('gate:simulation:status-hud-location-occupies-identity-slot-without-charact
     vn.destroy();
 });
 
+test('gate:simulation:bgm-bars-sit-left-of-location-and-reveal-title-on-click', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            sceneAssets: { enabled: true, promptRule: 'rule', scenes: { '学校天台': { url: '' } }, characters: {}, characterAliases: {}, moodGroups: [] },
+        }),
+    });
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
+        statusHud: { enabled: true, showEmotion: true, showLocation: true, tables: [] },
+        bgm: {
+            enabled: true, volume: 0.5, tracks: [
+                { id: 'a', name: '雨のように', credit: '魔王魂', url: 'https://x/a.mp3', keywords: [], moods: ['sad'] },
+                { id: 'b', name: 'To tomorrow', credit: '魔王魂', url: 'https://x/b.mp3', keywords: [], moods: ['sad'] },
+            ],
+        },
+    }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: ['<now_plot>', '<content>', '[igs-scene:学校天台|黄昏|小雨]', '[igs-fx:bgm|悲]', '风吹过天台。', '</content>', '</now_plot>'].join('\n') }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const location = document.getElementById('igs-status-hud').querySelector('.igs-hud-location');
+    const bars = location.querySelector('.igs-hud-bgm-bars');
+    assert.ok(bars, 'two-bar mark sits in the location row');
+    // 顺序：竖线（左描边）→ 曲名 → 图钉 → 地点。
+    const order = location.children.map((child) => child.className);
+    assert.deepEqual(order.slice(0, 2), ['igs-hud-bgm-bars', 'igs-hud-bgm']);
+    assert.ok(order.indexOf('igs-hud-bgm') < order.indexOf('igs-hud-location-label'), 'music on the left, place on the right');
+    assert.equal(bars.querySelectorAll('i').length, 2);
+    assert.equal(location.classList.contains('is-bgm-open'), false, 'title hidden until clicked');
+    const first = location.querySelector('.igs-hud-bgm-title').textContent;
+    assert.match(first, /· 魔王魂$/);
+
+    assert.equal((await opened.reader.controller.invokeAction('bgm-note')).expanded, true);
+    assert.equal(location.classList.contains('is-bgm-open'), true);
+    const next = await opened.reader.controller.invokeAction('bgm-next');
+    assert.equal(next.ok, true);
+    const now = document.getElementById('igs-status-hud').querySelector('.igs-hud-bgm-title').textContent;
+    assert.notEqual(now, first, 'skip plays the other track in the sad pool');
+    assert.equal(document.getElementById('igs-status-hud').querySelector('.igs-hud-location').classList.contains('is-bgm-open'), true);
+    assert.equal((await opened.reader.controller.invokeAction('bgm-note')).expanded, false);
+
+    vn.destroy();
+});
+
 test('gate:simulation:status-hud-location-details-render-on-narration', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
     const storage = createMemoryStorage({
@@ -8017,7 +8081,7 @@ test('gate:simulation:chat-show-settings-edit-contacts-and-inject-prompt-rule', 
         assert.match(String(injected.filter(([id]) => id === 'igs-scene-assets-format-rule').at(-1)[1]), /自定义聊天规则/);
         assert.doesNotMatch(String(injected.filter(([id]) => id === 'igs-scene-assets-format-rule').at(-1)[1]), /\[igs-chat:会话标题\]/);
         assert.match(settings.switchReaderSubTab('performance').snapshot.html, /自定义提示词已保存/);
-        await settings.invoke('chat-show-reset-prompt');
+        await invokeConfirmed(settings, document, 'chat-show-reset-prompt');
         assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).chatShow.promptRule, '');
         assert.equal(settings.close().ok, true);
         const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
@@ -8478,7 +8542,7 @@ test('gate:simulation:ancient-era-filters-modern-fx-from-prompt-and-reader', asy
         settings.setValue('bridge.sceneAssets.enabled', true);
         // 时代只在一键档位条的「适配世界」下拉里切换，场景素材页不再有勾选框。
         assert.doesNotMatch(settings.getSnapshot().html, /data-path="bridge\.sceneAssets\.ancient"/);
-        await settings.invoke('worldview:ancient');
+        await invokeConfirmed(settings, document, 'worldview:ancient');
         assert.equal(settings.close().ok, true);
         const ancientPrompt = mainPrompt();
         assert.match(ancientPrompt, /igs时代背景/);
@@ -8909,7 +8973,7 @@ test('gate:simulation:outfit-settings-add-slot-url-persist-reopen-and-custom-rul
         await settings.invoke(`scene-outfit-tab:${c}:${o}`);
         assert.match(settings.getSnapshot().html, /data-scene-outfit="泳装" data-scene-outfit-mood="喜悦" value="https:\/\/example\.com\/swim-new\.png"/);
         assert.match(settings.getSnapshot().html, />泳装<span class="igs-outfit-tab-count">1<\/span>/);
-        await settings.invoke('reset-prompt-rule');
+        await invokeConfirmed(settings, document, 'reset-prompt-rule');
         settings.switchSceneSubTab('rules');
         assert.doesNotMatch(settings.getSnapshot().html, /data-result="prompt-rule-outfit"/);
         settings.close();
@@ -9036,6 +9100,10 @@ test('gate:simulation:onboarding-invite-guide-skip-and-no-repeat', async () => {
         await settings.invoke('onboarding-start');
         assert.equal(host.getState().activeSettings.tab, 'basic');
         assert.ok(document.getElementById('igs-onboarding-card'), '引导卡挂在设置面板内');
+        // 第二步是快速配置演出问卷：只点选项、不点「应用」时不写草稿，「下一步」直接跳过。
+        await settings.invoke('onboarding-next');
+        assert.ok(String(document.getElementById('igs-onboarding-card').innerHTML).includes('data-action="onboarding-quiz:types:battle"'), '问卷选项在引导卡里');
+        await settings.invoke('onboarding-quiz:types:battle');
         for (let i = 0; i < 4; i += 1) await settings.invoke('onboarding-next');
         assert.equal(host.getState().activeSettings.tab, 'reader');
         settings.switchTab('reader');

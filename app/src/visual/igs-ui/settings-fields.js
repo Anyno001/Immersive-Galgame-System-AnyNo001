@@ -4,7 +4,7 @@ import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
 import { CHAT_SHOW_BUBBLE_RADIUS_LEVELS, CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } from './chat-show-runtime.js';
 import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
-import { menuItem, renderCharacterSlotTabs, renderReviewCard, renderRowMenu } from './settings-outfit-fields.js';
+import { SLOT_ICONS, menuItem, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions } from './settings-outfit-fields.js';
 import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
 
@@ -253,6 +253,7 @@ export function renderSceneAssetList(scenes, options = {}) {
     return entries.map(([sceneName, sceneVal]) => {
         const sceneObj = typeof sceneVal === 'string' ? { url: sceneVal, times: {} } : (sceneVal || { url: '', times: {} });
         const sceneWords = Array.isArray(sceneObj.words) ? sceneObj.words : [];
+        const canVary = Boolean(storedImageId(sceneObj.url));
         const bgExpanded = expandedSlots.has('bg\x00' + sceneName);
         const badge = (text) => `<span style="font-size:10px;opacity:.5;flex-shrink:0;margin-right:2px">${text}</span>`;
         const timeEntries = Object.entries(sceneObj.times || {});
@@ -267,12 +268,13 @@ export function renderSceneAssetList(scenes, options = {}) {
                 return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row">`
                     + badge('天气')
                     + `<span class="igs-btn-mgr-label">${esc(weatherName)}</span>`
-                    + `<input class="igs-scene-url-input" data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}" value="${esc(weatherObj.url || '')}" placeholder="URL 或 data:image/...">`
+                    + sceneUrlField(weatherObj.url, `data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}"`, weatherName, options.resolveUrl)
                     + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="上传天气背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
                     + renderRowMenu([
                         menuItem(`scene-rename-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '重命名'),
                         storedImageDownloadItem(weatherObj.url, `${sceneName}-${timeName}-${weatherName}-背景.png`),
                         storedImagePromptItem(weatherObj.url),
+                        canVary ? menuItem(`scene-variant-retry:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, storedImageId(weatherObj.url) ? '重新生成' : '按场景提示词生成') : '',
                         menuItem(`scene-remove-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '删除', ' is-danger'),
                     ], `「${weatherName}」的操作`)
                     + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="展开/折叠">${wExpanded ? chevronUp : chevronDown}</button>`
@@ -282,12 +284,13 @@ export function renderSceneAssetList(scenes, options = {}) {
             return `<div class="igs-scene-char-group igs-scene-time-group"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
                 + badge('时间')
                 + `<span class="igs-btn-mgr-label">${esc(timeName)}</span>`
-                + `<input class="igs-scene-url-input" data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" value="${esc(timeObj.url || '')}" placeholder="URL 或 data:image/...">`
+                + sceneUrlField(timeObj.url, `data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}"`, timeName, options.resolveUrl)
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="上传时间背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
                 + renderRowMenu([
                     menuItem(`scene-rename-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '重命名'),
                     storedImageDownloadItem(timeObj.url, `${sceneName}-${timeName}-背景.png`),
                     storedImagePromptItem(timeObj.url),
+                    canVary ? menuItem(`scene-variant-retry:${encSeg(sceneName)}:${encSeg(timeName)}:`, storedImageId(timeObj.url) ? '重新生成' : '按场景提示词生成') : '',
                     menuItem(`scene-add-weather:${encSeg(sceneName)}:${encSeg(timeName)}`, '添加天气'),
                     menuItem(`scene-remove-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '删除', ' is-danger'),
                 ], `「${timeName}」的操作`)
@@ -299,7 +302,8 @@ export function renderSceneAssetList(scenes, options = {}) {
             + badge('场景')
             + `<span class="igs-btn-mgr-label" style="font-weight:600">${esc(sceneName)}</span>`
             + scopeTag(options, 'scenes', sceneName)
-            + `<input class="igs-scene-url-input" data-scene-bg="${esc(sceneName)}" value="${esc(sceneObj.url || '')}" placeholder="URL 或 data:image/...">`
+            + sceneUrlField(sceneObj.url, `data-scene-bg="${esc(sceneName)}"`, sceneName, options.resolveUrl)
+            + (canVary ? `<button type="button" class="igs-btn-mgr-icon" data-action="scene-variant-set:${encSeg(sceneName)}" title="按这张的提示词生成时间/天气差分" aria-label="时间/天气差分">${SLOT_ICONS.variants}</button>` : '')
             + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-bg:${encSeg(sceneName)}" title="上传场景背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
             + renderRowMenu([
                 menuItem(`scene-rename-bg:${encSeg(sceneName)}`, '重命名'),
@@ -312,6 +316,16 @@ export function renderSceneAssetList(scenes, options = {}) {
             + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-bg:${encSeg(sceneName)}" title="展开/折叠">${bgExpanded ? chevronUp : chevronDown}</button>`
             + `</div>${bgBody}</div>${timeRows}</div>`;
     }).join('');
+}
+
+// 插件生成的背景只放缩略图，编号地址对用户没用；手填地址或空着才给输入框。
+function sceneUrlField(url, attrs, alt, resolveUrl) {
+    const raw = String(url || '').trim();
+    if (!storedImageId(raw)) return `<input class="igs-scene-url-input" ${attrs} value="${esc(raw)}" placeholder="URL 或 data:image/...">`;
+    const shown = shownAssetUrl(raw, resolveUrl);
+    return /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
+        ? `<img loading="lazy" decoding="async" class="igs-outfit-thumb" src="${esc(shown)}" alt="${esc(alt)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        : '<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true">载入中</span>';
 }
 
 function shownAssetUrl(url, resolveUrl) {
@@ -399,11 +413,6 @@ export function renderCharacterAssetList(characters, options = {}) {
         const outfitForChar = Object.prototype.hasOwnProperty.call(outfitMap, charName) ? outfitMap[charName] : null;
         const outfitNames = outfitForChar && typeof outfitForChar === 'object' ? Object.keys(outfitForChar) : [];
         const activeOutfit = outfitNames.includes(outfitTabs[charName]) ? outfitTabs[charName] : '';
-        const baseMenuItems = [
-            menuItem(`char-generate-sprite:${encSeg(charName)}`, '生成立绘'),
-            String((moods && moods['默认']) || '').startsWith('igs-gen:') ? menuItem(`char-expression-set:${encSeg(charName)}`, '表情差分') : '',
-            menuItem(`scene-add-mood:${encSeg(charName)}`, '添加情绪'),
-        ];
         const expressionNotes = options.expressionNotes && typeof options.expressionNotes === 'object' ? options.expressionNotes[charName] : null;
         const moodEntries = Object.entries(moods || {});
         const moodRows = moodEntries.map(([mood, url]) => {
@@ -421,12 +430,15 @@ export function renderCharacterAssetList(characters, options = {}) {
                 : `<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true">${imageId ? '载入中' : ''}</span>`;
             const c = encSeg(charName);
             const m = encSeg(mood);
-            const slotMenu = renderRowMenu([
+            const acts = slotActions([
+                imageId ? [`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${mood}-立绘.png`)}`, '下载', 'download'] : null,
+                mood !== '默认' && (imageId || (note && note.error)) ? [`char-expression-retry:${c}:${m}`, '重新生成', 'retry'] : null,
+                mood === '默认' && rawUrl ? [`char-generate-sprite:${c}`, '重新生成', 'retry'] : null,
+                [`scene-rename-mood:${c}:${m}`, '重命名', 'rename'],
+            ]);
+            const slotMenu = acts.inline + renderRowMenu([
                 canPrompt ? menuItem(`char-expression-prompt:${c}:${m}`, '提示词') : '',
-                imageId ? menuItem(`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${mood}-立绘.png`)}`, '下载') : '',
-                mood !== '默认' && (imageId || (note && note.error)) ? menuItem(`char-expression-retry:${c}:${m}`, '重新生成') : '',
-                mood === '默认' && rawUrl ? menuItem(`char-generate-sprite:${c}`, '重新生成') : '',
-                menuItem(`scene-rename-mood:${c}:${m}`, '重命名'),
+                ...acts.items,
                 menuItem(`scene-remove-mood:${c}:${m}`, '删除', ' is-danger'),
             ], `「${mood}」的操作`);
             const collapsedRow = `<div class="igs-btn-mgr-row igs-scene-mood-row">`
@@ -443,8 +455,7 @@ export function renderCharacterAssetList(characters, options = {}) {
         const slotArea = renderCharacterSlotTabs({
             charName,
             baseMoods: moodEntries.map(([mood]) => mood),
-            baseListHtml: `<div class="igs-outfit-panel"><div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪，点页签右边的 ⋯ 添加</div>'}</div></div>`,
-            baseMenuItems,
+            baseListHtml: `<div class="igs-outfit-panel"><div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪，点页签上的添加情绪图标</div>'}</div></div>`,
             outfits: outfitForChar,
             activeOutfit,
             expressionNotes: options.expressionNotes,

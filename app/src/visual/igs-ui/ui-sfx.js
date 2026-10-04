@@ -30,6 +30,14 @@ export const UI_SFX_FAMILIES = Object.freeze({
         open: Object.freeze([p('sine', 523, 784, 0, 0.16, 0.45, { attack: 0.015, sweep: 0.7 })]),
         close: Object.freeze([p('sine', 784, 523, 0, 0.16, 0.45, { attack: 0.015, sweep: 0.7 })]),
     }),
+    // 恐怖两款共用：翻页是一下闷心跳，确认是低频闷响叠一组三全音，开合是两条略失谐、互相拍动的低音。
+    dread: Object.freeze({
+        page: Object.freeze([p('sine', 64, 46, 0, 0.14, 0.9, { attack: 0.004, sweep: 0.6 }), p('sine', 58, 42, 0.19, 0.16, 0.65, { attack: 0.004, sweep: 0.6 })]),
+        hover: Object.freeze([p('sine', 196, 184, 0, 0.12, 0.14, { attack: 0.01 })]),
+        confirm: Object.freeze([p('sine', 74, 52, 0, 0.33, 0.85, { attack: 0.003, sweep: 0.5 }), p('triangle', 311, 311, 0.02, 0.3, 0.1, { attack: 0.03 }), p('triangle', 440, 440, 0.02, 0.3, 0.08, { attack: 0.03 })]),
+        open: Object.freeze([p('sine', 110, 165, 0, 0.34, 0.3, { attack: 0.1, sweep: 0.8 }), p('sine', 113, 169, 0, 0.34, 0.24, { attack: 0.1, sweep: 0.8 })]),
+        close: Object.freeze([p('sine', 165, 98, 0, 0.34, 0.3, { attack: 0.04, sweep: 0.8 }), p('sine', 169, 101, 0, 0.34, 0.24, { attack: 0.04, sweep: 0.8 })]),
+    }),
     glass: Object.freeze({
         page: Object.freeze([p('sine', 1568, 1568, 0, 0.18, 0.35, { attack: 0.002 }), p('sine', 3136, 3136, 0, 0.08, 0.1, { attack: 0.002 })]),
         hover: Object.freeze([p('sine', 2093, 2093, 0, 0.06, 0.18, { attack: 0.002 })]),
@@ -53,6 +61,8 @@ const SKIN_FAMILIES = Object.freeze({
     'elegant-european': 'glass',
     'magic-academy': 'glass',
     'gradient-veil': 'glass',
+    'horror-gore': 'dread',
+    'horror-psych': 'soft',
 });
 
 export function resolveUiSfxFamily(dialogSkin) {

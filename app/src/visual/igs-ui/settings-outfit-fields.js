@@ -85,6 +85,26 @@ export function pendingExpressionCaptions(notes, slots) {
 
 export const menuItem = (action, label, extra = '') => `<button type="button" class="igs-add-menu-item${extra}" data-action="${action}" role="menuitem">${esc(label)}</button>`;
 
+const svg12 = (body) => `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+export const SLOT_ICONS = {
+    download: svg12('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+    retry: svg12('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
+    rename: svg12('<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>'),
+    outfit: svg12('<path d="M12 6a2 2 0 1 1 2-2"/><path d="M12 6v2L2.5 15.5A1.5 1.5 0 0 0 3.4 18h17.2a1.5 1.5 0 0 0 .9-2.5L12 8"/>'),
+    mood: svg12('<circle cx="11" cy="12" r="8"/><path d="M7.5 14.5a4.5 4.5 0 0 0 7 0"/><line x1="8.5" y1="9.5" x2="8.51" y2="9.5"/><line x1="13.5" y1="9.5" x2="13.51" y2="9.5"/><line x1="20" y1="2" x2="20" y2="8"/><line x1="17" y1="5" x2="23" y2="5"/>'),
+    variants: svg12('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/><path d="M19 3a3 3 0 0 0 2 5 4 4 0 0 1-4-5z"/>'),
+};
+
+// 差分格的下载 / 重新生成 / 重命名：宽屏外露成图标；细窄屏藏起图标，仍走 ⋯ 里的同名项。
+// list：[action, label, iconKey]，空项跳过。返回 { inline, items }：inline 放行内，items 塞进 ⋯。
+export function slotActions(list) {
+    const shown = list.filter(Boolean);
+    return {
+        inline: shown.map(([action, label, icon]) => `<button type="button" class="igs-btn-mgr-icon igs-slot-act" data-action="${action}" title="${esc(label)}" aria-label="${esc(label)}">${SLOT_ICONS[icon]}</button>`).join(''),
+        items: shown.map(([action, label]) => menuItem(action, label, ' igs-slot-act-menu')),
+    };
+}
+
 const PERSON_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
 
 function shownUrl(url, resolveUrl) {
@@ -173,11 +193,14 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const raw = String(url || '').trim();
         const imageId = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
         const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
-        const slotMenu = renderRowMenu([
+        const acts = slotActions([
+            imageId ? [`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${name}-${mood}-立绘.png`)}`, '下载', 'download'] : null,
+            imageId || (note && note.error) ? [`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, '重新生成', 'retry'] : null,
+            [`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名', 'rename'],
+        ]);
+        const slotMenu = acts.inline + renderRowMenu([
             canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
-            imageId ? menuItem(`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${name}-${mood}-立绘.png`)}`, '下载') : '',
-            imageId || (note && note.error) ? menuItem(`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, '重新生成') : '',
-            menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
+            ...acts.items,
             menuItem(`scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}`, '删除', ' is-danger'),
         ], `「${mood}」的操作`);
         // 生成图的格子不放编号地址输入框；自己填地址的格子才有输入框。
@@ -237,15 +260,15 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
         + `</span>`;
     const menu = active
         ? renderRowMenu([
-            menuItem(`outfit-expression-set:${c}:${o}`, '表情差分'),
             menuItem(`ui-toggle-open:${encSeg(metaKey)}`, isOpen(metaKey) ? '收起服装设置' : '服装设置（衣柜、服装词…）'),
-            menuItem(`scene-add-outfit-mood:${c}:${o}`, '添加情绪槽'),
             menuItem(`scene-rename-outfit:${c}:${o}`, '重命名这套'),
             menuItem(`scene-remove-outfit:${c}:${o}`, '删除这套', ' is-danger'),
         ], `「${active}」的操作`)
         : renderRowMenu(baseMenuItems, '原装的操作');
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
-        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">＋ 服装</button>${quickButtons}${menu}</div>`;
+        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装" aria-label="添加服装">${SLOT_ICONS.outfit}</button>`
+        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-icon" data-action="${active ? `scene-add-outfit-mood:${c}:${o}` : `scene-add-mood:${c}`}" title="添加情绪" aria-label="添加情绪">${SLOT_ICONS.mood}</button>`
+        + `${quickButtons}${menu}</div>`;
     const panel = active
         ? renderOutfitPanel(charName, active, plain(map[active]) || { words: [], moods: {} }, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
         : baseListHtml;
@@ -394,7 +417,11 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-slot{display:flex;align-items:center;gap:8px;min-width:0;padding:4px 6px;border-bottom:1px solid var(--igs-settings-line)}
 .igs-outfit-slot:last-child{border-bottom:0}
 .igs-outfit-slot>.igs-btn-mgr-label{flex:0 0 64px}
-.igs-outfit-slot .igs-scene-url-input{flex:1;min-width:0}
+.igs-outfit-slot .igs-scene-url-input{flex:0 1 160px;min-width:0;margin-right:auto}
+.igs-scene-mood-row .igs-scene-url-input{flex:0 1 160px}
+.igs-outfit-tab-icon{color:var(--igs-settings-ink-4)}
+.igs-add-menu-list .igs-slot-act-menu{display:none}
+@media (max-width:420px){.igs-slot-act{display:none}.igs-add-menu-list .igs-slot-act-menu{display:flex}}
 .igs-outfit-slot.is-fallback>.igs-btn-mgr-label{color:var(--igs-settings-ink-3)}
 .igs-outfit-fallbacks{padding:0 6px}
 .igs-outfit-fallbacks .igs-outfit-slot{border-bottom:0;padding:2px 6px}

@@ -851,7 +851,7 @@ test('gate:fx-runtime:ancient-era-light-off-blows-out-a-candle', () => {
 
 test('gate:fx-runtime:world-skin-notify-marks-class-sound-and-style-per-worldview', async () => {
     const { WORLD_SKIN_IDS } = await import('../src/scene/worldview.js');
-    assert.deepEqual([...WORLD_SKIN_IDS].sort(), ['apocalypse', 'fantasy', 'magic', 'scifi', 'taisho']);
+    assert.deepEqual([...WORLD_SKIN_IDS].sort(), ['apocalypse', 'fantasy', 'horror', 'magic', 'scifi', 'taisho']);
     const fx = { instants: [{ kind: 'notify', sender: '信使', text: '有客到' }], call: null, flashback: false, dream: false, letterbox: false };
     for (const id of WORLD_SKIN_IDS) {
         const { root, motion } = makeRoot();

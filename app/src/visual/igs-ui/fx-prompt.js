@@ -57,6 +57,25 @@ ${ITEM_FX_PROMPT_LINE}
 4. 「重要」只留给推动剧情的关键物品，每层回复最多1个，普通物品不要加`;
 }
 
+// 配乐情绪标签独立于演出标签开关：背景音乐与其「情绪标签」都开启、且曲目里有情绪分类时才注入（只配了关键词曲目时写了也用不上）。
+export const BGM_GRAMMAR_LINE = 'bgm|情绪：配乐气氛转折时写一次，情绪只写 日常、欢快、甜、静、悲、紧、战、诡 之一，如[igs-fx:bgm|悲]；气氛不变就不写';
+
+export function bgmMoodTagEnabled(bgm) {
+    const s = bgm && typeof bgm === 'object' ? bgm : {};
+    return s.enabled === true && s.moodTag !== false && Array.isArray(s.tracks)
+        && s.tracks.some((track) => track && Array.isArray(track.moods) && track.moods.length > 0);
+}
+
+export function resolveBgmPromptRule(bgm) {
+    if (!bgmMoodTagEnabled(bgm)) return '';
+    return `[igs配乐标签]
+[igs-fx:bgm|情绪]：配乐气氛转折时写一次，情绪只写 日常、欢快、甜、静、悲、紧、战、诡 之一，如[igs-fx:bgm|悲]
+
+语法要求：
+1. 标签独立成行，放在气氛转折处的正文之前
+2. 每层回复最多1个；同一场景气氛没变时不要重复输出`;
+}
+
 // 亲密氛围标签独立于演出标签开关：只在亲密演出开启时注入。只标氛围档位，不要求 AI 描写画面。
 // 参数为 readerSettings.romanceFx（兼容旧的布尔调用）；对象栏、告白、回忆的写法只在对应子开关开启时出现。
 export function resolveRomanceFxPromptRule(settings) {

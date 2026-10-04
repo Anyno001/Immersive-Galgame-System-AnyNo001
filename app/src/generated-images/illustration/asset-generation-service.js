@@ -9,6 +9,7 @@ import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
 import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, nsfwClothingBoostLine, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
+import { sceneVariantCaption, sceneVariantTags } from '../scene-variant-tags.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
 
@@ -792,6 +793,51 @@ export function createAssetGenerationService(deps) {
         return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, note, nsfw, onProgress });
     }
 
+    // 场景时间/天气差分：读场景原图存下的提示词，换上目标时间天气标签直接出图，不写词。
+    // 一次点击的一批共用一颗新种子，构图尽量接近；signal 中止后已出的图保留。
+    async function generateSceneVariants({ baseImageId, scene, variants, onProgress, signal } = {}) {
+        const list = (Array.isArray(variants) ? variants : []).filter((item) => item && (item.time || item.weather));
+        if (!list.length) return { ok: false, error: '没有要画的时间/天气' };
+        if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出图' };
+        const stored = await getImagePrompt(baseImageId);
+        if (!stored) return { ok: false, error: '场景原图没有存提示词' };
+        const s = readSettings();
+        const seed = randomSeed();
+        const items = [];
+        for (let i = 0; i < list.length; i += 1) {
+            const { time = '', weather = '' } = list[i];
+            const label = [time, weather].filter(Boolean).join('·');
+            if (signal && signal.aborted) {
+                items.push({ time, weather, ok: false, error: '已停止' });
+                continue;
+            }
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: list.length, mood: label });
+            const caption = sceneVariantCaption(stored, sceneVariantTags(time, weather));
+            if (!caption) {
+                items.push({ time, weather, ok: false, error: '场景原图的提示词是空的' });
+                continue;
+            }
+            let painted;
+            try {
+                painted = await nai.generateDbgenCaption({ caption, size: backgroundSize(s), seed });
+            } catch (error) {
+                painted = { ok: false, error: (error && error.message) || '出图失败' };
+            }
+            if (!painted || !painted.ok || !painted.dataUrl) {
+                items.push({ time, weather, ok: false, error: (painted && painted.error) || '出图失败' });
+                continue;
+            }
+            const imageId = newId();
+            const image = { id: imageId, dataUrl: painted.dataUrl, type: 'background', createdAt: now() };
+            const prompt = normalizeStoredPrompt(painted.prompt) || promptFromCaption(caption);
+            if (prompt) image.prompt = prompt;
+            await putImageWithQuotaFallback(image);
+            rememberImage(imageId, image.dataUrl);
+            items.push({ time, weather, ok: true, imageId, scene });
+        }
+        return { ok: items.some((item) => item.ok), items, stopped: Boolean(signal && signal.aborted), error: (items.find((item) => !item.ok) || {}).error || '' };
+    }
+
     // 状态栏头像：Q 版大头，方图、不抠图，直接把图交回去，由设置页缩小后存进头像。
     async function generateCharacterAvatar({ name, dna, onProgress } = {}) {
         const who = String(name || '').trim();
@@ -986,7 +1032,7 @@ export function createAssetGenerationService(deps) {
 
     return {
         processMessage, resolveUrl, resolveThumbUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
-        generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
+        generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateSceneVariants, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
         start() {

@@ -29,7 +29,8 @@ import { closeRomanceFx } from './romance-runtime.js';
 import { closeMetaFx } from './meta-runtime.js';
 import { normalizeRomanceFxSettings, resolveNsfwSpan } from './romance-settings.js';
 import { cancelDailyFx } from './fx-daily.js';
-import { cancelSceneAudio } from './scene-audio.js';
+import { cancelSceneAudio, skipBgmTrack } from './scene-audio.js';
+import { applyBgmNoteToDom, toggleBgmNote } from './bgm-note.js';
 import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
 import { isStagePaused, setStagePauseReason, watchStagePause } from './stage-pause.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
@@ -37,6 +38,7 @@ import { playUiSfx } from './ui-sfx.js';
 import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
 import { renderPerformancePresetBar, renderPerformanceSettings } from './performance-settings-layout.js';
 import { renderWorldviewRow } from './worldview-fields.js';
+import { findLastDreadLevel } from '../../scene/horror.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -213,6 +215,7 @@ import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { createOnboardingController } from './onboarding-guide-controller.js';
+import { applyPerformanceProfile } from './performance-profile.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { resolveWorldview } from '../../scene/worldview.js';
@@ -242,8 +245,10 @@ import {
 } from './classic-dialog-skin.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_ACCENT_DEFAULT, MAGIC_HOUSES, MAGIC_HOUSE_DEFAULT, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { normalizeCharacterHouses } from './magic-house.js';
+import { HORROR_DREAD_CAP_DEFAULT, HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
 import { DIALOG_SKIN_QINGLV } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE } from './dialog-theme-fairytale.js';
+import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
 import { normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
 import { SKIN_DIALOG_SCALE_OPTIONS, SKIN_DIALOG_SCALE_DEFAULT, normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
@@ -297,6 +302,13 @@ export function createIgsReaderHost(options = {}) {
         getSettingsController: () => (state.activeSettings ? state.activeSettings.controller : null),
         rerenderSettings: () => rerenderSettings(),
         getDocument: () => getRootDocument(options.global),
+        applyPerformanceProfile: (answers) => {
+            if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+            const draft = state.activeSettings.draft;
+            draft.readerSettings = draft.readerSettings || {};
+            applyPerformanceProfile(draft.readerSettings, answers);
+            return { ok: true };
+        },
     });
 
     const sourceCache = createReaderSourceCache({
@@ -1693,6 +1705,17 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'close') {
             return state.activeReader.controller.close();
         }
+        // 地点栏 ♪：点音符展开曲名；换一首在当前情绪池里轮到下一首，并保持展开。
+        if (normalizedAction === 'bgm-note') {
+            const open = toggleBgmNote(state.activeReader.dom?.overlay);
+            return open === null ? { ok: false, reason: 'bgm-not-playing' } : { ok: true, expanded: open };
+        }
+        if (normalizedAction === 'bgm-next') {
+            const skipped = skipBgmTrack();
+            if (!skipped || !skipped.track) return { ok: false, reason: 'bgm-not-playing' };
+            applyBgmNoteToDom(skipped.root, skipped.track, { open: true });
+            return { ok: true, track: skipped.track.name };
+        }
         if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships', 'favor'].includes(normalizedAction)) {
             const current = state.activeReader;
             const hud = current.snapshot?.content?.statusHud;
@@ -2878,6 +2901,12 @@ export function createIgsReaderHost(options = {}) {
                 : resolveSceneStateAtIndex(sceneDirectives, normalizedIndex))
             : null;
         const sceneStateForBg = (ownSceneState && ownSceneState.scene) ? ownSceneState : inheritedSceneState;
+        // 恐怖档位：取当前页正文之前最近的 [igs-dread:N]，本楼没有就用向前追溯到的（见 igs-compat）。
+        const ownDread = sceneSourceForOffset.indexOf('[igs-dread') === -1 ? null : (() => {
+            const offset = currentOffset >= 0 ? currentOffset : locateTextOffsetInSource(sceneSourceForOffset, currentText);
+            return findLastDreadLevel(sceneSourceForOffset, offset >= 0 ? offset : undefined);
+        })();
+        const sceneDread = ownDread !== null ? ownDread : (payload.inheritedDread == null ? null : payload.inheritedDread);
         // 亲密演出的 NSFW 强度曲线与情事阶段（升温 / 顶点 / 余韵）：只在开启且当前页为 NSFW 时，按与当前页相同的规则判定本楼每页是否 NSFW，
         // 得出当前页在 NSFW 连续段中的位置；上一楼层末尾的场景为 NSFW 时视为延续，不再渐强。
         const romanceForSpan = normalizeRomanceFxSettings(readerSettings.romanceFx);
@@ -3288,6 +3317,7 @@ export function createIgsReaderHost(options = {}) {
                 sceneLocation: statusSceneInfo.location,
                 sceneTime: statusSceneInfo.time,
                 sceneWeather: statusSceneInfo.weather,
+                sceneDread,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
                 cgActive,
@@ -3789,9 +3819,9 @@ export function createIgsReaderHost(options = {}) {
             dialogTextEffectColorField: field('readerSettings.dialogTextEffectColor', '增强颜色', colorInput('readerSettings.dialogTextEffectColor', reader.dialogTextEffectColor)),
             dialogTextEffectStrengthField: field('readerSettings.dialogTextEffectStrength', '增强浓淡', selectInput('readerSettings.dialogTextEffectStrength', reader.dialogTextEffectStrength, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`]))),
             dialogTextEffectSizeField: field('readerSettings.dialogTextEffectSize', '增强大小', selectInput('readerSettings.dialogTextEffectSize', reader.dialogTextEffectSize, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`]))),
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_MAGIC_ACADEMY, '魔法星夜'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_QINGLV, '青绿山水'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_FAIRY_TALE, '童话小镇'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
+            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_MAGIC_ACADEMY, '魔法星夜'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_QINGLV, '青绿山水'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_FAIRY_TALE, '童话小镇'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕'], [DIALOG_SKIN_HORROR_GORE, '血色噩梦'], [DIALOG_SKIN_HORROR_PSYCH, '褪色病历']])),
             gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
-            magicHouseField: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : '',
+            magicHouseField: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : '',
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : '',
             skinDialogScaleField: classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]))) : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
@@ -4556,6 +4586,11 @@ export function createIgsReaderHost(options = {}) {
                 controller.invoke('worldview:' + String(event.target.value || ''));
                 return;
             }
+            const horrorKind = event.target && event.target.getAttribute ? event.target.getAttribute('data-horror-select') : null;
+            if (horrorKind === 'style' || horrorKind === 'gore') {
+                controller.invoke(`horror-${horrorKind}:` + String(event.target.value || ''));
+                return;
+            }
             const target = event.target;
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
             if (event.target && event.target.type === 'range' && !/^readerSettings\.typewriter\.sound\./.test(path || '')) return;
@@ -5136,6 +5171,7 @@ export function createIgsReaderHost(options = {}) {
             classicDialogWidthPercent: CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
             skinDialogScale: SKIN_DIALOG_SCALE_DEFAULT,
             magicHouse: MAGIC_HOUSE_DEFAULT,
+            horrorDreadCap: HORROR_DREAD_CAP_DEFAULT,
             magicAccent: MAGIC_ACCENT_DEFAULT,
             fontSize: 18,
             dialogFontWeight: null,
@@ -5176,6 +5212,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
         normalized.skinDialogScale = normalizeSkinDialogScale(normalized.skinDialogScale);
         normalized.magicHouse = normalizeMagicHouse(normalized.magicHouse);
+        normalized.horrorDreadCap = normalizeHorrorDreadCap(normalized.horrorDreadCap);
         normalized.magicAccent = normalizeMagicAccent(normalized.magicAccent);
         normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
         normalized.dialogFontWeight = normalized.dialogFontWeight != null

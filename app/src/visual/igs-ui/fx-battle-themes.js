@@ -2,6 +2,7 @@ import { stroke } from './dialog-skin-frame.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, MAGIC_VEIL, magicTint } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
+import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -118,6 +119,26 @@ const BATTLE_THEMES = Object.freeze({
         title: 'font-style:normal;font-weight:400;letter-spacing:.2em;text-indent:.2em;',
         veil: 'background:rgba(60,50,30,.18);',
         foe: `text-shadow:${stroke(fairyPaper('.7'))},0 0 18px ${fairyPaper('.9')};`,
+    },
+    // 血色噩梦（波普血浆）：黑底红块，名牌标记是一颗红色血滴。
+    [DIALOG_SKIN_HORROR_GORE]: {
+        accent: '#d1121b',
+        font: DIALOG_FONT_SMILEY,
+        vars: { veil: 'rgba(10,10,10,.9)', rule: '#d1121b', ink: '#f3ece4', halo: '0 1px 2px rgba(0,0,0,.95)', 'title-halo': '0 2px 0 #d1121b', wipe: 'rgba(10,10,10,.95)', lose: '#ff2a33', escape: '#8a8280' },
+        mark: `width:10px;height:12px;align-self:center;font-size:0;background:#d1121b;-webkit-mask:${HORROR_DROP_MASK} center/contain no-repeat;mask:${HORROR_DROP_MASK} center/contain no-repeat;`,
+        title: 'font-style:normal;font-weight:700;letter-spacing:.2em;text-indent:.2em;',
+        veil: 'background:rgba(60,0,0,.35);',
+    },
+    // 心理恐怖（正常界面崩坏）：平时是粉色校园风，名牌标记是一颗小爱心。
+    [DIALOG_SKIN_HORROR_PSYCH]: {
+        accent: '#e0779d',
+        light: true,
+        font: DIALOG_FONT_ZCOOL_KUAILE,
+        vars: { veil: 'rgba(255,250,252,.92)', rule: 'rgba(224,119,157,.6)', ink: '#6b4a5c', halo: '0 1px 0 rgba(255,255,255,.7)', 'title-halo': '0 1px 0 rgba(255,255,255,.9)', wipe: 'rgba(255,250,252,.95)', lose: '#c2456f', escape: '#8c72c4' },
+        mark: `width:13px;height:11px;align-self:center;font-size:0;background:#e0779d;-webkit-mask:${HORROR_HEART_MASK} center/contain no-repeat;mask:${HORROR_HEART_MASK} center/contain no-repeat;`,
+        title: 'font-style:normal;font-weight:400;letter-spacing:.16em;text-indent:.16em;',
+        veil: 'background:rgba(80,40,60,.16);',
+        foe: `text-shadow:${stroke('rgba(255,250,252,.75)')},0 0 18px rgba(255,250,252,.9);`,
     },
     // 日间简约：暗色渐隐名条 + 三色竖标，正文条为半透明白。
     [DIALOG_SKIN_DAY_MINIMAL]: {

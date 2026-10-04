@@ -11,18 +11,19 @@ export const IGS_DIRECTIVE_LINE_RE = new RegExp(`^\\[igs-(?:${NAMES}):[^\\]]*\\]
 // 指令闭合后同行残留文字（捕获组 1），供正文格式化在 "]" 后断行。
 export const IGS_DIRECTIVE_CLOSE_SOURCE = `\\[\\s*igs-(?:${NAMES})\\s*:[^\\]\\n]*\\]([^\\n]*)`;
 
-// 分页阶段需要从正文剥离的纯标记类指令（scene 与 fx 不承载可见文字）。
+// 分页阶段需要从正文剥离的纯标记类指令（scene、fx 与恐怖档位 dread 不承载可见文字）。
 // scene 沿用既有剥离规则；fx 字段不跨行，漏写 "]" 时以行尾收口。
 const SCENE_INLINE_RE = /\[igs-scene:[^\]]*\]/g;
 const FX_INLINE_RE = /\[igs-fx:[^\]\n]*(?:\]|$)/gm;
-const MARKER_LINE_RE = /^\[igs-(?:scene:[^\]]*\]|fx:)/;
+const DREAD_INLINE_RE = /\[igs-dread:[^\]\n]*\]/g;
+const MARKER_LINE_RE = /^\[igs-(?:scene:[^\]]*\]|fx:|dread:)/;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));
 }
 
 export function stripMarkerDirectives(text) {
-    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '');
+    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(DREAD_INLINE_RE, '');
 }
 
 export function isMarkerDirectiveLine(line) {

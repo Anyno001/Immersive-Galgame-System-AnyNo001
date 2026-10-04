@@ -1,4 +1,5 @@
 import { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX, dailyFxOf, parseDailyFxBody } from './daily-fx-directives.js';
+import { normalizeBgmMood } from './bgm-moods.js';
 
 export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
 export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox', 'whisper', 'movie', 'light', 'umbrella']);
@@ -66,6 +67,8 @@ export const FX_DANMAKU_PAGE_MAX = 4;
 const DANMAKU_LINE_MAX = 5;
 const DANMAKU_LINE_LEN = 30;
 
+// 配乐情绪 [igs-fx:bgm|悲]：独立于 FX_TAG_KINDS，由背景音乐的情绪标签开关控制；情绪词写错整条丢弃（照常从正文剥离）。
+// 作用到楼层内下一条 bgm 标签为止，跨楼由选曲层按场景沿用。
 const FX_TAG_RE = /\[igs-fx:([^\]\n]*)(?:\]|$)/gm;
 const FIELD_MAX = 60;
 
@@ -137,6 +140,10 @@ export function parseFxBody(body) {
         const pair = action === 'near' || action === 'apart';
         if (pair && (!parts[3] || parts[3] === parts[2])) return null;
         return { kind, end: false, args: [action, parts[2], pair ? parts[3] : ''] };
+    }
+    if (kind === 'bgm') {
+        const mood = isEnd ? '' : normalizeBgmMood(parts[1]);
+        return mood ? { kind, end: false, args: [mood] } : null;
     }
     if (kind === 'confess') return isEnd ? null : { kind, end: false, args: [] };
     if (kind === 'memory') return !isEnd && parts[1] ? { kind, end: false, args: [parts[1]] } : null;
@@ -249,7 +256,7 @@ function applyStageDirective(result, d, current) {
 
 export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
     const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
-    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [] };
+    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '' };
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
@@ -267,6 +274,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         else if (d.kind === 'umbrella') result.umbrella = !d.end;
         else if (d.kind === 'battle') result.battle = d.end ? null : { foe: d.args[0], title: d.args[1] };
         else if (d.kind === 'live') result.live = d.end ? null : { name: d.args[0], title: d.args[1], view: d.args[2] };
+        else if (d.kind === 'bgm') result.bgmMood = d.args[0];
         else if (d.kind === 'romance') {
             result.romance = d.end ? '' : d.args[0];
             // 区间内升降档不换对象：未写对象的升档标签沿用本区间已有对象。

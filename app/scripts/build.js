@@ -34,7 +34,16 @@ const withBackgrounds = mapped.replace(BACKGROUND_ASSET_RE, (_match, file) => {
     return `./backgrounds/${file}`;
 });
 if (!backgroundAssets.size) throw new Error('Default background pack images are missing from bundle.');
-const skinAssets = await externalizeSkinAssets(withBackgrounds, { srcRoot, distRoot });
+// 默认曲目素材包：同背景素材包，new URL('../../assets/bgm/<文件名>', import.meta.url) 改写为 ./bgm/<文件名>，复制到 dist/bgm/。
+const BGM_ASSET_RE = /(?:\.\.?\/)+assets\/bgm\/([\w.-]+\.(?:mp3|ogg))/g;
+const bgmSourceDir = path.join(appRoot, 'assets', 'bgm');
+const bgmAssets = new Set();
+const withBgm = withBackgrounds.replace(BGM_ASSET_RE, (_match, file) => {
+    bgmAssets.add(file);
+    return `./bgm/${file}`;
+});
+if (!bgmAssets.size) throw new Error('Default BGM pack tracks are missing from bundle.');
+const skinAssets = await externalizeSkinAssets(withBgm, { srcRoot, distRoot });
 const bundle = inlineTypewriterAudio(skinAssets.bundle);
 
 const roundedFontWeights = [300, 400, 500, 700];
@@ -158,6 +167,22 @@ for (const file of backgroundAssets) {
     if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Default background image exceeds the jsDelivr file limit: ${source}`);
     fs.copyFileSync(source, path.join(backgroundTargetDir, file));
 }
+// 默认曲目：只复制 bundle 实际引用的音频，并校验文件签名（mp3 带 ID3 头或帧同步、ogg 为 OggS）与 jsDelivr 单文件上限。
+const bgmTargetDir = path.join(distRoot, 'bgm');
+fs.rmSync(bgmTargetDir, { recursive: true, force: true });
+fs.mkdirSync(bgmTargetDir, { recursive: true });
+for (const file of bgmAssets) {
+    const source = path.join(bgmSourceDir, file);
+    if (!fs.existsSync(source)) throw new Error(`Default BGM track is missing: ${source}`);
+    const head = fs.readFileSync(source).subarray(0, 4);
+    const valid = file.endsWith('.ogg')
+        ? head.toString('latin1') === 'OggS'
+        : head.toString('latin1', 0, 3) === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0);
+    if (!valid) throw new Error(`Default BGM track is not a valid audio file: ${source}`);
+    if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Default BGM track exceeds the jsDelivr file limit: ${source}`);
+    fs.copyFileSync(source, path.join(bgmTargetDir, file));
+}
+fs.copyFileSync(path.join(bgmSourceDir, 'CREDITS.md'), path.join(bgmTargetDir, 'CREDITS.md'));
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.debug.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), await minifyBundle(bundle), 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');

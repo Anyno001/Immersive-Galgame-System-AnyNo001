@@ -8,6 +8,11 @@ export const ONBOARDING_STEPS = Object.freeze([
         body: '接下来花一分钟，带你看看最常用的几项设置。每一步都可以跳过，所有选项以后都能再改。',
     }),
     Object.freeze({
+        id: 'quick', tab: 'basic', subTabs: [], target: ['.igs-perf-presets'], quiz: true,
+        title: '想不想快速配置演出？',
+        body: '点几下选项，帮你把演出开成合适的样子。不想答就点「下一步」跳过，以后在「阅读器 › 演出」也能改。',
+    }),
+    Object.freeze({
         id: 'paging', tab: 'basic', subTabs: [], target: [],
         title: '翻页',
         body: '阅读时点画面右半边进入下一页，点左半边回到上一页；键盘按空格或「→」也能前进。开启打字机时，第一次点击先显示全文，再点一次才翻页。',

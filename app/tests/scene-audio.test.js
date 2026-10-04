@@ -120,8 +120,8 @@ test('gate: scene audio exports ambient kinds with Chinese labels', () => {
 });
 
 test('gate: bgm settings normalize defaults, clamp volume and drop invalid tracks', () => {
-    assert.deepEqual(normalizeBgmSettings(null), { enabled: false, volume: 0.5, tracks: [] });
-    assert.deepEqual(normalizeBgmSettings('x'), { enabled: false, volume: 0.5, tracks: [] });
+    assert.deepEqual(normalizeBgmSettings(null), { enabled: false, volume: 0.5, moodTag: true, tracks: [] });
+    assert.deepEqual(normalizeBgmSettings('x'), { enabled: false, volume: 0.5, moodTag: true, tracks: [] });
     assert.equal(normalizeBgmSettings({ volume: 3 }).volume, 1);
     assert.equal(normalizeBgmSettings({ volume: -1 }).volume, 0);
     const settings = normalizeBgmSettings({
@@ -143,10 +143,11 @@ test('gate: bgm settings normalize defaults, clamp volume and drop invalid track
     assert.equal(settings.tracks[1].name.length, 40);
     assert.notEqual(settings.tracks[2].id, 'mine');
     assert.equal(settings.tracks[2].name, '曲目3');
-    const many = normalizeBgmSettings({ tracks: Array.from({ length: 60 }, (_, i) => ({ url: `https://a/${i}.mp3`, keywords: Array.from({ length: 30 }, (__, k) => `k${k}`) })) });
-    assert.equal(many.tracks.length, 50);
+    // 上限 200：默认曲目包约 60 首，再给用户自己的曲目留余量。
+    const many = normalizeBgmSettings({ tracks: Array.from({ length: 210 }, (_, i) => ({ url: `https://a/${i}.mp3`, keywords: Array.from({ length: 30 }, (__, k) => `k${k}`) })) });
+    assert.equal(many.tracks.length, 200);
     assert.equal(many.tracks[0].keywords.length, 20);
-    assert.equal(new Set(many.tracks.map((t) => t.id)).size, 50);
+    assert.equal(new Set(many.tracks.map((t) => t.id)).size, 200);
 });
 
 test('gate: ambient settings default on per kind and honor explicit false', () => {

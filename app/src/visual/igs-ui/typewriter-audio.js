@@ -1,6 +1,7 @@
 import { busInput, resumeAudioBus } from './audio-bus.js';
 import { createSynthPartial as p } from './chat-sfx.js';
 import { emotionPitch, emotionProfile } from './speech-prosody.js';
+import { connectHorrorChain, shapeHorrorNotes } from './typewriter-horror.js';
 
 export { emotionPitch };
 
@@ -125,7 +126,7 @@ function getNoiseBuffer(context) {
     return noiseBuffer;
 }
 
-export function scheduleTypewriterAudio(events, { textType, volume, audioScheduler, phone = false, preset, pitch = 1, pan = 0, prosody = false, emotion } = {}) {
+export function scheduleTypewriterAudio(events, { textType, volume, audioScheduler, phone = false, preset, pitch = 1, pan = 0, prosody = false, emotion, horror = null } = {}) {
     const voiceId = normalizeTypewriterVoice(preset, textType === 'narration' ? 'keyboard' : textType ? 'dududu' : '');
     const voice = TYPEWRITER_VOICES[voiceId];
     if (!voice || !(volume > 0)) return null;
@@ -150,13 +151,15 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
         previous = event.timeMs;
         if (notes.length >= cap) break;
     }
+    // 恐怖题材特化（typewriter-horror.js）：只在传入档位时改写音符，基础音色不受影响。
+    if (horror != null) notes.splice(0, notes.length, ...shapeHorrorNotes(notes, horror));
     if (!notes.length) return null;
     const attackScale = mood?.hardAttack ? 0.5 : 1;
     if (typeof audioScheduler === 'function') {
         // timesMs 保留给现有调用方；notes 为新增的逐音符语调。
         const timesMs = notes.map((note) => note.timeMs);
         const detail = notes.map(({ timeMs, pitch: notePitch, gain, hold }) => ({ timeMs, pitch: notePitch, gain, hold }));
-        try { return audioScheduler({ textType, volume, timesMs, notes: detail, url, phone, preset: voiceId, pitch, pan: phone ? 0 : pan }) || null; } catch { return null; }
+        try { return audioScheduler({ textType, volume, timesMs, notes: detail, url, phone, preset: voiceId, pitch, pan: phone ? 0 : pan, horror }) || null; } catch { return null; }
     }
     if (voice.sample && !url.startsWith('data:audio/ogg;base64,')) return null;
     const bus = busInput('voice');
@@ -204,6 +207,7 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
                 nodes.push(band);
                 output = band;
             }
+            if (horror != null) output = connectHorrorChain(context, output, nodes, horror);
             const track = (source, ...chain) => {
                 sources.push(source);
                 nodes.push(source, ...chain);

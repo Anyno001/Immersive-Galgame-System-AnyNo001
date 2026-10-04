@@ -80,6 +80,13 @@ export const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-broadcast.is-taisho .igs-dfx-banner{background:#f4ead6;color:#2a1c18;border:1px solid #7b2e2a;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 
 /* 魔法换皮：午夜蓝星空报幕、羊皮纸 + 火漆、会动的照片；结构与时长沿用现代。 */
+#igs-overlay .igs-dfx-timeskip.is-horror .igs-dfx-veil{background:radial-gradient(ellipse at center,rgba(20,10,10,.82),rgba(0,0,0,.94));}
+#igs-overlay .igs-dfx-timeskip.is-horror .igs-dfx-timeskip-text{color:#e4dad4;font-family:"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif;letter-spacing:.3em;text-shadow:0 2px 10px rgba(0,0,0,.9);}
+#igs-overlay .igs-dfx-photo.is-horror .igs-dfx-photo-img{filter:grayscale(.55) contrast(1.12) brightness(.92);}
+#igs-overlay .igs-dfx-letter.is-horror .igs-dfx-paper{background:linear-gradient(160deg,#e3ddd2,#c9c0b2);color:#2a2220;border:1px solid #7a6c62;box-shadow:inset 0 0 30px rgba(90,60,50,.3),0 10px 26px rgba(0,0,0,.5);font-family:"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif;}
+#igs-overlay .igs-dfx-letter.is-horror .igs-dfx-paper::after{content:"";position:absolute;right:22px;bottom:16px;width:30px;height:22px;border-radius:50% 44% 56% 48%;background:rgba(120,10,16,.55);}
+#igs-overlay .igs-dfx-note.is-horror .igs-dfx-sticky{background:linear-gradient(160deg,#e6e0d4,#cfc6b8);color:#2a2220;}
+#igs-overlay .igs-dfx-broadcast.is-horror .igs-dfx-banner{background:linear-gradient(180deg,rgba(18,12,12,.94),rgba(8,6,6,.96));color:#e4dad4;border:1px solid rgba(150,16,24,.75);box-shadow:0 6px 20px rgba(0,0,0,.45);font-family:"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif;}
 #igs-overlay .igs-dfx-timeskip.is-magic .igs-dfx-veil{background:radial-gradient(1px 1px at 18% 30%,rgba(255,240,200,.9),transparent),radial-gradient(1px 1px at 72% 22%,rgba(255,240,200,.8),transparent),radial-gradient(1.5px 1.5px at 40% 70%,rgba(200,220,255,.8),transparent),radial-gradient(1px 1px at 86% 64%,rgba(255,240,200,.7),transparent),radial-gradient(ellipse at center,rgba(28,34,72,.78),rgba(8,10,26,.94));}
 #igs-overlay .igs-dfx-timeskip.is-magic .igs-dfx-timeskip-text{color:#f3e2b6;font-family:"IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.14em;text-shadow:0 0 12px rgba(255,214,120,.55),0 2px 8px rgba(0,0,0,.6);}
 #igs-overlay .igs-dfx-photo.is-magic .igs-dfx-photo-img{filter:sepia(.35) saturate(.9) contrast(1.05);animation:igs-dfx-magic-photo 2.6s ease-in-out infinite alternate;}
@@ -386,6 +393,25 @@ export const DAILY_FX_STYLE_TEXT = `
 @keyframes igs-dfx-howler-open{to{transform:rotateX(180deg);}}
 @keyframes igs-dfx-howler-char{0%{opacity:0;transform:scale(2.4) rotate(-8deg);}100%{opacity:1;transform:none;}}
 @keyframes igs-dfx-howler-quake{0%,100%{transform:translate(0,0);}25%{transform:translate(-4px,2px);}50%{transform:translate(3px,-3px);}75%{transform:translate(-2px,-2px);}}
+/* 恐怖：停电 / 敲门 / 耳边低语。都只用 opacity 与 transform；减少动态时只保留淡入淡出。 */
+#igs-overlay .igs-dfx-blackout-veil{position:absolute;inset:0;background:#000;opacity:0;animation:igs-dfx-blackout var(--igs-dfx-life) linear both;}
+#igs-overlay .igs-dfx-blackout-text{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);max-width:80%;text-align:center;color:rgba(220,212,208,.72);font:400 clamp(16px,2.6vw,24px)/1.6 "Source Han Serif CN","Songti SC",serif;letter-spacing:.24em;opacity:0;animation:igs-dfx-blackout-text var(--igs-dfx-life) ease both;}
+@keyframes igs-dfx-blackout{0%{opacity:0;}5%{opacity:.85;}8%{opacity:.1;}12%{opacity:.9;}14%{opacity:.25;}20%,78%{opacity:.97;}100%{opacity:0;}}
+@keyframes igs-dfx-blackout-text{0%,30%{opacity:0;}42%,70%{opacity:1;}84%,100%{opacity:0;}}
+#igs-overlay .igs-dfx-knock-pulse{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,.6) 100%);opacity:0;animation:igs-dfx-knock-pulse .38s ease-out both;}
+#igs-overlay .igs-dfx-knock-hit{position:absolute;right:7%;color:rgba(236,228,224,.86);font:900 clamp(26px,4.4vw,46px)/1 "Source Han Serif CN","Songti SC",serif;text-shadow:0 2px 10px rgba(0,0,0,.85);opacity:0;animation:igs-dfx-knock-hit .9s cubic-bezier(.2,1.4,.4,1) both;}
+#igs-overlay .igs-dfx-knock-hit:nth-of-type(even){right:auto;left:7%;}
+@keyframes igs-dfx-knock-pulse{0%{opacity:0;}20%{opacity:1;}100%{opacity:0;}}
+@keyframes igs-dfx-knock-hit{0%{opacity:0;transform:scale(1.6);}18%{opacity:1;transform:scale(1);}70%{opacity:.8;}100%{opacity:0;transform:translateY(-6px);}}
+#igs-overlay .igs-dfx-murmur{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-murmur-text{position:absolute;top:34%;max-width:42%;color:rgba(236,230,230,.62);font:italic 400 clamp(15px,2.2vw,21px)/1.7 "Source Han Serif CN","Songti SC",serif;letter-spacing:.3em;text-shadow:0 0 10px rgba(0,0,0,.9);}
+#igs-overlay .igs-dfx-murmur.is-left .igs-dfx-murmur-text{left:8%;}
+#igs-overlay .igs-dfx-murmur.is-right .igs-dfx-murmur-text{right:8%;text-align:right;}
+#igs-overlay .igs-dfx-murmur-text span{display:inline-block;opacity:0;animation:igs-dfx-murmur-char 2.4s ease both;}
+@keyframes igs-dfx-murmur-char{0%{opacity:0;transform:translateX(-4px);filter:blur(5px);}25%{opacity:1;transform:none;filter:blur(0);}70%{opacity:.7;filter:blur(1px);}100%{opacity:0;filter:blur(4px);}}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-blackout-veil{animation:igs-dfx-fade var(--igs-dfx-life) ease both;opacity:.95;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-knock-hit,#igs-overlay .igs-dfx.is-reduced .igs-dfx-murmur-text span{animation:igs-dfx-fade 1.2s ease both;filter:none;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-knock-pulse{animation:none;}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-hg-sand,#igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-env,#igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-flap{animation:none;}
 #igs-overlay .igs-dfx.is-reduced.igs-dfx-howler{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-mouth span{animation:none;opacity:1;}

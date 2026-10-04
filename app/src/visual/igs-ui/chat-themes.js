@@ -7,6 +7,8 @@ export const CHAT_THEME_PALETTES = Object.freeze({
     default: palette('#ededed', '#f7f7f7', '#1f1f1f', '#1c1c1f', '#8a8a8a', '#ffffff', '#95ec69'),
     'western-classic': palette('#efe4cc', '#3b2a1c', '#f2e5c4', '#2e2218', '#8a7456', '#fbf3df', '#d8b979'),
     'magic-academy': palette('#141a3a', '#1c2248', '#f3e2b6', '#0c0f26', '#a99b78', '#f1e3c0', '#d9b45a', 'rgba(217,180,90,.6)'),
+    'horror-gore': palette('#141010', '#0a0a0a', '#f3ece4', '#0a0a0a', '#8a8280', '#f3ece4', '#e8636a', 'rgba(209,18,27,.6)'),
+    'horror-psych': palette('#fdf3f8', '#f8dbe8', '#6b4a5c', '#e0779d', '#a48c99', '#ffffff', '#f4c3d6', 'rgba(244,163,192,.5)'),
     'fairy-tale': palette('#f6f1e2', '#e9e6cf', '#4a4034', '#5e5444', '#9a9380', '#fffcf3', '#d9e3bf', 'rgba(122,138,82,.3)'),
     'qinglv-shanshui': palette('#f1ede2', '#e8e3d5', '#26332f', '#2b3532', '#8c958f', '#fbf9f3', '#cfe0d6', 'rgba(47,93,124,.3)'),
     'elegant-european': palette('#f4efe6', '#2b2a3a', '#e8dcc2', '#1f1e2b', '#8b8577', '#ffffff', '#dccba8'),

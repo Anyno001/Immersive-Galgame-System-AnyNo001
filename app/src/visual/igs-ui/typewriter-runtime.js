@@ -238,6 +238,7 @@ export function applyTypewriterEffect(target, options = {}) {
         job.audio = scheduleTypewriterAudio(delay ? classic.events.map((event) => ({ ...event, timeMs: event.timeMs + delay })) : classic.events, {
             textType: options.textType, volume: jobVolume, audioScheduler: options.audioScheduler, phone: options.phone === true,
             preset: voice.preset, pitch: voice.pitch, pan: voice.pan, prosody: settings.prosody, emotion,
+            horror: options.horror == null ? null : options.horror,
         });
         if (job.audio) job.releaseDuck = duckSceneAudio({ ratio: TYPING_DUCK_RATIO });
     }

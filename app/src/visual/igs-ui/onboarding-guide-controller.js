@@ -5,6 +5,7 @@ import {
     readOnboardingState, shouldInviteOnboarding, writeOnboardingState,
 } from './onboarding-guide.js';
 import { mountOnboardingCard } from './onboarding-guide-runtime.js';
+import { PROFILE_QUESTIONS } from './performance-profile.js';
 import { handleOnboardingKeydown, mountOnboardingInvite, removeOnboardingInvite } from './onboarding-guide-invite.js';
 import { ONBOARDING_STYLE_ID, getOnboardingStyleText } from './onboarding-guide-style.js';
 
@@ -13,7 +14,8 @@ const SUBTAB_SWITCHERS = Object.freeze({
     scene: 'switchSceneSubTab',
     image: 'switchImageSubTab',
 });
-export const ONBOARDING_ACTIONS = Object.freeze(['onboarding-start', 'onboarding-next', 'onboarding-prev', 'onboarding-skip', 'onboarding-finish']);
+export const ONBOARDING_ACTIONS = Object.freeze(['onboarding-start', 'onboarding-next', 'onboarding-prev', 'onboarding-skip', 'onboarding-finish', 'onboarding-quiz-apply']);
+export const DEFAULT_QUIZ_ANSWERS = Object.freeze({ types: [], level: 'standard', sound: ['fx', 'ui', 'typing'], adult: 'no' });
 
 export function ensureOnboardingStyle(doc) {
     if (!doc || typeof doc.createElement !== 'function' || doc.getElementById?.(ONBOARDING_STYLE_ID)) return;
@@ -62,7 +64,8 @@ export function createOnboardingController(deps) {
     function goTo(index) {
         session.answered = true;
         const step = getOnboardingStep(index);
-        guide = { step: index, pendingFocus: false };
+        // 问卷答案跟着这次引导走，前后翻页不丢。
+        guide = { step: index, pendingFocus: false, answers: guide && guide.answers ? guide.answers : { ...DEFAULT_QUIZ_ANSWERS, types: [] }, quizApplied: Boolean(guide && guide.quizApplied) };
         if (!deps.getSettingsController()) {
             const opened = deps.openSettings(step.tab);
             if (!opened || opened.ok === false) {
@@ -95,7 +98,10 @@ export function createOnboardingController(deps) {
     // 非引导动作返回 null，由宿主继续交给既有设置动作分发。
     function handleAction(action) {
         const name = String(action || '').trim();
+        const quiz = /^onboarding-quiz:([a-z]+):([a-z]+)$/.exec(name);
+        if (quiz) return chooseQuiz(quiz[1], quiz[2]);
         if (!ONBOARDING_ACTIONS.includes(name)) return null;
+        if (name === 'onboarding-quiz-apply') return applyQuiz();
         if (name === 'onboarding-start') return goTo(0);
         if (!guide) return deps.rerenderSettings();
         if (name === 'onboarding-next') {
@@ -103,6 +109,30 @@ export function createOnboardingController(deps) {
         }
         if (name === 'onboarding-prev') return goTo(prevOnboardingStep(guide.step));
         return finish(name === 'onboarding-finish' ? 'done' : 'dismissed');
+    }
+
+    function chooseQuiz(id, value) {
+        const question = PROFILE_QUESTIONS.find((q) => q.id === id);
+        if (!guide || !question || !question.options.some(([v]) => v === value)) return deps.rerenderSettings();
+        const answers = { ...guide.answers };
+        if (question.multi) {
+            const list = Array.isArray(answers[id]) ? answers[id] : [];
+            answers[id] = list.includes(value) ? list.filter((v) => v !== value) : list.concat(value);
+        } else {
+            answers[id] = value;
+        }
+        guide.answers = answers;
+        guide.quizApplied = false;
+        return deps.rerenderSettings();
+    }
+
+    // 应用后停在这一步，让用户看到演出档位条的变化，再点「下一步」。
+    function applyQuiz() {
+        if (!guide) return deps.rerenderSettings();
+        const result = typeof deps.applyPerformanceProfile === 'function' ? deps.applyPerformanceProfile(guide.answers) : { ok: false };
+        if (result && result.ok === false) return result;
+        guide.quizApplied = true;
+        return deps.rerenderSettings();
     }
 
     function closeGuide() {

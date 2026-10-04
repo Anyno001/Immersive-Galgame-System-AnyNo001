@@ -5,6 +5,7 @@ export const DAILY_FX_KINDS = Object.freeze([
     'pat', 'poke', 'fever', 'cheers', 'cook', 'cat',
     'guqin', 'go', 'poem', 'edict', 'tea', 'bow',
     'spell', 'potion', 'owl', 'broom', 'howler',
+    'blackout', 'knock', 'murmur',
 ]);
 export const DAILY_OMIKUJI_RESULTS = Object.freeze(['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶']);
 // 同页日常演出上限：都是全屏或大卡片，连发只会互相遮挡。
@@ -89,6 +90,13 @@ export function parseDailyFxBody(type, fields) {
     case 'howler':
         if (!a) return null;
         return b ? ['howler', a, b] : ['howler', '', a];
+    // 恐怖世界独有：停电的旁白可省；敲门次数取 1–6，写错按 3 下；低语内容必填。
+    case 'blackout': return ['blackout', a];
+    case 'knock': {
+        const count = Number.parseInt(a, 10);
+        return ['knock', String(count >= 1 && count <= 6 ? count : 3)];
+    }
+    case 'murmur': return a ? ['murmur', a] : null;
     default: return null;
     }
 }
@@ -130,6 +138,9 @@ export function dailyFxOf(args) {
     case 'owl': return { type, from: a };
     case 'broom': return { type };
     case 'howler': return { type, from: a, text: b };
+    case 'blackout': return { type, text: a };
+    case 'knock': return { type, count: Number(a) || 3 };
+    case 'murmur': return { type, text: a };
     case 'pat': return { type, who: a };
     case 'poke': return { type, who: a };
     case 'fever': {

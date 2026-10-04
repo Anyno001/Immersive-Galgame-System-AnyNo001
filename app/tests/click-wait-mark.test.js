@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     CLICK_WAIT_MARK_GLYPHS,
     CLICK_WAIT_MARK_LABELS,
+    CLICK_WAIT_MARK_SKINS,
     CLICK_WAIT_MARK_STYLES,
     CLICK_WAIT_MARK_STYLE_TEXT,
     applyClickWaitMark,
@@ -33,7 +34,11 @@ test('gate: click wait settings normalize to disabled auto', () => {
 });
 
 test('gate: click wait glyph list has labels for every choice', () => {
-    assert.deepEqual([...CLICK_WAIT_MARK_GLYPHS], ['auto', 'diamond', 'fleuron', 'sparkle', 'triangle', 'chevron', 'leaf', 'star', 'caret', 'heart']);
+    assert.deepEqual([...CLICK_WAIT_MARK_GLYPHS], ['auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush', 'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye']);
+    // 每个皮肤的专属符号都能在选择器里单独选到，且皮肤之间不重复。
+    const skinShapes = Object.values(CLICK_WAIT_MARK_SKINS).map(mark => mark.shape);
+    for (const shape of skinShapes) assert.ok(CLICK_WAIT_MARK_GLYPHS.includes(shape), shape);
+    assert.equal(new Set(skinShapes).size, skinShapes.length);
     for (const id of CLICK_WAIT_MARK_GLYPHS) assert.ok(CLICK_WAIT_MARK_LABELS[id], id);
     assert.deepEqual(CLICK_WAIT_MARK_STYLES.map(item => item.id), [...CLICK_WAIT_MARK_GLYPHS]);
 });
@@ -77,6 +82,8 @@ test('gate: click wait css covers every skin and glyph override', () => {
     assert.match(CLICK_WAIT_MARK_STYLE_TEXT, /^#igs-overlay\{--igs-cw-mask:url\("data:image\/svg\+xml,/m);
     assert.match(CLICK_WAIT_MARK_STYLE_TEXT, /#igs-overlay\[data-igs-click-wait="on"\] #igs-text::after\{content:"";display:inline-block;/);
     assert.match(CLICK_WAIT_MARK_STYLE_TEXT, /-webkit-mask:var\(--igs-cw-mask\)/);
+    // 只上下轻点：关键帧里不得出现左右位移或旋转。
+    assert.doesNotMatch(CLICK_WAIT_MARK_STYLE_TEXT, /@keyframes igs-cw-[^{]*\{[^@]*(translateX|rotate)/);
     assert.match(CLICK_WAIT_MARK_STYLE_TEXT, /#igs-text\[data-igs-typewriter="running"\]::after\{opacity:0;animation:none;\}/);
     assert.match(CLICK_WAIT_MARK_STYLE_TEXT, /prefers-reduced-motion: reduce\)\{\s*#igs-overlay\[data-igs-click-wait="on"\] #igs-text::after\{animation:none!important;\}/);
     assert.match(CLICK_WAIT_MARK_STYLE_TEXT, /steps\(1,end\)/);

@@ -1,5 +1,6 @@
 import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, setAudioBusSpace, setAudioMasterVolume, watchPageAway } from './audio-bus.js';
 import { WEATHER_FLASH_EVENT, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime, resolveWeatherFxKind } from './weather-fx-runtime.js';
+import { bgmPackOfWorldview, inferBgmMood, normalizeBgmTags, resolveBgmMood, selectBgmTrack } from './bgm-library.js';
 
 // 场景音频：BGM 用 HTMLAudio 按关键词选曲并交叉淡入淡出；环境音全部 WebAudio 实时合成，不依赖音频文件。
 export const AMBIENT_KINDS = Object.freeze([
@@ -28,7 +29,8 @@ export const AMBIENT_LABELS = Object.freeze({
     ship: '船只',
     traffic: '车流',
 });
-export const BGM_DEFAULTS = Object.freeze({ enabled: false, volume: 0.5, tracks: Object.freeze([]) });
+// moodTag：让 AI 在情绪转折时写 [igs-fx:bgm|情绪]，按情绪池选曲；关掉后只按演出与时段推断。
+export const BGM_DEFAULTS = Object.freeze({ enabled: false, volume: 0.5, moodTag: true, tracks: Object.freeze([]) });
 export const AMBIENT_SOUND_DEFAULTS = Object.freeze({
     enabled: false,
     volume: 0.4,
@@ -43,7 +45,8 @@ export const TYPING_DUCK_RATIO = 0.8;
 // 演出色调下 BGM 的音量（BGM 是外链 HTMLAudio，受 CORS 限制进不了滤波链，只能压音量配合画面）。
 const BGM_TONE_GAIN = Object.freeze({ '': 1, dream: 0.85, flashback: 0.85, thought: 0.92, letterbox: 0.8 });
 
-const MAX_TRACKS = 50;
+// 默认曲目包约 60 首，再给用户自己的曲目留余量。
+const MAX_TRACKS = 200;
 const MAX_KEYWORDS = 20;
 const MAX_KEYWORD_LENGTH = 20;
 const MAX_NAME_LENGTH = 40;
@@ -54,7 +57,8 @@ const VOLUME_RAMP_MS = 300;
 const BGM_TONE_RAMP_MS = 1200;
 const MUFFLE_HZ = 700;
 const FLOOR = 0.0001;
-const URL_PATTERN = /^(https?:\/\/|data:audio\/|blob:)/i;
+// 用户上传的本地音频存在酒馆 user/files/ 下，与酒馆同源。
+const URL_PATTERN = /^(https?:\/\/|data:audio\/|blob:|\/?user\/files\/igs-bgm-)/i;
 
 const NATURE_WORDS = Object.freeze(['森林', '树林', '公园', '花园', '庭院', '院子', '山', '田', '河', '湖', '郊', '草', '林', '村', '校园', '操场']);
 const INSECT_EXTRA_WORDS = Object.freeze(['草', '田', '夏']);
@@ -156,11 +160,19 @@ export function normalizeBgmSettings(value) {
         }
         ids.add(id);
         const name = typeof item.name === 'string' ? item.name.trim().slice(0, MAX_NAME_LENGTH) : '';
-        tracks.push({ id, name: name || `曲目${index}`, url, keywords: normalizeKeywords(item.keywords) });
+        const track = { id, name: name || `曲目${index}`, url, keywords: normalizeKeywords(item.keywords) };
+        // 分类字段与署名只在有值时写出，旧曲目的存档形状不变。
+        for (const [key, list] of Object.entries(normalizeBgmTags(item))) if (list.length) track[key] = list;
+        const credit = typeof item.credit === 'string' ? item.credit.trim().slice(0, MAX_NAME_LENGTH) : '';
+        if (credit) track.credit = credit;
+        const page = typeof item.source === 'string' ? item.source.trim() : '';
+        if (page && page.length <= MAX_URL_LENGTH && /^https?:\/\//i.test(page)) track.source = page;
+        tracks.push(track);
     }
     return {
         enabled: source.enabled === true,
         volume: clamp01(source.volume, BGM_DEFAULTS.volume),
+        moodTag: source.moodTag !== false,
         tracks,
     };
 }
@@ -203,6 +215,30 @@ export function pickBgmTrack(tracks, context = {}) {
     }
     if (best) return best;
     return tracks.find((track) => track && Array.isArray(track.keywords) && !track.keywords.some((word) => textOf(word))) || null;
+}
+
+function createBgmMemory() {
+    return { sig: '', id: '', played: [], seed: Math.floor(Math.random() * 997), mood: '', moodScene: '' };
+}
+
+// 曲目带情绪分类（默认曲目包或用户勾过情绪）时走情绪池；全是旧式关键词曲目时保持原来的关键词打分。
+function pickSceneBgm(bgm, context, memory, skip) {
+    if (!bgm.tracks.some((track) => track.moods)) return pickBgmTrack(bgm.tracks, context);
+    const ctx = plainObject(context);
+    // 关掉情绪标签后连记住的情绪也不用，只按演出与时段推断。
+    const mood = bgm.moodTag ? resolveBgmMood({ ...ctx, mood: ctx.bgmMood }, memory) : inferBgmMood(ctx);
+    return selectBgmTrack(bgm.tracks, { ...ctx, mood, pack: bgmPackOfWorldview(ctx.worldview), skip }, memory);
+}
+
+// 地点栏 ♪ 的「换一首」：在当前候选池里换下一首；返回 { root, track }，没有在放的音乐时返回 null。
+export function skipBgmTrack() {
+    for (const state of liveStates) {
+        // 看选曲记录而不是音频对象：只有情绪池选曲才有「下一首」，关键词曲目没有。
+        if (state.stopped || !state.lastOptions || !state.bgmMemory || !state.bgmMemory.id) continue;
+        const result = applySceneAudio(state.root, { ...state.lastOptions, skip: true });
+        return { root: state.root, track: result.track };
+    }
+    return null;
 }
 
 export function resolveAmbientTone(context = {}) {
@@ -1633,7 +1669,9 @@ export function applySceneAudio(root, options = {}) {
     if (source.master !== undefined) setAudioMasterVolume(normalizeAudioMasterSettings(source.master).volume);
     const bgm = normalizeBgmSettings(source.bgm);
     const ambient = normalizeAmbientSoundSettings(source.ambient);
-    const track = active && bgm.enabled ? pickBgmTrack(bgm.tracks, context) : null;
+    const live = root && typeof root === 'object' ? states.get(root) : null;
+    const memory = live ? live.bgmMemory : createBgmMemory();
+    const track = active && bgm.enabled ? pickSceneBgm(bgm, context, memory, source.skip === true) : null;
     const plan = active ? resolveAmbientPlan(context, ambient, source.weatherSettings) : [];
     const tone = plan.length ? resolveAmbientTone(context) : '';
     const space = plan.length ? resolveAmbientSpace(context.location, source.weatherSettings) : '';
@@ -1649,6 +1687,7 @@ export function applySceneAudio(root, options = {}) {
     if (!state) {
         if (!track && !plan.length) return result;
         state = createState(root);
+        state.bgmMemory = memory;
         states.set(root, state);
         liveStates.add(state);
         watchVisibility(state);
@@ -1657,6 +1696,7 @@ export function applySceneAudio(root, options = {}) {
     if (typeof source.clear === 'function') state.clear = source.clear;
     if (typeof source.audioFactory === 'function') state.audioFactory = source.audioFactory;
     if (typeof source.contextFactory === 'function') state.contextFactory = source.contextFactory;
+    state.lastOptions = { ...source, skip: false };
     const key = [track ? track.url : '', bgm.volume, audioMasterVolume(), bgmTone, plan.map(layerKey).join(','), ambient.volume, tone, space].join('|');
     if (key === state.key) return result;
     state.key = key;

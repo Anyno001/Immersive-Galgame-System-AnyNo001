@@ -61,6 +61,12 @@ export const FX_SFX_PARTIALS = Object.freeze({
         p('triangle', 1760, 1760, i * 0.06, 0.05, 0.4, { attack: 0.001 }),
         p('sine', 2637, 2637, i * 0.06, 0.04, 0.16, { attack: 0.001 }),
     ]).flat()),
+    // 恐怖通报：一声闷响后接一对互相拍动的低音，像有人在黑暗里贴近。
+    'notify-horror': Object.freeze([
+        p('sine', 90, 60, 0, 0.2, 0.6, { attack: 0.003, sweep: 1 }),
+        p('sine', 233, 233, 0.12, 0.7, 0.14, { attack: 0.08 }),
+        p('sine', 247, 247, 0.12, 0.7, 0.12, { attack: 0.08 }),
+    ]),
     // 魔法通报：猫头鹰「咕—咕」两声，尾随一串细碎的魔法泛音。
     'notify-magic': Object.freeze([
         p('sine', 420, 380, 0, 0.2, 0.42, { attack: 0.04, sweep: 1 }),

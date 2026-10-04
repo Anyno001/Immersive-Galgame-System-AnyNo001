@@ -34,6 +34,9 @@ const DAILY_PROMPT_LINES = Object.freeze({
     owl: '[igs-fx:owl|寄件人]：猫头鹰飞来送信或包裹，寄件人可省略；信的内容另用 letter 标签',
     broom: '[igs-fx:broom]：骑上飞天扫帚起飞或掠过天空',
     howler: '[igs-fx:howler|寄件人|怒吼内容]：收到一封吼叫信，信封当众炸开、用寄件人的声音怒吼，内容不超过40字',
+    blackout: '[igs-fx:blackout|旁白]：灯闪了几下后突然停电、陷入黑暗，旁白写黑暗里的一句感受，不超过16字，可省略',
+    knock: '[igs-fx:knock|次数]：门被敲响（或墙里、窗外传来敲击声），次数写 1–6，可省略',
+    murmur: '[igs-fx:murmur|低语内容]：耳边突然响起不知从哪来的低语，内容不超过16字',
 });
 
 export function resolveDailyFxPromptRule(settings) {
@@ -85,6 +88,9 @@ export const DAILY_GRAMMAR_LINES = Object.freeze({
     owl: 'owl|寄件人：猫头鹰送来信件或包裹，寄件人可省',
     broom: 'broom：骑飞天扫帚起飞或掠过天空',
     howler: 'howler|寄件人|怒吼内容：吼叫信当众炸开怒吼，内容不超过40字',
+    blackout: 'blackout|旁白：灯闪几下后停电，旁白不超过16字，可省',
+    knock: 'knock|次数：敲门或敲击声，次数 1–6，可省',
+    murmur: 'murmur|低语内容：耳边的低语，不超过16字',
 });
 
 export function dailyGrammarLines(settings) {

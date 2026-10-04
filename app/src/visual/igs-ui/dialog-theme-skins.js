@@ -8,6 +8,7 @@ import {
 import { buildDialogFrameCss, halo, stroke, threeSliceCss } from './dialog-skin-frame.js';
 import { DIALOG_SKIN_QINGLV, QINGLV_DIALOG_STYLE } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_DIALOG_STYLE } from './dialog-theme-fairytale.js';
+import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_DIALOG_STYLE, PSYCH_DIALOG_STYLE } from './dialog-theme-horror.js';
 
 export const DIALOG_SKIN_PLANT_COFFEE = 'plant-coffee';
 export const DIALOG_SKIN_BLACK_WHITE_MANGA = 'black-white-manga';
@@ -25,7 +26,7 @@ const SLICED_DIALOG_SKINS = Object.freeze([
 ]);
 
 // 「插画式」= 固定高度、自带排版默认值的主题，含三片素材主题与纯 CSS 还原主题。
-export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_FAIRY_TALE]);
+export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH]);
 
 export function isIllustratedDialogSkin(value) {
     const skin = typeof value === 'string' ? value : value && value.dialogSkin;
@@ -134,6 +135,8 @@ export const ILLUSTRATED_DIALOG_STYLE_BY_SKIN = Object.freeze({
     ...CSS_DIALOG_STYLE_BY_SKIN,
     [DIALOG_SKIN_QINGLV]: QINGLV_DIALOG_STYLE,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_DIALOG_STYLE,
+    [DIALOG_SKIN_HORROR_GORE]: GORE_DIALOG_STYLE,
+    [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_DIALOG_STYLE,
 });
 
 export const ILLUSTRATED_DIALOG_STYLE_TEXT = ILLUSTRATED_DIALOG_SKINS

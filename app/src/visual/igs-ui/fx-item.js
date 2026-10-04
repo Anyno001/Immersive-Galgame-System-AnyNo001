@@ -519,6 +519,12 @@ export const ITEM_FX_STYLE_TEXT = `
 .igs-fx-item-stack[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-desc{color:#6b4a40;opacity:1;}
 .igs-fx-item-showcase[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-showcase-plate{border-color:#7b2e2a;background:#f4ead6;color:#2a1c18;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
 .igs-fx-item-showcase[data-igs-era="taisho"]:not(#igs-era-x) .igs-fx-item-showcase-rays{background:repeating-conic-gradient(from 0deg,rgba(201,162,92,.28) 0 6deg,transparent 6deg 18deg);}
+.igs-fx-item-stack[data-igs-era="horror"]:not(#igs-era-x),.igs-fx-item-showcase[data-igs-era="horror"]:not(#igs-era-x){--igs-item-accent-c:#d1121b;}
+.igs-fx-item-stack[data-igs-era="horror"]:not(#igs-era-x) .igs-fx-item-card{border:1px solid rgba(150,16,24,.75);border-radius:2px;background:linear-gradient(180deg,rgba(18,12,12,.94),rgba(8,6,6,.96));color:#e4dad4;box-shadow:0 3px 12px rgba(0,0,0,.5);font-family:"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif;}
+.igs-fx-item-stack[data-igs-era="horror"]:not(#igs-era-x) .igs-fx-item-desc{color:#a99d97;opacity:1;}
+.igs-fx-item-showcase[data-igs-era="horror"]:not(#igs-era-x) .igs-fx-item-showcase-plate{border-color:rgba(150,16,24,.75);background:linear-gradient(180deg,rgba(18,12,12,.94),rgba(8,6,6,.96));color:#e4dad4;font-family:"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif;box-shadow:0 0 20px rgba(120,0,8,.35);}
+.igs-fx-item-showcase[data-igs-era="horror"]:not(#igs-era-x) .igs-fx-item-showcase-rays{background:repeating-conic-gradient(from 0deg,rgba(150,16,24,.22) 0 3deg,transparent 3deg 14deg);}
+.igs-fx-item-flyer[data-igs-era="horror"]{color:#e4dad4;background:#120c0c;box-shadow:0 0 0 1px rgba(150,16,24,.75);}
 .igs-fx-item-stack[data-igs-era="magic"]:not(#igs-era-x),.igs-fx-item-showcase[data-igs-era="magic"]:not(#igs-era-x){--igs-item-accent-c:#ffd36a;}
 .igs-fx-item-stack[data-igs-era="magic"]:not(#igs-era-x) .igs-fx-item-card{border:1px solid rgba(201,162,74,.8);border-radius:4px;background:linear-gradient(180deg,rgba(28,34,72,.94),rgba(14,18,42,.95));color:#f3e2b6;box-shadow:0 0 14px rgba(255,214,120,.25),0 3px 10px rgba(0,0,0,.4);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
 .igs-fx-item-stack[data-igs-era="magic"]:not(#igs-era-x) .igs-fx-item-name{color:#f6e7c1;}

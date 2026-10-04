@@ -1,6 +1,7 @@
 import { DIALOG_THEME_CHOICE_BASE_STYLE_TEXT } from './dialog-theme-choices.js';
 import { GRADIENT_VEIL_STYLE_TEXT } from './gradient-veil-dialog-skin.js';
 import { MAP_PANEL_STYLE_TEXT } from './map-panel-style.js';
+import { BGM_NOTE_STYLE_TEXT } from './bgm-note.js';
 import { MAP_LIGHT_LAYER_STYLE_TEXT } from './map-light-layers.js';
 import { WEATHER_FX_STYLE_TEXT } from './weather-fx-style.js';
 import { FX_STYLE_TEXT } from './fx-style.js';
@@ -294,6 +295,7 @@ ${TOAST_THEME_STYLE_TEXT}
 ${WEATHER_FX_STYLE_TEXT}
 ${ASSET_REVIEW_STYLE_TEXT}
 ${MAP_PANEL_STYLE_TEXT}
+${BGM_NOTE_STYLE_TEXT}
 ${MAP_LIGHT_LAYER_STYLE_TEXT}
 ${RECORD_PAGE_SHELL_STYLE_TEXT}
 ${RECORD_PANEL_STYLE_TEXT}

@@ -111,7 +111,41 @@ const howlerRattle = Array.from({ length: 10 }, (_, i) => n(i * 0.085 + howlerRa
     filter: 'lowpass', freq: 1400 + howlerRand() * 600, q: 0.8, attack: 0.002,
 }));
 
+// 敲门：每下一记闷响（低频冲击 + 木板的短促噪声），间隔与 fx-daily.js 的 KNOCK_MS.gap 一致。
+const knockHits = (count) => Array.from({ length: count }, (_, i) => i * 0.42);
+const knockDef = (count) => ({
+    partials: knockHits(count).map((start) => p('sine', 120, 70, start, 0.16, 0.6, { attack: 0.002, sweep: 1 })),
+    noise: knockHits(count).map((start) => n(start, 0.07, 0.5, { filter: 'lowpass', freq: 900, q: 0.9, attack: 0.001 })),
+});
+
 const DEFS = {
+    // 停电：灯管两下接触不良的电流声，「啪」一声断电，余下一段低沉的嗡鸣。
+    blackout: {
+        partials: [
+            p('sawtooth', 100, 100, 0, 0.12, 0.05, { attack: 0.002 }),
+            p('sawtooth', 100, 100, 0.22, 0.1, 0.05, { attack: 0.002 }),
+            p('sine', 55, 38, 0.5, 1.6, 0.22, { attack: 0.01, sweep: 1 }),
+        ],
+        noise: [
+            n(0, 0.1, 0.18, { filter: 'highpass', freq: 3800, q: 0.7 }),
+            n(0.22, 0.08, 0.16, { filter: 'highpass', freq: 3800, q: 0.7 }),
+            n(0.48, 0.05, 0.6, { filter: 'lowpass', freq: 1800, q: 0.8, attack: 0.001 }),
+        ],
+    },
+    knock1: knockDef(1),
+    knock2: knockDef(2),
+    knock3: knockDef(3),
+    knock4: knockDef(4),
+    knock5: knockDef(5),
+    knock6: knockDef(6),
+    // 耳边低语：两段带气声的高频噪声，像贴着耳朵吐字。
+    murmur: {
+        partials: [],
+        noise: [
+            n(0.2, 1.1, 0.16, { freq: 2600, freqTo: 1800, q: 2.2, attack: 0.25, am: Object.freeze({ rate: 7, depth: 0.7 }) }),
+            n(1.4, 1.2, 0.12, { freq: 2200, freqTo: 1500, q: 2.2, attack: 0.3, am: Object.freeze({ rate: 6, depth: 0.7 }) }),
+        ],
+    },
     // 魔法时间跳跃：细沙流泻，接一声城堡塔钟。
     hourglass: {
         partials: bellNote(196, 1.1, 1.6, 0.34),

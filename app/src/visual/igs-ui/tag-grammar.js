@@ -1,4 +1,4 @@
-import { fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
+import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
 import { dailyGrammarLines } from './fx-daily-prompt.js';
 import { BATTLE_GRAMMAR_LINES } from './fx-battle-model.js';
 import { textFxGrammarBlock } from './text-fx.js';
@@ -41,6 +41,9 @@ export function collectGrammarBlocks(readerSettings, { ancient = false } = {}) {
     }
     if (plain(rs.itemFx).enabled === true) {
         blocks.push({ key: 'item', full: fxBlock('物品', [ITEM_FX_GRAMMAR_LINE]), index: '物品 igs-fx:item' });
+    }
+    if (bgmMoodTagEnabled(rs.bgm)) {
+        blocks.push({ key: 'bgm', full: fxBlock('配乐', [BGM_GRAMMAR_LINE]), index: '配乐 igs-fx:bgm' });
     }
     const chatShow = normalizeChatShowSettings(rs.chatShow);
     if (chatShow.enabled) {

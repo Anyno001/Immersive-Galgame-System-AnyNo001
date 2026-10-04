@@ -44,6 +44,7 @@ import { applyRenderQualityToDom } from './render-quality.js';
 import { applyRomanceToDom } from './romance-runtime.js';
 import { applyMetaFx } from './meta-runtime.js';
 import { applySceneAudio } from './scene-audio.js';
+import { applyBgmNoteToDom } from './bgm-note.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
@@ -51,6 +52,8 @@ import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
 import { spriteEnhanceFilter } from './sprite-enhance.js';
 import { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH, isPortraitTouchWindow } from '../../generated-images/illustration/auto-illustration-service.js';
 import { applyClickWaitMark } from './click-wait-mark.js';
+import { applyHorrorDread, resolveHorrorDread } from './horror-dread.js';
+import { resolveHorrorTypewriterLevel } from './typewriter-horror.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
 import { normalizeSystemRoleSettings } from './system-role.js';
@@ -1519,6 +1522,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (sceneTime) root.setAttribute('data-igs-scene-time', sceneTime);
     else root.removeAttribute('data-igs-scene-time');
     applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
+    applyHorrorDread(root, { level: snapshot.content && snapshot.content.sceneDread, cap: snapshot.readerSettings && snapshot.readerSettings.horrorDreadCap });
     const stageDirection = applyStageDirection(root, snapshot, {
         bgUrl: backgroundAssetUrl,
         spriteUrl: stageSprite ? stageSprite.url : '',
@@ -1542,7 +1546,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory });
     // Meta 互动：头部热区在亲密演出之后同步，心形快捷按钮已在前层时热区插到它下面。
     applyMetaFx(root, snapshot, { sprite: fxSprite, chatId: ctx.chatId, cast: castFxTargets });
-    applySceneAudio(root, {
+    const sceneAudio = applySceneAudio(root, {
         master: snapshot.readerSettings && snapshot.readerSettings.audioMaster,
         bgm: snapshot.readerSettings && snapshot.readerSettings.bgm,
         ambient: snapshot.readerSettings && snapshot.readerSettings.ambientSound,
@@ -1555,6 +1559,11 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             lightningSynced: Boolean(weatherFx && weatherFx.lightning),
             fxRanges: fxResult && fxResult.ranges,
             textType: typewriterTextType,
+            // 选曲：本页的配乐情绪标签、战斗 / 亲密区间与世界观曲包。
+            bgmMood: snapshot.content && snapshot.content.fx && snapshot.content.fx.bgmMood,
+            battle: Boolean(snapshot.content && snapshot.content.fx && snapshot.content.fx.battle),
+            romance: Boolean(snapshot.content && snapshot.content.fx && snapshot.content.fx.romance),
+            worldview: snapshot.readerSettings && snapshot.readerSettings._worldview,
         },
         active: true,
     });
@@ -1602,6 +1611,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         controls.style.display = snapshot.mode === 'embedded' ? 'none' : (isLastPage ? '' : 'none');
     }
     applyStatusHudToDom(root, snapshot);
+    applyBgmNoteToDom(root, sceneAudio.track);
     applyStatusHudScale(root, snapshot);
     if (dialog) {
         applyDialogSkinAssets(dialog, snapshot.readerSettings);
@@ -1705,6 +1715,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             posX: stageSprite && (!snapshot.content.spriteCharacter || snapshot.content.spriteCharacter === snapshot.content.speaker) ? stageSprite.posX : undefined,
             key: typewriterRenderKey,
             phone: fxResult.phone === true,
+            // 恐怖题材的打字机特化：随恐怖档位变闷、变低（非恐怖时为 null，打字机原样）。
+            horror: resolveHorrorTypewriterLevel(snapshot.readerSettings, resolveHorrorDread(snapshot.content.sceneDread, snapshot.readerSettings.horrorDreadCap)),
         });
         armTextFx(textEl, typewriter && typewriter.animated ? typewriter.revealDelay : null);
     }

@@ -2,6 +2,7 @@ import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, QINGLV_HUD_THEME } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_HUD_THEME } from './dialog-theme-fairytale.js';
+import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_HUD_THEME, PSYCH_HUD_THEME } from './dialog-theme-horror.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -153,6 +154,8 @@ const HUD_THEMES = Object.freeze({
     },
     [DIALOG_SKIN_QINGLV]: QINGLV_HUD_THEME,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_HUD_THEME,
+    [DIALOG_SKIN_HORROR_GORE]: GORE_HUD_THEME,
+    [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_HUD_THEME,
     [DIALOG_SKIN_PLANT_COFFEE]: {
         neutral: '#a49186',
         panel: `background:#f6f1eb;border:1.5px solid #5c4949;border-radius:${s(18)};box-shadow:0 ${s(3)} 0 rgba(92,73,73,.2);`,
@@ -197,7 +200,7 @@ function hudThemeRules(skin, theme) {
     if (theme.value) rules.push(`${hud} .igs-hud-metric-value{${theme.value}}`);
     // 无背景时文字仍落在场景图上，只在主题面板内改用主题墨色。
     if (theme.ink) {
-        rules.push(`${panel} .igs-hud-metric-label,${panel} .igs-hud-metric-value,${panel} .igs-hud-overflow,${panel} .igs-hud-location-label{color:${theme.ink};text-shadow:none;}`);
+        rules.push(`${panel} .igs-hud-metric-label,${panel} .igs-hud-metric-value,${panel} .igs-hud-overflow,${panel} .igs-hud-location-label,${panel} .igs-hud-bgm,${panel} .igs-hud-bgm-bars{color:${theme.ink};text-shadow:none;filter:none;}`);
         rules.push(`${panel} .igs-hud-location-icon{color:${theme.ink};opacity:.72;}`);
     }
     return rules.join('\n');

@@ -24,9 +24,11 @@ import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import { FX_SETTINGS_NORMALIZERS, FX_WORD_LIST_PATHS } from './fx-settings.js';
 import { ROMANCE_ACTIONS_MAX, normalizeRomanceFxSettings } from './romance-settings.js';
 import { META_GLOBAL_SCOPE, META_LINE_KINDS, META_LINES_MAX, normalizeMetaFxSettings } from './meta-settings.js';
-import { applyPerformancePreset } from './performance-presets.js';
+import { PERFORMANCE_PRESETS, applyPerformancePreset, detectPerformancePreset } from './performance-presets.js';
+import { applyPerformanceProfile, hasPerformanceProfile, profileFromReader } from './performance-profile.js';
 import { WORLDVIEWS, applyWorldview, resolveWorldview } from '../../scene/worldview.js';
-import { normalizeBgmSettings } from './scene-audio.js';
+import { normalizeHorrorGore, normalizeHorrorStyle } from '../../scene/horror.js';
+import { BGM_ACTION_RE, handleBgmSettingsAction } from './bgm-settings-actions.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, bindGeneratedBackground, bindGeneratedSprite, collectGeneratedImageIds, generatedAssetIdOf, isGeneratedAssetUrl, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, setGeneratedExpressionNote } from '../../scene/asset-match.js';
@@ -78,7 +80,7 @@ function assetFolderScope(settingsState, options) {
 }
 
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
-const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle|pick)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
+const SCENE_ACTION = /^scene-(?:(?:add|remove|rename|set|toggle|pick)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)|variant-(?:set|retry))$/;
 const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
@@ -626,6 +628,56 @@ function triggerDataUrlDownload(globalObj, dataUrl, fileName) {
     return { ok: true, fileName };
 }
 
+// 防手滑：删东西、清空、恢复默认、切演出档位和世界观之前先问一句。
+// 自带确认的动作（CG、预设、文件夹、角色设定、生成图库、情绪预设…）不在表里，免得问两遍；
+// 词条胶囊上的 × 删一个词，随手能加回来，也不问。
+const segs = (action, prefix) => action.slice(prefix.length).split(':').map(decodeSeg);
+const RISKY_ACTIONS = [
+    ['scene-remove-bg:', (a) => `删除场景「${segs(a, 'scene-remove-bg:')[0]}」？它下面的时间、天气背景会一起删掉。`],
+    ['scene-remove-time:', (a) => { const [scene, time] = segs(a, 'scene-remove-time:'); return `删除「${scene}」的时间「${time}」？它下面的天气背景会一起删掉。`; }],
+    ['scene-remove-weather:', (a) => { const [scene, time, weather] = segs(a, 'scene-remove-weather:'); return `删除「${scene}·${time}」的天气「${weather}」？`; }],
+    ['scene-remove-char:', (a) => `删除角色「${segs(a, 'scene-remove-char:')[0]}」？立绘、别名会一起删掉。`],
+    ['scene-remove-mood:', (a) => { const [name, mood] = segs(a, 'scene-remove-mood:'); return `删除「${name}」的「${mood}」立绘格？`; }],
+    ['scene-remove-outfit-mood:', (a) => { const [name, outfit, mood] = segs(a, 'scene-remove-outfit-mood:'); return `删除「${name}」「${outfit}」的「${mood}」立绘格？`; }],
+    ['scene-remove-outfit:', (a) => { const [name, outfit] = segs(a, 'scene-remove-outfit:'); return `删除「${name}」的服装「${outfit}」？这套的立绘、头像会一起删掉。`; }],
+    ['scene-clear-outfit-avatar:', () => '清除这套服装的头像？'],
+    ['status-avatar-clear:', (a) => `清除「${segs(a, 'status-avatar-clear:')[0]}」的状态栏头像？`],
+    ['wardrobe-remove:', (a) => `删除衣柜里的「${segs(a, 'wardrobe-remove:')[0]}」？`],
+    ['mood-remove-group:', (a) => `删除情绪组「${segs(a, 'mood-remove-group:')[0]}」？组里的情绪词会一起删掉。`],
+    ['chat-show-remove-contact:', () => '删除这个联系人？'],
+    ['bgm-track-remove:', () => '删除这首背景音乐？'],
+    ['romance-action-remove:', () => '删除这条亲密动作？'],
+    ['meta-line-remove:', () => '删除这条台词？'],
+    ['meta-scope-remove:', () => '删除这条生效范围？'],
+    ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
+    ['image-log-clear', () => '清空生图日志？'],
+    ['mood-review-clear', () => '清空待确认的情绪词？'],
+    ['reset-virtual-regex', () => '正文格式化恢复默认？现在的查找和替换会被覆盖。'],
+    ['reset-prompt-rule', () => '提示词规则恢复默认？现在改过的内容会被覆盖。'],
+    ['reset-mood-groups', () => '情绪分组恢复默认？自己加的组和词会被覆盖。'],
+    ['chat-show-reset-prompt', () => '线上交流提示词恢复默认？现在改过的内容会被覆盖。'],
+];
+
+function riskyActionMessage(action, settingsState, editTarget) {
+    const preset = /^perf-preset:([a-z]+)$/.exec(action);
+    if (preset) {
+        const reader = settingsState.draft.readerSettings || {};
+        const profile = reader.performanceProfile;
+        const current = profile && typeof profile === 'object' ? profile.level : detectPerformancePreset(reader);
+        const found = PERFORMANCE_PRESETS.find(([id]) => id === preset[1]);
+        if (!found || current === preset[1]) return '';
+        return `切换到「${found[1]}」？各演出的开关会按这一档重设，手动改过的开关会被覆盖，细项设置保留。`;
+    }
+    const worldview = /^worldview:([a-z-]+)$/.exec(action);
+    if (worldview) {
+        const found = WORLDVIEWS.find((item) => item.id === worldview[1]);
+        if (!found || resolveWorldview(draftAssetLibrary(settingsState, editTarget)) === found.id) return '';
+        return `切换到「${found.label}」世界观？演出用词、音效和界面会跟着换。`;
+    }
+    const hit = RISKY_ACTIONS.find(([prefix]) => (prefix.endsWith(':') ? action.startsWith(prefix) : action === prefix || action.startsWith(`${prefix}:`)));
+    return hit ? hit[1](action) : '';
+}
+
 export async function handleSettingsAction(action, ctx) {
     const {
         state,
@@ -642,6 +694,8 @@ export async function handleSettingsAction(action, ctx) {
     rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
     const editTarget = assetEditTarget(normalizedAction);
     const dialogs = ctx.dialogs || createSettingsDialogs({ global: options.global || globalThis });
+    const risky = riskyActionMessage(normalizedAction, settingsState, editTarget);
+    if (risky && typeof dialogs.confirm === 'function' && !(await dialogs.confirm(risky))) return rerenderSettings();
     if (normalizedAction.startsWith('asset-filter:')) {
         const [collection, filter] = normalizedAction.slice('asset-filter:'.length).split(':');
         if (!SCOPED_COLLECTION_KINDS[collection]) return rerenderSettings();
@@ -1056,6 +1110,87 @@ export async function handleSettingsAction(action, ctx) {
         if (typeof dialogs.view === 'function') await dialogs.view(text);
         else if (typeof globalObj.alert === 'function') globalObj.alert(text);
         return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('scene-variant-set:') || normalizedAction.startsWith('scene-variant-retry:')) {
+        const single = normalizedAction.startsWith('scene-variant-retry:');
+        const parts = normalizedAction.slice(single ? 'scene-variant-retry:'.length : 'scene-variant-set:'.length).split(':').map(decodeSeg);
+        const sceneName = parts[0] || '';
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        const sceneObj = (draftAssetLibrary(settingsState, editTarget).scenes || {})[sceneName];
+        const baseImageId = sceneObj && typeof sceneObj === 'object' ? generatedAssetIdOf(sceneObj.url) : '';
+        if (!baseImageId) return rerenderSettings();
+        if (!service || typeof service.generateSceneVariants !== 'function') {
+            return generationFailure(globalObj, dialogs, '场景差分当前不可用。', 'scene-variant-unavailable');
+        }
+        let variants;
+        if (single) {
+            variants = [{ time: parts[1] || '', weather: parts[2] || '' }];
+        } else {
+            const times = sceneObj.times && typeof sceneObj.times === 'object' ? sceneObj.times : {};
+            const groups = ensureTimeGroups(settingsState).map((g) => g && g.label).filter(Boolean);
+            const labels = groups.length ? groups : ['清晨', '白天', '黄昏', '夜晚'];
+            const missing = labels.filter((label) => !String((times[label] && times[label].url) || '').trim());
+            const message = `按「${sceneName}」的提示词画时间/天气差分，一行一张，不写词、直接出图。\n只写时间：「夜晚」；带天气：「夜晚·雨」。删掉不要的行。`;
+            const raw = typeof dialogs.edit === 'function'
+                ? await dialogs.edit(message, missing.join('\n'), { okLabel: '开始生成', cancelLabel: '取消' })
+                : await dialogs.prompt(message, missing.join('\n'));
+            if (raw == null) return rerenderSettings();
+            const seen = new Set();
+            variants = String(raw).split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+                const [time = '', weather = ''] = line.split(/\s*[·・/|]\s*/).map((item) => item.trim());
+                return { time, weather };
+            }).filter((item) => {
+                const key = `${item.time}|${item.weather}`;
+                if (!item.time || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+            if (!variants.length) return rerenderSettings();
+        }
+        const progress = startExpressionProgress(globalObj, `${sceneName}·时间天气`);
+        let result;
+        try {
+            result = await service.generateSceneVariants({ baseImageId, scene: sceneName, variants, onProgress: progress.onProgress });
+        } catch (error) {
+            result = { ok: false, error: errorText(error, '出图失败') };
+        }
+        const done = result && Array.isArray(result.items) ? result.items.filter((item) => item.ok && item.imageId) : [];
+        if (done.length) {
+            const live = (draftAssetLibrary(settingsState, editTarget).scenes || {})[sceneName];
+            if (live && typeof live === 'object') {
+                live.times = live.times && typeof live.times === 'object' ? live.times : {};
+                const timeGroups = ensureTimeGroups(settingsState);
+                const weatherGroups = ensureWeatherGroups(settingsState);
+                for (const item of done) {
+                    const url = `igs-gen:${item.imageId}`;
+                    const slot = live.times[item.time];
+                    const timeEntry = slot && typeof slot === 'object' ? slot : { url: typeof slot === 'string' ? slot : '', weathers: {} };
+                    timeEntry.weathers = timeEntry.weathers && typeof timeEntry.weathers === 'object' ? timeEntry.weathers : {};
+                    if (item.weather) timeEntry.weathers[item.weather] = { ...(typeof timeEntry.weathers[item.weather] === 'object' ? timeEntry.weathers[item.weather] : {}), url };
+                    else timeEntry.url = url;
+                    live.times[item.time] = timeEntry;
+                    if (!timeGroups.some((g) => g.label === item.time)) timeGroups.push({ label: item.time, words: [item.time] });
+                    if (item.weather && !weatherGroups.some((g) => g.label === item.weather)) weatherGroups.push({ label: item.weather, words: [item.weather] });
+                }
+                const persisted = persistGeneratedLibrary(persistSettingsDraft);
+                if (operationFailed(persisted)) {
+                    progress.end();
+                    return persisted;
+                }
+            }
+        }
+        const rendered = await rerenderSettings();
+        progress.end();
+        const failed = result && Array.isArray(result.items) ? result.items.filter((item) => !item.ok) : [];
+        if (!done.length) {
+            return generationFailure(globalObj, dialogs, `「${sceneName}」的时间/天气差分没画出来：${errorText(result && (result.error || (failed[0] && failed[0].error)), '未返回原因')}`, 'scene-variant-failed');
+        }
+        showGeneratedNotice(globalObj, failed.length
+            ? `「${sceneName}」画好 ${done.length} 张，${failed.length} 张失败：${failed[0].error}`
+            : `「${sceneName}」的时间/天气差分已换上（${done.length} 张）。`, failed.length ? '' : 'info');
+        return rendered;
     }
 
     if (normalizedAction.startsWith('char-generate-sprite:')) {
@@ -1577,7 +1712,24 @@ export async function handleSettingsAction(action, ctx) {
     const perfPresetAction = normalizedAction.match(/^perf-preset:([a-z]+)$/);
     if (perfPresetAction) {
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
-        applyPerformancePreset(readerDraft, perfPresetAction[1]);
+        // 有快速配置时，档位只换热闹程度，卡片类型、声音、亲密保留。
+        if (hasPerformanceProfile(readerDraft)) {
+            applyPerformanceProfile(readerDraft, { ...profileFromReader(readerDraft), level: perfPresetAction[1] });
+        } else {
+            applyPerformancePreset(readerDraft, perfPresetAction[1]);
+        }
+        return rerenderSettings();
+    }
+
+    const perfTypeAction = normalizedAction.match(/^perf-type:([a-z]+)$/);
+    if (perfTypeAction) {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const profile = profileFromReader(readerDraft, detectPerformancePreset(readerDraft) || 'standard');
+        // 全关的时候点类型，是想打开这类演出：顺带回到「推荐」。
+        if (profile.level === 'off') profile.level = 'standard';
+        const id = perfTypeAction[1];
+        profile.types = profile.types.includes(id) ? profile.types.filter((item) => item !== id) : profile.types.concat(id);
+        applyPerformanceProfile(readerDraft, profile);
         return rerenderSettings();
     }
 
@@ -1586,6 +1738,15 @@ export async function handleSettingsAction(action, ctx) {
         const bridgeDraft = settingsState.draft.bridge = settingsState.draft.bridge || {};
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         applyWorldview(sceneAssets, worldviewAction[1]);
+        return rerenderSettings();
+    }
+
+    const horrorAction = normalizedAction.match(/^horror-(style|gore):([a-z0-9]+)$/);
+    if (horrorAction) {
+        settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
+        if (horrorAction[1] === 'style') sceneAssets.horrorStyle = normalizeHorrorStyle(horrorAction[2]);
+        else sceneAssets.horrorGore = normalizeHorrorGore(horrorAction[2]);
         return rerenderSettings();
     }
 
@@ -1689,44 +1850,15 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
-    const bgmTrackAction = normalizedAction.match(/^bgm-track-(add|edit|remove)(?::(.*))?$/);
-    if (bgmTrackAction) {
-        const globalObj = options.global || globalThis;
-        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
-        const current = normalizeBgmSettings(readerDraft.bgm);
-        const id = decodeSeg(bgmTrackAction[2] || '');
-        const index = current.tracks.findIndex((track) => track.id === id);
-        if (bgmTrackAction[1] === 'remove') {
-            if (index < 0) return rerenderSettings();
-            current.tracks.splice(index, 1);
-        } else {
-            const ask = (message, fallback) => dialogs.prompt(message, fallback);
-            const existing = index >= 0 ? current.tracks[index] : null;
-            if (bgmTrackAction[1] === 'edit' && !existing) return rerenderSettings();
-            const url = await ask('音频直链（http/https）：', existing ? existing.url : '');
-            if (url == null || !String(url).trim()) return rerenderSettings();
-            const name = await ask('曲目名称：', existing ? existing.name : '');
-            if (name == null) return rerenderSettings();
-            const keywords = await ask('匹配关键词，用逗号或空格分隔（如 教室, 雨, 夜）；留空为默认曲：', existing ? existing.keywords.join(', ') : '');
-            if (keywords == null) return rerenderSettings();
-            const track = {
-                id: existing ? existing.id : `t${Date.now().toString(36)}`,
-                name: String(name).trim(),
-                url: String(url).trim(),
-                keywords: String(keywords).split(/[,，、\s]+/u).filter(Boolean),
-            };
-            if (existing) current.tracks[index] = track;
-            else current.tracks.push(track);
-            const normalized = normalizeBgmSettings(current);
-            if (normalized.tracks.length < current.tracks.length) {
-                if (typeof globalObj.alert === 'function') globalObj.alert('链接无效：只支持 http/https 音频直链。');
-                return rerenderSettings();
-            }
-            current.tracks = normalized.tracks;
-        }
-        readerDraft.bgm = current;
-        const persisted = persistSettingsDraft();
-        if (persisted.ok === false) return persisted;
+    if (BGM_ACTION_RE.test(normalizedAction)) {
+        const result = await handleBgmSettingsAction(normalizedAction, {
+            readerDraft: settingsState.draft.readerSettings = settingsState.draft.readerSettings || {},
+            dialogs,
+            persist: persistSettingsDraft,
+            global: options.global || globalThis,
+            worldview: resolveWorldview(settingsState.draft.bridge && settingsState.draft.bridge.sceneAssets),
+        });
+        if (result && result.ok === false) return result;
         return rerenderSettings();
     }
 

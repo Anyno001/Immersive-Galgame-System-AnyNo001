@@ -4,7 +4,7 @@ export const DEFAULT_TRIGGER_LOOKBACK = 3;
 // 成对标签可能跨很多层才闭合（一场战斗、一段书信），未闭合判断看更长的窗口。
 export const PAIR_TRIGGER_LOOKBACK = 12;
 
-const DAILY_KINDS = 'timeskip|photo|letter|note|bell|broadcast|fireworks|touch|alarm|omikuji|receipt|tv|rps|gacha|game|score|pat|poke|fever|cheers|cook|cat|guqin|go|poem|edict|tea|bow|spell|potion|owl|broom|howler';
+const DAILY_KINDS = 'timeskip|photo|letter|note|bell|broadcast|fireworks|touch|alarm|omikuji|receipt|tv|rps|gacha|game|score|pat|poke|fever|cheers|cook|cat|guqin|go|poem|edict|tea|bow|spell|potion|owl|broom|howler|blackout|knock|murmur';
 
 const BLOCK_TRIGGERS = Object.freeze({
     chat: {

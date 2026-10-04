@@ -165,7 +165,9 @@ function nowClock() {
 }
 
 // 结果类日常演出的停留时长（未并入导出的 DAILY_FX_LIFETIME_MS，避免改变其既有结构）。
-const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200 });
+const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400 });
+// 敲门：每下间隔，末下之后再停留一会儿。
+const KNOCK_MS = Object.freeze({ gap: 420, tail: 1300 });
 // 吼叫信：抖动 900ms 后炸开，逐字吼出，吼完再停留。
 const HOWLER_MS = Object.freeze({ shake: 900, perChar: 70, hold: 2400 });
 // 行礼：立绘微沉再起，add 合成叠加，结束后自动还原。
@@ -446,6 +448,27 @@ const BUILDERS = {
         const streaks = [18, 34, 52, 66, 80].map((y, i) => `<i style="top:${y}%;animation-delay:${i * 90}ms"></i>`).join('');
         const node = make(env.doc, 'igs-dfx igs-dfx-broom', `<div class="igs-dfx-broom-wind">${streaks}</div><div class="igs-dfx-broom-flight">${BROOM_SVG}<i class="igs-dfx-broom-trail"></i></div>`);
         return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.broom * env.hold), sounds: ['broom'], node };
+    },
+
+    // 恐怖：灯管闪几下后全黑，黑暗里浮出一句旁白，再慢慢亮回来。
+    blackout(item, env) {
+        const text = item.text ? `<div class="igs-dfx-blackout-text">${esc(item.text)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-blackout', `<i class="igs-dfx-blackout-veil"></i>${text}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.blackout * env.hold), sounds: ['blackout'], node };
+    },
+    // 敲门：每一下画面边缘的暗角收紧一次，「咚」字从侧面浮出来；次数由标签决定，音效按次数合成。
+    knock(item, env) {
+        const count = Math.min(6, Math.max(1, Math.round(item.count) || 3));
+        const hits = Array.from({ length: count }, (_, i) => `<i class="igs-dfx-knock-hit" style="animation-delay:${i * KNOCK_MS.gap}ms;top:${[38, 52, 30, 60, 44, 34][i]}%">咚</i>`
+            + `<i class="igs-dfx-knock-pulse" style="animation-delay:${i * KNOCK_MS.gap}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-knock', hits);
+        return { layer: 'front', life: count * KNOCK_MS.gap + KNOCK_MS.tail, sounds: [`knock${count}`], node };
+    },
+    // 耳边低语：一句模糊的字从画面一侧逐字浮现、发虚、散掉，左右随句子而定。
+    murmur(item, env) {
+        const side = chars(item.text).length % 2 ? 'is-left' : 'is-right';
+        const node = make(env.doc, `igs-dfx igs-dfx-murmur ${side}`, `<div class="igs-dfx-murmur-text">${charSpans(item.text, 110, 250)}</div>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.murmur * env.hold), sounds: ['murmur'], node };
     },
 
 };

@@ -17,6 +17,8 @@ import { DAILY_FX_KINDS } from '../../scene/daily-fx-directives.js';
 import { FX_WORLDVIEW_ONLY } from '../../scene/fx-era.js';
 import { normalizeUiSoundSettings } from './ui-sfx.js';
 import { normalizeAudioMasterSettings } from './audio-bus.js';
+import { BGM_MOOD_LABELS, BGM_PACK_LABELS, BGM_PACKS } from './bgm-library.js';
+import { isDefaultBgmTrack } from '../../bgm/merge-default-bgm.js';
 
 const P = 'readerSettings';
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
@@ -85,20 +87,48 @@ function renderBilingualField(bilingual) {
             + '<div class="igs-source-filter-note">AI 会用外语写所有角色的台词和心里话，并用〖〗附上译文，以小字显示在原文上方；旁白不受影响。注音排版：交错＝整段译文随原文逐行交错；译文在上＝完整译文放在原文上方；按分句＝每个分句各自注音（AI 也会一句一个〖〗）。电脑端按 T 键可临时切换注音、仅原文、仅译文。</div>') : '');
 }
 
+function trackSummary(track) {
+    const parts = [];
+    if (track.moods) parts.push(track.moods.map((mood) => BGM_MOOD_LABELS[mood]).join('、'));
+    if (track.keywords.length) parts.push(`地点：${track.keywords.join('、')}`);
+    if (track.credit) parts.push(track.credit);
+    return parts.length ? parts.map(esc).join(' · ') : '默认曲（没有匹配时播放）';
+}
+
 function renderTrackRow(track) {
-    const keywords = track.keywords.length ? track.keywords.map(esc).join('、') : '默认曲（无关键词时播放）';
+    const keywords = trackSummary(track);
     return `<div class="igs-bgm-track"><div class="igs-bgm-track-main"><b>${esc(track.name)}</b><span>${keywords}</span></div>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="bgm-track-edit:${encSeg(track.id)}" title="编辑">✎</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="bgm-track-remove:${encSeg(track.id)}" title="删除">×</button></div>`;
 }
 
+// 默认曲目折叠成一行摘要，展开才逐首列出；自己加的曲目始终逐行显示。
+function renderBgmTracks(bgm, more) {
+    const own = bgm.tracks.filter((track) => !isDefaultBgmTrack(track));
+    const pack = bgm.tracks.filter(isDefaultBgmTrack);
+    const counts = BGM_PACKS.map((id) => [BGM_PACK_LABELS[id], pack.filter((track) => track.packs && track.packs.includes(id)).length])
+        .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join(' · ');
+    const packBlock = pack.length
+        ? more('bgm-pack-tracks', `默认曲目 ${pack.length} 首（${counts}）`, `<div class="igs-bgm-tracks">${pack.map(renderTrackRow).join('')}</div>`
+            + '<button type="button" class="igs-settings-action" data-action="bgm-pack-remove">移除全部默认曲目</button>'
+            + '<div class="igs-source-filter-note">音乐来自魔王魂（maou.audio）与 OpenGameArt，按各自授权再配布；曲名和作者在地点栏的 ♪ 里可以看到。</div>')
+        : '';
+    const ownBlock = own.length ? `<div class="igs-bgm-tracks">${own.map(renderTrackRow).join('')}</div>` : (pack.length ? '' : '<div class="igs-scene-empty">还没有曲目</div>');
+    return packBlock + ownBlock;
+}
+
 function renderSoundFields(bgm, ambient, ui, master, more) {
-    const tracks = bgm.tracks.length ? bgm.tracks.map(renderTrackRow).join('') : '<div class="igs-scene-empty">还没有曲目</div>';
-    const bgmBody = checkbox(`${P}.bgm.enabled`, bgm.enabled, '背景音乐（需自备音频直链）')
+    const bgmBody = checkbox(`${P}.bgm.enabled`, bgm.enabled, '背景音乐')
         + (bgm.enabled ? sub(field(`${P}.bgm.volume`, '音乐音量', rangeInput(`${P}.bgm.volume`, bgm.volume, '音乐音量'))
-            + `<div class="igs-bgm-tracks">${tracks}</div>`
-            + `<button type="button" class="igs-settings-action" data-action="bgm-track-add">添加曲目</button>`
-            + '<div class="igs-source-filter-note">按地点、时间、天气、情绪匹配曲目，没有匹配时播放默认曲。</div>') : '');
+            + checkbox(`${P}.bgm.moodTag`, bgm.moodTag, 'AI 标注配乐情绪')
+            + renderBgmTracks(bgm, more)
+            + '<div class="igs-source-filter-grid">'
+            + '<button type="button" class="igs-settings-action" data-action="bgm-pack-download">下载默认曲目</button>'
+            + '<button type="button" class="igs-settings-action" data-action="bgm-track-upload">上传本地音频</button>'
+            + '<button type="button" class="igs-settings-action" data-action="bgm-track-add">添加音频直链</button>'
+            + '</div>'
+            + '<div class="igs-source-filter-note">AI 在气氛转折时写一个情绪字（日常、欢快、甜、静、悲、紧、战、诡），按情绪选曲，再按地点、时段、天气挑最合适的一首，同类曲子轮流放。'
+            + '自己的曲目可以勾情绪，也可以填地点关键词（命中时最优先）。上传的音频存在酒馆的 user/files 文件夹。点地点栏的 ♪ 可以看曲名、换一首。</div>') : '');
     const ambientBody = checkbox(`${P}.ambientSound.enabled`, ambient.enabled, '环境音')
         + (ambient.enabled ? sub(field(`${P}.ambientSound.volume`, '环境音量', rangeInput(`${P}.ambientSound.volume`, ambient.volume, '环境音量'))
             + more('ambient-kinds', '选择声音类型', `<div class="igs-source-filter-grid">${AMBIENT_KINDS.map((kind) => checkbox(`${P}.ambientSound.${kind}`, ambient[kind], AMBIENT_LABELS[kind])).join('')}</div>`

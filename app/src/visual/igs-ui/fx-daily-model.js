@@ -7,9 +7,10 @@ export const DAILY_FX_LABELS = Object.freeze({
     cheers: '碰杯', cook: '做饭', cat: '撸猫',
     guqin: '抚琴', go: '对弈', poem: '题诗', edict: '圣旨 / 告示', tea: '敬茶', bow: '行礼',
     spell: '施咒', potion: '熬魔药', owl: '猫头鹰送信', broom: '骑扫帚', howler: '吼叫信',
+    blackout: '停电', knock: '敲门', murmur: '耳边低语',
 });
 // 后加的日常类型需显式勾选：旧存档里日常演出已开启的用户不会突然收到新语法。
-const DAILY_FX_OPT_IN = new Set(['rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler']);
+const DAILY_FX_OPT_IN = new Set(['rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur']);
 
 export function normalizeDailyFxSettings(value) {
     const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};

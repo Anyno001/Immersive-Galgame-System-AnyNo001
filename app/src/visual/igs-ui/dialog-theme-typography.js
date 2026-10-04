@@ -134,14 +134,14 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#b8c3ff',
         narrationColor: '#c9c7dd',
     }),
-    // 童话小镇：姓名用悠哉手写体，正文文楷，心里话转鼠尾草绿；墨色取暖棕，不用纯黑。
+    // 童话小镇：姓名用圆润的站酷快乐体，正文文楷，心里话转鼠尾草绿；墨色取暖棕，不用纯黑。
     'fairy-tale': Object.freeze({
         nameAlign: 'left',
-        nameFont: DIALOG_FONT_YOZAI,
+        nameFont: DIALOG_FONT_ZCOOL_KUAILE,
         textFont: DIALOG_FONT_WENKAI,
         thoughtFont: DIALOG_FONT_WENKAI,
         narrationFont: DIALOG_FONT_WENKAI,
-        nameColor: '#5e6b3c',
+        nameColor: '#b65a4d',
         textColor: '#4a4034',
         thoughtColor: '#6f8250',
         narrationColor: '#776c5c',
@@ -157,6 +157,30 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         textColor: '#26332f',
         thoughtColor: '#2f5d7c',
         narrationColor: '#56625d',
+    }),
+    // 血色噩梦（波普血浆）：名字是红块上的骨白得意黑，正文用干脆的新晰黑；心里话亮红，旁白褪成灰。
+    'horror-gore': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_SMILEY,
+        textFont: DIALOG_FONT_NEO_XIHEI,
+        thoughtFont: DIALOG_FONT_NEO_XIHEI,
+        narrationFont: DIALOG_FONT_NEO_XIHEI,
+        nameColor: '#f3ece4',
+        textColor: '#f3ece4',
+        thoughtColor: '#ff5a62',
+        narrationColor: '#b3aaa4',
+    }),
+    // 心理恐怖（正常界面崩坏）：先装成可爱校园风，名字圆体白字，正文梅子色，心里话淡紫。
+    'horror-psych': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_ZCOOL_KUAILE,
+        textFont: DIALOG_FONT_ROUNDED,
+        thoughtFont: DIALOG_FONT_ROUNDED,
+        narrationFont: DIALOG_FONT_ROUNDED,
+        nameColor: '#ffffff',
+        textColor: '#6b4a5c',
+        thoughtColor: '#8c72c4',
+        narrationColor: '#8f7a86',
     }),
 });
 

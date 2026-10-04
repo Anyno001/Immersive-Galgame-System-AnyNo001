@@ -1,18 +1,30 @@
+// 每个皮肤都有一枚专属符号（见 CLICK_WAIT_MARK_SKINS）；这些符号也都能在选择器里单独选用。
 export const CLICK_WAIT_MARK_GLYPHS = Object.freeze([
-    'auto', 'diamond', 'fleuron', 'sparkle', 'triangle', 'chevron', 'leaf', 'star', 'caret', 'heart',
+    'auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush',
+    'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye',
 ]);
 
 export const CLICK_WAIT_MARK_LABELS = Object.freeze({
-    auto: '跟随对话框主题',
+    auto: '跟随皮肤',
     diamond: '柔光菱形',
     fleuron: '金色笔尖',
+    pendant: '珍珠垂坠',
+    crescent: '星月',
     sparkle: '四芒星',
-    triangle: '倒三角',
+    strawberry: '草莓',
+    seal: '朱砂小印',
+    'triangle-brush': '笔触三角',
+    compass: '指南针',
     chevron: '罗盘箭头',
     leaf: '小叶片',
     star: '圆角星',
     caret: '细折角',
-    heart: '心跳爱心',
+    triangle: '倒三角',
+    heart: '爱心',
+    'triangle-hollow': '空心三角',
+    'blood-drop': '血滴',
+    ribbon: '蝴蝶结',
+    eye: '眼睛',
 });
 
 export const CLICK_WAIT_MARK_STYLES = Object.freeze(
@@ -59,7 +71,19 @@ const SHAPES = Object.freeze({
     leaf: "<path fill-rule='evenodd' d='M4.5 19.5C4.5 10.6 10.6 4.2 20.2 3.8C20.2 13.6 13.6 19.5 4.5 19.5ZM6.2 18.4Q11.6 12.4 17.6 6.4Q12.4 13.2 6.8 19Z'/><path d='M2.8 21.2L6.4 17.6' stroke='#000' stroke-width='1.6' stroke-linecap='round'/>",
     star: "<path d='M12 4.2L14.29 9.64L20.18 10.14L15.71 14.01L17.05 19.76L12 16.7L6.95 19.76L8.29 14.01L3.82 10.14L9.71 9.64Z' stroke='#000' stroke-width='2.4' stroke-linejoin='round'/>",
     caret: "<path d='M6 9.2L12 15.2L18 9.2' fill='none' stroke='#000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/>",
+    // 优雅欧式：小吊环下垂一滴珍珠。
+    pendant: "<path fill-rule='evenodd' d='M12 2.2A2.3 2.3 0 1 0 12 6.8A2.3 2.3 0 1 0 12 2.2ZM12 3.4A1.1 1.1 0 1 1 12 5.6A1.1 1.1 0 1 1 12 3.4Z'/><path d='M12 8C14.6 11.4 17 13.9 17 16.8A5 5 0 0 1 7 16.8C7 13.9 9.4 11.4 12 8Z'/>",
+    // 魔法星夜：一弯新月伴一颗小星。
+    crescent: "<path d='M14.6 3.6A8.6 8.6 0 1 0 20.6 16.4A6.8 6.8 0 0 1 14.6 3.6Z'/><path d='M19.4 3.2Q19.8 6.2 22.6 6.6Q19.8 7 19.4 10Q19 7 16.2 6.6Q19 6.2 19.4 3.2Z'/>",
+    // 冒险旅途：朝下的罗盘指针，顶上一颗铆钉。
+    compass: "<path d='M12 22.2L6.6 9.4L12 12.2L17.4 9.4Z'/><circle cx='12' cy='4.6' r='2'/>",
     seal: "<rect x='6.5' y='6.5' width='11' height='11' rx='1.4'/>",
+    // 童话小镇的草莓：籽镂空（evenodd），单色遮罩下也认得出。
+    strawberry: "<path fill-rule='evenodd' d='M12 6.5C17.5 6.5 20 10 18.6 14.8C17.4 18.8 14 21.6 12 22.5C10 21.6 6.6 18.8 5.4 14.8C4 10 6.5 6.5 12 6.5ZM8.6 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM14 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM11.25 14.4a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM9.1 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0ZM13.5 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0Z'/><path d='M6.6 6.6L10.2 6.4L12 2.2L13.8 6.4L17.4 6.6L14.4 8.6H9.6Z'/>",
+    // 血色噩梦：一颗血滴；心理恐怖平时是蝴蝶结，崩坏后换成一只眼（瞳孔镂空）。
+    ribbon: "<path d='M12 10.5C9.5 7 5.5 5 3.5 6.5C2 7.6 2.4 12.4 4 13.6C6 15 9.6 13.4 12 11.5ZM12 10.5C14.5 7 18.5 5 20.5 6.5C22 7.6 21.6 12.4 20 13.6C18 15 14.4 13.4 12 11.5Z'/><circle cx='12' cy='11' r='2.3'/><path d='M10.8 12.5L8 19.5L10.2 18.6L11.2 20.6L12.4 13ZM13.2 12.5L16 19.5L13.8 18.6L12.8 20.6L11.6 13Z'/>",
+    'blood-drop': "<path d='M12 2.5C15.5 8 18.5 11.6 18.5 15.4A6.5 6.5 0 0 1 5.5 15.4C5.5 11.6 8.5 8 12 2.5Z'/>",
+    eye: "<path fill-rule='evenodd' d='M1.8 12C5 6.8 8.4 5 12 5S19 6.8 22.2 12C19 17.2 15.6 19 12 19S5 17.2 1.8 12ZM12 8.4A3.6 3.6 0 1 0 12 15.6A3.6 3.6 0 1 0 12 8.4Z'/><circle cx='12' cy='12' r='1.8'/>",
     heart: "<path d='M12 20.5C5.5 16 2.5 12.4 2.5 8.6C2.5 5.8 4.7 3.8 7.3 3.8C9.3 3.8 10.9 4.9 12 6.6C13.1 4.9 14.7 3.8 16.7 3.8C19.3 3.8 21.5 5.8 21.5 8.6C21.5 12.4 18.5 16 12 20.5Z'/>",
 });
 
@@ -68,48 +92,39 @@ function shapeUrl(shape) {
     return `url("data:image/svg+xml,${svg.replace(/#/g, '%23').replace(/</g, '%3C').replace(/>/g, '%3E')}")`;
 }
 
+// 只做上下轻点，不左右摇摆、不旋转：tap 匀速上下，soft 带呼吸的明暗，hop 轻跳并在落地时略压扁，steps 是漫画的逐帧跳。
 const ANIMATIONS = Object.freeze({
-    breathe: { keyframes: '0%,100%{transform:scale(.8);opacity:.55;}50%{transform:scale(1.06);opacity:1;}', timing: '1.6s ease-in-out infinite', origin: '50% 50%' },
-    bob: { keyframes: '0%,100%{transform:translateY(-1px) rotate(-6deg);}50%{transform:translateY(2.5px) rotate(4deg);}', timing: '2s ease-in-out infinite', origin: '50% 10%' },
-    twinkle: { keyframes: '0%{transform:rotate(0) scale(.7);opacity:.6;}50%{transform:rotate(45deg) scale(1.08);opacity:1;}100%{transform:rotate(90deg) scale(.7);opacity:.6;}', timing: '2.4s ease-in-out infinite', origin: '50% 50%' },
-    bounce: { keyframes: '0%,100%{transform:translateY(-1.5px);}50%{transform:translateY(3px);}', timing: '1.6s cubic-bezier(.45,0,.55,1) infinite', origin: '50% 50%' },
-    'bounce-slow': { keyframes: '0%,100%{transform:translateY(-1px);}45%{transform:translateY(3px);}60%{transform:translateY(2.4px);}', timing: '2.4s cubic-bezier(.45,0,.55,1) infinite', origin: '50% 50%' },
-    'bounce-steps': { keyframes: '0%{transform:translateY(0);}25%{transform:translateY(-4px);}50%{transform:translateY(0);}75%{transform:translateY(1.5px) scale(1.12,.86);}', timing: '.9s steps(1,end) infinite', origin: '50% 100%' },
-    nudge: { keyframes: '0%,100%{transform:translateX(-1px);}50%{transform:translateX(4px);}', timing: '1.3s ease-in-out infinite', origin: '50% 50%' },
-    sway: { keyframes: '0%,100%{transform:rotate(-12deg);}50%{transform:rotate(10deg);}', timing: '2.6s ease-in-out infinite', origin: '12% 88%' },
-    hop: { keyframes: '0%,100%{transform:translateY(0) scale(1.12,.86);}12%{transform:translateY(0) scale(1);}35%{transform:translateY(-6px) scale(.92,1.08);}55%{transform:translateY(-6px) scale(1);}80%{transform:translateY(0) scale(.96,1.04);}90%{transform:translateY(0) scale(1.14,.84);}', timing: '1.2s ease-in-out infinite', origin: '50% 100%' },
-    fade: { keyframes: '0%,100%{transform:translateY(-1px);opacity:.2;}50%{transform:translateY(1.5px);opacity:1;}', timing: '1.4s ease-in-out infinite', origin: '50% 50%' },
-    heartbeat: { keyframes: '0%,100%{transform:scale(1);}14%{transform:scale(1.22);}28%{transform:scale(1);}42%{transform:scale(1.16);}70%{transform:scale(1);}', timing: '1.3s ease-in-out infinite', origin: '50% 55%' },
-    'veil-breathe': { keyframes: '0%,100%{transform:translateY(0);opacity:.35;}50%{transform:translateY(2px);opacity:1;}', timing: '2.4s ease-in-out infinite', origin: '50% 50%' },
+    tap: { keyframes: '0%,100%{transform:translateY(-1.5px);}50%{transform:translateY(2.5px);}', timing: '1.5s cubic-bezier(.45,0,.55,1) infinite', origin: '50% 50%' },
+    'tap-soft': { keyframes: '0%,100%{transform:translateY(-1px);opacity:.45;}50%{transform:translateY(2px);opacity:1;}', timing: '1.8s ease-in-out infinite', origin: '50% 50%' },
+    'tap-hop': { keyframes: '0%,100%{transform:translateY(0) scale(1.08,.92);}15%{transform:translateY(0) scale(1);}45%{transform:translateY(-4px);}75%{transform:translateY(0) scale(1);}', timing: '1.4s ease-in-out infinite', origin: '50% 100%' },
+    'tap-steps': { keyframes: '0%{transform:translateY(0);}25%{transform:translateY(-4px);}50%{transform:translateY(0);}75%{transform:translateY(1.5px) scale(1.12,.86);}', timing: '.9s steps(1,end) infinite', origin: '50% 100%' },
 });
 
-const GLYPH_MARKS = Object.freeze({
-    diamond: { shape: 'diamond', animation: 'breathe' },
-    fleuron: { shape: 'fleuron', animation: 'bob' },
-    sparkle: { shape: 'sparkle', animation: 'twinkle' },
-    triangle: { shape: 'triangle', animation: 'bounce' },
-    chevron: { shape: 'chevron', animation: 'nudge' },
-    leaf: { shape: 'leaf', animation: 'sway' },
-    star: { shape: 'star', animation: 'hop' },
-    caret: { shape: 'caret', animation: 'fade' },
-    heart: { shape: 'heart', animation: 'heartbeat' },
+const GLYPH_ANIMATIONS = Object.freeze({
+    pendant: 'tap-soft', seal: 'tap-soft', caret: 'tap-soft', 'triangle-hollow': 'tap-soft', eye: 'tap-soft',
+    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop',
 });
+const GLYPH_MARKS = Object.freeze(Object.fromEntries(CLICK_WAIT_MARK_GLYPHS.filter((id) => id !== 'auto')
+    .map((id) => [id, { shape: id, animation: GLYPH_ANIMATIONS[id] || 'tap' }])));
+const mark = (shape, color, animation) => ({ shape, color, animation: animation || GLYPH_MARKS[shape].animation });
 
 export const CLICK_WAIT_MARK_SKINS = Object.freeze({
-    default: { shape: 'diamond', animation: 'breathe', color: 'rgba(236,230,218,.95)' },
-    'western-classic': { shape: 'fleuron', animation: 'bob', color: '#e2bd6b' },
-    'elegant-european': { shape: 'sparkle', animation: 'twinkle', color: '#dccff7' },
-    'magic-academy': { shape: 'sparkle', animation: 'twinkle', color: '#f0cf78' },
-    'fairy-tale': { shape: 'sparkle', animation: 'twinkle', color: '#c8973c' },
-    'qinglv-shanshui': { shape: 'seal', animation: 'breathe', color: '#b23a2a' },
-    'retro-japanese': { shape: 'triangle-brush', animation: 'bounce-slow', color: '#c23a24' },
-    'adventure-journey': { shape: 'chevron', animation: 'nudge', color: '#9a6a2c' },
-    'plant-coffee': { shape: 'leaf', animation: 'sway', color: '#6f8446' },
-    'warm-picturebook': { shape: 'star', animation: 'hop', color: '#4f9a92' },
-    'day-minimal': { shape: 'caret', animation: 'fade', color: '#b0503f' },
-    'black-white-manga': { shape: 'triangle', animation: 'bounce-steps', color: '#161616' },
-    'cute-pink': { shape: 'heart', animation: 'heartbeat', color: '#e5608c' },
-    'gradient-veil': { shape: 'triangle-hollow', animation: 'veil-breathe', color: 'rgba(255,255,255,.92)' },
+    default: mark('diamond', 'rgba(236,230,218,.95)'),
+    'western-classic': mark('fleuron', '#e2bd6b'),
+    'elegant-european': mark('pendant', '#dccff7'),
+    'magic-academy': mark('crescent', '#f0cf78'),
+    'fairy-tale': mark('strawberry', '#dc6a5c'),
+    'qinglv-shanshui': mark('seal', '#b23a2a'),
+    'retro-japanese': mark('triangle-brush', '#c23a24'),
+    'adventure-journey': mark('compass', '#9a6a2c'),
+    'plant-coffee': mark('leaf', '#6f8446'),
+    'warm-picturebook': mark('star', '#4f9a92'),
+    'day-minimal': mark('caret', '#b0503f'),
+    'black-white-manga': mark('triangle', '#161616', 'tap-steps'),
+    'cute-pink': mark('heart', '#e5608c'),
+    'gradient-veil': mark('triangle-hollow', 'rgba(255,255,255,.92)'),
+    'horror-gore': mark('blood-drop', '#d1121b'),
+    'horror-psych': mark('ribbon', '#e0779d'),
 });
 
 function markVars(mark) {
@@ -128,6 +143,13 @@ const SKIN_RULES = Object.entries(CLICK_WAIT_MARK_SKINS)
     })
     .join('\n');
 
+// 恐怖档位（horror-dread.js）：崩坏皮肤从 2 档起句末的蝴蝶结换成眼睛；血色 3 档底色转暗红，血滴改成骨白。
+const DREAD_RULES = [
+    `#igs-overlay[data-igs-dialog-skin="horror-psych"][data-igs-dread="2"]{${markVars(mark('eye', '#8f7a86'))}--igs-cw-color:#8f7a86;}`,
+    `#igs-overlay[data-igs-dialog-skin="horror-psych"][data-igs-dread="3"]{${markVars(mark('eye', '#b3161b'))}--igs-cw-color:#b3161b;}`,
+    '#igs-overlay[data-igs-dialog-skin="horror-gore"][data-igs-dread="3"]{--igs-cw-color:#f3ece4;}',
+].join('\n');
+
 // 两个属性选择器的特异性高于皮肤规则，用户选定的形状总是覆盖皮肤映射，颜色仍跟随皮肤。
 const GLYPH_RULES = Object.entries(GLYPH_MARKS)
     .map(([glyph, mark]) => `#igs-overlay[data-igs-click-wait="on"][data-igs-click-wait-glyph="${glyph}"]{${markVars(mark)}}`)
@@ -137,6 +159,7 @@ export const CLICK_WAIT_MARK_STYLE_TEXT = `
 ${KEYFRAMES}
 @keyframes igs-cw-in{0%{opacity:0;}100%{opacity:1;}}
 ${SKIN_RULES}
+${DREAD_RULES}
 ${GLYPH_RULES}
 #igs-overlay[data-igs-click-wait="on"] #igs-text::after{content:"";display:inline-block;width:.9em;height:.9em;margin-left:.25em;vertical-align:middle;pointer-events:none;background-color:var(--igs-cw-color,currentColor);-webkit-mask:var(--igs-cw-mask) center/contain no-repeat;mask:var(--igs-cw-mask) center/contain no-repeat;transform-origin:var(--igs-cw-origin,50% 50%);animation:var(--igs-cw-anim),igs-cw-in .35s ease-out backwards;}
 #igs-overlay[data-igs-click-wait="on"] #igs-text[data-igs-typewriter="running"]::after{opacity:0;animation:none;}

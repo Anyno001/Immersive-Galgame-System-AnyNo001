@@ -20,7 +20,7 @@ import { resolveVisualMode } from '../visual/visual-mode.js';
 import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3, normalizeScenePromptRule } from '../visual/igs-ui/reader-host-constants.js';
 import { createIgsReaderHost } from '../visual/igs-ui/reader-host.js';
 import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/igs-ui/chat-show-runtime.js';
-import { resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
+import { resolveBgmPromptRule, resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
 import { resolveDanmakuPromptRule } from '../visual/igs-ui/danmaku-prompt.js';
 import { resolveTextFxPromptRule } from '../visual/igs-ui/text-fx.js';
 import { resolveBilingualPromptRule } from '../visual/igs-ui/bilingual-text.js';
@@ -536,7 +536,7 @@ export function bootstrapIGS(options = {}) {
         // 世界观：与之冲突的演出开关在这里拨成关，AI 不会收到它们的语法说明；时代规则按世界观追加（现代为空）。
         const worldview = resolveWorldview(sceneAssets);
         const ancient = worldview === 'ancient';
-        const eraRule = resolveWorldviewPromptRule(worldview);
+        const eraRule = resolveWorldviewPromptRule(worldview, sceneAssets);
         const readerSettings = applyFxWorldview(unified.readerSettings, worldview);
         const placement = normalizePromptPlacement(sceneAssets && sceneAssets.promptPlacement);
         // 交互摘要：只在有待送出的事件时注入，生成结束后清空（见 attachMetaDigestSync）。
@@ -590,6 +590,8 @@ export function bootstrapIGS(options = {}) {
         if (battleFxRule) rules.push(battleFxRule);
         const romanceFxRule = resolveRomanceFxPromptRule(readerSettings && readerSettings.romanceFx);
         if (romanceFxRule) rules.push(romanceFxRule);
+        const bgmRule = resolveBgmPromptRule(readerSettings && readerSettings.bgm);
+        if (bgmRule) rules.push(bgmRule);
         const stageCastFxRule = resolveStageCastFxPromptRule(readerSettings && readerSettings.stageCast);
         if (stageCastFxRule) rules.push(stageCastFxRule);
         const danmakuRule = resolveDanmakuPromptRule(readerSettings);

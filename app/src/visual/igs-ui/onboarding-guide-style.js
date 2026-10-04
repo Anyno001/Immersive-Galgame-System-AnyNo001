@@ -15,6 +15,14 @@ const STYLE_TEXT = `
 .igs-onboarding-btn.is-primary{border-color:currentColor;font-weight:600}
 .igs-onboarding-btn.is-quiet{border-color:transparent;opacity:.75}
 .igs-onboarding-btn:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+#igs-onboarding-card .igs-onboarding-quiz{display:flex;flex-direction:column;gap:8px;max-height:min(46vh,360px);overflow-y:auto;margin:0 0 6px}
+#igs-onboarding-card .igs-onboarding-q-title{font-size:12px;opacity:.85;margin-bottom:4px}
+#igs-onboarding-card .igs-onboarding-q-title span{margin-left:6px;opacity:.6}
+#igs-onboarding-card .igs-onboarding-q-opts{display:flex;flex-wrap:wrap;gap:6px}
+.igs-onboarding-chip{min-height:28px;padding:0 10px;border-radius:999px;border:1px solid ${SOFT_LINE};background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer}
+.igs-onboarding-chip.is-active{border-color:currentColor;background:color-mix(in srgb,currentColor 14%,transparent);font-weight:600}
+.igs-onboarding-chip:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+#igs-onboarding-card .igs-onboarding-quiz-result{margin:0 0 10px;font-size:12px;line-height:1.5;opacity:.8}
 #igs-unified-settings [data-igs-guide-active]{outline:2px solid currentColor;outline-offset:3px;border-radius:var(--igs-settings-radius-small,6px)}
 #igs-onboarding-invite{position:absolute;left:50%;top:max(10px,env(safe-area-inset-top));transform:translateX(-50%);z-index:30;box-sizing:border-box;display:flex;flex-wrap:nowrap;align-items:center;gap:2px;max-width:calc(100% - 24px);height:30px;padding:0 3px 0 14px;border:0;border-radius:999px;background:var(--igs-dialog-bg,Canvas);color:inherit;box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:12px;line-height:1;white-space:nowrap}
 #igs-onboarding-invite .igs-onboarding-invite-text{flex:1 1 auto;min-width:0;margin-right:6px;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
@@ -24,7 +32,7 @@ const STYLE_TEXT = `
 #igs-onboarding-invite .igs-onboarding-btn:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
 #igs-onboarding-invite .igs-onboarding-btn.is-primary:hover{background:color-mix(in srgb,currentColor 20%,transparent)}
 @media (pointer:coarse){#igs-onboarding-invite .igs-onboarding-btn::after{content:"";position:absolute;inset:-10px -2px}}
-@media (pointer:coarse){.igs-onboarding-btn{min-height:44px;min-width:44px}}
+@media (pointer:coarse){.igs-onboarding-btn{min-height:44px;min-width:44px}.igs-onboarding-chip{min-height:36px}}
 @media (prefers-reduced-motion:reduce){#igs-onboarding-card,#igs-onboarding-invite,.igs-onboarding-btn{transition:none;animation:none}}
 `.trim();
 

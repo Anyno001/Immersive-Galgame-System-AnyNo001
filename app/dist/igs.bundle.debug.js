@@ -74,7 +74,7 @@ const { resolveVisualMode } = require("src/visual/visual-mode.js");
 const { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3, normalizeScenePromptRule } = require("src/visual/igs-ui/reader-host-constants.js");
 const { createIgsReaderHost } = require("src/visual/igs-ui/reader-host.js");
 const { normalizeChatShowSettings, resolveChatShowPromptRule } = require("src/visual/igs-ui/chat-show-runtime.js");
-const { resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } = require("src/visual/igs-ui/fx-prompt.js");
+const { resolveBgmPromptRule, resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } = require("src/visual/igs-ui/fx-prompt.js");
 const { resolveDanmakuPromptRule } = require("src/visual/igs-ui/danmaku-prompt.js");
 const { resolveTextFxPromptRule } = require("src/visual/igs-ui/text-fx.js");
 const { resolveBilingualPromptRule } = require("src/visual/igs-ui/bilingual-text.js");
@@ -642,6 +642,8 @@ function bootstrapIGS(options = {}) {
         if (battleFxRule) rules.push(battleFxRule);
         const romanceFxRule = resolveRomanceFxPromptRule(readerSettings && readerSettings.romanceFx);
         if (romanceFxRule) rules.push(romanceFxRule);
+        const bgmRule = resolveBgmPromptRule(readerSettings && readerSettings.bgm);
+        if (bgmRule) rules.push(bgmRule);
         const stageCastFxRule = resolveStageCastFxPromptRule(readerSettings && readerSettings.stageCast);
         if (stageCastFxRule) rules.push(stageCastFxRule);
         const danmakuRule = resolveDanmakuPromptRule(readerSettings);
@@ -5748,6 +5750,7 @@ __igsDefine(exports, "PLAYER_NAMES", () => PLAYER_NAMES);
 });
 __igsRegister("src/scene/fx-directives.js", function(module, exports, require) {
 const { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX, dailyFxOf, parseDailyFxBody } = require("src/scene/daily-fx-directives.js");
+const { normalizeBgmMood } = require("src/scene/bgm-moods.js");
 const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
 const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox', 'whisper', 'movie', 'light', 'umbrella']);
 // 关灯区间：light|off 开始、light|on 或 light-end 结束；其余写法整条丢弃。
@@ -5814,6 +5817,8 @@ const FX_DANMAKU_PAGE_MAX = 4;
 const DANMAKU_LINE_MAX = 5;
 const DANMAKU_LINE_LEN = 30;
 
+// 配乐情绪 [igs-fx:bgm|悲]：独立于 FX_TAG_KINDS，由背景音乐的情绪标签开关控制；情绪词写错整条丢弃（照常从正文剥离）。
+// 作用到楼层内下一条 bgm 标签为止，跨楼由选曲层按场景沿用。
 const FX_TAG_RE = /\[igs-fx:([^\]\n]*)(?:\]|$)/gm;
 const FIELD_MAX = 60;
 
@@ -5885,6 +5890,10 @@ function parseFxBody(body) {
         const pair = action === 'near' || action === 'apart';
         if (pair && (!parts[3] || parts[3] === parts[2])) return null;
         return { kind, end: false, args: [action, parts[2], pair ? parts[3] : ''] };
+    }
+    if (kind === 'bgm') {
+        const mood = isEnd ? '' : normalizeBgmMood(parts[1]);
+        return mood ? { kind, end: false, args: [mood] } : null;
     }
     if (kind === 'confess') return isEnd ? null : { kind, end: false, args: [] };
     if (kind === 'memory') return !isEnd && parts[1] ? { kind, end: false, args: [parts[1]] } : null;
@@ -5994,7 +6003,7 @@ function applyStageDirective(result, d, current) {
 }
 function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
     const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
-    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [] };
+    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '' };
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
@@ -6012,6 +6021,7 @@ function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
         else if (d.kind === 'umbrella') result.umbrella = !d.end;
         else if (d.kind === 'battle') result.battle = d.end ? null : { foe: d.args[0], title: d.args[1] };
         else if (d.kind === 'live') result.live = d.end ? null : { name: d.args[0], title: d.args[1], view: d.args[2] };
+        else if (d.kind === 'bgm') result.bgmMood = d.args[0];
         else if (d.kind === 'romance') {
             result.romance = d.end ? '' : d.args[0];
             // 区间内升降档不换对象：未写对象的升档标签沿用本区间已有对象。
@@ -6270,6 +6280,33 @@ __igsDefine(exports, "DAILY_OMIKUJI_RESULTS", () => DAILY_OMIKUJI_RESULTS);
 __igsDefine(exports, "DAILY_FX_PAGE_MAX", () => DAILY_FX_PAGE_MAX);
 __igsDefine(exports, "DAILY_RPS_HANDS", () => DAILY_RPS_HANDS);
 __igsDefine(exports, "DAILY_GAME_RESULTS", () => DAILY_GAME_RESULTS);
+});
+__igsRegister("src/scene/bgm-moods.js", function(module, exports, require) {
+// 配乐情绪词表：标签解析（scene）与选曲（visual/bgm-library）共用。AI 只写中文单字，别名兜住常见近义写法。
+const BGM_MOODS = Object.freeze(['daily', 'cheerful', 'sweet', 'calm', 'sad', 'tense', 'battle', 'eerie']);
+const BGM_MOOD_LABELS = Object.freeze({
+    daily: '日常', cheerful: '欢快', sweet: '甜', calm: '静', sad: '悲', tense: '紧', battle: '战', eerie: '诡',
+});
+const MOOD_ALIASES = Object.freeze({
+    日常: 'daily', 平常: 'daily', 欢快: 'cheerful', 欢乐: 'cheerful', 轻快: 'cheerful', 开心: 'cheerful', 快乐: 'cheerful',
+    甜: 'sweet', 甜蜜: 'sweet', 浪漫: 'sweet', 暧昧: 'sweet', 恋爱: 'sweet',
+    静: 'calm', 安静: 'calm', 宁静: 'calm', 平静: 'calm', 温馨: 'calm',
+    悲: 'sad', 悲伤: 'sad', 伤感: 'sad', 哀伤: 'sad', 离别: 'sad',
+    紧: 'tense', 紧张: 'tense', 悬疑: 'tense', 对峙: 'tense', 严肃: 'tense',
+    战: 'battle', 战斗: 'battle', 打斗: 'battle',
+    诡: 'eerie', 诡异: 'eerie', 恐怖: 'eerie', 阴森: 'eerie', 神秘: 'eerie',
+});
+function normalizeBgmMood(value) {
+    const raw = String(value == null ? '' : value).trim();
+    if (!raw) return '';
+    const lower = raw.toLowerCase();
+    if (BGM_MOODS.includes(lower)) return lower;
+    return Object.hasOwn(MOOD_ALIASES, raw) ? MOOD_ALIASES[raw] : '';
+}
+
+__igsDefine(exports, "normalizeBgmMood", () => normalizeBgmMood);
+__igsDefine(exports, "BGM_MOODS", () => BGM_MOODS);
+__igsDefine(exports, "BGM_MOOD_LABELS", () => BGM_MOOD_LABELS);
 });
 __igsRegister("src/scene/promise-reminder.js", function(module, exports, require) {
 // 约定到期判定（纯函数）：剧情「今天」取数据库中表名含「全局」的表（如「全局状态表」）的当前时间列（YYYY-MM-DD HH:MM）；
@@ -9497,14 +9534,14 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#b8c3ff',
         narrationColor: '#c9c7dd',
     }),
-    // 童话小镇：姓名用悠哉手写体，正文文楷，心里话转鼠尾草绿；墨色取暖棕，不用纯黑。
+    // 童话小镇：姓名用圆润的站酷快乐体，正文文楷，心里话转鼠尾草绿；墨色取暖棕，不用纯黑。
     'fairy-tale': Object.freeze({
         nameAlign: 'left',
-        nameFont: DIALOG_FONT_YOZAI,
+        nameFont: DIALOG_FONT_ZCOOL_KUAILE,
         textFont: DIALOG_FONT_WENKAI,
         thoughtFont: DIALOG_FONT_WENKAI,
         narrationFont: DIALOG_FONT_WENKAI,
-        nameColor: '#5e6b3c',
+        nameColor: '#b65a4d',
         textColor: '#4a4034',
         thoughtColor: '#6f8250',
         narrationColor: '#776c5c',
@@ -9520,6 +9557,30 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         textColor: '#26332f',
         thoughtColor: '#2f5d7c',
         narrationColor: '#56625d',
+    }),
+    // 血色噩梦（波普血浆）：名字是红块上的骨白得意黑，正文用干脆的新晰黑；心里话亮红，旁白褪成灰。
+    'horror-gore': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_SMILEY,
+        textFont: DIALOG_FONT_NEO_XIHEI,
+        thoughtFont: DIALOG_FONT_NEO_XIHEI,
+        narrationFont: DIALOG_FONT_NEO_XIHEI,
+        nameColor: '#f3ece4',
+        textColor: '#f3ece4',
+        thoughtColor: '#ff5a62',
+        narrationColor: '#b3aaa4',
+    }),
+    // 心理恐怖（正常界面崩坏）：先装成可爱校园风，名字圆体白字，正文梅子色，心里话淡紫。
+    'horror-psych': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_ZCOOL_KUAILE,
+        textFont: DIALOG_FONT_ROUNDED,
+        thoughtFont: DIALOG_FONT_ROUNDED,
+        narrationFont: DIALOG_FONT_ROUNDED,
+        nameColor: '#ffffff',
+        textColor: '#6b4a5c',
+        thoughtColor: '#8c72c4',
+        narrationColor: '#8f7a86',
     }),
 });
 function getReferenceDialogTypography(dialogSkin) {
@@ -9624,7 +9685,8 @@ const { closeRomanceFx } = require("src/visual/igs-ui/romance-runtime.js");
 const { closeMetaFx } = require("src/visual/igs-ui/meta-runtime.js");
 const { normalizeRomanceFxSettings, resolveNsfwSpan } = require("src/visual/igs-ui/romance-settings.js");
 const { cancelDailyFx } = require("src/visual/igs-ui/fx-daily.js");
-const { cancelSceneAudio } = require("src/visual/igs-ui/scene-audio.js");
+const { cancelSceneAudio, skipBgmTrack } = require("src/visual/igs-ui/scene-audio.js");
+const { applyBgmNoteToDom, toggleBgmNote } = require("src/visual/igs-ui/bgm-note.js");
 const { parkAudioBus, unparkAudioBus } = require("src/visual/igs-ui/audio-bus.js");
 const { isStagePaused, setStagePauseReason, watchStagePause } = require("src/visual/igs-ui/stage-pause.js");
 const { createReaderAutoPlay } = require("src/visual/igs-ui/reader-auto-play.js");
@@ -9692,6 +9754,7 @@ const { createSettingsDialogs } = require("src/visual/igs-ui/settings-dialog.js"
 const { captureSettingsFocus, restoreSettingsFocus } = require("src/visual/igs-ui/settings-focus.js");
 const { renderSectionResetButton, sectionResetPlaceholders } = require("src/visual/igs-ui/settings-sections.js");
 const { createOnboardingController } = require("src/visual/igs-ui/onboarding-guide-controller.js");
+const { applyPerformanceProfile } = require("src/visual/igs-ui/performance-profile.js");
 const { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } = require("src/generated-images/image-job-log.js");
 const { applyFxWorldview } = require("src/scene/fx-era.js");
 const { resolveWorldview } = require("src/scene/worldview.js");
@@ -9704,8 +9767,10 @@ const { LEGACY_READER_MODES } = require("src/storage/legacy-igs.js");
 const { CLASSIC_DIALOG_HEIGHT, CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK, DIALOG_SKIN_WESTERN_CLASSIC, isIllustratedDialogSkin, normalizeClassicDialogWidthPercent, normalizeDialogSkin } = require("src/visual/igs-ui/classic-dialog-skin.js");
 const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_ACCENT_DEFAULT, MAGIC_HOUSES, MAGIC_HOUSE_DEFAULT, normalizeMagicAccent, normalizeMagicHouse } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { normalizeCharacterHouses } = require("src/visual/igs-ui/magic-house.js");
+const { HORROR_DREAD_CAP_DEFAULT, HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } = require("src/visual/igs-ui/horror-dread.js");
 const { DIALOG_SKIN_QINGLV } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_FAIRY_TALE } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
+const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } = require("src/visual/igs-ui/dialog-theme-horror.js");
 const { normalizeGradientVeil } = require("src/visual/igs-ui/gradient-veil-dialog-skin.js");
 const { SKIN_DIALOG_SCALE_OPTIONS, SKIN_DIALOG_SCALE_DEFAULT, normalizeSkinDialogScale } = require("src/visual/igs-ui/dialog-skin-frame.js");
 const { normalizeStageShakeSettings } = require("src/visual/igs-ui/stage-shake-runtime.js");
@@ -9746,6 +9811,13 @@ function createIgsReaderHost(options = {}) {
         getSettingsController: () => (state.activeSettings ? state.activeSettings.controller : null),
         rerenderSettings: () => rerenderSettings(),
         getDocument: () => getRootDocument(options.global),
+        applyPerformanceProfile: (answers) => {
+            if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+            const draft = state.activeSettings.draft;
+            draft.readerSettings = draft.readerSettings || {};
+            applyPerformanceProfile(draft.readerSettings, answers);
+            return { ok: true };
+        },
     });
 
     const sourceCache = createReaderSourceCache({
@@ -11141,6 +11213,17 @@ function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'close') {
             return state.activeReader.controller.close();
+        }
+        // 地点栏 ♪：点音符展开曲名；换一首在当前情绪池里轮到下一首，并保持展开。
+        if (normalizedAction === 'bgm-note') {
+            const open = toggleBgmNote(state.activeReader.dom?.overlay);
+            return open === null ? { ok: false, reason: 'bgm-not-playing' } : { ok: true, expanded: open };
+        }
+        if (normalizedAction === 'bgm-next') {
+            const skipped = skipBgmTrack();
+            if (!skipped || !skipped.track) return { ok: false, reason: 'bgm-not-playing' };
+            applyBgmNoteToDom(skipped.root, skipped.track, { open: true });
+            return { ok: true, track: skipped.track.name };
         }
         if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships', 'favor'].includes(normalizedAction)) {
             const current = state.activeReader;
@@ -13238,9 +13321,9 @@ function createIgsReaderHost(options = {}) {
             dialogTextEffectColorField: field('readerSettings.dialogTextEffectColor', '增强颜色', colorInput('readerSettings.dialogTextEffectColor', reader.dialogTextEffectColor)),
             dialogTextEffectStrengthField: field('readerSettings.dialogTextEffectStrength', '增强浓淡', selectInput('readerSettings.dialogTextEffectStrength', reader.dialogTextEffectStrength, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`]))),
             dialogTextEffectSizeField: field('readerSettings.dialogTextEffectSize', '增强大小', selectInput('readerSettings.dialogTextEffectSize', reader.dialogTextEffectSize, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`]))),
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_MAGIC_ACADEMY, '魔法星夜'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_QINGLV, '青绿山水'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_FAIRY_TALE, '童话小镇'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕']])),
+            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_MAGIC_ACADEMY, '魔法星夜'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_QINGLV, '青绿山水'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_FAIRY_TALE, '童话小镇'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕'], [DIALOG_SKIN_HORROR_GORE, '血色噩梦'], [DIALOG_SKIN_HORROR_PSYCH, '褪色病历']])),
             gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
-            magicHouseField: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : '',
+            magicHouseField: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : '',
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : '',
             skinDialogScaleField: classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]))) : '',
             optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
@@ -14585,6 +14668,7 @@ function createIgsReaderHost(options = {}) {
             classicDialogWidthPercent: CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
             skinDialogScale: SKIN_DIALOG_SCALE_DEFAULT,
             magicHouse: MAGIC_HOUSE_DEFAULT,
+            horrorDreadCap: HORROR_DREAD_CAP_DEFAULT,
             magicAccent: MAGIC_ACCENT_DEFAULT,
             fontSize: 18,
             dialogFontWeight: null,
@@ -14625,6 +14709,7 @@ function createIgsReaderHost(options = {}) {
         normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
         normalized.skinDialogScale = normalizeSkinDialogScale(normalized.skinDialogScale);
         normalized.magicHouse = normalizeMagicHouse(normalized.magicHouse);
+        normalized.horrorDreadCap = normalizeHorrorDreadCap(normalized.horrorDreadCap);
         normalized.magicAccent = normalizeMagicAccent(normalized.magicAccent);
         normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
         normalized.dialogFontWeight = normalized.dialogFontWeight != null
@@ -15099,6 +15184,26 @@ function pendingExpressionCaptions(notes, slots) {
 }
 const menuItem = (action, label, extra = '') => `<button type="button" class="igs-add-menu-item${extra}" data-action="${action}" role="menuitem">${esc(label)}</button>`;
 
+const svg12 = (body) => `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const SLOT_ICONS = {
+    download: svg12('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+    retry: svg12('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
+    rename: svg12('<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>'),
+    outfit: svg12('<path d="M12 6a2 2 0 1 1 2-2"/><path d="M12 6v2L2.5 15.5A1.5 1.5 0 0 0 3.4 18h17.2a1.5 1.5 0 0 0 .9-2.5L12 8"/>'),
+    mood: svg12('<circle cx="11" cy="12" r="8"/><path d="M7.5 14.5a4.5 4.5 0 0 0 7 0"/><line x1="8.5" y1="9.5" x2="8.51" y2="9.5"/><line x1="13.5" y1="9.5" x2="13.51" y2="9.5"/><line x1="20" y1="2" x2="20" y2="8"/><line x1="17" y1="5" x2="23" y2="5"/>'),
+    variants: svg12('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/><path d="M19 3a3 3 0 0 0 2 5 4 4 0 0 1-4-5z"/>'),
+};
+
+// 差分格的下载 / 重新生成 / 重命名：宽屏外露成图标；细窄屏藏起图标，仍走 ⋯ 里的同名项。
+// list：[action, label, iconKey]，空项跳过。返回 { inline, items }：inline 放行内，items 塞进 ⋯。
+function slotActions(list) {
+    const shown = list.filter(Boolean);
+    return {
+        inline: shown.map(([action, label, icon]) => `<button type="button" class="igs-btn-mgr-icon igs-slot-act" data-action="${action}" title="${esc(label)}" aria-label="${esc(label)}">${SLOT_ICONS[icon]}</button>`).join(''),
+        items: shown.map(([action, label]) => menuItem(action, label, ' igs-slot-act-menu')),
+    };
+}
+
 const PERSON_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>';
 
 function shownUrl(url, resolveUrl) {
@@ -15187,11 +15292,14 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const raw = String(url || '').trim();
         const imageId = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
         const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
-        const slotMenu = renderRowMenu([
+        const acts = slotActions([
+            imageId ? [`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${name}-${mood}-立绘.png`)}`, '下载', 'download'] : null,
+            imageId || (note && note.error) ? [`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, '重新生成', 'retry'] : null,
+            [`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名', 'rename'],
+        ]);
+        const slotMenu = acts.inline + renderRowMenu([
             canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
-            imageId ? menuItem(`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${name}-${mood}-立绘.png`)}`, '下载') : '',
-            imageId || (note && note.error) ? menuItem(`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, '重新生成') : '',
-            menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
+            ...acts.items,
             menuItem(`scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}`, '删除', ' is-danger'),
         ], `「${mood}」的操作`);
         // 生成图的格子不放编号地址输入框；自己填地址的格子才有输入框。
@@ -15251,15 +15359,15 @@ function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, baseMenuIt
         + `</span>`;
     const menu = active
         ? renderRowMenu([
-            menuItem(`outfit-expression-set:${c}:${o}`, '表情差分'),
             menuItem(`ui-toggle-open:${encSeg(metaKey)}`, isOpen(metaKey) ? '收起服装设置' : '服装设置（衣柜、服装词…）'),
-            menuItem(`scene-add-outfit-mood:${c}:${o}`, '添加情绪槽'),
             menuItem(`scene-rename-outfit:${c}:${o}`, '重命名这套'),
             menuItem(`scene-remove-outfit:${c}:${o}`, '删除这套', ' is-danger'),
         ], `「${active}」的操作`)
         : renderRowMenu(baseMenuItems, '原装的操作');
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
-        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">＋ 服装</button>${quickButtons}${menu}</div>`;
+        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装" aria-label="添加服装">${SLOT_ICONS.outfit}</button>`
+        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-icon" data-action="${active ? `scene-add-outfit-mood:${c}:${o}` : `scene-add-mood:${c}`}" title="添加情绪" aria-label="添加情绪">${SLOT_ICONS.mood}</button>`
+        + `${quickButtons}${menu}</div>`;
     const panel = active
         ? renderOutfitPanel(charName, active, plain(map[active]) || { words: [], moods: {} }, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
         : baseListHtml;
@@ -15407,7 +15515,11 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-slot{display:flex;align-items:center;gap:8px;min-width:0;padding:4px 6px;border-bottom:1px solid var(--igs-settings-line)}
 .igs-outfit-slot:last-child{border-bottom:0}
 .igs-outfit-slot>.igs-btn-mgr-label{flex:0 0 64px}
-.igs-outfit-slot .igs-scene-url-input{flex:1;min-width:0}
+.igs-outfit-slot .igs-scene-url-input{flex:0 1 160px;min-width:0;margin-right:auto}
+.igs-scene-mood-row .igs-scene-url-input{flex:0 1 160px}
+.igs-outfit-tab-icon{color:var(--igs-settings-ink-4)}
+.igs-add-menu-list .igs-slot-act-menu{display:none}
+@media (max-width:420px){.igs-slot-act{display:none}.igs-add-menu-list .igs-slot-act-menu{display:flex}}
 .igs-outfit-slot.is-fallback>.igs-btn-mgr-label{color:var(--igs-settings-ink-3)}
 .igs-outfit-fallbacks{padding:0 6px}
 .igs-outfit-fallbacks .igs-outfit-slot{border-bottom:0;padding:2px 6px}
@@ -15508,11 +15620,13 @@ button.igs-scope-seg:hover,button.igs-scope-seg:focus-visible{color:var(--igs-se
 __igsDefine(exports, "renderRowMenu", () => renderRowMenu);
 __igsDefine(exports, "placeRowMenu", () => placeRowMenu);
 __igsDefine(exports, "pendingExpressionCaptions", () => pendingExpressionCaptions);
+__igsDefine(exports, "slotActions", () => slotActions);
 __igsDefine(exports, "renderCharacterSlotTabs", () => renderCharacterSlotTabs);
 __igsDefine(exports, "renderWardrobe", () => renderWardrobe);
 __igsDefine(exports, "renderReviewCard", () => renderReviewCard);
 __igsDefine(exports, "renderOutfitReviewList", () => renderOutfitReviewList);
 __igsDefine(exports, "menuItem", () => menuItem);
+__igsDefine(exports, "SLOT_ICONS", () => SLOT_ICONS);
 __igsDefine(exports, "OUTFIT_SETTINGS_STYLE_TEXT", () => OUTFIT_SETTINGS_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/reader-value-utils.js", function(module, exports, require) {
@@ -19212,6 +19326,14 @@ const UI_SFX_FAMILIES = Object.freeze({
         open: Object.freeze([p('sine', 523, 784, 0, 0.16, 0.45, { attack: 0.015, sweep: 0.7 })]),
         close: Object.freeze([p('sine', 784, 523, 0, 0.16, 0.45, { attack: 0.015, sweep: 0.7 })]),
     }),
+    // 恐怖两款共用：翻页是一下闷心跳，确认是低频闷响叠一组三全音，开合是两条略失谐、互相拍动的低音。
+    dread: Object.freeze({
+        page: Object.freeze([p('sine', 64, 46, 0, 0.14, 0.9, { attack: 0.004, sweep: 0.6 }), p('sine', 58, 42, 0.19, 0.16, 0.65, { attack: 0.004, sweep: 0.6 })]),
+        hover: Object.freeze([p('sine', 196, 184, 0, 0.12, 0.14, { attack: 0.01 })]),
+        confirm: Object.freeze([p('sine', 74, 52, 0, 0.33, 0.85, { attack: 0.003, sweep: 0.5 }), p('triangle', 311, 311, 0.02, 0.3, 0.1, { attack: 0.03 }), p('triangle', 440, 440, 0.02, 0.3, 0.08, { attack: 0.03 })]),
+        open: Object.freeze([p('sine', 110, 165, 0, 0.34, 0.3, { attack: 0.1, sweep: 0.8 }), p('sine', 113, 169, 0, 0.34, 0.24, { attack: 0.1, sweep: 0.8 })]),
+        close: Object.freeze([p('sine', 165, 98, 0, 0.34, 0.3, { attack: 0.04, sweep: 0.8 }), p('sine', 169, 101, 0, 0.34, 0.24, { attack: 0.04, sweep: 0.8 })]),
+    }),
     glass: Object.freeze({
         page: Object.freeze([p('sine', 1568, 1568, 0, 0.18, 0.35, { attack: 0.002 }), p('sine', 3136, 3136, 0, 0.08, 0.1, { attack: 0.002 })]),
         hover: Object.freeze([p('sine', 2093, 2093, 0, 0.06, 0.18, { attack: 0.002 })]),
@@ -19235,6 +19357,8 @@ const SKIN_FAMILIES = Object.freeze({
     'elegant-european': 'glass',
     'magic-academy': 'glass',
     'gradient-veil': 'glass',
+    'horror-gore': 'dread',
+    'horror-psych': 'soft',
 });
 function resolveUiSfxFamily(dialogSkin) {
     return SKIN_FAMILIES[dialogSkin] || 'glass';
@@ -19805,6 +19929,7 @@ __igsDefine(exports, "AUDIO_MASTER_DEFAULTS", () => AUDIO_MASTER_DEFAULTS);
 __igsRegister("src/visual/igs-ui/scene-audio.js", function(module, exports, require) {
 const { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, setAudioBusSpace, setAudioMasterVolume, watchPageAway } = require("src/visual/igs-ui/audio-bus.js");
 const { WEATHER_FLASH_EVENT, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime, resolveWeatherFxKind } = require("src/visual/igs-ui/weather-fx-runtime.js");
+const { bgmPackOfWorldview, inferBgmMood, normalizeBgmTags, resolveBgmMood, selectBgmTrack } = require("src/visual/igs-ui/bgm-library.js");
 // 场景音频：BGM 用 HTMLAudio 按关键词选曲并交叉淡入淡出；环境音全部 WebAudio 实时合成，不依赖音频文件。
 const AMBIENT_KINDS = Object.freeze([
     'birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow',
@@ -19832,7 +19957,8 @@ const AMBIENT_LABELS = Object.freeze({
     ship: '船只',
     traffic: '车流',
 });
-const BGM_DEFAULTS = Object.freeze({ enabled: false, volume: 0.5, tracks: Object.freeze([]) });
+// moodTag：让 AI 在情绪转折时写 [igs-fx:bgm|情绪]，按情绪池选曲；关掉后只按演出与时段推断。
+const BGM_DEFAULTS = Object.freeze({ enabled: false, volume: 0.5, moodTag: true, tracks: Object.freeze([]) });
 const AMBIENT_SOUND_DEFAULTS = Object.freeze({
     enabled: false,
     volume: 0.4,
@@ -19847,7 +19973,8 @@ const TYPING_DUCK_RATIO = 0.8;
 // 演出色调下 BGM 的音量（BGM 是外链 HTMLAudio，受 CORS 限制进不了滤波链，只能压音量配合画面）。
 const BGM_TONE_GAIN = Object.freeze({ '': 1, dream: 0.85, flashback: 0.85, thought: 0.92, letterbox: 0.8 });
 
-const MAX_TRACKS = 50;
+// 默认曲目包约 60 首，再给用户自己的曲目留余量。
+const MAX_TRACKS = 200;
 const MAX_KEYWORDS = 20;
 const MAX_KEYWORD_LENGTH = 20;
 const MAX_NAME_LENGTH = 40;
@@ -19858,7 +19985,8 @@ const VOLUME_RAMP_MS = 300;
 const BGM_TONE_RAMP_MS = 1200;
 const MUFFLE_HZ = 700;
 const FLOOR = 0.0001;
-const URL_PATTERN = /^(https?:\/\/|data:audio\/|blob:)/i;
+// 用户上传的本地音频存在酒馆 user/files/ 下，与酒馆同源。
+const URL_PATTERN = /^(https?:\/\/|data:audio\/|blob:|\/?user\/files\/igs-bgm-)/i;
 
 const NATURE_WORDS = Object.freeze(['森林', '树林', '公园', '花园', '庭院', '院子', '山', '田', '河', '湖', '郊', '草', '林', '村', '校园', '操场']);
 const INSECT_EXTRA_WORDS = Object.freeze(['草', '田', '夏']);
@@ -19959,11 +20087,19 @@ function normalizeBgmSettings(value) {
         }
         ids.add(id);
         const name = typeof item.name === 'string' ? item.name.trim().slice(0, MAX_NAME_LENGTH) : '';
-        tracks.push({ id, name: name || `曲目${index}`, url, keywords: normalizeKeywords(item.keywords) });
+        const track = { id, name: name || `曲目${index}`, url, keywords: normalizeKeywords(item.keywords) };
+        // 分类字段与署名只在有值时写出，旧曲目的存档形状不变。
+        for (const [key, list] of Object.entries(normalizeBgmTags(item))) if (list.length) track[key] = list;
+        const credit = typeof item.credit === 'string' ? item.credit.trim().slice(0, MAX_NAME_LENGTH) : '';
+        if (credit) track.credit = credit;
+        const page = typeof item.source === 'string' ? item.source.trim() : '';
+        if (page && page.length <= MAX_URL_LENGTH && /^https?:\/\//i.test(page)) track.source = page;
+        tracks.push(track);
     }
     return {
         enabled: source.enabled === true,
         volume: clamp01(source.volume, BGM_DEFAULTS.volume),
+        moodTag: source.moodTag !== false,
         tracks,
     };
 }
@@ -20004,6 +20140,30 @@ function pickBgmTrack(tracks, context = {}) {
     }
     if (best) return best;
     return tracks.find((track) => track && Array.isArray(track.keywords) && !track.keywords.some((word) => textOf(word))) || null;
+}
+
+function createBgmMemory() {
+    return { sig: '', id: '', played: [], seed: Math.floor(Math.random() * 997), mood: '', moodScene: '' };
+}
+
+// 曲目带情绪分类（默认曲目包或用户勾过情绪）时走情绪池；全是旧式关键词曲目时保持原来的关键词打分。
+function pickSceneBgm(bgm, context, memory, skip) {
+    if (!bgm.tracks.some((track) => track.moods)) return pickBgmTrack(bgm.tracks, context);
+    const ctx = plainObject(context);
+    // 关掉情绪标签后连记住的情绪也不用，只按演出与时段推断。
+    const mood = bgm.moodTag ? resolveBgmMood({ ...ctx, mood: ctx.bgmMood }, memory) : inferBgmMood(ctx);
+    return selectBgmTrack(bgm.tracks, { ...ctx, mood, pack: bgmPackOfWorldview(ctx.worldview), skip }, memory);
+}
+
+// 地点栏 ♪ 的「换一首」：在当前候选池里换下一首；返回 { root, track }，没有在放的音乐时返回 null。
+function skipBgmTrack() {
+    for (const state of liveStates) {
+        // 看选曲记录而不是音频对象：只有情绪池选曲才有「下一首」，关键词曲目没有。
+        if (state.stopped || !state.lastOptions || !state.bgmMemory || !state.bgmMemory.id) continue;
+        const result = applySceneAudio(state.root, { ...state.lastOptions, skip: true });
+        return { root: state.root, track: result.track };
+    }
+    return null;
 }
 function resolveAmbientTone(context = {}) {
     const ctx = plainObject(context);
@@ -21430,7 +21590,9 @@ function applySceneAudio(root, options = {}) {
     if (source.master !== undefined) setAudioMasterVolume(normalizeAudioMasterSettings(source.master).volume);
     const bgm = normalizeBgmSettings(source.bgm);
     const ambient = normalizeAmbientSoundSettings(source.ambient);
-    const track = active && bgm.enabled ? pickBgmTrack(bgm.tracks, context) : null;
+    const live = root && typeof root === 'object' ? states.get(root) : null;
+    const memory = live ? live.bgmMemory : createBgmMemory();
+    const track = active && bgm.enabled ? pickSceneBgm(bgm, context, memory, source.skip === true) : null;
     const plan = active ? resolveAmbientPlan(context, ambient, source.weatherSettings) : [];
     const tone = plan.length ? resolveAmbientTone(context) : '';
     const space = plan.length ? resolveAmbientSpace(context.location, source.weatherSettings) : '';
@@ -21446,6 +21608,7 @@ function applySceneAudio(root, options = {}) {
     if (!state) {
         if (!track && !plan.length) return result;
         state = createState(root);
+        state.bgmMemory = memory;
         states.set(root, state);
         liveStates.add(state);
         watchVisibility(state);
@@ -21454,6 +21617,7 @@ function applySceneAudio(root, options = {}) {
     if (typeof source.clear === 'function') state.clear = source.clear;
     if (typeof source.audioFactory === 'function') state.audioFactory = source.audioFactory;
     if (typeof source.contextFactory === 'function') state.contextFactory = source.contextFactory;
+    state.lastOptions = { ...source, skip: false };
     const key = [track ? track.url : '', bgm.volume, audioMasterVolume(), bgmTone, plan.map(layerKey).join(','), ambient.volume, tone, space].join('|');
     if (key === state.key) return result;
     state.key = key;
@@ -21508,6 +21672,7 @@ function cancelSceneAudio(root) {
 __igsDefine(exports, "normalizeBgmSettings", () => normalizeBgmSettings);
 __igsDefine(exports, "normalizeAmbientSoundSettings", () => normalizeAmbientSoundSettings);
 __igsDefine(exports, "pickBgmTrack", () => pickBgmTrack);
+__igsDefine(exports, "skipBgmTrack", () => skipBgmTrack);
 __igsDefine(exports, "resolveAmbientTone", () => resolveAmbientTone);
 __igsDefine(exports, "resolveAmbientSpace", () => resolveAmbientSpace);
 __igsDefine(exports, "resolveAmbientPlan", () => resolveAmbientPlan);
@@ -22322,6 +22487,198 @@ __igsDefine(exports, "applyRenderQualityToDom", () => applyRenderQualityToDom);
 __igsDefine(exports, "RENDER_QUALITY_SETTINGS", () => RENDER_QUALITY_SETTINGS);
 __igsDefine(exports, "RENDER_QUALITY_OPTIONS", () => RENDER_QUALITY_OPTIONS);
 });
+__igsRegister("src/visual/igs-ui/bgm-library.js", function(module, exports, require) {
+const { BGM_MOODS, normalizeBgmMood } = require("src/scene/bgm-moods.js");
+const { resolveWeatherFxKind, resolveWeatherFxTime } = require("src/visual/igs-ui/weather-fx-runtime.js");
+const __igsReExportSource1 = require("src/scene/bgm-moods.js");
+__igsReExport(exports, __igsReExportSource1, [["BGM_MOODS","BGM_MOODS"],["BGM_MOOD_LABELS","BGM_MOOD_LABELS"],["normalizeBgmMood","normalizeBgmMood"]]);
+// 背景音乐选曲：AI 只在情绪转折时写一个情绪字（[igs-fx:bgm|悲]），本地按情绪分池，再按地点归类的场景、时段、天气加分；
+// 同分的曲目轮流播放、一轮内不重复；情绪与场景不变时一直放当前这首。用户自己写的地点关键词权重最高。
+
+// 某个情绪池在当前世界观里没有曲子时，依次借用相近的池。
+const MOOD_FALLBACK = Object.freeze({
+    daily: ['calm', 'cheerful'], cheerful: ['daily'], sweet: ['calm', 'daily'], calm: ['daily', 'sweet'],
+    sad: ['calm'], tense: ['eerie', 'battle'], battle: ['tense'], eerie: ['tense'],
+});
+const BGM_PACKS = Object.freeze(['modern', 'ancient', 'magic']);
+const BGM_PACK_LABELS = Object.freeze({ modern: '现代', ancient: '古风', magic: '魔法·奇幻' });
+const BGM_SCENES = Object.freeze(['festival', 'dungeon', 'shrine', 'bar', 'shop', 'palace', 'school', 'home', 'sea', 'village', 'nature', 'street']);
+const BGM_SCENE_LABELS = Object.freeze({
+    festival: '祭典', dungeon: '地下', shrine: '寺社', bar: '酒馆', shop: '店铺', palace: '宫廷', school: '校园',
+    home: '家中', sea: '海边', village: '村庄', nature: '自然', street: '街市',
+});
+// 顺序即优先级：「神社前的夜市」先归祭典，「学校图书馆」先归校园。
+const SCENE_WORDS = Object.freeze({
+    festival: ['祭', '庙会', '夜市', '灯会', '烟火', '花火', '游乐园', '集市'],
+    dungeon: ['地牢', '地下', '洞', '遗迹', '墓', '密室', '迷宫', '废墟', '矿', '下水道'],
+    shrine: ['神社', '寺', '庙', '教堂', '祠', '佛堂', '道观', '修道院', '神殿'],
+    bar: ['酒吧', '酒馆', '夜店', '客栈', '酒楼', '酒肆', '酒家'],
+    shop: ['咖啡', '餐厅', '饭店', '店', '商场', '超市', '食堂', '茶馆', '茶楼', '面馆'],
+    palace: ['宫', '殿', '城堡', '王座', '朝堂', '府邸', '王府', '皇'],
+    school: ['教室', '学校', '校园', '操场', '社团', '天台', '图书馆', '学院', '宿舍', '课堂', '讲堂', '书院', '私塾'],
+    home: ['家', '卧室', '客厅', '房间', '厨房', '公寓', '寝室', '闺房', '书房', '厢房'],
+    sea: ['海', '沙滩', '港', '码头', '礁'],
+    village: ['村', '乡', '小镇', '田园', '农'],
+    nature: ['森林', '树林', '竹林', '山', '田', '草原', '花园', '公园', '湖', '河', '溪', '原野', '郊', '林'],
+    street: ['街', '路', '巷', '广场', '车站', '市', '城'],
+});
+const BGM_TIMES = Object.freeze(['dawn', 'day', 'dusk', 'night', 'midnight']);
+const BGM_WEATHERS = Object.freeze(['sun', 'cloud', 'rain', 'snow', 'fog', 'wind', 'sand']);
+
+const SCORE = Object.freeze({ place: 8, other: 1, mood: 6, nearMood: 2, scene: 3, time: 1, weather: 1 });
+const PLAYED_MAX = 24;
+
+function text(value) {
+    return String(value == null ? '' : value).trim().toLowerCase();
+}
+
+function pickList(value, allowed) {
+    if (!Array.isArray(value)) return [];
+    const out = [];
+    for (const item of value) {
+        const id = String(item == null ? '' : item).trim();
+        if (allowed.includes(id) && !out.includes(id)) out.push(id);
+    }
+    return out;
+}
+
+// 曲目上的分类字段：只留认识的值；用户自建曲目缺字段时全是空数组。
+function normalizeBgmTags(item) {
+    const source = item && typeof item === 'object' ? item : {};
+    return {
+        packs: pickList(source.packs, BGM_PACKS),
+        moods: pickList(Array.isArray(source.moods) ? source.moods.map((m) => normalizeBgmMood(m) || m) : [], BGM_MOODS),
+        scenes: pickList(source.scenes, BGM_SCENES),
+        times: pickList(source.times, BGM_TIMES),
+        weathers: pickList(source.weathers, BGM_WEATHERS),
+    };
+}
+
+// 世界观 → 曲包：古代用古风，魔法与西幻共用魔法·奇幻，其余（科幻、末日、大正）按现代。
+function bgmPackOfWorldview(worldview) {
+    if (worldview === 'ancient') return 'ancient';
+    if (worldview === 'magic' || worldview === 'fantasy') return 'magic';
+    return 'modern';
+}
+function resolveBgmScene(location) {
+    const value = text(location);
+    if (!value) return '';
+    return BGM_SCENES.find((scene) => SCENE_WORDS[scene].some((word) => value.includes(word))) || '';
+}
+
+// 没写情绪标签时的推断：只看演出区间与时段，不看逐句表情，避免同一场戏里换来换去。
+function inferBgmMood(context = {}) {
+    const ctx = context && typeof context === 'object' ? context : {};
+    if (ctx.battle) return 'battle';
+    if (ctx.romance) return 'sweet';
+    const ranges = ctx.fxRanges && typeof ctx.fxRanges === 'object' ? ctx.fxRanges : {};
+    if (ranges.flashback) return 'sad';
+    if (ranges.dream) return 'calm';
+    const time = resolveWeatherFxTime(ctx.time);
+    if (time === 'night' || time === 'midnight') return 'calm';
+    return 'daily';
+}
+
+function isTagged(track) {
+    return Boolean(track.moods && track.moods.length);
+}
+
+function isDefault(track) {
+    return !isTagged(track) && !(Array.isArray(track.keywords) && track.keywords.some((word) => text(word)));
+}
+
+function scoreTrack(track, view) {
+    let score = 0;
+    for (const raw of Array.isArray(track.keywords) ? track.keywords : []) {
+        const word = text(raw);
+        if (!word) continue;
+        if (view.location.includes(word)) score += SCORE.place;
+        else if (view.others.some((value) => value.includes(word))) score += SCORE.other;
+    }
+    const moods = track.moods || [];
+    if (moods.includes(view.mood)) score += SCORE.mood;
+    else if (moods.some((mood) => view.near.includes(mood))) score += SCORE.nearMood;
+    if (view.scene && (track.scenes || []).includes(view.scene)) score += SCORE.scene;
+    if (view.time && (track.times || []).includes(view.time)) score += SCORE.time;
+    if (view.weather && (track.weathers || []).includes(view.weather)) score += SCORE.weather;
+    return score;
+}
+
+// memory 由调用方按阅读器保留：{ sig, id, played, seed, mood, moodScene }；skip 为真时在同一候选池里换下一首。
+function selectBgmTrack(tracks, context = {}, memory = {}) {
+    const list = Array.isArray(tracks) ? tracks.filter((t) => t && t.url) : [];
+    if (!list.length) return null;
+    const ctx = context && typeof context === 'object' ? context : {};
+    const mem = memory && typeof memory === 'object' ? memory : {};
+    if (!Array.isArray(mem.played)) mem.played = [];
+    const pack = BGM_PACKS.includes(ctx.pack) ? ctx.pack : 'modern';
+    const allowed = list.filter((t) => !(t.packs && t.packs.length) || t.packs.includes(pack));
+    if (!allowed.length) return null;
+    const location = text(ctx.location);
+    const time = resolveWeatherFxTime(ctx.time);
+    const weather = resolveWeatherFxKind(ctx.weather);
+    const mood = normalizeBgmMood(ctx.mood) || 'daily';
+    const view = {
+        location, time, weather, mood,
+        near: MOOD_FALLBACK[mood] || [],
+        scene: resolveBgmScene(location),
+        others: [`${text(ctx.time)} ${time}`, `${text(ctx.weather)} ${weather}`, text(ctx.emotion)],
+    };
+    const current = allowed.find((t) => t.id === mem.id) || null;
+    const sig = [pack, mood, view.scene, time, weather, location].join('|');
+    if (!ctx.skip && current && mem.sig === sig) return current;
+    mem.sig = sig;
+    const scored = allowed.map((track) => ({ track, score: scoreTrack(track, view) }));
+    const best = Math.max(...scored.map((s) => s.score));
+    let pool = best > 0 ? scored.filter((s) => s.score === best).map((s) => s.track) : allowed.filter(isDefault);
+    // 一首都没对上：用户只配了关键词曲目时照旧静音；有分类曲目时在本世界观里随便放一首，不冷场。
+    if (!pool.length) pool = allowed.filter(isTagged);
+    if (!pool.length) {
+        mem.id = '';
+        return null;
+    }
+    if (!ctx.skip && current && pool.includes(current)) return current;
+    const offset = Math.abs(Math.trunc(Number(mem.seed) || 0)) % pool.length;
+    const ordered = [...pool.slice(offset), ...pool.slice(0, offset)];
+    const others = ctx.skip && current && ordered.length > 1 ? ordered.filter((t) => t !== current) : ordered;
+    let pick = others.find((t) => !mem.played.includes(t.id));
+    if (!pick) {
+        // 这一池放完一轮：清掉本池的播放记录，从头再轮。
+        mem.played = mem.played.filter((id) => !pool.some((t) => t.id === id));
+        pick = ctx.skip && current ? ordered[(ordered.indexOf(current) + 1) % ordered.length] : others[0];
+    }
+    mem.id = pick.id;
+    mem.played = [...mem.played.filter((id) => id !== pick.id), pick.id].slice(-PLAYED_MAX);
+    return pick;
+}
+
+// 情绪标签只在转折时写：本页有标签用标签；没有时沿用同一场景里上次的情绪，换了场景就按演出推断。
+function resolveBgmMood(context = {}, memory = {}) {
+    const ctx = context && typeof context === 'object' ? context : {};
+    const scene = resolveBgmScene(ctx.location);
+    const explicit = normalizeBgmMood(ctx.mood);
+    if (explicit) {
+        memory.mood = explicit;
+        memory.moodScene = scene;
+        return explicit;
+    }
+    if (ctx.battle) return 'battle';
+    if (memory.mood && memory.moodScene === scene) return memory.mood;
+    memory.mood = '';
+    return inferBgmMood(ctx);
+}
+
+__igsDefine(exports, "normalizeBgmTags", () => normalizeBgmTags);
+__igsDefine(exports, "bgmPackOfWorldview", () => bgmPackOfWorldview);
+__igsDefine(exports, "resolveBgmScene", () => resolveBgmScene);
+__igsDefine(exports, "inferBgmMood", () => inferBgmMood);
+__igsDefine(exports, "selectBgmTrack", () => selectBgmTrack);
+__igsDefine(exports, "resolveBgmMood", () => resolveBgmMood);
+__igsDefine(exports, "BGM_PACKS", () => BGM_PACKS);
+__igsDefine(exports, "BGM_PACK_LABELS", () => BGM_PACK_LABELS);
+__igsDefine(exports, "BGM_SCENES", () => BGM_SCENES);
+__igsDefine(exports, "BGM_SCENE_LABELS", () => BGM_SCENE_LABELS);
+});
 __igsRegister("src/visual/igs-ui/danmaku-settings.js", function(module, exports, require) {
 const { normalizeEmotionList } = require("src/visual/igs-ui/stage-shake-runtime.js");
 // 弹幕三件套，各自一个顶层开关以便挂进演出档位：
@@ -22627,6 +22984,8 @@ const TEXT_FX_STYLE_TEXT = `
 #igs-overlay[data-igs-dialog-skin="qinglv-shanshui"]{--igs-tfx-accent:#2f5d7c;--igs-tfx-glow:rgba(244,240,229,.9);}
 #igs-overlay[data-igs-dialog-skin="warm-picturebook"]{--igs-tfx-accent:#c8553d;--igs-tfx-glow:rgba(255,255,255,.8);}
 #igs-overlay[data-igs-dialog-skin="fairy-tale"]{--igs-tfx-accent:#b4702c;--igs-tfx-glow:rgba(250,246,234,.9);}
+#igs-overlay[data-igs-dialog-skin="horror-gore"]{--igs-tfx-accent:#ff2a33;--igs-tfx-glow:rgba(0,0,0,.9);}
+#igs-overlay[data-igs-dialog-skin="horror-psych"]{--igs-tfx-accent:#e0779d;--igs-tfx-glow:rgba(255,250,252,.9);}
 #igs-overlay[data-igs-dialog-skin="day-minimal"]{--igs-tfx-accent:#b0503f;--igs-tfx-glow:rgba(255,255,255,.9);}
 #igs-overlay[data-igs-dialog-skin="black-white-manga"]{--igs-tfx-accent:#000;--igs-tfx-glow:#fff;}
 #igs-overlay[data-igs-dialog-skin="black-white-manga"] #igs-text .igs-tfx-strong{font-weight:900;}
@@ -22849,20 +23208,32 @@ __igsDefine(exports, "BILINGUAL_NOTE_CLASS", () => BILINGUAL_NOTE_CLASS);
 __igsDefine(exports, "BILINGUAL_STYLE_TEXT", () => BILINGUAL_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/click-wait-mark.js", function(module, exports, require) {
+// 每个皮肤都有一枚专属符号（见 CLICK_WAIT_MARK_SKINS）；这些符号也都能在选择器里单独选用。
 const CLICK_WAIT_MARK_GLYPHS = Object.freeze([
-    'auto', 'diamond', 'fleuron', 'sparkle', 'triangle', 'chevron', 'leaf', 'star', 'caret', 'heart',
+    'auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush',
+    'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye',
 ]);
 const CLICK_WAIT_MARK_LABELS = Object.freeze({
-    auto: '跟随对话框主题',
+    auto: '跟随皮肤',
     diamond: '柔光菱形',
     fleuron: '金色笔尖',
+    pendant: '珍珠垂坠',
+    crescent: '星月',
     sparkle: '四芒星',
-    triangle: '倒三角',
+    strawberry: '草莓',
+    seal: '朱砂小印',
+    'triangle-brush': '笔触三角',
+    compass: '指南针',
     chevron: '罗盘箭头',
     leaf: '小叶片',
     star: '圆角星',
     caret: '细折角',
-    heart: '心跳爱心',
+    triangle: '倒三角',
+    heart: '爱心',
+    'triangle-hollow': '空心三角',
+    'blood-drop': '血滴',
+    ribbon: '蝴蝶结',
+    eye: '眼睛',
 });
 const CLICK_WAIT_MARK_STYLES = Object.freeze(
     CLICK_WAIT_MARK_GLYPHS.map(id => Object.freeze({ id, label: CLICK_WAIT_MARK_LABELS[id] })),
@@ -22905,7 +23276,19 @@ const SHAPES = Object.freeze({
     leaf: "<path fill-rule='evenodd' d='M4.5 19.5C4.5 10.6 10.6 4.2 20.2 3.8C20.2 13.6 13.6 19.5 4.5 19.5ZM6.2 18.4Q11.6 12.4 17.6 6.4Q12.4 13.2 6.8 19Z'/><path d='M2.8 21.2L6.4 17.6' stroke='#000' stroke-width='1.6' stroke-linecap='round'/>",
     star: "<path d='M12 4.2L14.29 9.64L20.18 10.14L15.71 14.01L17.05 19.76L12 16.7L6.95 19.76L8.29 14.01L3.82 10.14L9.71 9.64Z' stroke='#000' stroke-width='2.4' stroke-linejoin='round'/>",
     caret: "<path d='M6 9.2L12 15.2L18 9.2' fill='none' stroke='#000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/>",
+    // 优雅欧式：小吊环下垂一滴珍珠。
+    pendant: "<path fill-rule='evenodd' d='M12 2.2A2.3 2.3 0 1 0 12 6.8A2.3 2.3 0 1 0 12 2.2ZM12 3.4A1.1 1.1 0 1 1 12 5.6A1.1 1.1 0 1 1 12 3.4Z'/><path d='M12 8C14.6 11.4 17 13.9 17 16.8A5 5 0 0 1 7 16.8C7 13.9 9.4 11.4 12 8Z'/>",
+    // 魔法星夜：一弯新月伴一颗小星。
+    crescent: "<path d='M14.6 3.6A8.6 8.6 0 1 0 20.6 16.4A6.8 6.8 0 0 1 14.6 3.6Z'/><path d='M19.4 3.2Q19.8 6.2 22.6 6.6Q19.8 7 19.4 10Q19 7 16.2 6.6Q19 6.2 19.4 3.2Z'/>",
+    // 冒险旅途：朝下的罗盘指针，顶上一颗铆钉。
+    compass: "<path d='M12 22.2L6.6 9.4L12 12.2L17.4 9.4Z'/><circle cx='12' cy='4.6' r='2'/>",
     seal: "<rect x='6.5' y='6.5' width='11' height='11' rx='1.4'/>",
+    // 童话小镇的草莓：籽镂空（evenodd），单色遮罩下也认得出。
+    strawberry: "<path fill-rule='evenodd' d='M12 6.5C17.5 6.5 20 10 18.6 14.8C17.4 18.8 14 21.6 12 22.5C10 21.6 6.6 18.8 5.4 14.8C4 10 6.5 6.5 12 6.5ZM8.6 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM14 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM11.25 14.4a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM9.1 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0ZM13.5 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0Z'/><path d='M6.6 6.6L10.2 6.4L12 2.2L13.8 6.4L17.4 6.6L14.4 8.6H9.6Z'/>",
+    // 血色噩梦：一颗血滴；心理恐怖平时是蝴蝶结，崩坏后换成一只眼（瞳孔镂空）。
+    ribbon: "<path d='M12 10.5C9.5 7 5.5 5 3.5 6.5C2 7.6 2.4 12.4 4 13.6C6 15 9.6 13.4 12 11.5ZM12 10.5C14.5 7 18.5 5 20.5 6.5C22 7.6 21.6 12.4 20 13.6C18 15 14.4 13.4 12 11.5Z'/><circle cx='12' cy='11' r='2.3'/><path d='M10.8 12.5L8 19.5L10.2 18.6L11.2 20.6L12.4 13ZM13.2 12.5L16 19.5L13.8 18.6L12.8 20.6L11.6 13Z'/>",
+    'blood-drop': "<path d='M12 2.5C15.5 8 18.5 11.6 18.5 15.4A6.5 6.5 0 0 1 5.5 15.4C5.5 11.6 8.5 8 12 2.5Z'/>",
+    eye: "<path fill-rule='evenodd' d='M1.8 12C5 6.8 8.4 5 12 5S19 6.8 22.2 12C19 17.2 15.6 19 12 19S5 17.2 1.8 12ZM12 8.4A3.6 3.6 0 1 0 12 15.6A3.6 3.6 0 1 0 12 8.4Z'/><circle cx='12' cy='12' r='1.8'/>",
     heart: "<path d='M12 20.5C5.5 16 2.5 12.4 2.5 8.6C2.5 5.8 4.7 3.8 7.3 3.8C9.3 3.8 10.9 4.9 12 6.6C13.1 4.9 14.7 3.8 16.7 3.8C19.3 3.8 21.5 5.8 21.5 8.6C21.5 12.4 18.5 16 12 20.5Z'/>",
 });
 
@@ -22914,47 +23297,38 @@ function shapeUrl(shape) {
     return `url("data:image/svg+xml,${svg.replace(/#/g, '%23').replace(/</g, '%3C').replace(/>/g, '%3E')}")`;
 }
 
+// 只做上下轻点，不左右摇摆、不旋转：tap 匀速上下，soft 带呼吸的明暗，hop 轻跳并在落地时略压扁，steps 是漫画的逐帧跳。
 const ANIMATIONS = Object.freeze({
-    breathe: { keyframes: '0%,100%{transform:scale(.8);opacity:.55;}50%{transform:scale(1.06);opacity:1;}', timing: '1.6s ease-in-out infinite', origin: '50% 50%' },
-    bob: { keyframes: '0%,100%{transform:translateY(-1px) rotate(-6deg);}50%{transform:translateY(2.5px) rotate(4deg);}', timing: '2s ease-in-out infinite', origin: '50% 10%' },
-    twinkle: { keyframes: '0%{transform:rotate(0) scale(.7);opacity:.6;}50%{transform:rotate(45deg) scale(1.08);opacity:1;}100%{transform:rotate(90deg) scale(.7);opacity:.6;}', timing: '2.4s ease-in-out infinite', origin: '50% 50%' },
-    bounce: { keyframes: '0%,100%{transform:translateY(-1.5px);}50%{transform:translateY(3px);}', timing: '1.6s cubic-bezier(.45,0,.55,1) infinite', origin: '50% 50%' },
-    'bounce-slow': { keyframes: '0%,100%{transform:translateY(-1px);}45%{transform:translateY(3px);}60%{transform:translateY(2.4px);}', timing: '2.4s cubic-bezier(.45,0,.55,1) infinite', origin: '50% 50%' },
-    'bounce-steps': { keyframes: '0%{transform:translateY(0);}25%{transform:translateY(-4px);}50%{transform:translateY(0);}75%{transform:translateY(1.5px) scale(1.12,.86);}', timing: '.9s steps(1,end) infinite', origin: '50% 100%' },
-    nudge: { keyframes: '0%,100%{transform:translateX(-1px);}50%{transform:translateX(4px);}', timing: '1.3s ease-in-out infinite', origin: '50% 50%' },
-    sway: { keyframes: '0%,100%{transform:rotate(-12deg);}50%{transform:rotate(10deg);}', timing: '2.6s ease-in-out infinite', origin: '12% 88%' },
-    hop: { keyframes: '0%,100%{transform:translateY(0) scale(1.12,.86);}12%{transform:translateY(0) scale(1);}35%{transform:translateY(-6px) scale(.92,1.08);}55%{transform:translateY(-6px) scale(1);}80%{transform:translateY(0) scale(.96,1.04);}90%{transform:translateY(0) scale(1.14,.84);}', timing: '1.2s ease-in-out infinite', origin: '50% 100%' },
-    fade: { keyframes: '0%,100%{transform:translateY(-1px);opacity:.2;}50%{transform:translateY(1.5px);opacity:1;}', timing: '1.4s ease-in-out infinite', origin: '50% 50%' },
-    heartbeat: { keyframes: '0%,100%{transform:scale(1);}14%{transform:scale(1.22);}28%{transform:scale(1);}42%{transform:scale(1.16);}70%{transform:scale(1);}', timing: '1.3s ease-in-out infinite', origin: '50% 55%' },
-    'veil-breathe': { keyframes: '0%,100%{transform:translateY(0);opacity:.35;}50%{transform:translateY(2px);opacity:1;}', timing: '2.4s ease-in-out infinite', origin: '50% 50%' },
+    tap: { keyframes: '0%,100%{transform:translateY(-1.5px);}50%{transform:translateY(2.5px);}', timing: '1.5s cubic-bezier(.45,0,.55,1) infinite', origin: '50% 50%' },
+    'tap-soft': { keyframes: '0%,100%{transform:translateY(-1px);opacity:.45;}50%{transform:translateY(2px);opacity:1;}', timing: '1.8s ease-in-out infinite', origin: '50% 50%' },
+    'tap-hop': { keyframes: '0%,100%{transform:translateY(0) scale(1.08,.92);}15%{transform:translateY(0) scale(1);}45%{transform:translateY(-4px);}75%{transform:translateY(0) scale(1);}', timing: '1.4s ease-in-out infinite', origin: '50% 100%' },
+    'tap-steps': { keyframes: '0%{transform:translateY(0);}25%{transform:translateY(-4px);}50%{transform:translateY(0);}75%{transform:translateY(1.5px) scale(1.12,.86);}', timing: '.9s steps(1,end) infinite', origin: '50% 100%' },
 });
 
-const GLYPH_MARKS = Object.freeze({
-    diamond: { shape: 'diamond', animation: 'breathe' },
-    fleuron: { shape: 'fleuron', animation: 'bob' },
-    sparkle: { shape: 'sparkle', animation: 'twinkle' },
-    triangle: { shape: 'triangle', animation: 'bounce' },
-    chevron: { shape: 'chevron', animation: 'nudge' },
-    leaf: { shape: 'leaf', animation: 'sway' },
-    star: { shape: 'star', animation: 'hop' },
-    caret: { shape: 'caret', animation: 'fade' },
-    heart: { shape: 'heart', animation: 'heartbeat' },
+const GLYPH_ANIMATIONS = Object.freeze({
+    pendant: 'tap-soft', seal: 'tap-soft', caret: 'tap-soft', 'triangle-hollow': 'tap-soft', eye: 'tap-soft',
+    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop',
 });
+const GLYPH_MARKS = Object.freeze(Object.fromEntries(CLICK_WAIT_MARK_GLYPHS.filter((id) => id !== 'auto')
+    .map((id) => [id, { shape: id, animation: GLYPH_ANIMATIONS[id] || 'tap' }])));
+const mark = (shape, color, animation) => ({ shape, color, animation: animation || GLYPH_MARKS[shape].animation });
 const CLICK_WAIT_MARK_SKINS = Object.freeze({
-    default: { shape: 'diamond', animation: 'breathe', color: 'rgba(236,230,218,.95)' },
-    'western-classic': { shape: 'fleuron', animation: 'bob', color: '#e2bd6b' },
-    'elegant-european': { shape: 'sparkle', animation: 'twinkle', color: '#dccff7' },
-    'magic-academy': { shape: 'sparkle', animation: 'twinkle', color: '#f0cf78' },
-    'fairy-tale': { shape: 'sparkle', animation: 'twinkle', color: '#c8973c' },
-    'qinglv-shanshui': { shape: 'seal', animation: 'breathe', color: '#b23a2a' },
-    'retro-japanese': { shape: 'triangle-brush', animation: 'bounce-slow', color: '#c23a24' },
-    'adventure-journey': { shape: 'chevron', animation: 'nudge', color: '#9a6a2c' },
-    'plant-coffee': { shape: 'leaf', animation: 'sway', color: '#6f8446' },
-    'warm-picturebook': { shape: 'star', animation: 'hop', color: '#4f9a92' },
-    'day-minimal': { shape: 'caret', animation: 'fade', color: '#b0503f' },
-    'black-white-manga': { shape: 'triangle', animation: 'bounce-steps', color: '#161616' },
-    'cute-pink': { shape: 'heart', animation: 'heartbeat', color: '#e5608c' },
-    'gradient-veil': { shape: 'triangle-hollow', animation: 'veil-breathe', color: 'rgba(255,255,255,.92)' },
+    default: mark('diamond', 'rgba(236,230,218,.95)'),
+    'western-classic': mark('fleuron', '#e2bd6b'),
+    'elegant-european': mark('pendant', '#dccff7'),
+    'magic-academy': mark('crescent', '#f0cf78'),
+    'fairy-tale': mark('strawberry', '#dc6a5c'),
+    'qinglv-shanshui': mark('seal', '#b23a2a'),
+    'retro-japanese': mark('triangle-brush', '#c23a24'),
+    'adventure-journey': mark('compass', '#9a6a2c'),
+    'plant-coffee': mark('leaf', '#6f8446'),
+    'warm-picturebook': mark('star', '#4f9a92'),
+    'day-minimal': mark('caret', '#b0503f'),
+    'black-white-manga': mark('triangle', '#161616', 'tap-steps'),
+    'cute-pink': mark('heart', '#e5608c'),
+    'gradient-veil': mark('triangle-hollow', 'rgba(255,255,255,.92)'),
+    'horror-gore': mark('blood-drop', '#d1121b'),
+    'horror-psych': mark('ribbon', '#e0779d'),
 });
 
 function markVars(mark) {
@@ -22973,6 +23347,13 @@ const SKIN_RULES = Object.entries(CLICK_WAIT_MARK_SKINS)
     })
     .join('\n');
 
+// 恐怖档位（horror-dread.js）：崩坏皮肤从 2 档起句末的蝴蝶结换成眼睛；血色 3 档底色转暗红，血滴改成骨白。
+const DREAD_RULES = [
+    `#igs-overlay[data-igs-dialog-skin="horror-psych"][data-igs-dread="2"]{${markVars(mark('eye', '#8f7a86'))}--igs-cw-color:#8f7a86;}`,
+    `#igs-overlay[data-igs-dialog-skin="horror-psych"][data-igs-dread="3"]{${markVars(mark('eye', '#b3161b'))}--igs-cw-color:#b3161b;}`,
+    '#igs-overlay[data-igs-dialog-skin="horror-gore"][data-igs-dread="3"]{--igs-cw-color:#f3ece4;}',
+].join('\n');
+
 // 两个属性选择器的特异性高于皮肤规则，用户选定的形状总是覆盖皮肤映射，颜色仍跟随皮肤。
 const GLYPH_RULES = Object.entries(GLYPH_MARKS)
     .map(([glyph, mark]) => `#igs-overlay[data-igs-click-wait="on"][data-igs-click-wait-glyph="${glyph}"]{${markVars(mark)}}`)
@@ -22981,6 +23362,7 @@ const CLICK_WAIT_MARK_STYLE_TEXT = `
 ${KEYFRAMES}
 @keyframes igs-cw-in{0%{opacity:0;}100%{opacity:1;}}
 ${SKIN_RULES}
+${DREAD_RULES}
 ${GLYPH_RULES}
 #igs-overlay[data-igs-click-wait="on"] #igs-text::after{content:"";display:inline-block;width:.9em;height:.9em;margin-left:.25em;vertical-align:middle;pointer-events:none;background-color:var(--igs-cw-color,currentColor);-webkit-mask:var(--igs-cw-mask) center/contain no-repeat;mask:var(--igs-cw-mask) center/contain no-repeat;transform-origin:var(--igs-cw-origin,50% 50%);animation:var(--igs-cw-anim),igs-cw-in .35s ease-out backwards;}
 #igs-overlay[data-igs-click-wait="on"] #igs-text[data-igs-typewriter="running"]::after{opacity:0;animation:none;}
@@ -25915,6 +26297,8 @@ const CHAT_THEME_PALETTES = Object.freeze({
     default: palette('#ededed', '#f7f7f7', '#1f1f1f', '#1c1c1f', '#8a8a8a', '#ffffff', '#95ec69'),
     'western-classic': palette('#efe4cc', '#3b2a1c', '#f2e5c4', '#2e2218', '#8a7456', '#fbf3df', '#d8b979'),
     'magic-academy': palette('#141a3a', '#1c2248', '#f3e2b6', '#0c0f26', '#a99b78', '#f1e3c0', '#d9b45a', 'rgba(217,180,90,.6)'),
+    'horror-gore': palette('#141010', '#0a0a0a', '#f3ece4', '#0a0a0a', '#8a8280', '#f3ece4', '#e8636a', 'rgba(209,18,27,.6)'),
+    'horror-psych': palette('#fdf3f8', '#f8dbe8', '#6b4a5c', '#e0779d', '#a48c99', '#ffffff', '#f4c3d6', 'rgba(244,163,192,.5)'),
     'fairy-tale': palette('#f6f1e2', '#e9e6cf', '#4a4034', '#5e5444', '#9a9380', '#fffcf3', '#d9e3bf', 'rgba(122,138,82,.3)'),
     'qinglv-shanshui': palette('#f1ede2', '#e8e3d5', '#26332f', '#2b3532', '#8c958f', '#fbf9f3', '#cfe0d6', 'rgba(47,93,124,.3)'),
     'elegant-european': palette('#f4efe6', '#2b2a3a', '#e8dcc2', '#1f1e2b', '#8b8577', '#ffffff', '#dccba8'),
@@ -31345,6 +31729,136 @@ __igsDefine(exports, "FIREWORK_PALETTES", () => FIREWORK_PALETTES);
 __igsDefine(exports, "BURST_TYPES", () => BURST_TYPES);
 __igsDefine(exports, "PETAL_KIND_NAMES", () => PETAL_KIND_NAMES);
 });
+__igsRegister("src/visual/igs-ui/bgm-note.js", function(module, exports, require) {
+// 地点栏左侧的两根竖线：平时看着像地点栏的起始左描边，有背景音乐在放时轻轻跳动（均衡器）。
+// 音乐在左、地点在右：点竖线在竖线与地点之间展开「曲名 · 作者」和换一首；8 秒后自动收起。
+// 状态栏每次重建都会清掉子节点，展开状态按阅读器记在这里，重建后照样恢复。
+const OPEN_MS = 8000;
+const NEXT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l10 7-10 7z" fill="currentColor"/><path d="M19 5v14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
+const openState = new WeakMap();
+const BGM_NOTE_STYLE_TEXT = `
+#igs-status-hud .igs-hud-bgm-bars{position:relative;display:flex;align-items:center;justify-content:center;gap:calc(2px * var(--igs-hud-scale,1));flex:none;align-self:stretch;width:calc(14px * var(--igs-hud-scale,1));min-height:calc(16px * var(--igs-hud-scale,1));margin:0 calc(1px * var(--igs-hud-scale,1)) 0 0;padding:0;border:0;background:transparent;color:rgba(232,230,226,.82);cursor:pointer;pointer-events:auto;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));}
+#igs-status-hud .igs-hud-bgm-bars i{display:block;width:calc(2px * var(--igs-hud-scale,1));height:calc(14px * var(--igs-hud-scale,1));border-radius:1px;background:currentColor;opacity:.62;transform-origin:50% 100%;animation:igs-hud-bgm-bar 1.1s ease-in-out infinite alternate;}
+#igs-status-hud .igs-hud-bgm-bars i+i{animation-duration:.8s;animation-delay:-.35s;}
+#igs-status-hud .igs-hud-bgm-bars:hover i,#igs-status-hud .igs-hud-location.is-bgm-open .igs-hud-bgm-bars i{opacity:.95;}
+#igs-overlay[data-igs-paused] #igs-status-hud .igs-hud-bgm-bars i{animation-play-state:paused;}
+@keyframes igs-hud-bgm-bar{from{transform:scaleY(1);}to{transform:scaleY(.45);}}
+#igs-status-hud .igs-hud-bgm{display:flex;align-items:center;flex:0 1 auto;min-width:0;gap:calc(3px * var(--igs-hud-scale,1));color:rgba(232,230,226,.82);font-size:calc(11px * var(--igs-hud-scale,1) * var(--igs-hud-location-scale,1));line-height:1.5;text-shadow:0 1px 3px rgba(0,0,0,.72);}
+#igs-status-hud .igs-hud-location:not(.is-bgm-open) .igs-hud-bgm{display:none;}
+#igs-status-hud .igs-hud-bgm-sep{flex:none;margin-right:calc(2px * var(--igs-hud-scale,1));opacity:.5;}
+#igs-status-hud .igs-hud-bgm-title{min-width:0;max-width:calc(150px * var(--igs-hud-scale,1));overflow:hidden;white-space:nowrap;text-overflow:ellipsis;animation:igs-hud-bgm-in .24s ease-out;}
+#igs-status-hud .igs-hud-bgm-next{display:grid;place-items:center;flex:none;width:calc(18px * var(--igs-hud-scale,1));height:calc(18px * var(--igs-hud-scale,1));margin:0;padding:0;border:0;background:transparent;color:inherit;cursor:pointer;pointer-events:auto;opacity:.78;}
+#igs-status-hud .igs-hud-bgm-next:hover{opacity:1;}
+#igs-status-hud .igs-hud-bgm-next svg{width:calc(11px * var(--igs-hud-scale,1));height:calc(11px * var(--igs-hud-scale,1));}
+@keyframes igs-hud-bgm-in{from{opacity:0;transform:translateX(-4px);}to{opacity:1;transform:none;}}
+@media (prefers-reduced-motion:reduce){#igs-status-hud .igs-hud-bgm-bars i{animation:none;}#igs-status-hud .igs-hud-bgm-bars i+i{transform:scaleY(.6);}#igs-status-hud .igs-hud-bgm-title{animation:none;}}
+`;
+
+function trackLabel(track) {
+    const name = String(track && track.name || '').trim();
+    const credit = String(track && track.credit || '').trim();
+    return credit ? `${name} · ${credit}` : name;
+}
+
+function isOpen(root) {
+    const entry = openState.get(root);
+    return Boolean(entry && entry.until > Date.now());
+}
+
+function locationOf(root) {
+    const host = root && typeof root.querySelector === 'function' ? root.querySelector('#igs-status-hud') : null;
+    return host ? host.querySelector('.igs-hud-location') : null;
+}
+
+function syncOpen(location, open) {
+    location.classList.toggle('is-bgm-open', open);
+    const bars = location.querySelector('.igs-hud-bgm-bars');
+    if (bars) bars.setAttribute('aria-expanded', String(open));
+}
+
+function setOpen(root, open) {
+    const prev = openState.get(root);
+    if (prev && prev.timer) clearTimeout(prev.timer);
+    if (!open) {
+        openState.delete(root);
+        return;
+    }
+    const timer = setTimeout(() => {
+        openState.delete(root);
+        const location = locationOf(root);
+        if (location) syncOpen(location, false);
+    }, OPEN_MS);
+    openState.set(root, { until: Date.now() + OPEN_MS, timer });
+}
+function applyBgmNoteToDom(root, track, { open } = {}) {
+    const location = locationOf(root);
+    if (!track || !location) {
+        // 状态栏重建时旧节点已随之清掉；这里只处理音乐停了但地点栏还在的情况。
+        if (location) {
+            for (const selector of ['.igs-hud-bgm-bars', '.igs-hud-bgm']) {
+                const stale = location.querySelector(selector);
+                if (stale) stale.remove();
+            }
+            syncOpen(location, false);
+        }
+        return;
+    }
+    if (open !== undefined) setOpen(root, open);
+    const doc = location.ownerDocument;
+    let bars = location.querySelector('.igs-hud-bgm-bars');
+    if (!bars) {
+        bars = doc.createElement('button');
+        bars.type = 'button';
+        bars.className = 'igs-hud-bgm-bars';
+        bars.setAttribute('data-act', 'bgm-note');
+        bars.setAttribute('aria-label', '正在播放的音乐');
+        bars.appendChild(doc.createElement('i'));
+        bars.appendChild(doc.createElement('i'));
+        location.insertBefore(bars, location.children[0] || null);
+    }
+    let note = location.querySelector('.igs-hud-bgm');
+    if (!note) {
+        note = doc.createElement('span');
+        note.className = 'igs-hud-bgm';
+        const sep = doc.createElement('span');
+        sep.className = 'igs-hud-bgm-sep';
+        sep.textContent = '·';
+        const title = doc.createElement('span');
+        title.className = 'igs-hud-bgm-title';
+        const next = doc.createElement('button');
+        next.type = 'button';
+        next.className = 'igs-hud-bgm-next';
+        next.setAttribute('data-act', 'bgm-next');
+        next.setAttribute('aria-label', '换一首');
+        next.innerHTML = NEXT_ICON;
+        note.appendChild(title);
+        note.appendChild(next);
+        note.appendChild(sep);
+        // 竖线之后、地点图钉之前。
+        location.insertBefore(note, location.querySelector('.igs-hud-location-icon') || location.querySelector('.igs-hud-location-label'));
+    }
+    const label = trackLabel(track);
+    const title = note.querySelector('.igs-hud-bgm-title');
+    if (title && title.textContent !== label) title.textContent = label;
+    if (title) title.setAttribute('title', label);
+    syncOpen(location, isOpen(root));
+}
+
+// 点竖线：展开 / 收起曲名。返回展开后的状态；没有音乐时返回 null。
+function toggleBgmNote(root) {
+    const location = locationOf(root);
+    if (!location || !location.querySelector('.igs-hud-bgm-bars')) return null;
+    const open = !isOpen(root);
+    setOpen(root, open);
+    syncOpen(location, open);
+    return open;
+}
+
+__igsDefine(exports, "applyBgmNoteToDom", () => applyBgmNoteToDom);
+__igsDefine(exports, "toggleBgmNote", () => toggleBgmNote);
+__igsDefine(exports, "BGM_NOTE_STYLE_TEXT", () => BGM_NOTE_STYLE_TEXT);
+});
 __igsRegister("src/visual/igs-ui/reader-auto-play.js", function(module, exports, require) {
 const AUTO_PLAY_SPEEDS = Object.freeze({ fast: 1500, medium: 3000, slow: 5000 });
 function createReaderAutoPlay({ read, advance, sync = () => {}, timers = globalThis }) {
@@ -31442,6 +31956,7 @@ const { renderRomanceFxFields } = require("src/visual/igs-ui/romance-fields.js")
 const { renderDanmakuFields } = require("src/visual/igs-ui/danmaku-settings-fields.js");
 const { renderMetaFxFields } = require("src/visual/igs-ui/meta-fields.js");
 const { PERFORMANCE_FEATURES, PERFORMANCE_PRESETS, detectPerformancePreset, isPerformanceFeatureOn } = require("src/visual/igs-ui/performance-presets.js");
+const { CARD_TYPES, PROFILE_PATH, hasPerformanceProfile, profileDiff, typeFeatureLabels } = require("src/visual/igs-ui/performance-profile.js");
 const { renderQualityRow } = require("src/visual/igs-ui/render-quality-fields.js");
 const { FX_SETTINGS_NORMALIZERS } = require("src/visual/igs-ui/fx-settings.js");
 const PERFORMANCE_GROUPS = Object.freeze([
@@ -31451,22 +31966,36 @@ const PERFORMANCE_GROUPS = Object.freeze([
     Object.freeze(['emotion', '情绪反应']),
     Object.freeze(['story', '剧情提示']),
     Object.freeze(['event', '事件演出']),
+    Object.freeze(['special', '特定类型才用']),
     Object.freeze(['romance', '亲密']),
     Object.freeze(['sound', '声音']),
 ]);
 
 // 首页与「阅读器 › 演出」共用同一档位条和 perf-preset 动作；extraRows 供其他档位（如画质档）挂在同一卡片里。
 function renderPerformancePresetBar(reader, { home = false, extraRows = '' } = {}) {
-    const current = detectPerformancePreset(reader && typeof reader === 'object' ? reader : {});
+    const src = reader && typeof reader === 'object' ? reader : {};
+    // 有快速配置时，高亮的是配置记下的档位；手动改过的开关在下面列出差异。
+    const profile = hasPerformanceProfile(src) ? src[PROFILE_PATH] : null;
+    const diff = profileDiff(src);
+    const changed = Boolean(diff && (diff.added.length || diff.removed.length));
+    const current = profile ? (changed ? '' : profile.level) : detectPerformancePreset(src);
     const buttons = PERFORMANCE_PRESETS.map(([id, label]) => (
         `<button type="button" class="igs-perf-preset${current === id ? ' is-active' : ''}" data-action="perf-preset:${id}" aria-pressed="${current === id ? 'true' : 'false'}">${esc(label)}</button>`
     )).join('');
-    const custom = '当前为自定义组合；点任一档位会覆盖各演出的开关，细项设置保留。';
-    const note = home
-        ? `${current ? '' : custom}细项前往「阅读器 › 演出」调整。`
-        : (current ? '' : custom);
+    const picked = new Set(profile && Array.isArray(profile.types) ? profile.types : []);
+    const chips = CARD_TYPES.map(([id, label]) => (
+        `<button type="button" class="igs-perf-type${picked.has(id) ? ' is-active' : ''}" data-action="perf-type:${id}" aria-pressed="${picked.has(id) ? 'true' : 'false'}">${esc(label)}</button>`
+    )).join('');
+    const typeRow = `<div class="igs-perf-type-row"><span class="igs-perf-type-label">卡片类型</span>${chips}</div>`;
+    let state = '';
+    if (changed) {
+        state = [diff.added.length ? `比配置多开了：${diff.added.join('、')}` : '', diff.removed.length ? `关掉了：${diff.removed.join('、')}` : ''].filter(Boolean).join('；') + '。点档位会恢复。';
+    } else if (!current) {
+        state = '当前为自定义组合；点任一档位会覆盖各演出的开关，细项设置保留。';
+    }
+    const note = home ? `${state}细项前往「阅读器 › 演出」调整。` : state;
     const title = home ? '演出档位' : '一键档位';
-    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
+    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${typeRow}${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
 }
 
 // 档位不切换、但也摆在分组里的开关（改 AI 输出格式、实验功能、玩法或非演出设置）：
@@ -31497,6 +32026,11 @@ function groupSummary(reader, groupId, allOff, extra = []) {
     return `<span class="igs-perf-count${on.length ? ' is-on' : ''}">${on.length}/${switches.length}</span><span class="igs-perf-brief">${esc(brief)}</span>`;
 }
 
+function specialNote() {
+    const lines = typeFeatureLabels().map(([label, types]) => `${label}：${types.join('、')}`).join('；');
+    return `<div class="igs-source-filter-note">只在特定剧情里用到。在上面勾选卡片类型会自动开启——${esc(lines)}。</div>`;
+}
+
 function groupCard(id, title, summaryHtml, body, open) {
     return `<div class="igs-source-filter igs-perf-group"><details data-advanced="perf-group-${id}"${open ? ' open' : ''}><summary><b>${esc(title)}</b>${summaryHtml}</summary><div class="igs-perf-group-body">${body}</div></details></div>`;
 }
@@ -31517,9 +32051,10 @@ function renderPerformanceSettings(reader, extras = {}, isOpen = () => false) {
         text: [extras.typewriter, stage.clickWaitMark, stage.textFx, stage.bilingual, extras.sentencePaging],
         stage: [stage.transition, stage.tint, stage.camera, pair('weather', '强度与室内外地点词', extras.weatherFx), pair('stage-shake', '强度与触发情绪', extras.stageShake)],
         character: [stage.motion, stage.actions, stage.cast, extras.narrationFilter],
-        emotion: [fx.manga, fx.heartbeat, fx.flash, danmaku.inner],
+        emotion: [fx.manga, fx.heartbeat],
         story: [fx.title, fx.favor, fx.itemFx, fx.resultFx],
-        event: [fx.tags, stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow), danmaku.live, danmaku.audience],
+        event: [fx.tags],
+        special: [specialNote(), stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow), danmaku.live, danmaku.audience, fx.flash, danmaku.inner],
         romance: [renderRomanceFxFields(src, more), extras.nsfw || ''],
         sound: [stage.master, fx.sound, stage.ambient, stage.ui, stage.bgm],
     };
@@ -31603,7 +32138,7 @@ const { TOOLBAR_ACTIONS } = require("src/visual/igs-ui/reader-host-constants.js"
 const { STAGE_SHAKE_INTENSITIES } = require("src/visual/igs-ui/stage-shake-runtime.js");
 const { CHAT_SHOW_BUBBLE_RADIUS_LEVELS, CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } = require("src/visual/igs-ui/chat-show-runtime.js");
 const { CHAT_SFX_PRESET_LABELS } = require("src/visual/igs-ui/chat-sfx.js");
-const { menuItem, renderCharacterSlotTabs, renderReviewCard, renderRowMenu } = require("src/visual/igs-ui/settings-outfit-fields.js");
+const { SLOT_ICONS, menuItem, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions } = require("src/visual/igs-ui/settings-outfit-fields.js");
 const { MAGIC_HOUSES, normalizeMagicHouse } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { resolveCharacterMagicHouse } = require("src/visual/igs-ui/magic-house.js");
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
@@ -31830,6 +32365,7 @@ function renderSceneAssetList(scenes, options = {}) {
     return entries.map(([sceneName, sceneVal]) => {
         const sceneObj = typeof sceneVal === 'string' ? { url: sceneVal, times: {} } : (sceneVal || { url: '', times: {} });
         const sceneWords = Array.isArray(sceneObj.words) ? sceneObj.words : [];
+        const canVary = Boolean(storedImageId(sceneObj.url));
         const bgExpanded = expandedSlots.has('bg\x00' + sceneName);
         const badge = (text) => `<span style="font-size:10px;opacity:.5;flex-shrink:0;margin-right:2px">${text}</span>`;
         const timeEntries = Object.entries(sceneObj.times || {});
@@ -31844,12 +32380,13 @@ function renderSceneAssetList(scenes, options = {}) {
                 return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row">`
                     + badge('天气')
                     + `<span class="igs-btn-mgr-label">${esc(weatherName)}</span>`
-                    + `<input class="igs-scene-url-input" data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}" value="${esc(weatherObj.url || '')}" placeholder="URL 或 data:image/...">`
+                    + sceneUrlField(weatherObj.url, `data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}"`, weatherName, options.resolveUrl)
                     + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="上传天气背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
                     + renderRowMenu([
                         menuItem(`scene-rename-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '重命名'),
                         storedImageDownloadItem(weatherObj.url, `${sceneName}-${timeName}-${weatherName}-背景.png`),
                         storedImagePromptItem(weatherObj.url),
+                        canVary ? menuItem(`scene-variant-retry:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, storedImageId(weatherObj.url) ? '重新生成' : '按场景提示词生成') : '',
                         menuItem(`scene-remove-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '删除', ' is-danger'),
                     ], `「${weatherName}」的操作`)
                     + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="展开/折叠">${wExpanded ? chevronUp : chevronDown}</button>`
@@ -31859,12 +32396,13 @@ function renderSceneAssetList(scenes, options = {}) {
             return `<div class="igs-scene-char-group igs-scene-time-group"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
                 + badge('时间')
                 + `<span class="igs-btn-mgr-label">${esc(timeName)}</span>`
-                + `<input class="igs-scene-url-input" data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" value="${esc(timeObj.url || '')}" placeholder="URL 或 data:image/...">`
+                + sceneUrlField(timeObj.url, `data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}"`, timeName, options.resolveUrl)
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="上传时间背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
                 + renderRowMenu([
                     menuItem(`scene-rename-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '重命名'),
                     storedImageDownloadItem(timeObj.url, `${sceneName}-${timeName}-背景.png`),
                     storedImagePromptItem(timeObj.url),
+                    canVary ? menuItem(`scene-variant-retry:${encSeg(sceneName)}:${encSeg(timeName)}:`, storedImageId(timeObj.url) ? '重新生成' : '按场景提示词生成') : '',
                     menuItem(`scene-add-weather:${encSeg(sceneName)}:${encSeg(timeName)}`, '添加天气'),
                     menuItem(`scene-remove-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '删除', ' is-danger'),
                 ], `「${timeName}」的操作`)
@@ -31876,7 +32414,8 @@ function renderSceneAssetList(scenes, options = {}) {
             + badge('场景')
             + `<span class="igs-btn-mgr-label" style="font-weight:600">${esc(sceneName)}</span>`
             + scopeTag(options, 'scenes', sceneName)
-            + `<input class="igs-scene-url-input" data-scene-bg="${esc(sceneName)}" value="${esc(sceneObj.url || '')}" placeholder="URL 或 data:image/...">`
+            + sceneUrlField(sceneObj.url, `data-scene-bg="${esc(sceneName)}"`, sceneName, options.resolveUrl)
+            + (canVary ? `<button type="button" class="igs-btn-mgr-icon" data-action="scene-variant-set:${encSeg(sceneName)}" title="按这张的提示词生成时间/天气差分" aria-label="时间/天气差分">${SLOT_ICONS.variants}</button>` : '')
             + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-pick-bg:${encSeg(sceneName)}" title="上传场景背景图">${STATUS_AVATAR_UPLOAD_ICON}</button>`
             + renderRowMenu([
                 menuItem(`scene-rename-bg:${encSeg(sceneName)}`, '重命名'),
@@ -31889,6 +32428,16 @@ function renderSceneAssetList(scenes, options = {}) {
             + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-bg:${encSeg(sceneName)}" title="展开/折叠">${bgExpanded ? chevronUp : chevronDown}</button>`
             + `</div>${bgBody}</div>${timeRows}</div>`;
     }).join('');
+}
+
+// 插件生成的背景只放缩略图，编号地址对用户没用；手填地址或空着才给输入框。
+function sceneUrlField(url, attrs, alt, resolveUrl) {
+    const raw = String(url || '').trim();
+    if (!storedImageId(raw)) return `<input class="igs-scene-url-input" ${attrs} value="${esc(raw)}" placeholder="URL 或 data:image/...">`;
+    const shown = shownAssetUrl(raw, resolveUrl);
+    return /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
+        ? `<img loading="lazy" decoding="async" class="igs-outfit-thumb" src="${esc(shown)}" alt="${esc(alt)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        : '<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true">载入中</span>';
 }
 
 function shownAssetUrl(url, resolveUrl) {
@@ -31975,11 +32524,6 @@ function renderCharacterAssetList(characters, options = {}) {
         const outfitForChar = Object.prototype.hasOwnProperty.call(outfitMap, charName) ? outfitMap[charName] : null;
         const outfitNames = outfitForChar && typeof outfitForChar === 'object' ? Object.keys(outfitForChar) : [];
         const activeOutfit = outfitNames.includes(outfitTabs[charName]) ? outfitTabs[charName] : '';
-        const baseMenuItems = [
-            menuItem(`char-generate-sprite:${encSeg(charName)}`, '生成立绘'),
-            String((moods && moods['默认']) || '').startsWith('igs-gen:') ? menuItem(`char-expression-set:${encSeg(charName)}`, '表情差分') : '',
-            menuItem(`scene-add-mood:${encSeg(charName)}`, '添加情绪'),
-        ];
         const expressionNotes = options.expressionNotes && typeof options.expressionNotes === 'object' ? options.expressionNotes[charName] : null;
         const moodEntries = Object.entries(moods || {});
         const moodRows = moodEntries.map(([mood, url]) => {
@@ -31997,12 +32541,15 @@ function renderCharacterAssetList(characters, options = {}) {
                 : `<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true">${imageId ? '载入中' : ''}</span>`;
             const c = encSeg(charName);
             const m = encSeg(mood);
-            const slotMenu = renderRowMenu([
+            const acts = slotActions([
+                imageId ? [`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${mood}-立绘.png`)}`, '下载', 'download'] : null,
+                mood !== '默认' && (imageId || (note && note.error)) ? [`char-expression-retry:${c}:${m}`, '重新生成', 'retry'] : null,
+                mood === '默认' && rawUrl ? [`char-generate-sprite:${c}`, '重新生成', 'retry'] : null,
+                [`scene-rename-mood:${c}:${m}`, '重命名', 'rename'],
+            ]);
+            const slotMenu = acts.inline + renderRowMenu([
                 canPrompt ? menuItem(`char-expression-prompt:${c}:${m}`, '提示词') : '',
-                imageId ? menuItem(`gen-asset-download:${encSeg(imageId)}:${encSeg(`${charName}-${mood}-立绘.png`)}`, '下载') : '',
-                mood !== '默认' && (imageId || (note && note.error)) ? menuItem(`char-expression-retry:${c}:${m}`, '重新生成') : '',
-                mood === '默认' && rawUrl ? menuItem(`char-generate-sprite:${c}`, '重新生成') : '',
-                menuItem(`scene-rename-mood:${c}:${m}`, '重命名'),
+                ...acts.items,
                 menuItem(`scene-remove-mood:${c}:${m}`, '删除', ' is-danger'),
             ], `「${mood}」的操作`);
             const collapsedRow = `<div class="igs-btn-mgr-row igs-scene-mood-row">`
@@ -32019,8 +32566,7 @@ function renderCharacterAssetList(characters, options = {}) {
         const slotArea = renderCharacterSlotTabs({
             charName,
             baseMoods: moodEntries.map(([mood]) => mood),
-            baseListHtml: `<div class="igs-outfit-panel"><div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪，点页签右边的 ⋯ 添加</div>'}</div></div>`,
-            baseMenuItems,
+            baseListHtml: `<div class="igs-outfit-panel"><div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪，点页签上的添加情绪图标</div>'}</div></div>`,
             outfits: outfitForChar,
             activeOutfit,
             expressionNotes: options.expressionNotes,
@@ -33087,6 +33633,8 @@ const { DAILY_FX_KINDS } = require("src/scene/daily-fx-directives.js");
 const { FX_WORLDVIEW_ONLY } = require("src/scene/fx-era.js");
 const { normalizeUiSoundSettings } = require("src/visual/igs-ui/ui-sfx.js");
 const { normalizeAudioMasterSettings } = require("src/visual/igs-ui/audio-bus.js");
+const { BGM_MOOD_LABELS, BGM_PACK_LABELS, BGM_PACKS } = require("src/visual/igs-ui/bgm-library.js");
+const { isDefaultBgmTrack } = require("src/bgm/merge-default-bgm.js");
 const P = 'readerSettings';
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -33154,20 +33702,48 @@ function renderBilingualField(bilingual) {
             + '<div class="igs-source-filter-note">AI 会用外语写所有角色的台词和心里话，并用〖〗附上译文，以小字显示在原文上方；旁白不受影响。注音排版：交错＝整段译文随原文逐行交错；译文在上＝完整译文放在原文上方；按分句＝每个分句各自注音（AI 也会一句一个〖〗）。电脑端按 T 键可临时切换注音、仅原文、仅译文。</div>') : '');
 }
 
+function trackSummary(track) {
+    const parts = [];
+    if (track.moods) parts.push(track.moods.map((mood) => BGM_MOOD_LABELS[mood]).join('、'));
+    if (track.keywords.length) parts.push(`地点：${track.keywords.join('、')}`);
+    if (track.credit) parts.push(track.credit);
+    return parts.length ? parts.map(esc).join(' · ') : '默认曲（没有匹配时播放）';
+}
+
 function renderTrackRow(track) {
-    const keywords = track.keywords.length ? track.keywords.map(esc).join('、') : '默认曲（无关键词时播放）';
+    const keywords = trackSummary(track);
     return `<div class="igs-bgm-track"><div class="igs-bgm-track-main"><b>${esc(track.name)}</b><span>${keywords}</span></div>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="bgm-track-edit:${encSeg(track.id)}" title="编辑">✎</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="bgm-track-remove:${encSeg(track.id)}" title="删除">×</button></div>`;
 }
 
+// 默认曲目折叠成一行摘要，展开才逐首列出；自己加的曲目始终逐行显示。
+function renderBgmTracks(bgm, more) {
+    const own = bgm.tracks.filter((track) => !isDefaultBgmTrack(track));
+    const pack = bgm.tracks.filter(isDefaultBgmTrack);
+    const counts = BGM_PACKS.map((id) => [BGM_PACK_LABELS[id], pack.filter((track) => track.packs && track.packs.includes(id)).length])
+        .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join(' · ');
+    const packBlock = pack.length
+        ? more('bgm-pack-tracks', `默认曲目 ${pack.length} 首（${counts}）`, `<div class="igs-bgm-tracks">${pack.map(renderTrackRow).join('')}</div>`
+            + '<button type="button" class="igs-settings-action" data-action="bgm-pack-remove">移除全部默认曲目</button>'
+            + '<div class="igs-source-filter-note">音乐来自魔王魂（maou.audio）与 OpenGameArt，按各自授权再配布；曲名和作者在地点栏的 ♪ 里可以看到。</div>')
+        : '';
+    const ownBlock = own.length ? `<div class="igs-bgm-tracks">${own.map(renderTrackRow).join('')}</div>` : (pack.length ? '' : '<div class="igs-scene-empty">还没有曲目</div>');
+    return packBlock + ownBlock;
+}
+
 function renderSoundFields(bgm, ambient, ui, master, more) {
-    const tracks = bgm.tracks.length ? bgm.tracks.map(renderTrackRow).join('') : '<div class="igs-scene-empty">还没有曲目</div>';
-    const bgmBody = checkbox(`${P}.bgm.enabled`, bgm.enabled, '背景音乐（需自备音频直链）')
+    const bgmBody = checkbox(`${P}.bgm.enabled`, bgm.enabled, '背景音乐')
         + (bgm.enabled ? sub(field(`${P}.bgm.volume`, '音乐音量', rangeInput(`${P}.bgm.volume`, bgm.volume, '音乐音量'))
-            + `<div class="igs-bgm-tracks">${tracks}</div>`
-            + `<button type="button" class="igs-settings-action" data-action="bgm-track-add">添加曲目</button>`
-            + '<div class="igs-source-filter-note">按地点、时间、天气、情绪匹配曲目，没有匹配时播放默认曲。</div>') : '');
+            + checkbox(`${P}.bgm.moodTag`, bgm.moodTag, 'AI 标注配乐情绪')
+            + renderBgmTracks(bgm, more)
+            + '<div class="igs-source-filter-grid">'
+            + '<button type="button" class="igs-settings-action" data-action="bgm-pack-download">下载默认曲目</button>'
+            + '<button type="button" class="igs-settings-action" data-action="bgm-track-upload">上传本地音频</button>'
+            + '<button type="button" class="igs-settings-action" data-action="bgm-track-add">添加音频直链</button>'
+            + '</div>'
+            + '<div class="igs-source-filter-note">AI 在气氛转折时写一个情绪字（日常、欢快、甜、静、悲、紧、战、诡），按情绪选曲，再按地点、时段、天气挑最合适的一首，同类曲子轮流放。'
+            + '自己的曲目可以勾情绪，也可以填地点关键词（命中时最优先）。上传的音频存在酒馆的 user/files 文件夹。点地点栏的 ♪ 可以看曲名、换一首。</div>') : '');
     const ambientBody = checkbox(`${P}.ambientSound.enabled`, ambient.enabled, '环境音')
         + (ambient.enabled ? sub(field(`${P}.ambientSound.volume`, '环境音量', rangeInput(`${P}.ambientSound.volume`, ambient.volume, '环境音量'))
             + more('ambient-kinds', '选择声音类型', `<div class="igs-source-filter-grid">${AMBIENT_KINDS.map((kind) => checkbox(`${P}.ambientSound.${kind}`, ambient[kind], AMBIENT_LABELS[kind])).join('')}</div>`
@@ -33208,6 +33784,120 @@ function renderStageDirectionFields(reader, more = collapsible, { worldview = 'm
 }
 
 __igsDefine(exports, "renderStageDirectionFields", () => renderStageDirectionFields);
+});
+__igsRegister("src/bgm/merge-default-bgm.js", function(module, exports, require) {
+const { DEFAULT_BGM_PACK } = require("src/bgm/default-bgm-pack.js");
+// 把默认曲目合并进 bgm.tracks：只新增不覆盖；id 或链接已存在的整条跳过。
+// pack 为 'all' 时合并全部，否则只合并属于该世界观曲包的曲目（跨包共用的钢琴曲也会进来）。
+const DEFAULT_IDS = new Set(DEFAULT_BGM_PACK.map((item) => item.id));
+function isDefaultBgmTrack(track) {
+    return Boolean(track && DEFAULT_IDS.has(track.id));
+}
+function defaultBgmPackTracks(pack = 'all', source = DEFAULT_BGM_PACK) {
+    return source.filter((item) => pack === 'all' || item.packs.includes(pack));
+}
+function mergeDefaultBgm(tracks, pack = 'all', { limit = Infinity, source = DEFAULT_BGM_PACK } = {}) {
+    const next = Array.isArray(tracks) ? [...tracks] : [];
+    const ids = new Set(next.map((track) => track && track.id));
+    const urls = new Set(next.map((track) => track && track.url));
+    const added = [];
+    let skipped = 0;
+    for (const item of defaultBgmPackTracks(pack, source)) {
+        if (ids.has(item.id) || urls.has(item.url)) {
+            skipped += 1;
+            continue;
+        }
+        if (next.length >= limit) break;
+        const track = {
+            id: item.id, name: item.name, url: item.url, keywords: [], credit: item.credit, source: item.source,
+            packs: [...item.packs], moods: [...item.moods],
+        };
+        for (const key of ['scenes', 'times', 'weathers']) if (item[key].length) track[key] = [...item[key]];
+        next.push(track);
+        added.push(track);
+        ids.add(item.id);
+        urls.add(item.url);
+    }
+    return { tracks: next, added, skipped };
+}
+function removeDefaultBgm(tracks) {
+    const list = Array.isArray(tracks) ? tracks : [];
+    const kept = list.filter((track) => !isDefaultBgmTrack(track));
+    return { tracks: kept, removed: list.length - kept.length };
+}
+
+__igsDefine(exports, "isDefaultBgmTrack", () => isDefaultBgmTrack);
+__igsDefine(exports, "defaultBgmPackTracks", () => defaultBgmPackTracks);
+__igsDefine(exports, "mergeDefaultBgm", () => mergeDefaultBgm);
+__igsDefine(exports, "removeDefaultBgm", () => removeDefaultBgm);
+});
+__igsRegister("src/bgm/default-bgm-pack.js", function(module, exports, require) {
+// 默认曲目素材包：素材库「背景音乐 → 下载默认曲目」时按世界观勾选合并进 bgm.tracks，不默认启用。
+// 音频位于 app/assets/bgm/，构建脚本按 new URL 字面量改写为 ./bgm/<文件名> 并复制到 dist/bgm/。
+// 魔王魂允许二次配布：须注明「音乐：魔王魂」并附站点链接，文件名保留 maoudamashii；OpenGameArt 曲目按各自 CC0 / CC-BY 署名。
+// 鸣谢清单见 app/assets/bgm/CREDITS.md；本文件由 .tmp-bgm/gen_pack.py 生成。
+const DEFAULT_BGM_PACK = Object.freeze([
+    Object.freeze({ id: "maou-acoustic27", name: "アコースティック27", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic27/", url: new URL('./bgm/maoudamashii-bgm_acoustic27.mp3', import.meta.url).href, packs: ["modern"], moods: ["daily"], scenes: ["school", "street"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic07", name: "アコースティック07", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic07/", url: new URL('./bgm/maoudamashii-bgm_acoustic07.mp3', import.meta.url).href, packs: ["modern"], moods: ["daily"], scenes: ["home"], times: ["dawn"], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic38", name: "Avenue Cafe", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic38/", url: new URL('./bgm/maoudamashii-bgm_acoustic38.mp3', import.meta.url).href, packs: ["modern"], moods: ["daily"], scenes: ["shop"], times: ["day"], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic32", name: "向日葵が見る景色", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic32/", url: new URL('./bgm/maoudamashii-bgm_acoustic32.mp3', import.meta.url).href, packs: ["modern"], moods: ["daily", "cheerful"], scenes: ["street", "nature"], times: ["dawn", "day"], weathers: [] }),
+    Object.freeze({ id: "maou-piano25", name: "Cookie Cookie", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano25/", url: new URL('./bgm/maoudamashii-bgm_piano25.mp3', import.meta.url).href, packs: ["modern"], moods: ["cheerful", "daily"], scenes: ["home", "shop"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic20", name: "アコースティック20", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic20/", url: new URL('./bgm/maoudamashii-bgm_acoustic20.mp3', import.meta.url).href, packs: ["modern"], moods: ["cheerful"], scenes: ["sea"], times: ["day"], weathers: ["sun"] }),
+    Object.freeze({ id: "maou-acoustic44", name: "Merry-go-round", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic44/", url: new URL('./bgm/maoudamashii-bgm_acoustic44.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["cheerful"], scenes: ["street", "festival"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic39", name: "アコースティック39", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic39/", url: new URL('./bgm/maoudamashii-bgm_acoustic39.mp3', import.meta.url).href, packs: ["modern"], moods: ["sweet"], scenes: ["street"], times: ["night"], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic42", name: "少女のロマンス", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic42/", url: new URL('./bgm/maoudamashii-bgm_acoustic42.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["sweet"], scenes: ["shop", "home"], times: ["day"], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic29", name: "アコースティック29", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic29/", url: new URL('./bgm/maoudamashii-bgm_acoustic29.mp3', import.meta.url).href, packs: ["modern"], moods: ["sweet", "calm"], scenes: ["shop", "sea"], times: ["dusk"], weathers: [] }),
+    Object.freeze({ id: "maou-piano_song_feels_happiness", name: "Feels happiness piano ver.", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano_song_feels_happiness/", url: new URL('./bgm/maoudamashii-bgm_piano_song_feels_happiness.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["sweet"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-piano_song_milkeyway", name: "The Milkey way piano ver.", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano_song_milkeyway/", url: new URL('./bgm/maoudamashii-bgm_piano_song_milkeyway.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["sweet", "calm"], scenes: [], times: ["night", "midnight"], weathers: [] }),
+    Object.freeze({ id: "maou-piano27", name: "カクテル光線", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano27/", url: new URL('./bgm/maoudamashii-bgm_piano27.mp3', import.meta.url).href, packs: ["modern"], moods: ["sweet", "daily"], scenes: ["bar"], times: ["night"], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic52", name: "Last daily sound", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic52/", url: new URL('./bgm/maoudamashii-bgm_acoustic52.mp3', import.meta.url).href, packs: ["modern"], moods: ["calm"], scenes: ["home"], times: ["night", "midnight"], weathers: [] }),
+    Object.freeze({ id: "maou-piano29", name: "end of the day", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano29/", url: new URL('./bgm/maoudamashii-bgm_piano29.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["calm"], scenes: ["nature"], times: ["dusk"], weathers: [] }),
+    Object.freeze({ id: "maou-healing13", name: "帰路へ", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_healing13/", url: new URL('./bgm/maoudamashii-bgm_healing13.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["calm"], scenes: ["street"], times: ["dusk"], weathers: [] }),
+    Object.freeze({ id: "maou-healing16", name: "いつもここから", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_healing16/", url: new URL('./bgm/maoudamashii-bgm_healing16.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["calm", "sweet"], scenes: [], times: ["dusk"], weathers: [] }),
+    Object.freeze({ id: "maou-piano28", name: "once again…", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano28/", url: new URL('./bgm/maoudamashii-bgm_piano28.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["sad"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic45", name: "海辺の音", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic45/", url: new URL('./bgm/maoudamashii-bgm_acoustic45.mp3', import.meta.url).href, packs: ["modern"], moods: ["sad"], scenes: ["sea"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-piano31", name: "To tomorrow", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano31/", url: new URL('./bgm/maoudamashii-bgm_piano31.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["sad"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-healing12", name: "雨のように", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_healing12/", url: new URL('./bgm/maoudamashii-bgm_healing12.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["sad"], scenes: [], times: [], weathers: ["rain"] }),
+    Object.freeze({ id: "maou-acoustic25", name: "木漏れ日の午後", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic25/", url: new URL('./bgm/maoudamashii-bgm_acoustic25.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["sad", "calm"], scenes: ["school"], times: ["dusk"], weathers: [] }),
+    Object.freeze({ id: "maou-piano17", name: "ピアノ17", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano17/", url: new URL('./bgm/maoudamashii-bgm_piano17.mp3', import.meta.url).href, packs: ["modern"], moods: ["tense"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-piano36", name: "宿命のシナリオ", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano36/", url: new URL('./bgm/maoudamashii-bgm_piano36.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["tense"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-piano32", name: "脈動", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano32/", url: new URL('./bgm/maoudamashii-bgm_piano32.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["tense"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-orchestra18", name: "堕とされた楽園", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_orchestra18/", url: new URL('./bgm/maoudamashii-bgm_orchestra18.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["tense"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-piano02", name: "ピアノ02", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano02/", url: new URL('./bgm/maoudamashii-bgm_piano02.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["tense", "sad"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic24", name: "ミステリアス・ドール", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic24/", url: new URL('./bgm/maoudamashii-bgm_acoustic24.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["eerie"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic31", name: "Sky of a different world", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic31/", url: new URL('./bgm/maoudamashii-bgm_acoustic31.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["eerie", "sad"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic46", name: "ココロココロ", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic46/", url: new URL('./bgm/maoudamashii-bgm_acoustic46.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["eerie"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-orchestra24", name: "crisis", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_orchestra24/", url: new URL('./bgm/maoudamashii-bgm_orchestra24.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["battle"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-fantasy15", name: "駆け抜ける戦場の嵐", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_fantasy15/", url: new URL('./bgm/maoudamashii-bgm_fantasy15.mp3', import.meta.url).href, packs: ["modern", "magic"], moods: ["battle"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-ethnic27", name: "和の輪", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_ethnic27/", url: new URL('./bgm/maoudamashii-bgm_ethnic27.mp3', import.meta.url).href, packs: ["ancient"], moods: ["daily", "cheerful"], scenes: ["village", "street"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-ethnic09", name: "揺れる提灯", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_ethnic09/", url: new URL('./bgm/maoudamashii-bgm_ethnic09.mp3', import.meta.url).href, packs: ["ancient", "modern"], moods: ["cheerful"], scenes: ["festival"], times: ["night"], weathers: [] }),
+    Object.freeze({ id: "maou-ethnic32", name: "初詣", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_ethnic32/", url: new URL('./bgm/maoudamashii-bgm_ethnic32.mp3', import.meta.url).href, packs: ["ancient", "modern"], moods: ["calm"], scenes: ["shrine"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-fantasy02", name: "閃光", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_fantasy02/", url: new URL('./bgm/maoudamashii-bgm_fantasy02.mp3', import.meta.url).href, packs: ["ancient"], moods: ["battle"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-ethnic33", name: "和bravery heart", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_ethnic33/", url: new URL('./bgm/maoudamashii-bgm_ethnic33.mp3', import.meta.url).href, packs: ["ancient"], moods: ["battle"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-orchestra07", name: "オーケストラ07", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_orchestra07/", url: new URL('./bgm/maoudamashii-bgm_orchestra07.mp3', import.meta.url).href, packs: ["magic"], moods: ["daily"], scenes: ["palace", "school"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic49", name: "悠久の地", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic49/", url: new URL('./bgm/maoudamashii-bgm_acoustic49.mp3', import.meta.url).href, packs: ["magic"], moods: ["daily", "calm"], scenes: ["palace"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic40", name: "幻", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic40/", url: new URL('./bgm/maoudamashii-bgm_acoustic40.mp3', import.meta.url).href, packs: ["magic"], moods: ["daily", "sweet"], scenes: ["palace"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-orchestra06", name: "オーケストラ06", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_orchestra06/", url: new URL('./bgm/maoudamashii-bgm_orchestra06.mp3', import.meta.url).href, packs: ["magic"], moods: ["daily"], scenes: ["palace"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-orchestra23", name: "be proudly", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_orchestra23/", url: new URL('./bgm/maoudamashii-bgm_orchestra23.mp3', import.meta.url).href, packs: ["magic"], moods: ["daily"], scenes: ["palace"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-fantasy01", name: "Vast world", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_fantasy01/", url: new URL('./bgm/maoudamashii-bgm_fantasy01.mp3', import.meta.url).href, packs: ["magic"], moods: ["cheerful"], scenes: ["nature"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-fantasy14", name: "やすらぎの丘", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_fantasy14/", url: new URL('./bgm/maoudamashii-bgm_fantasy14.mp3', import.meta.url).href, packs: ["magic"], moods: ["cheerful", "daily"], scenes: ["village"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic19", name: "アコースティック19", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic19/", url: new URL('./bgm/maoudamashii-bgm_acoustic19.mp3', import.meta.url).href, packs: ["magic"], moods: ["sweet", "calm"], scenes: ["sea", "nature"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic23", name: "水の精のささやき", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic23/", url: new URL('./bgm/maoudamashii-bgm_acoustic23.mp3', import.meta.url).href, packs: ["magic"], moods: ["calm"], scenes: ["nature"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-healing08", name: "ヒーリング08", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_healing08/", url: new URL('./bgm/maoudamashii-bgm_healing08.mp3', import.meta.url).href, packs: ["modern", "ancient", "magic"], moods: ["calm"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-piano03", name: "ピアノ03", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_piano03/", url: new URL('./bgm/maoudamashii-bgm_piano03.mp3', import.meta.url).href, packs: ["magic"], moods: ["calm"], scenes: ["nature"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic17", name: "アコースティック17", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic17/", url: new URL('./bgm/maoudamashii-bgm_acoustic17.mp3', import.meta.url).href, packs: ["magic"], moods: ["tense", "eerie"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-acoustic33", name: "夕闇に沈む街", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_acoustic33/", url: new URL('./bgm/maoudamashii-bgm_acoustic33.mp3', import.meta.url).href, packs: ["magic"], moods: ["eerie"], scenes: ["street"], times: ["dusk", "night"], weathers: [] }),
+    Object.freeze({ id: "maou-fantasy09", name: "闇に眠る場所", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_fantasy09/", url: new URL('./bgm/maoudamashii-bgm_fantasy09.mp3', import.meta.url).href, packs: ["magic", "ancient"], moods: ["eerie"], scenes: ["dungeon"], times: [], weathers: [] }),
+    Object.freeze({ id: "maou-fantasy11", name: "bravery heart", credit: "魔王魂", license: "魔王魂", source: "https://maou.audio/bgm_fantasy11/", url: new URL('./bgm/maoudamashii-bgm_fantasy11.mp3', import.meta.url).href, packs: ["magic"], moods: ["battle"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "oga-tozan-orient-peace-valley", name: "Orient Peace Valley", credit: "Tozan", license: "CC0", source: "https://opengameart.org/content/orient-peace-valley", url: new URL('./bgm/oga-tozan-orient-peace-valley.ogg', import.meta.url).href, packs: ["ancient"], moods: ["daily"], scenes: ["nature", "village"], times: [], weathers: [] }),
+    Object.freeze({ id: "oga-tozan-orient-tune-again", name: "Orient Tune Again", credit: "Tozan", license: "CC0", source: "https://opengameart.org/content/orient-tune-again", url: new URL('./bgm/oga-tozan-orient-tune-again.ogg', import.meta.url).href, packs: ["ancient"], moods: ["daily", "cheerful"], scenes: ["street", "village"], times: [], weathers: [] }),
+    Object.freeze({ id: "oga-tozan-oriental-somber", name: "Oriental Somber", credit: "Tozan", license: "CC0", source: "https://opengameart.org/content/oriental-somber", url: new URL('./bgm/oga-tozan-oriental-somber.ogg', import.meta.url).href, packs: ["ancient"], moods: ["sad", "calm"], scenes: [], times: [], weathers: [] }),
+    Object.freeze({ id: "oga-hitctrl-jade-kings-throne", name: "Views From Atop the Jade Kings Throne", credit: "Hitctrl", license: "CC-BY 3.0", source: "https://opengameart.org/content/views-from-atop-the-jade-kings-throne", url: new URL('./bgm/oga-hitctrl-jade-kings-throne.mp3', import.meta.url).href, packs: ["ancient"], moods: ["daily", "tense"], scenes: ["palace"], times: [], weathers: [] }),
+    Object.freeze({ id: "oga-hitctrl-misty-mountains", name: "RPG - Misty Mountains", credit: "Hitctrl", license: "CC-BY 3.0", source: "https://opengameart.org/content/rpg-misty-mountains", url: new URL('./bgm/oga-hitctrl-misty-mountains.mp3', import.meta.url).href, packs: ["ancient", "magic"], moods: ["calm"], scenes: ["nature"], times: [], weathers: ["fog"] }),
+    Object.freeze({ id: "oga-elerya-liyan", name: "Liyan", credit: "elerya", license: "CC-BY 3.0", source: "https://opengameart.org/content/liyan", url: new URL('./bgm/oga-elerya-liyan.mp3', import.meta.url).href, packs: ["ancient"], moods: ["calm", "sweet"], scenes: [], times: [], weathers: [] }),
+]);
+
+__igsDefine(exports, "DEFAULT_BGM_PACK", () => DEFAULT_BGM_PACK);
 });
 __igsRegister("src/visual/igs-ui/romance-fields.js", function(module, exports, require) {
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
@@ -33372,17 +34062,17 @@ const PERFORMANCE_FEATURES = Object.freeze([
     Object.freeze({ key: 'spriteActions', label: '情绪动作', group: 'character', tier: 2 }),
     Object.freeze({ key: 'mangaFx', label: '情绪符号', group: 'emotion', tier: 2 }),
     Object.freeze({ key: 'heartbeatFx', label: '心跳脉动', group: 'emotion', tier: 2 }),
-    Object.freeze({ key: 'flashFx', label: '闪白耳鸣', group: 'emotion', tier: 3 }),
-    Object.freeze({ key: 'innerFx', label: '内心弹幕', group: 'emotion', tier: 3 }),
+    Object.freeze({ key: 'flashFx', label: '闪白耳鸣', group: 'special', tier: 3 }),
+    Object.freeze({ key: 'innerFx', label: '内心弹幕', group: 'special', tier: 3 }),
     Object.freeze({ key: 'titleCard', label: '标题卡', group: 'story', tier: 1 }),
     Object.freeze({ key: 'favorToast', label: '数值提示', group: 'story', tier: 2 }),
     Object.freeze({ key: 'itemFx', label: '获得物品', group: 'story', tier: 2 }),
     Object.freeze({ key: 'fxTags', label: '演出标签', group: 'event', tier: 2 }),
-    Object.freeze({ key: 'dailyFx', label: '日常演出', group: 'event', tier: 2 }),
-    Object.freeze({ key: 'battleFx', label: '战斗', group: 'event', tier: 3 }),
-    Object.freeze({ key: 'chatShow', label: '线上交流', group: 'event', tier: 3 }),
-    Object.freeze({ key: 'liveFx', label: '直播间', group: 'event', tier: 3 }),
-    Object.freeze({ key: 'audienceFx', label: '观众弹幕', group: 'event', tier: 3 }),
+    Object.freeze({ key: 'dailyFx', label: '日常演出', group: 'special', tier: 2 }),
+    Object.freeze({ key: 'battleFx', label: '战斗', group: 'special', tier: 3 }),
+    Object.freeze({ key: 'chatShow', label: '线上交流', group: 'special', tier: 3 }),
+    Object.freeze({ key: 'liveFx', label: '直播间', group: 'special', tier: 3 }),
+    Object.freeze({ key: 'audienceFx', label: '观众弹幕', group: 'special', tier: 3 }),
     Object.freeze({ key: 'romanceFx', label: '亲密演出', group: 'romance', tier: 3 }),
     Object.freeze({ key: 'fxSound', label: '演出音效', group: 'sound', tier: 2 }),
     Object.freeze({ key: 'ambientSound', label: '环境音', group: 'sound', tier: 2 }),
@@ -33434,6 +34124,133 @@ __igsDefine(exports, "applyPerformancePreset", () => applyPerformancePreset);
 __igsDefine(exports, "detectPerformancePreset", () => detectPerformancePreset);
 __igsDefine(exports, "PERFORMANCE_FEATURES", () => PERFORMANCE_FEATURES);
 __igsDefine(exports, "PERFORMANCE_PRESETS", () => PERFORMANCE_PRESETS);
+});
+__igsRegister("src/visual/igs-ui/performance-profile.js", function(module, exports, require) {
+// 快速配置演出：新手问卷与「阅读器 › 演出」的卡片类型胶囊共用。
+// 常用演出按热闹程度（tier）开；特定类型的演出只在勾了对应卡片类型时开；声音、亲密各由一题单独决定。
+const { PERFORMANCE_FEATURES, isPerformanceFeatureOn } = require("src/visual/igs-ui/performance-presets.js");
+const PROFILE_PATH = 'performanceProfile';
+const CARD_TYPES = Object.freeze([
+    Object.freeze(['romance', '日常恋爱']),
+    Object.freeze(['school', '校园']),
+    Object.freeze(['battle', '冒险战斗']),
+    Object.freeze(['fantasy', '奇幻魔法']),
+    Object.freeze(['online', '直播网络']),
+    Object.freeze(['mystery', '悬疑剧情']),
+]);
+const TYPE_FEATURES = Object.freeze({
+    romance: Object.freeze(['dailyFx', 'chatShow', 'innerFx']),
+    school: Object.freeze(['dailyFx', 'chatShow']),
+    battle: Object.freeze(['battleFx', 'flashFx']),
+    fantasy: Object.freeze(['battleFx', 'dailyFx']),
+    online: Object.freeze(['chatShow', 'liveFx', 'audienceFx']),
+    mystery: Object.freeze(['flashFx', 'innerFx']),
+});
+const SPECIAL_FEATURES = Object.freeze(Array.from(new Set(Object.values(TYPE_FEATURES).flat())));
+const SOUND_FEATURES = Object.freeze({ mute: [], sfx: ['fxSound', 'uiSound'], full: ['fxSound', 'uiSound', 'ambientSound', 'bgm'] });
+const LEVELS = Object.freeze({ off: 0, light: 1, standard: 2, full: 3 });
+const PROFILE_QUESTIONS = Object.freeze([
+    Object.freeze({ id: 'types', title: '你常玩什么类型的卡？', note: '可多选，决定战斗、直播、线上聊天这些只在特定剧情里用的演出开不开。', multi: true, options: CARD_TYPES }),
+    Object.freeze({ id: 'level', title: '喜欢多热闹的画面？', options: Object.freeze([['light', '安静看字'], ['standard', '适度点缀'], ['full', '越热闹越好']]) }),
+    Object.freeze({ id: 'sound', title: '要不要声音？', options: Object.freeze([['mute', '静音'], ['sfx', '只要音效'], ['full', '音效、环境音和背景音乐']]) }),
+    Object.freeze({ id: 'adult', title: '卡里有成人向内容吗？', options: Object.freeze([['no', '没有'], ['yes', '有']]) }),
+    Object.freeze({ id: 'device', title: '主要在哪看？', options: Object.freeze([['pc', '电脑'], ['phone', '手机']]) }),
+]);
+
+function plain(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+function normalizePerformanceProfile(value) {
+    const src = plain(value);
+    const typeIds = CARD_TYPES.map(([id]) => id);
+    return {
+        level: Object.prototype.hasOwnProperty.call(LEVELS, src.level) ? src.level : 'standard',
+        types: (Array.isArray(src.types) ? src.types : []).filter((id, i, list) => typeIds.includes(id) && list.indexOf(id) === i),
+        sound: Object.prototype.hasOwnProperty.call(SOUND_FEATURES, src.sound) ? src.sound : 'sfx',
+        adult: src.adult === true || src.adult === 'yes',
+        ...(src.device === 'phone' || src.device === 'pc' ? { device: src.device } : {}),
+    };
+}
+function hasPerformanceProfile(reader) {
+    return Boolean(plain(reader)[PROFILE_PATH] && typeof plain(reader)[PROFILE_PATH] === 'object');
+}
+
+// 各演出在这套配置下该不该开。档位「全部关闭」时一律关。
+function profileFeatureStates(profile) {
+    const p = normalizePerformanceProfile(profile);
+    const level = LEVELS[p.level];
+    const special = new Set(p.types.flatMap((id) => TYPE_FEATURES[id] || []));
+    const sound = new Set(SOUND_FEATURES[p.sound]);
+    const states = {};
+    for (const { key, tier, group } of PERFORMANCE_FEATURES) {
+        let on;
+        if (group === 'sound') on = sound.has(key);
+        else if (key === 'romanceFx') on = p.adult;
+        else if (SPECIAL_FEATURES.includes(key)) on = special.has(key);
+        else on = tier <= level;
+        states[key] = level > 0 && on;
+    }
+    return states;
+}
+function applyPerformanceProfile(reader, profile) {
+    if (!reader || typeof reader !== 'object') return false;
+    const p = normalizePerformanceProfile(profile);
+    for (const [key, enabled] of Object.entries(profileFeatureStates(p))) {
+        reader[key] = { ...plain(reader[key]), enabled };
+    }
+    if (p.device) reader.performance = { ...plain(reader.performance), quality: p.device === 'phone' ? 'low' : 'auto' };
+    reader[PROFILE_PATH] = { level: p.level, types: p.types, sound: p.sound, adult: p.adult };
+    return true;
+}
+
+// 第一次点类型胶囊时还没有配置：按现在的开关推一份，尽量不动用户已有的选择。
+function profileFromReader(reader, level) {
+    if (hasPerformanceProfile(reader)) return normalizePerformanceProfile(plain(reader)[PROFILE_PATH]);
+    const on = (key) => isPerformanceFeatureOn(reader, key);
+    return normalizePerformanceProfile({
+        level: level || 'standard',
+        types: CARD_TYPES.map(([id]) => id).filter((id) => TYPE_FEATURES[id].every(on)),
+        sound: on('bgm') || on('ambientSound') ? 'full' : (on('fxSound') || on('uiSound') ? 'sfx' : 'mute'),
+        adult: on('romanceFx'),
+    });
+}
+
+// 和配置相比用户手动多开、关掉了哪些，显示在档位条下面。
+function profileDiff(reader) {
+    if (!hasPerformanceProfile(reader)) return null;
+    const expected = profileFeatureStates(plain(reader)[PROFILE_PATH]);
+    const added = [];
+    const removed = [];
+    for (const { key, label } of PERFORMANCE_FEATURES) {
+        const actual = isPerformanceFeatureOn(reader, key);
+        if (actual === expected[key]) continue;
+        if (key === 'fxSound' && !Object.values(expected).some(Boolean)) continue;
+        (actual ? added : removed).push(label);
+    }
+    return { added, removed };
+}
+function profileSummary(profile) {
+    const states = profileFeatureStates(profile);
+    return PERFORMANCE_FEATURES.filter(({ key }) => states[key]).map(({ label }) => label);
+}
+function typeFeatureLabels() {
+    const labelOf = Object.fromEntries(PERFORMANCE_FEATURES.map(({ key, label }) => [key, label]));
+    return SPECIAL_FEATURES.map((key) => [labelOf[key], CARD_TYPES.filter(([id]) => TYPE_FEATURES[id].includes(key)).map(([, name]) => name)]);
+}
+
+__igsDefine(exports, "normalizePerformanceProfile", () => normalizePerformanceProfile);
+__igsDefine(exports, "hasPerformanceProfile", () => hasPerformanceProfile);
+__igsDefine(exports, "profileFeatureStates", () => profileFeatureStates);
+__igsDefine(exports, "applyPerformanceProfile", () => applyPerformanceProfile);
+__igsDefine(exports, "profileFromReader", () => profileFromReader);
+__igsDefine(exports, "profileDiff", () => profileDiff);
+__igsDefine(exports, "profileSummary", () => profileSummary);
+__igsDefine(exports, "typeFeatureLabels", () => typeFeatureLabels);
+__igsDefine(exports, "PROFILE_PATH", () => PROFILE_PATH);
+__igsDefine(exports, "CARD_TYPES", () => CARD_TYPES);
+__igsDefine(exports, "TYPE_FEATURES", () => TYPE_FEATURES);
+__igsDefine(exports, "SPECIAL_FEATURES", () => SPECIAL_FEATURES);
+__igsDefine(exports, "PROFILE_QUESTIONS", () => PROFILE_QUESTIONS);
 });
 __igsRegister("src/visual/igs-ui/render-quality-fields.js", function(module, exports, require) {
 const { field, selectInput } = require("src/visual/igs-ui/settings-fields.js");
@@ -37523,6 +38340,7 @@ __igsRegister("src/visual/igs-ui/original-reader-source.js", function(module, ex
 const { DIALOG_THEME_CHOICE_BASE_STYLE_TEXT } = require("src/visual/igs-ui/dialog-theme-choices.js");
 const { GRADIENT_VEIL_STYLE_TEXT } = require("src/visual/igs-ui/gradient-veil-dialog-skin.js");
 const { MAP_PANEL_STYLE_TEXT } = require("src/visual/igs-ui/map-panel-style.js");
+const { BGM_NOTE_STYLE_TEXT } = require("src/visual/igs-ui/bgm-note.js");
 const { MAP_LIGHT_LAYER_STYLE_TEXT } = require("src/visual/igs-ui/map-light-layers.js");
 const { WEATHER_FX_STYLE_TEXT } = require("src/visual/igs-ui/weather-fx-style.js");
 const { FX_STYLE_TEXT } = require("src/visual/igs-ui/fx-style.js");
@@ -37809,6 +38627,7 @@ ${TOAST_THEME_STYLE_TEXT}
 ${WEATHER_FX_STYLE_TEXT}
 ${ASSET_REVIEW_STYLE_TEXT}
 ${MAP_PANEL_STYLE_TEXT}
+${BGM_NOTE_STYLE_TEXT}
 ${MAP_LIGHT_LAYER_STYLE_TEXT}
 ${RECORD_PAGE_SHELL_STYLE_TEXT}
 ${RECORD_PANEL_STYLE_TEXT}
@@ -37941,6 +38760,7 @@ const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-d
 const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV, QINGLV_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
+const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_CHOICE_STYLE, PSYCH_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-horror.js");
 const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-skins.js");
 const CLASSIC = 'western-classic';
 
@@ -38035,6 +38855,8 @@ const DIALOG_THEME_CHOICE_STYLE_BY_SKIN = Object.freeze({
     }),
     [DIALOG_SKIN_QINGLV]: QINGLV_CHOICE_STYLE,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_CHOICE_STYLE,
+    [DIALOG_SKIN_HORROR_GORE]: GORE_CHOICE_STYLE,
+    [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_CHOICE_STYLE,
     [DIALOG_SKIN_GRADIENT_VEIL]: bubbleRules(DIALOG_SKIN_GRADIENT_VEIL, {
         '': 'padding:11px 32px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.6) 18%,rgba(0,0,0,.6) 82%,transparent);box-shadow:none;color:rgba(255,255,255,.88);text-shadow:0 1px 3px rgba(0,0,0,.85);letter-spacing:.1em;',
         '::after': 'content:"";position:absolute;left:20%;right:20%;bottom:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);transition:background .18s;',
@@ -38218,18 +39040,20 @@ __igsDefine(exports, "QINGLV_CHOICE_STYLE", () => QINGLV_CHOICE_STYLE);
 __igsDefine(exports, "QINGLV_HUD_THEME", () => QINGLV_HUD_THEME);
 });
 __igsRegister("src/visual/igs-ui/dialog-theme-fairytale.js", function(module, exports, require) {
-const { buildDialogFrameCss, scalePx, stroke } = require("src/visual/igs-ui/dialog-skin-frame.js");
+const { buildDialogFrameCss, scalePx } = require("src/visual/igs-ui/dialog-skin-frame.js");
 const DIALOG_SKIN_FAIRY_TALE = 'fairy-tale';
 
-// 童话小镇：取手绘绘本的奶油纸、鼠尾草绿与暖棕。对话框是一条半透明纸带，顶边一排细小的波浪花边（像遮阳棚的荷叶边），
-// 姓名前一枝小叶芽、下方一行渐隐的圆点虚线；右下角极淡的尖顶小屋与城堡剪影、右上角三颗暖金小星只作点缀，不与画面争主。
+// 童话小镇：春日田园野餐。对话框是一张悬浮的圆角卡片，外圈一道鼠尾草绿格子布边，像铺开的野餐布；
+// 奶油纸内衬沿边绕一圈莓粉圆点线，底部两层起伏的草坡，左下几颗草莓、右下一只野餐篮和几枝小花。
+// 姓名是骑在顶边上的圆胶囊，前面一颗小草莓。装饰全用实色，正文区保持素面。
 const SAGE = '122,138,82';
 const MOSS = '#5e6b3c';
 const INK = '#4a4034';
 const LAMP = '#d9a441';
-const SCALLOP = 7;
-const LINE_Y = 58;
-const NARRATION_LINE_Y = 30;
+const BERRY = '#dc6a5c';
+const BLUSH = '#e9a597';
+const CELL = 11;
+const RIM = 11;
 
 // 纸色随场景时段（overlay 的 data-igs-scene-time）变化：晨微粉、昏转杏、夜里压暗成灯下的旧纸；墨字不翻色。
 const PAPER_BY_TIME = Object.freeze({ dawn: '250,240,234', dusk: '249,234,212', night: '192,190,176', midnight: '160,160,150' });
@@ -38240,48 +39064,65 @@ const overlayScope = `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_FAIRY_TAL
 const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${DIALOG_SKIN_FAIRY_TALE}"]`;
 
 const svgUrl = (svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-// 小镇剪影：两间尖顶小屋夹一座带旗的城堡，旁边一团圆树；鼠尾草绿自上而下化入纸色。
-const TOWN = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 270 90"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6f8250"/><stop offset=".7" stop-color="#8fa27a" stop-opacity=".5"/><stop offset="1" stop-color="#8fa27a" stop-opacity="0"/></linearGradient></defs><g fill="url(#g)" opacity=".22"><path d="M0 90V62L25 32L50 62V90ZM58 90V48L70 14L82 48V90ZM82 90V58L106 34L130 58V90ZM128 90V60L136 40L144 60V90ZM146 90V66L173 44L200 66V90ZM200 90V60L213 36L226 60V90Z"/><path d="M69.4 15V3H70.6V15ZM70.6 3L79 6L70.6 9Z"/><circle cx="242" cy="72" r="16"/><circle cx="258" cy="78" r="12"/></g></svg>`);
+const STEM = '#7a8a52';
+// 纸纹：一张小噪点图平铺，只栅格化一次。
+const GRAIN = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .38 0 0 0 0 .3 0 0 0 0 .2 .2 0 0 0 -.05"/></filter><rect width="120" height="120" filter="url(#n)"/></svg>`);
 const SPARKLE = 'M12 1.5C12.7 8.1 15.9 11.3 22.5 12C15.9 12.7 12.7 15.9 12 22.5C11.3 15.9 8.1 12.7 1.5 12C8.1 11.3 11.3 8.1 12 1.5Z';
-const STARS = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40">${[[8, 14, 0.62], [52, 2, 0.42], [88, 12, 0.88]]
-    .map(([x, y, k]) => `<path fill="${LAMP}" transform="translate(${x} ${y}) scale(${k})" d="${SPARKLE}"/>`).join('')}</svg>`);
-const SPRIG = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20C9 15 12 11 19 4" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round"/><path d="M12 11C10 6 12 3 16 2C17 6 15 10 12 11Z"/><path d="M9 15C5 14 3 11 3 8C7 8 10 11 9 15Z"/></svg>`);
 const FAIRY_SPARKLE_MASK = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${SPARKLE}"/></svg>`);
 
-// 花边用整行半圆拼出，颜色与纸带顶端一致，接缝处不出现色阶。
-const SCALLOPS = `radial-gradient(circle at 50% 100%,${paper('.74')} ${SCALLOP - 0.5}px,${paper(0)} ${SCALLOP}px)`;
-const BODY = `linear-gradient(180deg,${paper('.74')},${paper('.8')} 40%,${paper('.88')})`;
-const bgSize = (town) => `${town},${SCALLOP * 2}px ${SCALLOP}px,100% calc(100% - ${SCALLOP}px)`;
-const DOTS = `radial-gradient(circle,rgba(${SAGE},.7) 1.2px,transparent 1.7px) 0 50%/9px 100% repeat-x`;
+// 草坡：两层波浪山丘横向无缝平铺，首尾同高。
+const HILLS = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 28"><path fill="#e2e8c8" d="M0 14Q40 4 80 14T160 14V28H0Z"/><path fill="#cbd6a8" d="M0 22Q40 14 80 22T160 22V28H0Z"/></svg>`);
+const strawberry = ([x, y, a, k]) => `<g transform="translate(${x} ${y}) rotate(${a}) scale(${k})"><path fill="${BERRY}" d="M0-10C7-10 10-5 8 2C6 8 2 11 0 12C-2 11-6 8-8 2C-10-5-7-10 0-10Z"/><g fill="#fbe3a8">${[[-4, -4], [1, -5], [5, -2], [-3, 2], [2, 2], [0, 7]].map(([sx, sy]) => `<ellipse cx="${sx}" cy="${sy}" rx=".8" ry="1.2"/>`).join('')}</g><path fill="#6f8a4a" d="M-7-10L-2-9L0-14L2-9L7-10L3-6.5L-3-6.5Z"/></g>`;
+const blossom = ([x, y, r, petal]) => `<g transform="translate(${x} ${y})">${[0, 72, 144, 216, 288].map((a) => `<circle transform="rotate(${a})" cy="${-r}" r="${r}" fill="${petal}"/>`).join('')}<circle r="${r * 0.7}" fill="${LAMP}"/></g>`;
+// 花杆笔直，靠高低错落、杆上不同高度的叶片与空中的蝴蝶、花瓣打散，不排成等距等高的平行线。
+const stem = ([x, y, side, at]) => `<path d="M${x} 84V${y}" stroke="${STEM}" stroke-width="1.4" stroke-linecap="round"/><path transform="translate(${x} ${84 - (84 - y) * at}) scale(${side} 1) rotate(28) scale(.68)" fill="#8fa06a" d="M0 0C-8-4-11-13-9-18C-2-13 0-7 0 0Z"/>`;
+const daisy = ([x, y, r, side, at]) => `${stem([x, y, side, at])}<g transform="translate(${x} ${y})">${[0, 45, 90, 135, 180, 225, 270, 315]
+    .map((a) => `<ellipse transform="rotate(${a})" cy="${-r * 0.85}" rx="${r * 0.42}" ry="${r * 0.8}" fill="#fffaf0" stroke="#d6ccb2" stroke-width=".6"/>`).join('')}<circle r="${r * 0.42}" fill="${LAMP}"/></g>`;
+const tulip = ([x, y, side, at]) => `${stem([x, y, side, at])}<path transform="translate(${x} ${y})" fill="${BLUSH}" d="M-5 0Q-6.5-9-3.5-11L0-6.5L3.5-11Q6.5-9 5 0Q0 4-5 0Z"/>`;
+// 空中的小蝴蝶与两片飘落的花瓣。
+const BUTTERFLY = `<g transform="translate(84 22) rotate(-18)"><ellipse cx="-4" cy="-2" rx="4" ry="3.2" fill="${BLUSH}"/><ellipse cx="4" cy="-2" rx="4" ry="3.2" fill="${BLUSH}"/><ellipse cx="-3" cy="3" rx="2.6" ry="2.2" fill="#fffaf0"/><ellipse cx="3" cy="3" rx="2.6" ry="2.2" fill="#fffaf0"/><path d="M0-4V5" stroke="#6b5a44" stroke-width="1.2" stroke-linecap="round"/></g>`;
+const PETALS = `<ellipse transform="translate(30 24) rotate(30)" rx="2.4" ry="1.4" fill="${BLUSH}"/><ellipse transform="translate(192 30) rotate(-25)" rx="2.2" ry="1.3" fill="#fffaf0" stroke="#d6ccb2" stroke-width=".5"/>`;
+const sprout = ([x, flip]) => `<path transform="translate(${x} 84) scale(${flip} 1)" fill="#8fa06a" d="M0 0C-8-4-11-13-9-18C-2-13 0-7 0 0Z"/>`;
+// 左下：两颗草莓、一片叶与一朵草莓花。
+const BERRIES = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40"><path fill="#8fa06a" d="M30 38C24 30 26 20 34 16C38 24 36 32 30 38Z"/>${strawberry([16, 26, -14, 1])}${strawberry([44, 28, 12, 0.85])}${blossom([64, 30, 3.4, '#fffaf0'])}</svg>`);
+// 右下：藤编篮探出一角格子餐布，两侧几枝雏菊与郁金香。
+const PICNIC = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 84"><defs><pattern id="c" width="6" height="6" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#fbf6ea"/><rect width="3" height="6" fill="#b4c095"/><rect width="6" height="3" fill="#b4c095"/><rect width="3" height="3" fill="#8fa06a"/></pattern></defs>`
+    + `${[[30, 0.9], [62, -1], [178, 1]].map(sprout).join('')}${tulip([18, 54, -1, .35])}${daisy([36, 36, 6, 1, .55])}${daisy([50, 62, 4.6, -1, .3])}${daisy([166, 46, 5.5, -1, .42])}${tulip([186, 62, 1, .3])}${BUTTERFLY}${PETALS}`
+    + `<path d="M98 52Q125 12 152 52" fill="none" stroke="#9b7448" stroke-width="3.2" stroke-linecap="round"/>`
+    + `<path fill="url(#c)" stroke="#8fa06a" stroke-width=".6" d="M100 52C104 40 118 37 128 45C135 38 147 41 150 52Z"/>`
+    + `<rect x="88" y="50" width="74" height="7" rx="3.5" fill="#a97e4f"/><path fill="#c39a68" d="M92 57H158L151 82H99Z"/>`
+    + `<path fill="none" stroke="#9b7448" stroke-width="1.1" d="M95 65H155M97 73H153M108 57L106 82M125 57V82M142 57L144 82"/></svg>`);
+const BERRY_ICON = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -15 24 28">${strawberry([0, 0, 0, 1])}</svg>`);
+
+// 格子布边：横竖两组半透明条纹叠出交叉处的深格，铺满边框盒；内衬奶油纸只铺内边距盒，露出一圈布边。
+const stripes = (deg) => `repeating-linear-gradient(${deg}deg,rgba(${SAGE},.3) 0 ${CELL / 2}px,transparent ${CELL / 2}px ${CELL}px)`;
+const layers = (picnic, berries, hills) => `background-image:${PICNIC},${BERRIES},${HILLS},${GRAIN},linear-gradient(${paper(1)},${paper(1)}),${stripes(90)},${stripes(180)};`
+    + 'background-origin:padding-box,padding-box,padding-box,padding-box,padding-box,border-box,border-box;'
+    + 'background-clip:padding-box,padding-box,padding-box,padding-box,padding-box,border-box,border-box;'
+    + 'background-repeat:no-repeat,no-repeat,repeat-x,repeat,no-repeat,repeat,repeat;'
+    + `background-position:right 14px bottom 4px,left 16px bottom 4px,0 100%,0 0,0 0,0 0,0 0;background-size:${picnic},${berries},${hills},120px 120px,100% 100%,${CELL}px ${CELL}px,${CELL}px ${CELL}px;`;
 const FAIRY_DIALOG_STYLE = [
     ...Object.entries(PAPER_BY_TIME).map(([time, rgb]) => `${overlayScope}[data-igs-scene-time="${time}"]{--ft-paper:${rgb};}`),
     buildDialogFrameCss(DIALOG_SKIN_FAIRY_TALE, {
-        height: 184,
-        text: { top: NARRATION_LINE_Y + 14, speakerTop: LINE_Y + 14, right: 72, bottom: 22, left: 72 },
-        rise: 0,
-        flush: true,
-        frameCss: `background-color:transparent;background-image:${TOWN},${SCALLOPS},${BODY};background-position:right 40px bottom,0 0,0 ${SCALLOP}px;background-size:${bgSize('300px 100px')};background-repeat:no-repeat,repeat-x,no-repeat;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
-        // 叶芽画在姓名的左内边距里，长名仍可省略号截断。
-        speakerCss: `left:46px;top:${LINE_Y - 36}px;width:max-content;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 118px);height:30px;line-height:30px;padding:0 0 0 26px;background:none;border:0;font-size:20px;font-weight:400;letter-spacing:.12em;text-shadow:${stroke(paper('.6'))};`,
-        textCss: `letter-spacing:.05em;text-shadow:0 1px 0 ${paper('.55')};`,
+        height: 200,
+        text: { top: 26, speakerTop: 46, right: 44, bottom: 36, left: 44 },
+        rise: 14,
+        frameCss: `background-color:${paper(1)};${layers('260px 109px', '124px 62px', '220px 40px')}border:${RIM}px solid transparent;border-radius:28px;box-shadow:0 0 0 1px rgba(${SAGE},.35),0 6px 18px rgba(60,50,30,.24);-webkit-backdrop-filter:none;backdrop-filter:none;`,
+        // 圆胶囊压在顶边上，整个盖过内衬的圆点线（不与它相切）；草莓画在左内边距里，长名仍可省略号截断。
+        speakerCss: `left:52px;top:-${RIM + 10}px;width:max-content;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 76px);height:44px;line-height:44px;padding:0 28px 0 50px;background:${paper(1)};border:0;border-radius:999px;box-shadow:inset 0 0 0 2.5px ${BLUSH},0 0 0 3px ${paper(1)},0 3px 8px rgba(60,50,30,.22);font-size:24px;font-weight:400;letter-spacing:.1em;text-shadow:none;`,
+        textCss: `letter-spacing:.05em;`,
     }),
-    scalePx(`${scope}{--ft-line-y:${LINE_Y}px;--ft-line-w:44%;}`),
-    scalePx(`${scope}:not([data-igs-has-speaker="1"]){--ft-line-y:${NARRATION_LINE_Y}px;--ft-line-w:22%;}`),
-    // 圆点虚线：自姓名起笔，向右渐隐。
-    scalePx(`${scope}::before{content:"";position:absolute;left:66px;top:var(--ft-line-y);width:var(--ft-line-w);height:4px;margin-top:-2px;background:${DOTS};-webkit-mask:linear-gradient(90deg,#000 55%,transparent);mask:linear-gradient(90deg,#000 55%,transparent);pointer-events:none;}`),
-    scalePx(`${scope}::after{content:"";position:absolute;right:56px;top:-26px;width:120px;height:40px;background:${STARS} 0 0/100% 100% no-repeat;filter:drop-shadow(0 0 2px ${paper('.9')});pointer-events:none;opacity:.8;animation:igs-ft-twinkle 5.2s ease-in-out infinite alternate;will-change:opacity;}`),
-    '@keyframes igs-ft-twinkle{0%{opacity:.5}60%{opacity:1}100%{opacity:.7}}',
-    `#igs-overlay[data-igs-paused] .igs-dialog[data-igs-dialog-skin="${DIALOG_SKIN_FAIRY_TALE}"]::after{animation-play-state:paused;}`,
-    `@media (prefers-reduced-motion: reduce){${scope}::after{animation:none;opacity:.85;}}`,
-    scalePx(`${scope} .igs-speaker::before{content:"";position:absolute;left:0;top:50%;width:18px;height:18px;margin-top:-10px;background:rgb(${SAGE});-webkit-mask:${SPRIG} center/contain no-repeat;mask:${SPRIG} center/contain no-repeat;}`),
-    // 窄屏收窄两侧留白，剪影同比缩小，星点收进右侧。
-    `@media (max-width:640px){${scalePx(`${scope},${scope}[data-igs-has-speaker="1"]{padding-left:40px;padding-right:36px;background-position:right 12px bottom,0 0,0 ${SCALLOP}px;background-size:${bgSize('190px 63px')};}${scope} .igs-speaker{left:14px;max-width:calc(100% - 50px);}${scope}::before{left:34px;}${scope}::after{right:16px;}`)}}`,
+    // 内衬一圈莓粉圆点线（dotted 在 Chromium 画成圆点），沿圆角走。
+    scalePx(`${scope}::before{content:"";position:absolute;inset:6px;border:3px dotted ${BLUSH};border-radius:17px;pointer-events:none;}`),
+    scalePx(`${scope} .igs-speaker::before{content:"";position:absolute;left:17px;top:50%;width:22px;height:26px;margin-top:-14px;background:${BERRY_ICON} center/contain no-repeat;}`),
+    // 窄屏：布边与留白收窄，两角小景同比缩小。
+    `@media (max-width:640px){${scalePx(`${scope},${scope}[data-igs-has-speaker="1"]{padding-left:26px;padding-right:22px;${layers('160px 67px', '80px 40px', '150px 27px')}}${scope} .igs-speaker{left:12px;max-width:calc(100% - 24px);}`)}}`,
 ].join('\n');
 
 // 选项：奶油纸胶囊、一圈极细的鼠尾草绿描边；悬停时纸面泛绿，左侧亮起一颗小星。
 const choiceScope = `${overlayScope} .igs-option-bubble`;
 const FAIRY_CHOICE_STYLE = [
-    `${choiceScope}{box-sizing:border-box;min-height:44px;padding:10px 44px;border:0;border-radius:999px;background:${paper('.9')};box-shadow:inset 0 0 0 1px rgba(${SAGE},.38),0 2px 8px rgba(60,50,30,.12);color:${INK};letter-spacing:.1em;text-shadow:none;}`,
+    `${choiceScope}{box-sizing:border-box;min-height:44px;padding:10px 44px;border:0;border-radius:999px;background:${paper(1)};box-shadow:inset 0 0 0 1px rgba(${SAGE},.38),0 2px 8px rgba(60,50,30,.12);color:${INK};letter-spacing:.1em;text-shadow:none;}`,
     `${choiceScope}::before{content:"";position:absolute;left:20px;top:50%;width:11px;height:11px;margin-top:-5.5px;background:${LAMP};-webkit-mask:${FAIRY_SPARKLE_MASK} center/contain no-repeat;mask:${FAIRY_SPARKLE_MASK} center/contain no-repeat;opacity:0;transform:scale(.6);transition:opacity .2s,transform .2s;}`,
     `${choiceScope}:hover{background:linear-gradient(rgba(${SAGE},.16),rgba(${SAGE},.16)),${paper('.95')};box-shadow:inset 0 0 0 1px rgba(${SAGE},.7),0 3px 10px rgba(60,50,30,.16);color:${MOSS};}`,
     `${choiceScope}:hover::before{opacity:1;transform:scale(1);}`,
@@ -38295,7 +39136,7 @@ const panel = (alpha) => `background:${paper(alpha)};border:0;border-radius:${s(
 // 状态栏零件：圆角纸卡、鼠尾草绿胶囊情绪签、头像右下一颗灯火色小圆点。
 const FAIRY_HUD_THEME = Object.freeze({
     neutral: '#a8a48f',
-    panel: panel('.88'),
+    panel: panel('.97'),
     toast: `${panel('.96')}color:${INK};text-shadow:none;`,
     ink: INK,
     emotion: `padding:0 ${s(12)};border:0;border-radius:999px;background:rgb(${SAGE});box-shadow:0 0 0 1.5px ${paper(1)};color:#fffaf0;letter-spacing:.12em;text-shadow:none;`,
@@ -38315,11 +39156,398 @@ __igsDefine(exports, "FAIRY_DIALOG_STYLE", () => FAIRY_DIALOG_STYLE);
 __igsDefine(exports, "FAIRY_CHOICE_STYLE", () => FAIRY_CHOICE_STYLE);
 __igsDefine(exports, "FAIRY_HUD_THEME", () => FAIRY_HUD_THEME);
 });
+__igsRegister("src/visual/igs-ui/dialog-theme-horror.js", function(module, exports, require) {
+const { buildDialogFrameCss, scalePx } = require("src/visual/igs-ui/dialog-skin-frame.js");
+// 两款恐怖皮肤都随 overlay 上的 data-igs-dread（0 平静 / 1 不安 / 2 危险 / 3 爆发，见 horror-dread.js）升级，
+// 平静档要耐看、克制，最高档做到最极端；档位只靠 CSS 读取，升档的一次性动画用 transform/opacity。
+const DIALOG_SKIN_HORROR_GORE = 'horror-gore';
+const DIALOG_SKIN_HORROR_PSYCH = 'horror-psych';
+const LEVELS = [0, 1, 2, 3];
+
+const svgUrl = (svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+const s = (value) => `calc(${value}px * var(--igs-hud-scale,1))`;
+const ring = (color, width) => `drop-shadow(${width}px 0 0 ${color}) drop-shadow(-${width}px 0 0 ${color}) drop-shadow(0 ${width}px 0 ${color}) drop-shadow(0 -${width}px 0 ${color})`;
+const overlayOf = (skin) => `#igs-overlay[data-igs-dialog-skin="${skin}"]`;
+const scopeOf = (skin) => `#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]`;
+const atLevel = (skin, level) => `#igs-overlay[data-igs-dread="${level}"] .igs-dialog[data-igs-dialog-skin="${skin}"]`;
+const overlayAtLevel = (skin, level) => `#igs-overlay[data-igs-dialog-skin="${skin}"][data-igs-dread="${level}"]`;
+const grain = (alpha) => svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".95" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 ${alpha} 0 0 0 -.1"/></filter><rect width="140" height="140" filter="url(#n)"/></svg>`);
+const motionGuards = (scope, parts) => [
+    `${parts.map((p) => `${scope.replace('#igs-overlay', '#igs-overlay[data-igs-paused]')}${p}`).join(',')}{animation-play-state:paused;}`,
+    `@media (prefers-reduced-motion: reduce){${parts.map((p) => `${scope}${p}`).join(',')}{animation:none !important;}}`,
+];
+
+// ── 血色噩梦：波普血浆 ─────────────────────────────────────
+// 平面设计的血：只有红、黑、骨白三色，网点代替质感，喷溅是几何色块，名牌是斜切的红块。贴边半透明通栏。
+// 0 平静：黑通栏 + 顶边一道细红线；1 不安：几颗短血滴、底部淡红网点；2 危险：血滴拉长、名牌下炸开喷溅、网点变浓；
+// 3 爆发：半透明的暗红灌满整条（画框不能抢画面，仍透出舞台），顶边换黑色血帘，入档时整条震一下。升档时血帘从顶边「倒」下来。
+const RED = '#c4101c';
+const RED_DEEP = '#6d0611';
+const SHINE = '#ffd9d6';
+const BLACK = '#0a0a0a';
+const BONE = '#f3ece4';
+const CURTAIN_W = 1600;
+
+// 固定种子的伪随机，保证每次生成的血帘一致；1600px 一段，常见屏宽内不重复。
+const seeded = (seed) => () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const r1 = (n) => +n.toFixed(1);
+// 血面下沿是三组整数周期的正弦叠加（首尾相接、可平铺），起伏是大波浪；
+// 血舌更容易从波谷里垂下来，宽窄长短差得很开，越宽的末端越鼓，根部用弧线和血面连成一片。
+// 宽血舌左侧一道平涂高光（波普的画法，不是写实反光），部分血舌下方挂着一颗刚脱落的血珠。
+const curtainShapes = ({ seed, band, wave, maxLen, height, count, width }) => {
+    const rand = seeded(seed);
+    const waves = [2, 5, 11].map((k, i) => ({ k, a: wave * [1, 0.5, 0.22][i], p: rand() * Math.PI * 2 }));
+    const edge = (x) => band + waves.reduce((sum, { k, a, p }) => sum + a * Math.sin((x / CURTAIN_W) * Math.PI * 2 * k + p), 0);
+    let face = `M0 0H${CURTAIN_W}`;
+    for (let x = CURTAIN_W; x >= 0; x -= 8) face += `L${x} ${r1(edge(x))}`;
+    let body = `<path d="${face}Z"/>`;
+    let drops = '';
+    let shines = '';
+    for (let i = 0; i < count; i++) {
+        const x = 24 + rand() * (CURTAIN_W - 48);
+        const base = edge(x);
+        const trough = Math.min(1, Math.max(0, (base - band + wave * 1.4) / (wave * 2.8)));
+        const w = width[0] + rand() ** 2.2 * (width[1] - width[0]);
+        const l = base + w * 2 + (0.2 + 0.8 * trough) * rand() ** 1.4 * (maxLen - base - w * 2);
+        const bulb = w * (0.8 + Math.min(0.5, w / 30));
+        const neck = w * 0.62;
+        body += `<path d="M${r1(x - w - 6)} ${r1(base - 3)}Q${r1(x - w)} ${r1(base - 1)} ${r1(x - w)} ${r1(base + 6)}`
+            + `C${r1(x - w)} ${r1(base + (l - base) * 0.55)} ${r1(x - neck)} ${r1(l - bulb * 2)} ${r1(x - bulb)} ${r1(l - bulb)}`
+            + `A${r1(bulb)} ${r1(bulb)} 0 1 0 ${r1(x + bulb)} ${r1(l - bulb)}`
+            + `C${r1(x + neck)} ${r1(l - bulb * 2)} ${r1(x + w)} ${r1(base + (l - base) * 0.55)} ${r1(x + w)} ${r1(base + 6)}`
+            + `Q${r1(x + w)} ${r1(base - 1)} ${r1(x + w + 6)} ${r1(base - 3)}Z"/>`;
+        if (w >= 6 && l - base > 18) {
+            shines += `<path d="M${r1(x - w * 0.5)} ${r1(base + 6)}V${r1(l - bulb * 1.3)}" stroke-width="${r1(Math.max(1.2, w * 0.2))}"/>`;
+        }
+        const drop = bulb * (0.45 + rand() * 0.25);
+        const dropY = l + 3 + drop + rand() * 7;
+        if (rand() < 0.3 && dropY + drop * 1.4 < height - 1) {
+            drops += `<path d="M${r1(x)} ${r1(dropY - drop * 1.5)}C${r1(x + drop * 0.4)} ${r1(dropY - drop * 0.6)} ${r1(x + drop)} ${r1(dropY - drop * 0.2)} ${r1(x + drop)} ${r1(dropY + drop * 0.3)}A${r1(drop)} ${r1(drop)} 0 0 1 ${r1(x - drop)} ${r1(dropY + drop * 0.3)}C${r1(x - drop)} ${r1(dropY - drop * 0.2)} ${r1(x - drop * 0.4)} ${r1(dropY - drop * 0.6)} ${r1(x)} ${r1(dropY - drop * 1.5)}Z"/>`;
+        }
+    }
+    return { body, drops, shines };
+};
+// 前后两层：后层更暗、更长、错开种子，从前层的缝隙里露出来，血看起来有厚度。
+const curtain = ({ color, deep, shine, ...opts }) => {
+    const back = deep ? curtainShapes({ ...opts, seed: opts.seed + 101, band: opts.band + 3, maxLen: Math.min(opts.height - 2, opts.maxLen * 1.18), count: Math.round(opts.count * 0.7) }) : null;
+    const front = curtainShapes(opts);
+    return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CURTAIN_W} ${opts.height}">`
+        + (back ? `<g fill="${deep}">${back.body}${back.drops}</g>` : '')
+        + `<g fill="${color}">${front.body}${front.drops}</g>`
+        + (shine ? `<g fill="none" stroke="${shine}" stroke-linecap="round" opacity=".7">${front.shines}</g>` : '')
+        + '</svg>');
+};
+const CURTAIN_SHORT = curtain({ seed: 11, band: 7, wave: 3.5, maxLen: 34, height: 42, color: RED, deep: RED_DEEP, count: 18, width: [2.5, 8] });
+const CURTAIN_LONG = curtain({ seed: 23, band: 22, wave: 13, maxLen: 104, height: 122, color: RED, deep: RED_DEEP, shine: SHINE, count: 34, width: [2.5, 18] });
+const CURTAIN_BLACK = curtain({ seed: 37, band: 14, wave: 8, maxLen: 50, height: 60, color: BLACK, deep: '#4a0207', count: 24, width: [2.5, 12] });
+// 喷溅：一团边缘起伏的血（平滑曲线，不是星形），向外甩出几道收尖的血丝和一圈顺着飞溅方向拉长的血点，越远越小。
+const splat = (seed, color) => {
+    const rand = seeded(seed);
+    const cx = 100;
+    const cy = 56;
+    const n = 18;
+    const pts = Array.from({ length: n }, (_, i) => {
+        const a = (i / n) * Math.PI * 2 + (rand() - 0.5) * 0.25;
+        const r = 26 * (0.78 + rand() * 0.5);
+        return [cx + Math.cos(a) * r * 1.25, cy + Math.sin(a) * r * 0.8];
+    });
+    const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+    let blob = `M${mid(pts[n - 1], pts[0]).map(r1).join(' ')}`;
+    pts.forEach((p, i) => { blob += `Q${p.map(r1).join(' ')} ${mid(p, pts[(i + 1) % n]).map(r1).join(' ')}`; });
+    const bits = [];
+    for (let i = 0; i < 5; i++) {
+        const a = rand() * Math.PI * 2;
+        const len = 46 + rand() * 30;
+        const w = 2.5 + rand() * 2.5;
+        const nx = -Math.sin(a);
+        const ny = Math.cos(a);
+        const bx = cx + Math.cos(a) * 24;
+        const by = cy + Math.sin(a) * 16;
+        bits.push(`<path d="M${r1(bx + nx * w)} ${r1(by + ny * w)}L${r1(cx + Math.cos(a) * len * 1.2)} ${r1(cy + Math.sin(a) * len * 0.62)}L${r1(bx - nx * w)} ${r1(by - ny * w)}Z"/>`);
+    }
+    for (let i = 0; i < 22; i++) {
+        const a = rand() * Math.PI * 2;
+        const dist = 34 + rand() ** 1.2 * 62;
+        const size = Math.max(1, 6.5 * (1 - (dist - 34) / 76) * (0.45 + rand() * 0.7));
+        const x = cx + Math.cos(a) * dist * 1.1;
+        const y = cy + Math.sin(a) * dist * 0.55;
+        bits.push(`<ellipse cx="${r1(x)}" cy="${r1(y)}" rx="${r1(size * (1.3 + rand() * 0.9))}" ry="${r1(size)}" transform="rotate(${r1((Math.atan2(Math.sin(a) * 0.55, Math.cos(a) * 1.1) * 180) / Math.PI)} ${r1(x)} ${r1(y)})"/>`);
+    }
+    return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 112"><g fill="${color}"><path d="${blob}Z"/>${bits.join('')}</g></svg>`);
+};
+// 喷溅压半透明，只做画框边角的点缀。
+const SPLAT_RED = splat(5, 'rgba(196,16,28,.55)');
+const SPLAT_RED_B = splat(19, 'rgba(196,16,28,.5)');
+const HALFTONE = (color, dot) => `radial-gradient(circle,${color} 0 ${dot}px,transparent ${dot + 0.5}px) 0 0/8px 8px`;
+const DROP_PATH = 'M12 2.5C15.5 8 18.5 11.6 18.5 15.4A6.5 6.5 0 0 1 5.5 15.4C5.5 11.6 8.5 8 12 2.5Z';
+const HORROR_DROP_MASK = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${DROP_PATH}"/></svg>`);
+
+const goreOverlay = overlayOf(DIALOG_SKIN_HORROR_GORE);
+const goreScope = scopeOf(DIALOG_SKIN_HORROR_GORE);
+const gore = (level) => atLevel(DIALOG_SKIN_HORROR_GORE, level);
+const SLANT = 'clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%);';
+// 血帘（::before）与网点（::after）都放在负 z-index 里（isolation 托住），永远压在正文下面。
+const pour = (name, duration) => `animation:${name} ${duration}s cubic-bezier(.3,.7,.4,1) backwards;`;
+const GORE_DIALOG_STYLE = [
+    buildDialogFrameCss(DIALOG_SKIN_HORROR_GORE, {
+        height: 210,
+        text: { top: 58, speakerTop: 62, right: 120, bottom: 30, left: 110 },
+        rise: 20,
+        flush: true,
+        frameCss: 'isolation:isolate;background:rgba(10,10,10,.86);border:0;border-radius:0;box-shadow:0 -18px 36px -12px rgba(0,0,0,.55);-webkit-backdrop-filter:none;backdrop-filter:none;',
+        speakerCss: `left:84px;top:-21px;width:max-content;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 140px);height:42px;line-height:42px;padding:0 30px 0 26px;background:${RED};border:0;border-radius:0;${SLANT}font-size:24px;font-weight:700;letter-spacing:.12em;text-shadow:none;transition:background-color .4s;`,
+        textCss: 'letter-spacing:.06em;text-shadow:0 1px 2px rgba(0,0,0,.9);',
+    }),
+    scalePx(`${goreScope}::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;z-index:-1;pointer-events:none;transform-origin:50% 0;background:${RED};}`),
+    `${goreScope}::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:0;transition:opacity .6s;}`,
+    // 1 不安
+    scalePx(`${gore(1)}::before{height:42px;background:${CURTAIN_SHORT} 0 0/${CURTAIN_W}px 42px repeat-x;opacity:.72;${pour('igs-hg-pour1', 0.8)}}`),
+    `${gore(1)}::after{background:${HALFTONE('rgba(209,18,27,.4)', 1.1)};-webkit-mask:linear-gradient(transparent 60%,#000);mask:linear-gradient(transparent 60%,#000);opacity:1;}`,
+    // 2 危险
+    scalePx(`${gore(2)}{background:${SPLAT_RED} left -18px top -8px/160px 88px no-repeat,${SPLAT_RED_B} right 30px bottom -24px/170px 95px no-repeat,rgba(10,10,10,.88);box-shadow:inset 0 -2px 0 rgba(196,16,28,.6),0 -18px 36px -12px rgba(90,0,0,.45);}`),
+    scalePx(`${gore(2)}::before{height:122px;background:${CURTAIN_LONG} 0 0/${CURTAIN_W}px 122px repeat-x;opacity:.66;${pour('igs-hg-pour2', 0.9)}}`),
+    `${gore(2)}::after{background:${HALFTONE(RED, 1.6)};-webkit-mask:linear-gradient(transparent 40%,#000);mask:linear-gradient(transparent 40%,#000);opacity:.42;}`,
+    // 3 爆发：整条灌红（::before 从顶边铺满），顶边换成黑色血帘，字与名牌反成黑色。
+    `${gore(3)}{background:rgba(10,10,10,.88);box-shadow:0 -18px 40px -10px rgba(140,10,18,.45);animation:igs-hg-shake .55s cubic-bezier(.36,.07,.19,.97) .5s backwards;}`,
+    scalePx(`${gore(3)}::before{height:100%;background:${CURTAIN_BLACK} 0 0/${CURTAIN_W}px 60px repeat-x,linear-gradient(rgba(130,10,18,.6),rgba(80,6,12,.62) 55%,rgba(30,3,6,.8));${pour('igs-hg-pour3', 0.6)}}`),
+    `${gore(3)}::after{background:${HALFTONE('rgba(10,10,10,.45)', 1.3)};-webkit-mask:linear-gradient(transparent 55%,#000);mask:linear-gradient(transparent 55%,#000);opacity:1;}`,
+    `${gore(3)} .igs-text{text-shadow:0 1px 3px rgba(0,0,0,.85);}`,
+    // 名牌：2 档字带黑色套印错位、随心跳轻轻一缩；3 档翻成黑块，骨白字压一层错开的红色套印，心跳变成急促的双跳。
+    `${gore(2)} .igs-speaker{text-shadow:3px 3px 0 ${BLACK};animation:igs-hg-beat 2.4s ease-out infinite;}`,
+    `${gore(3)} .igs-speaker{background:${BLACK};color:${BONE} !important;text-shadow:4px 3px 0 ${RED};animation:igs-hg-beat-hard 1.1s ease-out infinite;}`,
+    '@keyframes igs-hg-beat{0%,100%{transform:none;}8%{transform:scale(1.06);}18%{transform:none;}}',
+    '@keyframes igs-hg-beat-hard{0%,100%{transform:rotate(-2deg);}7%{transform:rotate(-2deg) scale(1.14);}16%{transform:rotate(-2deg) scale(.98);}24%{transform:rotate(-2deg) scale(1.1);}36%{transform:rotate(-2deg);}}',
+    '@keyframes igs-hg-pour1{from{transform:scaleY(.2);}}',
+    '@keyframes igs-hg-pour2{from{transform:scaleY(.12);}}',
+    '@keyframes igs-hg-pour3{from{transform:scaleY(0);}}',
+    '@keyframes igs-hg-shake{0%{transform:translate(0,0);}15%{transform:translate(-6px,3px);}30%{transform:translate(5px,-2px);}45%{transform:translate(-4px,1px);}60%{transform:translate(3px,0);}80%{transform:translate(-1px,0);}100%{transform:none;}}',
+    ...motionGuards(goreScope, ['', '::before', ' .igs-speaker']),
+    `@media (max-width:640px){${scalePx(`${goreScope},${goreScope}[data-igs-has-speaker="1"]{padding-left:28px;padding-right:24px;}${goreScope} .igs-speaker{left:16px;max-width:calc(100% - 32px);}${gore(2)}{background:${SPLAT_RED_B} right 10px bottom -20px/120px 67px no-repeat,rgba(10,10,10,.88);}`)}}`,
+].join('\n');
+
+const goreChoice = `${goreOverlay} .igs-option-bubble`;
+const goreChoiceAt = (level) => `${overlayAtLevel(DIALOG_SKIN_HORROR_GORE, level)} .igs-option-bubble`;
+const GORE_CHOICE_STYLE = [
+    `${goreChoice}{box-sizing:border-box;min-height:44px;padding:10px 46px;border:0;border-radius:0;background:linear-gradient(${RED},${RED}) 0 0/6px 100% no-repeat,rgba(10,10,10,.86);box-shadow:none;color:${BONE};font-weight:700;letter-spacing:.12em;text-shadow:none;transition:background-size .18s,color .18s;}`,
+    `${goreChoice}:hover{background:linear-gradient(${RED},${RED}) 0 0/100% 100% no-repeat,rgba(10,10,10,.86);color:#fff;}`,
+    `${goreChoice}:active{transform:translateY(1px);}`,
+    `${goreChoiceAt(3)}{background:linear-gradient(${BLACK},${BLACK}) 0 0/6px 100% no-repeat,rgba(110,8,16,.8);box-shadow:inset 0 0 0 1.5px ${BLACK};color:${BONE};}`,
+    `${goreChoiceAt(3)}:hover{background:linear-gradient(${BLACK},${BLACK}) 0 0/100% 100% no-repeat,rgba(110,8,16,.8);color:#fff;}`,
+].join('\n');
+
+const gorePanel = (alpha) => `background:rgba(10,10,10,${alpha});border:0;border-radius:0;box-shadow:inset ${s(3)} 0 0 ${RED};`;
+const GORE_HUD_THEME = Object.freeze({
+    neutral: '#8a8280',
+    panel: gorePanel('.86'),
+    toast: `${gorePanel('.9')}color:${BONE};text-shadow:none;`,
+    ink: BONE,
+    emotion: `padding:0 ${s(12)};border:0;border-radius:0;background:${RED};color:${BONE};font-weight:700;letter-spacing:.12em;text-shadow:none;${SLANT}`,
+    avatar: `filter:${ring(BLACK, 2)} ${ring(RED, 1.5)};`,
+    badge: `content:"";position:absolute;right:${s(-2)};bottom:${s(-3)};width:${s(8)};height:${s(10)};background:${RED};-webkit-mask:${HORROR_DROP_MASK} center/contain no-repeat;mask:${HORROR_DROP_MASK} center/contain no-repeat;`,
+    placeholder: `background:${BLACK};color:${RED};`,
+    placeholderSvg: `fill:none;stroke:${RED};stroke-width:1.4;`,
+    track: `height:${s(4)};border:0;border-radius:0;background:rgba(209,18,27,.22);`,
+    fill: `background:${RED} !important;border-radius:0;`,
+    value: 'font-weight:700;',
+});
+
+// ── 心理恐怖：正常界面崩坏 ─────────────────────────────────
+// 先装成一张可爱的校园风卡片（粉紫薄荷、圆角、小爱心），玩家放下戒心后它自己慢慢坏掉：
+// 0 正常；1 有点怪：名牌歪了一两像素、颜色悄悄褪一点、角落一颗爱心变成了眼睛；
+// 2 在坏：发灰、圆角塌成直角、爱心倒挂、正文偶尔错位带色散、纸面闪一下；
+// 3 崩溃：黑底红白字、名牌错位、装饰全变成眼睛、噪点一直在闪。名牌换人名、正文混字等要 JS 的留到世界观阶段。
+const PINK = '#f4a3c0';
+const PINK_DEEP = '#e0779d';
+const LILAC = '#c7b4f0';
+const MINT = '#9fdcc8';
+const CREAM = '#fffafc';
+const PLUM = '#6b4a5c';
+const BLOOD = '#b3161b';
+
+const HEART = 'M0 7C-7 2-10-2-10-5.5A5 5 0 0 1 0-8A5 5 0 0 1 10-5.5C10-2 7 2 0 7Z';
+const STAR = 'M0-9C.6-3.2 3.2-.6 9 0C3.2.6.6 3.2 0 9C-.6 3.2-3.2.6-9 0C-3.2-.6-.6-3.2 0-9Z';
+// 眼睛三种画法：实心、半透明（实心压低不透明度）、线描（只有轮廓、虹膜圈和几根睫毛）。眼眶纵向张得开。
+const EYE_LID = 'M-11 0Q0-14 11 0Q0 14-11 0Z';
+const eyeBody = ({ style, sclera, iris, width = 1.3 }) => (style === 'line'
+    ? `<g fill="none" stroke-width="${width}" stroke-linecap="round" vector-effect="non-scaling-stroke"><path d="${EYE_LID}" stroke="${sclera}" vector-effect="non-scaling-stroke"/><circle r="5" stroke="${iris}" vector-effect="non-scaling-stroke"/>`
+        + `<path d="M-6-6.4L-8.2-10.2M0-7.4V-11.8M6-6.4L8.2-10.2" stroke="${sclera}" vector-effect="non-scaling-stroke"/></g><circle r="1.9" fill="${iris}"/>`
+    : `<path d="${EYE_LID}" fill="${sclera}"/><circle r="5" fill="${iris}"/><circle r="2" fill="#000"/>`);
+// 眨眼：SVG 内置动画，各只眼周期与起点都不同，绝大部分时间睁着，偶尔闭一下。暂停与减少动态时换成静态图。
+const blink = (period, delay) => `<animateTransform attributeName="transform" type="scale" values="1 1;1 1;1 .06;1 1;1 1" keyTimes="0;.955;.972;.988;1" dur="${period}s" begin="${delay}s" repeatCount="indefinite"/>`;
+const eyeAt = (e, rand, animated) => `<g transform="translate(${r1(e.x)} ${r1(e.y)}) scale(${r1(e.k)})" opacity="${r1(e.opacity)}"><g>${animated ? blink(r1(5 + rand() * 8), r1(rand() * 7)) : ''}${eyeBody(e)}</g></g>`;
+// 崩溃档：右下角挤着一整团眼睛，持续往上浮。把眼睛当成圆来排：先落几只真正大的，再用中、小眼填满缝隙，
+// 圆与圆相切或互相压进一部分（眼睛半透明，重叠处叠出层次），不留零散空白。平涂：眼白、虹膜、瞳孔三个圆，
+// 视线各朝一个方向。图块上下无缝（纵向按环绕距离排），背景位置循环上移；以右下角为圆心的遮罩让整团往左上散掉。
+const PACK = [320, 420];
+const packEyes = (seed, [w, h]) => {
+    const rand = seeded(seed);
+    const eyes = [];
+    const wrapDy = (dy) => Math.min(Math.abs(dy), h - Math.abs(dy));
+    // 允许压进邻圆的比例：大眼之间压得少，小眼可以多压一点。
+    for (const [rMax, rMin, tries, press] of [[88, 66, 80, 0.18], [46, 30, 160, 0.3], [24, 16, 70, 0.34]]) {
+        for (let t = 0; t < tries; t++) {
+            const x = rand() * w;
+            const y = rand() * h;
+            let room = Math.min(rMax, x - 4, w - 24 - x);
+            for (const e of eyes) {
+                const d = Math.hypot(e.x - x, wrapDy(e.y - y));
+                room = Math.min(room, d - e.r * (1 - press));
+                if (room < rMin) break;
+            }
+            if (room >= rMin) eyes.push({ x, y, r: room });
+        }
+    }
+    return eyes;
+};
+const IRIS = ['#7e2a2e', '#5a1d21', '#9a3438', '#4a2a2c'];
+const roundEye = ({ x, y, r }, rand, animated) => {
+    const a = rand() * Math.PI * 2;
+    const g = r * (0.08 + rand() * 0.2);
+    const ix = r1(Math.cos(a) * g);
+    const iy = r1(Math.sin(a) * g);
+    const opacity = r1(0.18 + rand() * 0.3);
+    const iris = IRIS[Math.floor(rand() * IRIS.length)];
+    return `<g transform="translate(${r1(x)} ${r1(y)})" opacity="${opacity}"><g>${animated ? blink(r1(9 + rand() * 9), r1(rand() * 16)) : ''}`
+        + `<circle r="${r1(r)}" fill="#efe9e8"/><circle cx="${ix}" cy="${iy}" r="${r1(r * 0.5)}" fill="${iris}"/><circle cx="${ix}" cy="${iy}" r="${r1(r * 0.22)}" fill="#0b0b0d"/></g></g>`;
+};
+const EYE_RISE = (animated) => {
+    const rand = seeded(77);
+    const [w, h] = PACK;
+    const body = packEyes(61, PACK).map((e) => {
+        // 跨上下边的眼睛在另一侧再画一份，图块纵向首尾相接。
+        const copies = [e, ...(e.y - e.r < 0 ? [{ ...e, y: e.y + h }] : []), ...(e.y + e.r > h ? [{ ...e, y: e.y - h }] : [])];
+        const state = rand();
+        return copies.map((c) => roundEye(c, seeded(Math.floor(state * 1e9)), animated)).join('');
+    }).join('');
+    return [svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">${body}</svg>`)];
+};
+// 装饰点位：[形状, x, y, 缩放, 颜色]；variant 即档位，决定崩坏程度。
+const DECO_ITEMS = Object.freeze({
+    corner: [['heart', 104, 50, 1.4, PINK], ['heart', 128, 26, 0.85, LILAC], ['star', 78, 72, 0.9, MINT], ['star', 126, 70, 0.6, PINK], ['heart', 58, 80, 0.6, MINT], ['star', 132, 6, 0.5, LILAC]],
+    top: [['star', 14, 16, 0.7, LILAC], ['heart', 40, 12, 0.7, PINK], ['star', 64, 20, 0.5, MINT]],
+});
+const GREY = { [PINK]: '#c9bcc1', [LILAC]: '#b7b2bf', [MINT]: '#b4bfbb' };
+const decoSvg = (part, viewBox, variant, animated) => {
+    const rand = seeded(31 + variant * 7 + part.length);
+    const body = (DECO_ITEMS[part] || []).map(([shape, x, y, k, color], i) => {
+            const tone = variant >= 2 ? GREY[color] : color;
+            if ((variant === 1 && part === 'corner' && i === 1) || (variant === 2 && i % 3 === 1)) {
+                return eyeAt({ x, y, k: k * 1.05, opacity: 1, style: 'solid', sclera: tone, iris: PLUM }, rand, animated);
+            }
+            const flip = variant === 2 && shape === 'heart' ? ' rotate(180)' : '';
+            return `<g transform="translate(${x} ${y}) scale(${k})${flip}"><path d="${shape === 'heart' ? HEART : STAR}" fill="${tone}"/></g>`;
+        }).join('');
+    return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${body}</svg>`);
+};
+const DECO = LEVELS.map((variant) => [true, false].map((animated) => (variant === 3 ? EYE_RISE(animated) : [
+    decoSvg('corner', '0 0 150 92', variant, animated),
+    decoSvg('top', '0 0 80 32', variant, animated),
+])));
+const decoImages = (variant, animated = true) => `background-image:${DECO[variant][animated ? 0 : 1].join(',')};`;
+const decoLayer = (variant) => `${decoImages(variant)}background-repeat:no-repeat;${variant === 3 ? `background-repeat:repeat-y;inset:0 0 0 auto;width:${PACK[0]}px;background-position:0 0;background-size:${PACK[0]}px ${PACK[1]}px;-webkit-mask:radial-gradient(ellipse 100% 120% at 100% 100%,#000 40%,transparent 95%);mask:radial-gradient(ellipse 100% 120% at 100% 100%,#000 40%,transparent 95%);animation:igs-hp-rise 30s linear infinite;` : 'background-position:right 14px bottom 8px,right 26px top 10px;background-size:150px 92px,80px 32px;'}`;
+const POLKA = (color) => `radial-gradient(circle,${color} 0 1.6px,transparent 2.1px) 0 0/18px 18px`;
+const HEART_ICON = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-11 -10 22 19"><path d="${HEART}" fill="#fff"/></svg>`);
+const EYE_ICON = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -8 24 16"><path d="M-11 0Q0-11 11 0Q0 11-11 0Z" fill="#fff"/><circle r="4" fill="#3a2e30"/></svg>`);
+const tagIcon = (icon, w = 17, h = 15) => `background:${icon} left 18px center/${w}px ${h}px no-repeat,${PINK_DEEP};`;
+const EYE_PATH = "<path fill-rule='evenodd' d='M1.8 12C5 6.8 8.4 5 12 5S19 6.8 22.2 12C19 17.2 15.6 19 12 19S5 17.2 1.8 12ZM12 8.4A3.6 3.6 0 1 0 12 15.6A3.6 3.6 0 1 0 12 8.4Z'/><circle cx='12' cy='12' r='1.8'/>";
+const HORROR_EYE_MASK = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${EYE_PATH.replace(/'/g, '"')}</svg>`);
+const HORROR_HEART_MASK = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-11 -10 22 19"><path d="${HEART}"/></svg>`);
+
+const psychOverlay = overlayOf(DIALOG_SKIN_HORROR_PSYCH);
+const psychScope = scopeOf(DIALOG_SKIN_HORROR_PSYCH);
+const psych = (level) => atLevel(DIALOG_SKIN_HORROR_PSYCH, level);
+const PSYCH_DIALOG_STYLE = [
+    buildDialogFrameCss(DIALOG_SKIN_HORROR_PSYCH, {
+        height: 200,
+        text: { top: 30, speakerTop: 44, right: 150, bottom: 28, left: 40 },
+        rise: 18,
+        frameCss: `isolation:isolate;background:${POLKA('rgba(244,163,192,.22)')},linear-gradient(${CREAM},#fbf1fa);border:3px solid ${PINK};border-radius:24px;box-shadow:0 6px 0 rgba(224,119,157,.28),0 12px 26px rgba(80,40,60,.2);-webkit-backdrop-filter:none;backdrop-filter:none;transition:border-radius .6s,border-color .6s,filter .8s;`,
+        speakerCss: `left:30px;top:-20px;width:max-content;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 60px);height:38px;line-height:38px;padding:0 20px 0 44px;${tagIcon(HEART_ICON)}border:0;border-radius:999px;box-shadow:0 0 0 3px ${CREAM},0 3px 0 3px rgba(224,119,157,.3);font-size:21px;font-weight:400;letter-spacing:.1em;text-shadow:none;transition:transform .6s;`,
+        textCss: 'letter-spacing:.04em;',
+    }),
+    scalePx(`${psychScope}::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;${decoLayer(0)}}`),
+    `${psychScope}::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;opacity:0;}`,
+    // 1 有点怪：几乎察觉不到的偏差。
+    `${psych(1)}{filter:saturate(.82);border-radius:24px 24px 24px 19px;}`,
+    scalePx(`${psych(1)}::before{${decoLayer(1)}}`),
+    `${psych(1)} .igs-speaker{transform:translate(2px,1px) rotate(-.6deg);}`,
+    // 2 在坏：发灰、圆角塌陷、爱心倒挂；正文偶尔错位带色散，纸面像灯管闪了一下。
+    `${psych(2)}{filter:saturate(.28) contrast(1.04);border-radius:24px 3px 24px 6px;border-color:#c9bcc1;}`,
+    scalePx(`${psych(2)}::before{${decoLayer(2)}}`),
+    `${psych(2)} .igs-speaker{transform:translate(5px,3px) rotate(-2.5deg);}`,
+    `${psych(2)} .igs-text{animation:igs-hp-slip 11s steps(1,end) infinite;}`,
+    `${psych(2)}::after{background:#111;animation:igs-hp-flicker 9s steps(1,end) infinite;}`,
+    // 3 崩溃：黑底红白字，名牌错位，可爱装饰没了，整张卡里不断有眼睛往上浮。
+    `${psych(3)}{filter:none;background:${grain(0.2)},rgba(11,11,13,.84);border-color:transparent;border-radius:4px 24px 0 18px;box-shadow:0 12px 30px rgba(0,0,0,.45);}`,
+    scalePx(`${psych(3)}::before{${decoLayer(3)}}`),
+    // 3 档名牌：爱心换成白眼，背后错开两层套印残影，名字红青色散；每隔几秒被横向撕成上下两半各自错位一下。
+    scalePx(`${psych(3)} .igs-speaker{padding:0 22px 0 46px;background:${EYE_ICON} left 18px center/20px 14px no-repeat,${BLOOD};box-shadow:-7px 5px 0 rgba(179,22,27,.38),9px -4px 0 rgba(236,232,232,.12);text-shadow:2px 0 rgba(0,220,255,.45),-2px 0 rgba(255,30,60,.7);}`),
+    `${psych(3)} .igs-speaker{color:#f2f2f2 !important;transform:translate(-8px,6px) skewX(-10deg);animation:igs-hp-tag-tear 3.8s steps(1,end) infinite;}`,
+    '@keyframes igs-hp-tag-tear{0%,84%{transform:translate(-8px,6px) skewX(-10deg);clip-path:none;}85%{transform:translate(-1px,6px) skewX(-10deg);clip-path:inset(0 0 52% 0);}87%{transform:translate(-16px,6px) skewX(-14deg);clip-path:inset(48% 0 0 0);}89%{transform:translate(-5px,4px) skewX(-6deg);clip-path:inset(20% 0 30% 0);}91%,100%{transform:translate(-8px,6px) skewX(-10deg);clip-path:none;}}',
+    `${psych(3)} .igs-text{animation:igs-hp-slip-hard 4.5s steps(1,end) infinite;}`,
+    `${psych(3)} .igs-text,${psych(3)} .igs-text *{color:#ece8e8 !important;text-shadow:0 0 6px #0b0b0d,0 1px 2px #000;}`,
+    // 描边只留顶边，两侧自上而下渐隐，底边不描。
+    scalePx(`${psych(3)}::after{inset:-3px;opacity:1;border:2px solid ${BLOOD};border-bottom:0;-webkit-mask:linear-gradient(#000 20%,transparent 85%);mask:linear-gradient(#000 20%,transparent 85%);}`),
+    scalePx(`${psych(3)}{padding-right:240px;}`),
+    `@keyframes igs-hp-rise{to{background-position:0 -${PACK[1]}px;}}`,
+    '@keyframes igs-hp-slip{0%,93%{transform:none;text-shadow:none;}93.4%{transform:translateX(3px);text-shadow:-2px 0 rgba(200,30,40,.55),2px 0 rgba(30,140,170,.45);}94.4%{transform:translateX(-2px) skewX(-4deg);}95.2%,100%{transform:none;text-shadow:none;}}',
+    '@keyframes igs-hp-slip-hard{0%{transform:translateX(-6px);text-shadow:none;}70%{transform:translate(4px,1px) skewX(-6deg);text-shadow:-3px 0 rgba(220,20,30,.8),3px 0 rgba(20,160,190,.6);}76%{transform:translateX(-10px);}82%,100%{transform:translateX(-6px);text-shadow:none;}}',
+    '@keyframes igs-hp-flicker{0%,88%{opacity:0;}88.6%{opacity:.18;}89.2%{opacity:0;}90%{opacity:.1;}90.6%,100%{opacity:0;}}',
+    ...motionGuards(psychScope, [' .igs-text', ' .igs-speaker', '::before', '::after']),
+    ...[1, 2, 3].map((n) => `${psych(n).replace('#igs-overlay', '#igs-overlay[data-igs-paused]')}::before{${decoImages(n, false)}}`),
+    `@media (prefers-reduced-motion: reduce){${[1, 2, 3].map((n) => `${psych(n)}::before{${decoImages(n, false)}}`).join('')}}`,
+    `@media (max-width:640px){${scalePx(`${psychScope},${psychScope}[data-igs-has-speaker="1"]{padding-left:24px;padding-right:22px;}${psychScope} .igs-speaker{left:16px;max-width:calc(100% - 32px);}${LEVELS.map((n) => `${psych(n)}::before{background-size:${n === 3 ? `${PACK[0]}px ${PACK[1]}px` : '96px 59px,52px 21px'};}`).join('')}${psych(3)}{padding-right:22px;}${psych(3)}::before{width:240px;background-size:240px 265px;}`)}}`,
+].join('\n');
+
+const psychChoice = `${psychOverlay} .igs-option-bubble`;
+const psychChoiceAt = (level) => `${overlayAtLevel(DIALOG_SKIN_HORROR_PSYCH, level)} .igs-option-bubble`;
+const PSYCH_CHOICE_STYLE = [
+    `${psychChoice}{box-sizing:border-box;min-height:44px;padding:10px 46px;border:0;border-radius:999px;background:${CREAM};box-shadow:inset 0 0 0 2.5px ${PINK},0 4px 0 rgba(224,119,157,.25);color:${PLUM};letter-spacing:.08em;text-shadow:none;transition:background .15s,color .15s;}`,
+    `${psychChoice}::before{content:"";position:absolute;left:20px;top:50%;width:14px;height:12px;margin-top:-6px;background:#fff;-webkit-mask:${HORROR_HEART_MASK} center/contain no-repeat;mask:${HORROR_HEART_MASK} center/contain no-repeat;opacity:0;transform:scale(.5);transition:opacity .15s,transform .2s;}`,
+    `${psychChoice}:hover{background:${PINK};color:#fff;}`,
+    `${psychChoice}:hover::before{opacity:1;transform:scale(1);}`,
+    `${psychChoice}:active{transform:translateY(1px);}`,
+    `${psychChoiceAt(2)}{filter:saturate(.3);border-radius:999px 4px 999px 999px;}`,
+    `${psychChoiceAt(3)}{background:#0b0b0d;box-shadow:inset 0 0 0 1.5px ${BLOOD};border-radius:2px;color:#ece8e8;}`,
+    `${psychChoiceAt(3)}::before{-webkit-mask-image:${HORROR_EYE_MASK};mask-image:${HORROR_EYE_MASK};width:16px;height:16px;margin-top:-8px;background:${BLOOD};}`,
+    `${psychChoiceAt(3)}:hover{background:${BLOOD};color:#fff;}`,
+    `${psychChoiceAt(3)}:hover::before{background:#fff;}`,
+].join('\n');
+
+const psychPanel = (alpha) => `background:rgba(255,250,252,${alpha});border:0;border-radius:${s(14)};box-shadow:inset 0 0 0 ${s(2)} ${PINK},0 ${s(3)} 0 rgba(224,119,157,.22);`;
+const PSYCH_HUD_THEME = Object.freeze({
+    neutral: '#c9b3bf',
+    panel: psychPanel('.95'),
+    toast: `${psychPanel('.96')}color:${PLUM};text-shadow:none;`,
+    ink: PLUM,
+    emotion: `padding:0 ${s(12)};border:0;border-radius:999px;background:${PINK_DEEP};box-shadow:0 0 0 ${s(2)} ${CREAM};color:#fff;letter-spacing:.1em;text-shadow:none;`,
+    avatar: `filter:${ring(CREAM, 2)} ${ring(PINK, 1.5)};`,
+    badge: `content:"";position:absolute;right:${s(-3)};bottom:${s(-3)};width:${s(11)};height:${s(10)};background:${PINK_DEEP};-webkit-mask:${HORROR_HEART_MASK} center/contain no-repeat;mask:${HORROR_HEART_MASK} center/contain no-repeat;`,
+    placeholder: `background:linear-gradient(180deg,${CREAM},#f3e3f6);color:${PINK_DEEP};`,
+    placeholderSvg: `fill:none;stroke:${PINK_DEEP};stroke-width:1.3;`,
+    track: `height:${s(6)};border:0;border-radius:999px;background:rgba(199,180,240,.3);`,
+    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 50%,${PINK}) !important;border-radius:999px;`,
+    value: 'font-weight:400;',
+});
+
+__igsDefine(exports, "DIALOG_SKIN_HORROR_GORE", () => DIALOG_SKIN_HORROR_GORE);
+__igsDefine(exports, "DIALOG_SKIN_HORROR_PSYCH", () => DIALOG_SKIN_HORROR_PSYCH);
+__igsDefine(exports, "HORROR_DROP_MASK", () => HORROR_DROP_MASK);
+__igsDefine(exports, "GORE_DIALOG_STYLE", () => GORE_DIALOG_STYLE);
+__igsDefine(exports, "GORE_CHOICE_STYLE", () => GORE_CHOICE_STYLE);
+__igsDefine(exports, "GORE_HUD_THEME", () => GORE_HUD_THEME);
+__igsDefine(exports, "HORROR_EYE_MASK", () => HORROR_EYE_MASK);
+__igsDefine(exports, "HORROR_HEART_MASK", () => HORROR_HEART_MASK);
+__igsDefine(exports, "PSYCH_DIALOG_STYLE", () => PSYCH_DIALOG_STYLE);
+__igsDefine(exports, "PSYCH_CHOICE_STYLE", () => PSYCH_CHOICE_STYLE);
+__igsDefine(exports, "PSYCH_HUD_THEME", () => PSYCH_HUD_THEME);
+});
 __igsRegister("src/visual/igs-ui/dialog-theme-skins.js", function(module, exports, require) {
 const { CSS_DIALOG_SKINS, CSS_DIALOG_STYLE_BY_SKIN, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { buildDialogFrameCss, halo, stroke, threeSliceCss } = require("src/visual/igs-ui/dialog-skin-frame.js");
 const { DIALOG_SKIN_QINGLV, QINGLV_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
+const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_DIALOG_STYLE, PSYCH_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-horror.js");
 const DIALOG_SKIN_PLANT_COFFEE = 'plant-coffee';
 const DIALOG_SKIN_BLACK_WHITE_MANGA = 'black-white-manga';
 const DIALOG_SKIN_CUTE_PINK = 'cute-pink';
@@ -38339,7 +39567,7 @@ const SLICED_DIALOG_SKINS = Object.freeze([
 ]);
 
 // 「插画式」= 固定高度、自带排版默认值的主题，含三片素材主题与纯 CSS 还原主题。
-const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_FAIRY_TALE]);
+const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH]);
 function isIllustratedDialogSkin(value) {
     const skin = typeof value === 'string' ? value : value && value.dialogSkin;
     return ILLUSTRATED_DIALOG_SKINS.includes(skin);
@@ -38445,6 +39673,8 @@ const ILLUSTRATED_DIALOG_STYLE_BY_SKIN = Object.freeze({
     ...CSS_DIALOG_STYLE_BY_SKIN,
     [DIALOG_SKIN_QINGLV]: QINGLV_DIALOG_STYLE,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_DIALOG_STYLE,
+    [DIALOG_SKIN_HORROR_GORE]: GORE_DIALOG_STYLE,
+    [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_DIALOG_STYLE,
 });
 const ILLUSTRATED_DIALOG_STYLE_TEXT = ILLUSTRATED_DIALOG_SKINS
     .map((skin) => ILLUSTRATED_DIALOG_STYLE_BY_SKIN[skin])
@@ -42091,6 +43321,11 @@ details.igs-settings-advanced>.igs-settings-inline-action{display:block;width:au
 .igs-perf-preset{height:34px;min-width:0;border:0;border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink-3);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease}
 .igs-perf-preset:hover,.igs-perf-preset:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-perf-preset.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);font-weight:600}
+.igs-perf-type-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.igs-perf-type-label{font-size:12px;color:var(--igs-settings-ink-3);margin-right:2px}
+.igs-perf-type{height:26px;padding:0 10px;border:1px solid var(--igs-settings-line);border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink-3);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
+.igs-perf-type:hover,.igs-perf-type:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
+.igs-perf-type.is-active{border-color:var(--igs-settings-ink-3);background:var(--igs-settings-raised);color:var(--igs-settings-ink);font-weight:600}
 .igs-source-filter.igs-perf-group{padding:0;gap:0}
 .igs-perf-group>details>summary{display:flex;align-items:center;gap:10px;min-width:0;padding:14px 16px;cursor:pointer;list-style:none;user-select:none}
 .igs-perf-group>details>summary::-webkit-details-marker{display:none}
@@ -42329,7 +43564,7 @@ const SETTINGS_BUSY_LABELS = Object.freeze({
 function settingsBusyLabel(action) {
     const name = String(action || '');
     if (SETTINGS_BUSY_LABELS[name]) return SETTINGS_BUSY_LABELS[name];
-    if (/^(?:char-generate-sprite|outfit-generate-nude|status-avatar-generate|(?:char|outfit)-expression-retry):/.test(name)) return '生图中';
+    if (/^(?:char-generate-sprite|outfit-generate-nude|status-avatar-generate|(?:char|outfit)-expression-retry|scene-variant-(?:set|retry)):/.test(name)) return '生图中';
     return '';
 }
 
@@ -44717,7 +45952,7 @@ function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye)$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
-        if (/^readerSettings\.(sceneTransition|timeTint|spriteMotion|spriteActions|camera|stageCast|textFx|bilingual|clickWaitMark|bgm|ambientSound|uiSound)\.(enabled|night|alignHeads|romanceDuo|castReact|castStage|breathing|castBreathing|castLean|speakBounce|enterExit|emotionFade|kenBurns|parallax|closeUp|birds|rain|wind|insects|waves|crowd|thunder|stream|fire|snow|cicadas|frogs|chimes|bell|clock|drip|train|tavern|ship|traffic)$/.test(path)
+        if (/^readerSettings\.(sceneTransition|timeTint|spriteMotion|spriteActions|camera|stageCast|textFx|bilingual|clickWaitMark|bgm|ambientSound|uiSound)\.(enabled|moodTag|night|alignHeads|romanceDuo|castReact|castStage|breathing|castBreathing|castLean|speakBounce|enterExit|emotionFade|kenBurns|parallax|closeUp|birds|rain|wind|insects|waves|crowd|thunder|stream|fire|snow|cicadas|frogs|chimes|bell|clock|drip|train|tavern|ship|traffic)$/.test(path)
             || /^readerSettings\.dailyFx\.(enabled|petals|photoAlbum|timeskip|photo|letter|note|bell|broadcast|fireworks|touch|alarm|omikuji|receipt|tv)$/.test(path)
             || /^readerSettings\.(liveFx|audienceFx|innerFx)\.(enabled|muteOnNsfw|ambient|useThought)$/.test(path)
             || path === 'readerSettings.typewriter.punctuationPause'
@@ -53271,9 +54506,10 @@ const { normalizeWeatherFxSettings } = require("src/visual/igs-ui/weather-fx-run
 const { FX_SETTINGS_NORMALIZERS, FX_WORD_LIST_PATHS } = require("src/visual/igs-ui/fx-settings.js");
 const { ROMANCE_ACTIONS_MAX, normalizeRomanceFxSettings } = require("src/visual/igs-ui/romance-settings.js");
 const { META_GLOBAL_SCOPE, META_LINE_KINDS, META_LINES_MAX, normalizeMetaFxSettings } = require("src/visual/igs-ui/meta-settings.js");
-const { applyPerformancePreset } = require("src/visual/igs-ui/performance-presets.js");
+const { PERFORMANCE_PRESETS, applyPerformancePreset, detectPerformancePreset } = require("src/visual/igs-ui/performance-presets.js");
+const { applyPerformanceProfile, hasPerformanceProfile, profileFromReader } = require("src/visual/igs-ui/performance-profile.js");
 const { WORLDVIEWS, applyWorldview, resolveWorldview } = require("src/scene/worldview.js");
-const { normalizeBgmSettings } = require("src/visual/igs-ui/scene-audio.js");
+const { BGM_ACTION_RE, handleBgmSettingsAction } = require("src/visual/igs-ui/bgm-settings-actions.js");
 const { normalizeSpriteHeads } = require("src/visual/igs-ui/fx-anchor.js");
 const { formatImageJobLogText } = require("src/generated-images/image-job-log.js");
 const { addGeneratedAssetToLibrary, bindGeneratedBackground, bindGeneratedSprite, collectGeneratedImageIds, generatedAssetIdOf, isGeneratedAssetUrl, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, setGeneratedExpressionNote } = require("src/scene/asset-match.js");
@@ -53321,7 +54557,7 @@ function assetFolderScope(settingsState, options) {
 }
 
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
-const SCENE_ACTION = /^scene-(?:add|remove|rename|set|toggle|pick)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)$/;
+const SCENE_ACTION = /^scene-(?:(?:add|remove|rename|set|toggle|pick)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)|variant-(?:set|retry))$/;
 const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
@@ -53868,6 +55104,56 @@ function triggerDataUrlDownload(globalObj, dataUrl, fileName) {
     if (objectUrl && typeof urlApi.revokeObjectURL === 'function') urlApi.revokeObjectURL(objectUrl);
     return { ok: true, fileName };
 }
+
+// 防手滑：删东西、清空、恢复默认、切演出档位和世界观之前先问一句。
+// 自带确认的动作（CG、预设、文件夹、角色设定、生成图库、情绪预设…）不在表里，免得问两遍；
+// 词条胶囊上的 × 删一个词，随手能加回来，也不问。
+const segs = (action, prefix) => action.slice(prefix.length).split(':').map(decodeSeg);
+const RISKY_ACTIONS = [
+    ['scene-remove-bg:', (a) => `删除场景「${segs(a, 'scene-remove-bg:')[0]}」？它下面的时间、天气背景会一起删掉。`],
+    ['scene-remove-time:', (a) => { const [scene, time] = segs(a, 'scene-remove-time:'); return `删除「${scene}」的时间「${time}」？它下面的天气背景会一起删掉。`; }],
+    ['scene-remove-weather:', (a) => { const [scene, time, weather] = segs(a, 'scene-remove-weather:'); return `删除「${scene}·${time}」的天气「${weather}」？`; }],
+    ['scene-remove-char:', (a) => `删除角色「${segs(a, 'scene-remove-char:')[0]}」？立绘、别名会一起删掉。`],
+    ['scene-remove-mood:', (a) => { const [name, mood] = segs(a, 'scene-remove-mood:'); return `删除「${name}」的「${mood}」立绘格？`; }],
+    ['scene-remove-outfit-mood:', (a) => { const [name, outfit, mood] = segs(a, 'scene-remove-outfit-mood:'); return `删除「${name}」「${outfit}」的「${mood}」立绘格？`; }],
+    ['scene-remove-outfit:', (a) => { const [name, outfit] = segs(a, 'scene-remove-outfit:'); return `删除「${name}」的服装「${outfit}」？这套的立绘、头像会一起删掉。`; }],
+    ['scene-clear-outfit-avatar:', () => '清除这套服装的头像？'],
+    ['status-avatar-clear:', (a) => `清除「${segs(a, 'status-avatar-clear:')[0]}」的状态栏头像？`],
+    ['wardrobe-remove:', (a) => `删除衣柜里的「${segs(a, 'wardrobe-remove:')[0]}」？`],
+    ['mood-remove-group:', (a) => `删除情绪组「${segs(a, 'mood-remove-group:')[0]}」？组里的情绪词会一起删掉。`],
+    ['chat-show-remove-contact:', () => '删除这个联系人？'],
+    ['bgm-track-remove:', () => '删除这首背景音乐？'],
+    ['romance-action-remove:', () => '删除这条亲密动作？'],
+    ['meta-line-remove:', () => '删除这条台词？'],
+    ['meta-scope-remove:', () => '删除这条生效范围？'],
+    ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
+    ['image-log-clear', () => '清空生图日志？'],
+    ['mood-review-clear', () => '清空待确认的情绪词？'],
+    ['reset-virtual-regex', () => '正文格式化恢复默认？现在的查找和替换会被覆盖。'],
+    ['reset-prompt-rule', () => '提示词规则恢复默认？现在改过的内容会被覆盖。'],
+    ['reset-mood-groups', () => '情绪分组恢复默认？自己加的组和词会被覆盖。'],
+    ['chat-show-reset-prompt', () => '线上交流提示词恢复默认？现在改过的内容会被覆盖。'],
+];
+
+function riskyActionMessage(action, settingsState, editTarget) {
+    const preset = /^perf-preset:([a-z]+)$/.exec(action);
+    if (preset) {
+        const reader = settingsState.draft.readerSettings || {};
+        const profile = reader.performanceProfile;
+        const current = profile && typeof profile === 'object' ? profile.level : detectPerformancePreset(reader);
+        const found = PERFORMANCE_PRESETS.find(([id]) => id === preset[1]);
+        if (!found || current === preset[1]) return '';
+        return `切换到「${found[1]}」？各演出的开关会按这一档重设，手动改过的开关会被覆盖，细项设置保留。`;
+    }
+    const worldview = /^worldview:([a-z-]+)$/.exec(action);
+    if (worldview) {
+        const found = WORLDVIEWS.find((item) => item.id === worldview[1]);
+        if (!found || resolveWorldview(draftAssetLibrary(settingsState, editTarget)) === found.id) return '';
+        return `切换到「${found.label}」世界观？演出用词、音效和界面会跟着换。`;
+    }
+    const hit = RISKY_ACTIONS.find(([prefix]) => (prefix.endsWith(':') ? action.startsWith(prefix) : action === prefix || action.startsWith(`${prefix}:`)));
+    return hit ? hit[1](action) : '';
+}
 async function handleSettingsAction(action, ctx) {
     const {
         state,
@@ -53884,6 +55170,8 @@ async function handleSettingsAction(action, ctx) {
     rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
     const editTarget = assetEditTarget(normalizedAction);
     const dialogs = ctx.dialogs || createSettingsDialogs({ global: options.global || globalThis });
+    const risky = riskyActionMessage(normalizedAction, settingsState, editTarget);
+    if (risky && typeof dialogs.confirm === 'function' && !(await dialogs.confirm(risky))) return rerenderSettings();
     if (normalizedAction.startsWith('asset-filter:')) {
         const [collection, filter] = normalizedAction.slice('asset-filter:'.length).split(':');
         if (!SCOPED_COLLECTION_KINDS[collection]) return rerenderSettings();
@@ -54298,6 +55586,87 @@ async function handleSettingsAction(action, ctx) {
         if (typeof dialogs.view === 'function') await dialogs.view(text);
         else if (typeof globalObj.alert === 'function') globalObj.alert(text);
         return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('scene-variant-set:') || normalizedAction.startsWith('scene-variant-retry:')) {
+        const single = normalizedAction.startsWith('scene-variant-retry:');
+        const parts = normalizedAction.slice(single ? 'scene-variant-retry:'.length : 'scene-variant-set:'.length).split(':').map(decodeSeg);
+        const sceneName = parts[0] || '';
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        const sceneObj = (draftAssetLibrary(settingsState, editTarget).scenes || {})[sceneName];
+        const baseImageId = sceneObj && typeof sceneObj === 'object' ? generatedAssetIdOf(sceneObj.url) : '';
+        if (!baseImageId) return rerenderSettings();
+        if (!service || typeof service.generateSceneVariants !== 'function') {
+            return generationFailure(globalObj, dialogs, '场景差分当前不可用。', 'scene-variant-unavailable');
+        }
+        let variants;
+        if (single) {
+            variants = [{ time: parts[1] || '', weather: parts[2] || '' }];
+        } else {
+            const times = sceneObj.times && typeof sceneObj.times === 'object' ? sceneObj.times : {};
+            const groups = ensureTimeGroups(settingsState).map((g) => g && g.label).filter(Boolean);
+            const labels = groups.length ? groups : ['清晨', '白天', '黄昏', '夜晚'];
+            const missing = labels.filter((label) => !String((times[label] && times[label].url) || '').trim());
+            const message = `按「${sceneName}」的提示词画时间/天气差分，一行一张，不写词、直接出图。\n只写时间：「夜晚」；带天气：「夜晚·雨」。删掉不要的行。`;
+            const raw = typeof dialogs.edit === 'function'
+                ? await dialogs.edit(message, missing.join('\n'), { okLabel: '开始生成', cancelLabel: '取消' })
+                : await dialogs.prompt(message, missing.join('\n'));
+            if (raw == null) return rerenderSettings();
+            const seen = new Set();
+            variants = String(raw).split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+                const [time = '', weather = ''] = line.split(/\s*[·・/|]\s*/).map((item) => item.trim());
+                return { time, weather };
+            }).filter((item) => {
+                const key = `${item.time}|${item.weather}`;
+                if (!item.time || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+            if (!variants.length) return rerenderSettings();
+        }
+        const progress = startExpressionProgress(globalObj, `${sceneName}·时间天气`);
+        let result;
+        try {
+            result = await service.generateSceneVariants({ baseImageId, scene: sceneName, variants, onProgress: progress.onProgress });
+        } catch (error) {
+            result = { ok: false, error: errorText(error, '出图失败') };
+        }
+        const done = result && Array.isArray(result.items) ? result.items.filter((item) => item.ok && item.imageId) : [];
+        if (done.length) {
+            const live = (draftAssetLibrary(settingsState, editTarget).scenes || {})[sceneName];
+            if (live && typeof live === 'object') {
+                live.times = live.times && typeof live.times === 'object' ? live.times : {};
+                const timeGroups = ensureTimeGroups(settingsState);
+                const weatherGroups = ensureWeatherGroups(settingsState);
+                for (const item of done) {
+                    const url = `igs-gen:${item.imageId}`;
+                    const slot = live.times[item.time];
+                    const timeEntry = slot && typeof slot === 'object' ? slot : { url: typeof slot === 'string' ? slot : '', weathers: {} };
+                    timeEntry.weathers = timeEntry.weathers && typeof timeEntry.weathers === 'object' ? timeEntry.weathers : {};
+                    if (item.weather) timeEntry.weathers[item.weather] = { ...(typeof timeEntry.weathers[item.weather] === 'object' ? timeEntry.weathers[item.weather] : {}), url };
+                    else timeEntry.url = url;
+                    live.times[item.time] = timeEntry;
+                    if (!timeGroups.some((g) => g.label === item.time)) timeGroups.push({ label: item.time, words: [item.time] });
+                    if (item.weather && !weatherGroups.some((g) => g.label === item.weather)) weatherGroups.push({ label: item.weather, words: [item.weather] });
+                }
+                const persisted = persistGeneratedLibrary(persistSettingsDraft);
+                if (operationFailed(persisted)) {
+                    progress.end();
+                    return persisted;
+                }
+            }
+        }
+        const rendered = await rerenderSettings();
+        progress.end();
+        const failed = result && Array.isArray(result.items) ? result.items.filter((item) => !item.ok) : [];
+        if (!done.length) {
+            return generationFailure(globalObj, dialogs, `「${sceneName}」的时间/天气差分没画出来：${errorText(result && (result.error || (failed[0] && failed[0].error)), '未返回原因')}`, 'scene-variant-failed');
+        }
+        showGeneratedNotice(globalObj, failed.length
+            ? `「${sceneName}」画好 ${done.length} 张，${failed.length} 张失败：${failed[0].error}`
+            : `「${sceneName}」的时间/天气差分已换上（${done.length} 张）。`, failed.length ? '' : 'info');
+        return rendered;
     }
 
     if (normalizedAction.startsWith('char-generate-sprite:')) {
@@ -54819,7 +56188,24 @@ async function handleSettingsAction(action, ctx) {
     const perfPresetAction = normalizedAction.match(/^perf-preset:([a-z]+)$/);
     if (perfPresetAction) {
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
-        applyPerformancePreset(readerDraft, perfPresetAction[1]);
+        // 有快速配置时，档位只换热闹程度，卡片类型、声音、亲密保留。
+        if (hasPerformanceProfile(readerDraft)) {
+            applyPerformanceProfile(readerDraft, { ...profileFromReader(readerDraft), level: perfPresetAction[1] });
+        } else {
+            applyPerformancePreset(readerDraft, perfPresetAction[1]);
+        }
+        return rerenderSettings();
+    }
+
+    const perfTypeAction = normalizedAction.match(/^perf-type:([a-z]+)$/);
+    if (perfTypeAction) {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const profile = profileFromReader(readerDraft, detectPerformancePreset(readerDraft) || 'standard');
+        // 全关的时候点类型，是想打开这类演出：顺带回到「推荐」。
+        if (profile.level === 'off') profile.level = 'standard';
+        const id = perfTypeAction[1];
+        profile.types = profile.types.includes(id) ? profile.types.filter((item) => item !== id) : profile.types.concat(id);
+        applyPerformanceProfile(readerDraft, profile);
         return rerenderSettings();
     }
 
@@ -54931,44 +56317,15 @@ async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
-    const bgmTrackAction = normalizedAction.match(/^bgm-track-(add|edit|remove)(?::(.*))?$/);
-    if (bgmTrackAction) {
-        const globalObj = options.global || globalThis;
-        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
-        const current = normalizeBgmSettings(readerDraft.bgm);
-        const id = decodeSeg(bgmTrackAction[2] || '');
-        const index = current.tracks.findIndex((track) => track.id === id);
-        if (bgmTrackAction[1] === 'remove') {
-            if (index < 0) return rerenderSettings();
-            current.tracks.splice(index, 1);
-        } else {
-            const ask = (message, fallback) => dialogs.prompt(message, fallback);
-            const existing = index >= 0 ? current.tracks[index] : null;
-            if (bgmTrackAction[1] === 'edit' && !existing) return rerenderSettings();
-            const url = await ask('音频直链（http/https）：', existing ? existing.url : '');
-            if (url == null || !String(url).trim()) return rerenderSettings();
-            const name = await ask('曲目名称：', existing ? existing.name : '');
-            if (name == null) return rerenderSettings();
-            const keywords = await ask('匹配关键词，用逗号或空格分隔（如 教室, 雨, 夜）；留空为默认曲：', existing ? existing.keywords.join(', ') : '');
-            if (keywords == null) return rerenderSettings();
-            const track = {
-                id: existing ? existing.id : `t${Date.now().toString(36)}`,
-                name: String(name).trim(),
-                url: String(url).trim(),
-                keywords: String(keywords).split(/[,，、\s]+/u).filter(Boolean),
-            };
-            if (existing) current.tracks[index] = track;
-            else current.tracks.push(track);
-            const normalized = normalizeBgmSettings(current);
-            if (normalized.tracks.length < current.tracks.length) {
-                if (typeof globalObj.alert === 'function') globalObj.alert('链接无效：只支持 http/https 音频直链。');
-                return rerenderSettings();
-            }
-            current.tracks = normalized.tracks;
-        }
-        readerDraft.bgm = current;
-        const persisted = persistSettingsDraft();
-        if (persisted.ok === false) return persisted;
+    if (BGM_ACTION_RE.test(normalizedAction)) {
+        const result = await handleBgmSettingsAction(normalizedAction, {
+            readerDraft: settingsState.draft.readerSettings = settingsState.draft.readerSettings || {},
+            dialogs,
+            persist: persistSettingsDraft,
+            global: options.global || globalThis,
+            worldview: resolveWorldview(settingsState.draft.bridge && settingsState.draft.bridge.sceneAssets),
+        });
+        if (result && result.ok === false) return result;
         return rerenderSettings();
     }
 
@@ -57550,6 +58907,241 @@ __igsDefine(exports, "parseMoodClassification", () => parseMoodClassification);
 __igsDefine(exports, "applyMoodAssignments", () => applyMoodAssignments);
 __igsDefine(exports, "MOOD_CLASSIFY_SYSTEM", () => MOOD_CLASSIFY_SYSTEM);
 });
+__igsRegister("src/visual/igs-ui/bgm-settings-actions.js", function(module, exports, require) {
+const { DEFAULT_BGM_PACK } = require("src/bgm/default-bgm-pack.js");
+const { isDefaultBgmTrack, mergeDefaultBgm, removeDefaultBgm } = require("src/bgm/merge-default-bgm.js");
+const { deleteTavernAudio, isTavernAudioPath, pickAudioFile, uploadTavernAudio } = require("src/media/tavern-audio-files.js");
+const { BGM_MOOD_LABELS, BGM_MOODS, BGM_PACK_LABELS, BGM_PACKS, bgmPackOfWorldview, normalizeBgmMood } = require("src/visual/igs-ui/bgm-library.js");
+const { normalizeBgmSettings } = require("src/visual/igs-ui/scene-audio.js");
+// 「声音 › 背景音乐」的曲目操作：下载 / 移除默认曲目、上传本地音频、添加直链、编辑、删除。
+const BGM_ACTION_RE = /^bgm-(?:track-(?:add|upload|edit|remove)|pack-(?:download|remove))(?::.*)?$/;
+
+const MOOD_HINT = BGM_MOODS.map((mood) => BGM_MOOD_LABELS[mood]).join(' ');
+
+function decodeSeg(value) {
+    try { return decodeURIComponent(String(value == null ? '' : value)); }
+    catch { return String(value == null ? '' : value); }
+}
+
+function splitWords(value) {
+    return String(value == null ? '' : value).split(/[,，、\s]+/u).filter(Boolean);
+}
+
+function parseMoods(value) {
+    const out = [];
+    for (const word of splitWords(value)) {
+        const mood = normalizeBgmMood(word);
+        if (mood && !out.includes(mood)) out.push(mood);
+    }
+    return out;
+}
+
+function alertOf(globalObj) {
+    return (message) => { if (typeof globalObj.alert === 'function') globalObj.alert(message); };
+}
+
+// 名称、情绪、关键词三问；任一步取消返回 null。
+async function askTrackDetails(dialogs, existing, fallbackName) {
+    const name = await dialogs.prompt('曲目名称：', existing ? existing.name : fallbackName || '');
+    if (name == null) return null;
+    const moods = await dialogs.prompt(`情绪（可多选，空格分隔：${MOOD_HINT}）；AI 标出这个情绪时优先播放。留空则只按关键词匹配：`, existing && existing.moods ? existing.moods.map((m) => BGM_MOOD_LABELS[m]).join(' ') : '');
+    if (moods == null) return null;
+    const keywords = await dialogs.prompt('地点关键词，用逗号或空格分隔（如 教室, 天台）；地点里出现这些词时最优先播放。情绪和关键词都留空则作为默认曲：', existing ? existing.keywords.join(', ') : '');
+    if (keywords == null) return null;
+    return { name: String(name).trim(), moods: parseMoods(moods), keywords: splitWords(keywords) };
+}
+
+function withDetails(base, details) {
+    const track = { ...base, name: details.name, keywords: details.keywords };
+    if (details.moods.length) track.moods = details.moods;
+    else delete track.moods;
+    return track;
+}
+
+async function choosePack(dialogs, worldview) {
+    const current = bgmPackOfWorldview(worldview);
+    const count = (pack) => DEFAULT_BGM_PACK.filter((item) => pack === 'all' || item.packs.includes(pack)).length;
+    const choices = [
+        ...[current, ...BGM_PACKS.filter((pack) => pack !== current)].map((pack) => ({
+            value: pack, label: BGM_PACK_LABELS[pack], note: `${count(pack)} 首${pack === current ? '，当前世界观' : ''}`,
+        })),
+        { value: 'all', label: '全部', note: `${count('all')} 首，切换世界观时自动换曲包` },
+    ];
+    if (typeof dialogs.choose === 'function') return dialogs.choose('下载哪一套默认曲目？', choices, current);
+    const raw = await dialogs.prompt(`下载哪一套默认曲目？输入：${choices.map((c) => c.label).join(' / ')}`, BGM_PACK_LABELS[current]);
+    if (raw == null) return null;
+    const hit = choices.find((c) => c.label === String(raw).trim() || c.value === String(raw).trim());
+    return hit ? hit.value : null;
+}
+
+// 返回 { ok: false } 表示持久化失败，其余情况由调用方重绘设置页。
+async function handleBgmSettingsAction(action, { readerDraft, dialogs, persist, global: globalObj = globalThis, worldview = 'modern' }) {
+    const alert = alertOf(globalObj);
+    const current = normalizeBgmSettings(readerDraft.bgm);
+    const [, verb, rest] = action.match(/^bgm-([a-z]+-[a-z]+)(?::(.*))?$/) || [];
+    const id = decodeSeg(rest || '');
+    const index = current.tracks.findIndex((track) => track.id === id);
+    let removedPath = '';
+
+    if (verb === 'pack-download') {
+        const pack = await choosePack(dialogs, worldview);
+        if (pack == null) return null;
+        const merged = mergeDefaultBgm(current.tracks, pack);
+        if (!merged.added.length) {
+            alert('这一套默认曲目已经全部在列表里了。');
+            return null;
+        }
+        current.tracks = merged.tracks;
+    } else if (verb === 'pack-remove') {
+        const removed = removeDefaultBgm(current.tracks);
+        if (!removed.removed) return null;
+        if (!await dialogs.confirm(`移除全部 ${removed.removed} 首默认曲目？你自己添加的曲目会保留。`, { okLabel: '移除' })) return null;
+        current.tracks = removed.tracks;
+    } else if (verb === 'track-remove') {
+        if (index < 0) return null;
+        removedPath = current.tracks[index].url;
+        current.tracks.splice(index, 1);
+    } else if (verb === 'track-upload') {
+        const doc = globalObj.document;
+        if (!doc) return null;
+        const file = await pickAudioFile(doc);
+        if (!file) return null;
+        const uploaded = await uploadTavernAudio(globalObj, file);
+        if (!uploaded.ok) {
+            alert(uploaded.reason);
+            return null;
+        }
+        const details = await askTrackDetails(dialogs, null, uploaded.name);
+        if (!details) {
+            await deleteTavernAudio(globalObj, uploaded.path);
+            return null;
+        }
+        current.tracks.push(withDetails({ id: `t${Date.now().toString(36)}`, url: uploaded.path }, details));
+    } else if (verb === 'track-add' || verb === 'track-edit') {
+        const existing = index >= 0 ? current.tracks[index] : null;
+        if (verb === 'track-edit' && !existing) return null;
+        // 上传的文件和默认曲目不改链接，只改名称、情绪和关键词。
+        let url = existing ? existing.url : '';
+        if (!existing || (!isTavernAudioPath(existing.url) && !isDefaultBgmTrack(existing))) {
+            const raw = await dialogs.prompt('音频直链（http/https）：', url);
+            if (raw == null || !String(raw).trim()) return null;
+            url = String(raw).trim();
+        }
+        const details = await askTrackDetails(dialogs, existing, '');
+        if (!details) return null;
+        const track = withDetails({ ...(existing || {}), id: existing ? existing.id : `t${Date.now().toString(36)}`, url }, details);
+        if (existing) current.tracks[index] = track;
+        else current.tracks.push(track);
+    } else {
+        return null;
+    }
+
+    const normalized = normalizeBgmSettings(current);
+    if (normalized.tracks.length < current.tracks.length) {
+        alert(verb === 'pack-download' ? '曲目数量已达上限，部分默认曲目没有加入。' : '链接无效：只支持 http/https 音频直链。');
+        if (verb !== 'pack-download') return null;
+    }
+    readerDraft.bgm = normalized;
+    const persisted = persist();
+    if (persisted && persisted.ok === false) return persisted;
+    if (removedPath) await deleteTavernAudio(globalObj, removedPath);
+    return null;
+}
+
+__igsDefine(exports, "handleBgmSettingsAction", () => handleBgmSettingsAction);
+__igsDefine(exports, "BGM_ACTION_RE", () => BGM_ACTION_RE);
+});
+__igsRegister("src/media/tavern-audio-files.js", function(module, exports, require) {
+// 用户上传的背景音乐存进酒馆本地 user/files/igs-bgm-*（/api/files/upload），设置里只记路径，不把音频塞进浏览器存储。
+// 与酒馆同源，播放不受跨域限制。
+const { getSillyTavernContext } = require("src/host/tavern-helper-adapter.js");
+const BGM_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
+const EXTENSIONS = Object.freeze(['mp3', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'wav', 'flac', 'webm']);
+const PATH_RE = /^\/?user\/files\/igs-bgm-[\w.-]+$/;
+
+function extensionOf(file) {
+    const fromName = String(file && file.name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+    if (fromName && EXTENSIONS.includes(fromName[1])) return fromName[1];
+    const fromType = String(file && file.type || '').toLowerCase().match(/^audio\/(?:x-)?([a-z0-9]+)/);
+    if (!fromType) return '';
+    const type = fromType[1] === 'mpeg' ? 'mp3' : fromType[1] === 'mp4' ? 'm4a' : fromType[1];
+    return EXTENSIONS.includes(type) ? type : '';
+}
+
+function base64Of(bytes) {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    return globalThis.btoa(binary);
+}
+function isTavernAudioPath(value) {
+    return typeof value === 'string' && PATH_RE.test(value);
+}
+
+// 让用户选一个本地音频文件；取消返回 null。
+function pickAudioFile(doc) {
+    return new Promise((resolve) => {
+        const input = doc.createElement('input');
+        input.type = 'file';
+        input.accept = `audio/*,${EXTENSIONS.map((ext) => `.${ext}`).join(',')}`;
+        let done = false;
+        const finish = (value) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            resolve(value);
+        };
+        input.onchange = () => finish(input.files && input.files[0] ? input.files[0] : null);
+        const timer = setTimeout(() => finish(null), 300000);
+        input.click();
+    });
+}
+
+// 返回 { ok, path, name } 或 { ok: false, reason }；reason 供设置页直接提示。
+async function uploadTavernAudio(globalObject, file) {
+    const ext = extensionOf(file);
+    if (!ext) return { ok: false, reason: '只支持 mp3、ogg、m4a、wav、flac 等音频文件。' };
+    if (!(file.size > 0) || file.size > BGM_UPLOAD_MAX_BYTES) return { ok: false, reason: '音频文件需小于 30MB。' };
+    const ctx = getSillyTavernContext(globalObject);
+    const headers = ctx && typeof ctx.getRequestHeaders === 'function' ? ctx.getRequestHeaders() : null;
+    if (!headers || typeof globalObject.fetch !== 'function') return { ok: false, reason: '没连上酒馆，无法上传；可以改用音频直链。' };
+    try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const stamp = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+        const res = await globalObject.fetch('/api/files/upload', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ name: `igs-bgm-${stamp}.${ext}`, data: base64Of(bytes) }),
+        });
+        if (!res || !res.ok) return { ok: false, reason: '酒馆拒绝了这次上传。' };
+        const path = String(((await res.json().catch(() => null)) || {}).path || '').replace(/\\/g, '/');
+        if (!isTavernAudioPath(path)) return { ok: false, reason: '酒馆没有返回文件路径。' };
+        return { ok: true, path: path.startsWith('/') ? path : `/${path}`, name: String(file.name || '').replace(/\.[^.]+$/, '') };
+    } catch {
+        return { ok: false, reason: '上传失败，请稍后再试。' };
+    }
+}
+
+// 删除曲目时顺手删掉酒馆里的文件；失败不影响删除曲目本身。
+async function deleteTavernAudio(globalObject, path) {
+    if (!isTavernAudioPath(path)) return false;
+    const ctx = getSillyTavernContext(globalObject);
+    const headers = ctx && typeof ctx.getRequestHeaders === 'function' ? ctx.getRequestHeaders() : null;
+    if (!headers || typeof globalObject.fetch !== 'function') return false;
+    try {
+        const res = await globalObject.fetch('/api/files/delete', { method: 'POST', headers, body: JSON.stringify({ path: path.replace(/^\//, '') }) });
+        return Boolean(res && res.ok);
+    } catch {
+        return false;
+    }
+}
+
+__igsDefine(exports, "isTavernAudioPath", () => isTavernAudioPath);
+__igsDefine(exports, "pickAudioFile", () => pickAudioFile);
+__igsDefine(exports, "uploadTavernAudio", () => uploadTavernAudio);
+__igsDefine(exports, "deleteTavernAudio", () => deleteTavernAudio);
+__igsDefine(exports, "BGM_UPLOAD_MAX_BYTES", () => BGM_UPLOAD_MAX_BYTES);
+});
 __igsRegister("src/generated-images/image-job-log.js", function(module, exports, require) {
 // 生图排查日志：自动插图 / 素材补全每一步的进度与失败原因，持久化到 localStorage，
 // 按「保留天数」「最多条数」自动清理，也可在设置里手动清空。
@@ -58990,6 +60582,7 @@ __igsRegister("src/visual/igs-ui/onboarding-guide-controller.js", function(modul
 // 换步只调用设置控制器的切页方法，不写任何设置值。
 const { getOnboardingStep, isLastOnboardingStep, nextOnboardingStep, prevOnboardingStep, readOnboardingState, shouldInviteOnboarding, writeOnboardingState } = require("src/visual/igs-ui/onboarding-guide.js");
 const { mountOnboardingCard } = require("src/visual/igs-ui/onboarding-guide-runtime.js");
+const { PROFILE_QUESTIONS } = require("src/visual/igs-ui/performance-profile.js");
 const { handleOnboardingKeydown, mountOnboardingInvite, removeOnboardingInvite } = require("src/visual/igs-ui/onboarding-guide-invite.js");
 const { ONBOARDING_STYLE_ID, getOnboardingStyleText } = require("src/visual/igs-ui/onboarding-guide-style.js");
 const SUBTAB_SWITCHERS = Object.freeze({
@@ -58997,7 +60590,8 @@ const SUBTAB_SWITCHERS = Object.freeze({
     scene: 'switchSceneSubTab',
     image: 'switchImageSubTab',
 });
-const ONBOARDING_ACTIONS = Object.freeze(['onboarding-start', 'onboarding-next', 'onboarding-prev', 'onboarding-skip', 'onboarding-finish']);
+const ONBOARDING_ACTIONS = Object.freeze(['onboarding-start', 'onboarding-next', 'onboarding-prev', 'onboarding-skip', 'onboarding-finish', 'onboarding-quiz-apply']);
+const DEFAULT_QUIZ_ANSWERS = Object.freeze({ types: [], level: 'standard', sound: 'sfx', adult: 'no' });
 function ensureOnboardingStyle(doc) {
     if (!doc || typeof doc.createElement !== 'function' || doc.getElementById?.(ONBOARDING_STYLE_ID)) return;
     const style = doc.createElement('style');
@@ -59044,7 +60638,8 @@ function createOnboardingController(deps) {
     function goTo(index) {
         session.answered = true;
         const step = getOnboardingStep(index);
-        guide = { step: index, pendingFocus: false };
+        // 问卷答案跟着这次引导走，前后翻页不丢。
+        guide = { step: index, pendingFocus: false, answers: guide && guide.answers ? guide.answers : { ...DEFAULT_QUIZ_ANSWERS, types: [] }, quizApplied: Boolean(guide && guide.quizApplied) };
         if (!deps.getSettingsController()) {
             const opened = deps.openSettings(step.tab);
             if (!opened || opened.ok === false) {
@@ -59077,7 +60672,10 @@ function createOnboardingController(deps) {
     // 非引导动作返回 null，由宿主继续交给既有设置动作分发。
     function handleAction(action) {
         const name = String(action || '').trim();
+        const quiz = /^onboarding-quiz:([a-z]+):([a-z]+)$/.exec(name);
+        if (quiz) return chooseQuiz(quiz[1], quiz[2]);
         if (!ONBOARDING_ACTIONS.includes(name)) return null;
+        if (name === 'onboarding-quiz-apply') return applyQuiz();
         if (name === 'onboarding-start') return goTo(0);
         if (!guide) return deps.rerenderSettings();
         if (name === 'onboarding-next') {
@@ -59085,6 +60683,30 @@ function createOnboardingController(deps) {
         }
         if (name === 'onboarding-prev') return goTo(prevOnboardingStep(guide.step));
         return finish(name === 'onboarding-finish' ? 'done' : 'dismissed');
+    }
+
+    function chooseQuiz(id, value) {
+        const question = PROFILE_QUESTIONS.find((q) => q.id === id);
+        if (!guide || !question || !question.options.some(([v]) => v === value)) return deps.rerenderSettings();
+        const answers = { ...guide.answers };
+        if (question.multi) {
+            const list = Array.isArray(answers[id]) ? answers[id] : [];
+            answers[id] = list.includes(value) ? list.filter((v) => v !== value) : list.concat(value);
+        } else {
+            answers[id] = value;
+        }
+        guide.answers = answers;
+        guide.quizApplied = false;
+        return deps.rerenderSettings();
+    }
+
+    // 应用后停在这一步，让用户看到演出档位条的变化，再点「下一步」。
+    function applyQuiz() {
+        if (!guide) return deps.rerenderSettings();
+        const result = typeof deps.applyPerformanceProfile === 'function' ? deps.applyPerformanceProfile(guide.answers) : { ok: false };
+        if (result && result.ok === false) return result;
+        guide.quizApplied = true;
+        return deps.rerenderSettings();
     }
 
     function closeGuide() {
@@ -59118,6 +60740,7 @@ function createOnboardingController(deps) {
 __igsDefine(exports, "ensureOnboardingStyle", () => ensureOnboardingStyle);
 __igsDefine(exports, "createOnboardingController", () => createOnboardingController);
 __igsDefine(exports, "ONBOARDING_ACTIONS", () => ONBOARDING_ACTIONS);
+__igsDefine(exports, "DEFAULT_QUIZ_ANSWERS", () => DEFAULT_QUIZ_ANSWERS);
 });
 __igsRegister("src/visual/igs-ui/onboarding-guide.js", function(module, exports, require) {
 // 新手配置引导：状态读写与步骤导航（纯函数，不碰 DOM）。
@@ -59199,6 +60822,11 @@ const ONBOARDING_STEPS = Object.freeze([
         body: '接下来花一分钟，带你看看最常用的几项设置。每一步都可以跳过，所有选项以后都能再改。',
     }),
     Object.freeze({
+        id: 'quick', tab: 'basic', subTabs: [], target: ['.igs-perf-presets'], quiz: true,
+        title: '想不想快速配置演出？',
+        body: '点几下选项，帮你把演出开成合适的样子。不想答就点「下一步」跳过，以后在「阅读器 › 演出」也能改。',
+    }),
+    Object.freeze({
         id: 'paging', tab: 'basic', subTabs: [], target: [],
         title: '翻页',
         body: '阅读时点画面右半边进入下一页，点左半边回到上一页；键盘按空格或「→」也能前进。开启打字机时，第一次点击先显示全文，再点一次才翻页。',
@@ -59247,6 +60875,7 @@ __igsRegister("src/visual/igs-ui/onboarding-guide-runtime.js", function(module, 
 // 只加高亮属性、滚动与聚焦，不读写任何设置值；按钮走设置面板既有的 data-action 分发。
 const { ONBOARDING_STEPS, getOnboardingStep, isLastOnboardingStep, normalizeOnboardingStep } = require("src/visual/igs-ui/onboarding-guide.js");
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
+const { PROFILE_QUESTIONS, profileSummary } = require("src/visual/igs-ui/performance-profile.js");
 const ONBOARDING_CARD_ID = 'igs-onboarding-card';
 const ONBOARDING_ACTIVE_ATTR = 'data-igs-guide-active';
 function prefersReducedMotion(doc) {
@@ -59256,16 +60885,36 @@ function prefersReducedMotion(doc) {
 function button(action, label, tone) {
     return `<button type="button" class="igs-onboarding-btn${tone ? ` is-${tone}` : ''}" data-action="${action}">${label}</button>`;
 }
-function renderOnboardingCardHtml(stepIndex) {
+
+// 问卷：每题一排选项，选中的高亮；类型可多选。底下一行写这样会开几项。
+function renderQuiz(answers, applied) {
+    const picked = answers && typeof answers === 'object' ? answers : {};
+    const rows = PROFILE_QUESTIONS.map((q) => {
+        const chosen = q.multi ? (Array.isArray(picked[q.id]) ? picked[q.id] : []) : [picked[q.id]];
+        const opts = q.options.map(([value, label]) => {
+            const on = chosen.includes(value);
+            return `<button type="button" class="igs-onboarding-chip${on ? ' is-active' : ''}" data-action="onboarding-quiz:${q.id}:${value}" aria-pressed="${on ? 'true' : 'false'}">${esc(label)}</button>`;
+        }).join('');
+        return `<div class="igs-onboarding-q"><div class="igs-onboarding-q-title">${esc(q.title)}${q.multi ? '<span>可多选</span>' : ''}</div><div class="igs-onboarding-q-opts">${opts}</div></div>`;
+    }).join('');
+    const on = profileSummary(picked);
+    const result = applied
+        ? `已应用：开启 ${on.length} 项演出。`
+        : `这样会开启 ${on.length} 项：${on.join('、') || '无'}`;
+    return `<div class="igs-onboarding-quiz">${rows}</div><p class="igs-onboarding-quiz-result">${esc(result)}</p>`;
+}
+function renderOnboardingCardHtml(stepIndex, guide = null) {
     const index = normalizeOnboardingStep(stepIndex);
     const step = getOnboardingStep(index);
     const last = isLastOnboardingStep(index);
     const actions = (last ? '' : button('onboarding-skip', '跳过引导', 'quiet'))
         + (index > 0 ? button('onboarding-prev', '上一步') : '')
-        + (last ? button('onboarding-finish', '完成', 'primary') : button('onboarding-next', '下一步', 'primary'));
+        + (step.quiz && !(guide && guide.quizApplied) ? button('onboarding-quiz-apply', '应用', 'primary') + button('onboarding-next', '跳过这步') : '')
+        + (last ? button('onboarding-finish', '完成', 'primary') : (step.quiz && !(guide && guide.quizApplied) ? '' : button('onboarding-next', '下一步', 'primary')));
     return `<div class="igs-onboarding-head"><h3 class="igs-onboarding-title" tabindex="-1">${esc(step.title)}</h3>`
         + `<span class="igs-onboarding-count">${index + 1} / ${ONBOARDING_STEPS.length}${step.optional ? ' · 可选' : ''}</span></div>`
         + `<p class="igs-onboarding-body" aria-live="polite">${esc(step.body)}</p>`
+        + (step.quiz ? renderQuiz(guide && guide.answers, guide && guide.quizApplied) : '')
         + `<div class="igs-onboarding-actions">${actions}</div>`;
 }
 
@@ -59294,7 +60943,7 @@ function mountOnboardingCard(container, guide, mountOptions = {}) {
     card.className = 'igs-onboarding-card';
     card.setAttribute('role', 'region');
     card.setAttribute('aria-label', '新手引导');
-    card.innerHTML = renderOnboardingCardHtml(guide.step);
+    card.innerHTML = renderOnboardingCardHtml(guide.step, guide);
     host.appendChild(card);
     const target = findStepTarget(container, getOnboardingStep(guide.step));
     if (target) {
@@ -59388,6 +61037,14 @@ const STYLE_TEXT = `
 .igs-onboarding-btn.is-primary{border-color:currentColor;font-weight:600}
 .igs-onboarding-btn.is-quiet{border-color:transparent;opacity:.75}
 .igs-onboarding-btn:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+#igs-onboarding-card .igs-onboarding-quiz{display:flex;flex-direction:column;gap:8px;max-height:min(46vh,360px);overflow-y:auto;margin:0 0 6px}
+#igs-onboarding-card .igs-onboarding-q-title{font-size:12px;opacity:.85;margin-bottom:4px}
+#igs-onboarding-card .igs-onboarding-q-title span{margin-left:6px;opacity:.6}
+#igs-onboarding-card .igs-onboarding-q-opts{display:flex;flex-wrap:wrap;gap:6px}
+.igs-onboarding-chip{min-height:28px;padding:0 10px;border-radius:999px;border:1px solid ${SOFT_LINE};background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer}
+.igs-onboarding-chip.is-active{border-color:currentColor;background:color-mix(in srgb,currentColor 14%,transparent);font-weight:600}
+.igs-onboarding-chip:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+#igs-onboarding-card .igs-onboarding-quiz-result{margin:0 0 10px;font-size:12px;line-height:1.5;opacity:.8}
 #igs-unified-settings [data-igs-guide-active]{outline:2px solid currentColor;outline-offset:3px;border-radius:var(--igs-settings-radius-small,6px)}
 #igs-onboarding-invite{position:absolute;left:50%;top:max(10px,env(safe-area-inset-top));transform:translateX(-50%);z-index:30;box-sizing:border-box;display:flex;flex-wrap:nowrap;align-items:center;gap:2px;max-width:calc(100% - 24px);height:30px;padding:0 3px 0 14px;border:0;border-radius:999px;background:var(--igs-dialog-bg,Canvas);color:inherit;box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:12px;line-height:1;white-space:nowrap}
 #igs-onboarding-invite .igs-onboarding-invite-text{flex:1 1 auto;min-width:0;margin-right:6px;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
@@ -59397,7 +61054,7 @@ const STYLE_TEXT = `
 #igs-onboarding-invite .igs-onboarding-btn:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
 #igs-onboarding-invite .igs-onboarding-btn.is-primary:hover{background:color-mix(in srgb,currentColor 20%,transparent)}
 @media (pointer:coarse){#igs-onboarding-invite .igs-onboarding-btn::after{content:"";position:absolute;inset:-10px -2px}}
-@media (pointer:coarse){.igs-onboarding-btn{min-height:44px;min-width:44px}}
+@media (pointer:coarse){.igs-onboarding-btn{min-height:44px;min-width:44px}.igs-onboarding-chip{min-height:36px}}
 @media (prefers-reduced-motion:reduce){#igs-onboarding-card,#igs-onboarding-invite,.igs-onboarding-btn{transition:none;animation:none}}
 `.trim();
 function getOnboardingStyleText() {
@@ -59487,6 +61144,42 @@ function renderAssetFolderView(kind, entries, options = {}) {
 __igsDefine(exports, "renderAssetFolderSelect", () => renderAssetFolderSelect);
 __igsDefine(exports, "renderAssetFolderView", () => renderAssetFolderView);
 });
+__igsRegister("src/visual/igs-ui/horror-dread.js", function(module, exports, require) {
+// 恐怖档位：overlay 上挂 data-igs-dread="0..3"，恐怖皮肤只用 CSS 读它来切换强度。
+// 档位来自剧情标签（无标签时默认 1 档），再被用户设置的强度上限截住。
+const HORROR_DREAD_LEVELS = Object.freeze([0, 1, 2, 3]);
+const HORROR_DREAD_DEFAULT_LEVEL = 1;
+const HORROR_DREAD_CAP_DEFAULT = 3;
+const HORROR_DREAD_CAP_LABELS = Object.freeze({ 0: '只要平静', 1: '最多不安', 2: '最多危险', 3: '不设上限' });
+
+function toLevel(value) {
+    const numeric = Number(value);
+    if (value === null || value === undefined || value === '' || !Number.isFinite(numeric)) return null;
+    return Math.min(3, Math.max(0, Math.round(numeric)));
+}
+function normalizeHorrorDreadCap(value) {
+    const level = toLevel(value);
+    return level === null ? HORROR_DREAD_CAP_DEFAULT : level;
+}
+function resolveHorrorDread(level, cap) {
+    const resolved = toLevel(level);
+    return Math.min(resolved === null ? HORROR_DREAD_DEFAULT_LEVEL : resolved, normalizeHorrorDreadCap(cap));
+}
+function applyHorrorDread(root, { level, cap } = {}) {
+    if (!root || typeof root.setAttribute !== 'function') return;
+    const next = String(resolveHorrorDread(level, cap));
+    const current = typeof root.getAttribute === 'function' ? root.getAttribute('data-igs-dread') : null;
+    if (current !== next) root.setAttribute('data-igs-dread', next);
+}
+
+__igsDefine(exports, "normalizeHorrorDreadCap", () => normalizeHorrorDreadCap);
+__igsDefine(exports, "resolveHorrorDread", () => resolveHorrorDread);
+__igsDefine(exports, "applyHorrorDread", () => applyHorrorDread);
+__igsDefine(exports, "HORROR_DREAD_LEVELS", () => HORROR_DREAD_LEVELS);
+__igsDefine(exports, "HORROR_DREAD_DEFAULT_LEVEL", () => HORROR_DREAD_DEFAULT_LEVEL);
+__igsDefine(exports, "HORROR_DREAD_CAP_DEFAULT", () => HORROR_DREAD_CAP_DEFAULT);
+__igsDefine(exports, "HORROR_DREAD_CAP_LABELS", () => HORROR_DREAD_CAP_LABELS);
+});
 __igsRegister("src/visual/igs-ui/settings-search.js", function(module, exports, require) {
 // 设置搜索索引：把深层设置项映射到「分页 → 子页 → 分组 → 折叠区」，输入关键词即可直接定位。
 // 纯数据与纯函数，不读 DOM、不写设置；跳转由设置面板按 target 切换分页并展开对应折叠区。
@@ -59570,7 +61263,7 @@ __igsDefine(exports, "renderSettingsSearchResults", () => renderSettingsSearchRe
 __igsDefine(exports, "SETTINGS_SEARCH_INDEX", () => SETTINGS_SEARCH_INDEX);
 });
 __igsRegister("src/visual/igs-ui/tag-grammar.js", function(module, exports, require) {
-const { fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } = require("src/visual/igs-ui/fx-prompt.js");
+const { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } = require("src/visual/igs-ui/fx-prompt.js");
 const { dailyGrammarLines } = require("src/visual/igs-ui/fx-daily-prompt.js");
 const { BATTLE_GRAMMAR_LINES } = require("src/visual/igs-ui/fx-battle-model.js");
 const { textFxGrammarBlock } = require("src/visual/igs-ui/text-fx.js");
@@ -59612,6 +61305,9 @@ function collectGrammarBlocks(readerSettings, { ancient = false } = {}) {
     }
     if (plain(rs.itemFx).enabled === true) {
         blocks.push({ key: 'item', full: fxBlock('物品', [ITEM_FX_GRAMMAR_LINE]), index: '物品 igs-fx:item' });
+    }
+    if (bgmMoodTagEnabled(rs.bgm)) {
+        blocks.push({ key: 'bgm', full: fxBlock('配乐', [BGM_GRAMMAR_LINE]), index: '配乐 igs-fx:bgm' });
     }
     const chatShow = normalizeChatShowSettings(rs.chatShow);
     if (chatShow.enabled) {
@@ -59759,6 +61455,23 @@ ${ITEM_FX_PROMPT_LINE}
 4. 「重要」只留给推动剧情的关键物品，每层回复最多1个，普通物品不要加`;
 }
 
+// 配乐情绪标签独立于演出标签开关：背景音乐与其「情绪标签」都开启、且曲目里有情绪分类时才注入（只配了关键词曲目时写了也用不上）。
+const BGM_GRAMMAR_LINE = 'bgm|情绪：配乐气氛转折时写一次，情绪只写 日常、欢快、甜、静、悲、紧、战、诡 之一，如[igs-fx:bgm|悲]；气氛不变就不写';
+function bgmMoodTagEnabled(bgm) {
+    const s = bgm && typeof bgm === 'object' ? bgm : {};
+    return s.enabled === true && s.moodTag !== false && Array.isArray(s.tracks)
+        && s.tracks.some((track) => track && Array.isArray(track.moods) && track.moods.length > 0);
+}
+function resolveBgmPromptRule(bgm) {
+    if (!bgmMoodTagEnabled(bgm)) return '';
+    return `[igs配乐标签]
+[igs-fx:bgm|情绪]：配乐气氛转折时写一次，情绪只写 日常、欢快、甜、静、悲、紧、战、诡 之一，如[igs-fx:bgm|悲]
+
+语法要求：
+1. 标签独立成行，放在气氛转折处的正文之前
+2. 每层回复最多1个；同一场景气氛没变时不要重复输出`;
+}
+
 // 亲密氛围标签独立于演出标签开关：只在亲密演出开启时注入。只标氛围档位，不要求 AI 描写画面。
 // 参数为 readerSettings.romanceFx（兼容旧的布尔调用）；对象栏、告白、回忆的写法只在对应子开关开启时出现。
 function resolveRomanceFxPromptRule(settings) {
@@ -59854,12 +61567,15 @@ function stageCastGrammarLines(stageCast) {
 
 __igsDefine(exports, "resolveFxPromptRule", () => resolveFxPromptRule);
 __igsDefine(exports, "resolveItemFxPromptRule", () => resolveItemFxPromptRule);
+__igsDefine(exports, "bgmMoodTagEnabled", () => bgmMoodTagEnabled);
+__igsDefine(exports, "resolveBgmPromptRule", () => resolveBgmPromptRule);
 __igsDefine(exports, "resolveRomanceFxPromptRule", () => resolveRomanceFxPromptRule);
 __igsDefine(exports, "fxGrammarLines", () => fxGrammarLines);
 __igsDefine(exports, "romanceGrammarLines", () => romanceGrammarLines);
 __igsDefine(exports, "resolveStageCastFxPromptRule", () => resolveStageCastFxPromptRule);
 __igsDefine(exports, "stageCastGrammarLines", () => stageCastGrammarLines);
 __igsDefine(exports, "ITEM_FX_PROMPT_LINE", () => ITEM_FX_PROMPT_LINE);
+__igsDefine(exports, "BGM_GRAMMAR_LINE", () => BGM_GRAMMAR_LINE);
 __igsDefine(exports, "FX_GRAMMAR_LINES", () => FX_GRAMMAR_LINES);
 __igsDefine(exports, "ITEM_FX_GRAMMAR_LINE", () => ITEM_FX_GRAMMAR_LINE);
 __igsDefine(exports, "STAGE_CAST_REACT_PROMPT_LINE", () => STAGE_CAST_REACT_PROMPT_LINE);
@@ -60036,6 +61752,7 @@ const { applyRenderQualityToDom } = require("src/visual/igs-ui/render-quality.js
 const { applyRomanceToDom } = require("src/visual/igs-ui/romance-runtime.js");
 const { applyMetaFx } = require("src/visual/igs-ui/meta-runtime.js");
 const { applySceneAudio } = require("src/visual/igs-ui/scene-audio.js");
+const { applyBgmNoteToDom } = require("src/visual/igs-ui/bgm-note.js");
 const { applyTextFxMarkup, armTextFx, disarmTextFx } = require("src/visual/igs-ui/text-fx.js");
 const { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } = require("src/visual/igs-ui/bilingual-text.js");
 const { preloadDialogFonts, resolveDialogFontMetrics } = require("src/visual/igs-ui/dialog-theme-typography.js");
@@ -60043,6 +61760,7 @@ const { clearSpriteOutfitSwap, spriteLookOf } = require("src/visual/igs-ui/sprit
 const { spriteEnhanceFilter } = require("src/visual/igs-ui/sprite-enhance.js");
 const { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH, isPortraitTouchWindow } = require("src/generated-images/illustration/auto-illustration-service.js");
 const { applyClickWaitMark } = require("src/visual/igs-ui/click-wait-mark.js");
+const { applyHorrorDread } = require("src/visual/igs-ui/horror-dread.js");
 const { applyHtmlCardToDom } = require("src/visual/igs-ui/html-card-layer.js");
 const { applyChatToDom } = require("src/visual/igs-ui/chat-layer.js");
 const { normalizeSystemRoleSettings } = require("src/visual/igs-ui/system-role.js");
@@ -61495,6 +63213,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (sceneTime) root.setAttribute('data-igs-scene-time', sceneTime);
     else root.removeAttribute('data-igs-scene-time');
     applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
+    applyHorrorDread(root, { level: snapshot.content && snapshot.content.sceneDread, cap: snapshot.readerSettings && snapshot.readerSettings.horrorDreadCap });
     const stageDirection = applyStageDirection(root, snapshot, {
         bgUrl: backgroundAssetUrl,
         spriteUrl: stageSprite ? stageSprite.url : '',
@@ -61518,7 +63237,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory });
     // Meta 互动：头部热区在亲密演出之后同步，心形快捷按钮已在前层时热区插到它下面。
     applyMetaFx(root, snapshot, { sprite: fxSprite, chatId: ctx.chatId, cast: castFxTargets });
-    applySceneAudio(root, {
+    const sceneAudio = applySceneAudio(root, {
         master: snapshot.readerSettings && snapshot.readerSettings.audioMaster,
         bgm: snapshot.readerSettings && snapshot.readerSettings.bgm,
         ambient: snapshot.readerSettings && snapshot.readerSettings.ambientSound,
@@ -61531,6 +63250,11 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             lightningSynced: Boolean(weatherFx && weatherFx.lightning),
             fxRanges: fxResult && fxResult.ranges,
             textType: typewriterTextType,
+            // 选曲：本页的配乐情绪标签、战斗 / 亲密区间与世界观曲包。
+            bgmMood: snapshot.content && snapshot.content.fx && snapshot.content.fx.bgmMood,
+            battle: Boolean(snapshot.content && snapshot.content.fx && snapshot.content.fx.battle),
+            romance: Boolean(snapshot.content && snapshot.content.fx && snapshot.content.fx.romance),
+            worldview: snapshot.readerSettings && snapshot.readerSettings._worldview,
         },
         active: true,
     });
@@ -61578,6 +63302,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         controls.style.display = snapshot.mode === 'embedded' ? 'none' : (isLastPage ? '' : 'none');
     }
     applyStatusHudToDom(root, snapshot);
+    applyBgmNoteToDom(root, sceneAudio.track);
     applyStatusHudScale(root, snapshot);
     if (dialog) {
         applyDialogSkinAssets(dialog, snapshot.readerSettings);
@@ -63150,6 +64875,7 @@ const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-d
 const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV, QINGLV_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
+const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_HUD_THEME, PSYCH_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-horror.js");
 const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-skins.js");
 const CLASSIC = 'western-classic';
 
@@ -63291,6 +65017,8 @@ const HUD_THEMES = Object.freeze({
     },
     [DIALOG_SKIN_QINGLV]: QINGLV_HUD_THEME,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_HUD_THEME,
+    [DIALOG_SKIN_HORROR_GORE]: GORE_HUD_THEME,
+    [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_HUD_THEME,
     [DIALOG_SKIN_PLANT_COFFEE]: {
         neutral: '#a49186',
         panel: `background:#f6f1eb;border:1.5px solid #5c4949;border-radius:${s(18)};box-shadow:0 ${s(3)} 0 rgba(92,73,73,.2);`,
@@ -63335,7 +65063,7 @@ function hudThemeRules(skin, theme) {
     if (theme.value) rules.push(`${hud} .igs-hud-metric-value{${theme.value}}`);
     // 无背景时文字仍落在场景图上，只在主题面板内改用主题墨色。
     if (theme.ink) {
-        rules.push(`${panel} .igs-hud-metric-label,${panel} .igs-hud-metric-value,${panel} .igs-hud-overflow,${panel} .igs-hud-location-label{color:${theme.ink};text-shadow:none;}`);
+        rules.push(`${panel} .igs-hud-metric-label,${panel} .igs-hud-metric-value,${panel} .igs-hud-overflow,${panel} .igs-hud-location-label,${panel} .igs-hud-bgm,${panel} .igs-hud-bgm-bars{color:${theme.ink};text-shadow:none;filter:none;}`);
         rules.push(`${panel} .igs-hud-location-icon{color:${theme.ink};opacity:.72;}`);
     }
     return rules.join('\n');
@@ -63394,6 +65122,7 @@ const { stroke } = require("src/visual/igs-ui/dialog-skin-frame.js");
 const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, MAGIC_VEIL, magicTint } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV, qinglvSilk } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
+const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } = require("src/visual/igs-ui/dialog-theme-horror.js");
 const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-skins.js");
 const { DIALOG_FONT_CINZEL, DIALOG_FONT_HUIWEN, DIALOG_FONT_NEO_XIHEI, DIALOG_FONT_NEO_ZHISONG, DIALOG_FONT_SERIF, DIALOG_FONT_SMILEY, DIALOG_FONT_WENKAI, DIALOG_FONT_WENKAI_LITE, DIALOG_FONT_YOZAI, DIALOG_FONT_ZCOOL_KUAILE } = require("src/visual/igs-ui/dialog-theme-typography.js");
 const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-dialog-skin.js");
@@ -63489,6 +65218,26 @@ const BATTLE_THEMES = Object.freeze({
         title: 'font-style:normal;font-weight:400;letter-spacing:.2em;text-indent:.2em;',
         veil: 'background:rgba(60,50,30,.18);',
         foe: `text-shadow:${stroke(fairyPaper('.7'))},0 0 18px ${fairyPaper('.9')};`,
+    },
+    // 血色噩梦（波普血浆）：黑底红块，名牌标记是一颗红色血滴。
+    [DIALOG_SKIN_HORROR_GORE]: {
+        accent: '#d1121b',
+        font: DIALOG_FONT_SMILEY,
+        vars: { veil: 'rgba(10,10,10,.9)', rule: '#d1121b', ink: '#f3ece4', halo: '0 1px 2px rgba(0,0,0,.95)', 'title-halo': '0 2px 0 #d1121b', wipe: 'rgba(10,10,10,.95)', lose: '#ff2a33', escape: '#8a8280' },
+        mark: `width:10px;height:12px;align-self:center;font-size:0;background:#d1121b;-webkit-mask:${HORROR_DROP_MASK} center/contain no-repeat;mask:${HORROR_DROP_MASK} center/contain no-repeat;`,
+        title: 'font-style:normal;font-weight:700;letter-spacing:.2em;text-indent:.2em;',
+        veil: 'background:rgba(60,0,0,.35);',
+    },
+    // 心理恐怖（正常界面崩坏）：平时是粉色校园风，名牌标记是一颗小爱心。
+    [DIALOG_SKIN_HORROR_PSYCH]: {
+        accent: '#e0779d',
+        light: true,
+        font: DIALOG_FONT_ZCOOL_KUAILE,
+        vars: { veil: 'rgba(255,250,252,.92)', rule: 'rgba(224,119,157,.6)', ink: '#6b4a5c', halo: '0 1px 0 rgba(255,255,255,.7)', 'title-halo': '0 1px 0 rgba(255,255,255,.9)', wipe: 'rgba(255,250,252,.95)', lose: '#c2456f', escape: '#8c72c4' },
+        mark: `width:13px;height:11px;align-self:center;font-size:0;background:#e0779d;-webkit-mask:${HORROR_HEART_MASK} center/contain no-repeat;mask:${HORROR_HEART_MASK} center/contain no-repeat;`,
+        title: 'font-style:normal;font-weight:400;letter-spacing:.16em;text-indent:.16em;',
+        veil: 'background:rgba(80,40,60,.16);',
+        foe: `text-shadow:${stroke('rgba(255,250,252,.75)')},0 0 18px rgba(255,250,252,.9);`,
     },
     // 日间简约：暗色渐隐名条 + 三色竖标，正文条为半透明白。
     [DIALOG_SKIN_DAY_MINIMAL]: {
@@ -66919,6 +68668,7 @@ const { floorKeyOf } = require("src/media/illustration-store.js");
 const { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } = require("src/media/generated-asset-store.js");
 const { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, nsfwClothingBoostLine, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } = require("src/generated-images/dbgen-prompt.js");
 const { normalizeStoredPrompt, promptFromCaption } = require("src/generated-images/generation-prompt.js");
+const { sceneVariantCaption, sceneVariantTags } = require("src/generated-images/scene-variant-tags.js");
 const { resolveCharacterKey } = require("src/scene/scene-directives.js");
 const { isCharacterDnaEmpty, resolveCharacterDna } = require("src/scene/character-dna.js");
 const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
@@ -67700,6 +69450,51 @@ function createAssetGenerationService(deps) {
         return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, note, nsfw, onProgress });
     }
 
+    // 场景时间/天气差分：读场景原图存下的提示词，换上目标时间天气标签直接出图，不写词。
+    // 一次点击的一批共用一颗新种子，构图尽量接近；signal 中止后已出的图保留。
+    async function generateSceneVariants({ baseImageId, scene, variants, onProgress, signal } = {}) {
+        const list = (Array.isArray(variants) ? variants : []).filter((item) => item && (item.time || item.weather));
+        if (!list.length) return { ok: false, error: '没有要画的时间/天气' };
+        if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出图' };
+        const stored = await getImagePrompt(baseImageId);
+        if (!stored) return { ok: false, error: '场景原图没有存提示词' };
+        const s = readSettings();
+        const seed = randomSeed();
+        const items = [];
+        for (let i = 0; i < list.length; i += 1) {
+            const { time = '', weather = '' } = list[i];
+            const label = [time, weather].filter(Boolean).join('·');
+            if (signal && signal.aborted) {
+                items.push({ time, weather, ok: false, error: '已停止' });
+                continue;
+            }
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: list.length, mood: label });
+            const caption = sceneVariantCaption(stored, sceneVariantTags(time, weather));
+            if (!caption) {
+                items.push({ time, weather, ok: false, error: '场景原图的提示词是空的' });
+                continue;
+            }
+            let painted;
+            try {
+                painted = await nai.generateDbgenCaption({ caption, size: backgroundSize(s), seed });
+            } catch (error) {
+                painted = { ok: false, error: (error && error.message) || '出图失败' };
+            }
+            if (!painted || !painted.ok || !painted.dataUrl) {
+                items.push({ time, weather, ok: false, error: (painted && painted.error) || '出图失败' });
+                continue;
+            }
+            const imageId = newId();
+            const image = { id: imageId, dataUrl: painted.dataUrl, type: 'background', createdAt: now() };
+            const prompt = normalizeStoredPrompt(painted.prompt) || promptFromCaption(caption);
+            if (prompt) image.prompt = prompt;
+            await putImageWithQuotaFallback(image);
+            rememberImage(imageId, image.dataUrl);
+            items.push({ time, weather, ok: true, imageId, scene });
+        }
+        return { ok: items.some((item) => item.ok), items, stopped: Boolean(signal && signal.aborted), error: (items.find((item) => !item.ok) || {}).error || '' };
+    }
+
     // 状态栏头像：Q 版大头，方图、不抠图，直接把图交回去，由设置页缩小后存进头像。
     async function generateCharacterAvatar({ name, dna, onProgress } = {}) {
         const who = String(name || '').trim();
@@ -67894,7 +69689,7 @@ function createAssetGenerationService(deps) {
 
     return {
         processMessage, resolveUrl, resolveThumbUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
-        generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
+        generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateSceneVariants, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
         start() {
@@ -68057,6 +69852,72 @@ __igsDefine(exports, "applyGeneratedImageUpdate", () => applyGeneratedImageUpdat
 __igsDefine(exports, "createMemoryGeneratedAssetStore", () => createMemoryGeneratedAssetStore);
 __igsDefine(exports, "createIndexedDbGeneratedAssetStore", () => createIndexedDbGeneratedAssetStore);
 __igsDefine(exports, "GENERATED_IMAGE_SCHEMA_VERSION", () => GENERATED_IMAGE_SCHEMA_VERSION);
+});
+__igsRegister("src/generated-images/scene-variant-tags.js", function(module, exports, require) {
+// 场景时间/天气差分：不写词，拿场景原图的提示词，去掉里面原有的时间天气词，把目标时间天气的英文标签放最前。
+// 中文名按子串命中，先具体后泛化；都不中就用原名，插件模型多少能认一些。
+
+const TIME_RULES = [
+    [['深夜', '午夜', '凌晨', '半夜', 'midnight'], 'midnight, night, dark, moonlight, starry sky, dim lighting'],
+    [['黄昏', '傍晚', '日落', '夕', 'dusk', 'evening', 'sunset'], 'sunset, dusk, orange sky, golden hour, long shadows'],
+    [['清晨', '黎明', '拂晓', '早晨', '早上', '日出', '晨', 'dawn', 'morning', 'sunrise'], 'morning, sunrise, soft sunlight, pale sky, light mist'],
+    [['夜', '晚', 'night'], 'night, night sky, moonlight, dark, artificial lighting'],
+    [['白天', '白日', '日间', '上午', '中午', '正午', '下午', '午后', '午', 'day', 'noon', 'afternoon'], 'day, daylight, bright, blue sky'],
+];
+
+const WEATHER_RULES = [
+    [['雷', '闪电', 'thunder', 'lightning'], 'thunderstorm, lightning, heavy rain, dark clouds'],
+    [['暴雪', '雪', 'snow', 'blizzard'], 'snow, snowing, snowflakes, snow on ground'],
+    [['雨', 'rain'], 'rain, raining, wet ground, overcast, puddle'],
+    [['雾', 'fog', 'mist'], 'fog, misty, hazy, low visibility'],
+    [['沙', '尘', 'sand', 'dust'], 'sandstorm, dust, hazy, yellow sky'],
+    [['风', 'wind'], 'windy, wind, swaying trees, flying leaves'],
+    [['阴', '云', 'cloud', 'overcast'], 'cloudy, overcast, grey sky'],
+    [['晴', 'sun', 'clear'], 'sunny, clear sky, sunlight'],
+];
+
+const STRIP = new Set([
+    'day', 'daytime', 'daylight', 'night', 'nighttime', 'night sky', 'midnight', 'evening', 'morning', 'afternoon', 'noon',
+    'dawn', 'dusk', 'sunset', 'sunrise', 'twilight', 'golden hour', 'moonlight', 'moon', 'starry sky', 'stars', 'blue sky',
+    'orange sky', 'sunlight', 'sunbeam', 'light rays', 'bright', 'dark', 'dim lighting',
+    'rain', 'raining', 'rainy', 'heavy rain', 'snow', 'snowing', 'snowflakes', 'fog', 'foggy', 'misty', 'mist', 'cloudy',
+    'overcast', 'clear sky', 'sunny', 'thunderstorm', 'lightning', 'storm', 'wet ground', 'puddle', 'windy',
+]);
+
+function ruleTags(rules, label) {
+    const text = String(label || '').trim().toLowerCase();
+    if (!text) return '';
+    const hit = rules.find(([words]) => words.some((word) => text.includes(word)));
+    return hit ? hit[1] : text;
+}
+function sceneVariantTags(time, weather) {
+    return [ruleTags(TIME_RULES, time), ruleTags(WEATHER_RULES, weather)].filter(Boolean).join(', ');
+}
+function applySceneVariantTags(text, tags) {
+    const kept = String(text || '').split(',').map((item) => item.trim()).filter((item) => {
+        const bare = item.replace(/^[\d.]+::|::$/g, '').replace(/^[{[(]+|[}\])]+$/g, '').trim().toLowerCase();
+        return item && !STRIP.has(bare);
+    });
+    return [tags, ...kept].filter(Boolean).join(', ');
+}
+
+// 存下的提示词有结构化 caption 就用它，没有就把正负文本当场景段。
+function sceneVariantCaption(stored, tags) {
+    const source = stored && stored.caption && stored.caption.v4_prompt
+        ? JSON.parse(JSON.stringify(stored.caption))
+        : {
+            v4_prompt: { caption: { base_caption: String((stored && stored.positive) || ''), char_captions: [] } },
+            v4_negative_prompt: { caption: { base_caption: String((stored && stored.negative) || ''), char_captions: [] } },
+        };
+    const cap = source.v4_prompt.caption;
+    if (!String(cap.base_caption || '').trim()) return null;
+    cap.base_caption = applySceneVariantTags(cap.base_caption, tags);
+    return source;
+}
+
+__igsDefine(exports, "sceneVariantTags", () => sceneVariantTags);
+__igsDefine(exports, "applySceneVariantTags", () => applySceneVariantTags);
+__igsDefine(exports, "sceneVariantCaption", () => sceneVariantCaption);
 });
 __igsRegister("src/core/item-cg-services.js", function(module, exports, require) {
 // 物品图与 CG 库的服务装配：bootstrap 只调用这里，避免在入口堆业务逻辑。

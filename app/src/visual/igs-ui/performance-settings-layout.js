@@ -5,6 +5,7 @@ import { renderRomanceFxFields } from './romance-fields.js';
 import { renderDanmakuFields } from './danmaku-settings-fields.js';
 import { renderMetaFxFields } from './meta-fields.js';
 import { PERFORMANCE_FEATURES, PERFORMANCE_PRESETS, detectPerformancePreset, isPerformanceFeatureOn } from './performance-presets.js';
+import { CARD_TYPES, PROFILE_PATH, hasPerformanceProfile, profileDiff, typeFeatureLabels } from './performance-profile.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { FX_SETTINGS_NORMALIZERS } from './fx-settings.js';
 
@@ -15,22 +16,36 @@ export const PERFORMANCE_GROUPS = Object.freeze([
     Object.freeze(['emotion', '情绪反应']),
     Object.freeze(['story', '剧情提示']),
     Object.freeze(['event', '事件演出']),
+    Object.freeze(['special', '特定类型才用']),
     Object.freeze(['romance', '亲密']),
     Object.freeze(['sound', '声音']),
 ]);
 
 // 首页与「阅读器 › 演出」共用同一档位条和 perf-preset 动作；extraRows 供其他档位（如画质档）挂在同一卡片里。
 export function renderPerformancePresetBar(reader, { home = false, extraRows = '' } = {}) {
-    const current = detectPerformancePreset(reader && typeof reader === 'object' ? reader : {});
+    const src = reader && typeof reader === 'object' ? reader : {};
+    // 有快速配置时，高亮的是配置记下的档位；手动改过的开关在下面列出差异。
+    const profile = hasPerformanceProfile(src) ? src[PROFILE_PATH] : null;
+    const diff = profileDiff(src);
+    const changed = Boolean(diff && (diff.added.length || diff.removed.length));
+    const current = profile ? (changed ? '' : profile.level) : detectPerformancePreset(src);
     const buttons = PERFORMANCE_PRESETS.map(([id, label]) => (
         `<button type="button" class="igs-perf-preset${current === id ? ' is-active' : ''}" data-action="perf-preset:${id}" aria-pressed="${current === id ? 'true' : 'false'}">${esc(label)}</button>`
     )).join('');
-    const custom = '当前为自定义组合；点任一档位会覆盖各演出的开关，细项设置保留。';
-    const note = home
-        ? `${current ? '' : custom}细项前往「阅读器 › 演出」调整。`
-        : (current ? '' : custom);
+    const picked = new Set(profile && Array.isArray(profile.types) ? profile.types : []);
+    const chips = CARD_TYPES.map(([id, label]) => (
+        `<button type="button" class="igs-perf-type${picked.has(id) ? ' is-active' : ''}" data-action="perf-type:${id}" aria-pressed="${picked.has(id) ? 'true' : 'false'}">${esc(label)}</button>`
+    )).join('');
+    const typeRow = `<div class="igs-perf-type-row"><span class="igs-perf-type-label">卡片类型</span>${chips}</div>`;
+    let state = '';
+    if (changed) {
+        state = [diff.added.length ? `比配置多开了：${diff.added.join('、')}` : '', diff.removed.length ? `关掉了：${diff.removed.join('、')}` : ''].filter(Boolean).join('；') + '。点档位会恢复。';
+    } else if (!current) {
+        state = '当前为自定义组合；点任一档位会覆盖各演出的开关，细项设置保留。';
+    }
+    const note = home ? `${state}细项前往「阅读器 › 演出」调整。` : state;
     const title = home ? '演出档位' : '一键档位';
-    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
+    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${typeRow}${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
 }
 
 // 档位不切换、但也摆在分组里的开关（改 AI 输出格式、实验功能、玩法或非演出设置）：
@@ -61,6 +76,11 @@ function groupSummary(reader, groupId, allOff, extra = []) {
     return `<span class="igs-perf-count${on.length ? ' is-on' : ''}">${on.length}/${switches.length}</span><span class="igs-perf-brief">${esc(brief)}</span>`;
 }
 
+function specialNote() {
+    const lines = typeFeatureLabels().map(([label, types]) => `${label}：${types.join('、')}`).join('；');
+    return `<div class="igs-source-filter-note">只在特定剧情里用到。在上面勾选卡片类型会自动开启——${esc(lines)}。</div>`;
+}
+
 function groupCard(id, title, summaryHtml, body, open) {
     return `<div class="igs-source-filter igs-perf-group"><details data-advanced="perf-group-${id}"${open ? ' open' : ''}><summary><b>${esc(title)}</b>${summaryHtml}</summary><div class="igs-perf-group-body">${body}</div></details></div>`;
 }
@@ -81,9 +101,10 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
         text: [extras.typewriter, stage.clickWaitMark, stage.textFx, stage.bilingual, extras.sentencePaging],
         stage: [stage.transition, stage.tint, stage.camera, pair('weather', '强度与室内外地点词', extras.weatherFx), pair('stage-shake', '强度与触发情绪', extras.stageShake)],
         character: [stage.motion, stage.actions, stage.cast, extras.narrationFilter],
-        emotion: [fx.manga, fx.heartbeat, fx.flash, danmaku.inner],
+        emotion: [fx.manga, fx.heartbeat],
         story: [fx.title, fx.favor, fx.itemFx, fx.resultFx],
-        event: [fx.tags, stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow), danmaku.live, danmaku.audience],
+        event: [fx.tags],
+        special: [specialNote(), stage.daily, fx.battleFx, pair('chat-show', '线上交流详细设置', extras.chatShow), danmaku.live, danmaku.audience, fx.flash, danmaku.inner],
         romance: [renderRomanceFxFields(src, more), extras.nsfw || ''],
         sound: [stage.master, fx.sound, stage.ambient, stage.ui, stage.bgm],
     };

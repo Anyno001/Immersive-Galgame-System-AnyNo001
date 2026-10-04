@@ -140,8 +140,9 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     assert.match(swim, /data-outfit-fallback="害羞">.*?base\.png.*?回落原装「默认」.*?data-action="scene-add-outfit-mood:[^"]+:%E5%AE%B3%E7%BE%9E"/);
     assert.doesNotMatch(swim, /data-outfit-fallback="默认"/);
     assert.doesNotMatch(swim, /缺图时|全部补上/, '只缺一格时不放整批补齐');
-    // 这套服装的操作都在页签行末尾的 ⋯ 里，不再单独占一行。
-    assert.match(swim, /data-outfit-tabs="小林海斗">[\s\S]*?igs-outfit-tab-add[\s\S]*?class="igs-add-menu igs-row-menu"[\s\S]*?data-action="outfit-expression-set:[^"]+"[^>]*>表情差分[\s\S]*?<\/details><\/div>/);
+    // 添加服装 / 添加情绪是页签行上的图标；生成立绘、表情差分外露，⋯ 里不再重复。
+    assert.match(swim, /data-outfit-tabs="小林海斗">[\s\S]*?igs-outfit-tab-add[\s\S]*?data-action="scene-add-outfit-mood:[^"]+" title="添加情绪"[\s\S]*?igs-outfit-quick-btn" data-action="outfit-expression-set:[^"]+">表情差分[\s\S]*?class="igs-add-menu igs-row-menu"[\s\S]*?<\/details><\/div>/);
+    assert.doesNotMatch(swim.slice(swim.indexOf('data-outfit-tabs='), swim.indexOf('data-outfit-panel=')), /role="menuitem">表情差分/);
     assert.match(swim, /海边<button type="button" class="igs-mood-word-del" data-action="scene-remove-outfit-scene:/);
     assert.match(swim, /data-scene-outfit-avatar="泳装" value="https:\/\/x\/swim-avatar\.png"/);
 

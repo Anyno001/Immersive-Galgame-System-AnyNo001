@@ -13,12 +13,13 @@ export const WORLDVIEWS = Object.freeze([
     Object.freeze({ id: 'apocalypse', label: '末日', ready: true }),
     Object.freeze({ id: 'taisho', label: '大正', ready: true }),
     Object.freeze({ id: 'magic', label: '魔法', ready: true }),
+    Object.freeze({ id: 'horror', label: '恐怖', ready: true }),
 ]);
 
 export const DEFAULT_WORLDVIEW = 'modern';
 
 // 在现代演出结构上换皮的世界观（古代有独立分支，不在此列）；演出 / 音效层只经 worldSkinOf 判断，不各自维护列表。
-export const WORLD_SKIN_IDS = Object.freeze(['fantasy', 'scifi', 'apocalypse', 'taisho', 'magic']);
+export const WORLD_SKIN_IDS = Object.freeze(['fantasy', 'scifi', 'apocalypse', 'taisho', 'magic', 'horror']);
 export function worldSkinOf(id) {
     return WORLD_SKIN_IDS.includes(id) ? id : '';
 }

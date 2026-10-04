@@ -48,9 +48,12 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
     });
     for (const [id] of PERFORMANCE_GROUPS) assert.match(html, new RegExp(`<details data-advanced="perf-group-${id}">`));
     assert.match(html, /data-action="perf-preset:standard"/);
-    assert.match(html, /<b>情绪反应<\/b><span class="igs-perf-count is-on">1\/4<\/span><span class="igs-perf-brief">情绪符号<\/span>/);
+    assert.match(html, /<b>情绪反应<\/b><span class="igs-perf-count is-on">1\/2<\/span><span class="igs-perf-brief">情绪符号<\/span>/);
     assert.match(html, /<b>立绘<\/b><span class="igs-perf-count">0\/3<\/span>/);
-    assert.match(html, /<b>事件演出<\/b><span class="igs-perf-count">0\/6<\/span>/);
+    assert.match(html, /<b>事件演出<\/b><span class="igs-perf-count">0\/1<\/span>/);
+    // 战斗、直播、线上交流这类只在特定剧情用的，收进「特定类型才用」，勾卡片类型自动开。
+    assert.match(html, /<b>特定类型才用<\/b><span class="igs-perf-count">0\/7<\/span>/);
+    assert.match(html, /data-action="perf-type:battle"/);
     assert.match(html, /<details class="igs-settings-advanced igs-perf-more" data-advanced="perf-manga-words"><summary>自定义触发情绪<\/summary>/);
     assert.match(html, /data-advanced="perf-stage-shake"><summary>强度与触发情绪<\/summary><i data-shake-detail><\/i>/);
     assert.match(html, /data-tw/);

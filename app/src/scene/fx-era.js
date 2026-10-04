@@ -2,6 +2,8 @@
 // 古代模式按语义过滤演出：现代才有的事物既不写进提示词，也不播放（正文里的标签照常剥离，不会漏字）。
 // 古代也有、只是画面还偏现代的演出（时间流逝、字条、书信、烟花、求签…）保留，古风皮另做。
 // 实现方式是在注入提示词前、生成阅读器快照前把对应开关拨成关，不改各演出模块自己的判断。
+import { buildHorrorPromptRule } from './horror.js';
+
 export const FX_ERA_MODERN_ONLY = Object.freeze({
     // notify 在古代模式下换成「家仆通报」（提示词与画面都按时代切换），不在此列。
     fxTags: Object.freeze(['call', 'voicemail', 'contact', 'movie']),
@@ -21,8 +23,12 @@ export const FX_ERA_ANCIENT_ONLY = Object.freeze({
 export const FX_MAGIC_ONLY = Object.freeze({
     dailyFx: Object.freeze(['spell', 'potion', 'owl', 'broom', 'howler']),
 });
+// 恐怖世界专属演出：停电、敲门、耳边低语。
+export const FX_HORROR_ONLY = Object.freeze({
+    dailyFx: Object.freeze(['blackout', 'knock', 'murmur']),
+});
 // 世界观专属演出表：当前世界观以外的表全部拨成关。
-export const FX_WORLDVIEW_ONLY = Object.freeze({ ancient: FX_ERA_ANCIENT_ONLY, magic: FX_MAGIC_ONLY });
+export const FX_WORLDVIEW_ONLY = Object.freeze({ ancient: FX_ERA_ANCIENT_ONLY, magic: FX_MAGIC_ONLY, horror: FX_HORROR_ONLY });
 
 function stripExclusive(readerSettings, worldview) {
     let out = null;
@@ -87,6 +93,11 @@ export const FX_WORLDVIEW_OFF = Object.freeze({
         dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
         features: FX_ERA_MODERN_FEATURES,
     }),
+    // 恐怖：现代日常照常（手机、直播都可以是恐惧来源），只拨掉与氛围相冲的轻快演出。
+    horror: Object.freeze({
+        dailyFx: Object.freeze(['fireworks', 'gacha', 'game', 'score']),
+        features: Object.freeze([]),
+    }),
 });
 
 export const FANTASY_ERA_PROMPT_RULE = `[igs时代背景]
@@ -113,8 +124,9 @@ export const WORLDVIEW_PROMPT_RULES = Object.freeze({
     magic: MAGIC_ERA_PROMPT_RULE,
 });
 
-// 现代与未知 id 返回空串（不追加时代规则）。
-export function resolveWorldviewPromptRule(worldview) {
+// 现代与未知 id 返回空串（不追加时代规则）；恐怖规则随 sceneAssets 里的风格与血腥尺度生成。
+export function resolveWorldviewPromptRule(worldview, sceneAssets) {
+    if (worldview === 'horror') return buildHorrorPromptRule(sceneAssets);
     return WORLDVIEW_PROMPT_RULES[worldview] || '';
 }
 

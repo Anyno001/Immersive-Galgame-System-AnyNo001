@@ -251,6 +251,11 @@ export const FX_STYLE_TEXT = `
 .igs-fx-promise.is-taisho .igs-fx-promise-seal{border-color:#7b2e2a;color:#7b2e2a;}
 
 /* 魔法换皮：午夜蓝 + 金线 + 星光辉，契约为羊皮纸配火漆。只改配色字体，不改位置与动画。 */
+.igs-fx-notify.is-horror{color:#e4dad4;background:linear-gradient(180deg,rgba(18,12,12,.94),rgba(8,6,6,.96));border:0;border-left:3px solid #8c0c14;border-radius:2px;box-shadow:0 6px 22px rgba(0,0,0,.5);font-family:"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif;}
+.igs-fx-title-card.is-horror{color:#e4dad4;font-family:"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif;letter-spacing:.3em;text-shadow:0 2px 12px rgba(0,0,0,.95);}
+.igs-fx-title-card.is-horror::before,.igs-fx-title-card.is-horror::after{background:linear-gradient(90deg,transparent,rgba(160,14,22,.9),transparent);box-shadow:none;}
+.igs-fx-promise.is-horror{color:#2a2220;background:linear-gradient(160deg,#e3ddd2,#c9c0b2);border:1px solid #7a6c62;box-shadow:0 8px 22px rgba(0,0,0,.45),inset 0 0 24px rgba(90,60,50,.3);font-family:"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif;}
+.igs-fx-promise.is-horror .igs-fx-promise-seal{border-color:#6d0611;background:radial-gradient(circle at 40% 36%,#9e1420,#6d0611 64%,#40030a);color:#efe4dc;border-radius:46% 54% 50% 50%/56% 50% 50% 44%;}
 .igs-fx-notify.is-magic{color:#f3e2b6;background:linear-gradient(180deg,rgba(28,34,72,.94),rgba(14,18,42,.95));border:1px solid rgba(201,162,74,.8);border-radius:4px;box-shadow:0 0 16px rgba(255,214,120,.28),0 6px 22px rgba(0,0,0,.4),inset 0 0 0 3px rgba(14,18,42,.95),inset 0 0 0 4px rgba(201,162,74,.35);font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
 .igs-fx-title-card.is-magic{color:#f6e7c1;font-family:"IM Fell English",Georgia,"Times New Roman",serif;letter-spacing:.14em;text-shadow:0 0 14px rgba(255,214,120,.65),0 2px 10px rgba(10,12,40,.9);}
 .igs-fx-title-card.is-magic::before,.igs-fx-title-card.is-magic::after{background:linear-gradient(90deg,transparent,rgba(255,214,120,.95),transparent);box-shadow:0 0 8px rgba(255,214,120,.6);}

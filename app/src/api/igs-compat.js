@@ -2,6 +2,10 @@ import { collectLatestOutfits, createOutfitResolver, normalizeCharacterOutfits, 
 
 import { resolveLegacyReaderMode } from '../storage/legacy-igs.js';
 import { parseSceneText } from '../scene/text-parser.js';
+import { findLastDreadLevel } from '../scene/horror.js';
+import { resolveWorldview } from '../scene/worldview.js';
+import { sceneAssetsForContext } from '../scene/asset-scope.js';
+import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 import { buildIgsTextPayload, getMessagePrimaryText } from '../scene/message-source.js';
 import { extractSceneDirectives, resolveLatestSceneDirective } from '../scene/scene-directives.js';
 import { BATTLE_CHAIN_MAX_FLOORS, createBattleHistoryScanner } from '../scene/battle-context.js';
@@ -288,6 +292,27 @@ async function resolveInheritedOutfits(app, sceneAssets, messageId) {
     return result;
 }
 
+// 恐怖档位跨楼层延续：本楼没有 [igs-dread:N] 时，向前最多追溯 6 个楼层取最近的一个；都没有返回 null。
+const INHERITED_DREAD_MAX_FLOORS = 6;
+async function resolveInheritedDread(app, messageId) {
+    const startId = Number(messageId);
+    if (!Number.isFinite(startId) || !app.hostAdapter || typeof app.hostAdapter.getAdjacentMessage !== 'function') return null;
+    let cursor = startId;
+    for (let depth = 0; depth < INHERITED_DREAD_MAX_FLOORS; depth += 1) {
+        let previous = null;
+        try {
+            previous = await app.hostAdapter.getAdjacentMessage(cursor, -1);
+        } catch (error) {
+            return null;
+        }
+        if (!previous || previous.id == null || Number(previous.id) === cursor) return null;
+        cursor = Number(previous.id);
+        const level = findLastDreadLevel(getMessagePrimaryText(previous));
+        if (level !== null) return level;
+    }
+    return null;
+}
+
 async function buildReaderPayload(app, message, messageId, readerMode) {
     const unifiedSettings = typeof app.getUnifiedSettingsSnapshot === 'function'
         ? app.getUnifiedSettingsSnapshot({ mode: readerMode })
@@ -312,6 +337,10 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     const inheritedOutfits = sceneAssetsEnabled
         ? await resolveInheritedOutfits(app, bridge.sceneAssets, messageId)
         : {};
+    // 只有恐怖世界观、且本楼没写档位时才向前追溯。
+    const inheritedDread = resolveWorldview(sceneAssetsForContext(bridge.sceneAssets, getSillyTavernContext())) === 'horror' && findLastDreadLevel(getMessagePrimaryText(message)) === null
+        ? await resolveInheritedDread(app, messageId)
+        : null;
     const battleFxSettings = unifiedSettings && unifiedSettings.readerSettings && unifiedSettings.readerSettings.battleFx;
     const battleContext = battleFxSettings && battleFxSettings.enabled === true
         ? await resolveBattleContext(app, messageId)
@@ -332,6 +361,7 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
         ...visualNovelText,
         inheritedSceneState,
         inheritedOutfits,
+        inheritedDread,
         battleContext,
         promiseHistory,
         message,
