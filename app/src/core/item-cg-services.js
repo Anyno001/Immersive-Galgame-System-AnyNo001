@@ -4,6 +4,7 @@ import { createItemImageService, ITEM_IMAGE_UPDATED_EVENT } from '../generated-i
 import { createCgGalleryService } from '../media/cg-gallery-service.js';
 import { createIndexedDbCgGalleryStore } from '../media/cg-gallery-store.js';
 import { createIndexedDbPhotoAlbumStore, withPhotoAlbum } from '../media/photo-album.js';
+import { withTavernPhotoFiles } from '../media/tavern-image-files.js';
 import { createShujukuClient } from '../data/shujuku/client.js';
 
 export function createItemAndCgServices(deps = {}) {
@@ -25,7 +26,7 @@ export function createItemAndCgServices(deps = {}) {
         illustrationStore,
         galleryStore: deps.cgGalleryStore || createIndexedDbCgGalleryStore(globalObject),
         clearIllustration,
-    }), deps.photoAlbumStore || createIndexedDbPhotoAlbumStore(globalObject), { getDocument: () => globalObject && globalObject.document });
+    }), deps.photoAlbumStore || withTavernPhotoFiles(createIndexedDbPhotoAlbumStore(globalObject), globalObject), { getDocument: () => globalObject && globalObject.document });
     const onItemImageUpdated = (handler) => (events && typeof events.on === 'function' ? events.on(ITEM_IMAGE_UPDATED_EVENT, handler) : () => {});
     return { itemImages, cgGallery, onItemImageUpdated };
 }

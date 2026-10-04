@@ -1,6 +1,7 @@
 import { createPublicApi, attachPublicApi, detachPublicApi } from '../api/public-api.js';
 import { createTavernHelperAdapter, getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 import { sceneAssetsForContext } from '../scene/asset-scope.js';
+import { withTavernGeneratedAssetFiles, withTavernIllustrationFiles } from '../media/tavern-image-files.js';
 import { createPresetRegistry } from '../presets/preset-registry.js';
 import { createInputChannel } from '../host/input-channel.js';
 import { parseSceneText } from '../scene/text-parser.js';
@@ -50,7 +51,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.35';
+const IGS_VERSION = '0.34.36';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -121,7 +122,7 @@ export function bootstrapIGS(options = {}) {
         },
     });
     // CG 库与自动插图共用同一个插图存储实例。
-    const illustrationStore = options.illustrationStore || createIndexedDbIllustrationStore(globalObject);
+    const illustrationStore = options.illustrationStore || withTavernIllustrationFiles(createIndexedDbIllustrationStore(globalObject), globalObject);
     const illustrationService = options.illustrationService || createAutoIllustrationService({
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
@@ -139,7 +140,7 @@ export function bootstrapIGS(options = {}) {
         report: reportImageJob,
     });
     // 物品图与素材补全共用 igs-generated-assets 存储实例。
-    const generatedAssetStore = options.generatedAssetStore || createIndexedDbGeneratedAssetStore(globalObject);
+    const generatedAssetStore = options.generatedAssetStore || withTavernGeneratedAssetFiles(createIndexedDbGeneratedAssetStore(globalObject), globalObject);
     const assetGenerationService = options.assetGenerationService || createAssetGenerationService({
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,

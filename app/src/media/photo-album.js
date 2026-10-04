@@ -12,7 +12,7 @@ export function normalizePhoto(value) {
     const src = value && typeof value === 'object' ? value : {};
     const id = String(src.id || '').trim();
     const dataUrl = String(src.dataUrl || '');
-    if (!id || !/^data:image\/(jpeg|png|webp);base64,/.test(dataUrl)) return null;
+    if (!id || !/^(data:image\/(jpeg|png|webp);base64,|\/?user\/images\/igs-)/.test(dataUrl)) return null;
     return {
         id,
         chatId: String(src.chatId || ''),
