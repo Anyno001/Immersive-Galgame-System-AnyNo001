@@ -70,3 +70,30 @@ export function detectPerformancePreset(reader) {
         .every(({ key, tier }) => (level === 0 && key === 'fxSound') || isPerformanceFeatureOn(reader, key) === (tier <= level)));
     return found ? found[0] : '';
 }
+
+export function performancePresetLabel(preset) {
+    const found = PERFORMANCE_PRESETS.find(([id]) => id === preset);
+    return found ? found[1] : '';
+}
+
+// 只有手工调成的自定义组合会被档位整体覆盖，先确认；同档位重按和档位之间切换没有可丢的细调，直接生效。
+export function shouldConfirmPerformancePreset(reader, preset) {
+    if (presetLevel(preset) == null) return false;
+    return detectPerformancePreset(reader && typeof reader === 'object' ? reader : {}) === '';
+}
+
+// 覆盖前记下每个演出的开关，误点档位后仍能还原自定义组合。
+export function capturePerformancePreset(reader) {
+    const src = plain(reader);
+    return Object.fromEntries(PERFORMANCE_FEATURES.map(({ key }) => [key, isPerformanceFeatureOn(src, key)]));
+}
+
+// 快照残缺时整体拒绝，避免草稿被写坏一半。
+export function restorePerformancePreset(reader, snapshot) {
+    if (!reader || typeof reader !== 'object' || !snapshot || typeof snapshot !== 'object') return false;
+    if (!PERFORMANCE_FEATURES.every(({ key }) => typeof snapshot[key] === 'boolean')) return false;
+    for (const { key } of PERFORMANCE_FEATURES) {
+        reader[key] = { ...plain(reader[key]), enabled: snapshot[key] };
+    }
+    return true;
+}

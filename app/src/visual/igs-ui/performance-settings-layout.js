@@ -20,7 +20,7 @@ export const PERFORMANCE_GROUPS = Object.freeze([
 ]);
 
 // 首页与「阅读器 › 演出」共用同一档位条和 perf-preset 动作；extraRows 供其他档位（如画质档）挂在同一卡片里。
-export function renderPerformancePresetBar(reader, { home = false, extraRows = '' } = {}) {
+export function renderPerformancePresetBar(reader, { home = false, extraRows = '', canUndo = false } = {}) {
     const current = detectPerformancePreset(reader && typeof reader === 'object' ? reader : {});
     const buttons = PERFORMANCE_PRESETS.map(([id, label]) => (
         `<button type="button" class="igs-perf-preset${current === id ? ' is-active' : ''}" data-action="perf-preset:${id}" aria-pressed="${current === id ? 'true' : 'false'}">${esc(label)}</button>`
@@ -29,8 +29,9 @@ export function renderPerformancePresetBar(reader, { home = false, extraRows = '
     const note = home
         ? `${current ? '' : custom}细项前往「阅读器 › 演出」调整。`
         : (current ? '' : custom);
+    const undo = canUndo ? '<button type="button" class="igs-settings-action" data-action="perf-preset-undo">撤销档位切换</button>' : '';
     const title = home ? '演出档位' : '一键档位';
-    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
+    return `<div class="igs-source-filter igs-perf-presets"><div class="igs-source-filter-title">${title}</div><div class="igs-perf-preset-row">${buttons}</div>${undo}${extraRows}${note ? `<div class="igs-source-filter-note">${esc(note)}</div>` : ''}</div>`;
 }
 
 // 档位不切换、但也摆在分组里的开关（改 AI 输出格式、实验功能、玩法或非演出设置）：
@@ -92,5 +93,5 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
     const metaOn = Boolean(src.metaFx && src.metaFx.enabled === true);
     const meta = groupCard('meta', 'Meta 互动', `<span class="igs-perf-count${metaOn ? ' is-on' : ''}">${metaOn ? '开' : '关'}</span><span class="igs-perf-brief">TA在注视着你</span>`, renderMetaFxFields(src, more), isOpen('perf-group-meta'));
     const rhythm = groupCard('rhythm', '节奏', '<span class="igs-perf-brief">演出风格、停留时间与重播</span>', fx.style, isOpen('perf-group-rhythm'));
-    return renderPerformancePresetBar(src, { extraRows: (extras.worldview || '') + renderQualityRow(src) }) + groups.join('') + meta + rhythm;
+    return renderPerformancePresetBar(src, { canUndo: extras.canUndo === true, extraRows: (extras.worldview || '') + renderQualityRow(src) }) + groups.join('') + meta + rhythm;
 }

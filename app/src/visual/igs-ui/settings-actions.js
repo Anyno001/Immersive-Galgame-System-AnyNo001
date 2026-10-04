@@ -24,7 +24,7 @@ import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import { FX_SETTINGS_NORMALIZERS, FX_WORD_LIST_PATHS } from './fx-settings.js';
 import { ROMANCE_ACTIONS_MAX, normalizeRomanceFxSettings } from './romance-settings.js';
 import { META_GLOBAL_SCOPE, META_LINE_KINDS, META_LINES_MAX, normalizeMetaFxSettings } from './meta-settings.js';
-import { applyPerformancePreset } from './performance-presets.js';
+import { applyPerformancePreset, capturePerformancePreset, performancePresetLabel, restorePerformancePreset, shouldConfirmPerformancePreset } from './performance-presets.js';
 import { WORLDVIEWS, applyWorldview, resolveWorldview } from '../../scene/worldview.js';
 import { normalizeBgmSettings } from './scene-audio.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
@@ -1577,7 +1577,25 @@ export async function handleSettingsAction(action, ctx) {
     const perfPresetAction = normalizedAction.match(/^perf-preset:([a-z]+)$/);
     if (perfPresetAction) {
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
-        applyPerformancePreset(readerDraft, perfPresetAction[1]);
+        const presetId = perfPresetAction[1];
+        const label = performancePresetLabel(presetId);
+        if (!label) return rerenderSettings();
+        if (shouldConfirmPerformancePreset(readerDraft, presetId)) {
+            const snapshot = capturePerformancePreset(readerDraft);
+            if (!await dialogs.confirm(`当前是自定义的演出组合，切到「${label}」档会按档位重设各演出的开关，细项设置保留。`, { okLabel: '覆盖' })) {
+                return rerenderSettings();
+            }
+            settingsState.asyncState.perfPresetUndo = snapshot;
+        }
+        applyPerformancePreset(readerDraft, presetId);
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'perf-preset-undo') {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const snapshot = settingsState.asyncState.perfPresetUndo;
+        if (!restorePerformancePreset(readerDraft, snapshot)) return rerenderSettings();
+        settingsState.asyncState.perfPresetUndo = null;
         return rerenderSettings();
     }
 
