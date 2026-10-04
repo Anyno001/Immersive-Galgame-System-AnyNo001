@@ -247,7 +247,7 @@ export function renderSceneAssetList(scenes, options = {}) {
         const sceneWords = Array.isArray(sceneObj.words) ? sceneObj.words : [];
         const canVary = Boolean(storedImageId(sceneObj.url));
         const bgExpanded = expandedSlots.has('bg\x00' + sceneName);
-        const badge = (text) => `<span style="font-size:10px;opacity:.5;flex-shrink:0;margin-right:2px">${text}</span>`;
+        const badge = (text) => `<span class="igs-scene-badge">${text}</span>`;
         const timeEntries = Object.entries(sceneObj.times || {});
         const timeRows = timeEntries.map(([timeName, timeVal]) => {
             const timeObj = typeof timeVal === 'string' ? { url: timeVal, weathers: {} } : (timeVal || { url: '', weathers: {} });
@@ -256,11 +256,12 @@ export function renderSceneAssetList(scenes, options = {}) {
             const weatherRows = weatherEntries.map(([weatherName, weatherVal]) => {
                 const weatherObj = typeof weatherVal === 'string' ? { url: weatherVal } : (weatherVal || { url: '' });
                 const wExpanded = expandedSlots.has('weather\x00' + sceneName + '\x00' + timeName + '\x00' + weatherName);
-                const wBody = wExpanded ? renderSceneGroupExpansion('weather', weatherName, weatherObj.url || '', weatherGroups, options.resolveUrl) : '';
+                const wBody = wExpanded ? renderSceneGroupExpansion('weather', weatherName, weatherObj.url || '', weatherGroups, options.resolveUrl, sceneUrlField(weatherObj.url, `data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}"`, true)) : '';
                 return `<div class="igs-sprite-slot"><div class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row">`
+                    + sceneThumb(weatherObj.url, weatherName, options.resolveUrl)
                     + badge('天气')
                     + `<span class="igs-btn-mgr-label">${esc(weatherName)}</span>`
-                    + sceneUrlField(weatherObj.url, `data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}"`, weatherName, options.resolveUrl)
+                    + sceneUrlField(weatherObj.url, `data-scene-weather-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}" data-scene-weather="${esc(weatherName)}"`)
                     + transferIcons(weatherObj.url, `${sceneName}-${timeName}-${weatherName}-背景.png`, [`scene-pick-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '上传天气背景图'])
                     + renderRowMenu([
                         menuItem(`scene-rename-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}`, '重命名'),
@@ -271,11 +272,12 @@ export function renderSceneAssetList(scenes, options = {}) {
                     + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-weather:${encSeg(sceneName)}:${encSeg(timeName)}:${encSeg(weatherName)}" title="展开/折叠">${wExpanded ? chevronUp : chevronDown}</button>`
                     + `</div>${wBody}</div>`;
             }).join('');
-            const timeBody = timeExpanded ? renderSceneGroupExpansion('time', timeName, timeObj.url || '', timeGroups, options.resolveUrl) : '';
+            const timeBody = timeExpanded ? renderSceneGroupExpansion('time', timeName, timeObj.url || '', timeGroups, options.resolveUrl, sceneUrlField(timeObj.url, `data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}"`, true)) : '';
             return `<div class="igs-scene-char-group igs-scene-time-group"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
+                + sceneThumb(timeObj.url, timeName, options.resolveUrl)
                 + badge('时间')
                 + `<span class="igs-btn-mgr-label">${esc(timeName)}</span>`
-                + sceneUrlField(timeObj.url, `data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}"`, timeName, options.resolveUrl)
+                + sceneUrlField(timeObj.url, `data-scene-time-bg="${esc(sceneName)}" data-scene-time="${esc(timeName)}"`)
                 + transferIcons(timeObj.url, `${sceneName}-${timeName}-背景.png`, [`scene-pick-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '上传时间背景图'])
                 + renderRowMenu([
                     menuItem(`scene-rename-time:${encSeg(sceneName)}:${encSeg(timeName)}`, '重命名'),
@@ -287,15 +289,17 @@ export function renderSceneAssetList(scenes, options = {}) {
                 + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-toggle-time:${encSeg(sceneName)}:${encSeg(timeName)}" title="展开/折叠">${timeExpanded ? chevronUp : chevronDown}</button>`
                 + `</div>${timeBody}</div>${weatherRows}</div>`;
         }).join('');
-        const bgBody = bgExpanded ? renderSceneBgExpansion(sceneName, sceneObj.url || '', sceneWords, options.resolveUrl) : '';
+        const bgBody = bgExpanded ? renderSceneBgExpansion(sceneName, sceneObj.url || '', sceneWords, options.resolveUrl, sceneUrlField(sceneObj.url, `data-scene-bg="${esc(sceneName)}"`, true)) : '';
         return `<div class="igs-scene-char-group"><div class="igs-sprite-slot"><div class="igs-btn-mgr-row">`
+            + sceneThumb(sceneObj.url, sceneName, options.resolveUrl)
             + badge('场景')
             + `<span class="igs-btn-mgr-label" style="font-weight:600">${esc(sceneName)}</span>`
             + scopeTag(options, 'scenes', sceneName)
-            + sceneUrlField(sceneObj.url, `data-scene-bg="${esc(sceneName)}"`, sceneName, options.resolveUrl)
-            + (canVary ? `<button type="button" class="igs-btn-mgr-icon" data-action="scene-variant-set:${encSeg(sceneName)}" title="按这张的提示词生成时间/天气差分" aria-label="时间/天气差分">${SLOT_ICONS.variants}</button>` : '')
+            + sceneUrlField(sceneObj.url, `data-scene-bg="${esc(sceneName)}"`)
+            + (canVary ? `<button type="button" class="igs-btn-mgr-icon igs-slot-act" data-action="scene-variant-set:${encSeg(sceneName)}" title="按这张的提示词生成时间/天气差分" aria-label="时间/天气差分">${SLOT_ICONS.variants}</button>` : '')
             + transferIcons(sceneObj.url, `${sceneName}-背景.png`, [`scene-pick-bg:${encSeg(sceneName)}`, '上传场景背景图'])
             + renderRowMenu([
+                canVary ? menuItem(`scene-variant-set:${encSeg(sceneName)}`, '时间/天气差分', ' igs-slot-act-menu') : '',
                 menuItem(`scene-rename-bg:${encSeg(sceneName)}`, '重命名'),
                 folderSelect(sceneName, { menu: true }),
                 storedImagePromptItem(sceneObj.url),
@@ -307,14 +311,20 @@ export function renderSceneAssetList(scenes, options = {}) {
     }).join('');
 }
 
-// 插件生成的背景只放缩略图，编号地址对用户没用；手填地址或空着才给输入框。
-function sceneUrlField(url, attrs, alt, resolveUrl) {
-    const raw = String(url || '').trim();
-    if (!storedImageId(raw)) return `<input class="igs-scene-url-input" ${attrs} value="${esc(raw)}" placeholder="URL 或 data:image/...">`;
-    const shown = shownAssetUrl(raw, resolveUrl);
+// 行首固定一格 16:9 小图：存图、外链都显示，空着留同样大小的空格，名字和按钮列才对得齐。
+function sceneThumb(url, alt, resolveUrl) {
+    const shown = shownAssetUrl(url, resolveUrl);
     return /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
-        ? `<img loading="lazy" decoding="async" class="igs-outfit-thumb" src="${esc(shown)}" alt="${esc(alt)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
-        : '<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true">载入中</span>';
+        ? `<img loading="lazy" decoding="async" class="igs-scene-thumb" src="${esc(shown)}" alt="${esc(alt)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        : '<span class="igs-scene-thumb is-empty" aria-hidden="true"></span>';
+}
+
+// 存图不放地址框；手填地址才有。inExpansion：展开区里的那份，只在窄屏显示（窄屏行内地址框都收起）。
+function sceneUrlField(url, attrs, inExpansion = false) {
+    const raw = String(url || '').trim();
+    if (storedImageId(raw)) return '';
+    const cls = inExpansion ? 'igs-scene-url-input igs-scene-url-expanded' : `igs-scene-url-input${raw ? ' is-filled' : ''}`;
+    return `<input class="${cls}" ${attrs} value="${esc(raw)}" placeholder="URL 或 data:image/...">`;
 }
 
 function shownAssetUrl(url, resolveUrl) {
@@ -323,7 +333,7 @@ function shownAssetUrl(url, resolveUrl) {
     try { return String(resolveUrl(raw) || ''); } catch (error) { return ''; }
 }
 
-function renderSceneBgExpansion(sceneName, url, words, resolveUrl) {
+function renderSceneBgExpansion(sceneName, url, words, resolveUrl, urlField = '') {
     const trimmedUrl = String(url || '').trim();
     const shown = shownAssetUrl(trimmedUrl, resolveUrl);
     const thumb = /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
@@ -333,10 +343,10 @@ function renderSceneBgExpansion(sceneName, url, words, resolveUrl) {
         `<span class="igs-mood-word-tag">${esc(alias)}<button type="button" class="igs-mood-word-del" data-action="scene-remove-bg-word:${encSeg(sceneName)}:${encSeg(alias)}" title="删除别名">×</button></span>`
     ).join('');
     const wHtml = `<div class="igs-sprite-words"><div class="igs-source-filter-note">场景别名</div><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无别名</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-bg-word:${encSeg(sceneName)}" title="添加别名">+</button></div></div>`;
-    return `<div class="igs-sprite-slot-body">${thumb}${wHtml}</div>`;
+    return `<div class="igs-sprite-slot-body">${urlField}${thumb}${wHtml}</div>`;
 }
 
-function renderSceneGroupExpansion(type, label, url, groups, resolveUrl) {
+function renderSceneGroupExpansion(type, label, url, groups, resolveUrl, urlField = '') {
     const trimmedUrl = String(url || '').trim();
     const shown = shownAssetUrl(trimmedUrl, resolveUrl);
     const thumb = /^(?:https?:\/\/|data:image\/|blob:)/i.test(shown)
@@ -358,7 +368,7 @@ function renderSceneGroupExpansion(type, label, url, groups, resolveUrl) {
     } else {
         wHtml = `<div class="igs-sprite-words"><div class="igs-source-filter-note">「${esc(label)}」在${typeName}词库中无对应组。</div><button type="button" class="igs-settings-action" data-action="${createAction}">建为${typeName}组</button></div>`;
     }
-    return `<div class="igs-sprite-slot-body">${thumb}${wHtml}</div>`;
+    return `<div class="igs-sprite-slot-body">${urlField}${thumb}${wHtml}</div>`;
 }
 
 export function renderCharacterAssetList(characters, options = {}) {

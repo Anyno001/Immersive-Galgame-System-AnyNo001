@@ -88,7 +88,9 @@ ${IGS_UI_LIQUID_KEYFRAMES}
 .igs-settings-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0}
 .igs-settings-section{display:flex;flex-direction:column;gap:10px;min-width:0}
 .igs-settings-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
-.igs-settings-section-head>.igs-asset-zip{margin-left:auto}
+/* 「下载本区素材」不要底框，做成文字按钮。 */
+.igs-settings-section-head>.igs-asset-zip{margin-left:auto;height:28px;padding:0 4px;background:transparent;color:var(--igs-settings-ink-3)}
+.igs-settings-section-head>.igs-asset-zip:hover,.igs-settings-section-head>.igs-asset-zip:focus-visible{background:transparent;color:var(--igs-settings-ink);outline:none}
 .igs-settings-sub{display:flex;flex-direction:column;gap:12px;min-width:0;margin-left:6px;padding:2px 0 2px 14px;border-left:2px solid var(--igs-settings-highlight)}
 .igs-settings-group{display:flex;flex-direction:column;gap:8px;min-width:0}
 .igs-settings-group+.igs-settings-group{padding-top:12px;border-top:1px solid var(--igs-settings-line)}
@@ -240,7 +242,14 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-scene-url-input{flex:1;min-width:0;height:28px;border:0;border-bottom:1px solid transparent;background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:0 8px;font:inherit;font-size:11px;outline:none}
 .igs-scene-url-input:focus{border-bottom-color:var(--igs-settings-line-strong);background:var(--igs-settings-highlight)}
 .igs-scene-char-group{min-width:0;max-width:100%;box-sizing:border-box;margin-bottom:8px;border:0;border-bottom:1px solid var(--igs-settings-line);border-radius:0;padding:4px;background:transparent}
-.igs-scene-time-group{margin-left:16px;max-width:calc(100% - 16px)}
+.igs-scene-time-group{margin-left:16px;max-width:calc(100% - 16px);padding-left:0;padding-right:0}
+.igs-scene-thumb{width:48px;height:27px;flex-shrink:0;object-fit:cover;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-paper);cursor:zoom-in}
+.igs-scene-thumb.is-empty{display:inline-block;cursor:default}
+.igs-scene-badge{font-size:10px;opacity:.5;flex-shrink:0;margin-right:2px}
+.igs-scene-url-expanded{display:none}
+/* 窄屏一行放不下：去掉「场景/时间」小字，地址框收进展开区，差分按钮收进 ⋯，名字至少留三四个字。 */
+@media (max-width:640px){.igs-scene-badge{display:none}.igs-btn-mgr-row>.igs-scene-url-input:not(.igs-scene-url-expanded){display:none}.igs-scene-url-expanded{display:block;flex:1 0 100%;width:100%;box-sizing:border-box}.igs-scene-char-group .igs-btn-mgr-label{min-width:3.5em}.igs-sprite-slot-body:has(>.igs-scene-url-expanded){flex-wrap:wrap}.igs-scene-char-group .igs-slot-act{display:none}.igs-scene-char-group .igs-add-menu-list .igs-slot-act-menu{display:flex}}
+@media (max-width:360px){.igs-scene-thumb{width:36px;height:20px}.igs-scene-char-group .igs-asset-transfer.is-spacer{display:none}.igs-scene-char-group .igs-btn-mgr-label{min-width:3em}.igs-scene-char-group .igs-btn-mgr-row{gap:4px}}
 .igs-scene-weather-row{margin-left:32px;max-width:calc(100% - 32px)}
 .igs-scene-char-group:last-child{border-bottom:0}
 .igs-scene-empty{font-size:11px;color:var(--igs-settings-ink-4);padding:8px;text-align:center}

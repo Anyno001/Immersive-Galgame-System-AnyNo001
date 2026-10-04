@@ -117,7 +117,8 @@ function openSettingsScene() {
   };
   mem.setItem('igs_bridge_config', JSON.stringify({ sceneAssets: {
     enabled: true, promptRule: '规则', characterAliases: {}, moodGroups: [],
-    scenes: { 教室: { url: img, times: {} }, 走廊: { url: img, times: {} }, 海边: { url: img, times: {} }, 天台: { url: '', times: {} } },
+    // 带时间行和长名字，看窄屏挤不挤。
+    scenes: { 教室: { url: img, times: { '14:50': { url: img } } }, 走廊: { url: img, times: {} }, 海边: { url: img, times: { '黄昏': { url: img } } }, 天台: { url: '', times: {} }, 伦敦国王十字车站: { url: 'https://example.com/london.png', times: {} } },
     characters: { 林夏: { 普通: img, 微笑: img }, 陈屿: { 普通: img }, 路人: { 普通: '' } },
     characterDna: { 林夏: { identity: '黑色长发，琥珀色眼睛' } },
     wardrobe: { 校服: { prompt: 'white shirt, pleated skirt' }, 泳装: { prompt: '' } },
