@@ -53,6 +53,7 @@ function renderStageFields(s, more) {
             + checkbox(`${P}.camera.parallax`, s.camera.parallax, '鼠标视差（电脑端）')
             + checkbox(`${P}.camera.closeUp`, s.camera.closeUp, '情绪特写')
             + checkbox(`${P}.camera.impact`, s.camera.impact, '情绪冲击推近（带音效）')
+            + checkbox(`${P}.camera.aiShots`, s.camera.aiShots, 'AI 镜头指令')
             + `</div>`
             + (s.camera.closeUp ? renderWordListField('camera.closeUpEmotions', '特写触发情绪', s.camera.closeUpEmotions) : '')
             + (s.camera.impact ? renderWordListField('camera.impactEmotions', '冲击触发情绪', s.camera.impactEmotions) : ''))) : '');

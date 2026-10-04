@@ -1,4 +1,4 @@
-import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
+import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
 import { dailyGrammarLines } from './fx-daily-prompt.js';
 import { BATTLE_GRAMMAR_LINES } from './fx-battle-model.js';
 import { textFxGrammarBlock } from './text-fx.js';
@@ -59,12 +59,16 @@ export function collectGrammarBlocks(readerSettings, { ancient = false } = {}) {
     }
     const romanceLines = romanceGrammarLines(rs.romanceFx);
     if (romanceLines.length) {
-        const extra = ['romance', ...(plain(rs.romanceFx).confess === true ? ['confess'] : []), ...(plain(rs.romanceFx).memories === true ? ['memory'] : [])];
+        const extra = ['romance', ...(plain(rs.romanceFx).confess === true ? ['confess'] : []), ...(plain(rs.romanceFx).memories === true ? ['memory'] : []), ...(plain(rs.romanceFx).senses !== false ? ['sense'] : []), ...(plain(rs.romanceFx).solo !== false ? ['solo', 'noise'] : [])];
         blocks.push({ key: 'romance', adaptive: true, full: fxBlock('亲密氛围', romanceLines, '，档位只写 暧昧 或 亲密'), index: `亲密 igs-fx:${extra.join('/')}` });
     }
     const castLines = stageCastGrammarLines(rs.stageCast);
     if (castLines.length) {
         blocks.push({ key: 'cast', full: fxBlock('同屏角色', castLines), index: `同屏 igs-fx:${castLines.map((line) => line.split('|')[0]).join('/')}` });
+    }
+    const cameraLines = cameraGrammarLines(rs.camera);
+    if (cameraLines.length) {
+        blocks.push({ key: 'camera', adaptive: true, full: fxBlock('镜头', cameraLines), index: '镜头 igs-fx:cam' });
     }
     blocks.push(...danmakuGrammarBlocks(rs, fxBlock));
     return blocks;

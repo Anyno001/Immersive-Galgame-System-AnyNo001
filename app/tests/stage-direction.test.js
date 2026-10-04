@@ -4,6 +4,7 @@ import {
     applyStageDirection,
     cancelStageDirection,
     normalizeStageDirectionSettings,
+    resolveCameraShot,
 } from '../src/visual/igs-ui/stage-direction-runtime.js';
 import {
     CAMERA_CLOSE_UP_DEFAULTS,
@@ -373,4 +374,34 @@ test('gate:perf:parallax-caches-rect-and-writes-vars-on-layers-only', () => {
     assert.equal(r.bg.style.getPropertyValue('--igs-sd-px'), '');
     assert.equal(cast.style.getPropertyValue('--igs-sd-px'), '');
     assert.ok(!viewListeners.has('resize') && !viewListeners.has('scroll'));
+});
+
+test('gate: ai camera shots resolve per page and override emotion close-up', () => {
+    assert.equal(resolveCameraShot(null), '');
+    assert.equal(resolveCameraShot({ shot: 'reset' }, { spriteUrl: 'a.png' }), '');
+    assert.equal(resolveCameraShot({ shot: 'closeup', target: '' }, { spriteUrl: 'a.png' }), 'closeup');
+    assert.equal(resolveCameraShot({ shot: 'closeup', target: '爱丽丝' }, { spriteUrl: 'a.png', speakers: ['鲍勃', ''] }), '', 'close-up on someone not on stage');
+    assert.equal(resolveCameraShot({ shot: 'closeup', target: '爱丽丝' }, { spriteUrl: 'a.png', speakers: ['爱丽丝'] }), 'closeup');
+    assert.equal(resolveCameraShot({ shot: 'wide' }, { spriteUrl: '' }), '', 'nothing to pull back from');
+    assert.equal(resolveCameraShot({ shot: 'focus' }, { spriteUrl: 'a.png', lowQuality: true }), '');
+    assert.equal(resolveCameraShot({ shot: 'pan', target: 'left' }), 'pan-left');
+    assert.equal(resolveCameraShot({ shot: 'pan', target: 'right' }, { reduced: true }), '');
+    assert.equal(resolveCameraShot({ shot: 'tilt' }), 'tilt');
+    assert.equal(normalizeStageDirectionSettings({ camera: {} }).camera.aiShots, true);
+
+    const r = makeReader();
+    const settings = { camera: { enabled: true } };
+    const ctx = { reducedMotion: false, ...r.clock, bgUrl: 'bg.png', spriteUrl: 'a.png', spriteKey: 'A' };
+    let result = applyStageDirection(r.root, snapshot(settings, { statusEmotion: '震惊', fx: { cam: { shot: 'wide', target: '' } } }), ctx);
+    assert.equal(r.root.getAttribute('data-igs-sd-cam'), 'wide');
+    assert.equal(r.root.getAttribute('data-igs-sd-closeup'), null, 'ai shot wins over emotion close-up');
+    assert.ok(result.played.includes('camera:wide'));
+    applyStageDirection(r.root, snapshot(settings, { statusEmotion: '平静', fx: { cam: null } }, 1), ctx);
+    assert.equal(r.root.getAttribute('data-igs-sd-cam'), null, 'shot lasts one page');
+    applyStageDirection(r.root, snapshot({ camera: { enabled: true, aiShots: false } }, { fx: { cam: { shot: 'tilt' } } }, 2), ctx);
+    assert.equal(r.root.getAttribute('data-igs-sd-cam'), null);
+    applyStageDirection(r.root, snapshot(settings, { fx: { cam: { shot: 'pan', target: 'left' } } }, 3), ctx);
+    assert.equal(r.root.getAttribute('data-igs-sd-cam'), 'pan-left');
+    cancelStageDirection(r.root);
+    assert.equal(r.root.getAttribute('data-igs-sd-cam'), null);
 });

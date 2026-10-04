@@ -20,6 +20,7 @@ export function renderRomanceFxFields(reader, more = collapsible) {
         + checkbox(`${P}.bokeh`, s.bokeh, '光斑')
         + checkbox(`${P}.backlight`, s.backlight, '逆光')
         + checkbox(`${P}.nsfwCurve`, s.nsfwCurve, 'NSFW 场景渐强渐弱')
+        + checkbox(`${P}.cgPan`, s.cgPan, 'CG 镜头缓移')
         + `</div><div class="igs-source-filter-note">暧昧、亲密时自动加氛围，NSFW 场景最强；只做氛围，不生成画面。</div>`;
     const senses = checkbox(`${P}.edgeFx`, s.edgeFx, '边缘光影（心跳暗角、窗帘光影、热浪、色散、白场与暗转）')
         + checkbox(`${P}.softSound`, s.softSound, '亲密氛围音（心跳、呼吸、环境声压低、耳语）')
@@ -28,7 +29,11 @@ export function renderRomanceFxFields(reader, more = collapsible) {
         + (s.rhythm ? sub(checkbox(`${P}.rhythmSound`, s.rhythmSound, '节律音效（吱呀、摩擦、撞击声；关掉只保留晃动）')
             + field(`${P}.sway`, '晃动幅度', segmentedInput(`${P}.sway`, s.sway, [['off', '关'], ['weak', '弱'], ['medium', '中'], ['strong', '强']], '晃动幅度'))
             + '<div class="igs-source-filter-note">越往后越快，顶点处戛然而止。床的材质按地点自动选（木床 / 铁床 / 车内 / 沙发 / 被褥）；对话框不晃，系统开启「减少动态效果」时只保留声音。</div>') : '')
-        + '<div class="igs-source-filter-note">声音跟随「演出音效」的开关与音量；画面效果只落在画面边缘，生成的 CG 与插图不柔焦、环境滤镜减弱。</div>';
+        + '<div class="igs-source-filter-note">声音跟随「演出音效」的开关与音量；画面效果只落在画面边缘，生成的 CG 与插图不柔焦、环境滤镜减弱。</div>'
+        + checkbox(`${P}.senses`, s.senses, '感官调度')
+        + (s.senses ? sub(checkbox(`${P}.senseWords`, s.senseWords, '按正文自动识别')) : '')
+        + checkbox(`${P}.undress`, s.undress, '脱衣演出')
+        + checkbox(`${P}.solo`, s.solo, '独处场景');
     const story = checkbox(`${P}.favorAmbience`, s.favorAmbience, '高好感角色在场时常驻暖光')
         + (s.favorAmbience ? sub(field(`${P}.favorThreshold`, '好感门槛', segmentedInput(`${P}.favorThreshold`, String(s.favorThreshold), ROMANCE_FAVOR_THRESHOLDS.map((n) => [String(n), `${n}%`]), '好感门槛'))
             + renderWordListField('romanceFx.favorWords', '好感指标名', s.favorWords)

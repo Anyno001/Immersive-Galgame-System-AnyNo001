@@ -134,10 +134,40 @@ export function createIntimateVoice(volume = 0.5) {
         }
     });
 
-    // 呼吸：带通噪声，吸气时滤波上扫、呼气时下扫。
-    const breath = safe((t, { inhale = true, duration = 1, gain = 1, pan = 0 } = {}) => {
+    // 呼吸：带通噪声，吸气时滤波上扫、呼气时下扫。lowpass 压低时像捂着嘴（独处）。
+    const breath = safe((t, { inhale = true, duration = 1, gain = 1, pan = 0, lowpass = 2400 } = {}) => {
         const [from, to] = inhale ? [650, 1300] : [1200, 560];
-        noise(t, 'bandpass', from, to, 0.9, duration, 0.04 * gain, { attack: duration * (inhale ? 0.55 : 0.3), pan, lowpass: 2400 });
+        noise(t, 'bandpass', from, to, 0.9, duration, 0.04 * gain, { attack: duration * (inhale ? 0.55 : 0.3), pan, lowpass });
+    });
+
+    // 独处的节律：被褥、床单的摩擦，只有沙沙声，没有床架的吱呀与闷响。
+    const rustle = safe((t, velocity = 0.6) => {
+        const length = 0.14 + Math.random() * 0.1;
+        noise(t, 'bandpass', 1700 + Math.random() * 500, 1200, 0.8, length, 0.022 * velocity, { attack: length * 0.4, pan: (Math.random() - 0.5) * 0.3, lowpass: 3200 });
+    });
+
+    // 外面的动静（独处时怕被发现）：都放在偏右、隔着门的位置，低通让它听起来在门外。
+    const outside = safe((kind, t, gain = 1) => {
+        if (kind === 'steps') {
+            [0.6, 0.75, 0.9, 1].forEach((k, i) => {
+                const at = t + i * (0.46 + Math.random() * 0.06);
+                noise(at, 'lowpass', 320, 160, 0.7, 0.09, 0.05 * k * gain, { attack: 0.004, pan: 0.55 });
+                tone(at, 'sine', 72, 50, 0.08, 0.03 * k * gain, { attack: 0.004, pan: 0.55, lowpass: 200 });
+            });
+        } else if (kind === 'knock') {
+            for (let i = 0; i < 3; i++) {
+                const at = t + i * 0.24;
+                tone(at, 'sine', 120, 70, 0.1, 0.09 * gain, { attack: 0.003, pan: 0.5, lowpass: 420 });
+                noise(at, 'lowpass', 700, 420, 0.8, 0.04, 0.05 * gain, { attack: 0.002, pan: 0.5 });
+            }
+        } else if (kind === 'phone') {
+            for (const at of [t, t + 0.62]) tone(at, 'square', 150, 148, 0.38, 0.03 * gain, { attack: 0.02, pan: 0.3, lowpass: 380 });
+        } else if (kind === 'door') {
+            noise(t, 'bandpass', 2600, 2400, 4, 0.03, 0.05 * gain, { attack: 0.001, pan: 0.5 });
+            noise(t + 0.06, 'bandpass', 1900, 1700, 5, 0.025, 0.035 * gain, { attack: 0.001, pan: 0.5 });
+            // 门轴：轻轻一声吱呀（creak 在下面定义，调用时已就绪）。
+            creak(t + 0.2, { material: 'metal', velocity: 0.4 * gain, down: false, duration: 0.4 });
+        }
     });
 
     // 布料窸窣：几下短促的高频噪声，间隔随机。
@@ -190,6 +220,14 @@ export function createIntimateVoice(volume = 0.5) {
         pulseTrain(t, spec, { velocity, down, duration: length, variant });
         noise(t, 'bandpass', 1500 * variant, 1300 * variant, 2, length, spec.grain * velocity, { attack: 0.02 });
         if (spec.thud && down) tone(t, 'sine', 70, 50, 0.12, spec.thud * velocity, { attack: 0.004, lowpass: 240 });
+    });
+
+    // 脱衣：布料顺着身体滑下（带通噪声由高往低扫，两层错开），最后衣物落地一声闷软的轻响。
+    const undress = safe((t, gain = 1) => {
+        noise(t, 'bandpass', 2800, 900, 1.1, 0.75, 0.03 * gain, { attack: 0.18, pan: -0.15, lowpass: 4200 });
+        noise(t + 0.12, 'bandpass', 3600, 1400, 1.4, 0.5, 0.016 * gain, { attack: 0.1, pan: 0.2 });
+        noise(t + 0.82, 'lowpass', 420, 180, 0.7, 0.2, 0.03 * gain, { attack: 0.01 });
+        tone(t + 0.82, 'sine', 105, 66, 0.14, 0.022 * gain, { attack: 0.006, lowpass: 260 });
     });
 
     const spring = safe((t, gain = 1) => {
@@ -277,7 +315,7 @@ export function createIntimateVoice(volume = 0.5) {
     }
 
     return {
-        ctx, heartbeat, breath, cloth, creak, spring, knock, tick, startTinnitus, stopTinnitus, silence, setVolume, stopAll, dispose,
+        ctx, heartbeat, breath, rustle, outside, cloth, undress, creak, spring, knock, tick, startTinnitus, stopTinnitus, silence, setVolume, stopAll, dispose,
         get tinnitusOn() { return Boolean(tinnitus); },
     };
 }

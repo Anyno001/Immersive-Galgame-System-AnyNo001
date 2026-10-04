@@ -38,7 +38,9 @@ const SCENE_WORDS = Object.freeze({
 const BGM_TIMES = Object.freeze(['dawn', 'day', 'dusk', 'night', 'midnight']);
 const BGM_WEATHERS = Object.freeze(['sun', 'cloud', 'rain', 'snow', 'fog', 'wind', 'sand']);
 
-const SCORE = Object.freeze({ place: 8, other: 1, mood: 6, nearMood: 2, scene: 3, time: 1, weather: 1 });
+// sceneMiss：曲目标了场景却和当前地点对不上时扣分，免得宫廷管弦因为情绪对上就盖过街道小曲。
+// poolSlack：比最高分只差这么多（时段或天气没对上）的也进轮播池，池子不至于只剩一两首。
+const SCORE = Object.freeze({ place: 8, other: 1, mood: 6, nearMood: 2, scene: 3, sceneMiss: 3, time: 1, weather: 1, poolSlack: 1 });
 const PLAYED_MAX = 24;
 
 function text(value) {
@@ -112,7 +114,9 @@ function scoreTrack(track, view) {
     const moods = track.moods || [];
     if (moods.includes(view.mood)) score += SCORE.mood;
     else if (moods.some((mood) => view.near.includes(mood))) score += SCORE.nearMood;
-    if (view.scene && (track.scenes || []).includes(view.scene)) score += SCORE.scene;
+    const scenes = track.scenes || [];
+    if (view.scene && scenes.includes(view.scene)) score += SCORE.scene;
+    else if (view.scene && scenes.length) score -= SCORE.sceneMiss;
     if (view.time && (track.times || []).includes(view.time)) score += SCORE.time;
     if (view.weather && (track.weathers || []).includes(view.weather)) score += SCORE.weather;
     return score;
@@ -144,7 +148,7 @@ export function selectBgmTrack(tracks, context = {}, memory = {}) {
     mem.sig = sig;
     const scored = allowed.map((track) => ({ track, score: scoreTrack(track, view) }));
     const best = Math.max(...scored.map((s) => s.score));
-    let pool = best > 0 ? scored.filter((s) => s.score === best).map((s) => s.track) : allowed.filter(isDefault);
+    let pool = best > 0 ? scored.filter((s) => s.score > 0 && s.score >= best - SCORE.poolSlack).map((s) => s.track) : allowed.filter(isDefault);
     // 一首都没对上：用户只配了关键词曲目时照旧静音；有分类曲目时在本世界观里随便放一首，不冷场。
     if (!pool.length) pool = allowed.filter(isTagged);
     if (!pool.length) {

@@ -82,6 +82,7 @@ export function normalizeCameraSettings(value) {
         closeUpEmotions: normalizeEmotionList(src.closeUpEmotions, CAMERA_CLOSE_UP_DEFAULTS),
         impact: src.impact === true,
         impactEmotions: normalizeEmotionList(src.impactEmotions, CAMERA_IMPACT_DEFAULTS),
+        aiShots: src.aiShots !== false,
     };
 }
 

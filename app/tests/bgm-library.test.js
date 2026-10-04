@@ -193,3 +193,18 @@ test('scene audio: mood-tagged tracks go through the pool, and skip changes the 
     assert.equal(off.id, 'd1', 'with the mood tag off, the tag is ignored and the mood is inferred');
     cancelSceneAudio(root);
 });
+
+test('bgm selection: palace pieces sit out on a street, and the street pool rotates through the light tracks', () => {
+    const tracks = DEFAULT_BGM_PACK.map((t) => ({ ...t, keywords: [] }));
+    const palace = new Set(tracks.filter((t) => t.scenes.length && t.scenes.every((s) => s === 'palace' || s === 'school')).map((t) => t.id));
+    const memory = {};
+    const seen = new Set();
+    for (let i = 0; i < 6; i += 1) {
+        const pick = selectBgmTrack(tracks, { pack: 'magic', mood: 'daily', location: '对角巷', time: '下午', skip: i > 0 }, memory);
+        assert.ok(pick && !palace.has(pick.id), `street daily never lands on a palace piece (${pick && pick.id})`);
+        seen.add(pick.id);
+    }
+    assert.ok(seen.size >= 4, 'the pool is wider than the exact time-of-day match');
+    const hall = selectBgmTrack(tracks, { pack: 'magic', mood: 'daily', location: '城堡大厅' }, {});
+    assert.ok(palace.has(hall.id), 'a castle still gets the grand pieces');
+});

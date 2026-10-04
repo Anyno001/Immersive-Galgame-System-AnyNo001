@@ -24,7 +24,8 @@ const BLOCK_TRIGGERS = Object.freeze({
         close: /\[igs-fx:battle-end[|\]]/g,
     },
     romance: {
-        tag: /\[igs-fx:(?:romance|romance-end|confess|memory)[|\]]/,
+        // 最近几层出现 NSFW 场景标签也展开：感官调度的写法要在情事段里用得上。
+        tag: /\[igs-fx:(?:romance|romance-end|confess|memory|sense|sense-end|solo|solo-end|noise)[|\]]|\[igs-scene:[^\]\n]*\|\s*nsfw\s*\]/i,
         words: /告白|表白|约会|亲吻|接吻|拥抱|心动|暧昧|喜欢你|爱你/,
         open: /\[igs-fx:romance[|\]]/g,
         close: /\[igs-fx:romance-end\]/g,

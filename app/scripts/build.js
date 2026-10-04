@@ -43,7 +43,16 @@ const withBgm = withBackgrounds.replace(BGM_ASSET_RE, (_match, file) => {
     return `./bgm/${file}`;
 });
 if (!bgmAssets.size) throw new Error('Default BGM pack tracks are missing from bundle.');
-const skinAssets = await externalizeSkinAssets(withBgm, { srcRoot, distRoot });
+// 内置语气音：同曲目素材包，new URL('../../assets/voice/<文件名>', import.meta.url) 改写为 ./voice/<文件名>，复制到 dist/voice/。
+const VOICE_ASSET_RE = /(?:\.\.?\/)+assets\/voice\/([\w.-]+\.mp3)/g;
+const voiceSourceDir = path.join(appRoot, 'assets', 'voice');
+const voiceAssets = new Set();
+const withVoice = withBgm.replace(VOICE_ASSET_RE, (_match, file) => {
+    voiceAssets.add(file);
+    return `./voice/${file}`;
+});
+if (!voiceAssets.size) throw new Error('Voice bark clips are missing from bundle.');
+const skinAssets = await externalizeSkinAssets(withVoice, { srcRoot, distRoot });
 const bundle = inlineTypewriterAudio(skinAssets.bundle);
 
 const roundedFontWeights = [300, 400, 500, 700];
@@ -183,6 +192,19 @@ for (const file of bgmAssets) {
     fs.copyFileSync(source, path.join(bgmTargetDir, file));
 }
 fs.copyFileSync(path.join(bgmSourceDir, 'CREDITS.md'), path.join(bgmTargetDir, 'CREDITS.md'));
+// 语气音：只复制 bundle 实际引用的 mp3，校验签名与 jsDelivr 单文件上限。
+const voiceTargetDir = path.join(distRoot, 'voice');
+fs.rmSync(voiceTargetDir, { recursive: true, force: true });
+fs.mkdirSync(voiceTargetDir, { recursive: true });
+for (const file of voiceAssets) {
+    const source = path.join(voiceSourceDir, file);
+    if (!fs.existsSync(source)) throw new Error(`Voice bark clip is missing: ${source}`);
+    const head = fs.readFileSync(source).subarray(0, 4);
+    if (!(head.toString('latin1', 0, 3) === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0))) throw new Error(`Voice bark clip is not a valid mp3: ${source}`);
+    if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Voice bark clip exceeds the jsDelivr file limit: ${source}`);
+    fs.copyFileSync(source, path.join(voiceTargetDir, file));
+}
+fs.copyFileSync(path.join(voiceSourceDir, 'CREDITS.md'), path.join(voiceTargetDir, 'CREDITS.md'));
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.debug.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), await minifyBundle(bundle), 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');

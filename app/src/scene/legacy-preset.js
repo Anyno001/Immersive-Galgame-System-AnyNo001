@@ -56,6 +56,7 @@ export function legacyPresetToPack(data) {
     return {
         library,
         characterHouses: cleanMap(source.characterHouses),
+        characterVoices: cleanMap(source.characterVoices),
         moodGroups: Array.isArray(source.moodGroups) ? source.moodGroups : [],
         timeGroups: Array.isArray(source.timeGroups) ? source.timeGroups : [],
         weatherGroups: Array.isArray(source.weatherGroups) ? source.weatherGroups : [],
@@ -172,6 +173,7 @@ export function presetFromAssets(effective, { root = {}, readerSettings = {} } =
     for (const field of NAME_FIELDS) preset[field] = clone(cleanMap(source[field]));
     preset.generated = clone(plain(source.generated));
     preset.characterHouses = clone(cleanMap(plain(root).characterHouses));
+    preset.characterVoices = clone(cleanMap(plain(root).characterVoices));
     for (const field of ['moodGroups', 'timeGroups', 'weatherGroups']) {
         preset[field] = Array.isArray(plain(root)[field]) ? clone(root[field]) : [];
     }

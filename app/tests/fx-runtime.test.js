@@ -266,7 +266,8 @@ test('gate:fx-runtime:dom-apply-spawns-transients-sets-ranges-and-cleans-up', ()
     assert.equal(motion.getAttribute('data-igs-fx-flashback'), null);
     assert.equal(motion.getAttribute('data-igs-fx-call-remote'), null);
     assert.equal(front.querySelector('.igs-fx-call-badge').hidden, true);
-    assert.equal(stage.querySelector('.igs-fx-call-pip').hidden, true);
+    assert.equal(stage.querySelector('.igs-fx-call-split').hidden, true);
+    assert.equal(motion.getAttribute('data-igs-fx-call-split'), null);
 });
 
 test('gate:fx-runtime:call-timer-duration-and-end-reasons', () => {
@@ -377,7 +378,7 @@ test('gate:fx-runtime:answering-stops-ring-and-pip-leaves-with-a-ghost', () => {
         schedule: timers.schedule, clear: timers.clear, reducedMotion: false,
         audioScheduler: (job) => ({ stop() { stopped.push(job.kind); } }),
     };
-    const settings = { fxTags: { enabled: true } };
+    const settings = { fxTags: { enabled: true, callSprite: 'avatar' } };
     const call = { name: '爱丽丝', dir: 'in', mode: 'voice', at: 1 };
     applyFxToDom(root, snapshot({ fx: { instants: [{ kind: 'call', ...call }], call } }, settings), opts);
     const front = motion.querySelector('#igs-fx-front');
@@ -457,7 +458,7 @@ test('gate:fx-runtime:remote-speaker-drives-pip-video-and-phone-audio', () => {
     const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, sprite: { url: '/alice.png', posX: 50, posY: 100, scale: 100 } };
     const assets = { characters: { 爱丽丝: {} }, characterAliases: { 爱丽丝: ['小爱'] } };
     const voice = { name: '爱丽丝', dir: 'in', mode: 'voice', at: 0 };
-    const settings = (callSprite) => ({ fxTags: { enabled: true, callSprite }, _sceneAssets: assets });
+    const settings = (callSprite = 'avatar') => ({ fxTags: { enabled: true, callSprite }, _sceneAssets: assets });
     let result = applyFxToDom(root, snapshot({ speaker: '小爱', fx: { instants: [], call: voice } }, settings()), opts);
     assert.equal(result.phone, true, 'alias resolves to the caller');
     const stage = motion.querySelector('#igs-fx-stage');
@@ -492,6 +493,45 @@ test('gate:fx-runtime:remote-speaker-drives-pip-video-and-phone-audio', () => {
     cancelFxEffects(root);
 });
 
+test('gate:fx-runtime:voice-call-split-grows-the-speaker-and-slides-out', () => {
+    const { root, motion } = makeRoot();
+    const timers = clock();
+    const opts = { schedule: timers.schedule, clear: timers.clear, reducedMotion: false, sprite: { url: '/alice.png', posX: 50, posY: 100, scale: 100 } };
+    const assets = { characters: { 爱丽丝: {} } };
+    const settings = { fxTags: { enabled: true }, _sceneAssets: assets };
+    const voice = { name: '爱丽丝', dir: 'in', mode: 'voice', at: 0 };
+    applyFxToDom(root, snapshot({ speaker: '我', fx: { instants: [], call: voice } }, settings), opts);
+    const stage = motion.querySelector('#igs-fx-stage');
+    const split = stage.querySelector('.igs-fx-call-split');
+    assert.equal(split.hidden, false);
+    assert.equal(split.getAttribute('data-active'), 'local');
+    assert.equal(motion.getAttribute('data-igs-fx-call-split'), 'local');
+    assert.equal(stage.querySelector('.igs-fx-call-pip'), null, 'split replaces the avatar pip');
+    const panel = split.querySelector('.igs-fx-call-split-remote');
+    assert.equal(panel.getAttribute('data-feed'), null, 'no sprite before the caller speaks');
+    assert.ok(panel.querySelector('.igs-fx-call-split-face'));
+    assert.equal(panel.querySelector('.igs-fx-call-split-name').textContent, '爱丽丝');
+    applyFxToDom(root, snapshot({ currentIndex: 1, speaker: '爱丽丝', fx: { instants: [], call: voice } }, settings), opts);
+    assert.equal(split.getAttribute('data-active'), 'remote');
+    assert.equal(motion.getAttribute('data-igs-fx-call-split'), 'remote');
+    assert.equal(panel.getAttribute('data-feed'), '1');
+    assert.equal(panel.querySelector('.igs-fx-call-split-feed').style.backgroundImage, 'url("/alice.png")');
+    // 主角接话：对方格保留刚才的立绘，只是压暗收窄。
+    applyFxToDom(root, snapshot({ currentIndex: 2, speaker: '我', fx: { instants: [], call: voice } }, settings), { ...opts, sprite: { url: '/me.png' } });
+    assert.equal(split.getAttribute('data-active'), 'local');
+    assert.equal(panel.querySelector('.igs-fx-call-split-feed').style.backgroundImage, 'url("/alice.png")');
+    const end = { kind: 'call-end', reason: 'end', name: '爱丽丝', dir: 'in', mode: 'voice' };
+    applyFxToDom(root, snapshot({ currentIndex: 3, fx: { instants: [end], call: null } }, settings), opts);
+    assert.equal(split.hidden, true);
+    assert.equal(motion.getAttribute('data-igs-fx-call-split'), null);
+    const ghost = stage.querySelector('.igs-fx-call-split-out');
+    assert.equal(ghost.getAttribute('data-active'), 'local');
+    assert.equal(ghost.querySelector('.igs-fx-call-split-feed').style.backgroundImage, 'url("/alice.png")');
+    assert.ok(timers.lives.includes(420));
+    cancelFxEffects(root);
+    assert.equal(stage.querySelector('.igs-fx-call-split-out'), null);
+});
+
 test('gate:fx-settings:new-symbols-have-words-offsets-and-call-sprite-mode', () => {
     assert.equal(matchMangaSymbol('困倦', { enabled: true }), 'zzz');
     assert.equal(matchMangaSymbol('灵光一闪', { enabled: true }), 'bulb');
@@ -505,9 +545,10 @@ test('gate:fx-settings:new-symbols-have-words-offsets-and-call-sprite-mode', () 
     // 默认词表之间不重复，保证每个词只落到一个符号上。
     const words = MANGA_SYMBOL_KINDS.flatMap((kind) => MANGA_FX_DEFAULT_SYMBOLS[kind]);
     assert.equal(new Set(words).size, words.length);
-    assert.equal(normalizeFxReaderSettings({}).fxTags.callSprite, 'avatar');
+    assert.equal(normalizeFxReaderSettings({}).fxTags.callSprite, 'split');
+    assert.equal(normalizeFxReaderSettings({ fxTags: { callSprite: 'avatar' } }).fxTags.callSprite, 'avatar');
     assert.equal(normalizeFxReaderSettings({ fxTags: { callSprite: 'hide' } }).fxTags.callSprite, 'hide');
-    assert.equal(normalizeFxReaderSettings({ fxTags: { callSprite: 'bogus' } }).fxTags.callSprite, 'avatar');
+    assert.equal(normalizeFxReaderSettings({ fxTags: { callSprite: 'bogus' } }).fxTags.callSprite, 'split');
     const html = renderFxFeatureFields({ fxTags: { enabled: true } }).tags;
     assert.match(html, /readerSettings\.fxTags\.callSprite/);
     assert.doesNotMatch(renderFxFeatureFields({ fxTags: { enabled: true, call: false } }).tags, /fxTags\.callSprite/);

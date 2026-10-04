@@ -249,6 +249,11 @@ function battleThemeRules(skin, theme) {
     return rules.join('\n');
 }
 
+// 过场标题卡借用同一份主题的底色、墨色、细线与卡片，不另抄一份配色。
+export function getBattleTheme(skin) {
+    return Object.hasOwn(BATTLE_THEMES, skin) ? BATTLE_THEMES[skin] : null;
+}
+
 export function getDialogThemeBattleFxStyleText(skin) {
     const theme = BATTLE_THEMES[skin];
     return theme ? battleThemeRules(skin, theme) : '';

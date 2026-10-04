@@ -58,6 +58,23 @@ IGS 默认曲目素材包里的音乐，按各自授权再配布。
 - 夕闇に沈む街 — https://maou.audio/bgm_acoustic33/
 - 闇に眠る場所 — https://maou.audio/bgm_fantasy09/
 - bravery heart — https://maou.audio/bgm_fantasy11/
+- Peaceful Place — https://maou.audio/bgm_fantasy05/
+- ひとときの休息 — https://maou.audio/bgm_fantasy10/
+- 民族10 — https://maou.audio/bgm_ethnic10/
+- 街角のワンシーン — https://maou.audio/bgm_ethnic14/
+- アコースティック18 — https://maou.audio/bgm_acoustic18/
+- アコースティック16 — https://maou.audio/bgm_acoustic16/
+- オーケストラ02 — https://maou.audio/bgm_orchestra02/
+- 人魚の目覚め — https://maou.audio/bgm_healing17/
+- 至福の隙間 — https://maou.audio/bgm_acoustic50/
+- 海辺のラジオ — https://maou.audio/bgm_acoustic26/
+- アコースティック13 — https://maou.audio/bgm_acoustic13/
+- ピアノ18 — https://maou.audio/bgm_piano18/
+- 見渡す街へ — https://maou.audio/bgm_piano35/
+- アコースティック01 — https://maou.audio/bgm_acoustic01/
+- 爽やかサンデー魔王モーニング — https://maou.audio/bgm_acoustic05/
+- アコースティック21 — https://maou.audio/bgm_acoustic21/
+- Satie — https://maou.audio/bgm_acoustic06/
 
 ## OpenGameArt
 
@@ -66,4 +83,9 @@ IGS 默认曲目素材包里的音乐，按各自授权再配布。
 - "Oriental Somber" by Tozan — CC0 — https://opengameart.org/content/oriental-somber
 - "Views From Atop the Jade Kings Throne" by Hitctrl — CC-BY 3.0 — https://opengameart.org/content/views-from-atop-the-jade-kings-throne
 - "RPG - Misty Mountains" by Hitctrl — CC-BY 3.0 — https://opengameart.org/content/rpg-misty-mountains
+- "Asian Duet" by elerya — CC-BY 3.0 — https://opengameart.org/content/asian-duet
+- "Cold to Lukewarm Mixia" by Spring Spring — CC-BY 3.0 — https://opengameart.org/content/cold-to-lukewarm-mixia
+- "Generic 2 Minute Asian Arrangement" by Spring Spring — CC-BY 3.0 — https://opengameart.org/content/generic-2-minute-asian-arrangement
+- "Kingdom of a Million Elephants under a White Parasol" by Spring Spring — CC0 — https://opengameart.org/content/kingdom-of-a-million-elephants-under-a-white-parasol
+- "Asian Mystery" by Spring Spring — CC-BY 3.0 — https://opengameart.org/content/asian-mystery
 - "Liyan" by elerya — CC-BY 3.0 — https://opengameart.org/content/liyan

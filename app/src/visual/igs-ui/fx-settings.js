@@ -24,7 +24,8 @@ export const MANGA_SYMBOL_LABELS = Object.freeze({
     anger: '青筋（怒）', sweat: '汗滴', heart: '爱心', surprise: '!?', silence: '……', gloom: '阴沉竖线', sparkle: '闪光',
     bulb: '灯泡（灵光）', note: '音符', zzz: 'Zzz（困）', heartbreak: '心碎', sigh: '叹气白烟', dizzy: '晕眩螺旋', fire: '火焰（燃）', frost: '寒气（发凉）',
 });
-export const FX_CALL_SPRITE_MODES = Object.freeze(['avatar', 'hide', 'show']);
+// split 为语音通话斜切分屏（默认），avatar 为右上角头像小窗。
+export const FX_CALL_SPRITE_MODES = Object.freeze(['split', 'avatar', 'hide', 'show']);
 export const FX_TAG_LABELS = Object.freeze({
     call: '来电 / 通话', notify: '通知横幅', flashback: '回忆滤镜', dream: '梦境滤镜', letterbox: '电影黑边', sfx: '拟声音效', eye: '睁眼 / 闭眼',
     whisper: '悄悄话', nickname: '称呼变化', voicemail: '语音留言', contact: '交换联系方式', cutin: '脸部特写切入', promise: '约定',
@@ -99,7 +100,7 @@ export function normalizeFxTagsSettings(value) {
     const src = plain(value);
     const out = { enabled: src.enabled === true };
     for (const kind of FX_TAG_KINDS) out[kind] = FX_TAG_OPT_IN.has(kind) ? src[kind] === true : src[kind] !== false;
-    out.callSprite = FX_CALL_SPRITE_MODES.includes(src.callSprite) ? src.callSprite : 'avatar';
+    out.callSprite = FX_CALL_SPRITE_MODES.includes(src.callSprite) ? src.callSprite : 'split';
     return out;
 }
 

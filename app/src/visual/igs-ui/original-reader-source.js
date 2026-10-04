@@ -11,6 +11,8 @@ import { STAGE_CAST_STYLE_TEXT } from './stage-cast-render.js';
 import { SCENE_GRADE_STYLE_TEXT } from './scene-grade.js';
 import { ROMANCE_STYLE_TEXT } from './romance-style.js';
 import { INTIMATE_STYLE_TEXT } from './romance-intimate-style.js';
+import { SENSES_STYLE_TEXT } from './romance-senses-style.js';
+import { DREAM_STYLE_TEXT } from './romance-solo.js';
 import { META_STYLE_TEXT } from './meta-style.js';
 import { CG_PORTRAIT_STYLE_TEXT } from './cg-portrait.js';
 import { TEXT_FX_STYLE_TEXT } from './text-fx.js';
@@ -309,6 +311,8 @@ ${STAGE_CAST_STYLE_TEXT}
 ${SCENE_GRADE_STYLE_TEXT}
 ${ROMANCE_STYLE_TEXT}
 ${INTIMATE_STYLE_TEXT}
+${SENSES_STYLE_TEXT}
+${DREAM_STYLE_TEXT}
 ${META_STYLE_TEXT}
 ${CG_PORTRAIT_STYLE_TEXT}
 ${DIALOG_TYPESETTING_STYLE_TEXT}

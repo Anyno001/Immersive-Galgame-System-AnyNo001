@@ -37,6 +37,7 @@ import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
 import { normalizeCharacterHouses } from './magic-house.js';
+import { normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, resolveCharacterVoice } from './voice-bark.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
 import { beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
@@ -2039,6 +2040,14 @@ export async function handleSettingsAction(action, ctx) {
         return rendered;
     }
 
+    if (normalizedAction.startsWith('voice-bark-preview:')) {
+        const charName = decodeSeg(normalizedAction.slice('voice-bark-preview:'.length));
+        const voice = resolveCharacterVoice(draftEffectiveAssets(settingsState), charName);
+        if (!voice.pack) return { ok: false, error: '这个角色当前不发声：请先选一个声线' };
+        previewVoicePack(voice.pack.id, { pitch: voice.pitch, speed: voice.speed, volume: normalizeVoiceBarkSettings((settingsState.draft.readerSettings || {}).voiceBark).volume });
+        return { ok: true, previewed: voice.pack.id };
+    }
+
     if (normalizedAction.startsWith('status-avatar-clear:')) {
         const charName = decodeSeg(normalizedAction.slice('status-avatar-clear:'.length));
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);
@@ -2761,6 +2770,9 @@ export async function handleSettingsAction(action, ctx) {
         if (settingsState.draft.bridge.sceneAssets.characterHouses && typeof settingsState.draft.bridge.sceneAssets.characterHouses === 'object') {
             delete settingsState.draft.bridge.sceneAssets.characterHouses[name];
         }
+        if (settingsState.draft.bridge.sceneAssets.characterVoices && typeof settingsState.draft.bridge.sceneAssets.characterVoices === 'object') {
+            delete settingsState.draft.bridge.sceneAssets.characterVoices[name];
+        }
         draftAssetLibrary(settingsState, editTarget).characterDna = removeCharacterDna(draftAssetLibrary(settingsState, editTarget).characterDna, name);
         if (draftAssetLibrary(settingsState, editTarget).characterOutfits && typeof draftAssetLibrary(settingsState, editTarget).characterOutfits === 'object') {
             delete draftAssetLibrary(settingsState, editTarget).characterOutfits[name];
@@ -2905,6 +2917,12 @@ export async function handleSettingsAction(action, ctx) {
             const rootAssets = settingsState.draft.bridge.sceneAssets;
             if (rootAssets && rootAssets !== sceneAssets && rootAssets.characterHouses && typeof rootAssets.characterHouses === 'object') {
                 rootAssets.characterHouses = reorderKey(rootAssets.characterHouses, oldName, newName);
+            }
+            // 角色声线和学院一样存在根素材库，按主名记。
+            for (const assets of new Set([sceneAssets, rootAssets])) {
+                if (assets && assets.characterVoices && typeof assets.characterVoices === 'object') {
+                    assets.characterVoices = reorderKey(assets.characterVoices, oldName, newName);
+                }
             }
             if (sceneAssets.characterDna && typeof sceneAssets.characterDna === 'object') {
                 sceneAssets.characterDna = dnaRename.map;
@@ -3748,6 +3766,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
         mergeAssetFolderScope(storage, isLayeredPreset(preset) ? folderScope(name, layer.key) : name, layer.key);
     }
     root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
+    root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
     root.timeGroups = mergeLabelGroups(root.timeGroups, pack.timeGroups);
     root.weatherGroups = mergeLabelGroups(root.weatherGroups, pack.weatherGroups);
@@ -3785,6 +3804,7 @@ async function importLegacyPreset(settingsState, options, dialogs, persistSettin
     mergeAssetFolderScope(globalObj.localStorage, label, dest);
     if (pack.worldview) applyWorldview(target, pack.worldview);
     root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
+    root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
     root.timeGroups = mergeLabelGroups(root.timeGroups, pack.timeGroups);
     root.weatherGroups = mergeLabelGroups(root.weatherGroups, pack.weatherGroups);

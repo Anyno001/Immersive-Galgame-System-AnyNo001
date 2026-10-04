@@ -26,6 +26,7 @@ import {
 } from './settings-normalize.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
+import { applyVoiceBark } from './voice-bark.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyFxToDom } from './fx-runtime.js';
 import { applyDanmakuToDom } from './danmaku-runtime.js';
@@ -1544,7 +1545,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         });
     }
     // 亲密演出与 NSFW 仅露脸剪影：复用 fxSprite（布局 + 手动头部标定），编辑立绘时 fxSprite 为 null、不逼近不剪影。
-    const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory });
+    const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory, resolveAssetUrl });
     // Meta 互动：头部热区在亲密演出之后同步，心形快捷按钮已在前层时热区插到它下面。
     applyMetaFx(root, snapshot, { sprite: fxSprite, chatId: ctx.chatId, cast: castFxTargets });
     // NSFW 挂 CG 时对话框左侧的裸体头像（开关默认关，旁白页为空即撤下）。
@@ -1722,6 +1723,18 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             horror: resolveHorrorTypewriterLevel(snapshot.readerSettings, resolveHorrorDread(snapshot.content.sceneDread, snapshot.readerSettings.horrorDreadCap)),
         });
         armTextFx(textEl, typewriter && typewriter.animated ? typewriter.revealDelay : null);
+    }
+    if (textEl && typewriterRenderKey) {
+        // 角色语气音：台词开头按情绪播一声「啊嗯哼」。去重只看消息与句序号，换主题、调字号等重绘不重播。
+        const content = snapshot.content;
+        applyVoiceBark(root, {
+            key: `${snapshot.messageId}:${content.currentIndex}`,
+            textType: typewriterTextType,
+            speaker: content.speaker || '',
+            mood: content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '',
+            phone: fxResult.phone === true,
+            nsfw: Boolean(content.sceneNsfw),
+        }, snapshot.readerSettings.voiceBark, snapshot.readerSettings._sceneAssets);
     }
     if (toast) {
         toast.textContent = current.toastMessage || '';

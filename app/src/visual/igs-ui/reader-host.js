@@ -247,6 +247,7 @@ import {
 } from './classic-dialog-skin.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_ACCENT_DEFAULT, MAGIC_HOUSES, MAGIC_HOUSE_DEFAULT, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { normalizeCharacterHouses } from './magic-house.js';
+import { VOICE_BARK_FREQUENCIES, normalizeCharacterVoices, normalizeVoiceBarkSettings, voicePackCredits } from './voice-bark.js';
 import { HORROR_DREAD_CAP_DEFAULT, HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
 import { DIALOG_SKIN_QINGLV } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE } from './dialog-theme-fairytale.js';
@@ -3700,6 +3701,8 @@ export function createIgsReaderHost(options = {}) {
                 statusAvatars: sceneAssets.statusAvatars || {},
                 // 角色学院只在魔法世界观下有意义；其他世界观的魔法星夜只当星空框用，不显示这一行。
                 magicHouse: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY && resolveWorldview(worldviewAssets) === 'magic' ? { sceneAssets, fallback: reader.magicHouse } : null,
+                // 角色声线只在开了「角色语气音」时显示。
+                voice: normalizeVoiceBarkSettings(reader.voiceBark).enabled ? { sceneAssets } : null,
                 resolveUrl: resolveGenerated,
                 expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
                 folderSelect: (name, opts) => renderAssetFolderSelect('characters', name, assetFolders.characters, opts),
@@ -3825,6 +3828,7 @@ export function createIgsReaderHost(options = {}) {
         const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
         const typewriter = normalizeTypewriterSettings(reader.typewriter);
         const stageShake = normalizeStageShakeSettings(reader.stageShake);
+        const voiceBark = normalizeVoiceBarkSettings(reader.voiceBark);
         const chatShow = normalizeChatShowSettings(reader.chatShow);
         const systemRole = normalizeSystemRoleSettings(reader.systemRole);
         const weatherFx = normalizeWeatherFxSettings(reader.weatherFx);
@@ -3888,6 +3892,13 @@ export function createIgsReaderHost(options = {}) {
                     : '',
                 typewriter.mode === 'classic' ? '</details>' : '',
             ].join('')}</div>` : '',
+            voiceBarkToggle: checkbox('readerSettings.voiceBark.enabled', voiceBark.enabled, '角色语气音'),
+            // 台词开头按情绪播一声「啊、嗯、哼」；每个角色的声线在 素材 › 角色 › 角色设定 里选，默认按 DNA 性别自动分配。
+            voiceBarkControls: voiceBark.enabled ? `<div class="igs-settings-sub">${[
+                field('readerSettings.voiceBark.frequency', '播放时机', segmentedInput('readerSettings.voiceBark.frequency', voiceBark.frequency, VOICE_BARK_FREQUENCIES, '播放时机')),
+                field('readerSettings.voiceBark.volume', '音量', rangeInput('readerSettings.voiceBark.volume', voiceBark.volume, '语气音音量')),
+                `<div class="igs-source-filter-note">每个角色的声线在角色设定里选；没选的按 DNA 性别自动分配。旁白、心里话、通话和亲密场景不发声。<br>素材：${esc(voicePackCredits().join('、'))}</div>`,
+            ].join('')}</div>` : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             systemRoleFields: renderSystemRoleSettings(systemRole, {
@@ -3944,7 +3955,7 @@ export function createIgsReaderHost(options = {}) {
         if (readerSubTab === 'performance') {
             readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(worldviewAssets), worldviewId: resolveWorldview(worldviewAssets),
                 canUndo: Boolean(asyncState.perfPresetUndo),
-                typewriter: readerValues.playbackSpeed + readerValues.typewriterToggle + readerValues.typewriterControls,
+                typewriter: readerValues.playbackSpeed + readerValues.typewriterToggle + readerValues.typewriterControls + readerValues.voiceBarkToggle + readerValues.voiceBarkControls,
                 stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
                 weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
                 chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],
@@ -4506,6 +4517,20 @@ export function createIgsReaderHost(options = {}) {
                     avatars[statusAvatarChar] = target.value;
                     state.activeSettings.snapshot.draft = state.activeSettings.draft;
                 }
+                return;
+            }
+            const charVoice = target.getAttribute('data-char-voice') || target.getAttribute('data-char-voice-pitch') || target.getAttribute('data-char-voice-speed');
+            if (charVoice && !['__proto__', 'constructor', 'prototype'].includes(charVoice)) {
+                const assets = state.activeSettings.draft.bridge.sceneAssets;
+                const voices = assets.characterVoices || (assets.characterVoices = {});
+                const entry = normalizeCharacterVoices({ [charVoice]: voices[charVoice] })[charVoice] || { pack: '', pitch: 0, speed: 1 };
+                if (target.hasAttribute('data-char-voice')) entry.pack = target.value;
+                else if (target.hasAttribute('data-char-voice-pitch')) entry.pitch = Number(target.value) || 0;
+                else entry.speed = Number(target.value) || 1;
+                const next = normalizeCharacterVoices({ [charVoice]: entry })[charVoice];
+                if (next) voices[charVoice] = next;
+                else delete voices[charVoice];
+                state.activeSettings.snapshot.draft = state.activeSettings.draft;
                 return;
             }
             const charHouse = target.getAttribute('data-char-house');
@@ -5131,6 +5156,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.characterDna = normalizeCharacterDnaMap(normalized.characterDna);
         normalized.characterOutfits = normalizeCharacterOutfits(normalized.characterOutfits);
         normalized.characterHouses = normalizeCharacterHouses(normalized.characterHouses);
+        normalized.characterVoices = normalizeCharacterVoices(normalized.characterVoices);
         normalized.wardrobe = normalizeWardrobe(normalized.wardrobe);
         normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
         // init group arrays
@@ -5227,6 +5253,7 @@ export function createIgsReaderHost(options = {}) {
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),
+            voiceBark: normalizeVoiceBarkSettings(null),
             chatShow: normalizeChatShowSettings(null),
             systemRole: normalizeSystemRoleSettings(null),
             weatherFx: normalizeWeatherFxSettings(null),
@@ -5281,6 +5308,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
         normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
         normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);
+        normalized.voiceBark = normalizeVoiceBarkSettings(normalized.voiceBark);
         normalized.chatShow = normalizeChatShowSettings(normalized.chatShow);
         normalized.systemRole = normalizeSystemRoleSettings(normalized.systemRole);
         normalized.weatherFx = normalizeWeatherFxSettings(normalized.weatherFx);

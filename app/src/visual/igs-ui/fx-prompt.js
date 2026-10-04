@@ -87,6 +87,8 @@ export function resolveRomanceFxPromptRule(settings) {
     ];
     if (s.confess === true) lines.push('[igs-fx:confess]：放在告白台词之前，只用于角色正式表白心意的那一刻，对方的回答照常写在后面');
     if (s.memories === true) lines.push('[igs-fx:memory|回忆名称]：两人关系里值得纪念的节点，如[igs-fx:memory|初次约会]、[igs-fx:memory|第一次牵手]，名称不超过8个字');
+    if (s.senses !== false) lines.push(`[igs-fx:sense|感官] … [igs-fx:sense-end]：${SENSE_PROMPT_TEXT}`);
+    if (s.solo !== false) lines.push(`[igs-fx:solo|想着的角色名] … [igs-fx:solo-end]：${SOLO_PROMPT_TEXT}`, `[igs-fx:noise|动静]：${NOISE_PROMPT_TEXT}`);
     const instant = s.confess === true || s.memories === true;
     return `[igs亲密氛围标签]
 ${lines.join('\n')}
@@ -97,6 +99,11 @@ ${lines.join('\n')}
 3. 情事段落仍按原有规则在场景标签标记 nsfw，不需要另写 romance 标签
 4. 标签只标记氛围档位，不因为使用标签而增加任何露骨描写${instant ? '\n5. confess、memory 每层回复合计最多1个，只留给真正关键的时刻' : ''}`;
 }
+
+// 感官调度：亲密 / 情事段里某种感官占主导时标出来，前端据此放大这一感官、压下其余。
+const SOLO_PROMPT_TEXT = '包住角色独自一人的情事段（自慰），与场景的 nsfw 标记一起用；角色此时想着某个人时写上那人的名字，否则省略';
+const NOISE_PROMPT_TEXT = '独处时外面传来的动静，让角色以为要被发现，动静只写 脚步、敲门、手机、开门 之一';
+const SENSE_PROMPT_TEXT = '亲密或情事段落里某一种感官明显占主导时使用，感官只写 蒙眼、耳边、触碰、热、凉、香、屏息、失神 之一；感官转移时直接写新的 sense，回到常态写 sense-end；只标感官，不因此增加露骨描写';
 
 // 精简语法（tag-grammar 统一拼接）：只写「类型|参数：用途」，通用规则由组装器写一次。
 export const FX_GRAMMAR_LINES = Object.freeze({
@@ -137,6 +144,8 @@ export function romanceGrammarLines(settings) {
     ];
     if (s.confess === true) lines.push('confess：放在正式告白台词之前，对方的回答照常写在后面');
     if (s.memories === true) lines.push('memory|回忆名称：两人关系里值得纪念的节点，名称不超过8字');
+    if (s.senses !== false) lines.push(`sense|感官 … sense-end：${SENSE_PROMPT_TEXT}`);
+    if (s.solo !== false) lines.push(`solo|想着的角色名 … solo-end：${SOLO_PROMPT_TEXT}`, `noise|动静：${NOISE_PROMPT_TEXT}`);
     return lines;
 }
 
@@ -167,6 +176,14 @@ export const STAGE_CAST_REACT_GRAMMAR_LINE = 'react|角色名|情绪：同场景
 // 站位标签：只在多角色同屏与「走位」子开关同时开启时注入。
 export const STAGE_CAST_STAGE_PROMPT_LINE = '[igs-fx:stage|动作|角色|角色]：同场景角色明显走位时使用，动作只写 靠近／拉开（写两个角色）、背对／上前／离开（写一个角色）、复位（不写角色）；角色上场的那一刻可写 跑进来／探头／慢慢走进来，如[igs-fx:stage|靠近|爱丽丝|鲍勃]、[igs-fx:stage|探头|爱丽丝]；离开的角色再次说话即回到场上';
 export const STAGE_CAST_STAGE_GRAMMAR_LINE = 'stage|动作|角色|角色：同场景角色明显走位时用，动作只写 靠近/拉开（两个角色）、背对/上前/离开（一个角色）、复位（不写角色），上场时可写 跑进来/探头/慢慢走进来；离开的角色再次说话即回到场上，每层最多3个';
+
+// AI 镜头指令：镜头语言与其「AI 镜头指令」子开关同时开启时注入。
+export const CAMERA_GRAMMAR_LINE = 'cam|镜头|角色或方向：关键时刻改变镜头，镜头只写 特写（推到说话人脸上，可写角色名）／拉远（人物退远、显得孤单或渺小）／虚化（背景糊掉、只看人物）／摇镜（横扫环境，第3段写 左 或 右）／倾斜（不安、眩晕、失衡）；只作用于标签所在那一页，平常不要用，每层最多2个';
+
+export function cameraGrammarLines(camera) {
+    const s = camera && typeof camera === 'object' ? camera : {};
+    return s.enabled === true && s.aiShots !== false ? [CAMERA_GRAMMAR_LINE] : [];
+}
 
 export function stageCastGrammarLines(stageCast) {
     const s = stageCast && typeof stageCast === 'object' ? stageCast : {};

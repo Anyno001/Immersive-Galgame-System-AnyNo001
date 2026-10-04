@@ -18,11 +18,23 @@ export const STAGE_DIRECTION_STYLE_TEXT = `
 #igs-overlay[data-igs-cg] #igs-bg-blur,#igs-stage-motion[data-igs-cg] #igs-bg-blur{display:none!important;opacity:0!important;}
 #igs-overlay[data-igs-sd-closeup] #igs-sprite:not(.igs-sprite-editing){--igs-sd-closeup-scale:1.12;transform-origin:var(--igs-sd-origin-x,50%) 28%;}
 #igs-overlay[data-igs-sd-closeup] #igs-bg{scale:1.06;}
+/* AI 镜头指令：特写推到脸、拉远缩小立绘、虚化只糊背景、摇镜横扫背景一次、倾斜是背景与立绘一起歪。 */
+#igs-overlay[data-igs-sd-cam="closeup"] #igs-sprite:not(.igs-sprite-editing){--igs-sd-closeup-scale:1.24;transform-origin:var(--igs-sd-origin-x,50%) 22%;}
+#igs-overlay[data-igs-sd-cam="closeup"] #igs-bg{scale:1.1;}
+#igs-overlay[data-igs-sd-cam="wide"] #igs-sprite:not(.igs-sprite-editing){--igs-sd-closeup-scale:.82;transform-origin:var(--igs-sd-origin-x,50%) 100%;}
+#igs-overlay[data-igs-sd-cam="wide"] #igs-bg{animation:none;scale:1;}
+#igs-overlay[data-igs-sd-cam="focus"] #igs-stage-motion:not([data-igs-rm-glow]):not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) blur(6px) var(--igs-grade-bg,)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) blur(6px) var(--igs-grade-bg,)!important;scale:1.05;}
+#igs-overlay[data-igs-sd-cam^="pan-"] #igs-bg{animation:igs-sd-pan 9s cubic-bezier(.45,.05,.4,1) both;}
+#igs-overlay[data-igs-sd-cam="pan-left"] #igs-bg{animation-direction:reverse;}
+#igs-overlay[data-igs-sd-cam="tilt"] #igs-bg{rotate:-3deg;scale:1.12;transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1),rotate .9s cubic-bezier(.3,.7,.2,1);}
+#igs-overlay[data-igs-sd-cam="tilt"] #igs-sprite:not(.igs-sprite-editing){rotate:-2.5deg;transition:translate 1.2s cubic-bezier(.3,.7,.2,1),rotate .9s cubic-bezier(.3,.7,.2,1);}
+#igs-overlay[data-igs-quality="low"][data-igs-sd-cam^="pan-"] #igs-bg{animation:none;}
 #igs-overlay[data-igs-quality="low"][data-igs-sd-breathe] #igs-sprite:not(.igs-sprite-editing),#igs-overlay[data-igs-quality="low"][data-igs-sd-kenburns] #igs-bg,#igs-overlay[data-igs-quality="low"] #igs-stage-motion[data-igs-rm-breathe] #igs-sprite:not(.igs-sprite-editing){animation:none;}
 #igs-overlay[data-igs-quality="low"] #igs-bg{--igs-rm-bg-blur:0px;}
 #igs-overlay[data-igs-quality="low"] #igs-stage-motion #igs-bg-blur{display:none;}
 #igs-overlay[data-igs-quality="low"] .igs-fx-dream-mist{filter:none;}
 @keyframes igs-sd-breathe{0%,100%{transform:scale(1,1);}50%{transform:scale(1.004,1.011);}}
+@keyframes igs-sd-pan{0%{transform:scale(1.14) translateX(5%);}100%{transform:scale(1.14) translateX(-5%);}}
 @keyframes igs-sd-kenburns{0%{transform:scale(1) translate(0,0);}100%{transform:scale(1.07) translate(-1.2%,-.8%);}}
 @media (prefers-reduced-motion: reduce){
 #igs-overlay[data-igs-sd-breathe] #igs-sprite,#igs-overlay[data-igs-sd-kenburns] #igs-bg{animation:none;}

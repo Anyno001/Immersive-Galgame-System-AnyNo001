@@ -7,6 +7,7 @@ import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
 import { SLOT_ICONS, menuItem, transferIcons, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions } from './settings-outfit-fields.js';
 import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
+import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions } from './voice-bark.js';
 
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
@@ -388,6 +389,7 @@ export function renderCharacterAssetList(characters, options = {}) {
     const isOpen = typeof options.isOpen === 'function' ? options.isOpen : () => false;
     // 魔法星夜才显示学院行；未指定时按 DNA 自动识别，识别不出用全局配色。
     const magicHouse = options.magicHouse && typeof options.magicHouse === 'object' ? options.magicHouse : null;
+    const voiceRow = options.voice && typeof options.voice === 'object' ? options.voice : null;
     const pencil = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     const trash = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     const chevronDown = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
@@ -406,6 +408,7 @@ export function renderCharacterAssetList(characters, options = {}) {
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
         const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或 data:image/...">${transferIcons(avatarUrl, `${charName}-头像.png`, [`status-avatar-pick:${encSeg(charName)}`, '上传头像'])}<button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成 Q 版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
         const houseHtml = magicHouse ? renderCharacterHouseRow(charName, magicHouse) : '';
+        const voiceHtml = voiceRow ? renderCharacterVoiceRow(charName, voiceRow) : '';
         const dna = Object.prototype.hasOwnProperty.call(dnaMap, charName) ? dnaMap[charName] : null;
         const dnaOpen = isOpen(`char-dna:${charName}`);
         const outfitForChar = Object.prototype.hasOwnProperty.call(outfitMap, charName) ? outfitMap[charName] : null;
@@ -483,6 +486,7 @@ export function renderCharacterAssetList(characters, options = {}) {
                 `<div class="igs-char-info-row"><span class="igs-char-info-label">别名</span>${aliasesHtml}</div>`,
                 `<div class="igs-char-info-row"><span class="igs-char-info-label">状态栏头像</span>${avatarHtml}</div>`,
                 houseHtml,
+                voiceHtml,
             ].join(''))
             : '';
         return `<div class="igs-scene-char-group igs-char-card${open ? ' is-open' : ''}">${head}${setup}${open ? `<div class="igs-char-body">${slotArea}</div>` : ''}</div>`;
@@ -499,6 +503,33 @@ function renderCharacterHouseRow(charName, { sceneAssets, fallback }) {
     const opts = [['', autoText], ...MAGIC_HOUSES.map((house) => [house.id, house.label])]
         .map(([id, label]) => `<option value="${esc(id)}"${id === manual ? ' selected' : ''}>${esc(label)}</option>`).join('');
     return `<div class="igs-char-info-row igs-char-house-row"><span class="igs-char-info-label">学院</span><select class="igs-asset-move" data-char-house="${esc(charName)}" aria-label="角色学院">${opts}</select></div>`;
+}
+
+const VOICE_GENDER_GROUPS = [['female', '女声'], ['male', '男声 / 少年'], ['', '其他']];
+
+// 角色声线：自动（按 DNA 性别分配）/ 不发声 / 指定声线，外加音高微调与试听。
+function renderCharacterVoiceRow(charName, { sceneAssets }) {
+    const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
+    const manual = normalizeCharacterVoice(Object.prototype.hasOwnProperty.call(voices, charName) ? voices[charName] : null);
+    const auto = resolveCharacterVoice({ ...sceneAssets, characterVoices: {} }, charName);
+    const autoText = auto.pack ? `自动（${auto.pack.name}）` : '自动（DNA 看不出性别，不发声）';
+    const option = (id, label) => `<option value="${esc(id)}"${id === manual.pack ? ' selected' : ''}>${esc(label)}</option>`;
+    const packs = voicePackOptions();
+    const groups = VOICE_GENDER_GROUPS.map(([gender, label]) => {
+        const items = packs.filter(([, , g]) => g === gender).map(([id, name]) => option(id, name)).join('');
+        return items ? `<optgroup label="${esc(label)}">${items}</optgroup>` : '';
+    }).join('');
+    const pitches = [];
+    for (let v = -VOICE_PITCH_LIMIT; v <= VOICE_PITCH_LIMIT; v += 0.5) pitches.push(v);
+    const pitchOpts = pitches.map((v) => `<option value="${v}"${v === manual.pitch ? ' selected' : ''}>${v === 0 ? '原调' : `${v > 0 ? '+' : ''}${v}`}</option>`).join('');
+    const speeds = [];
+    for (let v = VOICE_SPEED_RANGE[0]; v <= VOICE_SPEED_RANGE[1] + 1e-6; v += 0.1) speeds.push(Math.round(v * 10) / 10);
+    const speedOpts = speeds.map((v) => `<option value="${v}"${v === manual.speed ? ' selected' : ''}>${v === 1 ? '原速' : `${v}×`}</option>`).join('');
+    return `<div class="igs-char-info-row igs-char-voice-row"><span class="igs-char-info-label">声线</span>`
+        + `<select class="igs-asset-move" data-char-voice="${esc(charName)}" aria-label="角色声线">${option('', autoText)}${option('off', '不发声')}${groups}</select>`
+        + `<select class="igs-asset-move" data-char-voice-pitch="${esc(charName)}" aria-label="声线音高" title="音高（半音）">${pitchOpts}</select>`
+        + `<select class="igs-asset-move" data-char-voice-speed="${esc(charName)}" aria-label="声线语速" title="语速，不影响音高">${speedOpts}</select>`
+        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="voice-bark-preview:${encSeg(charName)}">试听</button></div>`;
 }
 
 const CHARACTER_DNA_FIELD_LABELS = [

@@ -13,9 +13,24 @@ import {
     resolveRomanceParams,
     scaleRomanceParams,
 } from './romance-settings.js';
-import { applyRomanceMoments, closeRomanceMoments, playRivalSymbol } from './romance-moments.js';
+import { applyRomanceMoments, closeRomanceMoments, playRivalSymbol, slowerTypewriterSpeed } from './romance-moments.js';
 import { closeRomanceActions, syncRomanceActions } from './romance-actions.js';
 import { closeRomanceIntimate, syncRomanceIntimate } from './romance-intimate-runtime.js';
+import { resolveIntimatePhase } from './romance-intimate.js';
+import {
+    detectImaginedTarget,
+    detectNoiseByText,
+    detectSoloByText,
+    isNudeOutfit,
+    pickCgShot,
+    planUndress,
+    registeredNames,
+    resolvePageSense,
+    senseMix,
+} from './romance-senses.js';
+import { cancelCgPan, syncCgPan } from './romance-cg-pan.js';
+import { closeDreamFigure, syncDreamFigure } from './romance-solo.js';
+import { resolveSpriteAsset } from '../../scene/asset-match.js';
 
 // 状态全部挂在 #igs-stage-motion 上（data-igs-rm-* 与 --igs-rm-*），皮肤可覆写；环境层插在立绘之前（背景之上、立绘之下）。
 const ATTRS = Object.freeze([
@@ -32,6 +47,44 @@ const SHADE_ONLY_BACKLIGHT = 0.6;
 const MOON_TIMES = new Set(['night', 'midnight']);
 
 const states = new WeakMap();
+// 脱衣判定：角色 → 上一页是否裸体（衣柜路线）。关闭阅读器时清空。
+const nudeMemory = new Map();
+// 独处：没有标签、靠正文认出的独处段，以及每段「想着谁」，都按「楼层:段起点」记忆。关闭阅读器时清空。
+const soloSpans = new Set();
+const imagined = new Map();
+const SOLO_MEMORY_LIMIT = 64;
+
+function remember(map, key, value) {
+    if (map instanceof Set) map.add(key);
+    else map.set(key, value);
+    while (map.size > SOLO_MEMORY_LIMIT) map.delete(map.keys().next().value);
+}
+
+// 返回 { target } 或 null。标签区间优先；没有标签时，情事段里出现明确说法就把这一段记为独处（往后生效）。
+// 想着谁：标签没写时从正文认已登记角色，认到后这一段都沿用。
+function resolveSolo(settings, snapshot, content, sceneAssets) {
+    if (!settings.solo || content.sceneNsfw !== true) return null;
+    const fx = content.fx || {};
+    const span = content.nsfwSpan;
+    const key = span ? `${snapshot.messageId}:${Number(content.currentIndex) - span.index}` : '';
+    if (!fx.solo && key && settings.senseWords && detectSoloByText(content.text)) remember(soloSpans, key);
+    if (!fx.solo && !(key && soloSpans.has(key))) return null;
+    let target = fx.solo ? String(fx.solo.target || '').trim() : '';
+    if (!target && key) target = imagined.get(key) || '';
+    if (!target && key && settings.senseWords) {
+        target = detectImaginedTarget(content.text, registeredNames(sceneAssets), content.spriteCharacter || content.speaker);
+        if (target) remember(imagined, key, target);
+    }
+    return { target };
+}
+
+// 想象中的对象：用这个角色的立绘（平常的衣服、害羞的表情）；没有立绘就不显示。
+function imaginedUrl(target, sceneAssets, ctx) {
+    if (!target) return '';
+    const hit = resolveSpriteAsset(target, '害羞', { sceneAssets });
+    const raw = hit && hit.url ? String(hit.url) : '';
+    return raw && typeof ctx.resolveAssetUrl === 'function' ? String(ctx.resolveAssetUrl(raw) || '').trim() : raw;
+}
 // 好感按角色缓存：状态栏只在说话人页面有数据，旁白页沿用该角色最近一次的数值，避免暖光逐页闪烁。
 const favorCache = new Map();
 const FAVOR_CACHE_LIMIT = 64;
@@ -131,6 +184,9 @@ export function cancelRomanceFx(root) {
     const stage = stageOf(root);
     if (!stage) return;
     closeRomanceActions(root);
+    cancelCgPan(stage);
+    closeDreamFigure(stage);
+    setAttr(root, 'data-igs-rm-sense', false);
     for (const name of ATTRS) setAttr(stage, name, false);
     for (const name of VARS) setVar(stage, name, null);
     const state = states.get(stage);
@@ -147,6 +203,9 @@ export function closeRomanceFx(root) {
     closeRomanceMoments(root);
     favorCache.clear();
     rangeOwners.clear();
+    nudeMemory.clear();
+    soloSpans.clear();
+    imagined.clear();
 }
 
 function lowQuality(root, stage) {
@@ -198,6 +257,14 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
         rememberFavor(content.statusHud, settings.favorWords);
         moments = applyRomanceMoments(root, snapshot, ctx);
     }
+    // 脱衣：每个文字页都记一次「这个角色现在是不是裸体」，这样进入亲密段时才知道是不是刚脱。
+    const undress = settings.enabled && settings.undress && pageKind === 'text'
+        ? planUndress(nudeMemory, {
+            character: content.spriteCharacter,
+            nude: content.spriteCharacter ? isNudeOutfit(reader._sceneAssets, content.spriteCharacter, content.spriteOutfit) : false,
+            text: content.text,
+        })
+        : '';
     // 好感常驻 0.5 档：只在没有整数档位的普通文字页生效。
     const favor = settings.enabled && !level && !nsfw && pageKind === 'text' && favorActive(settings, content, hasSprite);
     if (!stage || (!level && !shade && !favor)) {
@@ -277,6 +344,17 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
         const placement = resolveSymbolPlacement('heartbreak', { ...geo, sprite: { ...sprite, head: anyHead } });
         playRivalSymbol(root, placement, `${snapshot.messageId}:${content.currentIndex}`, ctx);
     }
+    // 独处（情事档）：换声景；门外的动静标签随时可用，正文识别只在独处里做。
+    const solo = level === 3 ? resolveSolo(settings, snapshot, content, reader._sceneAssets) : null;
+    const fxNoise = level === 3 && content.fx && content.fx.noise ? content.fx.noise : '';
+    const noise = fxNoise || (solo && settings.senseWords ? detectNoiseByText(content.text) : '');
+    // 感官调度：只在暧昧 / 亲密 / 情事档生效（好感常驻档与只开剪影时不算）。外面有动静时一律屏息。
+    const senseRaw = level > 0 && settings.senses
+        ? resolvePageSense({ fx: content.fx, text: content.text, keywords: settings.senseWords }).sense
+        : '';
+    const sense = noise && settings.senses ? 'hush' : senseRaw;
+    // 对话框文字随感官微调（失神时字距拉开），归在边缘光影开关下。
+    setAttr(root, 'data-igs-rm-sense', Boolean(sense) && settings.edgeFx, sense);
     const intimate = syncRomanceIntimate(root, {
         level,
         span: content.nsfwSpan,
@@ -288,6 +366,30 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
         messageId: snapshot.messageId,
         index: content.currentIndex,
         rng: ctx.rng,
+        sense,
+        undress: level > 0 ? undress : '',
+        solo: Boolean(solo),
+        noise,
     });
-    return { level, shade, favor, rival, curve, face: Boolean(neck), approach, whisper: intimate.whisper, typewriter: moments.typewriter };
+    // 想象中的对象：人影放在立绘的另一侧；没有立绘（挂 CG、剪影隐藏）时放右边。
+    const dreamSide = hasSprite && Number(ctx.sprite.posX) >= 50 ? 'l' : 'r';
+    // 写成自己的（标签写错）不出人影。
+    const self = characterKey(reader._sceneAssets, content.spriteCharacter || content.speaker);
+    const fantasy = solo && solo.target && characterKey(reader._sceneAssets, solo.target) !== self ? solo.target : '';
+    const dream = syncDreamFigure(stage, { url: imaginedUrl(fantasy, reader._sceneAssets, ctx), side: dreamSide });
+    // CG 镜头缓移：挂着 CG 的亲密页才动；屏息、蒙眼这类剥夺型感官时定格。
+    const mix = senseMix(sense);
+    const cgUrl = asset && settings.cgPan && level > 0 && !reduced ? String(content.illustrationUrl || '') : '';
+    const cgShot = syncCgPan(stage, {
+        url: cgUrl,
+        shot: pickCgShot({ url: cgUrl, level, phase: level === 3 ? resolveIntimatePhase(content.nsfwSpan) : '', sense }),
+        hold: Boolean(mix && mix.cgHold),
+    });
+    // 香气、屏息、失神时打字机降一档（告白段已经降过的不再叠加）。
+    let typewriter = moments.typewriter;
+    if (!typewriter && mix && mix.slowText && !reduced) {
+        const speed = reader.typewriter && reader.typewriter.speed;
+        typewriter = { speed: slowerTypewriterSpeed(speed || 'medium') };
+    }
+    return { level, shade, favor, rival, curve, face: Boolean(neck), approach, whisper: intimate.whisper, typewriter, sense, undress: level > 0 ? undress : '', cgShot, solo: solo ? solo.target || true : false, noise, dream };
 }

@@ -40,6 +40,25 @@ export const FX_STAGE_PAGE_MAX = 3;
 // 由亲密演出开关控制；区间内可直接升降档，档位词写错的开始标签整条丢弃（照常从正文剥离）。
 // 可选第 3 栏写对象角色名 [igs-fx:romance|暧昧|爱丽丝]，供修罗场判定；瞬时 [igs-fx:confess] 告白、[igs-fx:memory|名称] 恋爱回忆同属亲密演出。
 export const FX_ROMANCE_LEVELS = Object.freeze({ 暧昧: 'ambiguous', ambiguous: 'ambiguous', 亲密: 'intimate', intimate: 'intimate' });
+// 感官调度 [igs-fx:sense|蒙眼] … [igs-fx:sense-end]：同属亲密演出，作用到楼层内下一条 sense 标签为止；感官词写错整条丢弃（照常从正文剥离）。
+export const FX_SENSES = Object.freeze({
+    蒙眼: 'blind', 闭眼: 'blind', 黑暗: 'blind', blind: 'blind',
+    耳边: 'ear', 耳语: 'ear', 耳畔: 'ear', ear: 'ear',
+    触碰: 'touch', 触感: 'touch', 抚摸: 'touch', touch: 'touch',
+    热: 'heat', 灼热: 'heat', 体温: 'heat', heat: 'heat',
+    凉: 'cool', 冰凉: 'cool', 寒意: 'cool', cool: 'cool',
+    香: 'scent', 香气: 'scent', 气味: 'scent', scent: 'scent',
+    屏息: 'hush', 静止: 'hush', hush: 'hush',
+    失神: 'daze', 空白: 'daze', daze: 'daze',
+});
+// 独处 [igs-fx:solo|想着的角色名] … [igs-fx:solo-end]：角色独自一人的情事段，角色名可省；同属亲密演出。
+// 外面的动静 [igs-fx:noise|脚步]：独处时让角色以为要被发现的瞬时声音，类型写错整条丢弃。
+export const FX_NOISES = Object.freeze({
+    脚步: 'steps', 脚步声: 'steps', steps: 'steps',
+    敲门: 'knock', 敲门声: 'knock', knock: 'knock',
+    手机: 'phone', 振动: 'phone', 震动: 'phone', 来电: 'phone', phone: 'phone',
+    开门: 'door', 门把: 'door', 门: 'door', door: 'door',
+});
 // 通话：call 为对方来电、dial 为主角拨出，video 是视频来电的简写；第 3 段写「视频」即视频通话。
 // 结束标签 [igs-fx:call-end|未接] 可带原因，原因写错或省略时按正常挂断处理。
 export const FX_CALL_DIRS = Object.freeze({ call: 'in', dial: 'out', video: 'in' });
@@ -66,6 +85,15 @@ export const FX_DM_PAGE_MAX = 12;
 export const FX_DANMAKU_PAGE_MAX = 4;
 const DANMAKU_LINE_MAX = 5;
 const DANMAKU_LINE_LEN = 30;
+
+// 镜头 [igs-fx:cam|镜头|角色或方向]：独立于 FX_TAG_KINDS，由镜头语言的「AI 镜头指令」开关控制；只作用于标签所在页，每页取第一条。
+// 特写可写角色名（缺省为当前说话人）；摇镜第 3 栏写 左 / 右，缺省向右；镜头词写错整条丢弃（照常从正文剥离）。
+export const FX_CAMERA_SHOTS = Object.freeze({
+    特写: 'closeup', 近景: 'closeup', closeup: 'closeup', 拉远: 'wide', 远景: 'wide', 全景: 'wide', wide: 'wide',
+    虚化: 'focus', 景深: 'focus', 焦点: 'focus', focus: 'focus', 摇镜: 'pan', 横摇: 'pan', pan: 'pan',
+    倾斜: 'tilt', 斜角: 'tilt', 荷兰角: 'tilt', tilt: 'tilt', 复位: 'reset', reset: 'reset',
+});
+const FX_CAMERA_PAN_DIRS = Object.freeze({ 左: 'left', 向左: 'left', left: 'left', 右: 'right', 向右: 'right', right: 'right' });
 
 // 配乐情绪 [igs-fx:bgm|悲]：独立于 FX_TAG_KINDS，由背景音乐的情绪标签开关控制；情绪词写错整条丢弃（照常从正文剥离）。
 // 作用到楼层内下一条 bgm 标签为止，跨楼由选曲层按场景沿用。
@@ -130,6 +158,16 @@ export function parseFxBody(body) {
         const level = lookup(FX_ROMANCE_LEVELS, parts[1], '');
         return level ? { kind, end: false, args: parts[2] ? [level, parts[2]] : [level] } : null;
     }
+    if (kind === 'sense') {
+        if (isEnd) return { kind, end: true, args: [] };
+        const sense = lookup(FX_SENSES, parts[1], '');
+        return sense ? { kind, end: false, args: [sense] } : null;
+    }
+    if (kind === 'solo') return isEnd ? { kind, end: true, args: [] } : { kind, end: false, args: [parts[1] || ''] };
+    if (kind === 'noise') {
+        const noise = isEnd ? '' : lookup(FX_NOISES, parts[1], '');
+        return noise ? { kind, end: false, args: [noise] } : null;
+    }
     if (kind === 'react') return !isEnd && parts[1] ? { kind, end: false, args: [parts[1], parts[2] || ''] } : null;
     if (kind === 'stage') {
         if (isEnd) return null;
@@ -144,6 +182,12 @@ export function parseFxBody(body) {
     if (kind === 'bgm') {
         const mood = isEnd ? '' : normalizeBgmMood(parts[1]);
         return mood ? { kind, end: false, args: [mood] } : null;
+    }
+    if (kind === 'cam') {
+        const shot = isEnd ? '' : lookup(FX_CAMERA_SHOTS, parts[1], '');
+        if (!shot) return null;
+        if (shot === 'pan') return { kind, end: false, args: [shot, lookup(FX_CAMERA_PAN_DIRS, parts[2], 'right')] };
+        return { kind, end: false, args: [shot, shot === 'closeup' ? parts[2] || '' : ''] };
     }
     if (kind === 'confess') return isEnd ? null : { kind, end: false, args: [] };
     if (kind === 'memory') return !isEnd && parts[1] ? { kind, end: false, args: [parts[1]] } : null;
@@ -256,7 +300,12 @@ function applyStageDirective(result, d, current) {
 
 export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
     const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
-    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '' };
+    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null };
+    // 感官调度：区间状态，作用到下一条 sense / sense-end。
+    result.sense = '';
+    // 独处：区间状态 { target }；外面的动静：只归标签所在页。
+    result.solo = null;
+    result.noise = '';
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
@@ -284,11 +333,14 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
                 if (d.args[1]) result.romanceTarget = d.args[1];
             }
         }
+        else if (d.kind === 'sense') result.sense = d.end ? '' : d.args[0];
+        else if (d.kind === 'solo') result.solo = d.end ? null : { target: d.args[0] || (result.solo && result.solo.target) || '' };
         if (d.kind === 'stage') {
             applyStageDirective(result, d, d.offset > from);
             continue;
         }
-        if (d.offset <= from || d.kind === 'romance') continue;
+        if (d.offset <= from || d.kind === 'romance' || d.kind === 'sense' || d.kind === 'solo') continue;
+        if (d.kind === 'noise') { if (!result.noise) result.noise = d.args[0]; continue; }
         if (d.kind === 'confess') { result.confess = true; continue; }
         if (d.kind === 'memory') { if (!result.memory) result.memory = d.args[0]; continue; }
         // 同页先开战后结算时两者都保留，演出按「遭遇 → 出招 → 结算」顺序播放。
@@ -301,6 +353,10 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
             if (result.hits.length < FX_HIT_PAGE_MAX) {
                 result.hits.push({ attacker: d.args[0], target: d.args[1], skill: d.args[2], result: d.args[3], dice: d.dice === true });
             }
+            continue;
+        }
+        if (d.kind === 'cam') {
+            if (!result.cam) result.cam = { shot: d.args[0], target: d.args[1] };
             continue;
         }
         if (d.kind === 'live') continue;

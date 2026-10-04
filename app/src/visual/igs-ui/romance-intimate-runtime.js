@@ -3,6 +3,7 @@ import { resumeAudioBus } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
 import { normalizeFxSoundSettings } from './fx-settings.js';
 import { createIntimateVoice } from './romance-intimate-audio.js';
+import { applySenseToPlan } from './romance-senses.js';
 import {
     BG_SWAY,
     BREATH_PERIOD,
@@ -10,6 +11,9 @@ import {
     DUCK_BY_LEVEL,
     HEART_BPM,
     PHASE_TEMPO,
+    SOLO_SWAY,
+    SOLO_SWAY_SCALE,
+    SOLO_TEMPO,
     SWAY_AMPLITUDE,
     beatPush,
     heartPulse,
@@ -27,6 +31,13 @@ const PUMP_MS = 50;
 // 顶点：全场静音这么久，再慢慢回来。
 const PEAK_HOLD_S = 1.5;
 const VEIL_MS = Object.freeze({ flash: 2400, dark: 2600 });
+const SWEEP_MS = 1800;
+const RIPPLE_MS = 2300;
+// 外面有动静：场景声几乎压没，这么久之后再回来。
+const NOISE_DUCK_MS = 2600;
+// 独处的呼吸：像捂着嘴，高频压低；呼气时偶尔憋住不出声。
+const SOLO_BREATH_LOWPASS = 1100;
+const SOLO_BREATH_HOLD = 0.25;
 // 触屏设备的画面更新限到约 30 帧。
 const COARSE_FRAME_MS = 32;
 const SWAY_TARGETS = Object.freeze([['#igs-bg', BG_SWAY], ['#igs-sprite', 1], ['#igs-cast', CAST_SWAY]]);
@@ -36,7 +47,9 @@ const RHYTHM_MATERIALS = new Set(['wood', 'metal', 'sofa']);
 const states = new WeakMap();
 
 // 纯函数：本页该开哪些声音与画面。level 为亲密档位（3 = 情事），phase 仅情事有意义。
-export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}, sound = {}, reduced = false, coarse = false, low = false, location = '' } = {}) {
+// sense 为本页主导感官（romance-senses），undress 非空表示本页有脱衣动作；
+// solo 表示独处的情事段（没有床的往返，只有被褥摩擦与轻颤），noise 为本页门外的动静（steps / knock / phone / door）。
+export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}, sound = {}, reduced = false, coarse = false, low = false, location = '', sense = '', undress = '', solo = false, noise = '' } = {}) {
     if (!(level > 0)) return null;
     const soundOk = sound.enabled !== false && sound.volume > 0;
     const mild = level === 1 || level === 2;
@@ -45,9 +58,12 @@ export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}
     const nsfwSound = nsfw && settings.nsfwSound === true;
     const edge = settings.edgeFx !== false;
     const heartBpm = level === 2 && (soft || edge) ? HEART_BPM[2] : nsfw && (nsfwSound || edge) ? HEART_BPM[phase] : 0;
+    const alone = nsfw && solo === true && settings.solo !== false;
     const rhythmic = nsfw && settings.rhythm === true && phase !== 'after';
     const creak = rhythmic && soundOk && settings.rhythmSound !== false;
-    const sway = rhythmic && !reduced && settings.sway !== 'off' ? SWAY_AMPLITUDE[settings.sway] || SWAY_AMPLITUDE.medium : null;
+    const swayOn = rhythmic && !reduced && settings.sway !== 'off';
+    const sway = !swayOn ? null
+        : alone ? soloSway(settings.sway) : SWAY_AMPLITUDE[settings.sway] || SWAY_AMPLITUDE.medium;
     const plan = {
         level,
         phase: nsfw ? phase : '',
@@ -59,12 +75,15 @@ export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}
         duck: soft || nsfwSound || rhythmic ? DUCK_BY_LEVEL[level] : 0,
         tinnitus: soundOk && nsfwSound && phase === 'climax',
         ticks: soundOk && nsfwSound && phase === 'after',
-        tempo: creak || sway ? PHASE_TEMPO[phase] : null,
+        tempo: creak || sway ? (alone ? SOLO_TEMPO : PHASE_TEMPO)[phase] : null,
         creak,
-        material: resolveIntimateMaterial(location),
-        knock: creak && (phase === 'climax' || settings.strength === 'strong'),
+        material: alone ? 'futon' : resolveIntimateMaterial(location),
+        knock: creak && !alone && (phase === 'climax' || settings.strength === 'strong'),
         sway,
-        settle: nsfw && settings.rhythm === true && settings.rhythmSound !== false && soundOk,
+        settle: nsfw && !alone && settings.rhythm === true && settings.rhythmSound !== false && soundOk,
+        solo: alone,
+        breathLowpass: alone ? SOLO_BREATH_LOWPASS : 0,
+        noise: soundOk && noise ? noise : '',
         whisper: (level === 2 && soft) || nsfwSound,
         vignette: edge && level >= 2,
         gobo: edge && mild,
@@ -72,12 +91,23 @@ export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}
         fringe: edge && nsfw && phase === 'climax',
         edge,
     };
-    const any = plan.heartBpm || plan.breath || plan.duck || plan.tempo || plan.ticks || plan.vignette || plan.gobo || plan.cloth || plan.settle;
-    return any ? plan : null;
+    let out = plan;
+    if (sense && settings.senses !== false) out = applySenseToPlan(plan, sense, { edge, soundOk, coarse, low });
+    if (undress && settings.undress !== false) {
+        out = { ...out, undress: soundOk && (nsfw ? nsfwSound : soft), undressVisual: edge };
+    }
+    const any = out.heartBpm || out.breath || out.duck || out.tempo || out.ticks || out.vignette || out.gobo || out.cloth || out.settle
+        || (out.sense && out.senseVisual) || out.undress || out.undressVisual || out.noise;
+    return any ? out : null;
+}
+
+function soloSway(level) {
+    const k = SOLO_SWAY_SCALE[level] || 1;
+    return { x: SOLO_SWAY.x * k, y: SOLO_SWAY.y * k, r: SOLO_SWAY.r * k, shake: SOLO_SWAY.shake * k };
 }
 
 function needsVoice(plan) {
-    return Boolean(plan && plan.volume > 0 && (plan.heartAudio || plan.breath || plan.cloth || plan.creak || plan.tinnitus || plan.ticks || plan.settle));
+    return Boolean(plan && plan.volume > 0 && (plan.heartAudio || plan.breath || plan.cloth || plan.creak || plan.tinnitus || plan.ticks || plan.settle || plan.undress || plan.noise));
 }
 
 function isCoarse() {
@@ -136,6 +166,7 @@ function makeState(stage) {
         timers: new Set(),
         page: null,
         coarse: false,
+        earSide: -1,
     };
 }
 
@@ -186,7 +217,7 @@ function syncVoice(state, plan) {
         } else {
             state.voice.setVolume(plan.volume);
         }
-    } else if (state.voice) {
+    } else if (state.voice && !(state.voiceHold > state.perfNow())) {
         state.voice.dispose();
         state.voice = null;
         resetQueues(state);
@@ -205,9 +236,13 @@ function syncDuck(state, ratio) {
 function scheduleBeat(state, plan, beat) {
     const voice = state.voice;
     if (!voice || !plan.creak) return;
+    if (plan.solo) {
+        voice.rustle(beat.t, beat.velocity * (plan.creakGain > 0 ? plan.creakGain : 1));
+        return;
+    }
     const period = 60 / beat.bpm;
     const { material } = plan;
-    const velocity = beat.velocity * Math.min(1.15, beat.swell || 1);
+    const velocity = beat.velocity * Math.min(1.15, beat.swell || 1) * (plan.creakGain > 0 ? plan.creakGain : 1);
     voice.creak(beat.t, { material, velocity, down: true, duration: period * 0.5 });
     if (RHYTHM_MATERIALS.has(material)) {
         voice.creak(beat.t + period * 0.45, { material, velocity: velocity * 0.8, down: false, duration: period * 0.4 });
@@ -224,7 +259,7 @@ function pump(state) {
     if (t < state.hold) return;
     const horizon = t + LOOKAHEAD_S;
     const voice = state.voice;
-    const tempo = plan.tempo ? resolveIntimateTempo(plan.phase, state.span, t - state.phaseStart) : null;
+    const tempo = plan.tempo ? resolveIntimateTempo(plan.phase, state.span, t - state.phaseStart, plan.solo ? SOLO_TEMPO : PHASE_TEMPO) : null;
     if (tempo) {
         let last = state.beats[state.beats.length - 1];
         if (!last || last.t < t - 1) {
@@ -245,7 +280,7 @@ function pump(state) {
             state.heartBpm = state.heartBpm > 0 ? state.heartBpm + (plan.heartBpm - state.heartBpm) * 0.25 : plan.heartBpm;
             const at = state.nextHeart;
             state.hearts.push({ t: at, bpm: state.heartBpm });
-            if (voice && plan.heartAudio) voice.heartbeat(at, { bpm: state.heartBpm, gain: plan.level === 3 ? 0.7 : 0.5 });
+            if (voice && plan.heartAudio) voice.heartbeat(at, { bpm: state.heartBpm, gain: (plan.level === 3 ? 0.7 : 0.5) * (plan.heartGain > 0 ? plan.heartGain : 1) });
             state.nextHeart = at + (60 / state.heartBpm) * (1 + (state.rng() - 0.5) * 0.04);
         }
         if (state.hearts.length > 4) state.hearts.splice(0, state.hearts.length - 4);
@@ -255,8 +290,13 @@ function pump(state) {
         while (state.nextBreath < horizon) {
             const at = state.nextBreath;
             const share = state.inhale ? 0.4 : 0.6;
-            const pan = plan.phase === 'climax' ? (state.inhale ? -0.35 : 0.35) : (state.rng() - 0.5) * 0.2;
-            voice.breath(at, { inhale: state.inhale, duration: plan.breath * share * 0.7, gain: plan.level === 3 ? 0.85 : 0.65, pan });
+            // 耳边：呼吸贴到同一侧耳朵（和画面那一侧的光对上）。
+            const pan = plan.breathPan
+                ? state.earSide * (state.inhale ? 0.7 : 0.8)
+                : plan.phase === 'climax' ? (state.inhale ? -0.35 : 0.35) : (state.rng() - 0.5) * 0.2;
+            const gain = (plan.level === 3 ? 0.85 : 0.65) * (plan.breathGain > 0 ? plan.breathGain : 1);
+            const held = plan.solo && !state.inhale && state.rng() < SOLO_BREATH_HOLD;
+            if (!held) voice.breath(at, { inhale: state.inhale, duration: plan.breath * share * 0.7, gain, pan, lowpass: plan.breathLowpass || 2400 });
             state.nextBreath = at + plan.breath * share * (1 + (state.rng() - 0.5) * 0.12);
             state.inhale = !state.inhale;
         }
@@ -375,7 +415,7 @@ function ensureFront(state) {
     const front = doc.createElement('div');
     front.className = 'igs-rm-front';
     front.setAttribute('aria-hidden', 'true');
-    for (const name of ['gobo', 'vig', 'haze', 'fringe', 'veil']) {
+    for (const name of ['gobo', 'vig', 'haze', 'fringe', 'sense', 'sweep', 'veil']) {
         const layer = doc.createElement('div');
         layer.className = `igs-rm-${name}`;
         front.appendChild(layer);
@@ -398,18 +438,26 @@ function syncFront(state, plan) {
     setAttr(front, 'data-igs-rm-fringe', plan.fringe ? '1' : null);
     if (!plan.fringe) setVar(part(state, 'fringe'), '--igs-rm-fringe', null);
     if (plan.reduced) setVar(part(state, 'vig'), '--igs-rm-pulse', null);
+    const sense = plan.sense && plan.senseVisual ? plan.sense : null;
+    setAttr(front, 'data-igs-rm-sense', sense);
+    setAttr(front, 'data-igs-rm-ear', sense === 'ear' ? (state.earSide < 0 ? 'l' : 'r') : null);
+}
+
+// 一次性动画（白场 / 暗转、触碰涟漪、脱衣扫光）：去掉属性、强制重排、再加上，重复触发时从头播。
+function replay(state, name, attr, value, ms) {
+    const el = part(state, name);
+    if (!el) return;
+    el.removeAttribute(attr);
+    void el.offsetWidth;
+    el.setAttribute(attr, value);
+    later(state, ms, () => {
+        if (el.getAttribute(attr) === value) el.removeAttribute(attr);
+    });
 }
 
 // 白场 / 暗转：同一层换动画，重复触发时从头播。
 function playVeil(state, kind) {
-    const veil = part(state, 'veil');
-    if (!veil) return;
-    veil.removeAttribute('data-igs-rm-veil');
-    void veil.offsetWidth;
-    veil.setAttribute('data-igs-rm-veil', kind);
-    later(state, VEIL_MS[kind], () => {
-        if (veil.getAttribute('data-igs-rm-veil') === kind) veil.removeAttribute('data-igs-rm-veil');
-    });
+    replay(state, 'veil', 'data-igs-rm-veil', kind, VEIL_MS[kind]);
 }
 
 // 顶点：声音一瞬间全部切断（含 BGM 与环境声），画面过曝成白场；停顿之后心跳、呼吸慢慢回来，床再「落定」两声。
@@ -450,7 +498,7 @@ function stopState(state, { hard = false } = {}) {
     state.front = null;
 }
 
-// info：{ level, span, location, settings, fxSound, reduced, low, messageId, index }。返回 { whisper }。
+// info：{ level, span, location, settings, fxSound, reduced, low, messageId, index, sense, undress, solo, noise }。返回 { whisper, plan }。
 export function syncRomanceIntimate(root, info = {}) {
     const stage = stageOf(root);
     if (!stage) return { whisper: false };
@@ -461,6 +509,7 @@ export function syncRomanceIntimate(root, info = {}) {
     const phase = info.level === 3 ? resolveIntimatePhase(info.span) : '';
     const base = resolveIntimatePlan({
         level: info.level, phase, settings, sound: normalizeFxSoundSettings(info.fxSound), reduced, coarse, low: info.low === true, location: info.location,
+        sense: info.sense || '', undress: info.undress || '', solo: info.solo === true, noise: info.noise || '',
     });
     if (!base) {
         if (state) {
@@ -481,8 +530,14 @@ export function syncRomanceIntimate(root, info = {}) {
     const page = { messageId: info.messageId, index: Number(info.index), level: plan.level, phase: plan.phase };
     const turned = !prevPage || prevPage.messageId !== page.messageId || prevPage.index !== page.index;
     const forward = Boolean(prevPage && prevPage.messageId === page.messageId && page.index === prevPage.index + 1);
+    // 往后读：同楼下一页，或翻进新楼层的第一页。脱衣只在往后读时播，翻回旧页不重播。
+    const advanced = forward || Boolean(prevPage && prevPage.messageId !== page.messageId && page.index === 0);
+    const senseChanged = (prev && prev.sense || '') !== (plan.sense || '');
+    if (senseChanged && plan.sense === 'ear') state.earSide = state.rng() < 0.5 ? -1 : 1;
     state.page = page;
     state.plan = plan;
+    // 脱衣声约 1 秒；这期间重绘不能因为「本页已不需要声音」把它掐掉。
+    if (turned && advanced && (plan.undress || plan.noise)) state.voiceHold = state.perfNow() + (plan.noise ? 2.6 : 1.6);
 
     const clockChanged = syncVoice(state, plan);
     state.span = info.span || null;
@@ -498,14 +553,29 @@ export function syncRomanceIntimate(root, info = {}) {
 
     if (turned) {
         const span = info.span;
+        const undressing = advanced && (plan.undress || plan.undressVisual);
         if (forward && prevPage.phase === 'climax' && plan.phase === 'after') {
             runPeak(state, plan);
         } else {
             // 从非情事页进入情事段开头：先暗转，只让声音继续推进。
             const entering = plan.level === 3 && prevPage && prevPage.level !== 3 && span && span.index === 0 && !span.continued;
             if (entering && plan.edge) playVeil(state, 'dark');
-            if (voice && plan.cloth && state.rng() < 0.6) voice.cloth(schedNow(state) + 0.08, plan.level === 3 ? 1 : 0.7);
+            // 门外的动静：声音从门那一侧传来，场景声几乎压没（本页的感官同时切成屏息，见 romance-runtime）。
+            if (advanced && plan.noise) {
+                if (voice) voice.outside(plan.noise, schedNow(state) + 0.05, 1);
+                duckSceneAudio({ ratio: 0.15, durationMs: NOISE_DUCK_MS });
+            }
+            if (undressing) {
+                if (voice && plan.undress) voice.undress(schedNow(state) + 0.05, plan.level === 3 ? 1 : 0.8);
+                if (plan.undressVisual && !plan.reduced) replay(state, 'sweep', 'data-igs-rm-sweep', '1', SWEEP_MS);
+            } else if (voice && plan.cloth && (plan.senseCloth || state.rng() < 0.6)) {
+                voice.cloth(schedNow(state) + 0.08, plan.level === 3 ? 1 : 0.7);
+            }
         }
+    }
+    // 触碰：翻到触碰页或刚切到触碰时，边缘泛起一圈涟漪。
+    if ((turned || senseChanged) && plan.sense === 'touch' && plan.senseVisual && !plan.reduced) {
+        replay(state, 'sense', 'data-igs-rm-ripple', '1', RIPPLE_MS);
     }
     if (!state.pump && (plan.tempo || plan.heartBpm || plan.breath || plan.ticks)) {
         state.pump = unref(setInterval(() => pump(state), PUMP_MS));
@@ -515,7 +585,7 @@ export function syncRomanceIntimate(root, info = {}) {
     }
     pump(state);
     if (state.frame == null) loop(state);
-    return { whisper: plan.whisper, plan };
+    return { whisper: plan.whisper || (plan.sense === 'ear' && plan.volume > 0), plan };
 }
 
 export function closeRomanceIntimate(root) {

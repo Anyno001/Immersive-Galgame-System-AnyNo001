@@ -12,7 +12,7 @@ export const SPRITE_EXIT_MS = 380;
 const DECODE_TIMEOUT_MS = 1500;
 const DECODED_LIMIT = 64;
 const BLIND_COUNT = 8;
-const ROOT_ATTRS = Object.freeze(['data-igs-sd-breathe', 'data-igs-cast-breathe', 'data-igs-sd-kenburns', 'data-igs-sd-parallax', 'data-igs-sd-closeup']);
+const ROOT_ATTRS = Object.freeze(['data-igs-sd-breathe', 'data-igs-cast-breathe', 'data-igs-sd-kenburns', 'data-igs-sd-parallax', 'data-igs-sd-closeup', 'data-igs-sd-cam']);
 const ROOT_VARS = Object.freeze(['--igs-sd-px', '--igs-sd-py', '--igs-sd-origin-x']);
 
 // 叠加合成：动作与呼吸（CSS 动画）同时作用在 transform 上而不互相覆盖。
@@ -472,6 +472,19 @@ export function cancelStageDirection(root) {
     return true;
 }
 
+// AI 镜头指令 [igs-fx:cam|…] 落到本页的镜头；返回值写进 data-igs-sd-cam。
+// 特写写了别的角色、特写 / 拉远 / 虚化时本页没有立绘都不推；摇镜在减少动态效果时不播，虚化在低画质档不做。
+export function resolveCameraShot(cam, { speakers = [], spriteUrl = '', reduced = false, lowQuality = false } = {}) {
+    const shot = cam && typeof cam === 'object' ? text(cam.shot) : '';
+    if (!shot || shot === 'reset') return '';
+    if (shot === 'pan') return reduced ? '' : `pan-${cam.target === 'left' ? 'left' : 'right'}`;
+    if (shot === 'tilt') return 'tilt';
+    if (!spriteUrl) return '';
+    if (shot === 'focus') return lowQuality ? '' : 'focus';
+    if (shot === 'closeup' && text(cam.target) && !speakers.map(text).includes(text(cam.target))) return '';
+    return shot === 'closeup' || shot === 'wide' ? shot : '';
+}
+
 // ctx.bgUrl / ctx.spriteUrl 为渲染层已解析、实际写入 DOM 的地址（隐藏立绘时为空）。
 export function applyStageDirection(root, snapshot, ctx = {}) {
     if (!root || !snapshot || typeof root.querySelector !== 'function') return { played: [] };
@@ -547,7 +560,14 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
 
     setAttr(root, 'data-igs-cg', cg);
     setAttr(root, 'data-igs-sd-kenburns', !cg && !reduced && s.camera.enabled && s.camera.kenBurns && Boolean(bgUrl));
-    setAttr(root, 'data-igs-sd-closeup', !cg && !reduced && eligible && Boolean(spriteUrl) && pickCloseUp(content.statusEmotion, s.camera));
+    const lowQuality = typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low';
+    const camShot = !cg && eligible && !ctx.spriteEditMode && s.camera.enabled && s.camera.aiShots
+        ? resolveCameraShot(content.fx && content.fx.cam, { speakers: [content.speaker, content.spriteCharacter], spriteUrl, reduced, lowQuality })
+        : '';
+    setAttr(root, 'data-igs-sd-cam', Boolean(camShot), camShot);
+    if (camShot && newPage) played.push(`camera:${camShot}`);
+    // AI 指定了镜头的页不再按情绪自动特写。
+    setAttr(root, 'data-igs-sd-closeup', !camShot && !cg && !reduced && eligible && Boolean(spriteUrl) && pickCloseUp(content.statusEmotion, s.camera));
     syncParallax(state, root, !cg && !reduced && s.camera.enabled && s.camera.parallax);
     // 冲击推近：只在翻到新页时按原始情绪精确匹配播一次，音效与镜头同时起播；本页震动在播时让位。CG 页不推。
     const stageMotion = root.querySelector('#igs-stage-motion');
@@ -559,7 +579,6 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
         const playSfx = typeof ctx.playSfx === 'function'
             ? ctx.playSfx
             : () => playCameraImpactSfx(normalizeFxSoundSettings(snapshot.readerSettings && snapshot.readerSettings.fxSound));
-        const lowQuality = typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low';
         const impact = playCameraImpact(stageMotion, { key: pageKey, reducedMotion: false, lowQuality, playSfx });
         if (impact.played) played.push('camera:impact');
     }

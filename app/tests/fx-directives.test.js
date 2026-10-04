@@ -177,3 +177,20 @@ test('gate:fx-era:ancient-turns-off-modern-only-fx-without-mutating-input', asyn
     assert.equal(isAncientEra({ ancient: 'true' }), false);
     assert.equal(isAncientEra(null), false);
 });
+
+test('gate:fx-directives:camera-shot-tags-apply-to-their-page-only', () => {
+    assert.deepEqual(parseFxBody('cam|特写|爱丽丝'), { kind: 'cam', end: false, args: ['closeup', '爱丽丝'] });
+    assert.deepEqual(parseFxBody('cam|摇镜|左'), { kind: 'cam', end: false, args: ['pan', 'left'] });
+    assert.deepEqual(parseFxBody('cam|摇镜'), { kind: 'cam', end: false, args: ['pan', 'right'] });
+    assert.deepEqual(parseFxBody('cam|拉远|爱丽丝'), { kind: 'cam', end: false, args: ['wide', ''] });
+    assert.equal(parseFxBody('cam|转圈'), null);
+    assert.equal(parseFxBody('cam-end'), null);
+    const text = '甲[igs-fx:cam|倾斜]乙[igs-fx:cam|虚化]丙';
+    const list = extractFxDirectives(text);
+    assert.equal(list.length, 2);
+    const first = resolveFxAtPage(list, text.indexOf('乙'), -1);
+    assert.deepEqual(first.cam, { shot: 'tilt', target: '' });
+    const next = resolveFxAtPage(list, text.indexOf('丙'), text.indexOf('乙'));
+    assert.deepEqual(next.cam, { shot: 'focus', target: '' }, 'earlier page shot does not carry over');
+    assert.equal(resolveFxAtPage(list, text.length, text.indexOf('丙')).cam, null);
+});

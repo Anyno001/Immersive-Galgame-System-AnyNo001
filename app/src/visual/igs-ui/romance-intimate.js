@@ -7,6 +7,12 @@ export const PHASE_TEMPO = Object.freeze({
     steady: Object.freeze({ bpm: 68, jitter: 0.07, skip: 0.04, double: 0.05, velocity: Object.freeze([0.65, 0.95]) }),
     climax: Object.freeze({ bpm: 90, jitter: 0.04, skip: 0, double: 0.03, velocity: Object.freeze([0.8, 1]) }),
 });
+// 独处：没有床的往返，只有被褥摩擦；更慢、更不规律（常漏拍），顶点封顶也更低。
+export const SOLO_TEMPO = Object.freeze({
+    rise: Object.freeze({ bpm: 40, jitter: 0.25, skip: 0.2, double: 0, velocity: Object.freeze([0.35, 0.6]) }),
+    steady: Object.freeze({ bpm: 54, jitter: 0.2, skip: 0.12, double: 0.04, velocity: Object.freeze([0.5, 0.8]) }),
+    climax: Object.freeze({ bpm: 72, jitter: 0.12, skip: 0.04, double: 0.02, velocity: Object.freeze([0.65, 0.9]), max: 92 }),
+});
 // 越往后越快：中段按在情事段里的进度再提速，停在同一页上也缓慢加快；顶点页按停留时间持续加速，晃动随之放大。
 const STEADY_SPAN_BONUS = 10;
 const STEADY_TIME_BPM = 0.3;
@@ -17,8 +23,8 @@ const CLIMAX_SWELL_RATE = 0.015;
 const CLIMAX_SWELL_MAX = 0.3;
 
 // elapsed 为进入当前阶段后经过的秒数；返回带实时目标速度与晃动放大倍数 swell 的节拍参数。
-export function resolveIntimateTempo(phase, span, elapsed = 0) {
-    const base = PHASE_TEMPO[phase];
+export function resolveIntimateTempo(phase, span, elapsed = 0, table = PHASE_TEMPO) {
+    const base = table[phase];
     if (!base) return null;
     const time = Math.max(0, Number(elapsed) || 0);
     let bpm = base.bpm;
@@ -27,7 +33,7 @@ export function resolveIntimateTempo(phase, span, elapsed = 0) {
         const progress = span && span.length > 1 ? Math.min(1, span.index / (span.length - 1)) : 0;
         bpm += STEADY_SPAN_BONUS * progress + Math.min(STEADY_TIME_MAX, time * STEADY_TIME_BPM);
     } else if (phase === 'climax') {
-        bpm = Math.min(CLIMAX_MAX_BPM, bpm + time * CLIMAX_TIME_BPM);
+        bpm = Math.min(base.max || CLIMAX_MAX_BPM, bpm + time * CLIMAX_TIME_BPM);
         swell = 1 + Math.min(CLIMAX_SWELL_MAX, time * CLIMAX_SWELL_RATE);
     }
     return { ...base, bpm: Number(bpm.toFixed(2)), swell: Number(swell.toFixed(3)) };
@@ -49,6 +55,9 @@ export const SWAY_AMPLITUDE = Object.freeze({
     medium: Object.freeze({ x: 1.4, y: 5, r: 0.25, shake: 0 }),
     strong: Object.freeze({ x: 2.2, y: 7, r: 0.45, shake: 1.6 }),
 });
+// 独处不晃床，只留很轻的颤：几乎不左右摆，抖动比下压明显。按晃动档位缩放。
+export const SOLO_SWAY = Object.freeze({ x: 0.25, y: 1, r: 0.03, shake: 0.7 });
+export const SOLO_SWAY_SCALE = Object.freeze({ weak: 0.6, medium: 1, strong: 1.4 });
 export const BG_SWAY = 0.45;
 export const CAST_SWAY = 0.8;
 

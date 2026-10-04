@@ -129,6 +129,11 @@ export function normalizeRomanceFxSettings(value) {
         rhythmSound: src.rhythmSound !== false,
         sway: ROMANCE_SWAY_LEVELS.includes(src.sway) ? src.sway : 'medium',
         edgeFx: src.edgeFx !== false,
+        senses: src.senses !== false,
+        senseWords: src.senseWords !== false,
+        cgPan: src.cgPan !== false,
+        undress: src.undress !== false,
+        solo: src.solo !== false,
         quickActions: src.quickActions === true,
         actions: normalizeRomanceActions(src.actions),
     };

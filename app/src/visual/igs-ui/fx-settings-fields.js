@@ -49,7 +49,7 @@ export function renderFxFeatureFields(reader, more = collapsible) {
     const resultFx = checkbox(`${p}.resultFx.enabled`, s.resultFx.enabled, '选项检定掷骰');
     const tags = checkbox(`${p}.fxTags.enabled`, s.fxTags.enabled, '来电、通知、回忆等演出')
         + (s.fxTags.enabled ? sub(more('fx-tags', '选择标签类型', `<div class="igs-source-filter-grid">${FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('')}</div>`)
-            + (s.fxTags.call ? more('fx-call', '通话设置', field(`${p}.fxTags.callSprite`, '语音通话时对方立绘', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话时对方立绘'))
+            + (s.fxTags.call ? more('fx-call', '通话设置', field(`${p}.fxTags.callSprite`, '语音通话画面', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['split', '分屏'], ['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话画面'))
             ) : '')) : '');
     const sound = checkbox(`${p}.fxSound.enabled`, s.fxSound.enabled, '演出音效')
         + (s.fxSound.enabled ? sub(field(`${p}.fxSound.volume`, '音量', rangeInput(`${p}.fxSound.volume`, s.fxSound.volume, '音量'))) : '');

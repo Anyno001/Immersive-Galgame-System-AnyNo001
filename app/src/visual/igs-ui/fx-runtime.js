@@ -47,10 +47,11 @@ export function resolveCutinCrop(head, aspect, ratio = CUTIN_RATIO) {
     const round = (n) => Math.round(n * 100) / 100;
     return { size: round(k * 100), x: round(px), y: round(py) };
 }
-const RANGE_ATTRS = Object.freeze(['data-igs-fx-era', 'data-igs-fx-flashback', 'data-igs-fx-dream', 'data-igs-fx-letterbox', 'data-igs-fx-whisper', 'data-igs-fx-movie', 'data-igs-fx-lightsoff', 'data-igs-fx-umbrella', 'data-igs-fx-call', 'data-igs-fx-call-remote', 'data-igs-fx-call-sprite', 'data-igs-fx-motion', 'data-igs-fx-busy', 'data-igs-fx-presentation']);
-const CALL_PERSISTENT = '.igs-fx-call-badge, .igs-fx-eye-hold, .igs-fx-call-pip, .igs-fx-video';
+const RANGE_ATTRS = Object.freeze(['data-igs-fx-era', 'data-igs-fx-flashback', 'data-igs-fx-dream', 'data-igs-fx-letterbox', 'data-igs-fx-whisper', 'data-igs-fx-movie', 'data-igs-fx-lightsoff', 'data-igs-fx-umbrella', 'data-igs-fx-call', 'data-igs-fx-call-remote', 'data-igs-fx-call-sprite', 'data-igs-fx-call-split', 'data-igs-fx-motion', 'data-igs-fx-busy', 'data-igs-fx-presentation']);
+const CALL_PERSISTENT = '.igs-fx-call-badge, .igs-fx-eye-hold, .igs-fx-call-pip, .igs-fx-video, .igs-fx-call-split';
 const VIDEO_CLOSE_MS = 520;
 const PIP_OUT_MS = 320;
+const SPLIT_OUT_MS = 420;
 const CALL_LOG_LIMIT = 64;
 // 来电屏停留时长按结局区分：拒接很快被按掉，未接要响满几轮才放弃。
 const CALL_SCREEN_MS = Object.freeze({ answer: 2400, missed: 3400, reject: 1700 });
@@ -238,7 +239,7 @@ function setFlag(el, name, on, value = '1') {
 function getState(root, options) {
     let state = states.get(root);
     if (!state) {
-        state = { memory: createFxMemory(), timers: new Set(), sounds: [], pageKey: '', busy: 0, rangeBusy: false, busyOn: false, presentation: 0, presentationOn: false, motion: null, accent: null, callStart: null, timerKey: '', pipSig: '', pipLast: null, video: null, ring: null, logKey: '', callLog: new Map() };
+        state = { memory: createFxMemory(), timers: new Set(), sounds: [], pageKey: '', busy: 0, rangeBusy: false, busyOn: false, presentation: 0, presentationOn: false, motion: null, accent: null, callStart: null, timerKey: '', pipSig: '', pipLast: null, split: null, video: null, ring: null, logKey: '', callLog: new Map() };
         states.set(root, state);
     }
     state.schedule = typeof options.schedule === 'function' ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -678,6 +679,63 @@ function syncCallPip(state, stage, doc, call, avatar, speaking, reduced) {
     if (pip.hidden !== !call) pip.hidden = !call;
 }
 
+// 分屏对方格：有立绘时显示对方最近一次说话时的立绘（带当前表情），还没开口时显示大头像。
+function fillSplitRemote(doc, panel, name, avatar, feed) {
+    clearChildren(panel);
+    const pic = node(doc, 'igs-fx-call-split-feed');
+    if (feed && pic.style) pic.style.backgroundImage = `url("${feed}")`;
+    panel.appendChild(pic);
+    if (!feed) {
+        const face = node(doc, 'igs-fx-call-split-face');
+        face.appendChild(callFace(doc, name, avatar));
+        panel.appendChild(face);
+    }
+    panel.appendChild(node(doc, 'igs-fx-call-split-name', name));
+    setFlag(panel, 'data-feed', Boolean(feed));
+}
+
+function buildSplit(stage, doc) {
+    const split = persistent(stage, doc, 'igs-fx-call-split');
+    split.appendChild(node(doc, 'igs-fx-call-split-shade'));
+    split.appendChild(node(doc, 'igs-fx-call-split-remote'));
+    split.appendChild(node(doc, 'igs-fx-call-split-edge'));
+    return split;
+}
+
+// 语音通话分屏：对方格从右侧横向滑入，与现场之间斜切分割；说话的一方亮起、格子变大，另一方压暗收窄。
+// 收起时常驻分屏立即隐藏，另放一个对方格替身向右滑出，翻页清理瞬时演出时替身一并收走。
+function syncCallSplit(state, stage, doc, call, key, avatar, sprite, remote, reduced) {
+    const existing = stage.querySelector('.igs-fx-call-split');
+    if (!call) {
+        if (existing && !existing.hidden) {
+            existing.hidden = true;
+            const last = state.split;
+            if (last && !reduced) {
+                const ghost = node(doc, 'igs-fx-call-split-out');
+                ghost.setAttribute('data-active', last.active);
+                const panel = node(doc, 'igs-fx-call-split-remote');
+                fillSplitRemote(doc, panel, last.name, last.avatar, last.feed);
+                ghost.appendChild(panel);
+                spawn(state, stage, ghost, SPLIT_OUT_MS);
+            }
+        }
+        state.split = null;
+        return;
+    }
+    const split = existing || buildSplit(stage, doc);
+    if (!state.split || state.split.key !== key) state.split = { key, name: call.name, avatar, feed: '', sig: '', active: '' };
+    if (remote && sprite && sprite.url) state.split.feed = String(sprite.url).replace(/"/g, '%22');
+    state.split.avatar = avatar;
+    const sig = `${call.name}\n${avatar}\n${state.split.feed}`;
+    if (state.split.sig !== sig) {
+        state.split.sig = sig;
+        fillSplitRemote(doc, split.querySelector('.igs-fx-call-split-remote'), call.name, avatar, state.split.feed);
+    }
+    state.split.active = remote ? 'remote' : 'local';
+    if (split.getAttribute('data-active') !== state.split.active) split.setAttribute('data-active', state.split.active);
+    if (split.hidden) split.hidden = false;
+}
+
 // 挂断记录：挂断所在页常驻一枚胶囊（对象 · 结局 · 时长），回翻该页仍在。
 // 时长只在第一次见到这条挂断时结算，且只取本楼层刚结束的那通电话。
 function syncCallLog(ctx) {
@@ -773,6 +831,9 @@ function syncCall(ctx, callSprite) {
     syncCallBadge(state, layers.front, doc, call, key, now);
     const avatar = call ? resolveAvatar(call.name, snapshot, options) : '';
     syncCallPip(state, layers.stage, doc, call && mode === 'voice' && callSprite === 'avatar' ? call : null, avatar, remote, reduced);
+    const split = call && mode === 'voice' && callSprite === 'split' ? call : null;
+    setFlag(layers.motion, 'data-igs-fx-call-split', Boolean(split), remote ? 'remote' : 'local');
+    syncCallSplit(state, layers.stage, doc, split, key, avatar, options.sprite, remote, reduced);
     syncVideoWindow(state, layers.stage, doc, call && mode === 'video' ? call : null, key, avatar, remote ? options.sprite : null);
     return remote;
 }

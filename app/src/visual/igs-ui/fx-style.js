@@ -325,6 +325,35 @@ export const FX_STYLE_TEXT = `
 .igs-fx-video-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
 .igs-fx-video-btn.is-end{background:#ff3b30;}
 .igs-fx-video-btn.is-end svg{fill:currentColor;stroke:none;}
+/* 语音通话分屏：对方格从右侧横向滑入，斜切线分割；--igs-split-w 是对方格宽，说话的一方格子变大、另一方压暗收窄，斜线跟着平移。 */
+.igs-fx-call-split,.igs-fx-call-split-out{position:absolute;inset:0;pointer-events:none;--igs-split-w:40%;--igs-split-k:6%;}
+.igs-fx-call-split[hidden]{display:none!important;}
+.igs-fx-call-split[data-active="remote"],.igs-fx-call-split-out[data-active="remote"]{--igs-split-w:62%;}
+.igs-portrait .igs-fx-call-split,.igs-portrait .igs-fx-call-split-out{--igs-split-w:44%;--igs-split-k:4%;}
+.igs-portrait .igs-fx-call-split[data-active="remote"],.igs-portrait .igs-fx-call-split-out[data-active="remote"]{--igs-split-w:64%;}
+.igs-fx-call-split::before{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 38%,rgba(255,255,255,.2) 50%,transparent 62%);animation:igs-fx-split-sweep .6s ease-out both;}
+.igs-fx-call-split-shade{position:absolute;inset:0;background:rgba(6,8,16,.45);clip-path:polygon(0 0,calc(100% - var(--igs-split-w) + var(--igs-split-k)) 0,calc(100% - var(--igs-split-w) - var(--igs-split-k)) 100%,0 100%);opacity:0;transition:opacity .35s ease,clip-path .5s cubic-bezier(.3,.7,.2,1);}
+.igs-fx-call-split[data-active="remote"] .igs-fx-call-split-shade{opacity:1;}
+.igs-fx-call-split-remote{position:absolute;inset:0;overflow:hidden;clip-path:polygon(calc(100% - var(--igs-split-w) + var(--igs-split-k)) 0,100% 0,100% 100%,calc(100% - var(--igs-split-w) - var(--igs-split-k)) 100%);background:repeating-linear-gradient(115deg,rgba(255,255,255,.045) 0 2px,transparent 2px 14px),radial-gradient(ellipse 60% 55% at 78% 42%,color-mix(in oklab,var(--igs-fx-accent,#7a8cff) 42%,transparent),transparent 72%),linear-gradient(160deg,#2b3252,#121522 72%);filter:brightness(.58) saturate(.75);transition:clip-path .5s cubic-bezier(.3,.7,.2,1),filter .35s ease;}
+.igs-fx-call-split[data-active="remote"] .igs-fx-call-split-remote,.igs-fx-call-split-out[data-active="remote"] .igs-fx-call-split-remote{filter:none;}
+.igs-fx-call-split:not([hidden]) .igs-fx-call-split-remote,.igs-fx-call-split:not([hidden]) .igs-fx-call-split-edge{animation:igs-fx-split-in .55s cubic-bezier(.2,.8,.2,1) both;}
+.igs-fx-call-split-out .igs-fx-call-split-remote{animation:igs-fx-split-out .42s ease-in both;}
+.igs-fx-call-split-feed{position:absolute;top:8%;bottom:0;right:0;width:var(--igs-split-w);background-repeat:no-repeat;background-position:50% 100%;background-size:contain;transition:width .5s cubic-bezier(.3,.7,.2,1);}
+.igs-fx-call-split-face{position:absolute;top:0;bottom:0;right:0;width:var(--igs-split-w);display:flex;align-items:center;justify-content:center;transition:width .5s cubic-bezier(.3,.7,.2,1);}
+.igs-fx-call-split-face .igs-fx-call-avatar{width:min(28vmin,150px);height:min(28vmin,150px);font-size:min(11vmin,60px);box-shadow:0 0 0 4px rgba(255,255,255,.85),0 10px 30px rgba(0,0,0,.45);}
+.igs-fx-call-split-name{position:absolute;top:14px;right:16px;padding:3px 12px 3px 28px;border-radius:999px;background:rgba(0,0,0,.45);color:#fff;font-size:13px;letter-spacing:.08em;white-space:nowrap;}
+.igs-fx-call-split-name::before{content:"";position:absolute;left:10px;top:50%;width:12px;height:12px;margin-top:-6px;background:currentColor;-webkit-mask:${HANDSET} center/contain no-repeat;mask:${HANDSET} center/contain no-repeat;}
+.igs-fx-call-split[data-active="remote"] .igs-fx-call-split-name{background:color-mix(in oklab,var(--igs-fx-accent,#34c759) 72%,#000);}
+.igs-fx-call-split-edge{position:absolute;inset:0;background:color-mix(in oklab,var(--igs-fx-accent,#fff) 30%,#fff);clip-path:polygon(calc(calc(100% - var(--igs-split-w) + var(--igs-split-k)) - 2px) 0,calc(calc(100% - var(--igs-split-w) + var(--igs-split-k)) + 2px) 0,calc(calc(100% - var(--igs-split-w) - var(--igs-split-k)) + 2px) 100%,calc(calc(100% - var(--igs-split-w) - var(--igs-split-k)) - 2px) 100%);transition:clip-path .5s cubic-bezier(.3,.7,.2,1);}
+#igs-stage-motion[data-igs-fx-call-split="local"] #igs-sprite{left:30%;}
+.igs-portrait #igs-stage-motion[data-igs-fx-call-split="local"] #igs-sprite{left:28%;}
+#igs-stage-motion[data-igs-fx-era="ancient"] .igs-fx-call-split-remote{background:repeating-linear-gradient(115deg,rgba(120,80,40,.05) 0 2px,transparent 2px 14px),linear-gradient(160deg,#efe4c8,#d6c59d 72%);}
+#igs-stage-motion[data-igs-fx-era="ancient"] .igs-fx-call-split-edge{background:#8a3b2a;}
+#igs-stage-motion[data-igs-fx-era="ancient"] .igs-fx-call-split-name{background:rgba(60,36,20,.75);}
+@keyframes igs-fx-split-in{from{transform:translateX(100%);}to{transform:none;}}
+@keyframes igs-fx-split-out{from{transform:none;}to{transform:translateX(100%);}}
+@keyframes igs-fx-split-sweep{from{transform:translateX(-100%);}to{transform:translateX(100%);opacity:0;}}
+@media (prefers-reduced-motion: reduce){.igs-fx-call-split::before{display:none;}.igs-fx-call-split *{animation:none!important;transition:none!important;}}
 /* 视频通话期间舞台立绘让位给视频框；语音通话时对方说话，立绘按设置隐藏（头像小窗 / 隐藏）或照常显示。 */
 #igs-stage-motion[data-igs-fx-call="video"] #igs-sprite,
 #igs-stage-motion[data-igs-fx-call-remote]:not([data-igs-fx-call-sprite="show"]) #igs-sprite{visibility:hidden!important;}
