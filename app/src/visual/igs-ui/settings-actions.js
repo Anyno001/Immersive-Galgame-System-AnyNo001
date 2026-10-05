@@ -10,6 +10,7 @@ import { collectAssetZipEntries } from '../../scene/asset-zip.js';
 import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { buildCharacterCardPack, buildImageZip, buildPresetArchive, mergeLabelGroups, parseCharacterCardPack, parsePresetArchive, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
+import { buildPageDiagnostic } from './page-diagnostic.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { SETTINGS_NOTICE_MS } from './settings-notice.js';
@@ -788,6 +789,20 @@ export async function handleSettingsAction(action, ctx) {
         if (reset.ok === false) return reset;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'copy-page-diagnostic') {
+        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)) });
+        if (!text) {
+            if (typeof dialogs.view === 'function') await dialogs.view('先打开阅读器翻到出问题的那一页，再从工具栏「设置」进来复制。');
+            return rerenderSettings();
+        }
+        const nav = (options.global || globalThis).navigator;
+        const copied = nav && nav.clipboard && typeof nav.clipboard.writeText === 'function'
+            ? await Promise.resolve(nav.clipboard.writeText(text)).then(() => true, () => false)
+            : false;
+        if (typeof dialogs.edit === 'function') await dialogs.edit(copied ? '已复制到剪贴板，不含台词正文。' : '复制失败，请手动全选下面的内容复制。', text, { okLabel: '关闭' });
         return rerenderSettings();
     }
 

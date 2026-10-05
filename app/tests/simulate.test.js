@@ -1431,6 +1431,9 @@ test('gate:simulation:scene-and-character-aliases-reuse-original-assets-and-layo
     assert.equal(snapshot.content.spriteImage, 'https://example.com/alice.png');
     assert.equal(snapshot.content.speaker, '爱丽');
     assert.equal(snapshot.content.spriteCharacter, '爱丽丝');
+    assert.equal(snapshot.content.spriteMatch.character, '爱丽');
+    assert.notEqual(snapshot.content.spriteMatch.source, 'none');
+    assert.notEqual(snapshot.content.backgroundMatch.source, 'none');
     const sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
     assert.equal(sprite.style.backgroundPosition, '14% 78%');
     assert.equal(sprite.style.backgroundSize, 'auto 126%');

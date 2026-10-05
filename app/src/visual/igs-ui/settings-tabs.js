@@ -9,6 +9,7 @@ const BASIC_TAB_TEMPLATE = `
       <button class="igs-settings-action" data-action="settings-export-all" type="button">导出全局配置</button>
       <button class="igs-settings-action" data-action="settings-import-all" type="button">导入全局配置</button>
       <button class="igs-settings-action" data-action="onboarding-start" type="button">新手引导</button>
+      <button class="igs-settings-action" data-action="copy-page-diagnostic" type="button">复制本页诊断</button>
     </div>
     <div class="igs-source-filter-note">导出基础、阅读器、素材规则和生图内容。不含场景、角色、衣柜、图片，也不含各角色卡里的资料。不含 API Key。导入不会覆盖本机已有的素材。</div>
   </div>

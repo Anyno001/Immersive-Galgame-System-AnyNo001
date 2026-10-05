@@ -2877,6 +2877,9 @@ export function createIgsReaderHost(options = {}) {
         let nsfwCgPortrait = '';
         let castSprites = [];
         let speakerCastOrder = null;
+        // 只给「复制本页诊断」用：记下立绘 / 背景这一页实际命中了哪一路。
+        let spriteMatch = null;
+        let backgroundMatch = null;
         const extractedSegmentImageSlots = Array.isArray(extracted.segmentImageSlots) ? extracted.segmentImageSlots : [];
         const rawSegmentSlotValue = extractedSegmentImageSlots[normalizedIndex];
         const segmentHasBoundSlot = rawSegmentSlotValue != null
@@ -2995,15 +2998,19 @@ export function createIgsReaderHost(options = {}) {
         if (illustrationUrl) {
             finalBackgroundImage = illustrationUrl;
             spriteImage = null;
+            backgroundMatch = { source: 'cg' };
         } else if (boundMarkerUrl) {
             finalBackgroundImage = boundMarkerUrl;
             spriteImage = null;
+            backgroundMatch = { source: 'bound-slot' };
         } else if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
             spriteImage = null;
+            backgroundMatch = { source: 'slot' };
         } else if (sceneAssets && sceneAssets.enabled) {
             if (sceneStateForBg && sceneStateForBg.scene) {
                 const bgHit = resolveBackgroundAsset(sceneStateForBg, assetMatchCtx);
+                backgroundMatch = { source: bgHit.source, quality: bgHit.quality || '' };
                 finalBackgroundImage = resolveGenerated(bgHit.url);
                 finalBackgroundTimed = Boolean(finalBackgroundImage) && bgHit.timed === true;
             } else {
@@ -3184,6 +3191,7 @@ export function createIgsReaderHost(options = {}) {
                     : '');
                 const wantedOutfit = outfitFor(spriteChar);
                 const spriteHit = resolveSpriteAsset(spriteChar, spriteMood, assetMatchCtx, wantedOutfit);
+                spriteMatch = { character: spriteChar, mood: spriteMood || '', outfit: wantedOutfit || '', source: spriteHit.source, quality: spriteHit.quality || '', slot: spriteHit.slot || '' };
                 noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
                 spriteImage = resolveGenerated(spriteHit.url) || null;
                 if (spriteImage) {
@@ -3306,6 +3314,8 @@ export function createIgsReaderHost(options = {}) {
                 backgroundImage: finalBackgroundImage,
                 backgroundTimed: finalBackgroundTimed,
                 spriteImage,
+                spriteMatch,
+                backgroundMatch,
                 castSprites,
                 speakerCastOrder,
                 images: cloneData(displayImageState.images),
