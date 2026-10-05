@@ -4061,7 +4061,7 @@ export function createIgsReaderHost(options = {}) {
             toolbarDockField: field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'float', [['float', '悬浮'], ['top', '顶部固定']])),
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行'),
+            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickHideUi', reader.dblclickHideUi, '双击隐藏对话框'),
             backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '毛玻璃模糊'),
             // 玻璃作用于工具栏、选项、数据库、地图和记录面板；对话框只有默认皮肤跟随，其余皮肤自带底色。
             glassScopeNote: esc(dialogBgEditable
@@ -5447,6 +5447,7 @@ export function createIgsReaderHost(options = {}) {
             spriteDefaultScale: 100,
             spriteDisplayScale: 100,
             showStatusLine: false,
+            dblclickHideUi: true,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),
             voiceBark: normalizeVoiceBarkSettings(null),
@@ -5502,6 +5503,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.imgMode = normalized.imgMode === 'contain' ? 'contain' : 'adaptive';
         normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);
         normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
+        normalized.dblclickHideUi = normalizeBoolean(normalized.dblclickHideUi, true);
         normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
         normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);
         normalized.voiceBark = normalizeVoiceBarkSettings(normalized.voiceBark);

@@ -2442,6 +2442,13 @@ test('gate:simulation:double-click-keeps-cg-and-skips-the-page-turn', async () =
     overlay.dispatchEvent({ type: 'dblclick', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
+    assert.equal(opened.reader.snapshot.readerSettings.dblclickHideUi, true);
+    const settings = opened.reader.controller.openSettings('reader').controller;
+    settings.setValue('readerSettings.dblclickHideUi', false);
+    assert.equal(settings.close().ok, true);
+    overlay.dispatchEvent({ type: 'dblclick', target: overlay });
+    assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
+
     vn.destroy();
 });
 

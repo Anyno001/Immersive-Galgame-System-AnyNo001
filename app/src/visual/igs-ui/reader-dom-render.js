@@ -1665,6 +1665,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         root.addEventListener('dblclick', (event) => {
             const target = event.target;
             if (target && typeof target.closest === 'function' && target.closest('button,input,textarea,select,a,#igs-settings,#igs-map-panel,#igs-record-panel,#igs-cg-gallery')) return;
+            const live = current.snapshot || snapshot;
+            if (live && live.readerSettings && live.readerSettings.dblclickHideUi === false) return;
             event.preventDefault();
             if (root.getAttribute('data-igs-cg-only') === '1') root.removeAttribute('data-igs-cg-only');
             else root.setAttribute('data-igs-cg-only', '1');
