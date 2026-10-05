@@ -154,6 +154,7 @@ const IMAGE_CG_TEMPLATE = `
       <button class="igs-settings-action" data-action="image-cg-select-all" type="button">全选</button>
       <button class="igs-settings-action" data-action="image-cg-delete-selected" type="button">删除选中</button>
       <button class="igs-settings-action" data-action="image-cg-delete-all" type="button">删除全部</button>
+      <button class="igs-settings-action" data-action="image-cache-clear" type="button">清空本地缓存</button>
       <button class="igs-settings-action" data-action="open-cg-gallery" type="button">收藏与隐藏</button>
     </div>
     <div class="igs-settings-result" data-result="image-cg">{{imageCgStatus}}</div>

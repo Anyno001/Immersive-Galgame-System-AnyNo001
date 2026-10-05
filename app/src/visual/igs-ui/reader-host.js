@@ -1741,7 +1741,8 @@ export function createIgsReaderHost(options = {}) {
         return list.map((e) => `<div class="igs-image-log-item is-${esc(e.level)}"><span class="igs-image-log-time">${esc(formatImageJobLogTime(e.at))}</span><span class="igs-image-log-level">${esc(imageJobLogLevelLabel(e.level))}</span><span class="igs-image-log-msg">${esc(e.message)}</span></div>`).join('');
     }
 
-    // 生图 › CG 库：列出已生成的剧情 CG（含 NSFW 图）与照片，点缩略图用预览层看大图。首次进入时异步读取，读完重绘一次。
+    const CG_DISPLAY_URL_RE = /^(?:data:image\/|https?:\/\/|blob:)/i;
+    // 生图 › CG 库：先列出条目，每张图自己读完就补上，不等这一页全部下完。
     function renderImageCgList() {
         const settings = state.activeSettings;
         const asyncState = settings && settings.asyncState;
@@ -1751,16 +1752,42 @@ export function createIgsReaderHost(options = {}) {
         if (!Array.isArray(asyncState.imageCgEntries)) {
             if (!asyncState.imageCgLoading) {
                 asyncState.imageCgLoading = true;
+                const gen = (asyncState.imageCgLoadGen || 0) + 1;
+                asyncState.imageCgLoadGen = gen;
+                const paint = () => {
+                    if (asyncState.imageCgLoadGen !== gen || state.activeSettings !== settings || asyncState.imageCgPaint) return;
+                    asyncState.imageCgPaint = true;
+                    Promise.resolve().then(() => {
+                        asyncState.imageCgPaint = false;
+                        if (asyncState.imageCgLoadGen === gen && state.activeSettings === settings) rerenderSettings();
+                    });
+                };
                 Promise.resolve()
-                    .then(() => service.loadPage({ limit: 60, showHidden: true }))
+                    .then(() => service.loadPage({ limit: 60, showHidden: true, deferImages: true }))
                     .then((page) => {
-                        asyncState.imageCgEntries = page && page.ok && Array.isArray(page.items) ? page.items : [];
+                        if (asyncState.imageCgLoadGen !== gen) return;
+                        const items = page && page.ok && Array.isArray(page.items) ? page.items : [];
+                        asyncState.imageCgEntries = items;
                         asyncState.imageCgStatus = page && page.ok ? '' : 'CG 读取失败';
-                    })
-                    .catch(() => { asyncState.imageCgEntries = []; asyncState.imageCgStatus = 'CG 读取失败'; })
-                    .then(() => {
                         asyncState.imageCgLoading = false;
-                        if (state.activeSettings === settings) rerenderSettings();
+                        paint();
+                        const read = typeof service.hydrateEntry === 'function' ? service.hydrateEntry.bind(service) : null;
+                        if (!read) return;
+                        for (const entry of items) {
+                            if (CG_DISPLAY_URL_RE.test(String(entry && entry.dataUrl || ''))) continue;
+                            read(entry).then((next) => {
+                                if (asyncState.imageCgLoadGen !== gen || !next) return;
+                                entry.dataUrl = String(next.dataUrl || '');
+                                paint();
+                            }).catch(() => {});
+                        }
+                    })
+                    .catch(() => {
+                        if (asyncState.imageCgLoadGen !== gen) return;
+                        asyncState.imageCgEntries = [];
+                        asyncState.imageCgStatus = 'CG 读取失败';
+                        asyncState.imageCgLoading = false;
+                        paint();
                     });
             }
             return '<div class="igs-scene-empty">正在读取…</div>';
@@ -1768,11 +1795,13 @@ export function createIgsReaderHost(options = {}) {
         const selected = asyncState.imageCgSelected instanceof Set ? asyncState.imageCgSelected : new Set();
         const tiles = asyncState.imageCgEntries.map((entry, index) => {
             const url = String((entry && entry.dataUrl) || '').trim();
-            if (!/^(?:data:image\/|https?:\/\/|blob:)/i.test(url)) return '';
+            const ready = CG_DISPLAY_URL_RE.test(url);
             const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;
             const on = selected.has(entry.key);
-            // 大图按序号回查已读列表，避免把整段 data URL 再塞进 data-action。
-            return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><img src="${esc(url)}" decoding="async" alt=""><span>${esc(label)}</span></button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></article>`;
+            const picture = ready
+                ? `<img src="${esc(url)}" decoding="async" alt="">`
+                : '<span class="igs-image-cg-pending"></span>';
+            return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图">${picture}<span>${esc(label)}</span></button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></article>`;
         }).join('');
         return tiles || '<div class="igs-scene-empty">还没有生成过 CG</div>';
     }
@@ -4617,7 +4646,7 @@ export function createIgsReaderHost(options = {}) {
                     const cgEntries = cgAsync && Array.isArray(cgAsync.imageCgEntries) ? cgAsync.imageCgEntries : [];
                     const cgEntry = cgEntries[Number(actName.slice('image-cg-view:'.length))];
                     const cgUrl = cgEntry ? String(cgEntry.dataUrl || '').trim() : '';
-                    if (cgUrl) showSpritePreviewOverlay(root, cgUrl);
+                    if (CG_DISPLAY_URL_RE.test(cgUrl)) showSpritePreviewOverlay(root, cgUrl);
                     return;
                 }
                 event.preventDefault();

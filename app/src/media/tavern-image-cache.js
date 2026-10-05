@@ -25,6 +25,10 @@ function memoryStore() {
             files.delete(path);
             meta.delete(path);
         },
+        async clear() {
+            files.clear();
+            meta.clear();
+        },
         async allMeta() { return Array.from(meta.values()); },
     };
 }
@@ -75,6 +79,10 @@ function idbStore(idb) {
         async delete(path) {
             await run('files', 'readwrite', (store) => store.delete(path));
             await run('meta', 'readwrite', (store) => store.delete(path));
+        },
+        async clear() {
+            await run('files', 'readwrite', (store) => store.clear());
+            await run('meta', 'readwrite', (store) => store.clear());
         },
         async allMeta() {
             const rows = await run('meta', 'readonly', (store) => store.getAll());
@@ -152,6 +160,11 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
             const rows = meta;
             if (rows) rows.delete(key);
             await store.delete(key).catch(() => {});
+        },
+        async clear() {
+            memory.clear();
+            if (meta) meta.clear();
+            await store.clear().catch(() => {});
         },
     };
 }

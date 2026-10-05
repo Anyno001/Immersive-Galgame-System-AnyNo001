@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createLocalImageCache } from '../src/media/tavern-image-cache.js';
 import { withTavernIllustrationFiles } from '../src/media/tavern-image-files.js';
 import { createMemoryIllustrationStore } from '../src/media/illustration-store.js';
+import { createCgGalleryService } from '../src/media/cg-gallery-service.js';
 
 function createFakeIndexedDB() {
     const databases = new Map();
@@ -107,4 +108,51 @@ test('gate:image-cache:illustration-hydrate-downloads-a-path-once', async () => 
     await store.putSlot('chat|1|0', { slot: 1, status: 'done', dataUrl: path });
     await files.getSlots('chat|1|0');
     assert.equal(downloads, 2);
+});
+
+test('gate:image-cache:cg-library-shows-a-ready-image-before-the-slow-one', async () => {
+    let releaseSlow;
+    const slowGate = new Promise((resolve) => { releaseSlow = resolve; });
+    const globalObject = {
+        setTimeout,
+        fetch(url) {
+            const pending = String(url).includes('slow') ? slowGate : Promise.resolve();
+            return pending.then(() => ({ ok: true, blob: async () => new Blob([String(url)]) }));
+        },
+        FileReader: class {
+            readAsDataURL(blob) {
+                blob.text().then((text) => {
+                    this.result = `data:image/png;base64,${Buffer.from(text).toString('base64')}`;
+                    if (typeof this.onload === 'function') this.onload();
+                }).catch(() => { if (typeof this.onerror === 'function') this.onerror(); });
+            }
+        },
+    };
+    const store = createMemoryIllustrationStore();
+    await store.putSlot('chat|1|0', { slot: 1, status: 'done', dataUrl: 'user/images/igs-cg/fast.png' });
+    await store.putSlot('chat|2|0', { slot: 1, status: 'done', dataUrl: 'user/images/igs-cg/slow.png' });
+    const service = createCgGalleryService({
+        illustrationStore: withTavernIllustrationFiles(store, globalObject),
+        clearIllustration: async () => ({ ok: true }),
+    });
+    const page = await service.loadPage({ limit: 24, showHidden: true, deferImages: true });
+    assert.equal(page.items.length, 2);
+    assert.match(page.items[0].dataUrl, /fast\.png$/);
+    const jobs = page.items.map((entry) => service.hydrateEntry(entry));
+    const fast = await jobs[0];
+    assert.match(fast.dataUrl, /^data:image\/png;base64,/);
+    let slowDone = false;
+    jobs[1].then(() => { slowDone = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(slowDone, false);
+    releaseSlow();
+    const slow = await jobs[1];
+    assert.match(slow.dataUrl, /^data:image\/png;base64,/);
+});
+
+test('gate:image-cache:clear-drops-every-cached-image', async () => {
+    const cache = createLocalImageCache({});
+    await cache.put('user/images/igs-cg/a.png', 'data:image/png;base64,AAA');
+    await cache.clear();
+    assert.equal(await cache.get('user/images/igs-cg/a.png'), '');
 });

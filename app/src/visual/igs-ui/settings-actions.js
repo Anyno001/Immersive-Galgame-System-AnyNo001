@@ -10,6 +10,7 @@ import { collectAssetZipEntries } from '../../scene/asset-zip.js';
 import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { buildCharacterCardPack, buildImageZip, buildPresetArchive, mergeLabelGroups, parseCharacterCardPack, parsePresetArchive, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
+import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
@@ -669,6 +670,7 @@ const RISKY_ACTIONS = [
     ['meta-scope-remove:', () => '删除这条生效范围？'],
     ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
     ['image-log-clear', () => '清空生图日志？'],
+    ['image-cache-clear', () => '清空浏览器里缓存的图片？酒馆上的原图还在，下次查看会重新下载。'],
     ['mood-review-clear', () => '清空待确认的情绪词？'],
     ['reset-virtual-regex', () => '正文格式化恢复默认？现在的查找和替换会被覆盖。'],
     ['reset-prompt-rule', () => '提示词规则恢复默认？现在改过的内容会被覆盖。'],
@@ -2246,9 +2248,18 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'image-cache-clear') {
+        await localImageCacheFor(options.global || globalThis).clear();
+        settingsState.asyncState.imageCgEntries = null;
+        settingsState.asyncState.imageCgLoading = false;
+        settingsState.asyncState.imageCgStatus = '已清空本地图片缓存。';
+        return rerenderSettings();
+    }
+
     // 生图 › CG 库「刷新」：丢弃已读列表，重绘时重新读取。
     if (normalizedAction === 'image-cg-refresh') {
         settingsState.asyncState.imageCgEntries = null;
+        settingsState.asyncState.imageCgLoading = false;
         settingsState.asyncState.imageCgSelected = new Set();
         settingsState.asyncState.imageCgStatus = '';
         return rerenderSettings();

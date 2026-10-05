@@ -183,7 +183,7 @@ export function withPhotoAlbum(service, store, options = {}) {
     async function loadPhotos(offset, filters) {
         const limit = Number(filters.limit) > 0 ? Number(filters.limit) : 24;
         let photos = [];
-        try { photos = await store.list(); } catch { return { ok: false, reason: 'read-error', items: [], next: '' }; }
+        try { photos = await store.list(filters.deferImages ? { deferImages: true } : undefined); } catch { return { ok: false, reason: 'read-error', items: [], next: '' }; }
         const slice = photos.slice(offset, offset + limit);
         const items = slice.map(photoEntry)
             .filter((e) => (filters.showHidden || !e.hidden) && (!filters.favoritesOnly || e.favorite) && (!filters.chatId || e.chatId === filters.chatId));
@@ -258,9 +258,19 @@ export function withPhotoAlbum(service, store, options = {}) {
         return { ok: failed === 0, removed, failed, keys: [] };
     }
 
+    async function hydrateEntry(entry) {
+        if (entry && entry.kind === 'photo' && entry.photoId && !/^(?:data:image\/|https?:\/\/|blob:)/i.test(String(entry.dataUrl || ''))) {
+            const photo = await store.get(entry.photoId);
+            return { ...entry, dataUrl: String(photo && photo.dataUrl || '') };
+        }
+        if (typeof base.hydrateEntry === 'function') return base.hydrateEntry(entry);
+        return entry;
+    }
+
     return {
         ...base,
         loadPage,
+        hydrateEntry,
         capturePhoto,
         setHidden: (key, hidden) => (isPhotoKey(key) ? patchPhoto(key, { hidden: hidden === true }) : base.setHidden(key, hidden)),
         setFavorite: (key, favorite) => (isPhotoKey(key) ? patchPhoto(key, { favorite: favorite === true }) : base.setFavorite(key, favorite)),

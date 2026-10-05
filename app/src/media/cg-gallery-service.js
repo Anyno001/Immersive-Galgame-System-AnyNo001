@@ -2,6 +2,8 @@
 // 「隐藏」只写标记库；「删除」调用既有 clearIllustration（楼层 CG 同时消失），成功后才清标记。
 import { parseFloorKey } from './illustration-store.js';
 
+const DISPLAY_URL_RE = /^(?:data:image\/|https?:\/\/|blob:)/i;
+
 export function cgEntryOf(slot, mark) {
     if (!slot || !slot.floorKey) return null;
     const floor = parseFloorKey(slot.floorKey);
@@ -30,10 +32,10 @@ export function createCgGalleryService({ illustrationStore, galleryStore, clearI
     }
 
     // 单页结果可能少于 limit（被筛掉的条目不补齐）；next 为空表示已到末尾。
-    async function loadPage({ after = '', limit = 24, showHidden = false, favoritesOnly = false, chatId = '' } = {}) {
+    async function loadPage({ after = '', limit = 24, showHidden = false, favoritesOnly = false, chatId = '', deferImages = false } = {}) {
         if (!available()) return { ok: false, reason: 'store-unavailable', items: [], next: '' };
         let page;
-        try { page = await illustrationStore.listDoneSlotsPage({ after, limit }); }
+        try { page = await illustrationStore.listDoneSlotsPage({ after, limit, deferImages }); }
         catch (error) { return { ok: false, reason: 'read-error', items: [], next: '' }; }
         const marks = await readMarks();
         const items = (page.items || [])
@@ -84,8 +86,16 @@ export function createCgGalleryService({ illustrationStore, galleryStore, clearI
         return { ok: failed === 0, removed, failed, keys: [] };
     }
 
+    async function hydrateEntry(entry) {
+        if (!entry || DISPLAY_URL_RE.test(String(entry.dataUrl || ''))) return entry;
+        if (typeof illustrationStore.hydrateSlot !== 'function') return entry;
+        const next = await illustrationStore.hydrateSlot({ dataUrl: entry.dataUrl });
+        return { ...entry, dataUrl: String(next && next.dataUrl || '') };
+    }
+
     return {
         loadPage,
+        hydrateEntry,
         setHidden: (key, hidden) => setMark(key, { hidden: hidden === true }),
         setFavorite: (key, favorite) => setMark(key, { favorite: favorite === true }),
         remove,

@@ -268,8 +268,10 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
         },
         async listDoneSlotsPage(options) {
             const page = await store.listDoneSlotsPage(options);
+            if (options && options.deferImages) return page;
             return { ...page, items: await Promise.all(page.items.map(files.hydrate)) };
         },
+        hydrateSlot(rec) { return files.hydrate(rec); },
     };
 }
 
@@ -286,7 +288,11 @@ export function withTavernPhotoFiles(store, globalObject = globalThis) {
     };
     return {
         ...store,
-        async list() { return (await Promise.all((await store.list()).map(load))).filter(Boolean); },
+        async list(options) {
+            const raw = await store.list();
+            if (options && options.deferImages) return raw.filter(Boolean);
+            return (await Promise.all(raw.map(load))).filter(Boolean);
+        },
         async get(id) { return load(await store.get(id)); },
         async put(value) {
             const old = await store.get(value && value.id);
