@@ -2352,6 +2352,57 @@ test('gate:simulation:igs-ui-background-click-does-not-page-dialog-click-still-p
     vn.destroy();
 });
 
+test('gate:simulation:double-click-keeps-cg-and-skips-the-page-turn', async () => {
+    const timers = [];
+    const document = createFakeDocument({
+        setTimeout(fn) {
+            timers.push(fn);
+            return timers.length;
+        },
+        clearTimeout(id) {
+            if (id) timers[id - 1] = null;
+        },
+    });
+    const latestMessage = {
+        id: 45,
+        text: '[角色: 艾莉]\n艾莉: 第一段。\n第二段。',
+    };
+    const vn = bootstrapIGS({
+        global: { document },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => latestMessage,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('pc');
+    const overlay = document.getElementById('igs-overlay');
+    const dialog = overlay.querySelector('#igs-dialog');
+    const button = overlay.querySelector('button');
+    dialog.style.left = '0px';
+    dialog.style.width = '200px';
+
+    assert.equal(opened.reader.snapshot.content.progress, '1 / 2');
+    button.dispatchEvent({ type: 'dblclick', target: button });
+    assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
+
+    dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160, detail: 1 });
+    dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160, detail: 2 });
+    overlay.dispatchEvent({ type: 'dblclick', target: dialog });
+    assert.equal(overlay.getAttribute('data-igs-cg-only'), '1');
+    assert.equal(overlay.querySelector('#igs-bg').id, 'igs-bg');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '1 / 2');
+
+    for (const fn of timers) if (typeof fn === 'function') fn();
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '1 / 2');
+
+    overlay.dispatchEvent({ type: 'dblclick', target: overlay });
+    assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
+
+    vn.destroy();
+});
+
 function makeAutoPlayReader(raw = '第一段。\n第二段。\n第三段。', readerSettings = {}) {
     const document = createFakeDocument();
     const timers = createAutoPlayClock();

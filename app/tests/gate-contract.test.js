@@ -1003,6 +1003,24 @@ test('gate:igs-ui:default-narration-adds-five-pixels-in-every-mode', () => {
     assert.match(rendererText, /dialog\.removeAttribute\('data-igs-narration'\)/);
 });
 
+test('gate:igs-ui:double-click-hides-chrome-and-keeps-cg-and-fx', () => {
+    const source = getOriginalReaderStyleText();
+    const rule = source.match(/#igs-overlay\[data-igs-cg-only="1"\] :is\(([^)]+)\)/);
+    assert.ok(rule);
+    const hidden = rule[1];
+    assert.match(hidden, /#igs-dialog-layer/);
+    assert.match(hidden, /#igs-status-hud/);
+    assert.match(hidden, /#igs-toolbar-layer/);
+    assert.doesNotMatch(hidden, /#igs-bg[,)]/);
+    assert.doesNotMatch(hidden, /#igs-fx-stage/);
+    assert.doesNotMatch(hidden, /#igs-fx-front/);
+    assert.doesNotMatch(hidden, /#igs-effect-layer/);
+    assert.doesNotMatch(hidden, /#igs-effect-front-layer/);
+    const rendererText = readText('src/visual/igs-ui/reader-dom-render.js');
+    assert.match(rendererText, /addEventListener\('dblclick'/);
+    assert.match(rendererText, /data-igs-cg-only/);
+});
+
 test('gate:igs-ui:default-reader-chrome-removes-input-control-borders', () => {
     const source = getOriginalReaderStyleText();
     assert.match(source, /#igs-overlay\.igs-default-reader-chrome \.igs-controls\{border-top:0;\}/);

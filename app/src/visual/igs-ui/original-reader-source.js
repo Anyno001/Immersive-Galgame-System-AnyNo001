@@ -126,6 +126,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-head-marker::after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#ffd23f;}
 .igs-head-edit-layer .igs-fx-symbol.is-preview{animation:none;opacity:.9;pointer-events:none;}
 #igs-click-layer{position:absolute;inset:0;cursor:pointer;z-index:3;}
+/* 双击看全 CG：收起对话框、状态栏、工具栏、选项、立绘。背景和演出层不动。 */
+#igs-overlay[data-igs-cg-only="1"] :is(#igs-dialog-layer,#igs-status-hud,#igs-toolbar-layer,#igs-option-layer,#igs-db-layer,#igs-toast,#igs-sprite,#igs-cast,#igs-sprite-edit-bar,#igs-asset-review,#igs-bg-blur,#igs-map-panel,#igs-record-panel,#igs-cg-gallery){display:none!important;pointer-events:none!important;}
 #igs-status-hud{position:absolute;z-index:8;top:14px;left:14px;pointer-events:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:calc(6px * var(--igs-hud-scale,1));width:calc(340px * var(--igs-hud-scale,1));max-width:calc(100% - 28px);padding:calc(8px * var(--igs-hud-scale,1));border-radius:calc(10px * var(--igs-hud-scale,1));box-sizing:border-box;}
 #igs-status-hud.igs-hud-bg-dialog{background:color-mix(in srgb,var(--igs-dialog-bg,var(--igs-glass-bg,rgba(31,34,37,.62))) 50%,transparent);border-radius:calc(6px * var(--igs-hud-scale,1));}
 #igs-overlay.igs-toolbar-top #igs-status-hud{top:14px;}

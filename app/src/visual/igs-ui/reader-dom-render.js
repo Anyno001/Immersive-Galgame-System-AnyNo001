@@ -1089,6 +1089,7 @@ function writeBackgroundImage(element, url) {
 }
 
 const ROOT_TOGGLED_CLASSES = new Set(['igs-default-reader-chrome', 'igs-gradient-veil-active', 'igs-scene-nsfw']);
+const dialogPageTimers = new WeakMap();
 
 export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const materialDialog = isMaterialDialogSkin(snapshot.readerSettings);
@@ -1655,9 +1656,20 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             await current.controller.submit(input ? input.value : current.inputValue);
         });
     }
+    if (root && root.getAttribute && root.getAttribute('data-igs-cg-only-bound') !== '1') {
+        root.setAttribute('data-igs-cg-only-bound', '1');
+        root.addEventListener('dblclick', (event) => {
+            const target = event.target;
+            if (target && typeof target.closest === 'function' && target.closest('button,input,textarea,select,a,#igs-settings,#igs-map-panel,#igs-record-panel,#igs-cg-gallery')) return;
+            event.preventDefault();
+            if (root.getAttribute('data-igs-cg-only') === '1') root.removeAttribute('data-igs-cg-only');
+            else root.setAttribute('data-igs-cg-only', '1');
+        });
+    }
     if (clickLayer && !(clickLayer.dataset && clickLayer.dataset.igsBound)) {
         if (clickLayer.dataset) clickLayer.dataset.igsBound = '1';
         clickLayer.addEventListener('click', () => {
+            if (root && root.getAttribute && root.getAttribute('data-igs-cg-only') === '1') return;
             if (current.dragSuppressClick || (current.runtime && current.runtime.dragSuppressClick)) {
                 current.dragSuppressClick = false;
                 if (current.runtime) current.runtime.dragSuppressClick = false;
@@ -1701,11 +1713,23 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 ? dialog.getBoundingClientRect()
                 : { left: 0, width: 0 };
             const clientX = Number(event.clientX);
-            if (!Number.isFinite(clientX) || clientX < rect.left + rect.width / 2) {
-                if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction('prev');
-            } else {
-                if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction('next');
+            const action = !Number.isFinite(clientX) || clientX < rect.left + rect.width / 2 ? 'prev' : 'next';
+            const detail = Number(event.detail) || 0;
+            const win = dialog.ownerDocument && dialog.ownerDocument.defaultView;
+            const pending = dialogPageTimers.get(dialog);
+            if (pending && win && typeof win.clearTimeout === 'function') win.clearTimeout(pending);
+            if (detail >= 2) {
+                dialogPageTimers.delete(dialog);
+                return;
             }
+            const go = () => {
+                dialogPageTimers.delete(dialog);
+                if (root && root.getAttribute && root.getAttribute('data-igs-cg-only') === '1') return;
+                if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction(action);
+            };
+            // 真机单击带 detail=1，稍等以取消紧接着的双击。测试里的合成点击没有 detail，立即翻页。
+            if (detail === 1 && win && typeof win.setTimeout === 'function') dialogPageTimers.set(dialog, win.setTimeout(go, 280));
+            else go();
         });
     }
     if (dialog) {
