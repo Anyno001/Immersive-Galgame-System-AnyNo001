@@ -33,6 +33,8 @@ export function createChatStreamObserver(opts = {}) {
     let hardTimer = null;
     let active = false;
     let generationActive = false;
+    let generationSeen = false;
+    let waitTimedOut = false;
     let manualArmed = false;
     let lifecycleAvailable = false;
     const lifecycleCleanup = [];
@@ -82,6 +84,7 @@ export function createChatStreamObserver(opts = {}) {
         hardTimer = getSetter()(() => {
             hardTimer = null;
             generationActive = false;
+            waitTimedOut = true;
             manualArmed = false;
             clearStable();
             if (active) Promise.resolve().then(onTimeout).catch(() => {});
@@ -130,6 +133,7 @@ export function createChatStreamObserver(opts = {}) {
         if (type === 'quiet' && !(params && params.quietToLoud)) return;
         if (isBackgroundGenerationActive()) return;
         generationActive = true;
+        generationSeen = true;
         manualArmed = false;
         // 酒馆生成事件是全局信号，插件自身的 API 请求也会触发它。
         // 这里只武装生命周期；必须先看到 #chat 的外部变更，才进入载入态。
@@ -219,11 +223,22 @@ export function createChatStreamObserver(opts = {}) {
 
     const cancelPending = () => {
         generationActive = false;
+        generationSeen = false;
+        waitTimedOut = false;
         manualArmed = false;
         clearStable();
         clearHard();
         clearActivity();
     };
+
+    // 新一次发送：还没看到本轮生成事件时清掉上一轮的“已结束”标记。
+    // 生成已经开始则保留，避免发送函数返回前触发的开始事件被立刻抹掉。
+    const prepareForReply = () => {
+        waitTimedOut = false;
+        if (!generationActive) generationSeen = false;
+    };
+
+    const hasGenerationSettled = () => waitTimedOut || (generationSeen && !generationActive);
 
     const stop = () => {
         active = false;
@@ -246,6 +261,8 @@ export function createChatStreamObserver(opts = {}) {
         isActive: () => active,
         hasLifecycle: () => lifecycleAvailable,
         noteActivity,
+        prepareForReply,
+        hasGenerationSettled,
     };
 }
 

@@ -337,8 +337,7 @@ export function createIgsReaderHost(options = {}) {
         getDocument: () => resolveEmbeddedDocument(state.activeReader),
         onActivity: () => handleChatStreamActivity(),
         onStable: () => handleChatStreamStable(),
-        // 硬超时是最后兜底：handleChatStreamStable 恒返回 true，原条件分支永不退出。
-        // 改为无条件强制退出，不再依赖主路径返回值。
+        // 硬超时无条件收起等待。全屏在新楼写完之前会让 onStable 返回 false，继续等。
         onTimeout: () => {
             exitEmbeddedLoading();
         },
@@ -1129,8 +1128,19 @@ export function createIgsReaderHost(options = {}) {
             new Promise((resolve) => setTimeout(resolve, 5000)),
         ]);
         if (!message || message.id == null) {
+            if (current.mode === 'fullscreen' && current.awaitingReply && !streamObserver.hasGenerationSettled()) return false;
             exitEmbeddedLoading();
             return true;
+        }
+        // 全屏：用户还停在这一楼。正文比对稍有出入也不能重开，重开会把页码打回第一页并清掉等待提示。
+        // 生成没结束就继续等；结束了仍是这一楼，只收起提示，留在当前页。新楼写完再切过去。
+        if (current.mode === 'fullscreen' && current.awaitingReply) {
+            const newFloor = Number(message.id) !== Number(current.contentMessageId);
+            if (!streamObserver.hasGenerationSettled() || !newFloor) {
+                if (!streamObserver.hasGenerationSettled()) return false;
+                exitEmbeddedLoading();
+                return true;
+            }
         }
         const nextRaw = getMessagePrimaryText(message.raw || message);
         const nextVisible = String(message.visibleText || '');
@@ -1166,6 +1176,7 @@ export function createIgsReaderHost(options = {}) {
             current.imagePolling = false;
             current.streamBaselineRaw = String(current.mountBaselineRaw || '');
             current.streamBaselineVisible = String(current.mountBaselineVisible || '');
+            streamObserver.prepareForReply();
         }
         current.streamPhase = 'streaming';
         current.awaitingReply = true;
