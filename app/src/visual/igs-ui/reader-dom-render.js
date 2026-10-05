@@ -1724,7 +1724,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const win = dialog.ownerDocument && dialog.ownerDocument.defaultView;
             const pending = dialogPageTimers.get(dialog);
             if (pending && win && typeof win.clearTimeout === 'function') win.clearTimeout(pending);
-            if (detail >= 2) {
+            // 关了双击隐藏就不用等双击：单击立即翻页，连点也逐次翻。
+            const live = current.snapshot || snapshot;
+            const waitDouble = !(live && live.readerSettings && live.readerSettings.dblclickHideUi === false);
+            if (detail >= 2 && waitDouble) {
                 dialogPageTimers.delete(dialog);
                 return;
             }
@@ -1734,7 +1737,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction(action);
             };
             // 真机单击带 detail=1，稍等以取消紧接着的双击。测试里的合成点击没有 detail，立即翻页。
-            if (detail === 1 && win && typeof win.setTimeout === 'function') dialogPageTimers.set(dialog, win.setTimeout(go, 280));
+            if (waitDouble && detail === 1 && win && typeof win.setTimeout === 'function') dialogPageTimers.set(dialog, win.setTimeout(go, 280));
             else go();
         });
     }
