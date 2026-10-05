@@ -141,6 +141,17 @@ async function handleWardrobe(command, segs, ctx) {
         for (const [key, value] of Object.entries(wardrobe)) renamed[key === name ? next : key] = value;
         sceneAssets.wardrobe = renamed;
         for (const outfits of linkedOutfits) retargetWardrobe(outfits, name, next);
+    } else if (command === 'wardrobe-prompt') {
+        if (!hasOwn(wardrobe, name)) return rerenderSettings();
+        const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
+        if (typeof dialogs.edit !== 'function') {
+            warn(globalObj, '提示词编辑当前不可用。');
+            return rerenderSettings();
+        }
+        const current = String((wardrobe[name] && wardrobe[name].prompt) || '');
+        const edited = await dialogs.edit(`「${name}」的提示词`, current);
+        if (edited == null) return rerenderSettings();
+        wardrobe[name] = { ...wardrobe[name], prompt: String(edited).trim() };
     } else if (command === 'wardrobe-nsfw') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         if (wardrobe[name].nsfwBoost === true) delete wardrobe[name].nsfwBoost;
@@ -287,7 +298,7 @@ function handleOutfitReview(command, segs, ctx) {
     return rerenderSettings();
 }
 
-const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-note|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit))(?::(.*))?$/;
+const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-note|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit|prompt))(?::(.*))?$/;
 
 // 服装区 action：返回 null 表示不归本模块处理。位置 / 头部标定 key 随改名迁移、随删除清理。
 export function handleOutfitAction(normalizedAction, ctx) {

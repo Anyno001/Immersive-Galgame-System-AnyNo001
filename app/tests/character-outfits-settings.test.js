@@ -227,6 +227,22 @@ test('gate:outfits:binding-lists-merged-wardrobe-and-jumps-to-rules', () => {
 });
 
 
+test('gate:outfits:wardrobe-prompt-editor-saves-and-cancel-keeps-text', async () => {
+    const t = createCtx();
+    t.sa().wardrobe = { 校服: { prompt: 'uniform', nsfwBoost: true } };
+    const action = `wardrobe-prompt:${enc('校服')}`;
+    const ctx = { ...t.ctx, settingsState: t.state.activeSettings };
+    let opened = null;
+    ctx.dialogs = { edit: async (message, value) => { opened = [message, value]; return null; } };
+    await handleOutfitAction(action, ctx);
+    assert.deepEqual(opened, ['「校服」的提示词', 'uniform']);
+    assert.equal(t.sa().wardrobe.校服.prompt, 'uniform');
+    ctx.dialogs.edit = async () => '  sailor fuku  ';
+    await handleOutfitAction(action, ctx);
+    assert.equal(t.sa().wardrobe.校服.prompt, 'sailor fuku');
+    assert.equal(t.sa().wardrobe.校服.nsfwBoost, true);
+});
+
 test('gate:outfits:reference-replacement-preserves-old-image-until-save-and-reports-delete-failure', async () => {
     const t = createCtx();
     t.sa().wardrobe = { 校服: { prompt: 'uniform', reference: 'igs-gen:old-ref' } };

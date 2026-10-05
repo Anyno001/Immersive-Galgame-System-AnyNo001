@@ -96,10 +96,9 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     assert.match(filled, /src="data:image\/png;base64,QQ=="/);
     const empty = renderWardrobe({ 冬月星见日常: { prompt: '' } });
     assert.match(empty, new RegExp(`data-action="wardrobe-generate-prompt:${encodeURIComponent('冬月星见日常')}"`));
-    assert.match(empty, /<input class="igs-scene-url-input igs-wardrobe-prompt"/);
-    assert.match(empty, /igs-row-menu[\s\S]*wardrobe-generate-prompt:/);
-    assert.doesNotMatch(empty, /igs-settings-action/);
-    assert.doesNotMatch(empty, /<textarea/);
+    assert.match(empty, new RegExp(`data-action="wardrobe-prompt:${encodeURIComponent('冬月星见日常')}"`));
+    assert.match(empty, /igs-row-menu[\s\S]*wardrobe-prompt:/);
+    assert.doesNotMatch(empty, /<input|<textarea/);
     const hidden = renderWardrobe({ 裸体: { prompt: 'nude, nude' }, 校服: { prompt: '' } });
     assert.equal(hidden.includes('裸体'), false);
     assert.equal(hidden.includes('nude'), false);
