@@ -10532,6 +10532,7 @@ const { renderAssetReviewPanel } = require("src/visual/igs-ui/asset-review-panel
 const { ensureEmbeddedHost, findEmbeddedHost, hideEmbeddedSourceText, hideStorySpan, isEmbeddedEditTrigger, isStoryHidden, resolveEmbeddedHostParent, restoreEmbeddedSourceText, restoreStorySpan, storyLines } = require("src/visual/igs-ui/embedded-reader-runtime.js");
 const { buildReaderSourceSignature, createReaderSourceCache } = require("src/visual/igs-ui/reader-source-cache.js");
 const { createImageResourceCache } = require("src/media/resource-cache.js");
+const { collectFloorAssetUrls } = require("src/visual/igs-ui/floor-asset-prefetch.js");
 const { createChatStreamObserver } = require("src/host/chat-stream-observer.js");
 const { findAcuDice, formatCheckMessage, resolveDiceCommand } = require("src/choices/dice-check.js");
 const { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } = require("src/visual/igs-ui/fx-result-model.js");
@@ -10626,7 +10627,7 @@ function createIgsReaderHost(options = {}) {
     const sourceCache = createReaderSourceCache({
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
-    const imageResourceCache = createImageResourceCache(options.global || globalThis);
+    const imageResourceCache = createImageResourceCache(options.global || globalThis, { limit: 96 });
     let moodAutoTimer = 0;
     let moodAutoRunning = false;
     let moodAutoAgain = false;
@@ -10662,6 +10663,7 @@ function createIgsReaderHost(options = {}) {
     // 否则 N 张图触发 N 次整页重绘、每次又带上已到的全部 dataUrl，开销随张数平方增长。
     const IMAGE_REFRESH_BATCH_MS = 120;
     let imageRefreshTimer = 0;
+    let floorAssetPlan = { key: '', urls: [] };
     let readerImageRefreshPending = false;
     let settingsImageRefreshPending = false;
     // 设置面板全屏盖住阅读器时不重绘后面的舞台，记一笔，关面板时补一次。
@@ -10704,6 +10706,7 @@ function createIgsReaderHost(options = {}) {
             const settings = state.activeSettings;
             const imageLoaded = Boolean(detail && detail.reason === 'image-loaded');
             if (state.activeReader) {
+                if (imageLoaded) warmActiveFloorImages();
                 if (settings) readerStaleBehindSettings = true;
                 else if (imageLoaded) scheduleImageRefresh({ reader: true });
                 else rerenderActiveReader();
@@ -11124,6 +11127,63 @@ function createIgsReaderHost(options = {}) {
         });
     }
 
+    function pageUsesAsset(content, source) {
+        if (!content || !source) return false;
+        if (content.backgroundImage === source || content.spriteImage === source || content.nsfwCgPortrait === source) return true;
+        if (content.fx && content.fx.foeImage === source) return true;
+        return Array.isArray(content.castSprites) && content.castSprites.some((member) => member && member.image === source);
+    }
+
+    function concreteReaderAssetUrl(url) {
+        const source = String(url || '').trim();
+        if (!source) return '';
+        if (!isGeneratedAssetUrl(source)) return source;
+        const generatedAssets = options.generatedAssets || null;
+        return generatedAssets && typeof generatedAssets.resolveUrl === 'function'
+            ? String(generatedAssets.resolveUrl(source) || '')
+            : '';
+    }
+
+    function warmActiveFloorImages(mountedSnapshot) {
+        const current = state.activeReader;
+        const payload = current && current.payload;
+        const snapshot = mountedSnapshot || (current && current.snapshot);
+        if (!payload || !snapshot) return;
+        const readerSettings = snapshot.readerSettings || {};
+        const liveMessage = (payload.message && payload.message.raw) || payload.message || payload.raw || '';
+        const source = String(payload.raw || (typeof liveMessage === 'string' ? liveMessage : '') || '');
+        const slots = snapshot.content && Array.isArray(snapshot.content.imageSlots) ? snapshot.content.imageSlots : [];
+        const key = `${firstDefined(payload.messageId, payload.message && payload.message.id, '')}:${source.length}:${slots.map((slot) => (slot && slot.url) || '').join('|')}`;
+        if (floorAssetPlan.key !== key) {
+            const sceneAssets = readerSettings._sceneAssets || null;
+            const generatedAssets = options.generatedAssets || null;
+            floorAssetPlan = {
+                key,
+                urls: collectFloorAssetUrls({
+                    source,
+                    sceneAssets,
+                    inheritedOutfits: payload.inheritedOutfits,
+                    inheritedScene: payload.inheritedSceneState,
+                    imageSlots: slots,
+                    systemRole: readerSettings.systemRole,
+                    readClues: (names) => collectOutfitClues(readStatusHudTablesSafe(), names),
+                    assetMatchCtx: {
+                        sceneAssets,
+                        generatedAssets: sceneAssets && sceneAssets.generated,
+                        strict: readerSettings._strictBackgroundMatch === true,
+                        tempBackground: generatedAssets ? generatedAssets.tempBackground : null,
+                        tempSceneTime: generatedAssets ? generatedAssets.tempSceneTime : null,
+                        tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
+                    },
+                }),
+            };
+        }
+        for (const url of floorAssetPlan.urls) {
+            const concrete = concreteReaderAssetUrl(url);
+            if (concrete) imageResourceCache.load(concrete);
+        }
+    }
+
     function resolveReaderAssetUrl(url, current) {
         const source = String(url || '').trim();
         if (!source) return '';
@@ -11137,7 +11197,7 @@ function createIgsReaderHost(options = {}) {
                 current.assetLoadRequests.delete(source);
                 if (state.activeReader !== current) return;
                 const content = current.snapshot && current.snapshot.content;
-                if (!content || (content.backgroundImage !== source && content.spriteImage !== source)) return;
+                if (!pageUsesAsset(content, source)) return;
                 updateMountedReader(current.snapshot);
             });
             if (immediate) return immediate;
@@ -15098,6 +15158,7 @@ function createIgsReaderHost(options = {}) {
     function updateMountedReader(snapshot) {
         const current = state.activeReader;
         if (!current) return;
+        warmActiveFloorImages(snapshot);
         current.autoPlayer?.setSpeed(snapshot.readerSettings?.typewriter?.speed);
         if (!current.dom || !current.dom.root) return;
         const refs = hydrateReaderMount(current.dom.root, snapshot);
@@ -49633,7 +49694,7 @@ function createImageResourceCache(globalObject = globalThis, options = {}) {
     }
 
     function preloadSource(source) {
-        if (!ImageCtor || /^(?:data:|blob:)/i.test(source)) return Promise.resolve(source);
+        if (!ImageCtor) return Promise.resolve(source);
         return new Promise((resolve) => {
             try {
                 const image = new ImageCtor();
@@ -49702,6 +49763,92 @@ function createImageResourceCache(globalObject = globalThis, options = {}) {
 
 __igsDefine(exports, "createResourceCache", () => createResourceCache);
 __igsDefine(exports, "createImageResourceCache", () => createImageResourceCache);
+});
+__igsRegister("src/visual/igs-ui/floor-asset-prefetch.js", function(module, exports, require) {
+const { extractSceneDirectives, classifySceneKey } = require("src/scene/scene-directives.js");
+const { resolveBackgroundAsset, resolveNudeSpriteAsset, resolveSpriteAsset, isNonSpriteSpeaker } = require("src/scene/asset-match.js");
+const { createOutfitResolver, resolveSpriteOutfit } = require("src/scene/character-outfits.js");
+const { resolveCharacterDna } = require("src/scene/character-dna.js");
+const { isSystemRole } = require("src/visual/igs-ui/system-role.js");
+function pushUrl(urls, seen, url) {
+    const source = String(url || '').trim();
+    if (!source || seen.has(source)) return;
+    seen.add(source);
+    urls.push(source);
+}
+
+function sceneBefore(directives, offset, inheritedScene) {
+    let scene = inheritedScene && inheritedScene.scene ? String(inheritedScene.scene) : '';
+    let nsfw = Boolean(inheritedScene && inheritedScene.nsfw);
+    for (const directive of directives) {
+        if (directive.type !== 'scene') continue;
+        if (Number.isFinite(offset) && Number(directive.offset) > offset) break;
+        scene = String(directive.scene || scene);
+        nsfw = directive.nsfw === true;
+    }
+    return { scene, nsfw };
+}
+
+// 这一楼会用到的立绘和背景。翻页前一次性取齐，不在轮到出场时才去读。
+function collectFloorAssetUrls({
+    source = '',
+    sceneAssets = null,
+    inheritedOutfits = null,
+    inheritedScene = null,
+    assetMatchCtx = null,
+    imageSlots = [],
+    systemRole = null,
+    readClues = null,
+} = {}) {
+    const urls = [];
+    const seen = new Set();
+    for (const slot of Array.isArray(imageSlots) ? imageSlots : []) {
+        pushUrl(urls, seen, slot && slot.url);
+    }
+    if (!sceneAssets || !sceneAssets.enabled) return urls;
+    const ctx = assetMatchCtx || { sceneAssets };
+    const outfitResolver = createOutfitResolver(sceneAssets);
+    const directives = extractSceneDirectives(String(source || ''), { outfitResolver }).directives;
+    const outfitMap = sceneAssets.characterOutfits;
+    const hasOutfits = Boolean(outfitMap && Object.keys(outfitMap).length);
+    const outfitFor = (character, offset) => {
+        if (!hasOutfits) return '';
+        const place = sceneBefore(directives, offset, inheritedScene);
+        const sceneRaw = place.scene;
+        return resolveSpriteOutfit({
+            directives,
+            character,
+            offset: Number.isFinite(offset) ? offset : Number.NaN,
+            inheritedOutfits,
+            sceneAssets,
+            scene: [classifySceneKey(sceneAssets.scenes, sceneRaw).key || '', sceneRaw],
+            readClues: typeof readClues === 'function' ? readClues : () => null,
+            resolveDna: (name) => {
+                const hit = resolveCharacterDna(sceneAssets.characterDna, name);
+                return hit ? hit.dna : null;
+            },
+        }).outfit;
+    };
+    if (inheritedScene && inheritedScene.scene) {
+        pushUrl(urls, seen, resolveBackgroundAsset(inheritedScene, ctx).url);
+    }
+    for (const directive of directives) {
+        if (directive.type === 'scene' && directive.scene) {
+            pushUrl(urls, seen, resolveBackgroundAsset(directive, ctx).url);
+            continue;
+        }
+        if (directive.type !== 'char' && directive.type !== 'thought') continue;
+        const name = String(directive.character || '').trim();
+        if (!name || isNonSpriteSpeaker(name) || isSystemRole(name, systemRole)) continue;
+        const outfit = outfitFor(name, Number(directive.offset));
+        pushUrl(urls, seen, resolveSpriteAsset(name, directive.mood || '', ctx, outfit).url);
+        const place = sceneBefore(directives, Number(directive.offset), inheritedScene);
+        if (place.nsfw) pushUrl(urls, seen, resolveNudeSpriteAsset(name, directive.mood || '', ctx).url);
+    }
+    return urls;
+}
+
+__igsDefine(exports, "collectFloorAssetUrls", () => collectFloorAssetUrls);
 });
 __igsRegister("src/host/chat-stream-observer.js", function(module, exports, require) {
 const { getSillyTavernContext } = require("src/host/tavern-helper-adapter.js");

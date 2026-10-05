@@ -84,7 +84,7 @@ export function createImageResourceCache(globalObject = globalThis, options = {}
     }
 
     function preloadSource(source) {
-        if (!ImageCtor || /^(?:data:|blob:)/i.test(source)) return Promise.resolve(source);
+        if (!ImageCtor) return Promise.resolve(source);
         return new Promise((resolve) => {
             try {
                 const image = new ImageCtor();

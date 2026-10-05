@@ -162,6 +162,7 @@ import {
 } from './embedded-reader-runtime.js';
 import { buildReaderSourceSignature, createReaderSourceCache } from './reader-source-cache.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
+import { collectFloorAssetUrls } from './floor-asset-prefetch.js';
 import { createChatStreamObserver } from '../../host/chat-stream-observer.js';
 import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
 import { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } from './fx-result-model.js';
@@ -322,7 +323,7 @@ export function createIgsReaderHost(options = {}) {
     const sourceCache = createReaderSourceCache({
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
-    const imageResourceCache = createImageResourceCache(options.global || globalThis);
+    const imageResourceCache = createImageResourceCache(options.global || globalThis, { limit: 96 });
     let moodAutoTimer = 0;
     let moodAutoRunning = false;
     let moodAutoAgain = false;
@@ -358,6 +359,7 @@ export function createIgsReaderHost(options = {}) {
     // 否则 N 张图触发 N 次整页重绘、每次又带上已到的全部 dataUrl，开销随张数平方增长。
     const IMAGE_REFRESH_BATCH_MS = 120;
     let imageRefreshTimer = 0;
+    let floorAssetPlan = { key: '', urls: [] };
     let readerImageRefreshPending = false;
     let settingsImageRefreshPending = false;
     // 设置面板全屏盖住阅读器时不重绘后面的舞台，记一笔，关面板时补一次。
@@ -400,6 +402,7 @@ export function createIgsReaderHost(options = {}) {
             const settings = state.activeSettings;
             const imageLoaded = Boolean(detail && detail.reason === 'image-loaded');
             if (state.activeReader) {
+                if (imageLoaded) warmActiveFloorImages();
                 if (settings) readerStaleBehindSettings = true;
                 else if (imageLoaded) scheduleImageRefresh({ reader: true });
                 else rerenderActiveReader();
@@ -820,6 +823,63 @@ export function createIgsReaderHost(options = {}) {
         });
     }
 
+    function pageUsesAsset(content, source) {
+        if (!content || !source) return false;
+        if (content.backgroundImage === source || content.spriteImage === source || content.nsfwCgPortrait === source) return true;
+        if (content.fx && content.fx.foeImage === source) return true;
+        return Array.isArray(content.castSprites) && content.castSprites.some((member) => member && member.image === source);
+    }
+
+    function concreteReaderAssetUrl(url) {
+        const source = String(url || '').trim();
+        if (!source) return '';
+        if (!isGeneratedAssetUrl(source)) return source;
+        const generatedAssets = options.generatedAssets || null;
+        return generatedAssets && typeof generatedAssets.resolveUrl === 'function'
+            ? String(generatedAssets.resolveUrl(source) || '')
+            : '';
+    }
+
+    function warmActiveFloorImages(mountedSnapshot) {
+        const current = state.activeReader;
+        const payload = current && current.payload;
+        const snapshot = mountedSnapshot || (current && current.snapshot);
+        if (!payload || !snapshot) return;
+        const readerSettings = snapshot.readerSettings || {};
+        const liveMessage = (payload.message && payload.message.raw) || payload.message || payload.raw || '';
+        const source = String(payload.raw || (typeof liveMessage === 'string' ? liveMessage : '') || '');
+        const slots = snapshot.content && Array.isArray(snapshot.content.imageSlots) ? snapshot.content.imageSlots : [];
+        const key = `${firstDefined(payload.messageId, payload.message && payload.message.id, '')}:${source.length}:${slots.map((slot) => (slot && slot.url) || '').join('|')}`;
+        if (floorAssetPlan.key !== key) {
+            const sceneAssets = readerSettings._sceneAssets || null;
+            const generatedAssets = options.generatedAssets || null;
+            floorAssetPlan = {
+                key,
+                urls: collectFloorAssetUrls({
+                    source,
+                    sceneAssets,
+                    inheritedOutfits: payload.inheritedOutfits,
+                    inheritedScene: payload.inheritedSceneState,
+                    imageSlots: slots,
+                    systemRole: readerSettings.systemRole,
+                    readClues: (names) => collectOutfitClues(readStatusHudTablesSafe(), names),
+                    assetMatchCtx: {
+                        sceneAssets,
+                        generatedAssets: sceneAssets && sceneAssets.generated,
+                        strict: readerSettings._strictBackgroundMatch === true,
+                        tempBackground: generatedAssets ? generatedAssets.tempBackground : null,
+                        tempSceneTime: generatedAssets ? generatedAssets.tempSceneTime : null,
+                        tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
+                    },
+                }),
+            };
+        }
+        for (const url of floorAssetPlan.urls) {
+            const concrete = concreteReaderAssetUrl(url);
+            if (concrete) imageResourceCache.load(concrete);
+        }
+    }
+
     function resolveReaderAssetUrl(url, current) {
         const source = String(url || '').trim();
         if (!source) return '';
@@ -833,7 +893,7 @@ export function createIgsReaderHost(options = {}) {
                 current.assetLoadRequests.delete(source);
                 if (state.activeReader !== current) return;
                 const content = current.snapshot && current.snapshot.content;
-                if (!content || (content.backgroundImage !== source && content.spriteImage !== source)) return;
+                if (!pageUsesAsset(content, source)) return;
                 updateMountedReader(current.snapshot);
             });
             if (immediate) return immediate;
@@ -4794,6 +4854,7 @@ export function createIgsReaderHost(options = {}) {
     function updateMountedReader(snapshot) {
         const current = state.activeReader;
         if (!current) return;
+        warmActiveFloorImages(snapshot);
         current.autoPlayer?.setSpeed(snapshot.readerSettings?.typewriter?.speed);
         if (!current.dom || !current.dom.root) return;
         const refs = hydrateReaderMount(current.dom.root, snapshot);
