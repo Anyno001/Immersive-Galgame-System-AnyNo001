@@ -897,7 +897,10 @@ test('gate:illustration:failed-cg-point-can-reroll-and-does-not-borrow-another-i
         const content = host.getState().activeReader.snapshot.content;
         assert.equal(content.illustrationSlot, 1);
         assert.equal(content.illustrationActive, false);
-        assert.equal(content.backgroundImage, 'https://example.com/room.png');
+        assert.equal(content.cgActive, true);
+        assert.equal(content.backgroundImage, '');
+        assert.equal(document.getElementById('igs-stage-motion').getAttribute('data-igs-cg'), '1');
+        assert.equal(document.getElementById('igs-bg').style.backgroundImage, '');
         const reroll = document.getElementById('igs-btn-reroll-cg');
         const clear = document.getElementById('igs-btn-clear-cg');
         assert.equal(reroll.disabled, false);
@@ -1166,6 +1169,45 @@ test('gate:illustration:reader-activates-only-after-marker-and-keeps-veil-withou
     const held = host.getState().activeReader.snapshot.content;
     assert.equal(held.illustrationActive, true);
     assert.equal(held.backgroundImage, imageUrl);
+    host.destroy();
+});
+
+test('gate:illustration:cg-page-keeps-cg-and-does-not-paint-scene-background', () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const raw = '[igs-scene:Room|night|clear]\n[igs-img:1]\n这一页同时有背景和 CG。\n下一句。';
+    let imageUrl = '';
+    let trigger;
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({
+            bridge: {
+                sceneAssets: {
+                    enabled: true,
+                    scenes: { Room: { url: 'https://example.com/room.png', times: {} } },
+                    characters: {},
+                },
+            },
+            readerSettings: {},
+        }),
+        getIllustrationSource: () => ({ chatId: 'chat-1', messageId: 52, swipeId: 0, text: raw }),
+        getIllustrationUrl: () => imageUrl,
+        onIllustrationUpdated: (handler) => { trigger = handler; return () => {}; },
+    });
+    const opened = host.openReader({ messageId: 52, message: { id: 52, text: raw }, raw }, { mode: 'pc' });
+    assert.equal(opened.ok, true);
+    const content = () => host.getState().activeReader.snapshot.content;
+    const bg = document.getElementById('igs-bg');
+    assert.equal(content().backgroundImage, '');
+    assert.equal(content().cgActive, true);
+    assert.equal(bg.style.backgroundImage, '');
+    assert.equal(document.getElementById('igs-stage-motion').getAttribute('data-igs-cg'), '1');
+
+    imageUrl = 'data:image/png;base64,CG';
+    trigger({ chatId: 'chat-1', messageId: 52, swipeId: 0, slot: 1 });
+    assert.equal(content().backgroundImage, imageUrl);
+    assert.equal(content().illustrationActive, true);
+    assert.match(bg.style.backgroundImage, /base64,CG/);
+    assert.doesNotMatch(bg.style.backgroundImage, /room\.png/);
     host.destroy();
 });
 

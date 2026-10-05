@@ -1011,7 +1011,9 @@ function applyAlignStyleImpl(element, align) {
 
 // 背景与立绘图地址可能是数 MB 的 data: URL；同值重写仍要重新解析整段 CSS，所以只在变化时写入。
 // 这三个节点的 backgroundImage 只由本文件写，记住上次写入值即可，不必回读样式。
+// 同时记住是哪一个素材地址画上去的，避免 CG 还没解码时把上一张场景背景留在画面上。
 const backgroundImageKeys = new WeakMap();
+const backgroundImageSources = new WeakMap();
 
 // 内嵌框只跟横竖尺寸走。横屏钉背景尺寸，竖屏钉对调后的尺寸。图的像素不参与。
 export function syncEmbeddedHostFrame(root, sizeText) {
@@ -1081,10 +1083,11 @@ export function watchEmbeddedFrameResize(overlay, frameState) {
     return unobserve;
 }
 
-function writeBackgroundImage(element, url) {
+function writeBackgroundImage(element, url, source = url) {
     const value = url ? `url("${url.replace(/"/g, '&quot;')}")` : '';
-    if (backgroundImageKeys.get(element) === value) return;
+    if (backgroundImageKeys.get(element) === value && backgroundImageSources.get(element) === source) return;
     backgroundImageKeys.set(element, value);
+    backgroundImageSources.set(element, source);
     element.style.backgroundImage = value;
 }
 
@@ -1141,7 +1144,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             else if (typeof root.style.removeProperty === 'function') root.style.removeProperty(prop);
         }
     }
+    const backgroundSource = String(snapshot.content.backgroundImage || '');
     const backgroundAssetUrl = resolveAssetUrl(snapshot.content.backgroundImage);
+    const cgActive = Boolean(snapshot.content && (snapshot.content.cgActive || snapshot.content.illustrationActive));
+    if (stageMotion && stageMotion.setAttribute) {
+        if (cgActive) stageMotion.setAttribute('data-igs-cg', '1');
+        else stageMotion.removeAttribute('data-igs-cg');
+    }
     if (current && typeof current === 'object') {
         // 渲染主路径每张快照刷新钉尺寸输入；宽度观察器跨阈值时按同一份输入重算。
         const frameState = current.embeddedFrame || (current.embeddedFrame = {});
@@ -1151,14 +1160,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
 
     if (bg && backgroundAssetUrl) {
-        writeBackgroundImage(bg, backgroundAssetUrl);
+        writeBackgroundImage(bg, backgroundAssetUrl, backgroundSource);
         bg.setAttribute('data-igs-has-image', '1');
         removeImageLoadingSpinner(bg);
         removeImageEmptyPlaceholder(bg);
-    } else if (bg && snapshot.content.backgroundImage && backgroundImageKeys.get(bg)) {
-        // 下一张还没解码出来：留着已经画上的这张。清掉再补上会让播 CG 的界面一闪一闪。
+    } else if (bg && backgroundSource && backgroundImageSources.get(bg) === backgroundSource && backgroundImageKeys.get(bg)) {
+        // 同一张还没解码出来：留着已经画上的这张。换了素材（比如场景背景换成 CG）就不能留。
     } else if (bg) {
-        writeBackgroundImage(bg, '');
+        writeBackgroundImage(bg, '', backgroundSource);
         bg.removeAttribute('data-igs-has-image');
         const expectsImage = snapshot.content.imageExpectedCount > 0
             && snapshot.content.imageBoundCount < snapshot.content.imageExpectedCount;
@@ -1175,11 +1184,6 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             removeImageLoadingSpinner(bg);
             removeImageEmptyPlaceholder(bg);
         }
-    }
-    const cgActive = Boolean(snapshot.content && (snapshot.content.cgActive || snapshot.content.illustrationActive));
-    if (stageMotion && stageMotion.setAttribute) {
-        if (cgActive) stageMotion.setAttribute('data-igs-cg', '1');
-        else stageMotion.removeAttribute('data-igs-cg');
     }
     if (!cgActive && bg && bg.style && typeof bg.style.removeProperty === 'function') {
         bg.style.removeProperty('filter');

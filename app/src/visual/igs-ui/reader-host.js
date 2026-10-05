@@ -3147,6 +3147,8 @@ export function createIgsReaderHost(options = {}) {
         const boundMarkerUrl = illustrationHit && !illustrationUrl
             ? resolveBoundSlotImageUrl(displayImageState, illustrationHit.slot)
             : '';
+        // 这一页挂了 CG。图还没从存储读回来时不要先铺场景背景，否则两张图先后写上同一层，对话框会跟着闪，最后往往只剩背景。
+        const cgWaiting = Boolean(illustrationHit) && !illustrationUrl && !boundMarkerUrl;
         if (illustrationUrl) {
             finalBackgroundImage = illustrationUrl;
             spriteImage = null;
@@ -3155,6 +3157,10 @@ export function createIgsReaderHost(options = {}) {
             finalBackgroundImage = boundMarkerUrl;
             spriteImage = null;
             backgroundMatch = { source: 'bound-slot' };
+        } else if (cgWaiting) {
+            finalBackgroundImage = '';
+            spriteImage = null;
+            backgroundMatch = { source: 'cg' };
         } else if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
             spriteImage = null;
@@ -3170,7 +3176,7 @@ export function createIgsReaderHost(options = {}) {
             }
             spriteImage = null;
         }
-        const cgActive = Boolean(illustrationUrl);
+        const cgActive = Boolean(illustrationUrl || boundMarkerUrl || cgWaiting);
         // Per-segment classification from the formatted segment text itself.
         // Order matters: thought (*...*) is checked before dialogue ([名字]：) because
         // a thought segment looks like *[名字]：...* and would otherwise match dialogue.
