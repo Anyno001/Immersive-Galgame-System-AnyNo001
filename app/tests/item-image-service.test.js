@@ -54,3 +54,12 @@ test('item-image:tag-first-then-table-capped-per-floor-and-deduped', async () =>
     assert.equal((await service.processMessage(5)).reason, 'nothing-missing');
     assert.equal(calls.nai.length, 4);
 });
+
+test('gate: item planner only receives paragraphs that mention the needed items, capped', async () => {
+    const { itemContextOf } = await import('../src/generated-images/illustration/item-image-service.js');
+    const text = '<content>\n清晨的教室很安静。\n她把黄铜钥匙递过来。\n窗外下着雨。\n</content>';
+    assert.equal(itemContextOf(text, [{ name: '黄铜钥匙' }]), '她把黄铜钥匙递过来。');
+    assert.equal(itemContextOf(text, [{ name: '地图' }]), '');
+    const long = `<content>\n${'钥匙'.repeat(400)}\n</content>`;
+    assert.ok(itemContextOf(long, [{ name: '钥匙' }]).length <= 600);
+});

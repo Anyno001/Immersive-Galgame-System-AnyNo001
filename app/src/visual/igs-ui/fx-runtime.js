@@ -18,6 +18,8 @@ import { ensureFxLayers, findFxLayers } from './fx-layer.js';
 import { playFxSfx } from './fx-sfx.js';
 import { ANCIENT_SYMBOL_PLACEMENT, ANCIENT_SYMBOL_SVG, MANGA_SYMBOL_SVG, pickFxAccent, speedLinesImage, warmSpeedLines } from './fx-symbols.js';
 import { FALLBACK_HEAD, HEAD_ASPECT, measureStage, peekSpriteHead, probeSpriteHead, resolveSymbolPlacement, waitSpriteHead } from './fx-anchor.js';
+import { planEatBeats } from './fx-eat-model.js';
+import { normalizeDailyFxSettings } from './fx-daily-model.js';
 
 export const FX_LIFETIME_MS = Object.freeze({
     symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 800,
@@ -47,7 +49,10 @@ export function resolveCutinCrop(head, aspect, ratio = CUTIN_RATIO) {
     const round = (n) => Math.round(n * 100) / 100;
     return { size: round(k * 100), x: round(px), y: round(py) };
 }
-const RANGE_ATTRS = Object.freeze(['data-igs-fx-era', 'data-igs-fx-flashback', 'data-igs-fx-dream', 'data-igs-fx-letterbox', 'data-igs-fx-whisper', 'data-igs-fx-movie', 'data-igs-fx-lightsoff', 'data-igs-fx-umbrella', 'data-igs-fx-call', 'data-igs-fx-call-remote', 'data-igs-fx-call-sprite', 'data-igs-fx-call-split', 'data-igs-fx-motion', 'data-igs-fx-busy', 'data-igs-fx-presentation']);
+const RANGE_ATTRS = Object.freeze(['data-igs-fx-era', 'data-igs-fx-flashback', 'data-igs-fx-dream', 'data-igs-fx-letterbox', 'data-igs-fx-whisper', 'data-igs-fx-movie', 'data-igs-fx-lightsoff', 'data-igs-fx-umbrella', 'data-igs-fx-call', 'data-igs-fx-call-remote', 'data-igs-fx-call-sprite', 'data-igs-fx-call-split', 'data-igs-fx-motion', 'data-igs-fx-busy', 'data-igs-fx-presentation', 'data-igs-fx-eat']);
+// 进食分镜的立绘动作：挂在 #igs-stage-motion 上，时长与 fx-eat-style 的动画一致。
+const EAT_MOTION_ATTR = 'data-igs-fx-eat';
+const EAT_MOTION_MS = Object.freeze({ bite: 400, chew: 1100, hop: 520, shake: 480, dip: 760, sway: 1300 });
 const CALL_PERSISTENT = '.igs-fx-call-badge, .igs-fx-eye-hold, .igs-fx-call-pip, .igs-fx-video, .igs-fx-call-split';
 const VIDEO_CLOSE_MS = 520;
 const PIP_OUT_MS = 320;
@@ -167,6 +172,12 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline, normalize
         if (pickFlash(emotion, settings.flashFx) && once(`flash:${emotionKey}`)) effects.push({ type: 'flash' });
     }
     if (!special) planTitle({ ...content, messageId }, settings.titleCard, memory, effects);
+    // 进食分镜：日常演出里开了「吃东西」时，本页的 eat 标签在说话人头部逐拍播放（不受情绪符号开关影响）。
+    const daily = normalizeDailyFxSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.dailyFx);
+    if (daily.enabled && daily.eat && !special && !content.sceneNsfw && hasSprite) {
+        const eat = (content.fx && Array.isArray(content.fx.daily) ? content.fx.daily : []).find((item) => item && item.type === 'eat' && item.food);
+        if (eat && once(`eat:${pageKey}:${eat.food}`)) effects.push({ type: 'eat', food: eat.food, reaction: eat.reaction || '' });
+    }
 
     if (settings.favorToast.enabled && content.statusHud && content.statusHud.character) {
         for (const change of diffFavorMetrics(baseline, content.statusHud.character, content.statusHud.metrics)) {
@@ -303,6 +314,7 @@ function clearTransients(state, layers) {
     state.busy = 0;
     state.presentation = 0;
     syncPresentation(state);
+    if (layers.motion && typeof layers.motion.removeAttribute === 'function') layers.motion.removeAttribute(EAT_MOTION_ATTR);
     for (const layer of [layers.stage, layers.front]) {
         if (!layer) continue;
         for (const el of Array.from(layer.querySelectorAll('.igs-fx-transient'))) el.remove();
@@ -441,6 +453,7 @@ function playSymbol(effect, ctx, life, target) {
     const ancientSvg = ctx.ancient ? ANCIENT_SYMBOL_SVG[effect.kind] : '';
     if (ancientSvg) el.setAttribute('data-era', 'ancient');
     el.innerHTML = ancientSvg || MANGA_SYMBOL_SVG[effect.kind] || '';
+    if (effect.onoma) el.appendChild(node(doc, 'igs-fx-onoma', effect.onoma));
     // 陪衬反应的符号带 castTarget（与 options.cast 条目同结构），落在该陪衬的头部；否则落在说话人。
     if (effect.castTarget && effect.castTarget.character) el.setAttribute('data-igs-fx-cast', effect.castTarget.character);
     const source = effect.castTarget || options.sprite;
@@ -454,6 +467,22 @@ function playSymbol(effect, ctx, life, target) {
         if (states.get(root) !== state || state.pageKey !== plan.pageKey) return;
         showSymbol(el, effect, ctx, life, sprite, head);
     });
+}
+
+// 进食分镜：按节拍逐个弹出漫画符号（带拟声字），立绘跟着做小动作；翻页时随本页计时器一起收掉。
+function playEat(effect, ctx) {
+    const { state, layers, reduced } = ctx;
+    const motion = layers.motion;
+    for (const beat of planEatBeats(effect, { reduced })) {
+        track(state, () => {
+            playSymbol({ type: 'symbol', kind: beat.kind, onoma: beat.onoma }, ctx, beat.life);
+            if (!beat.motion || !motion || typeof motion.setAttribute !== 'function') return;
+            motion.setAttribute(EAT_MOTION_ATTR, beat.motion);
+            track(state, () => {
+                if (motion.getAttribute(EAT_MOTION_ATTR) === beat.motion) motion.removeAttribute(EAT_MOTION_ATTR);
+            }, EAT_MOTION_MS[beat.motion] || 600);
+        }, beat.at);
+    }
 }
 
 function speedLines(doc) {
@@ -496,6 +525,8 @@ function playEffect(effect, ctx) {
     const busy = BUSY_EFFECTS.has(effect.type);
     if (effect.type === 'symbol') {
         playSymbol(effect, ctx, life);
+    } else if (effect.type === 'eat') {
+        playEat(effect, ctx);
     } else if (effect.type === 'speedLines') {
         spawn(state, layers.stage, speedLines(doc), life, busy);
     } else if (effect.type === 'heartbeat') {

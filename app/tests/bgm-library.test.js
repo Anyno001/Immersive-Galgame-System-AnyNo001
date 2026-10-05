@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    bgmPackOfWorldview, inferBgmMood, normalizeBgmMood, normalizeBgmTags, resolveBgmMood, resolveBgmScene, selectBgmTrack,
+    BGM_SILENCE_MAX_PAGES, BGM_TRANSITIONS, bgmPackOfWorldview, inferBgmMood, isConfessionLine, normalizeBgmCue, normalizeBgmMood, normalizeBgmTags,
+    resolveBgmMood, resolveBgmScene, resolveBgmSilence, resolveBgmTransition, selectBgmTrack,
 } from '../src/visual/igs-ui/bgm-library.js';
 import { applySceneAudio, cancelSceneAudio, normalizeBgmSettings, skipBgmTrack } from '../src/visual/igs-ui/scene-audio.js';
 import { extractFxDirectives, resolveFxAtPage } from '../src/scene/fx-directives.js';
@@ -207,4 +208,60 @@ test('bgm selection: palace pieces sit out on a street, and the street pool rota
     assert.ok(seen.size >= 4, 'the pool is wider than the exact time-of-day match');
     const hall = selectBgmTrack(tracks, { pack: 'magic', mood: 'daily', location: '城堡大厅' }, {});
     assert.ok(palace.has(hall.id), 'a castle still gets the grand pieces');
+});
+
+test('bgm silence: the 无声 tag parses, holds for a few pages, and ends on a new mood or a new scene', () => {
+    assert.equal(normalizeBgmCue('无声'), 'silence');
+    assert.equal(normalizeBgmCue('静'), 'calm', '静 is still the calm pool');
+    assert.equal(normalizeBgmMood('无声'), '', 'silence is never a track mood');
+    const text = '[igs-fx:bgm|无声]\n她深吸一口气。';
+    assert.equal(resolveFxAtPage(extractFxDirectives(text), text.indexOf('她')).bgmMood, 'silence');
+    const page = (i, extra = {}) => ({ location: '教室', pageKey: `m:${i}`, ...extra });
+    const hold = {};
+    assert.equal(resolveBgmSilence(page(0, { mood: '无声' }), hold), true);
+    for (let i = 1; i < BGM_SILENCE_MAX_PAGES; i += 1) assert.equal(resolveBgmSilence(page(i), hold), true, `page ${i}`);
+    assert.equal(resolveBgmSilence(page(BGM_SILENCE_MAX_PAGES - 1), hold), true, 're-rendering a page does not count twice');
+    assert.equal(resolveBgmSilence(page(BGM_SILENCE_MAX_PAGES), hold), false, 'music comes back on its own');
+    const byMood = {};
+    resolveBgmSilence(page(0, { mood: '无声' }), byMood);
+    assert.equal(resolveBgmSilence(page(1, { mood: '甜' }), byMood), false);
+    const byScene = {};
+    resolveBgmSilence(page(0, { confess: true }), byScene);
+    assert.equal(resolveBgmSilence({ location: '海边', pageKey: 'm:1' }, byScene), false);
+});
+
+test('bgm silence: a spoken confession silences once per place; casual 喜欢 does not', () => {
+    for (const line of ['我喜欢你。', '「我一直喜欢你……」', '我爱你', '我真的很喜欢你！', '嫁给我吧', '做我的女朋友好吗']) assert.ok(isConfessionLine(line), line);
+    for (const line of ['我喜欢你做的饭', '你喜欢我吗？', '他说他爱你。']) assert.equal(isConfessionLine(line), false, line);
+    const memory = {};
+    assert.equal(resolveBgmSilence({ location: '天台', pageKey: 'a', confessText: true }, memory), true);
+    memory.silence = null;
+    assert.equal(resolveBgmSilence({ location: '天台', pageKey: 'b', confessText: true }, memory), false, 'couples say it often; only the first time stops the music');
+    assert.equal(resolveBgmSilence({ location: '家中', pageKey: 'c', confessText: true }, memory), true);
+});
+
+test('bgm transitions: battle cuts in fast, sadness sinks slowly, music returns softly after silence', () => {
+    assert.equal(resolveBgmTransition('daily', 'battle'), BGM_TRANSITIONS.toBattle);
+    assert.ok(BGM_TRANSITIONS.toBattle.out < 500 && BGM_TRANSITIONS.toBattle.in < 500);
+    assert.equal(resolveBgmTransition('battle', 'daily'), BGM_TRANSITIONS.fromBattle);
+    assert.equal(resolveBgmTransition('daily', 'sad'), BGM_TRANSITIONS.toSad);
+    assert.ok(BGM_TRANSITIONS.toSad.in > BGM_TRANSITIONS.normal.in);
+    assert.equal(resolveBgmTransition('daily', 'eerie'), BGM_TRANSITIONS.toTense);
+    assert.equal(resolveBgmTransition('sweet', 'daily', { silence: true }), BGM_TRANSITIONS.silence);
+    assert.equal(resolveBgmTransition('', 'sweet', { resume: true }), BGM_TRANSITIONS.resume);
+    assert.equal(resolveBgmTransition('', 'battle', { resume: true }), BGM_TRANSITIONS.toBattle, 'a fight after silence still slams in');
+    assert.equal(resolveBgmTransition('daily', 'cheerful'), BGM_TRANSITIONS.normal);
+});
+
+test('scene audio: silence stops the music without picking a track, and it comes back afterwards', () => {
+    const root = { ownerDocument: { addEventListener() {}, removeEventListener() {} } };
+    const audio = fakeAudioFactory();
+    const timers = { schedule: () => 0, clear: () => {} };
+    const tracks = [pool('d1', ['daily']), pool('s1', ['sweet'])];
+    const opts = (context) => ({ bgm: { enabled: true, volume: 0.5, tracks }, context: { location: '天台', ...context }, audioFactory: audio.factory, ...timers });
+    assert.ok(applySceneAudio(root, opts({ pageKey: 'm:0' })).track);
+    assert.equal(applySceneAudio(root, opts({ pageKey: 'm:1', confess: true })).track, null);
+    assert.equal(applySceneAudio(root, opts({ pageKey: 'm:2' })).track, null);
+    assert.equal(applySceneAudio(root, opts({ pageKey: 'm:3', bgmMood: '甜' })).track.id, 's1');
+    cancelSceneAudio(root);
 });

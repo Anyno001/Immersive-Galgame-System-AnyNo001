@@ -39,6 +39,19 @@ export function mergeItemCandidates(...lists) {
     return Array.from(byName.values());
 }
 
+// 物品图只画外观：副 LLM 只拿提到这些物品的段落，总长封顶，不再随每批请求发整楼正文。
+const ITEM_CONTEXT_LIMIT = 600;
+export function itemContextOf(text, needs = []) {
+    const names = needs.map((need) => String((need && need.name) || '').trim()).filter(Boolean);
+    let out = '';
+    for (const { text: paragraph } of numberParagraphs(text).paragraphs) {
+        if (!names.some((name) => paragraph.includes(name))) continue;
+        if (out.length + paragraph.length + 1 > ITEM_CONTEXT_LIMIT) return out || paragraph.slice(0, ITEM_CONTEXT_LIMIT);
+        out += (out ? '\n' : '') + paragraph;
+    }
+    return out;
+}
+
 export function createItemImageService(deps) {
     const { messageHost, llm, nai, store, getSettings, events, readTables } = deps;
     const matte = deps.matte || (async (dataUrl) => dataUrl);
@@ -59,7 +72,6 @@ export function createItemImageService(deps) {
 
     const chatOf = () => (messageHost.getChatId ? messageHost.getChatId() : '');
     const recordFor = (chatId, name) => cache.get(chatId, itemAssetKeyOf(chatId, name));
-    const readableOf = (text) => numberParagraphs(text).paragraphs.map((p) => p.text).join('\n').slice(0, 3000);
 
     function readCatalog() {
         if (typeof readTables !== 'function') return [];
@@ -175,7 +187,7 @@ export function createItemImageService(deps) {
             const candidates = mergeItemCandidates(collectTagItems(floor.text), readCatalog());
             const needs = missingNeeds(floor.chatId, candidates, s.items.maxPerFloor);
             if (!needs.length) return { ok: true, reason: 'nothing-missing', count: 0 };
-            return runBatch(floor.chatId, needs, readableOf(floor.text), s, floor);
+            return runBatch(floor.chatId, needs, itemContextOf(floor.text, needs), s, floor);
         })().catch((error) => {
             report('error', `物品图处理异常：${(error && error.message) || error}`);
             return { ok: false, reason: 'error', error: '物品图生成失败' };

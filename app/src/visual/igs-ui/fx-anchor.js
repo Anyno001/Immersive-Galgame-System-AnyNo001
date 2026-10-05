@@ -27,6 +27,19 @@ export const SYMBOL_OFFSETS = Object.freeze({
     dizzy: { dx: 0, dy: -0.28, size: 0.5 },
     fire: { dx: 0.58, dy: 0.12, size: 0.44 },
     frost: { dx: 0.6, dy: 0.22, size: 0.4 },
+    // 进食符号：嘴角、嘴边、脸颊、下巴一带；红晕与皱巴线罩在脸上（dx 为 0 不翻转）。
+    drool: { dx: 0.2, dy: 0.8, size: 0.26 },
+    chomp: { dx: 0.42, dy: 0.78, size: 0.36 },
+    munch: { dx: 0.5, dy: 0.66, size: 0.34 },
+    gulp: { dx: 0.08, dy: 1.08, size: 0.28 },
+    bloom: { dx: 0.5, dy: -0.02, size: 0.46 },
+    blush: { dx: 0, dy: 0.6, size: 0.62 },
+    spicy: { dx: 0.5, dy: 0.8, size: 0.42 },
+    steam: { dx: 0.35, dy: 0.55, size: 0.4 },
+    sour: { dx: 0, dy: 0.3, size: 0.86 },
+    aah: { dx: 0.82, dy: -0.05, size: 0.56 },
+    full: { dx: 0.62, dy: 0.72, size: 0.42 },
+    bubbles: { dx: 0.45, dy: 0.35, size: 0.38 },
     // 古代背景的鼻涕泡：贴在鼻尖一侧。
     snot: { dx: 0.2, dy: 0.62, size: 0.36 },
 });

@@ -74,6 +74,19 @@ test('gate:performance-layout:capsule-counts-every-visible-switch', () => {
     assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/7<\/span>/);
 });
 
+// 角色语气音对所有角色生效，摆在「声音」卡并计入胶囊；不跟打字机挤在「文字」里。
+test('gate:performance-layout:voice-bark-lives-in-sound-group', () => {
+    const html = renderPerformanceSettings({}, {
+        typewriter: '<i data-tw></i>',
+        voiceBark: '<i data-voice-bark></i>', voiceBarkOn: true,
+    });
+    assert.match(html, /<b>声音<\/b><span class="igs-perf-count is-on">1\/5<\/span><span class="igs-perf-brief">角色语气音<\/span>/);
+    const sound = html.slice(html.indexOf('data-advanced="perf-group-sound"'));
+    assert.match(sound.slice(0, sound.indexOf('perf-group-rhythm')), /data-voice-bark/);
+    const text = html.slice(html.indexOf('data-advanced="perf-group-text"'), html.indexOf('data-advanced="perf-group-stage"'));
+    assert.doesNotMatch(text, /data-voice-bark/);
+});
+
 test('gate:performance-layout:remembers-open-sections', () => {
     const html = renderPerformanceSettings({ mangaFx: { enabled: true } }, {}, (key) => key === 'perf-group-story' || key === 'perf-manga-words');
     assert.match(html, /data-advanced="perf-group-story" open/);

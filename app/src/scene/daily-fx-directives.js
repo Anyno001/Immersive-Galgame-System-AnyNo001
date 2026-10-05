@@ -2,7 +2,7 @@
 // 由日常演出开关（readerSettings.dailyFx）控制；字段写错时按最宽松的合法形式处理，缺必填字段则整条忽略。
 export const DAILY_FX_KINDS = Object.freeze([
     'timeskip', 'photo', 'letter', 'note', 'bell', 'broadcast', 'fireworks', 'touch', 'alarm', 'omikuji', 'receipt', 'tv', 'rps', 'gacha', 'game', 'score',
-    'pat', 'poke', 'fever', 'cheers', 'cook', 'cat',
+    'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat',
     'guqin', 'go', 'poem', 'edict', 'tea', 'bow',
     'spell', 'potion', 'owl', 'broom', 'howler',
     'blackout', 'knock', 'murmur',
@@ -74,6 +74,8 @@ export function parseDailyFxBody(type, fields) {
     case 'cheers': return ['cheers'];
     case 'cook': return a ? ['cook', a] : null;
     case 'cat': return ['cat'];
+    // 进食：食物名必填，反应可省（好吃、辣、喂……由前端换算）。
+    case 'eat': return a ? ['eat', a, b] : null;
     // 古风独有：对弈结果可省，写错按省略；题诗、告示内容必填。
     case 'guqin': return ['guqin'];
     case 'go': return ['go', lookup(DAILY_GAME_RESULTS, a)];
@@ -127,6 +129,7 @@ export function dailyFxOf(args) {
     case 'cheers': return { type };
     case 'cook': return { type, dish: a };
     case 'cat': return { type };
+    case 'eat': return { type, food: a, reaction: b };
     case 'guqin': return { type };
     case 'go': return { type, result: a };
     case 'poem': return { type, text: a };

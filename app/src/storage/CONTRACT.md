@@ -13,6 +13,7 @@
 - key 前缀：`vn:*`
 - Blob URL 必须可重建，不作为唯一长期来源。
 - `preset-store.js` 当前以 localStorage-compatible / memory adapter 固定契约，后续再替换为异步 IndexedDB adapter。
+- `tavern-settings-file.js` 把全局配置键镜像到酒馆 `user/files/igs-settings.json`：启动时文件较新则写回本机，本机改动防抖上传；聊天内状态、日志、待审队列不进文件。新增全局配置键要加进它的白名单。
 
 ## 禁止
 

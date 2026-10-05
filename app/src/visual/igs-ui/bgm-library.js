@@ -1,7 +1,7 @@
-import { BGM_MOODS, normalizeBgmMood } from '../../scene/bgm-moods.js';
+import { BGM_MOODS, BGM_SILENCE, normalizeBgmCue, normalizeBgmMood } from '../../scene/bgm-moods.js';
 import { resolveWeatherFxKind, resolveWeatherFxTime } from './weather-fx-runtime.js';
 
-export { BGM_MOODS, BGM_MOOD_LABELS, normalizeBgmMood } from '../../scene/bgm-moods.js';
+export { BGM_MOODS, BGM_MOOD_LABELS, BGM_SILENCE, normalizeBgmCue, normalizeBgmMood } from '../../scene/bgm-moods.js';
 
 // 背景音乐选曲：AI 只在情绪转折时写一个情绪字（[igs-fx:bgm|悲]），本地按情绪分池，再按地点归类的场景、时段、天气加分；
 // 同分的曲目轮流播放、一轮内不重复；情绪与场景不变时一直放当前这首。用户自己写的地点关键词权重最高。
@@ -42,6 +42,23 @@ const BGM_WEATHERS = Object.freeze(['sun', 'cloud', 'rain', 'snow', 'fog', 'wind
 // poolSlack：比最高分只差这么多（时段或天气没对上）的也进轮播池，池子不至于只剩一两首。
 const SCORE = Object.freeze({ place: 8, other: 1, mood: 6, nearMood: 2, scene: 3, sceneMiss: 3, time: 1, weather: 1, poolSlack: 1 });
 const PLAYED_MAX = 24;
+// 留白最多维持的页数：AI 忘了写下一个情绪时，音乐也会自己回来。
+export const BGM_SILENCE_MAX_PAGES = 6;
+// 换曲的淡出 / 淡入（毫秒）。
+export const BGM_TRANSITIONS = Object.freeze({
+    normal: Object.freeze({ out: 1600, in: 1600 }),
+    // 进战斗几乎硬切；打完慢慢收。
+    toBattle: Object.freeze({ out: 350, in: 250 }),
+    fromBattle: Object.freeze({ out: 2200, in: 2000 }),
+    // 转入悲伤：先沉下去，再慢慢浮上来。
+    toSad: Object.freeze({ out: 2600, in: 3000 }),
+    toTense: Object.freeze({ out: 900, in: 1400 }),
+    // 留白：音乐慢慢退场；留白结束后慢慢回来。
+    silence: Object.freeze({ out: 1800, in: 0 }),
+    resume: Object.freeze({ out: 0, in: 3000 }),
+});
+// 告白台词：只认说完整的那一句（后面紧跟标点或引号），「我喜欢你做的饭」不算。
+const CONFESSION_RE = /我(?:一直|真的|好|很|最|也|早就|其实)*(?:喜欢|爱)(?:上)?(?:了)?你(?:了|啊|呀)?(?=$|[。！!…～~，,」』”"\s?？])|做我的?(?:女|男)朋友|和我交往|嫁给我|请和我在一起/;
 
 function text(value) {
     return String(value == null ? '' : value).trim().toLowerCase();
@@ -168,6 +185,50 @@ export function selectBgmTrack(tracks, context = {}, memory = {}) {
     mem.id = pick.id;
     mem.played = [...mem.played.filter((id) => id !== pick.id), pick.id].slice(-PLAYED_MAX);
     return pick;
+}
+
+export function isConfessionLine(text) {
+    return CONFESSION_RE.test(String(text == null ? '' : text));
+}
+
+// 这一页是否留白（不放音乐）。context：{ mood（本页配乐标签原文）, confess, confessText, location, pageKey }。
+// 本页写了「无声」或告白标签时开始留白；正文里认出的告白台词同一地点只算一次（情侣常说「我爱你」，不能每次都停）。
+// 之后写了情绪、换了场景、或留白满 BGM_SILENCE_MAX_PAGES 页就结束。
+export function resolveBgmSilence(context = {}, memory = {}) {
+    const ctx = context && typeof context === 'object' ? context : {};
+    const scene = resolveBgmScene(ctx.location);
+    const page = String(ctx.pageKey || '');
+    const cue = normalizeBgmCue(ctx.mood);
+    const place = text(ctx.location);
+    const firstConfession = ctx.confessText === true && memory.confessPlace !== place;
+    if (firstConfession) memory.confessPlace = place;
+    if (cue === BGM_SILENCE || ctx.confess === true || firstConfession) {
+        memory.silence = { scene, pages: [page] };
+        return true;
+    }
+    const hold = memory.silence;
+    if (!hold) return false;
+    if (cue || hold.scene !== scene) {
+        memory.silence = null;
+        return false;
+    }
+    if (!hold.pages.includes(page)) hold.pages.push(page);
+    if (hold.pages.length > BGM_SILENCE_MAX_PAGES) {
+        memory.silence = null;
+        return false;
+    }
+    return true;
+}
+
+// 换曲时的淡出 / 淡入：看从什么情绪转到什么情绪。silence 为真表示要淡到无声，resume 为真表示从留白回来。
+export function resolveBgmTransition(fromMood, toMood, { silence = false, resume = false } = {}) {
+    if (silence) return BGM_TRANSITIONS.silence;
+    if (toMood === 'battle' && fromMood !== 'battle') return BGM_TRANSITIONS.toBattle;
+    if (resume) return BGM_TRANSITIONS.resume;
+    if (fromMood === 'battle' && toMood !== 'battle') return BGM_TRANSITIONS.fromBattle;
+    if (toMood === 'sad' && fromMood !== 'sad') return BGM_TRANSITIONS.toSad;
+    if ((toMood === 'tense' || toMood === 'eerie') && toMood !== fromMood) return BGM_TRANSITIONS.toTense;
+    return BGM_TRANSITIONS.normal;
 }
 
 // 情绪标签只在转折时写：本页有标签用标签；没有时沿用同一场景里上次的情绪，换了场景就按演出推断。

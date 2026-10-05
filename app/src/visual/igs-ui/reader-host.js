@@ -28,6 +28,10 @@ import { cancelSceneGrade } from './scene-grade.js';
 import { closeRomanceFx } from './romance-runtime.js';
 import { closeMetaFx } from './meta-runtime.js';
 import { normalizeRomanceFxSettings, resolveNsfwSpan } from './romance-settings.js';
+import { mergeItemEvents, normalizeItemFxSettings } from './fx-item-model.js';
+import { applyEatToItems } from './fx-eat-model.js';
+import { normalizeDailyFxSettings } from './fx-daily-model.js';
+import { normalizeItemName } from '../../data/shujuku/item-catalog.js';
 import { cancelDailyFx } from './fx-daily.js';
 import { cancelSceneAudio, skipBgmTrack } from './scene-audio.js';
 import { applyBgmNoteToDom, toggleBgmNote } from './bgm-note.js';
@@ -615,6 +619,32 @@ export function createIgsReaderHost(options = {}) {
             controller: current.controller,
             replaced: true,
         };
+    }
+
+    // 物品演出：账本补上物品表变动的获得 / 失去，标出初次获得，并给正文点亮备好已知物品名。
+    const itemEventsShown = new Set();
+    function decorateItemFx(pageFx, payload, segments, index, directives, readerSettings) {
+        const ledger = options.itemLedger;
+        const itemFx = normalizeItemFxSettings(readerSettings && readerSettings.itemFx);
+        if (!ledger || !itemFx.enabled || !pageFx || !Array.isArray(pageFx.items)) return;
+        const messageId = Number(firstDefined(payload.messageId, payload.message && payload.message.id, null));
+        if (!Number.isInteger(messageId)) return;
+        const identity = state.activeReader && Number(state.activeReader.payload.messageId) === messageId && state.activeReader.illustrationIdentity
+            ? state.activeReader.illustrationIdentity : readIllustrationIdentity(messageId);
+        const chatId = identity && identity.chatId;
+        if (!chatId) return;
+        const tagItems = (directives || []).filter((d) => d.kind === 'item').map((d) => ({ action: d.args[0], name: d.args[1], description: d.args[2] || '' }));
+        ledger.noteTagItems(chatId, tagItems, messageId);
+        mergeItemEvents(pageFx, {
+            events: ledger.eventsFor(chatId, messageId, identity.swipeId),
+            segments,
+            index,
+            tagNames: new Set(tagItems.map((item) => normalizeItemName(item.name))),
+            shown: itemEventsShown,
+            floorKey: `${chatId}|${messageId}|${Number(identity.swipeId) || 0}`,
+        });
+        for (const item of pageFx.items) if (item.action === 'gain') item.first = ledger.isFirst(chatId, item.name, messageId);
+        if (itemFx.mention) pageFx.itemMentions = ledger.knownItems(chatId);
     }
 
     function readIllustrationIdentity(messageId) {
@@ -2861,6 +2891,7 @@ export function createIgsReaderHost(options = {}) {
             generatedAssets: sceneAssets && sceneAssets.generated,
             strict: readerSettings._strictBackgroundMatch === true,
             tempBackground: generatedAssets ? generatedAssets.tempBackground : null,
+            tempSceneTime: generatedAssets ? generatedAssets.tempSceneTime : null,
             tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
         };
         const sceneDirectives = Array.isArray(extracted.sceneDirectives) ? extracted.sceneDirectives
@@ -2953,6 +2984,10 @@ export function createIgsReaderHost(options = {}) {
             fxOffset, fxPrevOffset, battleContext,
         );
         if (battleContext) pageFx.userName = battleUserName;
+        decorateItemFx(pageFx, payload, segments, normalizedIndex, fxDirectives, readerSettings);
+        // 食物被吃掉 / 喝掉：表格少了食物、AI 写「使用」食物、或本页有进食标签时，角落卡片换成吃掉 / 喝掉。
+        const dailyForEat = normalizeDailyFxSettings(readerSettings && readerSettings.dailyFx);
+        applyEatToItems(pageFx, { itemOn: normalizeItemFxSettings(readerSettings && readerSettings.itemFx).enabled, eatOn: dailyForEat.enabled && dailyForEat.eat });
         // 约定到期：payload 带近楼约定时（仅「约定」标签开启），按表名含「全局」的表的当前时间判定当天到期项；读不到则不提醒。
         if (Array.isArray(payload.promiseHistory) && payload.promiseHistory.length) {
             const promiseTables = readStatusHudTablesSafe();
@@ -3907,7 +3942,7 @@ export function createIgsReaderHost(options = {}) {
             voiceBarkControls: voiceBark.enabled ? `<div class="igs-settings-sub">${[
                 field('readerSettings.voiceBark.frequency', '播放时机', segmentedInput('readerSettings.voiceBark.frequency', voiceBark.frequency, VOICE_BARK_FREQUENCIES, '播放时机')),
                 field('readerSettings.voiceBark.volume', '音量', rangeInput('readerSettings.voiceBark.volume', voiceBark.volume, '语气音音量')),
-                `<div class="igs-source-filter-note">每个角色的声线在 素材 › 角色 › 角色设定 里选；没选的按 DNA 性别自动分配。旁白、心里话、通话和亲密场景不发声。</div>`,
+                `<div class="igs-source-filter-note">每个角色的声线在 素材 › 角色 › 角色设定 里选；没选的按 DNA 性别自动分配。旁白、心里话和亲密场景不发声；电话那头是听筒音色。语气音响起时打字音让开、背景音乐轻压一下。</div>`,
             ].join('')}</div>` : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
@@ -3965,7 +4000,10 @@ export function createIgsReaderHost(options = {}) {
         if (readerSubTab === 'performance') {
             readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(worldviewAssets), worldviewId: resolveWorldview(worldviewAssets),
                 canUndo: Boolean(asyncState.perfPresetUndo),
-                typewriter: readerValues.playbackSpeed + readerValues.typewriterToggle + readerValues.typewriterControls + readerValues.voiceBarkToggle + readerValues.voiceBarkControls,
+                typewriter: readerValues.playbackSpeed + readerValues.typewriterToggle + readerValues.typewriterControls,
+                // 语气音的开关、时机、音量对所有角色生效，放「声音」；每个角色的声线在 素材 › 角色 › 角色设定。
+                voiceBark: readerValues.voiceBarkToggle + readerValues.voiceBarkControls,
+                voiceBarkOn: normalizeVoiceBarkSettings(reader.voiceBark).enabled,
                 stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
                 weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
                 chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],

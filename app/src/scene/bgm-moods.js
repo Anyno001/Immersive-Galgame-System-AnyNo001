@@ -13,6 +13,18 @@ const MOOD_ALIASES = Object.freeze({
     诡: 'eerie', 诡异: 'eerie', 恐怖: 'eerie', 阴森: 'eerie', 神秘: 'eerie',
 });
 
+// 留白：关键时刻（告白、噩耗、真相揭晓）让音乐停下来。不是曲目情绪，不进情绪池，只能由标签或告白触发。
+export const BGM_SILENCE = 'silence';
+const SILENCE_WORDS = Object.freeze(['无声', '静音', '留白', '停', 'silence']);
+
+// 配乐标签的取值：情绪，或留白；都不是时返回空串。
+export function normalizeBgmCue(value) {
+    const mood = normalizeBgmMood(value);
+    if (mood) return mood;
+    const raw = String(value == null ? '' : value).trim().toLowerCase();
+    return SILENCE_WORDS.includes(raw) ? BGM_SILENCE : '';
+}
+
 export function normalizeBgmMood(value) {
     const raw = String(value == null ? '' : value).trim();
     if (!raw) return '';

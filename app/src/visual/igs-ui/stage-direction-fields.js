@@ -128,7 +128,7 @@ function renderSoundFields(bgm, ambient, ui, master, more) {
             + '<button type="button" class="igs-settings-action" data-action="bgm-track-upload">上传本地音频</button>'
             + '<button type="button" class="igs-settings-action" data-action="bgm-track-add">添加音频直链</button>'
             + '</div>'
-            + '<div class="igs-source-filter-note">AI 在气氛转折时写一个情绪字（日常、欢快、甜、静、悲、紧、战、诡），按情绪选曲，再按地点、时段、天气挑最合适的一首，同类曲子轮流放。'
+            + '<div class="igs-source-filter-note">AI 在气氛转折时写一个情绪字（日常、欢快、甜、静、悲、紧、战、诡），按情绪选曲，再按地点、时段、天气挑最合适的一首，同类曲子轮流放。进战斗几乎硬切、转入悲伤慢慢沉下去；告白或 AI 写「无声」时音乐停几页留白。'
             + '自己的曲目可以勾情绪，也可以填地点关键词（命中时最优先）。上传的音频存在酒馆的 user/files 文件夹。点地点栏的 ♪ 可以看曲名、换一首。</div>') : '');
     const ambientBody = checkbox(`${P}.ambientSound.enabled`, ambient.enabled, '环境音')
         + (ambient.enabled ? sub(field(`${P}.ambientSound.volume`, '环境音量', rangeInput(`${P}.ambientSound.volume`, ambient.volume, '环境音量'))

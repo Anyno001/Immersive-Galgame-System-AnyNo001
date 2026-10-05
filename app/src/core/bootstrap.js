@@ -14,6 +14,7 @@ import {
     resolveLegacyReaderMode,
 } from '../storage/legacy-igs.js';
 import { createPresetStore } from '../storage/preset-store.js';
+import { createTavernSettingsSync } from '../storage/tavern-settings-file.js';
 import { createLayerController } from '../visual/layer-controller.js';
 import { createStageRenderer } from '../visual/stage-renderer.js';
 import { resolveVisualMode } from '../visual/visual-mode.js';
@@ -51,7 +52,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.43';
+const IGS_VERSION = '0.34.44';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -175,6 +176,7 @@ export function bootstrapIGS(options = {}) {
         itemImageService: options.itemImageService,
         cgGalleryService: options.cgGalleryService,
         cgGalleryStore: options.cgGalleryStore,
+        getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
     });
     const state = {
         status: 'booting',
@@ -230,6 +232,7 @@ export function bootstrapIGS(options = {}) {
         itemImages: itemCg.itemImages,
         cgGallery: itemCg.cgGallery,
         onItemImageUpdated: itemCg.onItemImageUpdated,
+        itemLedger: itemCg.itemLedger,
         requestMoodClassification({ system, user }, llmSettings) {
             return secondaryLlm.request({ system, user }, llmSettings);
         },
@@ -340,12 +343,29 @@ export function bootstrapIGS(options = {}) {
             app.extensionPanel.attach();
         }
     }
+    // 全局配置镜像到酒馆 user/files：另一台设备存得更新时写回本机并刷新运行时设置。
+    if (!options.storage && storageLike && options.tavernSettingsSync !== false) {
+        state.settingsSync = createTavernSettingsSync(globalObject, {
+            storage: storageLike,
+            onRestored: () => {
+                if (state.destroyed) return;
+                state.legacyIgs = readLegacyIgsSettings(storageLike);
+                state.config = mergeInitialConfig(options.config, state.legacyIgs);
+                if (typeof presetRegistry.hydrate === 'function') presetRegistry.hydrate();
+                events.emit('igs:legacy-settings-updated', cloneData(state.legacyIgs));
+                if (options.autoAttachMagicWand !== false) applyEntryConfig(resolveEntryConfig());
+                syncSceneAssetsInjectionWithRetry(1);
+            },
+        });
+        void state.settingsSync.start();
+    }
     state.status = 'ready';
     // 设置就绪后再按保留规则清理一次启动前遗留的旧日志。
     if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();
     illustrationService.start();
     assetGenerationService.start();
     itemCg.itemImages.start();
+    itemCg.itemLedger.start();
     scheduleSceneAssetsInjection(SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS, 1);
     attachChatChangedReinjection();
     attachMetaDigestSync();
@@ -778,12 +798,14 @@ export function bootstrapIGS(options = {}) {
         state.status = 'destroyed';
         clearSceneAssetsInjectionTimer();
         detachChatChangedReinjection();
+        if (state.settingsSync) state.settingsSync.stop();
         if (typeof state.metaDigestCleanup === 'function') state.metaDigestCleanup();
         state.metaDigestCleanup = null;
         promptInjector.clear();
         illustrationService.stop();
         assetGenerationService.stop();
         itemCg.itemImages.stop();
+        itemCg.itemLedger.stop();
         if (app.igsUi && typeof app.igsUi.destroy === 'function') {
             app.igsUi.destroy();
         }

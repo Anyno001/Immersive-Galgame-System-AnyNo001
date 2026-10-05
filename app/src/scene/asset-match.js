@@ -1,4 +1,4 @@
-import { lookupSceneBackground, lookupSceneAssetUrls, resolveCharacterKey, lookupAssetValue } from './scene-directives.js';
+import { lookupSceneBackground, lookupSceneAssetUrls, resolveCharacterKey, lookupAssetValue, sceneTimeSlot } from './scene-directives.js';
 import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit, outfitsOfCharacter } from './character-outfits.js';
 
 export const GENERATED_ASSET_URL_PREFIX = 'igs-gen:';
@@ -114,6 +114,8 @@ export function bindGeneratedBackground(sceneAssets, record, name) {
     const scenes = { ...plainObject(assets.scenes) };
     if (!finalName || !imageId) return { ok: false, reason: 'empty-name', name: '', scenes };
     const url = `${GENERATED_ASSET_URL_PREFIX}${imageId}`;
+    // 时段差分入库到只在生成区的场景时，主图仍用差分的原图。
+    const baseUrl = record.variantOf ? `${GENERATED_ASSET_URL_PREFIX}${record.variantOf}` : url;
     const entry = { ...plainObject(scenes[finalName]) };
     const words = Array.isArray(entry.words) ? entry.words.slice() : [];
     const original = String(record.name || '').trim();
@@ -124,7 +126,7 @@ export function bindGeneratedBackground(sceneAssets, record, name) {
         const slot = plainObject(times[time]);
         times[time] = { ...slot, url, weathers: plainObject(slot.weathers) };
     }
-    scenes[finalName] = { ...entry, url: String(entry.url || '').trim() || url, words, times };
+    scenes[finalName] = { ...entry, url: String(entry.url || '').trim() || baseUrl, words, times };
     return { ok: true, name: finalName, scenes };
 }
 
@@ -299,12 +301,28 @@ function isTrustedUserMatch(quality, strict) {
     return strict ? TRUSTED.has(quality) : true;
 }
 
+// 已登记场景缺当前时段的图：原图是插件生成的才补一张时段差分。本聊天补过（含失败、丢弃）就不再补。
+function missingTimeVariant(state, hit, ctx) {
+    if (hit.timed === true || !hit.key || !TRUSTED.has(hit.quality) || !isGeneratedAssetUrl(hit.url)) return null;
+    const time = sceneTimeSlot(state.time, ctx.sceneAssets && ctx.sceneAssets.timeGroups);
+    if (!time) return null;
+    const temp = typeof ctx.tempSceneTime === 'function' ? ctx.tempSceneTime(hit.key, time) : null;
+    return { scene: hit.key, time, baseImageId: generatedAssetIdOf(hit.url), url: (temp && temp.url) || '', tried: Boolean(temp) };
+}
+
+function withTimeVariant(result, state, hit, ctx) {
+    const variant = missingTimeVariant(state, hit, ctx);
+    if (!variant) return result;
+    if (variant.url) return { ...result, url: variant.url, source: 'temp', timed: true };
+    return variant.tried ? result : { ...result, timeVariant: { scene: variant.scene, time: variant.time, baseImageId: variant.baseImageId } };
+}
+
 export function resolveBackgroundAsset(sceneState, ctx = {}) {
     const state = sceneState || {};
     if (!state.scene) return { url: '', source: 'none', needsGeneration: false };
     const user = ctx.sceneAssets ? lookupSceneBackground(state, ctx.sceneAssets) : { url: null, quality: 'none' };
     if (user.url && isTrustedUserMatch(user.quality, ctx.strict === true)) {
-        return { url: user.url, source: 'user', quality: user.quality, timed: user.timed === true, needsGeneration: false };
+        return withTimeVariant({ url: user.url, source: 'user', quality: user.quality, timed: user.timed === true, needsGeneration: false }, state, user, ctx);
     }
     // 用户已登记的场景（精确/别名/强模糊命中）哪怕该时段没图，也不替用户生成。
     if (TRUSTED.has(user.quality)) {
@@ -313,7 +331,7 @@ export function resolveBackgroundAsset(sceneState, ctx = {}) {
     const library = normalizeGeneratedLibrary(ctx.generatedAssets);
     const generated = lookupSceneBackground(state, { ...ctx.sceneAssets, scenes: library.scenes });
     if (generated.url && TRUSTED.has(generated.quality)) {
-        return { url: generated.url, source: 'library', quality: generated.quality, timed: generated.timed === true, needsGeneration: false };
+        return withTimeVariant({ url: generated.url, source: 'library', quality: generated.quality, timed: generated.timed === true, needsGeneration: false }, state, generated, ctx);
     }
     const temp = typeof ctx.tempBackground === 'function' ? ctx.tempBackground(state.scene, state.time || '') : '';
     if (temp) return { url: temp, source: 'temp', needsGeneration: false };
@@ -410,6 +428,12 @@ export function collectAssetNeeds({ scenes = [], characters = [] } = {}, ctx = {
             const hit = resolveBackgroundAsset(scene, ctx);
             if (hit.needsGeneration) {
                 needs.push({ type: 'background', name: scene.scene, time: scene.time || '', weather: scene.weather || '', nsfw: scene.nsfw === true });
+            } else if (hit.timeVariant) {
+                const { scene: name, time, baseImageId } = hit.timeVariant;
+                const variantKey = `bg-time|${name}|${time}`;
+                if (seen.has(variantKey)) continue;
+                seen.add(variantKey);
+                needs.push({ type: 'background', name, time, weather: '', variantOf: baseImageId });
             }
         }
     }

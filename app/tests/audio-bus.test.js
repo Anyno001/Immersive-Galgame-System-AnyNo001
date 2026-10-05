@@ -15,7 +15,8 @@ import {
 } from '../src/visual/igs-ui/audio-bus.js';
 import { playSynthPartials, createSynthPartial as p } from '../src/visual/igs-ui/chat-sfx.js';
 import { scheduleTypewriterAudio } from '../src/visual/igs-ui/typewriter-audio.js';
-import { applySceneAudio, cancelSceneAudio } from '../src/visual/igs-ui/scene-audio.js';
+import { applySceneAudio, cancelSceneAudio, canRouteBgm } from '../src/visual/igs-ui/scene-audio.js';
+import { playVoiceBark, stopVoiceBark } from '../src/visual/igs-ui/voice-bark.js';
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -237,6 +238,7 @@ test('gate: scene space sends voice and sfx into one shared reverb and closing t
     assert.ok(bus.inputs.voice.connected.includes(convolver));
     assert.ok(bus.inputs.sfx.connected.includes(convolver));
     assert.ok(!bus.inputs.ambient.connected.includes(convolver), 'ambient has its own tone chain');
+    assert.deepEqual(bus.inputs.dry.connected, [bus.compressor], 'close voices skip the room reverb');
     const send = convolver.connected[0];
     assert.ok(send.connected.includes(bus.compressor));
     assert.equal(send.gain.history.at(-1)[1], 0.12);
@@ -248,4 +250,97 @@ test('gate: scene space sends voice and sfx into one shared reverb and closing t
     assert.equal(send.gain.history.at(-1)[1], 0.15, 'dream uses the long tail');
     cancelSceneAudio(root);
     assert.equal(send.gain.history.at(-1)[1], 0);
+});
+
+function addNode(ctx, kind, extra) {
+    const n = { kind, context: ctx, connected: [], connect(target) { this.connected.push(target); return target; }, disconnect() { this.gone = true; }, ...extra };
+    ctx.nodes.push(n);
+    return n;
+}
+
+test('gate: bgm on a CORS-safe host plays through the bgm bus with real filters; others and CORS failures stay standalone', () => {
+    const ctx = fakeContext();
+    const sources = [];
+    ctx.createMediaElementSource = (audio) => { const n = addNode(ctx, 'media', { audio }); sources.push(n); return n; };
+    resetAudioBusForTest(counted(ctx));
+    const created = [];
+    globalThis.Audio = class {
+        constructor() { this.src = ''; this.volume = 1; this.loop = false; this.on = {}; created.push(this); }
+        play() { return Promise.resolve(); }
+        pause() {}
+        addEventListener(type, fn) { this.on[type] = fn; }
+        removeAttribute() { this.src = ''; }
+        load() {}
+    };
+    const timers = { schedule: () => ({}), clear: () => {} };
+    const root = {};
+    const other = {};
+    const cdn = 'https://cdn.jsdelivr.net/gh/a/b@v1/app/dist/bgm/x.mp3';
+    const apply = (target, url, fxRanges) => applySceneAudio(target, {
+        bgm: { enabled: true, volume: 0.6, tracks: [{ id: 'a', url, keywords: [] }] }, ...timers, context: { location: '教室', fxRanges },
+    });
+    try {
+        assert.equal(canRouteBgm(cdn), true);
+        assert.equal(canRouteBgm('https://example.com/a.mp3'), false);
+        assert.equal(canRouteBgm('/user/files/igs-bgm-a.mp3', 'https://tavern.local'), true);
+        assert.equal(canRouteBgm('data:audio/mp3;base64,AA'), true);
+        apply(root, cdn);
+        const bus = getAudioBus();
+        assert.equal(created[0].crossOrigin, 'anonymous');
+        assert.equal(created[0].volume, 1, 'the element stays at full volume; its gain node fades');
+        const entryGain = sources[0].connected[0];
+        assert.deepEqual(entryGain.gain.history.at(-1), ['linear', 0.6, 1.6]);
+        const toBus = ctx.nodes.find((n) => n.kind === 'gain' && n.connected.includes(bus.inputs.bgm));
+        assert.ok(toBus, 'bgm chain ends on the bgm sub-bus');
+        apply(root, cdn, { flashback: true });
+        const low = ctx.nodes.find((n) => n.kind === 'filter' && n.type === 'lowpass' && n.connected.includes(toBus));
+        assert.equal(low.frequency.history.at(-1)[1], 2600, 'flashback really muffles the music');
+        assert.equal(created.length, 1, 'tone changes never restart the track');
+        created[0].on.error();
+        assert.equal(created.length, 2, 'a CORS failure restarts the same track standalone');
+        assert.equal(created[1].crossOrigin, undefined);
+        assert.ok(sources[0].gone);
+        assert.equal(canRouteBgm(cdn), false, 'and remembers not to try again');
+        apply(other, 'https://example.com/a.mp3');
+        assert.equal(created[2].crossOrigin, undefined);
+        assert.equal(created[2].volume, 0, 'standalone tracks fade with audio.volume');
+        assert.equal(sources.length, 1);
+    } finally {
+        cancelSceneAudio(root);
+        cancelSceneAudio(other);
+        delete globalThis.Audio;
+    }
+});
+
+test('gate: voice bark pans, closes the typewriter gate while it speaks, and routes phone / close lines dry', async () => {
+    const ctx = fakeContext();
+    ctx.createStereoPanner = () => addNode(ctx, 'panner', { pan: param(0) });
+    ctx.decodeAudioData = async () => ({ duration: 0.5, sampleRate: 8000, length: 4000, getChannelData: () => new Float32Array(4000) });
+    resetAudioBusForTest(counted(ctx));
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
+    const settle = async () => { for (let i = 0; i < 6; i += 1) await flush(); };
+    try {
+        const bus = getAudioBus();
+        playVoiceBark({ url: 'bark-a', volume: 0.8, pan: 0.3, yieldTyping: true });
+        await settle();
+        const panner = ctx.nodes.find((n) => n.kind === 'panner');
+        assert.equal(panner.pan.value, 0.3);
+        assert.deepEqual(panner.connected, [bus.inputs.voice]);
+        const gate = ctx.nodes.find((n) => n.kind === 'gain' && n.connected.includes(bus.inputs.voice) && n.gain.history.length);
+        const targets = gate.gain.history.filter((h) => h[0] === 'target').map((h) => [h[1], Math.round(h[2] * 100) / 100]);
+        assert.deepEqual(targets, [[0, 0], [1, 0.55]], 'typing is muted until the bark ends');
+        playVoiceBark({ url: 'bark-a', phone: true });
+        await settle();
+        const filters = ctx.nodes.filter((n) => n.kind === 'filter');
+        assert.deepEqual(filters.map((f) => [f.type, f.frequency.value]), [['highpass', 380], ['lowpass', 3200]]);
+        assert.deepEqual(filters[1].connected, [bus.inputs.dry]);
+        playVoiceBark({ url: 'bark-a', close: true });
+        await settle();
+        const last = ctx.nodes.filter((n) => n.kind === 'gain').at(-1);
+        assert.deepEqual(last.connected, [bus.inputs.dry], 'shy / whisper lines skip the room reverb');
+    } finally {
+        stopVoiceBark();
+        globalThis.fetch = realFetch;
+    }
 });

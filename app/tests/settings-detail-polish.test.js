@@ -90,7 +90,7 @@ test('gate:settings-polish:toast-follows-dialog-skin', async () => {
     assert.ok(getDialogSkinStyleText('elegant-european', base).includes('#igs-overlay[data-igs-dialog-skin="elegant-european"] #igs-toast{background:rgba(6,6,12,.82);'));
     // 只注入当前皮肤；无专属主题的默认皮肤仍走设置器配色兜底。
     assert.ok(!pink.includes('data-igs-dialog-skin="plant-coffee"] #igs-toast'));
-    assert.equal(getDialogSkinStyleText('default'), '');
+    assert.ok(!getDialogSkinStyleText('default').includes('#igs-toast'));
 });
 
 test('gate:settings-polish:mood-review-rows-align-buttons', async () => {

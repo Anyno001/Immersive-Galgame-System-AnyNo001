@@ -11,6 +11,7 @@ import {
     normalizeVoiceSpeed,
     pickBarkClip,
     resolveBarkMood,
+    resolveBarkShape,
     resolveCharacterVoice,
     stretchSamples,
 } from '../src/visual/igs-ui/voice-bark.js';
@@ -90,9 +91,31 @@ test('clip pick: avoids repeating the last clip and falls back along the mood ch
     assert.equal(pickBarkClip(pack, '大笑', { random: () => 0 }), 'j1');
     assert.equal(pickBarkClip(pack, '愤怒', { random: () => 0 }), 'p1');
     assert.equal(pickBarkClip(null, '喜悦'), '');
+    // 已解码好的优先，第一次开口不等下载；都没备好时照常随机。
+    const big = { clips: { 喜悦: ['j1', 'j2', 'j3'] } };
+    assert.equal(pickBarkClip(big, '喜悦', { random: () => 0, ready: new Set(['j3']) }), 'j3');
+    assert.equal(pickBarkClip(big, '喜悦', { random: () => 0, ready: new Set() }), 'j1');
 });
 
-test('decide: only dialogue, skips narration / phone / nsfw / repeats, plays on speaker or mood change', () => {
+test('shape: far end of a call uses the receiver, soft moods are close and quiet, loud moods louder, pan follows the sprite', () => {
+    const sceneAssets = assets({ 艾琳: { identity: '1girl' } });
+    const opts = { sceneAssets, random: () => 0 };
+    const phone = decideVoiceBark({}, line({ phone: true, posX: 80 }), ON, opts);
+    assert.deepEqual([phone.phone, phone.close, phone.pan], [true, true, 0]);
+    const shy = decideVoiceBark({}, line({ mood: '害羞', posX: 80 }), ON, opts);
+    assert.equal(shy.close, true);
+    assert.ok(shy.volume < ON.volume);
+    assert.equal(shy.pan, 0.3);
+    const angry = decideVoiceBark({}, line({ mood: '生气' }), ON, opts);
+    assert.ok(angry.volume > ON.volume && angry.volume <= 1.2);
+    assert.deepEqual([angry.close, angry.pan], [false, 0]);
+    // 亲密演出压成耳语时，不管情绪都轻声贴耳。
+    const whisper = resolveBarkShape({ whisper: true }, '愤怒');
+    assert.equal(whisper.close, true);
+    assert.ok(whisper.gain < 0.7);
+});
+
+test('decide: only dialogue, skips narration / nsfw / repeats, plays on speaker or mood change', () => {
     const sceneAssets = assets({ 艾琳: { identity: '1girl' }, 雷恩: { identity: '1boy' } });
     const opts = { sceneAssets, random: () => 0 };
     const state = {};
@@ -101,7 +124,7 @@ test('decide: only dialogue, skips narration / phone / nsfw / repeats, plays on 
     assert.equal(decideVoiceBark(state, line({ key: 'm1:1' }), ON, opts), null, 'same speaker same mood');
     assert.ok(decideVoiceBark(state, line({ key: 'm1:2', mood: '生气' }), ON, opts), 'mood changed');
     assert.ok(decideVoiceBark(state, line({ key: 'm1:3', speaker: '雷恩', mood: '生气' }), ON, opts), 'speaker changed');
-    for (const over of [{ textType: 'narration' }, { textType: 'thought' }, { phone: true }, { nsfw: true }, { speaker: '' }]) {
+    for (const over of [{ textType: 'narration' }, { textType: 'thought' }, { nsfw: true }, { speaker: '' }]) {
         assert.equal(decideVoiceBark({}, line(over), ON, opts), null, JSON.stringify(over));
     }
     assert.equal(decideVoiceBark({}, line(), { ...ON, enabled: false }, opts), null);

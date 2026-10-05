@@ -1,5 +1,5 @@
 import { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX, dailyFxOf, parseDailyFxBody } from './daily-fx-directives.js';
-import { normalizeBgmMood } from './bgm-moods.js';
+import { normalizeBgmCue } from './bgm-moods.js';
 
 export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
 export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox', 'whisper', 'movie', 'light', 'umbrella']);
@@ -180,7 +180,7 @@ export function parseFxBody(body) {
         return { kind, end: false, args: [action, parts[2], pair ? parts[3] : ''] };
     }
     if (kind === 'bgm') {
-        const mood = isEnd ? '' : normalizeBgmMood(parts[1]);
+        const mood = isEnd ? '' : normalizeBgmCue(parts[1]);
         return mood ? { kind, end: false, args: [mood] } : null;
     }
     if (kind === 'cam') {

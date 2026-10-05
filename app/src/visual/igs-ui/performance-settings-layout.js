@@ -56,6 +56,7 @@ function extraSwitches(reader, extras) {
             extras.narrationFilter ? ['旁白时压暗立绘', hud.dimSpriteOnNarration !== false] : null,
         ],
         story: [['选项检定掷骰', on('resultFx')]],
+        sound: [extras.voiceBark ? ['角色语气音', extras.voiceBarkOn === true] : null],
     };
 }
 
@@ -106,7 +107,7 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
             section('线上与直播', [pair('chat-show', '线上交流详细设置', extras.chatShow), danmaku.live, danmaku.audience, danmaku.inner]),
             section('亲密', [renderRomanceFxFields(src, more), extras.nsfw || '']),
         ],
-        sound: [stage.master, fx.sound, stage.ambient, stage.ui, stage.bgm],
+        sound: [stage.master, fx.sound, extras.voiceBark, stage.ambient, stage.ui, stage.bgm],
     };
     const extra = extraSwitches(src, extras);
     const groups = PERFORMANCE_GROUPS.map(([id, title]) => groupCard(id, title, groupSummary(src, id, current === 'off', extra[id]), bodies[id].filter(Boolean).join(''), isOpen(`perf-group-${id}`)));

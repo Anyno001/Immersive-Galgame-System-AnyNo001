@@ -58,7 +58,7 @@ ${ITEM_FX_PROMPT_LINE}
 }
 
 // 配乐情绪标签独立于演出标签开关：背景音乐与其「情绪标签」都开启、且曲目里有情绪分类时才注入（只配了关键词曲目时写了也用不上）。
-export const BGM_GRAMMAR_LINE = 'bgm|情绪：配乐气氛转折时写一次，情绪只写 日常、欢快、甜、静、悲、紧、战、诡 之一，如[igs-fx:bgm|悲]；气氛不变就不写';
+export const BGM_GRAMMAR_LINE = 'bgm|情绪：配乐气氛转折时写一次，情绪只写 日常、欢快、甜、静、悲、紧、战、诡 之一，如[igs-fx:bgm|悲]；气氛不变就不写。告白、噩耗、真相揭晓这类要屏住呼吸的瞬间写[igs-fx:bgm|无声]让音乐停下，之后气氛定了再写情绪';
 
 export function bgmMoodTagEnabled(bgm) {
     const s = bgm && typeof bgm === 'object' ? bgm : {};
@@ -70,6 +70,7 @@ export function resolveBgmPromptRule(bgm) {
     if (!bgmMoodTagEnabled(bgm)) return '';
     return `[igs配乐标签]
 [igs-fx:bgm|情绪]：配乐气氛转折时写一次，情绪只写 日常、欢快、甜、静、悲、紧、战、诡 之一，如[igs-fx:bgm|悲]
+[igs-fx:bgm|无声]：告白、噩耗、真相揭晓这类要屏住呼吸的瞬间让音乐停下；之后气氛定了再写情绪，没写时几页后音乐自己回来
 
 语法要求：
 1. 标签独立成行，放在气氛转折处的正文之前

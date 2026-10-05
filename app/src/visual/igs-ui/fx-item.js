@@ -2,10 +2,12 @@ import { worldSkinOf } from '../../scene/worldview.js';
 
 // 获得物品演出 DOM 层：挂在 fx 前层（立绘之上、对话层之下）。
 // 同一身份（消息|swipe|页）重绘不重播；图片后到只在身份仍一致时淡入替换占位；计时器统一回收。
-// 流程：（重要物品先走中央大演出）→ 卡片逐张弹出 → 停留（鼠标悬停 / 点开详情时暂停）→ 退场。
+// 流程：（初次获得的物品先走中央完整演出：立绘与对话框退场 → 光芒 + 大图标 + 名字落章 → 图标飞进背包 → 立绘回场）
+// → 其余物品卡片在右上角逐张弹出 → 停留（鼠标悬停 / 点开详情时暂停）→ 退场。
 // 退场按动作区分：获得的图标飞向 HUD 背包入口并让入口闪一下，失去下坠淡出，使用缩小消散。
 import { ensureFxLayers, findFxLayers } from './fx-layer.js';
-import { itemFxIdentity } from './fx-item-model.js';
+import { itemFxIdentity, itemFxLifeMs, itemShowcaseHoldMs } from './fx-item-model.js';
+import { RECORD_ICONS, inventoryIconKey } from './record-icons.js';
 
 const STACK_CLASS = 'igs-fx-item-stack';
 const SHOWCASE_CLASS = 'igs-fx-item-showcase';
@@ -17,7 +19,9 @@ const LEAVE_MS = 420;
 const LEAVE_STAGGER_MS = 90;
 const FLY_MS = 620;
 const PULSE_MS = 700;
-const SHOWCASE_MS = 2600;
+// 中央演出期间挂在 #igs-stage-motion 上：out 让立绘与对话框淡出，in 淡回后撤掉。
+const STAGE_ATTR = 'data-igs-item-stage';
+const STAGE_IN_MS = 450;
 const SHOWCASE_OUT_MS = 320;
 const IMAGE_FADE_MS = 420;
 // 古代背景：容器挂 data-igs-era="ancient" 换宣纸卡 + 朱砂印；印文取动作单字。
@@ -36,10 +40,17 @@ export function safeItemImageUrl(url) {
     return SAFE_IMAGE_RE.test(value) ? value : '';
 }
 
+// 没有生成图时按物品名配背包同款图标（钥匙、信、药水……），认不出的用通用图标。
+export function itemPlaceholderSvg(name) {
+    return RECORD_ICONS[inventoryIconKey(name)] || PLACEHOLDER_SVG;
+}
+
+const cardMark = (card) => `${card.action}|${card.name}`;
+
 function getState(root, options) {
     let state = states.get(root);
     if (!state) {
-        state = { key: '', timers: new Set(), stack: null, showcase: null, flyers: [], pulse: null, expire: null, paused: 0, leaving: false, layers: null, ancient: false };
+        state = { key: '', played: new Set(), timers: new Set(), stack: null, showcase: null, flyers: [], pulse: null, expire: null, paused: 0, leaving: false, layers: null, ancient: false, staged: null };
         states.set(root, state);
     }
     state.schedule = typeof options.schedule === 'function' ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -70,7 +81,8 @@ function clearState(state) {
     removeNode(state.showcase);
     for (const flyer of state.flyers) removeNode(flyer);
     if (state.pulse && typeof state.pulse.removeAttribute === 'function') state.pulse.removeAttribute('data-igs-item-pulse');
-    Object.assign(state, { stack: null, showcase: null, flyers: [], pulse: null, expire: null, paused: 0, leaving: false, layers: null, ancient: false });
+    if (state.staged && typeof state.staged.removeAttribute === 'function') state.staged.removeAttribute(STAGE_ATTR);
+    Object.assign(state, { stack: null, showcase: null, flyers: [], pulse: null, expire: null, paused: 0, leaving: false, layers: null, ancient: false, staged: null });
 }
 
 function el(doc, tag, className, text) {
@@ -101,7 +113,7 @@ function fillIcon(doc, icon, imageUrl, name, { fade = false, state = null } = {}
     const url = safeItemImageUrl(imageUrl);
     if (!url) {
         while (icon.firstChild) icon.removeChild(icon.firstChild);
-        icon.innerHTML = PLACEHOLDER_SVG;
+        icon.innerHTML = itemPlaceholderSvg(name);
         icon.setAttribute('data-igs-item-placeholder', '1');
         return false;
     }
@@ -142,6 +154,7 @@ function buildCard(doc, card, ancient = false) {
     node.setAttribute('data-igs-item-action', card.action);
     node.setAttribute('data-igs-item-name', card.name);
     if (card.rare) node.setAttribute('data-igs-item-rare', '1');
+    if (card.expanded) node.setAttribute('data-igs-item-expanded', '1');
     const body = el(doc, 'div', 'igs-fx-item-text');
     body.appendChild(el(doc, 'span', 'igs-fx-item-action', card.actionLabel));
     body.appendChild(el(doc, 'span', 'igs-fx-item-name', card.name));
@@ -161,6 +174,7 @@ function buildShowcase(doc, card, ancient = false) {
     if (ancient) node.setAttribute(ERA_ATTR, 'ancient');
     node.setAttribute('role', 'status');
     node.appendChild(el(doc, 'div', 'igs-fx-item-showcase-rays'));
+    node.appendChild(el(doc, 'div', 'igs-fx-item-showcase-burst'));
     const plate = el(doc, 'div', 'igs-fx-item-showcase-plate');
     plate.appendChild(buildIcon(doc, card, 'igs-fx-item-showcase-icon'));
     plate.appendChild(el(doc, 'span', 'igs-fx-item-showcase-label', `${card.actionLabel}了`));
@@ -197,7 +211,8 @@ function flyToBag(state, layers, card, target) {
         copy.setAttribute('alt', '');
         flyer.appendChild(copy);
     } else {
-        flyer.innerHTML = PLACEHOLDER_SVG;
+        const svg = icon.querySelector('svg');
+        flyer.innerHTML = svg && svg.outerHTML ? svg.outerHTML : PLACEHOLDER_SVG;
     }
     const px = (value) => `${Math.round(value / scale)}px`;
     if (flyer.style) {
@@ -287,6 +302,7 @@ function bindInteraction(state, root, layers, stack, card) {
 }
 
 function runStack(state, root, layers, plan, options) {
+    if (!(Array.isArray(plan.stackCards) ? plan.stackCards : plan.cards).length && !plan.overflowText) return;
     const { doc, front } = layers;
     const reduced = options.reducedMotion === true;
     const stack = el(doc, 'div', `${STACK_CLASS} igs-fx-transient`);
@@ -299,14 +315,14 @@ function runStack(state, root, layers, plan, options) {
     front.appendChild(stack);
     state.stack = stack;
     const onCard = typeof options.onCard === 'function' ? options.onCard : null;
-    plan.cards.forEach((card, index) => {
+    const cards = Array.isArray(plan.stackCards) ? plan.stackCards : plan.cards;
+    cards.forEach((card, index) => {
         const show = () => {
             if (state.stack !== stack) return;
             const node = buildCard(doc, card, state.ancient);
             if (!reduced) bindInteraction(state, root, layers, stack, node);
             stack.appendChild(node);
-            // 已在中央大演出播过音效的那件不重复发声。
-            if (onCard && !reduced && card !== plan.showcase) { try { onCard(card); } catch (error) { /* 音效失败不影响演出 */ } }
+            if (onCard && !reduced) { try { onCard(card); } catch (error) { /* 音效失败不影响演出 */ } }
         };
         if (reduced || index === 0) show();
         else track(state, show, index * STAGGER_MS);
@@ -314,28 +330,50 @@ function runStack(state, root, layers, plan, options) {
     if (plan.overflowText) {
         const more = () => { if (state.stack === stack) stack.appendChild(el(doc, 'div', 'igs-fx-item-more', plan.overflowText)); };
         if (reduced) more();
-        else track(state, more, plan.cards.length * STAGGER_MS);
+        else track(state, more, cards.length * STAGGER_MS);
     }
     const life = Number(plan.lifeMs) > 0 ? Number(plan.lifeMs) : LIFE_MS;
     if (reduced) {
         track(state, () => { if (state.stack === stack) { removeNode(stack); state.stack = null; } }, life);
         return;
     }
-    scheduleExpire(state, root, layers, stack, plan.cards.length * STAGGER_MS + life);
+    scheduleExpire(state, root, layers, stack, cards.length * STAGGER_MS + life);
 }
 
-// 中央大演出：压暗舞台、放射光、大图标；点击可提前结束，结束后接着播卡片（该物品随卡片飞进背包）。
-function runShowcase(state, root, layers, plan, options, next) {
-    const node = buildShowcase(layers.doc, plan.showcase, state.ancient);
+function setStage(state, layers, phase) {
+    const motion = layers && layers.motion;
+    if (!motion || typeof motion.setAttribute !== 'function') return;
+    if (phase === 'out') {
+        motion.setAttribute(STAGE_ATTR, 'out');
+        state.staged = motion;
+        return;
+    }
+    if (state.staged !== motion) return;
+    motion.setAttribute(STAGE_ATTR, 'in');
+    track(state, () => {
+        if (state.staged === motion && motion.getAttribute(STAGE_ATTR) === 'in') { motion.removeAttribute(STAGE_ATTR); state.staged = null; }
+    }, STAGE_IN_MS);
+}
+
+// 中央完整演出：压暗舞台、放射光与光环、大图标、名字落章；点击可提前结束。
+// 获得的物品结束时从中央直接飞进背包，不再进角落卡片。
+function runShowcase(state, root, layers, card, options, next) {
+    const node = buildShowcase(layers.doc, card, state.ancient);
     if (!state.ancient && state.worldSkin) node.setAttribute(ERA_ATTR, state.worldSkin);
     setVar(node, '--igs-item-accent', options.accent);
     layers.front.appendChild(node);
     state.showcase = node;
-    if (typeof options.onShowcase === 'function') { try { options.onShowcase(plan.showcase); } catch (error) { /* 音效失败不影响演出 */ } }
+    if (typeof options.onShowcase === 'function') { try { options.onShowcase(card); } catch (error) { /* 音效失败不影响演出 */ } }
     let done = false;
     const finish = () => {
         if (done || state.showcase !== node) return;
         done = true;
+        const target = card.action === 'gain' ? findBagTarget(root) : null;
+        const flew = Boolean(target) && flyToBag(state, layers, node, target);
+        if (flew) {
+            node.setAttribute('data-igs-item-flown', '1');
+            track(state, () => pulseBag(state, target), FLY_MS);
+        }
         node.setAttribute('data-igs-leaving', '1');
         track(state, () => {
             if (state.showcase !== node) return;
@@ -348,7 +386,18 @@ function runShowcase(state, root, layers, plan, options, next) {
         if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
         finish();
     });
-    track(state, finish, SHOWCASE_MS);
+    track(state, finish, itemShowcaseHoldMs(card));
+}
+
+function runShowcases(state, root, layers, plan, options, next) {
+    const queue = plan.showcases.slice();
+    setStage(state, layers, 'out');
+    const step = () => {
+        const card = queue.shift();
+        if (!card) { setStage(state, layers, 'in'); next(); return; }
+        runShowcase(state, root, layers, card, options, step);
+    };
+    step();
 }
 
 // plan 来自 planItemFx；options.reducedMotion 为真时一次性静态显示（不播大演出、不飞行）；
@@ -357,20 +406,54 @@ export function applyItemFxToDom(root, plan, options = {}) {
     if (!root || !plan || !Array.isArray(plan.cards) || !plan.cards.length || !plan.identity) return { played: false, reason: 'empty' };
     const key = itemFxIdentity(plan.identity);
     const existing = states.get(root);
-    if (existing && existing.key === key) return { played: false, reason: 'same-page' };
+    let played = new Set();
+    // 同一页重绘不重播；物品表晚到、本页多出新物品时只补播新的那几件。
+    if (existing && existing.key === key) {
+        const fresh = plan.cards.filter((card) => !existing.played.has(cardMark(card)));
+        if (!fresh.length) return { played: false, reason: 'same-page' };
+        played = existing.played;
+        plan = narrowPlan(plan, fresh);
+    }
     const layers = ensureFxLayers(root);
     if (!layers || !layers.front) return { played: false, reason: 'no-layer' };
     const state = getState(root, options);
     clearState(state);
     state.key = key;
+    state.played = played;
+    for (const card of plan.cards) state.played.add(cardMark(card));
     state.layers = layers;
     state.ancient = options.ancient === true;
     state.worldSkin = worldSkinOf(options.worldview);
     const reduced = options.reducedMotion === true;
-    const start = () => runStack(state, root, layers, plan, options);
-    if (plan.showcase && !reduced) runShowcase(state, root, layers, plan, options, start);
+    const showcases = reduced ? [] : Array.isArray(plan.showcases) ? plan.showcases : plan.showcase ? [plan.showcase] : [];
+    // 减弱动态时不播中央演出，所有物品都进静态卡片。
+    const stackCards = reduced ? plan.cards : plan.cards.filter((card) => !showcases.includes(card));
+    const staged = { ...plan, showcases, stackCards };
+    const start = () => runStack(state, root, layers, staged, options);
+    if (showcases.length) runShowcases(state, root, layers, staged, options, start);
     else start();
-    return { played: true, count: plan.cards.length, showcase: Boolean(plan.showcase && !reduced) };
+    return { played: true, count: plan.cards.length, showcase: showcases.length > 0 };
+}
+
+function narrowPlan(plan, fresh) {
+    const keep = (list) => (Array.isArray(list) ? list.filter((card) => fresh.includes(card)) : list);
+    const stackCards = keep(plan.stackCards);
+    const showcases = keep(plan.showcases);
+    return { ...plan, cards: fresh, stackCards, showcases, showcase: (showcases && showcases[0]) || null, overflowText: '', lifeMs: itemFxLifeMs(stackCards || fresh) };
+}
+
+// 点亮的物品名被点中：右上角弹一张展开的物品卡，不打断本页已有演出的播放记录。
+export function showItemCard(root, card, options = {}) {
+    if (!root || !card || !card.name) return false;
+    const layers = ensureFxLayers(root);
+    if (!layers || !layers.front) return false;
+    const state = getState(root, options);
+    const keep = { key: state.key, played: state.played };
+    clearState(state);
+    Object.assign(state, keep, { layers, ancient: options.ancient === true, worldSkin: worldSkinOf(options.worldview) });
+    const shown = { ...card, action: 'view', actionLabel: '持有', expanded: true };
+    runStack(state, root, layers, { cards: [shown], stackCards: [shown], overflowText: '', lifeMs: itemFxLifeMs([shown]) + 1500 }, options);
+    return true;
 }
 
 // 图片后到：身份仍一致才替换占位（卡片与中央大演出都算），已翻页或已换 swipe 时不写回。
@@ -409,6 +492,7 @@ export function cancelItemFx(root) {
     if (layers && layers.front) {
         for (const node of Array.from(layers.front.querySelectorAll(`.${STACK_CLASS}, .${SHOWCASE_CLASS}, .${FLYER_CLASS}`))) node.remove();
     }
+    if (layers && layers.motion && typeof layers.motion.removeAttribute === 'function') layers.motion.removeAttribute(STAGE_ATTR);
     return Boolean(state);
 }
 
@@ -534,6 +618,18 @@ export const ITEM_FX_STYLE_TEXT = `
 .igs-fx-item-flyer[data-igs-era="magic"]{color:#f6e7c1;background:#1c2248;box-shadow:0 0 0 1px rgba(201,162,74,.85),0 0 16px rgba(255,214,120,.6);}
 .igs-fx-item-flyer[data-igs-era="taisho"]{color:#2a1c18;background:#f4ead6;box-shadow:0 0 0 1px #7b2e2a,0 0 12px rgba(201,162,92,.5);}
 
+/* 初次获得：中央完整演出期间立绘、同屏角色与对话框淡出，演完淡回；只动透明度，不碰立绘定位用的 transform */
+#igs-stage-motion[data-igs-item-stage="out"] #igs-sprite,#igs-stage-motion[data-igs-item-stage="out"] #igs-cast,#igs-stage-motion[data-igs-item-stage="out"] #igs-dialog-layer{animation:igs-fx-item-stage-out .4s ease-out forwards;pointer-events:none;}
+#igs-stage-motion[data-igs-item-stage="in"] #igs-sprite,#igs-stage-motion[data-igs-item-stage="in"] #igs-cast,#igs-stage-motion[data-igs-item-stage="in"] #igs-dialog-layer{animation:igs-fx-item-stage-in .45s ease-out both;}
+.igs-fx-item-showcase-burst{position:absolute;left:50%;top:44%;width:min(70vmin,520px);aspect-ratio:1;margin:calc(min(70vmin,520px) / -2) 0 0 calc(min(70vmin,520px) / -2);border-radius:50%;box-shadow:0 0 0 3px var(--igs-item-accent-c),inset 0 0 40px var(--igs-item-accent-c);opacity:0;pointer-events:none;animation:igs-fx-item-burst .9s cubic-bezier(.2,.7,.3,1) .32s both;}
+.igs-fx-item-showcase .igs-fx-item-showcase-name{animation:igs-fx-item-stamp .5s cubic-bezier(.3,1.4,.5,1) .55s both;}
+.igs-fx-item-showcase[data-igs-item-flown] .igs-fx-item-showcase-icon{visibility:hidden;}
+/* 正文里点亮的物品名：颜色随对话框皮肤（--igs-item-mention-color），点一下弹出物品卡 */
+#igs-text .igs-item-mention{color:var(--igs-item-mention-color,#e2a93b);font-weight:600;text-decoration:underline dotted 1.5px;text-underline-offset:.22em;cursor:pointer;}
+@keyframes igs-fx-item-stage-out{to{opacity:0;}}
+@keyframes igs-fx-item-stage-in{from{opacity:0;}to{opacity:1;}}
+@keyframes igs-fx-item-burst{0%{opacity:.95;transform:scale(.15);}100%{opacity:0;transform:scale(1.25);}}
+@keyframes igs-fx-item-stamp{0%{opacity:0;transform:scale(1.7);}100%{opacity:1;transform:none;}}
 @keyframes igs-fx-item-in{from{opacity:0;transform:translateX(28px) scale(.96);}to{opacity:1;transform:none;}}
 @keyframes igs-fx-item-out{to{opacity:0;transform:translateX(18px);}}
 @keyframes igs-fx-item-out-drop{to{opacity:0;transform:translateY(14px) rotate(-2deg);}}

@@ -22,7 +22,7 @@ const ITEM_NEGATIVE_TAGS = 'human, hands, text, watermark, multiple objects, cro
 
 export function buildItemPlannerUserPrompt(needs = [], readableText = '') {
     const listed = needs.map((need, i) => `ch${i + 1}｜物品：${need.name}${need.description ? `｜描述：${need.description}` : ''}`);
-    return [`【需要生成的物品】\n${listed.join('\n')}`, readableText ? `【本楼正文】\n${readableText}` : '', '请直接按输出格式给出字段。']
+    return [`【需要生成的物品】\n${listed.join('\n')}`, readableText ? `【正文中提到物品的段落】\n${readableText}` : '', '请直接按输出格式给出字段。']
         .filter(Boolean).join('\n\n');
 }
 

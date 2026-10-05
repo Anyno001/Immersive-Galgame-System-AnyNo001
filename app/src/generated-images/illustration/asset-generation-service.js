@@ -9,7 +9,8 @@ import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
 import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, nsfwClothingBoostLine, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
-import { sceneVariantCaption, sceneVariantTags } from '../scene-variant-tags.js';
+import { promptTimeBucket, sceneVariantCaption, sceneVariantTags } from '../scene-variant-tags.js';
+import { sceneTimeBucket } from '../../scene/time-bucket.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
 
@@ -156,6 +157,11 @@ export function createAssetGenerationService(deps) {
         return '';
     }
 
+    function tempSceneTime(scene, time) {
+        const record = currentTempRecords().get(tempAssetKeyOf(tempChatId, { type: 'background', name: scene, time }));
+        return record ? { url: tempUrl(record) } : null;
+    }
+
     function tempSprite(name) {
         return tempUrl(currentTempRecords().get(tempAssetKeyOf(tempChatId, { type: 'sprite', name })));
     }
@@ -215,6 +221,7 @@ export function createAssetGenerationService(deps) {
             generatedAssets: s.sceneAssets.generated,
             strict: s.strict,
             tempBackground,
+            tempSceneTime,
             tempSprite,
             knownCharacters,
         };
@@ -301,6 +308,46 @@ export function createAssetGenerationService(deps) {
         await store.putAsset(record);
         if (tempChatId === floor.chatId) tempRecords.set(key, record);
         emit({ chatId: floor.chatId, messageId: floor.messageId, swipeId: floor.swipeId, key, reason: 'generated' });
+        return record;
+    }
+
+    // 已登记场景缺这个时段：拿原图存下的提示词换时间标签直接出图，不写词。
+    // 原图没存提示词、或本来就是这个时段，记成 skipped，本聊天不再查。
+    async function generateTimeVariant(need, s, floor, floorKey) {
+        const key = tempAssetKeyOf(floor.chatId, need);
+        const base = {
+            key, chatId: floor.chatId, floorKey, messageId: floor.messageId, swipeId: floor.swipeId,
+            type: 'background', name: need.name, time: need.time, weather: '', variantOf: need.variantOf, tags: '', createdAt: now(),
+        };
+        const stored = await getImagePrompt(need.variantOf);
+        const caption = stored ? sceneVariantCaption(stored, sceneVariantTags(need.time, '')) : null;
+        const baseText = stored && stored.caption ? stored.caption.v4_prompt.caption.base_caption : stored && stored.positive;
+        let record;
+        if (!caption || promptTimeBucket(baseText) === sceneTimeBucket(need.time)) {
+            record = { ...base, imageId: '', status: 'skipped' };
+        } else {
+            let result;
+            try {
+                result = await nai.generateDbgenCaption({ caption, size: backgroundSize(s), seed: randomSeed() });
+            } catch (error) {
+                result = { ok: false, error: `出图失败：${(error && error.message) || error}` };
+            }
+            if (result && result.ok && result.dataUrl) {
+                const imageId = newId();
+                const image = { id: imageId, dataUrl: result.dataUrl, type: 'background', createdAt: base.createdAt };
+                const prompt = normalizeStoredPrompt(result.prompt) || promptFromCaption(caption);
+                if (prompt) image.prompt = prompt;
+                await putImageWithQuotaFallback(image);
+                rememberImage(imageId, image.dataUrl);
+                record = { ...base, imageId, status: 'review' };
+            } else {
+                record = { ...base, imageId: '', status: 'failed', error: (result && result.error) || '出图失败' };
+                report('error', `「${need.name}」${need.time}差分生成失败：${record.error}`);
+            }
+        }
+        await store.putAsset(record);
+        if (tempChatId === floor.chatId) tempRecords.set(key, record);
+        if (record.status !== 'skipped') emit({ chatId: floor.chatId, messageId: floor.messageId, swipeId: floor.swipeId, key, reason: 'generated' });
         return record;
     }
 
@@ -460,9 +507,10 @@ export function createAssetGenerationService(deps) {
         const spriteNeeds = s.auto.assets.spriteEnabled
             ? collectAssetNeeds({ scenes: [], characters: numbered.characters }, match, { background: false, sprite: true, limit: s.auto.assets.maxPerFloor })
             : [];
-        const needs = [...backgroundNeeds, ...spriteNeeds];
+        const variantNeeds = backgroundNeeds.filter((need) => need.variantOf);
+        const needs = [...backgroundNeeds.filter((need) => !need.variantOf), ...spriteNeeds];
         attachCharacterDna(needs, s.sceneAssets);
-        if (!needs.length) {
+        if (!needs.length && !variantNeeds.length) {
             await store.putFloor(key, { status: 'done', count: 0, updatedAt: now() });
             return { ok: true, reason: 'nothing-missing' };
         }
@@ -473,12 +521,24 @@ export function createAssetGenerationService(deps) {
             return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
         }
         await store.putFloor(key, { status: 'planning', updatedAt: now() });
-        let plan;
-        if (backend.ownPrompts) {
+        let count = 0;
+        let attempted = 0;
+        const errors = [];
+        if (variantNeeds.length) report('info', `第 ${messageId} 楼按原图提示词补 ${variantNeeds.length} 张场景时段差分…`);
+        for (const need of variantNeeds) {
+            const record = await generateTimeVariant(need, s, floor, key);
+            if (record.status === 'skipped') continue;
+            attempted += 1;
+            if (record.status === 'review') count += 1;
+            else errors.push(`「${record.name}·${record.time}」${record.error}`);
+        }
+        // 只缺时段差分时不请求写词。
+        let plan = { ok: true, items: [] };
+        if (needs.length && backend.ownPrompts) {
             // 数据库生图插件自己按楼层写提示词，不需要副 LLM 出标签。
             report('info', `第 ${messageId} 楼缺少 ${needs.length} 项素材，正在交给数据库生图插件…`);
             plan = { ok: true, items: needs.map((need) => ({ need, tags: '' })) };
-        } else {
+        } else if (needs.length) {
             report('info', `第 ${messageId} 楼缺少 ${needs.length} 项素材，正在请求副 LLM…`);
             try {
                 const previousText = messageHost.readPreviousAiTexts(messageId, s.auto.llm.contextFloors)
@@ -503,8 +563,6 @@ export function createAssetGenerationService(deps) {
             report('error', `第 ${messageId} 楼素材未发送生图请求：${plan.error}`);
             return { ok: false, reason: 'plan-failed', error: plan.error };
         }
-        let count = 0;
-        const errors = [];
         const backgrounds = plan.items.filter((item) => item.need && item.need.type === 'background');
         const sprites = plan.items.filter((item) => item.need && item.need.type === 'sprite');
         const batchBackgrounds = backend.ownPrompts && backgrounds.length && nai && typeof nai.writeDbgenPrompt === 'function';
@@ -531,7 +589,7 @@ export function createAssetGenerationService(deps) {
             if (record.status === 'review') count += 1;
             else errors.push(`「${record.name}」${record.error}`);
         }
-        const failedCount = plan.items.length - count;
+        const failedCount = attempted + plan.items.length - count;
         await store.putFloor(key, { status: failedCount ? 'failed' : 'done', count, updatedAt: now() });
         if (count) report('success', `第 ${messageId} 楼已生成 ${count} 项素材，待确认`);
         const result = { ok: failedCount === 0, reason: failedCount ? 'generation-failed' : 'done', count, failedCount };
@@ -1035,7 +1093,7 @@ export function createAssetGenerationService(deps) {
     }
 
     return {
-        processMessage, resolveUrl, resolveThumbUrl, tempBackground, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
+        processMessage, resolveUrl, resolveThumbUrl, tempBackground, tempSceneTime, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
         generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateSceneVariants, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,

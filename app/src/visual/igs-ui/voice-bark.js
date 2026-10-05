@@ -4,6 +4,8 @@
 import { VOICE_PACKS } from '../../voice/voice-packs.js';
 import { moodFallbackChain, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { busInput, resumeAudioBus } from './audio-bus.js';
+import { duckSceneAudio } from './scene-audio.js';
+import { spritePan, yieldTypewriterAudio } from './typewriter-audio.js';
 
 export const VOICE_BARK_FREQUENCIES = Object.freeze([
     ['change', '换人或情绪变化时'],
@@ -18,6 +20,22 @@ export const VOICE_PITCH_LIMIT = 3;
 // 角色语速（倍）：和音高分开调，播放前做保留音高的时间伸缩。
 export const VOICE_SPEED_RANGE = Object.freeze([0.8, 1.4]);
 const BASE_MOOD = '平和';
+// 力度：喊出来的情绪响一点，软下来的情绪轻一点；close 的不进房间混响（走 dry），像凑在耳边说。
+const BARK_SHAPES = Object.freeze({
+    愤怒: Object.freeze({ gain: 1.2 }), 惊讶: Object.freeze({ gain: 1.15 }), 大笑: Object.freeze({ gain: 1.15 }), 得意: Object.freeze({ gain: 1.05 }),
+    害羞: Object.freeze({ gain: 0.7, close: true }), 心虚: Object.freeze({ gain: 0.7, close: true }),
+    动情: Object.freeze({ gain: 0.65, close: true }), 爱恋: Object.freeze({ gain: 0.8, close: true }),
+    思考: Object.freeze({ gain: 0.75 }), 委屈: Object.freeze({ gain: 0.8 }), 冷淡: Object.freeze({ gain: 0.8 }),
+    悲伤: Object.freeze({ gain: 0.8 }), 无奈: Object.freeze({ gain: 0.85 }), 哭泣: Object.freeze({ gain: 0.9 }),
+});
+const WHISPER_SHAPE = Object.freeze({ gain: 0.6, close: true });
+// 电话那头：听筒频段、单声道、不进房间混响。
+const PHONE_GAIN = 0.85;
+const PHONE_BAND = Object.freeze({ high: 380, low: 3200 });
+const GAIN_CAP = 1.2;
+// 语气音响着时 BGM 与环境音让一下（比提示音轻）；打字音整段静音到语气音念完。
+const BARK_DUCK_RATIO = 0.7;
+const BARK_TAIL_S = 0.05;
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const plainObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
@@ -137,26 +155,36 @@ export function resolveBarkMood(word) {
 }
 
 // 同方向回退，最后落到「平和」；同一情绪有多条时避开上一条。
-export function pickBarkClip(pack, mood, { last = '', random = Math.random } = {}) {
+// ready：已解码好的音频；池里有现成的就先挑现成的，免得第一次开口要等下载。
+export function pickBarkClip(pack, mood, { last = '', random = Math.random, ready = null } = {}) {
     if (!pack || !pack.clips) return '';
     for (const label of [mood, ...moodFallbackChain(mood), BASE_MOOD]) {
         const clips = pack.clips[label];
         if (!clips || !clips.length) continue;
-        const pool = clips.length > 1 ? clips.filter((url) => url !== last) : clips;
+        let pool = clips.length > 1 ? clips.filter((url) => url !== last) : clips;
+        const warm = ready ? pool.filter((url) => ready.has(url)) : [];
+        if (warm.length) pool = warm;
         return pool[Math.floor(random() * pool.length) % pool.length];
     }
     return '';
 }
 
+// 这一句的力度、声像与去向：耳语 > 情绪；电话那头一律听筒音色、居中。
+export function resolveBarkShape(line, mood) {
+    if (line.phone) return { gain: PHONE_GAIN, close: true, phone: true, pan: 0 };
+    const shape = (line.whisper ? WHISPER_SHAPE : BARK_SHAPES[mood]) || { gain: 1 };
+    return { gain: shape.gain, close: shape.close === true, phone: false, pan: spritePan(line.posX) };
+}
+
 // 这一句要不要发声（纯函数，便于测试）。state 跨句记忆：上一句的 key / 说话人 / 情绪 / 每套声线上一条。
-export function decideVoiceBark(state, line, settings, { sceneAssets, random = Math.random } = {}) {
+export function decideVoiceBark(state, line, settings, { sceneAssets, random = Math.random, ready = null } = {}) {
     const config = normalizeVoiceBarkSettings(settings);
     const key = String(line.key || '');
     if (key && key === state.lastKey) return null;
     state.lastKey = key;
     if (!config.enabled || config.volume <= 0) return null;
-    // 只给正常台词：旁白、心里话、通话、NSFW 场景都不发声（会出戏）。
-    if (line.textType !== 'dialogue' || line.phone || line.nsfw) return null;
+    // 只给正常台词：旁白、心里话、NSFW 场景都不发声（会出戏）；电话那头的台词走听筒音色。
+    if (line.textType !== 'dialogue' || line.nsfw) return null;
     const speaker = String(line.speaker || '').trim();
     if (!speaker) return null;
     const mood = resolveBarkMood(line.mood);
@@ -169,14 +197,21 @@ export function decideVoiceBark(state, line, settings, { sceneAssets, random = M
     if (!voice.pack) return null;
     const lastBy = state.lastClip || (state.lastClip = new Map());
     const slot = `${voice.pack.id}|${mood}`;
-    const url = pickBarkClip(voice.pack, mood, { last: lastBy.get(slot) || '', random });
+    const url = pickBarkClip(voice.pack, mood, { last: lastBy.get(slot) || '', random, ready });
     if (!url) return null;
     lastBy.set(slot, url);
-    return { url, volume: config.volume, pitch: voice.pitch, speed: voice.speed, pack: voice.pack.id, mood };
+    const shape = resolveBarkShape(line, mood);
+    return {
+        url, volume: Math.min(GAIN_CAP, config.volume * shape.gain), pitch: voice.pitch, speed: voice.speed, pack: voice.pack.id, mood,
+        pan: shape.pan, close: shape.close, phone: shape.phone,
+    };
 }
 
 const decoded = new Map();
+const ready = new Set();
 const stretched = new Map();
+const warmedPacks = new Set();
+const warmedMoods = new Set();
 let active = null;
 
 function loadBuffer(context, url) {
@@ -187,9 +222,45 @@ function loadBuffer(context, url) {
             .catch(() => null);
         decoded.set(url, job);
         // 失败的不缓存，下次重试（网络抖动）。
-        job.then((buffer) => { if (!buffer) decoded.delete(url); });
+        job.then((buffer) => {
+            if (buffer) ready.add(url);
+            else decoded.delete(url);
+        });
     }
     return decoded.get(url);
+}
+
+// 预加载：场上角色的声线每种情绪先备一条（约 20 条、几十 KB），第一次开口就有现成的；
+// 某种情绪真用到时再把这一情绪的其余几条备齐，换着播。
+function warmUrls(urls) {
+    const bus = busInput('voice');
+    if (!bus) return;
+    for (const url of urls) if (url) loadBuffer(bus.context, url);
+}
+
+export function warmVoicePack(pack) {
+    if (!pack || !pack.clips || warmedPacks.has(pack.id)) return false;
+    warmedPacks.add(pack.id);
+    warmUrls(Object.values(pack.clips).map((clips) => clips[0]));
+    return true;
+}
+
+function warmMood(packId, mood) {
+    const pack = voicePackById(packId);
+    const key = `${packId}|${mood}`;
+    if (!pack || warmedMoods.has(key)) return;
+    warmedMoods.add(key);
+    warmUrls(pack.clips[mood] || []);
+}
+
+export function warmCastVoices(sceneAssets, names, settings) {
+    if (!normalizeVoiceBarkSettings(settings).enabled || !Array.isArray(names)) return 0;
+    let count = 0;
+    for (const name of new Set(names.map((n) => String(n || '').trim()).filter(Boolean))) {
+        const voice = resolveCharacterVoice(sceneAssets, name);
+        if (voice.pack && warmVoicePack(voice.pack)) count += 1;
+    }
+    return count;
 }
 
 // 保留音高的时间伸缩（WSOLA）：把 samples 拉长到 ratio 倍。每段在 ±8ms 内找与上一段自然延续最像的位置，避免相位打架。
@@ -250,23 +321,62 @@ function tunedBuffer(context, url, buffer, rate, speed) {
     return stretched.get(key);
 }
 
+function releaseJob(job) {
+    if (job.releaseDuck) job.releaseDuck();
+    job.releaseDuck = null;
+    for (const node of job.nodes) {
+        try { node.disconnect(); } catch { /* already disconnected */ }
+    }
+    job.nodes.length = 0;
+}
+
 export function stopVoiceBark() {
     if (!active) return;
     const current = active;
     active = null;
     current.cancelled = true;
     try { current.source && current.source.stop(); } catch { /* already stopped */ }
-    try { current.gain && current.gain.disconnect(); } catch { /* already disconnected */ }
+    releaseJob(current);
+}
+
+// gain →（听筒带通 / 声像）→ 总线；返回链头。
+function buildBarkChain(context, out, { volume, pan, phone }, nodes) {
+    const gain = context.createGain();
+    gain.gain.value = Math.max(0, Math.min(GAIN_CAP, Number(volume) || 0));
+    nodes.push(gain);
+    let tail = gain;
+    const link = (node) => {
+        tail.connect(node);
+        nodes.push(node);
+        tail = node;
+    };
+    if (phone) {
+        const high = context.createBiquadFilter();
+        high.type = 'highpass';
+        high.frequency.value = PHONE_BAND.high;
+        link(high);
+        const low = context.createBiquadFilter();
+        low.type = 'lowpass';
+        low.frequency.value = PHONE_BAND.low;
+        link(low);
+    } else if (pan && typeof context.createStereoPanner === 'function') {
+        const panner = context.createStereoPanner();
+        panner.pan.value = Math.max(-1, Math.min(1, pan));
+        link(panner);
+    }
+    tail.connect(out);
+    return gain;
 }
 
 // 同一时间只有一条语气音：新的一句开始时掐掉上一条，避免翻页快时叠成一片。
-export function playVoiceBark({ url, volume = 1, pitch = 0, speed = 1 } = {}) {
+// close / phone 走 dry（不进房间混响）；yieldTyping 为真时这一句的打字音让到语气音念完；duck 为真时 BGM 与环境音让一下。
+export function playVoiceBark({ url, volume = 1, pitch = 0, speed = 1, pan = 0, close = false, phone = false, yieldTyping = false, duck = false } = {}) {
     if (!url) return null;
-    const bus = busInput('voice');
+    const bus = busInput(close || phone ? 'dry' : 'voice');
     if (!bus) return null;
     stopVoiceBark();
     const context = bus.context;
-    const job = { cancelled: false, source: null, gain: null };
+    const job = { cancelled: false, source: null, nodes: [], releaseDuck: null };
     active = job;
     Promise.all([resumeAudioBus(), loadBuffer(context, url)]).then(([, buffer]) => {
         if (job.cancelled || !buffer || context.state !== 'running') return;
@@ -275,18 +385,18 @@ export function playVoiceBark({ url, volume = 1, pitch = 0, speed = 1 } = {}) {
             const source = context.createBufferSource();
             source.buffer = tunedBuffer(context, url, buffer, rate, normalizeVoiceSpeed(speed));
             source.playbackRate.value = rate;
-            const gain = context.createGain();
-            gain.gain.value = Math.max(0, Math.min(1, Number(volume) || 0));
-            source.connect(gain);
-            gain.connect(bus);
+            source.connect(buildBarkChain(context, bus, { volume, pan, phone }, job.nodes));
             source.onended = () => {
-                try { gain.disconnect(); } catch { /* already disconnected */ }
+                releaseJob(job);
                 if (active === job) active = null;
             };
             job.source = source;
-            job.gain = gain;
             source.start();
+            const seconds = (source.buffer.duration || 0) / rate + BARK_TAIL_S;
+            if (yieldTyping) yieldTypewriterAudio(seconds);
+            if (duck) job.releaseDuck = duckSceneAudio({ ratio: BARK_DUCK_RATIO, durationMs: seconds * 1000 + 150 });
         } catch {
+            releaseJob(job);
             if (active === job) active = null;
         }
     });
@@ -296,12 +406,16 @@ export function playVoiceBark({ url, volume = 1, pitch = 0, speed = 1 } = {}) {
 const states = new WeakMap();
 
 // 阅读器每次渲染调用；同一句重复渲染（设置变化、窗口缩放）由 key 去重，不会重播。
+// line.cast：场上角色名（说话人、立绘、同屏），先把他们的声线备好。
 export function applyVoiceBark(root, line, settings, sceneAssets) {
     if (!root) return null;
     let state = states.get(root);
     if (!state) states.set(root, (state = {}));
-    const plan = decideVoiceBark(state, line, settings, { sceneAssets });
-    return plan ? playVoiceBark(plan) : null;
+    warmCastVoices(sceneAssets, line.cast, settings);
+    const plan = decideVoiceBark(state, line, settings, { sceneAssets, ready });
+    if (!plan) return null;
+    warmMood(plan.pack, plan.mood);
+    return playVoiceBark({ ...plan, yieldTyping: true, duck: true });
 }
 
 // 设置里的试听：同一声线依次播几种情绪。

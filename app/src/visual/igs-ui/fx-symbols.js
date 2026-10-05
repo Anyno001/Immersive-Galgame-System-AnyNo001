@@ -74,6 +74,16 @@ function wavyLine(x, y0, halves, amp, cls) {
         + '</g>';
 }
 
+// 小花：五片圆瓣绕中心（同向圆弧，非零环绕下合成一个轮廓），花心另画一层。
+const FLOWER = [-90, -18, 54, 126, 198].map((deg) => {
+    const [x, y] = polar(deg, 20).split(' ').map(Number);
+    return circle(x, y, 15);
+}).join('');
+const flowerCore = '<circle class="igs-fx-bloom-core" cx="50" cy="50" r="10" stroke-width="4"/>';
+const BUBBLE_SPEECH = 'M14 14H86Q96 14 96 24V58Q96 68 86 68H40L26 84L30 68H14Q4 68 4 58V24Q4 14 14 14Z';
+const BLUSH = (x) => `M${x} 50a18 11 0 1 1 36 0a18 11 0 1 1 -36 0Z`;
+const zigzag = (x, y, n, w = 8) => `M${x} ${y}` + Array.from({ length: n }, (_, i) => `l${w} ${i % 2 ? 8 : -8}`).join('');
+
 const BODIES = Object.freeze({
     anger: burst(44, 8, -67.5)
         + strokeGlyph('M42 12Q40 40 12 42M58 12Q60 40 88 42M42 88Q40 60 12 58M58 88Q60 60 88 58', 10, 'igs-fx-vein')
@@ -126,6 +136,43 @@ const BODIES = Object.freeze({
     frost: burst(46, 6, -60)
         + strokeGlyph(SNOWFLAKE, 4, 'igs-fx-crystal')
         + fillShape(DROP, 'igs-fx-drop-b', shine(40, 58, 6, 11, 20), 70, 58, .34),
+    // 进食分镜用的符号（也可被情绪词单独触发）：口水、啊呜、嚼嚼、咕咚、小花、红晕、喷火、哈气、皱巴线、啊～气泡、满足、咕嘟气泡。
+    drool: strokeGlyph('M44 6Q46 22 50 32', 4, 'igs-fx-drool-line')
+        + fillShape(DROP, 'igs-fx-drool', shine(40, 58, 6, 11, 20), 22, 28, .56),
+    chomp: burst(46, 8, -67.5)
+        + strokeGlyph('M16 34L28 48L40 34L52 48L64 34L76 48L84 38', 6, 'igs-fx-jaw-top')
+        + strokeGlyph('M16 72L28 58L40 72L52 58L64 72L76 58L84 68', 6, 'igs-fx-jaw-bottom'),
+    munch: strokeGlyph('M26 22Q46 50 26 78', 6, 'igs-fx-munch-a')
+        + strokeGlyph('M50 32Q62 50 50 68', 6, 'igs-fx-munch-b')
+        + fillShape(circle(78, 38, 6), 'igs-fx-crumb-a')
+        + fillShape(circle(84, 62, 4.5), 'igs-fx-crumb-b'),
+    gulp: strokeGlyph('M50 8q-10 9 0 18t0 18t0 18', 6, 'igs-fx-gulp')
+        + strokeGlyph('M36 66L50 84L64 66', 7, 'igs-fx-gulp'),
+    bloom: fillShape(FLOWER, 'igs-fx-bloom-main', flowerCore + shine(38, 32, 6, 4, -35), 8, 8, .78)
+        + fillShape(FLOWER, 'igs-fx-bloom-b', flowerCore, 66, 0, .32)
+        + fillShape(FLOWER, 'igs-fx-bloom-c', flowerCore, 74, 64, .26),
+    blush: fillShape(BLUSH(4), 'igs-fx-blush', '<path class="igs-fx-hi-line" d="M12 56L18 44M21 56L27 44M30 56L36 44" fill="none" stroke-width="3" stroke-linecap="round"/>')
+        + fillShape(BLUSH(60), 'igs-fx-blush', '<path class="igs-fx-hi-line" d="M68 56L74 44M77 56L83 44M86 56L92 44" fill="none" stroke-width="3" stroke-linecap="round"/>'),
+    spicy: rays(44, [-40, -15, 15, 40])
+        + `<g transform="rotate(90 50 50)">${fillShape(FLAME, 'igs-fx-spicy-flame', `<path class="igs-fx-flame-in" d="${FLAME_IN}"/>`)}</g>`,
+    steam: strokeGlyph('M26 88q-9-10 0-20t0-20t0-20', 5, 'igs-fx-steam-a')
+        + strokeGlyph('M50 92q-9-10 0-20t0-20t0-20t0-20', 5, 'igs-fx-steam-b')
+        + strokeGlyph('M74 86q-9-10 0-20t0-20', 5, 'igs-fx-steam-c'),
+    sour: strokeGlyph(zigzag(6, 26, 4), 4.5, 'igs-fx-sour-a')
+        + strokeGlyph(zigzag(60, 18, 4), 4.5, 'igs-fx-sour-b')
+        + strokeGlyph(zigzag(30, 82, 5), 4.5, 'igs-fx-sour-c'),
+    aah: '<g class="igs-fx-g igs-fx-solid igs-fx-bubble igs-fx-aah" stroke-linejoin="round">'
+        + `<path class="igs-fx-rim" d="${BUBBLE_SPEECH}" stroke-width="10"/>`
+        + `<path class="igs-fx-paper" d="${BUBBLE_SPEECH}" stroke-width="4"/>`
+        + '<text class="igs-fx-aah-text" x="50" y="53" text-anchor="middle" font-size="32" font-weight="900">啊～</text>'
+        + '</g>'
+        + fillShape(HEART, 'igs-fx-heart-b', '', 72, 64, .3),
+    full: fillShape(PUFF, 'igs-fx-puff', shine(40, 38, 9, 5, -15))
+        + fillShape(HEART, 'igs-fx-heart-b', '', 70, 0, .26)
+        + fillShape(circle(12, 84, 6), 'igs-fx-puff-b'),
+    bubbles: fillShape(circle(36, 72, 15), 'igs-fx-bub-a', shine(30, 66, 5, 3, -30))
+        + fillShape(circle(64, 44, 11), 'igs-fx-bub-b', shine(60, 40, 4, 2.5, -30))
+        + fillShape(circle(44, 16, 7), 'igs-fx-bub-c'),
 });
 
 const svgOf = (body) => `<svg class="igs-fx-svg" viewBox="-12 -12 124 124" aria-hidden="true" focusable="false">${body}</svg>`;

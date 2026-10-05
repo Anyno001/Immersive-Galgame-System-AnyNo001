@@ -1,8 +1,8 @@
-import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, setAudioBusSpace, setAudioMasterVolume, watchPageAway } from './audio-bus.js';
+import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, resumeAudioBus, setAudioBusSpace, setAudioMasterVolume, watchPageAway } from './audio-bus.js';
 import { WEATHER_FLASH_EVENT, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime, resolveWeatherFxKind } from './weather-fx-runtime.js';
-import { bgmPackOfWorldview, inferBgmMood, normalizeBgmTags, resolveBgmMood, selectBgmTrack } from './bgm-library.js';
+import { bgmPackOfWorldview, inferBgmMood, normalizeBgmTags, resolveBgmMood, resolveBgmSilence, resolveBgmTransition, selectBgmTrack } from './bgm-library.js';
 
-// 场景音频：BGM 用 HTMLAudio 按关键词选曲并交叉淡入淡出；环境音全部 WebAudio 实时合成，不依赖音频文件。
+// 场景音频：BGM 用 HTMLAudio 按情绪 / 关键词选曲并交叉淡入淡出，能跨域读取的曲目接进混音总线；环境音全部 WebAudio 实时合成，不依赖音频文件。
 export const AMBIENT_KINDS = Object.freeze([
     'birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow',
     'cicadas', 'frogs', 'chimes', 'bell', 'clock', 'drip', 'train', 'tavern', 'ship', 'traffic',
@@ -42,8 +42,20 @@ export const AMBIENT_FADE_OUT_S = 1.2;
 // 提示音、演出音效期间 BGM 与环境音压到原音量的比例；打字音连续整页，只轻压，避免每页一次抽吸。
 export const DUCK_RATIO = 0.55;
 export const TYPING_DUCK_RATIO = 0.8;
-// 演出色调下 BGM 的音量（BGM 是外链 HTMLAudio，受 CORS 限制进不了滤波链，只能压音量配合画面）。
+// 演出色调下 BGM 的音量：不能跨域的外链进不了滤波链，只能压音量配合画面。
 const BGM_TONE_GAIN = Object.freeze({ '': 1, dream: 0.85, flashback: 0.85, thought: 0.92, letterbox: 0.8 });
+// 接进总线的曲目真正滤波：梦境发闷、回忆像旧收音机、心里话稍远一点。
+const BGM_TONE_SHAPES = Object.freeze({
+    '': Object.freeze({ low: 20000, high: 20, gain: 1 }),
+    dream: Object.freeze({ low: 1400, high: 20, gain: 0.9 }),
+    flashback: Object.freeze({ low: 2600, high: 300, gain: 0.85 }),
+    thought: Object.freeze({ low: 5000, high: 20, gain: 0.92 }),
+    letterbox: Object.freeze({ low: 20000, high: 20, gain: 0.8 }),
+});
+// 接进总线的前提是能跨域读取，否则整首无声：同源、data / blob，以及带 CORS 头的 jsDelivr（默认曲包从这里加载）。
+// 认错了也不怕：加载报错时这首退回独立 HTMLAudio（corsBlocked 记住，之后直接走老路）。
+const BGM_CORS_HOSTS = Object.freeze(['cdn.jsdelivr.net', 'fastly.jsdelivr.net', 'gcore.jsdelivr.net', 'testingcf.jsdelivr.net']);
+const corsBlocked = new Set();
 
 // 默认曲目包约 60 首，再给用户自己的曲目留余量。
 const MAX_TRACKS = 200;
@@ -222,12 +234,13 @@ function createBgmMemory() {
 }
 
 // 曲目带情绪分类（默认曲目包或用户勾过情绪）时走情绪池；全是旧式关键词曲目时保持原来的关键词打分。
+// 返回 { track, mood }；只配了关键词曲目时 mood 为空。
 function pickSceneBgm(bgm, context, memory, skip) {
-    if (!bgm.tracks.some((track) => track.moods)) return pickBgmTrack(bgm.tracks, context);
+    if (!bgm.tracks.some((track) => track.moods)) return { track: pickBgmTrack(bgm.tracks, context), mood: '' };
     const ctx = plainObject(context);
     // 关掉情绪标签后连记住的情绪也不用，只按演出与时段推断。
     const mood = bgm.moodTag ? resolveBgmMood({ ...ctx, mood: ctx.bgmMood }, memory) : inferBgmMood(ctx);
-    return selectBgmTrack(bgm.tracks, { ...ctx, mood, pack: bgmPackOfWorldview(ctx.worldview), skip }, memory);
+    return { track: selectBgmTrack(bgm.tracks, { ...ctx, mood, pack: bgmPackOfWorldview(ctx.worldview), skip }, memory), mood };
 }
 
 // 地点栏 ♪ 的「换一首」：在当前候选池里换下一首；返回 { root, track }，没有在放的音乐时返回 null。
@@ -362,7 +375,7 @@ function createState(root) {
         clear: (timer) => clearTimeout(timer),
         audioFactory: defaultAudioFactory,
         contextFactory: defaultContextFactory,
-        bgm: { current: null, fading: new Set(), volume: BGM_DEFAULTS.volume, tone: '' },
+        bgm: { current: null, fading: new Set(), volume: BGM_DEFAULTS.volume, tone: '', mood: '', silent: false, chain: null },
         ctx: null,
         master: null,
         layers: new Map(),
@@ -382,8 +395,10 @@ function gainFactor(state) {
     return duckFactor();
 }
 
-// BGM 是 HTMLAudio、不经过混音总线，总音量与演出色调只能在这里按乘数补上；环境音已由总线 master 处理。
-function bgmFactor(state) {
+// 独立 HTMLAudio 的 BGM 不经过混音总线，总音量与演出色调只能在这里按乘数补上；
+// 接进总线的由总线 master 与 BGM 滤波链处理，这里只管闪避与隐藏。
+function bgmFactor(state, entry = state.bgm.current) {
+    if (entry && entry.routed) return gainFactor(state);
     return gainFactor(state) * audioMasterVolume() * (BGM_TONE_GAIN[state.bgm.tone] ?? 1);
 }
 
@@ -403,15 +418,14 @@ function silenceForHidden(state) {
     }
     for (const entry of state.bgm.fading) {
         clearTimer(state, entry.ramp);
-        releaseAudio(entry.audio);
+        releaseEntry(entry);
     }
     state.bgm.fading.clear();
     const entry = state.bgm.current;
     if (entry) {
         clearTimer(state, entry.ramp);
         entry.ramp = null;
-        entry.level = 0;
-        setAudioVolume(entry.audio, 0);
+        setEntryLevel(entry, 0);
         try { entry.audio.pause(); } catch { /* ignore */ }
     }
     if (state.ctx && typeof state.ctx.suspend === 'function') {
@@ -499,6 +513,8 @@ function playAudio(state, entry, retry = true) {
     const fail = () => {
         if (retry && state.bgm.current === entry) armRetry(state);
     };
+    // 接进总线的曲目要 context 在跑才听得见；没手势被拒时同样等下一次点击。
+    if (entry.routed) resumeAudioBus({ retry });
     try {
         const result = entry.audio.play();
         if (result && typeof result.catch === 'function') result.catch(fail);
@@ -507,9 +523,41 @@ function playAudio(state, entry, retry = true) {
     }
 }
 
+function setEntryLevel(entry, value) {
+    entry.level = value;
+    if (!entry.routed) {
+        setAudioVolume(entry.audio, value);
+        return;
+    }
+    try {
+        const param = entry.gain.gain;
+        param.cancelScheduledValues(entry.gain.context.currentTime);
+        param.value = value;
+    } catch { /* ignore */ }
+}
+
+// 接进总线的曲目用 AudioParam 线性渐变（不靠 50ms 计时器，也不受 iOS 只读 volume 限制），到点再回调。
+function rampRouted(state, entry, target, ms, done) {
+    const param = entry.gain.gain;
+    const ctx = entry.gain.context;
+    try {
+        const now = ctx.currentTime;
+        param.cancelScheduledValues(now);
+        param.setValueAtTime(entry.level, now);
+        if (ms > 0) param.linearRampToValueAtTime(target, now + ms / 1000);
+        else param.setValueAtTime(target, now);
+    } catch { /* ignore */ }
+    entry.level = target;
+    if (done) entry.ramp = later(state, () => { entry.ramp = null; done(); }, Math.max(0, ms));
+}
+
 function rampEntry(state, entry, target, ms, done) {
     clearTimer(state, entry.ramp);
     entry.ramp = null;
+    if (entry.routed) {
+        rampRouted(state, entry, target, ms, done);
+        return;
+    }
     const from = entry.level;
     const steps = Math.max(1, Math.round(ms / RAMP_STEP_MS));
     let step = 0;
@@ -539,52 +587,154 @@ function releaseAudio(audio) {
     } catch { /* ignore */ }
 }
 
-function fadeOutEntry(state, entry) {
+function releaseEntry(entry) {
+    releaseAudio(entry.audio);
+    for (const node of [entry.source, entry.gain]) {
+        if (!node) continue;
+        try { node.disconnect(); } catch { /* ignore */ }
+    }
+}
+
+function fadeOutEntry(state, entry, ms = BGM_FADE_MS) {
     state.bgm.fading.add(entry);
-    rampEntry(state, entry, 0, BGM_FADE_MS, () => {
+    rampEntry(state, entry, 0, ms, () => {
         state.bgm.fading.delete(entry);
-        releaseAudio(entry.audio);
+        releaseEntry(entry);
     });
 }
 
-function syncBgm(state, track, volume, tone = '') {
+export function canRouteBgm(url, origin = globalThis.location && globalThis.location.origin) {
+    const value = String(url || '');
+    if (!value || corsBlocked.has(value)) return false;
+    if (/^(data:|blob:)/i.test(value)) return true;
+    let parsed = null;
+    try { parsed = new URL(value, origin || undefined); } catch { return false; }
+    if (origin && parsed.origin === origin) return true;
+    return parsed.protocol === 'https:' && BGM_CORS_HOSTS.includes(parsed.hostname);
+}
+
+// BGM 滤波链：各曲目 → input → 高通 → 低通 → 色调增益 → bgm 子总线。每个阅读器一条，首次接入时才建。
+function ensureBgmChain(state) {
+    if (state.bgm.chain) return state.bgm.chain;
+    const out = busInput('bgm');
+    const ctx = out && out.context;
+    if (!ctx || typeof ctx.createMediaElementSource !== 'function') return null;
+    try {
+        const input = ctx.createGain();
+        const high = ctx.createBiquadFilter();
+        const low = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+        high.type = 'highpass';
+        low.type = 'lowpass';
+        const shape = BGM_TONE_SHAPES[state.bgm.tone] || BGM_TONE_SHAPES[''];
+        high.frequency.value = shape.high;
+        low.frequency.value = shape.low;
+        gain.gain.value = shape.gain;
+        input.connect(high);
+        high.connect(low);
+        low.connect(gain);
+        gain.connect(out);
+        state.bgm.chain = { ctx, input, high, low, gain, nodes: [input, high, low, gain] };
+    } catch {
+        return null;
+    }
+    return state.bgm.chain;
+}
+
+function syncBgmTone(state, tone) {
+    const chain = state.bgm.chain;
+    if (!chain) return;
+    const shape = BGM_TONE_SHAPES[tone] || BGM_TONE_SHAPES[''];
+    const now = chain.ctx.currentTime;
+    const tc = BGM_TONE_RAMP_MS / 3000;
+    try {
+        chain.low.frequency.setTargetAtTime(shape.low, now, tc);
+        chain.high.frequency.setTargetAtTime(shape.high, now, tc);
+        chain.gain.gain.setTargetAtTime(shape.gain, now, tc);
+    } catch { /* ignore */ }
+}
+
+// 新曲目：能跨域读取就接进滤波链（audio.volume 恒为 1，音量由 entry.gain 管），否则独立播放。
+function createBgmEntry(state, track) {
+    let audio = null;
+    try { audio = state.audioFactory(track); } catch { audio = null; }
+    if (!audio) return null;
+    const url = track.url;
+    const entry = { url, audio, level: 0, ramp: null, routed: false, source: null, gain: null };
+    const chain = state.audioFactory === defaultAudioFactory && canRouteBgm(url) ? ensureBgmChain(state) : null;
+    if (chain) {
+        try {
+            audio.crossOrigin = 'anonymous';
+            const source = chain.ctx.createMediaElementSource(audio);
+            const gain = chain.ctx.createGain();
+            gain.gain.value = 0;
+            source.connect(gain);
+            gain.connect(chain.input);
+            Object.assign(entry, { routed: true, source, gain });
+        } catch { /* 接不上就按独立播放 */ }
+    }
+    try {
+        audio.loop = true;
+        if (!entry.routed) setAudioVolume(audio, 0);
+        audio.src = url;
+    } catch { /* ignore */ }
+    if (entry.routed && typeof audio.addEventListener === 'function') {
+        // 跨域被拒：这一首改回独立 HTMLAudio 重新起播，并记住不再尝试。
+        audio.addEventListener('error', () => {
+            if (state.stopped || state.bgm.current !== entry) return;
+            corsBlocked.add(url);
+            state.bgm.current = null;
+            releaseEntry(entry);
+            const retry = createBgmEntry(state, track);
+            if (!retry) return;
+            state.bgm.current = retry;
+            playAudio(state, retry);
+            rampEntry(state, retry, state.bgm.volume * bgmFactor(state, retry), BGM_FADE_MS);
+        }, { once: true });
+    }
+    return entry;
+}
+
+// cue：{ mood, silent }——本页的配乐情绪与是否留白，决定换曲时淡出淡入的快慢。
+function syncBgm(state, track, volume, tone = '', cue = {}) {
     const bgm = state.bgm;
     const current = bgm.current;
     const url = track ? track.url : '';
+    const mood = cue.mood || '';
+    const silent = cue.silent === true;
     if (current && current.url === url) {
+        bgm.mood = mood;
         const toneOnly = bgm.volume === volume && bgm.master === audioMasterVolume();
         if (!toneOnly || bgm.tone !== tone) {
             bgm.volume = volume;
             bgm.master = audioMasterVolume();
             bgm.tone = tone;
+            syncBgmTone(state, tone);
             // 进出回忆、梦境跟画面色调同速（约 1.2s），手动调音量仍然快跟。
             rampEntry(state, current, volume * bgmFactor(state), toneOnly ? BGM_TONE_RAMP_MS : VOLUME_RAMP_MS);
         }
         return;
     }
+    const fade = resolveBgmTransition(bgm.mood, mood, { silence: silent && !url, resume: bgm.silent && !silent && !current });
     bgm.volume = volume;
     bgm.master = audioMasterVolume();
     bgm.tone = tone;
+    bgm.mood = mood;
+    bgm.silent = silent;
+    syncBgmTone(state, tone);
     if (current) {
         bgm.current = null;
-        fadeOutEntry(state, current);
+        fadeOutEntry(state, current, fade.out);
     }
     if (!url) {
         disarmRetry(state);
         return;
     }
-    let audio = null;
-    try { audio = state.audioFactory(track); } catch { audio = null; }
-    if (!audio) return;
-    const entry = { url, audio, level: 0, ramp: null };
-    try {
-        audio.loop = true;
-        setAudioVolume(audio, 0);
-        audio.src = url;
-    } catch { /* ignore */ }
+    const entry = createBgmEntry(state, track);
+    if (!entry) return;
     bgm.current = entry;
     playAudio(state, entry);
-    rampEntry(state, entry, volume * bgmFactor(state), BGM_FADE_MS);
+    rampEntry(state, entry, volume * bgmFactor(state, entry), fade.in || BGM_FADE_MS);
 }
 
 function resumeContext(state, retry = true) {
@@ -1671,7 +1821,13 @@ export function applySceneAudio(root, options = {}) {
     const ambient = normalizeAmbientSoundSettings(source.ambient);
     const live = root && typeof root === 'object' ? states.get(root) : null;
     const memory = live ? live.bgmMemory : createBgmMemory();
-    const track = active && bgm.enabled ? pickSceneBgm(bgm, context, memory, source.skip === true) : null;
+    // 留白：告白或 AI 写了「无声」时音乐停几页；留白期间不选曲，「换一首」也不起播。
+    const silent = active && bgm.enabled && resolveBgmSilence({
+        mood: bgm.moodTag ? context.bgmMood : '', confess: context.confess === true, confessText: context.confessText === true,
+        location: context.location, pageKey: context.pageKey,
+    }, memory);
+    const picked = active && bgm.enabled && !silent ? pickSceneBgm(bgm, context, memory, source.skip === true) : { track: null, mood: '' };
+    const track = picked.track;
     const plan = active ? resolveAmbientPlan(context, ambient, source.weatherSettings) : [];
     const tone = plan.length ? resolveAmbientTone(context) : '';
     const space = plan.length ? resolveAmbientSpace(context.location, source.weatherSettings) : '';
@@ -1700,7 +1856,7 @@ export function applySceneAudio(root, options = {}) {
     const key = [track ? track.url : '', bgm.volume, audioMasterVolume(), bgmTone, plan.map(layerKey).join(','), ambient.volume, tone, space].join('|');
     if (key === state.key) return result;
     state.key = key;
-    syncBgm(state, track, bgm.volume, bgmTone);
+    syncBgm(state, track, bgm.volume, bgmTone, { mood: picked.mood, silent });
     syncAmbient(state, plan, ambient.volume, tone, space);
     return result;
 }
@@ -1732,9 +1888,13 @@ export function cancelSceneAudio(root) {
     state.timers.clear();
     const entries = [...state.bgm.fading];
     if (state.bgm.current) entries.push(state.bgm.current);
-    for (const entry of entries) releaseAudio(entry.audio);
+    for (const entry of entries) releaseEntry(entry);
     state.bgm.fading.clear();
     state.bgm.current = null;
+    for (const node of state.bgm.chain ? state.bgm.chain.nodes : []) {
+        try { node.disconnect(); } catch { /* ignore */ }
+    }
+    state.bgm.chain = null;
     for (const layer of state.layers.values()) disposeLayer(state, layer);
     state.layers.clear();
     for (const node of state.tone ? state.tone.nodes : []) {

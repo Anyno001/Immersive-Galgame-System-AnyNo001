@@ -1,6 +1,7 @@
 // 统一混音总线：全阅读器只用一个 AudioContext。
 // bgm / ambient / sfx / voice 四路子总线 → 压限器 → master（总音量）→ destination。
-// BGM 目前仍是 HTMLAudio（外链 CORS），bgm 子总线留给以后本地音源；总音量对它按乘数生效。
+// BGM 能跨域读取的曲目走 bgm 子总线；不能跨域的外链仍是独立 HTMLAudio，总音量对它按乘数生效。
+// 另有一路 dry：人声直进压限器、不送空间混响，给贴耳的悄悄话和电话听筒用（busInput('dry')）。
 export const AUDIO_BUS_NAMES = Object.freeze(['bgm', 'ambient', 'sfx', 'voice']);
 export const AUDIO_MASTER_DEFAULTS = Object.freeze({ volume: 1 });
 // 压限器只兜底极端叠加（暴雨 + 雷 + 连续提示音），平时不应被触发。
@@ -43,7 +44,7 @@ export function getAudioBus() {
         compressor.connect(master);
         master.connect(ctx.destination);
         const inputs = {};
-        for (const name of AUDIO_BUS_NAMES) {
+        for (const name of [...AUDIO_BUS_NAMES, 'dry']) {
             inputs[name] = ctx.createGain();
             inputs[name].connect(compressor);
         }

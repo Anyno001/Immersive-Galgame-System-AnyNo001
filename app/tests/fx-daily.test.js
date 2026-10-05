@@ -86,7 +86,8 @@ test('gate: daily-fx parses every kind with lenient fields and rejects missing r
     assert.deepEqual(parseDailyFxBody('omikuji', ['超吉']), ['omikuji', '吉', '']);
     assert.deepEqual(dailyFxOf(['receipt', '可乐、薯条，汉堡', '¥38', '街角便利店']), { type: 'receipt', items: ['可乐', '薯条', '汉堡'], total: '¥38', shop: '街角便利店' });
     assert.deepEqual(dailyFxOf(['tv', '', '今日晴']), { type: 'tv', channel: '', text: '今日晴' });
-    for (const kind of DAILY_FX_KINDS) assert.ok(DAILY_FX_STYLE_TEXT.includes(`igs-dfx-${kind}`) || kind === 'fireworks', kind);
+    // 烟花走粒子层；进食由漫画符号分镜与物品卡演出，不建日常卡片。
+    for (const kind of DAILY_FX_KINDS) assert.ok(DAILY_FX_STYLE_TEXT.includes(`igs-dfx-${kind}`) || kind === 'fireworks' || kind === 'eat', kind);
 });
 
 test('gate: daily-fx tags attach to pages, stay out of text and keep one per type', () => {

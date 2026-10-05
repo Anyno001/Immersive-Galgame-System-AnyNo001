@@ -19,10 +19,13 @@ import { normalizeResultFxSettings } from './fx-result-model.js';
 export const MANGA_SYMBOL_KINDS = Object.freeze([
     'anger', 'sweat', 'heart', 'surprise', 'silence', 'gloom', 'sparkle',
     'bulb', 'note', 'zzz', 'heartbreak', 'sigh', 'dizzy', 'fire', 'frost',
+    'drool', 'chomp', 'munch', 'gulp', 'bloom', 'blush', 'spicy', 'steam', 'sour', 'aah', 'full', 'bubbles',
 ]);
 export const MANGA_SYMBOL_LABELS = Object.freeze({
     anger: '青筋（怒）', sweat: '汗滴', heart: '爱心', surprise: '!?', silence: '……', gloom: '阴沉竖线', sparkle: '闪光',
     bulb: '灯泡（灵光）', note: '音符', zzz: 'Zzz（困）', heartbreak: '心碎', sigh: '叹气白烟', dizzy: '晕眩螺旋', fire: '火焰（燃）', frost: '寒气（发凉）',
+    drool: '口水（嘴馋）', chomp: '啊呜（咬一口）', munch: '嚼嚼（咀嚼）', gulp: '咕咚（吞咽）', bloom: '小花（满足）', blush: '红晕', spicy: '喷火（辣）',
+    steam: '哈气（烫）', sour: '皱巴线（酸）', aah: '「啊～」（喂食）', full: '满足白烟（饱）', bubbles: '咕嘟气泡（喝）',
 });
 // split 为语音通话斜切分屏（默认），avatar 为右上角头像小窗。
 export const FX_CALL_SPRITE_MODES = Object.freeze(['split', 'avatar', 'hide', 'show']);
@@ -52,6 +55,18 @@ export const MANGA_FX_DEFAULT_SYMBOLS = Object.freeze({
     dizzy: freezeList(['头晕', '头昏', '混乱', '晕乎乎', '懵', '转晕', '脑子一团乱']),
     fire: freezeList(['燃起来', '斗志', '热血', '干劲十足', '好胜', '嫉妒', '吃醋']),
     frost: freezeList(['冷汗', '发凉', '背脊发凉', '毛骨悚然', '胆寒', '吓僵', '冷场']),
+    drool: freezeList(['嘴馋', '馋', '垂涎', '流口水', '饿', '饥饿', '肚子饿']),
+    chomp: freezeList(['大口吃', '狼吞虎咽', '啊呜', '咬一口']),
+    munch: freezeList(['咀嚼', '吃东西', '嚼', '津津有味']),
+    gulp: freezeList(['吞咽', '咽口水', '一饮而尽']),
+    bloom: freezeList(['满足', '美味', '好吃', '幸福', '享受']),
+    blush: freezeList(['脸红', '羞红', '红晕', '面红']),
+    spicy: freezeList(['辣', '好辣', '辣到']),
+    steam: freezeList(['烫', '好烫', '烫嘴']),
+    sour: freezeList(['酸', '好酸', '酸涩']),
+    aah: freezeList(['喂食', '张嘴', '啊～']),
+    full: freezeList(['吃饱', '饱', '撑', '心满意足']),
+    bubbles: freezeList(['畅饮', '解渴', '喝']),
 });
 export const MANGA_FX_DEFAULT_SPEED_LINES = freezeList(['震惊', '震撼', '惊骇', '骇然', '决然', '坚决', '激昂']);
 export const HEARTBEAT_FX_DEFAULT_LOVE = freezeList(['心动', '害羞', '脸红', '羞涩', '心跳加速', '小鹿乱撞']);

@@ -1,5 +1,6 @@
 import { resolveMoodGroup, fuzzyResolveMoodGroup, moodFallbackChain } from './mood-groups.js';
 import { resolveSceneTimeAsset } from './scene-time.js';
+import { sceneTimeBucket } from './time-bucket.js';
 import { IGS_DIRECTIVE_START_RE, matchOutfitDirectiveAt } from './directive-tags.js';
 
 // 指令可独占整行，也可紧跟在正文之后（同一行内混排），因此不做行首锚定。
@@ -444,6 +445,24 @@ function resolveLayerKey(record, requestedKey, groups) {
     return null;
 }
 
+// 时段名和组都对不上时按四档兜底：「深夜」用「夜晚」那张，自动补的时段差分也按档存。
+function sameBucketTimeKey(times, time) {
+    const bucket = sceneTimeBucket(time);
+    if (!bucket || !times || typeof times !== 'object') return null;
+    return Object.keys(times).find((key) => {
+        const slot = times[key];
+        const url = typeof slot === 'string' ? slot : slot && slot.url;
+        return String(url || '').trim() && sceneTimeBucket(key) === bucket;
+    }) || null;
+}
+
+// 补时段差分时写进哪一格：能归到用户的时段组就用组名，否则用四档名。
+export function sceneTimeSlot(time, timeGroups) {
+    const target = String(time || '').trim();
+    if (!target) return '';
+    return resolveMoodGroup(target, timeGroups) || sceneTimeBucket(target);
+}
+
 function lookupSceneUrl(scenes, sceneName, time, weather, sceneAssets) {
     return lookupSceneBackground({ scene: sceneName, time, weather }, { ...sceneAssets, scenes }).url;
 }
@@ -467,7 +486,7 @@ function resolveSceneEntry(raw, time, weather, sceneAssets) {
     const entry = typeof raw === 'string' ? { url: raw } : raw;
     const timeGroups = sceneAssets && sceneAssets.timeGroups;
     const weatherGroups = sceneAssets && sceneAssets.weatherGroups;
-    const timeKey = resolveLayerKey(entry.times, time, timeGroups);
+    const timeKey = resolveLayerKey(entry.times, time, timeGroups) || sameBucketTimeKey(entry.times, time);
     if (timeKey != null) {
         const timeRaw = entry.times[timeKey];
         const timeEntry = typeof timeRaw === 'string' ? { url: timeRaw } : timeRaw;

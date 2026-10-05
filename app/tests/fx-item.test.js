@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyItemFxToDom, refreshItemFxImages, cancelItemFx, settleItemFx, safeItemImageUrl } from '../src/visual/igs-ui/fx-item.js';
+import { applyItemFxToDom, refreshItemFxImages, cancelItemFx, settleItemFx, safeItemImageUrl, itemPlaceholderSvg } from '../src/visual/igs-ui/fx-item.js';
 import { renderItemFx } from '../src/visual/igs-ui/fx-item-render.js';
 import { planItemFx } from '../src/visual/igs-ui/fx-item-model.js';
 import { makeStage, makeTimers } from './helpers/fake-dom.js';
@@ -83,7 +83,7 @@ test('fx-item:safe-image-url-whitelist', () => {
 const RARE_FX = { items: [{ action: 'gain', name: 'R', description: '遗物', rarity: 'rare' }, { action: 'use', name: 'U', description: '' }], itemOverflow: 0 };
 const showcaseOf = (root) => root.querySelector('#igs-fx-front').querySelector('.igs-fx-item-showcase');
 
-test('fx-item:rare-gain-plays-showcase-first-then-cards-without-double-sound', () => {
+test('fx-item:rare-gain-plays-showcase-then-only-other-items-as-cards', () => {
     const root = makeStage();
     const timers = makeTimers();
     const sounds = [];
@@ -101,8 +101,9 @@ test('fx-item:rare-gain-plays-showcase-first-then-cards-without-double-sound', (
     timers.advance(400);
     assert.equal(showcaseOf(root), null);
     timers.advance(500);
-    assert.equal(stackOf(root).querySelectorAll('.igs-fx-item-card').length, 2);
-    assert.equal(stackOf(root).querySelector('.igs-fx-item-card').getAttribute('data-igs-item-rare'), '1');
+    // 中央演出过的物品直接飞进背包，不再在角落重复一张卡。
+    assert.equal(stackOf(root).querySelectorAll('.igs-fx-item-card').length, 1);
+    assert.equal(stackOf(root).querySelector('.igs-fx-item-card').getAttribute('data-igs-item-name'), 'U');
     assert.deepEqual(sounds, ['rare:R', 'U']);
 });
 
@@ -232,7 +233,7 @@ test('fx-item:ancient-era-snapshot-switches-cards-and-showcase-to-seal-skin-mode
     timers.advance(500);
     const stack = stackOf(old);
     assert.equal(stack.getAttribute('data-igs-era'), 'ancient');
-    assert.deepEqual(stack.querySelectorAll('.igs-fx-item-card').map((c) => c.querySelector('.igs-fx-item-seal').textContent), ['得', '用']);
+    assert.deepEqual(stack.querySelectorAll('.igs-fx-item-card').map((c) => c.querySelector('.igs-fx-item-seal').textContent), ['用']);
     assert.equal(stack.querySelector('.igs-fx-item-icon').getAttribute('data-igs-item-placeholder'), '1');
     const modern = makeStage();
     renderItemFx(modern, snapshot(false), { ...timers, playSfx: () => {} });
@@ -269,4 +270,54 @@ test('fx-item:world-skin-snapshot-marks-showcase-stack-and-style-without-seal', 
         assert.ok(ITEM_FX_STYLE_TEXT.includes(`.igs-fx-item-showcase[data-igs-era="${id}"]`), id);
         assert.ok(ITEM_FX_STYLE_TEXT.includes(`.igs-fx-item-flyer[data-igs-era="${id}"]`), id);
     }
+});
+
+test('gate: first-time showcase clears sprites and dialog, then brings the stage back and cards the rest', () => {
+    const root = makeStage({ layout: true, hud: true });
+    const timers = makeTimers();
+    const p = planItemFx({ items: [{ action: 'gain', name: '新钥匙', first: true }, { action: 'gain', name: '旧书', first: false }] }, { settings: { enabled: true }, identity: ID });
+    applyItemFxToDom(root, p, timers);
+    const motion = root.querySelector('#igs-stage-motion');
+    assert.equal(motion.getAttribute('data-igs-item-stage'), 'out');
+    assert.ok(root.querySelector('#igs-fx-front').querySelector('.igs-fx-item-showcase-burst'));
+    assert.equal(stackOf(root), null);
+    timers.advance(3000);
+    timers.advance(400);
+    assert.equal(motion.getAttribute('data-igs-item-stage'), 'in');
+    assert.deepEqual(stackOf(root).querySelectorAll('.igs-fx-item-card').map((c) => c.getAttribute('data-igs-item-name')), ['旧书']);
+    timers.advance(500);
+    assert.equal(motion.getAttribute('data-igs-item-stage'), null);
+    applyItemFxToDom(root, planItemFx({ items: [{ action: 'gain', name: 'X', first: true }] }, { settings: { enabled: true }, identity: { ...ID, page: 9 } }), timers);
+    assert.equal(motion.getAttribute('data-igs-item-stage'), 'out');
+    cancelItemFx(root);
+    assert.equal(motion.getAttribute('data-igs-item-stage'), null);
+});
+
+test('gate: same page plays only newly arrived items, placeholder icon follows the item name', () => {
+    const root = makeStage();
+    const timers = makeTimers();
+    const first = planItemFx({ items: [{ action: 'lose', name: '信' }] }, { settings: { enabled: true }, identity: ID });
+    applyItemFxToDom(root, first, timers);
+    const later = planItemFx({ items: [{ action: 'lose', name: '信' }, { action: 'use', name: '药水' }] }, { settings: { enabled: true }, identity: ID });
+    assert.equal(applyItemFxToDom(root, later, timers).played, true);
+    assert.deepEqual(stackOf(root).querySelectorAll('.igs-fx-item-card').map((c) => c.getAttribute('data-igs-item-name')), ['药水']);
+    assert.equal(applyItemFxToDom(root, later, timers).reason, 'same-page');
+    const icon = stackOf(root).querySelector('.igs-fx-item-icon');
+    assert.equal(icon.getAttribute('data-igs-item-placeholder'), '1');
+    assert.notEqual(icon.innerHTML, itemPlaceholderSvg('无法识别的东西'));
+});
+
+test('gate: clicking a highlighted item name pops an expanded card without replaying the page', async () => {
+    const { showItemMention } = await import('../src/visual/igs-ui/fx-item-render.js');
+    const root = makeStage();
+    const timers = makeTimers();
+    const snapshot = { chatId: 'c', messageId: 1, swipeId: 0, readerSettings: { itemFx: { enabled: true } }, content: { currentIndex: 0, fx: { items: [], itemMentions: [{ name: '黄铜钥匙', description: '刻着校徽' }] } } };
+    assert.equal(showItemMention(root, snapshot, '没见过', timers), false);
+    assert.equal(showItemMention(root, snapshot, '黄铜钥匙', timers), true);
+    const card = stackOf(root).querySelector('.igs-fx-item-card');
+    assert.equal(card.getAttribute('data-igs-item-action'), 'view');
+    assert.equal(card.getAttribute('data-igs-item-expanded'), '1');
+    assert.equal(card.querySelector('.igs-fx-item-desc').textContent, '刻着校徽');
+    const off = { ...snapshot, readerSettings: { itemFx: { enabled: true, mention: false } } };
+    assert.equal(showItemMention(root, off, '黄铜钥匙', timers), false);
 });

@@ -6,7 +6,7 @@ const FX = { items: [{ action: 'gain', name: '黄铜钥匙', description: '旧�
 const ID = { chatId: 'chat-1', messageId: 5, swipeId: 0, page: 2 };
 
 test('fx-item-model:default-off-and-empty-when-disabled', () => {
-    assert.deepEqual(normalizeItemFxSettings(undefined), { enabled: false });
+    assert.deepEqual(normalizeItemFxSettings(undefined), { enabled: false, mention: true });
     assert.deepEqual(planItemFx(FX, { settings: {}, identity: ID }).cards, []);
 });
 

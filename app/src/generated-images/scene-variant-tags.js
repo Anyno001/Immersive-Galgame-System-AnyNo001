@@ -1,13 +1,17 @@
 // 场景时间/天气差分：不写词，拿场景原图的提示词，去掉里面原有的时间天气词，把目标时间天气的英文标签放最前。
 // 中文名按子串命中，先具体后泛化；都不中就用原名，插件模型多少能认一些。
 
-const TIME_RULES = [
-    [['深夜', '午夜', '凌晨', '半夜', 'midnight'], 'midnight, night, dark, moonlight, starry sky, dim lighting'],
-    [['黄昏', '傍晚', '日落', '夕', 'dusk', 'evening', 'sunset'], 'sunset, dusk, orange sky, golden hour, long shadows'],
-    [['清晨', '黎明', '拂晓', '早晨', '早上', '日出', '晨', 'dawn', 'morning', 'sunrise'], 'morning, sunrise, soft sunlight, pale sky, light mist'],
-    [['夜', '晚', 'night'], 'night, night sky, moonlight, dark, artificial lighting'],
-    [['白天', '白日', '日间', '上午', '中午', '正午', '下午', '午后', '午', 'day', 'noon', 'afternoon'], 'day, daylight, bright, blue sky'],
-];
+import { TIME_WORDS } from '../scene/time-bucket.js';
+
+const TIME_TAGS = {
+    midnight: 'midnight, night, dark, moonlight, starry sky, dim lighting',
+    dusk: 'sunset, dusk, orange sky, golden hour, long shadows',
+    morning: 'morning, sunrise, soft sunlight, pale sky, light mist',
+    night: 'night, night sky, moonlight, dark, artificial lighting',
+    day: 'day, daylight, bright, blue sky',
+};
+
+const TIME_RULES = TIME_WORDS.map(([key, , words]) => [words, TIME_TAGS[key]]);
 
 const WEATHER_RULES = [
     [['雷', '闪电', 'thunder', 'lightning'], 'thunderstorm, lightning, heavy rain, dark clouds'],
@@ -28,6 +32,27 @@ const STRIP = new Set([
     'overcast', 'clear sky', 'sunny', 'thunderstorm', 'lightning', 'storm', 'wet ground', 'puddle', 'windy',
 ]);
 
+// 原图提示词里第一个光照词定它属于哪档；差分把目标标签放在最前，所以差分图也认得准。都没有按白天算。
+const PROMPT_TIME = [
+    ['夜晚', ['night', 'nighttime', 'night sky', 'midnight', 'moonlight', 'starry sky']],
+    ['黄昏', ['sunset', 'dusk', 'evening', 'twilight', 'golden hour', 'orange sky']],
+    ['清晨', ['morning', 'sunrise', 'dawn']],
+    ['白天', ['day', 'daytime', 'daylight', 'noon', 'afternoon', 'blue sky']],
+];
+
+function bareTag(item) {
+    return item.replace(/^[\d.]+::|::$/g, '').replace(/^[{[(]+|[}\])]+$/g, '').trim().toLowerCase();
+}
+
+export function promptTimeBucket(text) {
+    for (const item of String(text || '').split(',')) {
+        const tag = bareTag(item.trim());
+        const hit = tag && PROMPT_TIME.find(([, tags]) => tags.includes(tag));
+        if (hit) return hit[0];
+    }
+    return '白天';
+}
+
 function ruleTags(rules, label) {
     const text = String(label || '').trim().toLowerCase();
     if (!text) return '';
@@ -41,8 +66,7 @@ export function sceneVariantTags(time, weather) {
 
 export function applySceneVariantTags(text, tags) {
     const kept = String(text || '').split(',').map((item) => item.trim()).filter((item) => {
-        const bare = item.replace(/^[\d.]+::|::$/g, '').replace(/^[{[(]+|[}\])]+$/g, '').trim().toLowerCase();
-        return item && !STRIP.has(bare);
+        return item && !STRIP.has(bareTag(item));
     });
     return [tags, ...kept].filter(Boolean).join(', ');
 }

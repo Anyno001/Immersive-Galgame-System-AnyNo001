@@ -75,6 +75,41 @@ const FORCED_MIN_GAP_MS = 40;
 
 let noiseBuffer = null;
 const decoded = new Map();
+// 语气音让位：打字音都经过一道闸门再进人声总线；语气音响着时闸门关上，念完再放开，听起来像先开口、再出字声。
+const gates = new WeakMap();
+const GATE_CLOSE_TC_S = 0.015;
+const GATE_OPEN_TC_S = 0.06;
+
+function typingGate(bus) {
+    let gate = gates.get(bus);
+    if (gate) return gate;
+    try {
+        gate = bus.context.createGain();
+        gate.connect(bus);
+    } catch {
+        return null;
+    }
+    gates.set(bus, gate);
+    return gate;
+}
+
+// seconds 秒内的打字音静音（从现在起算）；总线不可用时返回 false。
+export function yieldTypewriterAudio(seconds) {
+    const bus = busInput('voice');
+    const gate = bus && seconds > 0 ? typingGate(bus) : null;
+    if (!gate) return false;
+    try {
+        const now = bus.context.currentTime;
+        const param = gate.gain;
+        if (typeof param.cancelAndHoldAtTime === 'function') param.cancelAndHoldAtTime(now);
+        else param.cancelScheduledValues(now);
+        param.setTargetAtTime(0, now, GATE_CLOSE_TC_S);
+        param.setTargetAtTime(1, now + seconds, GATE_OPEN_TC_S);
+    } catch {
+        return false;
+    }
+    return true;
+}
 
 export function normalizeTypewriterVoice(value, fallback) {
     return Object.hasOwn(TYPEWRITER_VOICES, value) ? value : fallback;
@@ -188,12 +223,13 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
         }
         Promise.all([resumeAudioBus(), url ? decoded.get(url) : null]).then(([, buffer]) => {
             if (cancelled || (url && !buffer) || context.state !== 'running') return;
-            let output = bus;
+            const sink = typingGate(bus) || bus;
+            let output = sink;
             // 声像只给正常台词；通话听筒是单声道，不分左右。
             if (!phone && pan && typeof context.createStereoPanner === 'function') {
                 const panner = context.createStereoPanner();
                 panner.pan.value = pan;
-                panner.connect(bus);
+                panner.connect(sink);
                 nodes.push(panner);
                 output = panner;
             }
@@ -203,7 +239,7 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
                 band.type = 'bandpass';
                 band.frequency.value = 1100;
                 band.Q.value = 0.7;
-                band.connect(bus);
+                band.connect(sink);
                 nodes.push(band);
                 output = band;
             }

@@ -30,7 +30,7 @@ import { applyVoiceBark } from './voice-bark.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyFxToDom } from './fx-runtime.js';
 import { applyDanmakuToDom } from './danmaku-runtime.js';
-import { renderItemFx } from './fx-item-render.js';
+import { applyItemMentionMarkup, itemMentionsOf, renderItemFx, showItemMention } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
 import { renderDailyFx } from './fx-daily.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
@@ -47,6 +47,7 @@ import { applyMetaFx } from './meta-runtime.js';
 import { applyCgPortrait } from './cg-portrait.js';
 import { applySceneAudio } from './scene-audio.js';
 import { applyBgmNoteToDom } from './bgm-note.js';
+import { isConfessionLine } from './bgm-library.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
@@ -1398,7 +1399,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const textType = snapshot.content.textType || 'narration';
         const textFxOn = Boolean(snapshot.readerSettings.textFx && snapshot.readerSettings.textFx.enabled);
         const bilingualDisplay = resolveBilingualDisplay(snapshot.readerSettings.bilingual, snapshot.readerSettings._bilingualDisplay);
-        const renderedHtml = applyTextFxMarkup(renderBilingualHtml(renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled), bilingualDisplay, normalizeBilingualSettings(snapshot.readerSettings.bilingual).layout), textFxOn);
+        const renderedHtml = applyItemMentionMarkup(applyTextFxMarkup(renderBilingualHtml(renderDialogueHtml(snapshot.content.displayText, theme, sceneAssetsEnabled), bilingualDisplay, normalizeBilingualSettings(snapshot.readerSettings.bilingual).layout), textFxOn), itemMentionsOf(snapshot));
         const textRenderKey = [snapshot.messageId, snapshot.content.currentIndex, textType, renderedHtml].join(':');
 
         typewriterTextType = textType === 'system' ? 'narration' : textType;
@@ -1568,6 +1569,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             battle: Boolean(snapshot.content && snapshot.content.fx && snapshot.content.fx.battle),
             romance: Boolean(snapshot.content && snapshot.content.fx && snapshot.content.fx.romance),
             worldview: snapshot.readerSettings && snapshot.readerSettings._worldview,
+            // 留白：告白标签或说出口的告白台词让音乐停几页；按页计数，同一页重绘不重复算。
+            confess: Boolean(snapshot.content && snapshot.content.fx && snapshot.content.fx.confess),
+            confessText: typewriterTextType === 'dialogue' && isConfessionLine(snapshot.content && snapshot.content.text),
+            pageKey: `${snapshot.messageId}:${snapshot.content && snapshot.content.currentIndex}`,
         },
         active: true,
     });
@@ -1666,6 +1671,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         if (dialog.dataset) dialog.dataset.igsBound = '1';
         dialog.addEventListener('click', (event) => {
             if (current.hidden) return;
+            // 点亮的物品名：弹物品卡，不翻页、不跳过打字机。
+            const mention = event.target && event.target.closest && event.target.closest('.igs-item-mention');
+            if (mention && current.snapshot) {
+                event.preventDefault();
+                showItemMention(root, current.snapshot, mention.getAttribute('data-igs-item'), { resolveItemImage: ctx.resolveItemImage, theme: resolveActiveTheme(current.snapshot) });
+                return;
+            }
             if (event.target && event.target.closest && (
                 event.target.closest('.igs-controls')
                 || event.target.closest('#igs-ctrl-bar')
@@ -1734,6 +1746,11 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             mood: content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '',
             phone: fxResult.phone === true,
             nsfw: Boolean(content.sceneNsfw),
+            // 声像与力度：立绘就是说话人时按其位置分左右；亲密演出压成耳语时轻声贴耳。
+            posX: stageSprite && (!content.spriteCharacter || content.spriteCharacter === content.speaker) ? stageSprite.posX : undefined,
+            whisper: romanceResult.whisper === true,
+            // 场上角色的声线提前备好，第一次开口不用等下载。
+            cast: [content.speaker, content.spriteCharacter, ...(Array.isArray(content.castSprites) ? content.castSprites.map((m) => m && m.character) : [])],
         }, snapshot.readerSettings.voiceBark, snapshot.readerSettings._sceneAssets);
     }
     if (toast) {

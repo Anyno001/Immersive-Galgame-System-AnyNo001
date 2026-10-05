@@ -1,3 +1,5 @@
+import { EAT_FX_STYLE_TEXT } from './fx-eat-style.js';
+
 // 演出样式：#igs-fx-stage 在立绘之上、对话层之下；#igs-fx-front 在对话层与选项之上、工具栏之下。
 // 区间演出由 #igs-stage-motion 上的 data-igs-fx-* 属性驱动，皮肤可覆写。
 // 瞬时演出时长读 --igs-fx-life（运行时按停留档位写入）；data-igs-fx-motion="snappy" 为灵动演出：
@@ -393,4 +395,5 @@ export const FX_STYLE_TEXT = `
 .igs-fx-notify.is-ancient{transform:none;}
 .igs-fx-symbol{transform:none;}
 }
+${EAT_FX_STYLE_TEXT}
 `.trim();

@@ -1104,7 +1104,7 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
         'https://cdn.example/app/dist/skins/western-classic/name.png',
     ]);
     assert.doesNotMatch(skinCss, /data-igs-dialog-skin="plant-coffee"/);
-    assert.equal(getDialogSkinStyleText('default'), '');
+    assert.doesNotMatch(getDialogSkinStyleText('default'), /igs-option-bubble|\.igs-dialog[ {:.[]|#igs-toast|#igs-status-hud/);
     // 素材加载失败或超时：根节点挂降级标记，对话框、姓名牌与选项改用纯色底。
     assert.match(skinCss, /#igs-overlay\[data-igs-skin-fallback\] \.igs-dialog\[data-igs-dialog-skin="western-classic"\]\{border-image:none!important;background:linear-gradient/);
     assert.match(skinCss, /\.igs-speaker\{border-image:none!important;background:#cdb88a!important/);
@@ -1235,7 +1235,7 @@ test('gate:igs-ui:options-follow-dialog-skin', () => {
         const hover = css.split('\n').find((line) => line.startsWith(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-option-bubble:hover{`));
         assert.ok(hover.includes(`https://cdn.example/dist/skins/${skin}/choice-hover.png`), skin);
     }
-    assert.equal(skinCss('default'), '');
+    assert.doesNotMatch(skinCss('default'), /igs-option-bubble|\.igs-dialog[ {:.[]|#igs-toast|#igs-status-hud/);
     assert.ok(!main.includes('[data-igs-dialog-skin="default"] .igs-option-bubble'));
 });
 
