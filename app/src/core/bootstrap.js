@@ -52,7 +52,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.50';
+const IGS_VERSION = '0.34.51';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -125,17 +125,18 @@ export function bootstrapIGS(options = {}) {
     });
     // CG 库与自动插图共用同一个插图存储实例。
     const illustrationStore = options.illustrationStore || withTavernIllustrationFiles(createIndexedDbIllustrationStore(globalObject), globalObject);
+    const readerModeNow = () => {
+        const snapshot = getUnifiedSettingsSnapshot() || {};
+        return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
+    };
     const illustrationService = options.illustrationService || createAutoIllustrationService({
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
         nai: imageBackend,
         store: illustrationStore,
         getSettings: () => readImageBridge().autoIllustration,
-        getReaderMode: () => {
-            const snapshot = getUnifiedSettingsSnapshot() || {};
-            return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
-        },
-        getViewport: () => readCgViewport(globalObject),
+        getReaderMode: readerModeNow,
+        getViewport: () => readCgViewport(globalObject, readerModeNow()),
         getSceneAssets: () => sceneAssetsNow(readImageBridge().sceneAssets),
         events,
         random: options.random,
@@ -153,11 +154,8 @@ export function bootstrapIGS(options = {}) {
             const bridge = readImageBridge();
             return { autoIllustration: bridge.autoIllustration, sceneAssets: sceneAssetsNow(bridge.sceneAssets) };
         },
-        getReaderMode: () => {
-            const snapshot = getUnifiedSettingsSnapshot() || {};
-            return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
-        },
-        getViewport: () => readCgViewport(globalObject),
+        getReaderMode: readerModeNow,
+        getViewport: () => readCgViewport(globalObject, readerModeNow()),
         events,
         report: reportImageJob,
     });

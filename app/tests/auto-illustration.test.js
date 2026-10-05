@@ -471,6 +471,13 @@ test('gate:illustration:embedded-cg-uses-host-box-not-window', async () => {
     assert.deepEqual(viewport, { width: 818, height: 511 });
     assert.equal(cgSizeForMode('1216x832', 'embedded', viewport), '1216x832');
     assert.deepEqual(readCgViewport({ innerWidth: 865, innerHeight: 962, document: { querySelector: () => null } }), { width: 865, height: 962 });
+    assert.deepEqual(readCgViewport(globalObject, 'fullscreen'), { width: 865, height: 962 });
+    assert.deepEqual(readCgViewport({
+        innerWidth: 400,
+        innerHeight: 800,
+        visualViewport: { width: 844, height: 390 },
+        document: { querySelector: () => host },
+    }, 'fullscreen'), { width: 844, height: 390 });
 });
 
 test('gate:illustration:cg-size-swaps-on-mobile', async () => {
@@ -479,10 +486,13 @@ test('gate:illustration:cg-size-swaps-on-mobile', async () => {
     assert.equal(cgFramePrompt('832x1216'), '画面是竖的，宽832，高1216。构图按竖屏写，不要写成横屏。');
     assert.equal(cgSizeForMode('1216x832', 'pc'), '1216x832');
     assert.equal(cgSizeForMode('1216x832', 'fullscreen'), '1216x832');
-    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 390, height: 844 }), '832x1216');
-    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 390, height: 220 }), '832x1216');
-    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { portrait: true, width: 900, height: 1600 }), '832x1216');
-    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 1280, height: 720 }), '1216x832');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 390, height: 844 }), '640x1408');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 844, height: 390 }), '1408x640');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 390, height: 220 }), '1344x768');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { portrait: true, width: 900, height: 1600 }), '768x1344');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 1280, height: 720 }), '1344x768');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 1920, height: 1080 }), '1344x768');
+    assert.equal(cgSizeForMode('640x640', 'fullscreen', { width: 1920, height: 1080 }), '832x448');
     assert.equal(cgSizeForMode('1216x832', 'web'), '1216x832');
     assert.equal(cgSizeForMode('1216x832', 'mobile'), '832x1216');
     assert.equal(cgSizeForMode('', 'mobile'), '832x1216');

@@ -14,12 +14,65 @@ export const ILLUSTRATION_PROGRESS_EVENT = 'igs:illustration-progress';
 
 // 手机内嵌栏宽。框高是我们按尺寸钉出来的，不能拿高来判断横竖。
 export const EMBEDDED_PHONE_MAX_WIDTH = 640;
+const CG_SIZE_STEP = 64;
+// 出图接口通常不接受超过 1024×1024 像素的尺寸。
+const CG_PIXEL_CAP = 1024 * 1024;
 
-// 电脑、网页全屏用背景尺寸。手机模式、以及内嵌 / 全屏的竖屏，把宽高对调。
-// 内嵌和全屏同一套判断：正文栏或窗口不超过 640 像素，或触屏且窗口竖着拿，钉竖屏尺寸。
+function parseCgSize(sizeText) {
+    const match = String(sizeText || '').trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+    if (!match) return null;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!(width > 0) || !(height > 0)) return null;
+    return { width, height };
+}
+
+// 在像素上限内找最接近目标比例的 64 倍数尺寸。面积至少要到上限的 85%，避免为了分毫不差把图画得很小。
+function fitCgSize(aspect, cap) {
+    const floor = cap * 0.85;
+    let relaxed = null;
+    let fitted = null;
+    const consider = (best, width, height) => {
+        const error = Math.abs(width / height - aspect) / aspect;
+        if (!best || error < best.error - 1e-9 || (Math.abs(error - best.error) <= 1e-9 && width * height > best.area)) {
+            return { width, height, error, area: width * height };
+        }
+        return best;
+    };
+    for (let width = CG_SIZE_STEP; width <= CG_PIXEL_CAP / CG_SIZE_STEP; width += CG_SIZE_STEP) {
+        const ideal = width / aspect;
+        const rounded = Math.max(CG_SIZE_STEP, Math.round(ideal / CG_SIZE_STEP) * CG_SIZE_STEP);
+        for (const height of [rounded - CG_SIZE_STEP, rounded, rounded + CG_SIZE_STEP]) {
+            if (height < CG_SIZE_STEP) continue;
+            const area = width * height;
+            if (area > cap) continue;
+            relaxed = consider(relaxed, width, height);
+            if (area >= floor) fitted = consider(fitted, width, height);
+        }
+    }
+    return fitted || relaxed;
+}
+
+// 全屏按窗口实际宽高比出图，两边都是 64 的倍数。没有量到窗口时沿用背景尺寸。
+export function cgSizeForAspect(backgroundSize, viewport) {
+    const base = parseCgSize(backgroundSize) || { width: 1216, height: 832 };
+    const fallback = `${base.width}x${base.height}`;
+    const viewW = Number(viewport && viewport.width) || 0;
+    const viewH = Number(viewport && viewport.height) || 0;
+    if (!(viewW > 0) || !(viewH > 0)) return fallback;
+    const budget = base.width * base.height;
+    const cap = budget >= CG_PIXEL_CAP * 0.9 ? CG_PIXEL_CAP : Math.min(CG_PIXEL_CAP, budget);
+    const fitted = fitCgSize(viewW / viewH, cap);
+    return fitted ? `${fitted.width}x${fitted.height}` : fallback;
+}
+
+// 电脑、网页全屏用背景尺寸。手机模式和内嵌竖屏把宽高对调。
+// 全屏改按窗口实际比例出图，铺满时不再裁出屏幕。
+// 内嵌：正文栏或窗口不超过 640 像素，或触屏且窗口竖着拿，钉竖屏尺寸。
 export function cgSizeForMode(backgroundSize, mode, viewport) {
     const landscape = String(backgroundSize || '').trim() || '1216x832';
-    const usePortrait = mode === 'mobile' || ((mode === 'embedded' || mode === 'fullscreen') && isPhoneEmbedded(viewport));
+    if (mode === 'fullscreen') return cgSizeForAspect(landscape, viewport);
+    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPhoneEmbedded(viewport));
     if (!usePortrait) return landscape;
     const match = landscape.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
     // 背景尺寸本身填成竖的就直接用，不能再对调回横屏。
@@ -51,20 +104,27 @@ export function cgFramePrompt(sizeText) {
     return `画面是竖的，宽${width}，高${height}。构图按竖屏写，不要写成横屏。`;
 }
 
+function windowViewport(globalObject, portrait) {
+    const visual = globalObject && globalObject.visualViewport;
+    return {
+        width: Number(visual && visual.width) || Number(globalObject && globalObject.innerWidth) || 0,
+        height: Number(visual && visual.height) || Number(globalObject && globalObject.innerHeight) || 0,
+        ...(portrait && { portrait }),
+    };
+}
+
 // 内嵌画面在页面上，浏览器窗口可以更高。出图量的是画面，不是窗口。
-export function readCgViewport(globalObject) {
+// 全屏盖住的是整个窗口，页面上若还有内嵌框，不能拿那个框的宽高来定全屏图。
+export function readCgViewport(globalObject, mode) {
+    const portrait = isPortraitTouchWindow(globalObject);
+    if (mode === 'fullscreen') return windowViewport(globalObject, portrait);
     const doc = globalObject && globalObject.document;
     const host = doc && typeof doc.querySelector === 'function' ? doc.querySelector('.igs-embedded-host') : null;
     const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
     const hostWidth = rect ? Number(rect.width) : 0;
     const hostHeight = rect ? Number(rect.height) : 0;
-    const portrait = isPortraitTouchWindow(globalObject);
     if (hostWidth > 0 && hostHeight > 0) return { width: hostWidth, height: hostHeight, ...(portrait && { portrait }) };
-    return {
-        width: Number(globalObject && globalObject.innerWidth) || 0,
-        height: Number(globalObject && globalObject.innerHeight) || 0,
-        ...(portrait && { portrait }),
-    };
+    return windowViewport(globalObject, portrait);
 }
 
 const CACHE_LIMIT = 40;
