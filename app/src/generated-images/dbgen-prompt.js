@@ -216,6 +216,7 @@ const SPRITE_DAILY_POSE_LINE = '姿势带一个轻量的日常小动作（如一
 // 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
 export function buildCharacterSpriteDescription(name, dna, options) {
     const nude = Boolean(options && options.nude);
+    const note = String(options && options.note || '').trim();
     return [
         nude ? `画角色「${name || ''}」的裸体立绘。` : `画角色「${name || ''}」的立绘。`,
         nude
@@ -223,6 +224,7 @@ export function buildCharacterSpriteDescription(name, dna, options) {
             : '外貌与服装按下面的角色设定来画。设定里没写到的，按这个角色补一个日常样子。',
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
         SPRITE_DAILY_POSE_LINE,
+        note ? `这次额外的要求：\n${note}` : '',
         '无背景，透明底。',
         ...characterDnaLines(name, dna),
         '只写一份，slotid 为 1。',

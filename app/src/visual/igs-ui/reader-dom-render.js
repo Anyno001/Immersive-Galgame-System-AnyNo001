@@ -1098,6 +1098,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (!materialDialog) rootClasses.push('igs-default-reader-chrome');
     if (gradientVeilDialog) rootClasses.push('igs-gradient-veil-active');
     if (nsfwVeilActive) rootClasses.push('igs-scene-nsfw');
+    if (current && current.awaitingReply) rootClasses.push('igs-awaiting-reply');
     const rootClassName = rootClasses.join(' ');
     if (root.className !== rootClassName) root.className = rootClassName;
     root.setAttribute('data-igs-igs-ui', 'true');

@@ -4359,6 +4359,95 @@ test('gate:simulation:igs-ui-embedded-stream-hides-new-floor-and-finishes-on-hos
     assert.equal(streamingText.style.display, '');
 });
 
+test('gate:simulation:igs-ui-fullscreen-shows-reply-wait-and-opens-the-new-floor', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const globalObject = document.defaultView;
+    const chat = document.createElement('div');
+    chat.id = 'chat';
+    document.body.appendChild(chat);
+    const initialElement = createFakeMessageElement(document, { messageId: 80, textContent: '上一轮正文。' });
+    chat.appendChild(initialElement);
+    let currentMessage = { id: 80, text: '上一轮正文。', visibleText: '上一轮正文。', element: initialElement };
+    const messages = new Map([[80, currentMessage]]);
+    const eventListeners = new Map();
+    const eventSource = {
+        on(name, handler) {
+            if (!eventListeners.has(name)) eventListeners.set(name, []);
+            eventListeners.get(name).push(handler);
+        },
+        off(name, handler) {
+            eventListeners.set(name, (eventListeners.get(name) || []).filter((item) => item !== handler));
+        },
+        emit(name) {
+            for (const handler of eventListeners.get(name) || []) handler();
+        },
+    };
+    const mutationObservers = [];
+    globalObject.MutationObserver = class {
+        constructor(handler) { this.handler = handler; mutationObservers.push(this); }
+        observe() {}
+        disconnect() {}
+    };
+    const timers = new Map();
+    let timerId = 0;
+    globalObject.setTimeout = (handler, delay) => {
+        timerId += 1;
+        timers.set(timerId, { handler, delay });
+        return timerId;
+    };
+    globalObject.clearTimeout = (id) => timers.delete(id);
+    globalObject.SillyTavern = {
+        getContext: () => ({
+            eventSource,
+            event_types: {
+                GENERATION_STARTED: 'generation_started',
+                GENERATION_ENDED: 'generation_ended',
+                GENERATION_STOPPED: 'generation_stopped',
+            },
+        }),
+    };
+    const vn = bootstrapIGS({
+        global: globalObject,
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => currentMessage,
+            getMessageById: async (id) => messages.get(Number(id)) || null,
+            typeAndSend: async () => {
+                eventSource.emit('generation_started');
+                return { ok: true };
+            },
+        },
+    });
+
+    const opened = await vn.openLatestAvailable('fullscreen');
+    const overlay = document.getElementById('igs-overlay');
+    assert.equal(opened.ok, true);
+    assert.match(opened.reader.snapshot.source.styleText, /#igs-overlay\.igs-awaiting-reply #igs-send-status\{display:flex/);
+
+    const sent = await opened.reader.controller.submit('下一句');
+    assert.equal(sent.ok, true);
+    assert.equal(overlay.classList.contains('igs-awaiting-reply'), true);
+    assert.equal(overlay.querySelector('#igs-send-status-text').textContent, '已发送，等待 AI 回复…');
+    assert.equal(overlay.querySelector('#igs-toast').textContent, '');
+
+    const nextElement = createFakeMessageElement(document, { messageId: 81, textContent: '生成完成后的最终正文。' });
+    chat.appendChild(nextElement);
+    currentMessage = { id: 81, text: '生成完成后的最终正文。', visibleText: '生成完成后的最终正文。', element: nextElement };
+    messages.set(81, currentMessage);
+    for (const observer of mutationObservers) observer.handler([{ target: chat, addedNodes: [nextElement], removedNodes: [] }]);
+    eventSource.emit('generation_ended');
+    const stableTimer = Array.from(timers.entries()).find(([, timer]) => timer.delay === 800);
+    assert.ok(stableTimer);
+    timers.delete(stableTimer[0]);
+    stableTimer[1].handler();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(overlay.classList.contains('igs-awaiting-reply'), false);
+    assert.match(opened.reader.controller.getSnapshot().content.displayText, /生成完成后的最终正文/);
+    vn.destroy();
+});
+
 test('gate:simulation:igs-ui-embedded-turn-navigation-keeps-latest-host-and-does-not-jump', async () => {
     const document = createFakeDocument({ innerWidth: 1000, innerHeight: 800 });
     const globalObject = document.defaultView;

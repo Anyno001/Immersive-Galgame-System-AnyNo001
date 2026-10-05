@@ -575,8 +575,9 @@ export function createIgsReaderHost(options = {}) {
             streamObserver.start();
             startEmbeddedStoryWatch();
         } else {
-            streamObserver.stop();
             stopEmbeddedStoryWatch();
+            if (nextMode === 'fullscreen') streamObserver.start();
+            else streamObserver.stop();
         }
 
         if (domState && domState.overlay) onboarding.syncInvite(domState.overlay);
@@ -608,12 +609,13 @@ export function createIgsReaderHost(options = {}) {
         }
         current.index = 0;
         current.inputValue = '';
+        current.awaitingReply = false;
         current.mountMessageId = replaceOptions.mountMessageId != null ? replaceOptions.mountMessageId : current.mountMessageId;
         current.mode = mode;
         current.snapshot = merged;
         updateMountedReader(merged);
         exitEmbeddedLoading();
-        if (isEmbeddedReaderMode(mode) && current.turnOffset === 0) startReaderImagePolling(current);
+        if ((isEmbeddedReaderMode(mode) || mode === 'fullscreen') && current.turnOffset === 0) startReaderImagePolling(current);
         return {
             ok: true,
             mode,
@@ -953,11 +955,19 @@ export function createIgsReaderHost(options = {}) {
         return { ok: true };
     }
 
+    function tracksHostReply(mode) {
+        return isEmbeddedReaderMode(mode) || mode === 'fullscreen';
+    }
+
     function handleChatStreamActivity() {
         const current = state.activeReader;
-        if (!current || !isEmbeddedReaderMode(current.mode)) return;
-        syncEmbeddedStreamMount(current);
-        enterEmbeddedLoading();
+        if (!current || !tracksHostReply(current.mode)) return;
+        if (isEmbeddedReaderMode(current.mode)) {
+            syncEmbeddedStreamMount(current);
+            enterEmbeddedLoading();
+            return;
+        }
+        enterReplyWait(current);
     }
 
     function resolveEmbeddedDocument(current) {
@@ -1045,7 +1055,8 @@ export function createIgsReaderHost(options = {}) {
     // 流式 token 期间不解析正文、不收集图片，避免酒馆卡顿与页面抖动。
     async function handleChatStreamStable() {
         const current = state.activeReader;
-        if (!current || !isEmbeddedReaderMode(current.mode)) return true;
+        const embedded = Boolean(current && isEmbeddedReaderMode(current.mode));
+        if (!current || !tracksHostReply(current.mode)) return true;
         if (typeof options.getCurrentMessage !== 'function'
             || typeof options.openViewerFromMessage !== 'function') {
             exitEmbeddedLoading();
@@ -1069,9 +1080,9 @@ export function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
             return true;
         }
-        syncEmbeddedReaderMount(current, message);
         current.turnOffset = 0;
         current.mountMessageId = message.id;
+        if (embedded) syncEmbeddedReaderMount(current, message);
         try {
             await options.openViewerFromMessage(message.id, current.mode, {
                 replaceActive: true,
@@ -1085,6 +1096,20 @@ export function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
         }
         return true;
+    }
+
+    function enterReplyWait(current) {
+        if (!current || current.mode !== 'fullscreen') return;
+        if (current.streamPhase !== 'streaming') {
+            current.imagePollToken += 1;
+            current.imagePolling = false;
+            current.streamBaselineRaw = String(current.mountBaselineRaw || '');
+            current.streamBaselineVisible = String(current.mountBaselineVisible || '');
+        }
+        current.streamPhase = 'streaming';
+        current.awaitingReply = true;
+        const overlay = current.dom && current.dom.overlay;
+        if (overlay && overlay.classList) overlay.classList.add('igs-awaiting-reply');
     }
 
     function enterEmbeddedLoading() {
@@ -1119,6 +1144,9 @@ export function createIgsReaderHost(options = {}) {
         current.streamBaselineRaw = '';
         current.streamBaselineVisible = '';
         current.streamPhase = 'idle';
+        current.awaitingReply = false;
+        const waitingOverlay = current.dom && current.dom.overlay;
+        if (waitingOverlay && waitingOverlay.classList) waitingOverlay.classList.remove('igs-awaiting-reply');
         if (moodAutoFloorWaiting && moodAutoFloorWaiting !== moodAutoFloorSent) {
             moodAutoFloorSent = moodAutoFloorWaiting;
             moodAutoFloorWaiting = '';
@@ -1155,14 +1183,25 @@ export function createIgsReaderHost(options = {}) {
             startEmbeddedStoryWatch();
             return;
         }
-        streamObserver.stop();
         stopEmbeddedStoryWatch();
-        exitEmbeddedLoading();
         if (current.dom.embeddedMount) {
+            const wasStreaming = current.streamPhase === 'streaming';
+            exitEmbeddedLoading();
             (doc.documentElement || doc.body).appendChild(root);
             teardownEmbeddedMount(current.dom.embeddedMount);
             current.dom.embeddedMount = null;
+            if (mode === 'fullscreen') {
+                streamObserver.start();
+                if (wasStreaming) enterReplyWait(current);
+            } else streamObserver.stop();
+            return;
         }
+        if (mode === 'fullscreen') {
+            streamObserver.start();
+            return;
+        }
+        streamObserver.stop();
+        exitEmbeddedLoading();
     }
 
     function createReaderController() {
@@ -1305,21 +1344,23 @@ export function createIgsReaderHost(options = {}) {
     async function submitReaderInput(text) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
         const embedded = isEmbeddedReaderMode(state.activeReader.mode);
-        if (embedded) {
-            enterEmbeddedLoading();
-        }
+        const fullscreen = state.activeReader.mode === 'fullscreen';
+        if (embedded) enterEmbeddedLoading();
+        else if (fullscreen) enterReplyWait(state.activeReader);
         const nextText = String(firstDefined(text, state.activeReader.inputValue, '') || '');
         const send = typeof options.typeAndSend === 'function'
             ? options.typeAndSend
             : async () => ({ ok: false, reason: 'missing-send-handler' });
         const result = await send(nextText);
-        if (embedded && result.ok === false) exitEmbeddedLoading();
-        else if (embedded) streamObserver.noteActivity();
+        if ((embedded || fullscreen) && result.ok === false) exitEmbeddedLoading();
+        else if (embedded || fullscreen) streamObserver.noteActivity();
         state.activeReader.inputValue = '';
         if (state.activeReader.dom && state.activeReader.dom.input) {
             state.activeReader.dom.input.value = '';
         }
-        writeToast(result.ok === false ? (result.reason || '发送失败') : '已发送');
+        if (!(fullscreen && result.ok !== false)) {
+            writeToast(result.ok === false ? (result.reason || '发送失败') : '已发送');
+        }
         return {
             ok: result.ok !== false,
             sent: result.ok !== false,

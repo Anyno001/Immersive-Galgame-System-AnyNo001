@@ -255,18 +255,18 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
     })).join('');
     const o = encSeg(active);
     const metaKey = `outfit-meta:${charName}\u0001${active}`;
-    // 生成立绘和表情差分提到页签行上，不再埋在 ⋯ 里；其余操作仍在页签行末尾的「⋯」里。
+    // 生成立绘只留在原装。其它服装没有自己的立绘，只能出表情差分。
     const exprAction = active ? `outfit-expression-set:${c}:${o}` : `char-expression-set:${c}`;
     const notesMap = plain(expressionNotes);
     const pending = active
         ? pendingExpressionCaptions(notesMap[`${charName}\u0001${active}`], plain(map[active] && map[active].moods))
         : pendingExpressionCaptions(notesMap[charName], plain(plain(plain(sceneAssets).characters)[charName]));
     const resumeAction = active ? `outfit-expression-resume:${c}:${o}` : `char-expression-resume:${c}`;
-    const spriteAction = active && isBuiltinNudeOutfit(plain(map[active]).wardrobe)
-        ? `outfit-generate-nude:${c}:${o}`
-        : `char-generate-sprite:${c}`;
+    const spriteButton = active
+        ? ''
+        : `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="char-generate-sprite:${c}">生成立绘</button>`;
     const quickButtons = `<span class="igs-outfit-quick">`
-        + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${spriteAction}">生成立绘</button>`
+        + spriteButton
         + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>`
         + (pending.length ? `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${resumeAction}" title="词已经写好，直接出图，不重写">继续生图（${pending.length}）</button>` : '')
         + `</span>`;

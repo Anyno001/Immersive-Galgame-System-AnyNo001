@@ -1375,6 +1375,7 @@ test('gate:assets:character-sprite-writes-from-dna-then-paints-default', async (
     assert.match(text, /默认外观：\n白裙/);
     assert.match(text, /无背景，透明底/);
     assert.match(text, /只写一份，slotid 为 1/);
+    assert.match(buildCharacterSpriteDescription('冬月', null, { note: '银发红瞳，穿白裙' }), /这次额外的要求：\n银发红瞳，穿白裙/);
     assert.equal(text.includes('楼层'), false);
     assert.equal(text.includes('正文'), false);
     const nudeSprite = buildCharacterSpriteDescription('冬月', { identity: '银发' }, { nude: true });
@@ -1398,6 +1399,7 @@ test('gate:assets:character-sprite-writes-from-dna-then-paints-default', async (
         writeDbgenPrompt: async (meta) => {
             order.push('write');
             assert.match(meta.description, /冬月/);
+            assert.match(meta.description, /这次额外的要求：\n站姿放松/);
             return { ok: true, caption };
         },
         generateDbgenCaption: async (meta) => {
@@ -1414,7 +1416,7 @@ test('gate:assets:character-sprite-writes-from-dna-then-paints-default', async (
         newId: () => 'sprite-1',
         matte: async (dataUrl) => dataUrl,
     });
-    const result = await service.generateCharacterSprite({ name: '冬月', dna: { identity: '银发' } });
+    const result = await service.generateCharacterSprite({ name: '冬月', dna: { identity: '银发' }, note: '站姿放松' });
     assert.deepEqual([result.ok, result.imageId], [true, 'sprite-1']);
     assert.deepEqual(order, ['write', 'paint']);
 
@@ -1426,6 +1428,10 @@ test('gate:assets:character-sprite-writes-from-dna-then-paints-default', async (
 });
 
 test('gate:assets:character-sprite-honors-nai-and-extension-image-source', async () => {
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl', char_captions: [{ char_caption: 'silver hair', centers: [{ x: 0.5, y: 0.5 }] }] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
     for (const mode of ['nai', 'extension']) {
         const calls = [];
         const store = createMemoryGeneratedAssetStore();
@@ -1434,20 +1440,26 @@ test('gate:assets:character-sprite-honors-nai-and-extension-image-source', async
             llm: {}, store, matte: async (url, options) => { calls.push(['matte', options.alreadyTransparent]); return url; },
             nai: {
                 describe: () => ({ mode, via: mode === 'extension' ? 'chatu8' : 'nai', ready: { ok: true } }),
-                writeDbgenPrompt: () => { throw new Error('non-dbgen must not request plugin prompt'); },
-                generate: async (slot, settings) => {
-                    calls.push(['generate', slot, settings]);
+                writeDbgenPrompt: async (meta) => {
+                    calls.push(['write', meta.description]);
+                    return { ok: true, caption };
+                },
+                generate: () => { throw new Error('立绘必须先写提示词，不能拿现成词直接出图'); },
+                generateDbgenCaption: async (meta) => {
+                    calls.push(['paint', meta.caption]);
                     return { ok: true, dataUrl: 'data:image/png;base64,QQ==', prompt: { positive: 'sprite', negative: '' } };
                 },
             },
             getSettings: () => ({ imageApi: { mode }, autoIllustration: {}, sceneAssets: {} }),
             newId: () => `sprite-${mode}`,
         });
-        const result = await service.generateCharacterSprite({ name: '冬月', dna: { identity: 'silver hair' } });
+        const result = await service.generateCharacterSprite({ name: '冬月', dna: { identity: 'silver hair' }, note: '穿白裙' });
         assert.equal(result.ok, true);
-        assert.equal(calls[0][0], 'generate');
-        assert.match(calls[0][1].scene, /silver hair/);
-        assert.equal(calls[1][1], mode === 'nai' ? calls[0][1].transparent : false);
+        assert.equal(calls[0][0], 'write');
+        assert.match(calls[0][1], /这次额外的要求：\n穿白裙/);
+        assert.equal(calls[1][0], 'paint');
+        assert.match(calls[1][1].v4_prompt.caption.char_captions[0].char_caption, /silver hair/);
+        assert.equal(calls[2][0], 'matte');
         assert.equal((await store.getImage(result.imageId)).dataUrl, 'data:image/png;base64,QQ==');
     }
 });
@@ -1460,6 +1472,10 @@ test('gate:assets:default-sprite-extension-failure-falls-back-through-image-back
     const image = 'data:image/png;base64,QQ==';
     const backend = createImageBackend({
         global: {}, getBridge: () => bridge,
+        llm: { request: async ({ user }) => {
+            calls.push(['llm', user]);
+            return '#1\nscene: 1girl, cowboy shot\nchar: silver hair\nuc: lowres';
+        } },
         nai: { generate: async (slot, config) => {
             calls.push(['nai', slot, config.apiKey]);
             return { ok: true, dataUrl: image };
@@ -1478,10 +1494,11 @@ test('gate:assets:default-sprite-extension-failure-falls-back-through-image-back
     });
     const result = await service.generateCharacterSprite({ name: '冬月', dna: { identity: 'silver hair' } });
     assert.deepEqual([result.ok, result.imageId], [true, 'fallback-sprite']);
-    assert.deepEqual(calls.map(([name]) => name), ['chatu8', 'nai', 'matte']);
-    assert.equal(calls[1][2], 'test-key');
-    assert.match(calls[1][1].scene, /silver hair/);
-    assert.equal(calls[2][1], false, '智绘姬失败后的 NAI 图片按非透明底抠图');
+    assert.deepEqual(calls.map(([name]) => name), ['llm', 'chatu8', 'nai', 'matte']);
+    assert.match(calls[0][1], /画角色「冬月」的立绘/);
+    assert.equal(calls[2][2], 'test-key');
+    assert.match([calls[2][1].scene, ...(calls[2][1].chars || []).map((item) => item.tags)].join(', '), /silver hair/);
+    assert.equal(calls[3][1], false, '智绘姬失败后的 NAI 图片按非透明底抠图');
     assert.equal((await store.getImage(result.imageId)).dataUrl, image);
 });
 

@@ -932,49 +932,17 @@ export function createAssetGenerationService(deps) {
         return { ok: true, dataUrl: painted.dataUrl };
     }
 
-    // 设置页主动出一张默认立绘：写一份提示词，再出图。不经过楼内补图。
-    async function generateCharacterSprite({ name, dna, nude = false, onProgress } = {}) {
+    // 设置页主动出一张默认立绘：一定先让 LLM 重写提示词，再出图。不拿已有提示词直接画，也不经过楼内补图。
+    async function generateCharacterSprite({ name, dna, nude = false, note = '', onProgress } = {}) {
         const who = String(name || '').trim();
         if (!who) return { ok: false, error: '没有角色' };
-        const backend = nai && typeof nai.describe === 'function' ? nai.describe() : null;
-        if (!nude && backend && backend.mode && backend.mode !== 'dbgen') {
-            if (backend.ready && !backend.ready.ok) return { ok: false, error: backend.ready.error || '图像来源不可用' };
-            if (typeof nai.generate !== 'function') return { ok: false, error: '当前图像来源不能生成立绘' };
-            const s = readSettings();
-            const transparent = backend.via !== 'chatu8' && supportsNaiTransparentBackground(s.auto.nai.model);
-            const slot = buildAssetSlot({ need: { type: 'sprite', name: who, dna }, tags: '', uc: '' }, {
-                transparent, templates: s.auto.assets.templates,
-            });
-            reportExpressionProgress(onProgress, { phase: 'paint', done: 0, total: 1, mood: '默认' });
-            let painted;
-            try {
-                painted = await nai.generate(slot, { ...s.auto.nai, size: s.auto.assets.spriteSize });
-            } catch (error) {
-                return { ok: false, error: (error && error.message) || '出图失败' };
-            }
-            if (!painted || !painted.ok || !painted.dataUrl) {
-                return { ok: false, error: (painted && painted.error) || '出图失败' };
-            }
-            try {
-                const imageId = newId();
-                const createdAt = now();
-                const image = await buildSpriteImageRecord(imageId, painted.dataUrl, transparent, createdAt);
-                const prompt = normalizeStoredPrompt(painted.prompt);
-                if (prompt) image.prompt = prompt;
-                await putImageWithQuotaFallback(image);
-                rememberImage(imageId, image.dataUrl);
-                return { ok: true, imageId, prompt };
-            } catch (error) {
-                return { ok: false, error: (error && error.message) || '立绘保存失败' };
-            }
-        }
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
             return { ok: false, error: '当前图像来源不能写立绘' };
         }
         reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: 1, mood: '默认' });
         let written;
         try {
-            written = await nai.writeDbgenPrompt({ description: buildCharacterSpriteDescription(who, dna, { nude: nude === true }) });
+            written = await nai.writeDbgenPrompt({ description: buildCharacterSpriteDescription(who, dna, { nude: nude === true, note }) });
         } catch (error) {
             return { ok: false, error: (error && error.message) || '写提示词失败' };
         }

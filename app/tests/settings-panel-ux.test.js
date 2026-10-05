@@ -362,6 +362,7 @@ test('gate:expression-set:repaints-failed-slots-without-rewriting-prompts', asyn
 
 test('gate:character-sprite:generates-default-from-the-character-page', async () => {
     const asks = [];
+    const notes = [];
     const draft = {
         bridge: {
             sceneAssets: {
@@ -385,11 +386,18 @@ test('gate:character-sprite:generates-default-from-the-character-page', async ()
         },
         persistSettingsDraft: () => ({ ok: true }),
         rerenderSettings: () => ({ ok: true }),
-        dialogs: { confirm: async (message) => { asks.push(message); return true; } },
+        dialogs: {
+            confirm: async (message) => { asks.push(message); return true; },
+            edit: async (message, current) => { notes.push([message, current]); return '银发红瞳，穿白裙'; },
+        },
     };
     const first = await handleSettingsAction('char-generate-sprite:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(first.ok, true);
+    assert.match(notes[0][0], /立绘有没有要注意的点/);
+    assert.equal(notes[0][1], '');
     assert.match(asks[0], /生成「冬月」的默认立绘/);
+    assert.equal(seen[0].note, '银发红瞳，穿白裙');
+    assert.equal(draft.bridge.sceneAssets.characterSpriteNotes['冬月'], '银发红瞳，穿白裙');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['默认'], 'igs-gen:made-1');
     assert.deepEqual(draft.bridge.sceneAssets.characterDna['冬月'], undefined);
     assert.equal(seen[0].dna, null);

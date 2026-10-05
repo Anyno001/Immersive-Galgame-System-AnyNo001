@@ -1,7 +1,7 @@
 import { getSillyTavernContext } from './tavern-helper-adapter.js';
 import { isBackgroundGenerationActive } from './background-generation.js';
 
-// 楼层内嵌的流式生命周期：仅在 embedded 阅读器打开时创建，
+// 楼层内嵌和全屏阅读器的流式生命周期：这两种模式打开时启动。
 // 官方生成事件负责起止，#chat mutation 只在生成期间同步活动，不做解析。
 
 export const DEFAULT_STABLE_MS = 800;

@@ -113,7 +113,8 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     });
     assert.match(tabs, /igs-wardrobe-pick/);
     assert.match(tabs, /scene-set-outfit-wardrobe-url:[^"]*%E8%A3%B8%E4%BD%93/);
-    assert.match(tabs, /outfit-generate-nude:/);
+    assert.match(tabs, /outfit-expression-set:/);
+    assert.doesNotMatch(tabs, /生成立绘|outfit-generate-nude:|char-generate-sprite:/);
     assert.equal(tabs.includes('scene-outfit-tab:%E5%86%AC%E6%9C%88:%E8%A3%B8%E4%BD%93'), false);
     assert.equal(tabs.includes('编辑提示词'), false);
 });

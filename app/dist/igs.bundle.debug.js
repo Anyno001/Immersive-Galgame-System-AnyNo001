@@ -10879,8 +10879,9 @@ function createIgsReaderHost(options = {}) {
             streamObserver.start();
             startEmbeddedStoryWatch();
         } else {
-            streamObserver.stop();
             stopEmbeddedStoryWatch();
+            if (nextMode === 'fullscreen') streamObserver.start();
+            else streamObserver.stop();
         }
 
         if (domState && domState.overlay) onboarding.syncInvite(domState.overlay);
@@ -10912,12 +10913,13 @@ function createIgsReaderHost(options = {}) {
         }
         current.index = 0;
         current.inputValue = '';
+        current.awaitingReply = false;
         current.mountMessageId = replaceOptions.mountMessageId != null ? replaceOptions.mountMessageId : current.mountMessageId;
         current.mode = mode;
         current.snapshot = merged;
         updateMountedReader(merged);
         exitEmbeddedLoading();
-        if (isEmbeddedReaderMode(mode) && current.turnOffset === 0) startReaderImagePolling(current);
+        if ((isEmbeddedReaderMode(mode) || mode === 'fullscreen') && current.turnOffset === 0) startReaderImagePolling(current);
         return {
             ok: true,
             mode,
@@ -11257,11 +11259,19 @@ function createIgsReaderHost(options = {}) {
         return { ok: true };
     }
 
+    function tracksHostReply(mode) {
+        return isEmbeddedReaderMode(mode) || mode === 'fullscreen';
+    }
+
     function handleChatStreamActivity() {
         const current = state.activeReader;
-        if (!current || !isEmbeddedReaderMode(current.mode)) return;
-        syncEmbeddedStreamMount(current);
-        enterEmbeddedLoading();
+        if (!current || !tracksHostReply(current.mode)) return;
+        if (isEmbeddedReaderMode(current.mode)) {
+            syncEmbeddedStreamMount(current);
+            enterEmbeddedLoading();
+            return;
+        }
+        enterReplyWait(current);
     }
 
     function resolveEmbeddedDocument(current) {
@@ -11349,7 +11359,8 @@ function createIgsReaderHost(options = {}) {
     // 流式 token 期间不解析正文、不收集图片，避免酒馆卡顿与页面抖动。
     async function handleChatStreamStable() {
         const current = state.activeReader;
-        if (!current || !isEmbeddedReaderMode(current.mode)) return true;
+        const embedded = Boolean(current && isEmbeddedReaderMode(current.mode));
+        if (!current || !tracksHostReply(current.mode)) return true;
         if (typeof options.getCurrentMessage !== 'function'
             || typeof options.openViewerFromMessage !== 'function') {
             exitEmbeddedLoading();
@@ -11373,9 +11384,9 @@ function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
             return true;
         }
-        syncEmbeddedReaderMount(current, message);
         current.turnOffset = 0;
         current.mountMessageId = message.id;
+        if (embedded) syncEmbeddedReaderMount(current, message);
         try {
             await options.openViewerFromMessage(message.id, current.mode, {
                 replaceActive: true,
@@ -11389,6 +11400,20 @@ function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
         }
         return true;
+    }
+
+    function enterReplyWait(current) {
+        if (!current || current.mode !== 'fullscreen') return;
+        if (current.streamPhase !== 'streaming') {
+            current.imagePollToken += 1;
+            current.imagePolling = false;
+            current.streamBaselineRaw = String(current.mountBaselineRaw || '');
+            current.streamBaselineVisible = String(current.mountBaselineVisible || '');
+        }
+        current.streamPhase = 'streaming';
+        current.awaitingReply = true;
+        const overlay = current.dom && current.dom.overlay;
+        if (overlay && overlay.classList) overlay.classList.add('igs-awaiting-reply');
     }
 
     function enterEmbeddedLoading() {
@@ -11423,6 +11448,9 @@ function createIgsReaderHost(options = {}) {
         current.streamBaselineRaw = '';
         current.streamBaselineVisible = '';
         current.streamPhase = 'idle';
+        current.awaitingReply = false;
+        const waitingOverlay = current.dom && current.dom.overlay;
+        if (waitingOverlay && waitingOverlay.classList) waitingOverlay.classList.remove('igs-awaiting-reply');
         if (moodAutoFloorWaiting && moodAutoFloorWaiting !== moodAutoFloorSent) {
             moodAutoFloorSent = moodAutoFloorWaiting;
             moodAutoFloorWaiting = '';
@@ -11459,14 +11487,25 @@ function createIgsReaderHost(options = {}) {
             startEmbeddedStoryWatch();
             return;
         }
-        streamObserver.stop();
         stopEmbeddedStoryWatch();
-        exitEmbeddedLoading();
         if (current.dom.embeddedMount) {
+            const wasStreaming = current.streamPhase === 'streaming';
+            exitEmbeddedLoading();
             (doc.documentElement || doc.body).appendChild(root);
             teardownEmbeddedMount(current.dom.embeddedMount);
             current.dom.embeddedMount = null;
+            if (mode === 'fullscreen') {
+                streamObserver.start();
+                if (wasStreaming) enterReplyWait(current);
+            } else streamObserver.stop();
+            return;
         }
+        if (mode === 'fullscreen') {
+            streamObserver.start();
+            return;
+        }
+        streamObserver.stop();
+        exitEmbeddedLoading();
     }
 
     function createReaderController() {
@@ -11609,21 +11648,23 @@ function createIgsReaderHost(options = {}) {
     async function submitReaderInput(text) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
         const embedded = isEmbeddedReaderMode(state.activeReader.mode);
-        if (embedded) {
-            enterEmbeddedLoading();
-        }
+        const fullscreen = state.activeReader.mode === 'fullscreen';
+        if (embedded) enterEmbeddedLoading();
+        else if (fullscreen) enterReplyWait(state.activeReader);
         const nextText = String(firstDefined(text, state.activeReader.inputValue, '') || '');
         const send = typeof options.typeAndSend === 'function'
             ? options.typeAndSend
             : async () => ({ ok: false, reason: 'missing-send-handler' });
         const result = await send(nextText);
-        if (embedded && result.ok === false) exitEmbeddedLoading();
-        else if (embedded) streamObserver.noteActivity();
+        if ((embedded || fullscreen) && result.ok === false) exitEmbeddedLoading();
+        else if (embedded || fullscreen) streamObserver.noteActivity();
         state.activeReader.inputValue = '';
         if (state.activeReader.dom && state.activeReader.dom.input) {
             state.activeReader.dom.input.value = '';
         }
-        writeToast(result.ok === false ? (result.reason || '发送失败') : '已发送');
+        if (!(fullscreen && result.ok !== false)) {
+            writeToast(result.ok === false ? (result.reason || '发送失败') : '已发送');
+        }
         return {
             ok: result.ok !== false,
             sent: result.ok !== false,
@@ -16265,18 +16306,18 @@ function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, baseMenuIt
     })).join('');
     const o = encSeg(active);
     const metaKey = `outfit-meta:${charName}\u0001${active}`;
-    // 生成立绘和表情差分提到页签行上，不再埋在 ⋯ 里；其余操作仍在页签行末尾的「⋯」里。
+    // 生成立绘只留在原装。其它服装没有自己的立绘，只能出表情差分。
     const exprAction = active ? `outfit-expression-set:${c}:${o}` : `char-expression-set:${c}`;
     const notesMap = plain(expressionNotes);
     const pending = active
         ? pendingExpressionCaptions(notesMap[`${charName}\u0001${active}`], plain(map[active] && map[active].moods))
         : pendingExpressionCaptions(notesMap[charName], plain(plain(plain(sceneAssets).characters)[charName]));
     const resumeAction = active ? `outfit-expression-resume:${c}:${o}` : `char-expression-resume:${c}`;
-    const spriteAction = active && isBuiltinNudeOutfit(plain(map[active]).wardrobe)
-        ? `outfit-generate-nude:${c}:${o}`
-        : `char-generate-sprite:${c}`;
+    const spriteButton = active
+        ? ''
+        : `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="char-generate-sprite:${c}">生成立绘</button>`;
     const quickButtons = `<span class="igs-outfit-quick">`
-        + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${spriteAction}">生成立绘</button>`
+        + spriteButton
         + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>`
         + (pending.length ? `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${resumeAction}" title="词已经写好，直接出图，不重写">继续生图（${pending.length}）</button>` : '')
         + `</span>`;
@@ -42007,6 +42048,7 @@ const SPRITE_DAILY_POSE_LINE = '姿势带一个轻量的日常小动作（如一
 // 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
 function buildCharacterSpriteDescription(name, dna, options) {
     const nude = Boolean(options && options.nude);
+    const note = String(options && options.note || '').trim();
     return [
         nude ? `画角色「${name || ''}」的裸体立绘。` : `画角色「${name || ''}」的立绘。`,
         nude
@@ -42014,6 +42056,7 @@ function buildCharacterSpriteDescription(name, dna, options) {
             : '外貌与服装按下面的角色设定来画。设定里没写到的，按这个角色补一个日常样子。',
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
         SPRITE_DAILY_POSE_LINE,
+        note ? `这次额外的要求：\n${note}` : '',
         '无背景，透明底。',
         ...characterDnaLines(name, dna),
         '只写一份，slotid 为 1。',
@@ -42905,6 +42948,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-image-spinner{width:32px;height:32px;border-width:3px;opacity:.7;}
 .igs-image-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:1;font-size:13px;color:rgba(255,255,255,.4);letter-spacing:.5px;}
 #igs-send-status{display:none;flex:1;align-items:center;gap:8px;padding:8px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;font-size:13px;color:rgba(255,255,255,.55);letter-spacing:.3px;}
+#igs-overlay.igs-awaiting-reply #igs-send-status{display:flex;}
+#igs-overlay.igs-awaiting-reply #igs-input,#igs-overlay.igs-awaiting-reply #igs-send-btn{display:none;}
 #igs-settings{display:none;position:absolute;right:0;bottom:calc(100% + 10px);min-width:232px;background:rgba(16,16,20,.92);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(40px) saturate(180%);border-radius:18px;padding:16px 18px 14px;box-shadow:0 10px 40px rgba(0,0,0,.6);z-index:30;}
 #igs-toast{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 64px);transform:translateX(-50%);z-index:40;display:flex;align-items:center;justify-content:center;min-width:160px;max-width:min(400px,calc(100% - 32px));min-height:38px;box-sizing:border-box;padding:8px 18px;border:0;border-radius:${IGS_UI_RADIUS.card};background:${igsUiSurface(IGS_UI_THICKNESS.thick)};-webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};box-shadow:${IGS_UI_ELEVATION},${IGS_UI_EDGE_NIGHT};color:${IGS_UI_INK.primary};font-family:${IGS_UI_FONT_SANS};font-size:13px;font-weight:500;line-height:1.5;letter-spacing:.02em;text-align:center;text-shadow:none;-webkit-font-smoothing:antialiased;opacity:0;pointer-events:none;transition:opacity .2s ease;}
 ${TOAST_THEME_STYLE_TEXT}
@@ -49656,7 +49701,7 @@ __igsDefine(exports, "createImageResourceCache", () => createImageResourceCache)
 __igsRegister("src/host/chat-stream-observer.js", function(module, exports, require) {
 const { getSillyTavernContext } = require("src/host/tavern-helper-adapter.js");
 const { isBackgroundGenerationActive } = require("src/host/background-generation.js");
-// 楼层内嵌的流式生命周期：仅在 embedded 阅读器打开时创建，
+// 楼层内嵌和全屏阅读器的流式生命周期：这两种模式打开时启动。
 // 官方生成事件负责起止，#chat mutation 只在生成期间同步活动，不做解析。
 const DEFAULT_STABLE_MS = 800;
 const DEFAULT_HARD_TIMEOUT_MS = 120000;
@@ -58789,6 +58834,21 @@ async function askExpressionNote(dialogs, name, saved) {
     return current;
 }
 
+// 默认立绘的额外要求：长相、服装、姿势。按角色记着，下次预填。取消返回 null。
+async function askSpriteNote(dialogs, name, saved) {
+    const message = `「${name}」的立绘有没有要注意的点？\n比如长相、服装、姿势（可留空）\n例：银发红瞳，穿白裙；站姿放松，不要拿道具\n这条只影响这次写提示词，不影响已经画好的图。`;
+    const current = String(saved || '');
+    if (dialogs && typeof dialogs.edit === 'function') {
+        const raw = await dialogs.edit(message, current, { okLabel: '开始生成', cancelLabel: '取消' });
+        return raw == null ? null : String(raw);
+    }
+    if (dialogs && typeof dialogs.prompt === 'function') {
+        const raw = await dialogs.prompt(message, current);
+        return raw == null ? null : String(raw);
+    }
+    return current;
+}
+
 function nsfwEnabledForAssets(draft) {
     const bridge = draft && draft.bridge ? draft.bridge : {};
     const auto = bridge.autoIllustration && typeof bridge.autoIllustration === 'object' ? bridge.autoIllustration : {};
@@ -59616,6 +59676,9 @@ async function handleSettingsAction(action, ctx) {
         if (!service || typeof service.generateCharacterSprite !== 'function') {
             return generationFailure(globalObj, dialogs, '立绘生成当前不可用。', 'sprite-generate-unavailable');
         }
+        const savedSpriteNotes = sceneAssets.characterSpriteNotes && typeof sceneAssets.characterSpriteNotes === 'object' ? sceneAssets.characterSpriteNotes : {};
+        const spriteNote = await askSpriteNote(dialogs, name, savedSpriteNotes[name]);
+        if (spriteNote === null) return rerenderSettings();
         const current = String((character && character['默认']) || '').trim();
         const progress = startExpressionProgress(globalObj, `${name}·默认立绘`);
         progress.onProgress({ phase: 'write' });
@@ -59632,7 +59695,7 @@ async function handleSettingsAction(action, ctx) {
             return generationFailure(globalObj, dialogs, `「${name}」的默认立绘没画出来：${errorText(error, '未返回原因')}${current ? '\n原来那张没动。' : ''}`, 'sprite-generate-failed');
         };
         try {
-            result = await service.generateCharacterSprite({ name, dna, onProgress: progress.onProgress });
+            result = await service.generateCharacterSprite({ name, dna, note: spriteNote, onProgress: progress.onProgress });
         } catch (error) {
             return failed(error);
         }
@@ -59641,6 +59704,10 @@ async function handleSettingsAction(action, ctx) {
         const characters = { ...(liveAssets.characters || {}) };
         characters[name] = { ...(characters[name] || {}), '默认': `igs-gen:${result.imageId}` };
         liveAssets.characters = characters;
+        const spriteNotes = liveAssets.characterSpriteNotes && typeof liveAssets.characterSpriteNotes === 'object'
+            ? liveAssets.characterSpriteNotes : (liveAssets.characterSpriteNotes = {});
+        if (String(spriteNote || '').trim()) spriteNotes[name] = String(spriteNote).trim();
+        else delete spriteNotes[name];
         ensureCharacterAliases(settingsState, editTarget);
         const persisted = persistGeneratedLibrary(persistSettingsDraft);
         if (operationFailed(persisted)) {
@@ -67113,6 +67180,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (!materialDialog) rootClasses.push('igs-default-reader-chrome');
     if (gradientVeilDialog) rootClasses.push('igs-gradient-veil-active');
     if (nsfwVeilActive) rootClasses.push('igs-scene-nsfw');
+    if (current && current.awaitingReply) rootClasses.push('igs-awaiting-reply');
     const rootClassName = rootClasses.join(' ');
     if (root.className !== rootClassName) root.className = rootClassName;
     root.setAttribute('data-igs-igs-ui', 'true');
@@ -74299,49 +74367,17 @@ function createAssetGenerationService(deps) {
         return { ok: true, dataUrl: painted.dataUrl };
     }
 
-    // 设置页主动出一张默认立绘：写一份提示词，再出图。不经过楼内补图。
-    async function generateCharacterSprite({ name, dna, nude = false, onProgress } = {}) {
+    // 设置页主动出一张默认立绘：一定先让 LLM 重写提示词，再出图。不拿已有提示词直接画，也不经过楼内补图。
+    async function generateCharacterSprite({ name, dna, nude = false, note = '', onProgress } = {}) {
         const who = String(name || '').trim();
         if (!who) return { ok: false, error: '没有角色' };
-        const backend = nai && typeof nai.describe === 'function' ? nai.describe() : null;
-        if (!nude && backend && backend.mode && backend.mode !== 'dbgen') {
-            if (backend.ready && !backend.ready.ok) return { ok: false, error: backend.ready.error || '图像来源不可用' };
-            if (typeof nai.generate !== 'function') return { ok: false, error: '当前图像来源不能生成立绘' };
-            const s = readSettings();
-            const transparent = backend.via !== 'chatu8' && supportsNaiTransparentBackground(s.auto.nai.model);
-            const slot = buildAssetSlot({ need: { type: 'sprite', name: who, dna }, tags: '', uc: '' }, {
-                transparent, templates: s.auto.assets.templates,
-            });
-            reportExpressionProgress(onProgress, { phase: 'paint', done: 0, total: 1, mood: '默认' });
-            let painted;
-            try {
-                painted = await nai.generate(slot, { ...s.auto.nai, size: s.auto.assets.spriteSize });
-            } catch (error) {
-                return { ok: false, error: (error && error.message) || '出图失败' };
-            }
-            if (!painted || !painted.ok || !painted.dataUrl) {
-                return { ok: false, error: (painted && painted.error) || '出图失败' };
-            }
-            try {
-                const imageId = newId();
-                const createdAt = now();
-                const image = await buildSpriteImageRecord(imageId, painted.dataUrl, transparent, createdAt);
-                const prompt = normalizeStoredPrompt(painted.prompt);
-                if (prompt) image.prompt = prompt;
-                await putImageWithQuotaFallback(image);
-                rememberImage(imageId, image.dataUrl);
-                return { ok: true, imageId, prompt };
-            } catch (error) {
-                return { ok: false, error: (error && error.message) || '立绘保存失败' };
-            }
-        }
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
             return { ok: false, error: '当前图像来源不能写立绘' };
         }
         reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: 1, mood: '默认' });
         let written;
         try {
-            written = await nai.writeDbgenPrompt({ description: buildCharacterSpriteDescription(who, dna, { nude: nude === true }) });
+            written = await nai.writeDbgenPrompt({ description: buildCharacterSpriteDescription(who, dna, { nude: nude === true, note }) });
         } catch (error) {
             return { ok: false, error: (error && error.message) || '写提示词失败' };
         }
