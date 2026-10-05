@@ -21,59 +21,6 @@ export function readBaibaiStatus(api) {
     }
 }
 
-// 柏宝绘自己写词：AI 回复渲染后读本楼正文、世界书、角色卡写词，以 <bbi_image>tag<nl>自然语言</nl></bbi_image>
-// 插回楼层正文，角色外貌已展开在 tag 里。公开接口没有写词入口，所以剧情 CG 直接读楼层里的这些块。
-export const BAIBAI_FLOOR_WAIT_MS = 90000;
-const BAIBAI_SETTINGS_KEY = 'baibai_image';
-
-function readStContext(globalObject) {
-    for (const read of [() => globalObject, () => globalObject.parent, () => globalObject.top]) {
-        try {
-            const win = read();
-            const context = win && win.SillyTavern && typeof win.SillyTavern.getContext === 'function' ? win.SillyTavern.getContext() : null;
-            if (context) return context;
-        } catch (error) { /* 跨域窗口 */ }
-    }
-    return null;
-}
-
-// 柏宝绘开着且开了自动写词，才值得等它写完。
-export function readBaibaiAutoTag(globalObject = globalThis) {
-    const context = readStContext(globalObject);
-    const settings = context && context.extensionSettings && context.extensionSettings[BAIBAI_SETTINGS_KEY];
-    const autoTag = settings && settings.autoTag;
-    return { enabled: !!(settings && settings.enabled !== false && autoTag && autoTag.enabled), autoGenerate: !!(autoTag && autoTag.autoGenerate) };
-}
-
-export function parseBaibaiFloorTags(text) {
-    const blocks = String(text || '').match(/<bbi_image>[\s\S]+?<\/bbi_image>/gi) || [];
-    return blocks.map((block) => {
-        const inner = block.replace(/^<bbi_image>|<\/bbi_image>$/gi, '');
-        const nl = (inner.match(/<nl>([\s\S]*?)<\/nl>/i) || [])[1] || '';
-        const explicit = (inner.match(/<tag>([\s\S]*?)<\/tag>/i) || [])[1] || '';
-        const bare = inner.replace(/<nl>[\s\S]*?<\/nl>|<tag>[\s\S]*?<\/tag>/gi, '');
-        return { tag: joinTags([explicit, bare]), nl: nl.trim() };
-    }).filter((item) => item.tag);
-}
-
-export function readBaibaiFloorTags(globalObject, messageId) {
-    const context = readStContext(globalObject);
-    const message = context && Array.isArray(context.chat) ? context.chat[Number(messageId)] : null;
-    return parseBaibaiFloorTags(message && message.mes);
-}
-
-// 本楼还没有柏宝绘的词、它又开着自动写词时，等它写完；超时返回空数组，由调用方退回 IGS 自己的词。
-export async function waitBaibaiFloorTags(globalObject, messageId, { timeoutMs = BAIBAI_FLOOR_WAIT_MS, intervalMs = 1500, sleep } = {}) {
-    const pause = typeof sleep === 'function' ? sleep : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    let tags = readBaibaiFloorTags(globalObject, messageId);
-    if (tags.length || !readBaibaiAutoTag(globalObject).enabled) return tags;
-    for (let waited = 0; waited < timeoutMs && !tags.length; waited += intervalMs) {
-        await pause(intervalMs);
-        tags = readBaibaiFloorTags(globalObject, messageId);
-    }
-    return tags;
-}
-
 function joinTags(parts) {
     return parts.map((part) => String(part || '').trim().replace(/^,+|,+$/g, '').trim()).filter(Boolean).join(', ');
 }

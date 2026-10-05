@@ -129,7 +129,7 @@ function floorBackend(api, { mes = '', autoTag = false, sleep = async () => {} }
         global: { STBaiBaiImage: api, SillyTavern: { getContext: () => context } },
         getBridge: () => ({ imageApi: { mode: 'baibai' }, autoIllustration: { nai: {} } }),
         nai: { async generate(s) { naiCalls.push(s); return { ok: true, dataUrl: 'data:image/png;base64,NAI' }; } },
-        baibaiFloorWait: { timeoutMs: 30, intervalMs: 10, sleep: () => sleep(context) },
+        floorPromptWait: { timeoutMs: 30, intervalMs: 10, sleep: () => sleep(context) },
     });
     return { backend, context, naiCalls };
 }
@@ -160,4 +160,39 @@ test('gate:baibai:waits-for-baibai-auto-tagging', async () => {
     const { backend } = floorBackend(api, { mes: '正文', autoTag: true, sleep: async (context) => { naps += 1; if (naps === 2) context.chat[5].mes += '<bbi_image>1girl, written later</bbi_image>'; } });
     await backend.generate(slot, { size: '1216x832' }, { messageId: 5, slot: 1 });
     assert.equal(api.calls[0].prompt, '1girl, written later');
+});
+
+function chatu8Backend({ mes = '', settings = {}, sleep = async () => {} } = {}) {
+    const chat = [];
+    chat[3] = { mes };
+    const context = { chat, extensionSettings: { 'st-chatu8': settings } };
+    const prompts = [];
+    const backend = createImageBackend({
+        global: { SillyTavern: { getContext: () => context } },
+        getBridge: () => ({ imageApi: { mode: 'extension' }, autoIllustration: { nai: {} } }),
+        nai: { async generate() { return { ok: true, dataUrl: 'data:image/png;base64,NAI' }; } },
+        chatu8: { findHost: () => ({ win: {}, eventSource: {} }), async request(host, prompt) { prompts.push(prompt); return { ok: true, imageData: 'data:image/png;base64,C8' }; } },
+        floorPromptWait: { timeoutMs: 30, intervalMs: 10, sleep: () => sleep(context) },
+    });
+    return { backend, prompts };
+}
+
+test('gate:chatu8:story-cg-uses-chatu8-floor-tags', async () => {
+    const mes = '正文\n\n<image>image###1girl, 阿黛尔, cafe###</image>\n后文\n\n<image>image###2girls, rooftop###</image>';
+    const { backend, prompts } = chatu8Backend({ mes });
+    await backend.generate(slot, { size: '1216x832' }, { messageId: 3, slot: 2 });
+    assert.equal(prompts[0], '2girls, rooftop');
+    await backend.generate(slot, { size: '1216x832' }, { messageId: 3, slot: 3 });
+    assert.equal(prompts[1], 'cafe, afternoon light, 1girl, silver hair');
+});
+
+test('gate:chatu8:waits-only-when-it-writes-back', async () => {
+    let naps = 0;
+    const settings = { scriptEnabled: 'true', autoLLMImageGen: 'true', insertOriginalText: 'true', startTag: 'pic<<', endTag: '>>' };
+    const { backend, prompts } = chatu8Backend({ mes: '短正文', settings, sleep: async (context) => { naps += 1; if (naps === 2) context.chat[3].mes += '<image>pic<<1girl, later>></image>'; } });
+    await backend.generate(slot, { size: '1216x832' }, { messageId: 3, slot: 1 });
+    assert.equal(prompts[0], '1girl, later');
+    const off = chatu8Backend({ mes: '短正文', settings: { ...settings, insertOriginalText: 'false' }, sleep: async () => { throw new Error('不该等'); } });
+    await off.backend.generate(slot, { size: '1216x832' }, { messageId: 3, slot: 1 });
+    assert.equal(off.prompts[0], 'cafe, afternoon light, 1girl, silver hair');
 });

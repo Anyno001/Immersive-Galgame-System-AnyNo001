@@ -32,8 +32,8 @@ function readableLine(line) {
         .replace(SCENE_RE, '')
         .replace(CHAR_RE, (_, name, _mood, text) => `${name.trim()}：「${text.trim()}」`)
         .replace(THOUGHT_RE, (_, name, _mood, text) => `${name.trim()}（心想）：${text.trim()}`)
-        // 柏宝绘写回楼层的生图词不是正文。
-        .replace(/<bbi_image>[\s\S]*?<\/bbi_image>/gi, '')
+        // 柏宝绘 / 智绘姬写回楼层的生图词不是正文。
+        .replace(/<bbi_image>[\s\S]*?<\/bbi_image>|<image>[\s\S]*?<\/image>|image###[\s\S]*?###/gi, '')
         .replace(/<\/?[a-zA-Z][^>]*>/g, '')
         .trim();
 }

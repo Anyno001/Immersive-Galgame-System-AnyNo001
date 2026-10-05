@@ -3,11 +3,12 @@ import { resolveNaiNativeEndpoint } from './request-builders/nai-v4-builder.js';
 import { applyUserPromptsToCaption } from './dbgen-prompt.js';
 import { formatStoredPrompt, promptFromCaption, promptFromText } from './generation-prompt.js';
 import { findChatu8Host, requestChatu8Image } from './chatu8-client.js';
-import { findBaibaiApi, requestBaibaiImage, waitBaibaiFloorTags } from './baibai-client.js';
+import { findBaibaiApi, requestBaibaiImage } from './baibai-client.js';
+import { waitFloorPromptTags } from './floor-prompt-tags.js';
 import { writeCaptionsWithLlm } from './illustration/caption-writer.js';
 
 // 生图来源：nai = IGS 内置 NAI；dbgen = 数据库生图插件（window.NaiDbGen）；
-// extension = 智绘姬：剧情 CG、素材与物品图经智绘姬的出图事件生成；
+// extension = 智绘姬：剧情 CG、素材与物品图经智绘姬的出图事件生成，剧情 CG 优先用它写在楼层里的词；
 // baibai = 柏宝绘：经其公开接口 globalThis.STBaiBaiImage 出图，图不进柏宝绘图库与聊天记录；剧情 CG 优先用它写在楼层里的词。
 // 未检测到智绘姬 / 柏宝绘或出图失败时，填了 NAI Key 就由内置 NAI 兜底。
 export const IMAGE_SOURCE_MODES = Object.freeze(['nai', 'dbgen', 'extension', 'baibai']);
@@ -129,7 +130,7 @@ function reportLong(report, title, text) {
     }
 }
 
-export function createImageBackend({ nai, getBridge, global: globalObject = globalThis, chatu8, llm, report, dbgenTimeouts, baibaiFloorWait } = {}) {
+export function createImageBackend({ nai, getBridge, global: globalObject = globalThis, chatu8, llm, report, dbgenTimeouts, floorPromptWait } = {}) {
     const timeouts = { ...DBGEN_TIMEOUTS, ...(dbgenTimeouts && typeof dbgenTimeouts === 'object' ? dbgenTimeouts : {}) };
     const readBridge = (override) => (override && typeof override === 'object' ? override : (getBridge ? getBridge() || {} : {}));
     // chatu8 可注入 { findHost, request } 供测试替换；默认走真实的智绘姬事件桥。
@@ -341,31 +342,35 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
     }
 
     // 柏宝绘出图；未安装或失败时同样退回内置 NAI。
-    // 剧情 CG（meta 带楼层号和图序号）优先用柏宝绘自己写在楼层里的第 N 个词；没有就用 IGS 的词。
+    // 剧情 CG（meta 带楼层号和图序号）优先用插件自己写在楼层里的第 N 个词；没有就用 IGS 的词。
+    async function pluginFloorTag(source, label, meta) {
+        if (meta.messageId == null || !(Number(meta.slot) >= 1)) return null;
+        const tags = await waitFloorPromptTags(globalObject, source, meta.messageId, floorPromptWait);
+        const tag = tags[Number(meta.slot) - 1] || null;
+        if (typeof report === 'function') {
+            report('info', tag
+                ? `第 ${meta.messageId} 楼第 ${meta.slot} 张用${label}写的词`
+                : `第 ${meta.messageId} 楼第 ${meta.slot} 张没有${label}写的词，改用 IGS 的词`);
+        }
+        return tag;
+    }
+
     async function viaBaibai(slot, naiSettings, meta = {}) {
         const api = findBaibaiApi(globalObject);
         if (!api) return naiFallback(slot, naiSettings, `未检测到${BAIBAI_LABEL}`);
         const size = naiSettings && naiSettings.size;
-        let floorTag = null;
-        if (meta.messageId != null && Number(meta.slot) >= 1) {
-            const tags = await waitBaibaiFloorTags(globalObject, meta.messageId, baibaiFloorWait);
-            floorTag = tags[Number(meta.slot) - 1] || null;
-            if (typeof report === 'function') {
-                report('info', floorTag
-                    ? `第 ${meta.messageId} 楼第 ${meta.slot} 张用${BAIBAI_LABEL}写的词`
-                    : `第 ${meta.messageId} 楼第 ${meta.slot} 张没有${BAIBAI_LABEL}写的词，改用 IGS 的词`);
-            }
-        }
+        const floorTag = await pluginFloorTag('baibai', BAIBAI_LABEL, meta);
         const result = await requestBaibaiImage(api, slot, { size, seed: naiSettings && naiSettings.seed, floorTag });
         if (!result.ok) return naiFallback(slot, naiSettings, result.error);
         return { ok: true, via: 'baibai', dataUrl: result.dataUrl, prompt: promptFromText(result.prompt, '') };
     }
 
-    async function viaChatu8(slot, naiSettings) {
+    async function viaChatu8(slot, naiSettings, meta = {}) {
         const fallback = (reason) => naiFallback(slot, naiSettings, reason);
         const host = findChatu8();
         if (!host) return fallback(`未检测到${CHATU8_LABEL}`);
-        const prompt = buildChatu8Prompt(slot);
+        const floorTag = await pluginFloorTag('chatu8', CHATU8_LABEL, meta);
+        const prompt = floorTag ? floorTag.tag : buildChatu8Prompt(slot);
         if (!prompt) return { ok: false, error: `没有可交给${CHATU8_LABEL}的提示词` };
         const result = await requestChatu8(host, prompt);
         if (!result || !result.ok) return fallback((result && result.error) || `${CHATU8_LABEL}出图失败`);
@@ -376,17 +381,17 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         }
     }
 
-    // 剧情 CG 规划前调用：柏宝绘来源下等它把本楼的词写完（未开自动写词立即返回），其他来源不等。
+    // 剧情 CG 规划前调用：柏宝绘 / 智绘姬来源下等它把本楼的词写完（没开自动写词立即返回），其他来源不等。
     async function waitSourceFloorPrompts(messageId) {
-        if (describe().mode !== 'baibai' || messageId == null) return [];
-        return waitBaibaiFloorTags(globalObject, messageId, baibaiFloorWait);
+        const source = { baibai: 'baibai', chatu8: 'chatu8' }[describe().via];
+        return source ? waitFloorPromptTags(globalObject, source, messageId, floorPromptWait) : [];
     }
 
     // 剧情 CG / 素材补全入口，签名与 nai-official-client 的 generate 一致，多一个 meta。
     async function generate(slot, naiSettings, meta = {}) {
         const mode = describe().mode;
         if (mode === 'dbgen') return viaDbgen(meta);
-        if (mode === 'extension') return viaChatu8(slot, naiSettings);
+        if (mode === 'extension') return viaChatu8(slot, naiSettings, meta);
         if (mode === 'baibai') return viaBaibai(slot, naiSettings, meta);
         return nai.generate(slot, naiSettings);
     }

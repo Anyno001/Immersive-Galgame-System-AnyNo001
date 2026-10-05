@@ -425,8 +425,8 @@ export function createAutoIllustrationService(deps) {
         }
         if (marked.all.length) return { ok: true, reason: manual ? 'nothing-missing' : 'already-decided' };
         if (!manual && previous && SETTLED_STATUSES.has(previous.status)) return { ok: true, reason: 'already-decided' };
-        // 柏宝绘开着自动写词时先等它把词写回本楼再规划；两边同时写回，IGS 会因正文已改放弃本楼。
-        if (typeof nai.waitSourceFloorPrompts === 'function' && backendReady().via === 'baibai') {
+        // 柏宝绘 / 智绘姬开着自动写词时先等它把词写回本楼再规划；两边同时写回，IGS 会因正文已改放弃本楼。
+        if (typeof nai.waitSourceFloorPrompts === 'function' && ['baibai', 'chatu8'].includes(backendReady().via)) {
             progress(floor, { phase: 'write' });
             await nai.waitSourceFloorPrompts(messageId);
             floor = messageHost.readFloor(messageId) || floor;
