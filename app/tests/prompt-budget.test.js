@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bootstrapIGS, createMemoryStorage } from '../src/index.js';
 import { buildTagGrammar, collectGrammarBlocks, DEPTH0_REMINDER, normalizePromptPlacement } from '../src/visual/igs-ui/tag-grammar.js';
-import { detectPromptTriggers, estimatePromptTokens } from '../src/scene/prompt-triggers.js';
+import { ADAPTIVE_PROMPT_BLOCKS, DAILY_TRIGGER_WORDS, detectPromptTriggers, estimatePromptTokens } from '../src/scene/prompt-triggers.js';
+import { DAILY_FX_KINDS } from '../src/scene/daily-fx-directives.js';
 import { buildCompactMoodGroupsText, capVocabItems, DEFAULT_MOOD_GROUPS, resolveMoodGroup } from '../src/scene/mood-groups.js';
 import { buildScopedOutfitGroupsText, NO_OUTFIT_GROUPS_TEXT } from '../src/scene/character-outfits.js';
 import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 } from '../src/visual/igs-ui/reader-host-constants.js';
@@ -18,9 +19,11 @@ const ALL_ON = Object.freeze({
     fxTags: { enabled: true, call: true, notify: true, flashback: true, dream: true, letterbox: true, sfx: true, eye: true },
     itemFx: { enabled: true },
     chatShow: { enabled: true },
-    dailyFx: { enabled: true, timeskip: true, photo: true, letter: true, note: true, bell: true, broadcast: true, fireworks: true, touch: true, alarm: true, omikuji: true, receipt: true, tv: true },
+    dailyFx: { enabled: true, ...Object.fromEntries(DAILY_FX_KINDS.map((kind) => [kind, true])) },
     battleFx: { enabled: true },
     romanceFx: { enabled: true, rival: true, confess: true, memories: true },
+    camera: { enabled: true },
+    liveFx: { enabled: true },
 });
 
 const len = (text) => Array.from(String(text || '')).length;
@@ -44,6 +47,33 @@ test('gate:prompt-budget:all-on-fixed-part-stays-under-3000-chars-with-one-share
     assert.match(system, /【按需】.*线上聊天 igs-chat\/igs-msg\/igs-chat-end/);
     assert.doesNotMatch(system, /【线上聊天】/);
     assert.match(system, /效果只有以下9种/);
+    assert.ok(len(system) <= 3000, `system ${len(system)} 字 / ${estimatePromptTokens(system)} token`);
+});
+
+// 阈值 = 2026-10-05 全开实测（单块最大 daily 983 字、全展开 2414 字）+ 约 15% 余量。
+test('gate:prompt-budget:adaptive-blocks-stay-within-measured-budget', () => {
+    const sceneRule = sceneRuleWithMoods();
+    const sizes = Object.fromEntries(ADAPTIVE_PROMPT_BLOCKS.map((key) => [key, len(buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set([key]) }).depth0)]));
+    const report = JSON.stringify(sizes);
+    for (const [key, size] of Object.entries(sizes)) assert.ok(size <= 1150, `${key} 单块超预算 ${report}`);
+    const all = buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set(ADAPTIVE_PROMPT_BLOCKS) });
+    assert.ok(len(all.depth0) <= 2800, `全展开 ${len(all.depth0)} 字 / ${estimatePromptTokens(all.depth0)} token ${report}`);
+});
+
+test('gate:prompt-budget:every-adaptive-block-has-a-trigger-route', () => {
+    const adaptive = collectGrammarBlocks(ALL_ON).filter((b) => b.adaptive).map((b) => b.key).sort();
+    assert.deepEqual(adaptive, [...ADAPTIVE_PROMPT_BLOCKS].sort());
+    assert.ok(detectPromptTriggers({ userText: '镜头特写她的脸' }).has('camera'));
+    assert.ok(detectPromptTriggers({ recentAiTexts: ['[igs-fx:cam|拉远]'] }).has('camera'));
+    assert.equal(detectPromptTriggers({ userText: '看她的脸，她走远了' }).has('camera'), false);
+});
+
+test('gate:prompt-budget:every-daily-kind-has-chinese-trigger-words', () => {
+    assert.deepEqual(Object.keys(DAILY_TRIGGER_WORDS).sort(), [...DAILY_FX_KINDS].sort());
+    for (const [kind, words] of Object.entries(DAILY_TRIGGER_WORDS)) {
+        assert.ok(detectPromptTriggers({ userText: `她${words[0]}了` }).has('daily'), kind);
+    }
+    assert.equal(detectPromptTriggers({ userText: '他成绩不错' }).has('daily'), false);
 });
 
 test('gate:prompt-budget:expanding-adaptive-blocks-only-changes-depth0', () => {
@@ -86,6 +116,9 @@ test('gate:prompt-budget:triggers-follow-recent-tags-user-words-and-unclosed-pai
     assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-chat:群聊]\n[igs-msg:A|hi]'] })], ['chat']);
     assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-fx:battle|哥布林]', '战斗继续'], lookback: 1 })], ['battle']);
     assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['[igs-fx:battle|哥布林]', '[igs-fx:battle-end|胜利]', '一', '二', '三'] })], []);
+    // AI 上一层自然写出事件但漏了标签，用户只说继续也能展开；再往前一层的就不算。
+    assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['她系上围裙开始做饭'], userText: '继续' })], ['daily']);
+    assert.deepEqual([...detectPromptTriggers({ recentAiTexts: ['她系上围裙开始做饭', '一'], userText: '继续' })], []);
 });
 
 test('gate:prompt-budget:compact-vocab-keeps-slot-words-and-unlisted-words-still-resolve', () => {
