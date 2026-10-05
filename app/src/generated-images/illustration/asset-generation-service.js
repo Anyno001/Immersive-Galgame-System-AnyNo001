@@ -79,7 +79,7 @@ export function createAssetGenerationService(deps) {
         };
     };
 
-    // 场景背景补全与剧情 CG 用同一套横竖规则：手机内嵌/竖屏触屏把背景尺寸宽高对调。
+    // 场景背景补全与剧情 CG 用同一套横竖规则：手机、内嵌竖屏、全屏竖屏把背景尺寸宽高对调。
     const backgroundSize = (s) => cgSizeForMode(
         s.auto.assets.backgroundSize,
         typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc',

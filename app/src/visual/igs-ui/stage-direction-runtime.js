@@ -85,6 +85,10 @@ function flushGhosts(set) {
 
 function sharpenCg(bg) {
     if (!bg || !bg.style || typeof bg.style.setProperty !== 'function') return;
+    // 已经是 none 再写一次会把还挂着的 filter 过渡从头播，播 CG 时每次重绘都闪一下。
+    const read = typeof bg.style.getPropertyValue === 'function' ? bg.style.getPropertyValue('filter') : '';
+    const priority = typeof bg.style.getPropertyPriority === 'function' ? bg.style.getPropertyPriority('filter') : '';
+    if (read === 'none' && priority === 'important') return;
     bg.style.setProperty('filter', 'none', 'important');
     bg.style.setProperty('-webkit-filter', 'none', 'important');
 }
@@ -119,7 +123,13 @@ function playCgFocus(state, bg, url, reduced) {
         bg.style.setProperty('transition', 'filter 2.4s ease-in-out, -webkit-filter 2.4s ease-in-out', 'important');
         sharpenCg(bg);
         later(state, () => {
-            if (state.cgFocusUrl === url) state.cgFocusing = false;
+            if (state.cgFocusUrl !== url) return;
+            state.cgFocusing = false;
+            const transition = bg.style && typeof bg.style.getPropertyValue === 'function'
+                ? bg.style.getPropertyValue('transition') : '';
+            if (bg.style && typeof bg.style.removeProperty === 'function' && String(transition || '').includes('filter')) {
+                bg.style.removeProperty('transition');
+            }
         }, 2500);
     }, 450);
 }

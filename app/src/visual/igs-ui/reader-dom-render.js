@@ -1154,6 +1154,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         bg.setAttribute('data-igs-has-image', '1');
         removeImageLoadingSpinner(bg);
         removeImageEmptyPlaceholder(bg);
+    } else if (bg && snapshot.content.backgroundImage && backgroundImageKeys.get(bg)) {
+        // 下一张还没解码出来：留着已经画上的这张。清掉再补上会让播 CG 的界面一闪一闪。
     } else if (bg) {
         writeBackgroundImage(bg, '');
         bg.removeAttribute('data-igs-has-image');

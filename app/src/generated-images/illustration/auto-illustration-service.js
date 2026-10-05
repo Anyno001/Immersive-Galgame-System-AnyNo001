@@ -15,11 +15,11 @@ export const ILLUSTRATION_PROGRESS_EVENT = 'igs:illustration-progress';
 // 手机内嵌栏宽。框高是我们按尺寸钉出来的，不能拿高来判断横竖。
 export const EMBEDDED_PHONE_MAX_WIDTH = 640;
 
-// 电脑、网页全屏、全屏用背景尺寸。窄屏模式把宽高对调。
-// 楼层内嵌：正文栏不超过 640 像素就是手机，钉竖屏尺寸；更宽钉横屏尺寸。
+// 电脑、网页全屏用背景尺寸。手机模式、以及内嵌 / 全屏的竖屏，把宽高对调。
+// 内嵌和全屏同一套判断：正文栏或窗口不超过 640 像素，或触屏且窗口竖着拿，钉竖屏尺寸。
 export function cgSizeForMode(backgroundSize, mode, viewport) {
     const landscape = String(backgroundSize || '').trim() || '1216x832';
-    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPhoneEmbedded(viewport));
+    const usePortrait = mode === 'mobile' || ((mode === 'embedded' || mode === 'fullscreen') && isPhoneEmbedded(viewport));
     if (!usePortrait) return landscape;
     const match = landscape.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
     // 背景尺寸本身填成竖的就直接用，不能再对调回横屏。

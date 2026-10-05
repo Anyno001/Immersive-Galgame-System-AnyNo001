@@ -479,6 +479,10 @@ test('gate:illustration:cg-size-swaps-on-mobile', async () => {
     assert.equal(cgFramePrompt('832x1216'), '画面是竖的，宽832，高1216。构图按竖屏写，不要写成横屏。');
     assert.equal(cgSizeForMode('1216x832', 'pc'), '1216x832');
     assert.equal(cgSizeForMode('1216x832', 'fullscreen'), '1216x832');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 390, height: 844 }), '832x1216');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 390, height: 220 }), '832x1216');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { portrait: true, width: 900, height: 1600 }), '832x1216');
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 1280, height: 720 }), '1216x832');
     assert.equal(cgSizeForMode('1216x832', 'web'), '1216x832');
     assert.equal(cgSizeForMode('1216x832', 'mobile'), '832x1216');
     assert.equal(cgSizeForMode('', 'mobile'), '832x1216');

@@ -884,20 +884,23 @@ export function createIgsReaderHost(options = {}) {
         if (!source) return '';
         const ready = imageResourceCache.get(source);
         if (ready) return ready;
+        // data / blob 已经是本地像素。先原样画上，解码只为了预热缓存；
+        // 等解码完再补地址会先把背景清成空的，播 CG 时整屏闪一下。
+        const inline = /^(?:data:|blob:)/i.test(source);
         if (!current.assetLoadRequests.has(source)) {
             current.assetLoadRequests.add(source);
             const loading = imageResourceCache.load(source);
             const immediate = imageResourceCache.get(source);
             loading.then(() => {
                 current.assetLoadRequests.delete(source);
-                if (state.activeReader !== current) return;
+                if (inline || state.activeReader !== current) return;
                 const content = current.snapshot && current.snapshot.content;
                 if (!pageUsesAsset(content, source)) return;
                 updateMountedReader(current.snapshot);
             });
             if (immediate) return immediate;
         }
-        return '';
+        return inline ? source : '';
     }
 
 
