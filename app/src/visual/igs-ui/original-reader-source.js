@@ -194,10 +194,9 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-ctrl-bar{position:absolute;top:-50px;right:0;display:flex;align-items:flex-start;gap:6px;z-index:5;padding:6px;background:var(--igs-toolbar-bg,var(--igs-glass-bg,rgba(20,20,22,.62)));border:1px solid var(--igs-toolbar-border,rgba(255,255,255,.14));-webkit-backdrop-filter:var(--igs-toolbar-blur,none);backdrop-filter:var(--igs-toolbar-blur,none);border-radius:var(--igs-toolbar-radius,18px);box-shadow:var(--igs-toolbar-shadow,0 4px 24px rgba(0,0,0,.20));pointer-events:auto;transition:opacity .3s;}
 .igs-ctrl-bar.igs-hidden{opacity:0;pointer-events:none;}
 #igs-bar-btns{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0;max-width:min(336px,calc(100vw - 112px));justify-content:flex-start;align-content:flex-start;}
-/* 顶部固定栏和楼层内嵌一样离顶边、左右各 14px，不贴边。 */
-#igs-overlay.igs-toolbar-top #igs-toolbar-layer{inset:14px 14px auto 14px;width:auto;height:auto;transform:none;}
-#igs-overlay.igs-toolbar-top .igs-ctrl-bar{position:static;top:auto;right:auto;width:100%;box-sizing:border-box;justify-content:space-between;align-items:flex-start;gap:1.5px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;flex-wrap:nowrap;}
-#igs-overlay.igs-toolbar-top.igs-toolbar-expanded .igs-ctrl-bar{padding-left:56px;}
+/* 顶部固定栏贴右上角收成一团，不把按钮、菜单、关闭撑到屏幕两头。 */
+#igs-overlay.igs-toolbar-top #igs-toolbar-layer{inset:14px 14px auto auto;width:auto;max-width:calc(100% - 28px);height:auto;transform:none;}
+#igs-overlay.igs-toolbar-top .igs-ctrl-bar{position:static;top:auto;right:auto;width:auto;max-width:100%;box-sizing:border-box;justify-content:flex-end;align-items:flex-start;gap:1.5px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;flex-wrap:nowrap;}
 #igs-overlay.igs-toolbar-top #igs-bar-btns{flex:0 1 auto;min-width:0;max-width:336px;justify-content:flex-start;align-content:flex-start;flex-wrap:wrap;overflow:visible;}
 #igs-overlay.igs-toolbar-top #igs-bar-btns.igs-bar-overflow{justify-content:flex-start;cursor:grab;}
 #igs-overlay.igs-toolbar-top #igs-bar-btns.igs-bar-dragging{cursor:grabbing;}

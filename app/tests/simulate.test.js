@@ -82,12 +82,13 @@ test('gate:simulation:virtual-regex-extra-rules-render-add-save-and-remove', asy
 
 test('gate:igs-ui:toolbar-top-first-row-aligns-with-toggle-and-close', () => {
     const css = getOriginalReaderStyleText();
-    // 外层不换行、顶部对齐：按钮第一行与收纳 / 关闭键同一行，收纳 / 关闭不会被挤到下一行。
-    assert.match(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar\{[^}]*align-items:flex-start[^}]*flex-wrap:nowrap/);
+    // 外层不换行、靠右收成一团：按钮、收纳、关闭贴在一起，不再铺满整条。
+    assert.match(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar\{[^}]*justify-content:flex-end[^}]*align-items:flex-start[^}]*flex-wrap:nowrap/);
+    assert.doesNotMatch(css, /#igs-overlay\.igs-toolbar-top \.igs-ctrl-bar\{[^}]*space-between/);
     // 按钮区限宽（约 8 个一行）提前换行，行内左对齐。
     assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*max-width:336px[^}]*justify-content:flex-start[^}]*flex-wrap:wrap/);
-    // 和楼层内嵌一样离顶边、左右 14px，不贴边。
-    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-toolbar-layer\{inset:14px 14px auto 14px;/);
+    // 贴右上角，左右仍留 14px，窄屏不会撑出屏幕。
+    assert.match(css, /#igs-overlay\.igs-toolbar-top #igs-toolbar-layer\{inset:14px 14px auto auto;width:auto;max-width:calc\(100% - 28px\)/);
 });
 
 
