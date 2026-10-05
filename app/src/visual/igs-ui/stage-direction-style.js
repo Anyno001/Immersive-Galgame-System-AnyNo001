@@ -16,6 +16,10 @@ export const STAGE_DIRECTION_STYLE_TEXT = `
 #igs-overlay #igs-bg{transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1);}
 #igs-overlay[data-igs-cg] #igs-bg,#igs-stage-motion[data-igs-cg] #igs-bg{animation:none!important;scale:1;}
 #igs-overlay[data-igs-cg] #igs-bg-blur,#igs-stage-motion[data-igs-cg] #igs-bg-blur{display:none!important;opacity:0!important;}
+/* 播 CG 时底图在对焦或运镜。对话框若还挂着毛玻璃，或还留着透明度 / 位移过渡，就会跟着底图每一帧重绘，看起来只有对话框在闪。 */
+#igs-stage-motion[data-igs-cg] .igs-dialog{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;transition:none!important;}
+#igs-stage-motion[data-igs-cg] .igs-option-bubble,#igs-stage-motion[data-igs-cg] .igs-ctrl-bar{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;}
+#igs-stage-motion[data-igs-cg] #igs-dialog-layer{isolation:isolate;transform:translateZ(0);}
 #igs-overlay[data-igs-sd-closeup] #igs-sprite:not(.igs-sprite-editing){--igs-sd-closeup-scale:1.12;transform-origin:var(--igs-sd-origin-x,50%) 28%;}
 #igs-overlay[data-igs-sd-closeup] #igs-bg{scale:1.06;}
 /* AI 镜头指令：特写推到脸、拉远缩小立绘、虚化只糊背景、摇镜横扫背景一次、倾斜是背景与立绘一起歪。 */

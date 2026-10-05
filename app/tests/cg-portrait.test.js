@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveNudeSpriteAsset } from '../src/scene/asset-match.js';
-import { computeCgPortraitCrop } from '../src/visual/igs-ui/cg-portrait.js';
+import { applyCgPortrait, computeCgPortraitCrop } from '../src/visual/igs-ui/cg-portrait.js';
 import { normalizeStatusHudSettings } from '../src/data/shujuku/status-hud-model.js';
 
 const sceneAssets = {
@@ -24,6 +24,22 @@ test('CG 头像：没有裸体服装就不显示，不退回穿衣立绘', () =>
     assert.equal(resolveNudeSpriteAsset('阿光', '默认', { sceneAssets }).url, '');
     assert.equal(resolveNudeSpriteAsset('路人', '默认', { sceneAssets }).url, '');
     assert.equal(resolveNudeSpriteAsset('', '默认', { sceneAssets }).url, '');
+});
+
+test('CG 头像：地址暂时解析为空时保留已挂上的头像', () => {
+    const attrs = new Map([['data-igs-cgp', ''], ['data-igs-cgp-src', 'sprite.png']]);
+    const dialog = {
+        getAttribute: (name) => (attrs.has(name) ? attrs.get(name) : null),
+        hasAttribute: (name) => attrs.has(name),
+        setAttribute: (name, value) => attrs.set(name, String(value)),
+        removeAttribute: (name) => attrs.delete(name),
+    };
+    const root = { querySelector: (selector) => (selector === '#igs-dialog' ? dialog : null) };
+    applyCgPortrait(root, { content: { nsfwCgPortrait: 'sprite.png' }, readerSettings: {} }, {
+        resolveAssetUrl: () => '',
+    });
+    assert.equal(dialog.getAttribute('data-igs-cgp'), '');
+    assert.equal(dialog.getAttribute('data-igs-cgp-src'), 'sprite.png');
 });
 
 test('CG 头像：取景以头位为中心，缩放放大脸、偏移下移取景', () => {

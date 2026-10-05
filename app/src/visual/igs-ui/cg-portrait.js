@@ -41,6 +41,7 @@ export function computeCgPortraitCrop(info, { shift = 0, zoom = 100 } = {}) {
 
 function clearPortrait(dialog) {
     if (dialog.hasAttribute('data-igs-cgp')) dialog.removeAttribute('data-igs-cgp');
+    if (dialog.hasAttribute('data-igs-cgp-src')) dialog.removeAttribute('data-igs-cgp-src');
     const box = dialog.querySelector('#igs-cg-portrait');
     if (box) box.dataset.key = '';
 }
@@ -84,9 +85,12 @@ export function applyCgPortrait(root, snapshot, ctx = {}) {
     const raw = String(content.nsfwCgPortrait || '').trim();
     const url = raw && typeof ctx.resolveAssetUrl === 'function' ? String(ctx.resolveAssetUrl(raw) || '').trim() : raw;
     if (!url) {
+        // 本地图解码前解析结果会暂时为空。已经挂上的头像先留着，否则对话框边距和头像会反复淡入淡出。
+        if (raw && dialog.getAttribute('data-igs-cgp-src') === raw) return;
         clearPortrait(dialog);
         return;
     }
+    if (typeof dialog.setAttribute === 'function') dialog.setAttribute('data-igs-cgp-src', raw);
     const hud = normalizeStatusHudSettings(snapshot.readerSettings && snapshot.readerSettings.statusHud);
     const opts = { shift: hud.nsfwCgPortraitShift, zoom: hud.nsfwCgPortraitZoom };
     const width = Math.round(Math.max(MIN_W, Math.min(MAX_W, (dialog.clientWidth || 0) * WIDTH_RATIO)));

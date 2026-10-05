@@ -276,6 +276,8 @@ test('gate:romance:nsfw-with-romance-enabled-is-level-three', () => {
 });
 
 test('gate:romance:css-composes-sprite-transform-and-avoids-mask-url', () => {
+    assert.match(STAGE_DIRECTION_STYLE_TEXT, /#igs-stage-motion\[data-igs-cg\] \.igs-dialog\{[^}]*backdrop-filter:none!important;transition:none!important/);
+    assert.match(STAGE_DIRECTION_STYLE_TEXT, /#igs-stage-motion\[data-igs-cg\] #igs-dialog-layer\{isolation:isolate;transform:translateZ\(0\)/);
     assert.match(STAGE_DIRECTION_STYLE_TEXT, /scale:min\(1\.3,calc\(var\(--igs-sd-closeup-scale,1\) \* var\(--igs-rm-scale,1\)\)\)/);
     assert.match(STAGE_DIRECTION_STYLE_TEXT, /translate:calc\(var\(--igs-sd-tx,0px\) \+ var\(--igs-rm-dx,0%\)\)/);
     assert.doesNotMatch(STAGE_DIRECTION_STYLE_TEXT, /\{scale:1\.12;/);
