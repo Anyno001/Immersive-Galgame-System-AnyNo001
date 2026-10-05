@@ -349,6 +349,10 @@ export function createIgsReaderHost(options = {}) {
     // 快照 → 遮罩内层 HTML；不放进快照字段，免得 getSnapshot/克隆多带一份。
     const settingsShellHtml = new WeakMap();
     const settingsBusyActions = new Set();
+    // 下面几项被 return host 之后的函数引用，必须声明在 return 之前，否则压缩时会被当作死代码删掉。
+    const itemEventsShown = new Set();
+    const ROMANCE_MEMORY_KEYS = 'igs-romance-memory-keys';
+    const ROMANCE_MEMORY_KEYS_LIMIT = 300;
     // 生图从 IndexedDB 一张张异步补回，每张都会发 image-loaded。按窗口合并成一次重绘，
     // 否则 N 张图触发 N 次整页重绘、每次又带上已到的全部 dataUrl，开销随张数平方增长。
     const IMAGE_REFRESH_BATCH_MS = 120;
@@ -622,7 +626,6 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 物品演出：账本补上物品表变动的获得 / 失去，标出初次获得，并给正文点亮备好已知物品名。
-    const itemEventsShown = new Set();
     function decorateItemFx(pageFx, payload, segments, index, directives, readerSettings) {
         const ledger = options.itemLedger;
         const itemFx = normalizeItemFxSettings(readerSettings && readerSettings.itemFx);
@@ -2035,8 +2038,6 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 亲密演出的恋爱回忆：与日常演出拍照共用相册；同一聊天同一楼层同一名称只存一次（跨阅读器会话，记在 localStorage）。
-    const ROMANCE_MEMORY_KEYS = 'igs-romance-memory-keys';
-    const ROMANCE_MEMORY_KEYS_LIMIT = 300;
     function saveRomanceMemory(photo) {
         const album = options.cgGallery;
         if (!album || typeof album.capturePhoto !== 'function' || !photo) return;
