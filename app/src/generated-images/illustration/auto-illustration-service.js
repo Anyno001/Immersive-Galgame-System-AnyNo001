@@ -425,6 +425,12 @@ export function createAutoIllustrationService(deps) {
         }
         if (marked.all.length) return { ok: true, reason: manual ? 'nothing-missing' : 'already-decided' };
         if (!manual && previous && SETTLED_STATUSES.has(previous.status)) return { ok: true, reason: 'already-decided' };
+        // 柏宝绘开着自动写词时先等它把词写回本楼再规划；两边同时写回，IGS 会因正文已改放弃本楼。
+        if (typeof nai.waitSourceFloorPrompts === 'function' && backendReady().via === 'baibai') {
+            progress(floor, { phase: 'write' });
+            await nai.waitSourceFloorPrompts(messageId);
+            floor = messageHost.readFloor(messageId) || floor;
+        }
         // 标记还在但记录丢了（换设备、清缓存）时先去掉旧标记再规划，避免重复插入；写回时仍按原文校验。
         const expected = floor;
         if (/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/i.test(floor.text)) floor = { ...floor, text: stripIllustrationMarkers(floor.text) };
@@ -539,7 +545,7 @@ export function createAutoIllustrationService(deps) {
             progress(floor, { phase: 'paint', done: index + 1, total: requests.length });
             let result;
             const size = cgSize(s);
-            const meta = { messageId, description: request.description || request.scene, size };
+            const meta = { messageId, slot: request.slot, description: request.description || request.scene, size };
             try { result = await nai.generate(request, { ...s.nai, size }, meta); }
             catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
             if (result && result.ok) succeeded += 1;

@@ -119,3 +119,45 @@ test('gate:caption-writer:nai-source-paints-caption-as-slot', async () => {
     assert.deepEqual(naiCalls[0].slot.chars, [{ tags: 'smile', uc: '', x: 0.5, y: 0.5 }]);
     assert.equal(naiCalls[0].slot.sceneUc, 'blurry');
 });
+
+function floorBackend(api, { mes = '', autoTag = false, sleep = async () => {} } = {}) {
+    const chat = [];
+    chat[5] = { mes };
+    const context = { chat, extensionSettings: { baibai_image: { enabled: true, autoTag: { enabled: autoTag } } } };
+    const naiCalls = [];
+    const backend = createImageBackend({
+        global: { STBaiBaiImage: api, SillyTavern: { getContext: () => context } },
+        getBridge: () => ({ imageApi: { mode: 'baibai' }, autoIllustration: { nai: {} } }),
+        nai: { async generate(s) { naiCalls.push(s); return { ok: true, dataUrl: 'data:image/png;base64,NAI' }; } },
+        baibaiFloorWait: { timeoutMs: 30, intervalMs: 10, sleep: () => sleep(context) },
+    });
+    return { backend, context, naiCalls };
+}
+
+test('gate:baibai:story-cg-uses-baibai-floor-tags', async () => {
+    const api = fakeBaibai({ supportsCharacters: true });
+    const mes = '正文<bbi_image>1girl, cafe</bbi_image>中间<bbi_image>2girls, rooftop, silver hair<nl>Two girls on a rooftop.</nl></bbi_image>';
+    const { backend } = floorBackend(api, { mes });
+    await backend.generate(slot, { size: '1216x832' }, { messageId: 5, slot: 2 });
+    assert.equal(api.calls[0].prompt, '2girls, rooftop, silver hair');
+    assert.equal(api.calls[0].nl, 'Two girls on a rooftop.');
+    assert.equal(api.calls[0].characters, undefined);
+    assert.equal(api.calls[0].negative, 'lowres');
+});
+
+test('gate:baibai:falls-back-to-igs-tags-without-floor-tags', async () => {
+    const api = fakeBaibai();
+    const { backend } = floorBackend(api, { mes: '正文<bbi_image>1girl, cafe</bbi_image>' });
+    await backend.generate(slot, { size: '1216x832' }, { messageId: 5, slot: 2 });
+    assert.equal(api.calls[0].prompt, 'cafe, afternoon light, 1girl, silver hair');
+    await backend.generate(slot, { size: '1216x832' });
+    assert.equal(api.calls[1].prompt, 'cafe, afternoon light, 1girl, silver hair');
+});
+
+test('gate:baibai:waits-for-baibai-auto-tagging', async () => {
+    const api = fakeBaibai();
+    let naps = 0;
+    const { backend } = floorBackend(api, { mes: '正文', autoTag: true, sleep: async (context) => { naps += 1; if (naps === 2) context.chat[5].mes += '<bbi_image>1girl, written later</bbi_image>'; } });
+    await backend.generate(slot, { size: '1216x832' }, { messageId: 5, slot: 1 });
+    assert.equal(api.calls[0].prompt, '1girl, written later');
+});
