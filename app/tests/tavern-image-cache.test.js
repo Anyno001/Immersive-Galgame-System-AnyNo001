@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createLocalImageCache } from '../src/media/tavern-image-cache.js';
+import { createLocalImageCache, normalizeImageCacheCount, DEFAULT_IMAGE_CACHE_COUNT } from '../src/media/tavern-image-cache.js';
 import { withTavernIllustrationFiles } from '../src/media/tavern-image-files.js';
 import { createMemoryIllustrationStore } from '../src/media/illustration-store.js';
 import { createCgGalleryService } from '../src/media/cg-gallery-service.js';
@@ -148,6 +148,22 @@ test('gate:image-cache:cg-library-shows-a-ready-image-before-the-slow-one', asyn
     releaseSlow();
     const slow = await jobs[1];
     assert.match(slow.dataUrl, /^data:image\/png;base64,/);
+});
+
+test('gate:image-cache:count-defaults-to-320-and-a-lower-limit-drops-the-oldest', async () => {
+    assert.equal(normalizeImageCacheCount(undefined), DEFAULT_IMAGE_CACHE_COUNT);
+    assert.equal(DEFAULT_IMAGE_CACHE_COUNT, 320);
+    assert.equal(normalizeImageCacheCount(5000), 2000);
+    assert.equal(normalizeImageCacheCount(0), 1);
+    let clock = 0;
+    const cache = createLocalImageCache({}, { maxCount: 3, now: () => { clock += 1; return clock; } });
+    await cache.put('a.png', 'data:image/png;base64,A');
+    await cache.put('b.png', 'data:image/png;base64,B');
+    await cache.put('c.png', 'data:image/png;base64,C');
+    assert.equal(await cache.setMaxCount(2), 2);
+    assert.equal(await cache.get('a.png'), '');
+    assert.equal(await cache.get('b.png'), 'data:image/png;base64,B');
+    assert.equal(await cache.get('c.png'), 'data:image/png;base64,C');
 });
 
 test('gate:image-cache:clear-drops-every-cached-image', async () => {

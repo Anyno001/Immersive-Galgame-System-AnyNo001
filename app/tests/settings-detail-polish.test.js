@@ -13,6 +13,7 @@ test('gate:settings-polish:image-tab-has-cg-gallery-pane', () => {
     assert.match(cg, /data-action="image-cg-delete-selected"/);
     assert.match(cg, /data-action="image-cg-delete-all"/);
     assert.match(cg, /data-action="image-cache-clear"/);
+    assert.match(cg, /\{\{imageCacheCountField\}\}/);
     // 生图内容页模板保持完整，且不再重复放 CG 库按钮。
     const auto = getImageSubTabTemplate('auto');
     assert.match(auto, /data-image-pane="auto"/);

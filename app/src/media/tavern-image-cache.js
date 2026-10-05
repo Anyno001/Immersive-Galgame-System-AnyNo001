@@ -2,8 +2,16 @@
 // 文件名含内容哈希，路径变了就是另一张图。删文件时一并丢掉这条缓存。
 const DB_NAME = 'igs-image-cache';
 const DB_VERSION = 1;
-const MAX_COUNT = 160;
-const MAX_BYTES = 192 * 1024 * 1024;
+export const DEFAULT_IMAGE_CACHE_COUNT = 320;
+const MIN_IMAGE_CACHE_COUNT = 1;
+const MAX_IMAGE_CACHE_COUNT = 2000;
+const BYTES_PER_IMAGE = Math.floor((192 * 1024 * 1024) / 160);
+
+export function normalizeImageCacheCount(value) {
+    const count = Math.round(Number(value));
+    if (!Number.isFinite(count)) return DEFAULT_IMAGE_CACHE_COUNT;
+    return Math.min(MAX_IMAGE_CACHE_COUNT, Math.max(MIN_IMAGE_CACHE_COUNT, count));
+}
 
 const caches = new WeakMap();
 const cacheKey = (path) => String(path || '').replace(/^\//, '');
@@ -93,8 +101,9 @@ function idbStore(idb) {
 
 export function createLocalImageCache(globalObject = globalThis, options = {}) {
     const now = options.now || (() => Date.now());
-    const maxCount = options.maxCount || MAX_COUNT;
-    const maxBytes = options.maxBytes || MAX_BYTES;
+    const fixedBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : 0;
+    let maxCount = Number(options.maxCount) > 0 ? Math.round(Number(options.maxCount)) : DEFAULT_IMAGE_CACHE_COUNT;
+    let maxBytes = fixedBytes || maxCount * BYTES_PER_IMAGE;
     const idb = globalObject && globalObject.indexedDB;
     const store = options.store || (idb && typeof idb.open === 'function' ? idbStore(idb) : memoryStore());
     const memory = new Map();
@@ -165,6 +174,12 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
             memory.clear();
             if (meta) meta.clear();
             await store.clear().catch(() => {});
+        },
+        async setMaxCount(value) {
+            maxCount = normalizeImageCacheCount(value);
+            if (!fixedBytes) maxBytes = maxCount * BYTES_PER_IMAGE;
+            await trim().catch(() => {});
+            return maxCount;
         },
     };
 }

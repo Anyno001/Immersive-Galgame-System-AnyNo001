@@ -8,6 +8,7 @@ import { getReferenceDialogTypography } from './dialog-theme-typography.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import { normalizeRenderQualitySetting } from './render-quality.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
+import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 
 
 export function normalizeReaderMode(mode, bridge) {
@@ -101,6 +102,7 @@ export function normalizeSettingsValue(path, value) {
     if (/^bridge\.imageApi\.(steps|requestTimeoutMs|pollIntervalMs|pollAttempts)$/.test(path)) {
         return Number(value);
     }
+    if (path === 'bridge.imageCache.maxCount') return normalizeImageCacheCount(value);
     return value;
 }
 

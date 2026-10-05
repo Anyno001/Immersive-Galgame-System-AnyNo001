@@ -225,6 +225,7 @@ import { renderSectionResetButton, sectionResetPlaceholders } from './settings-s
 import { createOnboardingController } from './onboarding-guide-controller.js';
 import { applyPerformanceProfile } from './performance-profile.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
+import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
@@ -3714,6 +3715,7 @@ export function createIgsReaderHost(options = {}) {
                 imageLogMaxEntriesField: field('bridge.imageJobLog.maxEntries', '自动清理：最多保留条数', numberInput('bridge.imageJobLog.maxEntries', logSettings.maxEntries, 50, 1000)),
                 imageLogStatus: esc(asyncState.imageLogStatus || ''),
                 imageLogList: imageSubTab === 'logs' ? renderImageJobLogList() : '',
+                imageCacheCountField: field('bridge.imageCache.maxCount', '本地缓存张数', numberInput('bridge.imageCache.maxCount', normalizeImageCacheCount(bridge.imageCache && bridge.imageCache.maxCount), 1, 2000)),
                 imageCgStatus: esc(asyncState.imageCgStatus || ''),
                 imageCgList: imageSubTab === 'cg' ? renderImageCgList() : '',
                 imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS 内置 NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬'], ['baibai', '柏宝绘']], '图像来源')),
