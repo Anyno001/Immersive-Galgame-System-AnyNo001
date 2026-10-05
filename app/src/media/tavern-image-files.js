@@ -1,8 +1,10 @@
-// 图片本体存进酒馆本地 user/images/igs-*/（/api/images/upload），IndexedDB 只留文件路径，不占浏览器存储。
-// 读出时取回还原成 dataUrl，消费方仍拿到 data:image/...;base64；酒馆接口不可用时原样存浏览器，不丢图。
+// 图片本体存进酒馆 user/images/igs-*/（/api/images/upload）。记录里只留路径。
+// 读出时取回还原成 dataUrl，并按路径留在浏览器里，云酒馆上同一张图不再重新下载。
+// 酒馆接口不可用时原样存浏览器，不丢图。
 // 旧记录里的 base64 在读到时顺手搬家（记录未被并发改写才落盘）。
 // 文件名带「编号@类型@字段@哈希」：清掉浏览器缓存后按编号从文件夹找回；早期只有哈希的文件靠比对哈希认领。
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
+import { localImageCacheFor } from './tavern-image-cache.js';
 
 const DATA_RE = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i;
 const PATH_RE = /^\/?user\/images\/igs-[^?#]+$/;
@@ -48,7 +50,9 @@ function createTavernImageFiles(globalObject, dir) {
         const path = res && res.ok ? String(((await res.json().catch(() => null)) || {}).path || '').replace(/\\/g, '/') : '';
         return isPath(path) ? path : dataUrl;
     };
-    const read = async (path) => {
+    const cache = localImageCacheFor(globalObject);
+    const flights = new Map();
+    const fetchDataUrl = async (path) => {
         try {
             const res = await globalObject.fetch(`/${path.replace(/^\//, '')}`, { cache: 'no-store' });
             if (!res.ok) return '';
@@ -63,8 +67,25 @@ function createTavernImageFiles(globalObject, dir) {
             return '';
         }
     };
+    const read = (path) => {
+        const key = String(path || '').replace(/^\//, '');
+        if (!key) return Promise.resolve('');
+        if (flights.has(key)) return flights.get(key);
+        const job = (async () => {
+            const cached = await cache.get(key);
+            if (cached) return cached;
+            const dataUrl = await fetchDataUrl(key);
+            if (dataUrl) await cache.put(key, dataUrl);
+            return dataUrl;
+        })().finally(() => flights.delete(key));
+        flights.set(key, job);
+        return job;
+    };
     const pathsOf = (rec) => new Set(Object.values(rec || {}).filter(isPath));
-    const drop = (p) => post('/api/images/delete', { path: p.replace(/^\//, '') });
+    const drop = (p) => {
+        cache.drop(p);
+        return post('/api/images/delete', { path: p.replace(/^\//, '') });
+    };
     let listing = null;
     const listFiles = () => listing || (listing = (async () => {
         globalObject.setTimeout(() => { listing = null; }, 3000);
