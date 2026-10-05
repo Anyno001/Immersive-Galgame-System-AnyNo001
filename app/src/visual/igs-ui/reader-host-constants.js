@@ -161,6 +161,7 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.btnOrder',
     'readerSettings.spriteLayouts',
     'readerSettings.spriteDefaultScale',
+    'readerSettings.spriteDisplayScale',
     'readerSettings.spriteHeads',
     'readerSettings.vnTheme.preset',
     'readerSettings.classicVnTheme.preset',

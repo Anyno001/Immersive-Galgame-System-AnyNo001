@@ -21,7 +21,7 @@ import {
 } from '../src/scene/image-slots.js';
 import { parseSceneText } from '../src/scene/text-parser.js';
 import { applyAlignStyle, pinEmbeddedHostFrame, syncEmbeddedHostFrame, watchEmbeddedFrameResize } from '../src/visual/igs-ui/reader-dom-render.js';
-import { resolveSpriteLayout, resolveActiveTheme, renderDialogueHtml } from '../src/visual/igs-ui/settings-normalize.js';
+import { applySpriteDisplayScale, resolveSpriteLayout, resolveActiveTheme, renderDialogueHtml, spriteStoredScale } from '../src/visual/igs-ui/settings-normalize.js';
 import {
     DIALOG_SKIN_BLACK_WHITE_MANGA,
     DIALOG_SKIN_CUTE_PINK,
@@ -1359,6 +1359,17 @@ test('gate:igs-ui:resolve-sprite-layout-default-scale-only-fills-unplaced', () =
     // 旧设置没有这项、或值异常时仍是 100
     assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '上传角色', '', '', undefined), { posX: 50, posY: 100, scale: 100 });
     assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '上传角色', '', '', 'abc'), { posX: 50, posY: 100, scale: 100 });
+});
+
+test('gate:igs-ui:sprite-display-scale-multiplies-every-layout', () => {
+    const placed = { posX: 70, posY: 30, scale: 180 };
+    const plain = { posX: 50, posY: 100, scale: 100 };
+    assert.equal(applySpriteDisplayScale(placed, 100), placed);
+    assert.deepEqual(applySpriteDisplayScale(placed, 80), { posX: 70, posY: 30, scale: 144 });
+    assert.deepEqual(applySpriteDisplayScale(plain, 50), { posX: 50, posY: 100, scale: 50 });
+    assert.deepEqual(applySpriteDisplayScale(plain, undefined), plain);
+    assert.equal(spriteStoredScale(144, 80), 180);
+    assert.equal(spriteStoredScale(80, 100), 80);
 });
 
 test('gate:scene:igs-message-source:formats-default-bubble-body', () => {

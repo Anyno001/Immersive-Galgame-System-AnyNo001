@@ -1,3 +1,4 @@
+import { spriteStoredScale } from './settings-normalize.js';
 import { esc } from './reader-value-utils.js';
 import { peekSpriteHead, probeSpriteHead, spriteBackgroundSize } from './fx-anchor.js';
 import { enterSpriteEditMode, spriteDragPosition } from './sprite-edit.js';
@@ -202,15 +203,16 @@ export function exitCastSlotEdit(overlay, current, save, ctx = {}) {
     const patch = {};
     let changed = false;
     let scale = null;
+    const globalScale = current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.spriteDisplayScale;
     for (const w of em.work) {
         if (w.reset) {
             delete layouts[w.key];
             changed = true;
         } else if (w.dirty) {
-            layouts[w.key] = { posX: w.cur.posX, posY: w.cur.posY, scale: w.cur.scale };
+            layouts[w.key] = { posX: w.cur.posX, posY: w.cur.posY, scale: spriteStoredScale(w.cur.scale, globalScale) };
             changed = true;
         }
-        if (w.scaleDirty) scale = w.cur.scale;
+        if (w.scaleDirty) scale = spriteStoredScale(w.cur.scale, globalScale);
     }
     if (changed) patch.castSlotLayouts = layouts;
     if (scale != null && mode) {

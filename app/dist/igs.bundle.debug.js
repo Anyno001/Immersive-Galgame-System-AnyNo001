@@ -9957,6 +9957,7 @@ const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.btnOrder',
     'readerSettings.spriteLayouts',
     'readerSettings.spriteDefaultScale',
+    'readerSettings.spriteDisplayScale',
     'readerSettings.spriteHeads',
     'readerSettings.vnTheme.preset',
     'readerSettings.classicVnTheme.preset',
@@ -10539,7 +10540,7 @@ const { pickFxAccent } = require("src/visual/igs-ui/fx-symbols.js");
 const { prefersReducedMotion } = require("src/visual/igs-ui/reduced-motion.js");
 const { applyImageCountOverride, buildImageActionContext, buildProgressText, countBoundImageSlots, normalizePollAttempts, normalizePollInterval, normalizeSnapshotImageState, resolveSegmentImageIndex, shouldPollReaderImages, waitForReaderImagePoll } = require("src/visual/igs-ui/reader-image-state.js");
 const { attachSettingsViewportEvents, clearChildren, detachSettingsViewportEvents, ensureImageLoadingSpinner, ensureStyleTag, getOwnerWindow, getRootDocument, removeImageLoadingSpinner, syncSettingsViewportVars, unmountNode } = require("src/visual/igs-ui/reader-dom-utils.js");
-const { buildTextSegments, getPath, normalizeBtnOrder, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSettingsTab, normalizeSettingsValue, normalizeSpriteDefaultScale, normalizeSpriteLayouts, setPath } = require("src/visual/igs-ui/settings-normalize.js");
+const { buildTextSegments, getPath, normalizeBtnOrder, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSettingsTab, normalizeSettingsValue, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteLayouts, setPath } = require("src/visual/igs-ui/settings-normalize.js");
 const { clearReaderModeRuntime, exitDocumentFullscreen } = require("src/visual/igs-ui/reader-runtime.js");
 const { enterSpriteEditMode } = require("src/visual/igs-ui/sprite-edit.js");
 const { enterCastSlotEdit } = require("src/visual/igs-ui/cast-slot-edit.js");
@@ -14148,6 +14149,8 @@ function createIgsReaderHost(options = {}) {
           ${CHARACTER_ADD_MENU}
         </div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
+        ${field('readerSettings.spriteDisplayScale', '立绘显示比例', selectInput('readerSettings.spriteDisplayScale', reader.spriteDisplayScale || 100, [50, 60, 70, 80, 90, 100, 110, 120, 130, 150].map((n) => [n, `${n}%`])))}
+        <div class="igs-source-filter-note">舞台上的每张立绘都按这个比例显示。100% 是现在占满舞台的高度，调过位置的立绘也一起变。</div>
         ${field('readerSettings.spriteDefaultScale', '立绘默认高度', selectInput('readerSettings.spriteDefaultScale', reader.spriteDefaultScale || 100, [60, 70, 80, 90, 100, 110, 120, 130, 150].map((n) => [n, `${n}%`])))}
         <div class="igs-source-filter-note">没单独拖动调过的立绘按这个高度显示，自己上传的图大小不一时统一用它压一压；调过位置的立绘不受影响。</div>
         ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强')}
@@ -15636,6 +15639,7 @@ function createIgsReaderHost(options = {}) {
             imgBrightness: 100,
             cgHoldPages: 4,
             spriteDefaultScale: 100,
+            spriteDisplayScale: 100,
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),
@@ -15707,6 +15711,7 @@ function createIgsReaderHost(options = {}) {
         normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
         normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);
         normalized.spriteDefaultScale = normalizeSpriteDefaultScale(normalized.spriteDefaultScale);
+        normalized.spriteDisplayScale = normalizeSpriteDisplayScale(normalized.spriteDisplayScale);
         normalized.spriteHeads = normalizeSpriteHeads(normalized.spriteHeads);
         normalized.castSlotLayouts = normalizeSpriteLayouts(normalized.castSlotLayouts);
         // 对话主题（vnTheme）按模式存进 readerSettings。独立于 _v 门控处理，避免 schema 版本
@@ -50727,6 +50732,7 @@ function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.dialogTextEffect') return ['off', 'outline', 'shadow'].includes(value) ? value : 'off';
         if (path === 'readerSettings.dialogTextEffectColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
         if (path === 'readerSettings.spriteDefaultScale') return normalizeSpriteDefaultScale(value);
+        if (path === 'readerSettings.spriteDisplayScale') return normalizeSpriteDisplayScale(value);
         if (path === 'readerSettings.dialogTextEffectStrength') return Math.max(5, Math.min(50, Number(value) || 20));
         if (path === 'readerSettings.dialogTextEffectSize') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
         if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|skinDialogScale|toolbarScale|inputScale|imageCountOverride|imgBrightness|cgHoldPages|gradientVeil\.(heightPercent|opacity)/.test(path)) {
@@ -50837,6 +50843,26 @@ function normalizeSpriteDefaultScale(value) {
     return Number.isFinite(n) && n > 0 ? Math.max(40, Math.min(200, n)) : 100;
 }
 
+// 全局显示比例：100 是当前占满舞台的高度，所有立绘一起乘上它。
+function normalizeSpriteDisplayScale(value) {
+    return normalizeSpriteDefaultScale(value);
+}
+function applySpriteDisplayScale(layout, displayScale) {
+    const base = layout && typeof layout === 'object' ? layout : { posX: 50, posY: 100, scale: 100 };
+    const factor = normalizeSpriteDisplayScale(displayScale) / 100;
+    const scale = Number(base.scale);
+    const next = (Number.isFinite(scale) ? scale : 100) * factor;
+    if (next === base.scale) return base;
+    return { ...base, scale: next };
+}
+
+// 编辑时画面上的是显示高度。存回位置时除掉全局比例，避免下次再乘一次。
+function spriteStoredScale(displayScale, globalPercent) {
+    const factor = normalizeSpriteDisplayScale(globalPercent) / 100;
+    const n = Number(displayScale);
+    return (Number.isFinite(n) ? n : 100) / factor;
+}
+
 // defaultScale：没单独调过位置的立绘用的默认高度（舞台高度百分比），来自 readerSettings.spriteDefaultScale。
 function resolveSpriteLayout(layouts, mode, character, mood, outfit = '', defaultScale = 100) {
     const def = { posX: 50, posY: 100, scale: normalizeSpriteDefaultScale(defaultScale) };
@@ -50929,6 +50955,9 @@ __igsDefine(exports, "normalizeHiddenButtons", () => normalizeHiddenButtons);
 __igsDefine(exports, "normalizeBtnOrder", () => normalizeBtnOrder);
 __igsDefine(exports, "normalizeSpriteLayouts", () => normalizeSpriteLayouts);
 __igsDefine(exports, "normalizeSpriteDefaultScale", () => normalizeSpriteDefaultScale);
+__igsDefine(exports, "normalizeSpriteDisplayScale", () => normalizeSpriteDisplayScale);
+__igsDefine(exports, "applySpriteDisplayScale", () => applySpriteDisplayScale);
+__igsDefine(exports, "spriteStoredScale", () => spriteStoredScale);
 __igsDefine(exports, "resolveSpriteLayout", () => resolveSpriteLayout);
 __igsDefine(exports, "resolveActiveTheme", () => resolveActiveTheme);
 __igsDefine(exports, "renderDialogueHtml", () => renderDialogueHtml);
@@ -51518,7 +51547,7 @@ __igsDefine(exports, "addRuntimeCleanup", () => addRuntimeCleanup);
 __igsDefine(exports, "exitDocumentFullscreen", () => exitDocumentFullscreen);
 });
 __igsRegister("src/visual/igs-ui/sprite-edit.js", function(module, exports, require) {
-const { normalizeSpriteDefaultScale, resolveSpriteLayout } = require("src/visual/igs-ui/settings-normalize.js");
+const { applySpriteDisplayScale, normalizeSpriteDefaultScale, resolveSpriteLayout } = require("src/visual/igs-ui/settings-normalize.js");
 const { spriteIdentity } = require("src/scene/character-outfits.js");
 const { sceneAssetsForContext } = require("src/scene/asset-scope.js");
 const { getSillyTavernContext } = require("src/host/tavern-helper-adapter.js");
@@ -51575,6 +51604,8 @@ function enterSpriteEditMode(overlay, current, ctx = {}) {
     const mood = current.snapshot.content.spriteMood || '';
     const outfit = current.snapshot.content.spriteOutfit || '';
     const modeLayout = resolveSpriteLayout(rs.spriteLayouts, mode, character, mood, outfit, rs.spriteDefaultScale);
+    const displayScale = rs.spriteDisplayScale;
+    const shownScale = () => applySpriteDisplayScale({ scale }, displayScale).scale;
     const orig = { ...modeLayout };
     let posX = orig.posX, posY = orig.posY, scale = orig.scale;
     igsDebug('[DEBUG-sprite] enter-edit', { mode, character, mood, outfit, resolved: { ...orig }, allLayouts: rs.spriteLayouts });
@@ -51602,7 +51633,7 @@ function enterSpriteEditMode(overlay, current, ctx = {}) {
     editBar.id = 'igs-sprite-edit-bar';
     editBar.innerHTML = MAIN_BAR;
     overlay.appendChild(editBar);
-    const em = { orig, origEnhance, editBar, clickLayer, mode, character, mood, outfit, origSpriteStyle, headEdit: null, headPending: null };
+    const em = { orig, origEnhance, editBar, clickLayer, mode, character, mood, outfit, origSpriteStyle, displayScale, headEdit: null, headPending: null };
     current.spriteEditMode = em;
     const storedHead = resolveSpriteHead(rs.spriteHeads, character, mood, outfit);
     const head = { moodOnly: Boolean(mood && rs.spriteHeads && rs.spriteHeads[spriteHeadKey(character, mood, outfit)]), dirty: false, info: null };
@@ -51646,7 +51677,7 @@ function enterSpriteEditMode(overlay, current, ctx = {}) {
         const start = (em.headPending && em.headPending.value) || storedHead || info.head;
         em.headEdit = startHeadEdit({
             motion: spriteEl.parentNode,
-            sprite: { posX, posY, scale, naturalW: info.naturalW, naturalH: info.naturalH },
+            sprite: { posX, posY, scale: shownScale(), naturalW: info.naturalW, naturalH: info.naturalH },
             head: start,
             onChange: () => { head.dirty = true; },
         });
@@ -51654,7 +51685,7 @@ function enterSpriteEditMode(overlay, current, ctx = {}) {
     }
 
     function apply() {
-        spriteEl.style.backgroundSize = spriteBackgroundSize(scale);
+        spriteEl.style.backgroundSize = spriteBackgroundSize(shownScale());
         spriteEl.style.backgroundPosition = `${posX}% ${posY}%`;
     }
     apply();
@@ -51707,7 +51738,7 @@ function enterSpriteEditMode(overlay, current, ctx = {}) {
             ({ posX, posY } = spriteDragPosition({
                 posX: dragStart.posX, posY: dragStart.posY,
                 dx: event.clientX - dragStart.x, dy: event.clientY - dragStart.y,
-                stageW: rect.width, stageH: rect.height, scale,
+                stageW: rect.width, stageH: rect.height, scale: shownScale(),
                 naturalW: info && info.naturalW, naturalH: info && info.naturalH,
             }));
             igsDebug('[DEBUG-sprite] drag', { dx: event.clientX - dragStart.x, dy: event.clientY - dragStart.y, rectW: Math.round(rect.width), rectH: Math.round(rect.height), posX: Math.round(posX), posY: Math.round(posY) });
@@ -51800,7 +51831,7 @@ function exitSpriteEditMode(overlay, current, save, ctx = {}) {
     } else {
         if (spriteEl) Object.assign(spriteEl.style, em.origSpriteStyle);
         if (em.orig && spriteEl) {
-            spriteEl.style.backgroundSize = spriteBackgroundSize(em.orig.scale);
+            spriteEl.style.backgroundSize = spriteBackgroundSize(applySpriteDisplayScale({ scale: em.orig.scale }, em.displayScale).scale);
             spriteEl.style.backgroundPosition = `${em.orig.posX}% ${em.orig.posY}%`;
         }
     }
@@ -51945,6 +51976,7 @@ function startHeadEdit({ motion, sprite, head, onChange }) {
 __igsDefine(exports, "startHeadEdit", () => startHeadEdit);
 });
 __igsRegister("src/visual/igs-ui/cast-slot-edit.js", function(module, exports, require) {
+const { spriteStoredScale } = require("src/visual/igs-ui/settings-normalize.js");
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
 const { peekSpriteHead, probeSpriteHead, spriteBackgroundSize } = require("src/visual/igs-ui/fx-anchor.js");
 const { enterSpriteEditMode, spriteDragPosition } = require("src/visual/igs-ui/sprite-edit.js");
@@ -52147,15 +52179,16 @@ function exitCastSlotEdit(overlay, current, save, ctx = {}) {
     const patch = {};
     let changed = false;
     let scale = null;
+    const globalScale = current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.spriteDisplayScale;
     for (const w of em.work) {
         if (w.reset) {
             delete layouts[w.key];
             changed = true;
         } else if (w.dirty) {
-            layouts[w.key] = { posX: w.cur.posX, posY: w.cur.posY, scale: w.cur.scale };
+            layouts[w.key] = { posX: w.cur.posX, posY: w.cur.posY, scale: spriteStoredScale(w.cur.scale, globalScale) };
             changed = true;
         }
-        if (w.scaleDirty) scale = w.cur.scale;
+        if (w.scaleDirty) scale = spriteStoredScale(w.cur.scale, globalScale);
     }
     if (changed) patch.castSlotLayouts = layouts;
     if (scale != null && mode) {
@@ -66121,7 +66154,7 @@ const { ensureImageLoadingSpinner, ensureImageEmptyPlaceholder, getOwnerWindow, 
 const { applyTransparentGlassMaterial } = require("src/styles/glass-material.js");
 const { resolveStatusHudScale, resolveStatusHudLocationScale, NSFW_VEIL_LEVEL_STYLE, normalizeStatusHudSettings } = require("src/data/shujuku/status-hud-model.js");
 const { computeLineHeight, igsDebug } = require("src/visual/igs-ui/reader-value-utils.js");
-const { renderDialogueHtml, resolveActiveTheme, resolveSpriteLayout } = require("src/visual/igs-ui/settings-normalize.js");
+const { applySpriteDisplayScale, renderDialogueHtml, resolveActiveTheme, resolveSpriteLayout } = require("src/visual/igs-ui/settings-normalize.js");
 const { applyReaderModeRuntime } = require("src/visual/igs-ui/reader-runtime.js");
 const { applyTypewriterEffect, cancelTypewriter } = require("src/visual/igs-ui/typewriter-runtime.js");
 const { applyVoiceBark } = require("src/visual/igs-ui/voice-bark.js");
@@ -67306,6 +67339,10 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const castSpeakerMood = snapshot.content.spriteMood || '';
     const castSpeakerOutfit = snapshot.content.spriteOutfit || '';
     const castSlotLayouts = snapshot.readerSettings.castSlotLayouts || {};
+    const presentSpriteLayout = (character, mood, outfit) => applySpriteDisplayScale(
+        resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, character, mood, outfit, snapshot.readerSettings.spriteDefaultScale),
+        snapshot.readerSettings.spriteDisplayScale,
+    );
     const withCastSlot = (entry, character, outfit, slotIndex) => {
         const slotKey = slotIndex == null ? '' : castSlotKey(snapshot.mode, castLayout.count, slotIndex, spriteIdentity(character, outfit));
         const saved = slotKey ? castSlotLayouts[slotKey] : null;
@@ -67319,14 +67356,14 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         stageH: stageMotion.clientHeight,
         align: isCastAlignEnabled(snapshot),
         speaker: spriteAssetUrl ? withCastSlot({
-            ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, castSpeakerKey, castSpeakerMood, castSpeakerOutfit, snapshot.readerSettings.spriteDefaultScale),
+            ...presentSpriteLayout(castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
             ...(speakerSlotX != null ? { posX: speakerSlotX } : {}),
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
         }, castSpeakerKey, castSpeakerOutfit, castLayout.speakerSlot) : null,
         members: castLayout.members.map((m) => {
-            const layout = resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, m.character, m.mood, m.outfit, snapshot.readerSettings.spriteDefaultScale);
+            const layout = presentSpriteLayout(m.character, m.mood, m.outfit);
             return withCastSlot({
                 character: m.character,
                 url: resolveAssetUrl(m.image),
@@ -67367,7 +67404,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
             const spriteMood = snapshot.content.spriteMood || '';
             const spriteOutfit = snapshot.content.spriteOutfit || '';
-            const layout = { ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood, spriteOutfit, snapshot.readerSettings.spriteDefaultScale) };
+            const layout = { ...presentSpriteLayout(spriteKey, spriteMood, spriteOutfit) };
             if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
             else if (speakerSlotX != null) layout.posX = speakerSlotX;
             spriteEl.style.backgroundSize = spriteBackgroundSize(layout.scale);

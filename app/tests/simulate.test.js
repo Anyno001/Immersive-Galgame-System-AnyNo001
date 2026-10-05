@@ -3875,6 +3875,8 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     assert.match(scenesView.snapshot.html, /古城/);
     const charsView = settings.switchSceneSubTab('characters');
     assert.match(charsView.snapshot.html, /统一角色立绘位置/);
+    assert.match(charsView.snapshot.html, /data-path="readerSettings\.spriteDisplayScale"/);
+    assert.match(charsView.snapshot.html, /立绘显示比例/);
     assert.match(charsView.snapshot.html, /data-switch="bridge\.sceneAssets\.spriteEnhance\.enabled" aria-pressed="false"/);
     assert.match(charsView.snapshot.html, /可能增加性能开销/);
     assert.doesNotMatch(charsView.snapshot.html, /data-path="bridge\.sceneAssets\.spriteEnhance\.mode"/);

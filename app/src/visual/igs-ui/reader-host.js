@@ -203,6 +203,7 @@ import {
     normalizeSettingsTab,
     normalizeSettingsValue,
     normalizeSpriteDefaultScale,
+    normalizeSpriteDisplayScale,
     normalizeSpriteLayouts,
     setPath,
 } from './settings-normalize.js';
@@ -3844,6 +3845,8 @@ export function createIgsReaderHost(options = {}) {
           ${CHARACTER_ADD_MENU}
         </div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
+        ${field('readerSettings.spriteDisplayScale', '立绘显示比例', selectInput('readerSettings.spriteDisplayScale', reader.spriteDisplayScale || 100, [50, 60, 70, 80, 90, 100, 110, 120, 130, 150].map((n) => [n, `${n}%`])))}
+        <div class="igs-source-filter-note">舞台上的每张立绘都按这个比例显示。100% 是现在占满舞台的高度，调过位置的立绘也一起变。</div>
         ${field('readerSettings.spriteDefaultScale', '立绘默认高度', selectInput('readerSettings.spriteDefaultScale', reader.spriteDefaultScale || 100, [60, 70, 80, 90, 100, 110, 120, 130, 150].map((n) => [n, `${n}%`])))}
         <div class="igs-source-filter-note">没单独拖动调过的立绘按这个高度显示，自己上传的图大小不一时统一用它压一压；调过位置的立绘不受影响。</div>
         ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强')}
@@ -5332,6 +5335,7 @@ export function createIgsReaderHost(options = {}) {
             imgBrightness: 100,
             cgHoldPages: 4,
             spriteDefaultScale: 100,
+            spriteDisplayScale: 100,
             showStatusLine: false,
             typewriter: { ...TYPEWRITER_DEFAULTS },
             stageShake: normalizeStageShakeSettings(null),
@@ -5403,6 +5407,7 @@ export function createIgsReaderHost(options = {}) {
         normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
         normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);
         normalized.spriteDefaultScale = normalizeSpriteDefaultScale(normalized.spriteDefaultScale);
+        normalized.spriteDisplayScale = normalizeSpriteDisplayScale(normalized.spriteDisplayScale);
         normalized.spriteHeads = normalizeSpriteHeads(normalized.spriteHeads);
         normalized.castSlotLayouts = normalizeSpriteLayouts(normalized.castSlotLayouts);
         // 对话主题（vnTheme）按模式存进 readerSettings。独立于 _v 门控处理，避免 schema 版本

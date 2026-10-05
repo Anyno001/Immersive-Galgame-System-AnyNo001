@@ -1,4 +1,4 @@
-import { normalizeSpriteDefaultScale, resolveSpriteLayout } from './settings-normalize.js';
+import { applySpriteDisplayScale, normalizeSpriteDefaultScale, resolveSpriteLayout } from './settings-normalize.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
 import { sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
@@ -57,6 +57,8 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     const mood = current.snapshot.content.spriteMood || '';
     const outfit = current.snapshot.content.spriteOutfit || '';
     const modeLayout = resolveSpriteLayout(rs.spriteLayouts, mode, character, mood, outfit, rs.spriteDefaultScale);
+    const displayScale = rs.spriteDisplayScale;
+    const shownScale = () => applySpriteDisplayScale({ scale }, displayScale).scale;
     const orig = { ...modeLayout };
     let posX = orig.posX, posY = orig.posY, scale = orig.scale;
     igsDebug('[DEBUG-sprite] enter-edit', { mode, character, mood, outfit, resolved: { ...orig }, allLayouts: rs.spriteLayouts });
@@ -84,7 +86,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     editBar.id = 'igs-sprite-edit-bar';
     editBar.innerHTML = MAIN_BAR;
     overlay.appendChild(editBar);
-    const em = { orig, origEnhance, editBar, clickLayer, mode, character, mood, outfit, origSpriteStyle, headEdit: null, headPending: null };
+    const em = { orig, origEnhance, editBar, clickLayer, mode, character, mood, outfit, origSpriteStyle, displayScale, headEdit: null, headPending: null };
     current.spriteEditMode = em;
     const storedHead = resolveSpriteHead(rs.spriteHeads, character, mood, outfit);
     const head = { moodOnly: Boolean(mood && rs.spriteHeads && rs.spriteHeads[spriteHeadKey(character, mood, outfit)]), dirty: false, info: null };
@@ -128,7 +130,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
         const start = (em.headPending && em.headPending.value) || storedHead || info.head;
         em.headEdit = startHeadEdit({
             motion: spriteEl.parentNode,
-            sprite: { posX, posY, scale, naturalW: info.naturalW, naturalH: info.naturalH },
+            sprite: { posX, posY, scale: shownScale(), naturalW: info.naturalW, naturalH: info.naturalH },
             head: start,
             onChange: () => { head.dirty = true; },
         });
@@ -136,7 +138,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     }
 
     function apply() {
-        spriteEl.style.backgroundSize = spriteBackgroundSize(scale);
+        spriteEl.style.backgroundSize = spriteBackgroundSize(shownScale());
         spriteEl.style.backgroundPosition = `${posX}% ${posY}%`;
     }
     apply();
@@ -189,7 +191,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
             ({ posX, posY } = spriteDragPosition({
                 posX: dragStart.posX, posY: dragStart.posY,
                 dx: event.clientX - dragStart.x, dy: event.clientY - dragStart.y,
-                stageW: rect.width, stageH: rect.height, scale,
+                stageW: rect.width, stageH: rect.height, scale: shownScale(),
                 naturalW: info && info.naturalW, naturalH: info && info.naturalH,
             }));
             igsDebug('[DEBUG-sprite] drag', { dx: event.clientX - dragStart.x, dy: event.clientY - dragStart.y, rectW: Math.round(rect.width), rectH: Math.round(rect.height), posX: Math.round(posX), posY: Math.round(posY) });
@@ -283,7 +285,7 @@ export function exitSpriteEditMode(overlay, current, save, ctx = {}) {
     } else {
         if (spriteEl) Object.assign(spriteEl.style, em.origSpriteStyle);
         if (em.orig && spriteEl) {
-            spriteEl.style.backgroundSize = spriteBackgroundSize(em.orig.scale);
+            spriteEl.style.backgroundSize = spriteBackgroundSize(applySpriteDisplayScale({ scale: em.orig.scale }, em.displayScale).scale);
             spriteEl.style.backgroundPosition = `${em.orig.posX}% ${em.orig.posY}%`;
         }
     }

@@ -65,6 +65,7 @@ export function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.dialogTextEffect') return ['off', 'outline', 'shadow'].includes(value) ? value : 'off';
         if (path === 'readerSettings.dialogTextEffectColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
         if (path === 'readerSettings.spriteDefaultScale') return normalizeSpriteDefaultScale(value);
+        if (path === 'readerSettings.spriteDisplayScale') return normalizeSpriteDisplayScale(value);
         if (path === 'readerSettings.dialogTextEffectStrength') return Math.max(5, Math.min(50, Number(value) || 20));
         if (path === 'readerSettings.dialogTextEffectSize') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
         if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|skinDialogScale|toolbarScale|inputScale|imageCountOverride|imgBrightness|cgHoldPages|gradientVeil\.(heightPercent|opacity)/.test(path)) {
@@ -181,6 +182,27 @@ export function normalizeSpriteLayouts(value) {
 export function normalizeSpriteDefaultScale(value) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? Math.max(40, Math.min(200, n)) : 100;
+}
+
+// 全局显示比例：100 是当前占满舞台的高度，所有立绘一起乘上它。
+export function normalizeSpriteDisplayScale(value) {
+    return normalizeSpriteDefaultScale(value);
+}
+
+export function applySpriteDisplayScale(layout, displayScale) {
+    const base = layout && typeof layout === 'object' ? layout : { posX: 50, posY: 100, scale: 100 };
+    const factor = normalizeSpriteDisplayScale(displayScale) / 100;
+    const scale = Number(base.scale);
+    const next = (Number.isFinite(scale) ? scale : 100) * factor;
+    if (next === base.scale) return base;
+    return { ...base, scale: next };
+}
+
+// 编辑时画面上的是显示高度。存回位置时除掉全局比例，避免下次再乘一次。
+export function spriteStoredScale(displayScale, globalPercent) {
+    const factor = normalizeSpriteDisplayScale(globalPercent) / 100;
+    const n = Number(displayScale);
+    return (Number.isFinite(n) ? n : 100) / factor;
 }
 
 // defaultScale：没单独调过位置的立绘用的默认高度（舞台高度百分比），来自 readerSettings.spriteDefaultScale。

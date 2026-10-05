@@ -20,6 +20,7 @@ import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { resolveStatusHudScale, resolveStatusHudLocationScale, NSFW_VEIL_LEVEL_STYLE, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import {
+    applySpriteDisplayScale,
     renderDialogueHtml,
     resolveActiveTheme,
     resolveSpriteLayout,
@@ -1224,6 +1225,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const castSpeakerMood = snapshot.content.spriteMood || '';
     const castSpeakerOutfit = snapshot.content.spriteOutfit || '';
     const castSlotLayouts = snapshot.readerSettings.castSlotLayouts || {};
+    const presentSpriteLayout = (character, mood, outfit) => applySpriteDisplayScale(
+        resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, character, mood, outfit, snapshot.readerSettings.spriteDefaultScale),
+        snapshot.readerSettings.spriteDisplayScale,
+    );
     const withCastSlot = (entry, character, outfit, slotIndex) => {
         const slotKey = slotIndex == null ? '' : castSlotKey(snapshot.mode, castLayout.count, slotIndex, spriteIdentity(character, outfit));
         const saved = slotKey ? castSlotLayouts[slotKey] : null;
@@ -1237,14 +1242,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         stageH: stageMotion.clientHeight,
         align: isCastAlignEnabled(snapshot),
         speaker: spriteAssetUrl ? withCastSlot({
-            ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, castSpeakerKey, castSpeakerMood, castSpeakerOutfit, snapshot.readerSettings.spriteDefaultScale),
+            ...presentSpriteLayout(castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
             ...(speakerSlotX != null ? { posX: speakerSlotX } : {}),
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
         }, castSpeakerKey, castSpeakerOutfit, castLayout.speakerSlot) : null,
         members: castLayout.members.map((m) => {
-            const layout = resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, m.character, m.mood, m.outfit, snapshot.readerSettings.spriteDefaultScale);
+            const layout = presentSpriteLayout(m.character, m.mood, m.outfit);
             return withCastSlot({
                 character: m.character,
                 url: resolveAssetUrl(m.image),
@@ -1285,7 +1290,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
             const spriteMood = snapshot.content.spriteMood || '';
             const spriteOutfit = snapshot.content.spriteOutfit || '';
-            const layout = { ...resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, spriteKey, spriteMood, spriteOutfit, snapshot.readerSettings.spriteDefaultScale) };
+            const layout = { ...presentSpriteLayout(spriteKey, spriteMood, spriteOutfit) };
             if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
             else if (speakerSlotX != null) layout.posX = speakerSlotX;
             spriteEl.style.backgroundSize = spriteBackgroundSize(layout.scale);
