@@ -1666,7 +1666,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const target = event.target;
             if (target && typeof target.closest === 'function' && target.closest('button,input,textarea,select,a,#igs-settings,#igs-map-panel,#igs-record-panel,#igs-cg-gallery')) return;
             const live = current.snapshot || snapshot;
-            if (live && live.readerSettings && live.readerSettings.dblclickHideUi === false) return;
+            if (!(live && live.readerSettings && live.readerSettings.dblclickCgOnly === true)) return;
             event.preventDefault();
             if (root.getAttribute('data-igs-cg-only') === '1') root.removeAttribute('data-igs-cg-only');
             else root.setAttribute('data-igs-cg-only', '1');
@@ -1726,7 +1726,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             if (pending && win && typeof win.clearTimeout === 'function') win.clearTimeout(pending);
             // 关了双击隐藏就不用等双击：单击立即翻页，连点也逐次翻。
             const live = current.snapshot || snapshot;
-            const waitDouble = !(live && live.readerSettings && live.readerSettings.dblclickHideUi === false);
+            const waitDouble = Boolean(live && live.readerSettings && live.readerSettings.dblclickCgOnly === true);
             if (detail >= 2 && waitDouble) {
                 dialogPageTimers.delete(dialog);
                 return;

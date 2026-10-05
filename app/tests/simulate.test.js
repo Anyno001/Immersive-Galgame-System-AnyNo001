@@ -2420,12 +2420,20 @@ test('gate:simulation:double-click-keeps-cg-and-skips-the-page-turn', async () =
 
     const opened = await vn.openLatestAvailable('pc');
     const overlay = document.getElementById('igs-overlay');
-    const dialog = overlay.querySelector('#igs-dialog');
     const button = overlay.querySelector('button');
+
+    assert.equal(opened.reader.snapshot.content.progress, '1 / 2');
+    // 默认关：双击不收起对话框。
+    assert.equal(opened.reader.snapshot.readerSettings.dblclickCgOnly, false);
+    overlay.dispatchEvent({ type: 'dblclick', target: overlay });
+    assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
+    const enable = opened.reader.controller.openSettings('reader').controller;
+    enable.setValue('readerSettings.dblclickCgOnly', true);
+    assert.equal(enable.close().ok, true);
+    const dialog = overlay.querySelector('#igs-dialog');
     dialog.style.left = '0px';
     dialog.style.width = '200px';
 
-    assert.equal(opened.reader.snapshot.content.progress, '1 / 2');
     button.dispatchEvent({ type: 'dblclick', target: button });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
@@ -2442,9 +2450,9 @@ test('gate:simulation:double-click-keeps-cg-and-skips-the-page-turn', async () =
     overlay.dispatchEvent({ type: 'dblclick', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
-    assert.equal(opened.reader.snapshot.readerSettings.dblclickHideUi, true);
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dblclickCgOnly, true);
     const settings = opened.reader.controller.openSettings('reader').controller;
-    settings.setValue('readerSettings.dblclickHideUi', false);
+    settings.setValue('readerSettings.dblclickCgOnly', false);
     assert.equal(settings.close().ok, true);
     overlay.dispatchEvent({ type: 'dblclick', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
