@@ -3877,7 +3877,9 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     const charsView = settings.switchSceneSubTab('characters');
     assert.match(charsView.snapshot.html, /统一角色立绘位置/);
     assert.match(charsView.snapshot.html, /data-path="readerSettings\.spriteDisplayScale"/);
-    assert.match(charsView.snapshot.html, /立绘显示比例/);
+    assert.match(charsView.snapshot.html, /立绘全局缩放/);
+    assert.match(charsView.snapshot.html, /立绘基准高度/);
+    assert.doesNotMatch(charsView.snapshot.html, /调过位置的立绘也一起变|调过位置的立绘不受影响/);
     assert.match(charsView.snapshot.html, /data-switch="bridge\.sceneAssets\.spriteEnhance\.enabled" aria-pressed="false"/);
     assert.match(charsView.snapshot.html, /可能增加性能开销/);
     assert.doesNotMatch(charsView.snapshot.html, /data-path="bridge\.sceneAssets\.spriteEnhance\.mode"/);
