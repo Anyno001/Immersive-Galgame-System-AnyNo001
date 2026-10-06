@@ -273,7 +273,7 @@ export function createAssetGenerationService(deps) {
         const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
         const transparent = isSprite && plannedVia !== 'chatu8' && plannedVia !== 'baibai'
             && (plannedVia === 'dbgen' || supportsNaiTransparentBackground(s.auto.nai.model));
-        const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates });
+        const slot = buildAssetSlot(item, { transparent, templates: s.auto.assets.templates, positiveContext: s.auto.nai.artistPrefix });
         const size = isSprite ? s.auto.assets.spriteSize : backgroundSize(s);
         // 数据库生图：描述只说明画什么。正负模板随 userPrompts 传出，出图前合并进最终 caption。
         const userPrompts = { positive: slot.scene, negative: slot.sceneUc };
@@ -697,7 +697,7 @@ export function createAssetGenerationService(deps) {
         const transparent = via === 'dbgen' || (via === 'nai' && supportsNaiTransparentBackground(s.auto.nai.model));
         const slot = buildAssetSlot(
             { need: { type: 'sprite', name: '' }, tags: '', uc: '' },
-            { transparent, templates: s.auto.assets.templates },
+            { transparent, templates: s.auto.assets.templates, positiveContext: s.auto.nai.artistPrefix },
         );
         const prompts = expressionSpritePrompts(slot.scene, slot.sceneUc);
         return {

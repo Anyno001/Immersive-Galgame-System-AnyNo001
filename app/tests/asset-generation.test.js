@@ -7,6 +7,7 @@ import {
     addGeneratedAssetToLibrary, bindGeneratedSprite, fileGeneratedHoldings, renameGeneratedLibraryEntry, removeGeneratedLibraryEntry, normalizeGeneratedLibrary,
 } from '../src/scene/asset-match.js';
 import { parseAssetPlan, buildAssetSlot, buildDictionaryAssetItems, ASSET_PLANNER_SYSTEM_PROMPT } from '../src/generated-images/illustration/asset-prompt.js';
+import { buildItemSlot } from '../src/generated-images/illustration/item-prompt.js';
 import { looksLikeRefusal, requestWithSoftRetry, applyTemplate } from '../src/generated-images/illustration/prompt-kit.js';
 import { buildNaiV4Request, supportsNaiTransparentBackground } from '../src/generated-images/request-builders/nai-v4-builder.js';
 import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from '../src/generated-images/illustration/auto-illustration-settings.js';
@@ -128,6 +129,12 @@ test('gate:assets:sprite-slot-uses-light-grey-matte-or-native-transparency', () 
     assert.ok(grey.sceneUc.includes('white background'));
     const native = buildAssetSlot(item, { transparent: true });
     assert.ok(native.scene.includes('transparent background') && !native.scene.includes('grey background'));
+    const asked = buildAssetSlot(item, { templates: { sprite: '{tags}, 2::transparent background::, {matte}' } });
+    assert.ok(asked.scene.includes('2::transparent background::') && !/grey background|simple background|flat color background/.test(asked.scene));
+    const viaPrefix = buildAssetSlot(item, { positiveContext: 'artist:foo, transparent background' });
+    assert.ok(!viaPrefix.scene.includes('grey background'));
+    assert.ok(buildItemSlot('key', { positiveContext: '1.5::transparent background::' }).scene.endsWith('key'));
+    assert.ok(buildItemSlot('key').scene.includes('light grey background'));
     assert.equal(supportsNaiTransparentBackground('nai-diffusion-4-5-full'), false);
     assert.equal(supportsNaiTransparentBackground('nai-diffusion-5-full'), true);
     const v5 = buildNaiV4Request(native, { model: 'nai-diffusion-5-full' }, () => 0);

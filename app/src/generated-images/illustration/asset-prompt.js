@@ -3,7 +3,7 @@
 // 保证背景图里没有人、立绘始终是单人 3/4 身 + 可抠除的浅灰纯色底。
 import {
     FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, DEFAULT_ASSET_TEMPLATES,
-    MATTE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, applyTemplate,
+    MATTE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, applyTemplate, dropMatteTagsWhenTransparent,
     buildDictionaryBackgroundTags,
 } from './prompt-kit.js';
 import { buildCharacterDnaPromptParts, mergePromptTags } from '../../scene/character-dna.js';
@@ -113,7 +113,7 @@ function joinTags(...parts) {
 }
 
 // 生成可直接交给 buildNaiV4Request 的 slot；transparent 为 true 时走 V5 原生透明底。
-export function buildAssetSlot(item, { transparent = false, templates = {} } = {}) {
+export function buildAssetSlot(item, { transparent = false, templates = {}, positiveContext = '' } = {}) {
     const t = { ...DEFAULT_ASSET_TEMPLATES, ...templates };
     if (item.need.type === 'background') {
         return {
@@ -126,7 +126,7 @@ export function buildAssetSlot(item, { transparent = false, templates = {} } = {
     const dnaParts = item.need.dna ? buildCharacterDnaPromptParts(item.need.dna, { includeDefaultAppearance: true }) : null;
     const tags = dnaParts && dnaParts.positive ? mergePromptTags(dnaParts.positive, item.tags) : item.tags;
     return {
-        scene: applyTemplate(t.sprite, { tags, matte: transparent ? TRANSPARENT_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS }),
+        scene: dropMatteTagsWhenTransparent(applyTemplate(t.sprite, { tags, matte: transparent ? TRANSPARENT_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS }), positiveContext),
         sceneUc: joinTags(t.spriteNegative, dnaParts ? dnaParts.negative : '', NSFW_NEGATIVE_GUARD, item.uc),
         chars: [],
         transparent,

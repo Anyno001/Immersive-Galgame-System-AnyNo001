@@ -119,7 +119,7 @@ export function createItemImageService(deps) {
             // 智绘姬 / 柏宝绘出图不保证透明底：走它们时按非透明底出图，不信任 NAI 模型的原生透明能力。
             const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
             const transparent = plannedVia !== 'chatu8' && plannedVia !== 'baibai' && supportsNaiTransparentBackground(s.auto.nai.model);
-            const slot = buildItemSlot(plan.tags, { transparent, uc: plan.uc });
+            const slot = buildItemSlot(plan.tags, { transparent, uc: plan.uc, positiveContext: s.auto.nai.artistPrefix });
             const meta = { messageId: floor ? floor.messageId : undefined, size: s.items.size,
                 description: `物品：${need.name}${need.description ? `，${need.description}` : ''}`, userPrompts: { positive: slot.scene, negative: slot.sceneUc } };
             let result;

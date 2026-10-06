@@ -1,6 +1,6 @@
 // 物品图提示词：副 LLM 只写物品外观 tag，构图、底色与禁止项由本地模板固定。
 // 输出格式与解析复用素材补全的 id/tags/uc 协议（parseAssetPlan），编号用 ch1、ch2…。
-import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, MATTE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD } from './prompt-kit.js';
+import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, MATTE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, dropMatteTagsWhenTransparent } from './prompt-kit.js';
 import { parseAssetPlan } from './asset-prompt.js';
 
 const ITEM_TASK = [
@@ -39,9 +39,9 @@ export function buildFallbackItemPlan(need) {
 
 const joinTags = (...parts) => parts.map((p) => String(p || '').trim().replace(/^,+|,+$/g, '').trim()).filter(Boolean).join(', ');
 
-export function buildItemSlot(tags, { transparent = false, uc = '' } = {}) {
+export function buildItemSlot(tags, { transparent = false, uc = '', positiveContext = '' } = {}) {
     return {
-        scene: joinTags(ITEM_BASE_TAGS, tags, transparent ? TRANSPARENT_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS),
+        scene: dropMatteTagsWhenTransparent(joinTags(ITEM_BASE_TAGS, tags, transparent ? TRANSPARENT_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS), positiveContext),
         sceneUc: joinTags(ITEM_NEGATIVE_TAGS, NSFW_NEGATIVE_GUARD, uc),
         chars: [],
         transparent,

@@ -84,6 +84,13 @@ export const DEFAULT_ASSET_TEMPLATES = Object.freeze({
 export const MATTE_BACKGROUND_TAGS = 'simple background, grey background, light grey background, flat color background';
 export const TRANSPARENT_BACKGROUND_TAGS = 'transparent background';
 
+// 用户在模板 / 画师串里已经要透明底（含加权写法）时，摘掉自动补的灰底词，免得正向词里两种底色打架。
+const MATTE_TAG_KEYS = new Set(MATTE_BACKGROUND_TAGS.split(',').map((t) => t.trim()));
+export function dropMatteTagsWhenTransparent(prompt, context = '') {
+    if (!/transparent background/i.test(`${prompt} ${context}`)) return prompt;
+    return String(prompt || '').split(',').map((t) => t.trim()).filter((t) => t && !MATTE_TAG_KEYS.has(t.toLowerCase())).join(', ');
+}
+
 export function applyTemplate(template, vars = {}) {
     const filled = String(template || '').replace(/\{(\w+)\}/g, (_, key) => String(vars[key] == null ? '' : vars[key]));
     return filled.split(',').map((t) => t.trim()).filter(Boolean).join(', ');
