@@ -29,12 +29,12 @@ function setup(initial = {}) {
 test('onboarding controller: 换步只切页签，不写设置', () => {
     const { ctl, calls } = setup();
     ctl.handleAction('onboarding-start');
-    for (let i = 0; i < 8; i += 1) ctl.handleAction('onboarding-next');
+    for (let i = 0; i < 9; i += 1) ctl.handleAction('onboarding-next');
     assert.deepEqual(calls.filter(([k]) => k !== 'tab').map((c) => c.join(':')),
-        ['open:basic', 'reader:dialog', 'scene:scenes', 'scene:scenes', 'image:source']);
-    assert.equal(ctl.getState().step, 8);
+        ['open:basic', 'reader:dialog', 'reader:interface', 'scene:scenes', 'scene:scenes', 'image:source']);
+    assert.equal(ctl.getState().step, 9);
     ctl.handleAction('onboarding-prev');
-    assert.equal(ctl.getState().step, 7);
+    assert.equal(ctl.getState().step, 8);
 });
 
 test('onboarding controller: 完成写 done，跳过写 dismissed', () => {

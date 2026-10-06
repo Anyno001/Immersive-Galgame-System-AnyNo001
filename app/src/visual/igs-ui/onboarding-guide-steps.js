@@ -33,6 +33,11 @@ export const ONBOARDING_STEPS = Object.freeze([
         body: '在这里换对话框皮肤、调整大小和背景。字号和字体在旁边的「文字」页。',
     }),
     Object.freeze({
+        id: 'toolbar', tab: 'reader', subTabs: [['reader', 'interface']], target: ['.igs-btn-mgr-list'],
+        title: '工具栏按钮管理',
+        body: '在这里显示或隐藏工具栏上的按钮，拖动可以调整顺序。不需要的按钮关掉眼睛就行。',
+    }),
+    Object.freeze({
         id: 'scene', tab: 'scene', subTabs: [['scene', 'scenes']], target: ['.igs-scene-settings-subtabs'],
         title: '场景背景与角色立绘',
         body: '给地点配背景图，给角色配不同情绪的立绘。剧情里出现对应的地点和情绪时会自动切换。',
