@@ -2,9 +2,10 @@
 // 隐藏/收藏只写状态库；删除二次确认后走 clearIllustration（楼层 CG 同时消失）；跳转只限当前聊天。
 import { safeItemImageUrl } from './fx-item.js';
 import { setStagePauseReason } from './stage-pause.js';
+import { loadCgCatalog } from '../../media/cg-gallery-service.js';
 
-const PAGE_SIZE = 24;
 const THUMB_CACHE_LIMIT = 120;
+const DISPLAY_URL_RE = /^(?:data:image\/|https?:\/\/|blob:)/i;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 function findAction(target) {
@@ -29,6 +30,7 @@ export function createCgGalleryPanel(doc, options = {}) {
     let notice = '';
     let filters = { favoritesOnly: false, showHidden: false, currentChatOnly: false };
     let pending = Promise.resolve();
+    let loadGen = 0;
     let previousFocus = null;
     let viewerEl = null;
     const thumbs = new Map();
@@ -68,12 +70,11 @@ export function createCgGalleryPanel(doc, options = {}) {
         if (!root) return;
         const toggle = (act, on, label) => `<button type="button" class="igs-cg-filter" data-cg-act="${act}" aria-pressed="${on}">${label}</button>`;
         const list = entries.length ? `<ul class="igs-cg-grid">${entries.map(tileHtml).join('')}</ul>` : '<p class="igs-cg-empty">还没有 CG</p>';
-        const more = exhausted ? '' : '<button type="button" class="igs-cg-more" data-cg-act="more">加载更多</button>';
         const batch = entries.length ? `<button type="button" class="is-danger" data-cg-act="delete-listed">删除已列出的 ${entries.length} 张</button>` : '';
         root.innerHTML = `<header class="igs-cg-head"><h2>CG 库</h2><span class="igs-cg-head-actions">${batch}<button type="button" data-cg-act="close" aria-label="关闭 CG 库">×</button></span></header>`
             + `<div class="igs-cg-filters" role="group" aria-label="筛选">${toggle('filter-favorite', filters.favoritesOnly, '只看收藏')}${toggle('filter-hidden', filters.showHidden, '显示已隐藏')}${toggle('filter-chat', filters.currentChatOnly, '只看当前聊天')}</div>`
             + (notice ? `<p class="igs-cg-notice" role="status">${escapeHtml(notice)}</p>` : '')
-            + list + more;
+            + list;
     }
 
     // 大图层挂在面板外的容器上铺满阅读区：面板是滚动容器，放在里面会随网格滚走。点任意处或 Esc 关闭。
@@ -110,30 +111,54 @@ export function createCgGalleryPanel(doc, options = {}) {
         viewerEl.focus?.();
     }
 
-    async function loadMore(reset = false) {
-        if (!service) { notice = 'CG 库不可用'; exhausted = true; render(); return; }
-        if (reset) { entries = []; cursor = ''; exhausted = false; }
-        // 被筛掉的页可能为空：继续翻页直到拿到内容或到末尾，单次最多 5 页。
-        for (let guard = 0; guard < 5 && !exhausted; guard += 1) {
-            const page = await service.loadPage({ after: cursor, limit: PAGE_SIZE, favoritesOnly: filters.favoritesOnly, showHidden: filters.showHidden, chatId: filters.currentChatOnly ? chatId() : '' });
-            if (!page.ok) { notice = page.reason === 'read-error' ? 'CG 读取失败' : 'CG 库不可用'; exhausted = true; break; }
-            notice = '';
-            entries = entries.concat(page.items.filter((item) => !find(item.key)));
-            cursor = page.next;
-            exhausted = !page.next;
-            if (page.items.length) break;
+    function showThumb(entry) {
+        const src = safeItemImageUrl(entry && entry.dataUrl);
+        if (!src || !root || typeof root.querySelector !== 'function') { render(); return; }
+        const attr = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(entry.key) : String(entry.key).replace(/"/g, '');
+        const button = root.querySelector(`[data-cg-act="view"][data-cg-key="${attr}"]`);
+        if (!button) { render(); return; }
+        let img = typeof button.querySelector === 'function' ? button.querySelector('img') : null;
+        if (!img && typeof doc.createElement === 'function') {
+            img = doc.createElement('img');
+            if (button.insertBefore && button.firstChild) button.insertBefore(img, button.firstChild);
+            else if (button.appendChild) button.appendChild(img);
         }
+        if (img && typeof img.setAttribute === 'function') img.setAttribute('src', src);
+        else render();
+    }
+
+    async function loadCatalog() {
+        const gen = ++loadGen;
+        if (!service) { notice = 'CG 库不可用'; exhausted = true; render(); return; }
+        entries = [];
+        cursor = '';
+        exhausted = false;
+        thumbs.clear();
+        const page = await loadCgCatalog(service, { favoritesOnly: filters.favoritesOnly, showHidden: filters.showHidden, chatId: filters.currentChatOnly ? chatId() : '' });
+        if (gen !== loadGen) return;
+        if (!page.ok) { notice = page.reason === 'read-error' ? 'CG 读取失败' : 'CG 库不可用'; exhausted = true; render(); return; }
+        notice = '';
+        entries = page.items || [];
+        exhausted = true;
         render();
+        if (typeof service.hydrateEntry !== 'function') return;
+        await Promise.all(entries.map(async (entry) => {
+            if (DISPLAY_URL_RE.test(String(entry.dataUrl || ''))) return;
+            const next = await service.hydrateEntry(entry);
+            if (gen !== loadGen || !next) return;
+            entry.dataUrl = String(next.dataUrl || '');
+            thumbs.delete(entry.key);
+            showThumb(entry);
+        }));
     }
 
     async function handle(act, key) {
         const entry = key ? find(key) : null;
         if (act === 'close') { close(); return; }
-        if (act === 'more') { await loadMore(); return; }
         if (act === 'filter-favorite' || act === 'filter-hidden' || act === 'filter-chat') {
             const name = act === 'filter-favorite' ? 'favoritesOnly' : act === 'filter-hidden' ? 'showHidden' : 'currentChatOnly';
             filters = { ...filters, [name]: !filters[name] };
-            await loadMore(true);
+            await loadCatalog();
             return;
         }
         if (act === 'close-view') { closeViewer(); return; }
@@ -212,12 +237,13 @@ export function createCgGalleryPanel(doc, options = {}) {
         host = container;
         setStagePauseReason(host, 'panel:gallery', true);
         render();
-        pending = pending.then(() => loadMore(true)).catch(() => {});
+        pending = pending.then(() => loadCatalog()).catch(() => {});
         return { ok: true };
     }
 
     function close() {
         if (!root) return { ok: true, reason: 'not-open' };
+        loadGen += 1;
         closeViewer();
         root.removeEventListener('click', onClick);
         root.removeEventListener('keydown', onKeydown);

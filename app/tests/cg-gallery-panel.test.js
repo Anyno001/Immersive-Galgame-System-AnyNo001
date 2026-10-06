@@ -133,6 +133,23 @@ test('cg-gallery-panel:keys-do-not-bubble-and-close-unbinds', async () => {
     assert.equal(panel.isOpen(), false);
 });
 
+test('cg-gallery-panel:lists-the-whole-library-without-a-next-page', async () => {
+    const illustrationStore = createMemoryIllustrationStore();
+    for (let i = 0; i < 50; i += 1) {
+        await illustrationStore.putSlot(`chat-1|${i}|0`, { slot: 1, status: 'done', dataUrl: `data:image/png;base64,${i}` });
+    }
+    const service = createCgGalleryService({ illustrationStore, clearIllustration: async () => ({ ok: true }) });
+    const doc = fakeDoc();
+    const container = doc.createElement('div');
+    const panel = createCgGalleryPanel(doc, { service, getChatId: () => 'chat-1' });
+    panel.open(container);
+    await panel.whenIdle();
+    assert.equal(panel.getState().count, 50);
+    assert.equal(panel.getState().exhausted, true);
+    assert.doesNotMatch(container.children[0].innerHTML, /加载更多/);
+    panel.close();
+});
+
 test('cg-gallery-panel:missing-service-shows-unavailable-without-throwing', async () => {
     const doc = fakeDoc();
     const container = doc.createElement('div');

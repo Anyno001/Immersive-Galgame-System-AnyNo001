@@ -21,6 +21,7 @@ import { parseTables } from '../../shujuku-panel/panel-model.js';
 import { applyDiceToHits } from '../../scene/battle-context.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
+import { loadCgCatalog } from '../../media/cg-gallery-service.js';
 import { cancelFxEffects } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
@@ -1764,7 +1765,7 @@ export function createIgsReaderHost(options = {}) {
                     });
                 };
                 Promise.resolve()
-                    .then(() => service.loadPage({ limit: 60, showHidden: true, deferImages: true }))
+                    .then(() => loadCgCatalog(service, { showHidden: true }))
                     .then((page) => {
                         if (asyncState.imageCgLoadGen !== gen) return;
                         const items = page && page.ok && Array.isArray(page.items) ? page.items : [];

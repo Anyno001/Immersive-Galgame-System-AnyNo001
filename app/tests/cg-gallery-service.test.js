@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryIllustrationStore } from '../src/media/illustration-store.js';
 import { createMemoryCgGalleryStore } from '../src/media/cg-gallery-store.js';
-import { createCgGalleryService, cgEntryOf } from '../src/media/cg-gallery-service.js';
+import { createCgGalleryService, cgEntryOf, loadCgCatalog } from '../src/media/cg-gallery-service.js';
 
 async function setup(clearResult = { ok: true }) {
     const illustrationStore = createMemoryIllustrationStore();
@@ -18,6 +18,20 @@ async function setup(clearResult = { ok: true }) {
     });
     return { service, illustrationStore, galleryStore, cleared };
 }
+
+test('cg-gallery-service:catalog-lists-every-done-cg', async () => {
+    const illustrationStore = createMemoryIllustrationStore();
+    for (let i = 0; i < 50; i += 1) {
+        await illustrationStore.putSlot(`chat|${i}|0`, { slot: 1, status: 'done', dataUrl: `data:image/png;base64,${i}` });
+    }
+    const service = createCgGalleryService({ illustrationStore, clearIllustration: async () => ({ ok: true }) });
+    const page = await service.loadPage({ limit: 48 });
+    assert.equal(page.items.length, 48);
+    assert.ok(page.next);
+    const catalog = await loadCgCatalog(service, { showHidden: true });
+    assert.equal(catalog.items.length, 50);
+    assert.equal(catalog.next, '');
+});
 
 test('cg-gallery-service:entries-parse-source-floor-and-skip-unfinished', async () => {
     const { service } = await setup();

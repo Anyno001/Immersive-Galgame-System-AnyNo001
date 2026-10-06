@@ -103,3 +103,24 @@ export function createCgGalleryService({ illustrationStore, galleryStore, clearI
         removeAll,
     };
 }
+
+// 把库里的条目走完。只拿路径和标记，不在这里把图片读进内存。
+export async function loadCgCatalog(service, filters = {}) {
+    if (!service || typeof service.loadPage !== 'function') return { ok: false, reason: 'store-unavailable', items: [], next: '' };
+    const items = [];
+    const seen = new Set();
+    let after = '';
+    for (let guard = 0; guard < 500; guard += 1) {
+        const page = await service.loadPage({ ...filters, after, limit: 48, deferImages: true });
+        if (!page || page.ok === false) return page || { ok: false, reason: 'read-error', items: [], next: '' };
+        for (const item of page.items || []) {
+            if (!item || seen.has(item.key)) continue;
+            seen.add(item.key);
+            items.push(item);
+        }
+        const next = String(page.next || '');
+        if (!next || next === after) return { ok: true, items, next: '' };
+        after = next;
+    }
+    return { ok: true, items, next: '' };
+}
