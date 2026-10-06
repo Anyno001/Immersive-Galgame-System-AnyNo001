@@ -1,5 +1,7 @@
 // 相册：日常演出「拍照」把当前背景与立绘合成一张 JPEG，存进独立的 IndexedDB igs-photo-album，
 // 并以 kind:'photo' 条目并入 CG 库（楼层 CG 翻完后接着翻照片）。照片的收藏 / 隐藏 / 删除只动相册库，不碰楼层插图。
+import { compareCgNewestFirst } from './cg-gallery-service.js';
+
 const DB_NAME = 'igs-photo-album';
 const DB_VERSION = 1;
 const STORE = 'photos';
@@ -33,6 +35,7 @@ export function createMemoryPhotoAlbumStore() {
     const photos = new Map();
     return {
         async list() { return Array.from(photos.values()).map((p) => ({ ...p })).sort(byNewest); },
+        async listIds() { return Array.from(photos.keys()); },
         async get(id) { const p = photos.get(String(id)); return p ? { ...p } : null; },
         async put(value) {
             const photo = normalizePhoto(value);
@@ -72,6 +75,7 @@ export function createIndexedDbPhotoAlbumStore(globalObject = globalThis) {
     };
     return {
         async list() { return ((await run('readonly', (s) => s.getAll())) || []).map(normalizePhoto).filter(Boolean).sort(byNewest); },
+        async listIds() { return (await run('readonly', (s) => s.getAllKeys())) || []; },
         async get(id) { return normalizePhoto(await run('readonly', (s) => s.get(String(id)))); },
         async put(value) {
             const photo = normalizePhoto(value);
@@ -258,6 +262,19 @@ export function withPhotoAlbum(service, store, options = {}) {
         return { ok: failed === 0, removed, failed, keys: [] };
     }
 
+    async function listCatalogEntries(filters = {}) {
+        const cg = typeof base.listCatalogEntries === 'function'
+            ? await base.listCatalogEntries(filters)
+            : { ok: true, items: [], next: '' };
+        if (!cg || cg.ok === false) return cg || { ok: false, reason: 'read-error', items: [], next: '' };
+        if (filters.favoritesOnly || typeof store.listIds !== 'function') return cg;
+        let ids = [];
+        try { ids = await store.listIds(); } catch { return cg; }
+        const photos = (ids || []).map((id) => photoEntry({ id: String(id), chatId: '', messageId: 0, caption: '', dataUrl: '', createdAt: '', hidden: false, favorite: false }))
+            .filter((entry) => (filters.showHidden || !entry.hidden) && (!filters.chatId || entry.chatId === filters.chatId));
+        return { ok: true, items: [...(cg.items || []), ...photos].sort(compareCgNewestFirst), next: '' };
+    }
+
     async function hydrateEntry(entry) {
         if (entry && entry.kind === 'photo' && entry.photoId && !/^(?:data:image\/|https?:\/\/|blob:)/i.test(String(entry.dataUrl || ''))) {
             const photo = await store.get(entry.photoId);
@@ -270,6 +287,7 @@ export function withPhotoAlbum(service, store, options = {}) {
     return {
         ...base,
         loadPage,
+        listCatalogEntries,
         hydrateEntry,
         capturePhoto,
         setHidden: (key, hidden) => (isPhotoKey(key) ? patchPhoto(key, { hidden: hidden === true }) : base.setHidden(key, hidden)),

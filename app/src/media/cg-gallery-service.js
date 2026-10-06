@@ -88,13 +88,63 @@ export function createCgGalleryService({ illustrationStore, galleryStore, clearI
 
     async function hydrateEntry(entry) {
         if (!entry || DISPLAY_URL_RE.test(String(entry.dataUrl || ''))) return entry;
-        if (typeof illustrationStore.hydrateSlot !== 'function') return entry;
-        const next = await illustrationStore.hydrateSlot({ dataUrl: entry.dataUrl });
-        return { ...entry, dataUrl: String(next && next.dataUrl || '') };
+        let dataUrl = String(entry.dataUrl || '');
+        let prompt = entry.prompt || '';
+        let updatedAt = entry.updatedAt || '';
+        if (!dataUrl && typeof illustrationStore.getSlotRecord === 'function') {
+            const rec = await illustrationStore.getSlotRecord(entry.key);
+            if (!rec || rec.status !== 'done' || !rec.dataUrl) return { ...entry, skip: true };
+            dataUrl = String(rec.dataUrl || '');
+            prompt = String(rec.scene || entry.prompt || '');
+            updatedAt = String(rec.updatedAt || '');
+        }
+        if (!dataUrl) return { ...entry, skip: true };
+        if (typeof illustrationStore.hydrateSlot === 'function' && !DISPLAY_URL_RE.test(dataUrl)) {
+            const next = await illustrationStore.hydrateSlot({ dataUrl });
+            dataUrl = String(next && next.dataUrl || '');
+        }
+        if (!dataUrl) return { ...entry, skip: true };
+        return { ...entry, dataUrl, prompt, updatedAt, skip: false };
+    }
+
+    // 目录只收编号和楼层，不把每条记录里的图片读进内存。
+    async function listCatalogEntries(filters = {}) {
+        if (typeof illustrationStore.listSlotKeys !== 'function') return { ok: false, reason: 'store-unavailable', items: [], next: '' };
+        let keys = [];
+        try { keys = await illustrationStore.listSlotKeys(); }
+        catch (error) { return { ok: false, reason: 'read-error', items: [], next: '' }; }
+        const marks = await readMarks();
+        const showHidden = Boolean(filters.showHidden);
+        const favoritesOnly = Boolean(filters.favoritesOnly);
+        const chatId = String(filters.chatId || '');
+        const items = [];
+        for (const key of keys || []) {
+            const parsed = parseSlotKey(key);
+            if (!parsed) continue;
+            const mark = marks.get(String(key));
+            const entry = {
+                key: String(key),
+                floorKey: parsed.floorKey,
+                chatId: parsed.chatId,
+                messageId: parsed.messageId,
+                swipeId: parsed.swipeId,
+                slot: parsed.slot,
+                dataUrl: '',
+                prompt: '',
+                updatedAt: '',
+                hidden: Boolean(mark && mark.hidden),
+                favorite: Boolean(mark && mark.favorite),
+            };
+            if ((!showHidden && entry.hidden) || (favoritesOnly && !entry.favorite) || (chatId && entry.chatId !== chatId)) continue;
+            items.push(entry);
+        }
+        items.sort(compareCgNewestFirst);
+        return { ok: true, items, next: '' };
     }
 
     return {
         loadPage,
+        listCatalogEntries,
         hydrateEntry,
         setHidden: (key, hidden) => setMark(key, { hidden: hidden === true }),
         setFavorite: (key, favorite) => setMark(key, { favorite: favorite === true }),
@@ -135,8 +185,20 @@ export function cgPageSlice(items, page, size = CG_PAGE_SIZE) {
     return { page: index, pages, total: list.length, items: list.slice(start, start + pageSize) };
 }
 
-// 把库里的条目标记走完，最新的排在前面。这里不读图片。
+function parseSlotKey(key) {
+    const raw = String(key || '');
+    const cut = raw.lastIndexOf('|');
+    if (cut <= 0) return null;
+    const slot = Number(raw.slice(cut + 1));
+    const floorKey = raw.slice(0, cut);
+    const floor = parseFloorKey(floorKey);
+    if (!floor || !Number.isInteger(slot) || slot < 1) return null;
+    return { floorKey, slot, ...floor };
+}
+
+// 目录只收编号。楼层号大的在前。图片留到打开那一页再读。
 export async function loadCgCatalog(service, filters = {}) {
+    if (service && typeof service.listCatalogEntries === 'function') return service.listCatalogEntries(filters);
     if (!service || typeof service.loadPage !== 'function') return { ok: false, reason: 'store-unavailable', items: [], next: '' };
     const items = [];
     const seen = new Set();

@@ -1766,7 +1766,8 @@ export function createIgsReaderHost(options = {}) {
                 if (CG_DISPLAY_URL_RE.test(String(entry && entry.dataUrl || ''))) continue;
                 read(entry).then((next) => {
                     if (!next) return;
-                    entry.dataUrl = String(next.dataUrl || '');
+                    if (next.skip) entry.skip = true;
+                    else entry.dataUrl = String(next.dataUrl || '');
                     if (asyncState.imageCgLoadGen !== gen) return;
                     paint(gen);
                 }).catch(() => {});
@@ -1813,6 +1814,7 @@ export function createIgsReaderHost(options = {}) {
             : (sliced.total ? `<div class="igs-image-cg-page">共 ${sliced.total} 张</div>` : '');
         const selected = asyncState.imageCgSelected instanceof Set ? asyncState.imageCgSelected : new Set();
         const tiles = asyncState.imageCgEntries.map((entry, index) => {
+            if (entry && entry.skip) return '';
             const url = String((entry && entry.dataUrl) || '').trim();
             const ready = CG_DISPLAY_URL_RE.test(url);
             const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;

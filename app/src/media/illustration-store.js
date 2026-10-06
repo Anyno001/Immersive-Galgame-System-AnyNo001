@@ -36,6 +36,18 @@ export function createMemoryIllustrationStore() {
         },
         async putSlot(floorKey, value) { slots.set(`${floorKey}|${value.slot}`, clone({ ...value, floorKey })); },
         async deleteSlot(floorKey, slot) { return slots.delete(`${floorKey}|${slot}`); },
+        // 目录只要编号。记录里的图留在原地，打开某一页时再取那几条。
+        async listSlotKeys() {
+            const keys = [];
+            for (const [key, value] of slots) {
+                if (value && value.status === 'done' && value.dataUrl) keys.push(key);
+            }
+            return keys;
+        },
+        async getSlotRecord(key) {
+            const value = slots.get(String(key || ''));
+            return value ? clone(value) : null;
+        },
         // CG 库：按 key 升序只读分页，只返回已出图（done）的槽位；不修改任何记录。
         async listDoneSlotsPage({ after = '', limit = 24 } = {}) {
             const size = pageLimitOf(limit);
@@ -95,6 +107,13 @@ export function createIndexedDbIllustrationStore(globalObject = globalThis) {
         async deleteSlot(floorKey, slot) {
             await run('slots', 'readwrite', (s) => s.delete(`${floorKey}|${slot}`));
             return true;
+        },
+        // 只要主键。getAllKeys 不把记录里的图片读出来。
+        async listSlotKeys() {
+            return (await run('slots', 'readonly', (s) => s.getAllKeys())) || [];
+        },
+        async getSlotRecord(key) {
+            return (await run('slots', 'readonly', (s) => s.get(String(key || '')))) || null;
         },
         // CG 库只读游标分页：不升 DB_VERSION、不建新索引；按主键升序，只收 done 槽位。
         async listDoneSlotsPage({ after = '', limit = 24 } = {}) {

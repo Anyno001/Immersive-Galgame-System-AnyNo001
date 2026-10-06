@@ -71,7 +71,8 @@ export function createCgGalleryPanel(doc, options = {}) {
     function render() {
         if (!root) return;
         const toggle = (act, on, label) => `<button type="button" class="igs-cg-filter" data-cg-act="${act}" aria-pressed="${on}">${label}</button>`;
-        const list = entries.length ? `<ul class="igs-cg-grid">${entries.map(tileHtml).join('')}</ul>` : '<p class="igs-cg-empty">还没有 CG</p>';
+        const shown = entries.filter((entry) => !entry.skip);
+        const list = shown.length ? `<ul class="igs-cg-grid">${shown.map(tileHtml).join('')}</ul>` : '<p class="igs-cg-empty">还没有 CG</p>';
         const sliced = cgPageSlice(catalog, page);
         const pager = catalog.length > CG_PAGE_SIZE
             ? `<div class="igs-cg-pager"><button type="button" data-cg-act="page-prev" ${sliced.page <= 0 ? 'disabled' : ''}>上一页</button><span>第 ${sliced.page + 1} / ${sliced.pages} 页 · 共 ${sliced.total} 张</span><button type="button" data-cg-act="page-next" ${sliced.page >= sliced.pages - 1 ? 'disabled' : ''}>下一页</button></div>`
@@ -140,6 +141,7 @@ export function createCgGalleryPanel(doc, options = {}) {
             if (DISPLAY_URL_RE.test(String(entry.dataUrl || ''))) return;
             const next = await service.hydrateEntry(entry);
             if (gen !== loadGen || !next) return;
+            if (next.skip) { entry.skip = true; render(); return; }
             entry.dataUrl = String(next.dataUrl || '');
             thumbs.delete(entry.key);
             showThumb(entry);

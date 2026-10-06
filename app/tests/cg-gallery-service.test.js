@@ -33,6 +33,7 @@ test('cg-gallery-service:catalog-lists-every-done-cg', async () => {
     assert.equal(catalog.next, '');
     assert.equal(catalog.items[0].messageId, 49);
     assert.equal(catalog.items[49].messageId, 0);
+    assert.equal(catalog.items[0].dataUrl, '');
 });
 
 test('cg-gallery-service:entries-parse-source-floor-and-skip-unfinished', async () => {
