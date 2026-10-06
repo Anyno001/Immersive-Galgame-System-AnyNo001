@@ -1,7 +1,7 @@
 // 设置面板内的提示、确认与输入框，替代浏览器 alert / confirm / prompt。
 // 浏览器弹窗会退出全屏。面板重绘会整体替换 innerHTML，挂起的对话记在控制器里，由 remount 在重绘后补回（含输入框里已打的字）。
 export const SETTINGS_DIALOG_STYLE_TEXT = `
-#igs-unified-settings .igs-settings-dialog{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:6;box-sizing:border-box;width:min(480px,calc(100% - 32px));padding:14px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);color:var(--igs-settings-ink);border:1px solid var(--igs-settings-line-strong);display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+#igs-unified-settings .igs-settings-dialog{position:absolute;left:50%;top:50%;bottom:auto;transform:translate(-50%,-50%);z-index:6;box-sizing:border-box;width:min(480px,calc(100% - 32px));max-height:min(80%,calc(var(--igs-settings-vh,100dvh) - 48px));overflow:auto;padding:14px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);color:var(--igs-settings-ink);border:1px solid var(--igs-settings-line-strong);display:flex;flex-direction:column;gap:10px;pointer-events:auto}
 #igs-unified-settings .igs-settings-dialog.is-view,#igs-unified-settings .igs-settings-dialog.is-edit{width:min(640px,calc(100% - 32px))}
 #igs-unified-settings .igs-settings-dialog-text{width:100%;min-height:220px;max-height:min(46vh,320px);box-sizing:border-box;resize:vertical;padding:8px 10px;border:0;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);color:var(--igs-settings-ink);font:inherit;font-size:12px;line-height:1.5}
 #igs-unified-settings .igs-settings-dialog-msg{font-size:13px;line-height:1.6;white-space:pre-line;word-break:break-word}

@@ -570,6 +570,26 @@ test('gate:page-modal:confirm-and-alert-do-not-call-the-browser', async () => {
     assert.equal(doc.body.querySelector('.igs-page-modal'), null);
 });
 
+test('gate:page-modal:transformed-host-does-not-become-the-screen', async () => {
+    const doc = makeDoc();
+    doc.documentElement = makeEl(doc, 'html');
+    doc.documentElement.appendChild(doc.body);
+    doc.head = makeEl(doc, 'head');
+    doc.documentElement.appendChild(doc.head);
+    doc.getElementById = (id) => doc.documentElement.querySelector(`#${id}`);
+    const host = makeEl(doc, 'div');
+    host.style = { transform: 'translateX(-50%)' };
+    doc.body.appendChild(host);
+    const modal = createIgsModal({ getHost: () => host, global: { document: doc } });
+    const pending = modal.confirm('确认？');
+    assert.equal(host.querySelector('.igs-page-modal'), null);
+    const box = doc.documentElement.querySelector('.igs-page-modal');
+    assert.ok(box);
+    assert.equal(box.parentNode, doc.documentElement);
+    box.querySelector('[data-igs-modal="ok"]').dispatch('click');
+    assert.equal(await pending, true);
+});
+
 test('gate:settings-focus:restores-focused-field-and-caret-after-innerhtml-rebuild', () => {
     const panel = makePanel();
     const build = (overlay) => {

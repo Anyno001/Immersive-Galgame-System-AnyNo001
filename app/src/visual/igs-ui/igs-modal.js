@@ -26,9 +26,31 @@ function ensureStyle(doc) {
 
 function hostOf(getHost, globalObj) {
     const host = typeof getHost === 'function' ? getHost() : null;
+    const doc = (host && host.ownerDocument) || (globalObj && globalObj.document) || null;
+    // 浮窗阅读器带 translateX(-50%)，再挂 position:fixed 会相对浮窗而不是屏幕。
+    // 全屏元素优先，否则挂文档根，遮罩才能盖住整块可见区域并居中。
+    const fullscreen = doc && (doc.fullscreenElement || doc.webkitFullscreenElement);
+    if (fullscreen && typeof fullscreen.appendChild === 'function') return fullscreen;
+    if (doc && doc.documentElement && typeof doc.documentElement.appendChild === 'function') return doc.documentElement;
     if (host && typeof host.appendChild === 'function') return host;
-    const doc = globalObj && globalObj.document;
     return doc && (doc.body || doc.documentElement);
+}
+
+function pinToVisibleScreen(el, doc) {
+    if (!el || !el.style || typeof el.style.setProperty !== 'function') return;
+    const win = doc && doc.defaultView;
+    const viewport = win && win.visualViewport;
+    const left = viewport && Number.isFinite(viewport.offsetLeft) ? viewport.offsetLeft : 0;
+    const top = viewport && Number.isFinite(viewport.offsetTop) ? viewport.offsetTop : 0;
+    const width = viewport && Number(viewport.width) > 0 ? Number(viewport.width) : Number(win && win.innerWidth);
+    const height = viewport && Number(viewport.height) > 0 ? Number(viewport.height) : Number(win && win.innerHeight);
+    if (!(width > 0) || !(height > 0)) return;
+    el.style.setProperty('left', `${Math.round(left)}px`);
+    el.style.setProperty('top', `${Math.round(top)}px`);
+    el.style.setProperty('width', `${Math.round(width)}px`);
+    el.style.setProperty('height', `${Math.round(height)}px`);
+    el.style.setProperty('right', 'auto');
+    el.style.setProperty('bottom', 'auto');
 }
 
 export function createIgsModal({ getHost = () => null, global: globalObj = globalThis } = {}) {
@@ -114,6 +136,7 @@ export function createIgsModal({ getHost = () => null, global: globalObj = globa
             }
         });
         host.appendChild(el);
+        pinToVisibleScreen(el, doc);
         entry.el = el;
         const focusTarget = input || actions.lastChild;
         if (focusTarget && typeof focusTarget.focus === 'function') {

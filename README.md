@@ -438,6 +438,10 @@ projects/Immersive Galgame System/
 14. 涉及打包、发布、上传、loader、远程 bundle 或酒馆助手脚本 JSON 时，必须先读 `docs/PACKAGING_WORKFLOW.md` 与 `docs/RELEASE.md`。
 15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
 
+### v0.34.80 - 提示框改到屏幕正中（内测）
+
+- **弹窗**：阅读器确认不再挂在带位移的浮窗里，改按当前可见区域居中。设置里的确认和输入也不再贴在底边。
+
 ### v0.34.79 - 页面内弹窗，双击隐藏不吃对话框（内测）
 
 - **弹窗**：确认、提示和输入改成页面内弹层。全屏时不再调用浏览器自带的 alert / confirm / prompt，避免弹出框把全屏顶掉。
