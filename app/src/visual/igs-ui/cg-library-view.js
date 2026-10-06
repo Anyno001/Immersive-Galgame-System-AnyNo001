@@ -23,19 +23,20 @@ export function createCgLibraryView(library, options = {}) {
         pages: 1,
         entries: [],
     };
+    // 每张图只在一处：thumbs = 已显示，failed = 失败，batching = 正在查已存缩略图，queue = 排队现做，working = 正在现做。
+    // 读到的结果一律记下并通知界面，不按「第几轮」丢弃；界面自己判断那一格还在不在本页。
     const thumbs = new Map();
-    const thumbState = new Map();
-    const thumbReason = new Map();
+    const failed = new Map();
+    const batching = new Set();
+    const working = new Set();
     let openGen = 0;
-    let pageGen = 0;
     let queue = [];
-    let active = 0;
     let opening = null;
-    let reading = 0;
+    let disposed = false;
     let waiters = [];
 
     const emit = (type, key) => { try { onChange(type, key); } catch { /* 界面刷新出错不打断读取 */ } };
-    const busy = () => Boolean(opening) || reading > 0 || active > 0 || queue.length > 0;
+    const busy = () => Boolean(opening) || batching.size > 0 || working.size > 0 || queue.length > 0;
     const wake = () => {
         if (busy()) return;
         const list = waiters;
@@ -53,16 +54,17 @@ export function createCgLibraryView(library, options = {}) {
 
     const pageKeys = () => state.entries.map((e) => e.key).join('\n');
 
+    const onPage = (key) => state.entries.some((e) => e.key === key);
+    const pending = (key) => batching.has(key) || working.has(key) || queue.some((e) => e.key === key);
+
     function remember(key, url) {
         thumbs.delete(key);
         thumbs.set(key, url);
-        thumbState.set(key, 'ok');
-        thumbReason.delete(key);
+        failed.delete(key);
         if (thumbs.size <= THUMB_MEMORY) return;
-        const keep = new Set(state.entries.map((e) => e.key));
         for (const old of thumbs.keys()) {
             if (thumbs.size <= THUMB_MEMORY) break;
-            if (!keep.has(old)) { thumbs.delete(old); thumbState.delete(old); }
+            if (!onPage(old)) thumbs.delete(old);
         }
     }
 
@@ -73,44 +75,50 @@ export function createCgLibraryView(library, options = {}) {
         if (before !== pageKeys()) { emit('list'); loadPageThumbs(); }
     }
 
+    function finish(key) {
+        working.delete(key);
+        emit('thumb', key);
+        pump();
+        wake();
+    }
+
     function pump() {
-        while (active < THUMB_WORKERS && queue.length) {
+        if (disposed) return;
+        while (working.size < THUMB_WORKERS && queue.length) {
             const entry = queue.shift();
-            const gen = pageGen;
-            active += 1;
+            working.add(entry.key);
             Promise.resolve()
                 .then(() => library.makeThumb(entry))
                 .catch(() => ({ ok: false, reason: 'thumb-failed' }))
                 .then((result) => {
-                    active -= 1;
                     if (result && result.ok) remember(entry.key, result.dataUrl);
                     else {
                         const reason = (result && result.reason) || 'thumb-failed';
-                        thumbState.set(entry.key, 'failed');
-                        thumbReason.set(entry.key, reason);
+                        failed.set(entry.key, reason);
                         if (reason === 'missing') dropEntry(entry.key);
                     }
-                    if (gen === pageGen) emit('thumb', entry.key);
-                    pump();
-                    wake();
+                    finish(entry.key);
                 });
         }
     }
 
+    // 已存缩略图按批读（一次事务），读不到的再排队现做；排队只留本页的格子。
     async function loadPageThumbs() {
-        const gen = ++pageGen;
-        for (const e of queue) if (thumbState.get(e.key) === 'loading') thumbState.delete(e.key);
-        queue = [];
-        const need = state.entries.filter((e) => !thumbs.has(e.key) && thumbState.get(e.key) !== 'loading');
+        if (disposed) return;
+        queue = queue.filter((e) => onPage(e.key));
+        const need = state.entries.filter((e) => !thumbs.has(e.key) && !failed.has(e.key) && !pending(e.key));
         if (!need.length) { emit('status'); wake(); return; }
-        for (const e of need) thumbState.set(e.key, 'loading');
+        for (const e of need) batching.add(e.key);
         emit('status');
         let cached = new Map();
-        reading += 1;
-        try { cached = await library.readThumbs(need); } catch { cached = new Map(); } finally { reading -= 1; }
-        if (gen !== pageGen) { for (const e of need) if (thumbState.get(e.key) === 'loading') thumbState.delete(e.key); wake(); return; }
-        for (const [key, url] of cached) { remember(key, url); emit('thumb', key); }
-        queue = need.filter((e) => !thumbs.has(e.key));
+        try { cached = await library.readThumbs(need); } catch { cached = new Map(); }
+        for (const e of need) batching.delete(e.key);
+        if (disposed) { wake(); return; }
+        for (const e of need) {
+            const url = cached.get(e.key);
+            if (url) { remember(e.key, url); emit('thumb', e.key); }
+            else if (onPage(e.key) && !pending(e.key) && !thumbs.has(e.key)) queue.push(state.entries.find((x) => x.key === e.key) || e);
+        }
         pump();
         emit('status');
         wake();
@@ -197,10 +205,9 @@ export function createCgLibraryView(library, options = {}) {
 
     function retry(key) {
         const entry = state.entries.find((e) => e.key === key);
-        if (!entry || thumbState.get(key) === 'loading') return;
+        if (!entry || pending(key)) return;
         thumbs.delete(key);
-        thumbReason.delete(key);
-        thumbState.set(key, 'loading');
+        failed.delete(key);
         queue.push(entry);
         emit('thumb', key);
         pump();
@@ -210,7 +217,8 @@ export function createCgLibraryView(library, options = {}) {
         const gone = new Set(keys || []);
         if (!gone.size) return;
         state.all = state.all.filter((e) => !gone.has(e.key));
-        for (const key of gone) { thumbs.delete(key); thumbState.delete(key); thumbReason.delete(key); }
+        for (const key of gone) { thumbs.delete(key); failed.delete(key); }
+        queue = queue.filter((e) => !gone.has(e.key));
         recompute();
         emit('list');
         loadPageThumbs();
@@ -224,16 +232,9 @@ export function createCgLibraryView(library, options = {}) {
     }
 
     function thumbCounts() {
-        let ok = 0;
-        let loading = 0;
-        let failed = 0;
-        for (const e of state.entries) {
-            const s = thumbs.has(e.key) ? 'ok' : thumbState.get(e.key);
-            if (s === 'ok') ok += 1;
-            else if (s === 'failed') failed += 1;
-            else loading += 1;
-        }
-        return { ok, loading, failed };
+        const c = { ok: 0, loading: 0, failed: 0 };
+        for (const e of state.entries) c[tileOf(e.key).state] += 1;
+        return c;
     }
 
     function statusText() {
@@ -260,8 +261,7 @@ export function createCgLibraryView(library, options = {}) {
     function tileOf(key) {
         const url = thumbs.get(key) || '';
         if (url) return { state: 'ok', url, reason: '' };
-        const s = thumbState.get(key);
-        if (s === 'failed') return { state: 'failed', url: '', reason: cgReasonText(thumbReason.get(key)) };
+        if (failed.has(key)) return { state: 'failed', url: '', reason: cgReasonText(failed.get(key)) };
         return { state: 'loading', url: '', reason: '' };
     }
 
@@ -281,7 +281,7 @@ export function createCgLibraryView(library, options = {}) {
         whenIdle: () => (busy() ? new Promise((resolve) => { waiters.push(resolve); }) : Promise.resolve()),
         dispose() {
             openGen += 1;
-            pageGen += 1;
+            disposed = true;
             queue = [];
             onChange = () => {};
         },

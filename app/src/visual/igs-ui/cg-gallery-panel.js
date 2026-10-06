@@ -87,7 +87,8 @@ export function createCgGalleryPanel(doc, options = {}) {
 
     function patchTile(key) {
         const entry = view.find(key);
-        const button = entry ? query(`[data-cg-tile="${attrValue(key)}"] .igs-cg-thumb`) : null;
+        if (!entry) { patchStatus(); return; }
+        const button = query(`[data-cg-tile="${attrValue(key)}"] .igs-cg-thumb`);
         if (!button || typeof button.insertAdjacentHTML !== 'function') { render(); return; }
         button.insertAdjacentHTML('afterend', thumbHtml(entry));
         button.remove();

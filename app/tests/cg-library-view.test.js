@@ -105,6 +105,40 @@ test('cg-library-view:a-hung-thumbnail-does-not-block-paging-and-failures-can-be
     assert.ok(thumbs.includes('chat|28|0|1'));
 });
 
+test('cg-library-view:a-new-round-while-thumbnails-are-out-neither-orphans-nor-hides-them', async () => {
+    const index = Array.from({ length: 4 }, (_, i) => entry(i));
+    let releaseThumbs;
+    const thumbsGate = new Promise((resolve) => { releaseThumbs = resolve; });
+    const makes = [];
+    const library = fakeLibrary({
+        index,
+        makeThumb: (e) => new Promise((resolve) => { makes.push(() => resolve({ ok: true, dataUrl: `data:image/jpeg;base64,${e.messageId}` })); }),
+    });
+    library.readThumbs = async () => { await thumbsGate; return new Map(); };
+    const shown = new Set();
+    const view = createCgLibraryView(library, { onChange: (type, key) => { if (type === 'thumb') shown.add(key); } });
+    view.open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // 目录先出列表、开始查已存缩略图；还没查完，对账就带回一张新图，又开一轮。
+    library.releaseSync({ ok: true, entries: [...index, entry(4)], changed: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseThumbs();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(makes.length, 3, 'three thumbnails being made');
+    // 现做途中又开一轮（比如收藏了一张）：已经在做的不能被丢掉，也不能重复做。
+    view.patchEntry('chat|0|0|1', { favorite: true });
+    while (makes.length) makes.shift()();
+    for (let i = 0; i < 5 && makes.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    while (makes.length) makes.shift()();
+    await view.whenIdle();
+    assert.equal(view.state.entries.length, 5);
+    for (const e of view.state.entries) {
+        assert.equal(view.tileOf(e.key).state, 'ok', `${e.key} has its thumbnail`);
+        assert.ok(shown.has(e.key), `${e.key} was announced so the tile gets swapped in`);
+    }
+    assert.equal(view.statusText(), '', 'no tile left saying it is still loading');
+});
+
 test('cg-library-view:filters-and-removals-work-on-the-catalog-without-reading-again', async () => {
     const index = [entry(1, { favorite: true }), entry(2, { hidden: true }), entry(3, { chatId: 'other', key: 'other|3|0|1' })];
     const library = fakeLibrary({ index });
