@@ -93,8 +93,10 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     const spicy = renderWardrobe({ 校服: { prompt: 'uniform', nsfwBoost: true } });
     assert.match(spicy, /igs-wardrobe-nsfw is-on/);
     assert.match(spicy, /aria-pressed="true"/);
-    assert.match(filled, /src="data:image\/png;base64,QQ=="/);
+    assert.match(filled, /igs-btn-mgr-list igs-wardrobe-list[\s\S]*igs-btn-mgr-row[\s\S]*src="data:image\/png;base64,QQ=="/);
+    assert.doesNotMatch(filled, /igs-wardrobe-reference/);
     const empty = renderWardrobe({ 冬月星见日常: { prompt: '' } });
+    assert.match(empty, /igs-outfit-thumb-empty/);
     assert.match(empty, new RegExp(`data-action="wardrobe-generate-prompt:${encodeURIComponent('冬月星见日常')}"`));
     assert.match(empty, new RegExp(`data-action="wardrobe-prompt:${encodeURIComponent('冬月星见日常')}"`));
     assert.match(empty, /igs-row-menu[\s\S]*wardrobe-prompt:/);
