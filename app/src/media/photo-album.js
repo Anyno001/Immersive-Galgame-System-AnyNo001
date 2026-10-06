@@ -35,7 +35,12 @@ export function createMemoryPhotoAlbumStore() {
     const photos = new Map();
     return {
         async list() { return Array.from(photos.values()).map((p) => ({ ...p })).sort(byNewest); },
-        async listIds() { return Array.from(photos.keys()); },
+        async listIds(onProgress) {
+            if (typeof onProgress === 'function') onProgress(0);
+            const ids = Array.from(photos.keys());
+            if (typeof onProgress === 'function') onProgress(ids.length);
+            return ids;
+        },
         async get(id) { const p = photos.get(String(id)); return p ? { ...p } : null; },
         async put(value) {
             const photo = normalizePhoto(value);
@@ -75,7 +80,36 @@ export function createIndexedDbPhotoAlbumStore(globalObject = globalThis) {
     };
     return {
         async list() { return ((await run('readonly', (s) => s.getAll())) || []).map(normalizePhoto).filter(Boolean).sort(byNewest); },
-        async listIds() { return (await run('readonly', (s) => s.getAllKeys())) || []; },
+        async listIds(onProgress) {
+            const db = await open();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE, 'readonly');
+                const store = tx.objectStore(STORE);
+                const ids = [];
+                let reported = -1;
+                const tell = (force) => {
+                    if (typeof onProgress !== 'function' || (!force && ids.length !== 1 && ids.length % 25 !== 0) || reported === ids.length) return;
+                    reported = ids.length;
+                    onProgress(ids.length);
+                };
+                tell(true);
+                if (typeof store.openKeyCursor !== 'function') {
+                    const req = store.getAllKeys();
+                    req.onsuccess = () => { for (const id of req.result || []) ids.push(id); };
+                } else {
+                    const req = store.openKeyCursor();
+                    req.onsuccess = () => {
+                        const cursor = req.result;
+                        if (!cursor) return;
+                        ids.push(cursor.key);
+                        tell(false);
+                        cursor.continue();
+                    };
+                }
+                tx.oncomplete = () => { tell(true); resolve(ids); };
+                tx.onerror = () => reject(tx.error);
+            });
+        },
         async get(id) { return normalizePhoto(await run('readonly', (s) => s.get(String(id)))); },
         async put(value) {
             const photo = normalizePhoto(value);
@@ -262,14 +296,16 @@ export function withPhotoAlbum(service, store, options = {}) {
         return { ok: failed === 0, removed, failed, keys: [] };
     }
 
-    async function listCatalogEntries(filters = {}) {
+    async function listCatalogEntries(filters = {}, onProgress) {
         const cg = typeof base.listCatalogEntries === 'function'
-            ? await base.listCatalogEntries(filters)
+            ? await base.listCatalogEntries(filters, onProgress)
             : { ok: true, items: [], next: '' };
         if (!cg || cg.ok === false) return cg || { ok: false, reason: 'read-error', items: [], next: '' };
         if (filters.favoritesOnly || typeof store.listIds !== 'function') return cg;
         let ids = [];
-        try { ids = await store.listIds(); } catch { return cg; }
+        const tell = (seen) => { if (typeof onProgress === 'function') onProgress({ phase: 'photos', seen }); };
+        tell(0);
+        try { ids = await store.listIds(tell); } catch { return cg; }
         const photos = (ids || []).map((id) => photoEntry({ id: String(id), chatId: '', messageId: 0, caption: '', dataUrl: '', createdAt: '', hidden: false, favorite: false }))
             .filter((entry) => (filters.showHidden || !entry.hidden) && (!filters.chatId || entry.chatId === filters.chatId));
         return { ok: true, items: [...(cg.items || []), ...photos].sort(compareCgNewestFirst), next: '' };

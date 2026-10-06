@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryIllustrationStore } from '../src/media/illustration-store.js';
 import { createMemoryCgGalleryStore } from '../src/media/cg-gallery-store.js';
-import { createCgGalleryService, cgEntryOf, loadCgCatalog } from '../src/media/cg-gallery-service.js';
+import { createCgGalleryService, cgCountStatus, cgEntryOf, loadCgCatalog } from '../src/media/cg-gallery-service.js';
 
 async function setup(clearResult = { ok: true }) {
     const illustrationStore = createMemoryIllustrationStore();
@@ -28,7 +28,11 @@ test('cg-gallery-service:catalog-lists-every-done-cg', async () => {
     const page = await service.loadPage({ limit: 48 });
     assert.equal(page.items.length, 48);
     assert.ok(page.next);
-    const catalog = await loadCgCatalog(service, { showHidden: true });
+    const seen = [];
+    const catalog = await loadCgCatalog(service, { showHidden: true }, (progress) => seen.push(progress));
+    assert.equal(cgCountStatus({ phase: 'cg', seen: 0 }), '正在清点 CG 数量，已看到 0 条。');
+    assert.equal(cgCountStatus(seen.find((item) => item.phase === 'cg' && item.seen === 50)), '正在清点 CG 数量，已看到 50 条。');
+    assert.ok(seen.some((item) => item.phase === 'marks'));
     assert.equal(catalog.items.length, 50);
     assert.equal(catalog.next, '');
     assert.equal(catalog.items[0].messageId, 49);

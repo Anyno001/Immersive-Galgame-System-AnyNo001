@@ -37,11 +37,13 @@ export function createMemoryIllustrationStore() {
         async putSlot(floorKey, value) { slots.set(`${floorKey}|${value.slot}`, clone({ ...value, floorKey })); },
         async deleteSlot(floorKey, slot) { return slots.delete(`${floorKey}|${slot}`); },
         // 目录只要编号。记录里的图留在原地，打开某一页时再取那几条。
-        async listSlotKeys() {
+        async listSlotKeys(onProgress) {
+            if (typeof onProgress === 'function') onProgress(0);
             const keys = [];
             for (const [key, value] of slots) {
                 if (value && value.status === 'done' && value.dataUrl) keys.push(key);
             }
+            if (typeof onProgress === 'function') onProgress(keys.length);
             return keys;
         },
         async getSlotRecord(key) {
@@ -108,9 +110,38 @@ export function createIndexedDbIllustrationStore(globalObject = globalThis) {
             await run('slots', 'readwrite', (s) => s.delete(`${floorKey}|${slot}`));
             return true;
         },
-        // 只要主键。getAllKeys 不把记录里的图片读出来。
-        async listSlotKeys() {
-            return (await run('slots', 'readonly', (s) => s.getAllKeys())) || [];
+        // 只走主键。openKeyCursor 逐条报数量，记录里的图片留在原地。
+        async listSlotKeys(onProgress) {
+            const db = await open();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('slots', 'readonly');
+                const store = tx.objectStore('slots');
+                const keys = [];
+                let reported = -1;
+                const tell = (force) => {
+                    if (typeof onProgress !== 'function' || (!force && keys.length !== 1 && keys.length % 25 !== 0) || reported === keys.length) return;
+                    reported = keys.length;
+                    onProgress(keys.length);
+                };
+                tell(true);
+                if (typeof store.openKeyCursor !== 'function') {
+                    const req = store.getAllKeys();
+                    req.onsuccess = () => {
+                        for (const key of req.result || []) keys.push(key);
+                    };
+                } else {
+                    const req = store.openKeyCursor();
+                    req.onsuccess = () => {
+                        const cursor = req.result;
+                        if (!cursor) return;
+                        keys.push(cursor.key);
+                        tell(false);
+                        cursor.continue();
+                    };
+                }
+                tx.oncomplete = () => { tell(true); resolve(keys); };
+                tx.onerror = () => reject(tx.error);
+            });
         },
         async getSlotRecord(key) {
             return (await run('slots', 'readonly', (s) => s.get(String(key || '')))) || null;

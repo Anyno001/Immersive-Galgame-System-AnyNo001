@@ -108,11 +108,13 @@ export function createCgGalleryService({ illustrationStore, galleryStore, clearI
     }
 
     // 目录只收编号和楼层，不把每条记录里的图片读进内存。
-    async function listCatalogEntries(filters = {}) {
+    async function listCatalogEntries(filters = {}, onProgress) {
         if (typeof illustrationStore.listSlotKeys !== 'function') return { ok: false, reason: 'store-unavailable', items: [], next: '' };
         let keys = [];
-        try { keys = await illustrationStore.listSlotKeys(); }
+        tellCgProgress(onProgress, 'cg', 0);
+        try { keys = await illustrationStore.listSlotKeys((seen) => tellCgProgress(onProgress, 'cg', seen)); }
         catch (error) { return { ok: false, reason: 'read-error', items: [], next: '' }; }
+        tellCgProgress(onProgress, 'marks', keys.length);
         const marks = await readMarks();
         const showHidden = Boolean(filters.showHidden);
         const favoritesOnly = Boolean(filters.favoritesOnly);
@@ -156,6 +158,17 @@ export function createCgGalleryService({ illustrationStore, galleryStore, clearI
 
 export const CG_PAGE_SIZE = 24;
 
+export function cgCountStatus(progress) {
+    const seen = Math.max(0, Number(progress && progress.seen) || 0);
+    if (progress && progress.phase === 'marks') return '正在读取收藏和隐藏。';
+    if (progress && progress.phase === 'photos') return `正在清点相册，已看到 ${seen} 张。`;
+    return `正在清点 CG 数量，已看到 ${seen} 条。`;
+}
+
+function tellCgProgress(onProgress, phase, seen) {
+    if (typeof onProgress === 'function') onProgress({ phase, seen });
+}
+
 function cgTime(entry) {
     const time = Date.parse(entry && entry.updatedAt);
     return Number.isFinite(time) ? time : 0;
@@ -197,8 +210,8 @@ function parseSlotKey(key) {
 }
 
 // 目录只收编号。楼层号大的在前。图片留到打开那一页再读。
-export async function loadCgCatalog(service, filters = {}) {
-    if (service && typeof service.listCatalogEntries === 'function') return service.listCatalogEntries(filters);
+export async function loadCgCatalog(service, filters = {}, onProgress) {
+    if (service && typeof service.listCatalogEntries === 'function') return service.listCatalogEntries(filters, onProgress);
     if (!service || typeof service.loadPage !== 'function') return { ok: false, reason: 'store-unavailable', items: [], next: '' };
     const items = [];
     const seen = new Set();
