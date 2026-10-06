@@ -1,3 +1,5 @@
+import { clampPixelPair } from '../illustration/cg-pixel-cap.js';
+
 export const NAI_OFFICIAL_ENDPOINT = 'https://image.novelai.net/ai/generate-image';
 
 export const NAI_FIXED_STRUCTURE = Object.freeze({
@@ -85,8 +87,7 @@ function parseSize(size) {
     const m = String(size || '').match(/(\d+)\s*[x×*]\s*(\d+)/i);
     const w = m ? Number(m[1]) : 832;
     const h = m ? Number(m[2]) : 1216;
-    const round64 = (v) => Math.max(64, Math.round(v / 64) * 64);
-    return { width: round64(w), height: round64(h) };
+    return clampPixelPair(w, h);
 }
 
 export function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) {

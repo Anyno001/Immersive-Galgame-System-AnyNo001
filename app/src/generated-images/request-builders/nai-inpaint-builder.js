@@ -2,6 +2,7 @@
 // 模型映射只列已知存在 inpainting 版本的模型；未知模型（含 V5）返回空串，调用方按 image-edit-unsupported 处理。
 // 字段形状按公开客户端常见格式构造，真实接口兼容性需真机验证；本模块不发请求、不记录原图。
 import { buildNaiV4Request, NAI_DEFAULT_SETTINGS } from './nai-v4-builder.js';
+import { CG_PIXEL_CAP } from '../illustration/cg-pixel-cap.js';
 
 const INPAINT_MODELS = Object.freeze({
     'nai-diffusion-4-5-full': 'nai-diffusion-4-5-full-inpainting',
@@ -33,7 +34,7 @@ export function buildNaiInpaintRequest(request = {}, naiSettings = {}, random = 
     if (!image || !mask) return { ok: false, reason: 'invalid-edit-request' };
     const width = Number(request.width);
     const height = Number(request.height);
-    if (!validSide(width) || !validSide(height)) return { ok: false, reason: 'invalid-size' };
+    if (!validSide(width) || !validSide(height) || width * height > CG_PIXEL_CAP) return { ok: false, reason: 'invalid-size' };
     if (!String(request.prompt || '').trim()) return { ok: false, reason: 'empty-prompt' };
     const body = buildNaiV4Request(
         { scene: String(request.prompt || ''), sceneUc: String(request.negative || ''), chars: [] },

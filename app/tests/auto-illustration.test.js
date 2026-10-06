@@ -493,8 +493,23 @@ test('gate:illustration:cg-size-swaps-on-mobile', async () => {
     assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 1280, height: 720 }), '1344x768');
     assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 1920, height: 1080 }), '1344x768');
     assert.equal(cgSizeForMode('640x640', 'fullscreen', { width: 1920, height: 1080 }), '832x448');
+    const pixels = (size) => size.split('x').map(Number).reduce((a, b) => a * b, 1);
+    assert.equal(cgSizeForMode('1216x832', 'fullscreen', { width: 1728, height: 576 }), '1728x576');
+    assert.equal(pixels(cgSizeForMode('1216x832', 'fullscreen', { width: 1728, height: 576 })), 995328);
+    assert.ok(pixels(cgSizeForMode('1920x1088', 'fullscreen', { width: 3440, height: 1440 })) <= 1048576);
+    assert.ok(pixels(cgSizeForMode('1920x1088', 'fullscreen')) <= 1048576);
+    assert.ok(pixels(cgSizeForMode('2048x2048', 'fullscreen', { width: 21, height: 9 })) <= 1048576);
     assert.equal(cgSizeForMode('1216x832', 'web'), '1216x832');
     assert.equal(cgSizeForMode('1216x832', 'mobile'), '832x1216');
+    assert.ok(pixels(cgSizeForMode('1920x1088', 'pc')) <= 1048576);
+    assert.ok(pixels(cgSizeForMode('1920x1088', 'web')) <= 1048576);
+    assert.ok(pixels(cgSizeForMode('1920x1088', 'mobile')) <= 1048576);
+    assert.ok(pixels(cgSizeForMode('2048x1536', 'embedded', { width: 1280, height: 720 })) <= 1048576);
+    const { buildNaiV4Request } = await import('../src/generated-images/request-builders/nai-v4-builder.js');
+    for (const size of ['1920x1088', '1536x1024', '2048x2048', '832x1216']) {
+        const body = buildNaiV4Request({ scene: 'room' }, { size });
+        assert.ok(body.parameters.width * body.parameters.height <= 1048576, size);
+    }
     assert.equal(cgSizeForMode('', 'mobile'), '832x1216');
     assert.equal(cgSizeForMode('1216x832', 'embedded', { width: 390, height: 844 }), '832x1216');
     assert.equal(cgSizeForMode('1216x832', 'embedded', { width: 390, height: 220 }), '832x1216');

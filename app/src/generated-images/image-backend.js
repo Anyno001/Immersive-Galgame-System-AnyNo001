@@ -6,6 +6,7 @@ import { findChatu8Host, requestChatu8Image } from './chatu8-client.js';
 import { findBaibaiApi, requestBaibaiImage } from './baibai-client.js';
 import { waitFloorPromptTags } from './floor-prompt-tags.js';
 import { writeCaptionsWithLlm } from './illustration/caption-writer.js';
+import { clampPixelPair } from './illustration/cg-pixel-cap.js';
 
 // 生图来源：nai = IGS 内置 NAI；dbgen = 数据库生图插件（window.NaiDbGen）；
 // extension = 智绘姬：剧情 CG、素材与物品图经智绘姬的出图事件生成，剧情 CG 优先用它写在楼层里的词；
@@ -75,8 +76,7 @@ function describeResultError(result, fallback) {
 function parseSize(size) {
     const m = String(size || '').match(/(\d+)\s*[x×*]\s*(\d+)/i);
     if (!m) return null;
-    const round64 = (v) => Math.max(64, Math.round(Number(v) / 64) * 64);
-    return { width: round64(m[1]), height: round64(m[2]) };
+    return clampPixelPair(Number(m[1]), Number(m[2]));
 }
 
 async function blobToDataUrl(blob, mimeType, globalObject) {
@@ -185,7 +185,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             return { ok: false, error: `${DBGEN_LABEL}写提示词失败：${(error && error.message) || error}` };
         }
         const size = parseSize(meta.size) || (written.value.width && written.value.height
-            ? { width: written.value.width, height: written.value.height } : null);
+            ? clampPixelPair(written.value.width, written.value.height) : null);
         return paintDbgenCaption(api, { ...meta, size: size ? `${size.width}x${size.height}` : meta.size }, written.value.caption);
     }
 
