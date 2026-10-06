@@ -231,7 +231,7 @@ test('gate:worldview:magic-house-follows-speaker-manual-then-dna-then-global', a
     const withRow = renderCharacterAssetList({ 赫敏: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' }, isOpen: open });
     assert.match(withRow, /data-char-house="赫敏"/);
     assert.match(withRow, /<option value="sapphire" selected>/);
-    assert.match(renderCharacterAssetList({ 德拉科: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' }, isOpen: open }), /自动（DNA 识别为绿银）/);
+    assert.match(renderCharacterAssetList({ 德拉科: {} }, { magicHouse: { sceneAssets: assets, fallback: 'amber' }, isOpen: open }), /自动（DNA识别为绿银）/);
     assert.doesNotMatch(renderCharacterAssetList({ 赫敏: {} }, { isOpen: open }), /data-char-house/);
 });
 

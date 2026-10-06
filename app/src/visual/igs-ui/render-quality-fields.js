@@ -8,7 +8,7 @@ export function renderQualityRow(reader) {
     const src = reader && typeof reader === 'object' ? reader : {};
     const setting = normalizeRenderQualitySetting(src.performance && src.performance.quality);
     const note = setting === 'auto'
-        ? `本机判定为${resolveRenderQuality('auto') === 'low' ? '低画质' : '标准'}。低画质停掉推镜与立绘呼吸，粒子减半、降到 20 帧。`
-        : '低画质停掉推镜与立绘呼吸，粒子减半、降到 20 帧。';
+        ? `本机判定为${resolveRenderQuality('auto') === 'low' ? '省电模式' : '标准'}。省电模式停掉推镜与立绘呼吸，粒子减半、降到20帧。`
+        : '省电模式停掉推镜与立绘呼吸，粒子减半、降到20帧。';
     return `<div class="igs-perf-quality">${field(RENDER_QUALITY_PATH, '画质', selectInput(RENDER_QUALITY_PATH, setting, RENDER_QUALITY_OPTIONS), note)}</div>`;
 }

@@ -65,7 +65,10 @@ export function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
         if (path === 'readerSettings.dialogTextEffect') return ['off', 'outline', 'shadow'].includes(value) ? value : 'off';
         if (path === 'readerSettings.dialogTextEffectColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
-        if (path === 'readerSettings.spriteDefaultScale') return normalizeSpriteDefaultScale(value);
+        if (path === 'readerSettings.spriteDefaultScale') return normalizeSpriteHeight(value, 100);
+        if (path === 'readerSettings.spriteGenderScale.enabled') return value === true || value === 'true' || value === 1 || value === '1';
+        const genderHeight = path.match(/^readerSettings\.spriteGenderScale\.(female|male|other)$/);
+        if (genderHeight) return normalizeSpriteHeight(value, SPRITE_GENDER_SCALE_DEFAULTS[genderHeight[1]]);
         if (path === 'readerSettings.spriteDisplayScale') return normalizeSpriteDisplayScale(value);
         if (path === 'readerSettings.dialogTextEffectStrength') return Math.max(5, Math.min(50, Number(value) || 20));
         if (path === 'readerSettings.dialogTextEffectSize') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
@@ -186,6 +189,29 @@ export function normalizeSpriteDefaultScale(value) {
     return Number.isFinite(n) && n > 0 ? Math.max(40, Math.min(200, n)) : 100;
 }
 
+// 设置里能填的立绘高度（基准高度、性别默认、角色自定义），单位是舞台高度百分比。
+export const SPRITE_HEIGHT_RANGE = Object.freeze([60, 150]);
+const SPRITE_GENDER_SCALE_DEFAULTS = Object.freeze({ enabled: false, female: 90, male: 100, other: 95 });
+
+// 留空或不是数字时用 fallback；超出范围夹到两端并取整。
+export function normalizeSpriteHeight(value, fallback = null) {
+    if (value == null || String(value).trim() === '') return fallback;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.round(Math.max(SPRITE_HEIGHT_RANGE[0], Math.min(SPRITE_HEIGHT_RANGE[1], n)));
+}
+
+export function normalizeSpriteGenderScale(value) {
+    const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const defaults = SPRITE_GENDER_SCALE_DEFAULTS;
+    return {
+        enabled: src.enabled === true,
+        female: normalizeSpriteHeight(src.female, defaults.female),
+        male: normalizeSpriteHeight(src.male, defaults.male),
+        other: normalizeSpriteHeight(src.other, defaults.other),
+    };
+}
+
 // 全局显示比例：100 是当前占满舞台的高度，所有立绘一起乘上它。
 export function normalizeSpriteDisplayScale(value) {
     return normalizeSpriteDefaultScale(value);
@@ -207,9 +233,11 @@ export function spriteStoredScale(displayScale, globalPercent) {
     return (Number.isFinite(n) ? n : 100) / factor;
 }
 
-// defaultScale：没单独调过位置的立绘用的默认高度（舞台高度百分比），来自 readerSettings.spriteDefaultScale。
-export function resolveSpriteLayout(layouts, mode, character, mood, outfit = '', defaultScale = 100) {
-    const def = { posX: 50, posY: 100, scale: normalizeSpriteDefaultScale(defaultScale) };
+// defaultScale：没单独调过位置的立绘用的默认高度（舞台高度百分比），来自基准高度或性别默认高度，让位给模式整体缩放。
+// characterScale：角色在素材里单独填的高度，压过模式整体缩放；「调整立绘」存下的位置仍按自己的大小。
+export function resolveSpriteLayout(layouts, mode, character, mood, outfit = '', defaultScale = 100, characterScale = null) {
+    const own = character && characterScale != null && Number(characterScale) > 0 ? Number(characterScale) : null;
+    const def = { posX: 50, posY: 100, scale: own ?? normalizeSpriteDefaultScale(defaultScale) };
     const modeLayout = layouts && layouts[mode];
     const placed = (layout) => ({
         posX: layout.posX,
@@ -230,7 +258,7 @@ export function resolveSpriteLayout(layouts, mode, character, mood, outfit = '',
         const charKey = `${mode}::${character}`;
         if (layouts[charKey]) return placed(layouts[charKey]);
     }
-    if (modeLayout) return placed(modeLayout);
+    if (modeLayout) return own == null ? placed(modeLayout) : { ...placed(modeLayout), scale: own };
     return def;
 }
 

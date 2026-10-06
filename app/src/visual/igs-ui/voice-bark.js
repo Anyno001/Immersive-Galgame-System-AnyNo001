@@ -96,7 +96,7 @@ export function normalizeCharacterVoices(value) {
 }
 
 // 说话人可能写的是别名；别名表以主名为键。
-function canonicalName(sceneAssets, name) {
+export function canonicalName(sceneAssets, name) {
     const target = String(name || '').trim();
     if (!target) return '';
     const maps = [sceneAssets.characterVoices, sceneAssets.characters, sceneAssets.characterDna].map(plainObject);
@@ -124,6 +124,13 @@ export function detectVoiceGender(text) {
     return male > female ? 'male' : 'female';
 }
 
+// 按主名查 DNA 判断性别（声线和立绘默认高度共用）；没有 DNA 或看不出时返回 ''。
+export function characterDnaGender(sceneAssets, name) {
+    const dnaMap = plainObject(sceneAssets && sceneAssets.characterDna) || {};
+    const dna = name && hasOwn(dnaMap, name) ? plainObject(dnaMap[name]) : null;
+    return dna ? detectVoiceGender(`${dna.triggerWords || ''}\n${dna.identity || ''}\n${dna.defaultAppearance || ''}`) : '';
+}
+
 function hashName(name) {
     let h = 2166136261;
     for (const ch of String(name)) h = Math.imul(h ^ ch.codePointAt(0), 16777619) >>> 0;
@@ -140,9 +147,7 @@ export function resolveCharacterVoice(sceneAssets, speaker) {
     const tune = { pitch: manual.pitch, speed: manual.speed };
     if (manual.pack === 'off') return { pack: null, pitch: 0, speed: 1, source: 'off' };
     if (manual.pack) return { pack: voicePackById(manual.pack), ...tune, source: 'manual' };
-    const dnaMap = plainObject(assets.characterDna) || {};
-    const dna = hasOwn(dnaMap, name) ? plainObject(dnaMap[name]) : null;
-    const gender = dna ? detectVoiceGender(`${dna.triggerWords || ''}\n${dna.identity || ''}\n${dna.defaultAppearance || ''}`) : '';
+    const gender = characterDnaGender(assets, name);
     const pool = gender ? VOICE_PACKS.filter((pack) => pack.gender === gender && !AUTO_EXCLUDE.has(pack.id)) : [];
     if (!pool.length) return { pack: null, ...tune, source: '' };
     return { pack: pool[hashName(name) % pool.length], ...tune, source: 'dna' };

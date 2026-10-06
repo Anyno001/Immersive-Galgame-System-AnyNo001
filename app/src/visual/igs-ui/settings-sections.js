@@ -18,14 +18,14 @@ const reader = (...keys) => keys.map((key) => `readerSettings.${key}`);
 export const SETTINGS_SECTIONS = Object.freeze({
     'basic-source-filter': {
         label: '标签解析',
-        paths: () => ['enabled', 'stripHtmlComments', 'allowUntaggedFallback', 'textIncludeTags', 'textExcludeTags', 'htmlCardTags', 'imageIncludeTags'].map((key) => `bridge.sourceFilter.${key}`),
+        paths: () => ['enabled', 'stripHtmlComments', 'allowUntaggedFallback', 'textIncludeTags', 'textExcludeTags', 'htmlCardTags', 'imageIncludeTags'].map((key) => `bridge.sourceFilter.${key}`).concat('readerSettings.imageCountOverride'),
     },
     'reader-dialog-style': { label: '风格', paths: () => reader('dialogSkin', 'gradientVeil', 'magicHouse', 'magicAccent', 'showStatusLine', 'dblclickCgOnly') },
     'reader-dialog-size': { label: '尺寸', paths: () => reader('dialogWidth', 'classicDialogWidthPercent', 'skinDialogScale', 'dialogHeight', 'inputScale') },
     'reader-dialog-background': { label: '面板玻璃', paths: (draft) => [...reader('glassOpacity', 'glassBackdropFilter'), `${themePath(draft)}.bgOpacity`, `${themePath(draft)}.dialogBg`] },
     'reader-text-layout': { label: '排版', paths: () => reader('fontSize', 'dialogFontWeight', 'dialogTextEffect', 'dialogTextEffectColor', 'dialogTextEffectStrength', 'dialogTextEffectSize') },
     'reader-text-style': { label: '文字样式', paths: (draft) => [...THEME_STYLE_KEYS.map((key) => `${themePath(draft)}.${key}`), 'readerSettings.systemRole'] },
-    'reader-interface-background': { label: '背景图', paths: () => reader('imgMode', 'imgBrightness', 'imageCountOverride', 'cinemaBars') },
+    'reader-interface-background': { label: '背景图', paths: () => reader('imgMode', 'imgBrightness') },
     'reader-interface-status-hud': {
         label: '状态栏',
         paths: () => ['enabled', 'showEmotion', 'showLocation', 'showLocationDetails', 'avatarRadius', 'size', 'background', 'barColor', 'tables'].map((key) => `readerSettings.statusHud.${key}`),

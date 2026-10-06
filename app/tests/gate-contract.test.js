@@ -786,7 +786,7 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(readerHostText, /data-prompt-rule-draft/);
     assert.doesNotMatch(readerHostText, /data-path="bridge\.sceneAssets\.promptRule"/);
     assert.doesNotMatch(readerHostText, /emptyBackgroundColorField|optionBubbleFontSizeField|readerSettings\.emptyBackgroundColor/);
-    assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock === 'top'/);
+    assert.match(rendererText, /const dockTop = !embeddedMode && readerSettings\.toolbarDock !== 'float'/);
     assert.match(rendererText, /statusHud\.classList\.toggle\('igs-hud-collapsed', persistedCollapsed \|\| toolbarExpanded\)/);
     assert.match(rendererText, /class="igs-hud-icon-expand" d="M12 5v14M5 12h14"/);
     assert.doesNotMatch(rendererText, /igs-hud-icon-collapse/);
@@ -885,7 +885,9 @@ test('gate:igs-ui:settings-shell-keeps-original-tabs', () => {
     assert.match(interfaceTemplate, /toolbarScaleField/);
     assert.match(interfaceTemplate, /pinnedButtonsField/);
     assert.match(interfaceTemplate, /statusHudSection/);
-    assert.match(interfaceTemplate, /imageCountField/);
+    // 检测图像数量是解析排错项，挪到「基础 › 标签解析」。
+    assert.doesNotMatch(interfaceTemplate, /imageCountField/);
+    assert.match(getSettingsTabTemplate('basic'), /imageCountField/);
     assert.match(interfaceTemplate, /imgModeField/);
     assert.match(interfaceTemplate, /imgBrightnessField/);
     assert.match(interfaceTemplate, /optionFontSizeField/);

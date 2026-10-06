@@ -5,7 +5,7 @@ export const RENDER_QUALITY_SETTINGS = Object.freeze(['auto', 'normal', 'low']);
 export const RENDER_QUALITY_OPTIONS = Object.freeze([
     Object.freeze(['auto', '自动']),
     Object.freeze(['normal', '标准']),
-    Object.freeze(['low', '低画质']),
+    Object.freeze(['low', '省电模式']),
 ]);
 
 const NORMAL_FACTOR = Object.freeze({ density: 1, fps: null, dprCap: null });

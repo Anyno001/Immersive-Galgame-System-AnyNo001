@@ -3030,7 +3030,7 @@ test('gate:simulation:igs-ui-toolbar-top-wraps-early-without-clipping-rows', () 
     assert.doesNotMatch(css, /#igs-overlay\.igs-toolbar-top #igs-bar-btns\{[^}]*space-evenly/);
 });
 
-test('gate:simulation:igs-ui-toolbar-dock-invalid-falls-back-to-float', async () => {
+test('gate:simulation:igs-ui-toolbar-dock-invalid-falls-back-to-top', async () => {
     const storage = createMemoryStorage();
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ toolbarDock: 'bogus' }));
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
@@ -3048,11 +3048,11 @@ test('gate:simulation:igs-ui-toolbar-dock-invalid-falls-back-to-float', async ()
     const opened = await vn.openLatestAvailable('pc');
     const overlay = document.getElementById('igs-overlay');
     const toolbar = overlay.querySelector('#igs-ctrl-bar');
-    assert.equal(opened.reader.snapshot.readerSettings.toolbarDock, 'float');
+    assert.equal(opened.reader.snapshot.readerSettings.toolbarDock, 'top');
     assert.equal(overlay.classList.contains('igs-default-reader-chrome'), true);
-    assert.equal(overlay.classList.contains('igs-toolbar-top'), false);
-    assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'float');
-    assert.equal(toolbar.style.transformOrigin, 'right bottom');
+    assert.equal(overlay.classList.contains('igs-toolbar-top'), true);
+    assert.equal(toolbar.getAttribute('data-igs-toolbar-dock'), 'top');
+    assert.equal(toolbar.style.transformOrigin, '', '顶部固定不缩放');
 
     vn.destroy();
 });
@@ -3418,10 +3418,16 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     commit();
     assert.match(textEl.style.fontFamily, /Source Han Serif CN/);
 
-    const textSettings = settings.switchReaderSubTab('text');
+    // 文字增强是开关：关着只露开关，开了才出现种类和三个参数。
+    let textSettings = settings.switchReaderSubTab('text');
+    assert.match(textSettings.snapshot.html, /data-segment-path="readerSettings\.dialogTextEffect" data-segment-value="outline" aria-pressed="false"/);
+    assert.doesNotMatch(textSettings.snapshot.html, /readerSettings\.dialogTextEffectColor/);
+    settings.setValue('readerSettings.dialogTextEffect', 'outline');
+    textSettings = { snapshot: settings.getSnapshot() };
     for (const path of ['dialogTextEffect', 'dialogTextEffectColor', 'dialogTextEffectStrength', 'dialogTextEffectSize']) {
         assert.ok(textSettings.snapshot.html.includes(`readerSettings.${path}`), path);
     }
+    settings.setValue('readerSettings.dialogTextEffect', 'off');
     assert.match(textSettings.snapshot.html, /igs-reader-text-effect-options[\s\S]*readerSettings\.dialogTextEffectColor[\s\S]*readerSettings\.dialogTextEffectStrength[\s\S]*readerSettings\.dialogTextEffectSize[\s\S]*<\/div>/);
     assert.match(textSettings.snapshot.html, /硬描边/);
     assert.match(textSettings.snapshot.html, /投影式/);
@@ -3861,6 +3867,54 @@ test('gate:simulation:sprite-layout-save-survives-mode-mismatch', async () => {
     vn.destroy();
 });
 
+test('gate:simulation:sprite-height-follows-gender-character-setting-and-manual-layout', async () => {
+    const document = createFakeDocument();
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            openMode: 'pc',
+            sceneAssets: {
+                enabled: true,
+                promptRule: 'rule',
+                scenes: {},
+                characters: { Alice: { calm: 'https://example.com/alice-calm.png' } },
+                characterDna: { Alice: { identity: '1girl, silver hair' } },
+            },
+        }),
+    });
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '<now_plot>\n<content>\n[igs-char:Alice|calm|Hello.]\n</content>\n</now_plot>' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const spriteSize = () => document.getElementById('igs-overlay').querySelector('#igs-sprite').style.backgroundSize;
+
+    const opened = await vn.openLatestAvailable('pc');
+    // 旧存档没有新设置：性别区分默认关，保持基准高度 100%。
+    assert.equal(spriteSize(), 'auto 100%');
+
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.setValue('readerSettings.spriteGenderScale.enabled', true);
+    settings.setValue('readerSettings.spriteGenderScale.female', 84);
+    settings.close();
+    assert.equal(spriteSize(), 'auto 84%');
+
+    const reopened = (await opened.reader.controller.invokeAction('settings')).controller;
+    await reopened.invoke(`char-height:${encodeURIComponent('Alice')}:128`);
+    reopened.close();
+    assert.equal(spriteSize(), 'auto 128%');
+
+    // 「调整立绘」存下的位置仍然优先。
+    const manual = (await opened.reader.controller.invokeAction('settings')).controller;
+    manual.setValue('readerSettings.spriteLayouts', { 'pc::Alice::calm': { posX: 50, posY: 100, scale: 140 } });
+    manual.close();
+    assert.equal(spriteSize(), 'auto 140%');
+
+    vn.destroy();
+});
+
 test('gate:simulation:reader-settings-saved-in-mobile-mode-read-back', async () => {
     // 回归锁：saveUnifiedSettings 曾按 readerMode 分桶存、却固定读 default 桶，
     // 导致移动端保存（含 spriteLayouts）读不回。统一到 default 桶后，
@@ -3966,7 +4020,7 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     const rulesView = settings.switchSceneSubTab('rules');
     assert.equal(rulesView.snapshot.sceneSubTab, 'rules');
     assert.match(rulesView.snapshot.html, /data-scene-settings-pane="rules"/);
-    assert.match(rulesView.snapshot.html, /保存提示词/);
+    assert.match(rulesView.snapshot.html, /data-action="save-prompt-rule"[^>]*>保存</);
     assert.match(rulesView.snapshot.html, /衣柜提示词/);
     assert.match(rulesView.snapshot.html, /data-mood-section/);
     assert.match(rulesView.snapshot.html, /data-switch="bridge\.sceneAssets\.moodAutoClassify"/);
@@ -3996,7 +4050,7 @@ test('gate:simulation:scene-sub-tab-switches-pane', async () => {
     assert.match(charsView.snapshot.html, /立绘基准高度/);
     assert.doesNotMatch(charsView.snapshot.html, /调过位置的立绘也一起变|调过位置的立绘不受影响/);
     assert.match(charsView.snapshot.html, /data-switch="bridge\.sceneAssets\.spriteEnhance\.enabled" aria-pressed="false"/);
-    assert.match(charsView.snapshot.html, /可能增加性能开销/);
+    assert.match(charsView.snapshot.html, /立绘增强<small class="igs-switch-note">手机较耗电<\/small>/);
     assert.doesNotMatch(charsView.snapshot.html, /data-path="bridge\.sceneAssets\.spriteEnhance\.mode"/);
     assert.doesNotMatch(charsView.snapshot.html, />角色别名<\/div>/);
     // 头像地址在毛笔打开的「角色设定」里；头部的头像本身是上传按钮。
@@ -4116,7 +4170,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     const interfaceView = settings.switchReaderSubTab('interface');
     assert.match(interfaceView.snapshot.html, /data-reader-pane="interface"/);
     assert.match(interfaceView.snapshot.html, /背景图/);
-    assert.match(interfaceView.snapshot.html, /检测图像数量/);
+    assert.doesNotMatch(interfaceView.snapshot.html, /检测图像数量/, '挪到了 基础 › 标签解析');
     assert.match(interfaceView.snapshot.html, /图像显示模式/);
     assert.match(interfaceView.snapshot.html, /图片亮度/);
     assert.match(interfaceView.snapshot.html, /选项字体大小/);
@@ -4131,7 +4185,10 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.deepEqual(settings.getSnapshot().draft.readerSettings.typewriter, { enabled: true, speed: 'slow', mode: 'soft', punctuationPause: false, prosody: false, sound: { enabled: true, volume: 0.5, dialogueVolume: 0.5, narrationVolume: 0.5, dialoguePreset: 'dududu', thoughtPreset: 'follow', narrationPreset: 'keyboard', speakerPitch: false } });
     assert.notEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default') || '{}').typewriter?.speed, 'slow');
 
-    const enabledView = settings.switchReaderSubTab('performance');
+    let enabledView = settings.switchReaderSubTab('performance');
+    assert.doesNotMatch(enabledView.snapshot.html, /演出方式/, '细项默认收起');
+    await settings.invoke(`ui-toggle-open:${encodeURIComponent('perf-typewriter')}`);
+    enabledView = settings.switchReaderSubTab('performance');
     assert.match(enabledView.snapshot.html, /播放速度/);
     assert.match(enabledView.snapshot.html, /快[\s\S]*中[\s\S]*慢/);
     assert.match(enabledView.snapshot.html, /演出方式/);
@@ -8156,6 +8213,8 @@ test('gate:simulation:stage-shake-settings-and-raw-emotion-drive-igs-stage-only'
     assert.match(disabled, /画面震动/);
     assert.doesNotMatch(disabled, /震动强度/);
     settings.setValue('readerSettings.stageShake.enabled', true);
+    // 细项默认收起，点 › 展开。
+    await settings.invoke(`ui-toggle-open:${encodeURIComponent('perf-stage-shake')}`);
     const enabled = settings.switchReaderSubTab('performance').snapshot.html;
     assert.match(enabled, /震动强度/);
     assert.match(enabled, /触发情绪/);
@@ -8385,6 +8444,7 @@ test('gate:simulation:chat-show-settings-edit-contacts-and-inject-prompt-rule', 
         await settings.invoke('chat-show-add-contact');
         await settings.invoke(`chat-show-add-alias:${encodeURIComponent('爱丽丝')}`);
         settings.setValue('readerSettings.chatShow.contacts.爱丽丝.side', 'right');
+        await settings.invoke(`ui-toggle-open:${encodeURIComponent('perf-chat-show')}`);
         const enabled = settings.switchReaderSubTab('performance').snapshot.html;
         assert.match(enabled, /聊天外框/);
         assert.match(enabled, /alice_cat/);
@@ -9008,7 +9068,7 @@ test('gate:settings:advanced-fields-collapse-and-remember-open-state', () => {
         controller.toggle('bridge.autoIllustration.assets.backgroundEnabled');
         html = controller.getSnapshot().html;
         assert.doesNotMatch(html, /data-image-feature="asset-options" hidden/);
-        assert.match(html, /需要先在「素材」页开启场景素材模式/);
+        assert.match(html, /需先在「素材」页开启场景素材模式/);
     } finally { vn.destroy(); }
 });
 

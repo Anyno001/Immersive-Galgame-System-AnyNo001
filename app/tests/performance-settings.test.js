@@ -49,7 +49,8 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
     for (const [id] of PERFORMANCE_GROUPS) assert.match(html, new RegExp(`<details data-advanced="perf-group-${id}">`));
     assert.match(html, /data-action="perf-preset:standard"/);
     // 情绪、剧情提示、事件演出合进「情绪与提示」一张卡，组内用小标题分段。
-    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/7<\/span><span class="igs-perf-brief">情绪符号<\/span>/);
+    // 组标题旁是固定概括 + 计数，不再罗列已开启的功能名。
+    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/7<\/span><span class="igs-perf-brief">情绪 · 提示 · 事件<\/span>/);
     assert.match(html, /<div class="igs-settings-subhead">情绪<\/div>[\s\S]*<div class="igs-settings-subhead">剧情提示<\/div>[\s\S]*<div class="igs-settings-subhead">事件演出<\/div>/);
     // 镜头环境与立绘合成「画面」：5 个画面开关 + 立绘活动、情绪动作、多角色同屏。
     assert.match(html, /<b>画面<\/b><span class="igs-perf-count">0\/8<\/span>/);
@@ -58,8 +59,12 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
     assert.doesNotMatch(html, /剧情题材|perf-type:/);
     assert.match(html, /<details data-advanced="perf-group-rhythm"><summary><b>节奏与互动<\/b>/);
     assert.equal(PERFORMANCE_GROUPS.length, 5);
-    assert.match(html, /<details class="igs-settings-advanced igs-perf-more" data-advanced="perf-manga-words"><summary>自定义触发情绪<\/summary>/);
-    assert.match(html, /data-advanced="perf-stage-shake"><summary>强度与触发情绪<\/summary><i data-shake-detail><\/i>/);
+    // 每项一行：开着且有细项时只露 › 按钮，细项默认收起，不再有「自定义触发情绪」之类的二级折叠。
+    assert.match(html, /data-action="ui-toggle-open:perf-manga-words" aria-expanded="false"/);
+    assert.doesNotMatch(html, /mangaFx\.speedLines/);
+    assert.match(html, /<i data-shake><\/i><small class="igs-perf-item-hint">冲击时晃屏<\/small><button type="button" class="igs-perf-item-more" data-action="ui-toggle-open:perf-stage-shake"/);
+    assert.doesNotMatch(html, /data-shake-detail/);
+    assert.doesNotMatch(html, /igs-perf-more/);
     assert.match(html, /data-tw/);
 });
 
@@ -69,8 +74,8 @@ test('gate:performance-layout:capsule-counts-every-visible-switch', () => {
         sentencePaging: '<i data-paging></i>', sentencePagingOn: true,
         narrationFilter: '<i data-dim></i>',
     });
-    assert.match(html, /<b>文字<\/b><span class="igs-perf-count is-on">2\/5<\/span><span class="igs-perf-brief">双语台词、旁白按句号分页<\/span>/);
-    assert.match(html, /<b>画面<\/b><span class="igs-perf-count is-on">1\/9<\/span><span class="igs-perf-brief">旁白时压暗立绘<\/span>/);
+    assert.match(html, /<b>文字<\/b><span class="igs-perf-count is-on">2\/5<\/span><span class="igs-perf-brief">打字机 · 字效 · 双语<\/span>/);
+    assert.match(html, /<b>画面<\/b><span class="igs-perf-count is-on">1\/9<\/span><span class="igs-perf-brief">镜头 · 天气 · 立绘<\/span>/);
     assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/7<\/span>/);
 });
 
@@ -80,7 +85,7 @@ test('gate:performance-layout:voice-bark-lives-in-sound-group', () => {
         typewriter: '<i data-tw></i>',
         voiceBark: '<i data-voice-bark></i>', voiceBarkOn: true,
     });
-    assert.match(html, /<b>声音<\/b><span class="igs-perf-count is-on">1\/5<\/span><span class="igs-perf-brief">角色语气音<\/span>/);
+    assert.match(html, /<b>声音<\/b><span class="igs-perf-count is-on">1\/5<\/span><span class="igs-perf-brief">音效 · 语气 · 配乐<\/span>/);
     const sound = html.slice(html.indexOf('data-advanced="perf-group-sound"'));
     assert.match(sound.slice(0, sound.indexOf('perf-group-rhythm')), /data-voice-bark/);
     const text = html.slice(html.indexOf('data-advanced="perf-group-text"'), html.indexOf('data-advanced="perf-group-stage"'));
@@ -90,7 +95,8 @@ test('gate:performance-layout:voice-bark-lives-in-sound-group', () => {
 test('gate:performance-layout:remembers-open-sections', () => {
     const html = renderPerformanceSettings({ mangaFx: { enabled: true } }, {}, (key) => key === 'perf-group-story' || key === 'perf-manga-words');
     assert.match(html, /data-advanced="perf-group-story" open/);
-    assert.match(html, /data-advanced="perf-manga-words" open/);
+    assert.match(html, /data-action="ui-toggle-open:perf-manga-words" aria-expanded="true"/);
+    assert.match(html, /mangaFx\.speedLines/);
     assert.doesNotMatch(html, /data-advanced="perf-group-text" open/);
 });
 

@@ -4366,13 +4366,13 @@ test('gate:scene:character-dna-lifecycle', async () => {
 test('gate:igs-ui:character-dna-editor-renders-escaped-name-and-values', async () => {
     const { renderCharacterAssetList, renderCharacterDnaEditor } = await import('../src/visual/igs-ui/settings-fields.js');
     const empty = renderCharacterDnaEditor('白墨', null);
-    assert.ok(empty.includes('角色 DNA（未填写）'));
+    assert.ok(empty.includes('角色DNA（未填写）'));
     assert.equal((empty.match(/data-dna-field="/g) || []).length, 4);
     // DNA 在角色那一行的 ⋯ 里（「角色设定」），点开才出编辑区。
     const closed = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
         characterDna: { 'A.<b>': { identity: 'silver hair', triggerWords: 'alice_v2' } },
     });
-    assert.match(closed, /class="igs-add-menu igs-row-menu"[\s\S]*?data-action="scene-toggle-dna:A.%3Cb%3E" role="menuitem">角色设定（别名、头像、DNA）</);
+    assert.match(closed, /class="igs-add-menu igs-row-menu"[\s\S]*?data-action="scene-toggle-dna:A.%3Cb%3E" role="menuitem">角色设定</);
     assert.ok(!closed.includes('data-dna-field='));
     const html = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
         characterDna: { 'A.<b>': { identity: 'silver hair', triggerWords: 'alice_v2' } },

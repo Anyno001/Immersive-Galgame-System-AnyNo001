@@ -323,10 +323,14 @@ function applyWebReaderRuntime(root, runtime) {
             ? runtime.win.visualViewport.height
             : Number(runtime.win && runtime.win.innerHeight) || 0;
         if (height > 0) root.style.height = `${Math.round(height)}px`;
+        syncKeyboardOffset(root, win);
         syncOrientationClass(root, win);
     };
     syncHeight();
-    if (win.visualViewport) addEventListenerWithCleanup(win.visualViewport, 'resize', syncHeight, runtime);
+    if (win.visualViewport) {
+        addEventListenerWithCleanup(win.visualViewport, 'resize', syncHeight, runtime);
+        addEventListenerWithCleanup(win.visualViewport, 'scroll', syncHeight, runtime);
+    }
     addEventListenerWithCleanup(win, 'orientationchange', syncHeight, runtime);
     if (win.screen && win.screen.orientation) {
         addEventListenerWithCleanup(win.screen.orientation, 'change', syncHeight, runtime);
@@ -342,10 +346,37 @@ function applyWebReaderRuntime(root, runtime) {
     });
 }
 
+// iPad / 安卓平板点输入框时，系统把布局视口往上卷来露出输入框，贴在 top:0 的整层阅读器就被顶出屏幕。
+// 键盘弹起（可见高度明显变矮）时，把阅读器钉在可见区域里：下移卷走的距离、高度缩到可见高度；收起后还原。
+function syncKeyboardOffset(root, win) {
+    const vv = win && win.visualViewport;
+    if (!root || !root.style || !vv) return;
+    const full = Number(win.innerHeight) || 0;
+    const open = full > 0 && Number.isFinite(vv.height) && vv.height < full * 0.85;
+    root.style.top = open && vv.offsetTop > 0 ? `${Math.round(vv.offsetTop)}px` : '';
+    root.classList.toggle('igs-keyboard-open', open);
+}
+
 function applyFullscreenReaderRuntime(root, current, runtime, ctx = {}) {
     const doc = runtime.doc;
     if (!doc) return;
     const win = runtime.win || doc.defaultView || globalThis;
+    // 全屏模式同样会被软键盘顶走：高度跟随可见区域，键盘收起时交回 CSS 的 100dvh。
+    const syncKeyboard = () => {
+        const vv = win.visualViewport;
+        const full = Number(win.innerHeight) || 0;
+        const open = Boolean(vv && full > 0 && Number.isFinite(vv.height) && vv.height < full * 0.85);
+        if (root && root.style) root.style.height = open ? `${Math.round(vv.height)}px` : '';
+        syncKeyboardOffset(root, win);
+    };
+    if (win.visualViewport) {
+        addEventListenerWithCleanup(win.visualViewport, 'resize', syncKeyboard, runtime);
+        addEventListenerWithCleanup(win.visualViewport, 'scroll', syncKeyboard, runtime);
+    }
+    addRuntimeCleanup(runtime, () => {
+        if (root && root.style) { root.style.height = ''; root.style.top = ''; }
+        if (root && root.classList) root.classList.remove('igs-keyboard-open');
+    });
 
     // requestFullscreen() 会重置浏览器的音频自动播放许可上下文，
     // 导致 vertin-tips 等插件在进入全屏后调用 HTMLAudioElement.play() 被静默拒绝。

@@ -11,7 +11,8 @@ test('gate:settings-search:every-performance-feature-is-findable', () => {
         if (!feature.label || !groups.has(feature.group)) continue;
         assert.ok(ids.has(`perf:${feature.key}`), `missing ${feature.key}`);
     }
-    for (const entry of SETTINGS_SEARCH_INDEX) {
+    // 演出页的条目都跳到「阅读器 › 演出」并展开分组；其他分页的条目（画质、黑边以外的跨页项）带自己的 target。
+    for (const entry of SETTINGS_SEARCH_INDEX.filter((item) => item.target.readerSubTab === 'performance' && /^perf-group-(?!rhythm)/.test(item.target.open[0] || ''))) {
         assert.equal(entry.target.tab, 'reader');
         assert.equal(entry.target.readerSubTab, 'performance');
         assert.match(entry.target.open[0], /^perf-group-/);
@@ -52,3 +53,14 @@ test('gate:settings-search:results-html-empty-hint-and-escaping', async () => {
     assert.match(escaped, /a&amp;b/);
 });
 
+
+test('gate:settings-search:colloquial-words-and-did-you-mean', async () => {
+    const { searchSettings, renderSettingsSearchResults } = await import('../src/visual/igs-ui/settings-search.js');
+    // 口语说法能直接命中：「打字音」→ 打字机，「卡顿」→ 画质，「黑边」→ 电影黑边。
+    assert.equal(searchSettings('打字音')[0].label, '打字机');
+    assert.equal(searchSettings('卡顿')[0].id, 'render-quality');
+    assert.equal(searchSettings('黑边')[0].id, 'cinema-bars');
+    assert.equal(searchSettings('立绘太大')[0].target.tab, 'scene');
+    // 直接搜不到时给「你是否在找」。
+    assert.match(renderSettingsSearchResults('下雨天'), /你是否在找[\s\S]*data-setting-go="perf:/);
+});

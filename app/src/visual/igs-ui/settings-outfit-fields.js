@@ -193,7 +193,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
     const metaOpen = isOpen(metaKey);
     const meta = !metaOpen ? '' : `<div class="igs-outfit-meta-body"><div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">衣柜</span>${wardrobeChoices(charName, name, entry, sceneAssets.wardrobe)}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">说明</span><input class="igs-scene-url-input" data-scene-outfit-note-char="${esc(charName)}" data-scene-outfit-note="${esc(name)}" value="${esc(note)}" placeholder="什么情形穿这套"></div>`
-        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">服装词</span>${chipList(words, `scene-remove-outfit-word:${c}:${o}`, `scene-add-outfit-word:${c}:${o}`, '只认服装名', '添加服装词（AI 写出或表格里出现该词即视为这套服装）')}</div>`
+        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">服装词</span>${chipList(words, `scene-remove-outfit-word:${c}:${o}`, `scene-add-outfit-word:${c}:${o}`, '只认服装名', '添加服装词（AI写出或表格里出现该词即视为这套服装）')}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">适用场景</span>${chipList(scenes, `scene-remove-outfit-scene:${c}:${o}`, `scene-add-outfit-scene:${c}:${o}`, '不限', '添加适用场景（换到其他场景时，继承来的这套服装自动失效）')}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">状态栏头像</span>${thumb(avatar, `${name} 头像`, ' igs-outfit-avatar', resolveUrl)}`
         + `<input class="igs-scene-url-input" data-scene-outfit-avatar-char="${esc(charName)}" data-scene-outfit-avatar="${esc(name)}" value="${esc(avatar)}" placeholder="留空沿用角色头像">`
@@ -219,7 +219,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         return `<div class="igs-outfit-slot${filled ? '' : ' is-fallback'}" data-outfit-slot="${esc(mood)}">`
             + (filled ? thumb(url, mood, '', resolveUrl) : thumb(preview.url, mood, ' is-ghost', resolveUrl))
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
-            + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`)
+            + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL或data:image/...">`)
             + (filled ? '' : `<span class="igs-outfit-hint">${esc(preview.label)}</span>`)
             + `<span class="igs-outfit-acts">${slotMenu}</span>`
             + `</div>`;
@@ -278,8 +278,8 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
         ], `「${active}」的操作`)
         : renderRowMenu(baseMenuItems, '原装的操作');
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
-        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装" aria-label="添加服装">${SLOT_ICONS.outfit}</button>`
-        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-icon" data-action="${active ? `scene-add-outfit-mood:${c}:${o}` : `scene-add-mood:${c}`}" title="添加情绪" aria-label="添加情绪">${SLOT_ICONS.mood}</button>`
+        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">+服装</button>`
+        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add igs-outfit-tab-mood" data-action="${active ? `scene-add-outfit-mood:${c}:${o}` : `scene-add-mood:${c}`}" title="给${active ? `「${esc(active)}」` : '原装'}添加情绪">+情绪</button>`
         + `${quickButtons}${menu}</div>`;
     const panel = active
         ? renderOutfitPanel(charName, active, plain(map[active]) || { words: [], moods: {} }, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
@@ -351,7 +351,7 @@ export function renderOutfitReviewList(items, characterOutfits, characters) {
         key: 'outfit',
         title: '服装词',
         count: list.length,
-        hint: 'AI 写了、角色还没登记的服装。归入已有服装后，下次就认得这个词。',
+        hint: 'AI写了、角色还没登记的服装。归入已有服装后，下次就认得这个词。',
         clearAction: 'outfit-review-clear',
         body: rows ? `<div class="igs-review-list">${rows}</div>` : '',
         empty: '没有待确认的服装词',
@@ -386,6 +386,9 @@ export const OUTFIT_SETTINGS_STYLE_TEXT = `
 .igs-char-info-row>.igs-mood-word-list,.igs-char-info-value{flex:1;min-width:0}
 .igs-char-info-value{display:flex;align-items:center;gap:6px}
 .igs-char-info-label{flex:0 0 72px;font-size:12px;color:var(--igs-settings-ink-3)}
+.igs-char-info-row.igs-char-height-row{margin-bottom:6px}
+.igs-char-info-row.igs-char-height-row>.igs-asset-move{flex:0 0 76px;width:76px;cursor:text}
+.igs-char-height-hint{flex:1;min-width:0;font-size:12px;line-height:1.4;color:var(--igs-settings-ink-3)}
 .igs-char-info-row.is-block>.igs-char-info-label{flex:none}
 .igs-char-info .igs-dna-fields{margin-top:0}
 .igs-settings-section-actions{display:flex;align-items:center;gap:2px}
@@ -401,7 +404,8 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-tab{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 11px;border:0;background:transparent;color:var(--igs-settings-ink-3);border-radius:var(--igs-settings-radius-small);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer;transition:background-color .14s,color .14s}
 .igs-outfit-tab:hover,.igs-outfit-tab:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-outfit-tab.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);font-weight:600}
-.igs-outfit-tab-add{margin-left:auto;color:var(--igs-settings-ink-4)}
+.igs-outfit-tab-add{margin-left:auto;padding:0 9px;border:1px dashed var(--igs-settings-line-strong,rgba(128,128,128,.4));color:var(--igs-settings-ink-3);white-space:nowrap}
+.igs-outfit-tab-add.igs-outfit-tab-mood{margin-left:0}
 .igs-outfit-quick{display:inline-flex;align-items:center;gap:4px;margin-left:4px;padding-left:6px;border-left:1px solid var(--igs-settings-line)}
 .igs-outfit-quick .igs-outfit-quick-btn{height:28px;padding:0 10px;background:var(--igs-settings-raised);border-radius:var(--igs-settings-radius-small);white-space:nowrap}
 .igs-outfit-quick .igs-outfit-quick-btn:hover,.igs-outfit-quick .igs-outfit-quick-btn:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}

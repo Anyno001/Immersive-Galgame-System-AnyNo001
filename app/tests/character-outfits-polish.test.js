@@ -142,7 +142,7 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     assert.doesNotMatch(swim, /data-outfit-fallback="默认"/);
     assert.doesNotMatch(swim, /缺图时|全部补上/, '只缺一格时不放整批补齐');
     // 添加服装 / 添加情绪是页签行上的图标；生成立绘、表情差分外露，⋯ 里不再重复。
-    assert.match(swim, /data-outfit-tabs="小林海斗">[\s\S]*?igs-outfit-tab-add[\s\S]*?data-action="scene-add-outfit-mood:[^"]+" title="添加情绪"[\s\S]*?igs-outfit-quick-btn" data-action="outfit-expression-set:[^"]+">表情差分[\s\S]*?class="igs-add-menu igs-row-menu"[\s\S]*?<\/details><\/div>/);
+    assert.match(swim, /data-outfit-tabs="小林海斗">[\s\S]*?igs-outfit-tab-add[\s\S]*?igs-outfit-tab-mood" data-action="scene-add-outfit-mood:[^"]+" title="给「[^」]+」添加情绪">\+情绪[\s\S]*?igs-outfit-quick-btn" data-action="outfit-expression-set:[^"]+">表情差分[\s\S]*?class="igs-add-menu igs-row-menu"[\s\S]*?<\/details><\/div>/);
     const swimBar = swim.slice(swim.indexOf('data-outfit-tabs="小林海斗"'), swim.indexOf('data-outfit-panel='));
     assert.doesNotMatch(swimBar, /role="menuitem">表情差分/);
     assert.doesNotMatch(swimBar, /生成立绘|char-generate-sprite:|outfit-generate-nude:/);

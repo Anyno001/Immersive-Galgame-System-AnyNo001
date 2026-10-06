@@ -81,7 +81,7 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     assert.doesNotMatch(html, /待确认|outfit-review-dismiss/);
     // 和场景页一样：「+」在标题右边，筛选在下一行左边。
     const { SCENE_RULES_TEMPLATE } = await import('../src/visual/igs-ui/settings-tabs.js');
-    assert.match(SCENE_RULES_TEMPLATE, /衣柜提示词<span[^>]*>（只在生图时用）<\/span><button[^>]*data-action="wardrobe-add"/);
+    assert.match(SCENE_RULES_TEMPLATE, /衣柜提示词<span[^>]*>生图用<\/span><button[^>]*data-action="wardrobe-add"/);
     assert.match(renderWardrobe({}, { lead: '<b>筛选</b>' }), /^<div class="igs-wardrobe-group"><div class="igs-asset-folder-bar"><b>筛选<\/b><\/div>/);
     const tagged = renderWardrobe({ 校服: { prompt: '' } }, { scopeTag: (collection, name) => `<i>${collection}:${name}</i>`, focus: '校服' });
     assert.match(tagged, /<i>wardrobe:校服<\/i>/);

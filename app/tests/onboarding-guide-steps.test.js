@@ -9,22 +9,24 @@ import {
 
 test('onboarding steps: 十一步顺序、欢迎后快速配置演出、翻页教学、工具栏管理与可选生图', () => {
     assert.deepEqual(ONBOARDING_STEPS.map((step) => step.id),
-        ['welcome', 'quick', 'paging', 'mode', 'performance', 'dialog', 'toolbar', 'scene', 'assets', 'image', 'done']);
+        ['welcome', 'quick', 'paging', 'mode', 'performance', 'dialog', 'toolbar', 'scene', 'assets', 'image', 'search', 'done']);
     assert.equal(getOnboardingStep(1).title, '想不想快速配置演出？');
     assert.equal(getOnboardingStep(1).quiz, true);
     assert.ok(getOnboardingStep(2).body.includes('右半边') && getOnboardingStep(2).body.includes('左半边'));
-    assert.equal(getOnboardingStep(6).title, '工具栏按钮管理');
+    assert.ok(getOnboardingStep(4).body.includes('省电模式'));
+    assert.equal(getOnboardingStep(6).title, '工具栏');
+    assert.ok(getOnboardingStep(8).body.includes('下载默认素材') && getOnboardingStep(8).body.includes('多选'));
     assert.equal(getOnboardingStep(9).optional, true);
-    assert.ok(getOnboardingStep(10).body.includes('标签解析'));
-    assert.ok(getOnboardingStep(8).body.includes('下载默认素材'));
+    assert.ok(getOnboardingStep(10).body.includes('黑边'));
+    assert.ok(getOnboardingStep(11).body.includes('标签解析'));
 });
 
 test('onboarding steps: 前后导航边界', () => {
     assert.equal(prevOnboardingStep(0), 0);
     assert.equal(nextOnboardingStep(0), 1);
-    assert.equal(nextOnboardingStep(10), 10);
-    assert.equal(isLastOnboardingStep(10), true);
-    assert.equal(isLastOnboardingStep(9), false);
+    assert.equal(nextOnboardingStep(11), 11);
+    assert.equal(isLastOnboardingStep(11), true);
+    assert.equal(isLastOnboardingStep(10), false);
     assert.equal(getOnboardingStep(-1).id, 'welcome');
 });
 

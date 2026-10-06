@@ -34,10 +34,10 @@ test('gate:settings-polish:mood-review-actions-sit-outside-chip', () => {
 
 test('gate:settings-polish:mood-ai-classify-entry-visible-when-empty-and-busy', () => {
     const empty = renderMoodReviewList([], []);
-    assert.match(empty, /data-action="mood-review-ai-classify" disabled[^>]*>AI 分类<\/button>/);
+    assert.match(empty, /data-action="mood-review-ai-classify" disabled[^>]*>AI分类<\/button>/);
     assert.match(empty, /暂无待分类情绪词/);
     const pending = renderMoodReviewList([{ word: '迟疑' }], [{ label: '思考', words: [] }]);
-    assert.match(pending, /data-action="mood-review-ai-classify">AI 分类<\/button>/);
+    assert.match(pending, /data-action="mood-review-ai-classify">AI分类<\/button>/);
     assert.doesNotMatch(pending, /data-action="mood-review-ai-classify" disabled/);
     const busy = renderMoodReviewList([{ word: '迟疑' }], [{ label: '思考', words: [] }], { busy: true });
     assert.match(busy, /data-action="mood-review-ai-classify" disabled aria-busy="true">分类中…<\/button>/);
@@ -50,7 +50,7 @@ test('gate:settings-polish:daily-petals-share-the-kind-grid', () => {
     const { daily } = renderStageDirectionFields(reader, (key, label, body) => body);
     const grid = daily.match(/<div class="igs-source-filter-grid">([\s\S]*?)<\/div>/)[1];
     assert.match(grid, /樱花、落叶飘落/);
-    assert.match(grid, /拍照存入 CG 库/);
+    assert.match(grid, /拍照存入CG库/);
 });
 
 

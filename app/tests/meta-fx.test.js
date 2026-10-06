@@ -118,7 +118,7 @@ test('演出页有独立的 Meta 互动卡片，关闭时只显示总开关', ()
     assert.match(off, /data-advanced="perf-group-rhythm"/);
     assert.match(off, /data-switch="readerSettings\.metaFx\.enabled"/);
     assert.doesNotMatch(off, /metaFx\.poke/);
-    const on = renderPerformanceSettings({ metaFx: { enabled: true, digest: true } });
+    const on = renderPerformanceSettings({ metaFx: { enabled: true, digest: true } }, {}, (key) => key === 'perf-meta');
     assert.match(on, /metaFx\.poke/);
     assert.match(on, /data-action="meta-scope-add"/);
     assert.match(on, /当前待送出/);

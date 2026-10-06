@@ -28,6 +28,7 @@ import {
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyVoiceBark } from './voice-bark.js';
+import { resolveSpriteBaseScale } from './sprite-height.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyFxToDom } from './fx-runtime.js';
 import { applyDanmakuToDom } from './danmaku-runtime.js';
@@ -444,7 +445,8 @@ export function applyToolbarState(root, current) {
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
-    const dockTop = !embeddedMode && readerSettings.toolbarDock === 'top';
+    // 默认顶部固定：只有明确选了「紧贴对话框」才是 float。
+    const dockTop = !embeddedMode && readerSettings.toolbarDock !== 'float';
     const compactChrome = embeddedMode || defaultChrome || dockTop;
     const toolbarExpanded = current.toolbarCollapsed === false;
     if (root.classList) {
@@ -702,7 +704,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     }
 
     const compactChrome = embeddedMode;
-    const toolbarDock = embeddedMode ? 'float' : (readerSettings.toolbarDock === 'top' ? 'top' : 'float');
+    const toolbarDock = embeddedMode ? 'float' : (readerSettings.toolbarDock === 'float' ? 'float' : 'top');
     if (root && root.classList) {
         root.classList.toggle('igs-toolbar-top', toolbarDock === 'top');
         root.classList.toggle('igs-cinema-bars', readerSettings.cinemaBars === true);
@@ -1105,6 +1107,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (gradientVeilDialog) rootClasses.push('igs-gradient-veil-active');
     if (nsfwVeilActive) rootClasses.push('igs-scene-nsfw');
     if (current && current.awaitingReply) rootClasses.push('igs-awaiting-reply');
+    // applyReaderSettingsToDom 随后还会 toggle 这两个类：先按同样条件带上，免得每次翻页先删后加、整页样式失效。
+    if (snapshot.mode !== 'embedded' && snapshot.readerSettings.toolbarDock !== 'float') rootClasses.push('igs-toolbar-top');
+    if (snapshot.readerSettings.cinemaBars === true) rootClasses.push('igs-cinema-bars');
     const rootClassName = rootClasses.join(' ');
     if (root.className !== rootClassName) root.className = rootClassName;
     root.setAttribute('data-igs-igs-ui', 'true');
@@ -1233,10 +1238,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const castSpeakerMood = snapshot.content.spriteMood || '';
     const castSpeakerOutfit = snapshot.content.spriteOutfit || '';
     const castSlotLayouts = snapshot.readerSettings.castSlotLayouts || {};
-    const presentSpriteLayout = (character, mood, outfit) => applySpriteDisplayScale(
-        resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, character, mood, outfit, snapshot.readerSettings.spriteDefaultScale),
-        snapshot.readerSettings.spriteDisplayScale,
-    );
+    const presentSpriteLayout = (character, mood, outfit) => {
+        const height = resolveSpriteBaseScale(snapshot.readerSettings._sceneAssets, snapshot.readerSettings, character);
+        return applySpriteDisplayScale(
+            resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, character, mood, outfit, height.defaultScale, height.characterScale),
+            snapshot.readerSettings.spriteDisplayScale,
+        );
+    };
     const withCastSlot = (entry, character, outfit, slotIndex) => {
         const slotKey = slotIndex == null ? '' : castSlotKey(snapshot.mode, castLayout.count, slotIndex, spriteIdentity(character, outfit));
         const saved = slotKey ? castSlotLayouts[slotKey] : null;

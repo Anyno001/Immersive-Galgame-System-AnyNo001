@@ -40,6 +40,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, resolveCharacterVoice } from './voice-bark.js';
+import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
 import { beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
@@ -723,6 +724,43 @@ export async function handleSettingsAction(action, ctx) {
     const dialogs = ctx.dialogs || createSettingsDialogs({ global: options.global || globalThis });
     const risky = riskyActionMessage(normalizedAction, settingsState, editTarget);
     if (risky && typeof dialogs.confirm === 'function' && !(await dialogs.confirm(risky))) return rerenderSettings();
+    // 素材批量删除：多选只记在界面状态里；删除时逐个走单条删除动作，别名、DNA、服装、文件夹归属的清理与单删完全一致。
+    const selectMatch = /^asset-(select|pick|pick-all|delete-picked):(scenes|characters)(?::(.*))?$/.exec(normalizedAction);
+    if (selectMatch) {
+        const [, op, kind, rest = ''] = selectMatch;
+        const asyncState = settingsState.asyncState;
+        const cur = asyncState.assetSelect && asyncState.assetSelect.kind === kind ? asyncState.assetSelect : null;
+        // 列表里本卡与全局混在一起：按合并后的素材算；单条删除动作各自找到条目所在的那一边。
+        const library = (draftEffectiveAssets(settingsState) || {})[kind] || {};
+        if (op === 'select') {
+            asyncState.assetSelect = cur ? null : { kind, names: new Set() };
+            return rerenderSettings();
+        }
+        if (!cur) return rerenderSettings();
+        if (op === 'pick') {
+            const name = decodeSeg(rest);
+            if (cur.names.has(name)) cur.names.delete(name); else cur.names.add(name);
+            return rerenderSettings();
+        }
+        if (op === 'pick-all') {
+            const all = Object.keys(library);
+            cur.names = cur.names.size === all.length ? new Set() : new Set(all);
+            return rerenderSettings();
+        }
+        const names = [...cur.names].filter((name) => Object.prototype.hasOwnProperty.call(library, name));
+        if (!names.length) return rerenderSettings();
+        const label = kind === 'characters' ? '角色' : '场景';
+        const preview = names.slice(0, 5).map((name) => `「${name}」`).join('') + (names.length > 5 ? ` 等 ${names.length} 个` : '');
+        if (typeof dialogs.confirm === 'function' && !(await dialogs.confirm(`删除${preview}${label}？${kind === 'characters' ? '立绘、别名、服装会一起删掉。' : '时间、天气背景会一起删掉。'}`))) return rerenderSettings();
+        const prefix = kind === 'characters' ? 'scene-remove-char:' : 'scene-remove-bg:';
+        const quiet = { ...ctx, dialogs: { ...dialogs, confirm: async () => true } };
+        for (const name of names) {
+            const result = await handleSettingsAction(`${prefix}${encodeURIComponent(name)}`, quiet);
+            if (result && result.ok === false) return result;
+        }
+        asyncState.assetSelect = null;
+        return rerenderSettings();
+    }
     if (normalizedAction.startsWith('asset-filter:')) {
         const [collection, filter] = normalizedAction.slice('asset-filter:'.length).split(':');
         if (!SCOPED_COLLECTION_KINDS[collection]) return rerenderSettings();
@@ -2116,6 +2154,18 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 角色立绘高度和声线一样存在根素材库，按主名记；留空就删掉，回到自动。
+    if (normalizedAction.startsWith('char-height:')) {
+        const [rawName, rawValue] = normalizedAction.slice('char-height:'.length).split(':');
+        const charName = decodeSeg(rawName);
+        if (!charName || ['__proto__', 'constructor', 'prototype'].includes(charName)) return { ok: false, error: '角色名无效' };
+        const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        assets.characterSpriteScales = normalizeCharacterSpriteScales({ ...assets.characterSpriteScales, [charName]: decodeSeg(rawValue) });
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('voice-bark-preview:')) {
         const charName = decodeSeg(normalizedAction.slice('voice-bark-preview:'.length));
         const voice = resolveCharacterVoice(draftEffectiveAssets(settingsState), charName);
@@ -2866,6 +2916,9 @@ export async function handleSettingsAction(action, ctx) {
         if (settingsState.draft.bridge.sceneAssets.characterVoices && typeof settingsState.draft.bridge.sceneAssets.characterVoices === 'object') {
             delete settingsState.draft.bridge.sceneAssets.characterVoices[name];
         }
+        if (settingsState.draft.bridge.sceneAssets.characterSpriteScales && typeof settingsState.draft.bridge.sceneAssets.characterSpriteScales === 'object') {
+            delete settingsState.draft.bridge.sceneAssets.characterSpriteScales[name];
+        }
         draftAssetLibrary(settingsState, editTarget).characterDna = removeCharacterDna(draftAssetLibrary(settingsState, editTarget).characterDna, name);
         if (draftAssetLibrary(settingsState, editTarget).characterOutfits && typeof draftAssetLibrary(settingsState, editTarget).characterOutfits === 'object') {
             delete draftAssetLibrary(settingsState, editTarget).characterOutfits[name];
@@ -3011,10 +3064,12 @@ export async function handleSettingsAction(action, ctx) {
             if (rootAssets && rootAssets !== sceneAssets && rootAssets.characterHouses && typeof rootAssets.characterHouses === 'object') {
                 rootAssets.characterHouses = reorderKey(rootAssets.characterHouses, oldName, newName);
             }
-            // 角色声线和学院一样存在根素材库，按主名记。
+            // 角色声线、立绘高度和学院一样存在根素材库，按主名记。
             for (const assets of new Set([sceneAssets, rootAssets])) {
-                if (assets && assets.characterVoices && typeof assets.characterVoices === 'object') {
-                    assets.characterVoices = reorderKey(assets.characterVoices, oldName, newName);
+                for (const field of ['characterVoices', 'characterSpriteScales']) {
+                    if (assets && assets[field] && typeof assets[field] === 'object') {
+                        assets[field] = reorderKey(assets[field], oldName, newName);
+                    }
                 }
             }
             if (sceneAssets.characterDna && typeof sceneAssets.characterDna === 'object') {
@@ -3860,6 +3915,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     }
     root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
     root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
+    root.characterSpriteScales = { ...(root.characterSpriteScales || {}), ...normalizeCharacterSpriteScales(pack.characterSpriteScales) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
     root.timeGroups = mergeLabelGroups(root.timeGroups, pack.timeGroups);
     root.weatherGroups = mergeLabelGroups(root.weatherGroups, pack.weatherGroups);
@@ -3898,6 +3954,7 @@ async function importLegacyPreset(settingsState, options, dialogs, persistSettin
     if (pack.worldview) applyWorldview(target, pack.worldview);
     root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
     root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
+    root.characterSpriteScales = { ...(root.characterSpriteScales || {}), ...normalizeCharacterSpriteScales(pack.characterSpriteScales) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
     root.timeGroups = mergeLabelGroups(root.timeGroups, pack.timeGroups);
     root.weatherGroups = mergeLabelGroups(root.weatherGroups, pack.weatherGroups);

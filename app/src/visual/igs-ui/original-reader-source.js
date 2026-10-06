@@ -103,6 +103,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay.igs-cinema-bars #igs-stage-motion::before,#igs-overlay.igs-cinema-bars #igs-stage-motion::after{content:"";position:absolute;left:0;right:0;height:var(--igs-cinema-bar,10%);background:#000;z-index:1;pointer-events:none;}
 #igs-overlay.igs-cinema-bars #igs-stage-motion::before{top:0;}
 #igs-overlay.igs-cinema-bars #igs-stage-motion::after{bottom:0;}
+#igs-overlay.igs-cinema-bars #igs-stage-motion[data-igs-cg="1"]::before,#igs-overlay.igs-cinema-bars #igs-stage-motion[data-igs-cg="1"]::after{display:none;}
 #igs-bg{position:absolute;inset:0;background-color:var(--igs-empty-bg,#16181a);background-position:center;background-size:cover;background-repeat:no-repeat;transition:opacity .3s ease;filter:brightness(1);}
 #igs-bg-blur{position:absolute;inset:0;background-position:center;background-size:cover;background-repeat:no-repeat;transition:opacity .3s ease;filter:blur(40px) brightness(.55) saturate(1.3);transform:scale(1.12);opacity:0;pointer-events:none;display:none;}
 #igs-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.35) 0%,rgba(0,0,0,.06) 50%,rgba(0,0,0,0) 80%);pointer-events:none;}

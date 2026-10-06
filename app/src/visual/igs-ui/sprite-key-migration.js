@@ -50,6 +50,12 @@ function migrateMap(map, from, to, withMode) {
     return { map: out, moved, removed: removed + kept, kept };
 }
 
+// 这个角色（含各服装、各模式）有没有「调整立绘」存下的位置。
+export function hasCharacterSpriteLayout(spriteLayouts, character) {
+    if (!spriteLayouts || typeof spriteLayouts !== 'object' || !character) return false;
+    return Object.keys(spriteLayouts).some((key) => matches(parseKey(key, true), { character }));
+}
+
 export function migrateSpriteKeys(readerSettings, from, to) {
     const report = { moved: 0, removed: 0, kept: 0 };
     if (!readerSettings || typeof readerSettings !== 'object' || !from || !from.character) return report;

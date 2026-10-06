@@ -30,8 +30,14 @@ export function renderAssetFolderSelect(kind, name, kindState, { menu = false } 
 }
 
 // 缩略图卡片等大：图 + 一行名字，修改 / 下载 / 移到文件夹都收进名字右边的 ⋯，格子里不再挤图标。
-function tile(kind, name, url, kindState, raw) {
+function tile(kind, name, url, kindState, raw, select = null) {
     const u = String(url || '').trim();
+    if (select) {
+        // 批量选择：整张卡片就是一个勾选按钮，不弹大图、不开菜单。
+        const on = select.has(name);
+        const img = u ? `<img loading="lazy" decoding="async" class="igs-asset-tile-thumb" src="${esc(u)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">` : '<div class="igs-asset-tile-thumb igs-asset-tile-empty">未配置</div>';
+        return `<button type="button" class="igs-asset-tile is-selectable${on ? ' is-picked' : ''}" data-action="asset-pick:${kind}:${encSeg(name)}" aria-pressed="${on}">${img}<span class="igs-asset-tile-check" aria-hidden="true"></span><div class="igs-asset-tile-head"><div class="igs-asset-tile-name" title="${esc(name)}">${esc(name)}</div></div></button>`;
+    }
     const thumb = u
         ? `<img loading="lazy" decoding="async" class="igs-asset-tile-thumb" src="${esc(u)}" alt="${esc(name)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`
         : '<div class="igs-asset-tile-thumb igs-asset-tile-empty">未配置</div>';
@@ -55,18 +61,24 @@ export function renderAssetFolderView(kind, entries, options = {}) {
     const renderList = typeof options.renderList === 'function' ? options.renderList : () => '';
     const lead = typeof options.lead === 'string' ? options.lead : '';
     if (!names.length) return (lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : '') + renderList({});
-    const grid = k.view === 'grid';
+    // 批量删除：options.select 是当前已勾的名字集合（为 null 时不在选择模式）。选择模式一律用缩略图，便于点选。
+    const select = options.select instanceof Set ? options.select : null;
+    const grid = k.view === 'grid' || Boolean(select);
     const viewBtn = (view, label, svg) => `<button type="button" class="igs-asset-view-btn" data-action="asset-view:${kind}:${view}" aria-pressed="${k.view === view}" title="${label}" aria-label="${label}">${svg}</button>`;
     const bar = `<div class="igs-asset-folder-bar">${lead}<span class="igs-asset-bar-spacer"></span>`
         + `<span class="igs-asset-view-toggle" role="group" aria-label="显示方式">${viewBtn('list', '列表', LIST_ICON)}${viewBtn('grid', '缩略图', GRID_ICON)}</span>`
-        + `<button type="button" class="igs-btn-mgr-icon igs-asset-folder-add" data-action="asset-folder-add:${kind}" title="新建文件夹" aria-label="新建文件夹">${FOLDER_ADD_ICON}</button></div>`;
+        + `<button type="button" class="igs-btn-mgr-icon igs-asset-folder-add" data-action="asset-folder-add:${kind}" title="新建文件夹" aria-label="新建文件夹">${FOLDER_ADD_ICON}</button>`
+        + `<button type="button" class="igs-settings-action igs-asset-select-toggle${select ? ' is-on' : ''}" data-action="asset-select:${kind}" aria-pressed="${Boolean(select)}">${select ? '完成' : '多选'}</button></div>`
+        + (select ? `<div class="igs-asset-select-bar"><span>已选 ${select.size} 项</span>`
+            + `<button type="button" class="igs-settings-action" data-action="asset-pick-all:${kind}">${select.size === names.length ? '全不选' : '全选'}</button>`
+            + `<button type="button" class="igs-settings-action is-danger" data-action="asset-delete-picked:${kind}"${select.size ? '' : ' disabled'}>删除选中</button></div>` : '');
     const pick = (items) => Object.fromEntries(items.map((n) => [n, source[n]]));
     const body = (items) => {
         if (!items.length) return '<div class="igs-scene-empty">文件夹为空</div>';
         if (!grid) return renderList(pick(items));
         const thumbOf = typeof options.thumbOf === 'function' ? options.thumbOf : () => '';
         const rawOf = typeof options.rawOf === 'function' ? options.rawOf : () => '';
-        return `<div class="igs-asset-grid is-${kind}">${items.map((n) => tile(kind, n, thumbOf(n, source[n]), k, rawOf(n, source[n]))).join('')}</div>`;
+        return `<div class="igs-asset-grid is-${kind}">${items.map((n) => tile(kind, n, thumbOf(n, source[n]), k, rawOf(n, source[n]), select)).join('')}</div>`;
     };
     if (!k.folders.length) return bar + body(names);
     const html = groupAssetsByFolder(options.state, kind, names).filter((g) => g.folder || g.items.length).map((g) => {

@@ -5,6 +5,7 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { igsDebug } from './reader-value-utils.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteDrawRect, spriteHeadKey } from './fx-anchor.js';
 import { startHeadEdit } from './sprite-head-edit.js';
+import { resolveSpriteBaseScale } from './sprite-height.js';
 
 const MAIN_BAR = '<span class="igs-se-hint">拖动调整，滚轮/双指缩放</span>'
     + '<button data-se="head" type="button">标定头部</button>'
@@ -56,7 +57,8 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
     const character = current.snapshot.content.spriteCharacter || current.snapshot.content.speaker || '';
     const mood = current.snapshot.content.spriteMood || '';
     const outfit = current.snapshot.content.spriteOutfit || '';
-    const modeLayout = resolveSpriteLayout(rs.spriteLayouts, mode, character, mood, outfit, rs.spriteDefaultScale);
+    const height = resolveSpriteBaseScale(rs._sceneAssets, rs, character);
+    const modeLayout = resolveSpriteLayout(rs.spriteLayouts, mode, character, mood, outfit, height.defaultScale, height.characterScale);
     const displayScale = rs.spriteDisplayScale;
     const shownScale = () => applySpriteDisplayScale({ scale }, displayScale).scale;
     const orig = { ...modeLayout };
@@ -147,7 +149,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
         const btn = event.target.closest('[data-se]');
         if (!btn) return;
         const act = btn.getAttribute('data-se');
-        if (act === 'reset') { posX = 50; posY = 100; scale = normalizeSpriteDefaultScale(rs.spriteDefaultScale); apply(); }
+        if (act === 'reset') { posX = 50; posY = 100; scale = height.characterScale ?? normalizeSpriteDefaultScale(height.defaultScale); apply(); }
         else if (act === 'cancel') { exitSpriteEditMode(overlay, current, null, ctx); }
         else if (act === 'save') { exitSpriteEditMode(overlay, current, { posX, posY, scale, head: pendingHead() }, ctx); }
         else if (act === 'head') { enterHead(); }
