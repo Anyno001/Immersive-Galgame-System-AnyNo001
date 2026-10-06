@@ -1,5 +1,7 @@
 // 酒馆文件读回后的浏览器缓存。云酒馆上图片在远端磁盘，按路径留下 dataUrl，同一张不再重新下载。
 // 文件名含内容哈希，路径变了就是另一张图。删文件时一并丢掉这条缓存。
+import { createIdbConnection } from './idb-connection.js';
+
 const DB_NAME = 'igs-image-cache';
 const DB_VERSION = 1;
 export const DEFAULT_IMAGE_CACHE_COUNT = 320;
@@ -42,34 +44,11 @@ function memoryStore() {
 }
 
 function idbStore(idb) {
-    let dbPromise = null;
-    const open = () => {
-        if (!dbPromise) {
-            dbPromise = new Promise((resolve, reject) => {
-                let req;
-                try { req = idb.open(DB_NAME, DB_VERSION); }
-                catch (error) { reject(error); return; }
-                req.onupgradeneeded = () => {
-                    const db = req.result;
-                    if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'path' });
-                    if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'path' });
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
-        }
-        return dbPromise;
-    };
-    const run = async (storeName, mode, fn) => {
-        const db = await open();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(storeName, mode);
-            const req = fn(tx.objectStore(storeName));
-            tx.oncomplete = () => resolve(req ? req.result : undefined);
-            tx.onerror = () => reject(tx.error || req && req.error);
-            tx.onabort = () => reject(tx.error || req && req.error);
-        });
-    };
+    const conn = createIdbConnection(idb, DB_NAME, DB_VERSION, (db) => {
+        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'path' });
+        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'path' });
+    });
+    const run = (storeName, mode, fn) => conn.transact(storeName, mode, (tx) => fn(tx.objectStore(storeName)));
     return {
         async get(path) {
             const row = await run('files', 'readonly', (store) => store.get(path));

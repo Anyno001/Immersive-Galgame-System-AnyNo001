@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createLocalImageCache, normalizeImageCacheCount, DEFAULT_IMAGE_CACHE_COUNT } from '../src/media/tavern-image-cache.js';
 import { withTavernIllustrationFiles } from '../src/media/tavern-image-files.js';
 import { createMemoryIllustrationStore } from '../src/media/illustration-store.js';
-import { createCgGalleryService } from '../src/media/cg-gallery-service.js';
+import { createCgLibrary } from '../src/media/cg-library.js';
 
 function createFakeIndexedDB() {
     const databases = new Map();
@@ -131,14 +131,11 @@ test('gate:image-cache:cg-library-shows-a-ready-image-before-the-slow-one', asyn
     const store = createMemoryIllustrationStore();
     await store.putSlot('chat|1|0', { slot: 1, status: 'done', dataUrl: 'user/images/igs-cg/fast.png' });
     await store.putSlot('chat|2|0', { slot: 1, status: 'done', dataUrl: 'user/images/igs-cg/slow.png' });
-    const service = createCgGalleryService({
-        illustrationStore: withTavernIllustrationFiles(store, globalObject),
-        clearIllustration: async () => ({ ok: true }),
-    });
-    const page = await service.loadPage({ limit: 24, showHidden: true, deferImages: true });
-    assert.equal(page.items.length, 2);
-    assert.match(page.items[0].dataUrl, /fast\.png$/);
-    const jobs = page.items.map((entry) => service.hydrateEntry(entry));
+    const library = createCgLibrary({ illustrationStore: withTavernIllustrationFiles(store, globalObject), clearIllustration: async () => ({ ok: true }) });
+    const synced = await library.syncIndex();
+    const entries = synced.entries.sort((a, b) => a.messageId - b.messageId);
+    assert.deepEqual(entries.map((e) => e.key), ['chat|1|0|1', 'chat|2|0|1']);
+    const jobs = entries.map((entry) => library.readFull(entry));
     const fast = await jobs[0];
     assert.match(fast.dataUrl, /^data:image\/png;base64,/);
     let slowDone = false;
@@ -148,6 +145,28 @@ test('gate:image-cache:cg-library-shows-a-ready-image-before-the-slow-one', asyn
     releaseSlow();
     const slow = await jobs[1];
     assert.match(slow.dataUrl, /^data:image\/png;base64,/);
+});
+
+test('gate:image-cache:a-stalled-download-is-aborted-instead-of-waiting-forever', async () => {
+    const realSetTimeout = setTimeout;
+    let aborted = false;
+    const globalObject = {
+        setTimeout: (fn, ms) => realSetTimeout(fn, ms >= 30000 ? 5 : ms),
+        clearTimeout,
+        AbortController,
+        fetch(_url, options = {}) {
+            return new Promise((_, reject) => {
+                options.signal.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); });
+            });
+        },
+        FileReader: class {},
+    };
+    const store = createMemoryIllustrationStore();
+    await store.putSlot('chat|1|0', { slot: 1, status: 'done', dataUrl: 'user/images/igs-cg/stuck.png' });
+    const files = withTavernIllustrationFiles(store, globalObject);
+    const out = await files.hydrateSlot({ dataUrl: 'user/images/igs-cg/stuck.png' });
+    assert.equal(aborted, true);
+    assert.equal(out.dataUrl, '');
 });
 
 test('gate:image-cache:count-defaults-to-320-and-a-lower-limit-drops-the-oldest', async () => {

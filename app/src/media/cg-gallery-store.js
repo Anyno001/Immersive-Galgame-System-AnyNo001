@@ -1,5 +1,7 @@
 // CG 库状态库（IndexedDB igs-cg-gallery）：只记录隐藏与收藏，键为 slotKey（chatId|messageId|swipeId|slot）。
 // 不存图片、不写 igs-illustrations；「隐藏」只影响 CG 库视图，不影响楼层显示。
+import { createIdbConnection } from './idb-connection.js';
+
 const DB_NAME = 'igs-cg-gallery';
 const DB_VERSION = 1;
 const STORE = 'marks';
@@ -33,30 +35,10 @@ export function createMemoryCgGalleryStore() {
 export function createIndexedDbCgGalleryStore(globalObject = globalThis) {
     const idb = globalObject && globalObject.indexedDB;
     if (!idb) return createMemoryCgGalleryStore();
-    let dbPromise = null;
-    const open = () => {
-        if (!dbPromise) {
-            dbPromise = new Promise((resolve, reject) => {
-                const req = idb.open(DB_NAME, DB_VERSION);
-                req.onupgradeneeded = () => {
-                    const db = req.result;
-                    if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' });
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => { dbPromise = null; reject(req.error); };
-            });
-        }
-        return dbPromise;
-    };
-    const run = async (mode, fn) => {
-        const db = await open();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE, mode);
-            const req = fn(tx.objectStore(STORE));
-            tx.oncomplete = () => resolve(req ? req.result : undefined);
-            tx.onerror = () => reject(tx.error);
-        });
-    };
+    const conn = createIdbConnection(idb, DB_NAME, DB_VERSION, (db) => {
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' });
+    });
+    const run = (mode, fn) => conn.transact(STORE, mode, (tx) => fn(tx.objectStore(STORE)));
     return {
         async getAll() { return (await run('readonly', (s) => s.getAll())) || []; },
         async get(key) { return (await run('readonly', (s) => s.get(String(key || '')))) || null; },

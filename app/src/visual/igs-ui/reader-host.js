@@ -21,7 +21,8 @@ import { parseTables } from '../../shujuku-panel/panel-model.js';
 import { applyDiceToHits } from '../../scene/battle-context.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
-import { CG_PAGE_SIZE, cgCountStatus, cgPageSlice, compareCgNewestFirst, loadCgCatalog } from '../../media/cg-gallery-service.js';
+import { cgReasonText } from '../../media/cg-library.js';
+import { createCgLibraryView } from './cg-library-view.js';
 import { cancelFxEffects } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
@@ -1743,115 +1744,77 @@ export function createIgsReaderHost(options = {}) {
         return list.map((e) => `<div class="igs-image-log-item is-${esc(e.level)}"><span class="igs-image-log-time">${esc(formatImageJobLogTime(e.at))}</span><span class="igs-image-log-level">${esc(imageJobLogLevelLabel(e.level))}</span><span class="igs-image-log-msg">${esc(e.message)}</span></div>`).join('');
     }
 
-    const CG_DISPLAY_URL_RE = /^(?:data:image\/|https?:\/\/|blob:)/i;
-    // 生图 › CG 库：目录一次拿全，图片只读当前这一页。
+    // 生图 › CG 库：与工具栏面板共用 cg-library-view。目录一次拿全；缩略图到了只换那一格、状态行只改文字，不整页重画。
+    const cgAttr = (value) => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, ''));
+
+    function imageCgThumbHtml(view, entry) {
+        const tile = view.tileOf(entry.key);
+        if (tile.url) return `<img src="${esc(tile.url)}" decoding="async" alt="">`;
+        if (tile.state === 'failed') return `<span class="igs-image-cg-failed" title="${esc(tile.reason)}">读取失败，点一下重试</span>`;
+        return '<span class="igs-image-cg-pending"></span>';
+    }
+
+    function imageCgView(settings) {
+        const asyncState = settings.asyncState;
+        if (asyncState.imageCg) return asyncState.imageCg;
+        const service = options.cgGallery;
+        if (!service || typeof service.syncIndex !== 'function') return null;
+        let painting = false;
+        const live = () => state.activeSettings === settings && asyncState.imageCg === view;
+        const paint = () => {
+            if (painting) return;
+            painting = true;
+            Promise.resolve().then(() => { painting = false; if (live()) rerenderSettings(); });
+        };
+        const find = (selector) => {
+            const root = settings.dom && settings.dom.root;
+            return root && typeof root.querySelector === 'function' ? root.querySelector(selector) : null;
+        };
+        const patchLine = () => {
+            const el = find('[data-image-cg-line]');
+            if (!el) return false;
+            const text = view.statusText();
+            el.textContent = text;
+            el.style.display = text ? '' : 'none';
+            return true;
+        };
+        const view = createCgLibraryView(service, {
+            onChange: (type, key) => {
+                if (!live()) return;
+                if (type === 'thumb') {
+                    const el = find(`[data-image-cg-thumb="${cgAttr(key)}"]`);
+                    const entry = view.find(key);
+                    if (el && entry) { el.innerHTML = imageCgThumbHtml(view, entry); patchLine(); return; }
+                    if (!entry && patchLine()) return;
+                }
+                if (type === 'status' && patchLine()) return;
+                paint();
+            },
+        });
+        asyncState.imageCg = view;
+        view.open({ showHidden: true });
+        return view;
+    }
+
     function renderImageCgList() {
         const settings = state.activeSettings;
-        const asyncState = settings && settings.asyncState;
-        if (!asyncState) return '';
-        const service = options.cgGallery;
-        if (!service || typeof service.loadPage !== 'function') return '<div class="igs-scene-empty">CG 库不可用</div>';
-        const paint = (gen) => {
-            if (asyncState.imageCgLoadGen !== gen || state.activeSettings !== settings || asyncState.imageCgPaint) return;
-            asyncState.imageCgPaint = true;
-            Promise.resolve().then(() => {
-                asyncState.imageCgPaint = false;
-                if (asyncState.imageCgLoadGen === gen && state.activeSettings === settings) rerenderSettings();
-            });
-        };
-        const hydrateEntries = (items, gen) => {
-            const read = typeof service.hydrateEntry === 'function' ? service.hydrateEntry.bind(service) : null;
-            if (!read) return;
-            for (const entry of items) {
-                if (CG_DISPLAY_URL_RE.test(String(entry && entry.dataUrl || ''))) continue;
-                read(entry).then((next) => {
-                    if (!next) return;
-                    if (next.skip) entry.skip = true;
-                    else entry.dataUrl = String(next.dataUrl || '');
-                    if (asyncState.imageCgLoadGen !== gen) return;
-                    paint(gen);
-                }).catch(() => {});
-            }
-        };
-        if (!Array.isArray(asyncState.imageCgCatalog)) {
-            if (!asyncState.imageCgLoading) {
-                asyncState.imageCgLoading = true;
-                asyncState.imageCgProgress = { phase: 'cg', seen: 0 };
-                const gen = (asyncState.imageCgLoadGen || 0) + 1;
-                asyncState.imageCgLoadGen = gen;
-                Promise.resolve()
-                    .then(() => loadCgCatalog(service, { showHidden: true }, (progress) => {
-                        if (asyncState.imageCgLoadGen !== gen || !progress) return;
-                        asyncState.imageCgProgress = progress;
-                        paint(gen);
-                    }))
-                    .then(async (page) => {
-                        if (asyncState.imageCgLoadGen !== gen) return;
-                        asyncState.imageCgCatalog = page && page.ok && Array.isArray(page.items) ? page.items : [];
-                        asyncState.imageCgPage = 0;
-                        asyncState.imageCgEntries = null;
-                        asyncState.imageCgProgress = null;
-                        asyncState.imageCgStatus = page && page.ok ? '' : 'CG 读取失败';
-                        asyncState.imageCgLoading = false;
-                        paint(gen);
-                        if (!page || !page.ok || typeof service.listPhotoCatalog !== 'function') return;
-                        const photos = await service.listPhotoCatalog({ showHidden: true }, (progress) => {
-                            if (asyncState.imageCgLoadGen !== gen || !progress) return;
-                            asyncState.imageCgProgress = progress;
-                            paint(gen);
-                        });
-                        if (asyncState.imageCgLoadGen !== gen) return;
-                        asyncState.imageCgProgress = null;
-                        if (!photos.length) { paint(gen); return; }
-                        const merged = [...asyncState.imageCgCatalog, ...photos].sort(compareCgNewestFirst);
-                        const sliced = cgPageSlice(merged, asyncState.imageCgPage || 0);
-                        const prev = Array.isArray(asyncState.imageCgEntries) ? asyncState.imageCgEntries : [];
-                        const same = prev.length === sliced.items.length && prev.every((entry, index) => sliced.items[index] && entry.key === sliced.items[index].key);
-                        asyncState.imageCgCatalog = merged;
-                        if (!same) asyncState.imageCgEntries = null;
-                        paint(gen);
-                    })
-                    .catch(() => {
-                        if (asyncState.imageCgLoadGen !== gen) return;
-                        asyncState.imageCgCatalog = [];
-                        asyncState.imageCgEntries = [];
-                        asyncState.imageCgStatus = 'CG 读取失败';
-                        asyncState.imageCgLoading = false;
-                        paint(gen);
-                    });
-            }
-            return `<div class="igs-scene-empty">${esc(cgCountStatus(asyncState.imageCgProgress))}</div>`;
-        }
-        if (!Array.isArray(asyncState.imageCgEntries)) {
-            const gen = (asyncState.imageCgLoadGen || 0) + 1;
-            asyncState.imageCgLoadGen = gen;
-            const sliced = cgPageSlice(asyncState.imageCgCatalog, asyncState.imageCgPage || 0);
-            asyncState.imageCgPage = sliced.page;
-            asyncState.imageCgEntries = sliced.items;
-            hydrateEntries(sliced.items, gen);
-        }
-        const sliced = cgPageSlice(asyncState.imageCgCatalog, asyncState.imageCgPage || 0);
-        const pager = sliced.total > CG_PAGE_SIZE
-            ? `<div class="igs-settings-row"><button class="igs-settings-action" data-action="image-cg-page:prev" type="button" ${sliced.page <= 0 ? 'disabled' : ''}>上一页</button><span class="igs-image-cg-page">第 ${sliced.page + 1} / ${sliced.pages} 页 · 共 ${sliced.total} 张</span><button class="igs-settings-action" data-action="image-cg-page:next" type="button" ${sliced.page >= sliced.pages - 1 ? 'disabled' : ''}>下一页</button></div>`
-            : (sliced.total ? `<div class="igs-image-cg-page">共 ${sliced.total} 张</div>` : '');
-        const selected = asyncState.imageCgSelected instanceof Set ? asyncState.imageCgSelected : new Set();
-        const waiting = asyncState.imageCgEntries.filter((entry) => entry && !entry.skip && !CG_DISPLAY_URL_RE.test(String(entry.dataUrl || ''))).length;
-        const reading = waiting ? `<div class="igs-scene-empty">正在读取本页图片，还剩 ${waiting} 张。</div>` : '';
-        const photoLine = asyncState.imageCgProgress && asyncState.imageCgProgress.phase === 'photos'
-            ? `<div class="igs-scene-empty">${esc(cgCountStatus(asyncState.imageCgProgress))}</div>`
-            : '';
-        const tiles = asyncState.imageCgEntries.map((entry, index) => {
-            if (entry && entry.skip) return '';
-            const url = String((entry && entry.dataUrl) || '').trim();
-            const ready = CG_DISPLAY_URL_RE.test(url);
+        if (!settings || !settings.asyncState) return '';
+        const view = imageCgView(settings);
+        if (!view) return '<div class="igs-scene-empty">CG 库不可用</div>';
+        const s = view.state;
+        const text = view.statusText();
+        const line = `<div class="igs-scene-empty" data-image-cg-line${text ? '' : ' style="display:none"'}>${esc(text)}</div>`;
+        const pager = s.list.length > s.entries.length || s.page > 0
+            ? `<div class="igs-settings-row"><button class="igs-settings-action" data-action="image-cg-page:prev" type="button" ${s.page <= 0 ? 'disabled' : ''}>上一页</button><span class="igs-image-cg-page">第 ${s.page + 1} / ${s.pages} 页 · 共 ${s.list.length} 张</span><button class="igs-settings-action" data-action="image-cg-page:next" type="button" ${s.page >= s.pages - 1 ? 'disabled' : ''}>下一页</button></div>`
+            : (s.list.length ? `<div class="igs-image-cg-page">共 ${s.list.length} 张</div>` : '');
+        const selected = settings.asyncState.imageCgSelected instanceof Set ? settings.asyncState.imageCgSelected : new Set();
+        const tiles = s.entries.map((entry, index) => {
             const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;
             const on = selected.has(entry.key);
-            const picture = ready
-                ? `<img src="${esc(url)}" decoding="async" alt="">`
-                : '<span class="igs-image-cg-pending"></span>';
-            return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图">${picture}<span>${esc(label)}</span></button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></article>`;
+            return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><span class="igs-image-cg-pic" data-image-cg-thumb="${esc(entry.key)}">${imageCgThumbHtml(view, entry)}</span><span>${esc(label)}</span></button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></article>`;
         }).join('');
-        return pager + photoLine + reading + (tiles || '<div class="igs-scene-empty">还没有生成过 CG</div>');
+        const empty = s.phase === 'ready' && !s.entries.length ? '<div class="igs-scene-empty">还没有生成过 CG</div>' : '';
+        return pager + line + (tiles || empty);
     }
 
     async function handleSettingsAction(action) {
@@ -4688,14 +4651,21 @@ export function createIgsReaderHost(options = {}) {
                     if (url) showSpritePreviewOverlay(root, url);
                     return;
                 }
-                // 生图 › CG 库缩略图：按序号回查已读列表，用同一个预览层铺满显示大图。
+                // 生图 › CG 库：先用缩略图铺满，原图读到再换（预览已关就不再弹）；读失败的格子点一下重试。
                 if (actName.startsWith('image-cg-view:')) {
                     event.preventDefault();
-                    const cgAsync = state.activeSettings && state.activeSettings.asyncState;
-                    const cgEntries = cgAsync && Array.isArray(cgAsync.imageCgEntries) ? cgAsync.imageCgEntries : [];
-                    const cgEntry = cgEntries[Number(actName.slice('image-cg-view:'.length))];
-                    const cgUrl = cgEntry ? String(cgEntry.dataUrl || '').trim() : '';
-                    if (CG_DISPLAY_URL_RE.test(cgUrl)) showSpritePreviewOverlay(root, cgUrl);
+                    const cgView = state.activeSettings && state.activeSettings.asyncState && state.activeSettings.asyncState.imageCg;
+                    const cgEntry = cgView ? cgView.state.entries[Number(actName.slice('image-cg-view:'.length))] : null;
+                    if (!cgEntry) return;
+                    const cgTile = cgView.tileOf(cgEntry.key);
+                    if (cgTile.state === 'failed') { cgView.retry(cgEntry.key); return; }
+                    if (cgTile.url) showSpritePreviewOverlay(root, cgTile.url);
+                    else showSettingsNotice('正在读取原图…');
+                    cgView.readFull(cgEntry).then((result) => {
+                        const stillOpen = !cgTile.url || Boolean(root.querySelector && root.querySelector('#igs-sprite-preview-overlay'));
+                        if (result && result.ok) { if (stillOpen) showSpritePreviewOverlay(root, result.dataUrl); }
+                        else showSettingsNotice(`原图读取失败：${cgReasonText(result && result.reason)}`);
+                    });
                     return;
                 }
                 event.preventDefault();

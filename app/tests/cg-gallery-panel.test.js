@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryIllustrationStore } from '../src/media/illustration-store.js';
 import { createMemoryCgGalleryStore } from '../src/media/cg-gallery-store.js';
-import { createCgGalleryService } from '../src/media/cg-gallery-service.js';
+import { createMemoryCgIndexStore } from '../src/media/cg-index-store.js';
+import { createCgLibrary } from '../src/media/cg-library.js';
 import { createCgGalleryPanel } from '../src/visual/igs-ui/cg-gallery-panel.js';
 
 function fakeDoc() {
@@ -33,7 +34,7 @@ async function setup({ confirm = () => true, chat = 'chat-1' } = {}) {
     await illustrationStore.putSlot('chat-2|8|0', { slot: 1, status: 'failed' });
     const galleryStore = createMemoryCgGalleryStore();
     const cleared = [];
-    const service = createCgGalleryService({ illustrationStore, galleryStore, clearIllustration: async (id) => {
+    const service = createCgLibrary({ illustrationStore, marksStore: galleryStore, indexStore: createMemoryCgIndexStore(), clearIllustration: async (id) => {
         cleared.push(id);
         await illustrationStore.deleteSlot(`${id.chatId}|${id.messageId}|${id.swipeId}`, id.slot);
         return { ok: true };
@@ -138,7 +139,7 @@ test('cg-gallery-panel:pages-through-the-library-newest-first', async () => {
     for (let i = 0; i < 50; i += 1) {
         await illustrationStore.putSlot(`chat-1|${i}|0`, { slot: 1, status: 'done', dataUrl: `data:image/png;base64,${i}`, updatedAt: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString() });
     }
-    const service = createCgGalleryService({ illustrationStore, clearIllustration: async () => ({ ok: true }) });
+    const service = createCgLibrary({ illustrationStore, indexStore: createMemoryCgIndexStore(), clearIllustration: async () => ({ ok: true }) });
     const doc = fakeDoc();
     const container = doc.createElement('div');
     const panel = createCgGalleryPanel(doc, { service, getChatId: () => 'chat-1' });

@@ -1,3 +1,5 @@
+import { createIdbConnection } from './idb-connection.js';
+
 const DB_NAME = 'igs-illustrations';
 const DB_VERSION = 1;
 
@@ -20,10 +22,6 @@ export function parseFloorKey(floorKey) {
     return { chatId, messageId, swipeId };
 }
 
-// CG 库分页上限：slots 记录内嵌 dataUrl，单页必须有界，避免一次读入全部图片。
-const PAGE_LIMIT_MAX = 48;
-const pageLimitOf = (limit) => Math.max(1, Math.min(Math.trunc(Number(limit)) || 24, PAGE_LIMIT_MAX));
-
 export function createMemoryIllustrationStore() {
     const floors = new Map();
     const slots = new Map();
@@ -36,31 +34,14 @@ export function createMemoryIllustrationStore() {
         },
         async putSlot(floorKey, value) { slots.set(`${floorKey}|${value.slot}`, clone({ ...value, floorKey })); },
         async deleteSlot(floorKey, slot) { return slots.delete(`${floorKey}|${slot}`); },
-        // 目录只要编号。记录里的图留在原地，打开某一页时再取那几条。
-        async listSlotKeys(onProgress) {
-            if (typeof onProgress === 'function') onProgress(0);
-            const keys = [];
-            for (const [key, value] of slots) {
-                if (value && value.status === 'done' && value.dataUrl) keys.push(key);
-            }
-            if (typeof onProgress === 'function') onProgress(keys.length);
-            return keys;
-        },
+        // CG 库目录：全部槽位的主键（含未出图的），记录本身不读。
+        async listSlotKeys() { return Array.from(slots.keys()); },
         async getSlotRecord(key) {
             const value = slots.get(String(key || ''));
             return value ? clone(value) : null;
         },
-        // CG 库：按 key 升序只读分页，只返回已出图（done）的槽位；不修改任何记录。
-        async listDoneSlotsPage({ after = '', limit = 24 } = {}) {
-            const size = pageLimitOf(limit);
-            const keys = Array.from(slots.keys()).filter((k) => !after || k > after).sort();
-            const items = [];
-            for (const k of keys) {
-                const v = slots.get(k);
-                if (v && v.status === 'done' && v.dataUrl) items.push(clone({ ...v, key: k }));
-                if (items.length >= size) return { items, next: k };
-            }
-            return { items, next: '' };
+        async getSlotRecords(keys) {
+            return (keys || []).map((key) => { const value = slots.get(String(key || '')); return value ? clone(value) : null; });
         },
     };
 }
@@ -68,34 +49,14 @@ export function createMemoryIllustrationStore() {
 export function createIndexedDbIllustrationStore(globalObject = globalThis) {
     const idb = globalObject && globalObject.indexedDB;
     if (!idb) return createMemoryIllustrationStore();
-    let dbPromise = null;
-    const open = () => {
-        if (!dbPromise) {
-            dbPromise = new Promise((resolve, reject) => {
-                const req = idb.open(DB_NAME, DB_VERSION);
-                req.onupgradeneeded = () => {
-                    const db = req.result;
-                    if (!db.objectStoreNames.contains('floors')) db.createObjectStore('floors', { keyPath: 'key' });
-                    if (!db.objectStoreNames.contains('slots')) {
-                        const store = db.createObjectStore('slots', { keyPath: 'key' });
-                        store.createIndex('floorKey', 'floorKey', { unique: false });
-                    }
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
+    const conn = createIdbConnection(idb, DB_NAME, DB_VERSION, (db) => {
+        if (!db.objectStoreNames.contains('floors')) db.createObjectStore('floors', { keyPath: 'key' });
+        if (!db.objectStoreNames.contains('slots')) {
+            const store = db.createObjectStore('slots', { keyPath: 'key' });
+            store.createIndex('floorKey', 'floorKey', { unique: false });
         }
-        return dbPromise;
-    };
-    const run = async (storeName, mode, fn) => {
-        const db = await open();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(storeName, mode);
-            const req = fn(tx.objectStore(storeName));
-            tx.oncomplete = () => resolve(req ? req.result : undefined);
-            tx.onerror = () => reject(tx.error);
-        });
-    };
+    });
+    const run = (storeName, mode, fn) => conn.transact(storeName, mode, (tx) => fn(tx.objectStore(storeName)));
     return {
         async getFloor(key) { return (await run('floors', 'readonly', (s) => s.get(key))) || null; },
         async putFloor(key, value) { await run('floors', 'readwrite', (s) => s.put({ ...value, key })); },
@@ -110,63 +71,20 @@ export function createIndexedDbIllustrationStore(globalObject = globalThis) {
             await run('slots', 'readwrite', (s) => s.delete(`${floorKey}|${slot}`));
             return true;
         },
-        // 只走主键。openKeyCursor 逐条报数量，记录里的图片留在原地。
-        async listSlotKeys(onProgress) {
-            const db = await open();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction('slots', 'readonly');
-                const store = tx.objectStore('slots');
-                const keys = [];
-                let reported = -1;
-                const tell = (force) => {
-                    if (typeof onProgress !== 'function' || (!force && keys.length !== 1 && keys.length % 25 !== 0) || reported === keys.length) return;
-                    reported = keys.length;
-                    onProgress(keys.length);
-                };
-                tell(true);
-                if (typeof store.openKeyCursor !== 'function') {
-                    const req = store.getAllKeys();
-                    req.onsuccess = () => {
-                        for (const key of req.result || []) keys.push(key);
-                    };
-                } else {
-                    const req = store.openKeyCursor();
-                    req.onsuccess = () => {
-                        const cursor = req.result;
-                        if (!cursor) return;
-                        keys.push(cursor.key);
-                        tell(false);
-                        cursor.continue();
-                    };
-                }
-                tx.oncomplete = () => { tell(true); resolve(keys); };
-                tx.onerror = () => reject(tx.error);
-            });
+        // 一次 getAllKeys 拿全部主键，记录本身（可能内嵌旧 base64）不读。
+        async listSlotKeys() {
+            return Array.from((await run('slots', 'readonly', (s) => s.getAllKeys())) || [], String);
         },
         async getSlotRecord(key) {
             return (await run('slots', 'readonly', (s) => s.get(String(key || '')))) || null;
         },
-        // CG 库只读游标分页：不升 DB_VERSION、不建新索引；按主键升序，只收 done 槽位。
-        async listDoneSlotsPage({ after = '', limit = 24 } = {}) {
-            const size = pageLimitOf(limit);
-            const db = await open();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction('slots', 'readonly');
-                const KeyRange = globalObject.IDBKeyRange;
-                const range = after && KeyRange ? KeyRange.lowerBound(after, true) : null;
-                const req = tx.objectStore('slots').openCursor(range);
-                const items = [];
-                let next = '';
-                req.onsuccess = () => {
-                    const cursor = req.result;
-                    if (!cursor) return;
-                    const value = cursor.value;
-                    if (value && value.status === 'done' && value.dataUrl) items.push(value);
-                    if (items.length >= size) { next = String(cursor.key); return; }
-                    cursor.continue();
-                };
-                tx.oncomplete = () => resolve({ items, next });
-                tx.onerror = () => reject(tx.error);
+        // 同一个事务里按主键取几条，结果与 keys 一一对应，缺的为 null。
+        async getSlotRecords(keys) {
+            const list = (keys || []).map((key) => String(key || ''));
+            if (!list.length) return [];
+            return run('slots', 'readonly', (s) => {
+                const reqs = list.map((key) => s.get(key));
+                return () => reqs.map((req) => req.result || null);
             });
         },
     };

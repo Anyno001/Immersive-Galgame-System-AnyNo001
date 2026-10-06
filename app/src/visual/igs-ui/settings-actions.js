@@ -11,7 +11,6 @@ import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneA
 import { buildCharacterCardPack, buildImageZip, buildPresetArchive, mergeLabelGroups, parseCharacterCardPack, parsePresetArchive, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
-import { cgPageCount } from '../../media/cg-gallery-service.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
@@ -540,9 +539,17 @@ function cgSelection(asyncState) {
     return asyncState.imageCgSelected;
 }
 
+// CG 库目录交给 cg-library-view；丢掉它，下次渲染会重新打开（先读目录，再对账）。
+function resetCgView(asyncState) {
+    if (asyncState.imageCg) asyncState.imageCg.dispose();
+    asyncState.imageCg = null;
+    if (asyncState.imageCgSelected instanceof Set) asyncState.imageCgSelected.clear();
+}
+
 async function deleteCgEntries(action, settingsState, options, dialogs, rerenderSettings) {
     const asyncState = settingsState.asyncState;
-    const entries = Array.isArray(asyncState.imageCgEntries) ? asyncState.imageCgEntries : [];
+    const view = asyncState.imageCg || null;
+    const entries = view ? view.state.entries : [];
     const selected = cgSelection(asyncState);
     if (action === 'image-cg-select-all') {
         const keys = entries.map((entry) => entry.key);
@@ -586,10 +593,7 @@ async function deleteCgEntries(action, settingsState, options, dialogs, rerender
         const result = await service.removeAll();
         const removed = result && result.removed || 0;
         const failed = result && result.failed || 0;
-        asyncState.imageCgCatalog = failed ? null : [];
-        asyncState.imageCgEntries = failed ? null : [];
-        asyncState.imageCgPage = 0;
-        selected.clear();
+        resetCgView(asyncState);
         asyncState.imageCgStatus = !result || (result.ok === false && !removed) ? '删除失败，CG 仍保留' : (failed ? `已删除 ${removed} 张，${failed} 张没能删掉。` : `已删除 ${removed} 张。`);
         return rerenderSettings();
     }
@@ -597,11 +601,8 @@ async function deleteCgEntries(action, settingsState, options, dialogs, rerender
         ? await service.removeMany(targets)
         : await removeCgOneByOne(service, targets);
     const removedKeys = new Set(batch && batch.keys || []);
-    if (Array.isArray(asyncState.imageCgCatalog)) {
-        asyncState.imageCgCatalog = asyncState.imageCgCatalog.filter((entry) => !removedKeys.has(entry.key));
-    }
-    asyncState.imageCgEntries = null;
     for (const key of removedKeys) selected.delete(key);
+    if (view) view.removeKeys([...removedKeys]);
     const removed = removedKeys.size;
     const failed = batch && batch.failed || 0;
     asyncState.imageCgStatus = failed ? `已删除 ${removed} 张，${failed} 张没能删掉。` : `已删除 ${removed} 张。`;
@@ -2256,34 +2257,25 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'image-cg-page:prev' || normalizedAction === 'image-cg-page:next') {
         const asyncState = settingsState.asyncState;
-        const total = Array.isArray(asyncState.imageCgCatalog) ? asyncState.imageCgCatalog.length : 0;
-        const pages = cgPageCount(total);
-        const page = Number(asyncState.imageCgPage) || 0;
-        const next = normalizedAction === 'image-cg-page:next' ? page + 1 : page - 1;
-        if (next < 0 || next >= pages) return rerenderSettings();
-        asyncState.imageCgPage = next;
-        asyncState.imageCgEntries = null;
+        const view = asyncState.imageCg;
+        if (!view) return rerenderSettings();
+        const next = view.state.page + (normalizedAction === 'image-cg-page:next' ? 1 : -1);
+        if (next < 0 || next >= view.state.pages) return rerenderSettings();
         if (asyncState.imageCgSelected instanceof Set) asyncState.imageCgSelected.clear();
+        view.goto(next);
         return rerenderSettings();
     }
 
     if (normalizedAction === 'image-cache-clear') {
         await localImageCacheFor(options.global || globalThis).clear();
-        settingsState.asyncState.imageCgCatalog = null;
-        settingsState.asyncState.imageCgEntries = null;
-        settingsState.asyncState.imageCgPage = 0;
-        settingsState.asyncState.imageCgLoading = false;
+        resetCgView(settingsState.asyncState);
         settingsState.asyncState.imageCgStatus = '已清空本地图片缓存。';
         return rerenderSettings();
     }
 
-    // 生图 › CG 库「刷新」：丢弃已读列表，重绘时重新读取。
+    // 生图 › CG 库「刷新」：丢掉当前列表，重绘时重新读目录并对账。
     if (normalizedAction === 'image-cg-refresh') {
-        settingsState.asyncState.imageCgCatalog = null;
-        settingsState.asyncState.imageCgEntries = null;
-        settingsState.asyncState.imageCgPage = 0;
-        settingsState.asyncState.imageCgLoading = false;
-        settingsState.asyncState.imageCgSelected = new Set();
+        resetCgView(settingsState.asyncState);
         settingsState.asyncState.imageCgStatus = '';
         return rerenderSettings();
     }

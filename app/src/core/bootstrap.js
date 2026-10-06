@@ -42,6 +42,8 @@ import { createImageBackend, mergeLegacyNaiSettings } from '../generated-images/
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
 import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
+import { createIndexedDbCgIndexStore } from '../media/cg-index-store.js';
+import { withCgIndexSync } from '../media/cg-library.js';
 import { createAutoIllustrationService, ILLUSTRATION_PROGRESS_EVENT, ILLUSTRATION_UPDATED_EVENT, readCgViewport } from '../generated-images/illustration/auto-illustration-service.js';
 import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
 import { createItemAndCgServices } from './item-cg-services.js';
@@ -53,7 +55,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.70';
+const IGS_VERSION = '0.34.71';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -124,8 +126,9 @@ export function bootstrapIGS(options = {}) {
             if (imageJobLog && typeof imageJobLog.add === 'function') imageJobLog.add(level, message);
         },
     });
-    // CG 库与自动插图共用同一个插图存储实例。
-    const illustrationStore = options.illustrationStore || withTavernIllustrationFiles(createIndexedDbIllustrationStore(globalObject), globalObject);
+    // CG 库与自动插图共用同一个插图存储实例；写入 / 删除槽位时顺手更新 CG 库目录。
+    const cgIndexStore = options.cgIndexStore || createIndexedDbCgIndexStore(globalObject);
+    const illustrationStore = options.illustrationStore || withCgIndexSync(withTavernIllustrationFiles(createIndexedDbIllustrationStore(globalObject), globalObject), cgIndexStore);
     const readerModeNow = () => {
         const snapshot = getUnifiedSettingsSnapshot() || {};
         return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
@@ -175,6 +178,7 @@ export function bootstrapIGS(options = {}) {
         itemImageService: options.itemImageService,
         cgGalleryService: options.cgGalleryService,
         cgGalleryStore: options.cgGalleryStore,
+        cgIndexStore,
         getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
     });
     const state = {

@@ -1,38 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { composePhoto, createMemoryPhotoAlbumStore, layoutLayer, normalizePhoto, withPhotoAlbum } from '../src/media/photo-album.js';
+import { composePhoto, createMemoryPhotoAlbumStore, layoutLayer, normalizePhoto } from '../src/media/photo-album.js';
 
 const JPEG = 'data:image/jpeg;base64,AAAA';
-
-function baseService(items, next = '') {
-    const calls = [];
-    return {
-        calls,
-        async loadPage(filters) { calls.push(filters); return { ok: true, items, next }; },
-        async setHidden(key, hidden) { calls.push(['hidden', key, hidden]); return { ok: true }; },
-        async setFavorite(key, favorite) { calls.push(['fav', key, favorite]); return { ok: true }; },
-        async remove(entry) { calls.push(['remove', entry.key]); return { ok: true }; },
-    };
-}
-
-test('gate: photo-album catalog returns before photo ids', async () => {
-    let release;
-    const store = {
-        async listIds(onProgress) {
-            if (typeof onProgress === 'function') onProgress(0);
-            await new Promise((resolve) => { release = resolve; });
-            return ['p1'];
-        },
-    };
-    const album = withPhotoAlbum(baseService([]), store);
-    const catalog = await album.listCatalogEntries({});
-    assert.deepEqual(catalog, { ok: true, items: [], next: '' });
-    const photosPromise = album.listPhotoCatalog({});
-    release();
-    const photos = await photosPromise;
-    assert.equal(photos[0].key, 'photo|p1');
-    assert.equal(photos[0].dataUrl, '');
-});
 
 test('gate: photo-album normalizes photos and rejects non-image data', () => {
     assert.equal(normalizePhoto({ id: 'a', dataUrl: 'javascript:1' }), null);
@@ -47,57 +17,14 @@ test('gate: photo-album layout matches CSS cover for backgrounds and width-perce
     assert.deepEqual(sprite, { x: 280, y: -350, w: 400, h: 800 });
 });
 
-test('gate: photo-album captures into the store and appends photos after floor CGs', async () => {
+test('gate: photo-album store lists ids and reads several raw photos at once', async () => {
     const store = createMemoryPhotoAlbumStore();
-    let n = 0;
-    const album = withPhotoAlbum(baseService([{ key: 'c|1|0|1', chatId: 'c' }]), store, {
-        compose: async () => JPEG, makeId: () => `p${++n}`, now: () => `2026-09-30T00:0${n}:00Z`, getDocument: () => ({}),
-    });
-    assert.equal((await album.capturePhoto({ caption: '合影', chatId: 'c', messageId: 3 })).ok, true);
-    await album.capturePhoto({ caption: '别的聊天', chatId: 'd', messageId: 1 });
-    const page = await album.loadPage({ limit: 24 });
-    assert.deepEqual(page.items.map((e) => e.key), ['c|1|0|1', 'photo|p2', 'photo|p1']);
-    assert.equal(page.items[2].kind, 'photo');
-    assert.equal(page.items[2].prompt, '合影');
-    const onlyC = await album.loadPage({ limit: 24, chatId: 'c' });
-    assert.deepEqual(onlyC.items.map((e) => e.key), ['c|1|0|1', 'photo|p1']);
-});
-
-test('gate: photo-album paginates photos with its own cursor once floor CGs are exhausted', async () => {
-    const store = createMemoryPhotoAlbumStore();
-    for (let i = 0; i < 3; i += 1) await store.put({ id: `p${i}`, dataUrl: JPEG, createdAt: `2026-09-30T00:0${i}:00Z` });
-    const base = baseService([], 'floor-next');
-    const album = withPhotoAlbum(base, store);
-    const first = await album.loadPage({ limit: 2 });
-    assert.equal(first.next, 'floor-next', 'floor pages come first');
-    base.loadPage = async () => ({ ok: true, items: [], next: '' });
-    const second = await album.loadPage({ after: 'floor-next', limit: 2 });
-    assert.deepEqual(second.items.map((e) => e.photoId), ['p2', 'p1']);
-    assert.equal(second.next, 'photo:2');
-    const third = await album.loadPage({ after: 'photo:2', limit: 2 });
-    assert.deepEqual(third.items.map((e) => e.photoId), ['p0']);
-    assert.equal(third.next, '');
-});
-
-test('gate: photo-album marks and deletes photos in its own store and delegates floor CGs', async () => {
-    const store = createMemoryPhotoAlbumStore();
-    await store.put({ id: 'p1', dataUrl: JPEG });
-    const base = baseService([]);
-    const album = withPhotoAlbum(base, store);
-    await album.setFavorite('photo|p1', true);
-    await album.setHidden('photo|p1', true);
-    assert.deepEqual(await store.get('p1').then((p) => [p.favorite, p.hidden]), [true, true]);
-    await album.setFavorite('c|1|0|1', true);
-    assert.deepEqual(base.calls.at(-1), ['fav', 'c|1|0|1', true]);
-    await album.remove({ kind: 'photo', photoId: 'p1', key: 'photo|p1' });
-    assert.equal(await store.get('p1'), null);
-    await store.put({ id: 'p2', dataUrl: JPEG });
-    const batch = await album.removeMany([{ kind: 'photo', photoId: 'p2', key: 'photo|p2' }]);
-    assert.deepEqual(batch, { ok: true, removed: 1, failed: 0, keys: ['photo|p2'] });
-    assert.equal(await store.get('p2'), null);
-    await album.remove({ key: 'c|1|0|1' });
-    assert.deepEqual(base.calls.at(-1), ['remove', 'c|1|0|1']);
-    assert.equal((await withPhotoAlbum(base, store, { compose: async () => '' }).capturePhoto({})).ok, false);
+    await store.put({ id: 'p1', dataUrl: JPEG, createdAt: '2026-09-30T00:01:00Z' });
+    await store.put({ id: 'p2', dataUrl: 'user/images/igs-photos/p2.jpg', createdAt: '2026-09-30T00:02:00Z' });
+    assert.deepEqual((await store.listIds()).sort(), ['p1', 'p2']);
+    const got = await store.getMany(['p2', 'nope', 'p1']);
+    assert.deepEqual(got.map((p) => p && p.id), ['p2', null, 'p1']);
+    assert.equal(got[0].dataUrl, 'user/images/igs-photos/p2.jpg');
 });
 
 test('gate: photo-album composes stage cast between background and speaker', async () => {

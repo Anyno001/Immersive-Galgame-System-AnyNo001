@@ -7,6 +7,7 @@ import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 import { localImageCacheFor } from './tavern-image-cache.js';
 
 const DATA_RE = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i;
+const FETCH_TIMEOUT_MS = 30000;
 const PATH_RE = /^\/?user\/images\/igs-[^?#]+$/;
 
 const isData = (v) => typeof v === 'string' && DATA_RE.test(v);
@@ -52,9 +53,13 @@ function createTavernImageFiles(globalObject, dir) {
     };
     const cache = localImageCacheFor(globalObject);
     const flights = new Map();
+    // 下载有期限：手机网络卡住时请求可能永远不回，到期中止并按失败处理，下次再读会重新下载。
     const fetchDataUrl = async (path) => {
+        const Abort = globalObject.AbortController;
+        const abort = typeof Abort === 'function' ? new Abort() : null;
+        const timer = abort ? globalObject.setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS) : null;
         try {
-            const res = await globalObject.fetch(`/${path.replace(/^\//, '')}`, { cache: 'no-store' });
+            const res = await globalObject.fetch(`/${path.replace(/^\//, '')}`, abort ? { cache: 'no-store', signal: abort.signal } : { cache: 'no-store' });
             if (!res.ok) return '';
             const blob = await res.blob();
             return await new Promise((resolve) => {
@@ -65,6 +70,8 @@ function createTavernImageFiles(globalObject, dir) {
             });
         } catch {
             return '';
+        } finally {
+            if (timer) globalObject.clearTimeout(timer);
         }
     };
     const read = (path) => {
@@ -75,7 +82,7 @@ function createTavernImageFiles(globalObject, dir) {
             const cached = await cache.get(key);
             if (cached) return cached;
             const dataUrl = await fetchDataUrl(key);
-            if (dataUrl) await cache.put(key, dataUrl);
+            if (dataUrl) cache.put(key, dataUrl).catch(() => {});
             return dataUrl;
         })().finally(() => flights.delete(key));
         flights.set(key, job);
@@ -265,11 +272,6 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
             const result = await store.deleteSlot(floorKey, slot);
             files.dropUnused(old, null);
             return result;
-        },
-        async listDoneSlotsPage(options) {
-            const page = await store.listDoneSlotsPage(options);
-            if (options && options.deferImages) return page;
-            return { ...page, items: await Promise.all(page.items.map(files.hydrate)) };
         },
         hydrateSlot(rec) { return files.hydrate(rec); },
     };
