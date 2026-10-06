@@ -311,7 +311,7 @@ export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, focus = '', lea
             + `${menu}</div></div>`;
     }).join('');
     const body = rows
-        ? `<div class="igs-btn-mgr-list igs-wardrobe-list">${rows}</div>`
+        ? `<div class="igs-btn-mgr-list igs-wardrobe-list is-tall">${rows}</div>`
         : '<div class="igs-scene-empty">还没有衣柜提示词，点右上 + 添加</div>';
     return `<div class="igs-wardrobe-group">${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${body}</div>`;
 }
@@ -466,6 +466,14 @@ img.igs-outfit-avatar{padding:0}
 .igs-wardrobe-group{display:flex;flex-direction:column;gap:6px;min-width:0}
 .igs-wardrobe-group+.igs-wardrobe-group{margin-top:4px;padding-top:12px;border-top:1px solid var(--igs-settings-line)}
 .igs-wardrobe-list{padding:0;background:transparent;border-radius:0}
+/* 衣柜与角色缩略图同一种竖长条卡：参考图在上、名字和 ⋯ 在下。 */
+.igs-wardrobe-list.is-tall{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:10px 8px}
+.igs-wardrobe-list.is-tall>.igs-wardrobe-item>.igs-btn-mgr-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px;height:auto;padding:0;background:transparent}
+.igs-wardrobe-list.is-tall .igs-outfit-thumb{grid-column:1/-1;width:100%;height:auto;aspect-ratio:9/20;object-fit:cover;object-position:50% 8%;border-radius:var(--igs-settings-radius-control)}
+.igs-wardrobe-list.is-tall .igs-outfit-thumb-empty{padding:0}
+.igs-wardrobe-list.is-tall .igs-wardrobe-name{font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.igs-wardrobe-list.is-tall>.igs-wardrobe-item>.igs-btn-mgr-row>:not(.igs-outfit-thumb):not(.igs-wardrobe-name):not(.igs-row-menu){grid-column:1/-1;justify-self:start}
+.igs-wardrobe-list.is-tall .igs-wardrobe-item.is-focus .igs-outfit-thumb{outline:2px solid var(--igs-settings-accent);outline-offset:-2px}
 button.igs-wardrobe-name{min-width:0;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}
 .igs-wardrobe-nsfw.is-on{color:var(--igs-settings-accent)}
 .igs-wardrobe-item.is-focus>.igs-btn-mgr-row{background:var(--igs-settings-highlight)}
