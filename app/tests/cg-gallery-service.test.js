@@ -31,6 +31,8 @@ test('cg-gallery-service:catalog-lists-every-done-cg', async () => {
     const catalog = await loadCgCatalog(service, { showHidden: true });
     assert.equal(catalog.items.length, 50);
     assert.equal(catalog.next, '');
+    assert.equal(catalog.items[0].messageId, 49);
+    assert.equal(catalog.items[49].messageId, 0);
 });
 
 test('cg-gallery-service:entries-parse-source-floor-and-skip-unfinished', async () => {

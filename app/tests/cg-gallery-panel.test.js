@@ -133,10 +133,10 @@ test('cg-gallery-panel:keys-do-not-bubble-and-close-unbinds', async () => {
     assert.equal(panel.isOpen(), false);
 });
 
-test('cg-gallery-panel:lists-the-whole-library-without-a-next-page', async () => {
+test('cg-gallery-panel:pages-through-the-library-newest-first', async () => {
     const illustrationStore = createMemoryIllustrationStore();
     for (let i = 0; i < 50; i += 1) {
-        await illustrationStore.putSlot(`chat-1|${i}|0`, { slot: 1, status: 'done', dataUrl: `data:image/png;base64,${i}` });
+        await illustrationStore.putSlot(`chat-1|${i}|0`, { slot: 1, status: 'done', dataUrl: `data:image/png;base64,${i}`, updatedAt: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString() });
     }
     const service = createCgGalleryService({ illustrationStore, clearIllustration: async () => ({ ok: true }) });
     const doc = fakeDoc();
@@ -144,9 +144,17 @@ test('cg-gallery-panel:lists-the-whole-library-without-a-next-page', async () =>
     const panel = createCgGalleryPanel(doc, { service, getChatId: () => 'chat-1' });
     panel.open(container);
     await panel.whenIdle();
-    assert.equal(panel.getState().count, 50);
-    assert.equal(panel.getState().exhausted, true);
-    assert.doesNotMatch(container.children[0].innerHTML, /加载更多/);
+    const root = container.children[0];
+    assert.equal(panel.getState().total, 50);
+    assert.equal(panel.getState().count, 24);
+    assert.equal(panel.getState().page, 0);
+    assert.match(root.innerHTML, /第 49 楼/);
+    assert.doesNotMatch(root.innerHTML, /第 0 楼/);
+    root.listeners.get('click')({ target: button('page-next') });
+    await panel.whenIdle();
+    assert.equal(panel.getState().page, 1);
+    assert.equal(panel.getState().count, 24);
+    assert.match(container.children[0].innerHTML, /第 2 \/ 3 页/);
     panel.close();
 });
 

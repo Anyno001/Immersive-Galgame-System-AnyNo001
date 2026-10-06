@@ -104,12 +104,47 @@ export function createCgGalleryService({ illustrationStore, galleryStore, clearI
     };
 }
 
-// 把库里的条目走完。只拿路径和标记，不在这里把图片读进内存。
+export const CG_PAGE_SIZE = 24;
+
+function cgTime(entry) {
+    const time = Date.parse(entry && entry.updatedAt);
+    return Number.isFinite(time) ? time : 0;
+}
+
+// 新图在前。时间一样时，楼层号大的在前。
+export function compareCgNewestFirst(a, b) {
+    const byTime = cgTime(b) - cgTime(a);
+    if (byTime) return byTime;
+    const byFloor = (Number(b && b.messageId) || 0) - (Number(a && a.messageId) || 0);
+    if (byFloor) return byFloor;
+    return String((b && b.key) || '').localeCompare(String((a && a.key) || ''));
+}
+
+export function cgPageCount(total, size = CG_PAGE_SIZE) {
+    const count = Math.max(0, Number(total) || 0);
+    const pageSize = Math.max(1, Number(size) || CG_PAGE_SIZE);
+    return Math.max(1, Math.ceil(count / pageSize));
+}
+
+export function cgPageSlice(items, page, size = CG_PAGE_SIZE) {
+    const list = Array.isArray(items) ? items : [];
+    const pageSize = Math.max(1, Number(size) || CG_PAGE_SIZE);
+    const pages = cgPageCount(list.length, pageSize);
+    const index = Math.min(Math.max(0, Number(page) || 0), pages - 1);
+    const start = index * pageSize;
+    return { page: index, pages, total: list.length, items: list.slice(start, start + pageSize) };
+}
+
+// 把库里的条目标记走完，最新的排在前面。这里不读图片。
 export async function loadCgCatalog(service, filters = {}) {
     if (!service || typeof service.loadPage !== 'function') return { ok: false, reason: 'store-unavailable', items: [], next: '' };
     const items = [];
     const seen = new Set();
     let after = '';
+    const finish = () => {
+        items.sort(compareCgNewestFirst);
+        return { ok: true, items, next: '' };
+    };
     for (let guard = 0; guard < 500; guard += 1) {
         const page = await service.loadPage({ ...filters, after, limit: 48, deferImages: true });
         if (!page || page.ok === false) return page || { ok: false, reason: 'read-error', items: [], next: '' };
@@ -119,8 +154,8 @@ export async function loadCgCatalog(service, filters = {}) {
             items.push(item);
         }
         const next = String(page.next || '');
-        if (!next || next === after) return { ok: true, items, next: '' };
+        if (!next || next === after) return finish();
         after = next;
     }
-    return { ok: true, items, next: '' };
+    return finish();
 }

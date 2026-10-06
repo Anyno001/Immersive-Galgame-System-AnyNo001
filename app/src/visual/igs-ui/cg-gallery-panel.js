@@ -2,7 +2,7 @@
 // 隐藏/收藏只写状态库；删除二次确认后走 clearIllustration（楼层 CG 同时消失）；跳转只限当前聊天。
 import { safeItemImageUrl } from './fx-item.js';
 import { setStagePauseReason } from './stage-pause.js';
-import { loadCgCatalog } from '../../media/cg-gallery-service.js';
+import { CG_PAGE_SIZE, cgPageSlice, loadCgCatalog } from '../../media/cg-gallery-service.js';
 
 const THUMB_CACHE_LIMIT = 120;
 const DISPLAY_URL_RE = /^(?:data:image\/|https?:\/\/|blob:)/i;
@@ -23,6 +23,8 @@ export function createCgGalleryPanel(doc, options = {}) {
     const { service } = options;
     let root = null;
     let host = null;
+    let catalog = [];
+    let page = 0;
     let entries = [];
     let cursor = '';
     let exhausted = false;
@@ -70,9 +72,14 @@ export function createCgGalleryPanel(doc, options = {}) {
         if (!root) return;
         const toggle = (act, on, label) => `<button type="button" class="igs-cg-filter" data-cg-act="${act}" aria-pressed="${on}">${label}</button>`;
         const list = entries.length ? `<ul class="igs-cg-grid">${entries.map(tileHtml).join('')}</ul>` : '<p class="igs-cg-empty">还没有 CG</p>';
-        const batch = entries.length ? `<button type="button" class="is-danger" data-cg-act="delete-listed">删除已列出的 ${entries.length} 张</button>` : '';
+        const sliced = cgPageSlice(catalog, page);
+        const pager = catalog.length > CG_PAGE_SIZE
+            ? `<div class="igs-cg-pager"><button type="button" data-cg-act="page-prev" ${sliced.page <= 0 ? 'disabled' : ''}>上一页</button><span>第 ${sliced.page + 1} / ${sliced.pages} 页 · 共 ${sliced.total} 张</span><button type="button" data-cg-act="page-next" ${sliced.page >= sliced.pages - 1 ? 'disabled' : ''}>下一页</button></div>`
+            : '';
+        const batch = entries.length ? `<button type="button" class="is-danger" data-cg-act="delete-listed">删除本页 ${entries.length} 张</button>` : '';
         root.innerHTML = `<header class="igs-cg-head"><h2>CG 库</h2><span class="igs-cg-head-actions">${batch}<button type="button" data-cg-act="close" aria-label="关闭 CG 库">×</button></span></header>`
             + `<div class="igs-cg-filters" role="group" aria-label="筛选">${toggle('filter-favorite', filters.favoritesOnly, '只看收藏')}${toggle('filter-hidden', filters.showHidden, '显示已隐藏')}${toggle('filter-chat', filters.currentChatOnly, '只看当前聊天')}</div>`
+            + pager
             + (notice ? `<p class="igs-cg-notice" role="status">${escapeHtml(notice)}</p>` : '')
             + list;
     }
@@ -127,20 +134,7 @@ export function createCgGalleryPanel(doc, options = {}) {
         else render();
     }
 
-    async function loadCatalog() {
-        const gen = ++loadGen;
-        if (!service) { notice = 'CG 库不可用'; exhausted = true; render(); return; }
-        entries = [];
-        cursor = '';
-        exhausted = false;
-        thumbs.clear();
-        const page = await loadCgCatalog(service, { favoritesOnly: filters.favoritesOnly, showHidden: filters.showHidden, chatId: filters.currentChatOnly ? chatId() : '' });
-        if (gen !== loadGen) return;
-        if (!page.ok) { notice = page.reason === 'read-error' ? 'CG 读取失败' : 'CG 库不可用'; exhausted = true; render(); return; }
-        notice = '';
-        entries = page.items || [];
-        exhausted = true;
-        render();
+    async function hydratePage(gen) {
         if (typeof service.hydrateEntry !== 'function') return;
         await Promise.all(entries.map(async (entry) => {
             if (DISPLAY_URL_RE.test(String(entry.dataUrl || ''))) return;
@@ -152,9 +146,38 @@ export function createCgGalleryPanel(doc, options = {}) {
         }));
     }
 
+    function showPage(nextPage = page) {
+        const gen = ++loadGen;
+        const sliced = cgPageSlice(catalog, nextPage);
+        page = sliced.page;
+        entries = sliced.items;
+        exhausted = true;
+        render();
+        return hydratePage(gen);
+    }
+
+    async function loadCatalog() {
+        const gen = ++loadGen;
+        if (!service) { notice = 'CG 库不可用'; exhausted = true; catalog = []; entries = []; render(); return; }
+        catalog = [];
+        entries = [];
+        page = 0;
+        cursor = '';
+        exhausted = false;
+        thumbs.clear();
+        const loaded = await loadCgCatalog(service, { favoritesOnly: filters.favoritesOnly, showHidden: filters.showHidden, chatId: filters.currentChatOnly ? chatId() : '' });
+        if (gen !== loadGen) return;
+        if (!loaded.ok) { notice = loaded.reason === 'read-error' ? 'CG 读取失败' : 'CG 库不可用'; exhausted = true; render(); return; }
+        notice = '';
+        catalog = loaded.items || [];
+        await showPage(0);
+    }
+
     async function handle(act, key) {
         const entry = key ? find(key) : null;
         if (act === 'close') { close(); return; }
+        if (act === 'page-prev') { if (page > 0) await showPage(page - 1); return; }
+        if (act === 'page-next') { await showPage(page + 1); return; }
         if (act === 'filter-favorite' || act === 'filter-hidden' || act === 'filter-chat') {
             const name = act === 'filter-favorite' ? 'favoritesOnly' : act === 'filter-hidden' ? 'showHidden' : 'currentChatOnly';
             filters = { ...filters, [name]: !filters[name] };
@@ -170,6 +193,7 @@ export function createCgGalleryPanel(doc, options = {}) {
             if (!ok) return;
             const batch = typeof service.removeMany === 'function' ? await service.removeMany(list) : { keys: [], failed: list.length };
             const gone = new Set(batch.keys || []);
+            catalog = catalog.filter((item) => !gone.has(item.key));
             entries = entries.filter((item) => !gone.has(item.key));
             for (const goneKey of gone) thumbs.delete(goneKey);
             if (viewing && gone.has(viewing)) closeViewer();
@@ -183,14 +207,20 @@ export function createCgGalleryPanel(doc, options = {}) {
         if (act === 'favorite') {
             const result = await service.setFavorite(entry.key, !entry.favorite);
             if (result && result.ok) entry.favorite = !entry.favorite;
-            if (filters.favoritesOnly && !entry.favorite) entries = entries.filter((e) => e !== entry);
+            if (filters.favoritesOnly && !entry.favorite) {
+                catalog = catalog.filter((item) => item !== entry);
+                entries = entries.filter((e) => e !== entry);
+            }
             render();
             return;
         }
         if (act === 'hide') {
             const result = await service.setHidden(entry.key, !entry.hidden);
             if (result && result.ok) entry.hidden = !entry.hidden;
-            if (!filters.showHidden && entry.hidden) entries = entries.filter((e) => e !== entry);
+            if (!filters.showHidden && entry.hidden) {
+                catalog = catalog.filter((item) => item !== entry);
+                entries = entries.filter((e) => e !== entry);
+            }
             render();
             return;
         }
@@ -200,6 +230,7 @@ export function createCgGalleryPanel(doc, options = {}) {
             if (!ok) return;
             const result = await service.remove(entry);
             if (result && result.ok) {
+                catalog = catalog.filter((item) => item !== entry && item.key !== entry.key);
                 entries = entries.filter((e) => e !== entry);
                 thumbs.delete(entry.key);
                 if (viewing === entry.key) closeViewer();
@@ -251,6 +282,8 @@ export function createCgGalleryPanel(doc, options = {}) {
         root = null;
         setStagePauseReason(host, 'panel:gallery', false);
         host = null;
+        catalog = [];
+        page = 0;
         entries = [];
         thumbs.clear();
         previousFocus?.focus?.();
@@ -262,7 +295,7 @@ export function createCgGalleryPanel(doc, options = {}) {
         open, close,
         isOpen: () => Boolean(root),
         whenIdle: () => pending,
-        getState: () => ({ count: entries.length, exhausted, viewing, filters: { ...filters }, notice }),
+        getState: () => ({ count: entries.length, total: catalog.length, page, pages: cgPageSlice(catalog, page).pages, exhausted, viewing, filters: { ...filters }, notice }),
     };
 }
 
@@ -276,6 +309,8 @@ export const CG_GALLERY_STYLE_TEXT = `
 #igs-cg-gallery button:focus-visible{outline:2px solid #fff;outline-offset:2px;}
 #igs-cg-gallery .is-danger{background:rgba(220,60,60,.3);}
 #igs-cg-gallery .igs-cg-filters{display:flex;flex-wrap:wrap;gap:6px;}
+#igs-cg-gallery .igs-cg-pager{display:flex;align-items:center;justify-content:center;gap:8px;}
+#igs-cg-gallery .igs-cg-pager button:disabled{opacity:.35;cursor:default;}
 #igs-cg-gallery .igs-cg-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}
 #igs-cg-gallery .igs-cg-tile.is-hidden{opacity:.5;}
 #igs-cg-gallery .igs-cg-thumb{display:block;width:100%;aspect-ratio:16/10;padding:0;overflow:hidden;cursor:zoom-in;}
