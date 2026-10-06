@@ -27,8 +27,15 @@ function parseMoods(value) {
     return out;
 }
 
-function alertOf(globalObj) {
-    return (message) => { if (typeof globalObj.alert === 'function') globalObj.alert(message); };
+function alertOf(dialogs, globalObj) {
+    return (message) => {
+        if (dialogs && typeof dialogs.alert === 'function') {
+            const pending = dialogs.alert(message);
+            if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+            return;
+        }
+        if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
+    };
 }
 
 // 名称、情绪、关键词三问；任一步取消返回 null。
@@ -67,7 +74,7 @@ async function choosePack(dialogs, worldview) {
 
 // 返回 { ok: false } 表示持久化失败，其余情况由调用方重绘设置页。
 export async function handleBgmSettingsAction(action, { readerDraft, dialogs, persist, global: globalObj = globalThis, worldview = 'modern' }) {
-    const alert = alertOf(globalObj);
+    const alert = alertOf(dialogs, globalObj);
     const current = normalizeBgmSettings(readerDraft.bgm);
     const [, verb, rest] = action.match(/^bgm-([a-z]+-[a-z]+)(?::(.*))?$/) || [];
     const id = decodeSeg(rest || '');

@@ -1,5 +1,5 @@
-// 设置面板内的确认条与输入框，替代浏览器原生 confirm / prompt。
-// 面板重绘会整体替换 innerHTML，挂起的对话记在控制器里，由 remount 在重绘后补回（含输入框里已打的字）。
+// 设置面板内的提示、确认与输入框，替代浏览器 alert / confirm / prompt。
+// 浏览器弹窗会退出全屏。面板重绘会整体替换 innerHTML，挂起的对话记在控制器里，由 remount 在重绘后补回（含输入框里已打的字）。
 export const SETTINGS_DIALOG_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-dialog{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:6;box-sizing:border-box;width:min(480px,calc(100% - 32px));padding:14px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);color:var(--igs-settings-ink);border:1px solid var(--igs-settings-line-strong);display:flex;flex-direction:column;gap:10px;pointer-events:auto}
 #igs-unified-settings .igs-settings-dialog.is-view,#igs-unified-settings .igs-settings-dialog.is-edit{width:min(640px,calc(100% - 32px))}
@@ -22,7 +22,7 @@ export const SETTINGS_DIALOG_STYLE_TEXT = `
 function nativeFallback(globalObj) {
     return (kind, message, value) => {
         if (kind === 'confirm') return globalObj && typeof globalObj.confirm === 'function' ? Boolean(globalObj.confirm(message)) : true;
-        if (kind === 'view') {
+        if (kind === 'alert' || kind === 'view') {
             if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
             return true;
         }
@@ -52,6 +52,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
     let pending = null;
 
     function cancelValue(entry) {
+        if (entry.kind === 'alert') return true;
         return entry.kind === 'confirm' ? false : null;
     }
 
@@ -75,7 +76,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         el.className = entry.kind === 'view' || entry.kind === 'edit' || entry.kind === 'choose'
             ? `igs-settings-dialog is-${entry.kind}`
             : 'igs-settings-dialog';
-        el.setAttribute('role', entry.kind === 'confirm' ? 'alertdialog' : 'dialog');
+        el.setAttribute('role', entry.kind === 'confirm' || entry.kind === 'alert' ? 'alertdialog' : 'dialog');
         el.setAttribute('aria-modal', 'true');
         el.setAttribute('aria-label', entry.kind === 'view' || entry.kind === 'edit' ? '生图提示词' : entry.message);
         const msg = doc.createElement('div');
@@ -120,7 +121,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         }
         const actions = doc.createElement('div');
         actions.className = 'igs-settings-dialog-actions';
-        const buttons = entry.kind === 'view' ? [['ok', entry.okLabel]]
+        const buttons = entry.kind === 'view' || entry.kind === 'alert' ? [['ok', entry.okLabel]]
             : entry.kind === 'choose' ? [['cancel', entry.cancelLabel]]
                 : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
         for (const [role, label] of buttons) {
@@ -132,7 +133,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             actions.appendChild(btn);
         }
         el.appendChild(actions);
-        const accept = () => settle(entry, entry.kind === 'confirm' ? true : (input ? input.value : entry.value));
+        const accept = () => settle(entry, entry.kind === 'confirm' || entry.kind === 'alert' ? true : (input ? input.value : entry.value));
         el.addEventListener('click', (event) => {
             event.stopPropagation();
             const btn = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-settings-dialog]') : null;
@@ -200,6 +201,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
     }
 
     return {
+        alert: (message, labels) => open('alert', message, '', labels),
         confirm: (message, labels) => open('confirm', message, '', labels),
         prompt: (message, value = '', labels) => open('prompt', message, value, labels),
         view: (message, labels) => open('view', message, '', { okLabel: '关闭', ...labels }),

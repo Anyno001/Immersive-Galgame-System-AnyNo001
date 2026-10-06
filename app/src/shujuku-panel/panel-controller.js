@@ -1,4 +1,5 @@
 import { createShujukuClient } from '../data/shujuku/client.js';
+import { createIgsModal } from '../visual/igs-ui/igs-modal.js';
 import { applyTransparentGlassMaterial } from '../styles/glass-material.js';
 import { parseTables } from './panel-model.js';
 import { getDbPanelStyles, renderDbPanelInner } from './panel-render.js';
@@ -121,15 +122,22 @@ export function createDbPanelController(doc, global) {
         render();
     }
 
-    function open(overlayEl, readerSettings) {
+    let askHost = null;
+    const pageAsk = createIgsModal({
+        getHost: () => askHost || (root && root.parentNode) || doc.body || doc.documentElement,
+        global: doc.defaultView || global || globalThis,
+    });
+
+    async function open(overlayEl, readerSettings) {
         if (root) return;
+        askHost = overlayEl || askHost;
 
         // conflict detection
         const shujukuOpen = doc.querySelector('#shujuku_v104-main-window,[id^="shujuku"][id$="-main-window"]');
         if (shujukuOpen && shujukuOpen.offsetParent !== null) {
-            const win = doc.defaultView || globalThis;
-            if (!win.confirm('骰子系统数据库面板正在打开中，同时编辑可能导致数据冲突，是否继续？'))
+            if (!await pageAsk.confirm('骰子系统数据库面板正在打开中，同时编辑可能导致数据冲突，是否继续？'))
                 return;
+            if (root) return;
         }
 
         ensureStyle();
@@ -259,9 +267,9 @@ export function createDbPanelController(doc, global) {
         const table = activeTable();
         if (!table || !client) return;
         if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= table.rows.length) return;
-        const win = doc.defaultView || globalThis;
         const label = rowId != null && rowId !== '' ? `row_id=${rowId}` : `第 ${rowIndex + 1} 行`;
-        if (!win.confirm(`确认删除 ${label} 的行？`)) return;
+        askHost = root && root.parentNode;
+        if (!await pageAsk.confirm(`确认删除 ${label} 的行？`)) return;
         igsWriting = true;
         const result = await client.deleteRow(table.name, toShujukuApiRowIndex(rowIndex));
         igsWriting = false;

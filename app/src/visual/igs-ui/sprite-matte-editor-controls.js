@@ -1,7 +1,7 @@
 // 遮罩修复编辑器工具与画布：画笔坐标始终映射回原像素；保存失败时保留编辑内容。
 import { applyBrushStroke, mapPointerToImage } from '../../media/matte-brush.js';
 
-export function mountEditControls({ doc, editor, el, btn, bar, msg, stage, close, onSaved }) {
+export function mountEditControls({ doc, editor, el, btn, bar, msg, stage, close, onSaved, confirm }) {
     const s = editor.session;
     const brush = { mode: 'keep', radius: 12, strength: 0.6 };
     const modes = [['keep', '保留'], ['erase', '删除'], ['soft', '软边发丝']];
@@ -90,9 +90,13 @@ export function mountEditControls({ doc, editor, el, btn, bar, msg, stage, close
         save.disabled = false;
     });
     btn('取消', () => {
-        const win = doc.defaultView;
-        if (s.isDirty() && win && typeof win.confirm === 'function' && !win.confirm('放弃未保存的修改？')) return;
-        close();
+        if (!s.isDirty()) { close(); return; }
+        const answer = typeof confirm === 'function' ? confirm('放弃未保存的修改？') : true;
+        if (answer && typeof answer.then === 'function') {
+            answer.then((ok) => { if (ok) close(); }).catch(() => {});
+            return;
+        }
+        if (answer) close();
     });
     const canvas = el('canvas', 'igs-matte-canvas');
     canvas.width = s.width;

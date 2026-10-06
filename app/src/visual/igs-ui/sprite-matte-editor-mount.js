@@ -1,9 +1,10 @@
 // 遮罩修复编辑器挂载：弹层 + 工具栏；关闭与取消不写任何资产字段。
 import { MATTE_EDITOR_STYLE_TEXT } from './sprite-matte-editor-view.js';
 import { mountEditControls } from './sprite-matte-editor-controls.js';
+import { createIgsModal } from './igs-modal.js';
 
 // editor：loadMatteEditor 的返回值；返回 { root, close }。
-export function mountMatteEditor(doc, editor, { onClose, onSaved } = {}) {
+export function mountMatteEditor(doc, editor, { onClose, onSaved, confirm } = {}) {
     if (!doc.getElementById('igs-matte-editor-style')) {
         const style = doc.createElement('style');
         style.id = 'igs-matte-editor-style';
@@ -43,6 +44,12 @@ export function mountMatteEditor(doc, editor, { onClose, onSaved } = {}) {
         btn('关闭', close);
         return { root, close };
     }
-    mountEditControls({ doc, editor, el, btn, bar, msg, stage, close, onSaved });
+    const ask = typeof confirm === 'function'
+        ? confirm
+        : (message) => createIgsModal({
+            getHost: () => root,
+            global: doc.defaultView || globalThis,
+        }).confirm(message);
+    mountEditControls({ doc, editor, el, btn, bar, msg, stage, close, onSaved, confirm: ask });
     return { root, close };
 }

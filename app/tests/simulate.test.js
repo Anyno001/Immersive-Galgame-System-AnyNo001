@@ -11,6 +11,21 @@ import { createImageResourceCache, createResourceCache } from '../src/media/reso
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
 
+// 阅读器里的确认挂在遮罩上，不走浏览器 confirm。点「确定」后再等动作完成。
+async function acceptPageModal(doc, pending) {
+    let settled = false;
+    const done = Promise.resolve(pending).finally(() => { settled = true; });
+    for (let i = 0; i < 40 && !settled; i += 1) {
+        const modal = doc.querySelector('.igs-page-modal');
+        if (modal) {
+            modal.dispatchEvent({ type: 'click', target: { closest: () => ({ getAttribute: () => 'ok' }) } });
+            break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    return done;
+}
+
 // 删除、清空、恢复默认、切世界观会先弹面板内的确认条：点「确定」后再等动作完成。
 async function invokeConfirmed(controller, doc, action) {
     const pending = controller.invoke(action);
@@ -905,7 +920,7 @@ test('gate:illustration:failed-cg-point-can-reroll-and-does-not-borrow-another-i
         const clear = document.getElementById('igs-btn-clear-cg');
         assert.equal(reroll.disabled, false);
         assert.equal(clear.disabled, true);
-        const result = await opened.controller.invokeAction('reroll-cg');
+        const result = await acceptPageModal(document, opened.controller.invokeAction('reroll-cg'));
         assert.equal(result.ok, true);
         assert.equal(calls.length, 1);
         assert.equal(calls[0].slot, 1);
@@ -1071,7 +1086,7 @@ test('gate:illustration:reader-clear-cg-removes-only-current-slot-and-rerenders'
         assert.equal(host.getState().activeReader.snapshot.content.illustrationActive, true);
         const readsBeforeClear = urlReads;
 
-        const result = await opened.controller.invokeAction('clear-cg');
+        const result = await acceptPageModal(document, opened.controller.invokeAction('clear-cg'));
 
         assert.deepEqual(clearCalls, [{ chatId: 'chat-1', messageId: 39, swipeId: 0, slot: 1 }]);
         assert.deepEqual(result, { ok: true, reason: 'cleared', removed: true, rendered: true });
@@ -1127,7 +1142,7 @@ test('gate:illustration:reader-clear-cg-delete-failure-keeps-current-and-reports
     try {
         const opened = host.openReader({ messageId: 41, message: { id: 41, text: raw }, raw }, { mode: 'pc' });
         const readsBeforeClear = urlReads;
-        const result = await opened.controller.invokeAction('clear-cg');
+        const result = await acceptPageModal(document, opened.controller.invokeAction('clear-cg'));
         assert.equal(result.ok, false);
         assert.equal(result.reason, 'storage-failed');
         assert.equal(urlReads, readsBeforeClear, '删除失败不得触发成功路径重绘');
@@ -2394,17 +2409,8 @@ test('gate:simulation:igs-ui-background-click-does-not-page-dialog-click-still-p
     vn.destroy();
 });
 
-test('gate:simulation:double-click-keeps-cg-and-skips-the-page-turn', async () => {
-    const timers = [];
-    const document = createFakeDocument({
-        setTimeout(fn) {
-            timers.push(fn);
-            return timers.length;
-        },
-        clearTimeout(id) {
-            if (id) timers[id - 1] = null;
-        },
-    });
+test('gate:simulation:double-click-hides-outside-the-dialog-only', async () => {
+    const document = createFakeDocument();
     const latestMessage = {
         id: 45,
         text: '[角色: 艾莉]\n艾莉: 第一段。\n第二段。',
@@ -2437,15 +2443,17 @@ test('gate:simulation:double-click-keeps-cg-and-skips-the-page-turn', async () =
     button.dispatchEvent({ type: 'dblclick', target: button });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
-    dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160, detail: 1 });
+    const text = dialog.querySelector('#igs-text');
+    dialog.dispatchEvent({ type: 'click', target: text, clientX: 160, detail: 1 });
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '2 / 2');
     dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160, detail: 2 });
+    overlay.dispatchEvent({ type: 'dblclick', target: text });
     overlay.dispatchEvent({ type: 'dblclick', target: dialog });
+    assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
+
+    overlay.dispatchEvent({ type: 'dblclick', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), '1');
     assert.equal(overlay.querySelector('#igs-bg').id, 'igs-bg');
-    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '1 / 2');
-
-    for (const fn of timers) if (typeof fn === 'function') fn();
-    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '1 / 2');
 
     overlay.dispatchEvent({ type: 'dblclick', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
@@ -2457,7 +2465,7 @@ test('gate:simulation:double-click-keeps-cg-and-skips-the-page-turn', async () =
     overlay.dispatchEvent({ type: 'dblclick', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
-    // 关了双击隐藏：单击不再等双击，当场翻页。
+    // 关掉之后双击不再收起。点对话框仍按左右翻页；已经是最后一页，所以停在 2/2。
     const liveDialog = overlay.querySelector('#igs-dialog');
     liveDialog.style.left = '0px';
     liveDialog.style.width = '200px';

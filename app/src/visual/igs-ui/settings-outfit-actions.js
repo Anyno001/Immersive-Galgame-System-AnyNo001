@@ -49,29 +49,39 @@ async function ask(ctx, message, value = '') {
     return ((await dialogs.prompt(message, value)) || '').trim();
 }
 
-function warn(globalObj, message) {
-    if (globalObj.alert) globalObj.alert(message);
+function warn(source, message) {
+    const dialogs = source && source.dialogs;
+    const globalObj = source && source.options ? (source.options.global || globalThis) : source;
+    const ask = dialogs && typeof dialogs.alert === 'function'
+        ? dialogs
+        : (source && source.options ? createSettingsDialogs({ global: globalObj }) : null);
+    if (ask && typeof ask.alert === 'function') {
+        const pending = ask.alert(message);
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+        return;
+    }
+    if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
 }
 
-function validateSlotName(globalObj, name) {
-    if (name === OUTFIT_RESET) { warn(globalObj, '服装内不设「默认」槽：缺图时会自动回到原有立绘'); return false; }
-    if (BLOCKED_KEYS.has(name)) { warn(globalObj, `「${name}」不能用作槽名`); return false; }
+function validateSlotName(ctx, name) {
+    if (name === OUTFIT_RESET) { warn(ctx, '服装内不设「默认」槽：缺图时会自动回到原有立绘'); return false; }
+    if (BLOCKED_KEYS.has(name)) { warn(ctx, `「${name}」不能用作槽名`); return false; }
     return true;
 }
 
-function createOutfit(globalObj, charName, outfits, name) {
-    if (isBuiltinNudeOutfit(name)) { warn(globalObj, `「${name}」是内置项，在衣柜里选，不会进服装库`); return false; }
-    if (!isValidOutfitName(name)) { warn(globalObj, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return false; }
+function createOutfit(ctx, charName, outfits, name) {
+    if (isBuiltinNudeOutfit(name)) { warn(ctx, `「${name}」是内置项，在衣柜里选，不会进服装库`); return false; }
+    if (!isValidOutfitName(name)) { warn(ctx, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return false; }
     const owner = outfitTokenOwner(outfits, name);
-    if (owner) { warn(globalObj, owner === name ? `「${charName}」已有服装「${name}」（同名）` : `「${name}」已是服装「${owner}」的词`); return false; }
+    if (owner) { warn(ctx, owner === name ? `「${charName}」已有服装「${name}」（同名）` : `「${name}」已是服装「${owner}」的词`); return false; }
     outfits[name] = { words: [], moods: {} };
     return true;
 }
 
-function addOutfitWord(globalObj, outfits, entry, word) {
-    if (!isValidOutfitWord(word) || word === OUTFIT_RESET) { warn(globalObj, `「${word}」不能用作服装词`); return false; }
+function addOutfitWord(ctx, outfits, entry, word) {
+    if (!isValidOutfitWord(word) || word === OUTFIT_RESET) { warn(ctx, `「${word}」不能用作服装词`); return false; }
     const owner = outfitTokenOwner(outfits, word);
-    if (owner) { warn(globalObj, owner === word ? `「${word}」已是服装名` : `「${word}」已属于服装「${owner}」`); return false; }
+    if (owner) { warn(ctx, owner === word ? `「${word}」已是服装名` : `「${word}」已属于服装「${owner}」`); return false; }
     entry.words.push(word);
     return true;
 }
@@ -126,17 +136,17 @@ async function handleWardrobe(command, segs, ctx) {
     if (command === 'wardrobe-add') {
         const next = await ask(ctx, '服装名称：', '');
         if (!next) return rerenderSettings();
-        if (isBuiltinNudeOutfit(next)) { warn(globalObj, `「${next}」是内置的，不会进服装库`); return rerenderSettings(); }
-        if (!isValidOutfitName(next)) { warn(globalObj, `「${next}」不能用作服装名`); return rerenderSettings(); }
-        if (hasOwn(wardrobe, next)) { warn(globalObj, `衣柜里已有「${next}」`); return rerenderSettings(); }
+        if (isBuiltinNudeOutfit(next)) { warn(ctx, `「${next}」是内置的，不会进服装库`); return rerenderSettings(); }
+        if (!isValidOutfitName(next)) { warn(ctx, `「${next}」不能用作服装名`); return rerenderSettings(); }
+        if (hasOwn(wardrobe, next)) { warn(ctx, `衣柜里已有「${next}」`); return rerenderSettings(); }
         wardrobe[next] = { prompt: '' };
     } else if (command === 'wardrobe-rename') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         const next = await ask(ctx, `把「${name}」改名为：`, name);
         if (!next || next === name) return rerenderSettings();
-        if (isBuiltinNudeOutfit(next)) { warn(globalObj, `「${next}」是内置的，不会进服装库`); return rerenderSettings(); }
-        if (!isValidOutfitName(next)) { warn(globalObj, `「${next}」不能用作服装名`); return rerenderSettings(); }
-        if (hasOwn(wardrobe, next)) { warn(globalObj, `衣柜里已有「${next}」`); return rerenderSettings(); }
+        if (isBuiltinNudeOutfit(next)) { warn(ctx, `「${next}」是内置的，不会进服装库`); return rerenderSettings(); }
+        if (!isValidOutfitName(next)) { warn(ctx, `「${next}」不能用作服装名`); return rerenderSettings(); }
+        if (hasOwn(wardrobe, next)) { warn(ctx, `衣柜里已有「${next}」`); return rerenderSettings(); }
         const renamed = {};
         for (const [key, value] of Object.entries(wardrobe)) renamed[key === name ? next : key] = value;
         sceneAssets.wardrobe = renamed;
@@ -145,7 +155,7 @@ async function handleWardrobe(command, segs, ctx) {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
         if (typeof dialogs.edit !== 'function') {
-            warn(globalObj, '提示词编辑当前不可用。');
+            warn(ctx, '提示词编辑当前不可用。');
             return rerenderSettings();
         }
         const current = String((wardrobe[name] && wardrobe[name].prompt) || '');
@@ -169,14 +179,14 @@ async function handleWardrobe(command, segs, ctx) {
             if (!confirmed) return rerenderSettings();
             const service = options.generatedAssets;
             if (!service || typeof service.writeWardrobePrompt !== 'function') {
-                warn(globalObj, '当前不能写服装提示词。');
+                warn(ctx, '当前不能写服装提示词。');
                 return rerenderSettings();
             }
             let written;
             try { written = await service.writeWardrobePrompt(subject); }
             catch (error) { written = { ok: false, error: '写服装提示词失败' }; }
             if (!written || !written.ok || !String(written.prompt || '').trim()) {
-                warn(globalObj, (written && written.error) || '写服装提示词失败。');
+                warn(ctx, (written && written.error) || '写服装提示词失败。');
                 return rerenderSettings();
             }
             wardrobe[name] = { ...wardrobe[name], prompt: String(written.prompt).trim() };
@@ -185,7 +195,7 @@ async function handleWardrobe(command, segs, ctx) {
             return rerenderSettings();
         }
         if (!character || !word) return rerenderSettings();
-        if (!isValidOutfitName(word)) { warn(globalObj, `「${word}」不能存进衣柜`); return rerenderSettings(); }
+        if (!isValidOutfitName(word)) { warn(ctx, `「${word}」不能存进衣柜`); return rerenderSettings(); }
         const pending = loadOutfitReview(globalObj.localStorage);
         if (!pending.some((item) => item.character === character && item.word === word)) return rerenderSettings();
         const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
@@ -195,14 +205,14 @@ async function handleWardrobe(command, segs, ctx) {
         if (!confirmed) return rerenderSettings();
         const service = options.generatedAssets;
         if (!service || typeof service.writeWardrobePrompt !== 'function') {
-            warn(globalObj, '当前不能写服装提示词。');
+            warn(ctx, '当前不能写服装提示词。');
             return rerenderSettings();
         }
         let written;
         try { written = await service.writeWardrobePrompt({ character, outfit: word }); }
         catch (error) { written = { ok: false, error: '写服装提示词失败' }; }
         if (!written || !written.ok || !String(written.prompt || '').trim()) {
-            warn(globalObj, (written && written.error) || '写服装提示词失败。');
+            warn(ctx, (written && written.error) || '写服装提示词失败。');
             return rerenderSettings();
         }
         wardrobe[word] = { ...(wardrobe[word] || {}), prompt: String(written.prompt).trim() };
@@ -210,7 +220,7 @@ async function handleWardrobe(command, segs, ctx) {
     } else if (command === 'wardrobe-reference') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         const prompt = String((wardrobe[name] && wardrobe[name].prompt) || '').trim();
-        if (!prompt) { warn(globalObj, '先写下这套衣服的提示词。'); return rerenderSettings(); }
+        if (!prompt) { warn(ctx, '先写下这套衣服的提示词。'); return rerenderSettings(); }
         const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
         const confirmed = typeof dialogs.confirm === 'function'
             ? await dialogs.confirm(`用「${name}」的提示词出一张参考图？`)
@@ -218,14 +228,14 @@ async function handleWardrobe(command, segs, ctx) {
         if (!confirmed) return rerenderSettings();
         const service = options.generatedAssets;
         if (!service || typeof service.paintWardrobeReference !== 'function') {
-            warn(globalObj, '当前不能出参考图。');
+            warn(ctx, '当前不能出参考图。');
             return rerenderSettings();
         }
         let painted;
         try { painted = await service.paintWardrobeReference({ prompt, nsfwBoost: wardrobe[name].nsfwBoost === true }); }
         catch (error) { painted = { ok: false, error: '出参考图失败' }; }
         if (!painted || !painted.ok || !painted.imageId) {
-            warn(globalObj, (painted && painted.error) || '出参考图失败。');
+            warn(ctx, (painted && painted.error) || '出参考图失败。');
             return rerenderSettings();
         }
         const previousEntry = wardrobe[name];
@@ -240,16 +250,16 @@ async function handleWardrobe(command, segs, ctx) {
             if (!persisted || !persisted.rollbackFailed) {
                 try {
                     const deleted = typeof service.deleteImages === 'function' && await service.deleteImages([painted.imageId]);
-                    if (!deleted || deleted.ok === false) warn(globalObj, '新参考图未能从本机清除。');
-                } catch (error) { warn(globalObj, '新参考图未能从本机清除。'); }
+                    if (!deleted || deleted.ok === false) warn(ctx, '新参考图未能从本机清除。');
+                } catch (error) { warn(ctx, '新参考图未能从本机清除。'); }
             }
             return persisted && persisted !== false ? persisted : { ok: false, reason: 'save-failed' };
         }
         if (previousId && previousId !== painted.imageId && typeof service.deleteImages === 'function') {
             try {
                 const deleted = await service.deleteImages([previousId]);
-                if (deleted === false || (deleted && deleted.ok === false)) warn(globalObj, '旧参考图未能从本机清除。');
-            } catch (error) { warn(globalObj, '旧参考图未能从本机清除。'); }
+                if (deleted === false || (deleted && deleted.ok === false)) warn(ctx, '旧参考图未能从本机清除。');
+            } catch (error) { warn(ctx, '旧参考图未能从本机清除。'); }
         }
         return rerenderSettings();
     } else if (command === 'wardrobe-remove') {
@@ -286,9 +296,9 @@ function handleOutfitReview(command, segs, ctx) {
     if (command === 'outfit-review-assign') {
         const entry = outfitEntry(outfits, decodeSeg(segs[2] || ''));
         if (!entry) return rerenderSettings();
-        changed = addOutfitWord(globalObj, outfits, entry, word);
+        changed = addOutfitWord(ctx, outfits, entry, word);
     } else if (command === 'outfit-review-create') {
-        changed = createOutfit(globalObj, charName, outfits, word);
+        changed = createOutfit(ctx, charName, outfits, word);
         if (changed) selectTab(settingsState, charName, word);
     }
     if (!changed) return rerenderSettings();
@@ -355,7 +365,7 @@ async function runOutfitAction(match, ctx) {
     }
     if (command === 'scene-add-outfit') {
         const name = await ask(ctx, `为角色「${charName}」添加服装：`);
-        if (!name || !createOutfit(globalObj, charName, outfits, name)) return rerenderSettings();
+        if (!name || !createOutfit(ctx, charName, outfits, name)) return rerenderSettings();
         selectTab(settingsState, charName, name);
         return done();
     }
@@ -365,10 +375,10 @@ async function runOutfitAction(match, ctx) {
     case 'scene-rename-outfit': {
         const name = await ask(ctx, `重命名服装「${outfitName}」为：`, outfitName);
         if (!name || name === outfitName) return rerenderSettings();
-        if (isBuiltinNudeOutfit(name)) { warn(globalObj, `「${BUILTIN_NUDE_OUTFIT}」是内置项，在衣柜里选`); return rerenderSettings(); }
-        if (!isValidOutfitName(name)) { warn(globalObj, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return rerenderSettings(); }
+        if (isBuiltinNudeOutfit(name)) { warn(ctx, `「${BUILTIN_NUDE_OUTFIT}」是内置项，在衣柜里选`); return rerenderSettings(); }
+        if (!isValidOutfitName(name)) { warn(ctx, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return rerenderSettings(); }
         const owner = outfitTokenOwner(outfits, name, outfitName);
-        if (owner) { warn(globalObj, owner === name ? `「${charName}」已有服装「${name}」（同名），改名会覆盖，已阻止` : `「${name}」已是服装「${owner}」的词`); return rerenderSettings(); }
+        if (owner) { warn(ctx, owner === name ? `「${charName}」已有服装「${name}」（同名），改名会覆盖，已阻止` : `「${name}」已是服装「${owner}」的词`); return rerenderSettings(); }
         entry.words = entry.words.filter((word) => word !== name);
         sceneAssets.characterOutfits[charName] = reorderKey(outfits, outfitName, name);
         migrateSpriteKeys(readerSettings, { character: charName, outfit: outfitName }, { outfit: name });
@@ -382,7 +392,7 @@ async function runOutfitAction(match, ctx) {
         return done();
     case 'scene-add-outfit-word': {
         const word = await ask(ctx, `为服装「${outfitName}」添加词（AI 写出或表格里出现该词即视为这套服装）：`);
-        return word && addOutfitWord(globalObj, outfits, entry, word) ? done() : rerenderSettings();
+        return word && addOutfitWord(ctx, outfits, entry, word) ? done() : rerenderSettings();
     }
     case 'scene-remove-outfit-word': {
         const word = decodeSeg(segs[2] || '');
@@ -392,11 +402,11 @@ async function runOutfitAction(match, ctx) {
     case 'scene-add-outfit-scene': {
         const scenes = plain(draftEffectiveAssets(settingsState).scenes) || {};
         const known = Object.keys(scenes);
-        if (!known.length) { warn(globalObj, '还没有登记任何场景，请先在「场景背景」里添加'); return rerenderSettings(); }
+        if (!known.length) { warn(ctx, '还没有登记任何场景，请先在「场景背景」里添加'); return rerenderSettings(); }
         const input = await ask(ctx, `服装「${outfitName}」适用的场景（填场景名或别名）：\n已登记：${known.slice(0, 12).join('、')}${known.length > 12 ? ' 等' : ''}`);
         if (!input) return rerenderSettings();
         const key = classifySceneKey(scenes, input).key;
-        if (!key) { warn(globalObj, `没有找到场景「${input}」，请填写已登记的场景名或别名`); return rerenderSettings(); }
+        if (!key) { warn(ctx, `没有找到场景「${input}」，请填写已登记的场景名或别名`); return rerenderSettings(); }
         const list = Array.isArray(entry.scenes) ? entry.scenes : [];
         if (!list.includes(key)) entry.scenes = [...list, key];
         return done();
@@ -420,8 +430,8 @@ async function runOutfitAction(match, ctx) {
     case 'scene-add-outfit-mood': {
         const preset = decodeSeg(segs[2] || '');
         const mood = preset || await ask(ctx, `服装「${outfitName}」的情绪/槽名称（建议与情绪组名一致）：`);
-        if (!mood || !validateSlotName(globalObj, mood)) return rerenderSettings();
-        if (hasOwn(entry.moods, mood)) { warn(globalObj, `服装「${outfitName}」已有「${mood}」槽（同名）`); return rerenderSettings(); }
+        if (!mood || !validateSlotName(ctx, mood)) return rerenderSettings();
+        if (hasOwn(entry.moods, mood)) { warn(ctx, `服装「${outfitName}」已有「${mood}」槽（同名）`); return rerenderSettings(); }
         addOutfitSlot(settingsState.draft.bridge.sceneAssets, entry, mood);
         return done();
     }
@@ -435,8 +445,8 @@ async function runOutfitAction(match, ctx) {
             return done();
         }
         const mood = await ask(ctx, `重命名服装「${outfitName}」的「${oldMood}」槽为：`, oldMood);
-        if (!mood || mood === oldMood || !validateSlotName(globalObj, mood)) return rerenderSettings();
-        if (hasOwn(entry.moods, mood)) { warn(globalObj, `服装「${outfitName}」已有「${mood}」槽（同名），改名会覆盖，已阻止`); return rerenderSettings(); }
+        if (!mood || mood === oldMood || !validateSlotName(ctx, mood)) return rerenderSettings();
+        if (hasOwn(entry.moods, mood)) { warn(ctx, `服装「${outfitName}」已有「${mood}」槽（同名），改名会覆盖，已阻止`); return rerenderSettings(); }
         entry.moods = reorderKey(entry.moods, oldMood, mood);
         migrateSpriteKeys(readerSettings, { character: charName, outfit: outfitName, mood: oldMood }, { mood });
         return done();

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSettingsDialogs } from '../src/visual/igs-ui/settings-dialog.js';
+import { createIgsModal } from '../src/visual/igs-ui/igs-modal.js';
 import { captureSettingsFocus, restoreSettingsFocus, settingsFocusSelector } from '../src/visual/igs-ui/settings-focus.js';
 import {
     SETTINGS_SECTIONS, buildSettingsExport, parseSettingsImport, renderSectionResetButton, resetSettingsSection, settingsSectionPaths,
@@ -523,10 +524,50 @@ test('gate:settings-dialog:falls-back-to-native-dialogs-without-a-mounted-panel'
     const dialogs = createSettingsDialogs({ getContainer: () => null, global: globalObj });
     assert.equal(await dialogs.confirm('删掉？'), false);
     assert.equal(await dialogs.prompt('名称：', '旧名'), '新名');
+    assert.equal(await dialogs.alert('看一下'), true);
     assert.deepEqual(calls, [['confirm', '删掉？'], ['prompt', '名称：', '旧名']]);
+    globalObj.alert = (msg) => { calls.push(['alert', msg]); };
+    assert.equal(await dialogs.alert('看一下'), true);
+    assert.deepEqual(calls.at(-1), ['alert', '看一下']);
     const bare = createSettingsDialogs({ getContainer: () => null, global: {} });
     assert.equal(await bare.confirm('删掉？'), true, 'no confirm available keeps the old proceed behaviour');
     assert.equal(await bare.prompt('名称：'), null);
+});
+
+test('gate:settings-dialog:alert-stays-inside-the-panel', async () => {
+    const panel = makePanel();
+    const native = [];
+    const dialogs = createSettingsDialogs({
+        getContainer: () => panel.container,
+        global: { alert: (message) => native.push(message), confirm: () => { throw new Error('native confirm'); }, prompt: () => { throw new Error('native prompt'); } },
+    });
+    const pending = dialogs.alert('文件夹已存在');
+    const bar = panel.overlay.querySelector('.igs-settings-dialog');
+    assert.equal(bar.getAttribute('role'), 'alertdialog');
+    assert.equal(bar.querySelector('[data-settings-dialog="cancel"]'), null);
+    bar.querySelector('[data-settings-dialog="ok"]').dispatch('click');
+    assert.equal(await pending, true);
+    assert.deepEqual(native, []);
+});
+
+test('gate:page-modal:confirm-and-alert-do-not-call-the-browser', async () => {
+    const doc = makeDoc();
+    doc.head = makeEl(doc, 'head');
+    doc.getElementById = (id) => doc.head.querySelector(`#${id}`) || doc.body.querySelector(`#${id}`);
+    const native = { alert() { throw new Error('alert'); }, confirm() { throw new Error('confirm'); }, prompt() { throw new Error('prompt'); }, document: doc };
+    const modal = createIgsModal({ getHost: () => doc.body, global: native });
+    const pending = modal.confirm('清扫当前这张 CG？');
+    const box = doc.body.querySelector('.igs-page-modal');
+    assert.ok(box);
+    assert.equal(modal.isOpen(), true);
+    box.querySelector('[data-igs-modal="cancel"]').dispatch('click');
+    assert.equal(await pending, false);
+    assert.equal(modal.isOpen(), false);
+
+    const alerted = modal.alert('图片过大');
+    doc.body.querySelector('[data-igs-modal="ok"]').dispatch('click');
+    assert.equal(await alerted, true);
+    assert.equal(doc.body.querySelector('.igs-page-modal'), null);
 });
 
 test('gate:settings-focus:restores-focused-field-and-caret-after-innerhtml-rebuild', () => {

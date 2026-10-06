@@ -4965,7 +4965,7 @@ test('gate:igs-ui:sprite-matte-editor-mount-readonly-draw-cancel-and-save', asyn
     let result = { ok: false, reason: 'stale-revision', message: '已在别处被修改' };
     const editor = makeEditor(() => result, saves);
     const saved = [];
-    const mounted = mountMatteEditor(doc, editor, { onSaved: (r) => saved.push(r) });
+    const mounted = mountMatteEditor(doc, editor, { onSaved: (r) => saved.push(r), confirm: () => win.confirmAnswer });
     assert.equal(doc.head.children.filter((c) => c.id === 'igs-matte-editor-style').length, 1);
     const canvas = mounted.root.children[2].children[0];
     assert.equal(canvas.tagName, 'CANVAS');
@@ -4999,7 +4999,7 @@ test('gate:igs-ui:sprite-matte-editor-mount-readonly-draw-cancel-and-save', asyn
 
     // 另一个会话：确认取消后关闭，未发生保存。
     const saves2 = [];
-    const other = mountMatteEditor(doc, makeEditor(() => ({ ok: true }), saves2));
+    const other = mountMatteEditor(doc, makeEditor(() => ({ ok: true }), saves2), { confirm: () => win.confirmAnswer });
     other.root.children[2].children[0].fire('pointerdown', { clientX: 1, clientY: 1, pointerId: 2 });
     other.root.children[2].children[0].fire('pointerup', {});
     win.confirmAnswer = true;

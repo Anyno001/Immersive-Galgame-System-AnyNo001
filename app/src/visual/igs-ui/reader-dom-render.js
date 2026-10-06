@@ -1095,7 +1095,6 @@ function writeBackgroundImage(element, url, source = url) {
 }
 
 const ROOT_TOGGLED_CLASSES = new Set(['igs-default-reader-chrome', 'igs-gradient-veil-active', 'igs-scene-nsfw']);
-const dialogPageTimers = new WeakMap();
 
 export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const materialDialog = isMaterialDialogSkin(snapshot.readerSettings);
@@ -1673,7 +1672,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         root.setAttribute('data-igs-cg-only-bound', '1');
         root.addEventListener('dblclick', (event) => {
             const target = event.target;
-            if (target && typeof target.closest === 'function' && target.closest('button,input,textarea,select,a,#igs-settings,#igs-map-panel,#igs-record-panel,#igs-cg-gallery')) return;
+            // 过剧情会连点对话框，那里只翻页。双击隐藏只认对话框以外的画面。
+            if (target && typeof target.closest === 'function' && target.closest('button,input,textarea,select,a,#igs-settings,#igs-map-panel,#igs-record-panel,#igs-cg-gallery,#igs-dialog,.igs-dialog')) return;
             const live = current.snapshot || snapshot;
             if (!(live && live.readerSettings && live.readerSettings.dblclickCgOnly === true)) return;
             event.preventDefault();
@@ -1729,25 +1729,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 : { left: 0, width: 0 };
             const clientX = Number(event.clientX);
             const action = !Number.isFinite(clientX) || clientX < rect.left + rect.width / 2 ? 'prev' : 'next';
-            const detail = Number(event.detail) || 0;
-            const win = dialog.ownerDocument && dialog.ownerDocument.defaultView;
-            const pending = dialogPageTimers.get(dialog);
-            if (pending && win && typeof win.clearTimeout === 'function') win.clearTimeout(pending);
-            // 关了双击隐藏就不用等双击：单击立即翻页，连点也逐次翻。
-            const live = current.snapshot || snapshot;
-            const waitDouble = Boolean(live && live.readerSettings && live.readerSettings.dblclickCgOnly === true);
-            if (detail >= 2 && waitDouble) {
-                dialogPageTimers.delete(dialog);
-                return;
-            }
-            const go = () => {
-                dialogPageTimers.delete(dialog);
-                if (root && root.getAttribute && root.getAttribute('data-igs-cg-only') === '1') return;
-                if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction(action);
-            };
-            // 真机单击带 detail=1，稍等以取消紧接着的双击。测试里的合成点击没有 detail，立即翻页。
-            if (waitDouble && detail === 1 && win && typeof win.setTimeout === 'function') dialogPageTimers.set(dialog, win.setTimeout(go, 280));
-            else go();
+            if (root && root.getAttribute && root.getAttribute('data-igs-cg-only') === '1') return;
+            if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction(action);
         });
     }
     if (dialog) {

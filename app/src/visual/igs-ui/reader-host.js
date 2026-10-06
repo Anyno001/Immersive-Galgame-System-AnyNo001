@@ -225,6 +225,7 @@ import { readOptionItems } from '../../choices/option-table.js';
 import { handleSettingsAction as runSettingsAction, releasedGeneratedImageIds } from './settings-actions.js';
 import { SETTINGS_NOTICE_MS, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, remountSettingsProgress, settingsBusyLabel } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
+import { createIgsModal } from './igs-modal.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { createOnboardingController } from './onboarding-guide-controller.js';
@@ -308,6 +309,16 @@ export function createIgsReaderHost(options = {}) {
     };
     const settingsDialogs = createSettingsDialogs({
         getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
+        global: options.global || globalThis,
+    });
+    // 阅读器里的确认和提示挂在遮罩上。浏览器 alert/confirm 会把全屏模式退出去。
+    const pageModal = createIgsModal({
+        getHost: () => {
+            const overlay = state.activeReader && state.activeReader.dom && state.activeReader.dom.overlay;
+            if (overlay) return overlay;
+            const doc = (options.global || globalThis).document;
+            return doc && (doc.body || doc.documentElement);
+        },
         global: options.global || globalThis,
     });
     // 新手引导：会话标记与当前步骤挂在宿主实例上，状态只存独立的 localStorage 键。
@@ -1713,8 +1724,9 @@ export function createIgsReaderHost(options = {}) {
         const imageService = options.generatedAssets;
         if (released.length && imageService && typeof imageService.deleteImages === 'function') {
             const reportDeleteFailure = () => {
-                const globalObj = options.global || globalThis;
-                if (globalObj.alert) globalObj.alert('配置已保存，但有图片没能从本机清掉。');
+                const message = '配置已保存，但有图片没能从本机清掉。';
+                if (state.activeSettings) settingsDialogs.alert(message);
+                else pageModal.alert(message);
             };
             Promise.resolve().then(() => imageService.deleteImages(released)).then((result) => {
                 if (result === false || (result && result.ok === false)) reportDeleteFailure();
@@ -2219,11 +2231,10 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         const overlay = current && current.dom && current.dom.overlay;
         if (!overlay || !overlay.ownerDocument || !options.cgGallery) return { ok: false, reason: 'cg-gallery-unavailable' };
-        const globalObj = options.global || globalThis;
         const panel = createCgGalleryPanel(overlay.ownerDocument, {
             service: options.cgGallery,
             getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
-            confirm: (message) => (globalObj && typeof globalObj.confirm === 'function' ? globalObj.confirm(message) : false),
+            confirm: (message) => pageModal.confirm(message),
             onJump: (entry) => {
                 panel.close();
                 if (typeof options.jumpToMessage === 'function') {
@@ -2260,9 +2271,7 @@ export function createIgsReaderHost(options = {}) {
             writeToastSafe('当前未接入 CG 清扫能力。');
             return { ok: false, reason: 'clear-unavailable', removed: false, rendered: false };
         }
-        const globalObj = options.global || globalThis;
-        if (typeof globalObj.confirm === 'function'
-            && !globalObj.confirm('清扫当前这张 CG？正文里对应的挂载点会一起删掉。')) {
+        if (!(await pageModal.confirm('清扫当前这张 CG？正文里对应的挂载点会一起删掉。'))) {
             return { ok: true, reason: 'cancelled', removed: false, rendered: false };
         }
         const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
@@ -2297,9 +2306,7 @@ export function createIgsReaderHost(options = {}) {
         if (!current) return { ok: false, reason: 'reader-not-open' };
         const target = readManualFloor(current);
         if (target.floor && /(?:\[igs-img:|<IMG>)/i.test(target.floor.text)) {
-            const globalObj = options.global || globalThis;
-            if (typeof globalObj.confirm === 'function'
-                && !globalObj.confirm('重写本楼提示词，并重画全部 CG？原来的图和挂载点都会换掉。')) {
+            if (!(await pageModal.confirm('重写本楼提示词，并重画全部 CG？原来的图和挂载点都会换掉。'))) {
                 return { ok: true, reason: 'cancelled' };
             }
             return runManualIllustration({ reroll: true });
@@ -2327,9 +2334,7 @@ export function createIgsReaderHost(options = {}) {
             writeToastSafe('当前未接入单张重画。');
             return { ok: false, reason: 'reroll-unavailable' };
         }
-        const globalObj = options.global || globalThis;
-        if (typeof globalObj.confirm === 'function'
-            && !globalObj.confirm('只重画这一张？提示词不变。')) {
+        if (!(await pageModal.confirm('只重画这一张？提示词不变。'))) {
             return { ok: true, reason: 'cancelled' };
         }
         const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
@@ -2369,9 +2374,7 @@ export function createIgsReaderHost(options = {}) {
             writeToastSafe('当前未接入本楼清扫。');
             return { ok: false, reason: 'clear-unavailable' };
         }
-        const globalObj = options.global || globalThis;
-        if (typeof globalObj.confirm === 'function'
-            && !globalObj.confirm('清扫本楼全部 CG？正文里的挂载点会一起删掉，不会马上重画。')) {
+        if (!(await pageModal.confirm('清扫本楼全部 CG？正文里的挂载点会一起删掉，不会马上重画。'))) {
             return { ok: true, reason: 'cancelled' };
         }
         const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
@@ -4316,6 +4319,14 @@ export function createIgsReaderHost(options = {}) {
         const keydownHandler = (event) => {
             if (onboarding.keydown(event)) return;
             if (!state.activeReader) return;
+            if (pageModal.isOpen()) {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation?.();
+                    pageModal.cancel();
+                }
+                return;
+            }
             const mapPanel = state.activeReader.dom?.mapController;
             const recordPanel = state.activeReader.dom?.recordController;
             if (mapPanel?.isOpen() || recordPanel?.isOpen()) {

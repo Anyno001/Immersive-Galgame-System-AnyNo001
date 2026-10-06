@@ -438,6 +438,11 @@ projects/Immersive Galgame System/
 14. 涉及打包、发布、上传、loader、远程 bundle 或酒馆助手脚本 JSON 时，必须先读 `docs/PACKAGING_WORKFLOW.md` 与 `docs/RELEASE.md`。
 15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
 
+### v0.34.79 - 页面内弹窗，双击隐藏不吃对话框（内测）
+
+- **弹窗**：确认、提示和输入改成页面内弹层。全屏时不再调用浏览器自带的 alert / confirm / prompt，避免弹出框把全屏顶掉。
+- **双击隐藏对话框**：只在点到对话框以外时收起。点对话框、连点台词仍然翻页。
+
 ### v0.34.78 - 写了透明底就不再强塞灰底词（内测）
 
 - **立绘 / 表情差分 / 物品图**：人物正向模板、角色 DNA 或 NAI 画师串里写了 `transparent background`（加权写法也算）时，不再自动追加 `simple / grey / light grey / flat color background`，避免和透明底打架、偶尔出灰底图。写在智绘姬 / 柏宝绘自己设置里的词插件读不到，需要写进本插件的人物正向模板。
