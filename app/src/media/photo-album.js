@@ -1,7 +1,5 @@
 // 相册：日常演出「拍照」把当前背景与立绘合成一张 JPEG，存进独立的 IndexedDB igs-photo-album，
 // 并以 kind:'photo' 条目并入 CG 库（楼层 CG 翻完后接着翻照片）。照片的收藏 / 隐藏 / 删除只动相册库，不碰楼层插图。
-import { compareCgNewestFirst } from './cg-gallery-service.js';
-
 const DB_NAME = 'igs-photo-album';
 const DB_VERSION = 1;
 const STORE = 'photos';
@@ -102,8 +100,8 @@ export function createIndexedDbPhotoAlbumStore(globalObject = globalThis) {
                         const cursor = req.result;
                         if (!cursor) return;
                         ids.push(cursor.key);
-                        tell(false);
                         cursor.continue();
+                        try { tell(false); } catch { /* 界面刷新失败时游标继续走 */ }
                     };
                 }
                 tx.oncomplete = () => { tell(true); resolve(ids); };
@@ -300,15 +298,18 @@ export function withPhotoAlbum(service, store, options = {}) {
         const cg = typeof base.listCatalogEntries === 'function'
             ? await base.listCatalogEntries(filters, onProgress)
             : { ok: true, items: [], next: '' };
-        if (!cg || cg.ok === false) return cg || { ok: false, reason: 'read-error', items: [], next: '' };
-        if (filters.favoritesOnly || typeof store.listIds !== 'function') return cg;
-        let ids = [];
+        return cg || { ok: false, reason: 'read-error', items: [], next: '' };
+    }
+
+    // 相册编号单独走。CG 列表先返回，不把整页卡在第一条照片记录上。
+    async function listPhotoCatalog(filters = {}, onProgress) {
+        if (filters.favoritesOnly || typeof store.listIds !== 'function') return [];
         const tell = (seen) => { if (typeof onProgress === 'function') onProgress({ phase: 'photos', seen }); };
         tell(0);
-        try { ids = await store.listIds(tell); } catch { return cg; }
-        const photos = (ids || []).map((id) => photoEntry({ id: String(id), chatId: '', messageId: 0, caption: '', dataUrl: '', createdAt: '', hidden: false, favorite: false }))
+        let ids = [];
+        try { ids = await store.listIds(tell); } catch { return []; }
+        return (ids || []).map((id) => photoEntry({ id: String(id), chatId: '', messageId: 0, caption: '', dataUrl: '', createdAt: '', hidden: false, favorite: false }))
             .filter((entry) => (filters.showHidden || !entry.hidden) && (!filters.chatId || entry.chatId === filters.chatId));
-        return { ok: true, items: [...(cg.items || []), ...photos].sort(compareCgNewestFirst), next: '' };
     }
 
     async function hydrateEntry(entry) {
@@ -324,6 +325,7 @@ export function withPhotoAlbum(service, store, options = {}) {
         ...base,
         loadPage,
         listCatalogEntries,
+        listPhotoCatalog,
         hydrateEntry,
         capturePhoto,
         setHidden: (key, hidden) => (isPhotoKey(key) ? patchPhoto(key, { hidden: hidden === true }) : base.setHidden(key, hidden)),

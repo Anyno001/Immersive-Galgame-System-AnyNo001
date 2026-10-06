@@ -21,7 +21,7 @@ import { parseTables } from '../../shujuku-panel/panel-model.js';
 import { applyDiceToHits } from '../../scene/battle-context.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
-import { CG_PAGE_SIZE, cgCountStatus, cgPageSlice, loadCgCatalog } from '../../media/cg-gallery-service.js';
+import { CG_PAGE_SIZE, cgCountStatus, cgPageSlice, compareCgNewestFirst, loadCgCatalog } from '../../media/cg-gallery-service.js';
 import { cancelFxEffects } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
@@ -1785,13 +1785,30 @@ export function createIgsReaderHost(options = {}) {
                         asyncState.imageCgProgress = progress;
                         paint(gen);
                     }))
-                    .then((page) => {
+                    .then(async (page) => {
                         if (asyncState.imageCgLoadGen !== gen) return;
                         asyncState.imageCgCatalog = page && page.ok && Array.isArray(page.items) ? page.items : [];
                         asyncState.imageCgPage = 0;
                         asyncState.imageCgEntries = null;
+                        asyncState.imageCgProgress = null;
                         asyncState.imageCgStatus = page && page.ok ? '' : 'CG 读取失败';
                         asyncState.imageCgLoading = false;
+                        paint(gen);
+                        if (!page || !page.ok || typeof service.listPhotoCatalog !== 'function') return;
+                        const photos = await service.listPhotoCatalog({ showHidden: true }, (progress) => {
+                            if (asyncState.imageCgLoadGen !== gen || !progress) return;
+                            asyncState.imageCgProgress = progress;
+                            paint(gen);
+                        });
+                        if (asyncState.imageCgLoadGen !== gen) return;
+                        asyncState.imageCgProgress = null;
+                        if (!photos.length) { paint(gen); return; }
+                        const merged = [...asyncState.imageCgCatalog, ...photos].sort(compareCgNewestFirst);
+                        const sliced = cgPageSlice(merged, asyncState.imageCgPage || 0);
+                        const prev = Array.isArray(asyncState.imageCgEntries) ? asyncState.imageCgEntries : [];
+                        const same = prev.length === sliced.items.length && prev.every((entry, index) => sliced.items[index] && entry.key === sliced.items[index].key);
+                        asyncState.imageCgCatalog = merged;
+                        if (!same) asyncState.imageCgEntries = null;
                         paint(gen);
                     })
                     .catch(() => {
@@ -1820,6 +1837,9 @@ export function createIgsReaderHost(options = {}) {
         const selected = asyncState.imageCgSelected instanceof Set ? asyncState.imageCgSelected : new Set();
         const waiting = asyncState.imageCgEntries.filter((entry) => entry && !entry.skip && !CG_DISPLAY_URL_RE.test(String(entry.dataUrl || ''))).length;
         const reading = waiting ? `<div class="igs-scene-empty">正在读取本页图片，还剩 ${waiting} 张。</div>` : '';
+        const photoLine = asyncState.imageCgProgress && asyncState.imageCgProgress.phase === 'photos'
+            ? `<div class="igs-scene-empty">${esc(cgCountStatus(asyncState.imageCgProgress))}</div>`
+            : '';
         const tiles = asyncState.imageCgEntries.map((entry, index) => {
             if (entry && entry.skip) return '';
             const url = String((entry && entry.dataUrl) || '').trim();
@@ -1831,7 +1851,7 @@ export function createIgsReaderHost(options = {}) {
                 : '<span class="igs-image-cg-pending"></span>';
             return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图">${picture}<span>${esc(label)}</span></button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></article>`;
         }).join('');
-        return pager + reading + (tiles || '<div class="igs-scene-empty">还没有生成过 CG</div>');
+        return pager + photoLine + reading + (tiles || '<div class="igs-scene-empty">还没有生成过 CG</div>');
     }
 
     async function handleSettingsAction(action) {

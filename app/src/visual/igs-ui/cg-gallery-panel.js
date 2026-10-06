@@ -2,7 +2,7 @@
 // 隐藏/收藏只写状态库；删除二次确认后走 clearIllustration（楼层 CG 同时消失）；跳转只限当前聊天。
 import { safeItemImageUrl } from './fx-item.js';
 import { setStagePauseReason } from './stage-pause.js';
-import { CG_PAGE_SIZE, cgCountStatus, cgPageSlice, loadCgCatalog } from '../../media/cg-gallery-service.js';
+import { CG_PAGE_SIZE, cgCountStatus, cgPageSlice, compareCgNewestFirst, loadCgCatalog } from '../../media/cg-gallery-service.js';
 
 const THUMB_CACHE_LIMIT = 120;
 const DISPLAY_URL_RE = /^(?:data:image\/|https?:\/\/|blob:)/i;
@@ -187,6 +187,23 @@ export function createCgGalleryPanel(doc, options = {}) {
         notice = '';
         catalog = loaded.items || [];
         await showPage(0);
+        const photoGen = loadGen;
+        if (typeof service.listPhotoCatalog !== 'function') return;
+        const photos = await service.listPhotoCatalog({ favoritesOnly: filters.favoritesOnly, showHidden: filters.showHidden, chatId: filters.currentChatOnly ? chatId() : '' }, (progress) => {
+            if (photoGen !== loadGen) return;
+            const next = cgCountStatus(progress);
+            if (next === notice) return;
+            notice = next;
+            render();
+        });
+        if (photoGen !== loadGen) return;
+        notice = '';
+        if (!photos.length) { render(); return; }
+        catalog = [...catalog, ...photos].sort(compareCgNewestFirst);
+        const sliced = cgPageSlice(catalog, page);
+        const same = sliced.items.length === entries.length && sliced.items.every((item, index) => entries[index] && item.key === entries[index].key);
+        if (same) { render(); return; }
+        await showPage(page);
     }
 
     async function handle(act, key) {

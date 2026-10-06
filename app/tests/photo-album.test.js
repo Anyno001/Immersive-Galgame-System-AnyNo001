@@ -15,6 +15,25 @@ function baseService(items, next = '') {
     };
 }
 
+test('gate: photo-album catalog returns before photo ids', async () => {
+    let release;
+    const store = {
+        async listIds(onProgress) {
+            if (typeof onProgress === 'function') onProgress(0);
+            await new Promise((resolve) => { release = resolve; });
+            return ['p1'];
+        },
+    };
+    const album = withPhotoAlbum(baseService([]), store);
+    const catalog = await album.listCatalogEntries({});
+    assert.deepEqual(catalog, { ok: true, items: [], next: '' });
+    const photosPromise = album.listPhotoCatalog({});
+    release();
+    const photos = await photosPromise;
+    assert.equal(photos[0].key, 'photo|p1');
+    assert.equal(photos[0].dataUrl, '');
+});
+
 test('gate: photo-album normalizes photos and rejects non-image data', () => {
     assert.equal(normalizePhoto({ id: 'a', dataUrl: 'javascript:1' }), null);
     assert.equal(normalizePhoto({ dataUrl: JPEG }), null);
