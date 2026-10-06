@@ -343,21 +343,22 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     if (!name) return { url: '', slot: '', character: '', source: 'none', needsGeneration: false };
     const userAssets = ctx.sceneAssets || {};
     const outfitName = String(outfit || '').trim();
-    // 服装内按当条表情找（精确 → 情绪组 → 模糊）。没命中就用这一套的「平和」，不退回原装。
+    // 服装内按当条表情找（精确 → 情绪组 → 模糊 → 同方向另一档）→ 裸体底图 → 这一套的「平和」→ 这一套任意一张；
+    // 整套一张图都没有才退回原装——换了衣服却闪回原装的衣服比表情不准更违和。
     if (outfitName && outfitName !== OUTFIT_RESET) {
         const found = outfitsOfCharacter(userAssets.characterOutfits, userAssets.characterAliases, name);
         const entry = found.outfits[outfitName];
         if (entry && entry.moods) {
-            // 服装内按当条表情找（精确 → 情绪组 → 模糊 → 同方向另一档）。没命中就用原装的默认图，
-            // 最后才落到这一套的「平和」——那是旧数据没有默认图时的老行为。
             const hit = lookupAssetValue(entry.moods, mood, userAssets.moodGroups, userAssets.moodFuzzyMatch === true, false);
             const nudeBase = isBuiltinNudeOutfit(entry.wardrobe) ? String(entry.base || '').trim() : '';
-            const clothed = lookupAssetValue((userAssets.characters || {})[found.key || name], '默认', userAssets.moodGroups, false, false);
-            const picked = hit.url
-                ? hit
-                : (nudeBase ? { url: nudeBase, slot: BUILTIN_NUDE_OUTFIT, quality: 'exact' } : clothed);
-            const calm = picked.url ? picked : lookupAssetValue(entry.moods, '平和', userAssets.moodGroups, false, false);
-            if (calm.url) return { url: calm.url, slot: calm.slot, outfit: outfitName, character: found.key || name, source: 'user-outfit', quality: hit.url ? hit.quality : (nudeBase && calm.url === nudeBase ? 'exact' : 'group'), needsGeneration: false };
+            const calm = hit.url || nudeBase ? {} : lookupAssetValue(entry.moods, '平和', userAssets.moodGroups, false, false);
+            const anySlot = hit.url || nudeBase || calm.url ? '' : Object.keys(entry.moods).find((slot) => String(entry.moods[slot] || '').trim());
+            const own = hit.url ? hit
+                : nudeBase ? { url: nudeBase, slot: BUILTIN_NUDE_OUTFIT, quality: 'exact' }
+                : calm.url ? calm
+                : anySlot ? { url: entry.moods[anySlot], slot: anySlot, quality: 'group' } : {};
+            const picked = own.url ? own : lookupAssetValue((userAssets.characters || {})[found.key || name], '默认', userAssets.moodGroups, false, false);
+            if (picked.url) return { url: picked.url, slot: picked.slot, outfit: outfitName, character: found.key || name, source: 'user-outfit', quality: hit.url ? hit.quality : (nudeBase && picked.url === nudeBase ? 'exact' : 'group'), needsGeneration: false };
         }
     }
     const user = lookupSceneAssetUrls({ character: name, mood }, userAssets);

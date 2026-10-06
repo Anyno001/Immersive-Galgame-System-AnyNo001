@@ -85,7 +85,7 @@ function assetFolderScope(settingsState, options) {
 
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 const SCENE_ACTION = /^scene-(?:(?:add|remove|rename|set|toggle|pick)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)|variant-(?:set|retry))$/;
-const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char|outfit-mood)|status-avatar-(?:pick|clear|set-url|generate)|char-generate-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
 function linkedCharacterOutfits(settingsState) {
@@ -1959,11 +1959,11 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
-    const assetPick = /^scene-pick-(bg|time|weather|mood):(.+)$/.exec(normalizedAction);
+    const assetPick = /^scene-pick-(bg|time|weather|mood|outfit-mood):(.+)$/.exec(normalizedAction);
     if (assetPick) {
         const kind = assetPick[1];
         const parts = assetPick[2].split(':').map(decodeSeg);
-        if (parts.length !== (kind === 'bg' ? 1 : kind === 'weather' ? 3 : 2)
+        if (parts.length !== (kind === 'bg' ? 1 : kind === 'weather' || kind === 'outfit-mood' ? 3 : 2)
             || parts.some((part) => !part || ['__proto__', 'constructor', 'prototype'].includes(part))) {
             return { ok: false, reason: 'invalid-asset-slot' };
         }
@@ -1978,9 +1978,11 @@ export async function handleSettingsAction(action, ctx) {
         const character = library.characters && Object.hasOwn(library.characters, parts[0]) ? library.characters[parts[0]] : null;
         const time = scene && typeof scene === 'object' && scene.times && Object.hasOwn(scene.times, parts[1]) ? scene.times[parts[1]] : null;
         const weather = time && typeof time === 'object' && time.weathers && Object.hasOwn(time.weathers, parts[2]) ? time.weathers[parts[2]] : null;
-        const owner = kind === 'mood' ? character : kind === 'bg' ? library.scenes : kind === 'time' ? scene && scene.times : time && time.weathers;
+        const outfits = kind === 'outfit-mood' && library.characterOutfits && Object.hasOwn(library.characterOutfits, parts[0]) ? library.characterOutfits[parts[0]] : null;
+        const outfit = outfits && typeof outfits === 'object' && Object.hasOwn(outfits, parts[1]) ? outfits[parts[1]] : null;
+        const owner = kind === 'outfit-mood' ? outfit && outfit.moods : kind === 'mood' ? character : kind === 'bg' ? library.scenes : kind === 'time' ? scene && scene.times : time && time.weathers;
         const key = kind === 'bg' ? parts[0] : kind === 'mood' ? parts[1] : kind === 'time' ? parts[1] : parts[2];
-        if (!owner || !Object.hasOwn(owner, key) || (kind === 'mood' && (!character || typeof character !== 'object'))) {
+        if (!owner || typeof owner !== 'object' || !Object.hasOwn(owner, key) || (kind === 'mood' && (!character || typeof character !== 'object'))) {
             return { ok: false, reason: 'invalid-asset-slot' };
         }
         const before = owner[key];
@@ -1993,7 +1995,7 @@ export async function handleSettingsAction(action, ctx) {
         if (owner[key] !== before) return { ok: false, reason: 'asset-slot-changed' };
         let imported;
         try {
-            imported = await service.importAssetImage(picked.dataUrl, kind === 'mood' ? 'sprite' : 'background');
+            imported = await service.importAssetImage(picked.dataUrl, kind === 'mood' || kind === 'outfit-mood' ? 'sprite' : 'background');
         } catch (error) {
             imported = { ok: false, error: errorText(error, '图片保存失败') };
         }
@@ -2014,7 +2016,7 @@ export async function handleSettingsAction(action, ctx) {
             return { ok: false, reason: 'asset-slot-changed', rollbackFailed: !cleaned };
         }
         const url = `igs-gen:${imported.imageId}`;
-        owner[key] = kind === 'mood' ? url : typeof before === 'string' ? url : { ...before, url };
+        owner[key] = kind === 'mood' || kind === 'outfit-mood' ? url : typeof before === 'string' ? url : { ...before, url };
         let persisted;
         try { persisted = persistSettingsDraft(); }
         catch (error) { persisted = { ok: false, reason: 'save-failed', saveError: error }; }

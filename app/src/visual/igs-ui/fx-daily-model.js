@@ -29,10 +29,13 @@ export function planDailyFx(fx, options = {}) {
     const settings = normalizeDailyFxSettings(options.settings);
     if (!settings.enabled || options.nsfw === true || (options.pageKind && options.pageKind !== 'text')) return [];
     const list = fx && Array.isArray(fx.daily) ? fx.daily : [];
+    // 战斗区间里的身体接触多半是擒抱、缠斗，不放心动的心形。
+    const inBattle = Boolean(fx && (fx.battle || fx.battleStart === true || (Array.isArray(fx.hits) && fx.hits.length)));
     const seen = new Set();
     const out = [];
     for (const item of list) {
         if (!item || !settings[item.type] || seen.has(item.type)) continue;
+        if (inBattle && item.type === 'touch') continue;
         seen.add(item.type);
         out.push(item);
         if (out.length >= DAILY_FX_PAGE_MAX) break;

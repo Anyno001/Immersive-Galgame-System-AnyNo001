@@ -18,6 +18,10 @@ const STYLE_TEXT = `
 #igs-onboarding-card .igs-onboarding-quiz{display:flex;flex-direction:column;gap:8px;max-height:min(46vh,360px);overflow-y:auto;margin:0 0 6px}
 #igs-onboarding-card .igs-onboarding-q-title{font-size:12px;opacity:.85;margin-bottom:4px}
 #igs-onboarding-card .igs-onboarding-q-title span{margin-left:6px;opacity:.6}
+#igs-onboarding-card .igs-onboarding-q-note{margin:-2px 0 4px;font-size:11px;opacity:.6}
+#igs-onboarding-card .igs-onboarding-section{display:flex;justify-content:space-between;align-items:center;width:100%;min-height:30px;margin-top:4px;padding:0 10px;border:1px dashed ${SOFT_LINE};border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer}
+#igs-onboarding-card .igs-onboarding-section span{opacity:.6;font-size:11px}
+#igs-onboarding-card .igs-onboarding-section.is-open{border-style:solid}
 #igs-onboarding-card .igs-onboarding-q-opts{display:flex;flex-wrap:wrap;gap:6px}
 .igs-onboarding-chip{min-height:28px;padding:0 10px;border-radius:999px;border:1px solid ${SOFT_LINE};background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer}
 .igs-onboarding-chip.is-active{border-color:currentColor;background:color-mix(in srgb,currentColor 14%,transparent);font-weight:600}

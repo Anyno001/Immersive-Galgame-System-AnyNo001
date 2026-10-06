@@ -52,7 +52,43 @@ export const PROFILE_QUESTIONS = Object.freeze([
     Object.freeze({ id: 'sound', title: '要哪些声音？', note: '都不选就是静音。', multi: true, options: SOUND_OPTIONS }),
     Object.freeze({ id: 'adult', title: '卡里有成人向内容吗？', options: Object.freeze([['no', '没有'], ['yes', '有']]) }),
     Object.freeze({ id: 'device', title: '主要在哪看？', options: Object.freeze([['pc', '电脑'], ['phone', '手机']]) }),
+    // 细调题分章：展开那一章才问，没展开的章不改对应设置。
+    Object.freeze({ id: 'typing', section: 'pace', title: '文字怎么出来？', options: Object.freeze([['instant', '整段直接显示'], ['fast', '快速打字'], ['medium', '中速打字'], ['slow', '慢慢打字']]) }),
+    Object.freeze({ id: 'cghold', section: 'pace', title: '日常 CG 出来后留几页？', options: Object.freeze([['2', '2 页'], ['4', '4 页'], ['6', '6 页'], ['8', '8 页']]) }),
+    Object.freeze({ id: 'cards', section: 'pace', title: '换场景、打电话时要不要过场卡和分屏？', options: Object.freeze([['on', '要，有仪式感'], ['off', '不要，直接切']]) }),
+    Object.freeze({ id: 'mood', section: 'look', title: '喜欢什么气质的对话框？', options: Object.freeze([['plain', '简洁现代'], ['classic', '西式古典'], ['guofeng', '古风国画'], ['cute', '可爱绘本'], ['dark', '暗黑恐怖'], ['veil', '电影黑幕']]) }),
+    Object.freeze({ id: 'size', section: 'look', title: '字号？', options: Object.freeze([['small', '小'], ['normal', '适中'], ['large', '大']]) }),
+    Object.freeze({ id: 'cinema', section: 'look', title: '背景要电影黑边吗？', note: '上下两条黑边只盖背景，人物照常。', options: Object.freeze([['off', '不要'], ['on', '要']]) }),
 ]);
+
+export const PROFILE_SECTIONS = Object.freeze([
+    Object.freeze({ id: 'pace', title: '细调阅读节奏' }),
+    Object.freeze({ id: 'look', title: '细调视觉风格' }),
+]);
+
+const MOOD_SKINS = Object.freeze({ plain: 'default', classic: 'western-classic', guofeng: 'qinglv-shanshui', cute: 'warm-picturebook', dark: 'horror-gore', veil: 'gradient-veil' });
+const FONT_SIZES = Object.freeze({ small: 14, normal: 16, large: 20 });
+
+// 只写答过的细调题；没展开的章节、没选的题都不动。
+export function applyProfileDetails(reader, answers) {
+    if (!reader || typeof reader !== 'object') return false;
+    const a = plain(answers);
+    const open = Array.isArray(a.sections) ? a.sections : [];
+    const has = (section, id) => open.includes(section) && typeof a[id] === 'string' && a[id];
+    if (has('pace', 'typing')) {
+        const typewriter = plain(reader.typewriter);
+        reader.typewriter = a.typing === 'instant' ? { ...typewriter, enabled: false } : { ...typewriter, enabled: true, speed: a.typing };
+    }
+    if (has('pace', 'cghold')) reader.cgHoldPages = Number(a.cghold);
+    if (has('pace', 'cards')) {
+        const on = a.cards === 'on';
+        reader.titleCard = { ...plain(reader.titleCard), enabled: on || plain(reader.titleCard).enabled === true, onLocation: on, call: on };
+    }
+    if (has('look', 'mood') && MOOD_SKINS[a.mood]) reader.dialogSkin = MOOD_SKINS[a.mood];
+    if (has('look', 'size') && FONT_SIZES[a.size]) reader.fontSize = FONT_SIZES[a.size];
+    if (has('look', 'cinema')) reader.cinemaBars = a.cinema === 'on';
+    return true;
+}
 
 function plain(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};

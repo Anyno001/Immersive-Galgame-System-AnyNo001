@@ -15,14 +15,14 @@ export const INTIMATE_STYLE_TEXT = `
 #igs-stage-motion .igs-rm-front[data-igs-rm-gobo] .igs-rm-gobo{opacity:.8;visibility:visible;transition-delay:0s;animation-play-state:running;}
 #igs-stage-motion .igs-rm-vig{background:radial-gradient(ellipse 78% 74% at 50% 46%,transparent 52%,rgba(70,12,34,.62) 100%);}
 #igs-stage-motion[data-igs-rm-tone="moon"] .igs-rm-vig{background:radial-gradient(ellipse 78% 74% at 50% 46%,transparent 52%,rgba(18,20,58,.66) 100%);}
-#igs-stage-motion .igs-rm-front[data-igs-rm-vig] .igs-rm-vig{opacity:calc(.34 + var(--igs-rm-pulse,0) * .3);visibility:visible;transition:opacity .08s linear,visibility 0s;}
+#igs-stage-motion .igs-rm-front[data-igs-rm-vig] .igs-rm-vig{opacity:calc(.34 + var(--igs-rm-pulse,0) * .3);visibility:visible;transition:opacity .3s ease-out,visibility 0s;}
 #igs-stage-motion .igs-rm-front[data-igs-rm-vig][data-igs-rm-level="3"] .igs-rm-vig{opacity:calc(.5 + var(--igs-rm-pulse,0) * .32);}
 #igs-stage-motion .igs-rm-haze{display:none;-webkit-backdrop-filter:blur(2.4px);backdrop-filter:blur(2.4px);-webkit-mask-image:radial-gradient(ellipse 66% 62% at 50% 45%,transparent 50%,#000 90%);mask-image:radial-gradient(ellipse 66% 62% at 50% 45%,transparent 50%,#000 90%);animation:igs-rm-haze 3.4s ease-in-out infinite alternate;}
 #igs-stage-motion .igs-rm-front[data-igs-rm-haze] .igs-rm-haze{display:block;opacity:var(--igs-rm-haze,0);visibility:visible;transition-delay:0s;}
 #igs-stage-motion .igs-rm-fringe::before,#igs-stage-motion .igs-rm-fringe::after{content:"";position:absolute;inset:0;mix-blend-mode:screen;}
 #igs-stage-motion .igs-rm-fringe::before{background:radial-gradient(ellipse 70% 66% at 48.5% 46%,transparent 58%,rgba(255,40,90,.34) 100%);}
 #igs-stage-motion .igs-rm-fringe::after{background:radial-gradient(ellipse 70% 66% at 51.5% 46%,transparent 58%,rgba(40,210,255,.26) 100%);}
-#igs-stage-motion .igs-rm-front[data-igs-rm-fringe] .igs-rm-fringe{opacity:var(--igs-rm-fringe,0);visibility:visible;transition:opacity .06s linear,visibility 0s;}
+#igs-stage-motion .igs-rm-front[data-igs-rm-fringe] .igs-rm-fringe{opacity:calc(var(--igs-rm-fringe,0) * .5);visibility:visible;transition:opacity .35s ease-out,visibility 0s;}
 #igs-stage-motion .igs-rm-veil{transition:none;}
 #igs-stage-motion .igs-rm-veil[data-igs-rm-veil="flash"]{visibility:visible;background:radial-gradient(ellipse at 50% 45%,#fff 30%,rgba(255,236,226,.96) 100%);animation:igs-rm-flash 2.4s ease-out both;}
 #igs-stage-motion .igs-rm-veil[data-igs-rm-veil="dark"]{visibility:visible;background:#000;animation:igs-rm-dark 2.6s ease-in-out both;}

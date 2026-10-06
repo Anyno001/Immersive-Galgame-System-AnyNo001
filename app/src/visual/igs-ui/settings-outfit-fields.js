@@ -209,7 +209,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const acts = slotActions([
             imageId || (note && note.error) ? [`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, '重新生成', 'retry'] : null,
         ]);
-        const slotMenu = acts.inline + transferIcons(raw, `${charName}-${name}-${mood}-立绘.png`) + renderRowMenu([
+        const slotMenu = acts.inline + transferIcons(raw, `${charName}-${name}-${mood}-立绘.png`, [`scene-pick-outfit-mood:${c}:${o}:${encSeg(mood)}`, `上传${mood}立绘`]) + renderRowMenu([
             canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
             ...acts.items,
             menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
@@ -221,7 +221,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
             + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL 或 data:image/...">`)
             + (filled ? '' : `<span class="igs-outfit-hint">${esc(preview.label)}</span>`)
-            + slotMenu
+            + `<span class="igs-outfit-acts">${slotMenu}</span>`
             + `</div>`;
     }).join('');
     const missing = baseMoods.filter((mood) => mood !== OUTFIT_RESET && !Object.prototype.hasOwnProperty.call(moods, mood));
@@ -230,7 +230,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const preview = previewOf(sceneAssets, charName, mood, name);
         return `<div class="igs-outfit-slot is-fallback" data-outfit-fallback="${esc(mood)}">${thumb(preview.url, mood, ' is-ghost', resolveUrl)}`
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span><span class="igs-outfit-hint">${esc(preview.label)}</span>`
-            + `<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-outfit-mood:${c}:${o}:${encSeg(mood)}" title="给这套补上「${esc(mood)}」">+</button></div>`;
+            + `<span class="igs-outfit-acts"><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-outfit-mood:${c}:${o}:${encSeg(mood)}" title="给这套补上「${esc(mood)}」">+</button></span></div>`;
     }).join('');
     const fillAll = missing.length > 1
         ? `<div class="igs-outfit-fill-all"><button type="button" class="igs-review-link" data-action="scene-outfit-copy-slots:${c}:${o}">缺的 ${missing.length} 格全部补上</button></div>`
@@ -438,6 +438,7 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-slot:last-child{border-bottom:0}
 .igs-outfit-slot>.igs-btn-mgr-label{flex:0 0 64px}
 .igs-outfit-slot .igs-scene-url-input{flex:0 1 160px;min-width:0;margin-right:auto}
+.igs-outfit-acts{display:flex;align-items:center;gap:inherit;margin-left:auto;flex-shrink:0}
 .igs-scene-mood-row .igs-scene-url-input{flex:0 1 160px}
 .igs-outfit-tab-icon{color:var(--igs-settings-ink-4)}
 .igs-asset-transfer.is-spacer{visibility:hidden;pointer-events:none}

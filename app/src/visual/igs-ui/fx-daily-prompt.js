@@ -8,7 +8,7 @@ const DAILY_PROMPT_LINES = Object.freeze({
     bell: '[igs-fx:bell]：学校上课、下课或放学铃声响起',
     broadcast: '[igs-fx:broadcast|广播内容]：校园、车站、商场等场所的广播通知',
     fireworks: '[igs-fx:fireworks]：夜空中烟花绽放（夏日祭、跨年等）',
-    touch: '[igs-fx:touch|动作]：心动的肢体接触，如牵手、摸头、靠肩、拥抱，动作写两三个字',
+    touch: '[igs-fx:touch|动作]：心动的肢体接触，如牵手、摸头、靠肩、拥抱，动作写两三个字；战斗中的擒抱、缠斗不算',
     alarm: '[igs-fx:alarm|07:00]：闹钟响起，时间可省略',
     omikuji: '[igs-fx:omikuji|大吉|一句签文]：神社抽签，结果只写 大吉／中吉／小吉／吉／末吉／凶／大凶，签文可省略',
     receipt: '[igs-fx:receipt|物品1、物品2|合计金额|店名]：结账时的小票，物品用顿号分隔，合计与店名可省略',

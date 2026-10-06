@@ -705,6 +705,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     const toolbarDock = embeddedMode ? 'float' : (readerSettings.toolbarDock === 'top' ? 'top' : 'float');
     if (root && root.classList) {
         root.classList.toggle('igs-toolbar-top', toolbarDock === 'top');
+        root.classList.toggle('igs-cinema-bars', readerSettings.cinemaBars === true);
     }
     if (toolbar) {
         toolbar.setAttribute('data-igs-toolbar-dock', toolbarDock);

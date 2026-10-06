@@ -5,7 +5,7 @@ import {
     readOnboardingState, shouldInviteOnboarding, writeOnboardingState,
 } from './onboarding-guide.js';
 import { mountOnboardingCard } from './onboarding-guide-runtime.js';
-import { PROFILE_QUESTIONS } from './performance-profile.js';
+import { PROFILE_QUESTIONS, PROFILE_SECTIONS } from './performance-profile.js';
 import { handleOnboardingKeydown, mountOnboardingInvite, removeOnboardingInvite } from './onboarding-guide-invite.js';
 import { ONBOARDING_STYLE_ID, getOnboardingStyleText } from './onboarding-guide-style.js';
 
@@ -98,7 +98,7 @@ export function createOnboardingController(deps) {
     // 非引导动作返回 null，由宿主继续交给既有设置动作分发。
     function handleAction(action) {
         const name = String(action || '').trim();
-        const quiz = /^onboarding-quiz:([a-z]+):([a-z]+)$/.exec(name);
+        const quiz = /^onboarding-quiz:([a-z]+):([a-z0-9]+)$/.exec(name);
         if (quiz) return chooseQuiz(quiz[1], quiz[2]);
         if (!ONBOARDING_ACTIONS.includes(name)) return null;
         if (name === 'onboarding-quiz-apply') return applyQuiz();
@@ -112,6 +112,12 @@ export function createOnboardingController(deps) {
     }
 
     function chooseQuiz(id, value) {
+        if (guide && id === 'section' && PROFILE_SECTIONS.some((s) => s.id === value)) {
+            const open = Array.isArray(guide.answers.sections) ? guide.answers.sections : [];
+            guide.answers = { ...guide.answers, sections: open.includes(value) ? open.filter((v) => v !== value) : open.concat(value) };
+            guide.quizApplied = false;
+            return deps.rerenderSettings();
+        }
         const question = PROFILE_QUESTIONS.find((q) => q.id === id);
         if (!guide || !question || !question.options.some(([v]) => v === value)) return deps.rerenderSettings();
         const answers = { ...guide.answers };

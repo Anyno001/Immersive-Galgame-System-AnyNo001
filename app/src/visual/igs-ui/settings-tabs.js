@@ -285,7 +285,7 @@ const READER_PERFORMANCE_TEMPLATE = `
 
 const READER_INTERFACE_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="interface">
-  <div class="igs-source-filter"><div class="igs-source-filter-title">背景图{{resetReaderInterfaceBackground}}</div><div class="igs-source-filter-grid">{{imgModeField}}{{imgBrightnessField}}{{imageCountField}}</div></div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">背景图{{resetReaderInterfaceBackground}}</div><div class="igs-source-filter-grid">{{imgModeField}}{{imgBrightnessField}}{{imageCountField}}</div>{{cinemaBarsToggle}}</div>
   <div class="igs-source-filter"><div class="igs-source-filter-title">状态栏{{resetReaderInterfaceStatusHud}}</div>{{statusHudSection}}</div>
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">选项气泡{{resetReaderInterfaceOptionBubble}}</div>

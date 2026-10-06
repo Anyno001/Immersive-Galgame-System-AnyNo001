@@ -137,8 +137,8 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     assert.match(swim, /data-scene-outfit-mood="喜悦" value="https:\/\/x\/swim-joy\.png"/);
     // 服装里「开心」槽没填图：同组的「喜悦」有图 → 借用。
     assert.match(swim, /data-outfit-slot="开心">.*?is-ghost.*?<span class="igs-outfit-hint">借用「喜悦」/);
-    // 服装没有「害羞」：和有的格子排在同一个列表里，淡色显示回落原装，右边一个 + 补上；「默认」不列出。
-    assert.match(swim, /data-outfit-fallback="害羞">.*?base\.png.*?回落原装「默认」.*?data-action="scene-add-outfit-mood:[^"]+:%E5%AE%B3%E7%BE%9E"/);
+    // 服装没有「害羞」：和有的格子排在同一个列表里，淡色显示借用本套的图（不闪回原装），右边一个 + 补上；「默认」不列出。
+    assert.match(swim, /data-outfit-fallback="害羞">.*?is-ghost.*?借用「.*?data-action="scene-add-outfit-mood:[^"]+:%E5%AE%B3%E7%BE%9E"/);
     assert.doesNotMatch(swim, /data-outfit-fallback="默认"/);
     assert.doesNotMatch(swim, /缺图时|全部补上/, '只缺一格时不放整批补齐');
     // 添加服装 / 添加情绪是页签行上的图标；生成立绘、表情差分外露，⋯ 里不再重复。

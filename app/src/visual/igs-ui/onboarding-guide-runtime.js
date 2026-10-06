@@ -2,7 +2,7 @@
 // 只加高亮属性、滚动与聚焦，不读写任何设置值；按钮走设置面板既有的 data-action 分发。
 import { ONBOARDING_STEPS, getOnboardingStep, isLastOnboardingStep, normalizeOnboardingStep } from './onboarding-guide.js';
 import { esc } from './reader-value-utils.js';
-import { PROFILE_QUESTIONS, profileSummary } from './performance-profile.js';
+import { PROFILE_QUESTIONS, PROFILE_SECTIONS, profileSummary } from './performance-profile.js';
 
 export const ONBOARDING_CARD_ID = 'igs-onboarding-card';
 export const ONBOARDING_ACTIVE_ATTR = 'data-igs-guide-active';
@@ -18,14 +18,22 @@ function button(action, label, tone) {
 // 问卷：每题一排选项，选中的高亮；类型可多选。底下一行写这样会开几项。
 function renderQuiz(answers, applied) {
     const picked = answers && typeof answers === 'object' ? answers : {};
-    const rows = PROFILE_QUESTIONS.map((q) => {
+    const row = (q) => {
         const chosen = q.multi ? (Array.isArray(picked[q.id]) ? picked[q.id] : []) : [picked[q.id]];
         const opts = q.options.map(([value, label]) => {
             const on = chosen.includes(value);
             return `<button type="button" class="igs-onboarding-chip${on ? ' is-active' : ''}" data-action="onboarding-quiz:${q.id}:${value}" aria-pressed="${on ? 'true' : 'false'}">${esc(label)}</button>`;
         }).join('');
-        return `<div class="igs-onboarding-q"><div class="igs-onboarding-q-title">${esc(q.title)}${q.multi ? '<span>可多选</span>' : ''}</div><div class="igs-onboarding-q-opts">${opts}</div></div>`;
-    }).join('');
+        return `<div class="igs-onboarding-q"><div class="igs-onboarding-q-title">${esc(q.title)}${q.multi ? '<span>可多选</span>' : ''}</div>${q.note && q.section ? `<div class="igs-onboarding-q-note">${esc(q.note)}</div>` : ''}<div class="igs-onboarding-q-opts">${opts}</div></div>`;
+    };
+    // 基础题必答；细调章节点开才问，不点开就不改那部分设置。
+    const open = Array.isArray(picked.sections) ? picked.sections : [];
+    const rows = PROFILE_QUESTIONS.filter((q) => !q.section).map(row).join('')
+        + PROFILE_SECTIONS.map((s) => {
+            const on = open.includes(s.id);
+            const head = `<button type="button" class="igs-onboarding-section${on ? ' is-open' : ''}" data-action="onboarding-quiz:section:${s.id}" aria-expanded="${on ? 'true' : 'false'}">${esc(s.title)}<span>${on ? '收起' : '可跳过'}</span></button>`;
+            return head + (on ? PROFILE_QUESTIONS.filter((q) => q.section === s.id).map(row).join('') : '');
+        }).join('');
     const on = profileSummary(picked);
     const result = applied
         ? `已应用：开启 ${on.length} 项演出。`

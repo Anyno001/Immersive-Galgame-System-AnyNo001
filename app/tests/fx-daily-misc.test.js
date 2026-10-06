@@ -55,3 +55,12 @@ test('gate:fx-daily-misc render cards with reused sounds and escaped dish', () =
     assert.deepEqual(cheers.sounds, ['touch']);
     cancelDailyFx(cheers.root);
 });
+
+test('gate:fx-daily-touch-skipped-inside-battle', async () => {
+    const { planDailyFx } = await import('../src/visual/igs-ui/fx-daily-model.js');
+    const settings = { enabled: true, touch: true };
+    const daily = [{ type: 'touch', what: '环抱' }];
+    assert.equal(planDailyFx({ daily }, { settings }).length, 1);
+    assert.equal(planDailyFx({ daily, battle: { foe: '狼人' } }, { settings }).length, 0);
+    assert.equal(planDailyFx({ daily, hits: [{ result: 'hit' }] }, { settings }).length, 0);
+});
