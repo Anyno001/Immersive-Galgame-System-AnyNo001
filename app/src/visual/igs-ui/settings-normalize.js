@@ -114,6 +114,9 @@ export function normalizeSettingsValue(path, value) {
     if (/^bridge\.imageApi\.(steps|requestTimeoutMs|pollIntervalMs|pollAttempts)$/.test(path)) {
         return Number(value);
     }
+    if (path === 'bridge.imageApi.dbgenSpriteTransparent') {
+        return !(value === false || value === 'false' || value === 0 || value === '0');
+    }
     if (path === 'bridge.imageCache.maxCount') return normalizeImageCacheCount(value);
     return value;
 }

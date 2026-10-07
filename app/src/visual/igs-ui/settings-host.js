@@ -194,6 +194,7 @@ export function createSettingsHost(deps) {
                 state.activeSettings.tab = normalizeSettingsTab(entry.target.tab);
                 if (entry.target.readerSubTab) asyncState.readerSubTab = normalizeReaderSubTab(entry.target.readerSubTab);
                 if (entry.target.sceneSubTab) asyncState.sceneSubTab = normalizeSceneSubTab(entry.target.sceneSubTab);
+                if (entry.target.imageSubTab) asyncState.imageSubTab = normalizeImageSubTab(entry.target.imageSubTab);
                 asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}) };
                 for (const key of entry.target.open) asyncState.advancedOpen[key] = true;
                 asyncState.settingsSearch = '';

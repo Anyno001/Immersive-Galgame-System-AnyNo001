@@ -718,6 +718,47 @@ test('gate:assets:dbgen-sprite-passes-frontend-templates', async () => {
     assert.deepEqual(saved, { positive: '1girl, solo', negative: 'lowres' });
 });
 
+test('gate:assets:dbgen-sprite-white-background-when-transparent-off', async () => {
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
+    const floor = { chatId: 'c', messageId: 3, swipeId: 0, isAi: true, isLatest: true, text: '[igs-char:神秘少女|平静|你来了。]' };
+    const caption = {
+        v4_prompt: { caption: { base_caption: '1girl, solo', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
+    const writes = [];
+    const paints = [];
+    const service = createAssetGenerationService({
+        messageHost: { getChatId: () => 'c', readFloor: () => floor, readPreviousAiTexts: () => [] },
+        llm: { async request() { throw new Error('不应请求副 LLM'); } },
+        nai: {
+            describe: () => ({ mode: 'dbgen', via: 'dbgen', ownPrompts: true, ready: { ok: true } }),
+            writeDbgenPrompt: async (meta) => { writes.push(meta); return { ok: true, captions: [{ slotId: 1, caption }] }; },
+            generateDbgenCaption: async (meta) => {
+                paints.push(meta);
+                return { ok: true, dataUrl: 'data:image/png;base64,AAA', prompt: { positive: '1girl, solo', negative: 'lowres' } };
+            },
+            generate: async () => { throw new Error('立绘不应逐张写词'); },
+        },
+        store: createMemoryGeneratedAssetStore(),
+        getSettings: () => ({
+            autoIllustration: { assets: { spriteEnabled: true } },
+            sceneAssets: { enabled: true, scenes: {}, characters: {} },
+            imageApi: { dbgenSpriteTransparent: false },
+        }),
+    });
+    const result = await service.processMessage(3, { manual: true });
+    assert.equal(result.ok, true);
+    assert.match(writes[0].description, /白色背景，不要透明底/);
+    assert.equal(/透明底/.test(writes[0].description.replace('不要透明底', '')), false);
+    const meta = paints[0];
+    assert.equal(meta.transparent, undefined);
+    assert.match(meta.userPrompts.positive, /white background/);
+    assert.equal(/transparent background/.test(meta.userPrompts.positive), false);
+    assert.equal(/grey background/.test(meta.userPrompts.positive), false);
+    assert.equal(/(^|, )white background(,|$)/.test(meta.userPrompts.negative), false);
+});
+
 test('gate:assets:dbgen-sprites-write-once-then-paint-and-split-past-eight', async () => {
     const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
     const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');

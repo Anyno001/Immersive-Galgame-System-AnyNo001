@@ -243,6 +243,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceNaiHidden: hiddenAttr(sourceMode === 'dbgen'),
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
+                dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭，关闭后改为白色背景）'),
                 advancedNaiOpen: advancedOpen('nai'),
                 advancedExtensionOpen: advancedOpen('extension'),
                 advancedNsfwOpen: advancedOpen('nsfw'),

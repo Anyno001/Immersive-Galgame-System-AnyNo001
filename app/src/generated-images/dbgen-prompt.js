@@ -92,7 +92,7 @@ export function splitExpressionWriteBatches(items) {
 
 // note 是用户这次临时补的要求（性格、某个情绪的特别表现），只影响写词这一步；
 // nsfw 为 true 时「动情」改用它在 NSFW 下的动作说明。
-export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit, { note = '', nsfw = false } = {}) {
+export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit, { note = '', nsfw = false, transparent = true } = {}) {
     const moods = (Array.isArray(labels) ? labels : []).map((item) => String(item || '').trim()).filter(Boolean);
     const stored = prompt && typeof prompt === 'object' ? prompt : {};
     const caption = formatReturnedCaption(stored.caption);
@@ -134,7 +134,7 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
         '下面的动作是基准，不是照抄的模板。先按角色的性格改幅度和形式：三无、高冷、内敛的性格幅度极小，靠眼神和嘴角的细微变化，动作克制；开朗、外向的性格按基准写；狂躁、元气、暴烈的性格幅度夸张，带动肩、手、重心，甚至打破站姿。',
         String(note || '').trim() ? `这次额外的要求：\n${String(note).trim()}` : '',
         caption ? '上面那份立绘的表情和动作不要沿用，每份的表情、嘴型、眼神和手势都按各自的情绪重写。' : '',
-        '无背景，透明底。',
+        spriteGroundLine(transparent),
         ...characterDnaLines(name, dna),
         ...moods.map((mood, index) => {
             const act = moodPresetAct(mood, { nsfw });
@@ -213,6 +213,10 @@ function characterDnaLines(name, dna) {
 // 立绘站得太板正：要一个不挡身体的日常小动作。
 const SPRITE_DAILY_POSE_LINE = '姿势带一个轻量的日常小动作（如一只手拨头发、手背在身后、手插口袋、轻抓衣角），不要双手僵直下垂，也不要大幅动作或拿道具挡住身体。';
 
+function spriteGroundLine(transparent) {
+    return transparent === false ? '白色背景，不要透明底。' : '无背景，透明底。';
+}
+
 // 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
 export function buildCharacterSpriteDescription(name, dna, options) {
     const nude = Boolean(options && options.nude);
@@ -225,7 +229,7 @@ export function buildCharacterSpriteDescription(name, dna, options) {
         '规格：大腿以上（cowboy shot）。朝向正面，直立，平视。禁止全身，禁止露出脚，禁止侧身，禁止倾斜构图。',
         SPRITE_DAILY_POSE_LINE,
         note ? `这次额外的要求：\n${note}` : '',
-        '无背景，透明底。',
+        spriteGroundLine(options && options.transparent),
         ...characterDnaLines(name, dna),
         '只写一份，slotid 为 1。',
     ].filter(Boolean).join('\n');
@@ -266,7 +270,7 @@ export function buildWardrobeClothingDescription(_character, outfitName, { nsfwB
 }
 
 // 本楼还缺的立绘一次写完。名单里只有尚未生成的，已有的不进来。
-export function buildDbgenSpriteBatchDescription(needs = []) {
+export function buildDbgenSpriteBatchDescription(needs = [], options = {}) {
     const items = Array.isArray(needs) ? needs : [];
     const list = items.map((need, index) => `${index + 1}. ${need && need.name ? need.name : ''}`);
     const count = list.length;
@@ -282,7 +286,7 @@ export function buildDbgenSpriteBatchDescription(needs = []) {
         profiles.length ? '角色外貌与服装依据正文补充；下面列了设定的角色，长相按设定写。' : '角色外貌与服装依据正文补充。',
         ...profiles,
         SPRITE_DAILY_POSE_LINE,
-        '无背景，透明底。',
+        spriteGroundLine(options.transparent),
         '不要写生成点，不要从正文摘挂载句。',
     ].join('\n');
 }
@@ -302,12 +306,12 @@ export function buildDbgenBackgroundBatchDescription(needs = []) {
     ].join('\n');
 }
 
-export function buildDbgenAssetDescription(need = {}) {
+export function buildDbgenAssetDescription(need = {}, options = {}) {
     const when = [need.time, need.weather].filter(Boolean).join('、');
     if (need.type === 'sprite') {
         return [
             `画角色「${need.name || ''}」的立绘。`,
-            '角色外貌与服装依据正文补充。无背景，透明底。',
+            `角色外貌与服装依据正文补充。${spriteGroundLine(options.transparent)}`,
             SPRITE_DAILY_POSE_LINE,
             ...characterDnaLines(need.name, need.dna),
         ].join('\n');

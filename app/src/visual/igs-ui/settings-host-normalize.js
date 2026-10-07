@@ -75,6 +75,7 @@ export function normalizeImageApi(value) {
     normalized.availableModels = Array.isArray(normalized.availableModels)
         ? normalized.availableModels.filter(Boolean)
         : [];
+    normalized.dbgenSpriteTransparent = normalized.dbgenSpriteTransparent !== false;
     return normalized;
 }
 
