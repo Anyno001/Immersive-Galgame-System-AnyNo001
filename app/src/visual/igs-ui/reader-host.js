@@ -207,8 +207,20 @@ import { createIgsModal } from './igs-modal.js';
 import { createOnboardingController } from './onboarding-guide-controller.js';
 import { applyPerformanceProfile, applyProfileDetails } from './performance-profile.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
-import { resolveWorldview } from '../../scene/worldview.js';
+import { applyWorldview, resolveWorldview } from '../../scene/worldview.js';
 import { effectiveDialogSkin } from './worldview-skins.js';
+import {
+    applyTitleSkin,
+    buildTitleScreenModel,
+    createTitleGate,
+    playOpeningCard,
+    playTitleBgm,
+    reduceTitleAction,
+    removeTitleScreen,
+    renderTitleScreen,
+    shouldGateTitleScreen,
+    titleCardOf,
+} from './title-screen.js';
 import { loadMoodReview, recordMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import {
@@ -248,6 +260,7 @@ import {
     buildFallbackReaderOverlay,
     buildFallbackSettingsOverlay,
     normalizeReaderStableLayers,
+    pinEmbeddedHostFrame,
 } from './reader-dom-render.js';
 
 export function createIgsReaderHost(options = {}) {
@@ -512,6 +525,13 @@ export function createIgsReaderHost(options = {}) {
             assetLoadRequests: new Set(),
         };
         const current = state.activeReader;
+        current.titleGate = openOptions.skipTitle !== true && payload.skipTitle !== true && shouldGateTitleScreen({
+            readerSettings,
+            messageId: snapshot.messageId,
+            index: snapshot.content.currentIndex,
+            startAtEnd: payload.startAtEnd === true,
+        }) ? createTitleGate() : null;
+        if (current.titleGate) void resolveTitleHasLater(current);
         current.autoPlayer = createReaderAutoPlay({
             timers: options.autoPlayTimers || globalThis,
             read: () => {
@@ -522,6 +542,7 @@ export function createIgsReaderHost(options = {}) {
                     closed: state.activeReader !== current,
                     page: `${current.snapshot.messageId}:${current.index}:${chat?.revealed || 0}`,
                     blocked: current.hidden || current.streamPhase !== 'idle' || current.spriteEditMode
+                        || Boolean(current.titleGate)
                         || Boolean(state.activeSettings) || isStagePaused(overlay)
                         || Boolean(overlay?.ownerDocument?.hidden)
                         || Boolean(overlay?.classList?.contains('igs-options-visible')),
@@ -586,6 +607,7 @@ export function createIgsReaderHost(options = {}) {
         current.mountMessageId = replaceOptions.mountMessageId != null ? replaceOptions.mountMessageId : current.mountMessageId;
         current.mode = mode;
         current.snapshot = merged;
+        if (current.titleGate && Number(current.contentMessageId) !== 0) dropTitleGate(current);
         updateMountedReader(merged);
         exitEmbeddedLoading();
         if ((isEmbeddedReaderMode(mode) || mode === 'fullscreen') && current.turnOffset === 0) startReaderImagePolling(current);
@@ -1422,6 +1444,9 @@ export function createIgsReaderHost(options = {}) {
     async function handleReaderAction(action) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
         const normalizedAction = String(action || '').trim();
+        if (state.activeReader.titleGate && normalizedAction !== 'settings' && normalizedAction !== 'close') {
+            return { ok: false, reason: 'title-screen' };
+        }
         state.activeReader.lastAction = normalizedAction;
 
         if (normalizedAction === 'auto-play') {
@@ -1670,6 +1695,7 @@ export function createIgsReaderHost(options = {}) {
         const result = await options.openViewerFromMessage(target.id, current.mode, {
             startAtEnd: false,
             message: target,
+            skipTitle: true,
         });
         if (result && result.ok !== false) {
             writeToast(delta > 0 ? '已切到下一轮' : '已切到上一轮');
@@ -3508,6 +3534,15 @@ export function createIgsReaderHost(options = {}) {
         current.dom.clickLayer = refs.clickLayer;
         current.dom.text = refs.text;
         current.dom.progress = refs.progress;
+        if (current.titleGate) {
+            // 主界面盖着时正文不渲染：不打字、不放演出和音效，点「开始」后才从第一页演起。
+            const titleOn = !snapshot.readerSettings || snapshot.readerSettings.titleScreen !== false;
+            if (titleOn && Number(snapshot.content && snapshot.content.currentIndex) === 0) {
+                renderTitleGate(current);
+                return;
+            }
+            dropTitleGate(current);
+        }
         if (current.dom.overlay) applyReaderSnapshotToDom(current.dom.overlay, snapshot, current, {
             hasActiveSettings: () => Boolean(state.activeSettings),
             closeSettings,
@@ -3531,6 +3566,134 @@ export function createIgsReaderHost(options = {}) {
         }
         syncOptionBubblesAfterRender(current, snapshot);
         syncAssetReviewAfterRender(current, snapshot);
+    }
+
+    // 第 0 层之后有没有 AI 楼层：决定「开始」先进世界观页还是直接重播，以及出不出「继续」。
+    async function resolveTitleHasLater(current) {
+        let hasLater = false;
+        if (typeof options.getAdjacentMessage === 'function') {
+            try {
+                hasLater = Boolean(await options.getAdjacentMessage(0, 1));
+            } catch (error) {
+                hasLater = false;
+            }
+        }
+        if (state.activeReader !== current || !current.titleGate) return;
+        current.titleGate = { ...current.titleGate, hasLater };
+        renderTitleGate(current);
+    }
+
+    function titleModelOf(current) {
+        return buildTitleScreenModel({
+            snapshot: current.snapshot,
+            gate: current.titleGate,
+            card: titleCardOf(getSillyTavernContext(options.global || globalThis)),
+            globalSkin: resolveBridgeConfigSnapshot({ mode: current.mode }).readerSettings.dialogSkin,
+            resolveUrl: (url) => resolveReaderAssetUrl(url, current),
+        });
+    }
+
+    function renderTitleGate(current) {
+        const overlay = current && current.dom && current.dom.overlay;
+        if (!overlay || !current.titleGate || current.titleGate.view === 'opening') return;
+        const snapshot = current.snapshot;
+        applyTitleSkin(overlay, snapshot.readerSettings);
+        pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
+        renderTitleScreen(overlay, titleModelOf(current), {
+            onAction: (act, value) => { void handleTitleAction(current, act, value); },
+        });
+        playTitleBgm(overlay, snapshot);
+    }
+
+    function dropTitleGate(current) {
+        if (!current) return;
+        current.titleGate = null;
+        if (current.dom && current.dom.overlay) removeTitleScreen(current.dom.overlay);
+    }
+
+    async function handleTitleAction(current, act, value) {
+        if (state.activeReader !== current || !current.titleGate || current.titleGate.view === 'opening') return;
+        const next = reduceTitleAction(current.titleGate, titleModelOf(current), act, value);
+        current.titleGate = next.gate;
+        if (next.effect === 'close') return current.controller.close();
+        if (next.effect === 'settings') return current.controller.openSettings();
+        if (next.effect === 'continue') return continueFromTitle(current);
+        if (next.effect === 'start') return playOpeningFromTitle(current);
+        if (next.effect === 'save' || next.effect === 'save-start') {
+            const saved = saveTitlePick(next.pick);
+            if (!saved || saved.ok === false) {
+                writeToast('世界观没有保存成功，请稍后再试。');
+                renderTitleGate(current);
+                return saved;
+            }
+            current.snapshot = applyReaderPayloadToState(current, current.mode, { index: 0 });
+            if (next.effect === 'save-start') return playOpeningFromTitle(current);
+            current.titleGate = { ...current.titleGate, view: 'menu', pick: null };
+            updateMountedReader(current.snapshot);
+            return saved;
+        }
+        renderTitleGate(current);
+        return null;
+    }
+
+    async function continueFromTitle(current) {
+        dropTitleGate(current);
+        if (typeof options.reopenReader === 'function') {
+            try {
+                const reopened = await options.reopenReader(current.mode);
+                if (reopened && reopened.ok !== false) return reopened;
+            } catch (error) {
+                // 打开最新楼层失败时退回从第 0 层开始演。
+            }
+        }
+        if (state.activeReader === current) updateMountedReader(current.snapshot);
+        return null;
+    }
+
+    // 开场标题卡（序章 · 卡名）点一下或到时收起，再从第一页演出第 0 层；地点卡仍由第 0 层自己的过场标题卡出。
+    async function playOpeningFromTitle(current) {
+        const overlay = current.dom && current.dom.overlay;
+        current.titleGate = { ...current.titleGate, view: 'opening' };
+        if (overlay) {
+            const readerSettings = current.snapshot.readerSettings;
+            const timers = options.autoPlayTimers || globalThis;
+            applyTitleSkin(overlay, readerSettings);
+            await playOpeningCard(overlay, {
+                main: '序章',
+                sub: titleCardOf(getSillyTavernContext(options.global || globalThis)).name,
+                worldview: readerSettings && readerSettings._worldview,
+                schedule: (fn, ms) => timers.setTimeout(fn, ms),
+            });
+        }
+        if (state.activeReader !== current) return null;
+        dropTitleGate(current);
+        current.index = 0;
+        current.snapshot = applyReaderPayloadToState(current, current.mode, { index: 0 });
+        updateMountedReader(current.snapshot);
+        return { ok: true };
+    }
+
+    // 有角色卡（或群聊）时世界观与对话框皮肤记在卡上；没有卡时世界观写全局素材、皮肤写阅读器设置。
+    function saveTitlePick(pick) {
+        if (!pick) return { ok: false, reason: 'no-pick' };
+        const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis));
+        if (scope.key) {
+            return mutateSceneLibrary((assets) => {
+                if (!applyWorldview(assets, pick.worldview)) return { ok: false, reason: 'invalid-worldview' };
+                assets.dialogSkin = pick.skin;
+                return { ok: true };
+            });
+        }
+        const save = typeof options.saveUnifiedSettings === 'function' ? options.saveUnifiedSettings : null;
+        if (!save) return { ok: false, reason: 'missing-save-handler' };
+        const unified = resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' });
+        const sceneAssets = { ...(unified.bridge.sceneAssets || {}) };
+        if (!applyWorldview(sceneAssets, pick.worldview)) return { ok: false, reason: 'invalid-worldview' };
+        return save({
+            bridge: { ...unified.bridge, sceneAssets },
+            readerMode: unified.readerMode,
+            readerSettings: { ...unified.readerSettings, dialogSkin: pick.skin },
+        }) || { ok: false, reason: 'save-failed' };
     }
 
     function currentFloorKey(current) {
