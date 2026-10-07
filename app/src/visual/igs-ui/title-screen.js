@@ -10,6 +10,7 @@ import { syncDialogSkinStyle } from './dialog-skin-style.js';
 import { getBattleTheme } from './fx-battle-themes.js';
 import { DIALOG_SKIN_CHOICES, dialogSkinLabel } from './dialog-skin-catalog.js';
 import { pickWorldviewDialogSkin, worldviewDialogSkins } from './worldview-skins.js';
+import { getReferenceDialogTypography } from './dialog-theme-typography.js';
 
 // 第 0 层的主界面：阅读器停在开场白第一页时先盖一层标题画面（开始 / 继续 / 世界观 / 设置），
 // 新聊天点开始先进世界观页，确认后写进角色卡、过一张开场标题卡再演出第 0 层。
@@ -19,16 +20,8 @@ export const TITLE_SKIN_ATTR = 'data-igs-title-skin';
 const STYLE_ID = 'igs-title-screen-style';
 const OPENING_CARD_MS = 2200;
 
-const WORLDVIEW_NOTES = Object.freeze({
-    modern: '现代日常演出与配乐，报幕、通知按现代风格书写',
-    ancient: '宣纸竖幅报幕、家仆通报与古风配乐，AI 不写现代物件',
-    fantasy: '剑与魔法的演出换皮与史诗配乐，AI 写信使、钟楼时刻',
-    scifi: '全息报幕与电子配乐，AI 写通讯器、舰内时',
-    apocalypse: '废土报幕与荒凉配乐，AI 写对讲机、幸存天数',
-    taisho: '和洋折衷的报幕与复古配乐，AI 写电报、座机',
-    magic: '咒语、猫头鹰等魔法日常演出与学院配乐',
-    horror: '恐怖演出、阴森配乐与会出错的打字机',
-});
+// 世界观名录旁的英文小字，没有立绘时也作背景右侧的大号描边字。
+const WORLD_EN = Object.freeze({ modern: 'MODERN', ancient: 'ANCIENT', fantasy: 'FANTASY', scifi: 'SCI-FI', apocalypse: 'WASTELAND', taisho: 'TAISHO', magic: 'MAGIC', horror: 'HORROR' });
 
 const handlersByLayer = new WeakMap();
 const htmlByLayer = new WeakMap();
@@ -143,7 +136,7 @@ function worldLabel(id) {
 // 背景与立绘地址可能是很长的 data URL：HTML 里只放占位，地址由 syncMedia 直接写到元素上。
 function backdropHtml(model) {
     const kind = model.background ? '' : model.avatar ? ' is-avatar' : ' is-empty';
-    const sprite = model.sprite && model.view === 'menu' ? '<img class="igs-ts-sprite" alt="">' : '';
+    const sprite = model.sprite ? '<img class="igs-ts-sprite" alt="">' : '';
     return `<div class="igs-ts-bg${kind}"></div><div class="igs-ts-shade"></div>${sprite}`;
 }
 
@@ -172,34 +165,40 @@ function menuHtml(model) {
 </div>`;
 }
 
-function sampleHtml(skin, name, line) {
-    return `<span class="igs-ts-sample" ${TITLE_SKIN_ATTR}="${esc(skin)}"><span class="igs-ts-sample-box"><span class="igs-ts-sample-name">${esc(name)}</span><span class="igs-ts-sample-line">${esc(line)}</span></span></span>`;
+// 预览直接用真对话框：同一套 .igs-dialog 结构与皮肤样式压在开场背景上，所见即开场后的样子。
+function previewDialogHtml(skin, name) {
+    const type = getReferenceDialogTypography(skin) || {};
+    const css = (font, color) => [font ? 'font-family:' + font : '', color ? 'color:' + color : ''].filter(Boolean).join(';');
+    return '<div class="igs-ts-stage"><div class="igs-dialog igs-ts-preview" data-igs-dialog-skin="' + esc(skin) + '" data-igs-has-speaker="1" aria-hidden="true">'
+        + '<div class="igs-speaker" style="display:block;' + esc(css(type.nameFont, type.nameColor)) + '">' + esc(name) + '</div>'
+        + '<div class="igs-text" style="' + esc(css(type.textFont, type.textColor)) + '">……就从这里开始吧。</div></div></div>';
 }
 
+// 世界观页：不铺面板，左侧竖排世界观名录，选中那一项下面一行列出可用的对话框；底部就是所选皮肤的真对话框。
 function worldviewHtml(model) {
     const name = model.title === '序章' ? '旁白' : model.title;
-    const cards = WORLDVIEWS.filter((item) => item.ready).map(({ id, label }) => {
-        const on = id === model.pick.worldview;
-        const skin = on ? model.pick.skin : pickWorldviewDialogSkin(id, { cardSkin: model.cardSkin, globalSkin: model.globalSkin, horrorStyle: model.horrorStyle });
-        return `<button type="button" class="igs-ts-world${on ? ' is-on' : ''}" data-ts-act="world:${esc(id)}" aria-pressed="${on ? 'true' : 'false'}">
-<span class="igs-ts-world-name">${esc(label)}</span>${sampleHtml(skin, name, '「……就从这里开始吧。」')}<span class="igs-ts-world-note">${esc(WORLDVIEW_NOTES[id] || '')}</span></button>`;
-    }).join('');
     const recommended = worldviewDialogSkins(model.pick.worldview);
-    const chips = recommended.map((skin) => {
-        const on = skin === model.pick.skin;
-        return `<button type="button" class="igs-ts-chip${on ? ' is-on' : ''}" data-ts-act="skin:${esc(skin)}" aria-pressed="${on ? 'true' : 'false'}">${esc(dialogSkinLabel(skin))}</button>`;
-    }).join('');
     const others = DIALOG_SKIN_CHOICES.filter(([skin]) => !recommended.includes(skin));
     const otherOn = !recommended.includes(model.pick.skin);
-    const select = `<select class="igs-ts-other" data-ts-skin-select aria-label="其他对话框风格"><option value=""${otherOn ? '' : ' selected'}>其他…</option>${others.map(([skin, label]) => `<option value="${esc(skin)}"${skin === model.pick.skin ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
-    const confirm = model.newChat ? '就这样，开始' : '保存';
-    return `${backdropHtml(model)}
-<div class="igs-ts-panel" role="dialog" aria-label="选择世界观">
-  <div class="igs-ts-panel-head"><div class="igs-ts-panel-title">选择世界观</div><div class="igs-ts-panel-hint">对话框、演出、配乐和 AI 报幕用词会一起换；记在这张角色卡上，以后在主界面的「世界观」里还能改。</div></div>
-  <div class="igs-ts-worlds">${cards}</div>
-  <div class="igs-ts-skins"><span class="igs-ts-skins-label">对话框</span>${chips}${select}</div>
-  <div class="igs-ts-actions"><button type="button" class="igs-ts-btn is-ghost" data-ts-act="back"${model.busy ? ' disabled' : ''}>返回</button><button type="button" class="igs-ts-btn is-primary" data-ts-act="confirm"${model.busy ? ' disabled' : ''}>${esc(confirm)}</button></div>
-</div>`;
+    const skinButtons = recommended.map((skin) => {
+        const on = skin === model.pick.skin;
+        return '<button type="button" class="igs-ts-skin' + (on ? ' is-on' : '') + '" data-ts-act="skin:' + esc(skin) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + esc(dialogSkinLabel(skin)) + '</button>';
+    }).join('');
+    const options = others.map(([skin, label]) => '<option value="' + esc(skin) + '"' + (skin === model.pick.skin ? ' selected' : '') + '>' + esc(label) + '</option>').join('');
+    const more = '<label class="igs-ts-skin igs-ts-more' + (otherOn ? ' is-on' : '') + '"><span>' + (otherOn ? esc(dialogSkinLabel(model.pick.skin)) : '其他') + '</span>'
+        + '<select data-ts-skin-select aria-label="其他对话框风格"><option value=""' + (otherOn ? '' : ' selected') + '>其他</option>' + options + '</select></label>';
+    const worlds = WORLDVIEWS.filter((item) => item.ready).map(({ id, label }) => {
+        const on = id === model.pick.worldview;
+        const skins = on ? '<div class="igs-ts-skins" role="group" aria-label="对话框">' + skinButtons + more + '</div>' : '';
+        return '<li class="igs-ts-world' + (on ? ' is-on' : '') + '"><button type="button" class="igs-ts-world-name" data-ts-act="world:' + esc(id) + '" aria-pressed="' + (on ? 'true' : 'false') + '"><span class="igs-ts-world-zh">' + esc(label) + '</span><span class="igs-ts-world-en">' + esc(WORLD_EN[id] || '') + '</span></button>' + skins + '</li>';
+    }).join('');
+    const disabled = model.busy ? ' disabled' : '';
+    // 没有立绘时右侧空着：铺一行很淡的英文描边大字，随所选世界观换。
+    const mark = model.sprite ? '' : '<div class="igs-ts-mark" aria-hidden="true">' + esc(WORLD_EN[model.pick.worldview] || '') + '</div>';
+    return backdropHtml(model) + mark + '\n' + previewDialogHtml(model.pick.skin, name)
+        + '\n<div class="igs-ts-pick" role="dialog" aria-label="选择世界观"><ul class="igs-ts-worlds">' + worlds + '</ul></div>'
+        + '\n<div class="igs-ts-actions"><button type="button" class="igs-ts-link" data-ts-act="back"' + disabled + '>返回</button>'
+        + '<button type="button" class="igs-ts-link is-primary" data-ts-act="confirm"' + disabled + '>' + (model.newChat ? '开始' : '保存') + '<span aria-hidden="true">›</span></button></div>';
 }
 
 function dispatch(layer, act, value) {
@@ -318,7 +317,7 @@ function themeRules(skin) {
     ].join('');
     const rules = [`${scope}{${vars}}`];
     if (theme.card) {
-        rules.push(`.igs-title-screen${scope} .igs-ts-main,.igs-title-screen${scope} .igs-ts-panel,${scope}>.igs-ts-sample-box{${theme.card}}`);
+        rules.push(`.igs-title-screen${scope} .igs-ts-main{${theme.card}}`);
     }
     return rules.join('\n');
 }
@@ -328,7 +327,7 @@ const BASE_STYLE = `
 #${TITLE_SCREEN_ID} *{box-sizing:border-box;}
 .igs-ts-bg{position:absolute;inset:0;background:#0d0f14 center/cover no-repeat;}
 .igs-ts-bg.is-avatar{inset:-24px;filter:blur(18px) brightness(.62) saturate(1.1);background-position:center 22%;}
-.igs-ts-bg.is-empty{background:radial-gradient(ellipse at 30% 40%,color-mix(in srgb,var(--igs-ts-accent,#ffd98a) 18%,#14161d),#090a0e 72%);}
+.igs-ts-bg.is-empty{background:radial-gradient(ellipse 70% 60% at 72% 38%,color-mix(in srgb,var(--igs-ts-accent,#ffd98a) 22%,#14161d),transparent 70%),radial-gradient(ellipse 60% 70% at 18% 80%,color-mix(in srgb,var(--igs-ts-accent,#ffd98a) 10%,#101218),transparent 72%),linear-gradient(160deg,#16181f,#08090c);transition:background .4s ease;}
 .igs-ts-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.5),rgba(0,0,0,.12) 55%,rgba(0,0,0,0)),linear-gradient(0deg,rgba(0,0,0,.35),transparent 40%);pointer-events:none;}
 .igs-ts-sprite{position:absolute;right:6%;bottom:0;height:92%;max-width:46%;object-fit:contain;object-position:bottom;pointer-events:none;filter:drop-shadow(0 6px 18px rgba(0,0,0,.35));animation:igs-ts-rise .8s ease both;}
 .igs-ts-main{position:absolute;left:7%;top:50%;transform:translateY(-50%);width:min(340px,42%);display:flex;flex-direction:column;gap:18px;padding:26px 26px 22px;background:var(--igs-ts-veil);border-top:1px solid var(--igs-ts-rule);border-bottom:1px solid var(--igs-ts-rule);backdrop-filter:blur(6px);animation:igs-ts-fade .6s ease both;}
@@ -342,29 +341,35 @@ const BASE_STYLE = `
 .igs-ts-btn:disabled{opacity:.5;cursor:default;}
 .igs-ts-close{position:absolute;right:max(10px,env(safe-area-inset-right,0px));top:max(8px,env(safe-area-inset-top,0px));z-index:2;width:36px;height:36px;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:22px;line-height:36px;cursor:pointer;opacity:.7;}
 .igs-ts-close:hover,.igs-ts-close:focus-visible{opacity:1;outline:none;}
-.igs-ts-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(860px,92%);max-height:92%;display:flex;flex-direction:column;gap:12px;padding:18px 20px 16px;background:var(--igs-ts-veil);border-top:1px solid var(--igs-ts-rule);border-bottom:1px solid var(--igs-ts-rule);backdrop-filter:blur(8px);animation:igs-ts-fade .35s ease both;}
-.igs-ts-panel-title{font-size:20px;letter-spacing:.2em;text-shadow:var(--igs-ts-title-halo);}
-.igs-ts-panel-hint{margin-top:4px;font-size:12.5px;line-height:1.6;opacity:.8;}
-.igs-ts-worlds{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;overflow:auto;min-height:0;padding:2px;}
-.igs-ts-world{appearance:none;display:flex;flex-direction:column;gap:7px;min-width:0;padding:10px 10px 9px;border:1px solid color-mix(in srgb,var(--igs-ts-ink) 18%,transparent);border-radius:8px;background:color-mix(in srgb,var(--igs-ts-veil) 55%,transparent);color:inherit;font:inherit;text-align:left;cursor:pointer;transition:border-color .18s ease,box-shadow .18s ease;}
-.igs-ts-world:hover,.igs-ts-world:focus-visible{border-color:var(--igs-ts-accent);outline:none;}
-.igs-ts-world.is-on{border-color:var(--igs-ts-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--igs-ts-accent) 45%,transparent);}
-.igs-ts-world-name{font-size:15px;letter-spacing:.2em;}
-.igs-ts-world-note{font-size:11.5px;line-height:1.5;opacity:.78;}
-.igs-ts-sample{display:block;min-width:0;color:var(--igs-ts-ink);font-family:var(--igs-ts-font,inherit);}
-.igs-ts-sample-box{position:relative;display:flex;flex-direction:column;gap:3px;min-height:52px;padding:8px 10px;background:var(--igs-ts-veil);border-top:1px solid var(--igs-ts-rule);border-bottom:1px solid var(--igs-ts-rule);overflow:hidden;}
-.igs-ts-sample-name{font-size:11px;letter-spacing:.12em;color:var(--igs-ts-accent);text-shadow:var(--igs-ts-halo);}
-.igs-ts-sample-line{font-size:12.5px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:var(--igs-ts-halo);}
-.igs-ts-skins{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
-.igs-ts-skins-label{font-size:13px;letter-spacing:.14em;opacity:.8;margin-right:4px;}
-.igs-ts-chip,.igs-ts-other{appearance:none;min-height:32px;padding:4px 12px;border:1px solid color-mix(in srgb,var(--igs-ts-ink) 25%,transparent);border-radius:999px;background:transparent;color:inherit;font:inherit;font-size:13px;cursor:pointer;}
-.igs-ts-other{padding-right:10px;background:color-mix(in srgb,var(--igs-ts-veil) 70%,transparent);}
-.igs-ts-other option{color:#222;background:#fff;}
-.igs-ts-chip.is-on{border-color:var(--igs-ts-accent);background:color-mix(in srgb,var(--igs-ts-accent) 22%,transparent);}
-.igs-ts-actions{display:flex;justify-content:flex-end;gap:10px;}
-.igs-ts-actions .igs-ts-btn{width:auto;justify-content:center;padding:6px 20px;letter-spacing:.16em;border:1px solid color-mix(in srgb,var(--igs-ts-ink) 25%,transparent);}
-.igs-ts-actions .igs-ts-btn::before{display:none;}
-.igs-ts-actions .igs-ts-btn.is-primary{border-color:var(--igs-ts-accent);background:color-mix(in srgb,var(--igs-ts-accent) 26%,transparent);}
+.igs-ts-pick{position:absolute;left:max(6%,env(safe-area-inset-left,0px));top:9%;bottom:calc(var(--igs-ts-dialog-h,210px) + 30px);display:flex;align-items:center;min-width:0;max-width:60%;animation:igs-ts-fade .35s ease both;}
+.igs-ts-worlds{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;max-height:100%;overflow:auto;scrollbar-width:none;}
+.igs-ts-worlds::-webkit-scrollbar{display:none;}
+.igs-ts-world-name{appearance:none;position:relative;display:flex;align-items:baseline;gap:12px;padding:4px 0 4px 24px;border:0;background:none;color:#fff;font:inherit;font-size:clamp(16px,3cqmin,19px);line-height:1.35;letter-spacing:.3em;text-align:left;text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 16px rgba(0,0,0,.35);opacity:.52;cursor:pointer;transform-origin:0 50%;transition:opacity .25s ease,font-size .32s cubic-bezier(.2,.8,.2,1),transform .28s cubic-bezier(.2,.8,.2,1);}
+.igs-ts-world-name::before{content:"";position:absolute;left:0;top:50%;width:14px;height:1px;background:var(--igs-ts-accent);transform:scaleX(0);transform-origin:left;transition:transform .28s cubic-bezier(.2,.8,.2,1);}
+.igs-ts-world-en{font-size:10px;letter-spacing:.32em;opacity:0;transform:translateX(-6px);transition:opacity .25s ease,transform .28s cubic-bezier(.2,.8,.2,1);}
+.igs-ts-world-name:hover,.igs-ts-world-name:focus-visible{opacity:.9;outline:none;transform:scale(1.14);}
+.igs-ts-world-name:hover .igs-ts-world-en,.igs-ts-world-name:focus-visible .igs-ts-world-en{opacity:.55;transform:none;}
+.igs-ts-world.is-on .igs-ts-world-name{opacity:1;font-size:clamp(22px,5cqmin,32px);letter-spacing:.24em;transform:none;}
+.igs-ts-world.is-on .igs-ts-world-name::before{transform:scaleX(1);}
+.igs-ts-world.is-on .igs-ts-world-en{opacity:.7;transform:none;color:var(--igs-ts-accent);}
+.igs-ts-mark{position:absolute;right:4%;top:44%;transform:translateY(-50%);font-size:clamp(56px,15cqw,190px);font-weight:800;line-height:1;letter-spacing:.04em;color:transparent;-webkit-text-stroke:1px color-mix(in srgb,var(--igs-ts-accent) 38%,transparent);opacity:.55;pointer-events:none;white-space:nowrap;animation:igs-ts-fade .5s ease both;}
+.igs-ts-skins{display:flex;flex-wrap:wrap;align-items:center;gap:2px 18px;padding:0 0 10px 24px;animation:igs-ts-fade .3s ease both;}
+.igs-ts-skin{appearance:none;position:relative;display:inline-flex;align-items:center;min-height:30px;padding:0;border:0;background:none;color:#fff;font:inherit;font-size:13.5px;letter-spacing:.16em;text-shadow:0 1px 3px rgba(0,0,0,.85);opacity:.6;cursor:pointer;transform-origin:0 50%;transition:opacity .2s ease,transform .25s cubic-bezier(.2,.8,.2,1);}
+.igs-ts-skin:hover,.igs-ts-skin:focus-within,.igs-ts-skin:focus-visible{opacity:.95;outline:none;transform:scale(1.08);}
+.igs-ts-skin.is-on{opacity:1;}
+.igs-ts-skin.is-on::after{content:"";position:absolute;left:0;right:.14em;bottom:4px;height:1px;background:var(--igs-ts-accent);}
+.igs-ts-more select{position:absolute;inset:0;width:100%;opacity:0;cursor:pointer;font-size:16px;}
+.igs-ts-more option{color:#222;background:#fff;}
+.igs-ts-actions{position:absolute;right:max(5%,env(safe-area-inset-right,0px));top:max(14px,env(safe-area-inset-top,0px));display:flex;align-items:center;gap:24px;animation:igs-ts-fade .35s ease both;}
+.igs-ts-link{appearance:none;display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0;border:0;background:none;color:#fff;font:inherit;font-size:15px;letter-spacing:.24em;text-shadow:0 1px 3px rgba(0,0,0,.85);opacity:.7;cursor:pointer;transition:opacity .18s ease;}
+.igs-ts-link:hover:not(:disabled),.igs-ts-link:focus-visible{opacity:1;outline:none;}
+.igs-ts-link.is-primary{opacity:1;font-size:17px;}
+.igs-ts-link.is-primary span{color:var(--igs-ts-accent);font-size:1.2em;transition:transform .18s ease;}
+.igs-ts-link.is-primary:hover span{transform:translateX(3px);}
+.igs-ts-link:disabled{opacity:.4;cursor:default;}
+.igs-ts-stage{position:absolute;inset:0;pointer-events:none;}
+#${TITLE_SCREEN_ID} .igs-ts-preview{pointer-events:none;transition:none;animation:igs-ts-fade .3s ease both;}
+#${TITLE_SCREEN_ID}[data-igs-title-view="worldview"] .igs-ts-shade{background:linear-gradient(90deg,rgba(0,0,0,.55),rgba(0,0,0,.16) 42%,rgba(0,0,0,0) 70%),linear-gradient(180deg,rgba(0,0,0,.32),transparent 22%);}
 .igs-ts-backdrop{position:absolute;inset:0;background:#000;animation:igs-ts-fade .4s ease both;}
 #${TITLE_SCREEN_ID} .igs-fx-title-card{top:40%;z-index:1;pointer-events:none;}
 @keyframes igs-ts-fade{from{opacity:0;}to{opacity:1;}}
@@ -374,21 +379,24 @@ const BASE_STYLE = `
   .igs-ts-main{left:4%;right:4%;top:auto;bottom:max(14px,env(safe-area-inset-bottom,0px));transform:none;width:auto;gap:12px;padding:16px 16px 12px;}
   .igs-ts-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 8px;}
   .igs-ts-btn{min-height:44px;font-size:16px;letter-spacing:.16em;}
-  .igs-ts-panel{width:96%;max-height:96%;padding:14px 12px 12px;gap:10px;}
-  .igs-ts-worlds{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
-  .igs-ts-panel-hint{font-size:12px;}
+  #${TITLE_SCREEN_ID}[data-igs-title-view="worldview"] .igs-ts-sprite{opacity:.4;}
+  .igs-ts-pick{left:5%;top:max(60px,8%);max-width:90%;align-items:flex-start;}
+  .igs-ts-world-name{font-size:19px;letter-spacing:.26em;padding:5px 0 5px 20px;}
+  .igs-ts-world.is-on .igs-ts-world-name{font-size:30px;}
+  .igs-ts-mark{top:6%;right:1%;transform:none;writing-mode:vertical-rl;font-size:min(22cqw,9.5cqh);letter-spacing:0;}
+  .igs-ts-skins{padding-left:20px;gap:0 16px;}
 }
 @container (max-height:420px){
   .igs-ts-main{gap:10px;padding:14px 18px 12px;}
   .igs-ts-btn{min-height:34px;}
-  .igs-ts-panel{gap:8px;padding:12px 16px 10px;}
-  .igs-ts-panel-title{font-size:17px;}
-  .igs-ts-panel-hint{display:none;}
-  .igs-ts-worlds{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;}
-  .igs-ts-world{gap:4px;padding:6px 8px;}
-  .igs-ts-world-name{font-size:13px;}
-  .igs-ts-world-note{display:none;}
-  .igs-ts-sample-box{min-height:0;gap:1px;padding:4px 8px;}
+  .igs-ts-pick{top:max(8px,env(safe-area-inset-top,0px));left:4%;right:4%;max-width:none;bottom:auto;align-items:flex-start;}
+  .igs-ts-worlds{flex-direction:row;flex-wrap:wrap;gap:0 14px;padding-right:140px;}
+  .igs-ts-world{display:contents;}
+  .igs-ts-world-name{font-size:15px;letter-spacing:.2em;padding:3px 0 3px 16px;}
+  .igs-ts-world.is-on .igs-ts-world-name{font-size:18px;}
+  .igs-ts-world-en,.igs-ts-mark{display:none;}
+  .igs-ts-skins{order:99;flex-basis:100%;padding:0 0 0 16px;}
+  .igs-ts-actions{top:max(4px,env(safe-area-inset-top,0px));gap:16px;}
 }
 @media (prefers-reduced-motion:reduce){
   #${TITLE_SCREEN_ID} *{animation-duration:.01ms!important;transition:none!important;}

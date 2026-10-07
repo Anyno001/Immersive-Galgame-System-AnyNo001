@@ -3597,9 +3597,11 @@ export function createIgsReaderHost(options = {}) {
         const overlay = current && current.dom && current.dom.overlay;
         if (!overlay || !current.titleGate || current.titleGate.view === 'opening') return;
         const snapshot = current.snapshot;
-        applyTitleSkin(overlay, snapshot.readerSettings);
+        const model = titleModelOf(current);
+        // 世界观页底部是所选皮肤的真对话框：先按正在选的皮肤挂样式，确认前不写设置。
+        applyTitleSkin(overlay, model.view === 'worldview' ? { ...snapshot.readerSettings, dialogSkin: model.pick.skin } : snapshot.readerSettings);
         pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
-        renderTitleScreen(overlay, titleModelOf(current), {
+        renderTitleScreen(overlay, model, {
             onAction: (act, value) => { void handleTitleAction(current, act, value); },
         });
         playTitleBgm(overlay, snapshot);

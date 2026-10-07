@@ -3,19 +3,16 @@ import { buildDialogFrameCss, scalePx } from './dialog-skin-frame.js';
 export const DIALOG_SKIN_WASTELAND_RUST = 'wasteland-rust';
 
 // 废土锈铁：一块从废墟里拆下来的铁皮。暗钢底上几团锈斑从角落往里吃，四角各一颗铆钉，内圈一道虚线焊缝，
-// 右下一截黄黑警示条；姓名写在一条斜贴的旧胶带上，像幸存者随手做的标签。装饰全压在边上，正文区只有钢底。
+// 右下一截黄黑警示条；姓名用喷漆模板字直接喷在铁皮左上，前面一小段警示条，边缘带一圈飞漆。装饰全压在边上，正文区只有钢底。
 const RUST = '150,72,30';
 const SOOT = '#1b1915';
 const TAPE = '#d6c6a0';
 const INK = '#ece3cf';
 export const WASTELAND_HAZARD = '#e3ae2f';
-export const WASTELAND_TAPE = TAPE;
 export const wastelandRust = (alpha) => `rgba(${RUST},${alpha})`;
 const rust = wastelandRust;
 export const WASTELAND_STEEL = 'linear-gradient(180deg,#3b372f,#2a2722 60%,#211e1a)';
 export const wastelandStripes = (size) => `repeating-linear-gradient(-45deg,${WASTELAND_HAZARD} 0 ${size}px,${SOOT} ${size}px ${size * 2}px)`;
-// 撕开的胶带两端：锯齿边裁出来，中段保持直边。
-export const WASTELAND_TAPE_CLIP = 'clip-path:polygon(0 10%,4% 0,9% 7%,50% 2%,92% 6%,97% 0,100% 12%,98% 50%,100% 88%,95% 100%,50% 96%,6% 100%,0 90%,2% 50%);';
 const overlayScope = `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_WASTELAND_RUST}"]`;
 const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${DIALOG_SKIN_WASTELAND_RUST}"]`;
 
@@ -36,10 +33,10 @@ const BLOTCHES = [
 export const WASTELAND_DIALOG_STYLE = [
     buildDialogFrameCss(DIALOG_SKIN_WASTELAND_RUST, {
         height: 188,
-        text: { top: 28, speakerTop: 42, right: 46, bottom: 26, left: 46 },
-        rise: 17,
+        text: { top: 28, speakerTop: 50, right: 46, bottom: 26, left: 46 },
+        rise: 0,
         frameCss: `background:${RIVETS},${BLOTCHES},${GRIME},${WASTELAND_STEEL};background-size:auto,auto,auto,auto,auto,auto,auto,140px 140px,auto;border:2px solid ${SOOT};border-radius:3px;box-shadow:inset 0 1px 0 rgba(255,236,200,.1),inset 0 -2px 0 rgba(0,0,0,.35),0 4px 14px rgba(0,0,0,.5);-webkit-backdrop-filter:none;backdrop-filter:none;`,
-        speakerCss: `left:36px;top:-17px;width:max-content;min-width:112px;max-width:calc(100% - 72px);height:34px;line-height:34px;margin:0;padding:0 24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(180deg,rgba(255,255,255,.16),transparent 45%,rgba(90,70,40,.14)),${TAPE};border:0;border-radius:0;box-shadow:none;transform:rotate(-1.6deg);${WASTELAND_TAPE_CLIP}font-size:18px;font-weight:400;letter-spacing:.16em;text-shadow:none;`,
+        speakerCss: `left:36px;top:14px;width:max-content;max-width:calc(100% - 72px);height:28px;line-height:28px;margin:0;padding:0 0 0 34px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:${wastelandStripes(5)} left center/22px 10px no-repeat;border:0;border-radius:0;box-shadow:none;font-size:20px;font-weight:700;letter-spacing:.28em;text-shadow:0 0 1px rgba(233,220,191,.9),0 0 5px rgba(233,220,191,.32),0 0 12px rgba(233,220,191,.12),0 2px 0 rgba(0,0,0,.55);`,
         textCss: 'letter-spacing:.05em;text-shadow:0 1px 0 rgba(0,0,0,.9),0 0 2px rgba(0,0,0,.7);',
     }),
     // 内圈虚线焊缝；右下一截黄黑警示条，左端化开，压在正文安全区下方。
@@ -64,13 +61,13 @@ const s = (value) => `calc(${value}px * var(--igs-hud-scale,1))`;
 const ring = (color, width) => `drop-shadow(${width}px 0 0 ${color}) drop-shadow(-${width}px 0 0 ${color}) drop-shadow(0 ${width}px 0 ${color}) drop-shadow(0 -${width}px 0 ${color})`;
 const panel = (alpha) => `background:radial-gradient(ellipse 40% 80% at 100% 100%,${rust('.35')},transparent 70%),linear-gradient(180deg,rgba(59,55,47,${alpha}),rgba(33,30,26,${alpha}));border:1.5px solid ${SOOT};border-radius:${s(3)};box-shadow:inset 0 1px 0 rgba(255,236,200,.1),0 2px 8px rgba(0,0,0,.4);`;
 
-// 状态栏零件：锈铁小牌、胶带情绪签、头像一圈黑边、右下一枚警示三角。
+// 状态栏零件：锈铁小牌、黄框喷字情绪签、头像一圈黑边、右下一枚警示三角。
 export const WASTELAND_HUD_THEME = Object.freeze({
     neutral: '#8f826b',
     panel: panel(0.9),
     toast: `${panel(0.95)}color:${INK};text-shadow:0 1px 0 rgba(0,0,0,.9);`,
     ink: INK,
-    emotion: `padding:0 ${s(10)};border:0;border-radius:0;background:${TAPE};color:${SOOT};letter-spacing:.14em;text-shadow:none;${WASTELAND_TAPE_CLIP}`,
+    emotion: `padding:0 ${s(10)};border:1px solid ${WASTELAND_HAZARD};border-radius:0;background:rgba(0,0,0,.35);color:${WASTELAND_HAZARD};letter-spacing:.16em;text-shadow:0 0 4px rgba(227,174,47,.35);`,
     avatar: `filter:${ring(SOOT, 1.5)};`,
     badge: `content:"";position:absolute;right:${s(-3)};bottom:${s(-3)};width:${s(10)};height:${s(10)};background:${WASTELAND_HAZARD};-webkit-mask:${WASTELAND_HAZARD_MASK} center/contain no-repeat;mask:${WASTELAND_HAZARD_MASK} center/contain no-repeat;`,
     placeholder: `background:linear-gradient(180deg,#3b372f,#211e1a);color:${TAPE};`,

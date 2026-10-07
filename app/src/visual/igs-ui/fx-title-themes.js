@@ -5,7 +5,7 @@ import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiHolo } from './dialog-theme-scifi.js';
-import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_TAPE, WASTELAND_TAPE_CLIP, wastelandStripes } from './dialog-theme-wasteland.js';
+import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_HAZARD, wastelandStripes } from './dialog-theme-wasteland.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -83,10 +83,10 @@ const TITLE_EXTRAS = Object.freeze({
         `${s} .igs-fx-title-main::before,${s} .igs-fx-title-main::after{${mark(11, SCIFI_HOLO, SCIFI_RETICLE_MASK)}filter:drop-shadow(0 0 3px ${scifiHolo('.8')});}`,
         `${s} .igs-fx-title-sub{color:${scifiHolo('.9')};letter-spacing:.3em;}`,
     ],
-    // 废土锈铁：锈铁卡底边一条黄黑警示条，时间写在一截撕开的胶带上。
+    // 废土锈铁：锈铁卡底边一条黄黑警示条，时间像喷漆字一样拉开字距。
     [DIALOG_SKIN_WASTELAND_RUST]: (s) => [
         `${s}::after{display:block;content:"";position:absolute;left:0;right:0;top:auto;bottom:0;width:auto;height:5px;margin:0;transform:none;opacity:.9;background:${wastelandStripes(6)};}`,
-        `${s} .igs-fx-title-sub{margin-top:6px;padding:1px 14px;background:${WASTELAND_TAPE};color:#1b1915;text-shadow:none;letter-spacing:.14em;opacity:1;${WASTELAND_TAPE_CLIP}}`,
+        `${s} .igs-fx-title-sub{margin-top:6px;color:${WASTELAND_HAZARD};letter-spacing:.3em;text-indent:.3em;text-shadow:0 0 5px rgba(227,174,47,.3),0 2px 0 rgba(0,0,0,.6);opacity:1;}`,
     ],
 });
 

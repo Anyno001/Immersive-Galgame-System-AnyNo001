@@ -142,7 +142,7 @@ test('title-screen:menu-and-worldview-page-render-and-dispatch-clicks', () => {
     assert.equal(layer.getAttribute(TITLE_SKIN_ATTR), 'horror-psych', '世界观页按正在选的皮肤着色');
     assert.equal((layer.innerHTML.match(/data-ts-act="world:/g) || []).length, 8, '8 个世界观各一张卡');
     assert.match(layer.innerHTML, /data-ts-act="skin:horror-gore"/);
-    assert.match(layer.innerHTML, /就这样，开始/);
+    assert.match(layer.innerHTML, /data-ts-act="confirm"[^>]*>开始/);
 
     layer.fire('click', clickOn('world:scifi'));
     layer.fire('click', clickOn('confirm'));

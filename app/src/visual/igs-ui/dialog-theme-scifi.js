@@ -22,11 +22,13 @@ export const SCIFI_RETICLE_MASK = svgUrl('<svg xmlns="http://www.w3.org/2000/svg
 const bar = (at, size) => `linear-gradient(${holo('.95')},${holo('.95')}) ${at}/${size} no-repeat`;
 export const SCIFI_CORNERS = (len, width) => ['left top', 'right top', 'left bottom', 'right bottom']
     .map((at) => `${bar(at, `${len}px ${width}px`)},${bar(at, `${width}px ${len}px`)}`).join(',');
-export const SCIFI_GLASS = `linear-gradient(180deg,${deep('.86')},${deep('.93')})`;
+export const SCIFI_GLASS = `linear-gradient(180deg,${deep('.8')},${deep('.62')})`;
 const SCAN = `repeating-linear-gradient(180deg,${holo('.045')} 0 1px,transparent 1px 4px)`;
 const TOP_BEAM = `linear-gradient(90deg,${holo('.9')},${holo('.5')} 36%,${holo(0)} 78%) left top/100% 1px no-repeat`;
 const BOTTOM_BEAM = `linear-gradient(90deg,${holo(0)},${holo('.32')} 30%,${holo('.32')} 70%,${holo(0)}) left bottom/100% 1px no-repeat`;
 const GLOW = `radial-gradient(ellipse 60% 120% at 0% 0%,${holo('.12')},transparent 70%)`;
+// 透明面板：上下边与两侧收成深色，中段只剩一层薄纱，舞台从框里透出来。
+const PANE = `linear-gradient(90deg,${deep('.55')},${deep(0)} 14%,${deep(0)} 86%,${deep('.55')}),linear-gradient(180deg,${deep('.9')},${deep('.42')} 24%,${deep('.3')} 55%,${deep('.5')} 85%,${deep('.88')})`;
 const READOUT_FONT = '"Source Han Sans CN","Microsoft YaHei",sans-serif';
 
 export const SCIFI_DIALOG_STYLE = [
@@ -34,9 +36,9 @@ export const SCIFI_DIALOG_STYLE = [
         height: 184,
         text: { top: 28, speakerTop: 40, right: 48, bottom: 22, left: 48 },
         rise: 15,
-        frameCss: `background:${TOP_BEAM},${BOTTOM_BEAM},${SCAN},${GLOW},${SCIFI_GLASS};border:1px solid ${holo('.28')};border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.35),0 0 22px ${holo('.14')},inset 0 0 28px ${holo('.07')};-webkit-backdrop-filter:none;backdrop-filter:none;`,
-        speakerCss: `left:40px;top:-15px;width:max-content;min-width:120px;max-width:calc(100% - 80px);height:30px;line-height:30px;margin:0;padding:0 22px 0 18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(90deg,${holo('.3')},${holo('.1')} 70%,${holo('.04')});border:0;border-left:3px solid ${holo(1)};border-radius:0;box-shadow:inset 0 -1px 0 ${holo('.7')},0 0 12px ${holo('.18')};font-size:17px;font-weight:600;letter-spacing:.16em;text-shadow:0 0 8px ${holo('.65')};`,
-        textCss: `letter-spacing:.05em;text-shadow:0 0 6px ${holo('.22')},0 1px 2px rgba(0,0,0,.85);`,
+        frameCss: `background:${TOP_BEAM},${BOTTOM_BEAM},${SCAN},${GLOW},${PANE};border:1px solid ${holo('.28')};border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.35),0 0 22px ${holo('.14')},inset 0 0 28px ${holo('.07')};-webkit-backdrop-filter:none;backdrop-filter:none;`,
+        speakerCss: `left:40px;top:-15px;width:max-content;min-width:120px;max-width:calc(100% - 80px);height:30px;line-height:30px;margin:0;padding:0 22px 0 18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(90deg,${holo('.22')},${holo('.06')} 70%,transparent);border:0;border-left:3px solid ${holo(1)};-webkit-backdrop-filter:none;backdrop-filter:none;border-radius:0;box-shadow:inset 0 -1px 0 ${holo('.7')},0 0 12px ${holo('.18')};font-size:17px;font-weight:600;letter-spacing:.16em;text-shadow:0 0 8px ${holo('.65')};`,
+        textCss: `letter-spacing:.05em;text-shadow:0 0 6px ${holo('.25')},0 1px 2px rgba(0,0,0,.95),0 0 10px rgba(0,0,0,.55);`,
     }),
     scalePx(`${scope}::before{content:"";position:absolute;inset:-1px;background:${SCIFI_CORNERS(18, 2)};pointer-events:none;}`),
     scalePx(`${scope}::after{content:"COMM \\25B8  01";position:absolute;right:24px;top:9px;font-family:${READOUT_FONT};font-size:10px;font-weight:600;line-height:1;letter-spacing:.32em;color:${holo('.5')};pointer-events:none;}`),
