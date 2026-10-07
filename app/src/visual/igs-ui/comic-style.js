@@ -13,6 +13,7 @@ ${C} #igs-dialog::before,${C} #igs-dialog::after{content:none!important;display:
 ${C} #igs-dialog>:not(.igs-comic-group):not(.igs-comic-ghost):not(.igs-controls){display:none!important;}
 ${C} #igs-dialog .igs-controls{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:min(560px,calc(100% - 40px));box-sizing:border-box;pointer-events:auto;margin:0;padding:8px 10px;border-radius:14px;box-shadow:none;}
 ${CI} #igs-dialog .igs-controls{background:var(--igs-comic-paper);border:2.5px solid var(--igs-comic-ink);}
+${C}:not(.igs-awaiting-reply) #igs-dialog .igs-controls[data-igs-comic-sent="1"]{display:none!important;}
 ${C}[data-igs-comic-input="plain"] #igs-dialog .igs-controls{background:var(--igs-dialog-bg,var(--igs-glass-bg,rgba(31,34,37,.62)));border:0;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);}
 ${CI} #igs-dialog .igs-input{background:transparent;color:var(--igs-comic-text);border:1.5px solid color-mix(in srgb,var(--igs-comic-ink) 35%,transparent);}
 ${CI} #igs-dialog .igs-input::placeholder{color:color-mix(in srgb,var(--igs-comic-text) 50%,transparent);}

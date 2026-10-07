@@ -330,13 +330,15 @@ export function buildFallbackReaderOverlay(doc) {
     sendStatus.setAttribute('aria-live', 'polite');
     controls.appendChild(sendStatus);
 
-    const spinner = doc.createElement('span');
-    spinner.className = 'igs-spinner';
-    sendStatus.appendChild(spinner);
+    for (let i = 0; i < 3; i += 1) {
+        const dot = doc.createElement('span');
+        dot.className = 'igs-send-status-dot';
+        sendStatus.appendChild(dot);
+    }
 
     const sendStatusText = doc.createElement('span');
     sendStatusText.id = 'igs-send-status-text';
-    sendStatusText.textContent = '已发送，等待 AI 回复…';
+    sendStatusText.textContent = '正在生成…';
     sendStatus.appendChild(sendStatusText);
 
     const input = doc.createElement('input');
@@ -1681,7 +1683,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (controls) {
         // 内嵌模式使用酒馆默认输入框；其它模式的 IGS 输入区只在最后一页显示。
         const comicSent = isComicModeActive(snapshot.readerSettings) && current.comicInputSent && current.comicInputSent === comicContentKey(snapshot);
-        controls.style.display = snapshot.mode === 'embedded' || comicSent ? 'none' : (isLastPage ? '' : 'none');
+        controls.style.display = snapshot.mode === 'embedded' ? 'none' : (isLastPage ? '' : 'none');
+        if (comicSent) controls.setAttribute('data-igs-comic-sent', '1');
+        else controls.removeAttribute('data-igs-comic-sent');
     }
     applyStatusHudToDom(root, snapshot);
     applyBgmNoteToDom(root, sceneAudio.track);

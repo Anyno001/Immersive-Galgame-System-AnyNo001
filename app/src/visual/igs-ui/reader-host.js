@@ -571,7 +571,7 @@ export function createIgsReaderHost(options = {}) {
             startEmbeddedStoryWatch();
         } else {
             stopEmbeddedStoryWatch();
-            if (nextMode === 'fullscreen') streamObserver.start();
+            if (followsHostReply(nextMode)) streamObserver.start();
             else streamObserver.stop();
         }
 
@@ -611,7 +611,7 @@ export function createIgsReaderHost(options = {}) {
         if (current.titleGate && Number(current.contentMessageId) !== 0) dropTitleGate(current);
         updateMountedReader(merged);
         exitEmbeddedLoading();
-        if ((isEmbeddedReaderMode(mode) || mode === 'fullscreen') && current.turnOffset === 0) startReaderImagePolling(current);
+        if ((isEmbeddedReaderMode(mode) || followsHostReply(mode)) && current.turnOffset === 0) startReaderImagePolling(current);
         return {
             ok: true,
             mode,
@@ -913,7 +913,12 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function tracksHostReply(mode) {
-        return isEmbeddedReaderMode(mode) || mode === 'fullscreen';
+        return isEmbeddedReaderMode(mode) || followsHostReply(mode);
+    }
+
+    // 全屏与网页全屏：发送后在输入栏显示「正在生成」，新回复写完原地换源。
+    function followsHostReply(mode) {
+        return mode === 'fullscreen' || mode === 'web';
     }
 
     function handleChatStreamActivity() {
@@ -1025,13 +1030,13 @@ export function createIgsReaderHost(options = {}) {
             new Promise((resolve) => setTimeout(resolve, 5000)),
         ]);
         if (!message || message.id == null) {
-            if (current.mode === 'fullscreen' && current.awaitingReply && !streamObserver.hasGenerationSettled()) return false;
+            if (followsHostReply(current.mode) && current.awaitingReply && !streamObserver.hasGenerationSettled()) return false;
             exitEmbeddedLoading();
             return true;
         }
         // 全屏：用户还停在这一楼。正文比对稍有出入也不能重开，重开会把页码打回第一页并清掉等待提示。
         // 生成没结束就继续等；结束了仍是这一楼，只收起提示，留在当前页。新楼写完再切过去。
-        if (current.mode === 'fullscreen' && current.awaitingReply) {
+        if (followsHostReply(current.mode) && current.awaitingReply) {
             const newFloor = Number(message.id) !== Number(current.contentMessageId);
             if (!streamObserver.hasGenerationSettled() || !newFloor) {
                 if (!streamObserver.hasGenerationSettled()) return false;
@@ -1067,7 +1072,7 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function enterReplyWait(current) {
-        if (!current || current.mode !== 'fullscreen') return;
+        if (!current || !followsHostReply(current.mode)) return;
         if (current.streamPhase !== 'streaming') {
             current.imagePollToken += 1;
             current.imagePolling = false;
@@ -1159,13 +1164,13 @@ export function createIgsReaderHost(options = {}) {
             (doc.documentElement || doc.body).appendChild(root);
             teardownEmbeddedMount(current.dom.embeddedMount);
             current.dom.embeddedMount = null;
-            if (mode === 'fullscreen') {
+            if (followsHostReply(mode)) {
                 streamObserver.start();
                 if (wasStreaming) enterReplyWait(current);
             } else streamObserver.stop();
             return;
         }
-        if (mode === 'fullscreen') {
+        if (followsHostReply(mode)) {
             streamObserver.start();
             return;
         }
@@ -1244,7 +1249,7 @@ export function createIgsReaderHost(options = {}) {
     async function submitReaderInput(text) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
         const embedded = isEmbeddedReaderMode(state.activeReader.mode);
-        const fullscreen = state.activeReader.mode === 'fullscreen';
+        const fullscreen = followsHostReply(state.activeReader.mode);
         if (embedded) enterEmbeddedLoading();
         else if (fullscreen) enterReplyWait(state.activeReader);
         const nextText = String(firstDefined(text, state.activeReader.inputValue, '') || '');
@@ -1261,7 +1266,7 @@ export function createIgsReaderHost(options = {}) {
             state.activeReader.comicInputSent = comicContentKey(sentSnapshot);
             const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
             const controls = overlay && overlay.querySelector ? overlay.querySelector('.igs-controls') : null;
-            if (controls && controls.style) controls.style.display = 'none';
+            if (controls && controls.setAttribute) controls.setAttribute('data-igs-comic-sent', '1');
         }
         if (state.activeReader.dom && state.activeReader.dom.input) {
             state.activeReader.dom.input.value = '';
