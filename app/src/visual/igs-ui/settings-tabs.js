@@ -159,6 +159,7 @@ const IMAGE_CG_TEMPLATE = `
     <div class="igs-cg-actions">
       <div class="igs-cg-actions-row"><span class="igs-cg-actions-label">查看</span>
         <button class="igs-settings-action" data-action="image-cg-refresh" type="button">刷新</button>
+        <button class="igs-settings-action" data-action="image-cg-order" type="button" aria-pressed="{{imageCgOldestFirst}}" title="倒序：切换最新在前 / 最早在前">{{imageCgOrderLabel}}</button>
         <button class="igs-settings-action" data-action="open-cg-gallery" type="button">收藏隐藏</button>
         <button class="igs-settings-action" data-action="image-cache-clear" type="button">清缓存</button>
       </div>

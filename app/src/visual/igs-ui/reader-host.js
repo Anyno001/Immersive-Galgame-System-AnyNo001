@@ -1798,6 +1798,7 @@ export function createIgsReaderHost(options = {}) {
             return true;
         };
         const view = createCgLibraryView(service, {
+            storage: (options.global || globalThis).localStorage,
             onChange: (type, key) => {
                 if (!live()) return;
                 if (type === 'thumb') {
@@ -2235,6 +2236,7 @@ export function createIgsReaderHost(options = {}) {
         if (!overlay || !overlay.ownerDocument || !options.cgGallery) return { ok: false, reason: 'cg-gallery-unavailable' };
         const panel = createCgGalleryPanel(overlay.ownerDocument, {
             service: options.cgGallery,
+            storage: (options.global || globalThis).localStorage,
             getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
             confirm: (message) => pageModal.confirm(message),
             onJump: (entry) => {
@@ -3742,6 +3744,8 @@ export function createIgsReaderHost(options = {}) {
                 imageCacheCountField: field('bridge.imageCache.maxCount', '本地缓存张数', numberInput('bridge.imageCache.maxCount', normalizeImageCacheCount(bridge.imageCache && bridge.imageCache.maxCount), 1, 2000)),
                 imageCgStatus: esc(asyncState.imageCgStatus || ''),
                 imageCgList: imageSubTab === 'cg' ? renderImageCgList() : '',
+                imageCgOldestFirst: String(Boolean(asyncState.imageCg && asyncState.imageCg.state.filters.oldestFirst)),
+                imageCgOrderLabel: asyncState.imageCg && asyncState.imageCg.state.filters.oldestFirst ? '最早在前' : '最新在前',
                 imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS内置NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬'], ['baibai', '柏宝绘']], '图像来源')),
                 imageSourceNote: esc(sourceNotes[sourceMode]),
                 imageContentNote: esc(contentNotes[sourceMode]),

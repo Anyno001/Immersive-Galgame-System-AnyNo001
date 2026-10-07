@@ -6,6 +6,16 @@ import { CG_PAGE_SIZE, cgPageSlice, cgReasonText, filterCgEntries } from '../../
 
 const THUMB_MEMORY = 240;
 const THUMB_WORKERS = 3;
+const ORDER_KEY = 'igs:cg-order:v1';
+
+// 排序偏好工具栏面板和设置页共用（options.storage）；读写失败按默认的最新在前。
+function readOldestFirst(storage) {
+    try { return Boolean(storage && storage.getItem(ORDER_KEY) === 'oldest'); } catch { return false; }
+}
+
+function writeOldestFirst(storage, on) {
+    try { if (storage) storage.setItem(ORDER_KEY, on ? 'oldest' : 'newest'); } catch { /* 存不下就只在这次打开里生效 */ }
+}
 
 export function createCgLibraryView(library, options = {}) {
     const pageSize = Number(options.pageSize) > 0 ? Number(options.pageSize) : CG_PAGE_SIZE;
@@ -16,7 +26,7 @@ export function createCgLibraryView(library, options = {}) {
         syncNote: '',
         notice: '',
         error: '',
-        filters: { favoritesOnly: false, showHidden: false, chatId: '' },
+        filters: { favoritesOnly: false, showHidden: false, chatId: '', oldestFirst: readOldestFirst(options.storage) },
         all: [],
         list: [],
         page: 0,
@@ -199,6 +209,7 @@ export function createCgLibraryView(library, options = {}) {
 
     function setFilters(patch) {
         state.filters = { ...state.filters, ...patch };
+        if (patch && Object.hasOwn(patch, 'oldestFirst')) writeOldestFirst(options.storage, state.filters.oldestFirst);
         state.page = 0;
         recompute();
         emit('list');

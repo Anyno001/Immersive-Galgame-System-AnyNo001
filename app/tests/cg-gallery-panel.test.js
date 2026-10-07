@@ -159,6 +159,38 @@ test('cg-gallery-panel:pages-through-the-library-newest-first', async () => {
     panel.close();
 });
 
+// 倒序：最早的在前，回到第一页；偏好记在 storage 里，下次打开（设置页也一样）沿用。
+test('cg-gallery-panel:order-toggle-shows-oldest-first-and-is-remembered', async () => {
+    const illustrationStore = createMemoryIllustrationStore();
+    for (let i = 0; i < 30; i += 1) {
+        await illustrationStore.putSlot(`chat-1|${i}|0`, { slot: 1, status: 'done', dataUrl: `data:image/png;base64,${i}`, updatedAt: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString() });
+    }
+    const service = createCgLibrary({ illustrationStore, indexStore: createMemoryCgIndexStore(), clearIllustration: async () => ({ ok: true }) });
+    const saved = new Map();
+    const storage = { getItem: (k) => (saved.has(k) ? saved.get(k) : null), setItem: (k, v) => saved.set(k, String(v)) };
+    const doc = fakeDoc();
+    const container = doc.createElement('div');
+    const panel = createCgGalleryPanel(doc, { service, storage, getChatId: () => 'chat-1' });
+    panel.open(container);
+    await panel.whenIdle();
+    assert.match(container.children[0].innerHTML, /data-cg-act="order" aria-pressed="false">最新在前/);
+    container.children[0].listeners.get('click')({ target: button('page-next') });
+    await panel.whenIdle();
+    container.children[0].listeners.get('click')({ target: button('order') });
+    await panel.whenIdle();
+    const html = container.children[0].innerHTML;
+    assert.equal(panel.getState().page, 0, '换顺序回到第一页');
+    assert.match(html, /data-cg-act="order" aria-pressed="true">最早在前/);
+    assert.ok(html.indexOf('第 0 楼') >= 0 && html.indexOf('第 0 楼') < html.indexOf('第 1 楼'), '最早的在最前');
+    assert.doesNotMatch(html, /第 29 楼/);
+    panel.close();
+    const again = createCgGalleryPanel(doc, { service, storage, getChatId: () => 'chat-1' });
+    again.open(container);
+    await again.whenIdle();
+    assert.equal(again.getState().filters.oldestFirst, true, '下次打开沿用');
+    again.close();
+});
+
 test('cg-gallery-panel:missing-service-shows-unavailable-without-throwing', async () => {
     const doc = fakeDoc();
     const container = doc.createElement('div');

@@ -2338,6 +2338,16 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 生图 › CG 库「倒序」：最新在前 / 最早在前，回到第一页；和翻页一样清掉勾选，免得删掉看不见的格子。
+    if (normalizedAction === 'image-cg-order') {
+        const asyncState = settingsState.asyncState;
+        const view = asyncState.imageCg;
+        if (!view) return rerenderSettings();
+        if (asyncState.imageCgSelected instanceof Set) asyncState.imageCgSelected.clear();
+        view.setFilters({ oldestFirst: !view.state.filters.oldestFirst });
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'image-cache-clear') {
         await localImageCacheFor(options.global || globalThis).clear();
         resetCgView(settingsState.asyncState);

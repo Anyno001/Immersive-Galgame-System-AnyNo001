@@ -309,6 +309,7 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-review-link:hover,.igs-review-link:focus-visible,.igs-review-clear:hover,.igs-review-clear:focus-visible{color:var(--igs-settings-ink);background:var(--igs-settings-raised);outline:none}
 .igs-image-cg-page{display:flex;align-items:center;min-height:32px;color:var(--igs-settings-ink-3);font-size:12px}
 .igs-image-cg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;min-width:0}
+.igs-image-cg-grid>:not(.igs-image-cg-tile){grid-column:1/-1}
 .igs-image-cg-tile{position:relative;display:flex;flex-direction:column;gap:4px;min-width:0;color:var(--igs-settings-ink-3);font-size:11px;line-height:16px}
 .igs-image-cg-check{position:absolute;top:4px;left:4px;z-index:1;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:rgba(0,0,0,.45)}
 .igs-image-cg-check input{width:16px;height:16px;margin:0}

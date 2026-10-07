@@ -118,6 +118,14 @@ test('gate:settings-polish:advanced-details-drop-sub-border', async () => {
     assert.match(getImageSubTabTemplate('source'), /<details class="igs-settings-sub igs-settings-advanced" data-advanced="nai"/);
 });
 
+// CG 库：「查看」行有倒序切换；翻页条和状态行在缩略图网格里独占一整行，不再被挤进一个格子竖排。
+test('gate:settings-polish:cg-pane-order-toggle-and-full-width-pager', async () => {
+    const { getSettingsStyleText } = await import('../src/visual/igs-ui/settings-style.js');
+    const cg = getImageSubTabTemplate('cg');
+    assert.match(cg, /data-action="image-cg-order" type="button" aria-pressed="\{\{imageCgOldestFirst\}\}"[^>]*>\{\{imageCgOrderLabel\}\}<\/button>/);
+    assert.ok(getSettingsStyleText().includes('.igs-image-cg-grid>:not(.igs-image-cg-tile){grid-column:1/-1}'));
+});
+
 test('gate:settings-polish:mood-review-rows-align-buttons', async () => {
     const mod = await import('../src/visual/igs-ui/settings-style.js');
     const css = Object.values(mod).filter((v) => typeof v === 'string').join('\n')

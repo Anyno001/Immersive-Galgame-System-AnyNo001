@@ -19,7 +19,7 @@ function findAction(target) {
     return null;
 }
 
-// options: service（createCgLibrary 的返回值）, getChatId(), confirm(message) → Promise<boolean>|boolean, onJump(entry)
+// options: service（createCgLibrary 的返回值）, storage（记排序偏好）, getChatId(), confirm(message) → Promise<boolean>|boolean, onJump(entry)
 export function createCgGalleryPanel(doc, options = {}) {
     const { service } = options;
     let root = null;
@@ -70,7 +70,7 @@ export function createCgGalleryPanel(doc, options = {}) {
             : (s.list.length ? `<div class="igs-cg-pager"><span>共 ${s.list.length} 张</span></div>` : '');
         const batch = s.entries.length ? `<button type="button" class="is-danger" data-cg-act="delete-listed">删除本页 ${s.entries.length} 张</button>` : '';
         root.innerHTML = `<header class="igs-cg-head"><h2>CG 库</h2><span class="igs-cg-head-actions">${batch}<button type="button" data-cg-act="close" aria-label="关闭 CG 库">×</button></span></header>`
-            + `<div class="igs-cg-filters" role="group" aria-label="筛选">${toggle('filter-favorite', filters.favoritesOnly, '只看收藏')}${toggle('filter-hidden', filters.showHidden, '显示已隐藏')}${toggle('filter-chat', Boolean(filters.chatId), '只看当前聊天')}</div>`
+            + `<div class="igs-cg-filters" role="group" aria-label="筛选">${toggle('filter-favorite', filters.favoritesOnly, '只看收藏')}${toggle('filter-hidden', filters.showHidden, '显示已隐藏')}${toggle('filter-chat', Boolean(filters.chatId), '只看当前聊天')}${toggle('order', Boolean(filters.oldestFirst), filters.oldestFirst ? '最早在前' : '最新在前')}</div>`
             + pager
             + `<p class="igs-cg-notice" role="status" data-cg-status${status ? '' : ' hidden'}>${escapeHtml(status)}</p>`
             + list;
@@ -201,6 +201,7 @@ export function createCgGalleryPanel(doc, options = {}) {
         if (act === 'filter-favorite') { view.setFilters({ favoritesOnly: !view.state.filters.favoritesOnly }); return; }
         if (act === 'filter-hidden') { view.setFilters({ showHidden: !view.state.filters.showHidden }); return; }
         if (act === 'filter-chat') { view.setFilters({ chatId: view.state.filters.chatId ? '' : chatId() }); return; }
+        if (act === 'order') { view.setFilters({ oldestFirst: !view.state.filters.oldestFirst }); return; }
         if (act === 'retry') { view.retry(key); return; }
         if (act === 'view') { const entry = view.find(key); if (entry) openViewer(entry); return; }
         acting = acting.then(() => handle(act, key)).catch(() => { view?.setNotice('操作失败'); });
@@ -227,7 +228,7 @@ export function createCgGalleryPanel(doc, options = {}) {
         container.appendChild(root);
         host = container;
         setStagePauseReason(host, 'panel:gallery', true);
-        view = createCgLibraryView(service || null, { onChange: onViewChange });
+        view = createCgLibraryView(service || null, { onChange: onViewChange, storage: options.storage });
         render();
         view.open();
         return { ok: true };

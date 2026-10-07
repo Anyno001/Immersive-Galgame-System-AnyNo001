@@ -104,11 +104,13 @@ export function compareCgNewestFirst(a, b) {
     return String((b && b.key) || '').localeCompare(String((a && a.key) || ''));
 }
 
+// filters.oldestFirst：倒过来看，最早的在前（按剧情顺序回看）。
 export function filterCgEntries(entries, filters = {}) {
     const chatId = String(filters.chatId || '');
+    const order = filters.oldestFirst ? (a, b) => compareCgNewestFirst(b, a) : compareCgNewestFirst;
     return (entries || [])
         .filter((e) => e && e.ready && (filters.showHidden || !e.hidden) && (!filters.favoritesOnly || e.favorite) && (!chatId || e.chatId === chatId))
-        .sort(compareCgNewestFirst);
+        .sort(order);
 }
 
 export function cgPageCount(total, size = CG_PAGE_SIZE) {
