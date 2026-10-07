@@ -2,6 +2,7 @@
 export const CLICK_WAIT_MARK_GLYPHS = Object.freeze([
     'auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush',
     'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye',
+    'reticle', 'hazard',
 ]);
 
 export const CLICK_WAIT_MARK_LABELS = Object.freeze({
@@ -25,6 +26,8 @@ export const CLICK_WAIT_MARK_LABELS = Object.freeze({
     'blood-drop': '血滴',
     ribbon: '蝴蝶结',
     eye: '眼睛',
+    reticle: '全息准星',
+    hazard: '警示三角',
 });
 
 export const CLICK_WAIT_MARK_STYLES = Object.freeze(
@@ -84,6 +87,9 @@ const SHAPES = Object.freeze({
     ribbon: "<path d='M12 10.5C9.5 7 5.5 5 3.5 6.5C2 7.6 2.4 12.4 4 13.6C6 15 9.6 13.4 12 11.5ZM12 10.5C14.5 7 18.5 5 20.5 6.5C22 7.6 21.6 12.4 20 13.6C18 15 14.4 13.4 12 11.5Z'/><circle cx='12' cy='11' r='2.3'/><path d='M10.8 12.5L8 19.5L10.2 18.6L11.2 20.6L12.4 13ZM13.2 12.5L16 19.5L13.8 18.6L12.8 20.6L11.6 13Z'/>",
     'blood-drop': "<path d='M12 2.5C15.5 8 18.5 11.6 18.5 15.4A6.5 6.5 0 0 1 5.5 15.4C5.5 11.6 8.5 8 12 2.5Z'/>",
     eye: "<path fill-rule='evenodd' d='M1.8 12C5 6.8 8.4 5 12 5S19 6.8 22.2 12C19 17.2 15.6 19 12 19S5 17.2 1.8 12ZM12 8.4A3.6 3.6 0 1 0 12 15.6A3.6 3.6 0 1 0 12 8.4Z'/><circle cx='12' cy='12' r='1.8'/>",
+    // 全息终端：四角折线围住一颗菱形；废土锈铁：警示三角，感叹号镂空。
+    reticle: "<path fill='none' stroke='#000' stroke-width='2' d='M3.5 8V3.5H8M16 3.5H20.5V8M20.5 16V20.5H16M8 20.5H3.5V16'/><path d='M12 7.5L16.5 12L12 16.5L7.5 12Z'/>",
+    hazard: "<path fill-rule='evenodd' d='M12 2.6L22.6 20.8H1.4ZM11 8.6H13L12.7 14.8H11.3ZM12 16.2A1.3 1.3 0 1 0 12 18.8A1.3 1.3 0 1 0 12 16.2Z'/>",
     heart: "<path d='M12 20.5C5.5 16 2.5 12.4 2.5 8.6C2.5 5.8 4.7 3.8 7.3 3.8C9.3 3.8 10.9 4.9 12 6.6C13.1 4.9 14.7 3.8 16.7 3.8C19.3 3.8 21.5 5.8 21.5 8.6C21.5 12.4 18.5 16 12 20.5Z'/>",
 });
 
@@ -102,7 +108,7 @@ const ANIMATIONS = Object.freeze({
 
 const GLYPH_ANIMATIONS = Object.freeze({
     pendant: 'tap-soft', seal: 'tap-soft', caret: 'tap-soft', 'triangle-hollow': 'tap-soft', eye: 'tap-soft',
-    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop',
+    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop', reticle: 'tap-soft',
 });
 const GLYPH_MARKS = Object.freeze(Object.fromEntries(CLICK_WAIT_MARK_GLYPHS.filter((id) => id !== 'auto')
     .map((id) => [id, { shape: id, animation: GLYPH_ANIMATIONS[id] || 'tap' }])));
@@ -125,6 +131,8 @@ export const CLICK_WAIT_MARK_SKINS = Object.freeze({
     'gradient-veil': mark('triangle-hollow', 'rgba(255,255,255,.92)'),
     'horror-gore': mark('blood-drop', '#d1121b'),
     'horror-psych': mark('ribbon', '#e0779d'),
+    'scifi-holo': mark('reticle', '#5fe3ff'),
+    'wasteland-rust': mark('hazard', '#e3ae2f'),
 });
 
 function markVars(mark) {

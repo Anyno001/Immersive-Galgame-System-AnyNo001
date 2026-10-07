@@ -1185,7 +1185,7 @@ test('gate:igs-ui:illustrated-dialog-style-uses-three-slice-assets', () => {
 });
 
 test('gate:igs-ui:new-dialog-skins-register-frames-and-typography', () => {
-    const skins = ['retro-japanese', 'adventure-journey', 'day-minimal', 'warm-picturebook', 'elegant-european', 'magic-academy'];
+    const skins = ['retro-japanese', 'adventure-journey', 'day-minimal', 'warm-picturebook', 'elegant-european', 'magic-academy', 'scifi-holo', 'wasteland-rust'];
     for (const skin of skins) {
         assert.equal(normalizeDialogSkin(skin), skin);
         assert.ok(ILLUSTRATED_SKIN_CSS.includes(`#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]{`), skin);
@@ -1216,7 +1216,7 @@ test('gate:igs-ui:hud-and-emotion-follow-dialog-skin', () => {
     const main = getOriginalReaderStyleText();
     assert.ok(!main.includes('[data-igs-dialog-skin="western-classic"] #igs-status-hud'));
     const skins = ['western-classic', 'plant-coffee', 'black-white-manga', 'cute-pink', 'gradient-veil',
-        'retro-japanese', 'adventure-journey', 'day-minimal', 'warm-picturebook', 'elegant-european', 'magic-academy'];
+        'retro-japanese', 'adventure-journey', 'day-minimal', 'warm-picturebook', 'elegant-european', 'magic-academy', 'scifi-holo', 'wasteland-rust'];
     for (const skin of skins) {
         const css = getDialogSkinStyleText(skin, { base: 'https://cdn.example/dist/skins/' });
         const hud = `#igs-overlay[data-igs-dialog-skin="${skin}"] #igs-status-hud`;
@@ -1243,7 +1243,7 @@ test('gate:igs-ui:options-follow-dialog-skin', () => {
     assert.ok(!main.includes('[data-igs-dialog-skin="western-classic"] .igs-option-bubble'));
     const skinCss = (skin) => getDialogSkinStyleText(skin, { base: 'https://cdn.example/dist/skins/' });
     const skins = ['western-classic', 'plant-coffee', 'black-white-manga', 'cute-pink', 'gradient-veil',
-        'retro-japanese', 'adventure-journey', 'day-minimal', 'warm-picturebook', 'elegant-european', 'magic-academy'];
+        'retro-japanese', 'adventure-journey', 'day-minimal', 'warm-picturebook', 'elegant-european', 'magic-academy', 'scifi-holo', 'wasteland-rust'];
     for (const skin of skins) {
         const css = skinCss(skin);
         assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-option-bubble{`), skin);

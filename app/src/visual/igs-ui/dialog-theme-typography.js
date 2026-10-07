@@ -182,6 +182,30 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#8c72c4',
         narrationColor: '#8f7a86',
     }),
+    // 全息终端：正文用细的新晰黑像屏幕字，姓名换思源黑体压在光标签上；正文冷白，心里话偏青，旁白灰蓝。
+    'scifi-holo': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_SOURCE_HAN_SANS,
+        textFont: DIALOG_FONT_NEO_XIHEI,
+        thoughtFont: DIALOG_FONT_NEO_XIHEI,
+        narrationFont: DIALOG_FONT_NEO_XIHEI,
+        nameColor: '#aef5ff',
+        textColor: '#e2f6ff',
+        thoughtColor: '#8fdcf0',
+        narrationColor: '#a3b8cc',
+    }),
+    // 废土锈铁：胶带上的姓名用得意黑，像马克笔写的；正文思源黑体，心里话换文楷像手记，旁白压成灰土色。
+    'wasteland-rust': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_SMILEY,
+        textFont: DIALOG_FONT_SOURCE_HAN_SANS,
+        thoughtFont: DIALOG_FONT_WENKAI,
+        narrationFont: DIALOG_FONT_SOURCE_HAN_SANS,
+        nameColor: '#1b1915',
+        textColor: '#ece3cf',
+        thoughtColor: '#e3ae2f',
+        narrationColor: '#b9ad94',
+    }),
 });
 
 export function getReferenceDialogTypography(dialogSkin) {

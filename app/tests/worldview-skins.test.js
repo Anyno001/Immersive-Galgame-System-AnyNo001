@@ -38,6 +38,8 @@ test('gate:worldview-skins:preselect-prefers-card-then-global-then-table', () =>
     assert.equal(pickWorldviewDialogSkin('modern', { globalSkin: 'cute-pink' }), 'cute-pink');
     assert.equal(pickWorldviewDialogSkin('modern', { globalSkin: 'default' }), 'default');
     assert.equal(pickWorldviewDialogSkin('ancient', { globalSkin: 'default' }), 'qinglv-shanshui', '全局是默认皮肤时古代仍换成青绿山水');
+    assert.equal(pickWorldviewDialogSkin('scifi', { globalSkin: 'default' }), 'scifi-holo', '全局是默认皮肤时科幻换成全息终端');
+    assert.equal(pickWorldviewDialogSkin('apocalypse', { globalSkin: 'default' }), 'wasteland-rust', '全局是默认皮肤时末日换成废土锈铁');
     assert.equal(pickWorldviewDialogSkin('horror', { horrorStyle: 'psych' }), 'horror-psych');
     assert.equal(pickWorldviewDialogSkin('horror', { horrorStyle: 'gore' }), 'horror-gore');
     assert.equal(pickWorldviewDialogSkin('horror', { cardSkin: 'horror-gore', horrorStyle: 'psych' }), 'horror-gore');

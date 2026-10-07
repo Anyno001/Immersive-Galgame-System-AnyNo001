@@ -3,6 +3,8 @@ import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_M
 import { DIALOG_SKIN_QINGLV, QINGLV_CHOICE_STYLE } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_CHOICE_STYLE } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_CHOICE_STYLE, PSYCH_CHOICE_STYLE } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_CHOICE_STYLE } from './dialog-theme-scifi.js';
+import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_CHOICE_STYLE } from './dialog-theme-wasteland.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -110,6 +112,8 @@ export const DIALOG_THEME_CHOICE_STYLE_BY_SKIN = Object.freeze({
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_CHOICE_STYLE,
     [DIALOG_SKIN_HORROR_GORE]: GORE_CHOICE_STYLE,
     [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_CHOICE_STYLE,
+    [DIALOG_SKIN_SCIFI_HOLO]: SCIFI_CHOICE_STYLE,
+    [DIALOG_SKIN_WASTELAND_RUST]: WASTELAND_CHOICE_STYLE,
     [DIALOG_SKIN_GRADIENT_VEIL]: bubbleRules(DIALOG_SKIN_GRADIENT_VEIL, {
         '': 'padding:11px 32px;border:0;border-radius:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.6) 18%,rgba(0,0,0,.6) 82%,transparent);box-shadow:none;color:rgba(255,255,255,.88);text-shadow:0 1px 3px rgba(0,0,0,.85);letter-spacing:.1em;',
         '::after': 'content:"";position:absolute;left:20%;right:20%;bottom:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);transition:background .18s;',

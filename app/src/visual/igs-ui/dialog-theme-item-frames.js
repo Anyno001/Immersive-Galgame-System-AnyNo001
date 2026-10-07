@@ -2,6 +2,8 @@ import { MAGIC_METAL, MAGIC_SPARKLE_MASK, magicTint, magicVeil } from './dialog-
 import { fairyPaper } from './dialog-theme-fairytale.js';
 import { qinglvSilk } from './dialog-theme-guofeng.js';
 import { HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
+import { SCIFI_CORNERS, SCIFI_GLASS, SCIFI_RETICLE_MASK, scifiHolo } from './dialog-theme-scifi.js';
+import { WASTELAND_HAZARD, WASTELAND_HAZARD_MASK, WASTELAND_STEEL, wastelandRivet, wastelandRust } from './dialog-theme-wasteland.js';
 
 // 物品演出角落卡片：每个对话框皮肤一套专属的框，呼应该皮肤对话框自己的边框语言。
 // 只改框与配色，卡片宽度、位置、动画仍由 fx-item 决定；装饰一律实色，文字用皮肤墨色。
@@ -144,6 +146,25 @@ const FRAMES = {
         after: 'inset:4px;border:1px dashed #8f6c45;border-radius:3px;',
         icon: 'background:radial-gradient(circle at 50% 35%,#6a5242,#3a2d26);border-radius:4px;box-shadow:inset 0 0 0 1.5px #b98a5a;color:#d9aa6e;',
         desc: 'color:#d3c19c;opacity:1;',
+    },
+    // 全息终端：深蓝玻璃卡、四角青色折角，动作标记是一枚准星。
+    'scifi-holo': {
+        mention: '#7ff0ff',
+        ink: '#e2f6ff',
+        card: `background:${SCIFI_GLASS};border:1px solid ${scifiHolo('.3')};border-radius:2px;box-shadow:0 0 14px ${scifiHolo('.14')},0 4px 14px rgba(0,0,0,.4);padding-right:24px;${NO_BLUR}`,
+        before: `right:7px;top:7px;width:11px;height:11px;${mask(SCIFI_RETICLE_MASK)}`,
+        after: `inset:-1px;background:${SCIFI_CORNERS(9, 2)};`,
+        icon: `background:linear-gradient(180deg,${scifiHolo('.16')},${scifiHolo('.04')});border-radius:2px;box-shadow:inset 0 0 0 1px ${scifiHolo('.45')};color:#bff4ff;`,
+        desc: 'color:#a3b8cc;opacity:1;',
+    },
+    // 废土锈铁：暗钢小铁牌、两颗铆钉、角落锈斑，动作标记是一枚警示三角。
+    'wasteland-rust': {
+        mention: WASTELAND_HAZARD,
+        ink: '#ece3cf',
+        card: `background:${wastelandRivet('7px', '7px')},${wastelandRivet('calc(100% - 7px)', 'calc(100% - 7px)')},radial-gradient(ellipse 40% 90% at 100% 100%,${wastelandRust('.45')},transparent 72%),${WASTELAND_STEEL};border:2px solid #1b1915;border-radius:3px;box-shadow:inset 0 1px 0 rgba(255,236,200,.1),0 3px 10px rgba(0,0,0,.45);padding-right:26px;`,
+        before: `right:9px;top:8px;width:12px;height:12px;${mask(WASTELAND_HAZARD_MASK)}`,
+        icon: 'background:#211e1a;border-radius:2px;box-shadow:inset 0 0 0 1.5px #5a5245;color:#d6c6a0;',
+        desc: 'color:#b9ad94;opacity:1;',
     },
     'gradient-veil': {
         mention: '#ffe08a',

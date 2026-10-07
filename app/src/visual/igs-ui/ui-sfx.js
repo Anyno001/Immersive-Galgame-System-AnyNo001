@@ -7,7 +7,7 @@ const HOVER_GAP_MS = 80;
 
 const n = (from, to, start, duration, gain, extra = {}) => p('noise', from, to, start, duration, gain, extra);
 
-// 每族五种声音：木质偏低沉敲击，纸张为滤波噪声，柔和为圆润正弦，玻璃为高频泛音。
+// 每族五种声音：木质偏低沉敲击，纸张为滤波噪声，柔和为圆润正弦，玻璃为高频泛音，数码为短促方波提示音，金属为带噪声的铁皮敲击。
 export const UI_SFX_FAMILIES = Object.freeze({
     wood: Object.freeze({
         page: Object.freeze([p('triangle', 520, 380, 0, 0.07, 0.6, { attack: 0.001, sweep: 1 }), n(1800, 1800, 0, 0.03, 0.25, { attack: 0.001 })]),
@@ -45,6 +45,22 @@ export const UI_SFX_FAMILIES = Object.freeze({
         open: Object.freeze([p('sine', 1046, 1568, 0, 0.2, 0.35, { attack: 0.004, sweep: 0.6 }), p('sine', 3136, 3136, 0.12, 0.1, 0.08, { attack: 0.002 })]),
         close: Object.freeze([p('sine', 1568, 1046, 0, 0.18, 0.35, { attack: 0.004, sweep: 0.6 })]),
     }),
+    // 全息终端：翻页一声短促的方波「哔」，确认是上行两连音，开合是一道扫频。
+    digital: Object.freeze({
+        page: Object.freeze([p('square', 1760, 1760, 0, 0.035, 0.14, { attack: 0.001 }), p('sine', 3520, 3520, 0, 0.02, 0.06, { attack: 0.001 })]),
+        hover: Object.freeze([p('square', 2637, 2637, 0, 0.018, 0.07, { attack: 0.001 })]),
+        confirm: Object.freeze([p('square', 1319, 1319, 0, 0.05, 0.14, { attack: 0.001 }), p('square', 1976, 1976, 0.06, 0.07, 0.14, { attack: 0.001 })]),
+        open: Object.freeze([p('sine', 660, 1760, 0, 0.14, 0.35, { attack: 0.004, sweep: 1 }), p('square', 1760, 1760, 0.13, 0.03, 0.1, { attack: 0.001 })]),
+        close: Object.freeze([p('sine', 1760, 520, 0, 0.14, 0.35, { attack: 0.004, sweep: 1 })]),
+    }),
+    // 废土锈铁：翻页是指节敲铁皮，确认叠一下铁片回响，开合是生锈铰链的低沉摩擦。
+    metal: Object.freeze({
+        page: Object.freeze([p('triangle', 310, 260, 0, 0.09, 0.5, { attack: 0.001, sweep: 1 }), n(2600, 2600, 0, 0.04, 0.3, { filter: 'bandpass', q: 3, attack: 0.001 })]),
+        hover: Object.freeze([n(3400, 3400, 0, 0.025, 0.2, { filter: 'bandpass', q: 4, attack: 0.001 })]),
+        confirm: Object.freeze([p('triangle', 220, 196, 0, 0.14, 0.55, { attack: 0.001, sweep: 1 }), p('sine', 1240, 1180, 0.01, 0.22, 0.12, { attack: 0.001 }), n(1900, 1900, 0, 0.05, 0.3, { filter: 'bandpass', q: 2, attack: 0.001 })]),
+        open: Object.freeze([n(500, 1400, 0, 0.22, 0.45, { filter: 'bandpass', q: 6, attack: 0.03, sweep: 1 }), p('triangle', 160, 150, 0.18, 0.08, 0.4, { attack: 0.001 })]),
+        close: Object.freeze([n(1400, 500, 0, 0.2, 0.45, { filter: 'bandpass', q: 6, attack: 0.02, sweep: 1 }), p('triangle', 150, 130, 0.17, 0.1, 0.5, { attack: 0.001 })]),
+    }),
 });
 
 const SKIN_FAMILIES = Object.freeze({
@@ -63,6 +79,8 @@ const SKIN_FAMILIES = Object.freeze({
     'gradient-veil': 'glass',
     'horror-gore': 'dread',
     'horror-psych': 'soft',
+    'scifi-holo': 'digital',
+    'wasteland-rust': 'metal',
 });
 
 export function resolveUiSfxFamily(dialogSkin) {

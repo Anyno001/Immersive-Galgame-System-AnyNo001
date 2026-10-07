@@ -29,6 +29,7 @@ test('gate: every dialog skin maps to a ui sound family', () => {
         'black-white-manga': 'paper', 'warm-picturebook': 'paper', 'plant-coffee': 'paper', 'western-classic': 'paper',
         'cute-pink': 'soft', 'day-minimal': 'soft',
         'elegant-european': 'glass', 'gradient-veil': 'glass', default: 'glass',
+        'scifi-holo': 'digital', 'wasteland-rust': 'metal',
     };
     for (const [skin, family] of Object.entries(expected)) assert.equal(resolveUiSfxFamily(skin), family, skin);
     assert.equal(resolveUiSfxFamily(undefined), 'glass');

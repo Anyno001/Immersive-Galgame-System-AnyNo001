@@ -3,6 +3,8 @@ import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_M
 import { DIALOG_SKIN_QINGLV, QINGLV_HUD_THEME } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_HUD_THEME } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_HUD_THEME, PSYCH_HUD_THEME } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HUD_THEME } from './dialog-theme-scifi.js';
+import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_HUD_THEME } from './dialog-theme-wasteland.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -156,6 +158,8 @@ const HUD_THEMES = Object.freeze({
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_HUD_THEME,
     [DIALOG_SKIN_HORROR_GORE]: GORE_HUD_THEME,
     [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_HUD_THEME,
+    [DIALOG_SKIN_SCIFI_HOLO]: SCIFI_HUD_THEME,
+    [DIALOG_SKIN_WASTELAND_RUST]: WASTELAND_HUD_THEME,
     [DIALOG_SKIN_PLANT_COFFEE]: {
         neutral: '#a49186',
         panel: `background:#f6f1eb;border:1.5px solid #5c4949;border-radius:${s(18)};box-shadow:0 ${s(3)} 0 rgba(92,73,73,.2);`,

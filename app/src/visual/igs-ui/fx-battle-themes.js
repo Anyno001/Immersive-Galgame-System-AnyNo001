@@ -3,6 +3,15 @@ import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_M
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiDeep, scifiHolo } from './dialog-theme-scifi.js';
+import {
+    DIALOG_SKIN_WASTELAND_RUST,
+    WASTELAND_HAZARD,
+    WASTELAND_HAZARD_MASK,
+    WASTELAND_STEEL,
+    wastelandRust,
+    wastelandStripes,
+} from './dialog-theme-wasteland.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -226,6 +235,25 @@ const BATTLE_THEMES = Object.freeze({
         mark: 'padding:0 6px;border-radius:2px;background:#c8893a;color:#2a201b;font-family:' + DIALOG_FONT_CINZEL + ';',
         wipe: `background:${softRule('rgba(217,170,110,.6)', '10%')},${softRule('rgba(217,170,110,.6)', '90%')},linear-gradient(180deg,#4d3c32,#3a2d26);box-shadow:inset 0 2px 0 #2a201b,inset 0 -2px 0 #2a201b;`,
         title: 'font-style:normal;font-weight:700;',
+    },
+    // 全息终端：深蓝玻璃纱底、青色细线与发光字，名牌标记是一枚折角准星。
+    [DIALOG_SKIN_SCIFI_HOLO]: {
+        accent: SCIFI_HOLO,
+        font: DIALOG_FONT_NEO_XIHEI,
+        vars: { veil: scifiDeep('.84'), rule: scifiHolo('.7'), ink: '#e2f6ff', halo: `0 0 8px ${scifiHolo('.55')},0 1px 2px rgba(0,0,0,.9)`, 'title-halo': `0 0 16px ${scifiHolo('.6')},0 2px 4px rgba(0,0,0,.8)`, wipe: scifiDeep('.92') },
+        mark: `width:12px;height:12px;align-self:center;font-size:0;background:${SCIFI_HOLO};-webkit-mask:${SCIFI_RETICLE_MASK} center/contain no-repeat;mask:${SCIFI_RETICLE_MASK} center/contain no-repeat;filter:drop-shadow(0 0 3px ${scifiHolo('.8')});`,
+        title: 'font-style:normal;font-weight:600;letter-spacing:.24em;text-indent:.24em;',
+    },
+    // 废土锈铁：锈铁卡、黑框，遭遇横幅上下各一条黄黑警示条；名牌标记是一枚警示三角。
+    [DIALOG_SKIN_WASTELAND_RUST]: {
+        accent: WASTELAND_HAZARD,
+        font: DIALOG_FONT_SMILEY,
+        vars: { ink: '#ece3cf', halo: '0 1px 0 rgba(0,0,0,.9)', 'title-halo': '0 2px 0 rgba(0,0,0,.85)', wipe: '#2a2722', lose: '#c0502a', escape: '#8f826b' },
+        card: `background:radial-gradient(ellipse 40% 90% at 100% 100%,${wastelandRust('.45')},transparent 72%),${WASTELAND_STEEL};border:2px solid #1b1915;border-radius:3px;box-shadow:inset 0 1px 0 rgba(255,236,200,.1),0 3px 8px rgba(0,0,0,.45);`,
+        mark: `width:13px;height:13px;align-self:center;font-size:0;background:${WASTELAND_HAZARD};-webkit-mask:${WASTELAND_HAZARD_MASK} center/contain no-repeat;mask:${WASTELAND_HAZARD_MASK} center/contain no-repeat;`,
+        wipe: `background:${wastelandStripes(10)} left top/100% 6px no-repeat,${wastelandStripes(10)} left bottom/100% 6px no-repeat,${WASTELAND_STEEL};`,
+        foe: `color:${WASTELAND_HAZARD};text-shadow:0 2px 0 #1b1915,0 0 14px rgba(0,0,0,.8);`,
+        title: 'font-style:normal;letter-spacing:.2em;text-indent:.2em;',
     },
 });
 

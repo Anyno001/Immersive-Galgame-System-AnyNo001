@@ -4,6 +4,8 @@ import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTin
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiHolo } from './dialog-theme-scifi.js';
+import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_TAPE, WASTELAND_TAPE_CLIP, wastelandStripes } from './dialog-theme-wasteland.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -76,6 +78,16 @@ const TITLE_EXTRAS = Object.freeze({
     ],
     [DIALOG_SKIN_RETRO_JAPANESE]: (s) => [`${s} .igs-fx-title-sub{color:#8e2c2c;}`],
     [DIALOG_SKIN_ADVENTURE_JOURNEY]: (s) => [`${s} .igs-fx-title-sub{color:#e0b06e;}`],
+    // 全息终端：地点两侧各一枚折角准星，时间像屏幕读数一样拉开字距。
+    [DIALOG_SKIN_SCIFI_HOLO]: (s) => [
+        `${s} .igs-fx-title-main::before,${s} .igs-fx-title-main::after{${mark(11, SCIFI_HOLO, SCIFI_RETICLE_MASK)}filter:drop-shadow(0 0 3px ${scifiHolo('.8')});}`,
+        `${s} .igs-fx-title-sub{color:${scifiHolo('.9')};letter-spacing:.3em;}`,
+    ],
+    // 废土锈铁：锈铁卡底边一条黄黑警示条，时间写在一截撕开的胶带上。
+    [DIALOG_SKIN_WASTELAND_RUST]: (s) => [
+        `${s}::after{display:block;content:"";position:absolute;left:0;right:0;top:auto;bottom:0;width:auto;height:5px;margin:0;transform:none;opacity:.9;background:${wastelandStripes(6)};}`,
+        `${s} .igs-fx-title-sub{margin-top:6px;padding:1px 14px;background:${WASTELAND_TAPE};color:#1b1915;text-shadow:none;letter-spacing:.14em;opacity:1;${WASTELAND_TAPE_CLIP}}`,
+    ],
 });
 
 function titleThemeRules(skin, theme) {

@@ -16,6 +16,8 @@ import { DIALOG_SKIN_MAGIC_ACADEMY } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_SCIFI_HOLO } from './dialog-theme-scifi.js';
+import { DIALOG_SKIN_WASTELAND_RUST } from './dialog-theme-wasteland.js';
 
 // 对话框皮肤的显示名，顺序即设置页「对话框风格」下拉的顺序；主界面选世界观页的皮肤名也从这里取。
 export const DIALOG_SKIN_CHOICES = Object.freeze([
@@ -32,6 +34,8 @@ export const DIALOG_SKIN_CHOICES = Object.freeze([
     [DIALOG_SKIN_DAY_MINIMAL, '日间简约'],
     [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'],
     [DIALOG_SKIN_CUTE_PINK, '超可爱粉'],
+    [DIALOG_SKIN_SCIFI_HOLO, '全息终端'],
+    [DIALOG_SKIN_WASTELAND_RUST, '废土锈铁'],
     [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕'],
     [DIALOG_SKIN_HORROR_GORE, '血色噩梦'],
     [DIALOG_SKIN_HORROR_PSYCH, '褪色病历'],

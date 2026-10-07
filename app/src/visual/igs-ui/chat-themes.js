@@ -20,6 +20,8 @@ export const CHAT_THEME_PALETTES = Object.freeze({
     'cute-pink': palette('#fff0f5', '#ffb6cf', '#ffffff', '#ff8fb4', '#c47f98', '#ffffff', '#ffc4d9'),
     'retro-japanese': palette('#f1e6d2', '#8e2c2c', '#f8eedc', '#3a2a22', '#8c7560', '#fffaf0', '#e6c9a1'),
     'adventure-journey': palette('#e9dfc7', '#4b5b3a', '#f3ead2', '#3b2f22', '#7e7258', '#fbf5e6', '#d8c38e'),
+    'scifi-holo': palette('#0b1424', '#0f1d33', '#bff4ff', '#060e1c', '#7d93aa', '#e6f7fc', '#9fe8f5', 'rgba(95,227,255,.4)'),
+    'wasteland-rust': palette('#2a2722', '#3b372f', '#ece3cf', '#1b1915', '#8f826b', '#ece3cf', '#e3ae2f', 'rgba(150,72,30,.5)'),
 });
 
 export function resolveChatTheme(dialogSkin) {
