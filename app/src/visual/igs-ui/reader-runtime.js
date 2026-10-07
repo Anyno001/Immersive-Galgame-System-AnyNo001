@@ -86,6 +86,19 @@ export function addRuntimeCleanup(runtime, fn) {
     if (runtime && typeof fn === 'function') runtime.cleanup.push(fn);
 }
 
+// 平板（触屏、短边 ≥ 600）上悬浮窗按原比例放大到接近占满屏幕，最多 1.5 倍；
+// 手机和鼠标设备不变。widthRoom / heightRoom 是可用宽高与原设计尺寸之比。
+const TABLET_MIN_SIDE = 600;
+const TABLET_MAX_WINDOW_SCALE = 1.5;
+
+export function tabletWindowScale(win, viewport, widthRoom, heightRoom) {
+    if (Math.min(viewport.width || 0, viewport.height || 0) < TABLET_MIN_SIDE) return 1;
+    let coarse = false;
+    try { coarse = typeof win.matchMedia === 'function' && win.matchMedia('(pointer: coarse)').matches; } catch (error) { coarse = false; }
+    if (!coarse) return 1;
+    return Math.min(TABLET_MAX_WINDOW_SCALE, Math.max(1, Math.min(widthRoom, heightRoom)));
+}
+
 function applyInlineReaderRuntime(root, mode, runtime, current) {
     const win = runtime.win || {};
     const doc = runtime.doc || {};
@@ -110,14 +123,17 @@ function applyInlineReaderRuntime(root, mode, runtime, current) {
     const clamp = () => {
         scheduled = false;
         const viewport = getInlineViewportMetrics(win, doc);
-        const designWidth = mode === 'pc' ? 900 : 480;
-        const designHeight = mode === 'pc' ? 540 : 680;
+        const baseWidth = mode === 'pc' ? 900 : 480;
+        const baseHeight = mode === 'pc' ? 540 : 680;
         const sideGap = 16;
         const bottomGap = 24;
         const minSize = 240;
         const minExtremeSize = 180;
-        const safeWidth = Math.max(minSize, (viewport.width || (designWidth + sideGap * 2)) - sideGap * 2);
-        const safeHeight = Math.max(minSize, (viewport.height || (designHeight + sideGap * 2)) - sideGap * 2);
+        const safeWidth = Math.max(minSize, (viewport.width || (baseWidth + sideGap * 2)) - sideGap * 2);
+        const safeHeight = Math.max(minSize, (viewport.height || (baseHeight + sideGap * 2)) - sideGap * 2);
+        const scale = tabletWindowScale(win, viewport, safeWidth / baseWidth, ((viewport.height || 0) - sideGap - bottomGap) / baseHeight);
+        const designWidth = Math.round(baseWidth * scale);
+        const designHeight = Math.round(baseHeight * scale);
         let targetWidth = Math.min(designWidth, safeWidth);
         let targetHeight = Math.min(designHeight, safeHeight);
         const availableHeight = (viewport.height || (targetHeight + sideGap + bottomGap)) - sideGap - bottomGap;

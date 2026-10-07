@@ -252,6 +252,8 @@ ${TOAST_THEME_STYLE_TEXT}
 /* 手机：避开刘海与顶部工具栏，窄屏下不强撑最小宽度，长文本可换行。 */
 @media (max-width:640px){#igs-toast{top:calc(env(safe-area-inset-top,0px) + 56px);min-width:0;width:max-content;max-width:calc(100% - 24px);padding:8px 14px;}}
 #igs-overlay.igs-floating-mobile #igs-toast{top:calc(env(safe-area-inset-top,0px) + 56px);min-width:0;width:max-content;max-width:calc(100% - 24px);padding:8px 14px;}
+/* 触屏（手机、平板）：工具栏图标外观不变，可点范围上下撑到 44px，手指不用对准那 32px。 */
+@media (pointer:coarse){#igs-overlay .igs-ctrl-bar .igs-icon-btn{position:relative;}#igs-overlay .igs-ctrl-bar .igs-icon-btn::after{content:"";position:absolute;left:0;right:0;top:50%;height:max(100%,44px);transform:translateY(-50%);}}
 /* 楼层内嵌：容器固定高度、不可拖动、不锁页面滚动，全部层约束在容器内。 */
 .igs-embedded-host{position:relative;display:block;width:100%;margin:8px 0;border-radius:8px;overflow:hidden;isolation:isolate;background:#16181a;overscroll-behavior:auto;touch-action:pan-y;}
 .igs-parallel-blocks{display:block;width:100%;margin:8px 0 0;position:relative;}
