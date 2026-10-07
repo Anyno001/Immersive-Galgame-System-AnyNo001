@@ -356,6 +356,17 @@ export function buildFormattedTextPipeline(raw, sourceFilter, formatRule, option
     };
 }
 
+// 阅读器会当正文显示的文字（不含 DOM 改词覆盖）：取正文保留标签里的内容；保留标签在但是空的，正文就是空；
+// 整楼没有保留标签时和阅读器一样退回到去掉排除标签后的全文。思考、状态栏这类排除块都不算正文。
+export function readerBodyText(raw, sourceFilter) {
+    const cfg = normalizeSourceFilter(sourceFilter);
+    const source = normalizeIgsDirectiveLayout(raw);
+    const filtered = buildFilteredTextSource(source, cfg, '');
+    if (filtered.sourceKind === 'tagged-empty') return '';
+    const body = filtered.textSource || (cfg.enabled ? removeTagBlocks(source, cfg.textExcludeTags) : source);
+    return normalizeWhitespace(stripReaderFormattingControls(cleanNarrativeSource(body)).replace(/\x00IMG\x00/g, ' '));
+}
+
 export function buildIgsTextPayload(message, options = {}) {
     const originalRaw = getMessagePrimaryText(message);
     const sourceFilter = normalizeSourceFilter(options.sourceFilter);

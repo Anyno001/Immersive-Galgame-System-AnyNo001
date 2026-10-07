@@ -1,4 +1,5 @@
 import { numberParagraphs } from './marker-placer.js';
+import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
 import { buildAssetPlannerUserPrompt, parseAssetPlan, buildAssetSlot, buildDictionaryAssetItems } from './asset-prompt.js';
 import { requestWithSoftRetry } from './prompt-kit.js';
 import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './auto-illustration-settings.js';
@@ -52,6 +53,8 @@ export function createAssetGenerationService(deps) {
     const { messageHost, llm, nai, store, getSettings, events } = deps;
     const matte = deps.matte || (async (dataUrl) => dataUrl);
     const now = deps.now || (() => new Date().toISOString());
+    const minBodyChars = Number.isFinite(Number(deps.minBodyChars)) ? Number(deps.minBodyChars) : MIN_AUTO_IMAGE_BODY_CHARS;
+    const sourceFilter = typeof deps.getSourceFilter === 'function' ? deps.getSourceFilter : () => undefined;
     const report = deps.report || (() => {});
     const newId = deps.newId || (() => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
     const locks = new Map();
@@ -554,6 +557,12 @@ export function createAssetGenerationService(deps) {
         // 失败或中途刷新残留的 planning 不算处理完，下次渲染时重试。
         const previous = await store.getFloor(key);
         if (!manual && previous && previous.status === 'done') return { ok: true, reason: 'already-decided' };
+        // 不记成已处理：用户点「继续」把这楼写长后，下次渲染照常补素材。
+        const bodyChars = floorBodyLength(floor.text, sourceFilter());
+        if (!manual && bodyChars < minBodyChars) {
+            report('info', `第 ${messageId} 楼跳过素材补全：正文只有 ${bodyChars} 字，少于 ${minBodyChars} 字不自动生图`);
+            return { ok: true, reason: 'body-too-short' };
+        }
         await loadTempRecords(floor.chatId);
         const numbered = numberParagraphs(floor.text);
         const match = matchContext(

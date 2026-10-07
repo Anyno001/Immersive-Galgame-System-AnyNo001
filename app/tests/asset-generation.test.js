@@ -224,6 +224,7 @@ function fakeHost(text, chatId = 'chat-1') {
     };
 }
 
+// 这些楼层正文都只有十来个字，专测补素材流程的用例传 minBodyChars: 0；「少于 50 字不自动生图」单独测。
 const FLOOR_TEXT = '[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。\n[igs-char:神秘少女|平静|你来了。]\n[igs-char:艾莉|惊讶|是谁？]';
 
 test('gate:assets:service-generates-missing-assets-and-reviews', async () => {
@@ -240,6 +241,7 @@ test('gate:assets:service-generates-missing-assets-and-reviews', async () => {
         getSettings: () => ({ autoIllustration: { assets: { spriteEnabled: true, backgroundEnabled: true, strictMatch: true } }, sceneAssets: USER_ASSETS }),
         events: { emit: (name, detail) => emitted.push(detail.reason) },
         newId: () => `img${++id}`,
+        minBodyChars: 0,
     });
     const result = await service.processMessage(3);
     assert.deepEqual([result.ok, result.count], [true, 2]);
@@ -286,6 +288,26 @@ test('gate:assets:service-disabled-makes-no-requests', async () => {
     assert.equal(requested, false);
 });
 
+test('gate:assets:skips-auto-when-body-under-50-chars', async () => {
+    let requests = 0;
+    let text = `<thinking>${'她在想接下来的剧情该怎么推进。'.repeat(6)}</thinking>\n${FLOOR_TEXT}`;
+    const reports = [];
+    const service = createAssetGenerationService({
+        messageHost: { ...fakeHost(''), readFloor: () => ({ chatId: 'chat-1', messageId: 3, swipeId: 0, isAi: true, isLatest: true, text }) },
+        llm: { async request() { requests += 1; return 'id: bg1\ntags: factory, night, rain\nid: ch2\ntags: 1girl, silver hair, black coat'; } },
+        nai: { async generate() { requests += 1; return { ok: true, dataUrl: 'data:image/png;base64,AAA' }; } },
+        store: createMemoryGeneratedAssetStore(),
+        getSettings: () => ({ autoIllustration: { assets: { spriteEnabled: true, backgroundEnabled: true, strictMatch: true } }, sceneAssets: USER_ASSETS }),
+        report: (level, message) => reports.push(message),
+    });
+    assert.equal((await service.processMessage(3)).reason, 'body-too-short');
+    assert.match(reports.join('\n'), /第 3 楼跳过素材补全：正文只有 12 字，少于 50 字不自动生图/);
+    assert.equal(requests, 0, '思考写得再长也不算正文');
+    text = `${FLOOR_TEXT}\n${'雨点打在铁皮屋顶上，像无数细小的鼓槌，一下一下敲着她的耐心。'.repeat(2)}`;
+    const result = await service.processMessage(3);
+    assert.deepEqual([result.reason, result.count], ['done', 2], '跳过不记成已处理，写长后照常补素材');
+});
+
 test('gate:assets:service-falls-back-to-dictionary-for-backgrounds', async () => {
     const naiCalls = [];
     const service = createAssetGenerationService({
@@ -294,6 +316,7 @@ test('gate:assets:service-falls-back-to-dictionary-for-backgrounds', async () =>
         nai: { async generate(slot) { naiCalls.push(slot); return { ok: true, dataUrl: 'data:image/png;base64,B' }; } },
         store: createMemoryGeneratedAssetStore(),
         getSettings: () => ({ autoIllustration: { assets: { backgroundEnabled: true, strictMatch: true } }, sceneAssets: { enabled: true, scenes: {} } }),
+        minBodyChars: 0,
     });
     const result = await service.processMessage(3);
     assert.equal(result.count, 1);
@@ -313,6 +336,7 @@ test('gate:assets:failed-generation-does-not-settle-floor', async () => {
         } },
         store,
         getSettings: () => ({ autoIllustration: { assets: { backgroundEnabled: true } }, sceneAssets: USER_ASSETS }),
+        minBodyChars: 0,
     });
     const first = await service.processMessage(3);
     assert.equal(first.ok, false);
@@ -895,7 +919,7 @@ test('gate:assets:sprite-record-keeps-original-mask-and-quota-fallback', async (
 
     const store = createMemoryGeneratedAssetStore();
     let id = 0;
-    const service = createAssetGenerationService({ messageHost: fakeHost(FLOOR_TEXT), llm, nai, store, matte, getSettings, newId: () => `img${++id}` });
+    const service = createAssetGenerationService({ messageHost: fakeHost(FLOOR_TEXT), llm, nai, store, matte, getSettings, newId: () => `img${++id}`, minBodyChars: 0 });
     assert.equal((await service.processMessage(3)).ok, true);
     const sprite = await store.getImage('img2');
     assert.equal(sprite.schemaVersion, 2);
@@ -922,7 +946,7 @@ test('gate:assets:sprite-record-keeps-original-mask-and-quota-fallback', async (
     let id2 = 0;
     const quotaService = createAssetGenerationService({
         messageHost: fakeHost(FLOOR_TEXT), llm, nai, store: quotaStore, matte, getSettings,
-        newId: () => `q${++id2}`, report: (level, message) => reports.push({ level, message }),
+        newId: () => `q${++id2}`, report: (level, message) => reports.push({ level, message }), minBodyChars: 0,
     });
     assert.equal((await quotaService.processMessage(3)).ok, true);
     const degraded = await inner.getImage('q2');

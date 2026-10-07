@@ -423,8 +423,49 @@ function makeFakes({ text, isLatest = true, llmReply = REPLY, naiResult, setting
     } };
     const nai = { generate: async () => { calls.nai++; return naiResult || { ok: true, dataUrl: 'data:image/png;base64,AAAA' }; } };
     const events = { emit: (type, payload) => calls.events.push({ type, payload }) };
-    return { calls, messageHost, llm, nai, events, getSettings: () => settings };
+    // 这批用例的正文都只有几个字，专测流程；「少于 50 字不自动生图」单独测。
+    return { calls, messageHost, llm, nai, events, getSettings: () => settings, minBodyChars: 0 };
 }
+
+const LONG_LINE = '她靠在窗边，看着外面的雨一点点停下来，城市的灯光一盏接一盏地亮起。';
+
+test('gate:illustration:skips-auto-when-body-under-50-chars', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const reports = [];
+    const fakes = makeFakes({ text: NSFW_TEXT, settings: { nsfwEnabled: true } });
+    const service = createAutoIllustrationService({ ...fakes, minBodyChars: undefined, store: createMemoryIllustrationStore(), report: (level, msg) => reports.push(msg) });
+    assert.equal((await service.processMessage(5)).reason, 'body-too-short');
+    assert.match(reports.join('\n'), /第 5 楼跳过：正文只有 9 字，少于 50 字不自动生图/);
+    // 思考、状态栏写得再长也不算正文。
+    fakes.messageHost.setText(`<thinking>${LONG_LINE.repeat(3)}</thinking>\n${NSFW_TEXT}`);
+    assert.equal((await service.processMessage(5)).reason, 'body-too-short');
+    fakes.messageHost.setText(`<content>\n${NSFW_TEXT}\n</content>\n<Status_block>${LONG_LINE.repeat(3)}</Status_block>`);
+    assert.equal((await service.processMessage(5)).reason, 'body-too-short');
+    assert.equal(fakes.calls.llm, 0, '正文只有几个字时不规划、不生图');
+    // 跳过不记成已处理：同一楼「继续」写长后照常规划。
+    fakes.messageHost.setText(`${NSFW_TEXT}\n${LONG_LINE.repeat(2)}`);
+    assert.notEqual((await service.processMessage(5)).reason, 'body-too-short');
+    assert.ok(fakes.calls.llm > 0, '正文够长照常规划');
+    const manual = makeFakes({ text: NSFW_TEXT, settings: { nsfwEnabled: true } });
+    await createAutoIllustrationService({ ...manual, minBodyChars: undefined, store: createMemoryIllustrationStore() }).processMessage(5, { manual: true });
+    assert.ok(manual.calls.llm > 0, '手动生成不看字数');
+});
+
+test('gate:illustration:body-length-follows-reader-source-filter', async () => {
+    const { floorBodyLength } = await import('../src/generated-images/illustration/floor-body-length.js');
+    // 台词 / 心理只数说出口的那句，角色名、表情、服装栏和指令不算。
+    assert.equal(floorBodyLength('[igs-scene:卧室|夜晚|晴]\n[igs-char:艾莉|微笑|你好。]\n[igs-thought:艾莉|平静|校服|好困。]\n[igs-fx:shake]\n她笑了。'), 10);
+    assert.equal(floorBodyLength('【igs-char：艾莉｜微笑｜你好。】\n[igs-img:1]\n<IMG>2</IMG>'), 3);
+    // 保留标签在就只数里面；在但为空就是 0；整楼没有保留标签时退回去掉排除块后的全文。
+    assert.equal(floorBodyLength(`<thinking>${LONG_LINE}</thinking>\n<content>\n短。\n</content>\n<Status_block>${LONG_LINE}</Status_block>`), 2);
+    assert.equal(floorBodyLength(`<content>\n\n</content>\n${LONG_LINE}`), 0);
+    assert.equal(floorBodyLength(`<thinking>${LONG_LINE}</thinking>\n短。`), 2);
+    assert.equal(floorBodyLength(`<bbi_image>1girl, rain</bbi_image>\nimage###1girl###\n短。`), 2);
+    // 用户改过正文过滤规则时跟着改。
+    assert.equal(floorBodyLength(`<story>短。</story>\n${LONG_LINE}`, { textIncludeTags: 'story' }), 2);
+    assert.equal(floorBodyLength(`<thinking>${LONG_LINE}</thinking>`, { enabled: false }), LONG_LINE.length);
+});
 
 test('gate:illustration:service-disabled-makes-no-calls', async () => {
     const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
@@ -545,6 +586,7 @@ test('gate:illustration:dbgen-cg-calls-only-the-plugin-prompt-and-generate-apis'
         messageHost, llm, nai, events: { emit() {} },
         store: createMemoryIllustrationStore(),
         getSettings: () => ({ nsfwEnabled: true, nsfwCount: 1 }),
+        minBodyChars: 0,
     });
     const result = await service.processMessage(5);
     assert.equal(result.reason, 'done');
@@ -661,7 +703,7 @@ test('gate:illustration:service-stale-during-regex-setup-skips-write-and-nai', a
     const store = createMemoryIllustrationStore();
     const result = await createAutoIllustrationService({ messageHost: host, store,
         llm: { request: async () => REPLY }, nai: { generate: async () => { naiCalls++; } },
-        getSettings: () => ({ nsfwEnabled: true }),
+        getSettings: () => ({ nsfwEnabled: true }), minBodyChars: 0,
     }).processMessage(5);
     assert.equal(result.reason, 'stale');
     assert.equal((await store.getFloor('c1|5|0')).status, 'stale');
@@ -743,6 +785,7 @@ test('gate:illustration:failed-floor-retries-and-reports-real-error', async () =
         nai: { generate: async (slot) => { naiCalls.push(slot); return { ok: true, dataUrl: 'data:image/png;base64,x' }; } },
         getSettings: () => ({ nsfwEnabled: true, llm: { source: 'openai', endpoint: 'https://llm.example/v1', model: 'm', prompts: { illustration: 'CUSTOM' } } }),
         report: (level, message) => reports.push({ level, message }),
+        minBodyChars: 0,
     });
     const first = await svc.processMessage(1);
     assert.equal(first.reason, 'plan-failed');

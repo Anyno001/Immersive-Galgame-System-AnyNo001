@@ -67,6 +67,7 @@ function variantService(basePrompt, text = '[igs-scene:教室|夜晚|雨]\n灯�
         store,
         getSettings: () => ({ autoIllustration: { assets: { backgroundEnabled: true } }, sceneAssets: GEN_SCENES }),
         newId: () => `v${++id}`,
+        minBodyChars: 0,
     });
     return { service, store, captions, llmCalls: () => llmCalls, ready: store.putImage({ id: 'base', type: 'background', dataUrl: 'data:,', prompt: { positive: basePrompt, negative: 'lowres' } }) };
 }

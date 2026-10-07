@@ -1,4 +1,5 @@
 import { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex } from './marker-placer.js';
+import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
 import { buildPlannerUserPrompt } from './planner-prompt.js';
 import { requestWithSoftRetry, DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
 import { parseIllustrationPlan } from './planner-parser.js';
@@ -199,6 +200,8 @@ export function createAutoIllustrationService(deps) {
     const random = deps.random || Math.random;
     const now = deps.now || (() => new Date().toISOString());
     const report = deps.report || (() => {});
+    const minBodyChars = Number.isFinite(Number(deps.minBodyChars)) ? Number(deps.minBodyChars) : MIN_AUTO_IMAGE_BODY_CHARS;
+    const sourceFilter = typeof deps.getSourceFilter === 'function' ? deps.getSourceFilter : () => undefined;
     const locks = new Map();
     const cache = new Map();
     const hydrated = new Set();
@@ -389,6 +392,12 @@ export function createAutoIllustrationService(deps) {
         }
         if (marked.all.length) return { ok: true, reason: manual ? 'nothing-missing' : 'already-decided' };
         if (!manual && previous && SETTLED_STATUSES.has(previous.status)) return { ok: true, reason: 'already-decided' };
+        // 不记成已处理：用户点「继续」把这楼写长后，下次渲染照常规划。
+        const bodyChars = floorBodyLength(floor.text, sourceFilter());
+        if (!manual && bodyChars < minBodyChars) {
+            report('info', `第 ${messageId} 楼跳过：正文只有 ${bodyChars} 字，少于 ${minBodyChars} 字不自动生图`);
+            return { ok: true, reason: 'body-too-short' };
+        }
         // 柏宝绘 / 智绘姬开着自动写词时先等它把词写回本楼再规划；两边同时写回，IGS 会因正文已改放弃本楼。
         if (typeof nai.waitSourceFloorPrompts === 'function' && ['baibai', 'chatu8'].includes(backendReady().via)) {
             progress(floor, { phase: 'write' });
