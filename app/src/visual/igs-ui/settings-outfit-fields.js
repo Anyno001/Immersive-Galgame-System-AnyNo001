@@ -126,10 +126,11 @@ function shownUrl(url, resolveUrl) {
     try { return String(resolveUrl(raw) || ''); } catch (error) { return ''; }
 }
 
-function thumb(url, alt, extraClass = '', resolveUrl) {
+// note：点开大图时底部的说明（淡色借图要说清楚这不是这一格自己的图）。
+function thumb(url, alt, extraClass = '', resolveUrl, note = '') {
     const value = shownUrl(url, resolveUrl);
     if (isImageUrl(value)) {
-        return `<img loading="lazy" decoding="async" class="igs-outfit-thumb${extraClass}" src="${esc(value)}" alt="${esc(alt)}" data-action="sprite-preview" onerror="this.classList.add('igs-sprite-thumb-broken')">`;
+        return `<img loading="lazy" decoding="async" class="igs-outfit-thumb${extraClass}" src="${esc(value)}" alt="${esc(alt)}" data-action="sprite-preview"${note ? ` data-preview-note="${esc(note)}"` : ''} onerror="this.classList.add('igs-sprite-thumb-broken')">`;
     }
     return `<span class="igs-outfit-thumb igs-outfit-thumb-empty${extraClass}" aria-hidden="true">${value ? '生成' : PERSON_SVG}</span>`;
 }
@@ -138,9 +139,34 @@ function thumb(url, alt, extraClass = '', resolveUrl) {
 function previewOf(sceneAssets, charName, mood, outfit) {
     const hit = resolveSpriteAsset(charName, mood, { sceneAssets }, outfit);
     // 这一套里没有、借的是角色默认立绘：说成回落原装，不说成借这一套的格子。
-    if (hit.source === 'user-outfit' && hit.slot !== '默认') return { url: hit.url, label: `借用「${hit.slot}」`, kind: 'borrow' };
-    if (hit.url) return { url: hit.url, label: `回落原装「${hit.slot || mood}」`, kind: 'base' };
-    return { url: '', label: '无图可显示', kind: 'none' };
+    if (hit.source === 'user-outfit' && hit.slot !== '默认') return { url: hit.url, label: `借用「${hit.slot}」`, kind: 'borrow', slot: hit.slot };
+    if (hit.url) return { url: hit.url, label: `回落原装「${hit.slot || mood}」`, kind: 'base', slot: hit.slot || mood };
+    return { url: '', label: '无图可显示', kind: 'none', slot: '' };
+}
+
+// 借来的图多半和本格情绪接近（回退链按同方向找），不写明就会被当成本格自己的图。
+function ghostNote(mood, preview, status) {
+    if (!preview.url) return '';
+    const lead = preview.kind === 'borrow'
+        ? `「${mood}」还没有自己的图，这里显示的是阅读器暂时借用的「${preview.slot}」。`
+        : `「${mood}」还没有自己的图，这里显示的是阅读器暂时回落使用的原装「${preview.slot}」。`;
+    return status ? `${lead}\n${status.text}` : lead;
+}
+
+// 表情差分没画出来的格子：注记里记着原因或写好的词，直接写在格子上，不再只剩一张淡色借图。
+export function expressionSlotStatus(note) {
+    if (!note || typeof note !== 'object') return null;
+    const error = String(note.error || '').trim();
+    if (error && error !== '已停止') return { text: `没画出来：${error}`, failed: true };
+    if (note.caption || error === '已停止') return { text: '词已写好，还没出图', failed: false };
+    return null;
+}
+
+// 有原因时分两行：上行原因、下行借谁，各自省略，窄屏上「借用」那行也不会被原因挤掉。
+function fallbackHint(preview, status) {
+    if (!status) return `<span class="igs-outfit-hint">${esc(preview.label)}</span>`;
+    return `<span class="igs-outfit-hint is-stacked" title="${esc(`${status.text} · ${preview.label}`)}">`
+        + `<span class="igs-outfit-status">${esc(status.text)}</span><span>${esc(preview.label)}</span></span>`;
 }
 
 function chipList(items, removeAction, addAction, emptyText, addTitle) {
@@ -204,12 +230,13 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
             menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
             menuItem(`scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}`, '删除', ' is-danger'),
         ], `「${mood}」的操作`);
-        // 生成图的格子不放编号地址输入框；自己填地址的格子才有输入框。
-        return `<div class="igs-outfit-slot${filled ? '' : ' is-fallback'}" data-outfit-slot="${esc(mood)}">`
-            + (filled ? thumb(url, mood, '', resolveUrl) : thumb(preview.url, mood, ' is-ghost', resolveUrl))
+        const status = filled ? null : expressionSlotStatus(note);
+        // 生成图的格子不放编号地址输入框（差分没画出来的也算）；自己填地址的格子才有输入框。
+        return `<div class="igs-outfit-slot${filled ? '' : ' is-fallback'}${status && status.failed ? ' is-failed' : ''}" data-outfit-slot="${esc(mood)}">`
+            + (filled ? thumb(url, mood, '', resolveUrl) : thumb(preview.url, mood, ' is-ghost', resolveUrl, ghostNote(mood, preview, status)))
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
-            + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL或data:image/...">`)
-            + (filled ? '' : `<span class="igs-outfit-hint">${esc(preview.label)}</span>`)
+            + (imageId || status ? '' : `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL或data:image/...">`)
+            + (filled ? '' : fallbackHint(preview, status))
             + `<span class="igs-outfit-acts">${slotMenu}</span>`
             + `</div>`;
     }).join('');
@@ -217,8 +244,9 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
     // 缺的格子和有的排在同一个列表里，淡色显示阅读器暂时用哪张，右边一个 + 补上。
     const fallbackRows = missing.map((mood) => {
         const preview = previewOf(sceneAssets, charName, mood, name);
-        return `<div class="igs-outfit-slot is-fallback" data-outfit-fallback="${esc(mood)}">${thumb(preview.url, mood, ' is-ghost', resolveUrl)}`
-            + `<span class="igs-btn-mgr-label">${esc(mood)}</span><span class="igs-outfit-hint">${esc(preview.label)}</span>`
+        const status = expressionSlotStatus(notes && notes[mood]);
+        return `<div class="igs-outfit-slot is-fallback" data-outfit-fallback="${esc(mood)}">${thumb(preview.url, mood, ' is-ghost', resolveUrl, ghostNote(mood, preview, status))}`
+            + `<span class="igs-btn-mgr-label">${esc(mood)}</span>${fallbackHint(preview, status)}`
             + `<span class="igs-outfit-acts"><button type="button" class="igs-btn-mgr-icon" data-action="scene-add-outfit-mood:${c}:${o}:${encSeg(mood)}" title="给这套补上「${esc(mood)}」">+</button></span></div>`;
     }).join('');
     const fillAll = missing.length > 1
@@ -420,6 +448,15 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-panel{display:flex;flex-direction:column;gap:6px;min-width:0}
 .igs-outfit-meta-toggle.is-open{background:var(--igs-settings-highlight);color:var(--igs-settings-ink)}
 .igs-outfit-hint{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-outfit-hint.is-stacked{display:flex;flex-direction:column;justify-content:center;line-height:1.4}
+.igs-outfit-hint.is-stacked>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.igs-outfit-status{color:var(--igs-settings-ink-3)}
+.igs-outfit-slot.is-failed .igs-outfit-status{color:var(--igs-settings-danger)}
+/* 窄屏上空格子的地址框让出位置，「借用谁」按原长显示。 */
+@media (max-width:640px){.igs-outfit-slot.is-fallback>.igs-scene-url-input{flex:1 1 0;min-width:44px;margin-right:0}.igs-outfit-slot.is-fallback>.igs-outfit-hint{flex:0 1 auto}}
+/* 没画出来的格子，「重新生成」就是下一步：任何宽度都露在行内，⋯ 里不再重复。 */
+.igs-scene-char-group .igs-outfit-slot.is-failed .igs-slot-act{display:inline-flex}
+.igs-scene-char-group .igs-outfit-slot.is-failed .igs-add-menu-list .igs-slot-act-menu{display:none}
 .igs-outfit-slot.is-fallback>.igs-btn-mgr-label{color:var(--igs-settings-ink-4)}
 .igs-outfit-fill-all{display:flex;justify-content:flex-end;margin-top:2px}
 .igs-outfit-meta-body{display:flex;flex-direction:column;gap:6px;margin:2px 0 6px 6px;padding:2px 0 2px 12px;border-left:1px solid var(--igs-settings-line)}

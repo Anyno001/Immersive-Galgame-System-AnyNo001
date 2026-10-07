@@ -5,7 +5,7 @@ import { clearOutfitReview, loadOutfitReview, recordOutfitReview, removeOutfitRe
 import { buildStatusHudModel } from '../src/data/shujuku/status-hud-model.js';
 import { isOutfitSwap, playSpriteOutfitSwap, spriteLookOf } from '../src/visual/igs-ui/sprite-outfit-swap.js';
 import { renderCharacterAssetList } from '../src/visual/igs-ui/settings-fields.js';
-import { renderOutfitReviewList } from '../src/visual/igs-ui/settings-outfit-fields.js';
+import { expressionSlotStatus, renderOutfitReviewList } from '../src/visual/igs-ui/settings-outfit-fields.js';
 import { handleSettingsAction } from '../src/visual/igs-ui/settings-actions.js';
 import { createMemoryStorage } from '../src/index.js';
 
@@ -165,6 +165,51 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     const idle = renderOutfitReviewList([], {}, {});
     assert.match(idle, /class="igs-review-card is-empty" data-review-card="outfit"/);
     assert.doesNotMatch(idle, /igs-review-item|outfit-review-clear/);
+});
+
+test('gate:outfits:unpainted-expression-slots-say-why-and-whose-image-shows', () => {
+    assert.equal(expressionSlotStatus(null), null);
+    assert.equal(expressionSlotStatus({ positive: 'smile' }), null, '只记了词、没有出图记录的格子不算');
+    assert.deepEqual(expressionSlotStatus({ error: ' 出图失败 ' }), { text: '没画出来：出图失败', failed: true });
+    assert.deepEqual(expressionSlotStatus({ error: '已停止' }), { text: '词已写好，还没出图', failed: false });
+    assert.deepEqual(expressionSlotStatus({ caption: {} }), { text: '词已写好，还没出图', failed: false });
+
+    // 表情差分里没画出来的格子是空地址：淡色缩略图是阅读器借来的别的表情，格子上要写明原因和借的是谁。
+    const caption = { v4_prompt: { caption: { base_caption: 'x', char_captions: [] } } };
+    const html = renderCharacterAssetList({ 冬月: { 默认: 'https://x/base.png' } }, {
+        characterOutfits: { 冬月: { 泳装: { words: ['泳衣'], moods: { 平和: 'https://x/calm.png', 悲伤: 'https://x/sad.png', 紧张: '', 哭泣: '', 委屈: '' } } } },
+        outfitTabs: { 冬月: '泳装' },
+        expressionNotes: { '冬月\u0001泳装': { 紧张: { error: '出图超时（120 秒）', caption }, 哭泣: { error: '已停止', caption } } },
+        isOpen: () => true,
+    });
+    const row = (mood) => {
+        const at = html.indexOf(`data-outfit-slot="${mood}"`);
+        assert.notEqual(at, -1, mood);
+        const next = html.indexOf('data-outfit-slot="', at + 1);
+        return html.slice(html.lastIndexOf('<div', at), next === -1 ? undefined : html.lastIndexOf('<div', next));
+    };
+
+    const failed = row('紧张');
+    assert.match(failed, /^<div class="igs-outfit-slot is-fallback is-failed"/);
+    assert.doesNotMatch(failed, /igs-scene-url-input/, '没画出来的格子不放地址框');
+    assert.match(failed, /<span class="igs-outfit-status">没画出来：出图超时（120 秒）<\/span><span>借用「平和」<\/span>/);
+    assert.ok(failed.includes('data-preview-note="「紧张」还没有自己的图，这里显示的是阅读器暂时借用的「平和」。\n没画出来：出图超时（120 秒）"'));
+    assert.match(failed, /data-action="outfit-expression-retry:[^"]+:%E7%B4%A7%E5%BC%A0"/);
+
+    const stopped = row('哭泣');
+    assert.match(stopped, /^<div class="igs-outfit-slot is-fallback"/);
+    assert.doesNotMatch(stopped, /igs-scene-url-input/);
+    assert.match(stopped, /<span class="igs-outfit-status">词已写好，还没出图<\/span><span>借用「悲伤」<\/span>/);
+    assert.ok(stopped.includes('暂时借用的「悲伤」。\n词已写好，还没出图"'));
+
+    // 自己加的空格子没有出图记录：照旧留地址框，提示只有一行。
+    const manual = row('委屈');
+    assert.match(manual, /data-scene-outfit-mood="委屈" value=""/);
+    assert.match(manual, /<span class="igs-outfit-hint">借用「[^」]+」<\/span>/);
+    assert.doesNotMatch(manual, /is-failed|is-stacked/);
+    assert.match(manual, /data-preview-note="「委屈」还没有自己的图，这里显示的是阅读器暂时借用的「[^」]+」。"/);
+
+    assert.doesNotMatch(row('平和'), /data-preview-note|is-fallback/, '有图的格子点开就是自己的图，不加说明');
 });
 
 function createCtx(prompts = []) {

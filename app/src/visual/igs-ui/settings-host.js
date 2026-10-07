@@ -474,7 +474,7 @@ export function createSettingsHost(deps) {
                     const url = actName === 'sprite-preview'
                         ? String(action.getAttribute('src') || '')
                         : decodeURIComponent(actName.slice('sprite-preview:'.length));
-                    if (url) showSpritePreviewOverlay(root, url);
+                    if (url) showSpritePreviewOverlay(root, url, action.getAttribute('data-preview-note') || '');
                     // 列表里是 160 宽小图：先放小图，原图读到再换上。
                     const service = options.generatedAssets;
                     const fullId = url && service && typeof service.thumbSourceId === 'function' ? service.thumbSourceId(url) : '';
@@ -836,7 +836,8 @@ export function createSettingsHost(deps) {
     };
 }
 
-function showSpritePreviewOverlay(root, url) {
+// note：大图底部的一行说明，比如淡色借图「这一格还没有自己的图」。
+function showSpritePreviewOverlay(root, url, note = '') {
     if (!root || !url) return;
     // 挂到设置面板的全屏容器 #igs-unified-settings（position:fixed + 视口变量，已知正常全屏），
     // 而非 doc.body —— 移动端宿主把 body 设为 position:fixed 且高度坍缩，挂 body 会被裁成顶部一条。
@@ -852,6 +853,12 @@ function showSpritePreviewOverlay(root, url) {
     img.className = 'igs-sprite-preview-img';
     img.src = url;
     overlay.appendChild(img);
+    if (note) {
+        const caption = doc.createElement('div');
+        caption.className = 'igs-sprite-preview-note';
+        caption.textContent = note;
+        overlay.appendChild(caption);
+    }
     overlay.addEventListener('click', () => overlay.remove());
     host.appendChild(overlay);
 }
