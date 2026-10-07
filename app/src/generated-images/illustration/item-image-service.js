@@ -67,7 +67,8 @@ export function createItemImageService(deps) {
 
     const readSettings = () => {
         const raw = getSettings ? getSettings() || {} : {};
-        return { items: normalizeItemImageSettings(raw.itemImages), auto: normalizeAutoIllustrationSettings(raw.autoIllustration) };
+        const itemModel = String((raw.imageApi && raw.imageApi.itemModel) || '').trim();
+        return { items: normalizeItemImageSettings(raw.itemImages), auto: normalizeAutoIllustrationSettings(raw.autoIllustration), itemModel };
     };
 
     const chatOf = () => (messageHost.getChatId ? messageHost.getChatId() : '');
@@ -118,9 +119,9 @@ export function createItemImageService(deps) {
         if (!error) {
             // 智绘姬 / 柏宝绘出图不保证透明底：走它们时按非透明底出图，不信任 NAI 模型的原生透明能力。
             const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
-            const transparent = plannedVia !== 'chatu8' && plannedVia !== 'baibai' && supportsNaiTransparentBackground(s.auto.nai.model);
+            const transparent = plannedVia !== 'chatu8' && plannedVia !== 'baibai' && supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
             const slot = buildItemSlot(plan.tags, { transparent, uc: plan.uc, positiveContext: s.auto.nai.artistPrefix });
-            const meta = { messageId: floor ? floor.messageId : undefined, size: s.items.size,
+            const meta = { messageId: floor ? floor.messageId : undefined, size: s.items.size, imageKind: 'item',
                 description: `物品：${need.name}${need.description ? `，${need.description}` : ''}`, userPrompts: { positive: slot.scene, negative: slot.sceneUc } };
             let result;
             try { result = await nai.generate(slot, { ...s.auto.nai, size: s.items.size }, meta); }

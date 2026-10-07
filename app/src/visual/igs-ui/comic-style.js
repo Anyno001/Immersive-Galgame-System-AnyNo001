@@ -3,16 +3,20 @@ const SANS = '"Noto Sans SC","Source Han Sans SC","PingFang SC","Hiragino Sans G
 const SERIF = '"Noto Serif SC","Source Han Serif SC","Songti SC","STSong","SimSun",serif';
 const C = '#igs-overlay[data-igs-comic]';
 const MONO = '#igs-overlay[data-igs-comic="mono"]';
+// 输入框默认是漫画框；选「对话框样式」时沿用普通输入框的外观，只保留位置。
+const CI = '#igs-overlay[data-igs-comic]:not([data-igs-comic-input="plain"])';
 
 export const COMIC_STYLE_TEXT = `
 ${C}{--igs-comic-paper:#fff;--igs-comic-ink:#141414;--igs-comic-text:#141414;--igs-comic-accent:#141414;--igs-comic-gutter:#fff;--igs-dialog-h:72px!important;--igs-dialog-w:min(560px,calc(100% - 32px))!important;}
 ${C} #igs-dialog{position:absolute!important;inset:0!important;width:auto!important;height:auto!important;min-height:0!important;max-height:none!important;margin:0!important;padding:0!important;background:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;transform:none!important;overflow:visible!important;display:block!important;pointer-events:none!important;}
 ${C} #igs-dialog::before,${C} #igs-dialog::after{content:none!important;display:none!important;}
 ${C} #igs-dialog>:not(.igs-comic-group):not(.igs-comic-ghost):not(.igs-controls){display:none!important;}
-${C} #igs-dialog .igs-controls{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:min(560px,calc(100% - 40px));box-sizing:border-box;pointer-events:auto;margin:0;padding:8px 10px;background:var(--igs-comic-paper);border:2.5px solid var(--igs-comic-ink);border-radius:14px;box-shadow:none;}
-${C} #igs-dialog .igs-input{background:transparent;color:var(--igs-comic-text);border:1.5px solid color-mix(in srgb,var(--igs-comic-ink) 35%,transparent);}
-${C} #igs-dialog .igs-input::placeholder{color:color-mix(in srgb,var(--igs-comic-text) 50%,transparent);}
-${C} #igs-dialog .igs-send-btn{background:var(--igs-comic-ink);color:var(--igs-comic-paper);border:0;}
+${C} #igs-dialog .igs-controls{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:min(560px,calc(100% - 40px));box-sizing:border-box;pointer-events:auto;margin:0;padding:8px 10px;border-radius:14px;box-shadow:none;}
+${CI} #igs-dialog .igs-controls{background:var(--igs-comic-paper);border:2.5px solid var(--igs-comic-ink);}
+${C}[data-igs-comic-input="plain"] #igs-dialog .igs-controls{background:var(--igs-dialog-bg,var(--igs-glass-bg,rgba(31,34,37,.62)));border:0;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);}
+${CI} #igs-dialog .igs-input{background:transparent;color:var(--igs-comic-text);border:1.5px solid color-mix(in srgb,var(--igs-comic-ink) 35%,transparent);}
+${CI} #igs-dialog .igs-input::placeholder{color:color-mix(in srgb,var(--igs-comic-text) 50%,transparent);}
+${CI} #igs-dialog .igs-send-btn{background:var(--igs-comic-ink);color:var(--igs-comic-paper);border:0;}
 ${C} #igs-dialog.igs-hidden .igs-comic-group,${C} #igs-dialog.igs-hidden .igs-comic-ghost{opacity:0;pointer-events:none;}
 
 #igs-overlay .igs-comic-group{position:absolute;inset:0;pointer-events:none;}

@@ -196,3 +196,27 @@ test('gate:chatu8:waits-only-when-it-writes-back', async () => {
     await off.backend.generate(slot, { size: '1216x832' }, { messageId: 3, slot: 1 });
     assert.equal(off.prompts[0], 'cafe, afternoon light, 1girl, silver hair');
 });
+
+test('gate:image-backend:kind-models-override-nai-and-dbgen', async () => {
+    const naiCalls = [];
+    const dbgenCalls = [];
+    let mode = 'nai';
+    const imageApi = () => ({ mode, spriteModel: 'nai-diffusion-4-full', backgroundModel: '', itemModel: 'nai-diffusion-4-5-curated' });
+    const backend = createImageBackend({
+        global: { NaiDbGen: { async generate(req) { dbgenCalls.push(req); return { ok: true, value: [{ blob: 'data:image/png;base64,DB' }] }; } } },
+        getBridge: () => ({ imageApi: imageApi(), autoIllustration: { nai: { apiKey: 'k', model: 'nai-diffusion-4-5-full', size: '832x1216' } } }),
+        nai: { async generate(slot, settings) { naiCalls.push(settings); return { ok: true, dataUrl: 'data:image/png;base64,NAI' }; } },
+    });
+    await backend.generate({ scene: '1girl' }, { model: 'nai-diffusion-4-5-full' }, { imageKind: 'sprite' });
+    await backend.generate({ scene: 'room' }, { model: 'nai-diffusion-4-5-full' }, { imageKind: 'background' });
+    await backend.generate({ scene: 'apple' }, { model: 'nai-diffusion-4-5-full' }, { imageKind: 'item' });
+    await backend.generate({ scene: 'cg' }, { model: 'nai-diffusion-4-5-full' }, {});
+    assert.deepEqual(naiCalls.map((s) => s.model), ['nai-diffusion-4-full', 'nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-5-full']);
+
+    mode = 'dbgen';
+    const caption = { v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } }, v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } } };
+    await backend.generateDbgenCaption({ caption, imageKind: 'sprite' });
+    await backend.generateDbgenCaption({ caption, imageKind: 'background' });
+    assert.equal(dbgenCalls[0].params.model, 'nai-diffusion-4-full');
+    assert.equal(dbgenCalls[1].params, undefined);
+});

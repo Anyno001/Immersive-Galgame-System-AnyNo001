@@ -48,6 +48,8 @@ export function normalizeComicModeSettings(value) {
         inkMode: src.inkMode === 'custom' ? 'custom' : 'auto',
         inkColor: HEX.test(src.inkColor) ? src.inkColor : '#141414',
         gap: Object.hasOwn(COMIC_GAP_LEVELS, src.gap) ? src.gap : 'medium',
+        // 输入框：comic 漫画框，plain 普通对话框样式。
+        inputStyle: src.inputStyle === 'plain' ? 'plain' : 'comic',
         tones,
     };
 }
@@ -57,6 +59,13 @@ export const COMIC_WORD_LIST_PATHS = Object.freeze(COMIC_TONE_KINDS.map((kind) =
 export function isComicModeActive(readerSettings) {
     const comic = readerSettings && readerSettings.comicMode;
     return Boolean(comic && comic.enabled === true);
+}
+
+// 漫画模式发送后收起输入框，正文变了（新回复到了）再出来。用本楼分页数与末页内容判断「变了」。
+export function comicContentKey(snapshot) {
+    const segs = snapshot && snapshot.content && Array.isArray(snapshot.content.segments) ? snapshot.content.segments : [];
+    const last = segs.length ? segs[segs.length - 1] : '';
+    return `${segs.length}|${typeof last === 'string' ? last : JSON.stringify(last)}`;
 }
 
 export function comicPaletteOf(readerSettings) {

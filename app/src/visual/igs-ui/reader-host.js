@@ -252,6 +252,7 @@ import { buildChatPageModel, normalizeChatShowSettings } from './chat-show-runti
 import { resolveChatTheme } from './chat-themes.js';
 import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
+import { comicContentKey, isComicModeActive } from './comic-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay, stripBilingualTranslation } from './bilingual-text.js';
 
 import {
@@ -1252,6 +1253,14 @@ export function createIgsReaderHost(options = {}) {
         if ((embedded || fullscreen) && result.ok === false) exitEmbeddedLoading();
         else if (embedded || fullscreen) streamObserver.noteActivity();
         state.activeReader.inputValue = '';
+        // 漫画模式：发出去后输入框收起，新回复到了再出来。
+        const sentSnapshot = state.activeReader.snapshot;
+        if (result.ok !== false && sentSnapshot && isComicModeActive(sentSnapshot.readerSettings)) {
+            state.activeReader.comicInputSent = comicContentKey(sentSnapshot);
+            const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
+            const controls = overlay && overlay.querySelector ? overlay.querySelector('.igs-controls') : null;
+            if (controls && controls.style) controls.style.display = 'none';
+        }
         if (state.activeReader.dom && state.activeReader.dom.input) {
             state.activeReader.dom.input.value = '';
         }

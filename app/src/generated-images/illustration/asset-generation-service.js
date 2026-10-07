@@ -90,6 +90,7 @@ export function createAssetGenerationService(deps) {
             sceneAssets: raw.sceneAssets && typeof raw.sceneAssets === 'object' ? raw.sceneAssets : {},
             // 没写过这个开关时沿用旧行为：数据库生图的立绘打开透明底。
             dbgenSpriteTransparent: imageApi.dbgenSpriteTransparent !== false,
+            spriteModel: String(imageApi.spriteModel || '').trim(),
         };
     };
 
@@ -339,7 +340,7 @@ export function createAssetGenerationService(deps) {
         const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
         const dbgenTransparent = plannedVia === 'dbgen' && s.dbgenSpriteTransparent !== false;
         const transparent = isSprite && plannedVia !== 'chatu8' && plannedVia !== 'baibai'
-            && (dbgenTransparent || (plannedVia !== 'dbgen' && supportsNaiTransparentBackground(s.auto.nai.model)));
+            && (dbgenTransparent || (plannedVia !== 'dbgen' && supportsNaiTransparentBackground(s.spriteModel || s.auto.nai.model)));
         const slot = buildAssetSlot(item, {
             transparent,
             whiteBackground: isSprite && plannedVia === 'dbgen' && !dbgenTransparent,
@@ -352,6 +353,7 @@ export function createAssetGenerationService(deps) {
         const meta = {
             messageId: floor.messageId, size, description: buildDbgenAssetDescription(item.need, { transparent: dbgenTransparent }), userPrompts,
             skipRecall: true,
+            imageKind: isSprite ? 'sprite' : 'background',
             ...(dbgenTransparent && { transparent: true }),
         };
         let result;
@@ -400,7 +402,7 @@ export function createAssetGenerationService(deps) {
         } else {
             let result;
             try {
-                result = await nai.generateDbgenCaption({ caption, size: backgroundSize(s), seed: randomSeed() });
+                result = await nai.generateDbgenCaption({ caption, size: backgroundSize(s), seed: randomSeed(), imageKind: 'background' });
             } catch (error) {
                 result = { ok: false, error: `出图失败：${(error && error.message) || error}` };
             }
@@ -451,6 +453,7 @@ export function createAssetGenerationService(deps) {
                     result = await nai.generateDbgenCaption({
                         caption,
                         size: backgroundSize(s),
+                        imageKind: 'background',
                         messageId: floor.messageId,
                         userPrompts: { positive: slot.scene, negative: slot.sceneUc },
                     });
@@ -549,6 +552,7 @@ export function createAssetGenerationService(deps) {
                         result = await nai.generateDbgenCaption({
                             caption: applyCharacterDnaToCaption(caption, item.need && item.need.dna),
                             size: s.auto.assets.spriteSize,
+                            imageKind: 'sprite',
                             messageId: floor.messageId,
                             ...(transparent && { transparent: true }),
                             userPrompts: { positive: prompts.positive, negative: prompts.negative },
@@ -776,7 +780,7 @@ export function createAssetGenerationService(deps) {
         const s = readSettings();
         const via = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
         const dbgenTransparent = via === 'dbgen' && s.dbgenSpriteTransparent !== false;
-        const transparent = dbgenTransparent || (via === 'nai' && supportsNaiTransparentBackground(s.auto.nai.model));
+        const transparent = dbgenTransparent || (via === 'nai' && supportsNaiTransparentBackground(s.spriteModel || s.auto.nai.model));
         const slot = buildAssetSlot(
             { need: { type: 'sprite', name: '' }, tags: '', uc: '' },
             {
@@ -789,6 +793,7 @@ export function createAssetGenerationService(deps) {
         const prompts = expressionSpritePrompts(slot.scene, slot.sceneUc);
         return {
             size: s.auto.assets.spriteSize,
+            imageKind: 'sprite',
             userPrompts: { positive: prompts.positive, negative: prompts.negative },
             transparent,
         };
@@ -969,7 +974,7 @@ export function createAssetGenerationService(deps) {
             }
             let painted;
             try {
-                painted = await nai.generateDbgenCaption({ caption, size: backgroundSize(s), seed });
+                painted = await nai.generateDbgenCaption({ caption, size: backgroundSize(s), seed, imageKind: 'background' });
             } catch (error) {
                 painted = { ok: false, error: (error && error.message) || '出图失败' };
             }
@@ -1011,6 +1016,7 @@ export function createAssetGenerationService(deps) {
             painted = await nai.generateDbgenCaption({
                 caption: applyCharacterDnaToCaption(written.caption, dna),
                 size: AVATAR_SIZE,
+                imageKind: 'sprite',
                 userPrompts: { positive: AVATAR_POSITIVE, negative: AVATAR_NEGATIVE },
             });
         } catch (error) {

@@ -2377,11 +2377,11 @@ test('gate:simulation:igs-ui-enter-sends-and-shift-enter-does-not', async () => 
     vn.destroy();
 });
 
-test('gate:simulation:igs-ui-background-click-does-not-page-dialog-click-still-pages', async () => {
+test('gate:simulation:igs-ui-background-click-pages-forward-dialog-click-still-pages', async () => {
     const document = createFakeDocument();
     const latestMessage = {
         id: 44,
-        text: '[角色: 艾莉]\n艾莉: 第一段。\n第二段。',
+        text: '[角色: 艾莉]\n艾莉: 第一段。\n第二段。\n第三段。',
     };
     const vn = bootstrapIGS({
         global: { document },
@@ -2397,19 +2397,22 @@ test('gate:simulation:igs-ui-background-click-does-not-page-dialog-click-still-p
     const clickLayer = overlay.querySelector('#igs-click-layer');
     const dialog = overlay.querySelector('#igs-dialog');
 
-    assert.equal(opened.reader.snapshot.content.progress, '1 / 2');
+    assert.equal(opened.reader.snapshot.content.progress, '1 / 3');
+    // 单击对话框以外的画面推进到下一页。
     clickLayer.click();
-    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '1 / 2');
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '2 / 3');
 
+    // 点对话框仍照常翻页（第一下可能先放完打字机）。
     dialog.style.left = '0px';
     dialog.style.width = '200px';
     dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160 });
-    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '2 / 2');
+    if (vn.getState().igsUi.activeReader.snapshot.content.progress !== '3 / 3') dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160 });
+    assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '3 / 3');
 
     vn.destroy();
 });
 
-test('gate:simulation:double-click-hides-outside-the-dialog-only', async () => {
+test('gate:simulation:right-click-hides-outside-the-dialog-only', async () => {
     const document = createFakeDocument();
     const latestMessage = {
         id: 45,
@@ -2429,9 +2432,9 @@ test('gate:simulation:double-click-hides-outside-the-dialog-only', async () => {
     const button = overlay.querySelector('button');
 
     assert.equal(opened.reader.snapshot.content.progress, '1 / 2');
-    // 默认关：双击不收起对话框。
+    // 默认关：右键不收起对话框。
     assert.equal(opened.reader.snapshot.readerSettings.dblclickCgOnly, false);
-    overlay.dispatchEvent({ type: 'dblclick', target: overlay });
+    overlay.dispatchEvent({ type: 'contextmenu', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
     const enable = opened.reader.controller.openSettings('reader').controller;
     enable.setValue('readerSettings.dblclickCgOnly', true);
@@ -2440,32 +2443,32 @@ test('gate:simulation:double-click-hides-outside-the-dialog-only', async () => {
     dialog.style.left = '0px';
     dialog.style.width = '200px';
 
-    button.dispatchEvent({ type: 'dblclick', target: button });
+    button.dispatchEvent({ type: 'contextmenu', target: button });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
     const text = dialog.querySelector('#igs-text');
     dialog.dispatchEvent({ type: 'click', target: text, clientX: 160, detail: 1 });
     assert.equal(vn.getState().igsUi.activeReader.snapshot.content.progress, '2 / 2');
     dialog.dispatchEvent({ type: 'click', target: dialog, clientX: 160, detail: 2 });
-    overlay.dispatchEvent({ type: 'dblclick', target: text });
-    overlay.dispatchEvent({ type: 'dblclick', target: dialog });
+    overlay.dispatchEvent({ type: 'contextmenu', target: text });
+    overlay.dispatchEvent({ type: 'contextmenu', target: dialog });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
-    overlay.dispatchEvent({ type: 'dblclick', target: overlay });
+    overlay.dispatchEvent({ type: 'contextmenu', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), '1');
     assert.equal(overlay.querySelector('#igs-bg').id, 'igs-bg');
 
-    overlay.dispatchEvent({ type: 'dblclick', target: overlay });
+    overlay.dispatchEvent({ type: 'contextmenu', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
     assert.equal(vn.getState().igsUi.activeReader.snapshot.readerSettings.dblclickCgOnly, true);
     const settings = opened.reader.controller.openSettings('reader').controller;
     settings.setValue('readerSettings.dblclickCgOnly', false);
     assert.equal(settings.close().ok, true);
-    overlay.dispatchEvent({ type: 'dblclick', target: overlay });
+    overlay.dispatchEvent({ type: 'contextmenu', target: overlay });
     assert.equal(overlay.getAttribute('data-igs-cg-only'), null);
 
-    // 关掉之后双击不再收起。点对话框仍按左右翻页；已经是最后一页，所以停在 2/2。
+    // 关掉之后右键不再收起。点对话框仍按左右翻页；已经是最后一页，所以停在 2/2。
     const liveDialog = overlay.querySelector('#igs-dialog');
     liveDialog.style.left = '0px';
     liveDialog.style.width = '200px';

@@ -59,6 +59,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'camera-parallax', label: '鼠标视差', group: 'stage', open: ['perf-camera'], aliases: ['视差', '镜头'] },
     { id: 'camera-closeup', label: '情绪特写', group: 'stage', open: ['perf-camera'], aliases: ['特写', '放大', '镜头'] },
     { id: 'camera-impact', label: '情绪冲击推近', group: 'stage', open: ['perf-camera'], aliases: ['冲击', '推近', '镜头', '音效'] },
+    { id: 'kind-models', label: '分类型模型', aliases: ['模型', '立绘模型', '背景模型', '物品模型', '不同模型'], location: '生图 › 图像来源', target: { tab: 'image', imageSubTab: 'source', open: ['kind-models'] } },
     { id: 'dbgen-sprite-transparent', label: '立绘透明底', aliases: ['透明底', '透明背景', 'v4.5', '数据库生图', '白底', '白色背景'], location: '生图 › 图像来源', target: { tab: 'image', imageSubTab: 'source', open: [] } },
 ]);
 

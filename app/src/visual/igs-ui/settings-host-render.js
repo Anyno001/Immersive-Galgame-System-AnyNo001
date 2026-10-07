@@ -244,6 +244,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭，关闭后改为白色背景）'),
+                kindModelFields: ['sprite', 'background', 'item'].map((kind) => field(`bridge.imageApi.${kind}Model`, { sprite: '立绘模型', background: '背景模型', item: '物品模型' }[kind], textInput(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], '留空跟随默认').replace('<input ', '<input list="igs-kind-model-list" '))).join('')
+                    + `<datalist id="igs-kind-model-list">${(Array.isArray(asyncState.naiModels) ? asyncState.naiModels : []).filter(Boolean).map((model) => `<option value="${esc(model)}"></option>`).join('')}</datalist>`,
+                advancedKindModelsOpen: advancedOpen('kind-models'),
                 advancedNaiOpen: advancedOpen('nai'),
                 advancedExtensionOpen: advancedOpen('extension'),
                 advancedNsfwOpen: advancedOpen('nsfw'),
@@ -597,7 +600,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             toolbarDockField: field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'top', [['float', '紧贴对话框'], ['top', '顶部固定']])),
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '双击隐藏对话框') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面'),
+            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（电脑右键 / 手机三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面'),
             cinemaBarsToggle: checkbox('readerSettings.cinemaBars', reader.cinemaBars, '电影黑边'),
             backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '毛玻璃模糊'),
             // 玻璃作用于工具栏、选项、数据库、地图和记录面板；对话框只有默认皮肤跟随，其余皮肤自带底色。

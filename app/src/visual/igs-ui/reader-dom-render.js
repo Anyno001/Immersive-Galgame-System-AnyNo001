@@ -63,7 +63,7 @@ import { resolveHorrorTypewriterLevel } from './typewriter-horror.js';
 import { isUnderwaterScene } from './typewriter-underwater.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
-import { dialogRenderSettings, isComicModeActive } from './comic-settings.js';
+import { comicContentKey, dialogRenderSettings, isComicModeActive } from './comic-settings.js';
 import { applyMangaBack } from './manga-back.js';
 import { applyCrowdFx } from './crowd-fx.js';
 import { applyComicToDom, finishComicReveal, isComicGhostTarget, relayoutComic } from './comic-bubble.js';
@@ -756,6 +756,11 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     if (bgBlur) {
         bgBlur.style.backgroundSize = readerSettings.imgMode === 'contain' ? 'cover' : 'cover';
     }
+}
+
+function toggleCgOnly(root) {
+    if (root.getAttribute('data-igs-cg-only') === '1') root.removeAttribute('data-igs-cg-only');
+    else root.setAttribute('data-igs-cg-only', '1');
 }
 
 export function applyAlignStyle(element, align) {
@@ -1675,7 +1680,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const controls = root.querySelector('.igs-controls');
     if (controls) {
         // 内嵌模式使用酒馆默认输入框；其它模式的 IGS 输入区只在最后一页显示。
-        controls.style.display = snapshot.mode === 'embedded' ? 'none' : (isLastPage ? '' : 'none');
+        const comicSent = isComicModeActive(snapshot.readerSettings) && current.comicInputSent && current.comicInputSent === comicContentKey(snapshot);
+        controls.style.display = snapshot.mode === 'embedded' || comicSent ? 'none' : (isLastPage ? '' : 'none');
     }
     applyStatusHudToDom(root, snapshot);
     applyBgmNoteToDom(root, sceneAudio.track);
@@ -1707,26 +1713,24 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     if (root && root.getAttribute && root.getAttribute('data-igs-cg-only-bound') !== '1') {
         root.setAttribute('data-igs-cg-only-bound', '1');
-        root.addEventListener('dblclick', (event) => {
+        // 隐藏对话框只留 CG：电脑右键，手机三击（见点击层）。只认对话框以外的画面。
+        root.addEventListener('pointerdown', (event) => {
+            current.lastPointerType = event.pointerType || '';
+        }, true);
+        root.addEventListener('contextmenu', (event) => {
+            if (current.lastPointerType === 'touch') return;
             const target = event.target;
-            // 过剧情会连点对话框，那里只翻页。双击隐藏只认对话框以外的画面。
             if (target && typeof target.closest === 'function' && target.closest('button,input,textarea,select,a,#igs-settings,#igs-map-panel,#igs-record-panel,#igs-cg-gallery,#igs-dialog,.igs-dialog')) return;
             const live = current.snapshot || snapshot;
             if (!(live && live.readerSettings && live.readerSettings.dblclickCgOnly === true)) return;
             event.preventDefault();
-            if (root.getAttribute('data-igs-cg-only') === '1') root.removeAttribute('data-igs-cg-only');
-            else root.setAttribute('data-igs-cg-only', '1');
+            toggleCgOnly(root);
         });
     }
     if (clickLayer && !(clickLayer.dataset && clickLayer.dataset.igsBound)) {
         if (clickLayer.dataset) clickLayer.dataset.igsBound = '1';
-        clickLayer.addEventListener('click', () => {
+        const blankTap = () => {
             if (root && root.getAttribute && root.getAttribute('data-igs-cg-only') === '1') return;
-            if (current.dragSuppressClick || (current.runtime && current.runtime.dragSuppressClick)) {
-                current.dragSuppressClick = false;
-                if (current.runtime) current.runtime.dragSuppressClick = false;
-                return;
-            }
             if (current.hidden) {
                 current.controller.toggleHidden();
                 return;
@@ -1741,7 +1745,36 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             if (current.snapshot && isComicModeActive(current.snapshot.readerSettings)) {
                 if (finishComicReveal(root)) return;
                 if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction('next');
+                return;
             }
+            // 单击对话框以外的画面（左右都算）推进到下一页；打字机没放完时 next 会先放完。
+            if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction('next');
+        };
+        clickLayer.addEventListener('click', () => {
+            if (current.dragSuppressClick || (current.runtime && current.runtime.dragSuppressClick)) {
+                current.dragSuppressClick = false;
+                if (current.runtime) current.runtime.dragSuppressClick = false;
+                return;
+            }
+            const live = current.snapshot || snapshot;
+            const tripleOn = current.lastPointerType === 'touch' && live && live.readerSettings && live.readerSettings.dblclickCgOnly === true;
+            if (!tripleOn) {
+                blankTap();
+                return;
+            }
+            // 手机三击隐藏：开关打开时单击稍等一下排除连击；关掉时单击立即生效。
+            current.blankTapCount = (current.blankTapCount || 0) + 1;
+            clearTimeout(current.blankTapTimer);
+            if (current.blankTapCount >= 3) {
+                current.blankTapCount = 0;
+                toggleCgOnly(root);
+                return;
+            }
+            current.blankTapTimer = setTimeout(() => {
+                const taps = current.blankTapCount;
+                current.blankTapCount = 0;
+                for (let i = 0; i < taps; i++) blankTap();
+            }, 320);
         });
     }
     if (dialog && !(dialog.dataset && dialog.dataset.igsBound)) {

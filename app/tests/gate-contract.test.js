@@ -1020,7 +1020,7 @@ test('gate:igs-ui:double-click-hides-chrome-and-keeps-cg-and-fx', () => {
     assert.doesNotMatch(hidden, /#igs-effect-layer/);
     assert.doesNotMatch(hidden, /#igs-effect-front-layer/);
     const rendererText = readText('src/visual/igs-ui/reader-dom-render.js');
-    assert.match(rendererText, /addEventListener\('dblclick'/);
+    assert.match(rendererText, /addEventListener\('contextmenu'/);
     assert.match(rendererText, /data-igs-cg-only/);
 });
 

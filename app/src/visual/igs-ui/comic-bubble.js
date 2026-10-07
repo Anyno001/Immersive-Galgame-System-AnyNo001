@@ -117,6 +117,7 @@ function teardown(root, motion, dialog, state) {
     if (!root.hasAttribute || !root.hasAttribute('data-igs-comic')) return;
     setAttr(root, 'data-igs-comic', null);
     setAttr(root, 'data-igs-comic-frame', null);
+    setAttr(root, 'data-igs-comic-input', null);
     if (dialog) setAttr(dialog, 'data-igs-comic-host', null);
     removeNode(state.group);
     removeNode(state.ghost);
@@ -274,6 +275,7 @@ export function applyComicToDom(root, snapshot, opts = {}) {
     const doc = root.ownerDocument;
     setAttr(root, 'data-igs-comic', comic.palette);
     setAttr(root, 'data-igs-comic-frame', comic.frame ? '1' : null);
+    setAttr(root, 'data-igs-comic-input', comic.inputStyle);
     setAttr(dialog, 'data-igs-comic-host', '1');
     applyPalette(root, reader, comic, opts.theme, state);
     syncPageLayers(motion, doc, comic.palette, comic.frame);

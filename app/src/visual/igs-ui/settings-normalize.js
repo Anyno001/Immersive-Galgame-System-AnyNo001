@@ -64,6 +64,7 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.(mangaBack\.enabled|crowdFx\.(enabled|react))$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (path === 'readerSettings.comicMode.palette') return value === 'color' ? 'color' : 'mono';
         if (path === 'readerSettings.comicMode.line') return ['thin', 'medium', 'bold'].includes(value) ? value : 'medium';
+        if (path === 'readerSettings.comicMode.inputStyle') return value === 'plain' ? 'plain' : 'comic';
         if (path === 'readerSettings.comicMode.gap') return ['near', 'medium', 'far'].includes(value) ? value : 'medium';
         if (path === 'readerSettings.comicMode.inkMode') return value === 'custom' ? 'custom' : 'auto';
         if (path === 'readerSettings.comicMode.inkColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#141414';
@@ -114,6 +115,7 @@ export function normalizeSettingsValue(path, value) {
     if (/^bridge\.imageApi\.(steps|requestTimeoutMs|pollIntervalMs|pollAttempts)$/.test(path)) {
         return Number(value);
     }
+    if (/^bridge\.imageApi\.(sprite|background|item)Model$/.test(path)) return String(value || '').trim();
     if (path === 'bridge.imageApi.dbgenSpriteTransparent') {
         return !(value === false || value === 'false' || value === 0 || value === '0');
     }

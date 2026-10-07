@@ -69,6 +69,7 @@ export function renderFxFeatureFields(reader, more = collapsible) {
         + (s.comicMode.inkMode === 'custom' ? field(`${p}.comicMode.inkColor`, '自选描边色', colorInput(`${p}.comicMode.inkColor`, s.comicMode.inkColor)) : '')
         + field(`${p}.comicMode.gap`, '离头部', segmentedInput(`${p}.comicMode.gap`, s.comicMode.gap, [['near', '近'], ['medium', '中'], ['far', '远']], '离头部'))
         + checkbox(`${p}.comicMode.tail`, s.comicMode.tail, '对话泡尾巴')
+        + field(`${p}.comicMode.inputStyle`, '输入框', segmentedInput(`${p}.comicMode.inputStyle`, s.comicMode.inputStyle, [['comic', '漫画框'], ['plain', '对话框样式']], '输入框'))
         + perfSubhead('泡的外形 · 触发情绪')
         + toneWords(COMIC_TONE_KINDS));
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));
