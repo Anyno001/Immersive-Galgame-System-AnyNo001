@@ -43,6 +43,7 @@ import { createNaiOfficialClient } from '../generated-images/nai-official-client
 import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
 import { createIndexedDbCgIndexStore } from '../media/cg-index-store.js';
+import { createAssetThumbnailer, createIndexedDbAssetThumbStore } from '../media/asset-thumb-store.js';
 import { withCgIndexSync } from '../media/cg-library.js';
 import { createAutoIllustrationService, ILLUSTRATION_PROGRESS_EVENT, ILLUSTRATION_UPDATED_EVENT, readCgViewport } from '../generated-images/illustration/auto-illustration-service.js';
 import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
@@ -162,6 +163,8 @@ export function bootstrapIGS(options = {}) {
         getViewport: () => readCgViewport(globalObject, readerModeNow()),
         events,
         report: reportImageJob,
+        thumbStore: options.assetThumbStore !== undefined ? options.assetThumbStore : createIndexedDbAssetThumbStore(globalObject),
+        makeThumb: createAssetThumbnailer(globalObject),
     });
     const itemCg = createItemAndCgServices({
         globalObject,

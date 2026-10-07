@@ -4692,6 +4692,15 @@ export function createIgsReaderHost(options = {}) {
                         ? String(action.getAttribute('src') || '')
                         : decodeURIComponent(actName.slice('sprite-preview:'.length));
                     if (url) showSpritePreviewOverlay(root, url);
+                    // 列表里是 160 宽小图：先放小图，原图读到再换上。
+                    const service = options.generatedAssets;
+                    const fullId = url && service && typeof service.thumbSourceId === 'function' ? service.thumbSourceId(url) : '';
+                    if (fullId && typeof service.getImageDataUrl === 'function') {
+                        service.getImageDataUrl(fullId).then((full) => {
+                            const img = full && root.querySelector ? root.querySelector('#igs-sprite-preview-overlay .igs-sprite-preview-img') : null;
+                            if (img) img.src = full;
+                        }).catch(() => {});
+                    }
                     return;
                 }
                 // 生图 › CG 库：先用缩略图铺满，原图读到再换（预览已关就不再弹）；读失败的格子点一下重试。

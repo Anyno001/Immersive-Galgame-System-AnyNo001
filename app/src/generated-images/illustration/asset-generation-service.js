@@ -65,6 +65,14 @@ export function createAssetGenerationService(deps) {
     const BlobCtor = deps.Blob || globalThis.Blob;
     const canThumbUrl = Boolean(urlApi && typeof urlApi.createObjectURL === 'function' && BlobCtor);
     const thumbUrls = new Map();
+    // 有小图库（thumbStore + makeThumb）时，设置页缩略图是 160 宽小图，生成一次存起来，原图不进内存；
+    // 没有时（测试、老环境）退回旧做法：把已读回的原图转成 blob 短地址。
+    const thumbStore = deps.thumbStore || null;
+    const makeThumb = typeof deps.makeThumb === 'function' ? deps.makeThumb : null;
+    const smallThumbs = Boolean(thumbStore && makeThumb && canThumbUrl);
+    const thumbIds = new Map();
+    const pendingThumbs = new Set();
+    const THUMB_LIMIT = 800;
     let tempChatId = '';
     let tempRecords = new Map();
     let tempLoading = null;
@@ -94,17 +102,25 @@ export function createAssetGenerationService(deps) {
         const url = thumbUrls.get(id);
         if (!url) return;
         thumbUrls.delete(id);
+        thumbIds.delete(url);
         try { if (typeof urlApi.revokeObjectURL === 'function') urlApi.revokeObjectURL(url); } catch (error) { /* 已失效 */ }
+    }
+
+    // 图的内容变了（抠图、导入覆盖）或删了：内存和小图库里的旧小图都作废。
+    function invalidateThumb(id) {
+        dropThumb(id);
+        if (smallThumbs) thumbStore.remove([id]).catch(() => {});
     }
 
     function forgetImage(id) {
         images.delete(id);
         imageUsedAt.delete(id);
-        dropThumb(id);
+        // 小图独立于原图缓存：原图被挤出内存时小图照样留着；旧做法的 blob 就是原图，要一起放掉。
+        if (!smallThumbs) dropThumb(id);
     }
 
     function touchImage(id, dataUrl) {
-        if (images.get(id) !== dataUrl) dropThumb(id);
+        if (smallThumbs ? images.has(id) && images.get(id) !== dataUrl : images.get(id) !== dataUrl) invalidateThumb(id);
         images.delete(id);
         images.set(id, dataUrl);
         imageUsedAt.set(id, clock());
@@ -196,9 +212,53 @@ export function createAssetGenerationService(deps) {
         return new BlobCtor([bytes], { type: m[1] });
     }
 
-    // 设置页缩略图取图：返回 blob: 短地址，内存里已有图就当场转好，不多等一轮重绘；
-    // 还没从存储读回返回空串，读回后发 image-loaded。环境不支持 blob 地址时退回 dataUrl。
+    function setThumbUrl(id, dataUrl) {
+        let blob = null;
+        try { blob = dataUrlToBlob(dataUrl); } catch (error) { blob = null; }
+        if (!blob) return false;
+        dropThumb(id);
+        const url = urlApi.createObjectURL(blob);
+        thumbUrls.set(id, url);
+        thumbIds.set(url, id);
+        while (thumbUrls.size > THUMB_LIMIT) dropThumb(thumbUrls.keys().next().value);
+        return true;
+    }
+
+    // 小图：先查小图库；没有就读一次原图缩成小图存进去（比原图小两个数量级）。缩不了（图本来就小）直接用原图。
+    async function loadSmallThumb(id) {
+        let dataUrl = '';
+        try { dataUrl = await thumbStore.get(id); } catch (error) { dataUrl = ''; }
+        if (!dataUrl) {
+            const full = images.get(id) || (normalizeGeneratedImageRecord(await store.getImage(id)) || {}).dataUrl || '';
+            if (!full) return;
+            let small = '';
+            try { small = await makeThumb(full); } catch (error) { small = ''; }
+            if (small) {
+                try { await thumbStore.put(id, small); } catch (error) { /* 存不下就只在这次打开里用 */ }
+            }
+            dataUrl = small || full;
+        }
+        if (setThumbUrl(id, dataUrl)) emit({ imageId: id, reason: 'image-loaded' });
+    }
+
+    // 点缩略图看大图时用：小图地址 → 图片编号，好去读原图。
+    function thumbSourceId(url) {
+        return thumbIds.get(String(url || '')) || '';
+    }
+
+    // 设置页缩略图取图：返回 blob: 短地址，已有就当场给，不多等一轮重绘；
+    // 还没准备好返回空串，好了发 image-loaded。环境不支持 blob 地址时退回 dataUrl。
     function resolveThumbUrl(url) {
+        if (isGeneratedAssetUrl(url) && smallThumbs) {
+            const id = generatedAssetIdOf(url);
+            const ready = thumbUrls.get(id);
+            if (ready) return ready;
+            if (!pendingThumbs.has(id)) {
+                pendingThumbs.add(id);
+                loadSmallThumb(id).catch(() => {}).finally(() => pendingThumbs.delete(id));
+            }
+            return '';
+        }
         if (!isGeneratedAssetUrl(url) || !canThumbUrl) return resolveUrl(url);
         const id = generatedAssetIdOf(url);
         const dataUrl = images.get(id);
@@ -664,6 +724,7 @@ export function createAssetGenerationService(deps) {
         if (!store || typeof store.updateImage !== 'function') return { ok: false, reason: 'update-unsupported' };
         const result = await store.updateImage(imageId, expectedRevision, patch, now());
         if (!result || !result.ok) return result || { ok: false, reason: 'update-failed' };
+        invalidateThumb(imageId);
         rememberImage(imageId, result.record.dataUrl);
         emit({ imageId, reason: 'matte-edited', revision: result.record.revision });
         return { ok: true, revision: result.record.revision };
@@ -675,6 +736,7 @@ export function createAssetGenerationService(deps) {
             try {
                 await store.deleteImage(id);
                 forgetImage(id);
+                invalidateThumb(id);
             } catch (error) { failed = true; }
         }
         return failed ? { ok: false, reason: 'image-delete-failed' } : { ok: true };
@@ -1056,12 +1118,13 @@ export function createAssetGenerationService(deps) {
         if (!key || !store || typeof store.putImage !== 'function') return { ok: false, error: '图片存不了' };
         const stored = { ...image, id: key };
         await store.putImage(stored);
+        invalidateThumb(key);
         if (stored.dataUrl) rememberImage(key, stored.dataUrl);
         return { ok: true };
     }
 
     return {
-        processMessage, resolveUrl, resolveThumbUrl, tempBackground, tempSceneTime, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
+        processMessage, resolveUrl, resolveThumbUrl, thumbSourceId, tempBackground, tempSceneTime, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
         generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateSceneVariants, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
