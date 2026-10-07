@@ -277,6 +277,15 @@ function pageAlert(dialogs, globalObj, message) {
     if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
 }
 
+const RESERVED_ASSET_NAMES = Object.freeze(['__proto__', 'constructor', 'prototype']);
+
+// 新建条目的默认名取最小的空闲编号：按数量加一取名，删过中间的条目后会撞上已有的同名条目。
+function nextFreeName(prefix, taken) {
+    let n = 1;
+    while (Object.prototype.hasOwnProperty.call(taken, `${prefix}${n}`)) n += 1;
+    return `${prefix}${n}`;
+}
+
 // 生图失败用面板里的弹窗说清原因。别的对话框正开着（比如正在选档位）就改用底部提示条，不顶掉用户正在答的那个。
 function generationFailure(globalObj, dialogs, message, reason) {
     if (dialogs && typeof dialogs.view === 'function' && !(typeof dialogs.isOpen === 'function' && dialogs.isOpen())) {
@@ -2013,7 +2022,7 @@ export async function handleSettingsAction(action, ctx) {
         const kind = assetPick[1];
         const parts = assetPick[2].split(':').map(decodeSeg);
         if (parts.length !== (kind === 'bg' ? 1 : kind === 'weather' || kind === 'outfit-mood' ? 3 : 2)
-            || parts.some((part) => !part || ['__proto__', 'constructor', 'prototype'].includes(part))) {
+            || parts.some((part) => !part || RESERVED_ASSET_NAMES.includes(part))) {
             return { ok: false, reason: 'invalid-asset-slot' };
         }
         const globalObj = options.global || globalThis;
@@ -2144,7 +2153,7 @@ export async function handleSettingsAction(action, ctx) {
         const field = voice ? parts.shift() : 'house';
         const charName = decodeSeg(parts[0]);
         const value = decodeSeg(parts[1]);
-        if (!charName || ['__proto__', 'constructor', 'prototype'].includes(charName)) return { ok: false, error: '角色名无效' };
+        if (!charName || RESERVED_ASSET_NAMES.includes(charName)) return { ok: false, error: '角色名无效' };
         const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         if (voice) {
             if (!['pack', 'pitch', 'speed'].includes(field)) return { ok: false, error: '未知的声线设置' };
@@ -2169,7 +2178,7 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction.startsWith('char-height:')) {
         const [rawName, rawValue] = normalizedAction.slice('char-height:'.length).split(':');
         const charName = decodeSeg(rawName);
-        if (!charName || ['__proto__', 'constructor', 'prototype'].includes(charName)) return { ok: false, error: '角色名无效' };
+        if (!charName || RESERVED_ASSET_NAMES.includes(charName)) return { ok: false, error: '角色名无效' };
         const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         assets.characterSpriteScales = normalizeCharacterSpriteScales({ ...assets.characterSpriteScales, [charName]: decodeSeg(rawValue) });
         const persisted = persistSettingsDraft();
@@ -2471,11 +2480,21 @@ export async function handleSettingsAction(action, ctx) {
     }
 
     if (normalizedAction === 'scene-add-bg') {
+        const globalObj = options.global || globalThis;
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        draftAssetLibrary(settingsState, editTarget).scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
-        const existingKeys = Object.keys(draftAssetLibrary(settingsState, editTarget).scenes);
-        const newName = '场景' + (existingKeys.length + 1);
-        draftAssetLibrary(settingsState, editTarget).scenes[newName] = { url: '', times: {} };
+        const library = draftAssetLibrary(settingsState, editTarget);
+        library.scenes = library.scenes || {};
+        const newName = ((await dialogs.prompt('新增场景，场景名：', nextFreeName('场景', library.scenes))) || '').trim();
+        if (!newName) return rerenderSettings();
+        if (RESERVED_ASSET_NAMES.includes(newName)) {
+            pageAlert(dialogs, globalObj, `「${newName}」不能用作场景名`);
+            return rerenderSettings();
+        }
+        if (Object.prototype.hasOwnProperty.call(library.scenes, newName)) {
+            pageAlert(dialogs, globalObj, `场景「${newName}」已存在（同名）`);
+            return rerenderSettings();
+        }
+        library.scenes[newName] = { url: '', times: {} };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -2823,13 +2842,23 @@ export async function handleSettingsAction(action, ctx) {
     if (outfitResult) return outfitResult;
 
     if (normalizedAction === 'scene-add-char') {
+        const globalObj = options.global || globalThis;
         settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
-        draftAssetLibrary(settingsState, editTarget).characters = draftAssetLibrary(settingsState, editTarget).characters || {};
-        draftAssetLibrary(settingsState, editTarget).characterAliases = draftAssetLibrary(settingsState, editTarget).characterAliases || {};
-        const existingKeys = Object.keys(draftAssetLibrary(settingsState, editTarget).characters);
-        const newName = '角色' + (existingKeys.length + 1);
-        draftAssetLibrary(settingsState, editTarget).characters[newName] = { '默认': '' };
-        draftAssetLibrary(settingsState, editTarget).characterAliases[newName] = [];
+        const library = draftAssetLibrary(settingsState, editTarget);
+        library.characters = library.characters || {};
+        const newName = ((await dialogs.prompt('新增角色，角色名：', nextFreeName('角色', library.characters))) || '').trim();
+        if (!newName) return rerenderSettings();
+        const aliases = ensureCharacterAliases(settingsState, editTarget);
+        const aliasOwner = Object.keys(aliases).find((name) => Array.isArray(aliases[name]) && aliases[name].includes(newName));
+        const blocked = RESERVED_ASSET_NAMES.includes(newName) ? `「${newName}」不能用作角色名`
+            : Object.prototype.hasOwnProperty.call(library.characters, newName) ? `角色「${newName}」已存在（同名）`
+                : aliasOwner ? `「${newName}」已是角色「${aliasOwner}」的别名` : '';
+        if (blocked) {
+            pageAlert(dialogs, globalObj, blocked);
+            return rerenderSettings();
+        }
+        library.characters[newName] = { '默认': '' };
+        aliases[newName] = [];
         settingsState.asyncState.advancedOpen = { ...(settingsState.asyncState.advancedOpen || {}), [`char-open:${newName}`]: true };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
@@ -2847,7 +2876,7 @@ export async function handleSettingsAction(action, ctx) {
         const characters = sceneAssets.characters || {};
         const aliases = ensureCharacterAliases(settingsState, editTarget);
         const alertFn = (msg) => { pageAlert(dialogs, globalObj, msg); };
-        if (['__proto__', 'constructor', 'prototype'].includes(name)) { alertFn(`「${name}」不能用作角色名`); return rerenderSettings(); }
+        if (RESERVED_ASSET_NAMES.includes(name)) { alertFn(`「${name}」不能用作角色名`); return rerenderSettings(); }
         const aliasOwner = Object.keys(aliases).find((n) => Array.isArray(aliases[n]) && aliases[n].includes(name));
         if (aliasOwner) { alertFn(`「${name}」已是角色「${aliasOwner}」的别名，请编辑主角色的 DNA`); return rerenderSettings(); }
         const dnaMap = normalizeCharacterDnaMap(sceneAssets.characterDna);
@@ -2882,7 +2911,7 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'scene-accept-dna-candidate') {
         const candidate = settingsState.asyncState.dnaCandidate;
         const name = candidate && typeof candidate.name === 'string' ? candidate.name.trim() : '';
-        if (!name || ['__proto__', 'constructor', 'prototype'].includes(name)) {
+        if (!name || RESERVED_ASSET_NAMES.includes(name)) {
             settingsState.asyncState.dnaCandidate = null;
             return rerenderSettings();
         }

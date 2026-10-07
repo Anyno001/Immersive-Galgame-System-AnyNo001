@@ -138,6 +138,34 @@ test('asset scope: 从 action 认出改的是哪个场景、角色或生成素�
     assert.equal(assetEditTarget('scene-add-bg'), null);
 });
 
+// 新增角色 / 场景先弹框问名字：默认填最小的空闲编号，取消不建，同名、别名冲突不覆盖。
+test('gate:settings-actions:new-character-and-scene-ask-for-a-name', async () => {
+    const { ctx, draft, alerts } = makeCtx({ card: '', sceneAssets: {
+        characters: { 角色1: { 默认: '' }, 角色3: { 默认: 'keep.png' } },
+        characterAliases: { 角色1: ['小林'] },
+        scenes: { 场景2: { url: 'keep.png', times: {} } },
+    } });
+    const asked = [];
+    const typed = ['小雪', '', '角色3', '小林', '天台', '场景2'];
+    ctx.dialogs.prompt = async (message, value) => { asked.push(value); return typed.shift(); };
+    for (let i = 0; i < 4; i += 1) await handleSettingsAction('scene-add-char', ctx);
+    const assets = draft.bridge.sceneAssets;
+    assert.deepEqual(Object.keys(assets.characters), ['角色1', '角色3', '小雪']);
+    assert.equal(assets.characters.角色3.默认, 'keep.png', '同名不覆盖');
+    assert.deepEqual(assets.characterAliases.小雪, []);
+    assert.equal(asked[0], '角色2', '默认名取最小的空闲编号');
+    assert.equal(ctx.state.activeSettings.asyncState.advancedOpen['char-open:小雪'], true, '新角色卡直接展开');
+    await handleSettingsAction('scene-add-bg', ctx);
+    await handleSettingsAction('scene-add-bg', ctx);
+    assert.deepEqual(Object.keys(assets.scenes), ['场景2', '天台']);
+    assert.equal(assets.scenes.场景2.url, 'keep.png');
+    assert.equal(asked[4], '场景1');
+    assert.equal(alerts.length, 3);
+    assert.match(alerts[0], /角色「角色3」已存在/);
+    assert.match(alerts[1], /「小林」已是角色「角色1」的别名/);
+    assert.match(alerts[2], /场景「场景2」已存在/);
+});
+
 test('asset scope: 改全局里的场景不会在本卡多出一份', async () => {
     const { ctx, draft } = makeCtx({ sceneAssets: { scenes: { 教室: { url: 'old', times: {} } } } });
     await handleSettingsAction('scene-set-bg-url:%E6%95%99%E5%AE%A4:https://new', ctx);
