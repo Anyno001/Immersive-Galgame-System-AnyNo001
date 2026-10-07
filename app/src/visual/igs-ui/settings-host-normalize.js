@@ -229,6 +229,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         spriteDisplayScale: 100,
         showStatusLine: false,
         dblclickCgOnly: false,
+        titleScreen: true,
         cinemaBars: false,
         typewriter: { ...TYPEWRITER_DEFAULTS },
         stageShake: normalizeStageShakeSettings(null),
@@ -286,6 +287,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);
     normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
     normalized.dblclickCgOnly = normalizeBoolean(normalized.dblclickCgOnly, false);
+    normalized.titleScreen = normalizeBoolean(normalized.titleScreen, true);
     normalized.cinemaBars = normalizeBoolean(normalized.cinemaBars, false);
     normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
     normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);

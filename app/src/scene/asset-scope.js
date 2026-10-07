@@ -46,9 +46,17 @@ function ownedWorldview(card) {
     return patch;
 }
 
+// 主界面选世界观时连同对话框皮肤一起记在角色卡上；阅读器渲染时盖过全局 readerSettings.dialogSkin。
+// 皮肤 id 由视觉层校验，这里只认非空字符串。根上不写这个字段。
+function ownedDialogSkin(card) {
+    if (!card || typeof card !== 'object' || Array.isArray(card)) return null;
+    const skin = typeof card.dialogSkin === 'string' ? card.dialogSkin.trim() : '';
+    return skin ? { dialogSkin: skin } : null;
+}
+
 export function libraryHasContent(card) {
     const lib = plain(card);
-    if (ownedWorldview(lib)) return true;
+    if (ownedWorldview(lib) || ownedDialogSkin(lib)) return true;
     for (const field of LIBRARY_FIELDS) {
         if (Object.keys(plain(lib[field])).length) return true;
     }
@@ -122,6 +130,7 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
     return {
         ...rest,
         ...(worldview || {}),
+        ...(ownedDialogSkin(card) || {}),
         scenes: { ...plain(rest.scenes), ...plain(card.scenes) },
         characters: { ...plain(rest.characters), ...plain(card.characters) },
         characterAliases: { ...plain(rest.characterAliases), ...plain(card.characterAliases) },
@@ -156,6 +165,7 @@ export function normalizeAssetCards(sceneAssets) {
             },
             statusAvatars: plain(card.statusAvatars),
             ...(ownedWorldview(card) || {}),
+            ...(ownedDialogSkin(card) || {}),
         };
     }
     sceneAssets.cards = out;

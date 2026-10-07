@@ -208,6 +208,7 @@ import { createOnboardingController } from './onboarding-guide-controller.js';
 import { applyPerformanceProfile, applyProfileDetails } from './performance-profile.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { resolveWorldview } from '../../scene/worldview.js';
+import { effectiveDialogSkin } from './worldview-skins.js';
 import { loadMoodReview, recordMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import {
@@ -3712,6 +3713,7 @@ export function createIgsReaderHost(options = {}) {
             ? sceneAssetsForContext(bridge.sceneAssets, getSillyTavernContext(options.global || globalThis))
             : null;
         const worldview = resolveWorldview(sceneAssets);
+        readerSettings.dialogSkin = effectiveDialogSkin(readerSettings.dialogSkin, sceneAssets);
         Object.assign(readerSettings, applyFxWorldview(readerSettings, worldview));
         // 演出与聊天层据此换皮：_ancientEra 保留给既有古风分支，_worldview 供西幻 / 科幻 / 末日换皮。
         readerSettings._ancientEra = worldview === 'ancient';
