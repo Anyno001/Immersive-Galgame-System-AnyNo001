@@ -35,7 +35,9 @@ export function createCgLibraryView(library, options = {}) {
     let disposed = false;
     let waiters = [];
 
-    const emit = (type, key) => { try { onChange(type, key); } catch { /* 界面刷新出错不打断读取 */ } };
+    const emit = (type, key) => {
+        try { onChange(type, key); } catch (error) { console.warn('[IGS] CG 库界面刷新失败', type, error); }
+    };
     const busy = () => Boolean(opening) || batching.size > 0 || working.size > 0 || queue.length > 0;
     const wake = () => {
         if (busy()) return;

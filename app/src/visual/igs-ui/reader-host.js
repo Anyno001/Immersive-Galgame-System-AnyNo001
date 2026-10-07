@@ -1762,7 +1762,9 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 生图 › CG 库：与工具栏面板共用 cg-library-view。目录一次拿全；缩略图到了只换那一格、状态行只改文字，不整页重画。
-    const cgAttr = (value) => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, ''));
+    function cgAttr(value) {
+        return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, '');
+    }
 
     function imageCgThumbHtml(view, entry) {
         const tile = view.tileOf(entry.key);
