@@ -7751,6 +7751,10 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     assert.match(performance, /旁白按句号分页[\s\S]*旁白时压暗立绘[\s\S]*显示立绘[\s\S]*隐藏立绘[\s\S]*仅露脸剪影/);
     assert.match(performance, /<span>黑幕强度<\/span>/);
     assert.doesNotMatch(performance, /NSFW场景立绘|NSFW黑幕强度|NSFW 场景立绘与黑幕/);
+    // 立绘三档、黑幕强度、裸体头像各自是一行的行头，不能挤进同一个横排行头。
+    assert.match(performance, /<div class="igs-perf-item-head"><div class="igs-settings-field"><div class="igs-segmented" role="radiogroup" aria-label="NSFW 场景立绘"/);
+    assert.match(performance, /<div class="igs-perf-item-head"><label class="igs-settings-field"><span>黑幕强度<\/span>/);
+    assert.match(performance, /<div class="igs-perf-item-head"><button type="button" class="igs-switch[^"]*" data-switch="readerSettings\.statusHud\.nsfwCgPortrait"/);
     const dialog = settings.switchReaderSubTab('dialog').snapshot.html;
     assert.match(dialog, /毛玻璃模糊/);
     assert.match(dialog, /显示对话框内状态行/);

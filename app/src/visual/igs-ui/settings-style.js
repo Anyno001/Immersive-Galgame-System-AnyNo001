@@ -220,7 +220,8 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-perf-item-more::before{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translate(-65%,-50%) rotate(-45deg);transition:transform .15s}
 .igs-perf-item-more.is-open::before{transform:translate(-50%,-70%) rotate(45deg)}
 .igs-perf-item-body{display:flex;flex-direction:column;gap:10px;min-width:0;margin-left:6px;padding:2px 0 4px 14px;border-left:2px solid var(--igs-settings-highlight)}
-.igs-perf-item-body>.igs-settings-sub{margin-left:0;padding-left:0;border-left:0}
+/* 只有整段细项包在一层 sub 里时才去掉它的缩进（免得双重缩进）；挂在某个开关下的子项要保留缩进，才看得出从属。 */
+.igs-perf-item-body>.igs-settings-sub:only-child{margin-left:0;padding-left:0;border-left:0}
 .igs-perf-item-subhead{margin-top:4px;font-size:12px;font-weight:600;color:var(--igs-settings-ink-3)}
 .igs-image-log-list{display:flex;flex-direction:column;gap:2px;max-height:420px;overflow:auto;padding:6px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5;user-select:text}
 .igs-image-log-item{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:8px;padding:3px 4px;border-radius:4px;color:var(--igs-settings-ink)}

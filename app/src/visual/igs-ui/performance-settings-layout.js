@@ -114,7 +114,7 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
         special: [
             section('日常与冒险', [stage.daily, fx.battleFx, fx.flash]),
             section('线上与直播', [host('chat-show', extras.chatShow, '聊天页演出'), danmaku.live, danmaku.audience, danmaku.inner]),
-            section('亲密', [renderRomanceFxFields(src, more), host('nsfw-display', extras.nsfw)]),
+            section('亲密', [renderRomanceFxFields(src, more), host('nsfw-sprite', extras.nsfwSprite), host('nsfw-veil', extras.nsfwVeil), host('nsfw-cg-portrait', extras.nsfwCgPortrait)]),
         ],
         sound: [stage.master, fx.sound, host('voice-bark', extras.voiceBark, '台词开头的语气声'), stage.ambient, stage.ui, stage.bgm],
     };

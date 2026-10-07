@@ -92,6 +92,29 @@ test('gate:performance-layout:voice-bark-lives-in-sound-group', () => {
     assert.doesNotMatch(text, /data-voice-bark/);
 });
 
+// 行头是横排的：NSFW 显示的几项要各占一行，整串塞进一个行头会把立绘三档挤成一条缝。
+test('gate:performance-layout:nsfw-display-options-get-one-row-each', () => {
+    const html = renderPerformanceSettings({}, {
+        nsfwSprite: '<i data-nsfw-sprite></i>',
+        nsfwVeil: '<i data-nsfw-veil></i>',
+        nsfwCgPortrait: ['<i data-cg-portrait></i>', '<i data-cg-portrait-detail></i>'],
+    }, (key) => key === 'perf-nsfw-cg-portrait');
+    const romance = html.slice(html.indexOf('<div class="igs-settings-subhead">亲密</div>'));
+    assert.match(romance, /<div class="igs-perf-item"><div class="igs-perf-item-head"><i data-nsfw-sprite><\/i><\/div><\/div><div class="igs-perf-item"><div class="igs-perf-item-head"><i data-nsfw-veil><\/i><\/div><\/div>/);
+    assert.match(romance, /<div class="igs-perf-item"><div class="igs-perf-item-head"><i data-cg-portrait><\/i><button type="button" class="igs-perf-item-more is-open" data-action="ui-toggle-open:perf-nsfw-cg-portrait"[^>]*><\/button><\/div><div class="igs-perf-item-body"><i data-cg-portrait-detail><\/i><\/div><\/div>/);
+});
+
+// 挂在某个开关下的子项（如节律音效挂在节律演出下）要保留缩进；只有整段细项包在一层 sub 里时才去掉，免得双重缩进。
+test('gate:performance-layout:nested-sub-options-keep-their-indent', async () => {
+    const { getSettingsStyleText } = await import('../src/visual/igs-ui/settings-style.js');
+    const css = getSettingsStyleText();
+    assert.ok(css.includes('.igs-perf-item-body>.igs-settings-sub:only-child{margin-left:0;padding-left:0;border-left:0}'));
+    assert.ok(!css.includes('.igs-perf-item-body>.igs-settings-sub{'));
+    const { renderRomanceFxFields } = await import('../src/visual/igs-ui/romance-fields.js');
+    const body = renderRomanceFxFields({ romanceFx: { enabled: true, rhythm: true } });
+    assert.match(body, /<div class="igs-perf-item-body">[\s\S]*data-switch="readerSettings\.romanceFx\.rhythm"[^>]*>[\s\S]*?<\/button><div class="igs-settings-sub">[\s\S]*data-switch="readerSettings\.romanceFx\.rhythmSound"/);
+});
+
 test('gate:performance-layout:remembers-open-sections', () => {
     const html = renderPerformanceSettings({ mangaFx: { enabled: true } }, {}, (key) => key === 'perf-group-story' || key === 'perf-manga-words');
     assert.match(html, /data-advanced="perf-group-story" open/);

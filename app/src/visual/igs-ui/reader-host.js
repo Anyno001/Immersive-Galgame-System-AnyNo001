@@ -4067,6 +4067,7 @@ export function createIgsReaderHost(options = {}) {
         const chatShow = normalizeChatShowSettings(reader.chatShow);
         const systemRole = normalizeSystemRoleSettings(reader.systemRole);
         const weatherFx = normalizeWeatherFxSettings(reader.weatherFx);
+        const statusHud = normalizeStatusHudSettings(reader.statusHud);
         if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
             dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px`]);
         }
@@ -4146,18 +4147,13 @@ export function createIgsReaderHost(options = {}) {
             narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'),
             cgHoldField: field('readerSettings.cgHoldPages', '日常CG停留', selectInput('readerSettings.cgHoldPages', reader.cgHoldPages || 4, [[2, '2页'], [3, '3页'], [4, '4页'], [6, '6页'], [8, '8页']]), 'NSFW插图保持到下一张'),
             sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'),
-            nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', normalizeStatusHudSettings(reader.statusHud).nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW 场景立绘')}</div>`
-                + '<div class="igs-source-filter-note">剪影需先在立绘编辑里标定头部。</div>',
+            nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', statusHud.nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW 场景立绘')}<em>剪影需先在立绘编辑里标定头部</em></div>`,
             nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')),
-            nsfwCgPortraitField: (() => {
-                const hud = normalizeStatusHudSettings(reader.statusHud);
-                return checkbox('readerSettings.statusHud.nsfwCgPortrait', hud.nsfwCgPortrait, 'CG时对话框旁显示裸体头像')
-                    + '<div class="igs-source-filter-note">需衣柜里有引用「裸体」的服装。</div>'
-                    + (hud.nsfwCgPortrait
-                        ? field('readerSettings.statusHud.nsfwCgPortraitShift', '头像上下', selectInput('readerSettings.statusHud.nsfwCgPortraitShift', hud.nsfwCgPortraitShift, [[-30, '上移3'], [-20, '上移2'], [-10, '上移1'], [0, '自动'], [10, '下移1'], [20, '下移2'], [30, '下移3']]))
-                            + field('readerSettings.statusHud.nsfwCgPortraitZoom', '头像缩放', selectInput('readerSettings.statusHud.nsfwCgPortraitZoom', hud.nsfwCgPortraitZoom, [[80, '80%'], [90, '90%'], [100, '100%'], [115, '115%'], [130, '130%'], [150, '150%']]))
-                        : '');
-            })(),
+            nsfwCgPortraitToggle: checkbox('readerSettings.statusHud.nsfwCgPortrait', statusHud.nsfwCgPortrait, 'CG时对话框旁显示裸体头像（需衣柜里有引用「裸体」的服装）'),
+            nsfwCgPortraitControls: statusHud.nsfwCgPortrait
+                ? field('readerSettings.statusHud.nsfwCgPortraitShift', '头像上下', selectInput('readerSettings.statusHud.nsfwCgPortraitShift', statusHud.nsfwCgPortraitShift, [[-30, '上移3'], [-20, '上移2'], [-10, '上移1'], [0, '自动'], [10, '下移1'], [20, '下移2'], [30, '下移3']]))
+                    + field('readerSettings.statusHud.nsfwCgPortraitZoom', '头像缩放', selectInput('readerSettings.statusHud.nsfwCgPortraitZoom', statusHud.nsfwCgPortraitZoom, [[80, '80%'], [90, '90%'], [100, '100%'], [115, '115%'], [130, '130%'], [150, '150%']]))
+                : '',
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
             optionBubbleHidden: hiddenAttr(!(bridge.optionBubble && bridge.optionBubble.enabled)),
@@ -4197,7 +4193,9 @@ export function createIgsReaderHost(options = {}) {
                 cinemaBars: readerValues.cinemaBarsToggle,
                 sentencePaging: readerValues.sentencePagingToggle,
                 sentencePagingOn: Boolean(bridge.sentencePaging),
-                nsfw: readerValues.nsfwSpriteModeField + readerValues.nsfwVeilLevelField + readerValues.nsfwCgPortraitField,
+                nsfwSprite: readerValues.nsfwSpriteModeField,
+                nsfwVeil: readerValues.nsfwVeilLevelField,
+                nsfwCgPortrait: [readerValues.nsfwCgPortraitToggle, readerValues.nsfwCgPortraitControls],
             }, (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]));
         }
         return renderTemplate(getSettingsTabTemplate('reader'), {
