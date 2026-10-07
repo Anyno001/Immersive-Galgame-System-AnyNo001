@@ -4186,7 +4186,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     assert.match(interfaceView.snapshot.html, /工具栏位置/);
     assert.match(interfaceView.snapshot.html, /工具栏大小/);
     assert.match(interfaceView.snapshot.html, /按钮管理/);
-    assert.match(interfaceView.snapshot.html, /显示左上角状态栏/);
+    assert.match(interfaceView.snapshot.html, /显示状态栏/);
 
     settings.setValue('readerSettings.typewriter.enabled', true);
     settings.setValue('readerSettings.typewriter.speed', 'slow');
@@ -7686,7 +7686,7 @@ test('gate:simulation:status-hud-settings-collapse-when-disabled-without-reading
     const html = settings.switchReaderSubTab('interface').snapshot.html;
 
     assert.match(html, /data-status-hud/);
-    assert.match(html, /显示左上角状态栏/);
+    assert.match(html, /显示状态栏/);
     assert.doesNotMatch(html, /状态栏大小/);
     assert.doesNotMatch(html, /头像圆角/);
     assert.doesNotMatch(html, /data-status-hud-tables/);
@@ -7724,11 +7724,11 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     settings.setValue('readerSettings.statusHud.enabled', true);
     settings.setValue('readerSettings.statusHud.showLocation', true);
     const enabled = settings.switchReaderSubTab('interface').snapshot.html;
-    assert.match(enabled, /显示左上角状态栏/);
+    assert.match(enabled, /显示状态栏/);
     assert.match(enabled, /显示情绪标签/);
     assert.match(enabled, /显示地点栏（仅旁白）/);
     assert.match(enabled, /显示更多的场景信息/);
-    assert.match(enabled, /显示左上角状态栏[\s\S]*显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息/);
+    assert.match(enabled, /显示状态栏[\s\S]*显示情绪标签[\s\S]*显示地点栏（仅旁白）[\s\S]*显示更多的场景信息/);
     assert.doesNotMatch(enabled, /毛玻璃模糊|旁白时压暗立绘|显示NSFW场景下的人物立绘/);
     assert.match(enabled, /头像圆角/);
     assert.match(enabled, /状态栏大小/);
@@ -7790,13 +7790,58 @@ test('gate:simulation:status-hud-settings-expand-and-persist-table-selection', a
     opened.reader.controller.openSettings('reader');
     settings.setValue('readerSettings.statusHud.enabled', false);
     const disabled = settings.switchReaderSubTab('interface').snapshot.html;
-    assert.match(disabled, /显示左上角状态栏/);
+    assert.match(disabled, /显示状态栏/);
     assert.doesNotMatch(disabled, /显示情绪标签/);
     assert.doesNotMatch(disabled, /显示地点栏/);
     assert.doesNotMatch(disabled, /显示更多的场景信息/);
     assert.doesNotMatch(disabled, /毛玻璃模糊|旁白时压暗立绘|显示NSFW场景下的人物立绘/);
     assert.match(settings.switchReaderSubTab('performance').snapshot.html, /旁白时压暗立绘/);
     assert.match(settings.switchReaderSubTab('dialog').snapshot.html, /显示对话框内状态行/);
+
+    vn.destroy();
+});
+
+test('gate:simulation:status-hud-position-switch-device-commit-reset-and-apply', async () => {
+    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({ statusHud: { enabled: true } }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 2, text: '旁白。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    const hud = document.getElementById('igs-status-hud');
+    assert.equal(hud.hasAttribute('data-igs-hud-pos'), false, '没挪过位置的状态栏不挂属性');
+    const settings = (await opened.reader.controller.invokeAction('settings')).controller;
+    settings.switchTab('reader');
+    let html = settings.switchReaderSubTab('interface').snapshot.html;
+    assert.match(html, /显示状态栏[\s\S]*状态栏大小[\s\S]*data-hud-pos="pc"[\s\S]*显示的表格/, '位置栏排在大小 / 圆角之后、表格之前');
+    assert.match(html, /data-hud-pos-reset disabled>/);
+
+    settings.setValue('readerSettings.statusHud.position.pc.x', '87.6', { liveInput: true });
+    assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.position.pc, { x: 88, y: 0 });
+    await settings.invoke('status-hud-pos-device:mobile');
+    html = settings.getSnapshot().html;
+    assert.match(html, /data-hud-pos="mobile"/);
+    assert.match(html, /data-path="readerSettings\.statusHud\.position\.mobile\.y" data-hud-pos-axis="y" min="0" max="100" step="1" value="0"/);
+    settings.setValue('readerSettings.statusHud.position.mobile.y', 64, { liveInput: true });
+    await settings.invoke('status-hud-pos-device:pc');
+    assert.match(settings.getSnapshot().html, /data-path="readerSettings\.statusHud\.position\.pc\.x" data-hud-pos-axis="x" min="0" max="100" step="1" value="88"/);
+    await settings.invoke('status-hud-pos-reset:pc');
+    assert.deepEqual(settings.getSnapshot().draft.readerSettings.statusHud.position, { pc: { x: 0, y: 0 }, mobile: { x: 0, y: 64 } });
+    assert.equal((await settings.invoke('status-hud-pos-device:tablet')).ok, false);
+
+    assert.equal(settings.close().ok, true);
+    const persisted = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
+    assert.deepEqual(persisted.statusHud.position, { pc: { x: 0, y: 0 }, mobile: { x: 0, y: 64 } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(hud.hasAttribute('data-igs-hud-pos'), true, '关面板后阅读器按新位置挂上变量');
+    assert.equal(hud.style['--igs-hud-my'], '64');
+    assert.equal(hud.style['--igs-hud-x'], '0');
 
     vn.destroy();
 });

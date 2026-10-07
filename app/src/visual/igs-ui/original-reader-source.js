@@ -35,6 +35,7 @@ import { SPRITE_OUTFIT_SWAP_STYLE_TEXT } from './sprite-outfit-swap.js';
 import { STAGE_PAUSE_STYLE_TEXT } from './stage-pause.js';
 
 import { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } from './settings-theme.js';
+import { STATUS_HUD_PHONE_MEDIA } from '../../data/shujuku/status-hud-model.js';
 import {
     IGS_UI_BLUR, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FONT_SANS, IGS_UI_INK, IGS_UI_RADIUS, IGS_UI_THICKNESS, igsUiSurface,
 } from '../../styles/ui-material.js';
@@ -135,7 +136,11 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-status-hud{position:absolute;z-index:8;top:14px;left:14px;pointer-events:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:calc(6px * var(--igs-hud-scale,1));width:calc(340px * var(--igs-hud-scale,1));max-width:calc(100% - 28px);padding:calc(8px * var(--igs-hud-scale,1));border-radius:calc(10px * var(--igs-hud-scale,1));box-sizing:border-box;}
 #igs-status-hud.igs-hud-bg-dialog{background:color-mix(in srgb,var(--igs-dialog-bg,var(--igs-glass-bg,rgba(31,34,37,.62))) 50%,transparent);border-radius:calc(6px * var(--igs-hud-scale,1));}
 #igs-overlay.igs-toolbar-top #igs-status-hud{top:14px;}
-#igs-overlay.igs-mode-embedded #igs-status-hud{top:14px;left:12px;width:calc(320px * var(--igs-hud-scale,1));}
+#igs-overlay.igs-mode-embedded #igs-status-hud{top:14px;left:12px;--igs-hud-edge-x:12px;width:calc(320px * var(--igs-hud-scale,1));}
+#igs-overlay #igs-status-hud[data-igs-hud-pos]{z-index:6;--igs-hud-px:var(--igs-hud-x,0);--igs-hud-py:var(--igs-hud-y,0);top:calc(14px + (100% - 28px) * var(--igs-hud-py) / 100);left:calc(var(--igs-hud-edge-x,14px) + (100% - var(--igs-hud-edge-x,14px) * 2) * var(--igs-hud-px) / 100);transform:translate(calc(var(--igs-hud-px) * -1%),calc(var(--igs-hud-py) * -1%));}
+#igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-no-metrics{width:max-content;}
+#igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-collapsed{width:calc(36px * var(--igs-hud-scale,1));height:calc(36px * var(--igs-hud-scale,1));padding:0;}
+@media ${STATUS_HUD_PHONE_MEDIA}{#igs-overlay #igs-status-hud[data-igs-hud-pos]{--igs-hud-px:var(--igs-hud-mx,0);--igs-hud-py:var(--igs-hud-my,0);}}
 #igs-status-hud.igs-hud-suppressed{opacity:0;}
 #igs-status-hud .igs-hud-toggle{position:absolute;inset:0;width:100%;height:100%;align-self:center;padding:0;pointer-events:auto;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.48);cursor:pointer;}
 #igs-status-hud .igs-hud-toggle:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.9);}

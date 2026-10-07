@@ -5,6 +5,7 @@ import { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette, s
 import { OUTFIT_SETTINGS_STYLE_TEXT } from './settings-outfit-fields.js';
 import { SETTINGS_NOTICE_STYLE_TEXT } from './settings-notice.js';
 import { SETTINGS_DIALOG_STYLE_TEXT } from './settings-dialog.js';
+import { STATUS_HUD_POSITION_STYLE_TEXT } from './status-hud-position-fields.js';
 
 
 const BASE = getSettingsThemePalette(SETTINGS_THEME_BASE);
@@ -415,5 +416,5 @@ ${touchSel('::after')}{content:"";position:absolute;left:0;right:0;top:50%;heigh
 }`;
 
 export function getSettingsStyleText() {
-    return `${SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}`;
+    return `${SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}`;
 }

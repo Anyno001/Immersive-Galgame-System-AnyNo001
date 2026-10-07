@@ -26,6 +26,7 @@ import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupL
 import { normalizeSettingsTab, normalizeSpriteDefaultScale, normalizeSpriteGenderScale, SPRITE_HEIGHT_RANGE } from './settings-normalize.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { listStatusHudTables, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
+import { isStatusHudPhone, renderStatusHudPositionField, statusHudPositionDevice } from './status-hud-position-fields.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
@@ -108,11 +109,12 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         function buildStatusHudSettingsHtml(reader, options) {
             const statusHud = normalizeStatusHudSettings(reader && reader.statusHud);
             const sectionClass = 'igs-settings-section igs-status-hud-section';
-            const toggle = checkbox('readerSettings.statusHud.enabled', statusHud.enabled, '显示左上角状态栏');
+            const toggle = checkbox('readerSettings.statusHud.enabled', statusHud.enabled, '显示状态栏');
             if (!statusHud.enabled) {
                 return `<div class="${sectionClass}" data-status-hud>${toggle}</div>`;
             }
-            const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+            const win = options.global || globalThis;
+            const api = win.AutoCardUpdaterAPI || null;
             const listed = api ? listStatusHudTables(createShujukuClient(api).readTables()) : { ok: false, reason: 'missing-api', tables: [] };
             const body = [
                 toggle,
@@ -125,6 +127,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 // 头像圆角、背景、配色直接摊开，不再收进「高级」。
                 field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']])),
                 '</div>',
+                renderStatusHudPositionField(statusHud, statusHudPositionDevice(asyncState, win), isStatusHudPhone(win) ? 'mobile' : 'pc'),
                 `<div class="igs-settings-field"><span>显示的表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: listed.ok ? '' : '数据库插件未就绪' })}</div>`,
                 '<div class="igs-source-filter-grid">',
                 field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景')),

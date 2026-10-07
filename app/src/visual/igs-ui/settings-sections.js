@@ -28,7 +28,7 @@ export const SETTINGS_SECTIONS = Object.freeze({
     'reader-interface-background': { label: '背景图', paths: () => reader('imgMode', 'imgBrightness') },
     'reader-interface-status-hud': {
         label: '状态栏',
-        paths: () => ['enabled', 'showEmotion', 'showLocation', 'showLocationDetails', 'avatarRadius', 'size', 'background', 'barColor', 'tables'].map((key) => `readerSettings.statusHud.${key}`),
+        paths: () => ['enabled', 'showEmotion', 'showLocation', 'showLocationDetails', 'avatarRadius', 'size', 'position', 'background', 'barColor', 'tables'].map((key) => `readerSettings.statusHud.${key}`),
     },
     'reader-interface-option-bubble': { label: '选项气泡', paths: () => ['bridge.optionBubble', 'readerSettings.optionFontSize'] },
     'reader-interface-toolbar': { label: '工具栏', paths: () => reader('toolbarScale', 'toolbarDock', 'pinnedBtns', 'hiddenBtns', 'btnOrder') },

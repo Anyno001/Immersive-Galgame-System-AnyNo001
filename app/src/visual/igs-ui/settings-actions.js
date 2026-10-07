@@ -15,7 +15,7 @@ import { buildPageDiagnostic } from './page-diagnostic.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { SETTINGS_NOTICE_MS } from './settings-notice.js';
-import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
+import { STATUS_HUD_POSITION_DEVICES, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import { CHAT_SHOW_PROMPT_RULE, isValidChatContactName, normalizeChatPromptRule, normalizeChatShowSettings } from './chat-show-runtime.js';
@@ -1685,6 +1685,20 @@ export async function handleSettingsAction(action, ctx) {
         readerDraft.statusHud = current;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    // 状态栏位置：切换正在编辑的那一份（电脑 / 手机）只改界面状态；「回到左上角」只清这一份。
+    if (normalizedAction.startsWith('status-hud-pos-device:') || normalizedAction.startsWith('status-hud-pos-reset:')) {
+        const device = normalizedAction.slice(normalizedAction.indexOf(':') + 1);
+        if (!STATUS_HUD_POSITION_DEVICES.includes(device)) return { ok: false, reason: 'invalid-status-hud-device' };
+        settingsState.asyncState.statusHudPosDevice = device;
+        if (normalizedAction.startsWith('status-hud-pos-reset:')) {
+            const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+            const current = normalizeStatusHudSettings(readerDraft.statusHud);
+            current.position[device] = { x: 0, y: 0 };
+            readerDraft.statusHud = current;
+        }
         return rerenderSettings();
     }
 

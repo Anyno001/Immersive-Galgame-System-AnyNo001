@@ -27,6 +27,7 @@ import { SETTINGS_SEARCH_INDEX, renderSettingsSearchResults } from './settings-s
 import { canMorph, morphChildren } from './settings-dom-morph.js';
 import { buildFallbackSettingsOverlay } from './reader-dom-render.js';
 import { createSettingsRenderer } from './settings-host-render.js';
+import { previewStatusHudPosition } from './status-hud-position-fields.js';
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
 const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
@@ -550,6 +551,11 @@ export function createSettingsHost(deps) {
                 if (status) status.textContent = state.activeSettings.asyncState.promptRuleStatus;
                 return;
             }
+            // 状态栏位置拉杆：拖动中只挪小舞台，松手（change）才写草稿。
+            if (target.type === 'range' && target.hasAttribute('data-hud-pos-axis')) {
+                previewStatusHudPosition(target);
+                return;
+            }
             if (target.type === 'range' && target.getAttribute('data-path') === 'readerSettings.typewriter.sound.volume') {
                 const label = root.querySelector('[data-range-value="readerSettings.typewriter.sound.volume"]');
                 if (label) label.textContent = `${Math.round(Number(target.value) * 100)}%`;
@@ -702,7 +708,7 @@ export function createSettingsHost(deps) {
             }
             const target = event.target;
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
-            if (event.target && event.target.type === 'range' && !/^readerSettings\.typewriter\.sound\./.test(path || '')) return;
+            if (event.target && event.target.type === 'range' && !/^readerSettings\.(typewriter\.sound|statusHud\.position)\./.test(path || '')) return;
             if (!path) return;
             controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
         });

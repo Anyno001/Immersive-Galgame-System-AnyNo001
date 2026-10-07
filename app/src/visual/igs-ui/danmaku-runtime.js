@@ -21,6 +21,9 @@ const AUDIENCE_FILL = Object.freeze({ sparse: 1, medium: 3, dense: 6 });
 const AUDIENCE_AMBIENT_CHANCE = Object.freeze({ sparse: 0, medium: 0.3, dense: 0.6 });
 const ENTRY_GAP = 8;
 const ENTRY_TOP = 14;
+// 与 .igs-aud-entry 的 left / 边长一致。
+const ENTRY_LEFT = 14;
+const ENTRY_SIZE = 38;
 export const INNER_WORD_CAP = 16;
 const INNER_LIFE = 3200;
 const INNER_BURST_AT = 2600;
@@ -134,7 +137,8 @@ function ensureHosts(layers) {
     return { host, front };
 }
 
-// HUD 在舞台外层，高度随折叠变化：可见时入口贴它下缘，否则回左上角。
+// HUD 在舞台外层，高度随折叠变化：可见且压住入口原位（左上角）时入口贴它下缘，否则回左上角。
+// 状态栏可以挪位置，挪走后入口不再跟着它跑到别处。
 // 舞台可能被外层 transform 缩放：矩形差值换回舞台自身的 CSS 像素（同 measureStage）。
 function entryTop(root, motion, stageH) {
     const hud = root.querySelector('#igs-status-hud');
@@ -142,7 +146,9 @@ function entryTop(root, motion, stageH) {
     const rect = hud.getBoundingClientRect();
     const m = motion.getBoundingClientRect();
     if (!(rect.height > 0) || !(m.height > 0)) return ENTRY_TOP;
-    return Math.max(ENTRY_TOP, (rect.bottom - m.top) * (stageH / m.height) + ENTRY_GAP);
+    const k = stageH / m.height;
+    if ((rect.left - m.left) * k >= ENTRY_LEFT + ENTRY_SIZE || (rect.top - m.top) * k >= ENTRY_TOP + ENTRY_SIZE) return ENTRY_TOP;
+    return Math.max(ENTRY_TOP, (rect.bottom - m.top) * k + ENTRY_GAP);
 }
 
 // 内心弹幕的落点：有头部标定时围着头，否则围着立绘上半身；没有立绘就在舞台中上部。

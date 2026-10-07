@@ -130,15 +130,19 @@ export function selectInput(path, value, items, disabled = false) {
     return `<select data-path="${esc(path)}"${disabled ? ' disabled' : ''}>${options}</select>`;
 }
 
-export function segmentedInput(path, value, items, label) {
+// options.action：按钮改发 data-action="<action>:<值>"，用于只切界面状态、不写设置的分段按钮。
+export function segmentedInput(path, value, items, label, options = {}) {
     const activeIndex = Math.max(0, items.findIndex((item) => String(item[0]) === String(value)));
+    const target = (item) => (options.action
+        ? `data-action="${esc(`${options.action}:${item[0]}`)}"`
+        : `data-segment-path="${esc(path)}" data-segment-value="${esc(item[0])}"`);
     return `<div class="igs-segmented" role="radiogroup" aria-label="${esc(label || '')}" data-count="${esc(items.length)}" data-active-index="${esc(activeIndex)}" style="--igs-segment-count:${esc(items.length)};--igs-active-index:${esc(activeIndex)};"><span class="igs-segmented-indicator" aria-hidden="true"></span>${items.map((item) => {
         const selected = String(item[0]) === String(value);
         const icon = item[2] ? `<span class="igs-segmented-btn-icon" aria-hidden="true">${item[2]}</span>` : '';
         const [main, note] = splitLabelNote(item[1]);
         const noteHtml = note ? `<small class="igs-segmented-btn-note">${esc(note)}</small>` : '';
         const ariaLabel = note ? ` aria-label="${esc(item[1])}"` : '';
-        return `<button type="button" class="igs-segmented-btn${item[2] ? ' has-icon' : ''}${selected ? ' is-active' : ''}" data-segment-path="${esc(path)}" data-segment-value="${esc(item[0])}" role="radio" aria-checked="${selected ? 'true' : 'false'}" aria-pressed="${selected ? 'true' : 'false'}"${ariaLabel}>${icon}<span class="igs-segmented-btn-label">${esc(main)}${noteHtml}</span></button>`;
+        return `<button type="button" class="igs-segmented-btn${item[2] ? ' has-icon' : ''}${selected ? ' is-active' : ''}" ${target(item)} role="radio" aria-checked="${selected ? 'true' : 'false'}" aria-pressed="${selected ? 'true' : 'false'}"${ariaLabel}>${icon}<span class="igs-segmented-btn-label">${esc(main)}${noteHtml}</span></button>`;
     }).join('')}</div>`;
 }
 

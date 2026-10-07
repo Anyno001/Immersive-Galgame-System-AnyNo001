@@ -337,6 +337,28 @@ test('gate:danmaku:live-host-auto-view-say-both-and-theme', () => {
     cancelDanmaku(other.root);
 });
 
+test('gate:danmaku:audience-entry-follows-hud-only-while-hud-covers-its-corner', () => {
+    const { root, motion, doc } = makeRoot();
+    const c = clock();
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: () => 0.9, reducedMotion: false };
+    const settings = { audienceFx: { enabled: true, ambient: false } };
+    motion.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1280, height: 720, right: 1280, bottom: 720 });
+    const hud = root.appendChild(new FakeNode(doc, 'div'));
+    hud.id = 'igs-status-hud';
+    let rect = { left: 14, top: 14, width: 121, height: 59 };
+    hud.getBoundingClientRect = () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height });
+    applyDanmakuToDom(root, snapshot({ currentIndex: 1, fx: { danmaku: [{ lines: ['好甜'], style: 'scroll' }] } }, settings), opts);
+    const entry = motion.querySelector('.igs-aud-entry');
+    assert.equal(entry.style.get('--igs-aud-top'), '81px', '状态栏在左上角时入口贴它下缘');
+    rect = { left: 1145, top: 14, width: 121, height: 59 };
+    applyDanmakuToDom(root, snapshot({ currentIndex: 2, fx: { danmaku: [{ lines: ['锁死'], style: 'scroll' }] } }, settings), opts);
+    assert.equal(entry.style.get('--igs-aud-top'), '14px', '状态栏挪到右上角后入口留在左上角');
+    rect = { left: 14, top: 330, width: 121, height: 59 };
+    applyDanmakuToDom(root, snapshot({ currentIndex: 3, fx: { danmaku: [{ lines: ['awsl'], style: 'scroll' }] } }, settings), opts);
+    assert.equal(entry.style.get('--igs-aud-top'), '14px', '挪到左侧中间时不再把入口拽下去');
+    cancelDanmaku(root);
+});
+
 test('gate:danmaku:audience-entry-badge-open-close-and-floor-reset', () => {
     const { root, motion } = makeRoot();
     const c = clock();

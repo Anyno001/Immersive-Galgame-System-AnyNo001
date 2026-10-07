@@ -17,7 +17,7 @@ import {
     removeImageLoadingSpinner,
 } from './reader-dom-utils.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
-import { resolveStatusHudScale, resolveStatusHudLocationScale, NSFW_VEIL_LEVEL_STYLE, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
+import { resolveStatusHudScale, resolveStatusHudLocationScale, NSFW_VEIL_LEVEL_STYLE, normalizeStatusHudPosition, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import {
     applySpriteDisplayScale,
@@ -810,6 +810,26 @@ function statusHudKey(root, snapshot, hud, radius) {
     }
 }
 
+// 位置只写 CSS 变量，不进重建签名：拖完位置不重建 HUD。两份都在默认左上角时不挂属性，样式与改版前完全一致。
+const STATUS_HUD_POSITION_VARS = Object.freeze([['--igs-hud-x', 'pc', 'x'], ['--igs-hud-y', 'pc', 'y'], ['--igs-hud-mx', 'mobile', 'x'], ['--igs-hud-my', 'mobile', 'y']]);
+
+export function applyStatusHudPosition(host, position) {
+    if (!host || !host.style || typeof host.setAttribute !== 'function') return;
+    const pos = normalizeStatusHudPosition(position);
+    const custom = STATUS_HUD_POSITION_VARS.some(([, device, axis]) => pos[device][axis] !== 0);
+    if (!custom) {
+        if (!host.hasAttribute?.('data-igs-hud-pos')) return;
+        host.removeAttribute('data-igs-hud-pos');
+        for (const [name] of STATUS_HUD_POSITION_VARS) host.style.removeProperty?.(name);
+        return;
+    }
+    host.setAttribute('data-igs-hud-pos', '');
+    for (const [name, device, axis] of STATUS_HUD_POSITION_VARS) {
+        const value = String(pos[device][axis]);
+        if (host.style.getPropertyValue?.(name) !== value) host.style.setProperty(name, value);
+    }
+}
+
 export function applyStatusHudToDom(root, snapshot) {
     const host = findStatusHudHost(root);
     if (!host) return;
@@ -818,6 +838,7 @@ export function applyStatusHudToDom(root, snapshot) {
     const radius = STATUS_HUD_RADIUS[hud && hud.avatarRadius] != null ? STATUS_HUD_RADIUS[hud && hud.avatarRadius] : '50%';
     const scale = snapshot && snapshot.readerSettings && snapshot._statusHudScale;
     host.style.setProperty('--igs-hud-scale', String(Number(scale) > 0 ? Number(scale) : 1));
+    applyStatusHudPosition(host, snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud && snapshot.readerSettings.statusHud.position);
     const key = statusHudKey(root, snapshot, hud, radius);
     if (key && statusHudKeys.get(host) === key && (host.firstChild || host.hasAttribute?.('hidden'))) return;
     statusHudKeys.set(host, key);

@@ -37,6 +37,12 @@ export function resolveNsfwSpriteMode(src) {
 export const NSFW_CG_PORTRAIT_SHIFTS = Object.freeze([-30, -20, -10, 0, 10, 20, 30]);
 export const NSFW_CG_PORTRAIT_ZOOMS = Object.freeze([80, 90, 100, 115, 130, 150]);
 
+// 状态栏位置：电脑 / 手机各一份，x、y 为 0~100 的百分比（0 = 贴左 / 贴上，100 = 贴右 / 贴下，边距不变）。
+// 哪一份生效由 STATUS_HUD_PHONE_MEDIA 决定，与内嵌框「手机」判定同一口径（窗口宽 ≤ 640，或竖着拿的触屏）。
+export const STATUS_HUD_POSITION_DEVICES = Object.freeze(['pc', 'mobile']);
+export const STATUS_HUD_PHONE_MEDIA = '(max-width:640px),(orientation:portrait) and (pointer:coarse)';
+const STATUS_HUD_POSITION_DEFAULT = Object.freeze({ x: 0, y: 0 });
+
 export const STATUS_HUD_DEFAULTS = Object.freeze({
     enabled: false,
     collapsed: false,
@@ -55,7 +61,22 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     background: 'none',
     barColor: 'color',
     tables: [],
+    position: Object.freeze({ pc: STATUS_HUD_POSITION_DEFAULT, mobile: STATUS_HUD_POSITION_DEFAULT }),
 });
+
+export function normalizeStatusHudPercent(value) {
+    return Math.round(clampNumber(value, 0, 100, 0));
+}
+
+export function normalizeStatusHudPosition(raw) {
+    const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const out = {};
+    for (const device of STATUS_HUD_POSITION_DEVICES) {
+        const point = src[device] && typeof src[device] === 'object' ? src[device] : {};
+        out[device] = { x: normalizeStatusHudPercent(point.x), y: normalizeStatusHudPercent(point.y) };
+    }
+    return out;
+}
 
 export function normalizeStatusHudSettings(raw) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -78,6 +99,7 @@ export function normalizeStatusHudSettings(raw) {
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
         barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,
         tables: normalizeStatusHudTables(src.tables),
+        position: normalizeStatusHudPosition(src.position),
     };
 }
 

@@ -9,6 +9,7 @@ import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import { normalizeRenderQualitySetting } from './render-quality.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
+import { normalizeStatusHudPercent } from '../../data/shujuku/status-hud-model.js';
 
 
 export function normalizeReaderMode(mode, bridge) {
@@ -62,6 +63,7 @@ export function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.metaFx.cooldownSec') return Number(value);
         if (path === 'readerSettings.metaFx.birthday') return String(value || '').trim();
         if (path === 'readerSettings.statusHud.nsfwCgPortraitShift' || path === 'readerSettings.statusHud.nsfwCgPortraitZoom') return Number(value);
+        if (/^readerSettings\.statusHud\.position\.(pc|mobile)\.[xy]$/.test(path)) return normalizeStatusHudPercent(value);
         if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
         if (path === 'readerSettings.dialogTextEffect') return ['off', 'outline', 'shadow'].includes(value) ? value : 'off';
         if (path === 'readerSettings.dialogTextEffectColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';

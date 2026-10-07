@@ -47,6 +47,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'image-count', label: '检测图像数量', aliases: ['图片数量', '图不对', '少图', '多图'], location: '基础 › 标签解析', target: { tab: 'basic', open: ['source-filter'] } },
     { id: 'body-format', label: '正文格式化', aliases: ['正则', '格式', '分页不对', '乱码'], location: '基础 › 正文格式化', target: { tab: 'basic', open: ['body-format'] } },
     { id: 'toolbar-dock', label: '工具栏位置', aliases: ['工具栏', '按钮', '顶部', '紧贴对话框'], location: '阅读器 › 界面 › 工具栏', target: { tab: 'reader', readerSubTab: 'interface', open: [] } },
+    { id: 'status-hud-position', label: '状态栏位置', aliases: ['状态栏', 'hud', '头像', '左上角', '挡住', '挪位置'], location: '阅读器 › 界面 › 状态栏', target: { tab: 'reader', readerSubTab: 'interface', open: [] } },
     { id: 'sprite-scale', label: '立绘缩放与高度', aliases: ['立绘太大', '立绘太小', '缩放', '高度', '人物大小'], location: '素材 › 角色 › 立绘设置', target: { tab: 'scene', sceneSubTab: 'characters', open: ['sprite-display'] } },
     { id: 'text-effect', label: '文字增强', aliases: ['描边', '看不清', '投影', '字看不清'], location: '阅读器 › 文字 › 排版', target: { tab: 'reader', readerSubTab: 'text', open: [] } },
     { id: 'camera-kenburns', label: '背景缓慢推镜', group: 'stage', open: ['perf-camera'], aliases: ['推镜', '背景移动', '镜头'] },
