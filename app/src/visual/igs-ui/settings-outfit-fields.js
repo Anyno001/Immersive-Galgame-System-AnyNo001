@@ -169,17 +169,6 @@ function wardrobeChoices(charName, outfitName, entry, wardrobe) {
         + `<div class="igs-add-menu-list" role="listbox">${options.join('')}</div></details>${edit}`;
 }
 
-// 服装设置折起来时，摘要里仍能看到这套衣服的要点，不用展开也知道怎么配的。
-function outfitMetaSummary(entry, words, scenes, avatar) {
-    const wardrobe = typeof entry.wardrobe === 'string' && entry.wardrobe.trim() ? entry.wardrobe.trim() : '同名';
-    return [
-        `衣柜 ${wardrobe}`,
-        words.length ? `服装词 ${words.join('、')}` : '',
-        scenes.length ? `场景 ${scenes.join('、')}` : '',
-        avatar ? '有头像' : '',
-    ].filter(Boolean).join(' · ');
-}
-
 function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen) {
     const c = encSeg(charName);
     const o = encSeg(name);

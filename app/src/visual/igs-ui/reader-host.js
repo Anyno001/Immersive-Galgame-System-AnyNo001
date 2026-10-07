@@ -5051,33 +5051,6 @@ export function createIgsReaderHost(options = {}) {
         });
     }
 
-    function mutateGeneratedLibrary(mutator) {
-        if (state.activeSettings) {
-            const bridge = state.activeSettings.draft.bridge = state.activeSettings.draft.bridge || {};
-            rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-            const sceneAssets = draftAssetLibrary(state.activeSettings);
-            const result = mutator(sceneAssets.generated);
-            if (!result || result.ok === false) return result || { ok: false };
-            sceneAssets.generated = result.library;
-            const persisted = persistSettingsDraft();
-            if (persisted.ok !== false) rerenderSettings();
-            return persisted.ok === false ? persisted : result;
-        }
-        let result = null;
-        const saved = saveBridgePatch((bridge) => {
-            const root = bridge.sceneAssets = bridge.sceneAssets || {};
-            const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis));
-            relocateLegacyCard(root, scope.key, scope.legacyKey);
-            const bucket = scope.key ? ensureCardLibrary(root, scope.key) : root;
-            result = mutator(bucket.generated);
-            if (!result || result.ok === false) return null;
-            bucket.generated = result.library;
-            return { sceneAssets: root };
-        });
-        if (!result || result.ok === false) return saved.reason === 'missing-save-handler' ? saved : (result || { ok: false });
-        return saved && saved.ok !== false ? result : (saved || { ok: false, reason: 'save-failed' });
-    }
-
     function mutateSceneLibrary(mutator) {
         if (state.activeSettings) {
             rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
