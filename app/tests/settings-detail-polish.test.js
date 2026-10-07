@@ -105,8 +105,9 @@ test('gate:settings-polish:subtab-bars-scroll-with-content', async () => {
     }
     assert.match(css, /\.igs-image-subtabs\{[^}]*grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
     assert.equal(IMAGE_SUBTAB_DEFS.length, 5);
-    // 仍吸顶的批量选择栏要垫不透明底色，内容滚过去时不透出来。
-    assert.match(css, /\.igs-asset-select-bar\{[^}]*position:sticky[^}]*background:linear-gradient\(var\(--igs-settings-highlight\),var\(--igs-settings-highlight\)\),var\(--igs-settings-panel\)/);
+    // 仍吸顶的批量选择栏要垫不透明底色，内容滚过去时不透出来；高亮色叠在伪元素上（设置器不用渐变）。
+    assert.match(css, /\.igs-asset-select-bar\{[^}]*position:sticky[^}]*background:var\(--igs-settings-panel\)/);
+    assert.match(css, /\.igs-asset-select-bar::before\{[^}]*z-index:-1;[^}]*background:var\(--igs-settings-highlight\)/);
 });
 
 // 「高级」折叠区自带底色框，不能再叠上 .igs-settings-sub 的左竖线、左外边距和 flex 间距。
