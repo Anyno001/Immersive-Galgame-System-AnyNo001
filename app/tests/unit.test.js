@@ -4513,6 +4513,33 @@ test('gate:generated-images:sprite-slot-merges-character-dna-in-fixed-order', as
     const plainPrompt = buildAssetPlannerUserPrompt({ needs: [{ type: 'sprite', name: '爱丽' }], readableText: '正文' });
     assert.ok(!plainPrompt.includes('【角色 DNA】'));
     assert.ok(!plainPrompt.includes('固定身份'));
+    assert.ok(!plainPrompt.includes('【角色设定参考】'));
+    const lorePrompt = buildAssetPlannerUserPrompt({ needs: [{ type: 'sprite', name: '爱丽' }], readableText: '正文', lore: [{ name: '爱丽', text: '世界书：银发蓝眼' }] });
+    assert.ok(lorePrompt.includes('【角色设定参考】'));
+    assert.ok(lorePrompt.includes('爱丽：世界书：银发蓝眼'));
+});
+
+test('gate:generated-images:sprite-lore-reads-persona-card-and-matching-worldinfo', async () => {
+    const { createIllustrationMessageHost } = await import('../src/host/illustration-message-host.js');
+    const ctx = {
+        name1: '我',
+        powerUserSettings: { persona_description: '黑色短发，戴眼镜' },
+        characterId: 0,
+        characters: [{ name: '爱丽', description: '金发双马尾', data: { extensions: { world: '书A' } } }],
+        chatMetadata: {},
+        loadWorldInfo: async (book) => (book === '书A' ? { entries: {
+            1: { key: ['爱丽'], content: '爱丽常穿红色斗篷' },
+            2: { key: ['魔王'], content: '魔王是黑龙' },
+            3: { key: ['爱丽'], content: '已关闭条目', disable: true },
+        } } : null),
+    };
+    const host = createIllustrationMessageHost({ SillyTavern: { getContext: () => ctx } });
+    const lore = await host.readCharacterLore(['我', '爱丽', '路人']);
+    assert.equal(lore.length, 2);
+    assert.match(lore[0].text, /用户人设：黑色短发/);
+    assert.match(lore[1].text, /角色卡：金发双马尾/);
+    assert.match(lore[1].text, /红色斗篷/);
+    assert.doesNotMatch(lore[1].text, /黑龙|已关闭/);
 });
 
 

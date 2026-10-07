@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { bootstrapIGS, createMemoryStorage, createPresetRegistry, PRESET_STORE_KEY } from '../src/index.js';
+import { writeLegacyIgsSettings } from '../src/storage/legacy-igs.js';
 import { createShujukuClient } from '../src/data/shujuku/client.js';
 import { createDbTabClickGuard, toShujukuApiRowIndex } from '../src/shujuku-panel/panel-controller.js';
 import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel-render.js';
@@ -3222,11 +3223,49 @@ test('gate:simulation:unified-settings-merge-and-copy-isolation', () => {
         again.readerSettings.nested.marker = 'mutated snapshot';
         assert.equal(vn.getUnifiedSettings().bridge.sceneAssets.generated.expressionNotes.角色.开心.positive, 'new');
         assert.equal(vn.getUnifiedSettings().readerSettings.nested.marker, 'reader');
-        assert.equal(JSON.parse(storage.getItem('igs_bridge_config')).sceneAssets.generated.expressionNotes.角色.开心.positive, 'new');
+        assert.equal(JSON.parse(storage.getItem('igs_bridge_config')).sceneAssets.generated.expressionNotes, undefined, 'expressionNotes stripped from storage');
     } finally {
         vn.destroy();
     }
 });
+
+test('gate:simulation:storage-slim-bridge-strips-expressionNotes', () => {
+    const storage = createMemoryStorage();
+    const bridge = {
+        sceneAssets: {
+            enabled: true,
+            scenes: { 教室: { url: 'room.png' } },
+            generated: {
+                scenes: { 工厂: { url: 'igs-gen:bg1' } },
+                characters: { 冬月: { 默认: 'igs-gen:a' } },
+                characterAliases: {},
+                expressionNotes: { 冬月: { 喜悦: { positive: 'smile', negative: 'sad' } } },
+            },
+        },
+        imageApi: { provider: 'test' },
+    };
+    const result = writeLegacyIgsSettings(storage, {
+        bridge,
+        displayMode: 'pc',
+        readerMode: 'pc',
+        readerSettings: {},
+        readerSettingsByMode: { pc: {}, mobile: {}, default: {} },
+    });
+    assert.equal(result.ok, true);
+    // 返回的 legacy 对象保持完整
+    assert.equal(result.legacy.bridge.sceneAssets.generated.expressionNotes.冬月.喜悦.positive, 'smile',
+        'legacy return retains expressionNotes');
+    // localStorage 中的 bridge 不含 expressionNotes
+    const stored = JSON.parse(storage.getItem('igs_bridge_config'));
+    assert.equal(stored.sceneAssets.generated.expressionNotes, undefined,
+        'expressionNotes stripped from localStorage');
+    // 其他 generated 字段保留
+    assert.equal(stored.sceneAssets.generated.scenes.工厂.url, 'igs-gen:bg1');
+    assert.equal(stored.sceneAssets.generated.characters.冬月.默认, 'igs-gen:a');
+    // 非 generated 字段不受影响
+    assert.equal(stored.sceneAssets.scenes.教室.url, 'room.png');
+});
+
 
 test('gate:simulation:default-dialog-height-controls-floating-box', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
@@ -3775,8 +3814,11 @@ test('gate:simulation:large-settings-draft-typing-does-not-copy-or-persist-per-c
         assert.equal(settings.close().ok, true);
         const saveMs = performance.now() - saveStart;
         const saved = JSON.parse(storage.getItem('igs_bridge_config'));
-        assert.equal(saved.sceneAssets.generated.expressionNotes.角色0.常态.positive, prompt);
-        assert.equal(saved.sceneAssets.generated.expressionNotes.角色499.常态.positive.length > 0, true);
+        assert.equal(saved.sceneAssets.generated.expressionNotes, undefined,
+            'expressionNotes stripped from storage for size (large draft)');
+        const mem = vn.getUnifiedSettings();
+        assert.equal(mem.bridge.sceneAssets.generated.expressionNotes.角色0.常态.positive, prompt);
+        assert.equal(mem.bridge.sceneAssets.generated.expressionNotes.角色499.常态.positive.length > 0, true);
         assert.ok(saved.autoIllustration.llm.apiKey === secret, 'latest key is saved without exposing its value in failure output');
         assert.ok(saved.autoIllustration.assets.templates.background === prompt.trim(), 'asset template is saved in its existing normalized form');
         assert.equal(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).fontSize, 21);
@@ -5183,7 +5225,7 @@ test('gate:simulation:igs-ui-turn-navigation-switches-message-and_keeps_original
     assert.equal(prevTurnResult.moved, true);
     assert.equal(prevTurnResult.reader.snapshot.messageId, 8);
     assert.equal(prevTurnResult.reader.snapshot.content.progress, '1 / 2');
-    assert.deepEqual(jumped, [9, 8]);
+    assert.deepEqual(jumped, []);
     assert.equal(state.igsUi.activeReader.snapshot.messageId, 8);
 
     vn.destroy();
@@ -5220,7 +5262,7 @@ test('gate:simulation:igs-ui-turn-navigation-skips-user-messages', async () => {
     assert.equal(prevTurnResult.reader.snapshot.messageId, 7);
     assert.equal(nextTurnResult.ok, true);
     assert.equal(nextTurnResult.reader.snapshot.messageId, 9);
-    assert.deepEqual(jumped, [7, 9]);
+    assert.deepEqual(jumped, []);
 
     vn.destroy();
 });
@@ -6051,7 +6093,8 @@ test('gate:simulation:host-adapter-hide-state-skips-hidden-turns-in-real-bootstr
     assert.equal(opened.reader.snapshot.messageId, 3);
     assert.equal(prevTurn.ok, true);
     assert.equal(prevTurn.messageId, 1);
-    assert.deepEqual(jumps, ['/chat-jump 1']);
+    // 切轮不再让酒馆跳楼。
+    assert.deepEqual(jumps, []);
 
     vn.destroy();
 });

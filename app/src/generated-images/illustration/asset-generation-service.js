@@ -626,10 +626,15 @@ export function createAssetGenerationService(deps) {
             try {
                 const previousText = messageHost.readPreviousAiTexts(messageId, s.auto.llm.contextFloors)
                     .map(toReadableText).join('\n').slice(-1500);
+                // 没登记 DNA 的角色补酒馆里的外貌参考（用户人设、角色卡、世界书），DNA 仍优先。
+                const loreNames = needs.filter((need) => need.type === 'sprite' && !need.dna).map((need) => need.name);
+                const lore = loreNames.length && typeof messageHost.readCharacterLore === 'function'
+                    ? await messageHost.readCharacterLore(loreNames).catch(() => [])
+                    : [];
                 plan = await requestWithSoftRetry(llm, {
                     system: s.auto.llm.prompts.asset,
                     softSystem: s.auto.llm.prompts.assetSoft,
-                    user: buildAssetPlannerUserPrompt({ needs, readableText: toReadableText(floor.text).slice(0, 6000), previousText }),
+                    user: buildAssetPlannerUserPrompt({ needs, readableText: toReadableText(floor.text).slice(0, 6000), previousText, lore }),
                     parse: (reply) => parseAssetPlan(reply, needs),
                 }, s.auto.llm);
             } catch (error) {

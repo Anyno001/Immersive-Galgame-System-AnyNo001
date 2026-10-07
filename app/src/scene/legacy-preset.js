@@ -181,7 +181,9 @@ export function presetFromAssets(effective, { root = {}, readerSettings = {} } =
     const source = plain(effective);
     const preset = {};
     for (const field of NAME_FIELDS) preset[field] = clone(cleanMap(source[field]));
-    preset.generated = clone(plain(source.generated));
+    const gen = plain(source.generated);
+    const { expressionNotes, ...presetGenerated } = gen;
+    preset.generated = clone(presetGenerated);
     preset.characterHouses = clone(cleanMap(plain(root).characterHouses));
     preset.characterVoices = clone(cleanMap(plain(root).characterVoices));
     preset.characterSpriteScales = clone(cleanMap(plain(root).characterSpriteScales));
@@ -236,7 +238,9 @@ export function layeredPresetFromRoot(root, { cardKey = '', cardLabel = '', read
     if (card) {
         const library = {};
         for (const field of NAME_FIELDS) library[field] = clone(cleanMap(card[field]));
-        library.generated = clone(plain(card.generated));
+        const cardGen = plain(card.generated);
+        const { expressionNotes: _cardNotes, ...cardPresetGenerated } = cardGen;
+        library.generated = clone(cardPresetGenerated);
         if (typeof card.worldview === 'string') library.worldview = card.worldview;
         preset.scopeCards = { [cardKey]: { label: cardLabel || cardKey.replace(/^card:/, ''), library } };
     }

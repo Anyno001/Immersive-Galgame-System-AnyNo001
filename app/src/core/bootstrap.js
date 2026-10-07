@@ -56,7 +56,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.87';
+const IGS_VERSION = '0.34.88';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -263,6 +263,7 @@ export function bootstrapIGS(options = {}) {
         },
         getAdjacentMessage: hasAdjacentMessageCapability() ? resolveAdjacentMessage : null,
         jumpToMessage: jumpToMessage,
+        listTurns: hasAdjacentMessageCapability() ? listReaderTurns : null,
         openViewerFromMessage(messageId, mode, openOptions = {}) {
             if (!publicApi || typeof publicApi.openViewerFromMessage !== 'function') {
                 return { ok: false, reason: 'public-api-not-ready', messageId, mode, openOptions };
@@ -874,6 +875,13 @@ export function bootstrapIGS(options = {}) {
             if (isVisibleAiTurn(messages[index])) return messages[index];
         }
         return null;
+    }
+
+    async function listReaderTurns() {
+        if (typeof hostAdapter.listTurns === 'function') return hostAdapter.listTurns();
+        if (typeof hostAdapter.listMessages !== 'function') return [];
+        const messages = await hostAdapter.listMessages();
+        return Array.isArray(messages) ? messages.filter(isVisibleAiTurn) : [];
     }
 
     function hasAdjacentMessageCapability() {

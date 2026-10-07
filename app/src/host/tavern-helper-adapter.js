@@ -52,11 +52,20 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
             return messages[currentIndex + step] || null;
         },
 
+        // 阅读器按顺序读楼用：只读数据层，不碰 DOM。
+        async listTurns() {
+            return getNormalizedMessages(globalObject, hiddenMessageCache).filter(isTurnCandidate);
+        },
+
         async jumpToMessage(messageId) {
             const helper = getTavernHelper(globalObject);
             if (!helper) return { ok: false, reason: 'missing-tavern-helper' };
             const normalizedId = normalizeMessageId(messageId);
             if (normalizedId == null) return { ok: false, reason: 'invalid-message-id', messageId };
+            // 只滚到已渲染的楼：目标在截断范围外时 /chat-jump 会把中间楼层全部渲染出来。
+            if (!createDomMessageMap(globalObject).has(normalizedId)) {
+                return { ok: false, reason: 'message-not-rendered', messageId: normalizedId };
+            }
             if (typeof helper.triggerSlash !== 'function') {
                 return { ok: false, reason: 'missing-trigger-slash', messageId: normalizedId };
             }

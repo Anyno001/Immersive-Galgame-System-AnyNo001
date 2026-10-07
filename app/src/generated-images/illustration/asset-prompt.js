@@ -53,7 +53,7 @@ export function describeAssetNeed(need, index) {
     return { id: `ch${index + 1}`, line: [`立绘｜角色：${need.name}`, ...dnaNotes].join('｜') };
 }
 
-export function buildAssetPlannerUserPrompt({ needs = [], readableText = '', previousText = '' } = {}) {
+export function buildAssetPlannerUserPrompt({ needs = [], readableText = '', previousText = '', lore = [] } = {}) {
     const listed = needs.map((need, index) => {
         const { id, line } = describeAssetNeed(need, index);
         return `${id}｜${line}`;
@@ -62,6 +62,9 @@ export function buildAssetPlannerUserPrompt({ needs = [], readableText = '', pre
         `【需要生成的素材】\n${listed.join('\n')}`,
         needs.some((need) => need.type === 'sprite' && need.dna)
             ? '【角色 DNA】标注了固定身份或默认外观的立绘，tags 不得改变这些特征，只补充正文中额外交代的内容。' : '',
+        lore.length
+            ? `【角色设定参考】只取外貌（发色、瞳色、发型、体型、常穿服装），正文另有交代时以正文为准。\n${lore.map((item) => `${item.name}：${item.text}`).join('\n')}`
+            : '',
         previousText ? `【前文摘要】\n${previousText}` : '',
         `【本楼正文】\n${readableText}`,
         '请直接按输出格式给出字段。',

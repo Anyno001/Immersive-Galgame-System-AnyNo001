@@ -199,3 +199,31 @@ test('gate:asset-batch-delete:select-pick-and-delete-characters', async () => {
         vn.destroy();
     }
 });
+
+test('gate:sprite-height:preset-strips-expressionNotes-from-generated', () => {
+    const source = {
+        scenes: { 教室: { url: 'room.png' } },
+        characters: { 冬月: { 默认: 'face.png' } },
+        characterAliases: {},
+        characterDna: {},
+        characterOutfits: {},
+        wardrobe: {},
+        statusAvatars: {},
+        generated: {
+            scenes: { 工厂: { url: 'igs-gen:bg1' } },
+            characters: { 冬月: { 默认: 'igs-gen:a' } },
+            characterAliases: {},
+            expressionNotes: { 冬月: { 喜悦: { positive: 'smile', negative: 'sad' } } },
+        },
+    };
+    const preset = presetFromAssets(source, { root: {} });
+    // expressionNotes 被裁剪
+    assert.equal(preset.generated.expressionNotes, undefined,
+        'expressionNotes stripped from preset');
+    // 其他 generated 字段保留
+    assert.equal(preset.generated.scenes.工厂.url, 'igs-gen:bg1');
+    assert.equal(preset.generated.characters.冬月.默认, 'igs-gen:a');
+    // 非 generated 字段不受影响
+    assert.deepEqual(preset.scenes, { 教室: { url: 'room.png' } });
+});
+

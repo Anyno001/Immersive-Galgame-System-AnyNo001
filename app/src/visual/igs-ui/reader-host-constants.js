@@ -297,6 +297,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
 });
 
 export const TOOLBAR_ACTIONS = Object.freeze([
+    ['first-turn', '第一轮 / 续读'],
     ['prev-turn', '上一轮'],
     ['first-page', '第一页'],
     ['prev', '上一页'],

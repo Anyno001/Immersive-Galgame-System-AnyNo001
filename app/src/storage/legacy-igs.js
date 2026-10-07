@@ -51,7 +51,7 @@ export function writeLegacyIgsSettings(storageLike, nextState = {}) {
 
     const normalized = normalizeLegacySnapshot(nextState);
     const entries = [
-        [LEGACY_VN_KEYS.bridge, JSON.stringify(normalized.bridge)],
+        [LEGACY_VN_KEYS.bridge, JSON.stringify(slimBridgeForStorage(normalized.bridge))],
         [LEGACY_VN_KEYS.displayMode, normalized.displayMode],
         ...LEGACY_READER_MODES.map((mode) => [
             `${LEGACY_VN_KEYS.readerPrefix}${mode}`,
@@ -186,3 +186,21 @@ function firstDefined(...values) {
     }
     return undefined;
 }
+
+// localStorage 容量瘦身：序列化前剥离可重建的大体积字段，运行时内存不受影响。
+function slimBridgeForStorage(bridge) {
+    if (!bridge || typeof bridge !== 'object') return bridge;
+    const sa = bridge.sceneAssets;
+    if (!sa || typeof sa !== 'object') return bridge;
+    const gen = sa.generated;
+    if (!gen || typeof gen !== 'object') return bridge;
+    const { expressionNotes, ...slimGenerated } = gen;
+    return {
+        ...bridge,
+        sceneAssets: {
+            ...sa,
+            generated: slimGenerated,
+        },
+    };
+}
+
