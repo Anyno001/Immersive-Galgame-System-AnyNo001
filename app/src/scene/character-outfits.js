@@ -54,7 +54,7 @@ export function normalizeCharacterOutfits(value) {
         const outfits = {};
         for (const [rawName, rawEntry] of Object.entries(source)) {
             const name = rawName.trim();
-            if (!isValidOutfitName(name) || isBuiltinNudeOutfit(name) || hasOwn(outfits, name)) continue;
+            if (!isValidOutfitName(name) || hasOwn(outfits, name)) continue;
             const entry = plain(rawEntry) || {};
             const words = [];
             for (const word of Array.isArray(entry.words) ? entry.words : []) {
@@ -67,7 +67,8 @@ export function normalizeCharacterOutfits(value) {
             if (scenes.length) outfits[name].scenes = scenes;
             const avatar = typeof entry.avatar === 'string' ? entry.avatar.trim() : '';
             if (avatar) outfits[name].avatar = avatar;
-            const wardrobe = typeof entry.wardrobe === 'string' ? entry.wardrobe.trim() : '';
+            // 服装就叫「裸体」时固定引用内置裸体，生图和阅读器都按 wardrobe 认。
+            const wardrobe = isBuiltinNudeOutfit(name) ? BUILTIN_NUDE_OUTFIT : (typeof entry.wardrobe === 'string' ? entry.wardrobe.trim() : '');
             if (isValidOutfitName(wardrobe)) outfits[name].wardrobe = wardrobe;
             const note = normalizeOutfitNote(entry.note);
             if (note) outfits[name].note = note;

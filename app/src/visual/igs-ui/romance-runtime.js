@@ -98,9 +98,6 @@ function rememberFavor(hud, words) {
     while (favorCache.size > FAVOR_CACHE_LIMIT) favorCache.delete(favorCache.keys().next().value);
 }
 
-// 修罗场：romance 区间的对象（标签第 3 栏，缺省为区间开启后第一个出场的立绘角色）按区间记忆。
-const rangeOwners = new Map();
-
 function characterKey(sceneAssets, name) {
     const raw = String(name || '').trim();
     if (!raw) return '';
@@ -108,21 +105,14 @@ function characterKey(sceneAssets, name) {
     return resolveCharacterKey(assets.characters, assets.characterAliases, raw) || '';
 }
 
+// 修罗场：只认 romance 标签第 3 栏写明的对象（与同屏 resolveRomanceRivalTarget 一致）。
+// 对象栏缺省时不猜——按「区间里第一个出场的人」猜会猜错，心动 / 动情段里换人说话就频繁弹心碎。
 // 返回当前立绘角色是否为「另一位已登记角色」（非本区间对象）。
-function resolveRival(snapshot, content, sceneAssets) {
+function resolveRival(content, sceneAssets) {
     const fx = content.fx || {};
     if (!fx.romance || Number(fx.romanceAt) < 0) return false;
     const current = characterKey(sceneAssets, content.spriteCharacter || content.speaker);
-    const rangeKey = `${snapshot.messageId}:${fx.romanceAt}`;
-    let owner = characterKey(sceneAssets, fx.romanceTarget) || String(fx.romanceTarget || '').trim();
-    if (!owner) {
-        owner = rangeOwners.get(rangeKey) || '';
-        if (!owner && current) {
-            owner = current;
-            rangeOwners.set(rangeKey, owner);
-            while (rangeOwners.size > FAVOR_CACHE_LIMIT) rangeOwners.delete(rangeOwners.keys().next().value);
-        }
-    }
+    const owner = characterKey(sceneAssets, fx.romanceTarget) || String(fx.romanceTarget || '').trim();
     return Boolean(current && owner && current !== owner);
 }
 
@@ -202,7 +192,6 @@ export function closeRomanceFx(root) {
     closeRomanceIntimate(root);
     closeRomanceMoments(root);
     favorCache.clear();
-    rangeOwners.clear();
     nudeMemory.clear();
     soloSpans.clear();
     imagined.clear();
@@ -289,7 +278,7 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
     setAttr(stage, 'data-igs-rm-level', level > 0, String(level));
     setAttr(stage, 'data-igs-rm-favor', favor);
     setAttr(stage, 'data-igs-rm-strength', level > 0 || favor, settings.strength);
-    const rival = settings.rival && !nsfw && (level === 1 || level === 2) && hasSprite && resolveRival(snapshot, content, reader._sceneAssets);
+    const rival = settings.rival && !nsfw && (level === 1 || level === 2) && hasSprite && resolveRival(content, reader._sceneAssets);
     setAttr(stage, 'data-igs-rm-tone', true, rival ? 'rival' : MOON_TIMES.has(resolveWeatherFxTime(content.sceneTime)) ? 'moon' : 'warm');
 
     // 多人同屏（ctx.sprite.multi）时不向中线收拢，否则说话人会压到陪衬上；只保留以头部为原点的放大。

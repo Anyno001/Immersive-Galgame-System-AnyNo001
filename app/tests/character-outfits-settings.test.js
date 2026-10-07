@@ -172,6 +172,15 @@ test('gate:outfits:settings-actions-add-rename-remove-outfit-words-and-slots', a
     assert.equal(handleOutfitAction('scene-add-char', t.ctx), null);
     assert.deepEqual(await run(`scene-add-outfit:${enc('不存在')}`, '泳装'), { ok: true, rerendered: true });
     assert.ok(!t.sa().characterOutfits.不存在);
+
+    // 服装可以直接叫「裸体」：新建 / 改名都放行，并自动引用内置裸体。
+    t.prompts.length = 0;
+    await run(`scene-add-outfit:${enc('小林海斗')}`, '裸体');
+    assert.deepEqual(t.sa().characterOutfits.小林海斗.裸体, { words: [], moods: {}, wardrobe: '裸体' });
+    await run(`scene-remove-outfit:${enc('小林海斗', '裸体')}`);
+    await run(`scene-rename-outfit:${enc('小林海斗', '校服')}`, '裸体');
+    assert.deepEqual(Object.keys(t.sa().characterOutfits.小林海斗), ['裸体']);
+    assert.equal(t.sa().characterOutfits.小林海斗.裸体.wardrobe, '裸体');
 });
 
 test('gate:outfits:legacy-character-and-mood-actions-migrate-and-clean-sprite-keys', async () => {

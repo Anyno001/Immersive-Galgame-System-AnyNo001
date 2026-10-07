@@ -70,11 +70,10 @@ function validateSlotName(ctx, name) {
 }
 
 function createOutfit(ctx, charName, outfits, name) {
-    if (isBuiltinNudeOutfit(name)) { warn(ctx, `「${name}」是内置项，请在衣柜中选择，不会加入服装库。`); return false; }
     if (!isValidOutfitName(name)) { warn(ctx, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return false; }
     const owner = outfitTokenOwner(outfits, name);
     if (owner) { warn(ctx, owner === name ? `「${charName}」已有服装「${name}」（同名）` : `「${name}」已是服装「${owner}」的词`); return false; }
-    outfits[name] = { words: [], moods: {} };
+    outfits[name] = isBuiltinNudeOutfit(name) ? { words: [], moods: {}, wardrobe: BUILTIN_NUDE_OUTFIT } : { words: [], moods: {} };
     return true;
 }
 
@@ -375,11 +374,11 @@ async function runOutfitAction(match, ctx) {
     case 'scene-rename-outfit': {
         const name = await ask(ctx, `重命名服装「${outfitName}」为：`, outfitName);
         if (!name || name === outfitName) return rerenderSettings();
-        if (isBuiltinNudeOutfit(name)) { warn(ctx, `「${BUILTIN_NUDE_OUTFIT}」是内置项，请在衣柜中选择。`); return rerenderSettings(); }
         if (!isValidOutfitName(name)) { warn(ctx, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return rerenderSettings(); }
         const owner = outfitTokenOwner(outfits, name, outfitName);
         if (owner) { warn(ctx, owner === name ? `「${charName}」已有服装「${name}」（同名），改名会覆盖，已阻止` : `「${name}」已是服装「${owner}」的词`); return rerenderSettings(); }
         entry.words = entry.words.filter((word) => word !== name);
+        if (isBuiltinNudeOutfit(name)) entry.wardrobe = BUILTIN_NUDE_OUTFIT;
         sceneAssets.characterOutfits[charName] = reorderKey(outfits, outfitName, name);
         migrateSpriteKeys(readerSettings, { character: charName, outfit: outfitName }, { outfit: name });
         selectTab(settingsState, charName, name);

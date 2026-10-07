@@ -70,7 +70,8 @@ test('gate:outfits:wardrobe-prompt-is-shared-and-named-link-wins', () => {
     const kept = normalizeCharacterOutfits({ 冬月: { 日常: { words: [], moods: {}, wardrobe: '裸体', base: 'igs-gen:nude' }, 裸体: { words: [], moods: {} } } });
     assert.equal(kept['冬月']['日常'].wardrobe, '裸体');
     assert.equal(kept['冬月']['日常'].base, 'igs-gen:nude');
-    assert.equal(kept['冬月']['裸体'], undefined);
+    // 服装可以直接叫「裸体」，固定引用内置裸体。
+    assert.deepEqual(kept['冬月']['裸体'], { words: [], moods: {}, wardrobe: '裸体' });
 });
 
 // 衣柜提示词在规则页：只列已有的条目；AI 写出的陌生服装词在「待确认」页处理，不在这里。

@@ -546,17 +546,17 @@ test('gate:romance:rival-tone-for-other-registered-character', () => {
     const ctx = { sprite: { url: `g${urlSeq += 1}.png`, posX: 50, scale: 40 }, reducedMotion: false };
     const romance = { rival: true };
     const fx = { romance: 'ambiguous', romanceAt: 12 };
-    // 未写对象：第一个出场的爱丽丝成为对象，本人不触发。
+    // 未写对象：不猜对象，谁出场都不触发（以前按第一个出场的人猜，换人说话就频繁弹心碎）。
     assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx, spriteCharacter: '爱丽丝', characters }), ctx).rival, false);
     assert.equal(stage.getAttribute('data-igs-rm-tone'), 'warm');
-    // 别名也认作对象本人。
-    assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx, spriteCharacter: '小爱', characters }), ctx).rival, false);
-    assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx, spriteCharacter: '贝拉', characters }), ctx).rival, true);
-    assert.equal(stage.getAttribute('data-igs-rm-tone'), 'rival');
-    // 未登记的路人不算修罗场；标签写明对象时以标签为准。
-    assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx, spriteCharacter: '路人', characters }), ctx).rival, false);
+    assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx, spriteCharacter: '贝拉', characters }), ctx).rival, false);
+    assert.equal(stage.getAttribute('data-igs-rm-tone'), 'warm');
+    // 标签写明对象：对象本人（含别名）不触发，另一位已登记角色触发；未登记的路人不算。
     const named = { romance: 'ambiguous', romanceAt: 40, romanceTarget: '贝拉' };
+    assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx: { ...named, romanceTarget: '爱丽丝' }, spriteCharacter: '小爱', characters }), ctx).rival, false);
+    assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx: named, spriteCharacter: '路人', characters }), ctx).rival, false);
     assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx: named, spriteCharacter: '爱丽丝', characters }), ctx).rival, true);
+    assert.equal(stage.getAttribute('data-igs-rm-tone'), 'rival');
     // 子开关关闭、NSFW 时不触发。
     assert.equal(applyRomanceToDom(root, storySnapshot({ fx: named, spriteCharacter: '爱丽丝', characters }), ctx).rival, false);
     assert.equal(applyRomanceToDom(root, storySnapshot({ romance, fx: named, spriteCharacter: '爱丽丝', characters, nsfw: true }), ctx).rival, false);
