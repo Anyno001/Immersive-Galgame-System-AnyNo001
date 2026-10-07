@@ -284,6 +284,7 @@ import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import { normalizePromptPlacement } from './tag-grammar.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay, stripBilingualTranslation } from './bilingual-text.js';
+import { resolveRenderQuality } from './render-quality.js';
 
 const ASSET_MOVE_ALL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>';
 import {
@@ -3608,7 +3609,7 @@ export function createIgsReaderHost(options = {}) {
                 requiredActions: Array.from((SETTINGS_PANEL_TAB_CONTRACT[id] || {}).requiredActions || []),
             })),
             activeContract: SETTINGS_PANEL_TAB_CONTRACT[tab],
-            html: `<div id="igs-unified-settings" data-igs-igs-ui="true" data-igs-settings-theme="${settingsTheme}">${shellHtml}</div>`,
+            html: `<div id="igs-unified-settings" data-igs-igs-ui="true" data-igs-settings-theme="${settingsTheme}"${settingsLowQuality(settingsState.draft) ? ' data-igs-quality="low"' : ''}>${shellHtml}</div>`,
             resultText: {
                 image: settingsState.asyncState.imageResult || '',
                 imageModels: settingsState.asyncState.imageModelsMessage || '',
@@ -5207,6 +5208,12 @@ export function createIgsReaderHost(options = {}) {
 
 
 
+    // 阅读器是省电画质（手动选的，或自动判定为低端机）时，设置器遮罩也不做模糊、不铺水波纹。
+    function settingsLowQuality(draft) {
+        const reader = draft && draft.readerSettings;
+        return resolveRenderQuality(reader && reader.performance && reader.performance.quality) === 'low';
+    }
+
     function updateMountedSettings(snapshot) {
         const current = state.activeSettings;
         if (!current || !current.dom || !current.dom.root) return;
@@ -5224,6 +5231,8 @@ export function createIgsReaderHost(options = {}) {
         const shell = settingsShellHtml.get(snapshot);
         if (prevOverlay && shell) {
             prevOverlay.setAttribute('data-igs-settings-theme', shell.theme);
+            if (settingsLowQuality(current.draft)) prevOverlay.setAttribute('data-igs-quality', 'low');
+            else prevOverlay.removeAttribute('data-igs-quality');
             prevOverlay.innerHTML = shell.html;
         } else {
             clearChildren(container);

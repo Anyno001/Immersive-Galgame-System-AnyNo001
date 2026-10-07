@@ -1,5 +1,5 @@
 import {
-    IGS_UI_BLUR, IGS_UI_FONT_SANS, IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, igsUiLiquidRule,
+    IGS_UI_FONT_SANS, IGS_UI_RADIUS, igsUiLiquidRule,
 } from '../../styles/ui-material.js';
 import { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette, settingsThemeVars } from './settings-theme.js';
 import { OUTFIT_SETTINGS_STYLE_TEXT } from './settings-outfit-fields.js';
@@ -10,15 +10,20 @@ import { SETTINGS_DIALOG_STYLE_TEXT } from './settings-dialog.js';
 const BASE = getSettingsThemePalette(SETTINGS_THEME_BASE);
 const THEMED = SETTINGS_THEME_OPTIONS.filter((option) => option.value !== SETTINGS_THEME_BASE).map((option) => [option.value, getSettingsThemePalette(option.value)]);
 const themeSelector = (value) => `#igs-unified-settings[data-igs-settings-theme="${value}"]`;
+// 遮罩铺满全屏，模糊半径直接决定 GPU 开销：用阅读器面板（28px）的一半，观感接近、手机上省很多。
+const SETTINGS_BLUR = 'blur(14px) saturate(150%)';
+// 不模糊时（系统要求减少透明度、阅读器省电画质）换实心底，免得后面的页面透出来。
+const solidBackdrop = (selector) => `${selector}{-webkit-backdrop-filter:none;backdrop-filter:none;background:${BASE.backdropSolid};--igs-settings-shell-bg:${BASE.shellSolid}}${THEMED.map(([value, palette]) => `${selector.replace('#igs-unified-settings', themeSelector(value))}{background:${palette.backdropSolid};--igs-settings-shell-bg:${palette.shellSolid}}`).join('')}`;
 
 // 四套设置器配色共用同一材质：遮罩层做唯一一层模糊，面板保留厚材质，
 // 面板内控件使用参考主题的语义 token；不支持模糊或减少透明度时回退为实心。
 // 遮罩底色贴近面板本身，只靠阴影分层；水波纹用该主题高亮色的高饱和版本，淡而不灰。
 const SETTINGS_STYLE_TEXT = `
-#igs-unified-settings{${settingsThemeVars(SETTINGS_THEME_BASE)}--igs-settings-vleft:0px;--igs-settings-vtop:0px;--igs-settings-vw:100vw;--igs-settings-vh:100dvh;--igs-settings-width:min(760px,calc(var(--igs-settings-vw) - 48px));--igs-settings-height:min(760px,calc(var(--igs-settings-vh) - 48px));position:fixed;left:var(--igs-settings-vleft);top:var(--igs-settings-vtop);width:var(--igs-settings-vw);height:var(--igs-settings-vh);z-index:2147483200;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;overflow:hidden;background:${BASE.backdrop};font-family:${IGS_UI_FONT_SANS};-webkit-font-smoothing:antialiased;color:var(--igs-settings-ink);color-scheme:${BASE.scheme};-webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR}}
+#igs-unified-settings{${settingsThemeVars(SETTINGS_THEME_BASE)}--igs-settings-vleft:0px;--igs-settings-vtop:0px;--igs-settings-vw:100vw;--igs-settings-vh:100dvh;--igs-settings-width:min(760px,calc(var(--igs-settings-vw) - 48px));--igs-settings-height:min(760px,calc(var(--igs-settings-vh) - 48px));position:fixed;left:var(--igs-settings-vleft);top:var(--igs-settings-vtop);width:var(--igs-settings-vw);height:var(--igs-settings-vh);z-index:2147483200;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;overflow:hidden;background:${BASE.backdrop};font-family:${IGS_UI_FONT_SANS};-webkit-font-smoothing:antialiased;color:var(--igs-settings-ink);color-scheme:${BASE.scheme};-webkit-backdrop-filter:${SETTINGS_BLUR};backdrop-filter:${SETTINGS_BLUR}}
 ${THEMED.map(([value, palette]) => `${themeSelector(value)}{${settingsThemeVars(value)}background:${palette.backdrop};color-scheme:${palette.scheme}}`).join('\n')}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){#igs-unified-settings{background:${BASE.backdropSolid}}${THEMED.map(([value, palette]) => `${themeSelector(value)}{background:${palette.backdropSolid}}`).join('')}}
-@media (prefers-reduced-transparency:reduce){#igs-unified-settings{-webkit-backdrop-filter:none;backdrop-filter:none;background:${BASE.backdropSolid};--igs-settings-shell-bg:${BASE.shellSolid}}${THEMED.map(([value, palette]) => `${themeSelector(value)}{background:${palette.backdropSolid};--igs-settings-shell-bg:${palette.shellSolid}}`).join('')}}
+@media (prefers-reduced-transparency:reduce){${solidBackdrop('#igs-unified-settings')}}
+${solidBackdrop('#igs-unified-settings[data-igs-quality="low"]')}
 #igs-unified-settings{--igs-settings-radius-shell:${IGS_UI_RADIUS.card};--igs-settings-radius-control:${IGS_UI_RADIUS.control};--igs-settings-radius-small:${IGS_UI_RADIUS.small}}
 #igs-unified-settings,#igs-unified-settings *{box-shadow:none;filter:none}
 #igs-unified-settings,#igs-unified-settings *{scrollbar-width:none;-ms-overflow-style:none}
@@ -28,9 +33,10 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}{${settingsThemeVars(
 #igs-unified-settings{--igs-ui-caustic-size:900px}
 ${igsUiLiquidRule('#igs-unified-settings::before', .2, { tile: true, tint: 'var(--igs-settings-ripple)' })}
 ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${palette.ripple}}`).join('\n')}
-/* 电脑设备（精确指针 + 悬停）不铺水波纹大背景，只留设置框；触屏设备保持原样。 */
+/* 水波纹只在触屏上铺，且静止不动：设置器开着时不再每帧重算整屏模糊。电脑设备（精确指针 + 悬停）不铺；省电画质也不铺。 */
+#igs-unified-settings::before{animation:none;will-change:auto}
 @media (hover:hover) and (pointer:fine){#igs-unified-settings::before{content:none}}
-${IGS_UI_LIQUID_KEYFRAMES}
+#igs-unified-settings[data-igs-quality="low"]::before{content:none}
 .igs-settings-head{height:54px;display:flex;align-items:center;gap:10px;padding:0 14px 0 20px;flex-shrink:0}
 .igs-settings-title{font-size:15px;font-weight:600;letter-spacing:.08em;flex:0 0 auto;color:var(--igs-settings-ink)}
 .igs-settings-head-spacer{flex:1}
