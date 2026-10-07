@@ -38,7 +38,7 @@ test('gate:worldview-skins:preselect-prefers-card-then-global-then-table', () =>
     assert.equal(pickWorldviewDialogSkin('modern', { globalSkin: 'cute-pink' }), 'cute-pink');
     assert.equal(pickWorldviewDialogSkin('modern', { globalSkin: 'default' }), 'default');
     assert.equal(pickWorldviewDialogSkin('ancient', { globalSkin: 'default' }), 'qinglv-shanshui', '全局是默认皮肤时古代仍换成青绿山水');
-    assert.equal(pickWorldviewDialogSkin('scifi', { globalSkin: 'default' }), 'scifi-holo', '全局是默认皮肤时科幻换成全息终端');
+    assert.equal(pickWorldviewDialogSkin('scifi', { globalSkin: 'default' }), 'scifi-holo', '全局是默认皮肤时科幻换成全息投影');
     assert.equal(pickWorldviewDialogSkin('apocalypse', { globalSkin: 'default' }), 'wasteland-rust', '全局是默认皮肤时末日换成废土锈铁');
     assert.equal(pickWorldviewDialogSkin('horror', { horrorStyle: 'psych' }), 'horror-psych');
     assert.equal(pickWorldviewDialogSkin('horror', { horrorStyle: 'gore' }), 'horror-gore');
@@ -87,7 +87,7 @@ test('gate:worldview-skins:settings-shows-and-clears-card-dialog-skin', async ()
         controller.setValue('bridge.sceneAssets.cards', { 'card:星野': { worldview: 'scifi', dialogSkin: 'scifi-holo' } });
         controller.switchTab('reader');
         const html = controller.getSnapshot().html;
-        assert.match(html, /igs-card-skin-note[^>]*>当前角色卡在主界面选定了「全息终端」/);
+        assert.match(html, /igs-card-skin-note[^>]*>当前角色卡在主界面选定了「全息投影」/);
         assert.match(html, /data-action="card-dialog-skin-clear"/);
         await controller.invoke('card-dialog-skin-clear');
         assert.doesNotMatch(controller.getSnapshot().html, /igs-card-skin-note/);

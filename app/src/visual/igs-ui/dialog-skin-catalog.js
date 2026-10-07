@@ -34,7 +34,7 @@ export const DIALOG_SKIN_CHOICES = Object.freeze([
     [DIALOG_SKIN_DAY_MINIMAL, '日间简约'],
     [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'],
     [DIALOG_SKIN_CUTE_PINK, '超可爱粉'],
-    [DIALOG_SKIN_SCIFI_HOLO, '全息终端'],
+    [DIALOG_SKIN_SCIFI_HOLO, '全息投影'],
     [DIALOG_SKIN_WASTELAND_RUST, '废土锈铁'],
     [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕'],
     [DIALOG_SKIN_HORROR_GORE, '血色噩梦'],

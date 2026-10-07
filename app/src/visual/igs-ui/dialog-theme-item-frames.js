@@ -147,7 +147,7 @@ const FRAMES = {
         icon: 'background:radial-gradient(circle at 50% 35%,#6a5242,#3a2d26);border-radius:4px;box-shadow:inset 0 0 0 1.5px #b98a5a;color:#d9aa6e;',
         desc: 'color:#d3c19c;opacity:1;',
     },
-    // 全息终端：深蓝玻璃卡、四角青色折角，动作标记是一枚准星。
+    // 全息投影：深蓝玻璃卡、四角青色折角，动作标记是一枚准星。
     'scifi-holo': {
         mention: '#7ff0ff',
         ink: '#e2f6ff',

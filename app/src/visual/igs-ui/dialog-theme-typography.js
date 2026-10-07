@@ -182,7 +182,7 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#8c72c4',
         narrationColor: '#8f7a86',
     }),
-    // 全息终端：正文用细的新晰黑像屏幕字，姓名换思源黑体压在光标签上；正文冷白，心里话偏青，旁白灰蓝。
+    // 全息投影：正文用细的新晰黑像屏幕字，姓名换思源黑体压在光标签上；正文冷白，心里话偏青，旁白灰蓝。
     'scifi-holo': Object.freeze({
         nameAlign: 'left',
         nameFont: DIALOG_FONT_SOURCE_HAN_SANS,

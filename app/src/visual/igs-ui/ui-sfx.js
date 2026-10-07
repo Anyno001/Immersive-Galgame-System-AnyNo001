@@ -45,7 +45,7 @@ export const UI_SFX_FAMILIES = Object.freeze({
         open: Object.freeze([p('sine', 1046, 1568, 0, 0.2, 0.35, { attack: 0.004, sweep: 0.6 }), p('sine', 3136, 3136, 0.12, 0.1, 0.08, { attack: 0.002 })]),
         close: Object.freeze([p('sine', 1568, 1046, 0, 0.18, 0.35, { attack: 0.004, sweep: 0.6 })]),
     }),
-    // 全息终端：翻页一声短促的方波「哔」，确认是上行两连音，开合是一道扫频。
+    // 全息投影：翻页一声短促的方波「哔」，确认是上行两连音，开合是一道扫频。
     digital: Object.freeze({
         page: Object.freeze([p('square', 1760, 1760, 0, 0.035, 0.14, { attack: 0.001 }), p('sine', 3520, 3520, 0, 0.02, 0.06, { attack: 0.001 })]),
         hover: Object.freeze([p('square', 2637, 2637, 0, 0.018, 0.07, { attack: 0.001 })]),

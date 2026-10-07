@@ -78,7 +78,7 @@ const TITLE_EXTRAS = Object.freeze({
     ],
     [DIALOG_SKIN_RETRO_JAPANESE]: (s) => [`${s} .igs-fx-title-sub{color:#8e2c2c;}`],
     [DIALOG_SKIN_ADVENTURE_JOURNEY]: (s) => [`${s} .igs-fx-title-sub{color:#e0b06e;}`],
-    // 全息终端：地点两侧各一枚折角准星，时间像屏幕读数一样拉开字距。
+    // 全息投影：地点两侧各一枚折角准星，时间像屏幕读数一样拉开字距。
     [DIALOG_SKIN_SCIFI_HOLO]: (s) => [
         `${s} .igs-fx-title-main::before,${s} .igs-fx-title-main::after{${mark(11, SCIFI_HOLO, SCIFI_RETICLE_MASK)}filter:drop-shadow(0 0 3px ${scifiHolo('.8')});}`,
         `${s} .igs-fx-title-sub{color:${scifiHolo('.9')};letter-spacing:.3em;}`,

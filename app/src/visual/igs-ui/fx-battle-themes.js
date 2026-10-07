@@ -236,7 +236,7 @@ const BATTLE_THEMES = Object.freeze({
         wipe: `background:${softRule('rgba(217,170,110,.6)', '10%')},${softRule('rgba(217,170,110,.6)', '90%')},linear-gradient(180deg,#4d3c32,#3a2d26);box-shadow:inset 0 2px 0 #2a201b,inset 0 -2px 0 #2a201b;`,
         title: 'font-style:normal;font-weight:700;',
     },
-    // 全息终端：深蓝玻璃纱底、青色细线与发光字，名牌标记是一枚折角准星。
+    // 全息投影：深蓝玻璃纱底、青色细线与发光字，名牌标记是一枚折角准星。
     [DIALOG_SKIN_SCIFI_HOLO]: {
         accent: SCIFI_HOLO,
         font: DIALOG_FONT_NEO_XIHEI,

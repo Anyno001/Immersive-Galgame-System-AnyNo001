@@ -14,7 +14,7 @@ import { ITEM_FRAME_SKINS } from '../src/visual/igs-ui/dialog-theme-item-frames.
 import { resolveUiSfxFamily } from '../src/visual/igs-ui/ui-sfx.js';
 
 const SKINS = [
-    { id: DIALOG_SKIN_SCIFI_HOLO, label: '全息终端', worldview: 'scifi', mark: 'reticle', sfx: 'digital' },
+    { id: DIALOG_SKIN_SCIFI_HOLO, label: '全息投影', worldview: 'scifi', mark: 'reticle', sfx: 'digital' },
     { id: DIALOG_SKIN_WASTELAND_RUST, label: '废土锈铁', worldview: 'apocalypse', mark: 'hazard', sfx: 'metal' },
 ];
 
