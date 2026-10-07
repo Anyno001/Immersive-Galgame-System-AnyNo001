@@ -49,6 +49,8 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'toolbar-dock', label: '工具栏位置', aliases: ['工具栏', '按钮', '顶部', '紧贴对话框'], location: '阅读器 › 界面 › 工具栏', target: { tab: 'reader', readerSubTab: 'interface', open: [] } },
     { id: 'status-hud-position', label: '状态栏位置', aliases: ['状态栏', 'hud', '头像', '左上角', '挡住', '挪位置'], location: '阅读器 › 界面 › 状态栏', target: { tab: 'reader', readerSubTab: 'interface', open: [] } },
     { id: 'sprite-scale', label: '立绘缩放与高度', aliases: ['立绘太大', '立绘太小', '缩放', '高度', '人物大小'], location: '素材 › 角色 › 立绘设置', target: { tab: 'scene', sceneSubTab: 'characters', open: ['sprite-display'] } },
+    { id: 'dialog-skin', label: '对话框风格', aliases: ['皮肤', '对话框样式', '换皮', '科幻', '末日', '全息', '废土', '本卡皮肤'], location: '阅读器 › 对话框 › 风格', target: { tab: 'reader', readerSubTab: 'dialog', open: [] } },
+    { id: 'title-screen', label: '开场先显示主界面', aliases: ['主界面', '标题画面', '开始菜单', '开场白', '第0层', '选择世界观'], location: '阅读器 › 对话框 › 风格', target: { tab: 'reader', readerSubTab: 'dialog', open: [] } },
     { id: 'text-effect', label: '文字增强', aliases: ['描边', '看不清', '投影', '字看不清'], location: '阅读器 › 文字 › 排版', target: { tab: 'reader', readerSubTab: 'text', open: [] } },
     { id: 'camera-kenburns', label: '背景缓慢推镜', group: 'stage', open: ['perf-camera'], aliases: ['推镜', '背景移动', '镜头'] },
     { id: 'camera-parallax', label: '鼠标视差', group: 'stage', open: ['perf-camera'], aliases: ['视差', '镜头'] },

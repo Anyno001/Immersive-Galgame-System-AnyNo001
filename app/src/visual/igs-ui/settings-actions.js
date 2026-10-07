@@ -854,6 +854,12 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 主界面写在角色卡上的对话框皮肤：清掉后这张卡回到全局「对话框风格」。
+    if (normalizedAction === 'card-dialog-skin-clear') {
+        if (settingsState.asyncState && settingsState.asyncState.assetScopeKey) delete draftAssetLibrary(settingsState).dialogSkin;
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'asset-card-export') {
         return exportCharacterCardPack(settingsState, options);
     }

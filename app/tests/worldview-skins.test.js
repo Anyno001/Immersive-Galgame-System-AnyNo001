@@ -76,3 +76,31 @@ test('gate:title-screen:setting-defaults-on-and-keeps-off', () => {
     assert.equal(normalizeReaderSettings({}).titleScreen, true);
     assert.equal(normalizeReaderSettings({ titleScreen: false }).titleScreen, false);
 });
+
+test('gate:worldview-skins:settings-shows-and-clears-card-dialog-skin', async () => {
+    const { bootstrapIGS } = await import('../src/index.js');
+    const global = { SillyTavern: { getContext: () => ({ characterId: 0, characters: [{ name: '星野', avatar: '' }], name2: '星野' }) } };
+    const vn = bootstrapIGS({ global, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const controller = vn.openSettings({ tab: 'reader', mode: 'pc' }).controller;
+        assert.doesNotMatch(controller.getSnapshot().html, /igs-card-skin-note/, '卡上没记皮肤时不提示');
+        controller.setValue('bridge.sceneAssets.cards', { 'card:星野': { worldview: 'scifi', dialogSkin: 'scifi-holo' } });
+        controller.switchTab('reader');
+        const html = controller.getSnapshot().html;
+        assert.match(html, /igs-card-skin-note[^>]*>当前角色卡在主界面选定了「全息终端」/);
+        assert.match(html, /data-action="card-dialog-skin-clear"/);
+        await controller.invoke('card-dialog-skin-clear');
+        assert.doesNotMatch(controller.getSnapshot().html, /igs-card-skin-note/);
+        controller.close();
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:title-screen:settings-search-finds-title-screen-and-dialog-skin', async () => {
+    const { searchSettings } = await import('../src/visual/igs-ui/settings-search.js');
+    assert.equal(searchSettings('主界面')[0].id, 'title-screen');
+    assert.equal(searchSettings('开场白')[0].id, 'title-screen');
+    assert.ok(searchSettings('皮肤').some((hit) => hit.id === 'dialog-skin'));
+    assert.deepEqual({ ...searchSettings('废土')[0].target, open: [] }, { tab: 'reader', readerSubTab: 'dialog', open: [] });
+});

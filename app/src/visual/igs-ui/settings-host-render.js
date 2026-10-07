@@ -36,7 +36,7 @@ import { isLayeredPreset, loadLegacyPresets, legacyPresetHasContent, presetCardL
 import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview } from '../../scene/mood-review-store.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_WESTERN_CLASSIC, isIllustratedDialogSkin } from './classic-dialog-skin.js';
-import { DIALOG_SKIN_CHOICES } from './dialog-skin-catalog.js';
+import { DIALOG_SKIN_CHOICES, dialogSkinLabel } from './dialog-skin-catalog.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
 import { HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
@@ -55,6 +55,8 @@ const ASSET_MOVE_ALL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill
 
 export function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state }) {
     function buildSettingsSnapshot(settingsState) {
+        // 阅读器页的「适配世界」与本卡对话框皮肤提示都按当前角色卡显示，渲染前先记下是哪张卡（素材页在自己的分支里记）。
+        if (normalizeSettingsTab(settingsState.tab) === 'reader') rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
         const draft = normalizeUnifiedSettings(settingsState.draft);
         const tab = normalizeSettingsTab(settingsState.tab);
         const imageSubTab = tab === 'image' ? normalizeImageSubTab(settingsState.asyncState.imageSubTab) : null;
@@ -576,7 +578,10 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             // 文字增强是开关（借分段点击写值：开=硬描边，关=off），开了才出现种类和三个参数。
             dialogTextEffectToggle: `<button type="button" class="igs-switch${reader.dialogTextEffect !== 'off' ? ' is-on' : ''}" data-segment-path="readerSettings.dialogTextEffect" data-segment-value="${reader.dialogTextEffect !== 'off' ? 'off' : 'outline'}" aria-pressed="${reader.dialogTextEffect !== 'off' ? 'true' : 'false'}"><i></i><span>文字增强</span></button>`,
             dialogTextEffectOptions: reader.dialogTextEffect === 'off' ? '' : `<div class="igs-source-filter-grid">${field('readerSettings.dialogTextEffect', '增强种类', segmentedInput('readerSettings.dialogTextEffect', reader.dialogTextEffect, [['outline', '硬描边'], ['shadow', '投影式']], '增强种类'))}<div class="igs-reader-text-effect-options">${field('readerSettings.dialogTextEffectColor', '增强颜色', colorInput('readerSettings.dialogTextEffectColor', reader.dialogTextEffectColor))}${field('readerSettings.dialogTextEffectStrength', '增强浓淡', selectInput('readerSettings.dialogTextEffectStrength', reader.dialogTextEffectStrength, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`])))}${field('readerSettings.dialogTextEffectSize', '增强大小', selectInput('readerSettings.dialogTextEffectSize', reader.dialogTextEffectSize, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`])))}</div></div>`,
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, DIALOG_SKIN_CHOICES)),
+            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, DIALOG_SKIN_CHOICES))
+                + (asyncState.assetScopeKey && worldviewAssets && typeof worldviewAssets.dialogSkin === 'string' && worldviewAssets.dialogSkin
+                    ? `<div class="igs-source-filter-note igs-card-skin-note">当前角色卡在主界面选定了「${esc(dialogSkinLabel(worldviewAssets.dialogSkin))}」，阅读这张卡时以此为准，上方选项仅对其他角色卡生效。<button type="button" class="igs-settings-action" data-action="card-dialog-skin-clear">改为跟随上方设置</button></div>`
+                    : ''),
             gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
             magicHouseField: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : '',
             classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : '',
