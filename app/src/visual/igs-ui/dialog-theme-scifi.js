@@ -29,7 +29,9 @@ export const SCIFI_GLASS = `linear-gradient(180deg,${deep('.42')},${deep('.62')}
 // 投影基座：中间最亮、两端化开的一道光。
 export const SCIFI_EMITTER = (alpha = 1) => `linear-gradient(90deg,${holo(0)},${holo(0.85 * alpha)} 22%,${holo(alpha)} 50%,${holo(0.85 * alpha)} 78%,${holo(0)})`;
 const BEAM = `radial-gradient(ellipse 58% 115% at 50% 100%,${holo('.2')},${holo('.07')} 48%,${holo(0)} 74%)`;
-const SCAN = `repeating-linear-gradient(0deg,${holo('.06')} 0 1px,transparent 1px 5px)`;
+const SCAN = `repeating-linear-gradient(0deg,${holo('.05')} 0 1px,transparent 1px 5px)`;
+// 光束里一片稀疏的十字定位点（和准星同一类符号），不是线格；只在光束范围里露出来。
+const PLUS_GRID = `${svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='44' height='44'><path d='M22 18.5v7M18.5 22h7' stroke='rgb(${HOLO})' stroke-width='1.2' opacity='.42'/></svg>`)} center bottom/44px 44px repeat`;
 // 正文背后一团极淡的暗影，亮场景里字也立得住；不成形，看不出边。
 const SHADE = `radial-gradient(ellipse 72% 78% at 50% 56%,${deep('.42')},${deep('.18')} 55%,${deep(0)} 78%)`;
 const GLITCH = `-.6px 0 0 rgba(255,96,170,.32),.6px 0 0 ${holo('.5')}`;
@@ -41,15 +43,15 @@ export const SCIFI_DIALOG_STYLE = [
         text: { top: 30, speakerTop: 54, right: 56, bottom: 28, left: 56 },
         rise: 0,
         frameCss: `background:${SHADE},${BEAM};border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;isolation:isolate;`,
-        speakerCss: `left:56px;top:14px;width:max-content;max-width:calc(100% - 112px);height:28px;line-height:26px;margin:0;padding:0 18px 0 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(${holo('.95')},${holo('.95')}) left bottom/100% 1px no-repeat,linear-gradient(${holo(1)},${holo(1)}) left bottom/1px 9px no-repeat,linear-gradient(90deg,${holo('.16')},${holo(0)}) left bottom/100% 100% no-repeat;border:0;border-radius:0;box-shadow:none;font-size:17px;font-weight:600;letter-spacing:.24em;text-shadow:0 0 8px ${holo('.75')},0 1px 2px rgba(0,0,0,.8);`,
+        speakerCss: `left:56px;top:14px;width:max-content;max-width:calc(100% - 112px);height:28px;line-height:26px;margin:0;padding:0 22px 0 22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(90deg,${holo(1)},${holo('.9')} 72%,${holo(0)}) left bottom/100% 1.5px no-repeat;border:0;border-radius:0;box-shadow:none;font-size:17px;font-weight:600;letter-spacing:.24em;text-shadow:0 0 8px ${holo('.75')},0 1px 2px rgba(0,0,0,.8);`,
         textCss: `letter-spacing:.06em;text-shadow:${TEXT_GLOW};`,
     }),
-    // ::before 是投影基座：一道亮线，外面一圈光晕；::after 是光束里的扫描线与一条缓慢上扫的亮带。
-    scalePx(`${scope}::before{content:"";position:absolute;left:6%;right:6%;bottom:0;height:3px;border-radius:2px;background:${SCIFI_EMITTER()};box-shadow:0 0 10px ${holo('.7')},0 0 26px ${holo('.35')};pointer-events:none;}`),
-    scalePx(`${scope}::after{content:"";position:absolute;left:10%;right:10%;top:0;bottom:3px;z-index:-1;background:linear-gradient(0deg,${holo(0)},${holo('.16')} 48%,${holo(0)} 52%) 0 120%/100% 260% no-repeat,${SCAN};-webkit-mask:radial-gradient(ellipse 60% 120% at 50% 100%,#000 30%,transparent 75%);mask:radial-gradient(ellipse 60% 120% at 50% 100%,#000 30%,transparent 75%);pointer-events:none;animation:igs-holo-sweep 6.5s linear infinite;}`),
+    // ::before 是投影基座：一道干净的亮线；::after 是光束里的十字定位点、扫描线与一条缓慢上扫的亮带。
+    scalePx(`${scope}::before{content:"";position:absolute;left:6%;right:6%;bottom:0;height:2px;border-radius:1px;background:${SCIFI_EMITTER()};box-shadow:0 0 12px ${holo('.55')};pointer-events:none;}`),
+    scalePx(`${scope}::after{content:"";position:absolute;left:10%;right:10%;top:0;bottom:2px;z-index:-1;background:linear-gradient(0deg,${holo(0)},${holo('.16')} 48%,${holo(0)} 52%) 0 120%/100% 260% no-repeat,${PLUS_GRID},${SCAN};-webkit-mask:radial-gradient(ellipse 62% 125% at 50% 100%,#000 25%,transparent 78%);mask:radial-gradient(ellipse 62% 125% at 50% 100%,#000 25%,transparent 78%);pointer-events:none;animation:igs-holo-sweep 6.5s linear infinite;}`),
     `${scope} .igs-text{animation:igs-holo-flicker 9s steps(1,end) infinite;}`,
-    `${scope} .igs-speaker::after{content:"";position:absolute;right:4px;bottom:5px;width:5px;height:5px;background:${holo(1)};transform:rotate(45deg);box-shadow:0 0 6px ${holo('.9')};}`,
-    '@keyframes igs-holo-sweep{0%{background-position:0 120%,0 0;}100%{background-position:0 -160%,0 0;}}',
+    `${scope} .igs-speaker::after{content:"";position:absolute;left:2px;top:50%;width:12px;height:12px;margin-top:-7px;background:${holo(1)};-webkit-mask:${SCIFI_RETICLE_MASK} center/contain no-repeat;mask:${SCIFI_RETICLE_MASK} center/contain no-repeat;filter:drop-shadow(0 0 3px ${holo('.8')});}`,
+    '@keyframes igs-holo-sweep{0%{background-position:0 120%,center bottom,0 0;}100%{background-position:0 -160%,center bottom,0 0;}}',
     // 很少出现的一下失真：正文微微横移、色散拉开，随即复原。
     `@keyframes igs-holo-flicker{0%,93%,100%{opacity:1;transform:none;}94%{opacity:.72;transform:translateX(1.5px);text-shadow:-1.6px 0 0 rgba(255,96,170,.45),1.6px 0 0 ${holo('.6')},0 0 8px ${holo('.45')};}95%{opacity:1;transform:translateX(-1px);}}`,
     `@media (prefers-reduced-motion: reduce){${scope}::after,${scope} .igs-text{animation:none !important;}}`,
