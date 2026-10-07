@@ -79,7 +79,7 @@ function createOutfit(ctx, charName, outfits, name) {
 }
 
 function addOutfitWord(ctx, outfits, entry, word) {
-    if (!isValidOutfitWord(word) || word === OUTFIT_RESET) { warn(ctx, `「${word}」不能用作服装词`); return false; }
+    if (!isValidOutfitWord(word) || word === OUTFIT_RESET) { warn(ctx, `「${word}」不能用作别名`); return false; }
     const owner = outfitTokenOwner(outfits, word);
     if (owner) { warn(ctx, owner === word ? `「${word}」已是服装名` : `「${word}」已属于服装「${owner}」`); return false; }
     entry.words.push(word);
@@ -391,7 +391,7 @@ async function runOutfitAction(match, ctx) {
         selectTab(settingsState, charName, '');
         return done();
     case 'scene-add-outfit-word': {
-        const word = await ask(ctx, `为服装「${outfitName}」添加词（AI 写出或表格里出现该词即视为这套服装）：`);
+        const word = await ask(ctx, `给服装「${outfitName}」添加别名（正文或表格里出现这个词，就按这套服装显示）：`);
         return word && addOutfitWord(ctx, outfits, entry, word) ? done() : rerenderSettings();
     }
     case 'scene-remove-outfit-word': {

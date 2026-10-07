@@ -555,10 +555,10 @@ function renderCharacterSpriteHeightRow(charName, { sceneAssets, reader }) {
     const auto = manual.source === 'manual' ? resolveSpriteBaseScale({ ...assets, characterSpriteScales: {} }, reader, charName) : manual;
     const autoText = `${SPRITE_HEIGHT_SOURCE_LABELS[auto.source]} ${auto.defaultScale}%`;
     const placed = hasCharacterSpriteLayout(reader && reader.spriteLayouts, charName);
-    const hint = `留空＝自动（${autoText}）${placed ? '；用「调整立绘」调过的表情按调整结果' : ''}`;
+    const note = placed ? ' title="在「调整立绘」里单独调过的表情，按调整结果显示"' : '';
     return `<div class="igs-char-info-row igs-char-height-row"><span class="igs-char-info-label">立绘高度 %</span>`
         + `<input class="igs-asset-move" type="number" min="${SPRITE_HEIGHT_RANGE[0]}" max="${SPRITE_HEIGHT_RANGE[1]}" step="1" data-char-height="${esc(charName)}" value="${manual.source === 'manual' ? esc(manual.characterScale) : ''}" placeholder="${esc(auto.defaultScale)}" aria-label="角色立绘高度（${SPRITE_HEIGHT_RANGE[0]}~${SPRITE_HEIGHT_RANGE[1]}）">`
-        + `<span class="igs-char-height-hint">${esc(hint)}</span></div>`;
+        + `<span class="igs-char-height-hint"${note}>默认 ${esc(autoText)}${placed ? ' · 已单独调整' : ''}</span></div>`;
 }
 
 const CHARACTER_DNA_FIELD_LABELS = [
