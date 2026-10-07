@@ -986,7 +986,8 @@ test('gate:igs-ui:excluded-yuan-inline-formatting-controls-do-not-create-blank-p
     const opened = host.openReader({ message: { text: raw }, sourceFilter }, { mode: 'pc' });
     assert.equal(opened.ok, true);
     const segments = opened.snapshot.content.segments;
-    assert.equal(segments.length, 2);
+    // 心理和后面同一行的旁白各占一页（以前「**怎么回事？**又醒了。」挤在一页）。
+    assert.deepEqual(segments, ['醒来。', '**怎么回事？**', '又醒了。']);
     assert.equal(segments.join('').includes('日本語'), false);
     assert.equal(segments.join('').includes('李家主宅卧室|早晨|晴]'), false);
     assert.equal(segments.every((segment) => /[^\s\u200B-\u200D\u2060-\u2064]/u.test(segment)), true);

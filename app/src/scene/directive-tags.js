@@ -22,6 +22,31 @@ export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));
 }
 
+// AI 偶尔把指令写走样：全角括号 / 冒号 / 竖线（【igs-char：名｜表情｜台词】）、括号和字段两边带空格、大写 IGS-CHAR。
+// 统一成 [igs-名:a|b|c]，后面的分段、正文格式化和指令提取都只认这一种。半角 "[" 开头的只认 "]" 收口，
+// 免得台词里的【】被当成指令结尾；漏写收口时照旧到行尾为止。已经用了半角 "|" 分隔的，台词里的「｜」原样保留。
+const LOOSE_DIRECTIVE_RE = new RegExp(
+    `\\[\\s*igs\\s*-\\s*(${NAMES})\\s*[:：]([^\\]\\n]*)(\\]?)|[［【]\\s*igs\\s*-\\s*(${NAMES})\\s*[:：]([^\\]］】\\n]*)([\\]］】]?)`,
+    'gi',
+);
+
+export function canonicalizeIgsDirectives(text) {
+    return String(text || '').replace(LOOSE_DIRECTIVE_RE, (all, name, body, close, wideName, wideBody, wideClose) => {
+        const inner = String(name ? body : wideBody);
+        const fields = (inner.includes('|') ? inner : inner.replace(/｜/g, '|')).split('|').map((field) => field.trim());
+        return `[igs-${String(name || wideName).toLowerCase()}:${fields.join('|')}${(name ? close : wideClose) ? ']' : ''}`;
+    });
+}
+
+// 台词、心理、场景指令前面同一行还有字（旁白。[igs-char:…] 或两条指令首尾相连）时在指令前断行，
+// 让每条指令都从行首开始、独占一页；指令后面的旁白由正文格式化在 "]" 后断行。
+// fx / img 是给前面这句加的效果，留在原句后面不挪。
+const BREAK_BEFORE_DIRECTIVE_RE = /(\S)[ \t]*(?=\[igs-(?:char|thought|scene):)/g;
+
+export function normalizeIgsDirectiveLayout(text) {
+    return canonicalizeIgsDirectives(text).replace(BREAK_BEFORE_DIRECTIVE_RE, '$1\n');
+}
+
 export function stripMarkerDirectives(text) {
     return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(DREAD_INLINE_RE, '');
 }

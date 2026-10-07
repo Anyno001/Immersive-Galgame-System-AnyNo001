@@ -7,7 +7,7 @@ import { extractSceneDirectives, stripIllustrationMarkers } from './scene-direct
 import { parseSceneText } from './text-parser.js';
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards } from './html-cards.js';
 import { extractChatBlocks } from './chat-blocks.js';
-import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags, stripOutfitFields } from './directive-tags.js';
+import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags, normalizeIgsDirectiveLayout, stripOutfitFields } from './directive-tags.js';
 import { createOutfitResolver } from './character-outfits.js';
 
 export const DEFAULT_SOURCE_FILTER = Object.freeze({
@@ -40,7 +40,10 @@ const LEGACY_VIRTUAL_REGEX_PATTERNS = Object.freeze([
     '\\[igs-char:([^|\\]]+)\\|[^|\\]]+\\|([^\\]]+)\\]',
 ]);
 
-const SENTENCE_PAGING_TERMINATOR = '。';
+// 句末符号集：中文句号、叹号、问号、半角叹问与省略号；不含半角句点，避免小数与缩写误切。
+const SENTENCE_PAGING_TERMINATORS = '。！？!?…';
+// 句末后紧跟这些闭符号时不断页：引号、括号与 〖〗 译文边界保持在本页。
+const SENTENCE_PAGING_CLOSERS = '」』”’）)]】〖〗';
 
 const THOUGHT_RE_GLOBAL = /\[igs-thought:([^|\]\n]+)\|(?:[^|\]\n]*\|)?([^\]\n]+)\]?/gm;
 
@@ -292,10 +295,28 @@ function splitSentenceLine(line, narrationOnly) {
     if (narrationOnly && !isNarrationLine(trimmed)) return line;
     // \x00IMG\x00 是图片占位，不能被句号切断；保护标签/心理/插图块内部的句号。
     if (/\x00IMG\x00/.test(line) || /image###/i.test(line) || /^\s*\[[^\]]+\]\s*$/.test(trimmed)) return line;
-    return line.replace(
-        new RegExp(`${SENTENCE_PAGING_TERMINATOR}(?!\\s*$)(?![\\s${SENTENCE_PAGING_TERMINATOR}」』”’）)\\]】〖〗])`, 'g'),
-        `${SENTENCE_PAGING_TERMINATOR}\n`,
-    );
+    // 逐字扫描：〖〗 译文块内部的句末符号不切（译文被切到下一页会丢失注音配对）；
+    // 连续句末符号（……、？！）视作一个整体，在最后一个符号后断页。
+    let out = '';
+    let depth = 0;
+    let thought = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        out += ch;
+        if (ch === '〖') { depth += 1; continue; }
+        if (ch === '〗') { depth = Math.max(0, depth - 1); continue; }
+        if (depth > 0) continue;
+        // *…*/**…** 心理话标记内部的句末不切：标记被切成两页会丢失心理样式与配对。
+        // 连续 *（如 ** 强调）是同一个标记单元，只翻转一次。
+        if (ch === '*') { thought = !thought; while (line[i + 1] === '*') { out += '*'; i++; } continue; }
+        if (thought || !SENTENCE_PAGING_TERMINATORS.includes(ch)) continue;
+        const rest = line.slice(i + 1);
+        if (!rest.trim()) continue;
+        const next = rest[0];
+        if (/\s/.test(next) || SENTENCE_PAGING_TERMINATORS.includes(next) || SENTENCE_PAGING_CLOSERS.includes(next)) continue;
+        out += '\n';
+    }
+    return out;
 }
 
 function isNarrationLine(trimmed) {
@@ -340,11 +361,12 @@ export function buildIgsTextPayload(message, options = {}) {
     const sourceFilter = normalizeSourceFilter(options.sourceFilter);
     const htmlCardResult = extractHtmlCards(originalRaw, parseTagList(sourceFilter.htmlCardTags));
     const chatResult = extractChatBlocks(htmlCardResult.text);
-    const raw = chatResult.text;
+    // 指令写走样、或和旁白挤在同一行时先理顺：分页、正文格式化和指令归属都从这份文本出发，三者才对得上。
+    const raw = normalizeIgsDirectiveLayout(chatResult.text);
     const htmlCards = htmlCardResult.cards;
     const chats = chatResult.chats;
     const virtualRegex = normalizeVirtualRegex(options.virtualRegex);
-    const visibleText = resolveVisibleText(message, options.visibleText);
+    const visibleText = normalizeIgsDirectiveLayout(resolveVisibleText(message, options.visibleText));
     const hasExcludedBlocks = sourceFilter.enabled && hasTagBlocks(raw, sourceFilter.textExcludeTags);
     // Once DOM has flattened a removed block into plain text, its boundaries cannot be recovered.
     const safeVisibleText = hasExcludedBlocks ? '' : (sourceFilter.enabled
