@@ -38,6 +38,17 @@ const DAILY_PROMPT_LINES = Object.freeze({
     blackout: '[igs-fx:blackout|旁白]：灯闪了几下后突然停电、陷入黑暗，旁白写黑暗里的一句感受，不超过16字，可省略',
     knock: '[igs-fx:knock|次数]：门被敲响（或墙里、窗外传来敲击声），次数写 1–6，可省略',
     murmur: '[igs-fx:murmur|低语内容]：耳边突然响起不知从哪来的低语，内容不超过16字',
+    brake: '[igs-fx:brake]：车辆急刹车、马车猛地停住，人往前一冲',
+    depart: '[igs-fx:depart|目的地]：车、船、马车起步出发，目的地可省略',
+    arrive: '[igs-fx:arrive|站名]：列车到站、船靠岸或车到了地方，站名可省略',
+    ticket: '[igs-fx:ticket|起点|终点|备注]：拿出或买到车票、船票、登机牌，只写一栏时当作终点，备注写车次座位等，可省略',
+    steam: '[igs-fx:steam]：浴室、温泉里一团水汽涌过来挡住视线',
+    shower: '[igs-fx:shower]：拧开淋浴、花洒的水哗地落下',
+    splash: '[igs-fx:splash]：泼水、打水仗，水花溅起来',
+    hairdry: '[igs-fx:hairdry|角色名]：用吹风机吹头发',
+    dive: '[igs-fx:dive]：跳进水里、潜入水下的那一刻',
+    bubble: '[igs-fx:bubble]：在水下说话或叹气，吐出一串气泡',
+    vacuum: '[igs-fx:vacuum]：舱门打开、空气泄光，四周陷入真空的寂静',
 });
 
 export function resolveDailyFxPromptRule(settings) {
@@ -93,6 +104,17 @@ export const DAILY_GRAMMAR_LINES = Object.freeze({
     blackout: 'blackout|旁白：灯闪几下后停电，旁白不超过16字，可省',
     knock: 'knock|次数：敲门或敲击声，次数 1–6，可省',
     murmur: 'murmur|低语内容：耳边的低语，不超过16字',
+    brake: 'brake：急刹车',
+    depart: 'depart|目的地：车船起步，目的地可省',
+    arrive: 'arrive|站名：到站靠岸，站名可省',
+    ticket: 'ticket|起点|终点|备注：车票船票，起点备注可省',
+    steam: 'steam：浴室水汽涌来',
+    shower: 'shower：拧开淋浴',
+    splash: 'splash：泼水',
+    hairdry: 'hairdry：吹头发',
+    dive: 'dive：潜入水下',
+    bubble: 'bubble：水下吐出气泡',
+    vacuum: 'vacuum：泄压陷入真空',
 });
 
 export function dailyGrammarLines(settings) {

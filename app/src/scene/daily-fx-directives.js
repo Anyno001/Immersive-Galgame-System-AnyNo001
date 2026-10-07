@@ -6,6 +6,9 @@ export const DAILY_FX_KINDS = Object.freeze([
     'guqin', 'go', 'poem', 'edict', 'tea', 'bow',
     'spell', 'potion', 'owl', 'broom', 'howler',
     'blackout', 'knock', 'murmur',
+    'brake', 'depart', 'arrive', 'ticket',
+    'steam', 'shower', 'splash', 'hairdry',
+    'dive', 'bubble', 'vacuum',
 ]);
 export const DAILY_OMIKUJI_RESULTS = Object.freeze(['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶']);
 // 同页日常演出上限：都是全屏或大卡片，连发只会互相遮挡。
@@ -99,6 +102,22 @@ export function parseDailyFxBody(type, fields) {
         return ['knock', String(count >= 1 && count <= 6 ? count : 3)];
     }
     case 'murmur': return a ? ['murmur', a] : null;
+    // 载具：目的地、站名均可省；车票只写一栏时视为终点。
+    case 'brake': return ['brake'];
+    case 'depart': return ['depart', a];
+    case 'arrive': return ['arrive', a];
+    case 'ticket':
+        if (!a) return null;
+        return b ? ['ticket', a, b, c] : ['ticket', '', a, ''];
+    // 洗浴：都不带字段，吹头发的角色名留给多人同屏定位。
+    case 'steam': return ['steam'];
+    case 'shower': return ['shower'];
+    case 'splash': return ['splash'];
+    case 'hairdry': return ['hairdry', a];
+    // 水下与真空：不分世界观，都不带字段。
+    case 'dive': return ['dive'];
+    case 'bubble': return ['bubble'];
+    case 'vacuum': return ['vacuum'];
     default: return null;
     }
 }
@@ -144,6 +163,17 @@ export function dailyFxOf(args) {
     case 'blackout': return { type, text: a };
     case 'knock': return { type, count: Number(a) || 3 };
     case 'murmur': return { type, text: a };
+    case 'brake': return { type };
+    case 'depart': return { type, to: a };
+    case 'arrive': return { type, station: a };
+    case 'ticket': return { type, from: a, to: b, note: c };
+    case 'steam': return { type };
+    case 'shower': return { type };
+    case 'splash': return { type };
+    case 'hairdry': return { type, who: a };
+    case 'dive': return { type };
+    case 'bubble': return { type };
+    case 'vacuum': return { type };
     case 'pat': return { type, who: a };
     case 'poke': return { type, who: a };
     case 'fever': {

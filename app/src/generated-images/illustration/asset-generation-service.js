@@ -873,8 +873,6 @@ export function createAssetGenerationService(deps) {
                         pending = [];
                         break;
                     }
-                    painted += 1;
-                    reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: pending[i] });
                     const slot = captions.find((item) => Number(item && item.slotId) === i + 1);
                     const caption = slot && slot.caption;
                     if (!caption) {
@@ -882,6 +880,9 @@ export function createAssetGenerationService(deps) {
                         items.push({ mood: pending[i], ok: false, error: '写提示词没有返回这一份' });
                         continue;
                     }
+                    // 漏写的那份第二轮补画才算一张，不然补写后 done 会超过 total（14/9）。
+                    painted += 1;
+                    reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: pending[i] });
                     const result = await paintExpressionCaption(name, pending[i], caption, paintDna, paint);
                     items.push(result);
                 }
@@ -1003,10 +1004,18 @@ export function createAssetGenerationService(deps) {
         return { ok: true, dataUrl: painted.dataUrl };
     }
 
-    // 设置页主动出一张默认立绘：一定先让 LLM 重写提示词，再出图。不拿已有提示词直接画，也不经过楼内补图。
-    async function generateCharacterSprite({ name, dna, nude = false, note = '', onProgress } = {}) {
+    // 设置页主动出一张默认立绘：先让 LLM 写提示词，再出图，不经过楼内补图。
+    // 格子里已有图的「重新生成」带着那张图的 caption 进来：不写词，换一颗新种子直接画。
+    async function generateCharacterSprite({ name, dna, nude = false, note = '', caption, onProgress } = {}) {
         const who = String(name || '').trim();
         if (!who) return { ok: false, error: '没有角色' };
+        if (caption) {
+            if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能画立绘' };
+            reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: '默认' });
+            const repainted = await paintExpressionCaption(who, '默认', caption, dna, { seed: randomSeed() });
+            if (!repainted.ok) return { ok: false, error: repainted.error || '出图失败', prompt: repainted.prompt };
+            return { ok: true, imageId: repainted.imageId, prompt: repainted.prompt };
+        }
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
             return { ok: false, error: '当前图像来源不能写立绘' };
         }

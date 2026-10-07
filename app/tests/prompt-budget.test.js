@@ -4,6 +4,7 @@ import { bootstrapIGS, createMemoryStorage } from '../src/index.js';
 import { buildTagGrammar, collectGrammarBlocks, DEPTH0_REMINDER, normalizePromptPlacement } from '../src/visual/igs-ui/tag-grammar.js';
 import { ADAPTIVE_PROMPT_BLOCKS, DAILY_TRIGGER_WORDS, detectPromptTriggers, estimatePromptTokens } from '../src/scene/prompt-triggers.js';
 import { DAILY_FX_KINDS } from '../src/scene/daily-fx-directives.js';
+import { applyFxWorldview } from '../src/scene/fx-era.js';
 import { buildCompactMoodGroupsText, capVocabItems, DEFAULT_MOOD_GROUPS, resolveMoodGroup } from '../src/scene/mood-groups.js';
 import { buildScopedOutfitGroupsText, NO_OUTFIT_GROUPS_TEXT } from '../src/scene/character-outfits.js';
 import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 } from '../src/visual/igs-ui/reader-host-constants.js';
@@ -51,13 +52,25 @@ test('gate:prompt-budget:all-on-fixed-part-stays-under-3000-chars-with-one-share
 });
 
 // 阈值 = 2026-10-05 全开实测（单块最大 daily 983 字、全展开 2414 字）+ 约 15% 余量。
+// ALL_ON 把各世界观的专属日常同时打开，实际不会出现；10-07 加载具洗浴后这个全集 daily 为 1201 字，单独给 1380，
+// 真实上限由下一条按世界观逐个量（10-07 最多 842 字）。
+const DAILY_SUPERSET_MAX = 1380;
 test('gate:prompt-budget:adaptive-blocks-stay-within-measured-budget', () => {
     const sceneRule = sceneRuleWithMoods();
     const sizes = Object.fromEntries(ADAPTIVE_PROMPT_BLOCKS.map((key) => [key, len(buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set([key]) }).depth0)]));
     const report = JSON.stringify(sizes);
-    for (const [key, size] of Object.entries(sizes)) assert.ok(size <= 1150, `${key} 单块超预算 ${report}`);
+    for (const [key, size] of Object.entries(sizes)) assert.ok(size <= (key === 'daily' ? DAILY_SUPERSET_MAX : 1150), `${key} 单块超预算 ${report}`);
     const all = buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set(ADAPTIVE_PROMPT_BLOCKS) });
     assert.ok(len(all.depth0) <= 2800, `全展开 ${len(all.depth0)} 字 / ${estimatePromptTokens(all.depth0)} token ${report}`);
+});
+
+test('gate:prompt-budget:daily-block-per-worldview-stays-under-1150', () => {
+    const sceneRule = sceneRuleWithMoods();
+    for (const worldview of ['modern', 'ancient', 'fantasy', 'scifi', 'apocalypse', 'taisho', 'magic', 'horror']) {
+        const readerSettings = applyFxWorldview(ALL_ON, worldview);
+        const size = len(buildTagGrammar({ readerSettings, sceneRule, expand: new Set(['daily']) }).depth0);
+        assert.ok(size <= 1150, `${worldview} daily ${size} 字`);
+    }
 });
 
 test('gate:prompt-budget:every-adaptive-block-has-a-trigger-route', () => {

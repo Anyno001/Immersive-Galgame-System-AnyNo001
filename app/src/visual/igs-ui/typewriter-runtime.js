@@ -4,6 +4,7 @@ import { measureClassicReveal } from './typewriter-classic.js';
 import { startCompositedReveal } from './typewriter-compositor.js';
 import { TYPEWRITER_VOICE_DEFAULTS, normalizeTypewriterVoice, resolveTypewriterVoice, scheduleTypewriterAudio } from './typewriter-audio.js';
 import { TYPING_DUCK_RATIO, duckSceneAudio } from './scene-audio.js';
+import { spawnTypingBubbles, underwaterVisualsAllowed } from './typewriter-underwater.js';
 
 export const TYPEWRITER_SPEED_IDS = Object.freeze(['fast', 'medium', 'slow']);
 export const TYPEWRITER_SPEED_MS = Object.freeze({
@@ -127,6 +128,7 @@ export function cancelTypewriter(target, { finish = true } = {}) {
     void finish;
     job.audio?.stop?.();
     job.releaseDuck?.();
+    job.bubbles?.remove();
     if (job.animation && typeof job.animation.cancel === 'function') {
         job.animation.cancel();
     }
@@ -186,7 +188,8 @@ export function applyTypewriterEffect(target, options = {}) {
             && activeJob.volume === jobVolume
             && activeJob.voice.preset === voice.preset
             && activeJob.voice.pitch === voice.pitch
-            && activeJob.voice.pan === voice.pan;
+            && activeJob.voice.pan === voice.pan
+            && activeJob.underwater === (options.underwater === true);
         if (!sameSettings) {
             cancelTypewriter(target, { finish: true });
             return { animated: false, finish() {} };
@@ -222,8 +225,11 @@ export function applyTypewriterEffect(target, options = {}) {
         ...(delay ? { delay } : {}),
     };
     // 真实页面优先走合成线程揭示（不受主线程繁忙影响）；注入 animate 或前提不满足时退回 clip-path 遮罩。
+    // 水下：逐行浮起（省电模式不浮）；只在合成揭示路径上叠加，退回遮罩时不做。
+    const underwater = options.underwater === true;
+    const float = underwater && underwaterVisualsAllowed(target);
     const composited = typeof options.animate === 'function' ? null
-        : startCompositedReveal(target, classic ? { layout: classic.layout } : { soft: true }, timing);
+        : startCompositedReveal(target, classic ? { layout: classic.layout, float } : { soft: true, float }, timing);
     const animation = composited || createVisualAnimation(target, options, classic ? classic.frames : VISUAL_REVEAL_KEYFRAMES, timing);
     if (!animation || typeof animation.cancel !== 'function') {
         setRunningState(target, false);
@@ -231,7 +237,7 @@ export function applyTypewriterEffect(target, options = {}) {
     }
     if (key) renderedKeys.set(target, key);
 
-    const job = { animation, key, mode: settings.mode, punctuationPause: settings.punctuationPause, prosody: settings.prosody, emotion, soundEnabled: settings.sound.enabled, volume: jobVolume, voice, audio: null };
+    const job = { animation, key, mode: settings.mode, punctuationPause: settings.punctuationPause, prosody: settings.prosody, emotion, soundEnabled: settings.sound.enabled, volume: jobVolume, voice, underwater, audio: null, bubbles: null };
     activeJobs.set(target, job);
     setRunningState(target, true);
     if (classic && settings.sound.enabled && jobVolume > 0) {
@@ -239,9 +245,11 @@ export function applyTypewriterEffect(target, options = {}) {
             textType: options.textType, volume: jobVolume, audioScheduler: options.audioScheduler, phone: options.phone === true,
             preset: voice.preset, pitch: voice.pitch, pan: voice.pan, prosody: settings.prosody, emotion,
             horror: options.horror == null ? null : options.horror,
+            underwater,
         });
         if (job.audio) job.releaseDuck = duckSceneAudio({ ratio: TYPING_DUCK_RATIO });
     }
+    if (float) job.bubbles = spawnTypingBubbles(target, { duration, delay });
     const settle = () => settleVisualJob(target, job);
     if (typeof animation.addEventListener === 'function') {
         animation.addEventListener('finish', settle, { once: true });

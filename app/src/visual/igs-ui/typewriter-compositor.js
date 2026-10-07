@@ -3,6 +3,8 @@
 // 由合成线程推进，翻页时主线程再忙也不会卡字；逐字时刻与原 clip-path 遮罩一致。
 // 任一前提不满足（无 WAAPI、文字框不以父节点定位、已滚动、行序异常）返回 null，由调用方退回 clip-path 遮罩。
 
+import { floatKeyframes, floatTiming } from './typewriter-underwater.js';
+
 const STEP = 'steps(1, end)';
 
 // 逐行时间轴：窗口 i 的可见右沿 x——当前字在更下面的行则整行揭开，在本行取该字右沿，在更上面的行则未揭开。
@@ -101,6 +103,7 @@ export function startCompositedReveal(target, reveal, timing) {
     });
     const faces = [];
     const animations = [];
+    const floats = [];
     let bandTop = 0;
     bands.forEach((band, index) => {
         const top = index === 0 ? 0 : Math.round(band.top * sy);
@@ -121,6 +124,11 @@ export function startCompositedReveal(target, reveal, timing) {
         faces.push(face);
         const frames = band.stops ? bandKeyframes(band, rect.width, sx) : softKeyframes(width);
         animations.push([win, frames.window], [face, frames.face]);
+        // 水下：这一行被揭开的那一刻起，副本叠加一段从下往上的浮起（composite add，不影响逐字推进）。
+        if (reveal && reveal.float) {
+            const first = band.stops ? band.stops.find((stop) => stop.x > 0) : null;
+            floats.push([face, (timing.delay || 0) + (first ? first.offset : 0) * timing.duration]);
+        }
     });
 
     const prevVisibility = target.style.getPropertyValue('visibility');
@@ -163,6 +171,10 @@ export function startCompositedReveal(target, reveal, timing) {
         // 同一时刻起跑，窗与副本的平移才能逐帧抵消。
         const now = doc.timeline && doc.timeline.currentTime;
         if (now != null) for (const animation of running) animation.startTime = now;
+        // 浮起动画排在逐字推进之后，running[0] 仍是第一扇窗的揭示；浮起失败不影响揭示。
+        for (const [face, start] of floats) {
+            try { running.push(face.animate(floatKeyframes(), floatTiming(start))); } catch { /* 不支持 composite 时不浮 */ }
+        }
     } catch {
         for (const animation of running) animation.cancel?.();
         cleanup();

@@ -417,5 +417,151 @@ export const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-howler-mouth span{animation:none;opacity:1;}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-beam,#igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-burst i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-bubbles i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-smoke i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-owl-flight,#igs-overlay .igs-dfx.is-reduced .igs-dfx-broom-wind,#igs-overlay .igs-dfx.is-reduced .igs-dfx-broom-flight{display:none;}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-spell-words,#igs-overlay .igs-dfx.is-reduced .igs-dfx-owl-drop,#igs-overlay .igs-dfx.is-reduced .igs-dfx-potion-label{animation:none;opacity:1;}
+/* 载具：急刹速度线 + 字样、起步流线 + 去向条、到站牌、车票。 */
+#igs-overlay .igs-dfx-brake{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-brake-lines i{position:absolute;right:0;width:46%;height:2px;border-radius:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.72));opacity:0;animation:igs-dfx-brake-line .5s ease-out both;}
+#igs-overlay .igs-dfx-brake-word{position:absolute;right:9%;top:16%;color:#fff;font:italic 900 clamp(26px,5vw,48px)/1 "Source Han Sans CN","PingFang SC",sans-serif;letter-spacing:.06em;text-shadow:0 3px 0 rgba(0,0,0,.45),0 0 12px rgba(0,0,0,.5);animation:igs-dfx-brake-word var(--igs-dfx-life) cubic-bezier(.2,1.4,.4,1) both;}
+@keyframes igs-dfx-brake-line{0%{opacity:0;transform:translateX(30%)}25%{opacity:1}100%{opacity:0;transform:translateX(-60%)}}
+@keyframes igs-dfx-brake-word{0%{opacity:0;transform:rotate(-8deg) translateX(30px) scale(1.4)}14%{opacity:1;transform:rotate(-8deg) scale(1)}75%{opacity:1;transform:rotate(-8deg)}100%{opacity:0;transform:rotate(-8deg) translateX(-10px)}}
+#igs-overlay .igs-dfx-depart{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-depart-flow i{position:absolute;left:0;width:30%;height:2px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);opacity:0;animation:igs-dfx-depart-flow 1.1s cubic-bezier(.5,0,.8,.6) both;}
+#igs-overlay .igs-dfx-depart-chip{position:absolute;left:6%;top:12%;display:flex;align-items:baseline;gap:10px;padding:8px 18px 8px 14px;border-left:4px solid #4fb3a5;border-radius:3px;background:rgba(16,20,28,.84);color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.35);animation:igs-dfx-depart-chip var(--igs-dfx-life) cubic-bezier(.2,.8,.3,1) both;}
+#igs-overlay .igs-dfx-depart-chip span{font-size:12px;letter-spacing:.3em;opacity:.7;}
+#igs-overlay .igs-dfx-depart-chip b{font-size:clamp(16px,2.6vmin,22px);letter-spacing:.08em;}
+#igs-overlay .igs-dfx-depart.is-ship .igs-dfx-depart-chip{border-left-color:#3f86d0;}
+#igs-overlay .igs-dfx-depart.is-carriage .igs-dfx-depart-chip{border-left-color:#a33b2c;background:rgba(40,28,18,.88);color:#f3e6c8;font-family:"Source Han Serif CN","Songti SC",serif;}
+@keyframes igs-dfx-depart-flow{0%{opacity:0;transform:translateX(250%)}30%{opacity:.9}100%{opacity:0;transform:translateX(-120%)}}
+@keyframes igs-dfx-depart-chip{0%{opacity:0;transform:translateX(-24px)}12%{opacity:1;transform:none}85%{opacity:1;transform:none}100%{opacity:0;transform:translateX(16px)}}
+#igs-overlay .igs-dfx-arrive{display:flex;align-items:flex-start;justify-content:center;padding-top:9%;animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-arrive-board{position:relative;min-width:min(46%,320px);max-width:80%;padding:14px 26px 10px;box-sizing:border-box;overflow:hidden;background:#fbfbf8;color:#1f2328;text-align:center;border-radius:4px;box-shadow:0 10px 26px rgba(0,0,0,.38);animation:igs-dfx-arrive-in .6s cubic-bezier(.2,.9,.3,1.2) both;}
+#igs-overlay .igs-dfx-arrive-name{font:800 clamp(22px,4.4vmin,36px)/1.25 "Source Han Sans CN","PingFang SC",sans-serif;letter-spacing:.18em;text-indent:.18em;word-break:break-all;}
+#igs-overlay .igs-dfx-arrive-bar{display:block;height:6px;margin:8px -26px 6px;background:#3a9b6c;}
+#igs-overlay .igs-dfx-arrive-sub{font-size:12px;letter-spacing:.4em;text-indent:.4em;color:#59606a;}
+#igs-overlay .igs-dfx-arrive.is-ship .igs-dfx-arrive-bar{background:#2f6fb5;}
+#igs-overlay .igs-dfx-arrive.is-car .igs-dfx-arrive-bar{background:#d08a2e;}
+#igs-overlay .igs-dfx-arrive.is-carriage .igs-dfx-arrive-board{background:linear-gradient(180deg,#5a3a22,#3e2716);color:#f1d48a;border:2px solid #b08a4a;border-radius:2px;}
+#igs-overlay .igs-dfx-arrive.is-carriage .igs-dfx-arrive-name{font-family:"Source Han Serif CN","Songti SC",serif;font-weight:700;}
+#igs-overlay .igs-dfx-arrive.is-carriage .igs-dfx-arrive-bar{height:1px;margin:8px 0 6px;background:rgba(241,212,138,.55);}
+#igs-overlay .igs-dfx-arrive.is-carriage .igs-dfx-arrive-sub{color:#e6c98a;}
+@keyframes igs-dfx-arrive-in{from{opacity:0;transform:translateY(-18px)}to{opacity:1;transform:none}}
+#igs-overlay .igs-dfx-ticket{display:flex;align-items:center;justify-content:center;animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-ticket-card{position:relative;min-width:min(52%,340px);max-width:84%;padding:12px 26px 14px;box-sizing:border-box;background:linear-gradient(180deg,#e9f3ff,#d7e8fb);color:#1d2a3a;border-radius:6px;box-shadow:0 10px 24px rgba(0,0,0,.35);transform:rotate(-2deg);-webkit-mask:radial-gradient(circle 10px at left,transparent 98%,#000) left/51% 100% no-repeat,radial-gradient(circle 10px at right,transparent 98%,#000) right/51% 100% no-repeat;mask:radial-gradient(circle 10px at left,transparent 98%,#000) left/51% 100% no-repeat,radial-gradient(circle 10px at right,transparent 98%,#000) right/51% 100% no-repeat;animation:igs-dfx-ticket-in .55s cubic-bezier(.2,.9,.3,1.1) both;}
+#igs-overlay .igs-dfx-ticket-head{padding-bottom:6px;margin-bottom:8px;border-bottom:1px dashed rgba(29,42,58,.35);color:#3d6a9e;font-size:12px;letter-spacing:.4em;text-align:center;}
+#igs-overlay .igs-dfx-ticket-route{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px 14px;font:800 clamp(18px,3.4vmin,28px)/1.2 "Source Han Sans CN","PingFang SC",sans-serif;letter-spacing:.06em;}
+#igs-overlay .igs-dfx-ticket-route i{font-style:normal;font-weight:400;opacity:.55;}
+#igs-overlay .igs-dfx-ticket-note{margin-top:6px;color:#4a5a6e;font-size:13px;text-align:center;font-variant-numeric:tabular-nums;}
+#igs-overlay .igs-dfx-ticket-punch{position:absolute;right:16%;top:8px;width:10px;height:10px;border-radius:50%;background:rgba(10,14,20,.72);opacity:0;animation:igs-dfx-ticket-punch .18s ease-out .6s both;}
+#igs-overlay .igs-dfx-ticket.is-ship .igs-dfx-ticket-card{background:linear-gradient(180deg,#eaf6ee,#d3ecdc);}
+#igs-overlay .igs-dfx-ticket.is-ship .igs-dfx-ticket-head{color:#2f7a52;}
+#igs-overlay .igs-dfx-ticket.is-plane .igs-dfx-ticket-card{background:linear-gradient(90deg,#1f4f8f 0 10px,#fff 10px);}
+@keyframes igs-dfx-ticket-in{from{opacity:0;transform:translateY(24px) rotate(-6deg)}to{opacity:1;transform:rotate(-2deg)}}
+@keyframes igs-dfx-ticket-punch{from{opacity:0;transform:scale(1.8)}to{opacity:1;transform:none}}
+#igs-overlay .igs-dfx-arrive.is-scifi .igs-dfx-arrive-board,#igs-overlay .igs-dfx-ticket.is-scifi .igs-dfx-ticket-card{background:rgba(8,24,36,.92);color:#d8fbff;box-shadow:0 0 16px rgba(60,200,255,.4);}
+#igs-overlay .igs-dfx-arrive.is-scifi .igs-dfx-arrive-bar{background:#3cc8ff;}
+#igs-overlay .igs-dfx-ticket.is-scifi .igs-dfx-ticket-head,#igs-overlay .igs-dfx-ticket.is-scifi .igs-dfx-ticket-note{color:#8fe6ff;}
+#igs-overlay .igs-dfx-arrive.is-taisho .igs-dfx-arrive-board,#igs-overlay .igs-dfx-ticket.is-taisho .igs-dfx-ticket-card{background:#f4ead6;color:#2a1c18;font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;}
+#igs-overlay .igs-dfx-arrive.is-taisho .igs-dfx-arrive-bar{background:#7b2e2a;}
+#igs-overlay .igs-dfx-ticket.is-taisho .igs-dfx-ticket-head{color:#7b2e2a;}
+#igs-overlay .igs-dfx-arrive.is-magic .igs-dfx-arrive-board,#igs-overlay .igs-dfx-ticket.is-magic .igs-dfx-ticket-card{background:linear-gradient(160deg,#f1e3c0,#e2cc98);color:#2b1d10;font-family:"IM Fell English",Georgia,"Times New Roman",serif;}
+#igs-overlay .igs-dfx-arrive.is-magic .igs-dfx-arrive-bar{background:#7a1f2b;}
+#igs-overlay .igs-dfx-ticket.is-magic .igs-dfx-ticket-head{color:#7a1f2b;}
+#igs-overlay .igs-dfx-arrive.is-apocalypse .igs-dfx-arrive-board{background:#d9cdb3;color:#2a2219;font-family:"Courier New",monospace;}
+#igs-overlay .igs-dfx-arrive.is-apocalypse .igs-dfx-arrive-bar{background:#8a5a2a;}
 
+/* 洗浴：水汽团、淋浴水帘、水花与镜头水珠、吹风机的风。 */
+#igs-overlay .igs-dfx-steam-cloud i{position:absolute;width:70%;height:80%;border-radius:50%;background:radial-gradient(closest-side,rgba(255,253,248,.92),rgba(255,253,248,.5) 55%,transparent);opacity:0;animation:igs-dfx-steam-puff var(--igs-dfx-life) ease-out both;}
+@keyframes igs-dfx-steam-puff{0%{opacity:0;transform:translate3d(0,30%,0) scale(.6)}30%{opacity:1;transform:translate3d(0,0,0) scale(1)}70%{opacity:.9}100%{opacity:0;transform:translate3d(0,-14%,0) scale(1.25)}}
+#igs-overlay .igs-dfx-shower{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-shower-rain{position:absolute;inset:0;overflow:hidden;transform:rotate(5deg) scale(1.1);}
+#igs-overlay .igs-dfx-shower-rain i{position:absolute;top:-30%;width:1.5px;height:26%;background:linear-gradient(180deg,transparent,rgba(225,238,255,.7));opacity:0;animation:igs-dfx-shower-drop .55s linear infinite;}
+#igs-overlay .igs-dfx-shower-mist{position:absolute;left:-10%;right:-10%;bottom:-20%;height:60%;background:radial-gradient(ellipse at 50% 100%,rgba(250,246,240,.55),transparent 70%);opacity:0;animation:igs-dfx-shower-mist var(--igs-dfx-life) ease-out both;}
+@keyframes igs-dfx-shower-drop{0%{opacity:0;transform:translate3d(0,0,0)}15%{opacity:1}100%{opacity:.6;transform:translate3d(0,560%,0)}}
+@keyframes igs-dfx-shower-mist{0%{opacity:0;transform:translate3d(0,20%,0)}45%{opacity:1;transform:none}100%{opacity:.8;transform:none}}
+#igs-overlay .igs-dfx-splash{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-splash-burst{position:absolute;left:50%;top:58%;width:0;height:0;}
+#igs-overlay .igs-dfx-splash-burst i{position:absolute;left:-5px;top:-6px;width:10px;height:13px;border-radius:50%/60% 60% 40% 40%;background:radial-gradient(circle at 35% 30%,#fff,rgba(190,225,255,.85) 45%,rgba(120,180,240,.5));opacity:0;animation:igs-dfx-splash-drop .7s cubic-bezier(.2,.7,.4,1) both;}
+#igs-overlay .igs-dfx-splash-lens i{position:absolute;width:var(--igs-sp-s);height:calc(var(--igs-sp-s) * 1.15);border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.75),rgba(255,255,255,.08) 40%,rgba(160,200,240,.18) 70%,rgba(255,255,255,.4));box-shadow:0 2px 3px rgba(0,0,0,.18);opacity:0;animation:igs-dfx-splash-lens var(--igs-dfx-life) ease-in both;}
+@keyframes igs-dfx-splash-drop{0%{opacity:0;transform:rotate(var(--igs-sp-a)) translateY(0) scale(.5)}15%{opacity:1}100%{opacity:0;transform:rotate(var(--igs-sp-a)) translateY(calc(var(--igs-sp-d) * -1)) scale(1)}}
+@keyframes igs-dfx-splash-lens{0%,12%{opacity:0;transform:scale(1.6)}20%{opacity:1;transform:none}70%{opacity:1;transform:none}100%{opacity:0;transform:translateY(28px)}}
+#igs-overlay .igs-dfx-hairdry{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-hairdry-wind{position:absolute;top:8%;width:200px;height:110px;margin-left:-100px;}
+#igs-overlay .igs-dfx-hairdry-wind i{position:absolute;left:0;width:44%;height:16px;border-top:2px solid rgba(255,255,255,.7);border-radius:50%;opacity:0;animation:igs-dfx-hairdry-gust .8s ease-out infinite;}
+@keyframes igs-dfx-hairdry-gust{0%{opacity:0;transform:translateX(-40%)}30%{opacity:.9}100%{opacity:0;transform:translateX(140%)}}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-brake-lines,#igs-overlay .igs-dfx.is-reduced .igs-dfx-depart-flow,#igs-overlay .igs-dfx.is-reduced .igs-dfx-shower-rain,#igs-overlay .igs-dfx.is-reduced .igs-dfx-splash-burst,#igs-overlay .igs-dfx.is-reduced .igs-dfx-hairdry-wind{display:none;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-brake-word{transform:rotate(-8deg);}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-ticket-punch,#igs-overlay .igs-dfx.is-reduced .igs-dfx-splash-lens i{opacity:1;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-steam-cloud i,#igs-overlay .igs-dfx.is-reduced .igs-dfx-shower-mist{opacity:.8;}
+
+/* 常驻氛围层（车里 / 船上 / 浴室）：一直挂着，所以每种最多两个动画元素，只动 transform 与 opacity，周期都在数秒以上，
+   不用 canvas、混合模式、模糊与逐帧脚本；省电模式与减少动态效果时定格成静态画面，扫光带直接不画。 */
+#igs-overlay .igs-dfx-amb{position:absolute;inset:0;pointer-events:none;overflow:hidden;animation:igs-amb-in 1.4s ease both;}
+#igs-overlay .igs-dfx-amb.is-leaving{animation:igs-amb-out .9s ease both;}
+#igs-overlay .igs-dfx-amb>i{position:absolute;display:block;}
+@keyframes igs-amb-in{from{opacity:0}to{opacity:1}}
+@keyframes igs-amb-out{from{opacity:1}to{opacity:0}}
+#igs-overlay .igs-dfx-amb-shade{inset:0;background:linear-gradient(180deg,rgba(10,12,18,.26),transparent 16%,transparent 80%,rgba(10,12,18,.3));}
+#igs-overlay .igs-dfx-amb-band{top:-10%;bottom:-10%;left:0;width:34%;background:linear-gradient(90deg,transparent,rgba(255,248,226,.1) 40%,rgba(255,248,226,.16) 50%,rgba(255,248,226,.1) 60%,transparent);transform:translate3d(-110%,0,0) skewX(-14deg);animation:igs-amb-sweep 9s linear infinite;}
+@keyframes igs-amb-sweep{0%{transform:translate3d(-110%,0,0) skewX(-14deg)}55%,100%{transform:translate3d(320%,0,0) skewX(-14deg)}}
+#igs-overlay .igs-dfx-amb.is-train.is-night .igs-dfx-amb-band{background:linear-gradient(90deg,transparent,rgba(214,232,255,.12) 40%,rgba(214,232,255,.2) 50%,rgba(214,232,255,.12) 60%,transparent);animation-duration:5.2s;}
+#igs-overlay .igs-dfx-amb.is-subway .igs-dfx-amb-shade{background:linear-gradient(180deg,rgba(6,8,14,.34),rgba(6,8,14,.12) 20%,rgba(6,8,14,.12) 78%,rgba(6,8,14,.36));}
+#igs-overlay .igs-dfx-amb.is-subway .igs-dfx-amb-band{width:18%;background:linear-gradient(90deg,transparent,rgba(255,236,196,.22) 50%,transparent);animation-duration:2.6s;}
+#igs-overlay .igs-dfx-amb.is-car .igs-dfx-amb-band{opacity:.75;animation-duration:12s;}
+#igs-overlay .igs-dfx-amb.is-car.is-night .igs-dfx-amb-band{opacity:1;background:linear-gradient(90deg,transparent,rgba(255,176,96,.14) 40%,rgba(255,186,110,.22) 50%,rgba(255,176,96,.14) 60%,transparent);animation-duration:4.4s;}
+#igs-overlay .igs-dfx-amb.is-carriage .igs-dfx-amb-shade{background:linear-gradient(90deg,rgba(60,24,10,.36),transparent 15%,transparent 85%,rgba(60,24,10,.36));}
+#igs-overlay .igs-dfx-amb.is-carriage .igs-dfx-amb-band{left:60%;width:24%;top:4%;bottom:30%;background:radial-gradient(ellipse at 50% 40%,rgba(255,226,170,.2),transparent 70%);transform:skewX(-8deg);animation:igs-amb-flicker 6.5s ease-in-out infinite;}
+#igs-overlay .igs-dfx-amb.is-carriage.is-night .igs-dfx-amb-band{background:radial-gradient(ellipse at 50% 40%,rgba(255,170,90,.18),transparent 70%);animation-duration:9s;}
+@keyframes igs-amb-flicker{0%,100%{opacity:.25}30%{opacity:1}55%{opacity:.45}75%{opacity:.85}}
+#igs-overlay .igs-dfx-amb-water{left:-8%;right:-8%;top:-8%;height:58%;background:repeating-linear-gradient(172deg,transparent 0 22px,rgba(220,240,255,.07) 22px 26px,transparent 26px 48px),repeating-linear-gradient(8deg,transparent 0 30px,rgba(220,240,255,.05) 30px 33px,transparent 33px 60px);-webkit-mask-image:linear-gradient(180deg,#000,transparent);mask-image:linear-gradient(180deg,#000,transparent);animation:igs-amb-ripple 7s ease-in-out infinite alternate;}
+#igs-overlay .igs-dfx-amb.is-ship.is-night .igs-dfx-amb-water{opacity:.55;}
+@keyframes igs-amb-ripple{from{transform:translate3d(-2%,0,0)}to{transform:translate3d(2%,1.2%,0)}}
+#igs-overlay .igs-dfx-amb-fog{inset:0;background:radial-gradient(ellipse 85% 80% at 50% 45%,transparent 50%,rgba(250,244,236,.3) 100%),linear-gradient(0deg,rgba(250,244,236,.2),transparent 30%);}
+#igs-overlay .igs-dfx-amb-steam{inset:0;}
+#igs-overlay .igs-dfx-amb-steam::before,#igs-overlay .igs-dfx-amb-steam::after{content:"";position:absolute;left:-10%;bottom:-30%;width:70%;height:70%;border-radius:50%;background:radial-gradient(closest-side,rgba(255,252,246,.32),transparent);opacity:0;animation:igs-amb-steam 11s ease-in-out infinite;}
+#igs-overlay .igs-dfx-amb-steam::after{left:auto;right:-14%;animation-duration:14s;animation-delay:-6s;}
+@keyframes igs-amb-steam{0%{opacity:0;transform:translate3d(0,0,0) scale(.85)}35%{opacity:1}100%{opacity:0;transform:translate3d(6%,-70%,0) scale(1.15)}}
+#igs-overlay .igs-dfx-amb.is-shower .igs-dfx-amb-fog{background:radial-gradient(ellipse 80% 76% at 50% 45%,transparent 40%,rgba(250,244,236,.4) 100%),linear-gradient(0deg,rgba(250,244,236,.26),transparent 36%);}
+#igs-overlay .igs-dfx-amb.is-shower .igs-dfx-amb-steam::before{animation-duration:8s;}
+#igs-overlay .igs-dfx-amb.is-shower .igs-dfx-amb-steam::after{animation-duration:10s;}
+#igs-overlay .igs-dfx-amb.is-onsen .igs-dfx-amb-fog{background:radial-gradient(ellipse 90% 84% at 50% 40%,transparent 55%,rgba(250,244,236,.26) 100%),linear-gradient(0deg,rgba(250,244,236,.32),transparent 42%);}
+#igs-overlay .igs-dfx-amb.is-onsen .igs-dfx-amb-steam::before,#igs-overlay .igs-dfx-amb.is-onsen .igs-dfx-amb-steam::after{width:90%;animation-duration:15s;}
+#igs-overlay .igs-dfx-amb.is-onsen .igs-dfx-amb-steam::after{animation-duration:18s;}
+#igs-overlay[data-igs-quality="low"] .igs-dfx-amb:not(.is-carriage) .igs-dfx-amb-band,#igs-overlay .igs-dfx-amb.is-reduced:not(.is-carriage) .igs-dfx-amb-band{display:none;}
+#igs-overlay[data-igs-quality="low"] .igs-dfx-amb.is-carriage .igs-dfx-amb-band,#igs-overlay .igs-dfx-amb.is-reduced.is-carriage .igs-dfx-amb-band{opacity:.6;}
+#igs-overlay[data-igs-quality="low"] .igs-dfx-amb-steam::before,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb-steam::after,#igs-overlay .igs-dfx-amb.is-reduced .igs-dfx-amb-steam::before,#igs-overlay .igs-dfx-amb.is-reduced .igs-dfx-amb-steam::after{opacity:.6;}
+/* 水下与真空的单次演出：入水、吐气泡、泄压。 */
+#igs-overlay .igs-dfx-dive{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-dive-flash{position:absolute;inset:0;background:linear-gradient(180deg,rgba(235,250,255,.85),rgba(160,220,240,.4));opacity:0;animation:igs-dfx-dive-flash .5s ease-out both;}
+#igs-overlay .igs-dfx-dive-veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(30,120,160,.5),rgba(8,40,80,.62));transform:translate3d(0,-100%,0);animation:igs-dfx-dive-veil var(--igs-dfx-life) cubic-bezier(.3,.7,.3,1) both;}
+#igs-overlay .igs-dfx-dive-bubbles i,#igs-overlay .igs-dfx-bubble-rise i{position:absolute;bottom:0;width:var(--igs-bb-s);height:var(--igs-bb-s);border-radius:50%;border:1.5px solid rgba(230,250,255,.75);background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.7),rgba(255,255,255,.06) 55%);opacity:0;}
+#igs-overlay .igs-dfx-dive-bubbles i{bottom:-6%;animation:igs-dfx-dive-bubble 1.4s cubic-bezier(.3,.6,.5,1) both;}
+@keyframes igs-dfx-dive-flash{0%{opacity:0}15%{opacity:1}100%{opacity:0}}
+@keyframes igs-dfx-dive-veil{0%{transform:translate3d(0,-100%,0);opacity:1}30%{transform:none;opacity:1}100%{transform:none;opacity:0}}
+@keyframes igs-dfx-dive-bubble{0%{opacity:0;transform:translate3d(0,0,0)}15%{opacity:1}100%{opacity:0;transform:translate3d(10px,-90vh,0)}}
+#igs-overlay .igs-dfx-bubble-rise{position:absolute;top:24%;width:0;height:0;}
+#igs-overlay .igs-dfx-bubble-rise i{animation:igs-dfx-bubble-up 1.5s ease-out both;}
+@keyframes igs-dfx-bubble-up{0%{opacity:0;transform:translate3d(0,0,0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translate3d(6px,-120px,0) scale(1.1)}}
+#igs-overlay .igs-dfx-vacuum-rush i{position:absolute;left:0;width:40%;height:2px;background:linear-gradient(90deg,transparent,rgba(235,240,255,.7));opacity:0;animation:igs-dfx-vacuum-rush .9s cubic-bezier(.4,0,.8,.4) both;}
+#igs-overlay .igs-dfx-vacuum-hush{position:absolute;inset:0;background:radial-gradient(ellipse 80% 75% at 50% 48%,transparent 40%,rgba(2,4,12,.72) 100%);opacity:0;animation:igs-dfx-vacuum-hush var(--igs-dfx-life) ease both;}
+@keyframes igs-dfx-vacuum-rush{0%{opacity:0;transform:translateX(0)}20%{opacity:1}100%{opacity:0;transform:translateX(260%)}}
+@keyframes igs-dfx-vacuum-hush{0%,20%{opacity:0}45%,80%{opacity:1}100%{opacity:0}}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-dive-flash,#igs-overlay .igs-dfx.is-reduced .igs-dfx-dive-bubbles,#igs-overlay .igs-dfx.is-reduced .igs-dfx-bubble-rise,#igs-overlay .igs-dfx.is-reduced .igs-dfx-vacuum-rush{display:none;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-dive-veil{transform:none;opacity:.6;}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-vacuum-hush{opacity:.8;}
+
+/* 水下常驻：整体蓝绿（不用混合模式，直接半透明叠色）、水面透下来的光柱轻轻摆、两列气泡慢慢往上冒。 */
+#igs-overlay .igs-dfx-amb-deep{inset:0;background:linear-gradient(180deg,rgba(40,150,180,.14),rgba(12,60,100,.32));}
+#igs-overlay .igs-dfx-amb.is-night .igs-dfx-amb-deep{background:linear-gradient(180deg,rgba(14,50,90,.3),rgba(2,10,30,.55));}
+#igs-overlay .igs-dfx-amb-rays{left:-10%;right:-10%;top:-6%;height:70%;background:repeating-linear-gradient(100deg,transparent 0 40px,rgba(200,240,255,.09) 40px 70px,transparent 70px 140px);-webkit-mask-image:linear-gradient(180deg,#000,transparent);mask-image:linear-gradient(180deg,#000,transparent);transform-origin:50% 0;animation:igs-amb-rays 9s ease-in-out infinite alternate;}
+#igs-overlay .igs-dfx-amb.is-night .igs-dfx-amb-rays{opacity:.35;}
+@keyframes igs-amb-rays{from{transform:translate3d(-3%,0,0) skewX(-4deg)}to{transform:translate3d(3%,0,0) skewX(4deg)}}
+#igs-overlay .igs-dfx-amb-bubbles{inset:0;}
+#igs-overlay .igs-dfx-amb-bubbles::before,#igs-overlay .igs-dfx-amb-bubbles::after{content:"";position:absolute;top:0;height:200%;background-image:radial-gradient(circle at 30% 20%,rgba(230,250,255,.5) 0 3px,transparent 4px),radial-gradient(circle at 70% 65%,rgba(230,250,255,.4) 0 2px,transparent 3px);background-size:60px 150px;animation:igs-amb-bubbles 16s linear infinite;}
+#igs-overlay .igs-dfx-amb-bubbles::before{left:5%;width:12%;}
+#igs-overlay .igs-dfx-amb-bubbles::after{right:8%;width:9%;background-size:48px 190px;animation-duration:21s;}
+@keyframes igs-amb-bubbles{from{transform:translate3d(0,0,0)}to{transform:translate3d(0,-50%,0)}}
+/* 太空真空常驻：四周压暗，极慢漂过的尘埃光点。 */
+#igs-overlay .igs-dfx-amb-void{inset:0;background:radial-gradient(ellipse 82% 78% at 50% 46%,transparent 48%,rgba(0,0,8,.55) 100%);}
+#igs-overlay .igs-dfx-amb-dust{inset:-6%;background-image:radial-gradient(circle,rgba(255,255,255,.55) 0 1px,transparent 1.5px),radial-gradient(circle,rgba(200,220,255,.35) 0 1px,transparent 1.5px);background-size:130px 110px,190px 170px;background-position:0 0,60px 40px;animation:igs-amb-drift 40s ease-in-out infinite alternate;}
+@keyframes igs-amb-drift{from{transform:translate3d(-2%,1%,0)}to{transform:translate3d(2%,-1.5%,0)}}
+#igs-overlay[data-igs-quality="low"] .igs-dfx-amb>i,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb>i::before,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb>i::after,#igs-overlay .igs-dfx-amb.is-reduced>i,#igs-overlay .igs-dfx-amb.is-reduced>i::before,#igs-overlay .igs-dfx-amb.is-reduced>i::after{animation:none;}
 `;

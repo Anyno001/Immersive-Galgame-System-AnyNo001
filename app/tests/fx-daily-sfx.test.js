@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DAILY_SFX, DAILY_SFX_KINDS, dailySfxDuration, playDailySfx } from '../src/visual/igs-ui/fx-daily-sfx.js';
 
-const EXPECTED = ['shutter', 'bell', 'broadcast', 'firework', 'firework-pop', 'alarm', 'vibrate', 'omikuji', 'receipt', 'paper', 'sticky', 'tv-on', 'clock', 'drum', 'lantern', 'touch', 'spell', 'potion', 'owl', 'broom', 'hourglass', 'howler', 'blackout', 'knock1', 'knock2', 'knock3', 'knock4', 'knock5', 'knock6', 'murmur'];
+const EXPECTED = ['shutter', 'bell', 'broadcast', 'firework', 'firework-pop', 'alarm', 'vibrate', 'omikuji', 'receipt', 'paper', 'sticky', 'tv-on', 'clock', 'drum', 'lantern', 'touch', 'spell', 'potion', 'owl', 'broom', 'hourglass', 'howler', 'blackout', 'knock1', 'knock2', 'knock3', 'knock4', 'knock5', 'knock6', 'murmur',
+    'screech', 'rein', 'engine', 'giddyup', 'train-depart', 'arrive-chime', 'horn', 'door', 'punch', 'hiss', 'shower', 'splash', 'dryer', 'dive', 'blub', 'vacuum'];
 
 function fakeParam(log) {
     return {

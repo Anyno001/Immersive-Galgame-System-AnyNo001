@@ -1,11 +1,13 @@
 import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, resumeAudioBus, setAudioBusSpace, setAudioMasterVolume, watchPageAway } from './audio-bus.js';
 import { WEATHER_FLASH_EVENT, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime, resolveWeatherFxKind } from './weather-fx-runtime.js';
+import { resolvePlaceAmbience } from '../../scene/place-ambience.js';
 import { bgmPackOfWorldview, inferBgmMood, normalizeBgmTags, resolveBgmMood, resolveBgmSilence, resolveBgmTransition, selectBgmTrack } from './bgm-library.js';
 
 // 场景音频：BGM 用 HTMLAudio 按情绪 / 关键词选曲并交叉淡入淡出，能跨域读取的曲目接进混音总线；环境音全部 WebAudio 实时合成，不依赖音频文件。
 export const AMBIENT_KINDS = Object.freeze([
     'birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow',
     'cicadas', 'frogs', 'chimes', 'bell', 'clock', 'drip', 'train', 'tavern', 'ship', 'traffic',
+    'car', 'carriage', 'bath', 'underwater', 'space',
 ]);
 export const AMBIENT_LABELS = Object.freeze({
     birds: '鸟鸣',
@@ -28,6 +30,11 @@ export const AMBIENT_LABELS = Object.freeze({
     tavern: '酒馆',
     ship: '船只',
     traffic: '车流',
+    car: '车内',
+    carriage: '马车',
+    bath: '浴室水声',
+    underwater: '水下',
+    space: '太空真空',
 });
 // moodTag：让 AI 在情绪转折时写 [igs-fx:bgm|情绪]，按情绪池选曲；关掉后只按演出与时段推断。
 export const BGM_DEFAULTS = Object.freeze({ enabled: false, volume: 0.5, moodTag: true, tracks: Object.freeze([]) });
@@ -49,6 +56,7 @@ const BGM_TONE_SHAPES = Object.freeze({
     '': Object.freeze({ low: 20000, high: 20, gain: 1 }),
     dream: Object.freeze({ low: 1400, high: 20, gain: 0.9 }),
     flashback: Object.freeze({ low: 2600, high: 300, gain: 0.85 }),
+    underwater: Object.freeze({ low: 800, high: 20, gain: 0.85 }),
     thought: Object.freeze({ low: 5000, high: 20, gain: 0.92 }),
     letterbox: Object.freeze({ low: 20000, high: 20, gain: 0.8 }),
 });
@@ -92,17 +100,19 @@ const SHIP_WORDS = Object.freeze(['船', '甲板', '舰', '帆']);
 const TRAFFIC_WORDS = Object.freeze(['马路', '公路', '路口', '高架', '停车场', '斑马线', '公交站', '车道', '路边']);
 // thunder 只挂调度器、不常驻，不计入 MAX_LAYERS；顺序即 3 层名额的优先级。
 const LAYER_ORDER = Object.freeze([
-    'thunder', 'rain', 'wind', 'snow', 'train', 'ship', 'waves', 'stream', 'drip', 'fire', 'tavern', 'crowd', 'traffic',
+    'thunder', 'bath', 'rain', 'wind', 'snow', 'train', 'car', 'carriage', 'ship', 'waves', 'stream', 'drip', 'fire', 'tavern', 'crowd', 'traffic',
     'bell', 'cicadas', 'frogs', 'birds', 'insects', 'chimes', 'clock',
 ]);
 const LEVEL_GAIN = Object.freeze({ light: 0.55, medium: 0.8, heavy: 1 });
 const THUNDER_GAP_MS = Object.freeze({ heavy: Object.freeze([4500, 9000]), other: Object.freeze([7000, 14000]) });
 // 演出色调：环境音总线上的高低通、混响湿声与增益，1.2s 内平滑过渡；多个同时生效时取优先级最高者。
-const TONE_PRIORITY = Object.freeze(['dream', 'flashback', 'thought', 'letterbox']);
+const TONE_PRIORITY = Object.freeze(['dream', 'flashback', 'underwater', 'thought', 'letterbox']);
 const TONE_SHAPES = Object.freeze({
     '': Object.freeze({ low: 20000, high: 20, wet: 0, gain: 1 }),
     dream: Object.freeze({ low: 1200, high: 20, wet: 0.45, gain: 1 }),
     flashback: Object.freeze({ low: 3000, high: 400, wet: 0.1, gain: 0.9 }),
+    // 水下：配乐与环境音都隔着一层水，只剩低频。
+    underwater: Object.freeze({ low: 650, high: 20, wet: 0.3, gain: 0.9 }),
     thought: Object.freeze({ low: 1800, high: 20, wet: 0, gain: 0.85 }),
     letterbox: Object.freeze({ low: 20000, high: 20, wet: 0, gain: 0.5 }),
 });
@@ -257,7 +267,8 @@ export function skipBgmTrack() {
 export function resolveAmbientTone(context = {}) {
     const ctx = plainObject(context);
     const ranges = plainObject(ctx.fxRanges);
-    const active = { dream: ranges.dream, flashback: ranges.flashback, thought: ctx.textType === 'thought', letterbox: ranges.letterbox };
+    const place = resolvePlaceAmbience(ctx.location, { worldview: ctx.worldview });
+    const active = { dream: ranges.dream, flashback: ranges.flashback, underwater: Boolean(place && place.kind === 'underwater'), thought: ctx.textType === 'thought', letterbox: ranges.letterbox };
     return TONE_PRIORITY.find((tone) => active[tone] === true) || '';
 }
 
@@ -279,6 +290,11 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     const weather = resolveWeatherFxPlan({ weather: ctx.weather });
     const rain = weather && weather.kind === 'rain' ? weather.level : '';
     const snow = weather && weather.kind === 'snow' ? weather.level : '';
+    // 水底与真空里听不见雨、风、人声：只留自己这一层（关掉这一层就是全静）。
+    const place = resolvePlaceAmbience(ctx.location, { worldview: ctx.worldview });
+    if (place && (place.kind === 'underwater' || place.kind === 'space')) {
+        return settings[place.kind] ? [{ kind: place.kind, level: 'medium', muffled: false }] : [];
+    }
     const candidates = new Map();
     const add = (kind, level, muffled, variant = '') => {
         if (!candidates.has(kind)) candidates.set(kind, variant ? { kind, level, muffled, variant } : { kind, level, muffled });
@@ -290,8 +306,10 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     if (rain) add('rain', rain, indoor);
     if (weather && (weather.kind === 'wind' || weather.wind)) add('wind', weather.level, indoor);
     if (snow && !weather.wind) add('snow', snow, indoor);
-    if (includesAny(location, TRAIN_WORDS)) add('train', 'medium', false);
-    if (includesAny(location, SHIP_WORDS)) add('ship', rain === 'heavy' || weather?.wind ? 'heavy' : 'medium', false);
+    // 车里、船上、浴室与日常演出的氛围层共用 place-ambience 的词表；古代与西幻的「车里」按马车出声。
+    if (place && place.kind === 'ship') add('ship', rain === 'heavy' || weather?.wind ? 'heavy' : 'medium', false);
+    else if (place && place.kind === 'bath') add('bath', 'medium', false, place.variant);
+    else if (place) add(place.kind, night ? 'light' : 'medium', false);
     if (!indoor) {
         const nature = includesAny(location, NATURE_WORDS);
         if ((time === 'dawn' || time === 'day' || !time) && nature && rain !== 'heavy') {
@@ -1693,6 +1711,133 @@ function voiceTraffic(layer) {
     layerLater(layer, pass, rand(500, 2500));
 }
 
+// 车内：发动机低频嗡鸣随转速缓慢起伏，加一层胎噪；隔一阵压过路面接缝「咚」一下。一路噪声分两条滤波，省一个音源。
+function voiceCar(layer) {
+    const noise = makeNoise(layer);
+    const rumble = makeGain(layer, 0.22);
+    chain(noise, makeFilter(layer, 'lowpass', 140), rumble, layer.out);
+    makeLfo(layer, rand(0.06, 0.12), 0.05, rumble.gain);
+    chain(noise, makeFilter(layer, 'bandpass', 420, 0.6), makeGain(layer, layer.level === 'light' ? 0.035 : 0.05), layer.out);
+    const hum = own(layer, layer.ctx.createOscillator());
+    hum.type = 'sine';
+    hum.frequency.value = rand(44, 52);
+    chain(hum, makeGain(layer, 0.05), layer.out);
+    hum.start();
+    const bump = () => {
+        const at = layer.ctx.currentTime + 0.05;
+        noiseBurst(layer, at, 0.18, { type: 'lowpass', frequency: 160, peak: rand(0.12, 0.2), attack: 0.004 });
+        noiseBurst(layer, at + rand(0.18, 0.26), 0.14, { type: 'lowpass', frequency: 180, peak: rand(0.06, 0.1), attack: 0.004 });
+        layerLater(layer, bump, rand(6000, 15000));
+    };
+    layerLater(layer, bump, rand(2000, 6000));
+}
+
+// 马车：「嘚、嘚」成对的蹄声踩着节拍，车轮滚过土路的低沉轰轰，车身偶尔「吱呀」。
+function voiceCarriage(layer) {
+    const wheels = makeGain(layer, 0.12);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 240), wheels, layer.out);
+    makeLfo(layer, rand(0.4, 0.7), 0.04, wheels.gain);
+    const period = rand(0.52, 0.6);
+    const pan = rand(-0.25, 0.25);
+    metronome(layer, () => period * rand(0.97, 1.03), (at) => {
+        for (const offset of [0, rand(0.1, 0.13)]) {
+            noiseBurst(layer, at + offset, 0.06, { type: 'lowpass', frequency: rand(600, 800), peak: rand(0.1, 0.15), attack: 0.002, pan });
+            noiseBurst(layer, at + offset, 0.03, { type: 'bandpass', frequency: rand(1600, 2100), q: 3, peak: 0.03, attack: 0.001, pan });
+        }
+    });
+    const sway = () => {
+        creak(layer, layer.ctx.currentTime + 0.05, false);
+        layerLater(layer, sway, rand(3500, 8000));
+    };
+    layerLater(layer, sway, rand(1500, 4000));
+}
+
+// 浴室：淋浴是持续的细密水声；温泉是汩汩的泉水；浴缸只有很轻的水波声。都夹着从天花板滴下来的「叮咚」。
+function bathDrop(layer, at, freq, peak, pan) {
+    blip(layer, at, 0.14, (osc, amp) => {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, at);
+        osc.frequency.exponentialRampToValueAtTime(freq * rand(1.5, 2), at + 0.06);
+        amp.gain.setValueAtTime(FLOOR, at);
+        amp.gain.exponentialRampToValueAtTime(peak, at + 0.003);
+        amp.gain.exponentialRampToValueAtTime(FLOOR, at + 0.14);
+    }, pan);
+}
+
+function voiceBath(layer) {
+    const noise = makeNoise(layer);
+    if (layer.variant === 'shower') {
+        chain(noise, makeFilter(layer, 'bandpass', 3200, 0.5), makeGain(layer, 0.16), layer.out);
+        chain(noise, makeFilter(layer, 'lowpass', 380), makeGain(layer, 0.08), layer.out);
+    } else {
+        const onsen = layer.variant === 'onsen';
+        const water = makeGain(layer, onsen ? 0.12 : 0.05);
+        chain(noise, makeFilter(layer, 'lowpass', onsen ? 520 : 320, 0.6), water, layer.out);
+        makeLfo(layer, rand(0.12, 0.2), onsen ? 0.04 : 0.025, water.gain);
+    }
+    const [minGap, maxGap] = layer.variant === 'shower' ? [2500, 7000] : [1200, 4500];
+    const drop = () => {
+        bathDrop(layer, layer.ctx.currentTime + 0.03, rand(900, 1700), rand(0.03, 0.07), rand(-0.6, 0.6));
+        layerLater(layer, drop, rand(minGap, maxGap));
+    };
+    layerLater(layer, drop, rand(400, 1500));
+}
+
+// 水下：深处的水压低鸣慢慢起伏，一簇簇气泡往上冒，很久才有一声远处的鲸歌。
+function voiceUnderwater(layer) {
+    const deep = makeGain(layer, 0.26);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 200, 0.6), deep, layer.out);
+    makeLfo(layer, rand(0.05, 0.09), 0.08, deep.gain);
+    const bubbles = () => {
+        const count = 2 + Math.floor(Math.random() * 4);
+        const pan = rand(-0.7, 0.7);
+        let at = layer.ctx.currentTime + 0.05;
+        for (let i = 0; i < count; i++) {
+            const freq = rand(240, 520);
+            blip(layer, at, 0.08, (osc, amp) => {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, at);
+                osc.frequency.exponentialRampToValueAtTime(freq * rand(2.4, 3.2), at + 0.07);
+                amp.gain.setValueAtTime(FLOOR, at);
+                amp.gain.exponentialRampToValueAtTime(rand(0.03, 0.06), at + 0.004);
+                amp.gain.exponentialRampToValueAtTime(FLOOR, at + 0.08);
+            }, pan);
+            at += rand(0.06, 0.18);
+        }
+        layerLater(layer, bubbles, rand(1800, 6000));
+    };
+    layerLater(layer, bubbles, rand(600, 2000));
+    const whale = () => {
+        const at = layer.ctx.currentTime + 0.05;
+        const from = rand(170, 230);
+        const duration = rand(2.4, 3.6);
+        blip(layer, at, duration, (osc, amp) => {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(from, at);
+            osc.frequency.linearRampToValueAtTime(from * rand(1.25, 1.5), at + duration * 0.4);
+            osc.frequency.linearRampToValueAtTime(from * rand(0.7, 0.85), at + duration);
+            amp.gain.setValueAtTime(FLOOR, at);
+            amp.gain.exponentialRampToValueAtTime(0.035, at + duration * 0.3);
+            amp.gain.exponentialRampToValueAtTime(FLOOR, at + duration);
+        }, rand(-0.5, 0.5));
+        layerLater(layer, whale, rand(30000, 70000));
+    };
+    layerLater(layer, whale, rand(12000, 30000));
+}
+
+// 太空真空：外面什么声音都没有，只听得见自己——极轻的低鸣，和一吸一呼的呼吸。
+function voiceVacuum(layer) {
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 90), makeGain(layer, 0.06), layer.out);
+    const period = rand(4.2, 5.2);
+    const breath = () => {
+        const at = layer.ctx.currentTime + 0.05;
+        noiseBurst(layer, at, 1.3, { type: 'bandpass', frequency: rand(1100, 1300), q: 0.8, peak: 0.035, attack: 0.9 });
+        noiseBurst(layer, at + period * 0.45, 1.5, { type: 'bandpass', frequency: rand(700, 850), q: 0.8, peak: 0.03, attack: 0.5 });
+        layerLater(layer, breath, period * 1000);
+    };
+    layerLater(layer, breath, rand(800, 2000));
+}
+
 const VOICES = Object.freeze({
     rain: voiceRain,
     wind: voiceWind,
@@ -1715,6 +1860,11 @@ const VOICES = Object.freeze({
     tavern: voiceTavern,
     ship: voiceShip,
     traffic: voiceTraffic,
+    car: voiceCar,
+    carriage: voiceCarriage,
+    bath: voiceBath,
+    underwater: voiceUnderwater,
+    space: voiceVacuum,
 });
 
 function disposeLayer(state, layer) {

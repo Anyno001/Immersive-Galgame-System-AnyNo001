@@ -176,3 +176,19 @@ test('gate:typewriter:composited-reveal-falls-back-when-geometry-is-unsafe', () 
     assert.equal(startCompositedReveal(detached.text, { soft: true }, {}), null);
     assert.equal(detached.dialog.childNodes.length, 2, 'nothing mounted on fallback');
 });
+
+test('gate:typewriter:underwater-float-adds-one-composite-rise-per-line-at-its-reveal-time', () => {
+    const { text, animations } = fakeDom();
+    const layout = { width: 100, height: 45, lines: [{ top: 0 }, { top: 22.4 }], steps: [{ line: 0, right: 50, offset: 0.5 }, { line: 1, right: 25, offset: 1 }] };
+    const reveal = startCompositedReveal(text, { layout, float: true }, { duration: 400, delay: 100, easing: 'linear', fill: 'both' });
+    assert.equal(animations.length, 6, '4 reveal layers + 1 float per line');
+    const floats = animations.slice(4);
+    assert.ok(floats.every((a) => a.el.tag === 'face' && a.timing.composite === 'add' && a.frames.every((f) => /^translateY/.test(f.transform))));
+    // 第一行从 offset 0.5 起揭开 → 100 + 200；第二行 offset 1 → 100 + 400。
+    assert.deepEqual(floats.map((a) => a.timing.delay), [300, 500]);
+    animations[0].fire('finish');
+    reveal.cancel();
+    const plain = fakeDom();
+    startCompositedReveal(plain.text, { layout }, { duration: 400, easing: 'linear', fill: 'both' });
+    assert.equal(plain.animations.length, 4, 'no float without underwater');
+});

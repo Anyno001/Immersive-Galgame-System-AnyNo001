@@ -1,4 +1,5 @@
 import { worldSkinOf } from '../../scene/worldview.js';
+import { STILL_PLACE_KINDS, VEHICLE_KINDS, isHorseDrawnWorld, resolvePlaceAmbience } from '../../scene/place-ambience.js';
 
 // 日常演出运行时：reader-dom-render 每次渲染调用一次 renderDailyFx。
 // 卡片类演出挂在 #igs-fx-front（对话层之上），触碰与飘花挂在 #igs-fx-stage（立绘之上、对话层之下），
@@ -11,6 +12,7 @@ import { normalizeDailyFxSettings, planDailyFx } from './fx-daily-model.js';
 import { playDailySfx } from './fx-daily-sfx.js';
 import { resolvePetalKind, startFireworks, startLanterns, startPetals } from './fx-daily-particles.js';
 import { playSpriteSpec } from './sprite-actions.js';
+import { resolveWeatherFxTime } from './weather-fx-runtime.js';
 
 export const DAILY_FX_LIFETIME_MS = Object.freeze({
     timeskip: 2900, photo: 3600, letterBase: 1100, letterPerChar: 55, letterHold: 2800, note: 3800, bell: 4700,
@@ -27,7 +29,7 @@ function getState(root, ctx) {
     if (!state) {
         state = {
             pageKey: '', visitKey: '', visitSeen: new Set(), seen: new Set(), transients: new Set(), timers: new Set(),
-            fireworks: null, petals: null, petalKind: '', sky: null, petalLayer: null,
+            fireworks: null, petals: null, petalKind: '', sky: null, petalLayer: null, ambience: null, ambienceKey: '',
         };
         states.set(root, state);
     }
@@ -165,7 +167,7 @@ function nowClock() {
 }
 
 // 结果类日常演出的停留时长（未并入导出的 DAILY_FX_LIFETIME_MS，避免改变其既有结构）。
-const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400 });
+const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400, brake: 1500, depart: 2600, arrive: 3600, ticket: 3400, steam: 3400, shower: 2600, splash: 2400, hairdry: 2600, dive: 2400, bubble: 2200, vacuum: 3200 });
 // 敲门：每下间隔，末下之后再停留一会儿。
 const KNOCK_MS = Object.freeze({ gap: 420, tail: 1300 });
 // 吼叫信：抖动 900ms 后炸开，逐字吼出，吼完再停留。
@@ -193,6 +195,29 @@ export function spellHue(words) {
     const hit = SPELL_HUES.find(([pattern]) => pattern.test(String(words || '')));
     return hit ? hit[1] : magicHue(words);
 }
+// 急刹：立绘往前一冲（放大即贴近镜头），背景往反方向一顿；起步：立绘往后一仰。都是 add 叠加，结束自动还原。
+const BRAKE_SPEC = Object.freeze({ duration: 560, easing: 'cubic-bezier(.2,.8,.3,1)', frames: ['translate(0,0) scale(1)', 'translate(0,1.2%) scale(1.045)', 'translate(0,.3%) scale(1.01)', 'translate(0,0) scale(1)'] });
+const BRAKE_BG_SPEC = Object.freeze({ duration: 480, easing: 'ease-out', frames: ['translate(0,0)', 'translate(-1%,0)', 'translate(.3%,0)', 'translate(0,0)'] });
+const DEPART_SPEC = Object.freeze({ duration: 900, easing: 'ease-in-out', frames: ['translate(0,0) scale(1)', 'translate(0,.6%) scale(.98)', 'translate(0,0) scale(1)'] });
+// 刹车、起步、到站的声音与字样跟着所在的载具换；地点认不出时按世界观猜（古代、西幻是马车，其余是汽车）。
+const VEHICLE_SOUNDS = Object.freeze({
+    brake: Object.freeze({ train: 'screech', car: 'screech', carriage: 'rein', ship: 'door' }),
+    depart: Object.freeze({ train: 'train-depart', car: 'engine', carriage: 'giddyup', ship: 'horn' }),
+    arrive: Object.freeze({ train: 'arrive-chime', car: 'door', carriage: 'rein', ship: 'horn' }),
+});
+const DEPART_WORDS = Object.freeze({ train: '开往', car: '前往', carriage: '启程', ship: '驶向' });
+const ARRIVE_WORDS = Object.freeze({ train: '到站', car: '到了', carriage: '到了', ship: '靠岸' });
+
+function vehicleOf(env) {
+    if (env.place && VEHICLE_KINDS.includes(env.place.kind)) return env.place.kind;
+    return env.ancient || isHorseDrawnWorld(env.worldview) ? 'carriage' : 'car';
+}
+
+function ticketLabel(item, vehicle) {
+    if (/航班|登机|机场|飞机|航站/.test(`${item.from}${item.to}${item.note}`)) return '登机牌';
+    return vehicle === 'ship' ? '船票' : '车票';
+}
+
 const HOURGLASS_HTML = '<div class="igs-dfx-hourglass"><i class="igs-dfx-hg-cap"></i><div class="igs-dfx-hg-glass"><i class="igs-dfx-hg-sand is-top"></i><i class="igs-dfx-hg-stream"></i><i class="igs-dfx-hg-sand is-bottom"></i></div><i class="igs-dfx-hg-cap"></i></div>';
 const OWL_SVG = '<svg class="igs-dfx-owl-bird" viewBox="0 0 64 48" aria-hidden="true"><path class="igs-dfx-owl-wing is-left" d="M28 22C18 8 6 9 0 17c10 1 17 7 26 13Z"/><path class="igs-dfx-owl-wing is-right" d="M36 22C46 8 58 9 64 17c-10 1-17 7-26 13Z"/><path d="M24 20l2-8 4 5h4l4-5 2 8c2 10-2 20-8 22-6-2-10-12-8-22Z"/><circle cx="29" cy="21" r="2.2" fill="#ffd46a"/><circle cx="35" cy="21" r="2.2" fill="#ffd46a"/></svg>';
 const BROOM_SVG = '<svg class="igs-dfx-broom-stick" viewBox="0 0 120 30" aria-hidden="true"><path d="M4 13 82 15" stroke="#6b4423" stroke-width="3.5" stroke-linecap="round"/><path d="M80 10 118 2l-4 13 4 13-38-8Z" fill="#c9a25a"/><path d="M80 9v12" stroke="#4a2e14" stroke-width="3"/></svg>';
@@ -471,7 +496,132 @@ const BUILDERS = {
         return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.murmur * env.hold), sounds: ['murmur'], node };
     },
 
+    // 载具：急刹 / 起步只动立绘与背景，再配一层速度线；到站牌与车票是卡片。
+    brake(item, env) {
+        const vehicle = vehicleOf(env);
+        if (!env.reduced) {
+            playSpriteSpec(env.root.querySelector('#igs-sprite'), BRAKE_SPEC);
+            playSpriteSpec(env.root.querySelector('#igs-cast'), BRAKE_SPEC);
+            playSpriteSpec(env.root.querySelector('#igs-bg'), BRAKE_BG_SPEC);
+        }
+        const lines = [22, 36, 48, 63, 76].map((y, i) => `<i style="top:${y}%;animation-delay:${i * 40}ms"></i>`).join('');
+        const word = vehicle === 'carriage' ? '吁——' : vehicle === 'ship' ? '晃——' : '吱——';
+        const node = make(env.doc, 'igs-dfx igs-dfx-brake', `<div class="igs-dfx-brake-lines">${lines}</div><div class="igs-dfx-brake-word">${word}</div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.brake * env.hold), sounds: [VEHICLE_SOUNDS.brake[vehicle]], node };
+    },
+    depart(item, env) {
+        const vehicle = vehicleOf(env);
+        if (!env.reduced) playSpriteSpec(env.root.querySelector('#igs-sprite'), DEPART_SPEC);
+        const flow = [20, 33, 47, 61, 74].map((y, i) => `<i style="top:${y}%;animation-delay:${200 + i * 120}ms"></i>`).join('');
+        const chip = item.to ? `<div class="igs-dfx-depart-chip"><span>${DEPART_WORDS[vehicle]}</span><b>${esc(item.to)}</b></div>` : '';
+        const node = make(env.doc, `igs-dfx igs-dfx-depart is-${vehicle}`, `<div class="igs-dfx-depart-flow">${flow}</div>${chip}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.depart * env.hold), sounds: [VEHICLE_SOUNDS.depart[vehicle]], node };
+    },
+    arrive(item, env) {
+        const vehicle = vehicleOf(env);
+        const word = ARRIVE_WORDS[vehicle];
+        const sub = item.station ? `<div class="igs-dfx-arrive-sub">${word}</div>` : '';
+        const node = make(env.doc, `igs-dfx igs-dfx-arrive is-${vehicle}`, `<div class="igs-dfx-arrive-board"><div class="igs-dfx-arrive-name">${esc(item.station || word)}</div><i class="igs-dfx-arrive-bar"></i>${sub}</div>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.arrive * env.hold), sounds: [VEHICLE_SOUNDS.arrive[vehicle]], node };
+    },
+    ticket(item, env) {
+        const label = ticketLabel(item, vehicleOf(env));
+        const from = item.from ? `<b>${esc(item.from)}</b><i>→</i>` : '<i>→</i>';
+        const note = item.note ? `<div class="igs-dfx-ticket-note">${esc(item.note)}</div>` : '';
+        const kind = label === '登机牌' ? ' is-plane' : label === '船票' ? ' is-ship' : '';
+        const node = make(env.doc, `igs-dfx igs-dfx-ticket${kind}`, `<div class="igs-dfx-ticket-card"><div class="igs-dfx-ticket-head">${label}</div><div class="igs-dfx-ticket-route">${from}<b>${esc(item.to)}</b></div>${note}<i class="igs-dfx-ticket-punch"></i></div>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.ticket * env.hold), sounds: ['punch'], node };
+    },
+    // 洗浴：一团水汽涌过来挡住视线；拧开淋浴的水帘；泼水的水花与溅在镜头上的水珠；吹风机的风。
+    steam(item, env) {
+        const puffs = [[-8, 20, 0], [38, 6, 160], [10, 40, 300], [46, 34, 420]]
+            .map(([x, y, d]) => `<i style="left:${x}%;top:${y}%;animation-delay:${d}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-steam', `<div class="igs-dfx-steam-cloud">${puffs}</div>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.steam * env.hold), sounds: ['hiss'], node };
+    },
+    shower(item, env) {
+        const drops = Array.from({ length: 16 }, (_, i) => `<i style="left:${4 + ((i * 29) % 92)}%;animation-delay:${-((i * 113) % 550)}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-shower', `<div class="igs-dfx-shower-rain">${drops}</div><i class="igs-dfx-shower-mist"></i>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.shower * env.hold), sounds: ['shower'], node };
+    },
+    splash(item, env) {
+        const drops = Array.from({ length: 12 }, (_, i) => {
+            const angle = -75 + i * 13.6 + (i % 2) * 5;
+            return `<i style="--igs-sp-a:${angle.toFixed(1)}deg;--igs-sp-d:${70 + (i % 4) * 26}px;animation-delay:${(i % 3) * 30}ms"></i>`;
+        }).join('');
+        const lens = [[16, 22, 22], [72, 16, 30], [60, 54, 18], [28, 62, 26], [86, 44, 16]]
+            .map(([x, y, size], i) => `<i style="left:${x}%;top:${y}%;--igs-sp-s:${size}px;animation-delay:${80 + i * 50}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-splash', `<div class="igs-dfx-splash-burst">${drops}</div><div class="igs-dfx-splash-lens">${lens}</div>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.splash * env.hold), sounds: ['splash'], node };
+    },
+    hairdry(item, env) {
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const gusts = [0, 26, 52, 78].map((y, i) => `<i style="top:${y}%;animation-delay:${i * 190}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-hairdry', `<div class="igs-dfx-hairdry-wind" style="left:${x}%">${gusts}</div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.hairdry * env.hold), sounds: ['dryer'], node };
+    },
+    // 水下与真空：入水时水面一闪、蓝色从上往下漫过、气泡往上涌；说话吐出一串气泡；泄压时空气往一侧冲走，四周暗下来。
+    dive(item, env) {
+        const bubbles = [14, 27, 41, 55, 68, 82, 34, 74]
+            .map((x, i) => `<i style="left:${x}%;--igs-bb-s:${8 + ((i * 5) % 12)}px;animation-delay:${350 + ((i * 97) % 500)}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-dive', `<i class="igs-dfx-dive-flash"></i><i class="igs-dfx-dive-veil"></i><div class="igs-dfx-dive-bubbles">${bubbles}</div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.dive * env.hold), sounds: ['dive'], node };
+    },
+    bubble(item, env) {
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const beads = [-4, 6, -8, 3, -2]
+            .map((dx, i) => `<i style="--igs-bb-s:${6 + (i % 3) * 3}px;margin-left:${dx}px;animation-delay:${i * 170}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-bubble', `<div class="igs-dfx-bubble-rise" style="left:${x}%">${beads}</div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.bubble * env.hold), sounds: ['blub'], node };
+    },
+    vacuum(item, env) {
+        const rush = [18, 30, 42, 54, 66, 78].map((y, i) => `<i style="top:${y}%;animation-delay:${(i % 3) * 60}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-vacuum', `<div class="igs-dfx-vacuum-rush">${rush}</div><i class="igs-dfx-vacuum-hush"></i>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.vacuum * env.hold), sounds: ['vacuum'], node };
+    },
 };
+
+// 常驻氛围层：人在车里、船上、浴室时一直挂着，换地点淡出。每种只有一两个动画元素，样式见 fx-daily-style。
+const AMBIENCE_HTML = Object.freeze({
+    train: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i>',
+    car: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i>',
+    carriage: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i>',
+    ship: '<i class="igs-dfx-amb-water"></i>',
+    bath: '<i class="igs-dfx-amb-fog"></i><i class="igs-dfx-amb-steam"></i>',
+    underwater: '<i class="igs-dfx-amb-deep"></i><i class="igs-dfx-amb-rays"></i><i class="igs-dfx-amb-bubbles"></i>',
+    space: '<i class="igs-dfx-amb-void"></i><i class="igs-dfx-amb-dust"></i>',
+});
+const AMBIENCE_FADE_MS = 900;
+
+// 聊天页、卡片页不挂；NSFW 页只留浴室水汽、水下与太空这类环境本身（车里的光带会扫过 CG）。
+function resolveAmbience(settings, content, place) {
+    if (!settings.ambience || !place || pageKindOf(content) !== 'text') return null;
+    if (content.sceneNsfw === true && !STILL_PLACE_KINDS.includes(place.kind)) return null;
+    const time = resolveWeatherFxTime(content.sceneTime);
+    return { ...place, night: time === 'night' || time === 'midnight' || time === 'dusk' };
+}
+
+function syncAmbience(state, env, spec) {
+    const key = spec ? `${spec.kind}:${spec.variant}:${spec.night ? 1 : 0}` : '';
+    if (key === state.ambienceKey && (!spec || (state.ambience && state.ambience.parentNode))) return;
+    const old = state.ambience;
+    if (old) {
+        if (old.classList) old.classList.add('is-leaving');
+        state.transients.add(old);
+        later(state, () => {
+            removeNode(old);
+            state.transients.delete(old);
+        }, AMBIENCE_FADE_MS);
+    }
+    state.ambience = null;
+    state.ambienceKey = key;
+    if (!spec) return;
+    const classes = ['igs-dfx-amb', `is-${spec.kind}`, spec.variant && `is-${spec.variant}`, spec.night && 'is-night', env.reduced && 'is-reduced'].filter(Boolean).join(' ');
+    const node = make(env.doc, classes, AMBIENCE_HTML[spec.kind]);
+    const stage = env.layers.stage;
+    stage.insertBefore(node, stage.firstChild || null);
+    state.ambience = node;
+}
 
 function ensureSky(state, root, doc) {
     if (state.sky && state.sky.parentNode) return state.sky;
@@ -562,6 +712,7 @@ export function cancelDailyFx(root) {
     }
     removeNode(state.sky);
     removeNode(state.petalLayer);
+    removeNode(state.ambience);
     states.delete(root);
     return true;
 }
@@ -603,6 +754,7 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
         worldview: String(readerSettings._worldview || ''),
         onPhoto: settings.photoAlbum ? ctx.onPhoto : null,
     };
+    env.place = resolvePlaceAmbience(content.sceneLocation, { worldview: env.ancient ? 'ancient' : env.worldview });
     // 西幻 / 科幻 / 末日：在现代节点上追加 is-<id> 换皮，结构、时长与音效不变；古代沿用自身分支。
     const worldSkin = !env.ancient && worldSkinOf(env.worldview) ? `is-${env.worldview}` : '';
     const played = [];
@@ -630,5 +782,7 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
         ? resolvePetalKind({ location: content.sceneLocation, time: content.sceneTime, weather: content.sceneWeather })
         : '';
     syncPetals(state, env, petalKind);
-    return { played, petals: petalKind };
+    const ambience = resolveAmbience(settings, content, env.place);
+    syncAmbience(state, env, ambience);
+    return { played, petals: petalKind, ambience: ambience ? ambience.kind : '' };
 }

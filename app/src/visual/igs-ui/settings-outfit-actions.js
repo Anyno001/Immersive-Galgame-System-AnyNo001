@@ -6,6 +6,7 @@ import { migrateSpriteKeys } from './sprite-key-migration.js';
 import { draftAssetLibrary, draftEffectiveAssets, rememberAssetScope } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { createSettingsDialogs } from './settings-dialog.js';
+import { beginSettingsProgress, remountSettingsNotice, SETTINGS_NOTICE_MS } from './settings-notice.js';
 
 const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
@@ -61,6 +62,24 @@ function warn(source, message) {
         return;
     }
     if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
+}
+
+function settingsHost(globalObj) {
+    const doc = globalObj && globalObj.document;
+    return doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-unified-settings') : null;
+}
+
+// 衣柜写词、出参考图要等一阵：确认后挂进度条，结束收起；成功给一条提示，失败仍走 warn 弹窗。
+function wardrobeProgress(globalObj, text) {
+    return beginSettingsProgress(() => settingsHost(globalObj), text);
+}
+
+function wardrobeDone(globalObj, message) {
+    const el = remountSettingsNotice(settingsHost(globalObj), { message, tone: 'info', until: Date.now() + SETTINGS_NOTICE_MS }, Date.now());
+    if (!el || typeof globalObj.setTimeout !== 'function') return;
+    globalObj.setTimeout(() => {
+        if (el.textContent === message && el.parentNode) el.parentNode.removeChild(el);
+    }, SETTINGS_NOTICE_MS);
 }
 
 function validateSlotName(ctx, name) {
@@ -181,9 +200,11 @@ async function handleWardrobe(command, segs, ctx) {
                 warn(ctx, '当前无法编写服装提示词。');
                 return rerenderSettings();
             }
+            const progress = wardrobeProgress(globalObj, `写提示词：${name}`);
             let written;
             try { written = await service.writeWardrobePrompt(subject); }
             catch (error) { written = { ok: false, error: '服装提示词编写失败' }; }
+            progress.end();
             if (!written || !written.ok || !String(written.prompt || '').trim()) {
                 warn(ctx, (written && written.error) || '服装提示词编写失败。');
                 return rerenderSettings();
@@ -191,7 +212,9 @@ async function handleWardrobe(command, segs, ctx) {
             wardrobe[name] = { ...wardrobe[name], prompt: String(written.prompt).trim() };
             const persistedDirect = persistSettingsDraft();
             if (persistedDirect.ok === false) return persistedDirect;
-            return rerenderSettings();
+            const renderedDirect = await rerenderSettings();
+            wardrobeDone(globalObj, `「${name}」的提示词写好了。`);
+            return renderedDirect;
         }
         if (!character || !word) return rerenderSettings();
         if (!isValidOutfitName(word)) { warn(ctx, `「${word}」不能存进衣柜`); return rerenderSettings(); }
@@ -207,9 +230,11 @@ async function handleWardrobe(command, segs, ctx) {
             warn(ctx, '当前无法编写服装提示词。');
             return rerenderSettings();
         }
+        const progress = wardrobeProgress(globalObj, `写提示词：${word}`);
         let written;
         try { written = await service.writeWardrobePrompt({ character, outfit: word }); }
         catch (error) { written = { ok: false, error: '服装提示词编写失败' }; }
+        progress.end();
         if (!written || !written.ok || !String(written.prompt || '').trim()) {
             warn(ctx, (written && written.error) || '服装提示词编写失败。');
             return rerenderSettings();
@@ -230,9 +255,11 @@ async function handleWardrobe(command, segs, ctx) {
             warn(ctx, '当前无法生成参考图。');
             return rerenderSettings();
         }
+        const progress = wardrobeProgress(globalObj, `生图中：${name}·参考图`);
         let painted;
         try { painted = await service.paintWardrobeReference({ prompt, nsfwBoost: wardrobe[name].nsfwBoost === true }); }
         catch (error) { painted = { ok: false, error: '出参考图失败' }; }
+        progress.end();
         if (!painted || !painted.ok || !painted.imageId) {
             warn(ctx, (painted && painted.error) || '出参考图失败。');
             return rerenderSettings();
@@ -260,7 +287,9 @@ async function handleWardrobe(command, segs, ctx) {
                 if (deleted === false || (deleted && deleted.ok === false)) warn(ctx, '旧参考图未能从本机清除。');
             } catch (error) { warn(ctx, '旧参考图未能从本机清除。'); }
         }
-        return rerenderSettings();
+        const renderedRef = await rerenderSettings();
+        wardrobeDone(globalObj, `「${name}」的参考图画好了。`);
+        return renderedRef;
     } else if (command === 'wardrobe-remove') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         delete wardrobe[name];

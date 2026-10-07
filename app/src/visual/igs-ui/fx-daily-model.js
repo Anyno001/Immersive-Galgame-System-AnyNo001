@@ -8,13 +8,17 @@ export const DAILY_FX_LABELS = Object.freeze({
     guqin: '抚琴', go: '对弈', poem: '题诗', edict: '圣旨 / 告示', tea: '敬茶', bow: '行礼',
     spell: '施咒', potion: '熬魔药', owl: '猫头鹰送信', broom: '骑扫帚', howler: '吼叫信',
     blackout: '停电', knock: '敲门', murmur: '耳边低语',
+    brake: '急刹车', depart: '发车出发', arrive: '到站', ticket: '车票',
+    steam: '一团水汽', shower: '淋浴', splash: '泼水', hairdry: '吹头发',
+    dive: '潜入水中', bubble: '吐气泡', vacuum: '真空泄压',
 });
 // 后加的日常类型需显式勾选：旧存档里日常演出已开启的用户不会突然收到新语法。
-const DAILY_FX_OPT_IN = new Set(['rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur']);
+const DAILY_FX_OPT_IN = new Set(['rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur', 'brake', 'depart', 'arrive', 'ticket', 'steam', 'shower', 'splash', 'hairdry', 'dive', 'bubble', 'vacuum']);
 
 export function normalizeDailyFxSettings(value) {
     const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    const out = { enabled: src.enabled === true, petals: src.petals !== false, photoAlbum: src.photoAlbum !== false };
+    // ambience：车窗光影、浴室水汽这类按地点常驻的氛围层，不写提示词，默认跟着日常演出一起开。
+    const out = { enabled: src.enabled === true, petals: src.petals !== false, photoAlbum: src.photoAlbum !== false, ambience: src.ambience !== false };
     for (const kind of DAILY_FX_KINDS) out[kind] = DAILY_FX_OPT_IN.has(kind) ? src[kind] === true : src[kind] !== false;
     return out;
 }

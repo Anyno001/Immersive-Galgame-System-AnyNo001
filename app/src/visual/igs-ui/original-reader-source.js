@@ -116,7 +116,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-sprite{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:40%;height:85%;background-size:100%;background-repeat:no-repeat;background-position:50% 100%;pointer-events:none;z-index:2;display:none;}
 #igs-overlay.igs-mode-embedded #igs-sprite.igs-sprite-narration{filter:brightness(.86) saturate(.86) var(--igs-grade-sprite,) var(--igs-sprite-enhance,)!important;-webkit-filter:brightness(.86) saturate(.86) var(--igs-grade-sprite,) var(--igs-sprite-enhance,)!important;}
 
-#igs-sprite.igs-sprite-editing{pointer-events:all;cursor:grab;outline:2px dashed rgba(255,255,255,.5);outline-offset:-2px;}
+#igs-sprite.igs-sprite-editing{pointer-events:all;cursor:grab;touch-action:none;overscroll-behavior:contain;outline:2px dashed rgba(255,255,255,.5);outline-offset:-2px;}
 #igs-sprite.igs-sprite-editing.is-dragging{cursor:grabbing;}
 #igs-dialog-layer,#igs-toolbar-layer,#igs-option-layer,#igs-db-layer{position:absolute;inset:0;pointer-events:none;}
 #igs-dialog-layer{z-index:4;}
@@ -229,10 +229,10 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-bar-btns{display:none;gap:6px;align-items:center;}
 #igs-bar-pinned{display:flex;gap:6px;align-items:center;}
 .igs-progress{display:none;font-size:11px;color:rgba(255,255,255,.55);margin-bottom:0;letter-spacing:1px;}
-.igs-speaker{font-size:14px;font-weight:600;letter-spacing:1px;margin-top:0;margin-bottom:4px;display:none;text-shadow:none;}
+.igs-speaker{caret-color:transparent;font-size:14px;font-weight:600;letter-spacing:1px;margin-top:0;margin-bottom:4px;display:none;text-shadow:none;}
 .igs-divider{font-size:11px;letter-spacing:4px;text-align:center;margin-bottom:4px;opacity:.6;display:none;}
 .igs-thought{font-style:italic;opacity:.72;font-size:.98em;}
-.igs-text{font-size:18px;line-height:1.7;letter-spacing:.5px;min-height:60px;color:#d8d5cf;text-shadow:none;margin-bottom:14px;margin-top:0;white-space:pre-wrap;word-break:break-word;}
+.igs-text{caret-color:transparent;font-size:18px;line-height:1.7;letter-spacing:.5px;min-height:60px;color:#d8d5cf;text-shadow:none;margin-bottom:14px;margin-top:0;white-space:pre-wrap;word-break:break-word;}
 .igs-controls{display:flex;align-items:center;gap:8px;border-top:1px solid rgba(255,255,255,.08);padding-top:12px;}
 #igs-overlay.igs-floating .igs-progress{flex-shrink:0;}
 #igs-overlay.igs-floating .igs-text{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;}

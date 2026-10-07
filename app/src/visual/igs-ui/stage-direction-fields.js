@@ -126,6 +126,7 @@ function dailyKindsFor(worldview) {
 function renderDailyField(daily, more, worldview) {
     return featureRow(more, 'daily-kinds', `${P}.dailyFx.enabled`, daily.enabled, '日常演出', '做饭、拍照等小场面', grid(dailyKindsFor(worldview).map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')
         + checkbox(`${P}.dailyFx.petals`, daily.petals, '樱花、落叶飘落')
+        + checkbox(`${P}.dailyFx.ambience`, daily.ambience, '车窗光影、浴室水汽')
         + checkbox(`${P}.dailyFx.photoAlbum`, daily.photoAlbum, '拍照存入CG库')));
 }
 

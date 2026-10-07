@@ -1325,25 +1325,40 @@ export async function handleSettingsAction(action, ctx) {
             return generationFailure(globalObj, dialogs, '立绘生成当前不可用。', 'sprite-generate-unavailable');
         }
         const savedSpriteNotes = sceneAssets.characterSpriteNotes && typeof sceneAssets.characterSpriteNotes === 'object' ? sceneAssets.characterSpriteNotes : {};
-        const spriteNote = await askSpriteNote(dialogs, name, savedSpriteNotes[name]);
-        if (spriteNote === null) return rerenderSettings();
         const current = String((character && character['默认']) || '').trim();
-        const progress = startExpressionProgress(globalObj, `${name}·默认立绘`);
-        progress.onProgress({ phase: 'write' });
-        const confirmed = await dialogs.confirm(current
-            ? `重新生成「${name}」的默认立绘，当前这张将被替换。`
-            : `生成「${name}」的默认立绘：将先编写提示词，再生成一张图。`);
-        if (!confirmed) {
-            progress.end();
-            return rerenderSettings();
+        // 格子里已有生成图时「重新生成」不写词：读这张图存下的提示词，换种子重画；读不到才走写词。
+        let redrawCaption = null;
+        const currentId = generatedAssetIdOf(current);
+        if (currentId && typeof service.getImagePrompt === 'function') {
+            try {
+                const saved = await service.getImagePrompt(currentId);
+                if (saved && saved.caption) redrawCaption = saved.caption;
+                else if (saved && (saved.positive || saved.negative)) {
+                    const parsed = parseEditablePrompt([
+                        saved.positive ? `scene: ${saved.positive}` : '',
+                        saved.negative ? `scene_uc: ${saved.negative}` : '',
+                    ].filter(Boolean).join('\n'));
+                    redrawCaption = (parsed && parsed.caption) || null;
+                }
+            } catch (error) { redrawCaption = null; }
         }
+        let spriteNote = savedSpriteNotes[name] || '';
+        if (!redrawCaption) {
+            spriteNote = await askSpriteNote(dialogs, name, savedSpriteNotes[name]);
+            if (spriteNote === null) return rerenderSettings();
+            const confirmed = await dialogs.confirm(current
+                ? `重新生成「${name}」的默认立绘，当前这张将被替换。`
+                : `生成「${name}」的默认立绘：将先编写提示词，再生成一张图。`);
+            if (!confirmed) return rerenderSettings();
+        }
+        const progress = startExpressionProgress(globalObj, `${name}·默认立绘`);
         let result;
         const failed = (error) => {
             progress.end();
             return generationFailure(globalObj, dialogs, `「${name}」的默认立绘未能生成：${errorText(error, '未返回原因')}${current ? '\n原有图片保持不变。' : ''}`, 'sprite-generate-failed');
         };
         try {
-            result = await service.generateCharacterSprite({ name, dna, note: spriteNote, onProgress: progress.onProgress });
+            result = await service.generateCharacterSprite({ name, dna, note: spriteNote, caption: redrawCaption, onProgress: progress.onProgress });
         } catch (error) {
             return failed(error);
         }

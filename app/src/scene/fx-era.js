@@ -7,7 +7,8 @@ import { buildHorrorPromptRule } from './horror.js';
 export const FX_ERA_MODERN_ONLY = Object.freeze({
     // notify 在古代模式下换成「家仆通报」（提示词与画面都按时代切换），不在此列。
     fxTags: Object.freeze(['call', 'voicemail', 'contact', 'movie']),
-    dailyFx: Object.freeze(['photo', 'bell', 'broadcast', 'alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
+    // 车票、淋浴、吹风机都是近代以后的东西；古代与西幻坐车按马车演，洗浴只留水汽与泼水。
+    dailyFx: Object.freeze(['photo', 'bell', 'broadcast', 'alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'shower', 'hairdry']),
 });
 // 整块现代专属的功能（enabled 拨成关）。线上聊天在古代模式下换成「书信往来」，不在此列。
 export const FX_ERA_MODERN_FEATURES = Object.freeze(['liveFx']);
@@ -78,19 +79,19 @@ export const FX_WORLDVIEW_OFF = Object.freeze({
     // 末日：通讯（对讲机、广播）仍在，末日前才有的日常服务与直播拨掉。
     apocalypse: Object.freeze({
         fxTags: Object.freeze(['movie']),
-        dailyFx: Object.freeze(['receipt', 'tv', 'gacha', 'game', 'score']),
+        dailyFx: Object.freeze(['receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'hairdry']),
         features: Object.freeze(['liveFx']),
     }),
     // 大正：有座机、电报、照相与活动写真，没有手机社交、电视、扭蛋与电子游戏。
     taisho: Object.freeze({
         fxTags: Object.freeze(['voicemail', 'contact']),
-        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
+        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry']),
         features: Object.freeze(['liveFx']),
     }),
     // 魔法世界没有麻瓜电子设备，传讯靠猫头鹰与魔法；照片会动、城堡有钟声、魔法扩音可作广播，这三项保留。
     magic: Object.freeze({
         fxTags: FX_ERA_MODERN_ONLY.fxTags,
-        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score']),
+        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry']),
         features: FX_ERA_MODERN_FEATURES,
     }),
     // 恐怖：现代日常照常（手机、直播都可以是恐惧来源），只拨掉与氛围相冲的轻快演出。

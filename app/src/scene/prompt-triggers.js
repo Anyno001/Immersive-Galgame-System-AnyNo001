@@ -46,6 +46,17 @@ export const DAILY_TRIGGER_WORDS = Object.freeze({
     blackout: ['停电', '断电'],
     knock: ['敲门', '敲窗', '叩门'],
     murmur: ['低语', '耳语', '耳边'],
+    brake: ['急刹车', '急刹', '踩刹车', '猛地停住'],
+    depart: ['发车', '起步', '启程', '开动了'],
+    arrive: ['到站', '靠岸', '下一站', '终点站'],
+    ticket: ['车票', '船票', '机票', '登机牌'],
+    steam: ['水汽', '蒸汽', '雾气氤氲'],
+    shower: ['淋浴', '花洒', '冲澡'],
+    splash: ['泼水', '打水仗', '水花'],
+    hairdry: ['吹头发', '吹风机'],
+    dive: ['潜入水', '跳进水', '潜水', '入水'],
+    bubble: ['气泡', '吐泡泡'],
+    vacuum: ['真空', '气闸', '泄压'],
 });
 
 const BLOCK_TRIGGERS = Object.freeze({

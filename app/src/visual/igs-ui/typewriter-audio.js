@@ -2,6 +2,7 @@ import { busInput, resumeAudioBus } from './audio-bus.js';
 import { createSynthPartial as p } from './chat-sfx.js';
 import { emotionPitch, emotionProfile } from './speech-prosody.js';
 import { connectHorrorChain, shapeHorrorNotes } from './typewriter-horror.js';
+import { connectUnderwaterChain, scheduleBubbleBlips, shapeUnderwaterNotes } from './typewriter-underwater.js';
 
 export { emotionPitch };
 
@@ -161,7 +162,7 @@ function getNoiseBuffer(context) {
     return noiseBuffer;
 }
 
-export function scheduleTypewriterAudio(events, { textType, volume, audioScheduler, phone = false, preset, pitch = 1, pan = 0, prosody = false, emotion, horror = null } = {}) {
+export function scheduleTypewriterAudio(events, { textType, volume, audioScheduler, phone = false, preset, pitch = 1, pan = 0, prosody = false, emotion, horror = null, underwater = false } = {}) {
     const voiceId = normalizeTypewriterVoice(preset, textType === 'narration' ? 'keyboard' : textType ? 'dududu' : '');
     const voice = TYPEWRITER_VOICES[voiceId];
     if (!voice || !(volume > 0)) return null;
@@ -188,13 +189,20 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
     }
     // 恐怖题材特化（typewriter-horror.js）：只在传入档位时改写音符，基础音色不受影响。
     if (horror != null) notes.splice(0, notes.length, ...shapeHorrorNotes(notes, horror));
+    // 水下（typewriter-underwater.js）：降调、变闷，另排一串气泡声。
+    let bubbles = [];
+    if (underwater) {
+        const shaped = shapeUnderwaterNotes(notes);
+        notes.splice(0, notes.length, ...shaped.notes);
+        bubbles = shaped.bubbles;
+    }
     if (!notes.length) return null;
     const attackScale = mood?.hardAttack ? 0.5 : 1;
     if (typeof audioScheduler === 'function') {
         // timesMs 保留给现有调用方；notes 为新增的逐音符语调。
         const timesMs = notes.map((note) => note.timeMs);
         const detail = notes.map(({ timeMs, pitch: notePitch, gain, hold }) => ({ timeMs, pitch: notePitch, gain, hold }));
-        try { return audioScheduler({ textType, volume, timesMs, notes: detail, url, phone, preset: voiceId, pitch, pan: phone ? 0 : pan, horror }) || null; } catch { return null; }
+        try { return audioScheduler({ textType, volume, timesMs, notes: detail, url, phone, preset: voiceId, pitch, pan: phone ? 0 : pan, horror, ...(underwater ? { underwater, bubbles } : {}) }) || null; } catch { return null; }
     }
     if (voice.sample && !url.startsWith('data:audio/ogg;base64,')) return null;
     const bus = busInput('voice');
@@ -243,7 +251,9 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
                 nodes.push(band);
                 output = band;
             }
+            const dry = output;
             if (horror != null) output = connectHorrorChain(context, output, nodes, horror);
+            if (underwater) output = connectUnderwaterChain(context, output, nodes);
             const track = (source, ...chain) => {
                 sources.push(source);
                 nodes.push(source, ...chain);
@@ -253,6 +263,7 @@ export function scheduleTypewriterAudio(events, { textType, volume, audioSchedul
                     }
                 };
             };
+            if (bubbles.length) scheduleBubbleBlips(context, dry, bubbles, startedAt, Math.min(1, SYNTH_GAIN * volume * 0.6), track);
             for (const note of notes) {
                 const when = startedAt + note.timeMs / 1000;
                 if (when <= context.currentTime) continue;

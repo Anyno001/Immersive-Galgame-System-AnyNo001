@@ -112,10 +112,12 @@ test('gate: scene audio exports ambient kinds with Chinese labels', () => {
     assert.deepEqual(AMBIENT_KINDS, [
         'birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow',
         'cicadas', 'frogs', 'chimes', 'bell', 'clock', 'drip', 'train', 'tavern', 'ship', 'traffic',
+        'car', 'carriage', 'bath', 'underwater', 'space',
     ]);
     assert.deepEqual(AMBIENT_KINDS.map((kind) => AMBIENT_LABELS[kind]), [
         '鸟鸣', '雨声', '风声', '虫鸣', '海浪', '人声', '雷声', '溪流', '篝火', '雪夜',
         '蝉鸣', '蛙鸣', '风铃', '钟声', '钟表', '滴水', '列车', '酒馆', '船只', '车流',
+        '车内', '马车', '浴室水声', '水下', '太空真空',
     ]);
 });
 
@@ -155,6 +157,7 @@ test('gate: ambient settings default on per kind and honor explicit false', () =
         enabled: false, volume: 0.4, birds: true, rain: true, wind: true, insects: true, waves: true, crowd: true,
         thunder: true, stream: true, fire: true, snow: true,
         cicadas: true, frogs: true, chimes: true, bell: true, clock: true, drip: true, train: true, tavern: true, ship: true, traffic: true,
+        car: true, carriage: true, bath: true, underwater: true, space: true,
     });
     // 旧存档没有新增音色字段，按默认开启处理。
     const legacy = normalizeAmbientSoundSettings({ enabled: true, birds: true, rain: false });

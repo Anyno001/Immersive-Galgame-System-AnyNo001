@@ -67,7 +67,8 @@ const SETTINGS_BUSY_LABELS = Object.freeze({
 export function settingsBusyLabel(action) {
     const name = String(action || '');
     if (SETTINGS_BUSY_LABELS[name]) return SETTINGS_BUSY_LABELS[name];
-    if (/^(?:char-generate-sprite|outfit-generate-nude|status-avatar-generate|(?:char|outfit)-expression-retry|scene-variant-(?:set|retry)):/.test(name)) return '生图中';
+    if (/^(?:char-generate-sprite|outfit-generate-nude|status-avatar-generate|(?:char|outfit)-expression-retry|scene-variant-(?:set|retry)|wardrobe-reference):/.test(name)) return '生图中';
+    if (/^wardrobe-generate-prompt:/.test(name)) return '写词中';
     return '';
 }
 

@@ -60,6 +60,7 @@ import { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH, isPortraitTouchWindow } from '
 import { applyClickWaitMark } from './click-wait-mark.js';
 import { applyHorrorDread, resolveHorrorDread } from './horror-dread.js';
 import { resolveHorrorTypewriterLevel } from './typewriter-horror.js';
+import { isUnderwaterScene } from './typewriter-underwater.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
 import { dialogRenderSettings, isComicModeActive } from './comic-settings.js';
@@ -1818,6 +1819,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             phone: fxResult.phone === true,
             // 恐怖题材的打字机特化：随恐怖档位变闷、变低（非恐怖时为 null，打字机原样）。
             horror: resolveHorrorTypewriterLevel(snapshot.readerSettings, resolveHorrorDread(snapshot.content.sceneDread, snapshot.readerSettings.horrorDreadCap)),
+            // 水下：打字音变闷、冒泡，文字逐行浮起（不分世界观）。
+            underwater: isUnderwaterScene(snapshot.content, snapshot.readerSettings),
         });
         armTextFx(textEl, typewriter && typewriter.animated ? typewriter.revealDelay : null);
     }

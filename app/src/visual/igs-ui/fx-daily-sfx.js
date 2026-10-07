@@ -118,7 +118,146 @@ const knockDef = (count) => ({
     noise: knockHits(count).map((start) => n(start, 0.07, 0.5, { filter: 'lowpass', freq: 900, q: 0.9, attack: 0.001 })),
 });
 
+// 载具：蹄声成对（嘚、嘚），刹车与起步按地点换声；洗浴：水声都是滤波噪声，不用采样。
+const hoofPair = (start, gain) => [0, 0.12].map((o) => n(start + o, 0.06, gain, { filter: 'lowpass', freq: 750, q: 0.8, attack: 0.002 }));
+const splashRand = seeded(83);
+const splashDrops = Array.from({ length: 7 }, () => {
+    const freq = 700 + splashRand() * 900;
+    return p('sine', freq, freq * 2, 0.12 + splashRand() * 0.7, 0.1, 0.12 + splashRand() * 0.1, { attack: 0.003, sweep: 1 });
+}).sort((a, b) => a.start - b.start);
+
+// 水下：气泡是快速上滑的正弦「啵」；入水先一声水花，再闷成低频的水压声。
+const bubbleBlips = (count, from, span, seed) => {
+    const rand = seeded(seed);
+    return Array.from({ length: count }, () => {
+        const freq = 260 + rand() * 340;
+        return p('sine', freq, freq * 3, from + rand() * span, 0.07, 0.16 + rand() * 0.12, { attack: 0.004, sweep: 1 });
+    }).sort((x, y) => x.start - y.start);
+};
+
 const DEFS = {
+    dive: {
+        partials: bubbleBlips(9, 0.35, 1.3, 89),
+        noise: [
+            n(0, 0.35, 0.65, { filter: 'lowpass', freq: 3000, freqTo: 400, q: 0.7, attack: 0.003 }),
+            n(0.2, 1.8, 0.3, { filter: 'lowpass', freq: 260, freqTo: 140, q: 0.7, attack: 0.25 }),
+        ],
+    },
+    blub: { partials: bubbleBlips(6, 0, 0.9, 97), noise: [] },
+    // 泄压：空气「呼」地冲走，越来越细，最后只剩一点点低鸣——真空里没有声音。
+    vacuum: {
+        partials: [p('sine', 60, 40, 1.1, 1.6, 0.12, { attack: 0.3, sweep: 1 })],
+        noise: [
+            n(0, 1.2, 0.7, { freq: 900, freqTo: 3800, q: 0.6, attack: 0.02 }),
+            n(0, 1.1, 0.3, { filter: 'lowpass', freq: 500, freqTo: 120, q: 0.7, attack: 0.02 }),
+        ],
+    },
+    // 急刹：轮胎尖啸由高往下滑，末了车身一顿的闷响。
+    screech: {
+        partials: [p('sine', 90, 50, 0.82, 0.26, 0.5, { attack: 0.004, sweep: 1 })],
+        noise: [
+            n(0, 0.85, 0.34, { freq: 2700, freqTo: 2000, q: 7, attack: 0.03 }),
+            n(0, 0.85, 0.1, { freq: 4200, freqTo: 3300, q: 5, attack: 0.03 }),
+            n(0.8, 0.14, 0.4, { filter: 'lowpass', freq: 500, q: 0.7, attack: 0.002 }),
+        ],
+    },
+    // 马车急停：蹄声乱了两下，车身「吱呀」一声停住。
+    rein: {
+        partials: [],
+        noise: [
+            ...hoofPair(0, 0.4), ...hoofPair(0.3, 0.32),
+            n(0.55, 0.6, 0.16, { tone: 'sawtooth', toneFreq: 118, filter: 'bandpass', freq: 820, q: 5, attack: 0.12 }),
+        ],
+    },
+    // 汽车起步：转速往上拉。
+    engine: {
+        partials: [
+            p('sine', 52, 104, 0, 1.5, 0.32, { attack: 0.2, sweep: 0.8 }),
+            p('sawtooth', 52, 104, 0, 1.4, 0.05, { attack: 0.2, sweep: 0.8 }),
+        ],
+        noise: [n(0, 1.6, 0.2, { filter: 'lowpass', freq: 260, freqTo: 620, q: 0.7, attack: 0.3 })],
+    },
+    // 马车启程：一声鞭响，蹄声由慢到快。
+    giddyup: {
+        partials: [],
+        noise: [
+            n(0, 0.05, 0.55, { filter: 'highpass', freq: 3000, q: 0.7, attack: 0.001 }),
+            ...hoofPair(0.35, 0.36), ...hoofPair(0.85, 0.38), ...hoofPair(1.25, 0.4), ...hoofPair(1.6, 0.36),
+        ],
+    },
+    // 列车：关门提示音「叮咚」、车门气阀一声，然后轰鸣起来。
+    'train-depart': {
+        partials: [...bellNote(659.25, 0, 0.7, 0.24), ...bellNote(523.25, 0.42, 0.9, 0.24)],
+        noise: [
+            n(1.1, 0.4, 0.3, { filter: 'highpass', freq: 2400, q: 0.7, attack: 0.01, env: 'flat' }),
+            n(1.3, 1.1, 0.2, { filter: 'lowpass', freq: 160, freqTo: 320, q: 0.7, attack: 0.5 }),
+        ],
+    },
+    // 列车到站：高低两声提示音，接刹车的长长放气声。
+    'arrive-chime': {
+        partials: [...bellNote(783.99, 0, 0.8, 0.24), ...bellNote(659.25, 0.45, 1.1, 0.24)],
+        noise: [n(1.2, 0.7, 0.24, { filter: 'highpass', freq: 2200, freqTo: 1600, q: 0.7, attack: 0.02 })],
+    },
+    // 船笛：两个低音叠在一起拉长。
+    horn: {
+        partials: [
+            p('sine', 98, 98, 0, 1.6, 0.34, { attack: 0.12 }),
+            p('sawtooth', 98, 98, 0, 1.5, 0.05, { attack: 0.12 }),
+            p('sawtooth', 147, 147, 0, 1.5, 0.035, { attack: 0.12 }),
+        ],
+        noise: [],
+    },
+    // 汽车到了：熄火后车门「砰」一声。
+    door: {
+        partials: [p('sine', 110, 60, 0.02, 0.22, 0.55, { attack: 0.003, sweep: 1 })],
+        noise: [
+            n(0, 0.04, 0.24, { filter: 'highpass', freq: 2500, q: 0.7, attack: 0.001 }),
+            n(0.02, 0.16, 0.45, { filter: 'lowpass', freq: 600, q: 0.7, attack: 0.002 }),
+        ],
+    },
+    // 检票钳「咔嚓」。
+    punch: {
+        partials: [p('triangle', 1800, 1500, 0.6, 0.03, 0.12, { attack: 0.001, sweep: 1 })],
+        noise: [
+            n(0, 0.2, 0.2, { freq: 2600, freqTo: 3400, q: 0.8, attack: 0.06 }),
+            n(0.6, 0.03, 0.5, { filter: 'highpass', freq: 3200, q: 0.7, attack: 0.001 }),
+            n(0.61, 0.05, 0.3, { filter: 'lowpass', freq: 700, q: 0.7, attack: 0.001 }),
+        ],
+    },
+    // 水汽涌过来：一阵柔和的「嘶——」。
+    hiss: {
+        partials: [],
+        noise: [
+            n(0, 2, 0.18, { filter: 'highpass', freq: 2600, freqTo: 1800, q: 0.6, attack: 0.5 }),
+            n(0, 1.6, 0.08, { filter: 'lowpass', freq: 500, q: 0.6, attack: 0.6 }),
+        ],
+    },
+    // 淋浴：阀门一拧，水「哗」地落下来。
+    shower: {
+        partials: [],
+        noise: [
+            n(0, 0.08, 0.3, { filter: 'lowpass', freq: 900, q: 0.8, attack: 0.002 }),
+            n(0.1, 2.2, 0.32, { freq: 3400, q: 0.5, attack: 0.12, env: 'flat' }),
+            n(0.1, 2.2, 0.12, { filter: 'lowpass', freq: 400, q: 0.6, attack: 0.15, env: 'flat' }),
+        ],
+    },
+    splash: {
+        partials: splashDrops,
+        noise: [
+            n(0, 0.5, 0.7, { filter: 'lowpass', freq: 2600, freqTo: 500, q: 0.7, attack: 0.003 }),
+            n(0, 0.3, 0.2, { filter: 'highpass', freq: 4000, q: 0.7, attack: 0.002 }),
+        ],
+    },
+    // 吹风机：电机的嗡声加呼呼的风，开关各「咔」一下。
+    dryer: {
+        partials: [],
+        noise: [
+            n(0, 0.02, 0.3, { filter: 'highpass', freq: 3000, q: 0.7, attack: 0.001 }),
+            n(0.05, 2.3, 0.26, { freq: 1400, q: 0.7, attack: 0.15, env: 'flat' }),
+            n(0.05, 2.3, 0.08, { tone: 'sawtooth', toneFreq: 205, filter: 'lowpass', freq: 900, q: 0.7, attack: 0.15, env: 'flat' }),
+            n(2.38, 0.02, 0.24, { filter: 'highpass', freq: 3000, q: 0.7, attack: 0.001 }),
+        ],
+    },
     // 停电：灯管两下接触不良的电流声，「啪」一声断电，余下一段低沉的嗡鸣。
     blackout: {
         partials: [
