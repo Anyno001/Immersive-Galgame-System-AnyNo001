@@ -66061,10 +66061,11 @@ function placeChain({ stageW, stageH, safe, head, kind, chain, avoid = [], offSi
     };
     const candidates = [];
     if (kind === 'narration' || kind === 'system') {
-        // 旁白框贴画格上角：竖排读序从右起，先试右上，再试左上、正上。
-        candidates.push({ ...fit(safe.right - W, safe.top), pref: 0 });
-        candidates.push({ ...fit(safe.left, safe.top), pref: 0.6 });
-        candidates.push({ ...fit((stageW - W) / 2, safe.top), pref: 0.9 });
+        // 旁白框靠画格上角：竖排读序从右起，先试右上，再试左上、正上。离画格边留一点白，不贴线。
+        const inset = clamp(minSide * 0.025, 8, 22);
+        candidates.push({ ...fit(safe.right - inset - W, safe.top + inset), pref: 0 });
+        candidates.push({ ...fit(safe.left + inset, safe.top + inset), pref: 0.6 });
+        candidates.push({ ...fit((stageW - W) / 2, safe.top + inset), pref: 0.9 });
     } else if (!head || kind === 'offscreen') {
         // 画外音：泡贴画面一侧，尾巴伸出画外。
         const right = offSide !== 'left';
