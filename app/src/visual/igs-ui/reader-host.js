@@ -5,14 +5,13 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers, resolveNearestCharacterBefore } from '../../scene/scene-directives.js';
+import { createSettingsHost } from './settings-host.js';
+import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
+import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
-import { normalizeSpriteEnhance } from './sprite-enhance.js';
 import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
-import { assetOwnerKey, assetShadowsGlobal, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, normalizeAssetCards, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { draftAssetLibrary, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
-import { menuItem, placeRowMenu, renderOutfitReviewList, renderRowMenu, renderWardrobe } from './settings-outfit-fields.js';
-
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
 import { extractFxDirectives, resolveFxAtPage } from '../../scene/fx-directives.js';
@@ -21,8 +20,6 @@ import { parseTables } from '../../shujuku-panel/panel-model.js';
 import { applyDiceToHits } from '../../scene/battle-context.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
-import { cgReasonText } from '../../media/cg-library.js';
-import { createCgLibraryView } from './cg-library-view.js';
 import { cancelFxEffects } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
@@ -38,36 +35,24 @@ import { cancelDailyFx } from './fx-daily.js';
 import { cancelSceneAudio, skipBgmTrack } from './scene-audio.js';
 import { applyBgmNoteToDom, toggleBgmNote } from './bgm-note.js';
 import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
-import { isStagePaused, setStagePauseReason, watchStagePause } from './stage-pause.js';
+import { isStagePaused, watchStagePause } from './stage-pause.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
 import { playUiSfx } from './ui-sfx.js';
-import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
-import { renderPerformancePresetBar, renderPerformanceSettings } from './performance-settings-layout.js';
-import { renderWorldviewRow } from './worldview-fields.js';
 import { findLastDreadLevel } from '../../scene/horror.js';
-import { renderQualityRow } from './render-quality-fields.js';
-import { normalizeSpriteHeads } from './fx-anchor.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
-import { resolveBackgroundAsset, resolveSpriteAsset, resolveNudeSpriteAsset, isGeneratedAssetUrl, bindGeneratedBackground, bindGeneratedSprite, fileGeneratedHoldings, normalizeGeneratedLibrary, isNonSpriteSpeaker, collectGeneratedImageIds } from '../../scene/asset-match.js';
+import { resolveBackgroundAsset, resolveSpriteAsset, resolveNudeSpriteAsset, isGeneratedAssetUrl, bindGeneratedBackground, bindGeneratedSprite, isNonSpriteSpeaker } from '../../scene/asset-match.js';
 import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveCastOffset, resolveStageCast } from '../../scene/stage-cast.js';
 import { normalizeStageCastSettings } from './stage-direction-settings.js';
 import { resolveRomanceRivalTarget } from './romance-settings.js';
 import { clearCastDom } from './stage-cast-render.js';
-import { CHARACTER_DNA_FIELDS, normalizeCharacterDnaMap, resolveCharacterDna } from '../../scene/character-dna.js';
-import { createOutfitResolver, normalizeCharacterOutfits, normalizeWardrobe, resolveSpriteOutfit } from '../../scene/character-outfits.js';
+import { resolveCharacterDna } from '../../scene/character-dna.js';
+import { createOutfitResolver, resolveSpriteOutfit } from '../../scene/character-outfits.js';
 import { collectOutfitClues } from '../../data/shujuku/outfit-clues.js';
-import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList } from './settings-fields.js';
-import { loadMatteEditor } from './sprite-matte-editor.js';
-import { mountMatteEditor } from './sprite-matte-editor-mount.js';
-import { createCanvasImageCodec } from './sprite-matte-editor-view.js';
-import { createInpaintTransaction } from '../../generated-images/illustration/inpaint-transaction.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { normalizeMoodGroups, resolveMoodGroup } from '../../scene/mood-groups.js';
-import { NSFW_COUNT_MAX, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
-import { describeLlmReady } from '../../generated-images/illustration/caption-writer.js';
-import { normalizeImageSourceMode, mergeLegacyNaiSettings } from '../../generated-images/image-backend.js';
+import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import {
     getOriginalReaderHtml,
     getOriginalReaderSource,
@@ -75,8 +60,6 @@ import {
     ORIGINAL_READER_REQUIRED_SELECTORS,
     ORIGINAL_READER_STYLE_CONTRACT,
 } from './original-reader-source.js';
-import { getSettingsShellTemplate } from './settings-shell.js';
-import { getSettingsStyleText } from './settings-style.js';
 import {
     getImageSubTabTemplate,
     getReaderSubTabTemplate,
@@ -90,8 +73,7 @@ import {
     READER_SUBTAB_DEFS,
     SETTINGS_TAB_DEFS,
 } from './settings-tabs.js';
-import { getReaderModeIcon } from './icons.js';
-import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
+import { normalizeSettingsTheme } from './settings-theme.js';
 import {
     DEFAULT_IMAGE_API,
     DIALOG_FONT_OPTIONS,
@@ -106,7 +88,7 @@ import {
     TOOLBAR_ACTIONS,
     VN_THEME_PRESETS,
 } from './reader-host-constants.js';
-import { PUBLIC_READER_MODES, getReaderModeLabel, isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
+import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
 import {
     cloneData,
     esc,
@@ -214,32 +196,20 @@ import {
 } from './settings-normalize.js';
 import { clearReaderModeRuntime, exitDocumentFullscreen } from './reader-runtime.js';
 import { enterSpriteEditMode } from './sprite-edit.js';
-import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { enterCastSlotEdit } from './cast-slot-edit.js';
 import { createDbPanelController } from '../../shujuku-panel/panel-controller.js';
 import { createMapPanelController } from './map-panel.js';
 import { createRecordPanelController } from './record-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
-import { buildStatusHudModel, listStatusHudTables, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
+import { buildStatusHudModel, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
-import { handleSettingsAction as runSettingsAction, releasedGeneratedImageIds } from './settings-actions.js';
-import { SETTINGS_NOTICE_MS, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, remountSettingsProgress, settingsBusyLabel } from './settings-notice.js';
-import { createSettingsDialogs } from './settings-dialog.js';
 import { createIgsModal } from './igs-modal.js';
-import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
-import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { createOnboardingController } from './onboarding-guide-controller.js';
 import { applyPerformanceProfile, applyProfileDetails } from './performance-profile.js';
-import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
-import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { resolveWorldview } from '../../scene/worldview.js';
-import { loadAssetFoldersFor } from './asset-folders.js';
-import { isLayeredPreset, loadLegacyPresets, legacyPresetHasContent, presetCardLayers } from '../../scene/legacy-preset.js';
-import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview, recordMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
-import { LEGACY_READER_MODES } from '../../storage/legacy-igs.js';
 import {
     CLASSIC_DIALOG_HEIGHT,
     CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
@@ -258,36 +228,19 @@ import {
     normalizeClassicDialogWidthPercent,
     normalizeDialogSkin,
 } from './classic-dialog-skin.js';
-import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_ACCENT_DEFAULT, MAGIC_HOUSES, MAGIC_HOUSE_DEFAULT, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
-import { normalizeCharacterHouses } from './magic-house.js';
-import { VOICE_BARK_FREQUENCIES, normalizeCharacterVoices, normalizeVoiceBarkSettings } from './voice-bark.js';
-import { HORROR_DREAD_CAP_DEFAULT, HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
-import { DIALOG_SKIN_QINGLV } from './dialog-theme-guofeng.js';
-import { DIALOG_SKIN_FAIRY_TALE } from './dialog-theme-fairytale.js';
-import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
-import { normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
-import { SKIN_DIALOG_SCALE_OPTIONS, SKIN_DIALOG_SCALE_DEFAULT, normalizeSkinDialogScale } from './dialog-skin-frame.js';
-import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
-import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import {
     TYPEWRITER_DEFAULTS,
     cancelTypewriter,
     normalizeTypewriterSettings,
 } from './typewriter-runtime.js';
-import { TYPEWRITER_VOICE_LABELS } from './typewriter-audio.js';
 import { cancelStageShakeEffect } from './stage-shake-runtime.js';
-import { SETTINGS_SEARCH_INDEX, renderSettingsSearchResults } from './settings-search.js';
 import { advanceChatReveal, cancelChatShow, getChatRevealState } from './chat-layer.js';
 import { buildChatPageModel, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { resolveChatTheme } from './chat-themes.js';
 import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
-import { normalizePromptPlacement } from './tag-grammar.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay, stripBilingualTranslation } from './bilingual-text.js';
-import { resolveRenderQuality } from './render-quality.js';
-import { canMorph, morphChildren } from './settings-dom-morph.js';
 
-const ASSET_MOVE_ALL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>';
 import {
     applyReaderSnapshotToDom,
     applyToolbarState,
@@ -295,10 +248,6 @@ import {
     buildFallbackSettingsOverlay,
     normalizeReaderStableLayers,
 } from './reader-dom-render.js';
-
-// 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
-const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
-const LAST_SETTINGS_PAGE_KEY = 'igs:settings-last-page:v1';
 
 export function createIgsReaderHost(options = {}) {
     let statusHudClient = null;
@@ -309,10 +258,6 @@ export function createIgsReaderHost(options = {}) {
         // T 键临时切换的双语显示方式 { base, value }：只在本次会话内有效，不写入设置；设置里改了显示方式即失效。
         bilingualDisplay: null,
     };
-    const settingsDialogs = createSettingsDialogs({
-        getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
-        global: options.global || globalThis,
-    });
     // 阅读器里的确认和提示挂在遮罩上。浏览器 alert/confirm 会把全屏模式退出去。
     const pageModal = createIgsModal({
         getHost: () => {
@@ -367,9 +312,6 @@ export function createIgsReaderHost(options = {}) {
         ? options.onItemImageUpdated(() => { if (state.activeReader) rerenderActiveReader(); })
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
-    // 快照 → 遮罩内层 HTML；不放进快照字段，免得 getSnapshot/克隆多带一份。
-    const settingsShellHtml = new WeakMap();
-    const settingsBusyActions = new Set();
     // 下面几项被 return host 之后的函数引用，必须声明在 return 之前，否则压缩时会被当作死代码删掉。
     const itemEventsShown = new Set();
     const ROMANCE_MEMORY_KEYS = 'igs-romance-memory-keys';
@@ -383,13 +325,6 @@ export function createIgsReaderHost(options = {}) {
     let settingsImageRefreshPending = false;
     // 设置面板全屏盖住阅读器时不重绘后面的舞台，记一笔，关面板时补一次。
     let readerStaleBehindSettings = false;
-    // 手指按着或 ⋯ 菜单开着时不整页重绘：重绘会收掉菜单、换掉按下的按钮，点击落空。
-    let settingsPointerDown = false;
-    function settingsInteracting() {
-        const root = state.activeSettings && state.activeSettings.dom && state.activeSettings.dom.root;
-        if (settingsPointerDown) return true;
-        return Boolean(root && typeof root.querySelector === 'function' && root.querySelector('details.igs-add-menu[open]'));
-    }
     function flushDeferredImageRefresh() {
         if (settingsImageRefreshPending && !imageRefreshTimer) scheduleImageRefresh();
     }
@@ -474,6 +409,20 @@ export function createIgsReaderHost(options = {}) {
     const offIllustrationProgress = typeof options.onIllustrationProgress === 'function'
         ? options.onIllustrationProgress((payload) => showIllustrationProgress(payload))
         : () => {};
+
+    const {
+        settingsInteracting, openSettings, syncSettingsStagePause, rerenderSettings, closeSettings,
+        persistSettingsDraft, reportSettingsFailure, renderImageJobLogList,
+    } = createSettingsHost({
+        flushDeferredImageRefresh, normalizeUnifiedSettings, onboarding, openCgGallery, options, pageModal,
+        playReaderUiSfx, rerenderActiveReader, resolveBridgeConfigSnapshot, scheduleMoodAutoClassify, sourceCache,
+        state,
+        takeReaderStaleBehindSettings() {
+            const stale = readerStaleBehindSettings;
+            readerStaleBehindSettings = false;
+            return stale;
+        },
+    });
 
     const host = {
         openReader,
@@ -690,88 +639,6 @@ export function createIgsReaderHost(options = {}) {
             optionsForRender.index ?? current.index);
     }
 
-    function rememberSettingsPage(current) {
-        try {
-            const storage = (options.global || globalThis).localStorage;
-            if (!storage || typeof storage.setItem !== 'function') return;
-            const page = current.asyncState || {};
-            storage.setItem(LAST_SETTINGS_PAGE_KEY, JSON.stringify({
-                tab: normalizeSettingsTab(current.tab),
-                readerSubTab: normalizeReaderSubTab(page.readerSubTab),
-                sceneSubTab: normalizeSceneSubTab(page.sceneSubTab),
-                imageSubTab: normalizeImageSubTab(page.imageSubTab),
-            }));
-        } catch (error) {
-            try { console.warn('[IGS] 设置页记忆写入失败：', error); } catch { /* 控制台不可用时不影响切页 */ }
-        }
-    }
-
-    function openSettings(openOptions = {}) {
-        // 显式指定页签（阅读器工具按钮、引导跳转）始终优先于上次停留的位置。
-        let lastPage = null;
-        try {
-            const storage = (options.global || globalThis).localStorage;
-            const stored = storage && storage.getItem(LAST_SETTINGS_PAGE_KEY);
-            const parsed = stored ? JSON.parse(stored) : null;
-            lastPage = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-        } catch { /* 无存储权限时仍可打开设置 */ }
-        const normalizedTab = normalizeSettingsTab(openOptions.tab || (state.activeSettings && state.activeSettings.tab) || (lastPage && lastPage.tab));
-        const fallbackMode = state.activeReader ? state.activeReader.mode : undefined;
-        if (state.activeSettings) {
-            state.activeSettings.tab = normalizedTab;
-            rememberSettingsPage(state.activeSettings);
-            return rerenderSettings();
-        }
-
-        const initialSnapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
-        // 旧版「其他生图」的 NAI Key 在打开设置时并入统一的 NAI 设置，保存后即完成迁移。
-        if (initialSnapshot.bridge) {
-            initialSnapshot.bridge.autoIllustration = mergeLegacyNaiSettings(initialSnapshot.bridge.autoIllustration, initialSnapshot.bridge.imageApi);
-        }
-        const controller = createSettingsController();
-        const settingsState = {
-            tab: normalizedTab,
-            draft: cloneData(initialSnapshot),
-            initialOpenMode: initialSnapshot.bridge.openMode,
-            asyncState: {
-                readerSubTab: normalizeReaderSubTab(lastPage && lastPage.readerSubTab),
-                sceneSubTab: normalizeSceneSubTab(lastPage && lastPage.sceneSubTab),
-                imageSubTab: normalizeImageSubTab(lastPage && lastPage.imageSubTab),
-            },
-            committedImageIds: collectGeneratedImageIds(initialSnapshot.bridge && initialSnapshot.bridge.sceneAssets),
-            controller,
-            dom: null,
-        };
-        state.activeSettings = settingsState;
-        settingsState.dom = mountSettingsDom(controller);
-        syncSettingsStagePause();
-        playReaderUiSfx('open');
-        rememberSettingsPage(settingsState);
-        return rerenderSettings();
-    }
-
-    // 设置面板盖住整个舞台（遮罩带全屏模糊），打开期间舞台动画与粒子暂停。
-    function syncSettingsStagePause() {
-        const overlay = state.activeReader && state.activeReader.dom && state.activeReader.dom.overlay;
-        if (overlay) setStagePauseReason(overlay, 'panel:settings', Boolean(state.activeSettings));
-    }
-
-    function rerenderSettings() {
-        if (!state.activeSettings) {
-            return { ok: false, reason: 'settings-not-open' };
-        }
-        const snapshot = buildSettingsSnapshot(state.activeSettings);
-        state.activeSettings.snapshot = snapshot;
-        updateMountedSettings(snapshot);
-        return {
-            ok: true,
-            tab: state.activeSettings.tab,
-            snapshot: cloneData(snapshot),
-            domMounted: Boolean(state.activeSettings.dom),
-            controller: state.activeSettings.controller,
-        };
-    }
-
     function teardownStatusHudSubscription() {
         if (statusHudClient && statusHudCallback) {
             statusHudClient.unregisterCallback(statusHudCallback);
@@ -930,7 +797,6 @@ export function createIgsReaderHost(options = {}) {
         return inline ? source : '';
     }
 
-
     function closeReader(closeOptions = {}) {
         const current = state.activeReader;
         if (!current) return { ok: true, reason: 'reader-not-open' };
@@ -976,31 +842,6 @@ export function createIgsReaderHost(options = {}) {
         }
         unmountNode(current.dom && current.dom.root);
         state.activeReader = null;
-        return { ok: true };
-    }
-
-    function closeSettings() {
-        const current = state.activeSettings;
-        if (!current) return { ok: true, reason: 'settings-not-open' };
-        const saved = persistSettingsDraft({
-            syncActiveModeFromSettings: current.initialOpenMode !== current.draft.bridge.openMode,
-        });
-        if (saved.ok === false) return saved;
-        settingsDialogs.cancel();
-        if (current.dom && typeof current.dom.dispose === 'function') {
-            current.dom.dispose();
-        }
-        unmountNode(current.dom && current.dom.root);
-        state.activeSettings = null;
-        settingsPointerDown = false;
-        onboarding.onSettingsClosed();
-        syncSettingsStagePause();
-        scheduleMoodAutoClassify();
-        if (readerStaleBehindSettings) {
-            readerStaleBehindSettings = false;
-            if (state.activeReader) rerenderActiveReader();
-        }
-        playReaderUiSfx('close');
         return { ok: true };
     }
 
@@ -1374,76 +1215,6 @@ export function createIgsReaderHost(options = {}) {
         };
     }
 
-    function createSettingsController() {
-        return {
-            getSnapshot() {
-                return state.activeSettings ? cloneData(state.activeSettings.snapshot) : null;
-            },
-            switchTab(tab) {
-                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-                state.activeSettings.tab = normalizeSettingsTab(tab);
-                rememberSettingsPage(state.activeSettings);
-                return rerenderSettings();
-            },
-            switchImageSubTab(subTab) {
-                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-                state.activeSettings.asyncState.imageSubTab = normalizeImageSubTab(subTab);
-                rememberSettingsPage(state.activeSettings);
-                return rerenderSettings();
-            },
-            switchReaderSubTab(subTab) {
-                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-                state.activeSettings.asyncState.readerSubTab = normalizeReaderSubTab(subTab);
-                rememberSettingsPage(state.activeSettings);
-                return rerenderSettings();
-            },
-            // 设置搜索：跳到搜索结果所在的分页 / 子页，并展开所在分组与折叠区。
-            goToSetting(id) {
-                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-                const entry = SETTINGS_SEARCH_INDEX.find((item) => item.id === id);
-                if (!entry) return { ok: false, reason: 'unknown-setting' };
-                const asyncState = state.activeSettings.asyncState;
-                state.activeSettings.tab = normalizeSettingsTab(entry.target.tab);
-                if (entry.target.readerSubTab) asyncState.readerSubTab = normalizeReaderSubTab(entry.target.readerSubTab);
-                if (entry.target.sceneSubTab) asyncState.sceneSubTab = normalizeSceneSubTab(entry.target.sceneSubTab);
-                asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}) };
-                for (const key of entry.target.open) asyncState.advancedOpen[key] = true;
-                asyncState.settingsSearch = '';
-                rememberSettingsPage(state.activeSettings);
-                return rerenderSettings();
-            },
-            switchSceneSubTab(subTab) {
-                if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-                state.activeSettings.asyncState.sceneSubTab = normalizeSceneSubTab(subTab);
-                state.activeSettings.asyncState.wardrobeFocus = '';
-                rememberSettingsPage(state.activeSettings);
-                return rerenderSettings();
-            },
-            setValue(path, value, editOptions) {
-                return updateSettingsValue(path, value, editOptions);
-            },
-            toggle(path) {
-                const current = getPath(state.activeSettings && state.activeSettings.draft, path);
-                return updateSettingsValue(path, !current);
-            },
-            async invoke(action) {
-                let result;
-                try {
-                    result = await handleSettingsAction(action);
-                } catch (error) {
-                    result = { ok: false, reason: 'action-threw', thrown: error };
-                }
-                reportSettingsFailure(result);
-                return result;
-            },
-            close() {
-                const result = closeSettings();
-                reportSettingsFailure(result);
-                return result;
-            },
-        };
-    }
-
     async function submitReaderInput(text) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
         const embedded = isEmbeddedReaderMode(state.activeReader.mode);
@@ -1522,7 +1293,6 @@ export function createIgsReaderHost(options = {}) {
             else hud.classList.remove('igs-hud-suppressed');
         }
     }
-
 
     function hideOptionBubbles(container) {
         if (!container) return;
@@ -1646,263 +1416,6 @@ export function createIgsReaderHost(options = {}) {
         }
         current.cgProgress = true;
         writeGenerating();
-    }
-
-    function updateSettingsValue(path, value, editOptions = {}) {
-        if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-        const draft = state.activeSettings.draft;
-
-        if (path === 'bridge.openMode') {
-            const nextMode = normalizeReaderMode(value, draft.bridge);
-            setPath(draft, path, nextMode);
-            return rerenderSettings();
-        }
-
-        setPath(draft, path, normalizeSettingsValue(path, value));
-        const themeKey = path.startsWith('readerSettings.classicVnTheme.') ? 'classicVnTheme' : 'vnTheme';
-        const themeRoot = `readerSettings.${themeKey}`;
-        if (path === `${themeRoot}.preset` && value === 'custom') {
-            const currentTheme = draft.readerSettings[themeKey] || {};
-            const prevName = currentTheme._prevPreset || 'genshin';
-            const source = themeKey === 'classicVnTheme'
-                ? CLASSIC_DIALOG_THEME_DEFAULTS
-                : (VN_THEME_PRESETS[prevName] || VN_THEME_PRESETS.genshin);
-            const fields = ['nameAlign', 'textAlign', 'narrationAlign', 'thoughtAlign', 'dividerSymbol', 'nameFont', 'textFont', 'thoughtFont', 'narrationFont', 'nameColor', 'textColor', 'thoughtColor', 'narrationColor', 'dividerColor'];
-            for (const f of fields) {
-                setPath(draft, `${themeRoot}.${f}`, source[f]);
-            }
-        }
-        if (path === `${themeRoot}.preset` && value !== 'custom') {
-            setPath(draft, `${themeRoot}._prevPreset`, value);
-        }
-        if (path.startsWith(`${themeRoot}.`) && path !== `${themeRoot}.preset` && path !== `${themeRoot}._prevPreset`) {
-            setPath(draft, `${themeRoot}.preset`, 'custom');
-        }
-        if (editOptions.liveInput) {
-            // getSnapshot() clones before exposing this value; do not deep-copy the entire
-            // asset library for every keystroke (including long prompts and API keys).
-            state.activeSettings.snapshot.draft = draft;
-            return { ok: true };
-        }
-        if (path === 'bridge.sceneAssets.moodAutoClassify' && value === true) scheduleMoodAutoClassify();
-        return rerenderSettings();
-    }
-
-    function persistSettingsDraft(optionsForPersist = {}) {
-        if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-        const draft = state.activeSettings.draft;
-        const save = typeof options.saveUnifiedSettings === 'function'
-            ? options.saveUnifiedSettings
-            : null;
-        if (!save) return { ok: false, reason: 'missing-save-handler' };
-
-        if (draft.bridge && draft.bridge.sceneAssets) fileGeneratedHoldings(draft.bridge.sceneAssets);
-        // The next settings open trims and validates asset templates. Persist the same
-        // canonical values now, otherwise an unchanged second close rewrites the bridge.
-        // Keep the draft intact on failure and avoid copying the large sceneAssets tree.
-        const auto = draft.bridge && draft.bridge.autoIllustration;
-        const bridgeToSave = auto && auto.assets && auto.assets.templates
-            ? { ...draft.bridge, autoIllustration: {
-                ...auto, assets: { ...auto.assets, templates: normalizeAutoIllustrationSettings(auto).assets.templates },
-            } }
-            : draft.bridge;
-        let result;
-        try {
-            result = save({
-                bridge: bridgeToSave,
-                readerMode: 'default',
-                readerSettings: draft.readerSettings,
-            });
-        } catch (error) {
-            return { ok: false, reason: 'save-failed', saveError: error };
-        }
-        if (!result || result.ok === false) {
-            return {
-                ok: false,
-                reason: 'save-failed',
-                saveError: result && (result.message || result.reason),
-                ...(result && result.rollbackFailed ? { rollbackFailed: true } : {}),
-            };
-        }
-
-        const snapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
-        const savedAssets = snapshot.bridge && snapshot.bridge.sceneAssets;
-        const previousIds = state.activeSettings.committedImageIds || [];
-        state.activeSettings.committedImageIds = collectGeneratedImageIds(savedAssets);
-        const released = releasedGeneratedImageIds(previousIds, savedAssets, (options.global || globalThis).localStorage);
-        const imageService = options.generatedAssets;
-        if (released.length && imageService && typeof imageService.deleteImages === 'function') {
-            const reportDeleteFailure = () => {
-                const message = '配置已保存，但有图片没能从本机清掉。';
-                if (state.activeSettings) settingsDialogs.alert(message);
-                else pageModal.alert(message);
-            };
-            Promise.resolve().then(() => imageService.deleteImages(released)).then((result) => {
-                if (result === false || (result && result.ok === false)) reportDeleteFailure();
-            }).catch(reportDeleteFailure);
-        }
-        state.activeSettings.draft = cloneData(snapshot);
-        if (state.activeReader) {
-            const current = state.activeReader.payload;
-            const filterChanged = JSON.stringify(current.sourceFilter) !== JSON.stringify(snapshot.bridge.sourceFilter);
-            const formatChanged = JSON.stringify(current.virtualRegex) !== JSON.stringify(snapshot.bridge.virtualRegex);
-            if (filterChanged || formatChanged) {
-                current.sourceFilter = cloneData(snapshot.bridge.sourceFilter);
-                current.virtualRegex = cloneData(snapshot.bridge.virtualRegex);
-                // These values were produced with the old rules; the reader must reparse its message.
-                current.textSegments = null;
-                current.segmentImageSlots = null;
-                current.sceneDirectives = null;
-                current.formattedText = '';
-                sourceCache.invalidate();
-            }
-        }
-        rerenderActiveReader({
-            syncModeFromSettings: optionsForPersist.syncActiveModeFromSettings === true,
-        });
-        return result;
-    }
-
-    function renderImageJobLogList() {
-        const log = options.imageJobLog;
-        const list = log && typeof log.list === 'function' ? log.list() : [];
-        if (!list.length) return '<div class="igs-image-log-empty">暂无日志。开启自动插图或素材补全后，新回复的处理过程会记录在这里。</div>';
-        return list.map((e) => `<div class="igs-image-log-item is-${esc(e.level)}"><span class="igs-image-log-time">${esc(formatImageJobLogTime(e.at))}</span><span class="igs-image-log-level">${esc(imageJobLogLevelLabel(e.level))}</span><span class="igs-image-log-msg">${esc(e.message)}</span></div>`).join('');
-    }
-
-    // 生图 › CG 库：与工具栏面板共用 cg-library-view。目录一次拿全；缩略图到了只换那一格、状态行只改文字，不整页重画。
-    function cgAttr(value) {
-        return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, '');
-    }
-
-    function imageCgThumbHtml(view, entry) {
-        const tile = view.tileOf(entry.key);
-        if (tile.url) return `<img src="${esc(tile.url)}" decoding="async" alt="">`;
-        if (tile.state === 'failed') return `<span class="igs-image-cg-failed" title="${esc(tile.reason)}">读取失败，点一下重试</span>`;
-        return '<span class="igs-image-cg-pending"></span>';
-    }
-
-    function imageCgView(settings) {
-        const asyncState = settings.asyncState;
-        if (asyncState.imageCg) return asyncState.imageCg;
-        const service = options.cgGallery;
-        if (!service || typeof service.syncIndex !== 'function') return null;
-        let painting = false;
-        const live = () => state.activeSettings === settings && asyncState.imageCg === view;
-        const paint = () => {
-            if (painting) return;
-            painting = true;
-            Promise.resolve().then(() => { painting = false; if (live()) rerenderSettings(); });
-        };
-        const find = (selector) => {
-            const root = settings.dom && settings.dom.root;
-            return root && typeof root.querySelector === 'function' ? root.querySelector(selector) : null;
-        };
-        const patchLine = () => {
-            const el = find('[data-image-cg-line]');
-            if (!el) return false;
-            const text = view.statusText();
-            el.textContent = text;
-            el.style.display = text ? '' : 'none';
-            return true;
-        };
-        const view = createCgLibraryView(service, {
-            storage: (options.global || globalThis).localStorage,
-            onChange: (type, key) => {
-                if (!live()) return;
-                if (type === 'thumb') {
-                    const el = find(`[data-image-cg-thumb="${cgAttr(key)}"]`);
-                    const entry = view.find(key);
-                    if (el && entry) { el.innerHTML = imageCgThumbHtml(view, entry); patchLine(); return; }
-                    if (!entry && patchLine()) return;
-                }
-                if (type === 'status' && patchLine()) return;
-                paint();
-            },
-        });
-        asyncState.imageCg = view;
-        view.open({ showHidden: true });
-        return view;
-    }
-
-    function renderImageCgList() {
-        const settings = state.activeSettings;
-        if (!settings || !settings.asyncState) return '';
-        const view = imageCgView(settings);
-        if (!view) return '<div class="igs-scene-empty">CG 库不可用</div>';
-        const s = view.state;
-        const text = view.statusText();
-        const line = `<div class="igs-scene-empty" data-image-cg-line${text ? '' : ' style="display:none"'}>${esc(text)}</div>`;
-        const pager = s.list.length > s.entries.length || s.page > 0
-            ? `<div class="igs-settings-row"><button class="igs-settings-action" data-action="image-cg-page:prev" type="button" ${s.page <= 0 ? 'disabled' : ''}>上一页</button><span class="igs-image-cg-page">第 ${s.page + 1} / ${s.pages} 页 · 共 ${s.list.length} 张</span><button class="igs-settings-action" data-action="image-cg-page:next" type="button" ${s.page >= s.pages - 1 ? 'disabled' : ''}>下一页</button></div>`
-            : (s.list.length ? `<div class="igs-image-cg-page">共 ${s.list.length} 张</div>` : '');
-        const selected = settings.asyncState.imageCgSelected instanceof Set ? settings.asyncState.imageCgSelected : new Set();
-        const tiles = s.entries.map((entry, index) => {
-            const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;
-            const on = selected.has(entry.key);
-            return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><span class="igs-image-cg-pic" data-image-cg-thumb="${esc(entry.key)}">${imageCgThumbHtml(view, entry)}</span><span>${esc(label)}</span></button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></article>`;
-        }).join('');
-        const empty = s.phase === 'ready' && !s.entries.length ? '<div class="igs-scene-empty">还没有生成过 CG</div>' : '';
-        return pager + line + (tiles || empty);
-    }
-
-    async function handleSettingsAction(action) {
-        const onboardingResult = onboarding.handleAction(action);
-        if (onboardingResult) return onboardingResult;
-        return runSettingsAction(action, {
-            state,
-            options: { ...options, openMatteEditor, openCgGallery },
-            closeSettings,
-            persistSettingsDraft,
-            rerenderSettings,
-            buildRegexPreview,
-            dialogs: settingsDialogs,
-            getDefaultSettings: () => normalizeUnifiedSettings({}),
-            normalizeImportedSettings: (imported) => normalizeUnifiedSettings(imported),
-        });
-    }
-
-    // 打开遮罩修复编辑器：只编辑 igs-gen: 生成立绘；取消/关闭不写任何资产，保存按 revision 提交。
-    async function openMatteEditor(imageId) {
-        const globalObj = options.global || globalThis;
-        const doc = globalObj && globalObj.document;
-        if (!doc || !doc.body) return { ok: false, reason: 'no-document' };
-        const codec = createCanvasImageCodec(globalObj);
-        if (!codec.available) return { ok: false, reason: 'no-canvas' };
-        // AI 局部重绘只在后端协商支持时启用；否则按钮置灰并给出原因，绝不退化为整张重画。
-        const backend = options.imageEditBackend;
-        const capability = backend && typeof backend.describeEdit === 'function'
-            ? backend.describeEdit()
-            : { supported: false, message: '当前图像来源不支持局部重绘' };
-        const inpaint = capability.supported && typeof options.alphaMatte === 'function'
-            ? createInpaintTransaction({ service: options.generatedAssets, backend, matte: options.alphaMatte })
-            : null;
-        const editor = await loadMatteEditor(options.generatedAssets, imageId, {
-            decodeImage: codec.decodeImage,
-            encodePixels: codec.encodePixels,
-            inpaint,
-            aiUnavailableReason: inpaint ? '' : (capability.message || '当前图像来源不支持局部重绘'),
-            dna: findDnaForGeneratedImage(imageId),
-        });
-        mountMatteEditor(doc, editor, {
-            onSaved: () => {
-                if (state.activeSettings) rerenderSettings();
-                if (state.activeReader) rerenderActiveReader();
-            },
-        });
-        return { ok: true, mode: editor.mode, reason: editor.reason || '' };
-    }
-
-    // 按生成素材库里引用该图片的角色名取 DNA（经 DNA 主名/原名匹配）；找不到时不注入。
-    function findDnaForGeneratedImage(imageId) {
-        const draft = state.activeSettings && state.activeSettings.draft;
-        const raw = (draft && draft.bridge && draft.bridge.sceneAssets) || {};
-        const sa = sceneAssetsForContext(raw, getSillyTavernContext(options.global || globalThis)) || {};
-        const chars = normalizeGeneratedLibrary(sa.generated).characters;
-        const token = `igs-gen:${imageId}`;
-        const name = Object.keys(chars).find((n) => JSON.stringify(chars[n] || {}).includes(token));
-        const hit = name ? resolveCharacterDna(sa.characterDna, name) : null;
-        return hit ? hit.dna : null;
     }
 
     async function handleReaderAction(action) {
@@ -3019,7 +2532,6 @@ export function createIgsReaderHost(options = {}) {
             });
         segments = visibleSegments.length ? visibleSegments : enforceExcludedText ? [] : [''];
 
-
         const normalizedIndex = Math.max(0, Math.min(segments.length - 1, Number(index) || 0));
         const segmentImageSlots = Array.isArray(payload.segmentImageSlots) && payload.segmentImageSlots.length
             ? payload.segmentImageSlots
@@ -3576,649 +3088,6 @@ export function createIgsReaderHost(options = {}) {
         };
     }
 
-    function buildSettingsSnapshot(settingsState) {
-        const draft = normalizeUnifiedSettings(settingsState.draft);
-        const tab = normalizeSettingsTab(settingsState.tab);
-        const imageSubTab = tab === 'image' ? normalizeImageSubTab(settingsState.asyncState.imageSubTab) : null;
-        const readerSubTab = tab === 'reader' ? normalizeReaderSubTab(settingsState.asyncState.readerSubTab) : null;
-        const sceneSubTab = tab === 'scene' ? normalizeSceneSubTab(settingsState.asyncState.sceneSubTab) : null;
-        const settingsTheme = normalizeSettingsTheme(draft.bridge.settingsTheme);
-        const body = renderSettingsBody(tab, draft, settingsState.asyncState);
-        const tabsHtml = SETTINGS_TAB_DEFS.map(([id, label]) => {
-            return `<button type="button" class="igs-settings-tab${tab === id ? ' is-active' : ''}" data-tab="${id}">${label}</button>`;
-        }).join('');
-        const shellHtml = renderTemplate(getSettingsShellTemplate(), {
-            version: esc(options.version || '0.5.4'),
-            tabs: tabsHtml,
-            body,
-            settingsThemeSwitch: renderSettingsThemeSwitch(settingsTheme),
-        });
-
-        const snapshot = {
-            tab,
-            imageSubTab,
-            readerSubTab,
-            sceneSubTab,
-            settingsTheme,
-            settingsThemeSwitch: renderSettingsThemeSwitch(settingsTheme),
-            selectors: Array.from(SETTINGS_PANEL_REQUIRED_SELECTORS),
-            tabs: SETTINGS_TAB_DEFS.map(([id, label]) => ({
-                id,
-                label,
-                active: id === tab,
-                requiredPaths: Array.from((SETTINGS_PANEL_TAB_CONTRACT[id] || {}).requiredPaths || []),
-                requiredActions: Array.from((SETTINGS_PANEL_TAB_CONTRACT[id] || {}).requiredActions || []),
-            })),
-            activeContract: SETTINGS_PANEL_TAB_CONTRACT[tab],
-            html: `<div id="igs-unified-settings" data-igs-igs-ui="true" data-igs-settings-theme="${settingsTheme}"${settingsLowQuality(settingsState.draft) ? ' data-igs-quality="low"' : ''}>${shellHtml}</div>`,
-            resultText: {
-                image: settingsState.asyncState.imageResult || '',
-                imageModels: settingsState.asyncState.imageModelsMessage || '',
-                llmModels: settingsState.asyncState.llmModelsMessage || '',
-                naiModels: settingsState.asyncState.naiModelsMessage || '',
-                virtualRegex: settingsState.asyncState.virtualRegexPreview || '',
-                promptRule: settingsState.asyncState.promptRuleStatus || '',
-                promptRuleDraft: settingsState.asyncState.promptRuleDraft,
-            },
-            draft,
-        };
-        settingsShellHtml.set(snapshot, { theme: settingsTheme, html: shellHtml });
-        return snapshot;
-    }
-
-    function renderSettingsBody(tab, draft, asyncState) {
-        function buildStatusHudSettingsHtml(reader, options) {
-            const statusHud = normalizeStatusHudSettings(reader && reader.statusHud);
-            const sectionClass = 'igs-settings-section igs-status-hud-section';
-            const toggle = checkbox('readerSettings.statusHud.enabled', statusHud.enabled, '显示左上角状态栏');
-            if (!statusHud.enabled) {
-                return `<div class="${sectionClass}" data-status-hud>${toggle}</div>`;
-            }
-            const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
-            const listed = api ? listStatusHudTables(createShujukuClient(api).readTables()) : { ok: false, reason: 'missing-api', tables: [] };
-            const body = [
-                toggle,
-                '<div class="igs-settings-sub">',
-                checkbox('readerSettings.statusHud.showEmotion', statusHud.showEmotion, '显示情绪标签'),
-                checkbox('readerSettings.statusHud.showLocation', statusHud.showLocation, '显示地点栏（仅旁白）'),
-                statusHud.showLocation ? `<div class="igs-settings-sub">${checkbox('readerSettings.statusHud.showLocationDetails', statusHud.showLocationDetails, '显示更多的场景信息')}</div>` : '',
-                '<div class="igs-source-filter-grid">',
-                field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小')),
-                // 头像圆角、背景、配色直接摊开，不再收进「高级」。
-                field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']])),
-                '</div>',
-                `<div class="igs-settings-field"><span>显示的表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: listed.ok ? '' : '数据库插件未就绪' })}</div>`,
-                '<div class="igs-source-filter-grid">',
-                field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景')),
-                field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色')),
-                '</div>',
-                '</div>',
-            ].join('');
-            return `<div class="${sectionClass}" data-status-hud>${body}</div>`;
-        }
-
-        const bridge = draft.bridge;
-        const worldviewAssets = asyncState.assetScopeKey
-            ? effectiveSceneAssets(bridge.sceneAssets, asyncState.assetScopeKey)
-            : bridge.sceneAssets;
-        const imageApi = bridge.imageApi;
-        const sourceFilter = bridge.sourceFilter;
-        const reader = draft.readerSettings;
-
-        const advancedOpen = (key) => (asyncState.advancedOpen && asyncState.advancedOpen[key] ? ' open' : '');
-
-        if (tab === 'basic') {
-            return renderTemplate(getSettingsTabTemplate('basic'), {
-                performancePresetBar: renderPerformancePresetBar(reader, { home: true, canUndo: Boolean(asyncState.perfPresetUndo), extraRows: renderWorldviewRow(worldviewAssets) + renderQualityRow(reader) }),
-                advancedFilterOpen: advancedOpen('source-filter'),
-                // 解析出错时的应急项：强行指定这一楼的图片数量，多截少补。
-            imageCountField: field('readerSettings.imageCountOverride', '检测图像数量', selectInput('readerSettings.imageCountOverride', reader.imageCountOverride === null ? 'null' : reader.imageCountOverride, [['null', '自动']].concat(Array.from({ length: 20 }, (_, index) => [index + 1, `${index + 1}张`])))),
-                advancedRegexOpen: advancedOpen('virtual-regex'),
-                advancedBodyFormatOpen: advancedOpen('body-format'),
-                openModeField: `<div class="igs-segmented-field">${field(
-                    'bridge.openMode',
-                    '打开方式',
-                    segmentedInput(
-                        'bridge.openMode',
-                        bridge.openMode,
-                        PUBLIC_READER_MODES.map((id) => [id, getReaderModeLabel(id), getReaderModeIcon(id)]),
-                        '打开方式',
-                    ),
-                )}</div>`,
-                settingsToggles: checkbox('bridge.showToasts', bridge.showToasts, '显示提示弹窗'),
-                resetBasicSourceFilter: renderSectionResetButton('basic-source-filter'),
-                filterToggle: checkbox('bridge.sourceFilter.enabled', sourceFilter.enabled, '启用标签筛选'),
-                filterHidden: hiddenAttr(!sourceFilter.enabled),
-                // 低频设置：平时整块收成一行，摘要只说开没开。
-                filterBrief: sourceFilter.enabled ? '已启用' : '未启用',
-                regexBrief: bridge.virtualRegex.enabled ? '已启用' : '未启用',
-                filterOptionToggles: checkbox('bridge.sourceFilter.stripHtmlComments', sourceFilter.stripHtmlComments, '排除HTML注释')
-                    + checkbox(
-                        'bridge.sourceFilter.allowUntaggedFallback',
-                        sourceFilter.allowUntaggedFallback,
-                        '正文保留标签为空时读取清洗全文',
-                    ),
-                textIncludeField: field('bridge.sourceFilter.textIncludeTags', '正文保留标签', textareaInput('bridge.sourceFilter.textIncludeTags', sourceFilter.textIncludeTags, 'content')),
-                textExcludeField: field('bridge.sourceFilter.textExcludeTags', '正文排除标签', textareaInput('bridge.sourceFilter.textExcludeTags', sourceFilter.textExcludeTags)),
-                htmlCardField: field('bridge.sourceFilter.htmlCardTags', 'HTML卡片标签（整块单独成页渲染）', textareaInput('bridge.sourceFilter.htmlCardTags', sourceFilter.htmlCardTags, 'htm1fenge')),
-                imageIncludeField: field('bridge.sourceFilter.imageIncludeTags', '图片保留标签', textareaInput('bridge.sourceFilter.imageIncludeTags', sourceFilter.imageIncludeTags, 'image&#10;text_to_image')),
-                regexToggle: checkbox('bridge.virtualRegex.enabled', bridge.virtualRegex.enabled, '启用正文格式化'),
-                regexHidden: hiddenAttr(!bridge.virtualRegex.enabled),
-                regexPatternField: field('bridge.virtualRegex.pattern', '查找表达式', textareaInput('bridge.virtualRegex.pattern', bridge.virtualRegex.pattern, '^@bubble:([^|\\n]+)\\|[^|\\n]*\\|\\[?([^\\n]*?)\\]?$')),
-                regexFlagsField: field('bridge.virtualRegex.flags', 'flags', textInput('bridge.virtualRegex.flags', bridge.virtualRegex.flags, 'i')),
-                regexReplacementField: field('bridge.virtualRegex.replacement', '替换文本', textareaInput('bridge.virtualRegex.replacement', bridge.virtualRegex.replacement, '[$1]：$2')),
-                regexExtraRules: (() => {
-                    const rules = Array.isArray(bridge.virtualRegex.rules) ? bridge.virtualRegex.rules : [];
-                    return `<div class="igs-settings-full igs-settings-sub igs-regex-extra-rules">
-                        <div class="igs-settings-section-head"><div class="igs-settings-subhead">自定义规则（依上下顺序生效）</div><button class="igs-settings-action" data-action="add-virtual-regex" type="button">新增一条</button></div>
-                        ${rules.map((rule, index) => `<div class="igs-settings-sub igs-regex-extra-rule">
-                            <div class="igs-settings-row"><strong>追加规则 ${index + 1}</strong><button class="igs-settings-action" data-action="remove-virtual-regex:${index}" type="button">删除</button></div>
-                            <div class="igs-source-filter-grid">
-                                ${field(`bridge.virtualRegex.rules.${index}.pattern`, '查找表达式', textareaInput(`bridge.virtualRegex.rules.${index}.pattern`, rule.pattern, '输入正则表达式'))}
-                                ${field(`bridge.virtualRegex.rules.${index}.flags`, 'flags', textInput(`bridge.virtualRegex.rules.${index}.flags`, rule.flags, 'i'))}
-                                <div class="igs-settings-full">${field(`bridge.virtualRegex.rules.${index}.replacement`, '替换文本', textareaInput(`bridge.virtualRegex.rules.${index}.replacement`, rule.replacement, '输入替换文本'))}</div>
-                            </div>
-                        </div>`).join('')}
-                    </div>`;
-                })(),
-                regexPreview: esc(asyncState.virtualRegexPreview || ''),
-            });
-        }
-
-        if (tab === 'image') {
-            const sourceMode = normalizeImageSourceMode(imageApi.mode);
-            const auto = normalizeAutoIllustrationSettings(mergeLegacyNaiSettings(bridge.autoIllustration, imageApi));
-            const sourceNotes = {
-                nai: '使用你的NAI Key直接生成剧情CG、素材和重画。',
-                dbgen: '提示词、画师串和NAI Key在数据库生图插件里设置。',
-                extension: '画风沿用智绘姬；填了NAI Key时失败会改用NAI。',
-                baibai: '后端与画风沿用柏宝绘；填了NAI Key时失败会改用NAI。',
-            };
-            const contentNotes = {
-                nai: '当前图像来源：IGS内置NAI。',
-                dbgen: '当前图像来源：数据库生图插件。',
-                extension: '当前图像来源：智绘姬。',
-                baibai: '当前图像来源：柏宝绘。',
-            };
-            const openaiDisabled = auto.llm.source !== 'openai';
-            const llmReady = describeLlmReady(auto.llm);
-            const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
-            const imageSubTab = normalizeImageSubTab(asyncState.imageSubTab);
-            const logSettings = normalizeImageJobLogSettings(bridge.imageJobLog);
-            const imageFields = {
-                imageLogRetainDaysField: field('bridge.imageJobLog.retainDays', '自动清理：保留天数（0为不按时间清理）', numberInput('bridge.imageJobLog.retainDays', logSettings.retainDays, 0, 30)),
-                imageLogMaxEntriesField: field('bridge.imageJobLog.maxEntries', '自动清理：最多保留条数', numberInput('bridge.imageJobLog.maxEntries', logSettings.maxEntries, 50, 1000)),
-                imageLogStatus: esc(asyncState.imageLogStatus || ''),
-                imageLogList: imageSubTab === 'logs' ? renderImageJobLogList() : '',
-                imageCacheCountField: field('bridge.imageCache.maxCount', '本地缓存张数', numberInput('bridge.imageCache.maxCount', normalizeImageCacheCount(bridge.imageCache && bridge.imageCache.maxCount), 1, 2000)),
-                imageCgStatus: esc(asyncState.imageCgStatus || ''),
-                imageCgList: imageSubTab === 'cg' ? renderImageCgList() : '',
-                imageCgOldestFirst: String(Boolean(asyncState.imageCg && asyncState.imageCg.state.filters.oldestFirst)),
-                imageCgOrderLabel: asyncState.imageCg && asyncState.imageCg.state.filters.oldestFirst ? '最早在前' : '最新在前',
-                imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS内置NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬'], ['baibai', '柏宝绘']], '图像来源')),
-                imageSourceNote: esc(sourceNotes[sourceMode]),
-                imageContentNote: esc(contentNotes[sourceMode]),
-                sourceNaiHidden: hiddenAttr(sourceMode === 'dbgen'),
-                sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
-                sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
-                advancedNaiOpen: advancedOpen('nai'),
-                advancedExtensionOpen: advancedOpen('extension'),
-                advancedNsfwOpen: advancedOpen('nsfw'),
-                advancedAssetTemplatesOpen: advancedOpen('asset-templates'),
-                autoAssetOptionsHidden: hiddenAttr(!auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
-                assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
-                autoLlmNote: esc(sourceMode === 'dbgen'
-                    ? '负责规划剧情CG画面与素材补全的标签；表情差分、头像、立绘与服装提示词由数据库生图插件自己写。'
-                    : '负责写剧情CG、素材、立绘和表情的提示词；可沿用酒馆API。'),
-                adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
-                pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：查询间隔（毫秒）', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
-                pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：查询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
-                imageTestActionLabel: sourceMode === 'extension' ? '检测智绘姬' : (sourceMode === 'dbgen' ? '检测并测试生成' : '测试生成'),
-                imageTestHelp: esc(asyncState.imageResult || ''),
-                autoNsfwField: checkbox('bridge.autoIllustration.nsfwEnabled', auto.nsfwEnabled, 'NSFW自动生图'),
-                autoNsfwHidden: hiddenAttr(!auto.nsfwEnabled),
-                autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', '每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, NSFW_COUNT_MAX)),
-                autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图'),
-                autoInterludeHidden: hiddenAttr(!auto.interludeEnabled),
-                autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
-                autoInterludeMaxField: field('bridge.autoIllustration.interludeMaxCount', '每层最多张数', numberInput('bridge.autoIllustration.interludeMaxCount', auto.interludeMaxCount, 1, 16)),
-                autoAssetSpriteField: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '自动生成角色立绘'),
-                autoAssetBackgroundField: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '自动生成场景背景'),
-                autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多素材数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 16)),
-                autoAssetSpriteSizeField: field('bridge.autoIllustration.assets.spriteSize', '立绘尺寸', textInput('bridge.autoIllustration.assets.spriteSize', auto.assets.spriteSize, '832x1216')),
-                autoAssetBackgroundSizeField: field('bridge.autoIllustration.assets.backgroundSize', '背景尺寸', textInput('bridge.autoIllustration.assets.backgroundSize', auto.assets.backgroundSize, '1216x832')),
-                autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '场景正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '必须包含 {tags}')),
-                autoAssetBackgroundNegativeTemplateField: field('bridge.autoIllustration.assets.templates.backgroundNegative', '场景负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.backgroundNegative', auto.assets.templates.backgroundNegative, '不希望场景出现的tag')),
-                autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
-                autoAssetSpriteNegativeTemplateField: field('bridge.autoIllustration.assets.templates.spriteNegative', '人物负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.spriteNegative', auto.assets.templates.spriteNegative, '不希望人物立绘出现的tag')),
-                autoAssetNsfwExtraField: field('bridge.autoIllustration.assets.templates.nsfwExtra', 'NSFW附加提示词', autoTextarea('bridge.autoIllustration.assets.templates.nsfwExtra', auto.assets.templates.nsfwExtra, 'NSFW被拒后重试时追加的提示词')),
-                autoLlmWarn: esc(llmReady.error),
-                autoLlmWarnHidden: hiddenAttr(llmReady.ok),
-                // 物品图：独立开关（默认关闭，关闭时不读表、不联网）；背包格子图标是用户显示偏好。
-                itemImageFields: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '自动生成物品图')
-                    + field('bridge.itemImages.inventoryIcon', '背包格子图标', selectInput('bridge.itemImages.inventoryIcon', normalizeItemImageSettings(bridge.itemImages).inventoryIcon, [['image', '生图'], ['svg', 'SVG']])),
-                autoLlmApiHidden: hiddenAttr(openaiDisabled),
-                autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前API（消耗主模型额度）'], ['openai', '独立OpenAI兼容API']])),
-                autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
-                autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '无需Key可留空', openaiDisabled)),
-                autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', modelPicker('bridge.autoIllustration.llm.model', auto.llm.model, asyncState.llmModels, 'fetch-llm-models', 'gpt-4o-mini', openaiDisabled)),
-                autoLlmModelsMessage: esc(asyncState.llmModelsMessage || ''),
-                autoLlmPromptsOpen: advancedOpen('llm-prompts'),
-                advancedJailbreakOpen: advancedOpen('llm-jailbreak'),
-                autoLlmJailbreakHeadField: field('bridge.autoIllustration.llm.jailbreakHead', '头部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakHead', auto.llm.jailbreakHead, '')),
-                autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '')),
-                autoLlmPromptIllustrationField: field('bridge.autoIllustration.llm.prompts.illustration', 'CG插图规划', autoTextarea('bridge.autoIllustration.llm.prompts.illustration', auto.llm.prompts.illustration, '清空即恢复内置提示词')),
-                autoLlmPromptIllustrationSoftField: field('bridge.autoIllustration.llm.prompts.illustrationSoft', 'CG插图规划 · 温和重试（NSFW被拒后使用）', autoTextarea('bridge.autoIllustration.llm.prompts.illustrationSoft', auto.llm.prompts.illustrationSoft, '清空即恢复内置提示词')),
-                autoLlmPromptAssetField: field('bridge.autoIllustration.llm.prompts.asset', '素材补全规划', autoTextarea('bridge.autoIllustration.llm.prompts.asset', auto.llm.prompts.asset, '清空即恢复内置提示词')),
-                autoLlmPromptAssetSoftField: field('bridge.autoIllustration.llm.prompts.assetSoft', '素材补全规划 · 温和重试', autoTextarea('bridge.autoIllustration.llm.prompts.assetSoft', auto.llm.prompts.assetSoft, '清空即恢复内置提示词')),
-                autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
-                autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）']])),
-                autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', '接口地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方image.novelai.net')),
-                autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'NAI Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, 'pst-...')),
-                autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
-                autoNaiModelsMessage: esc(asyncState.naiModelsMessage || ''),
-                autoNaiSizeField: field('bridge.autoIllustration.nai.size', '尺寸', textInput('bridge.autoIllustration.nai.size', auto.nai.size, '832x1216')),
-                autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', auto.nai.steps, 1, 50)),
-                autoNaiScaleField: field('bridge.autoIllustration.nai.scale', 'CFG', numberInput('bridge.autoIllustration.nai.scale', auto.nai.scale, 0, 10, false, 'any')),
-                autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', auto.nai.sampler, 'k_euler_ancestral')),
-                autoNaiArtistField: field('bridge.autoIllustration.nai.artistPrefix', '画师串 / 固定前缀', autoTextarea('bridge.autoIllustration.nai.artistPrefix', auto.nai.artistPrefix, '可选，拼在每张图的正向提示词最前面')),
-                autoNaiNegativeField: field('bridge.autoIllustration.nai.negativePrompt', '负面提示词', autoTextarea('bridge.autoIllustration.nai.negativePrompt', auto.nai.negativePrompt, '')),
-            };
-            return renderTemplate(getSettingsTabTemplate('image'), {
-                imageSubTabs: IMAGE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-image-subtab${imageSubTab === id ? ' is-active' : ''}" data-image-subtab="${id}" role="tab" aria-selected="${imageSubTab === id}">${label}</button>`).join(''),
-                imageSubPane: renderTemplate(getImageSubTabTemplate(imageSubTab), imageFields),
-            });
-        }
-
-        if (tab === 'scene') {
-            const scopeState = rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-            // 列表显示这张卡实际会用的一份（本卡盖在全局上）。每条带「本卡 / 全局」标签，改哪条就写回它所在的那一边。
-            const sceneAssets = draftEffectiveAssets(state.activeSettings);
-            const assetRoot = bridge.sceneAssets || {};
-            const cardKey = String(scopeState.assetScopeKey || '');
-            const storage = (options.global || globalThis).localStorage;
-            const scopeTag = (collection, name) => {
-                if (!cardKey) return '';
-                const inCard = Boolean(assetOwnerKey(assetRoot, cardKey, [collection], name));
-                // 两格切换：亮的那格是现在放的地方，点另一格就迁过去。
-                const move = `asset-move:${collection}:${encodeURIComponent(String(name))}`;
-                const seg = (here, label, title) => (here
-                    ? `<span class="igs-scope-seg is-on" aria-current="true">${label}</span>`
-                    : `<button type="button" class="igs-scope-seg" data-action="${move}" title="${title}">${label}</button>`);
-                return `<span class="igs-asset-scope-switch" role="group" aria-label="放在本卡还是全局">${seg(inCard, '本卡', '收进本卡：只有这张角色卡用')}${seg(!inCard, '全局', '放到全局：所有角色卡共用')}</span>`
-                    + (inCard && assetShadowsGlobal(assetRoot, cardKey, collection, name) ? '<span class="igs-asset-scope-note" title="全局另有一份同名的，这张卡用本卡这份">覆盖全局</span>' : '');
-            };
-            const presetMap = loadLegacyPresets(storage);
-            const presetNames = Object.entries(presetMap).filter(([, preset]) => legacyPresetHasContent(preset) || presetCardLayers(preset).length).map(([name]) => name);
-            // 预设是存档 / 模板：存这张卡实际在用的一套，套用时整层换成预设。旧版存的预设也在这里。
-            const presetRow = (name) => {
-                const n = encodeURIComponent(name);
-                // 分层预设各回各层，一个「套用」就够；旧版不分层的预设才问套到本卡还是全局。
-                const layered = isLayeredPreset(presetMap[name]);
-                const cards = presetCardLayers(presetMap[name]).map((layer) => layer.label);
-                const where = layered ? `<span class="igs-asset-preset-where">全局${cards.length ? ` + ${esc(cards.join('、'))}` : ''}</span>` : '';
-                const apply = layered
-                    ? `<button type="button" class="igs-review-link is-primary" data-action="preset-apply:${n}">套用</button>`
-                    : cardKey
-                    ? `<details class="igs-add-menu igs-asset-preset-apply"><summary class="igs-review-link is-primary">套用</summary><div class="igs-add-menu-list" role="menu">`
-                        + menuItem(`preset-apply:${n}:card`, `套到本卡「${scopeState.assetScopeLabel}」`) + menuItem(`preset-apply:${n}:global`, '套到全局') + '</div></details>'
-                    : `<button type="button" class="igs-review-link is-primary" data-action="preset-apply:${n}:global">套用</button>`;
-                return `<div class="igs-asset-preset-row"><span class="igs-asset-preset-name" title="${esc(name)}">${esc(name)}</span>${where}${apply}<button type="button" class="igs-review-link" data-action="preset-overwrite:${n}" aria-label="用当前配置覆盖预设「${esc(name)}」">覆盖</button>`
-                    + renderRowMenu([menuItem(`preset-export:${n}`, '导出文件'), menuItem(`preset-rename:${n}`, '重命名'), menuItem(`preset-delete:${n}`, '删除', ' is-danger')], `预设「${name}」的操作`)
-                    + '</div>';
-            };
-            const presetOpen = asyncState.advancedOpen && asyncState.advancedOpen['asset-presets'] ? ' open' : '';
-            const presetSection = `<details class="igs-asset-presets" data-advanced="asset-presets"${presetOpen}><summary class="igs-asset-presets-summary">预设</summary>`
-                + `<div class="igs-asset-presets-body">${presetNames.map(presetRow).join('') || '<div class="igs-asset-presets-empty">还没有预设。把现在这一套存下来，以后可以套到别的角色卡。</div>'}`
-                + '<div class="igs-asset-presets-tools"><button type="button" class="igs-settings-action" data-action="preset-save">存为预设</button><button type="button" class="igs-settings-action" data-action="preset-import">导入预设</button></div></div></details>';
-            const assetScopeBar = `<div class="igs-asset-scope-bar"><span class="igs-asset-scope-name">${cardKey ? `当前角色卡：${esc(scopeState.assetScopeLabel)}` : '没打开角色卡，素材都在全局'}</span>`
-                + (scopeState.assetScopeKind === 'card' && cardKey ? '<button type="button" class="igs-settings-action" data-action="asset-card-export">导出本卡素材</button>' : '')
-                + '<button type="button" class="igs-settings-action" data-action="asset-card-import">导入素材包</button></div>'
-                + presetSection;
-            const disabled = !sceneAssets.enabled;
-            const subTab = normalizeSceneSubTab(asyncState.sceneSubTab);
-            // 文件夹只是本地界面归类：按当前角色卡存，卡里还没建过就沿用全局的。
-            const assetFolders = loadAssetFoldersFor(storage, cardKey);
-            const firstUrl = (values) => (values.map((v) => String(v || '').trim()).find(Boolean) || '');
-            const generatedService = options.generatedAssets || null;
-            // 设置页缩略图优先用 blob: 短地址，HTML 不再夹带整段 dataUrl。
-            const resolveGenerated = (url) => {
-                if (!isGeneratedAssetUrl(url)) return url || '';
-                if (!generatedService) return '';
-                if (typeof generatedService.resolveThumbUrl === 'function') return generatedService.resolveThumbUrl(url);
-                return typeof generatedService.resolveUrl === 'function' ? generatedService.resolveUrl(url) : '';
-            };
-            const sceneListOptions = {
-                expandedSlots: asyncState.expandedSceneSlots instanceof Set ? asyncState.expandedSceneSlots : new Set(),
-                timeGroups: sceneAssets.timeGroups || [],
-                weatherGroups: sceneAssets.weatherGroups || [],
-                resolveUrl: resolveGenerated,
-                folderSelect: (name) => renderAssetFolderSelect('scenes', name, assetFolders.scenes),
-                scopeTag,
-            };
-            const scopeFilters = asyncState.assetScopeFilter && typeof asyncState.assetScopeFilter === 'object' ? asyncState.assetScopeFilter : {};
-            const ownedBy = (collection, name) => (assetOwnerKey(assetRoot, cardKey, [collection], name) ? 'card' : 'global');
-            const filterOf = (collection) => (cardKey && (scopeFilters[collection] === 'card' || scopeFilters[collection] === 'global') ? scopeFilters[collection] : 'all');
-            const scopedEntries = (collection) => {
-                const all = sceneAssets[collection] || {};
-                const filter = filterOf(collection);
-                if (filter === 'all') return all;
-                return Object.fromEntries(Object.entries(all).filter(([name]) => ownedBy(collection, name) === filter));
-            };
-            // 只在打开了角色卡时出现。切到「本卡」可以一键全放到全局，切到「全局」可以一键全收进本卡。
-            const scopeFilterBar = (collection) => {
-                if (!cardKey) return '';
-                const names = Object.keys(sceneAssets[collection] || {});
-                const cardCount = names.filter((name) => ownedBy(collection, name) === 'card').length;
-                const counts = { all: names.length, card: cardCount, global: names.length - cardCount };
-                const filter = filterOf(collection);
-                const chip = (id, label) => `<button type="button" class="igs-asset-filter${filter === id ? ' is-active' : ''}" data-action="asset-filter:${collection}:${id}" aria-pressed="${filter === id}">${label}<span class="igs-asset-filter-count">${counts[id]}</span></button>`;
-                // 一键迁移常驻在筛选旁：点开选方向，数量为 0 的那项不能点，选了还会再确认一次。
-                const bulkItem = (dest, label, count) => `<button type="button" class="igs-add-menu-item" data-action="asset-move-all:${collection}:${dest}" role="menuitem"${count ? '' : ' disabled'}>${label}</button>`;
-                const bulk = `<details class="igs-add-menu igs-asset-bulk-menu" data-asset-bulk="${collection}"><summary class="igs-btn-mgr-icon igs-asset-bulk" title="一键迁移" aria-label="一键迁移">${ASSET_MOVE_ALL_SVG}</summary>`
-                    + `<div class="igs-add-menu-list" role="menu">${bulkItem('global', `本卡的 ${counts.card} 个全部放到全局`, counts.card)}${bulkItem('card', `全局的 ${counts.global} 个全部收进本卡`, counts.global)}</div></details>`;
-                return `<span class="igs-asset-filter-group" role="group" aria-label="按归属筛选" data-asset-filter="${collection}">${chip('all', '全部')}${chip('card', '本卡')}${chip('global', '全局')}</span>${bulk}`;
-            };
-            const assetSelect = (kind) => (asyncState.assetSelect && asyncState.assetSelect.kind === kind ? asyncState.assetSelect.names : null);
-            const scenesHtml = renderAssetFolderView('scenes', scopedEntries('scenes'), {
-                state: assetFolders,
-                select: assetSelect('scenes'),
-                lead: scopeFilterBar('scenes'),
-                renderList: (subset) => renderSceneAssetList(subset, sceneListOptions),
-                rawOf: (name, value) => (typeof value === 'string' ? value : (value && value.url) || ''),
-                thumbOf: (name, value) => resolveGenerated(typeof value === 'string' ? value : firstUrl([value && value.url].concat(Object.values((value && value.times) || {}).map((t) => (typeof t === 'string' ? t : t && t.url))))),
-            });
-            const charListOptions = {
-                aliases: sceneAssets.characterAliases || {},
-                characterDna: sceneAssets.characterDna || {},
-                characterOutfits: sceneAssets.characterOutfits || {},
-                outfitTabs: asyncState.outfitTabs || {},
-                sceneAssets,
-                moodGroups: sceneAssets.moodGroups || [],
-                expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
-                statusAvatars: sceneAssets.statusAvatars || {},
-                // 角色学院只在魔法世界观下有意义；其他世界观的魔法星夜只当星空框用，不显示这一行。
-                magicHouse: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY && resolveWorldview(worldviewAssets) === 'magic' ? { sceneAssets, fallback: reader.magicHouse } : null,
-                // 角色声线只在开了「角色语气音」时显示。
-                voice: normalizeVoiceBarkSettings(reader.voiceBark).enabled ? { sceneAssets } : null,
-                spriteHeight: { sceneAssets, reader },
-                resolveUrl: resolveGenerated,
-                expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
-                folderSelect: (name, opts) => renderAssetFolderSelect('characters', name, assetFolders.characters, opts),
-                scopeTag,
-                isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]),
-            };
-            const charsHtml = renderAssetFolderView('characters', scopedEntries('characters'), {
-                state: assetFolders,
-                select: assetSelect('characters'),
-                lead: scopeFilterBar('characters'),
-                renderList: (subset) => renderCharacterAssetList(subset, charListOptions),
-                thumbOf: (name, moods) => resolveGenerated(firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]]))),
-            });
-            const generatedArgs = {
-                library: normalizeGeneratedLibrary(sceneAssets.generated),
-                characters: sceneAssets.characters || {},
-                scenes: sceneAssets.scenes || {},
-                temp: generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
-                resolveUrl: resolveGenerated,
-                moodGroups: sceneAssets.moodGroups || [],
-            };
-            // 待确认：AI 写出但没登记的服装词、词库外的情绪词、生成了还没入库的图。
-            const resolveOutfit = createOutfitResolver(sceneAssets);
-            const outfitReview = dropConfirmedOutfitReview(storage, (character, word) => Boolean(resolveOutfit(character, word)));
-            const moodReview = loadMoodReview(storage);
-            const waitingCount = outfitReview.length + moodReview.length + countGeneratedWaiting(generatedArgs);
-            const reviewPane = `<div class="igs-settings-section igs-review-pane">`
-                + renderOutfitReviewList(outfitReview, sceneAssets.characterOutfits || {}, sceneAssets.characters || {})
-                + renderMoodReviewList(moodReview, sceneAssets.moodGroups, { busy: Boolean(asyncState.moodReviewClassifying) })
-                + renderGeneratedAssetPane(generatedArgs)
-                + `</div>`;
-            const scenesPane = `<div class="igs-settings-section">
-        <div class="igs-settings-section-head">
-          <div class="igs-settings-subhead">背景场景</div>
-          <button type="button" class="igs-settings-action igs-asset-zip" data-action="asset-zip:scenes">打包下载</button>
-          <details class="igs-add-menu" data-add-menu="scenes">
-            <summary class="igs-btn-mgr-icon" title="新增背景" aria-label="新增背景">+</summary>
-            <div class="igs-add-menu-list" role="menu">
-              <button class="igs-add-menu-item" data-action="scene-add-bg" type="button" role="menuitem">新增空白场景</button>
-              <button class="igs-add-menu-item" data-action="scene-add-default-bg" type="button" role="menuitem">下载默认素材</button>
-            </div>
-          </details>
-        </div>
-        ${checkbox('bridge.autoIllustration.assets.strictMatch', normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.strictMatch, '严格匹配场景素材')}
-        <div class="igs-source-filter-note">开启后只认精确与别名命中的背景，不拿相近场景的图顶替；匹配不到就按缺失补画。</div>
-        ${scenesHtml}
-      </div>`;
-            const spriteEnhance = sceneAssets.spriteEnhance || {};
-            const spriteGenderScale = normalizeSpriteGenderScale(reader.spriteGenderScale);
-            // 立绘显示与情绪匹配是整区设置：单独一张折叠卡放在角色列表上面，不再压在「角色立绘」标题下。
-            const charactersSettingsCard = `<div class="igs-source-filter igs-perf-group"><details data-advanced="sprite-display"${asyncState.advancedOpen && asyncState.advancedOpen['sprite-display'] ? ' open' : ''}><summary><b>立绘设置</b><span class="igs-perf-brief">缩放 · 高度 · 增强 · 情绪匹配</span></summary><div class="igs-perf-group-body">
-        ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
-        <div class="igs-source-filter-note">相近的情绪词也归进组里（可能归错，在「待确认」核对）。</div>
-        ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
-        ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强（手机较耗电）')}
-        ${checkbox('readerSettings.spriteGenderScale.enabled', spriteGenderScale.enabled, '按性别区分默认高度')}
-        <div class="igs-source-filter-note">按 DNA 判断男女；调过的立绘和单独填了高度的角色不受影响。</div>
-        <div class="igs-source-filter-grid">
-          ${field('readerSettings.spriteDisplayScale', '立绘全局缩放', selectInput('readerSettings.spriteDisplayScale', reader.spriteDisplayScale || 100, [50, 60, 70, 80, 90, 100, 110, 120, 130, 150].map((n) => [n, `${n}%`])))}
-          ${field('readerSettings.spriteDefaultScale', '立绘基准高度 %', numberInput('readerSettings.spriteDefaultScale', normalizeSpriteDefaultScale(reader.spriteDefaultScale), SPRITE_HEIGHT_RANGE[0], SPRITE_HEIGHT_RANGE[1]))}
-          ${spriteGenderScale.enabled ? `
-          ${field('readerSettings.spriteGenderScale.female', '女性默认高度 %', numberInput('readerSettings.spriteGenderScale.female', spriteGenderScale.female, SPRITE_HEIGHT_RANGE[0], SPRITE_HEIGHT_RANGE[1]))}
-          ${field('readerSettings.spriteGenderScale.male', '男性默认高度 %', numberInput('readerSettings.spriteGenderScale.male', spriteGenderScale.male, SPRITE_HEIGHT_RANGE[0], SPRITE_HEIGHT_RANGE[1]))}
-          ${field('readerSettings.spriteGenderScale.other', '其他默认高度 %', numberInput('readerSettings.spriteGenderScale.other', spriteGenderScale.other, SPRITE_HEIGHT_RANGE[0], SPRITE_HEIGHT_RANGE[1]))}` : ''}
-          ${spriteEnhance.enabled === true ? `
-          ${field('bridge.sceneAssets.spriteEnhance.mode', '效果', selectInput('bridge.sceneAssets.spriteEnhance.mode', spriteEnhance.mode || 'outline', [['outline', '硬描边'], ['shadow', '投影式']]))}
-          ${field('bridge.sceneAssets.spriteEnhance.color', '增强颜色', colorInput('bridge.sceneAssets.spriteEnhance.color', spriteEnhance.color || '#000000'))}
-          ${field('bridge.sceneAssets.spriteEnhance.strength', '增强浓淡', selectInput('bridge.sceneAssets.spriteEnhance.strength', spriteEnhance.strength ?? 20, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`])))}
-          ${field('bridge.sceneAssets.spriteEnhance.size', '增强大小', selectInput('bridge.sceneAssets.spriteEnhance.size', spriteEnhance.size ?? 0.8, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`])))}` : ''}
-        </div>
-        </div></details></div>`;
-            const charactersPane = `<div class="igs-settings-section">
-        <div class="igs-settings-section-head">
-          <div class="igs-settings-subhead">角色立绘</div>
-          <button type="button" class="igs-settings-action igs-asset-zip" data-action="asset-zip:characters">打包下载</button>
-          ${CHARACTER_ADD_MENU}
-        </div>
-        ${renderDnaCandidateBar(asyncState.dnaCandidate)}
-        ${charsHtml}
-        ${renderDnaOnlyCharacterList(sceneAssets.characterDna || {}, sceneAssets.characters || {})}
-      </div>`;
-            const promptRuleDraft = typeof asyncState.promptRuleDraft === 'string'
-                ? asyncState.promptRuleDraft
-                : String(sceneAssets.promptRule || '');
-            const sceneValues = {
-                promptRuleField: `<div class="igs-settings-field"><textarea data-prompt-rule-draft="1" aria-label="AI格式规则" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea></div>`,
-                promptRuleStatus: esc(asyncState.promptRuleStatus || ''),
-                promptRuleOutfitHint: scenePromptRuleOutfitHint(sceneAssets.promptRule)
-                    ? `<div class="igs-source-filter-note" data-result="prompt-rule-outfit">${esc(PROMPT_RULE_OUTFIT_HINT)}</div>` : '',
-                promptAdvanced: `<details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-injection"${asyncState.advancedOpen && asyncState.advancedOpen['prompt-injection'] ? ' open' : ''}><summary>高级：注入位置与按需注入</summary>`
-                    + field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区'], ['depth0', '聊天末尾']]),
-                        'AI不按标签输出时改回聊天末尾。')
-                    + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入')
-                    + '<div class="igs-source-filter-note">只在用得上时附完整说明。</div></details>',
-                wardrobeSection: renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
-                moodSection: checkbox('bridge.sceneAssets.moodAutoClassify', sceneAssets.moodAutoClassify === true, '自动归类（用副API）')
-                    + (asyncState.moodAutoStatus ? `<div class="igs-source-filter-note" data-mood-auto-status>${esc(asyncState.moodAutoStatus)}</div>` : '')
-                    + renderMoodGroupList(sceneAssets.moodGroups, { isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]) })
-                    + '<div class="igs-settings-row"><button class="igs-settings-action" data-action="mood-apply-preset" type="button">套用预设</button><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认</button></div>',
-            };
-            const sceneSubTabs = SCENE_SUBTAB_DEFS.map(([id, label]) => {
-                const count = id === 'review' && waitingCount ? `<span class="igs-scene-subtab-count">${waitingCount}</span>` : '';
-                return `<button type="button" class="igs-scene-settings-subtab${subTab === id ? ' is-active' : ''}" data-scene-subtab="${id}" role="tab" aria-selected="${subTab === id ? 'true' : 'false'}">${label}${count}</button>`;
-            }).join('');
-            const assetPane = (html) => `<div class="igs-settings-grid" data-scene-settings-pane="assets"><div class="igs-source-filter">${html}</div></div>`;
-            const sceneSubPane = subTab === 'rules'
-                ? renderTemplate(SCENE_RULES_TEMPLATE, sceneValues)
-                : subTab === 'characters' || !['review', 'scenes'].includes(subTab)
-                    ? `<div class="igs-settings-grid" data-scene-settings-pane="assets">${charactersSettingsCard}<div class="igs-source-filter">${charactersPane}</div></div>`
-                    : assetPane(subTab === 'review' ? reviewPane : scenesPane);
-            return renderTemplate(getSettingsTabTemplate('scene'), {
-                sceneToggle: checkbox('bridge.sceneAssets.enabled', sceneAssets.enabled, '启用场景素材模式'),
-                sceneHidden: hiddenAttr(disabled),
-                assetScopeBar,
-                sceneSubTabs,
-                sceneSubPane,
-            });
-        }
-
-        const readerSubTab = normalizeReaderSubTab(asyncState.readerSubTab);
-        const sceneEnabled = !!(bridge.sceneAssets && bridge.sceneAssets.enabled);
-        const classicDialog = reader.dialogSkin === DIALOG_SKIN_WESTERN_CLASSIC;
-        const illustratedDialog = isIllustratedDialogSkin(reader.dialogSkin);
-        const gradientVeilDialog = reader.dialogSkin === DIALOG_SKIN_GRADIENT_VEIL;
-        const themeDisabled = !sceneEnabled && !classicDialog && !illustratedDialog;
-        const themePath = classicDialog ? 'readerSettings.classicVnTheme' : 'readerSettings.vnTheme';
-        const vnTheme = reader.vnTheme || {};
-        const classicVnTheme = reader.classicVnTheme || CLASSIC_DIALOG_THEME_DEFAULTS;
-        // 对话主题已取消预设选择，恒为自定义：自定义项始终可编辑（仅受场景素材开关 themeDisabled 控制）。
-        const themeCustom = true;
-        const displayTheme = classicDialog ? classicVnTheme : vnTheme;
-        // 背景色 / 不透明度只有默认皮肤的对话框会读；渐变纱、西式古典和插画皮肤都自带底色，显示了也改不动。
-        const dialogBgEditable = !themeDisabled && !classicDialog && !illustratedDialog && !gradientVeilDialog;
-        const dialogHeightItems = [['null', '自适应'], [.05, '5%'], [.08, '8%'], [.12, '12%'], [.15, '15%'], [.18, '18%'], [.2, '20%'], [.25, '25%'], [.3, '30%'], [.35, '35%'], [.4, '40%']];
-        const typewriter = normalizeTypewriterSettings(reader.typewriter);
-        const stageShake = normalizeStageShakeSettings(reader.stageShake);
-        const voiceBark = normalizeVoiceBarkSettings(reader.voiceBark);
-        const chatShow = normalizeChatShowSettings(reader.chatShow);
-        const systemRole = normalizeSystemRoleSettings(reader.systemRole);
-        const weatherFx = normalizeWeatherFxSettings(reader.weatherFx);
-        const statusHud = normalizeStatusHudSettings(reader.statusHud);
-        if (reader.dialogHeight != null && !dialogHeightItems.some(([value]) => String(value) === String(reader.dialogHeight))) {
-            dialogHeightItems.splice(1, 0, [reader.dialogHeight, `${reader.dialogHeight}px`]);
-        }
-        const readerSubTabs = READER_SUBTAB_DEFS.map(([id, label]) => (
-            `<button type="button" class="igs-reader-subtab${readerSubTab === id ? ' is-active' : ''}" data-reader-subtab="${id}" role="tab" aria-selected="${readerSubTab === id ? 'true' : 'false'}">${label}</button>`
-        )).join('');
-        const readerValues = {
-            ...sectionResetPlaceholders(),
-            fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
-            dialogFontWeightField: field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])),
-            // 文字增强是开关（借分段点击写值：开=硬描边，关=off），开了才出现种类和三个参数。
-            dialogTextEffectToggle: `<button type="button" class="igs-switch${reader.dialogTextEffect !== 'off' ? ' is-on' : ''}" data-segment-path="readerSettings.dialogTextEffect" data-segment-value="${reader.dialogTextEffect !== 'off' ? 'off' : 'outline'}" aria-pressed="${reader.dialogTextEffect !== 'off' ? 'true' : 'false'}"><i></i><span>文字增强</span></button>`,
-            dialogTextEffectOptions: reader.dialogTextEffect === 'off' ? '' : `<div class="igs-source-filter-grid">${field('readerSettings.dialogTextEffect', '增强种类', segmentedInput('readerSettings.dialogTextEffect', reader.dialogTextEffect, [['outline', '硬描边'], ['shadow', '投影式']], '增强种类'))}<div class="igs-reader-text-effect-options">${field('readerSettings.dialogTextEffectColor', '增强颜色', colorInput('readerSettings.dialogTextEffectColor', reader.dialogTextEffectColor))}${field('readerSettings.dialogTextEffectStrength', '增强浓淡', selectInput('readerSettings.dialogTextEffectStrength', reader.dialogTextEffectStrength, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`])))}${field('readerSettings.dialogTextEffectSize', '增强大小', selectInput('readerSettings.dialogTextEffectSize', reader.dialogTextEffectSize, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`])))}</div></div>`,
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, [['default', '默认'], ['western-classic', '西欧古典'], [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'], [DIALOG_SKIN_MAGIC_ACADEMY, '魔法星夜'], [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'], [DIALOG_SKIN_QINGLV, '青绿山水'], [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'], [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'], [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'], [DIALOG_SKIN_FAIRY_TALE, '童话小镇'], [DIALOG_SKIN_DAY_MINIMAL, '日间简约'], [DIALOG_SKIN_BLACK_WHITE_MANGA, '黑白漫画'], [DIALOG_SKIN_CUTE_PINK, '超可爱粉'], [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕'], [DIALOG_SKIN_HORROR_GORE, '血色噩梦'], [DIALOG_SKIN_HORROR_PSYCH, '褪色病历']])),
-            gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认主题'], ['plain-text', '纯文字']])) + '</div>' : '',
-            magicHouseField: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : '',
-            classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : '',
-            skinDialogScaleField: classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]))) : '',
-            optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
-            dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog || illustratedDialog)),
-            // 经典/异型对话框的高度只由 skinDialogScale 控制，不再并列一个禁用的像素高度选项。
-            dialogHeightField: classicDialog || illustratedDialog ? '' : field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, dialogHeightItems)),
-            glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`]))),
-            inputScaleField: field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
-            toolbarScaleField: field('readerSettings.toolbarScale', '工具栏大小', selectInput('readerSettings.toolbarScale', reader.toolbarScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
-            toolbarDockField: field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'top', [['float', '紧贴对话框'], ['top', '顶部固定']])),
-            imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
-            imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '双击隐藏对话框'),
-            cinemaBarsToggle: checkbox('readerSettings.cinemaBars', reader.cinemaBars, '电影黑边'),
-            backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '毛玻璃模糊'),
-            // 玻璃作用于工具栏、选项、数据库、地图和记录面板；对话框只有默认皮肤跟随，其余皮肤自带底色。
-            glassScopeNote: dialogBgEditable ? '对话框跟着变' : '当前对话框不受影响',
-            advancedDialogGlassOpen: advancedOpen('dialog-glass'),
-            typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '打字机'),
-            playbackSpeed: field('readerSettings.typewriter.speed', '播放速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '播放速度'), '自动播放与打字机共用'),
-            typewriterControls: typewriter.enabled ? [
-                `<div class="igs-source-filter-grid">`,
-                field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式')),
-                `</div>`,
-                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.punctuationPause', typewriter.punctuationPause, '标点处停顿') : '',
-                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.prosody', typewriter.prosody === true, '说话韵律') : '',
-                typewriter.mode === 'classic' ? checkbox('readerSettings.typewriter.sound.enabled', typewriter.sound.enabled, '启用打字音效') : '',
-                typewriter.mode === 'classic' && typewriter.sound.enabled
-                    ? `<div class="igs-settings-sub igs-source-filter-grid">`
-                        + field('readerSettings.typewriter.sound.dialoguePreset', '台词音色', selectInput('readerSettings.typewriter.sound.dialoguePreset', typewriter.sound.dialoguePreset, TYPEWRITER_VOICE_LABELS))
-                        + field('readerSettings.typewriter.sound.dialogueVolume', '台词音量', rangeInput('readerSettings.typewriter.sound.dialogueVolume', typewriter.sound.dialogueVolume ?? typewriter.sound.volume ?? 0.5, '台词音量'))
-                        + field('readerSettings.typewriter.sound.narrationPreset', '旁白音色', selectInput('readerSettings.typewriter.sound.narrationPreset', typewriter.sound.narrationPreset, TYPEWRITER_VOICE_LABELS))
-                        + field('readerSettings.typewriter.sound.narrationVolume', '旁白音量', rangeInput('readerSettings.typewriter.sound.narrationVolume', typewriter.sound.narrationVolume ?? typewriter.sound.volume ?? 0.5, '旁白音量'))
-                        + field('readerSettings.typewriter.sound.thoughtPreset', '心里话音色', selectInput('readerSettings.typewriter.sound.thoughtPreset', typewriter.sound.thoughtPreset, [['follow', '跟随台词']].concat(TYPEWRITER_VOICE_LABELS)))
-                        + `</div>`
-                        + checkbox('readerSettings.typewriter.sound.speakerPitch', typewriter.sound.speakerPitch, '按角色区分音高')
-                        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="typewriter-preview-sound">试听</button>`
-                    : '',
-            ].join('') : '',
-            voiceBarkToggle: checkbox('readerSettings.voiceBark.enabled', voiceBark.enabled, '角色语气音'),
-            // 台词开头按情绪播一声「啊、嗯、哼」；每个角色的声线在 素材 › 角色 › 角色设定 里选，默认按 DNA 性别自动分配。
-            voiceBarkControls: voiceBark.enabled ? [
-                field('readerSettings.voiceBark.frequency', '播放时机', segmentedInput('readerSettings.voiceBark.frequency', voiceBark.frequency, VOICE_BARK_FREQUENCIES, '播放时机')),
-                field('readerSettings.voiceBark.volume', '音量', rangeInput('readerSettings.voiceBark.volume', voiceBark.volume, '语气音音量')),
-                `<div class="igs-source-filter-note">声线在 素材 › 角色 › 角色设定 里选，没选按DNA性别分配。</div>`,
-            ].join('') : '',
-            stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
-            stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
-            systemRoleFields: renderSystemRoleSettings(systemRole, {
-                fontOptions: DIALOG_FONT_OPTIONS,
-                narrationColor: toHex(displayTheme.narrationColor || '#f4f4f6'),
-                disabled: themeDisabled,
-            }),
-            chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '线上交流'),
-            chatShowSettings: chatShow.enabled ? renderChatShowSettings(chatShow, {
-                promptDraft: asyncState.chatPromptDraft,
-                promptStatus: asyncState.chatPromptStatus,
-            }) : '',
-            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '天气'),
-            weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
-            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'),
-            cgHoldField: field('readerSettings.cgHoldPages', '日常CG停留', selectInput('readerSettings.cgHoldPages', reader.cgHoldPages || 4, [[2, '2页'], [3, '3页'], [4, '4页'], [6, '6页'], [8, '8页']]), 'NSFW插图保持到下一张'),
-            sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'),
-            nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', statusHud.nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW 场景立绘')}<em>剪影需先在立绘编辑里标定头部</em></div>`,
-            nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')),
-            nsfwCgPortraitToggle: checkbox('readerSettings.statusHud.nsfwCgPortrait', statusHud.nsfwCgPortrait, 'CG时对话框旁显示裸体头像（需衣柜里有引用「裸体」的服装）'),
-            nsfwCgPortraitControls: statusHud.nsfwCgPortrait
-                ? field('readerSettings.statusHud.nsfwCgPortraitShift', '头像上下', selectInput('readerSettings.statusHud.nsfwCgPortraitShift', statusHud.nsfwCgPortraitShift, [[-30, '上移3'], [-20, '上移2'], [-10, '上移1'], [0, '自动'], [10, '下移1'], [20, '下移2'], [30, '下移3']]))
-                    + field('readerSettings.statusHud.nsfwCgPortraitZoom', '头像缩放', selectInput('readerSettings.statusHud.nsfwCgPortraitZoom', statusHud.nsfwCgPortraitZoom, [[80, '80%'], [90, '90%'], [100, '100%'], [115, '115%'], [130, '130%'], [150, '150%']]))
-                : '',
-            statusHudSection: buildStatusHudSettingsHtml(reader, options),
-            optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
-            optionBubbleHidden: hiddenAttr(!(bridge.optionBubble && bridge.optionBubble.enabled)),
-            optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
-            optionBubbleActionField: field('bridge.optionBubble.clickAction', '点击选项', segmentedInput('bridge.optionBubble.clickAction', (bridge.optionBubble && bridge.optionBubble.clickAction) || 'send', [['send', '自动发送'], ['fill', '填入输入框']], '点击行为')),
-            optionBubbleWidthToggle: checkbox('bridge.optionBubble.widthFollowsText', Boolean(bridge.optionBubble && bridge.optionBubble.widthFollowsText), '气泡宽度随文本变化'),
-            pinnedButtonsField: renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder),
-            themeNoteHidden: hiddenAttr(!themeDisabled),
-            themeHidden: hiddenAttr(themeDisabled),
-            dividerHidden: hiddenAttr(themeDisabled || classicDialog),
-            dividerField: field(`${themePath}.dividerSymbol`, '样式', selectInput(`${themePath}.dividerSymbol`, displayTheme.dividerSymbol || 'none', [['gradient', '渐变线'], ['none', '无']], themeDisabled || classicDialog || !themeCustom)),
-            nameFontField: field(`${themePath}.nameFont`, '字体', selectInput(`${themePath}.nameFont`, displayTheme.nameFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
-            textFontField: field(`${themePath}.textFont`, '字体', selectInput(`${themePath}.textFont`, displayTheme.textFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
-            thoughtFontField: field(`${themePath}.thoughtFont`, '字体', selectInput(`${themePath}.thoughtFont`, displayTheme.thoughtFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
-            nameColorField: field(`${themePath}.nameColor`, '颜色', colorInput(`${themePath}.nameColor`, toHex(displayTheme.nameColor || '#ffeeb8'), themeDisabled || !themeCustom)),
-            textColorField: field(`${themePath}.textColor`, '颜色', colorInput(`${themePath}.textColor`, toHex(displayTheme.textColor || '#f4f4f6'), themeDisabled || !themeCustom)),
-            thoughtColorField: field(`${themePath}.thoughtColor`, '颜色', colorInput(`${themePath}.thoughtColor`, toHex(displayTheme.thoughtColor || '#c8c8dc'), themeDisabled || !themeCustom)),
-            narrationFontField: field(`${themePath}.narrationFont`, '字体', selectInput(`${themePath}.narrationFont`, displayTheme.narrationFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
-            narrationColorField: field(`${themePath}.narrationColor`, '颜色', colorInput(`${themePath}.narrationColor`, toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
-            dividerColorField: field(`${themePath}.dividerColor`, '颜色', colorInput(`${themePath}.dividerColor`, toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || classicDialog || !themeCustom)),
-            dialogBgField: dialogBgEditable ? field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), !themeCustom)) : '',
-            dialogBgOpacityField: !dialogBgEditable ? '' : field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随玻璃'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], !themeCustom)),
-        };
-        if (readerSubTab === 'performance') {
-            readerValues.performanceSections = renderPerformanceSettings(reader, { worldview: renderWorldviewRow(worldviewAssets), worldviewId: resolveWorldview(worldviewAssets),
-                canUndo: Boolean(asyncState.perfPresetUndo),
-                playbackSpeed: readerValues.playbackSpeed,
-                typewriter: [readerValues.typewriterToggle, readerValues.typewriterControls],
-                // 语气音的开关、时机、音量对所有角色生效，放「声音」；每个角色的声线在 素材 › 角色 › 角色设定。
-                voiceBark: [readerValues.voiceBarkToggle, readerValues.voiceBarkControls],
-                voiceBarkOn: normalizeVoiceBarkSettings(reader.voiceBark).enabled,
-                stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
-                weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
-                chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],
-                narrationFilter: readerValues.narrationFilterToggle,
-                cgHold: readerValues.cgHoldField,
-                cinemaBars: readerValues.cinemaBarsToggle,
-                sentencePaging: readerValues.sentencePagingToggle,
-                sentencePagingOn: Boolean(bridge.sentencePaging),
-                nsfwSprite: readerValues.nsfwSpriteModeField,
-                nsfwVeil: readerValues.nsfwVeilLevelField,
-                nsfwCgPortrait: [readerValues.nsfwCgPortraitToggle, readerValues.nsfwCgPortraitControls],
-            }, (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]));
-        }
-        return renderTemplate(getSettingsTabTemplate('reader'), {
-            readerSubTabs,
-            readerSubPane: renderTemplate(getReaderSubTabTemplate(readerSubTab), readerValues),
-        });
-    }
-
     // 顶部固定工具栏按钮区横向滚动：移动端 overlay 区域吞掉了原生触摸滚动，
     // 故照搬数据库标签栏的 JS 拖拽滚动（pointerdown 起点 → pointermove 改 scrollLeft），
     // 仅在内容溢出时启动，拖动后抑制紧随的 click 避免误触按钮。参照 panel-controller 的标签栏拖拽。
@@ -4623,358 +3492,6 @@ export function createIgsReaderHost(options = {}) {
         return message && message.element ? message.element : null;
     }
 
-    function mountSettingsDom(controller) {
-        const doc = getRootDocument(options.global);
-        if (!doc) return null;
-        ensureStyleTag(doc, 'igs-unified-settings-style', getSettingsStyleText());
-        const existing = doc.getElementById('igs-unified-settings');
-        if (existing) existing.remove();
-
-        const root = doc.createElement('div');
-        // 与 #igs-overlay 一致挂到 documentElement：宿主移动端 body 为 position:fixed 时会成为
-        // 独立层叠上下文，设置面板挂在 body 内时整体被压在 overlay 之下（z-index 翻不出 body），
-        // 且 100vw/100dvh 取到受限的 body 尺寸而非视口。
-        (doc.documentElement || doc.body).appendChild(root);
-        root.addEventListener('click', async (event) => {
-            const tab = event.target.closest('[data-tab]');
-            if (tab) {
-                controller.switchTab(tab.getAttribute('data-tab'));
-                return;
-            }
-            const imageSubTab = event.target.closest('[data-image-subtab]');
-            if (imageSubTab) {
-                controller.switchImageSubTab(imageSubTab.getAttribute('data-image-subtab'));
-                return;
-            }
-            const readerSubTab = event.target.closest('[data-reader-subtab]');
-            if(readerSubTab) {
-                controller.switchReaderSubTab(readerSubTab.getAttribute('data-reader-subtab'));
-                return;
-            }
-            const settingGo = event.target.closest('[data-setting-go]');
-            if (settingGo) {
-                controller.goToSetting(settingGo.getAttribute('data-setting-go'));
-                return;
-            }
-            const sceneSubTab = event.target.closest('[data-scene-subtab]');
-            if (sceneSubTab) {
-                controller.switchSceneSubTab(sceneSubTab.getAttribute('data-scene-subtab'));
-                return;
-            }
-            const sw = event.target.closest('[data-switch]');
-            if (sw) {
-                controller.toggle(sw.getAttribute('data-switch'));
-                return;
-            }
-            const segment = event.target.closest('[data-segment-path]');
-            if (segment) {
-                controller.setValue(segment.getAttribute('data-segment-path'), segment.getAttribute('data-segment-value'));
-                return;
-            }
-            const action = event.target.closest('[data-action]');
-            if (action) {
-                const actName = action.getAttribute('data-action');
-                if (actName === 'toggle-secret') {
-                    const wrap = action.closest('.igs-settings-secret');
-                    const input = wrap ? wrap.querySelector('input') : null;
-                    if (input) {
-                        const show = input.type === 'password';
-                        input.type = show ? 'text' : 'password';
-                        action.textContent = show ? '隐藏' : '显示';
-                        action.setAttribute('aria-pressed', show ? 'true' : 'false');
-                    }
-                    return;
-                }
-                // 缩略图大图预览：URL 直接取 <img> 自己的 src，不在 data-action 里再嵌一份（dataUrl 动辄几百 KB）。
-                if (actName === 'sprite-preview' || actName.startsWith('sprite-preview:')) {
-                    event.preventDefault();
-                    const url = actName === 'sprite-preview'
-                        ? String(action.getAttribute('src') || '')
-                        : decodeURIComponent(actName.slice('sprite-preview:'.length));
-                    if (url) showSpritePreviewOverlay(root, url);
-                    // 列表里是 160 宽小图：先放小图，原图读到再换上。
-                    const service = options.generatedAssets;
-                    const fullId = url && service && typeof service.thumbSourceId === 'function' ? service.thumbSourceId(url) : '';
-                    if (fullId && typeof service.getImageDataUrl === 'function') {
-                        service.getImageDataUrl(fullId).then((full) => {
-                            const img = full && root.querySelector ? root.querySelector('#igs-sprite-preview-overlay .igs-sprite-preview-img') : null;
-                            if (img) img.src = full;
-                        }).catch(() => {});
-                    }
-                    return;
-                }
-                // 生图 › CG 库：先用缩略图铺满，原图读到再换（预览已关就不再弹）；读失败的格子点一下重试。
-                if (actName.startsWith('image-cg-view:')) {
-                    event.preventDefault();
-                    const cgView = state.activeSettings && state.activeSettings.asyncState && state.activeSettings.asyncState.imageCg;
-                    const cgEntry = cgView ? cgView.state.entries[Number(actName.slice('image-cg-view:'.length))] : null;
-                    if (!cgEntry) return;
-                    const cgTile = cgView.tileOf(cgEntry.key);
-                    if (cgTile.state === 'failed') { cgView.retry(cgEntry.key); return; }
-                    if (cgTile.url) showSpritePreviewOverlay(root, cgTile.url);
-                    else showSettingsNotice('正在读取原图…');
-                    cgView.readFull(cgEntry).then((result) => {
-                        const stillOpen = !cgTile.url || Boolean(root.querySelector && root.querySelector('#igs-sprite-preview-overlay'));
-                        if (result && result.ok) { if (stillOpen) showSpritePreviewOverlay(root, result.dataUrl); }
-                        else showSettingsNotice(`原图读取失败：${cgReasonText(result && result.reason)}`);
-                    });
-                    return;
-                }
-                event.preventDefault();
-                const busyLabel = settingsBusyLabel(actName);
-                if (busyLabel) {
-                    // 菜单项点完就收起菜单，进度看底部进度条；同一格还在画时说一声，不再静默吞掉。
-                    const menu = action.closest('details.igs-add-menu');
-                    if (menu) menu.open = false;
-                    if (settingsBusyActions.has(actName)) {
-                        showSettingsNotice('这一张还在画，画好会自动换上。');
-                        return;
-                    }
-                    settingsBusyActions.add(actName);
-                    const restore = markSettingsButtonBusy(action, busyLabel);
-                    try {
-                        await controller.invoke(actName);
-                    } finally {
-                        settingsBusyActions.delete(actName);
-                        restore();
-                    }
-                    return;
-                }
-                await controller.invoke(actName);
-                return;
-            }
-        });
-        root.addEventListener('input', (event) => {
-            const target = event.target;
-            if (!target || !target.getAttribute) return;
-            // 设置搜索只就地刷新结果列表，不写草稿、不整页重绘，保留输入焦点与软键盘。
-            if (target.getAttribute('data-settings-search') !== null) {
-                const list = root.querySelector('[data-settings-search-results]');
-                if (list) list.innerHTML = renderSettingsSearchResults(target.value);
-                return;
-            }
-            if (target.tagName === 'SELECT') return; // change handles dependent fields once
-            if (target.getAttribute('data-chat-prompt-draft') !== null) {
-                state.activeSettings.asyncState.chatPromptDraft = target.value;
-                state.activeSettings.asyncState.chatPromptStatus = '有未保存的修改。';
-                const status = root.querySelector('[data-result="chat-prompt"]');
-                if (status) status.textContent = state.activeSettings.asyncState.chatPromptStatus;
-                return;
-            }
-            if (target.getAttribute('data-prompt-rule-draft') !== null) {
-                state.activeSettings.asyncState.promptRuleDraft = target.value;
-                state.activeSettings.asyncState.promptRuleStatus = '有未保存的修改。';
-                const status = root.querySelector('[data-result="prompt-rule"]');
-                if (status) status.textContent = state.activeSettings.asyncState.promptRuleStatus;
-                return;
-            }
-            if (target.type === 'range' && target.getAttribute('data-path') === 'readerSettings.typewriter.sound.volume') {
-                const label = root.querySelector('[data-range-value="readerSettings.typewriter.sound.volume"]');
-                if (label) label.textContent = `${Math.round(Number(target.value) * 100)}%`;
-                return;
-            }
-            if (target.type === 'color') return;
-            const path = target.getAttribute('data-path');
-            if (path) {
-                controller.setValue(path, target.value, { liveInput: true });
-                return;
-            }
-            const statusAvatarChar = target.getAttribute('data-status-avatar-char');
-            if (statusAvatarChar) {
-                rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-                const assets = draftAssetLibrary(state.activeSettings, { collections: ASSET_CHARACTER_FIELDS, name: statusAvatarChar });
-                const avatars = assets.statusAvatars || (assets.statusAvatars = {});
-                if (Object.hasOwn(avatars, statusAvatarChar) || !['__proto__', 'constructor', 'prototype'].includes(statusAvatarChar)) {
-                    avatars[statusAvatarChar] = target.value;
-                    state.activeSettings.snapshot.draft = state.activeSettings.draft;
-                }
-                return;
-            }
-            const wardrobeName = target.getAttribute('data-wardrobe-name');
-            if (wardrobeName) {
-                if (['__proto__', 'constructor', 'prototype'].includes(wardrobeName)) return;
-                rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-                const assets = draftAssetLibrary(state.activeSettings, { collections: ['wardrobe'], name: wardrobeName });
-                const wardrobe = assets.wardrobe && typeof assets.wardrobe === 'object' && !Array.isArray(assets.wardrobe)
-                    ? assets.wardrobe : (assets.wardrobe = {});
-                const entry = wardrobe[wardrobeName] && typeof wardrobe[wardrobeName] === 'object' && !Array.isArray(wardrobe[wardrobeName])
-                    ? wardrobe[wardrobeName] : (wardrobe[wardrobeName] = { prompt: '' });
-                entry.prompt = target.value;
-                state.activeSettings.snapshot.draft = state.activeSettings.draft;
-                return;
-            }
-            const dnaChar = target.getAttribute('data-dna-char');
-            const dnaField = target.getAttribute('data-dna-field');
-            if (dnaChar && dnaField) {
-                // 角色 DNA 输入只更新草稿，关闭设置时统一保存；不重绘，避免丢焦点。
-                if (!CHARACTER_DNA_FIELDS.includes(dnaField) || ['__proto__', 'constructor', 'prototype'].includes(dnaChar)) return;
-                rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-                const assets = draftAssetLibrary(state.activeSettings, { collections: ASSET_CHARACTER_FIELDS, name: dnaChar });
-                const dnaMap = assets.characterDna && typeof assets.characterDna === 'object' && !Array.isArray(assets.characterDna)
-                    ? assets.characterDna : (assets.characterDna = {});
-                const entry = Object.hasOwn(dnaMap, dnaChar) && dnaMap[dnaChar] && typeof dnaMap[dnaChar] === 'object' ? dnaMap[dnaChar] : (dnaMap[dnaChar] = {});
-                entry[dnaField] = target.value;
-                state.activeSettings.snapshot.draft = state.activeSettings.draft;
-                return;
-            }
-            const sceneBg = target.getAttribute('data-scene-bg');
-            if (sceneBg) {
-                controller.invoke('scene-set-bg-url:' + encodeURIComponent(sceneBg) + ':' + target.value);
-                return;
-            }
-            const sceneTimeBg = target.getAttribute('data-scene-time-bg');
-            const sceneTime = target.getAttribute('data-scene-time');
-            const sceneWeatherBg = target.getAttribute('data-scene-weather-bg');
-            const sceneWeather = target.getAttribute('data-scene-weather');
-            if (sceneWeatherBg && sceneTime && sceneWeather) {
-                controller.invoke('scene-set-weather-url:' + encodeURIComponent(sceneWeatherBg) + ':' + encodeURIComponent(sceneTime) + ':' + encodeURIComponent(sceneWeather) + ':' + target.value);
-                return;
-            }
-            if (sceneTimeBg && sceneTime) {
-                controller.invoke('scene-set-time-url:' + encodeURIComponent(sceneTimeBg) + ':' + encodeURIComponent(sceneTime) + ':' + target.value);
-                return;
-            }
-            const outfitNoteChar = target.getAttribute('data-scene-outfit-note-char');
-            if (outfitNoteChar) {
-                controller.invoke('scene-set-outfit-note:' + [outfitNoteChar, target.getAttribute('data-scene-outfit-note')].map((v) => encodeURIComponent(v || '')).join(':') + ':' + target.value);
-                return;
-            }
-            const outfitAvatarChar = target.getAttribute('data-scene-outfit-avatar-char');
-            if (outfitAvatarChar) {
-                controller.invoke('scene-set-outfit-avatar-url:' + [outfitAvatarChar, target.getAttribute('data-scene-outfit-avatar')].map((v) => encodeURIComponent(v || '')).join(':') + ':' + target.value);
-                return;
-            }
-            const outfitChar = target.getAttribute('data-scene-outfit-char');
-            if (outfitChar) {
-                controller.invoke('scene-set-outfit-mood-url:' + [outfitChar, target.getAttribute('data-scene-outfit'), target.getAttribute('data-scene-outfit-mood')].map((v) => encodeURIComponent(v || '')).join(':') + ':' + target.value);
-                return;
-            }
-            const sceneChar = target.getAttribute('data-scene-char');
-            const sceneMood = target.getAttribute('data-scene-mood');
-            if (sceneChar && sceneMood) {
-                controller.invoke('scene-set-mood-url:' + encodeURIComponent(sceneChar) + ':' + encodeURIComponent(sceneMood) + ':' + target.value);
-            }
-        });
-        root.addEventListener('change', (event) => {
-            const modelSync = event.target && event.target.getAttribute ? event.target.getAttribute('data-model-sync') : '';
-            if (modelSync) {
-                controller.setValue(modelSync, event.target.value);
-                return;
-            }
-            // 角色学院 / 声线下拉：交给动作层写草稿并保存（input 监听不处理 SELECT）。
-            const charSelect = event.target && event.target.getAttribute ? event.target : null;
-            const charHouse = charSelect ? charSelect.getAttribute('data-char-house') : null;
-            if (charHouse) {
-                controller.invoke(`char-house:${encodeURIComponent(charHouse)}:${encodeURIComponent(charSelect.value || '')}`);
-                return;
-            }
-            const voiceField = !charSelect ? '' : charSelect.hasAttribute('data-char-voice') ? 'pack'
-                : charSelect.hasAttribute('data-char-voice-pitch') ? 'pitch'
-                    : charSelect.hasAttribute('data-char-voice-speed') ? 'speed' : '';
-            if (voiceField) {
-                const voiceChar = charSelect.getAttribute(voiceField === 'pack' ? 'data-char-voice' : `data-char-voice-${voiceField}`) || '';
-                controller.invoke(`char-voice:${voiceField}:${encodeURIComponent(voiceChar)}:${encodeURIComponent(charSelect.value || '')}`);
-                return;
-            }
-            // 角色立绘高度：输完（失焦或回车）才保存，打字途中不重绘。
-            const heightChar = charSelect ? charSelect.getAttribute('data-char-height') : null;
-            if (heightChar) {
-                controller.invoke(`char-height:${encodeURIComponent(heightChar)}:${encodeURIComponent(charSelect.value || '')}`);
-                return;
-            }
-            // 素材「移到文件夹」只改本地界面归类，不写入设置草稿。
-            const folderMoveKind = event.target && event.target.getAttribute ? event.target.getAttribute('data-asset-folder-move') : '';
-            if (folderMoveKind) {
-                const assetName = event.target.getAttribute('data-asset-name') || '';
-                controller.invoke(`asset-folder-move:${folderMoveKind}:${encodeURIComponent(assetName)}:${encodeURIComponent(event.target.value)}`);
-                return;
-            }
-            const reviewChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-review-char') : '';
-            if (reviewChar) {
-                if (!event.target.value) return;
-                const reviewWord = event.target.getAttribute('data-outfit-review-word') || '';
-                controller.invoke(`outfit-review-assign:${[reviewChar, reviewWord, event.target.value].map((value) => encodeURIComponent(value || '')).join(':')}`);
-                return;
-            }
-            const moodReviewWord = event.target && event.target.getAttribute ? event.target.getAttribute('data-mood-review-word') : '';
-            if (moodReviewWord) {
-                if (!event.target.value) return;
-                controller.invoke(`mood-review-assign:${encodeURIComponent(moodReviewWord)}:${encodeURIComponent(event.target.value)}`);
-                return;
-            }
-            const wardrobeChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-wardrobe-char') : '';
-            if (wardrobeChar) {
-                const wardrobeOutfit = event.target.getAttribute('data-outfit-wardrobe') || '';
-                controller.invoke(`scene-set-outfit-wardrobe-url:${[wardrobeChar, wardrobeOutfit, event.target.value].map((value) => encodeURIComponent(value || '')).join(':')}`);
-                return;
-            }
-            // 一键档位条的「适配世界」下拉：转成 worldview:<id> 动作，未就绪的世界观由动作层拒绝。
-            if (event.target && event.target.getAttribute && event.target.getAttribute('data-worldview-select') !== null) {
-                controller.invoke('worldview:' + String(event.target.value || ''));
-                return;
-            }
-            const horrorKind = event.target && event.target.getAttribute ? event.target.getAttribute('data-horror-select') : null;
-            if (horrorKind === 'style' || horrorKind === 'gore') {
-                controller.invoke(`horror-${horrorKind}:` + String(event.target.value || ''));
-                return;
-            }
-            const target = event.target;
-            const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
-            if (event.target && event.target.type === 'range' && !/^readerSettings\.typewriter\.sound\./.test(path || '')) return;
-            if (!path) return;
-            controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
-        });
-        // 点下拉菜单（⋯、＋）以外的地方，把开着的菜单收起。
-        root.addEventListener('click', (event) => {
-            const target = event.target;
-            if (!root.querySelectorAll) return;
-            for (const menu of root.querySelectorAll('details.igs-add-menu[open]')) {
-                if (!(target && typeof menu.contains === 'function' && menu.contains(target))) menu.open = false;
-            }
-        }, true);
-        const pointerDown = () => { settingsPointerDown = true; };
-        const pointerUp = () => {
-            settingsPointerDown = false;
-            // 让这次点击先落到按钮上，再补刷搁着的缩略图。
-            (doc.defaultView || globalThis).setTimeout(flushDeferredImageRefresh, 0);
-        };
-        root.addEventListener('pointerdown', pointerDown, true);
-        root.addEventListener('pointerup', pointerUp, true);
-        root.addEventListener('pointercancel', pointerUp, true);
-        // toggle 不冒泡，用捕获阶段记住「高级」折叠区的展开状态，避免重渲染后被收起。
-        root.addEventListener('toggle', (event) => {
-            const target = event.target;
-            if (target && target.classList && target.classList.contains('igs-add-menu')) {
-                placeRowMenu(target, doc.defaultView || globalThis);
-                if (!target.open) flushDeferredImageRefresh();
-            }
-            const key = target && target.getAttribute ? target.getAttribute('data-advanced') : '';
-            if (!key || !state.activeSettings || !state.activeSettings.asyncState) return;
-            const asyncState = state.activeSettings.asyncState;
-            asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}), [key]: target.open === true };
-        }, true);
-        root.addEventListener('keydown', (event) => {
-            if (onboarding.keydown(event, doc)) return;
-            if (event.key === 'Escape') {
-                event.preventDefault();
-                controller.close();
-            }
-        });
-
-        const domState = {
-            root,
-            doc,
-            overlay: null,
-            viewportHandler: null,
-            viewportWindow: null,
-            viewportRaf: null,
-            dispose() {
-                detachSettingsViewportEvents(domState);
-            },
-        };
-        return domState;
-    }
-
     function updateMountedReader(snapshot) {
         const current = state.activeReader;
         if (!current) return;
@@ -5189,82 +3706,6 @@ export function createIgsReaderHost(options = {}) {
         };
     }
 
-
-
-    // 阅读器是省电画质（手动选的，或自动判定为低端机）时，设置器遮罩也不做模糊、不铺水波纹。
-    function settingsLowQuality(draft) {
-        const reader = draft && draft.readerSettings;
-        return resolveRenderQuality(reader && reader.performance && reader.performance.quality) === 'low';
-    }
-
-    function updateMountedSettings(snapshot) {
-        const current = state.activeSettings;
-        if (!current || !current.dom || !current.dom.root) return;
-        // 输入弹窗期间保留真实输入节点；整页重建会反复关闭、唤起手机软键盘。
-        if (settingsDialogs.hasTextInput()) return;
-        const container = current.dom.root;
-        const prevBody = container.querySelector('.igs-settings-body');
-        const scrollTop = prevBody ? prevBody.scrollTop : 0;
-        const focus = captureSettingsFocus(container);
-        // 遮罩层带全屏 backdrop-filter 与焦散动画：重绘只换遮罩里的内容，遮罩节点本身留着，
-        // 免得每次改设置都重建一次全屏模糊合成层、焦散动画从头播。
-        // 兜底遮罩（宿主不解析 innerHTML 时手搭的）不复用，仍按旧路整块重建。
-        const prevOverlay = current.dom.overlayParsed && current.dom.overlay && current.dom.overlay.parentNode === container
-            ? current.dom.overlay : null;
-        const shell = settingsShellHtml.get(snapshot);
-        if (prevOverlay && shell) {
-            prevOverlay.setAttribute('data-igs-settings-theme', shell.theme);
-            if (settingsLowQuality(current.draft)) prevOverlay.setAttribute('data-igs-quality', 'low');
-            else prevOverlay.removeAttribute('data-igs-quality');
-            if (canMorph(prevOverlay)) morphChildren(prevOverlay, shell.html);
-            else prevOverlay.innerHTML = shell.html;
-        } else {
-            clearChildren(container);
-            container.innerHTML = snapshot.html;
-            current.dom.overlay = container.querySelector('#igs-unified-settings');
-            current.dom.overlayParsed = Boolean(current.dom.overlay);
-        }
-        if (!current.dom.overlay) {
-            current.dom.overlay = buildFallbackSettingsOverlay(container.ownerDocument || getRootDocument(options.global), snapshot, {
-                version: options.version,
-                renderSettingsBody,
-            });
-            if (current.dom.overlay) container.appendChild(current.dom.overlay);
-        }
-        if (current.dom.overlay) {
-            attachSettingsViewportEvents(current.dom, current.dom.overlay);
-        }
-        const nextBody = container.querySelector('.igs-settings-body');
-        if (nextBody && scrollTop) nextBody.scrollTop = scrollTop;
-        restoreSettingsFocus(container, focus);
-        remountSettingsNotice(container, current.notice);
-        remountSettingsProgress(container);
-        settingsDialogs.remount(container);
-        onboarding.mountInSettings(container);
-    }
-
-    // 保存失败或动作抛异常时在面板内提示原因；面板重绘时由 updateMountedSettings 补回。
-    function reportSettingsFailure(result) {
-        const message = describeSettingsFailure(result);
-        if (!message) return;
-        if (result && result.thrown) console.warn('[IGS] 设置操作失败', result.thrown);
-        showSettingsNotice(message);
-    }
-
-    function showSettingsNotice(message) {
-        const current = state.activeSettings;
-        if (!current || !message) return;
-        const notice = { message, until: Date.now() + SETTINGS_NOTICE_MS };
-        current.notice = notice;
-        remountSettingsNotice(current.dom && current.dom.root, notice);
-        setTimeout(() => {
-            if (state.activeSettings !== current || current.notice !== notice) return;
-            current.notice = null;
-            remountSettingsNotice(current.dom && current.dom.root, null);
-        }, SETTINGS_NOTICE_MS);
-    }
-
-
     function attachBridgeReaderExtras(readerSettings, bridge) {
         // readerSettings 是每次新克隆的快照，按世界观拨掉冲突演出不会写回存档。
         const sceneAssets = bridge.sceneAssets
@@ -5307,341 +3748,6 @@ export function createIgsReaderHost(options = {}) {
         };
     }
 
-    function normalizeBridgeConfig(bridge) {
-        const normalized = cloneData(bridge || {});
-        normalized.openMode = normalizeReaderMode(normalized.openMode, normalized);
-        normalized.showToasts = normalizeBoolean(normalized.showToasts, true);
-        normalized.settingsTheme = normalizeSettingsTheme(normalized.settingsTheme);
-        normalized.debug = normalizeBoolean(normalized.debug, false);
-        normalized.sourceFilter = normalizeSourceFilter(normalized.sourceFilter);
-        normalized.virtualRegex = normalizeVirtualRegex(normalized.virtualRegex);
-        normalized.sentencePaging = normalizeBoolean(normalized.sentencePaging, false);
-        normalized.imageApi = normalizeImageApi(normalized.imageApi);
-        normalized.sceneAssets = normalizeSceneAssets(normalized.sceneAssets);
-        normalized.vnTheme = normalizeVnTheme(normalized.vnTheme);
-        normalized.entry = normalizeEntryConfig(normalized.entry);
-        normalized.optionBubble = normalizeOptionBubble(normalized.optionBubble);
-        normalized.autoIllustration = normalizeAutoIllustrationSettings(normalized.autoIllustration);
-        return normalized;
-    }
-
-    function normalizeOptionBubble(value) {
-        const src = value && typeof value === 'object' ? value : {};
-        const position = (src.position === 'top-center' || src.position === 'top-right')
-            ? src.position
-            : 'top-left';
-        return {
-            enabled: normalizeBoolean(src.enabled, false),
-            position,
-            clickAction: src.clickAction === 'fill' ? 'fill' : 'send',
-            widthFollowsText: normalizeBoolean(src.widthFollowsText, false),
-        };
-    }
-
-    function normalizeEntryConfig(value) {
-        const src = value && typeof value === 'object' ? value : {};
-        return {
-            magic: normalizeBoolean(src.magic, true),
-        };
-    }
-
-    function normalizeImageApi(value) {
-        const normalized = {
-            ...cloneData(DEFAULT_IMAGE_API),
-            ...cloneData(value || {}),
-        };
-        normalized.availableModels = Array.isArray(normalized.availableModels)
-            ? normalized.availableModels.filter(Boolean)
-            : [];
-        return normalized;
-    }
-
-    function normalizeSceneAssets(value) {
-        // normalizeBridgeConfig already cloned the entire bridge before calling here.
-        // Re-cloning a large sceneAssets library on every settings redraw is redundant.
-        const normalized = value || {};
-        normalized.enabled = normalizeBoolean(normalized.enabled, false);
-        normalized.generated = normalizeGeneratedLibrary(normalized.generated);
-        normalized.promptRule = normalizeScenePromptRule(normalized.promptRule);
-        normalized.promptPlacement = normalizePromptPlacement(normalized.promptPlacement);
-        normalized.spriteEnhance = normalizeSpriteEnhance(normalized.spriteEnhance);
-        normalized.promptAdaptive = normalized.promptAdaptive !== false;
-        if (!normalized.scenes || typeof normalized.scenes !== 'object' || Array.isArray(normalized.scenes)) {
-            normalized.scenes = {};
-        }
-        // migrate old string-value scenes to object format
-        for (const key of Object.keys(normalized.scenes)) {
-            const v = normalized.scenes[key];
-            if (typeof v === 'string') normalized.scenes[key] = { url: v, times: {} };
-            else if (v && typeof v === 'object' && !v.times) normalized.scenes[key].times = {};
-            const sceneObj = normalized.scenes[key];
-            for (const tKey of Object.keys(sceneObj.times || {})) {
-                const tv = sceneObj.times[tKey];
-                if (typeof tv === 'string') sceneObj.times[tKey] = { url: tv, weathers: {} };
-                else if (tv && typeof tv === 'object' && !tv.weathers) sceneObj.times[tKey].weathers = {};
-                const timeObj = sceneObj.times[tKey];
-                for (const wKey of Object.keys(timeObj.weathers || {})) {
-                    const wv = timeObj.weathers[wKey];
-                    if (typeof wv === 'string') timeObj.weathers[wKey] = { url: wv, words: [] };
-                }
-            }
-        }
-        if (!normalized.characters || typeof normalized.characters !== 'object' || Array.isArray(normalized.characters)) {
-            normalized.characters = {};
-        }
-        const rawCharacterAliases = normalized.characterAliases && typeof normalized.characterAliases === 'object' && !Array.isArray(normalized.characterAliases)
-            ? normalized.characterAliases
-            : {};
-        normalized.characterAliases = {};
-        const claimedCharacterNames = new Set(Object.keys(normalized.characters));
-        for (const characterName of Object.keys(normalized.characters)) {
-            const aliases = Array.isArray(rawCharacterAliases[characterName]) ? rawCharacterAliases[characterName] : [];
-            const nextAliases = [];
-            for (const aliasValue of aliases) {
-                const alias = String(aliasValue || '').trim();
-                if (!alias || claimedCharacterNames.has(alias)) continue;
-                claimedCharacterNames.add(alias);
-                nextAliases.push(alias);
-            }
-            normalized.characterAliases[characterName] = nextAliases;
-        }
-        normalized.characterDna = normalizeCharacterDnaMap(normalized.characterDna);
-        normalized.characterOutfits = normalizeCharacterOutfits(normalized.characterOutfits);
-        normalized.characterHouses = normalizeCharacterHouses(normalized.characterHouses);
-        normalized.characterVoices = normalizeCharacterVoices(normalized.characterVoices);
-        normalized.characterSpriteScales = normalizeCharacterSpriteScales(normalized.characterSpriteScales);
-        normalized.wardrobe = normalizeWardrobe(normalized.wardrobe);
-        normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
-        // init group arrays
-        if (!Array.isArray(normalized.timeGroups)) normalized.timeGroups = [];
-        if (!Array.isArray(normalized.weatherGroups)) normalized.weatherGroups = [];
-        // migrate any embedded time/weather words into global groups
-        for (const sceneObj of Object.values(normalized.scenes)) {
-            for (const [tKey, timeObj] of Object.entries(sceneObj.times || {})) {
-                if (!timeObj || typeof timeObj !== 'object') continue;
-                if (Array.isArray(timeObj.words) && timeObj.words.length) {
-                    let tg = normalized.timeGroups.find((g) => g.label === tKey);
-                    if (!tg) { tg = { label: tKey, words: [] }; normalized.timeGroups.push(tg); }
-                    for (const w of timeObj.words) if (!tg.words.includes(w)) tg.words.push(w);
-                    delete timeObj.words;
-                }
-                for (const [wKey, wObj] of Object.entries(timeObj.weathers || {})) {
-                    if (!wObj || typeof wObj !== 'object') continue;
-                    if (Array.isArray(wObj.words) && wObj.words.length) {
-                        let wg = normalized.weatherGroups.find((g) => g.label === wKey);
-                        if (!wg) { wg = { label: wKey, words: [] }; normalized.weatherGroups.push(wg); }
-                        for (const w of wObj.words) if (!wg.words.includes(w)) wg.words.push(w);
-                        delete wObj.words;
-                    }
-                }
-            }
-        }
-        normalized.unifiedSpriteLayout = normalizeBoolean(normalized.unifiedSpriteLayout, false);
-        normalized.moodFuzzyMatch = normalizeBoolean(normalized.moodFuzzyMatch, false);
-        normalized.moodAutoClassify = normalizeBoolean(normalized.moodAutoClassify, false);
-        normalizeAssetCards(normalized);
-        return normalized;
-    }
-
-    function normalizeVnTheme(value, fallback = VN_THEME_PRESETS.genshin) {
-        const normalized = cloneData(value || {});
-        // 对话主题已取消预设选择，恒为自定义；用 genshin 作为各字段的初值来源（fallback）。
-        normalized.preset = 'custom';
-        const normalizeAlign = (value, def) => (value === 'left' || value === 'center' || value === 'indent') ? value : def;
-        normalized.nameAlign = normalizeAlign(normalized.nameAlign, fallback.nameAlign);
-        normalized.textAlign = normalizeAlign(normalized.textAlign, fallback.textAlign || 'left');
-        normalized.narrationAlign = normalizeAlign(normalized.narrationAlign, fallback.narrationAlign || 'left');
-        normalized.thoughtAlign = normalizeAlign(normalized.thoughtAlign, fallback.thoughtAlign || 'left');
-        // 分割线只保留「渐变线(gradient)」与「无(none)」；旧符号样式一律归到渐变线。
-        const dividerSymbol = normalized.dividerSymbol == null ? fallback.dividerSymbol : normalized.dividerSymbol;
-        normalized.dividerSymbol = dividerSymbol === 'none' ? 'none' : 'gradient';
-        normalized.nameFont = normalized.nameFont || fallback.nameFont;
-        normalized.textFont = normalized.textFont || fallback.textFont;
-        normalized.thoughtFont = normalized.thoughtFont || fallback.thoughtFont;
-        normalized.narrationFont = normalized.narrationFont || fallback.narrationFont;
-        normalized.nameColor = normalized.nameColor || fallback.nameColor;
-        normalized.textColor = normalized.textColor || fallback.textColor;
-        normalized.thoughtColor = normalized.thoughtColor || fallback.thoughtColor;
-        normalized.narrationColor = normalized.narrationColor || fallback.narrationColor;
-        normalized.dividerColor = normalized.dividerColor || fallback.dividerColor;
-        normalized.dialogBg = normalized.dialogBg || fallback.dialogBg;
-        normalized.bgOpacity = normalized.bgOpacity == null
-            ? null
-            : clampNumber(normalizeFiniteNumber(normalized.bgOpacity, 0.62), 0, 1);
-        return normalized;
-    }
-
-    function normalizeReaderSettings(settings, legacyTheme) {
-        const currentVersion = READER_SETTINGS_SCHEMA_VERSION;
-        const src = (settings && typeof settings === 'object' && !Array.isArray(settings))
-            ? cloneData(settings)
-            : {};
-        const base = {
-            _v: currentVersion,
-            dialogSkin: 'default',
-            gradientVeil: normalizeGradientVeil(null),
-            classicDialogWidthPercent: CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
-            skinDialogScale: SKIN_DIALOG_SCALE_DEFAULT,
-            magicHouse: MAGIC_HOUSE_DEFAULT,
-            horrorDreadCap: HORROR_DREAD_CAP_DEFAULT,
-            magicAccent: MAGIC_ACCENT_DEFAULT,
-            fontSize: 18,
-            dialogFontWeight: null,
-            dialogTextEffect: 'off',
-            dialogTextEffectColor: '#000000',
-            dialogTextEffectStrength: 20,
-            dialogTextEffectSize: 0.8,
-            optionFontSize: 14,
-            dialogWidth: null,
-            dialogHeight: null,
-            glassOpacity: 0.62,
-            glassBackdropFilter: false,
-            toolbarScale: 100,
-            toolbarDock: 'top',
-            inputScale: 100,
-            imgMode: 'adaptive',
-            imgBrightness: 100,
-            cgHoldPages: 4,
-            spriteDefaultScale: 100,
-            spriteGenderScale: normalizeSpriteGenderScale(null),
-            spriteDisplayScale: 100,
-            showStatusLine: false,
-            dblclickCgOnly: false,
-            cinemaBars: false,
-            typewriter: { ...TYPEWRITER_DEFAULTS },
-            stageShake: normalizeStageShakeSettings(null),
-            voiceBark: normalizeVoiceBarkSettings(null),
-            chatShow: normalizeChatShowSettings(null),
-            systemRole: normalizeSystemRoleSettings(null),
-            weatherFx: normalizeWeatherFxSettings(null),
-            ...normalizeFxReaderSettings(null),
-            imageCountOverride: null,
-            pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
-            hiddenBtns: [],
-            btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
-            spriteLayouts: {},
-            spriteHeads: {},
-            castSlotLayouts: {},
-        };
-        const normalized = { ...base, ...src, _v: currentVersion };
-        delete normalized.emptyBackgroundColor;
-        normalized.dialogSkin = normalizeDialogSkin(normalized.dialogSkin);
-        normalized.gradientVeil = normalizeGradientVeil(normalized.gradientVeil);
-        normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
-        normalized.skinDialogScale = normalizeSkinDialogScale(normalized.skinDialogScale);
-        normalized.magicHouse = normalizeMagicHouse(normalized.magicHouse);
-        normalized.horrorDreadCap = normalizeHorrorDreadCap(normalized.horrorDreadCap);
-        normalized.magicAccent = normalizeMagicAccent(normalized.magicAccent);
-        normalized.fontSize = normalizeFiniteNumber(normalized.fontSize, base.fontSize);
-        normalized.dialogFontWeight = normalized.dialogFontWeight != null
-            && [300, 400, 500, 700].includes(Number(normalized.dialogFontWeight))
-            ? Number(normalized.dialogFontWeight) : null;
-        normalized.dialogTextEffect = ['off', 'outline', 'shadow'].includes(normalized.dialogTextEffect)
-            ? normalized.dialogTextEffect : base.dialogTextEffect;
-        normalized.dialogTextEffectColor = /^#[0-9a-fA-F]{6}$/.test(normalized.dialogTextEffectColor)
-            ? normalized.dialogTextEffectColor : base.dialogTextEffectColor;
-        normalized.dialogTextEffectStrength = clampNumber(
-            normalizeFiniteNumber(normalized.dialogTextEffectStrength, base.dialogTextEffectStrength), 5, 50);
-        normalized.dialogTextEffectSize = [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(normalized.dialogTextEffectSize))
-            ? Number(normalized.dialogTextEffectSize) : base.dialogTextEffectSize;
-        normalized.optionFontSize = clampNumber(normalizeFiniteNumber(normalized.optionFontSize, base.optionFontSize), 10, 30);
-        normalized.dialogWidth = normalizeNullableNumber(normalized.dialogWidth);
-        const normalizedDialogHeight = normalizeNullableNumber(normalized.dialogHeight);
-        if (normalizedDialogHeight == null) {
-            normalized.dialogHeight = null;
-        } else if (normalizedDialogHeight >= 0 && normalizedDialogHeight <= 1) {
-            normalized.dialogHeight = clampNumber(normalizedDialogHeight, 0.05, 0.4);
-        } else {
-            // 兼容历史 px 设置；用户改选新档位后即保存为 iframe 高度比例。
-            normalized.dialogHeight = clampNumber(normalizedDialogHeight, 60, 600);
-        }
-        normalized.glassOpacity = normalizeOpacity(normalized.glassOpacity, base.glassOpacity);
-        normalized.glassBackdropFilter = normalizeBoolean(normalized.glassBackdropFilter, base.glassBackdropFilter);
-        normalized.toolbarScale = normalizeFiniteNumber(normalized.toolbarScale, base.toolbarScale);
-        normalized.toolbarDock = normalized.toolbarDock === 'float' ? 'float' : 'top';
-        normalized.inputScale = normalizeFiniteNumber(normalized.inputScale, base.inputScale);
-        normalized.imgMode = normalized.imgMode === 'contain' ? 'contain' : 'adaptive';
-        normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);
-        normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
-        normalized.dblclickCgOnly = normalizeBoolean(normalized.dblclickCgOnly, false);
-        normalized.cinemaBars = normalizeBoolean(normalized.cinemaBars, false);
-        normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
-        normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);
-        normalized.voiceBark = normalizeVoiceBarkSettings(normalized.voiceBark);
-        normalized.chatShow = normalizeChatShowSettings(normalized.chatShow);
-        normalized.systemRole = normalizeSystemRoleSettings(normalized.systemRole);
-        normalized.weatherFx = normalizeWeatherFxSettings(normalized.weatherFx);
-        normalized.performance = normalizePerformanceSettings(normalized.performance);
-        for (const [key, normalize] of Object.entries(FX_SETTINGS_NORMALIZERS)) normalized[key] = normalize(normalized[key]);
-        normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
-        normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
-        normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);
-        normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
-        normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
-        normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);
-        normalized.spriteDefaultScale = normalizeSpriteDefaultScale(normalized.spriteDefaultScale);
-        normalized.spriteGenderScale = normalizeSpriteGenderScale(normalized.spriteGenderScale);
-        normalized.spriteDisplayScale = normalizeSpriteDisplayScale(normalized.spriteDisplayScale);
-        normalized.spriteHeads = normalizeSpriteHeads(normalized.spriteHeads);
-        normalized.castSlotLayouts = normalizeSpriteLayouts(normalized.castSlotLayouts);
-        // 对话主题（vnTheme）按模式存进 readerSettings。独立于 _v 门控处理，避免 schema 版本
-        // 不符时被清空。settings.vnTheme 缺失时回退到旧的全局 bridge.vnTheme（legacyTheme），
-        // 实现从全局存储到按模式存储的平滑迁移。旧的全局 dialogFont 只在读取时迁移为
-        // 分类台词字体，避免继续以全局覆盖项压过 textFont。
-        const legacyDialogFont = DIALOG_FONT_OPTIONS.some(([font]) => font === src.dialogFont) && src.dialogFont !== 'inherit'
-            ? src.dialogFont : '';
-        const rawTheme = (src.vnTheme && typeof src.vnTheme === 'object')
-            ? src.vnTheme
-            : (legacyTheme && typeof legacyTheme === 'object' ? legacyTheme : null);
-        const rawClassicTheme = src.classicVnTheme && typeof src.classicVnTheme === 'object'
-            ? src.classicVnTheme : null;
-        const migratedTheme = legacyDialogFont ? { ...(rawTheme || {}), textFont: legacyDialogFont } : rawTheme;
-        const migratedClassicTheme = legacyDialogFont ? { ...(rawClassicTheme || {}), textFont: legacyDialogFont } : rawClassicTheme;
-        normalized.vnTheme = normalizeVnTheme(migratedTheme || {});
-        normalized.classicVnTheme = normalizeVnTheme(migratedClassicTheme || {}, CLASSIC_DIALOG_THEME_DEFAULTS);
-        delete normalized.dialogFont;
-        return normalized;
-    }
-
-    function buildRegexPreview(bridge) {
-        const filter = normalizeSourceFilter(bridge.sourceFilter);
-        const virtualRegex = normalizeVirtualRegex(bridge.virtualRegex);
-        const previewMessage = resolvePreviewMessage();
-        const payload = buildIgsTextPayload(previewMessage, {
-            sourceFilter: filter,
-            virtualRegex,
-        });
-        if (!payload.formattedText) {
-            return '当前没有可测试的正文内容。';
-        }
-        if (!virtualRegex.enabled || !virtualRegex.pattern) {
-            return `formattedTextLength=${payload.formattedText.length}\n\n最终正文：\n${payload.formattedText}`;
-        }
-        return [
-            `source=${payload.sourceKind}`,
-            `tagTextLength=${String(payload.tagText || '').trim().length}`,
-            `formattedTextLength=${payload.formattedText.length}`,
-            `changed=${payload.virtualRegexChanged === true}`,
-            payload.usedFallback ? 'fallback=true' : 'fallback=false',
-            '',
-            '最终正文：',
-            payload.formattedText,
-        ].join('\n');
-    }
-
-    function resolvePreviewMessage() {
-        if (state.activeReader && state.activeReader.payload && state.activeReader.payload.message) {
-            return state.activeReader.payload.message;
-        }
-        if (typeof options.getCurrentMessage === 'function') {
-            const message = options.getCurrentMessage();
-            if (message && typeof message === 'object' && typeof message.then !== 'function') {
-                return message;
-            }
-        }
-        return '';
-    }
-
     function writeToast(message, durationMs) {
         const current = state.activeReader;
         if (!current) return;
@@ -5679,26 +3785,6 @@ export function createIgsReaderHost(options = {}) {
         updateMountedReader(state.activeReader.snapshot);
         return result;
     }
-}
-
-function showSpritePreviewOverlay(root, url) {
-    if (!root || !url) return;
-    // 挂到设置面板的全屏容器 #igs-unified-settings（position:fixed + 视口变量，已知正常全屏），
-    // 而非 doc.body —— 移动端宿主把 body 设为 position:fixed 且高度坍缩，挂 body 会被裁成顶部一条。
-    const host = (root.id === 'igs-unified-settings' ? root : root.querySelector && root.querySelector('#igs-unified-settings'))
-        || root;
-    const doc = root.ownerDocument || root;
-    const existing = host.querySelector ? host.querySelector('#igs-sprite-preview-overlay') : null;
-    if (existing) existing.remove();
-    const overlay = doc.createElement('div');
-    overlay.id = 'igs-sprite-preview-overlay';
-    overlay.className = 'igs-sprite-preview-overlay';
-    const img = doc.createElement('img');
-    img.className = 'igs-sprite-preview-img';
-    img.src = url;
-    overlay.appendChild(img);
-    overlay.addEventListener('click', () => overlay.remove());
-    host.appendChild(overlay);
 }
 
 function applyToastToReader(current, allowed, message, theme, durationMs, options) {
@@ -5780,7 +3866,6 @@ function stripSceneDirectiveLines(rawText) {
         .filter((line) => line.length > 0 && !isMarkerDirectiveLine(line))
         .join('\n');
 }
-
 
 // 在原文里定位一段正文的位置：先精确匹配，失败再去掉排版符号后匹配。
 // 纯函数、不做全局缓存，避免跨页状态残留。

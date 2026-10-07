@@ -766,7 +766,8 @@ test('gate:igs-ui:reader-source-keeps-original-selectors', () => {
     assert.match(source.html, /id="igs-controls-shujuku_v120-guard"/);
 
     const rendererText = readText('src/visual/igs-ui/reader-dom-render.js');
-    const readerHostText = readText('src/visual/igs-ui/reader-host.js');
+    const readerHostText = ['reader-host.js', 'settings-host.js', 'settings-host-render.js', 'settings-host-normalize.js']
+        .map((name) => readText(`src/visual/igs-ui/${name}`)).join('\n');
     const readerSourceText = getOriginalReaderStyleText();
     const dbControllerText = readText('src/shujuku-panel/panel-controller.js');
     assert.doesNotMatch(rendererText, /emptyBackgroundColor/);

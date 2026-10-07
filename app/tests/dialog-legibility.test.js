@@ -35,7 +35,7 @@ test('dialog-legibility:retro-japanese-body-text-is-darker', () => {
 });
 
 test('dialog-legibility:shaped-dialogs-show-only-one-height-option', () => {
-    const host = readFileSync(new URL('../src/visual/igs-ui/reader-host.js', import.meta.url), 'utf8');
+    const host = readFileSync(new URL('../src/visual/igs-ui/settings-host-render.js', import.meta.url), 'utf8');
     assert.match(host, /dialogHeightField: classicDialog \|\| illustratedDialog \? '' : field\('readerSettings\.dialogHeight'/);
     assert.match(host, /skinDialogScaleField: classicDialog \|\| illustratedDialog \? field\('readerSettings\.skinDialogScale', '对话框高度'/);
 });
