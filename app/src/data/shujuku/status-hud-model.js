@@ -127,13 +127,16 @@ export function listStatusHudTables(readResult) {
     return { ok: true, reason: '', tables: tables.map((table) => ({ uid: table.uid, name: table.name })) };
 }
 
+// 头像地址：网址、data:image，或图库里的 igs-gen:<编号>（显示前由宿主换成实际图片）。
+const STATUS_AVATAR_URL = /^(?:https?:\/\/|data:image\/|igs-gen:)\S+$/i;
+
 export function resolveStatusAvatar(statusAvatars, character) {
     if (!statusAvatars || typeof statusAvatars !== 'object' || !character) return '';
     const value = statusAvatars[character];
     if (typeof value !== 'string') return '';
     const url = value.trim();
     if (!url) return '';
-    if (!/^(?:https?:\/\/|data:image\/)\S+$/i.test(url)) return '';
+    if (!STATUS_AVATAR_URL.test(url)) return '';
     return url;
 }
 
@@ -144,7 +147,7 @@ export function normalizeStatusAvatars(raw) {
         const name = String(key || '').trim();
         if (!name || typeof value !== 'string') continue;
         const url = value.trim();
-        if (!url || !/^(?:https?:\/\/|data:image\/)\S+$/i.test(url)) continue;
+        if (!url || !STATUS_AVATAR_URL.test(url)) continue;
         out[name] = url;
     }
     return out;

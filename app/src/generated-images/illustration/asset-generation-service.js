@@ -1033,7 +1033,7 @@ export function createAssetGenerationService(deps) {
     }
 
     async function importAssetImage(dataUrl, type) {
-        if (!['sprite', 'background'].includes(type) || !/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(String(dataUrl || ''))) {
+        if (!['sprite', 'background', 'avatar'].includes(type) || !/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(String(dataUrl || ''))) {
             return { ok: false, error: '图片格式不受支持' };
         }
         const imageId = newId();

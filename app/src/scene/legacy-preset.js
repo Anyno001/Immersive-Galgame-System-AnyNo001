@@ -162,6 +162,15 @@ function writePresetStore(storage, update) {
     }
 }
 
+// 整个预设库原样读出（含认不出的条目）；改完用 replacePresetLibrary 整份写回，中间可以异步。
+export function readPresetLibrary(storage) {
+    try { return readPresetStore(storage).presets; } catch (error) { return {}; }
+}
+
+export function replacePresetLibrary(storage, presets) {
+    return writePresetStore(storage, () => presets);
+}
+
 export function isValidPresetName(name) {
     const label = String(name || '').trim();
     return Boolean(label) && !BLOCKED.has(label) && label.length <= 40;

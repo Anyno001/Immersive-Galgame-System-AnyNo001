@@ -407,10 +407,13 @@ export function renderCharacterAssetList(characters, options = {}) {
         )).join('');
         const aliasesHtml = `<div class="igs-mood-word-list">${aliasTags}<button type="button" class="igs-btn-mgr-icon" data-action="scene-add-char-alias:${encSeg(charName)}" title="添加别名">+</button></div>`;
         const avatarUrl = String(statusAvatars[charName] || '').trim();
-        const avatarPreview = avatarUrl
-            ? `<img loading="lazy" decoding="async" class="igs-status-avatar-thumb" src="${esc(avatarUrl)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        // 上传 / 生成的头像存在本机图库（igs-gen:）：只显示图，编号地址不进输入框，输入框留给自填网址。
+        const avatarStored = avatarUrl.startsWith('igs-gen:');
+        const avatarSrc = avatarStored ? String((typeof options.resolveUrl === 'function' && options.resolveUrl(avatarUrl)) || '') : avatarUrl;
+        const avatarPreview = avatarSrc
+            ? `<img loading="lazy" decoding="async" class="igs-status-avatar-thumb" src="${esc(avatarSrc)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
-        const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${esc(avatarUrl)}" placeholder="https://... 或data:image/...">${transferIcons(avatarUrl, `${charName}-头像.png`, [`status-avatar-pick:${encSeg(charName)}`, '上传头像'])}<button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成Q版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
+        const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${avatarStored ? '' : esc(avatarUrl)}" placeholder="${avatarStored ? '已上传到本机，也可改填 https://...' : 'https://... 或data:image/...'}">${transferIcons(avatarUrl, `${charName}-头像.png`, [`status-avatar-pick:${encSeg(charName)}`, '上传头像'])}<button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成Q版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
         const houseHtml = magicHouse ? renderCharacterHouseRow(charName, magicHouse) : '';
         const voiceHtml = voiceRow ? renderCharacterVoiceRow(charName, voiceRow) : '';
         const dna = Object.prototype.hasOwnProperty.call(dnaMap, charName) ? dnaMap[charName] : null;

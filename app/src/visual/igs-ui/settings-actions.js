@@ -54,7 +54,9 @@ import { mergeDefaultBackgrounds } from '../../backgrounds/merge-default-backgro
 
 // 能按「本卡 / 全局」筛选和整批迁移的素材，值是确认框里的叫法。
 const SCOPED_COLLECTION_KINDS = Object.freeze({ scenes: '场景', characters: '角色', wardrobe: '衣柜提示词' });
-import { isLayeredPreset, isLegacyPresetData, isValidPresetName, layeredPresetFromRoot, legacyPackConflicts, legacyPackSummary, legacyPresetToPack, loadLegacyPresets, mergeLegacyLibrary, presetCardLayers, presetFromAssets, removeNamedPreset, renameNamedPreset, replaceLibraryWithPack, storeLegacyPresets, writeNamedPreset } from '../../scene/legacy-preset.js';
+import { isLayeredPreset, isLegacyPresetData, isValidPresetName, layeredPresetFromRoot, legacyPackConflicts, legacyPackSummary, legacyPresetToPack, loadLegacyPresets, mergeLegacyLibrary, presetCardLayers, presetFromAssets, readPresetLibrary, removeNamedPreset, renameNamedPreset, replaceLibraryWithPack, replacePresetLibrary, storeLegacyPresets, writeNamedPreset } from '../../scene/legacy-preset.js';
+import { avatarHoldersOfPreset, avatarHoldersOfRoot, moveInlineAvatars, storeAvatarImage } from './avatar-images.js';
+import { describeLocalStorageUsage } from '../../storage/storage-usage.js';
 
 // 草稿深拷贝后顶层 imageApi 与 bridge.imageApi 不再是同一对象，面板只改后者；生图读取优先顶层，这里对齐为面板当前值。
 function cloneImageDraft(draft) {
@@ -1687,6 +1689,7 @@ export async function handleSettingsAction(action, ctx) {
             const url = decodeSeg(rest.slice(colon + 1)).trim();
             const sceneAssets = draftAssetLibrary(settingsState, editTarget);
             const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
+            const previous = avatars[charName];
             if (url) {
                 const normalized = normalizeStatusAvatars({ [charName]: url });
                 if (!normalized[charName]) return rerenderSettings();
@@ -1697,6 +1700,7 @@ export async function handleSettingsAction(action, ctx) {
             sceneAssets.statusAvatars = avatars;
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
+            await releaseAvatarImage(previous, settingsState, options);
         }
         return rerenderSettings();
     }
@@ -2097,12 +2101,15 @@ export async function handleSettingsAction(action, ctx) {
             pageAlert(dialogs, globalObj, picked.reason === 'too-large' ? '图片过大，请选择更小的图片。' : '仅支持图片文件。');
             return rerenderSettings();
         }
+        const stored = await storeAvatarImage(globalObj, options.generatedAssets, picked.dataUrl);
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
-        avatars[charName] = picked.dataUrl;
+        const previous = avatars[charName];
+        avatars[charName] = stored;
         sceneAssets.statusAvatars = avatars;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        await releaseAvatarImage(previous, settingsState, options);
         return rerenderSettings();
     }
 
@@ -2131,15 +2138,18 @@ export async function handleSettingsAction(action, ctx) {
             progress.end();
             return generationFailure(globalObj, dialogs, `「${charName}」的 Q 版头像没画出来：${errorText(result && result.error, '未返回原因')}${had ? '\n原来的头像没动。' : ''}`, 'avatar-generate-failed');
         }
+        const stored = await storeAvatarImage(globalObj, service, result.dataUrl, { shrink: true });
         const liveAssets = draftAssetLibrary(settingsState, editTarget);
         const avatars = normalizeStatusAvatars(liveAssets.statusAvatars);
-        avatars[charName] = await shrinkAvatarDataUrl(globalObj, result.dataUrl);
+        const previous = avatars[charName];
+        avatars[charName] = stored;
         liveAssets.statusAvatars = avatars;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) {
             progress.end();
             return persisted;
         }
+        await releaseAvatarImage(previous, settingsState, options);
         const rendered = await rerenderSettings();
         progress.end();
         showGeneratedNotice(globalObj, `「${charName}」的 Q 版头像已换上。`, 'info');
@@ -2198,10 +2208,12 @@ export async function handleSettingsAction(action, ctx) {
         const charName = decodeSeg(normalizedAction.slice('status-avatar-clear:'.length));
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const avatars = normalizeStatusAvatars(sceneAssets.statusAvatars);
+        const previous = avatars[charName];
         delete avatars[charName];
         sceneAssets.statusAvatars = avatars;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        await releaseAvatarImage(previous, settingsState, options);
         return rerenderSettings();
     }
 
@@ -3638,34 +3650,15 @@ function removeSceneWordEntry(scenes, entry) {
     if (Array.isArray(arr)) { const i = arr.indexOf(entry.word); if (i >= 0) arr.splice(i, 1); }
 }
 
-// 生成的头像原图有 1024 见方，缩到 256 再存进设置，避免设置体积暴涨；没有画布时原样存。
-const STATUS_AVATAR_GENERATED_SIZE = 256;
-
-function shrinkAvatarDataUrl(globalObj, dataUrl) {
-    const doc = globalObj && globalObj.document;
-    const ImageCtor = globalObj && globalObj.Image;
-    if (!doc || typeof doc.createElement !== 'function' || typeof ImageCtor !== 'function') return Promise.resolve(dataUrl);
-    return new Promise((resolve) => {
-        const img = new ImageCtor();
-        img.onload = () => {
-            try {
-                const side = STATUS_AVATAR_GENERATED_SIZE;
-                const canvas = doc.createElement('canvas');
-                canvas.width = side;
-                canvas.height = side;
-                const ctx = canvas.getContext('2d');
-                const crop = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
-                const sx = ((img.naturalWidth || img.width) - crop) / 2;
-                const sy = ((img.naturalHeight || img.height) - crop) / 2;
-                ctx.drawImage(img, sx, sy, crop, crop, 0, 0, side, side);
-                resolve(canvas.toDataURL('image/webp', 0.9));
-            } catch (error) {
-                resolve(dataUrl);
-            }
-        };
-        img.onerror = () => resolve(dataUrl);
-        img.src = dataUrl;
-    });
+// 换掉 / 清掉的头像是图库里的图、而全局、各角色卡和素材预设都不再引用时，从图库删掉。
+async function releaseAvatarImage(previous, settingsState, options) {
+    const id = generatedAssetIdOf(String(previous || '').trim());
+    const service = options.generatedAssets;
+    if (!id || !service || typeof service.deleteImages !== 'function') return;
+    const globalObj = options.global || globalThis;
+    const unused = unreferencedGeneratedImageIds([id], settingsState.draft.bridge && settingsState.draft.bridge.sceneAssets, globalObj.localStorage);
+    if (!unused.length) return;
+    try { await service.deleteImages(unused); } catch (error) { /* 删不掉只是图库里多留一张 */ }
 }
 
 function pickAssetImageFile(doc, globalObj) {
@@ -3811,6 +3804,8 @@ async function rescueLegacyAssets(file, options) {
         if (!service || typeof service.writeStoredImage !== 'function') break;
         try { await service.writeStoredImage(image); } catch (error) { /* 图写不进本机时，预设里只缺这一张 */ }
     }
+    const seen = new Map();
+    for (const preset of Object.values(presets)) await moveInlineAvatars(avatarHoldersOfPreset(preset), service, seen);
     const stored = storeLegacyPresets(globalObj.localStorage, presets);
     return { count: stored.ok === false ? 0 : stored.count };
 }
@@ -3823,10 +3818,28 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     const storage = globalObj.localStorage;
     const alertFn = (msg) => { pageAlert(dialogs, globalObj, msg); };
     const failed = (written) => {
-        alertFn('预设没存上，可能是浏览器存储满了');
+        const usage = describeLocalStorageUsage(storage);
+        alertFn(`预设没存上：浏览器本地存储满了（酒馆和各插件共用几 MB）。${usage ? `${usage}。` : ''}可以先删掉不用的预设再试，素材本身不受影响。`);
         return written;
     };
     const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+    // 存预设前把整段 base64 的头像挪进图库：设置本身变小，存出来的预设只记图片地址；以前存的预设也顺带瘦身，腾出空间。
+    const slimAvatars = async () => {
+        const service = options.generatedAssets;
+        const seen = new Map();
+        const live = await moveInlineAvatars(avatarHoldersOfRoot(root), service, seen);
+        if (live.moved) {
+            const persisted = persistSettingsDraft();
+            if (operationFailed(persisted)) return persisted;
+        }
+        const library = readPresetLibrary(storage);
+        let moved = 0;
+        for (const preset of Object.values(library)) {
+            if (isLegacyPresetData(preset)) moved += (await moveInlineAvatars(avatarHoldersOfPreset(preset), service, seen)).moved;
+        }
+        if (moved) replacePresetLibrary(storage, library);
+        return null;
+    };
     const asyncState = settingsState.asyncState || {};
     const cardKey = asyncState.assetScopeKind === 'card' ? String(asyncState.assetScopeKey || '') : '';
     const cardLabel = String(asyncState.assetScopeLabel || '');
@@ -3844,6 +3857,8 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
         const name = await askName('存为预设，名字：', cardLabel || '全局');
         if (!name) return rerenderSettings();
         if (presets[name] && !await dialogs.confirm(`已经有预设「${name}」了，用现在这一套覆盖它？`, { okLabel: '覆盖' })) return rerenderSettings();
+        const slimFailed = await slimAvatars();
+        if (slimFailed) return slimFailed;
         const written = writeNamedPreset(storage, name, layeredPresetFromRoot(root, { cardKey, cardLabel, readerSettings }));
         if (written.ok === false) return failed(written);
         saveAssetFolders(storage, folderScope(name, ''), loadAssetFolders(storage, ''));
@@ -3870,6 +3885,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
         if (!name) return rerenderSettings();
         if (presets[name] && !await dialogs.confirm(`已经有预设「${name}」了，用文件里的覆盖它？`, { okLabel: '覆盖' })) return rerenderSettings();
         const lost = archive ? await writePackImages(archive.images, options) : 0;
+        await moveInlineAvatars(avatarHoldersOfPreset(data), options.generatedAssets);
         const written = writeNamedPreset(storage, name, data);
         if (written.ok === false) return failed(written);
         if (lost) alertFn(`预设已导入，有 ${lost} 张图没能存进本机。`);
@@ -3885,6 +3901,8 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
 
     if (command === 'preset-overwrite') {
         if (!await dialogs.confirm(`用现在的配置覆盖预设「${name}」？原预设内容将被替换。`, { okLabel: '覆盖' })) return rerenderSettings();
+        const slimFailed = await slimAvatars();
+        if (slimFailed) return slimFailed;
         const written = writeNamedPreset(storage, name, layeredPresetFromRoot(root, { cardKey, cardLabel, readerSettings }));
         if (written.ok === false) return failed(written);
         saveAssetFolders(storage, folderScope(name, ''), loadAssetFolders(storage, ''));
@@ -3944,6 +3962,8 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
         + (keepBackup ? `\n原来的会先存成预设「${backupName}」，想回去再套用它就行。` : '');
     if (!await dialogs.confirm(message, { okLabel: '套用' })) return rerenderSettings();
     if (keepBackup) {
+        const slimFailed = await slimAvatars();
+        if (slimFailed) return slimFailed;
         const cardLayer = layers.find((layer) => layer.key);
         const backup = cardLayer
             ? layeredPresetFromRoot(root, { cardKey: cardLayer.key, cardLabel: cardLayer.label.replace(/^(?:角色卡|本卡)「|」$/g, ''), readerSettings })

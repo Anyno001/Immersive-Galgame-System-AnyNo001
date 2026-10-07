@@ -813,7 +813,7 @@ export function createIgsReaderHost(options = {}) {
         const content = current.snapshot && current.snapshot.content;
         const statusHudSettings = normalizeStatusHudSettings(settings && settings.statusHud);
         const showSceneHud = Boolean(content && content.sceneNsfw && statusHudSettings.showSpriteOnNsfw === false);
-        const next = buildStatusHudModel({
+        const next = withConcreteAvatar(buildStatusHudModel({
             settings: statusHudSettings,
             sceneAssets: (settings && settings._sceneAssets) || {},
             location: content && content.sceneLocation,
@@ -825,7 +825,7 @@ export function createIgsReaderHost(options = {}) {
             readResult: readStatusHudTablesSafe(),
             outfitFor: { character: content && content.spriteCharacter, outfit: content && content.spriteOutfit },
 
-        });
+        }));
         current.snapshot.content.statusHud = next;
         applyReaderSnapshotToDom(current.dom.overlay, current.snapshot, current, {
             hasActiveSettings: () => Boolean(state.activeSettings),
@@ -855,6 +855,12 @@ export function createIgsReaderHost(options = {}) {
         return generatedAssets && typeof generatedAssets.resolveUrl === 'function'
             ? String(generatedAssets.resolveUrl(source) || '')
             : '';
+    }
+
+    // 状态栏头像存在图库（igs-gen:）时换成已读回的图；还没读回先空着，读回后 image-loaded 会重绘。
+    function withConcreteAvatar(model) {
+        if (model && isGeneratedAssetUrl(model.avatar)) model.avatar = concreteReaderAssetUrl(model.avatar);
+        return model;
     }
 
     function warmActiveFloorImages(mountedSnapshot) {
@@ -900,6 +906,7 @@ export function createIgsReaderHost(options = {}) {
     function resolveReaderAssetUrl(url, current) {
         const source = String(url || '').trim();
         if (!source) return '';
+        if (isGeneratedAssetUrl(source)) return concreteReaderAssetUrl(source);
         const ready = imageResourceCache.get(source);
         if (ready) return ready;
         // data / blob 已经是本地像素。先原样画上，解码只为了预热缓存；
@@ -2931,7 +2938,7 @@ export function createIgsReaderHost(options = {}) {
             const sceneAssets = (settings && settings._sceneAssets) || {};
             const readResult = statusHud.tables.length ? readStatusHudTables() : null;
             const info = sceneInfo && typeof sceneInfo === 'object' ? sceneInfo : {};
-            return buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor });
+            return withConcreteAvatar(buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor }));
         };
         const readStatusHudTables = () => {
             const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
@@ -3048,7 +3055,7 @@ export function createIgsReaderHost(options = {}) {
             characterAliases: sceneAssets && sceneAssets.characterAliases,
             theme: resolveChatTheme(readerSettings.dialogSkin),
             systemRole: readerSettings.systemRole,
-            avatarFor: (key) => resolveStatusAvatar(sceneAssets && sceneAssets.statusAvatars, key),
+            avatarFor: (key) => concreteReaderAssetUrl(resolveStatusAvatar(sceneAssets && sceneAssets.statusAvatars, key)),
         }) : null;
         const hideChatSprite = chatPage && chatSettings.hideSprites;
         const generatedAssets = options.generatedAssets || null;
