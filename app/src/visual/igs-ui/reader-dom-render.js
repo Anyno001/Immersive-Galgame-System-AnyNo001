@@ -40,6 +40,7 @@ import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
 import { applyStageDirection } from './stage-direction-runtime.js';
 import { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances } from './stage-cast-render.js';
+import { applySavedCastSlot } from './cast-slot-edit.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
 import { planCastLayouts, playSpeakerCastMotion, playSpeakerMove, resolveCastHandoff } from './stage-cast-motion.js';
 import { prefersReducedMotion } from './reduced-motion.js';
@@ -1247,10 +1248,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const withCastSlot = (entry, character, outfit, slotIndex) => {
         const slotKey = slotIndex == null ? '' : castSlotKey(snapshot.mode, castLayout.count, slotIndex, spriteIdentity(character, outfit));
         const saved = slotKey ? castSlotLayouts[slotKey] : null;
-        const auto = { posX: entry.posX, posY: entry.posY, scale: entry.scale };
-        return saved
-            ? { ...entry, posX: saved.posX, posY: saved.posY, slotKey, auto, locked: true }
-            : { ...entry, slotKey, auto };
+        return { ...applySavedCastSlot(entry, saved, snapshot.readerSettings.spriteDisplayScale), slotKey };
     };
     const castPlanInput = castLayout.multi && !current.spriteEditMode ? {
         stageW: stageMotion.clientWidth,

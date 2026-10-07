@@ -1,4 +1,4 @@
-import { spriteStoredScale } from './settings-normalize.js';
+import { applySpriteDisplayScale, spriteStoredScale } from './settings-normalize.js';
 import { esc } from './reader-value-utils.js';
 import { peekSpriteHead, probeSpriteHead, spriteBackgroundSize } from './fx-anchor.js';
 import { enterSpriteEditMode, spriteDragPosition } from './sprite-edit.js';
@@ -30,6 +30,35 @@ function paint(el, value) {
     if (!el) return;
     el.style.backgroundSize = spriteBackgroundSize(value.scale);
     el.style.backgroundPosition = `${value.posX}% ${value.posY}%`;
+}
+
+// 手调过的槽位用自己的比例。没存过的人沿用自动布局。auto 留给「还原自动」，是套用槽位之前的大小。
+export function applySavedCastSlot(entry, saved, displayScale) {
+    const auto = { posX: entry.posX, posY: entry.posY, scale: entry.scale };
+    if (!saved) return { ...entry, auto };
+    const scale = applySpriteDisplayScale({ scale: saved.scale }, displayScale).scale;
+    return { ...entry, posX: saved.posX, posY: saved.posY, scale, auto, locked: true };
+}
+
+// 只改这个人的槽位。不写模式共用的 spriteLayouts，否则还原后再保存会把旧比例写回去。
+export function buildCastSlotEditPatch(work, { castSlotLayouts, globalScale } = {}) {
+    const layouts = { ...(castSlotLayouts || {}) };
+    let changed = false;
+    for (const w of work || []) {
+        if (!w || !w.key) continue;
+        if (w.reset) {
+            delete layouts[w.key];
+            changed = true;
+        } else if (w.dirty) {
+            layouts[w.key] = {
+                posX: w.cur.posX,
+                posY: w.cur.posY,
+                scale: spriteStoredScale(w.cur.scale, globalScale),
+            };
+            changed = true;
+        }
+    }
+    return changed ? { castSlotLayouts: layouts } : {};
 }
 
 // 多人同屏时的立绘编辑：每人按「模式::人数::槽位::身份」单独保存到 castSlotLayouts，不影响单人位置。
@@ -98,11 +127,10 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         paint(targetEl(overlay, w), w.cur);
     };
     const zoom = (factor) => {
-        for (const person of work) {
-            person.cur.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, person.cur.scale * factor));
-            person.scaleDirty = true;
-            paint(targetEl(overlay, person), person.cur);
-        }
+        const person = work[selected];
+        if (!person) return;
+        person.cur.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, person.cur.scale * factor));
+        touch(person);
     };
     mark();
 
@@ -122,6 +150,7 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
             w.cur = { ...(w.auto || w.orig) };
             w.reset = true;
             w.dirty = false;
+            w.scaleDirty = false;
             paint(targetEl(overlay, w), w.cur);
         } else if (act === 'single') {
             exitCastSlotEdit(overlay, current, false, ctx);
@@ -199,31 +228,10 @@ export function exitCastSlotEdit(overlay, current, save, ctx = {}) {
     if (!save) return;
     const mode = current.snapshot && current.snapshot.mode;
     const unified = typeof ctx.resolveUnifiedSettings === 'function' ? ctx.resolveUnifiedSettings({ mode }) : { readerSettings: {} };
-    const layouts = { ...((unified.readerSettings && unified.readerSettings.castSlotLayouts) || {}) };
-    const patch = {};
-    let changed = false;
-    let scale = null;
     const globalScale = current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.spriteDisplayScale;
-    for (const w of em.work) {
-        if (w.reset) {
-            delete layouts[w.key];
-            changed = true;
-        } else if (w.dirty) {
-            layouts[w.key] = { posX: w.cur.posX, posY: w.cur.posY, scale: spriteStoredScale(w.cur.scale, globalScale) };
-            changed = true;
-        }
-        if (w.scaleDirty) scale = spriteStoredScale(w.cur.scale, globalScale);
-    }
-    if (changed) patch.castSlotLayouts = layouts;
-    if (scale != null && mode) {
-        const spriteLayouts = { ...((unified.readerSettings && unified.readerSettings.spriteLayouts) || {}) };
-        const prev = spriteLayouts[mode] || { posX: 50, posY: 100, scale: 100 };
-        spriteLayouts[mode] = {
-            posX: Number.isFinite(Number(prev.posX)) ? Number(prev.posX) : 50,
-            posY: Number.isFinite(Number(prev.posY)) ? Number(prev.posY) : 100,
-            scale,
-        };
-        patch.spriteLayouts = spriteLayouts;
-    }
+    const patch = buildCastSlotEditPatch(em.work, {
+        castSlotLayouts: unified.readerSettings && unified.readerSettings.castSlotLayouts,
+        globalScale,
+    });
     if (Object.keys(patch).length && typeof ctx.saveReaderSettingsPatch === 'function') ctx.saveReaderSettingsPatch(patch);
 }

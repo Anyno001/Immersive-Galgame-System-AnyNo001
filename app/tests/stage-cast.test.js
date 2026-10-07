@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveCastOffset, resolveStageCast } from '../src/scene/stage-cast.js';
 import { extractSceneDirectives } from '../src/scene/scene-directives.js';
 import { applyCastToDom, castSlotKey, isCastCollapsed, layoutCastSlots, resolveCastCapacity } from '../src/visual/igs-ui/stage-cast-render.js';
+import { applySavedCastSlot, buildCastSlotEditPatch } from '../src/visual/igs-ui/cast-slot-edit.js';
 
 const castAt = (source, marker, extra = {}) => resolveStageCast({
     directives: extractSceneDirectives(source).directives,
@@ -253,4 +254,32 @@ test('gate: stage-cast offset falls back to nearest page directive when locate f
     assert.equal(resolveCastOffset({ offset: -1, directives, segmentIndex: 2, locate: () => -1 }), -1);
     assert.equal(resolveCastOffset({ offset: -1, directives, segmentIndex: 2 }), -1);
     assert.equal(resolveCastOffset({ offset: Number.NaN, directives, segmentIndex: -1, locate }), -1);
+});
+
+test('gate: cast-slot scale belongs to that person and reset does not write it back', () => {
+    const shown = applySavedCastSlot({ posX: 30, posY: 100, scale: 80 }, { posX: 40, posY: 90, scale: 180 }, 80);
+    assert.equal(shown.scale, 144);
+    assert.equal(shown.posX, 40);
+    assert.equal(shown.locked, true);
+    assert.deepEqual(shown.auto, { posX: 30, posY: 100, scale: 80 });
+    const automatic = applySavedCastSlot({ posX: 30, posY: 100, scale: 80 }, null, 80);
+    assert.equal(automatic.scale, 80);
+    assert.equal(automatic.locked, undefined);
+
+    const kept = buildCastSlotEditPatch([
+        { key: 'pc::2::0::甲', dirty: true, cur: { posX: 12, posY: 80, scale: 144 } },
+        { key: 'pc::2::1::乙', dirty: false, cur: { posX: 70, posY: 100, scale: 80 } },
+    ], { castSlotLayouts: {}, globalScale: 100 });
+    assert.deepEqual(kept, { castSlotLayouts: { 'pc::2::0::甲': { posX: 12, posY: 80, scale: 144 } } });
+    assert.equal(kept.spriteLayouts, undefined);
+
+    const restored = buildCastSlotEditPatch([
+        { key: 'pc::2::0::甲', reset: true, dirty: false, scaleDirty: true, cur: { posX: 30, posY: 100, scale: 80 } },
+        { key: 'pc::2::1::乙', reset: false, dirty: false, scaleDirty: true, cur: { posX: 70, posY: 100, scale: 160 } },
+    ], {
+        castSlotLayouts: { 'pc::2::0::甲': { posX: 12, posY: 80, scale: 144 } },
+        globalScale: 100,
+    });
+    assert.deepEqual(restored, { castSlotLayouts: {} });
+    assert.equal(restored.spriteLayouts, undefined);
 });
