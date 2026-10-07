@@ -36,6 +36,8 @@ export function resolveCastHandoff(prev, next) {
 }
 
 // 把 member 缩放到与 reference 头宽一致（限制倍数），再调 posY 让头顶同高；几何不全时原样返回。
+// baseHeight 是两人各自的设定高度（角色立绘高度 / 性别默认高度 / 基准高度）：头宽与头顶离舞台底边的距离都按两人之比放大，
+// 对齐只抹平原图构图的差别，不抹平设定的高矮。缺 baseHeight 时按同高。
 export function alignToReference({ stageW, stageH, reference, member }) {
     const keep = { scale: member.scale, posY: member.posY };
     const ref = spriteDrawRect(stageW, stageH, reference);
@@ -44,11 +46,12 @@ export function alignToReference({ stageW, stageH, reference, member }) {
     const refHeadW = ref.w * reference.head.w;
     const ownHeadW = own.w * member.head.w;
     if (!(refHeadW > 0) || !(ownHeadW > 0)) return keep;
-    const ratio = Math.max(ALIGN_RATIO_MIN, Math.min(ALIGN_RATIO_MAX, refHeadW / ownHeadW));
+    const tall = reference.baseHeight > 0 && member.baseHeight > 0 ? member.baseHeight / reference.baseHeight : 1;
+    const ratio = Math.max(ALIGN_RATIO_MIN, Math.min(ALIGN_RATIO_MAX, refHeadW * tall / ownHeadW));
     const scale = member.scale * ratio;
     const rect = spriteDrawRect(stageW, stageH, { ...member, scale });
     if (!rect) return keep;
-    const targetTop = ref.top + ref.h * reference.head.top;
+    const targetTop = stageH - (stageH - (ref.top + ref.h * reference.head.top)) * tall;
     const room = stageH - rect.h;
     if (Math.abs(room) < 1) return { scale, posY: member.posY };
     const posY = ((targetTop - rect.h * member.head.top) / room) * 100;
@@ -56,19 +59,26 @@ export function alignToReference({ stageW, stageH, reference, member }) {
 }
 
 // 参照物是本场景最早开口（order 最小）的在场者；locked 的条目（用户手调过）不被改，但可以当参照。
+// locked 条目按 autoGeometry（删掉槽位后的样子）另算一份，只给「还原自动」用。
 export function alignCastLayouts({ stageW, stageH, entries = [] }) {
     const out = new Map();
     const ready = entries.filter((e) => e && e.geometry && e.geometry.head);
     if (ready.length < 2) return out;
     const ref = ready.reduce((a, b) => (b.order < a.order ? b : a));
     for (const e of ready) {
-        if (e === ref || e.locked) continue;
-        out.set(e.id, alignToReference({ stageW, stageH, reference: ref.geometry, member: e.geometry }));
+        if (e === ref) continue;
+        const member = e.locked ? e.autoGeometry : e.geometry;
+        if (member && member.head) out.set(e.id, alignToReference({ stageW, stageH, reference: ref.geometry, member }));
     }
     return out;
 }
 
-// speaker / members 条目：{ url, order, posX, posY, scale, head(手动标定或 null), ... }，其余字段原样带出。
+function withBaseHeight(geometry, baseHeight) {
+    return geometry && Number(baseHeight) > 0 ? { ...geometry, baseHeight: Number(baseHeight) } : geometry;
+}
+
+// speaker / members 条目：{ url, order, posX, posY, scale, head(手动标定或 null), baseHeight?, auto?, locked?, ... }，其余字段原样带出。
+// auto 换成对齐后的样子：「还原自动」预览的就是保存后画面上会出现的样子。
 // pending 为还没有探测数据、需要先 probeSpriteHead 的地址。
 export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker = null, members = [], peek = () => null } = {}) {
     const all = [
@@ -82,16 +92,24 @@ export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker
         for (const e of all) {
             const probed = e.url ? peek(e.url) : null;
             if (!probed && e.url && !(e.head && e.head.aspect)) pending.push(e.url);
+            const locked = e.locked === true;
             entries.push({
                 id: e.id,
                 order: Number.isFinite(e.order) ? e.order : Number.MAX_SAFE_INTEGER,
-                locked: e.locked === true,
-                geometry: spriteGeometry(e, probed),
+                locked,
+                geometry: withBaseHeight(spriteGeometry(e, probed), e.baseHeight),
+                autoGeometry: locked && e.auto ? withBaseHeight(spriteGeometry({ ...e, ...e.auto }, probed), e.baseHeight) : null,
             });
         }
         for (const [id, value] of alignCastLayouts({ stageW, stageH, entries })) aligned.set(id, value);
     }
-    const finish = ({ id, ...e }) => ({ ...e, ...(aligned.get(id) || {}) });
+    const finish = ({ id, ...e }) => {
+        const value = aligned.get(id);
+        if (!value) return e;
+        const next = e.locked ? { ...e } : { ...e, ...value };
+        if (e.auto) next.auto = { ...e.auto, ...value };
+        return next;
+    };
     return {
         speaker: speaker ? finish(all[0]) : null,
         members: all.slice(speaker ? 1 : 0).map(finish),

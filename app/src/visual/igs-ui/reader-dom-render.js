@@ -1245,6 +1245,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             snapshot.readerSettings.spriteDisplayScale,
         );
     };
+    const castBaseHeight = (character) => {
+        const height = resolveSpriteBaseScale(snapshot.readerSettings._sceneAssets, snapshot.readerSettings, character);
+        return height.characterScale ?? height.defaultScale;
+    };
     const withCastSlot = (entry, character, outfit, slotIndex) => {
         const slotKey = slotIndex == null ? '' : castSlotKey(snapshot.mode, castLayout.count, slotIndex, spriteIdentity(character, outfit));
         const saved = slotKey ? castSlotLayouts[slotKey] : null;
@@ -1260,6 +1264,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
+            baseHeight: castBaseHeight(castSpeakerKey),
         }, castSpeakerKey, castSpeakerOutfit, castLayout.speakerSlot) : null,
         members: castLayout.members.map((m) => {
             const layout = presentSpriteLayout(m.character, m.mood, m.outfit);
@@ -1271,6 +1276,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 posY: layout.posY,
                 scale: layout.scale,
                 head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, m.character, m.mood, m.outfit),
+                baseHeight: castBaseHeight(m.character),
             }, m.character, m.outfit, m.slotIndex);
         }).filter((m) => m.url),
         peek: peekSpriteHead,
@@ -1390,7 +1396,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                     const byChar = new Map(again.members.map((m) => [m.character, m]));
                     current.castStage.entries = current.castStage.entries.map((e) => {
                         const next = e.speaker ? again.speaker : byChar.get(e.character);
-                        return next ? { ...e, posX: next.posX, posY: next.posY, scale: next.scale } : e;
+                        return next ? { ...e, posX: next.posX, posY: next.posY, scale: next.scale, auto: next.auto || e.auto } : e;
                     });
                 }
             }).finally(() => releaseCastAlign());

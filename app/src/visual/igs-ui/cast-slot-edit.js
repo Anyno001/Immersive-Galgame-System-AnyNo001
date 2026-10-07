@@ -32,7 +32,7 @@ function paint(el, value) {
     el.style.backgroundPosition = `${value.posX}% ${value.posY}%`;
 }
 
-// 手调过的槽位用自己的比例。没存过的人沿用自动布局。auto 留给「还原自动」，是套用槽位之前的大小。
+// 手调过的槽位用自己的比例。没存过的人沿用自动布局。auto 留给「还原自动」，是套用槽位之前的大小；开了头部对齐时 planCastLayouts 再把它换成对齐后的样子。
 export function applySavedCastSlot(entry, saved, displayScale) {
     const auto = { posX: entry.posX, posY: entry.posY, scale: entry.scale };
     if (!saved) return { ...entry, auto };

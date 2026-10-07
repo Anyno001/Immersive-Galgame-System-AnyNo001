@@ -126,3 +126,43 @@ test('gate: locked cast entries keep their saved slot layout', () => {
     assert.equal(plan.speaker.posY, 90);
     assert.equal(plan.speaker.slotKey, 'pc::2::1::乙');
 });
+
+// 「还原自动」预览的 auto 必须等于删掉槽位、保存后画面上的样子，否则保存后立绘会跳回对齐结果。
+test('gate: cast reset-auto previews the aligned layout, locked entries included', () => {
+    const base = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 } };
+    const small = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.1, w: 0.16 } };
+    const heads = { 's.png': small, 'a.png': base, 'b.png': small };
+    const plan = planCastLayouts({
+        stageW: 1000, stageH: 600, align: true,
+        speaker: { url: 's.png', order: 2, posX: 94, posY: 90, scale: 40, head: null, locked: true, auto: { posX: 94, posY: 100, scale: 50 } },
+        members: [
+            { character: '甲', url: 'a.png', order: 0, posX: 6, posY: 100, scale: 50, head: null, auto: { posX: 6, posY: 100, scale: 50 } },
+            { character: '乙', url: 'b.png', order: 1, posX: 50, posY: 100, scale: 50, head: null, auto: { posX: 50, posY: 100, scale: 50 } },
+        ],
+        peek: (url) => heads[url],
+    });
+    assert.equal(plan.speaker.scale, 40, '手调过的人仍按槽位画');
+    assert.equal(plan.speaker.auto.scale, 62.5, '它的「还原自动」拿到对齐后的大小');
+    assert.equal(plan.speaker.auto.posX, 94);
+    assert.equal(plan.members[1].scale, 62.5);
+    assert.deepEqual(plan.members[1].auto, { posX: 50, posY: plan.members[1].posY, scale: 62.5 });
+    assert.deepEqual(plan.members[0].auto, { posX: 6, posY: 100, scale: 50 }, '参照物自己不对齐');
+});
+
+test('gate: head alignment keeps configured sprite heights apart', () => {
+    const stage = { stageW: 1000, stageH: 600 };
+    const head = { x: 0.5, top: 0.05, w: 0.2 };
+    const reference = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head, baseHeight: 100 };
+    const member = { posX: 50, posY: 100, scale: 70, naturalW: 1000, naturalH: 2000, head, baseHeight: 140 };
+    const out = alignToReference({ ...stage, reference, member });
+    assert.ok(Math.abs(out.scale - 70) < 1e-9, '构图相同、设定高 1.4 倍的人不被缩回去');
+    const lift = (sprite) => {
+        const rect = spriteDrawRect(stage.stageW, stage.stageH, sprite);
+        return stage.stageH - (rect.top + rect.h * head.top);
+    };
+    assert.ok(Math.abs(lift({ ...member, ...out }) - lift(reference) * 1.4) < 0.01, '头顶离底边也按 1.4 倍');
+    const framed = alignToReference({ ...stage, reference, member: { ...member, head: { ...head, w: 0.16 } } });
+    assert.ok(Math.abs(framed.scale - 87.5) < 1e-9, '构图差别照常抹平');
+    const same = alignToReference({ ...stage, reference: { ...reference, baseHeight: undefined }, member: { ...member, scale: 50, baseHeight: undefined, head: { ...head, w: 0.16 } } });
+    assert.equal(same.scale, 62.5, '没有设定高度时与原来一致');
+});
