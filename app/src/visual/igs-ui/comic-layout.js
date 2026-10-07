@@ -94,6 +94,12 @@ function placeChain({ stageW, stageH, safe, head, kind, chain, avoid = [], offSi
         candidates.push({ ...fit(safe.right - inset - W, safe.top + inset), pref: 0 });
         candidates.push({ ...fit(safe.left + inset, safe.top + inset), pref: 0.6 });
         candidates.push({ ...fit((stageW - W) / 2, safe.top + inset), pref: 0.9 });
+        // 顶边被工具栏、邀请条这类横条占住时，退到它们下面。
+        const below = Math.max(safe.top, ...avoid.filter((r) => !r.weight && r.y < safe.top + H * 0.5).map((r) => r.y + r.h));
+        if (below > safe.top) {
+            candidates.push({ ...fit(safe.right - inset - W, below + inset), pref: 0.3 });
+            candidates.push({ ...fit(safe.left + inset, below + inset), pref: 0.7 });
+        }
     } else if (!head || kind === 'offscreen') {
         // 画外音：泡贴画面一侧，尾巴伸出画外。
         const right = offSide !== 'left';

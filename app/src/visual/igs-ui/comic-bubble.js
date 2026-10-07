@@ -392,7 +392,9 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
     const toolbar = root.querySelector('#igs-ctrl-bar');
     const hud = root.querySelector('#igs-status-hud');
     const controls = dialog.querySelector('.igs-controls');
-    for (const el of [toolbar, hud]) {
+    // 首次使用的邀请条也在顶部，泡要躲开它。
+    const invite = root.querySelector('#igs-onboarding-invite');
+    for (const el of [toolbar, hud, invite]) {
         const r = rectIn(motion, el);
         if (r) avoid.push(r);
     }
