@@ -244,7 +244,15 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭，关闭后改为白色背景）'),
-                kindModelFields: ['sprite', 'background', 'item'].map((kind) => field(`bridge.imageApi.${kind}Model`, { sprite: '立绘模型', background: '背景模型', item: '物品模型' }[kind], textInput(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], '留空跟随默认').replace('<input ', '<input list="igs-kind-model-list" '))).join('')
+                kindModelFields: ['sprite', 'background', 'item'].map((kind) => {
+                    // 每类一个「生成」开关，与「生图 › 内容」里的素材补全 / 物品图开关是同一项设置。
+                    const toggle = {
+                        sprite: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '生成立绘'),
+                        background: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '生成背景'),
+                        item: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '生成物品图'),
+                    }[kind];
+                    return toggle + field(`bridge.imageApi.${kind}Model`, { sprite: '立绘模型', background: '背景模型', item: '物品模型' }[kind], textInput(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], '留空跟随默认').replace('<input ', '<input list="igs-kind-model-list" '));
+                }).join('')
                     + `<datalist id="igs-kind-model-list">${(Array.isArray(asyncState.naiModels) ? asyncState.naiModels : []).filter(Boolean).map((model) => `<option value="${esc(model)}"></option>`).join('')}</datalist>`,
                 advancedKindModelsOpen: advancedOpen('kind-models'),
                 advancedNaiOpen: advancedOpen('nai'),
