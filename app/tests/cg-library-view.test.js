@@ -44,7 +44,7 @@ test('cg-library-view:shows-the-catalog-before-the-background-check-finishes', a
     assert.equal(view.state.phase, 'ready');
     assert.equal(view.state.list.length, 30);
     assert.equal(view.state.entries[0].messageId, 29, 'newest first');
-    assert.match(view.statusText(), /正在核对有没有新图/);
+    assert.match(view.statusText(), /正在检查是否有新图/);
     library.releaseSync({ ok: true, entries: index, changed: false });
     await view.whenIdle();
     assert.equal(view.statusText(), '', 'nothing left over once the check and the thumbnails are done');

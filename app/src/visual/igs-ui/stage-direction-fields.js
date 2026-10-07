@@ -94,7 +94,7 @@ function renderBgmTracks(bgm, more) {
     const packBlock = pack.length
         ? more('bgm-pack-tracks', `默认曲目 ${pack.length} 首（${counts}）`, `<div class="igs-bgm-tracks">${pack.map(renderTrackRow).join('')}</div>`
             + '<button type="button" class="igs-settings-action" data-action="bgm-pack-remove">移除全部默认曲目</button>'
-            + '<div class="igs-source-filter-note">音乐来自魔王魂（maou.audio）与OpenGameArt，按各自授权再配布；曲名和作者在地点栏的 ♪ 里可以看到。</div>')
+            + '<div class="igs-source-filter-note">音乐来自魔王魂（maou.audio）与OpenGameArt，按各自授权再配布；曲名与作者可在地点栏的 ♪ 中查看。</div>')
         : '';
     const ownBlock = own.length ? `<div class="igs-bgm-tracks">${own.map(renderTrackRow).join('')}</div>` : (pack.length ? '' : '<div class="igs-scene-empty">还没有曲目</div>');
     return packBlock + ownBlock;
@@ -107,7 +107,7 @@ function renderSoundFields(bgm, ambient, ui, master, more) {
         + grid('<button type="button" class="igs-settings-action" data-action="bgm-pack-download">下载默认曲目</button>'
             + '<button type="button" class="igs-settings-action" data-action="bgm-track-upload">上传本地音频</button>'
             + '<button type="button" class="igs-settings-action" data-action="bgm-track-add">添加音频直链</button>')
-        + '<div class="igs-source-filter-note">自己的曲目可勾情绪或填地点关键词（命中优先）；点地点栏的 ♪ 看曲名、换一首。</div>');
+        + '<div class="igs-source-filter-note">自行添加的曲目可勾选情绪或填写地点关键词（命中时优先播放）；点击地点栏的 ♪ 可查看曲名或切换曲目。</div>');
     const ambientBody = featureRow(more, 'ambient-kinds', `${P}.ambientSound.enabled`, ambient.enabled, '环境音', '鸟鸣、雨声、人声', field(`${P}.ambientSound.volume`, '环境音量', rangeInput(`${P}.ambientSound.volume`, ambient.volume, '环境音量'))
         + grid(AMBIENT_KINDS.map((kind) => checkbox(`${P}.ambientSound.${kind}`, ambient[kind], AMBIENT_LABELS[kind])).join('')));
     const uiBody = featureRow(more, 'ui-sound', `${P}.uiSound.enabled`, ui.enabled, '界面音效', '', field(`${P}.uiSound.volume`, '界面音量', rangeInput(`${P}.uiSound.volume`, ui.volume, '界面音量')));

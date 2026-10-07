@@ -164,11 +164,11 @@ export function createCgLibraryView(library, options = {}) {
         state.sync = null;
         if (!synced.ok && !synced.entries.length && !fromIndex) {
             state.phase = 'error';
-            state.error = `CG 库读取失败：${cgReasonText(synced.reason)}。点「刷新」重试。`;
+            state.error = `CG 库读取失败：${cgReasonText(synced.reason)}。请点击「刷新」重试。`;
             emit('list');
             return;
         }
-        state.syncNote = synced.ok ? '' : `有一部分没读到：${cgReasonText(synced.reason)}。已显示能读到的，点「刷新」重试。`;
+        state.syncNote = synced.ok ? '' : `部分内容未能读取：${cgReasonText(synced.reason)}。已显示可读取的部分，请点击「刷新」重试。`;
         const before = pageKeys();
         const total = state.list.length;
         state.all = synced.entries;
@@ -190,7 +190,7 @@ export function createCgLibraryView(library, options = {}) {
         const job = runOpen(gen).catch(() => {
             if (gen !== openGen) return;
             state.phase = 'error';
-            state.error = 'CG 库读取失败，点「刷新」重试。';
+            state.error = 'CG 库读取失败，请点击「刷新」重试。';
             emit('list');
         }).finally(() => {
             if (opening === job) opening = null;
@@ -255,16 +255,16 @@ export function createCgLibraryView(library, options = {}) {
         const parts = [];
         const sync = state.sync;
         if (sync && sync.phase === 'index' && sync.total) {
-            parts.push(`${sync.first ? '第一次打开，正在建立 CG 目录（以后打开直接读目录）' : '正在登记新图'}：${sync.done} / ${sync.total} 条`);
+            parts.push(`${sync.first ? '首次打开，正在建立 CG 目录（之后打开将直接读取目录）' : '正在登记新图'}：${sync.done} / ${sync.total} 条`);
         } else if (sync) {
-            parts.push(state.phase === 'ready' ? '正在核对有没有新图' : '正在读取插图库和相册的编号');
+            parts.push(state.phase === 'ready' ? '正在检查是否有新图' : '正在读取插图库和相册的编号');
         } else if (state.phase === 'loading') {
             parts.push('正在读取 CG 目录');
         }
         if (state.phase === 'ready' && state.entries.length) {
             const c = thumbCounts();
             if (c.loading) parts.push(`本页缩略图：已显示 ${c.ok} / ${state.entries.length}，正在读取 ${c.loading} 张${c.failed ? `，${c.failed} 张失败` : ''}`);
-            else if (c.failed) parts.push(`本页有 ${c.failed} 张读取失败，点那一格重试`);
+            else if (c.failed) parts.push(`本页有 ${c.failed} 张读取失败，可点击对应格子重试`);
         }
         if (state.syncNote) parts.push(state.syncNote);
         if (state.notice) parts.push(state.notice);

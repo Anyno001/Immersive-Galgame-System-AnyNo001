@@ -278,8 +278,8 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     const missingTier8 = moodTierLabels(8).filter((mood) => mood !== '喜悦' && mood !== '愤怒');
     const character = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(character.ok, true);
-    assert.match(asks[0], new RegExp(`这一档还有 ${missingTier8.length} 张没画：${missingTier8.join('、')}`));
-    assert.match(asks[0], /已有的 2 张不动/);
+    assert.match(asks[0], new RegExp(`这一档还有 ${missingTier8.length} 张尚未生成：${missingTier8.join('、')}`));
+    assert.match(asks[0], /已有的 2 张保持不变/);
     assert.deepEqual(seen[0], missingTier8);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:old-joy');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'https://kept.example/a.png');
@@ -291,7 +291,7 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     const outfit = await handleSettingsAction('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8', ctx);
     assert.equal(outfit.ok, true);
     const missingOutfit = moodTierLabels(8).filter((mood) => mood !== '喜悦');
-    assert.match(asks[1], new RegExp(`这一档还有 ${missingOutfit.length} 张没画：${missingOutfit.join('、')}`));
+    assert.match(asks[1], new RegExp(`这一档还有 ${missingOutfit.length} 张尚未生成：${missingOutfit.join('、')}`));
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['喜悦'], 'igs-gen:old-outfit');
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['愤怒'], 'igs-gen:new-愤怒');
 });
@@ -355,8 +355,8 @@ test('gate:expression-set:repaints-failed-slots-without-rewriting-prompts', asyn
     draft.bridge.sceneAssets.generated = { expressionNotes: { 冬月: { 愤怒: { error: '出图失败', caption: failed } } } };
     const mixed = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(mixed.ok, true);
-    assert.match(asks[1], /只补画：愤怒/);
-    assert.match(asks[1], new RegExp(`要先写提示词：${mixedTier8.join('、')}`));
+    assert.match(asks[1], /将直接补画：愤怒/);
+    assert.match(asks[1], new RegExp(`需先编写提示词：${mixedTier8.join('、')}`));
     assert.deepEqual(painted[1], ['愤怒']);
     assert.deepEqual(written, [mixedTier8]);
 });
@@ -406,7 +406,7 @@ test('gate:character-sprite:generates-default-from-the-character-page', async ()
     draft.bridge.sceneAssets.characters['冬月']['默认'] = 'https://kept.example/a.png';
     const replaced = await handleSettingsAction('char-generate-sprite:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(replaced.ok, true);
-    assert.match(asks[1], /现在这张会被换掉/);
+    assert.match(asks[1], /当前这张将被替换/);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['默认'], 'igs-gen:made-1');
 
     const dnaOnly = await handleSettingsAction('char-generate-sprite:%E8%B7%AF%E4%BA%BA%E7%94%B2', ctx);
@@ -857,8 +857,8 @@ test('gate:expression-retry:failed-paint-reports-without-throwing-while-panel-op
     };
     const result = await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx);
     assert.equal(result.ok, true);
-    assert.match(shown[0], /「冬月」的「喜悦」没画出来：出图超时（3 分钟）/);
-    assert.match(shown[0], /原来那张没动/);
+    assert.match(shown[0], /「冬月」的「喜悦」未能生成：出图超时（3 分钟）/);
+    assert.match(shown[0], /原有图片保持不变/);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:joy');
 
     // 别的弹窗正开着时改走底部提示条，这条路径要用到 remountSettingsNotice。
@@ -868,7 +868,7 @@ test('gate:expression-retry:failed-paint-reports-without-throwing-while-panel-op
     const barred = await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx);
     assert.equal(barred.ok, true);
     assert.equal(shown.length, 1, 'no second dialog over the open one');
-    assert.match(notices.map((el) => el.textContent).join(' '), /「冬月」的「喜悦」没画出来/);
+    assert.match(notices.map((el) => el.textContent).join(' '), /「冬月」的「喜悦」未能生成/);
 });
 
 test('gate:expression-set:custom-groups-only-when-asked', async () => {
@@ -911,7 +911,7 @@ test('gate:expression-set:custom-groups-only-when-asked', async () => {
         return { asks, seen };
     };
     const skipped = await run(false);
-    assert.match(skipped.asks[0], /另有 2 个自建情绪组还没图：旧组乙、旧组丙/);
+    assert.match(skipped.asks[0], /另有 2 个自建情绪组尚无图片：旧组乙、旧组丙/);
     assert.match(skipped.asks[1], /生成「冬月」的 20 张表情差分/);
     assert.equal(skipped.seen[0].length, 20);
     const taken = await run(true);
@@ -968,7 +968,7 @@ test('gate:status-avatar:generates-a-chibi-avatar-and-default-slot-can-regenerat
     assert.equal(seen[0].dna.identity, 'black hair');
     assert.equal(draft.bridge.sceneAssets.statusAvatars['冬月'], 'data:image/png;base64,QUJD');
     await handleSettingsAction('status-avatar-generate:%E5%86%AC%E6%9C%88', ctx);
-    assert.match(asks[1], /现在的头像会被换掉/);
+    assert.match(asks[1], /当前头像将被替换/);
     const html = renderCharacterAssetList({ 冬月: { 默认: 'igs-gen:def', 喜悦: '' } }, { isOpen: () => true, statusAvatars: draft.bridge.sceneAssets.statusAvatars });
     assert.ok(html.includes('data-action="status-avatar-generate:%E5%86%AC%E6%9C%88"'));
     assert.ok(html.includes('重画Q版'));
@@ -1048,14 +1048,14 @@ test('gate:regenerate:failure-pops-a-panel-dialog-with-the-reason', async () => 
         dialogs: { confirm: async () => true, view: async (message) => { views.push(message); return true; }, isOpen: () => false },
     };
     await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx);
-    assert.match(views[0], /「冬月」的「喜悦」没画出来/);
+    assert.match(views[0], /「冬月」的「喜悦」未能生成/);
     assert.match(views[0], /出图超时（3 分钟）/);
-    assert.match(views[0], /原来那张没动/);
+    assert.match(views[0], /原有图片保持不变/);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:joy', 'old image is kept');
 
     const sprite = await handleSettingsAction('char-generate-sprite:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(sprite.ok, false);
-    assert.match(views[1], /默认立绘没画出来：插件没有响应/);
+    assert.match(views[1], /默认立绘未能生成：插件没有响应/);
 
     // 用户正在答别的对话框时不顶掉它，改走提示条（这里面板没开，退回 alert）。
     const alerts = [];

@@ -70,7 +70,7 @@ function validateSlotName(ctx, name) {
 }
 
 function createOutfit(ctx, charName, outfits, name) {
-    if (isBuiltinNudeOutfit(name)) { warn(ctx, `「${name}」是内置项，在衣柜里选，不会进服装库`); return false; }
+    if (isBuiltinNudeOutfit(name)) { warn(ctx, `「${name}」是内置项，请在衣柜中选择，不会加入服装库。`); return false; }
     if (!isValidOutfitName(name)) { warn(ctx, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return false; }
     const owner = outfitTokenOwner(outfits, name);
     if (owner) { warn(ctx, owner === name ? `「${charName}」已有服装「${name}」（同名）` : `「${name}」已是服装「${owner}」的词`); return false; }
@@ -136,7 +136,7 @@ async function handleWardrobe(command, segs, ctx) {
     if (command === 'wardrobe-add') {
         const next = await ask(ctx, '服装名称：', '');
         if (!next) return rerenderSettings();
-        if (isBuiltinNudeOutfit(next)) { warn(ctx, `「${next}」是内置的，不会进服装库`); return rerenderSettings(); }
+        if (isBuiltinNudeOutfit(next)) { warn(ctx, `「${next}」是内置项，不会加入服装库。`); return rerenderSettings(); }
         if (!isValidOutfitName(next)) { warn(ctx, `「${next}」不能用作服装名`); return rerenderSettings(); }
         if (hasOwn(wardrobe, next)) { warn(ctx, `衣柜里已有「${next}」`); return rerenderSettings(); }
         wardrobe[next] = { prompt: '' };
@@ -144,7 +144,7 @@ async function handleWardrobe(command, segs, ctx) {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         const next = await ask(ctx, `把「${name}」改名为：`, name);
         if (!next || next === name) return rerenderSettings();
-        if (isBuiltinNudeOutfit(next)) { warn(ctx, `「${next}」是内置的，不会进服装库`); return rerenderSettings(); }
+        if (isBuiltinNudeOutfit(next)) { warn(ctx, `「${next}」是内置项，不会加入服装库。`); return rerenderSettings(); }
         if (!isValidOutfitName(next)) { warn(ctx, `「${next}」不能用作服装名`); return rerenderSettings(); }
         if (hasOwn(wardrobe, next)) { warn(ctx, `衣柜里已有「${next}」`); return rerenderSettings(); }
         const renamed = {};
@@ -179,14 +179,14 @@ async function handleWardrobe(command, segs, ctx) {
             if (!confirmed) return rerenderSettings();
             const service = options.generatedAssets;
             if (!service || typeof service.writeWardrobePrompt !== 'function') {
-                warn(ctx, '当前不能写服装提示词。');
+                warn(ctx, '当前无法编写服装提示词。');
                 return rerenderSettings();
             }
             let written;
             try { written = await service.writeWardrobePrompt(subject); }
-            catch (error) { written = { ok: false, error: '写服装提示词失败' }; }
+            catch (error) { written = { ok: false, error: '服装提示词编写失败' }; }
             if (!written || !written.ok || !String(written.prompt || '').trim()) {
-                warn(ctx, (written && written.error) || '写服装提示词失败。');
+                warn(ctx, (written && written.error) || '服装提示词编写失败。');
                 return rerenderSettings();
             }
             wardrobe[name] = { ...wardrobe[name], prompt: String(written.prompt).trim() };
@@ -205,14 +205,14 @@ async function handleWardrobe(command, segs, ctx) {
         if (!confirmed) return rerenderSettings();
         const service = options.generatedAssets;
         if (!service || typeof service.writeWardrobePrompt !== 'function') {
-            warn(ctx, '当前不能写服装提示词。');
+            warn(ctx, '当前无法编写服装提示词。');
             return rerenderSettings();
         }
         let written;
         try { written = await service.writeWardrobePrompt({ character, outfit: word }); }
-        catch (error) { written = { ok: false, error: '写服装提示词失败' }; }
+        catch (error) { written = { ok: false, error: '服装提示词编写失败' }; }
         if (!written || !written.ok || !String(written.prompt || '').trim()) {
-            warn(ctx, (written && written.error) || '写服装提示词失败。');
+            warn(ctx, (written && written.error) || '服装提示词编写失败。');
             return rerenderSettings();
         }
         wardrobe[word] = { ...(wardrobe[word] || {}), prompt: String(written.prompt).trim() };
@@ -220,15 +220,15 @@ async function handleWardrobe(command, segs, ctx) {
     } else if (command === 'wardrobe-reference') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         const prompt = String((wardrobe[name] && wardrobe[name].prompt) || '').trim();
-        if (!prompt) { warn(ctx, '先写下这套衣服的提示词。'); return rerenderSettings(); }
+        if (!prompt) { warn(ctx, '请先填写这套服装的提示词。'); return rerenderSettings(); }
         const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
         const confirmed = typeof dialogs.confirm === 'function'
-            ? await dialogs.confirm(`用「${name}」的提示词出一张参考图？`)
+            ? await dialogs.confirm(`用「${name}」的提示词生成一张参考图？`)
             : true;
         if (!confirmed) return rerenderSettings();
         const service = options.generatedAssets;
         if (!service || typeof service.paintWardrobeReference !== 'function') {
-            warn(ctx, '当前不能出参考图。');
+            warn(ctx, '当前无法生成参考图。');
             return rerenderSettings();
         }
         let painted;
@@ -375,7 +375,7 @@ async function runOutfitAction(match, ctx) {
     case 'scene-rename-outfit': {
         const name = await ask(ctx, `重命名服装「${outfitName}」为：`, outfitName);
         if (!name || name === outfitName) return rerenderSettings();
-        if (isBuiltinNudeOutfit(name)) { warn(ctx, `「${BUILTIN_NUDE_OUTFIT}」是内置项，在衣柜里选`); return rerenderSettings(); }
+        if (isBuiltinNudeOutfit(name)) { warn(ctx, `「${BUILTIN_NUDE_OUTFIT}」是内置项，请在衣柜中选择。`); return rerenderSettings(); }
         if (!isValidOutfitName(name)) { warn(ctx, `「${name}」不能用作服装名（不能为空、「默认」或含 | ] 换行）`); return rerenderSettings(); }
         const owner = outfitTokenOwner(outfits, name, outfitName);
         if (owner) { warn(ctx, owner === name ? `「${charName}」已有服装「${name}」（同名），改名会覆盖，已阻止` : `「${name}」已是服装「${owner}」的词`); return rerenderSettings(); }
@@ -402,11 +402,11 @@ async function runOutfitAction(match, ctx) {
     case 'scene-add-outfit-scene': {
         const scenes = plain(draftEffectiveAssets(settingsState).scenes) || {};
         const known = Object.keys(scenes);
-        if (!known.length) { warn(ctx, '还没有登记任何场景，请先在「场景背景」里添加'); return rerenderSettings(); }
+        if (!known.length) { warn(ctx, '尚未登记任何场景，请先在「场景背景」中添加。'); return rerenderSettings(); }
         const input = await ask(ctx, `服装「${outfitName}」适用的场景（填场景名或别名）：\n已登记：${known.slice(0, 12).join('、')}${known.length > 12 ? ' 等' : ''}`);
         if (!input) return rerenderSettings();
         const key = classifySceneKey(scenes, input).key;
-        if (!key) { warn(ctx, `没有找到场景「${input}」，请填写已登记的场景名或别名`); return rerenderSettings(); }
+        if (!key) { warn(ctx, `没有找到场景「${input}」，请填写已登记的场景名或别名。`); return rerenderSettings(); }
         const list = Array.isArray(entry.scenes) ? entry.scenes : [];
         if (!list.includes(key)) entry.scenes = [...list, key];
         return done();

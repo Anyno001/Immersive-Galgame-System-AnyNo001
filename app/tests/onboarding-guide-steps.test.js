@@ -10,7 +10,7 @@ import {
 test('onboarding steps: 十一步顺序、欢迎后快速配置演出、翻页教学、工具栏管理与可选生图', () => {
     assert.deepEqual(ONBOARDING_STEPS.map((step) => step.id),
         ['welcome', 'quick', 'paging', 'mode', 'performance', 'dialog', 'toolbar', 'scene', 'assets', 'image', 'search', 'done']);
-    assert.equal(getOnboardingStep(1).title, '想不想快速配置演出？');
+    assert.equal(getOnboardingStep(1).title, '是否快速配置演出？');
     assert.equal(getOnboardingStep(1).quiz, true);
     assert.ok(getOnboardingStep(2).body.includes('右半边') && getOnboardingStep(2).body.includes('左半边'));
     assert.ok(getOnboardingStep(4).body.includes('省电模式'));

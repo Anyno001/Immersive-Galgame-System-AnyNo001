@@ -147,5 +147,5 @@ export function renderSettingsSearchResults(query, index = SETTINGS_SEARCH_INDEX
     if (results.length) return results.map(item).join('');
     const guesses = suggestSettings(query, index);
     if (guesses.length) return `<div class="igs-settings-search-hint">你是否在找：</div>${guesses.map(item).join('')}`;
-    return '<div class="igs-settings-search-empty">没有找到相关设置，换个说法试试。</div>';
+    return '<div class="igs-settings-search-empty">未找到相关设置，可尝试换一种说法。</div>';
 }

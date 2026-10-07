@@ -213,8 +213,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const sourceNotes = {
                 nai: '使用你的NAI Key直接生成剧情CG、素材和重画。',
                 dbgen: '提示词、画师串和NAI Key在数据库生图插件里设置。',
-                extension: '画风沿用智绘姬；填了NAI Key时失败会改用NAI。',
-                baibai: '后端与画风沿用柏宝绘；填了NAI Key时失败会改用NAI。',
+                extension: '画风沿用智绘姬；填写 NAI Key 后，生成失败时将改用 NAI。',
+                baibai: '后端与画风沿用柏宝绘；填写 NAI Key 后，生成失败时将改用 NAI。',
             };
             const contentNotes = {
                 nai: '当前图像来源：IGS内置NAI。',
@@ -250,8 +250,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoAssetOptionsHidden: hiddenAttr(!auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
                 assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
                 autoLlmNote: esc(sourceMode === 'dbgen'
-                    ? '负责规划剧情CG画面与素材补全的标签；表情差分、头像、立绘与服装提示词由数据库生图插件自己写。'
-                    : '负责写剧情CG、素材、立绘和表情的提示词；可沿用酒馆API。'),
+                    ? '负责规划剧情CG画面与素材补全的标签；表情差分、头像、立绘与服装提示词由数据库生图插件自行编写。'
+                    : '负责编写剧情 CG、素材、立绘和表情的提示词；可沿用酒馆 API。'),
                 adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
                 pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：查询间隔（毫秒）', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
                 pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：查询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
@@ -351,9 +351,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             };
             const presetOpen = asyncState.advancedOpen && asyncState.advancedOpen['asset-presets'] ? ' open' : '';
             const presetSection = `<details class="igs-asset-presets" data-advanced="asset-presets"${presetOpen}><summary class="igs-asset-presets-summary">预设</summary>`
-                + `<div class="igs-asset-presets-body">${presetNames.map(presetRow).join('') || '<div class="igs-asset-presets-empty">还没有预设。把现在这一套存下来，以后可以套到别的角色卡。</div>'}`
+                + `<div class="igs-asset-presets-body">${presetNames.map(presetRow).join('') || '<div class="igs-asset-presets-empty">暂无预设。可将当前这一套保存为预设，之后套用到其他角色卡。</div>'}`
                 + '<div class="igs-asset-presets-tools"><button type="button" class="igs-settings-action" data-action="preset-save">存为预设</button><button type="button" class="igs-settings-action" data-action="preset-import">导入预设</button></div></div></details>';
-            const assetScopeBar = `<div class="igs-asset-scope-bar"><span class="igs-asset-scope-name">${cardKey ? `当前角色卡：${esc(scopeState.assetScopeLabel)}` : '没打开角色卡，素材都在全局'}</span>`
+            const assetScopeBar = `<div class="igs-asset-scope-bar"><span class="igs-asset-scope-name">${cardKey ? `当前角色卡：${esc(scopeState.assetScopeLabel)}` : '未打开角色卡，素材均存放在全局'}</span>`
                 + (scopeState.assetScopeKind === 'card' && cardKey ? '<button type="button" class="igs-settings-action" data-action="asset-card-export">导出本卡素材</button>' : '')
                 + '<button type="button" class="igs-settings-action" data-action="asset-card-import">导入素材包</button></div>'
                 + presetSection;
@@ -468,7 +468,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
           </details>
         </div>
         ${checkbox('bridge.autoIllustration.assets.strictMatch', normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.strictMatch, '严格匹配场景素材')}
-        <div class="igs-source-filter-note">开启后只认精确与别名命中的背景，不拿相近场景的图顶替；匹配不到就按缺失补画。</div>
+        <div class="igs-source-filter-note">开启后仅使用名称或别名精确匹配的背景，不以相近场景的图片代替；无法匹配时按缺失处理并补画。</div>
         ${scenesHtml}
       </div>`;
             const spriteEnhance = sceneAssets.spriteEnhance || {};
@@ -476,11 +476,11 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             // 立绘显示与情绪匹配是整区设置：单独一张折叠卡放在角色列表上面，不再压在「角色立绘」标题下。
             const charactersSettingsCard = `<div class="igs-source-filter igs-perf-group"><details data-advanced="sprite-display"${asyncState.advancedOpen && asyncState.advancedOpen['sprite-display'] ? ' open' : ''}><summary><b>立绘设置</b><span class="igs-perf-brief">缩放 · 高度 · 增强 · 情绪匹配</span></summary><div class="igs-perf-group-body">
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
-        <div class="igs-source-filter-note">相近的情绪词也归进组里（可能归错，在「待确认」核对）。</div>
+        <div class="igs-source-filter-note">相近的情绪词也会归入组中（可能归错，可在「待确认」中核对）。</div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强（手机较耗电）')}
         ${checkbox('readerSettings.spriteGenderScale.enabled', spriteGenderScale.enabled, '按性别区分默认高度')}
-        <div class="igs-source-filter-note">按 DNA 判断男女；调过的立绘和单独填了高度的角色不受影响。</div>
+        <div class="igs-source-filter-note">根据 DNA 判断性别；已调整过的立绘和单独设置了高度的角色不受影响。</div>
         <div class="igs-source-filter-grid">
           ${field('readerSettings.spriteDisplayScale', '立绘全局缩放', selectInput('readerSettings.spriteDisplayScale', reader.spriteDisplayScale || 100, [50, 60, 70, 80, 90, 100, 110, 120, 130, 150].map((n) => [n, `${n}%`])))}
           ${field('readerSettings.spriteDefaultScale', '立绘基准高度 %', numberInput('readerSettings.spriteDefaultScale', normalizeSpriteDefaultScale(reader.spriteDefaultScale), SPRITE_HEIGHT_RANGE[0], SPRITE_HEIGHT_RANGE[1]))}
@@ -515,9 +515,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     ? `<div class="igs-source-filter-note" data-result="prompt-rule-outfit">${esc(PROMPT_RULE_OUTFIT_HINT)}</div>` : '',
                 promptAdvanced: `<details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-injection"${asyncState.advancedOpen && asyncState.advancedOpen['prompt-injection'] ? ' open' : ''}><summary>高级：注入位置与按需注入</summary>`
                     + field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区'], ['depth0', '聊天末尾']]),
-                        'AI不按标签输出时改回聊天末尾。')
+                        '如 AI 未按标签输出，可改回聊天末尾。')
                     + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入')
-                    + '<div class="igs-source-filter-note">只在用得上时附完整说明。</div></details>',
+                    + '<div class="igs-source-filter-note">仅在需要时附上完整说明。</div></details>',
                 wardrobeSection: renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
                 moodSection: checkbox('bridge.sceneAssets.moodAutoClassify', sceneAssets.moodAutoClassify === true, '自动归类（用副API）')
                     + (asyncState.moodAutoStatus ? `<div class="igs-source-filter-note" data-mood-auto-status>${esc(asyncState.moodAutoStatus)}</div>` : '')
@@ -628,7 +628,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             voiceBarkControls: voiceBark.enabled ? [
                 field('readerSettings.voiceBark.frequency', '播放时机', segmentedInput('readerSettings.voiceBark.frequency', voiceBark.frequency, VOICE_BARK_FREQUENCIES, '播放时机')),
                 field('readerSettings.voiceBark.volume', '音量', rangeInput('readerSettings.voiceBark.volume', voiceBark.volume, '语气音音量')),
-                `<div class="igs-source-filter-note">声线在 素材 › 角色 › 角色设定 里选，没选按DNA性别分配。</div>`,
+                `<div class="igs-source-filter-note">声线可在「素材 › 角色 › 角色设定」中选择；未选择时按 DNA 中的性别分配。</div>`,
             ].join('') : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
@@ -647,7 +647,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'),
             cgHoldField: field('readerSettings.cgHoldPages', '日常CG停留', selectInput('readerSettings.cgHoldPages', reader.cgHoldPages || 4, [[2, '2页'], [3, '3页'], [4, '4页'], [6, '6页'], [8, '8页']]), 'NSFW插图保持到下一张'),
             sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'),
-            nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', statusHud.nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW 场景立绘')}<em>剪影需先在立绘编辑里标定头部</em></div>`,
+            nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', statusHud.nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW 场景立绘')}<em>使用剪影前，请先在立绘编辑中标定头部</em></div>`,
             nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')),
             nsfwCgPortraitToggle: checkbox('readerSettings.statusHud.nsfwCgPortrait', statusHud.nsfwCgPortrait, 'CG时对话框旁显示裸体头像（需衣柜里有引用「裸体」的服装）'),
             nsfwCgPortraitControls: statusHud.nsfwCgPortrait
@@ -719,7 +719,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
     function imageCgThumbHtml(view, entry) {
         const tile = view.tileOf(entry.key);
         if (tile.url) return `<img src="${esc(tile.url)}" decoding="async" alt="">`;
-        if (tile.state === 'failed') return `<span class="igs-image-cg-failed" title="${esc(tile.reason)}">读取失败，点一下重试</span>`;
+        if (tile.state === 'failed') return `<span class="igs-image-cg-failed" title="${esc(tile.reason)}">读取失败，点击重试</span>`;
         return '<span class="igs-image-cg-pending"></span>';
     }
 

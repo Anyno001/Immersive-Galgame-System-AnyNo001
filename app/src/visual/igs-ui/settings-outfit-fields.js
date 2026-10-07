@@ -148,8 +148,8 @@ function previewOf(sceneAssets, charName, mood, outfit) {
 function ghostNote(mood, preview, status) {
     if (!preview.url) return '';
     const lead = preview.kind === 'borrow'
-        ? `「${mood}」还没有自己的图，这里显示的是阅读器暂时借用的「${preview.slot}」。`
-        : `「${mood}」还没有自己的图，这里显示的是阅读器暂时回落使用的原装「${preview.slot}」。`;
+        ? `「${mood}」尚无专属图片，此处显示的是阅读器暂时借用的「${preview.slot}」。`
+        : `「${mood}」尚无专属图片，此处显示的是阅读器暂时回落使用的原装「${preview.slot}」。`;
     return status ? `${lead}\n${status.text}` : lead;
 }
 
@@ -157,8 +157,8 @@ function ghostNote(mood, preview, status) {
 export function expressionSlotStatus(note) {
     if (!note || typeof note !== 'object') return null;
     const error = String(note.error || '').trim();
-    if (error && error !== '已停止') return { text: `没画出来：${error}`, failed: true };
-    if (note.caption || error === '已停止') return { text: '词已写好，还没出图', failed: false };
+    if (error && error !== '已停止') return { text: `未能生成：${error}`, failed: true };
+    if (note.caption || error === '已停止') return { text: '提示词已写好，尚未出图', failed: false };
     return null;
 }
 
@@ -252,7 +252,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
     const fillAll = missing.length > 1
         ? `<div class="igs-outfit-fill-all"><button type="button" class="igs-review-link" data-action="scene-outfit-copy-slots:${c}:${o}">缺的 ${missing.length} 格全部补上</button></div>`
         : '';
-    const rows = ownRows + fallbackRows || '<div class="igs-scene-empty">还没有情绪槽，点右上 + 添加</div>';
+    const rows = ownRows + fallbackRows || '<div class="igs-scene-empty">暂无情绪槽，可点击右上角「+」添加</div>';
     return `<div class="igs-outfit-panel" data-outfit-panel="${esc(name)}">${meta}<div class="igs-btn-mgr-list igs-outfit-slots">${rows}</div>${fillAll}</div>`;
 }
 
@@ -285,7 +285,7 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
     const quickButtons = `<span class="igs-outfit-quick">`
         + spriteButton
         + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>`
-        + (pending.length ? `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${resumeAction}" title="词已经写好，直接出图，不重写">继续生图（${pending.length}）</button>` : '')
+        + (pending.length ? `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${resumeAction}" title="提示词已写好，将直接出图，不重写">继续生图（${pending.length}）</button>` : '')
         + `</span>`;
     const menu = active
         ? renderRowMenu([
@@ -329,7 +329,7 @@ export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, focus = '', lea
     }).join('');
     const body = rows
         ? `<div class="igs-btn-mgr-list igs-wardrobe-list is-tall">${rows}</div>`
-        : '<div class="igs-scene-empty">还没有衣柜提示词，点右上 + 添加</div>';
+        : '<div class="igs-scene-empty">暂无衣柜提示词，可点击右上角「+」添加</div>';
     return `<div class="igs-wardrobe-group">${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${body}</div>`;
 }
 
@@ -368,7 +368,7 @@ export function renderOutfitReviewList(items, characterOutfits, characters) {
         key: 'outfit',
         title: '服装词',
         count: list.length,
-        hint: 'AI写了、角色还没登记的服装。归入已有服装后，下次就认得这个词。',
+        hint: 'AI 写出、尚未在该角色名下登记的服装词。归入已有服装后，之后即可识别。',
         clearAction: 'outfit-review-clear',
         body: rows ? `<div class="igs-review-list">${rows}</div>` : '',
         empty: '没有待确认的服装词',

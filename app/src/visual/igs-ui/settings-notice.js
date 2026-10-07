@@ -22,7 +22,7 @@ export function isQuotaError(error) {
 
 export function describeSaveError(error) {
     if (!error) return '未知原因';
-    if (isQuotaError(error)) return '浏览器本地存储已满。可以删掉不用的素材条目后再试，生成的图片存在另一处，不受影响';
+    if (isQuotaError(error)) return '浏览器本地存储已满。可删除不再使用的素材条目后重试；生成的图片存放在别处，不受影响';
     const message = typeof error === 'string' ? error : String(error.message || error.reason || '').trim();
     return message || '未知原因';
 }

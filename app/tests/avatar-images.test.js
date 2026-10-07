@@ -121,6 +121,6 @@ test('avatar-images: 预设真存不下时提示里说清本机存储被谁占�
     };
     const result = await handleSettingsAction('preset-save', ctx);
     assert.equal(result.ok, false);
-    assert.match(alerts.join('\n'), /预设没存上：浏览器本地存储满了[\s\S]*本机存储已用 391 KB：素材预设 391 KB/);
+    assert.match(alerts.join('\n'), /预设未能保存：浏览器本地存储已满[\s\S]*本机存储已用 391 KB：素材预设 391 KB/);
     assert.equal(describeLocalStorageUsage(null), '');
 });

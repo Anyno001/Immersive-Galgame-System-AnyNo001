@@ -398,7 +398,7 @@ test('preset: 导出把引用的生成图一起打进压缩包，清了本机再
         assert.equal(result.fileName, 'HP.zip');
         assert.equal(result.images, 2);
         assert.equal(result.missing, 1);
-        assert.match(alerts.at(-1), /1 张图在本机找不到/);
+        assert.match(alerts.at(-1), /1 张图片在本机未找到/);
 
         // 模拟清了浏览器数据：图和预设都没了。
         images.clear();

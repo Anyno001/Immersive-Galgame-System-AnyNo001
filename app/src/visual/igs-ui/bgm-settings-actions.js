@@ -93,7 +93,7 @@ export async function handleBgmSettingsAction(action, { readerDraft, dialogs, pe
     } else if (verb === 'pack-remove') {
         const removed = removeDefaultBgm(current.tracks);
         if (!removed.removed) return null;
-        if (!await dialogs.confirm(`移除全部 ${removed.removed} 首默认曲目？你自己添加的曲目会保留。`, { okLabel: '移除' })) return null;
+        if (!await dialogs.confirm(`移除全部 ${removed.removed} 首默认曲目？自行添加的曲目会保留。`, { okLabel: '移除' })) return null;
         current.tracks = removed.tracks;
     } else if (verb === 'track-remove') {
         if (index < 0) return null;
@@ -136,7 +136,7 @@ export async function handleBgmSettingsAction(action, { readerDraft, dialogs, pe
 
     const normalized = normalizeBgmSettings(current);
     if (normalized.tracks.length < current.tracks.length) {
-        alert(verb === 'pack-download' ? '曲目数量已达上限，部分默认曲目没有加入。' : '链接无效：只支持 http/https 音频直链。');
+        alert(verb === 'pack-download' ? '曲目数量已达上限，部分默认曲目未能加入。' : '链接无效：只支持 http/https 音频直链。');
         if (verb !== 'pack-download') return null;
     }
     readerDraft.bgm = normalized;

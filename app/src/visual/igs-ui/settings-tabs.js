@@ -333,12 +333,12 @@ export const SCENE_RULES_TEMPLATE = `
   </div>
   <div class="igs-source-filter" data-wardrobe-section>
     <div class="igs-source-filter-title">衣柜提示词<span class="igs-outfit-muted">生图用</span><button class="igs-btn-mgr-icon igs-title-add" data-action="wardrobe-add" type="button" title="添加一条衣柜提示词" aria-label="添加一条衣柜提示词">+</button></div>
-    <div class="igs-source-filter-note">画服装立绘时用的衣服描述，没指定就取同名那条。</div>
+    <div class="igs-source-filter-note">生成服装立绘时使用的服装描述；未指定时使用同名的那一条。</div>
     {{wardrobeSection}}
   </div>
   <div class="igs-source-filter" data-mood-section>
     <div class="igs-source-filter-title">情绪组<span class="igs-outfit-muted">聊天与生图共用</span></div>
-    <div class="igs-source-filter-note">情绪词按组取立绘，缺图时退到相近档，最后用默认立绘。</div>
+    <div class="igs-source-filter-note">情绪词按组匹配立绘，缺图时依次回退到相近档位和默认立绘。</div>
     {{moodSection}}
   </div>
 </div>

@@ -317,7 +317,7 @@ export function createSettingsHost(deps) {
         const imageService = options.generatedAssets;
         if (released.length && imageService && typeof imageService.deleteImages === 'function') {
             const reportDeleteFailure = () => {
-                const message = '配置已保存，但有图片没能从本机清掉。';
+                const message = '配置已保存，但部分图片未能从本机清除。';
                 if (state.activeSettings) settingsDialogs.alert(message);
                 else pageModal.alert(message);
             };
@@ -510,7 +510,7 @@ export function createSettingsHost(deps) {
                     const menu = action.closest('details.igs-add-menu');
                     if (menu) menu.open = false;
                     if (settingsBusyActions.has(actName)) {
-                        showSettingsNotice('这一张还在画，画好会自动换上。');
+                        showSettingsNotice('这一张仍在生成，完成后会自动替换。');
                         return;
                     }
                     settingsBusyActions.add(actName);

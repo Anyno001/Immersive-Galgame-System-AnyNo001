@@ -42,7 +42,7 @@ test('gate:settings-search:ranking-empty-and-no-match', () => {
 test('gate:settings-search:results-html-empty-hint-and-escaping', async () => {
     const { renderSettingsSearchResults } = await import('../src/visual/igs-ui/settings-search.js');
     assert.equal(renderSettingsSearchResults(''), '');
-    assert.match(renderSettingsSearchResults('zzzz-no-such-setting'), /没有找到相关设置/);
+    assert.match(renderSettingsSearchResults('zzzz-no-such-setting'), /未找到相关设置/);
     const html = renderSettingsSearchResults('冲击');
     assert.match(html, /data-setting-go="camera-impact"/);
     assert.match(html, /阅读器 › 演出 › 画面/);

@@ -20,7 +20,7 @@ const STYLE_ID = 'igs-title-screen-style';
 const OPENING_CARD_MS = 2200;
 
 const WORLDVIEW_NOTES = Object.freeze({
-    modern: '现代日常演出与配乐，报幕、通知照现代的写',
+    modern: '现代日常演出与配乐，报幕、通知按现代风格书写',
     ancient: '宣纸竖幅报幕、家仆通报与古风配乐，AI 不写现代物件',
     fantasy: '剑与魔法的演出换皮与史诗配乐，AI 写信使、钟楼时刻',
     scifi: '全息报幕与电子配乐，AI 写通讯器、舰内时',

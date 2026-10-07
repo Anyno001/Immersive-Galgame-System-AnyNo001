@@ -89,7 +89,7 @@ test('gate:onboarding-quiz:choose-apply-then-next', () => {
 
 test('gate:onboarding-quiz:card-shows-options-and-apply-before-next', () => {
     const before = renderOnboardingCardHtml(1, { answers: { types: ['school'], level: 'light' } });
-    assert.match(before, /想不想快速配置演出？/);
+    assert.match(before, /是否快速配置演出？/);
     assert.match(before, /data-action="onboarding-quiz:types:school" aria-pressed="true"/);
     assert.match(before, /data-action="onboarding-quiz-apply"/);
     assert.match(before, /这样会开启 \d+ 项/);

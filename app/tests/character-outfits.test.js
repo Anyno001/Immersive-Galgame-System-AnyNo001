@@ -77,7 +77,7 @@ test('gate:outfits:wardrobe-prompt-is-shared-and-named-link-wins', () => {
 test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     const { renderWardrobe } = await import('../src/visual/igs-ui/settings-outfit-fields.js');
     const html = renderWardrobe({});
-    assert.match(html, /还没有衣柜提示词/);
+    assert.match(html, /暂无衣柜提示词/);
     assert.doesNotMatch(html, /待确认|outfit-review-dismiss/);
     // 和场景页一样：「+」在标题右边，筛选在下一行左边。
     const { SCENE_RULES_TEMPLATE } = await import('../src/visual/igs-ui/settings-tabs.js');

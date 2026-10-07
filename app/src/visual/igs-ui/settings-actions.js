@@ -410,7 +410,7 @@ async function chooseMoodTier(dialogs, saved, name) {
 // 生图前的额外要求：性格、某个情绪的特别表现。按角色记着，下次预填。
 // 返回 null 表示用户取消（这次不生图），空串表示没写。
 async function askExpressionNote(dialogs, name, saved) {
-    const message = `「${name}」的表情差分有没有要注意的点？\n比如性格、某个情绪的特别表现（可留空）\n例：三无性格，表情幅度要极小；大笑也不要张嘴\n这条只影响这次写提示词，不影响已经画好的图。`;
+    const message = `「${name}」的表情差分有没有要注意的点？\n比如性格、某个情绪的特别表现（可留空）\n例：三无性格，表情幅度要极小；大笑也不要张嘴\n此说明仅用于本次编写提示词，不影响已生成的图片。`;
     const current = String(saved || '');
     if (dialogs && typeof dialogs.edit === 'function') {
         const raw = await dialogs.edit(message, current, { okLabel: '开始生成', cancelLabel: '取消' });
@@ -425,7 +425,7 @@ async function askExpressionNote(dialogs, name, saved) {
 
 // 默认立绘的额外要求：长相、服装、姿势。按角色记着，下次预填。取消返回 null。
 async function askSpriteNote(dialogs, name, saved) {
-    const message = `「${name}」的立绘有没有要注意的点？\n比如长相、服装、姿势（可留空）\n例：银发红瞳，穿白裙；站姿放松，不要拿道具\n这条只影响这次写提示词，不影响已经画好的图。`;
+    const message = `「${name}」的立绘有没有要注意的点？\n比如长相、服装、姿势（可留空）\n例：银发红瞳，穿白裙；站姿放松，不要拿道具\n此说明仅用于本次编写提示词，不影响已生成的图片。`;
     const current = String(saved || '');
     if (dialogs && typeof dialogs.edit === 'function') {
         const raw = await dialogs.edit(message, current, { okLabel: '开始生成', cancelLabel: '取消' });
@@ -624,7 +624,7 @@ async function deleteCgEntries(action, settingsState, options, dialogs, rerender
         const removed = result && result.removed || 0;
         const failed = result && result.failed || 0;
         resetCgView(asyncState);
-        asyncState.imageCgStatus = !result || (result.ok === false && !removed) ? '删除失败，CG 仍保留' : (failed ? `已删除 ${removed} 张，${failed} 张没能删掉。` : `已删除 ${removed} 张。`);
+        asyncState.imageCgStatus = !result || (result.ok === false && !removed) ? '删除失败，CG 仍保留' : (failed ? `已删除 ${removed} 张，${failed} 张未能删除。` : `已删除 ${removed} 张。`);
         return rerenderSettings();
     }
     const batch = typeof service.removeMany === 'function'
@@ -635,7 +635,7 @@ async function deleteCgEntries(action, settingsState, options, dialogs, rerender
     if (view) view.removeKeys([...removedKeys]);
     const removed = removedKeys.size;
     const failed = batch && batch.failed || 0;
-    asyncState.imageCgStatus = failed ? `已删除 ${removed} 张，${failed} 张没能删掉。` : `已删除 ${removed} 张。`;
+    asyncState.imageCgStatus = failed ? `已删除 ${removed} 张，${failed} 张未能删除。` : `已删除 ${removed} 张。`;
     return rerenderSettings();
 }
 
@@ -689,17 +689,17 @@ function triggerDataUrlDownload(globalObj, dataUrl, fileName) {
 // 词条胶囊上的 × 删一个词，随手能加回来，也不问。
 const segs = (action, prefix) => action.slice(prefix.length).split(':').map(decodeSeg);
 const RISKY_ACTIONS = [
-    ['scene-remove-bg:', (a) => `删除场景「${segs(a, 'scene-remove-bg:')[0]}」？它下面的时间、天气背景会一起删掉。`],
-    ['scene-remove-time:', (a) => { const [scene, time] = segs(a, 'scene-remove-time:'); return `删除「${scene}」的时间「${time}」？它下面的天气背景会一起删掉。`; }],
+    ['scene-remove-bg:', (a) => `删除场景「${segs(a, 'scene-remove-bg:')[0]}」？其下的时间、天气背景将一并删除。`],
+    ['scene-remove-time:', (a) => { const [scene, time] = segs(a, 'scene-remove-time:'); return `删除「${scene}」的时间「${time}」？其下的天气背景将一并删除。`; }],
     ['scene-remove-weather:', (a) => { const [scene, time, weather] = segs(a, 'scene-remove-weather:'); return `删除「${scene}·${time}」的天气「${weather}」？`; }],
-    ['scene-remove-char:', (a) => `删除角色「${segs(a, 'scene-remove-char:')[0]}」？立绘、别名会一起删掉。`],
+    ['scene-remove-char:', (a) => `删除角色「${segs(a, 'scene-remove-char:')[0]}」？立绘、别名将一并删除。`],
     ['scene-remove-mood:', (a) => { const [name, mood] = segs(a, 'scene-remove-mood:'); return `删除「${name}」的「${mood}」立绘格？`; }],
     ['scene-remove-outfit-mood:', (a) => { const [name, outfit, mood] = segs(a, 'scene-remove-outfit-mood:'); return `删除「${name}」「${outfit}」的「${mood}」立绘格？`; }],
-    ['scene-remove-outfit:', (a) => { const [name, outfit] = segs(a, 'scene-remove-outfit:'); return `删除「${name}」的服装「${outfit}」？这套的立绘、头像会一起删掉。`; }],
+    ['scene-remove-outfit:', (a) => { const [name, outfit] = segs(a, 'scene-remove-outfit:'); return `删除「${name}」的服装「${outfit}」？这套服装的立绘、头像将一并删除。`; }],
     ['scene-clear-outfit-avatar:', () => '清除这套服装的头像？'],
     ['status-avatar-clear:', (a) => `清除「${segs(a, 'status-avatar-clear:')[0]}」的状态栏头像？`],
     ['wardrobe-remove:', (a) => `删除衣柜里的「${segs(a, 'wardrobe-remove:')[0]}」？`],
-    ['mood-remove-group:', (a) => `删除情绪组「${segs(a, 'mood-remove-group:')[0]}」？组里的情绪词会一起删掉。`],
+    ['mood-remove-group:', (a) => `删除情绪组「${segs(a, 'mood-remove-group:')[0]}」？组内的情绪词将一并删除。`],
     ['chat-show-remove-contact:', () => '删除这个联系人？'],
     ['bgm-track-remove:', () => '删除这首背景音乐？'],
     ['romance-action-remove:', () => '删除这条亲密动作？'],
@@ -709,10 +709,10 @@ const RISKY_ACTIONS = [
     ['image-log-clear', () => '清空生图日志？'],
     ['image-cache-clear', () => '清空浏览器里缓存的图片？酒馆上的原图还在，下次查看会重新下载。'],
     ['mood-review-clear', () => '清空待确认的情绪词？'],
-    ['reset-virtual-regex', () => '正文格式化恢复默认？现在的查找和替换会被覆盖。'],
-    ['reset-prompt-rule', () => '提示词规则恢复默认？现在改过的内容会被覆盖。'],
-    ['reset-mood-groups', () => '情绪分组恢复默认？自己加的组和词会被覆盖。'],
-    ['chat-show-reset-prompt', () => '线上交流提示词恢复默认？现在改过的内容会被覆盖。'],
+    ['reset-virtual-regex', () => '正文格式化恢复默认？当前的查找与替换内容将被覆盖。'],
+    ['reset-prompt-rule', () => '提示词规则恢复默认？当前修改过的内容将被覆盖。'],
+    ['reset-mood-groups', () => '情绪分组恢复默认？自行添加的组和词将被覆盖。'],
+    ['chat-show-reset-prompt', () => '线上交流提示词恢复默认？当前修改过的内容将被覆盖。'],
 ];
 
 // 当前演出开关是不是手调出来的自定义组合：有快速配置时看是否偏离配置，没有时看能否对上某一档。
@@ -729,7 +729,7 @@ function riskyActionMessage(action, settingsState, editTarget) {
     if (worldview) {
         const found = WORLDVIEWS.find((item) => item.id === worldview[1]);
         if (!found || resolveWorldview(draftAssetLibrary(settingsState, editTarget)) === found.id) return '';
-        return `切换到「${found.label}」世界观？演出用词、音效和界面会跟着换。`;
+        return `切换到「${found.label}」世界观？演出用词、音效和界面将随之切换。`;
     }
     const hit = RISKY_ACTIONS.find(([prefix]) => (prefix.endsWith(':') ? action.startsWith(prefix) : action === prefix || action.startsWith(`${prefix}:`)));
     return hit ? hit[1](action) : '';
@@ -780,7 +780,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!names.length) return rerenderSettings();
         const label = kind === 'characters' ? '角色' : '场景';
         const preview = names.slice(0, 5).map((name) => `「${name}」`).join('') + (names.length > 5 ? ` 等 ${names.length} 个` : '');
-        if (typeof dialogs.confirm === 'function' && !(await dialogs.confirm(`删除${preview}${label}？${kind === 'characters' ? '立绘、别名、服装会一起删掉。' : '时间、天气背景会一起删掉。'}`))) return rerenderSettings();
+        if (typeof dialogs.confirm === 'function' && !(await dialogs.confirm(`删除${preview}${label}？${kind === 'characters' ? '立绘、别名、服装将一并删除。' : '时间、天气背景将一并删除。'}`))) return rerenderSettings();
         const prefix = kind === 'characters' ? 'scene-remove-char:' : 'scene-remove-bg:';
         const quiet = { ...ctx, dialogs: { ...dialogs, confirm: async () => true } };
         for (const name of names) {
@@ -820,9 +820,9 @@ export async function handleSettingsAction(action, ctx) {
         const taken = dest === 'global' ? names.filter((name) => Object.prototype.hasOwnProperty.call(root[collection] || {}, name)) : [];
         const shown = taken.slice(0, 6).join('、') + (taken.length > 6 ? ' 等' : '');
         const message = dest === 'global'
-            ? `把角色卡「${cardLabel}」的 ${names.length} 个${kind}全部放到全局？之后所有角色卡都能用。`
-                + (taken.length ? `\n全局里已有同名的 ${taken.length} 个会换成本卡这份：${shown}。` : '')
-            : `把全局的 ${names.length} 个${kind}全部收进角色卡「${cardLabel}」？之后别的角色卡就用不到它们了。`;
+            ? `把角色卡「${cardLabel}」的 ${names.length} 个${kind}全部移至全局？移动后所有角色卡均可使用。`
+                + (taken.length ? `\n全局中已有的 ${taken.length} 个同名条目将替换为本卡的版本：${shown}。` : '')
+            : `把全局的 ${names.length} 个${kind}全部收进角色卡「${cardLabel}」？移动后其他角色卡将无法使用这些条目。`;
         if (!await dialogs.confirm(message, { okLabel: dest === 'global' ? '全部放到全局' : '全部收进本卡' })) return rerenderSettings();
         for (const name of names) moveLibraryEntry(root, dest === 'global' ? cardKey : '', dest === 'global' ? '' : cardKey, collection, name);
         const persisted = persistSettingsDraft();
@@ -843,8 +843,8 @@ export async function handleSettingsAction(action, ctx) {
         if (owner) {
             const taken = Object.prototype.hasOwnProperty.call(root[collection] || {}, name);
             const message = taken
-                ? `全局已经有一份「${name}」。挪回全局会用本卡这份把它换掉，所有角色卡都会用这份。继续？`
-                : `把「${name}」放到全局？之后所有角色卡都能用。`;
+                ? `全局中已有「${name}」。移至全局后将以本卡的版本替换，所有角色卡都会使用该版本。是否继续？`
+                : `将「${name}」移至全局？移动后所有角色卡均可使用。`;
             if (!await dialogs.confirm(message, { okLabel: '放到全局' })) return rerenderSettings();
         }
         const moved = moveLibraryEntry(root, owner ? cardKey : '', owner ? '' : cardKey, collection, name);
@@ -892,14 +892,14 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'copy-page-diagnostic') {
         const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)) });
         if (!text) {
-            if (typeof dialogs.view === 'function') await dialogs.view('先打开阅读器翻到出问题的那一页，再从工具栏「设置」进来复制。');
+            if (typeof dialogs.view === 'function') await dialogs.view('请先打开阅读器并翻到出现问题的页面，再从工具栏的「设置」进入并复制。');
             return rerenderSettings();
         }
         const nav = (options.global || globalThis).navigator;
         const copied = nav && nav.clipboard && typeof nav.clipboard.writeText === 'function'
             ? await Promise.resolve(nav.clipboard.writeText(text)).then(() => true, () => false)
             : false;
-        if (typeof dialogs.edit === 'function') await dialogs.edit(copied ? '已复制到剪贴板，不含台词正文。' : '复制失败，请手动全选下面的内容复制。', text, { okLabel: '关闭' });
+        if (typeof dialogs.edit === 'function') await dialogs.edit(copied ? '已复制到剪贴板，不含台词正文。' : '复制失败，请手动全选下方内容后复制。', text, { okLabel: '关闭' });
         return rerenderSettings();
     }
 
@@ -1252,7 +1252,7 @@ export async function handleSettingsAction(action, ctx) {
             const groups = ensureTimeGroups(settingsState).map((g) => g && g.label).filter(Boolean);
             const labels = groups.length ? groups : ['清晨', '白天', '黄昏', '夜晚'];
             const missing = labels.filter((label) => !String((times[label] && times[label].url) || '').trim());
-            const message = `按「${sceneName}」的提示词画时间/天气差分，一行一张，不写词、直接出图。\n只写时间：「夜晚」；带天气：「夜晚·雨」。删掉不要的行。`;
+            const message = `按「${sceneName}」的提示词生成时间/天气差分，每行一张，不重新编写提示词，直接出图。\n仅时间：「夜晚」；含天气：「夜晚·雨」。如有不需要的行，请删除。`;
             const raw = typeof dialogs.edit === 'function'
                 ? await dialogs.edit(message, missing.join('\n'), { okLabel: '开始生成', cancelLabel: '取消' })
                 : await dialogs.prompt(message, missing.join('\n'));
@@ -1305,11 +1305,11 @@ export async function handleSettingsAction(action, ctx) {
         progress.end();
         const failed = result && Array.isArray(result.items) ? result.items.filter((item) => !item.ok) : [];
         if (!done.length) {
-            return generationFailure(globalObj, dialogs, `「${sceneName}」的时间/天气差分没画出来：${errorText(result && (result.error || (failed[0] && failed[0].error)), '未返回原因')}`, 'scene-variant-failed');
+            return generationFailure(globalObj, dialogs, `「${sceneName}」的时间/天气差分未能生成：${errorText(result && (result.error || (failed[0] && failed[0].error)), '未返回原因')}`, 'scene-variant-failed');
         }
         showGeneratedNotice(globalObj, failed.length
             ? `「${sceneName}」画好 ${done.length} 张，${failed.length} 张失败：${failed[0].error}`
-            : `「${sceneName}」的时间/天气差分已换上（${done.length} 张）。`, failed.length ? '' : 'info');
+            : `「${sceneName}」的时间/天气差分已更新（${done.length} 张）。`, failed.length ? '' : 'info');
         return rendered;
     }
 
@@ -1331,8 +1331,8 @@ export async function handleSettingsAction(action, ctx) {
         const progress = startExpressionProgress(globalObj, `${name}·默认立绘`);
         progress.onProgress({ phase: 'write' });
         const confirmed = await dialogs.confirm(current
-            ? `重新生成「${name}」的默认立绘。现在这张会被换掉。`
-            : `生成「${name}」的默认立绘。先写提示词，再出一张图。`);
+            ? `重新生成「${name}」的默认立绘，当前这张将被替换。`
+            : `生成「${name}」的默认立绘：将先编写提示词，再生成一张图。`);
         if (!confirmed) {
             progress.end();
             return rerenderSettings();
@@ -1340,7 +1340,7 @@ export async function handleSettingsAction(action, ctx) {
         let result;
         const failed = (error) => {
             progress.end();
-            return generationFailure(globalObj, dialogs, `「${name}」的默认立绘没画出来：${errorText(error, '未返回原因')}${current ? '\n原来那张没动。' : ''}`, 'sprite-generate-failed');
+            return generationFailure(globalObj, dialogs, `「${name}」的默认立绘未能生成：${errorText(error, '未返回原因')}${current ? '\n原有图片保持不变。' : ''}`, 'sprite-generate-failed');
         };
         try {
             result = await service.generateCharacterSprite({ name, dna, note: spriteNote, onProgress: progress.onProgress });
@@ -1364,7 +1364,7 @@ export async function handleSettingsAction(action, ctx) {
         }
         const rendered = await rerenderSettings();
         progress.end();
-        showGeneratedNotice(globalObj, `「${name}」的默认立绘已换上。`, 'info');
+        showGeneratedNotice(globalObj, `「${name}」的默认立绘已更新。`, 'info');
         return rendered;
     }
 
@@ -1387,8 +1387,8 @@ export async function handleSettingsAction(action, ctx) {
         const progress = startExpressionProgress(globalObj, `${name}（${outfitName}）`);
         progress.onProgress({ phase: 'write' });
         const confirmed = await dialogs.confirm(current
-            ? `重新生成「${name}」的「${outfitName}」裸体立绘。现在这张会被换掉，原装不动。`
-            : `生成「${name}」的「${outfitName}」裸体立绘。先按这个角色写提示词，再出一张图。这张记在这套服装上，不换掉原装。`);
+            ? `重新生成「${name}」的「${outfitName}」裸体立绘，当前这张将被替换，原装保持不变。`
+            : `生成「${name}」的「${outfitName}」裸体立绘：将先按该角色编写提示词，再生成一张图。该图记录在这套服装上，不替换原装。`);
         if (!confirmed) {
             progress.end();
             return rerenderSettings();
@@ -1398,7 +1398,7 @@ export async function handleSettingsAction(action, ctx) {
         const failed = (error) => {
             progress.end();
             restoreBusy();
-            return generationFailure(globalObj, dialogs, `「${name}」的「${outfitName}」裸体立绘没画出来：${errorText(error, '未返回原因')}${current ? '\n原来那张没动。' : ''}`, 'sprite-generate-failed');
+            return generationFailure(globalObj, dialogs, `「${name}」的「${outfitName}」裸体立绘未能生成：${errorText(error, '未返回原因')}${current ? '\n原有图片保持不变。' : ''}`, 'sprite-generate-failed');
         };
         try {
             result = await service.generateCharacterSprite({ name, dna, nude: true, onProgress: progress.onProgress });
@@ -1424,7 +1424,7 @@ export async function handleSettingsAction(action, ctx) {
         const rendered = await rerenderSettings();
         progress.end();
         restoreBusy();
-        showGeneratedNotice(globalObj, `「${name}」的「${outfitName}」裸体立绘已换上。`, 'info');
+        showGeneratedNotice(globalObj, `「${name}」的「${outfitName}」裸体立绘已更新。`, 'info');
         return rendered;
     }
 
@@ -1515,7 +1515,7 @@ export async function handleSettingsAction(action, ctx) {
             .filter((label) => !moodPresetEntry(label) && !labels.includes(label) && !String(slots[label] || '').trim());
         if (customMissing.length) {
             const shown = `${customMissing.slice(0, 8).join('、')}${customMissing.length > 8 ? ' 等' : ''}`;
-            if (await dialogs.confirm(`另有 ${customMissing.length} 个自建情绪组还没图：${shown}。要一起画吗？`)) labels.push(...customMissing);
+            if (await dialogs.confirm(`另有 ${customMissing.length} 个自建情绪组尚无图片：${shown}。是否一并生成？`)) labels.push(...customMissing);
         }
         const filledLabels = labels.filter((label) => String(slots[label] || '').trim());
         const missingLabels = labels.filter((label) => !String(slots[label] || '').trim());
@@ -1525,24 +1525,24 @@ export async function handleSettingsAction(action, ctx) {
         const resumeItems = resume ? pendingExpressionCaptions(library.expressionNotes[noteKey], slots) : paintItems;
         if (resume && !resumeItems.length) {
             endProgress();
-            showGeneratedNotice(globalObj, '没有写好词、还没出图的表情。');
+            showGeneratedNotice(globalObj, '没有已写好提示词但尚未出图的表情。');
             return rerenderSettings();
         }
         if (!retry && !resume && writeLabels.length && !basePrompt) {
             return generationFailure(globalObj, dialogs, outfitMode
-                ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
-                : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
+                ? '请先将一张带提示词的生成立绘放入这套服装，或绑定到该角色的原装。'
+                : '请先将一张带提示词的生成立绘绑定到该角色。', 'expression-prompt-missing');
         }
         if (retry && !savedCaption && !basePrompt) {
             endProgress();
             return generationFailure(globalObj, dialogs, outfitMode
-                ? '先把一张带提示词的生成立绘放进这套服装，或绑定到这个角色的原装。'
-                : '先把一张带提示词的生成立绘绑定到这个角色。', 'expression-prompt-missing');
+                ? '请先将一张带提示词的生成立绘放入这套服装，或绑定到该角色的原装。'
+                : '请先将一张带提示词的生成立绘绑定到该角色。', 'expression-prompt-missing');
         }
         if (!retry && !resume) {
             const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
             if (!missingLabels.length) {
-                const message = `${who}这一档的表情组都有图了。`;
+                const message = `${who}这一档的表情组均已有图片。`;
                 if (typeof dialogs.view === 'function') await dialogs.view(message);
                 else pageAlert(dialogs, globalObj, message);
                 return rerenderSettings();
@@ -1550,12 +1550,12 @@ export async function handleSettingsAction(action, ctx) {
             const paintNames = paintItems.map((item) => item.mood).join('、');
             const writeNames = writeLabels.join('、');
             const confirmed = await dialogs.confirm(!writeLabels.length
-                ? `这一档还有 ${paintItems.length} 张词写好了、图没出：${paintNames}。只补画这 ${paintItems.length} 张，不重写提示词。`
+                ? `这一档还有 ${paintItems.length} 张已写好提示词、尚未出图：${paintNames}。将只补画这 ${paintItems.length} 张，不重写提示词。`
                 : !paintItems.length
                     ? (missingLabels.length === labels.length
                         ? `生成${who}的 ${missingLabels.length} 张表情差分：${writeNames}。`
-                        : `这一档还有 ${missingLabels.length} 张没画：${writeNames}。只画这 ${missingLabels.length} 张，已有的 ${filledLabels.length} 张不动。`)
-                    : `这一档还有 ${missingLabels.length} 张没画。${paintItems.length} 张已有提示词，只补画：${paintNames}。另外 ${writeLabels.length} 张要先写提示词：${writeNames}。已有的 ${filledLabels.length} 张不动。`);
+                        : `这一档还有 ${missingLabels.length} 张尚未生成：${writeNames}。将只生成这 ${missingLabels.length} 张，已有的 ${filledLabels.length} 张保持不变。`)
+                    : `这一档还有 ${missingLabels.length} 张尚未生成。其中 ${paintItems.length} 张已有提示词，将直接补画：${paintNames}；另外 ${writeLabels.length} 张需先编写提示词：${writeNames}。已有的 ${filledLabels.length} 张保持不变。`);
             if (!confirmed) return rerenderSettings();
         }
         let result;
@@ -1570,8 +1570,8 @@ export async function handleSettingsAction(action, ctx) {
             progress.end();
             restoreBusy();
             const message = retry
-                ? `「${subject}」的「${mood}」没画出来：${errorText(error, '未返回原因')}${hadImage ? '\n原来那张没动。' : ''}`
-                : `「${subject}」的表情差分没画出来：${errorText(error, '未返回原因')}`;
+                ? `「${subject}」的「${mood}」未能生成：${errorText(error, '未返回原因')}${hadImage ? '\n原有图片保持不变。' : ''}`
+                : `「${subject}」的表情差分未能生成：${errorText(error, '未返回原因')}`;
             return generationFailure(globalObj, dialogs, message, 'expression-generate-failed');
         };
         try {
@@ -1624,9 +1624,9 @@ export async function handleSettingsAction(action, ctx) {
         // 失败原因（超时、插件报错）也记在格子的注记里，但界面上看不到，这里直接说出来。
         if (result.stopped) showGeneratedNotice(globalObj, `已停止，画好了 ${painted} 张。${kept ? `剩下 ${kept} 张的词已写好，点「继续生图」接着画。` : ''}`, 'info');
         else if (retry && painted) showGeneratedNotice(globalObj, `「${subject}」的「${mood}」已换上。`, 'info');
-        else if (retry) generationFailure(globalObj, dialogs, `「${subject}」的「${mood}」没画出来：${firstError}${hadImage ? '\n原来那张没动。' : ''}`, 'expression-generate-failed');
-        else if (!painted) generationFailure(globalObj, dialogs, `「${subject}」没有画出可用的图：${firstError}`, 'expression-generate-failed');
-        else if (failedItems.length) showGeneratedNotice(globalObj, `画好 ${painted} 张，${failedItems.length} 张没画出来：${firstError}。失败的格子可以单独「重新生成」。`);
+        else if (retry) generationFailure(globalObj, dialogs, `「${subject}」的「${mood}」未能生成：${firstError}${hadImage ? '\n原有图片保持不变。' : ''}`, 'expression-generate-failed');
+        else if (!painted) generationFailure(globalObj, dialogs, `「${subject}」未能生成可用的图片：${firstError}`, 'expression-generate-failed');
+        else if (failedItems.length) showGeneratedNotice(globalObj, `已生成 ${painted} 张，${failedItems.length} 张未能生成：${firstError}。失败的格子可单独「重新生成」。`);
         else showGeneratedNotice(globalObj, `「${subject}」画好 ${painted} 张表情差分。`, 'info');
         return rendered;
     }
@@ -2151,7 +2151,7 @@ export async function handleSettingsAction(action, ctx) {
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const had = Boolean(normalizeStatusAvatars(sceneAssets.statusAvatars)[charName]);
         const confirmed = await dialogs.confirm(had
-            ? `重新生成「${charName}」的 Q 版头像。现在的头像会被换掉。`
+            ? `重新生成「${charName}」的 Q 版头像，当前头像将被替换。`
             : `生成「${charName}」的 Q 版头像。`);
         if (!confirmed) return rerenderSettings();
         let result;
@@ -2163,7 +2163,7 @@ export async function handleSettingsAction(action, ctx) {
         }
         if (!result || !result.ok || !result.dataUrl) {
             progress.end();
-            return generationFailure(globalObj, dialogs, `「${charName}」的 Q 版头像没画出来：${errorText(result && result.error, '未返回原因')}${had ? '\n原来的头像没动。' : ''}`, 'avatar-generate-failed');
+            return generationFailure(globalObj, dialogs, `「${charName}」的 Q 版头像未能生成：${errorText(result && result.error, '未返回原因')}${had ? '\n原有头像保持不变。' : ''}`, 'avatar-generate-failed');
         }
         const stored = await storeAvatarImage(globalObj, service, result.dataUrl, { shrink: true });
         const liveAssets = draftAssetLibrary(settingsState, editTarget);
@@ -2226,7 +2226,7 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction.startsWith('voice-bark-preview:')) {
         const charName = decodeSeg(normalizedAction.slice('voice-bark-preview:'.length));
         const voice = resolveCharacterVoice(draftEffectiveAssets(settingsState), charName);
-        if (!voice.pack) return { ok: false, error: '这个角色当前不发声：请先选一个声线' };
+        if (!voice.pack) return { ok: false, error: '该角色当前未设置声线，请先选择一个声线' };
         previewVoicePack(voice.pack.id, { pitch: voice.pitch, speed: voice.speed, volume: normalizeVoiceBarkSettings((settingsState.draft.readerSettings || {}).voiceBark).volume });
         return { ok: true, previewed: voice.pack.id };
     }
@@ -2599,7 +2599,7 @@ export async function handleSettingsAction(action, ctx) {
             settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
             const scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
             if (Object.prototype.hasOwnProperty.call(scenes, newName)) {
-                pageAlert(dialogs, globalObj, `场景「${newName}」已存在（同名），已阻止`);
+                pageAlert(dialogs, globalObj, `场景「${newName}」已存在同名条目，未作更改`);
                 return rerenderSettings();
             }
             draftAssetLibrary(settingsState, editTarget).scenes = reorderKey(scenes, oldName, newName);
@@ -2684,7 +2684,7 @@ export async function handleSettingsAction(action, ctx) {
                 const scene = scenes[sceneName];
                 if (scene && scene.times) {
                     if (Object.prototype.hasOwnProperty.call(scene.times, newTime)) {
-                        pageAlert(dialogs, globalObj, `时间「${newTime}」已存在（同名），已阻止`);
+                        pageAlert(dialogs, globalObj, `时间「${newTime}」已存在同名条目，未作更改`);
                         return rerenderSettings();
                     }
                     scene.times = reorderKey(scene.times, oldTime, newTime);
@@ -2813,7 +2813,7 @@ export async function handleSettingsAction(action, ctx) {
                         const t = scene.times[timeName];
                         if (t && t.weathers) {
                             if (Object.prototype.hasOwnProperty.call(t.weathers, newWeather)) {
-                                pageAlert(dialogs, globalObj, `天气「${newWeather}」已存在（同名），已阻止`);
+                                pageAlert(dialogs, globalObj, `天气「${newWeather}」已存在同名条目，未作更改`);
                                 return rerenderSettings();
                             }
                             // global sync: rename same weather slot across all scenes/times
@@ -2929,13 +2929,13 @@ export async function handleSettingsAction(action, ctx) {
         const alertFn = (msg) => { pageAlert(dialogs, globalObj, msg); };
         if (RESERVED_ASSET_NAMES.includes(name)) { alertFn(`「${name}」不能用作角色名`); return rerenderSettings(); }
         const aliasOwner = Object.keys(aliases).find((n) => Array.isArray(aliases[n]) && aliases[n].includes(name));
-        if (aliasOwner) { alertFn(`「${name}」已是角色「${aliasOwner}」的别名，请编辑主角色的 DNA`); return rerenderSettings(); }
+        if (aliasOwner) { alertFn(`「${name}」已是角色「${aliasOwner}」的别名，请编辑主角色的 DNA。`); return rerenderSettings(); }
         const dnaMap = normalizeCharacterDnaMap(sceneAssets.characterDna);
         if (renaming) {
             if (Object.prototype.hasOwnProperty.call(characters, oldName)) return rerenderSettings();
             if (Object.prototype.hasOwnProperty.call(characters, name)) { alertFn(`角色「${name}」已存在（同名）`); return rerenderSettings(); }
             const result = renameCharacterDna(dnaMap, oldName, name);
-            if (!result.ok) { alertFn(`角色 DNA 中已有「${name}」，已阻止`); return rerenderSettings(); }
+            if (!result.ok) { alertFn(`角色 DNA 中已有「${name}」，未作更改`); return rerenderSettings(); }
             sceneAssets.characterDna = result.map;
         } else {
             if (Object.prototype.hasOwnProperty.call(dnaMap, name)) { alertFn(`角色「${name}」已有 DNA`); return rerenderSettings(); }
@@ -3140,7 +3140,7 @@ export async function handleSettingsAction(action, ctx) {
             }
             const dnaRename = renameCharacterDna(sceneAssets.characterDna, oldName, newName);
             if (!dnaRename.ok) {
-                pageAlert(dialogs, globalObj, dnaRename.reason === 'name-exists' ? `角色 DNA 中已有「${newName}」，改名会覆盖其资料，已阻止` : `「${newName}」不能用作角色名`);
+                pageAlert(dialogs, globalObj, dnaRename.reason === 'name-exists' ? `角色 DNA 中已有「${newName}」，改名会覆盖其资料，因此未作更改` : `「${newName}」不能用作角色名`);
                 return rerenderSettings();
             }
             sceneAssets.characters = reorderKey(chars, oldName, newName);
@@ -3191,12 +3191,12 @@ export async function handleSettingsAction(action, ctx) {
                 const chars = draftAssetLibrary(settingsState, editTarget).characters || {};
                 // 同名检查：该角色已有同名槽，或词库已有同名情绪组 → 阻止，避免覆盖丢失
                 if (chars[charName] && Object.prototype.hasOwnProperty.call(chars[charName], newMood)) {
-                    pageAlert(dialogs, globalObj, `「${charName}」已有「${newMood}」槽（同名），改名会覆盖，已阻止`);
+                    pageAlert(dialogs, globalObj, `「${charName}」已有「${newMood}」槽（同名），改名会覆盖原有内容，因此未作更改`);
                     return rerenderSettings();
                 }
                 const groups = ensureMoodGroups(settingsState);
                 if (groups.some((g) => g.label === newMood && g.label !== oldMood)) {
-                    pageAlert(dialogs, globalObj, `词库已有情绪组「${newMood}」（同名），改名会覆盖，已阻止`);
+                    pageAlert(dialogs, globalObj, `词库已有情绪组「${newMood}」（同名），改名会覆盖原有内容，因此未作更改`);
                     return rerenderSettings();
                 }
                 // 改角色槽名
@@ -3242,8 +3242,8 @@ export async function handleSettingsAction(action, ctx) {
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         const looked = await dialogs.confirm(applyMoodPreset(groups)
-            ? '已按预设整理词库：缺的组补齐、词挪回它该在的组，你自己加的组和词都在。'
-            : '词库已经是预设的样子了。');
+            ? '已按预设整理词库：补齐缺少的组，并将词归回所属的组；自行添加的组和词均已保留。'
+            : '词库已与预设一致。');
         return rerenderSettings();
     }
 
@@ -3414,7 +3414,7 @@ export async function handleSettingsAction(action, ctx) {
             if (group) {
                 if (group.words.length <= 1) {
                     const globalObj = options.global || globalThis;
-                    pageAlert(dialogs, globalObj, '每个情绪组至少保留 1 个词');
+                    pageAlert(dialogs, globalObj, '每个情绪组至少需保留 1 个词。');
                     return rerenderSettings();
                 }
                 const wi = group.words.indexOf(word);
@@ -3817,7 +3817,7 @@ async function importAllSettings(settingsState, options, dialogs, ctx, persistSe
     if (persisted.ok === false) return persisted;
     const rescued = await rescueLegacyAssets(file, options);
     if (rescued.count) {
-        pageAlert(dialogs, globalObj, `这份配置里带着旧版的素材（${rescued.count} 套），已经存下来了。到「素材」页顶部「预设」里套用到本卡或全局。`);
+        pageAlert(dialogs, globalObj, `该配置包含旧版素材（${rescued.count} 套），已另行保存。可在「素材」页顶部的「预设」中套用到本卡或全局。`);
     }
     return rerenderSettings();
 }
@@ -3857,7 +3857,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     const alertFn = (msg) => { pageAlert(dialogs, globalObj, msg); };
     const failed = (written) => {
         const usage = describeLocalStorageUsage(storage);
-        alertFn(`预设没存上：浏览器本地存储满了（酒馆和各插件共用几 MB）。${usage ? `${usage}。` : ''}可以先删掉不用的预设再试，素材本身不受影响。`);
+        alertFn(`预设未能保存：浏览器本地存储已满（酒馆与各插件共用约数 MB）。${usage ? `${usage}。` : ''}可先删除不再使用的预设后重试，素材本身不受影响。`);
         return written;
     };
     const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
@@ -3894,7 +3894,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     if (action === 'preset-save') {
         const name = await askName('存为预设，名字：', cardLabel || '全局');
         if (!name) return rerenderSettings();
-        if (presets[name] && !await dialogs.confirm(`已经有预设「${name}」了，用现在这一套覆盖它？`, { okLabel: '覆盖' })) return rerenderSettings();
+        if (presets[name] && !await dialogs.confirm(`已存在预设「${name}」，是否用当前这一套覆盖？`, { okLabel: '覆盖' })) return rerenderSettings();
         const slimFailed = await slimAvatars();
         if (slimFailed) return slimFailed;
         const written = writeNamedPreset(storage, name, layeredPresetFromRoot(root, { cardKey, cardLabel, readerSettings }));
@@ -3916,17 +3916,17 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
             try { data = JSON.parse(new TextDecoder().decode(file.bytes)); } catch (error) { data = null; }
         }
         if (!isLegacyPresetData(data)) {
-            alertFn(isZipBytes(file.bytes) ? '这个压缩包不是素材预设（角色卡素材包请用「导入角色卡素材包」）' : '这个文件不是素材预设');
+            alertFn(isZipBytes(file.bytes) ? '该压缩包不是素材预设（角色卡素材包请使用「导入角色卡素材包」）。' : '该文件不是素材预设。');
             return rerenderSettings();
         }
         const name = await askName('导入预设，名字：', (archive && archive.name) || String(file.fileName || '').replace(/\.(?:json|zip)$/i, '') || '导入的预设');
         if (!name) return rerenderSettings();
-        if (presets[name] && !await dialogs.confirm(`已经有预设「${name}」了，用文件里的覆盖它？`, { okLabel: '覆盖' })) return rerenderSettings();
+        if (presets[name] && !await dialogs.confirm(`已存在预设「${name}」，是否用文件中的内容覆盖？`, { okLabel: '覆盖' })) return rerenderSettings();
         const lost = archive ? await writePackImages(archive.images, options) : 0;
         await moveInlineAvatars(avatarHoldersOfPreset(data), options.generatedAssets);
         const written = writeNamedPreset(storage, name, data);
         if (written.ok === false) return failed(written);
-        if (lost) alertFn(`预设已导入，有 ${lost} 张图没能存进本机。`);
+        if (lost) alertFn(`预设已导入，有 ${lost} 张图片未能保存到本机。`);
         return rerenderSettings();
     }
 
@@ -3960,7 +3960,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
         const bytes = buildPresetArchive({ name, preset, images });
         const downloaded = triggerBytesDownload(globalObj, bytes, `${fileBase}.zip`, 'application/zip');
         if (downloaded.ok === false) return downloaded;
-        if (missing) alertFn(`已导出。有 ${missing} 张图在本机找不到，压缩包里没有这几张。`);
+        if (missing) alertFn(`已导出。有 ${missing} 张图片在本机未找到，未包含在压缩包中。`);
         return { ...downloaded, images: images.length, missing };
     }
 
@@ -3975,7 +3975,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     }
 
     if (command === 'preset-delete') {
-        if (!await dialogs.confirm(`删除预设「${name}」？素材本身不受影响，只是以后不能再套用它。`, { okLabel: '删除' })) return rerenderSettings();
+        if (!await dialogs.confirm(`删除预设「${name}」？素材本身不受影响，但之后将无法再套用该预设。`, { okLabel: '删除' })) return rerenderSettings();
         const written = removeNamedPreset(storage, name);
         if (written.ok === false) return failed(written);
         return rerenderSettings();
@@ -3994,10 +3994,10 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     const targetOf = (key) => (key ? ensureCardLibrary(root, key) : root);
     const backupName = `套用前备份 · ${name.replace(/^套用前备份 · /, '')}`;
     const keepBackup = name !== backupName && layers.some((layer) => libraryHasContent(targetOf(layer.key)));
-    const lines = layers.map((layer) => `${layer.label}：现在的 ${counts(targetOf(layer.key))} 整套换成预设里的 ${counts(layer.pack.library)}。`);
+    const lines = layers.map((layer) => `${layer.label}：当前的 ${counts(targetOf(layer.key))} 将整体替换为预设中的 ${counts(layer.pack.library)}。`);
     const message = `套用预设「${name}」？\n${lines.join('\n')}`
         + (layers.length > 1 ? '\n别的角色卡不受影响。' : '')
-        + (keepBackup ? `\n原来的会先存成预设「${backupName}」，想回去再套用它就行。` : '');
+        + (keepBackup ? `\n原有内容会先保存为预设「${backupName}」，如需恢复，套用该预设即可。` : '');
     if (!await dialogs.confirm(message, { okLabel: '套用' })) return rerenderSettings();
     if (keepBackup) {
         const slimFailed = await slimAvatars();
@@ -4045,7 +4045,7 @@ async function importLegacyPreset(settingsState, options, dialogs, persistSettin
     const cardLabel = String(asyncState.assetScopeLabel || '');
     let dest = '';
     if (cardKey) {
-        const toCard = await dialogs.confirm(`「${label}」放到哪里？\n放进本卡：只有角色卡「${cardLabel}」用。\n放进全局：所有角色卡都能用。`,
+        const toCard = await dialogs.confirm(`「${label}」要放在哪里？\n放入本卡：仅角色卡「${cardLabel}」使用。\n放入全局：所有角色卡均可使用。`,
             { okLabel: `放进本卡「${cardLabel}」`, cancelLabel: '放进全局' });
         dest = toCard ? cardKey : '';
     }
@@ -4053,9 +4053,9 @@ async function importLegacyPreset(settingsState, options, dialogs, persistSettin
     const where = dest ? `角色卡「${cardLabel}」` : '全局';
     const conflicts = legacyPackConflicts(target, pack);
     const shown = conflicts.slice(0, 6).join('、') + (conflicts.length > 6 ? ' 等' : '');
-    const message = `把「${label}」导入${where}：${summary.scenes} 个场景、${summary.characters} 个角色、${summary.outfits} 套服装，连同立绘位置和词库。`
-        + (conflicts.length ? `\n${where}里已有的同名条目（${conflicts.length} 条）会换成预设里的：${shown}。` : '')
-        + '\n其他已有的素材不动。';
+    const message = `把「${label}」导入${where}：${summary.scenes} 个场景、${summary.characters} 个角色、${summary.outfits} 套服装，包括立绘位置和词库。`
+        + (conflicts.length ? `\n${where}中已有的 ${conflicts.length} 个同名条目将替换为预设中的版本：${shown}。` : '')
+        + '\n其他已有素材保持不变。';
     if (!await dialogs.confirm(message, { okLabel: '导入' })) return rerenderSettings();
     mergeLegacyLibrary(target, pack);
     mergeAssetFolderScope(globalObj.localStorage, label, dest);
@@ -4081,7 +4081,7 @@ async function exportCharacterCardPack(settingsState, options) {
     const kind = settingsState.asyncState && settingsState.asyncState.assetScopeKind;
     const characterName = settingsState.asyncState && settingsState.asyncState.assetScopeLabel;
     if (kind !== 'card' || !scopeKey || !characterName) {
-        pageAlert(dialogs, globalObj, '先打开一张角色卡，再导出这张卡的素材');
+        pageAlert(dialogs, globalObj, '请先打开一张角色卡，再导出该卡的素材。');
         return { ok: false, reason: 'no-card' };
     }
     const root = (settingsState.draft.bridge && settingsState.draft.bridge.sceneAssets) || {};
@@ -4104,7 +4104,7 @@ async function exportCharacterCardPack(settingsState, options) {
     const fileName = `${String(characterName).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || '角色卡'}.zip`;
     const downloaded = triggerBytesDownload(globalObj, bytes, fileName, 'application/zip');
     if (downloaded.ok === false) return downloaded;
-    if (missing) pageAlert(dialogs, globalObj, `已导出。有 ${missing} 张图在本机找不到，压缩包里没有这几张。`);
+    if (missing) pageAlert(dialogs, globalObj, `已导出。有 ${missing} 张图片在本机未找到，未包含在压缩包中。`);
     return { ok: true, fileName, missing };
 }
 
@@ -4121,7 +4121,7 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
             const label = String(file.fileName || '').replace(/\.json$/i, '') || '旧版预设';
             return importLegacyPreset(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings, data, label);
         }
-        pageAlert(dialogs, globalObj, '这个文件既不是角色卡素材包，也不是旧版素材预设');
+        pageAlert(dialogs, globalObj, '该文件既不是角色卡素材包，也不是旧版素材预设。');
         return rerenderSettings();
     }
     const pack = parseCharacterCardPack(file.bytes);
@@ -4132,7 +4132,7 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
         return importLegacyPreset(settingsState, options, dialogs, persistSettingsDraft, rerenderSettings, presetArchive.preset, label);
     }
     if (!pack) {
-        pageAlert(dialogs, globalObj, '这个压缩包不是角色卡素材包');
+        pageAlert(dialogs, globalObj, '该压缩包不是角色卡素材包。');
         return rerenderSettings();
     }
     const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
@@ -4141,7 +4141,7 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
     const worldviewChanges = Boolean(worldviewItem) && resolveWorldview(effectiveSceneAssets(root, key)) !== pack.worldview;
     if (libraryHasContent(root.cards && root.cards[key]) || worldviewChanges) {
         const extra = worldviewChanges ? `，并把这张卡的世界观设为「${worldviewItem.label}」` : '';
-        const confirmed = await dialogs.confirm(`导入会覆盖角色卡「${pack.characterName}」里现有的场景、角色和衣柜${extra}。继续？`);
+        const confirmed = await dialogs.confirm(`导入将覆盖角色卡「${pack.characterName}」中现有的场景、角色和衣柜${extra}。是否继续？`);
         if (!confirmed) return rerenderSettings();
     }
     const failed = await writePackImages(pack.images, options);
@@ -4162,8 +4162,8 @@ async function importCharacterCardPack(settingsState, options, dialogs, persistS
     };
     const persisted = persistSettingsDraft();
     if (persisted.ok === false) return persisted;
-    const extra = failed ? `有 ${failed} 张图没有写进本机。` : '';
-    pageAlert(dialogs, globalObj, `已导入角色卡「${pack.characterName}」。打开同名角色卡就能用。${extra}`);
+    const extra = failed ? `有 ${failed} 张图片未能保存到本机。` : '';
+    pageAlert(dialogs, globalObj, `已导入角色卡「${pack.characterName}」的素材，打开同名角色卡即可使用。${extra}`);
     return rerenderSettings();
 }
 
@@ -4236,19 +4236,19 @@ async function downloadAssetZip(settingsState, collection, options) {
     const listed = collectAssetZipEntries(assets, collection, names);
     const kind = collection === 'characters' ? '角色' : '场景';
     if (!listed.length) {
-        pageAlert(dialogs, globalObj, `这里还没有${kind}图片可以下载。`);
+        pageAlert(dialogs, globalObj, `当前没有可下载的${kind}图片。`);
         return { ok: false, reason: 'empty' };
     }
     const entries = [];
     for (const item of listed) entries.push({ path: item.path, dataUrl: await readAssetDataUrl(item.url, globalObj, options.generatedAssets) });
     const zip = buildImageZip(entries);
     if (!zip.bytes) {
-        pageAlert(dialogs, globalObj, `${kind}图片一张都没读到，可能是外链图不允许下载。`);
+        pageAlert(dialogs, globalObj, `未能读取任何${kind}图片，可能是外链图片不允许下载。`);
         return { ok: false, reason: 'no-images' };
     }
     const scope = filter === 'global' ? '全局' : (asyncState.assetScopeLabel || '全局');
     const downloaded = triggerBytesDownload(globalObj, zip.bytes, `${String(`${scope}-${kind}素材`).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')}.zip`, 'application/zip');
-    if (downloaded.ok !== false && zip.skipped) pageAlert(dialogs, globalObj, `已下载 ${zip.count} 张。有 ${zip.skipped} 张没读到（外链图跨域或本机已删），没放进压缩包。`);
+    if (downloaded.ok !== false && zip.skipped) pageAlert(dialogs, globalObj, `已下载 ${zip.count} 张。另有 ${zip.skipped} 张未能读取（外链图片跨域或本机已删除），未包含在压缩包中。`);
     return { ...downloaded, images: zip.count, missing: zip.skipped };
 }
 
