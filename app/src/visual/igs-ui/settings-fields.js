@@ -253,7 +253,13 @@ export function renderSceneAssetList(scenes, options = {}) {
         const bgExpanded = expandedSlots.has('bg\x00' + sceneName);
         const badge = (text) => `<span class="igs-scene-badge">${text}</span>`;
         const timeEntries = Object.entries(sceneObj.times || {});
-        const timeRows = timeEntries.map(([timeName, timeVal]) => {
+        // 时间 / 天气行默认收起：场景行上只放「N 个时间 · M 个天气」，点开才画。
+        const timesOpen = expandedSlots.has('times\x00' + sceneName);
+        const weatherCount = timeEntries.reduce((sum, [, timeVal]) => sum + Object.keys((timeVal && typeof timeVal === 'object' && timeVal.weathers) || {}).length, 0);
+        const timesToggle = timeEntries.length
+            ? `<button type="button" class="igs-scene-times-toggle" data-action="scene-toggle-times:${encSeg(sceneName)}" aria-expanded="${timesOpen}">${timeEntries.length} 个时间${weatherCount ? ` · ${weatherCount} 个天气` : ''}</button>`
+            : '';
+        const timeRows = !timesOpen ? '' : timeEntries.map(([timeName, timeVal]) => {
             const timeObj = typeof timeVal === 'string' ? { url: timeVal, weathers: {} } : (timeVal || { url: '', weathers: {} });
             const timeExpanded = expandedSlots.has('time\x00' + sceneName + '\x00' + timeName);
             const weatherEntries = Object.entries(timeObj.weathers || {});
@@ -299,6 +305,7 @@ export function renderSceneAssetList(scenes, options = {}) {
             + badge('场景')
             + `<span class="igs-btn-mgr-label" style="font-weight:600">${esc(sceneName)}</span>`
             + scopeTag(options, 'scenes', sceneName)
+            + timesToggle
             + sceneUrlField(sceneObj.url, `data-scene-bg="${esc(sceneName)}"`)
             + (canVary ? `<button type="button" class="igs-btn-mgr-icon igs-slot-act" data-action="scene-variant-set:${encSeg(sceneName)}" title="按这张的提示词生成时间/天气差分" aria-label="时间/天气差分">${SLOT_ICONS.variants}</button>` : '')
             + transferIcons(sceneObj.url, `${sceneName}-背景.png`, [`scene-pick-bg:${encSeg(sceneName)}`, '上传场景背景图'])

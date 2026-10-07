@@ -14,7 +14,7 @@ test('gate:preset:generated-pane-does-not-offer-transfer', () => {
 test('gate:scene:rows-offer-download-and-stored-prompt', () => {
     const sceneHtml = renderSceneAssetList({
         教室: { url: 'igs-gen:bg-a', words: [], times: { 夜晚: { url: 'igs-gen:bg-b', weathers: {} } } },
-    });
+    }, { expandedSlots: new Set(['times\x00教室']) });
     assert.match(sceneHtml, /gen-asset-download:bg-a/);
     assert.match(sceneHtml, /gen-asset-prompt:bg-a/);
     assert.match(sceneHtml, /gen-asset-download:bg-b/);

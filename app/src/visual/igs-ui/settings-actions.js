@@ -557,6 +557,13 @@ export function releasedGeneratedImageIds(previousIds, sceneAssets, storage) {
     return unreferencedGeneratedImageIds(dropped, sceneAssets, storage);
 }
 
+// 刚加的时间 / 天气要看得见：把那个场景的时间行展开。
+function expandSceneTimes(settingsState, sceneName) {
+    const asyncState = settingsState.asyncState || (settingsState.asyncState = {});
+    if (!(asyncState.expandedSceneSlots instanceof Set)) asyncState.expandedSceneSlots = new Set();
+    asyncState.expandedSceneSlots.add('times\x00' + sceneName);
+}
+
 function cgSelection(asyncState) {
     if (!(asyncState.imageCgSelected instanceof Set)) asyncState.imageCgSelected = new Set();
     return asyncState.imageCgSelected;
@@ -2624,6 +2631,7 @@ export async function handleSettingsAction(action, ctx) {
             if (!timeGroups.some((g) => g.label === newTime)) timeGroups.unshift({ label: newTime, words: [newTime] });
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
+            expandSceneTimes(settingsState, sceneName);
         }
         return rerenderSettings();
     }
@@ -2735,6 +2743,7 @@ export async function handleSettingsAction(action, ctx) {
                 timeEntry.weathers[newWeather] = { url: '' };
                 const weatherGroups = ensureWeatherGroups(settingsState);
                 if (!weatherGroups.some((g) => g.label === newWeather)) weatherGroups.unshift({ label: newWeather, words: [newWeather] });
+                expandSceneTimes(settingsState, sceneName);
                 const persisted = persistSettingsDraft();
                 if (persisted.ok === false) return persisted;
             }
@@ -3444,6 +3453,15 @@ export async function handleSettingsAction(action, ctx) {
     }
 
     if (normalizedAction.startsWith('asset-') && await runAssetFolderAction(normalizedAction, settingsState, options, dialogs)) {
+        return rerenderSettings();
+    }
+
+    // 场景下的时间 / 天气行默认收起，只显示「N 个时间」，点开才渲染（20 个场景能少画上千个节点）。
+    if (normalizedAction.startsWith('scene-toggle-times:')) {
+        const key = 'times\x00' + decodeSeg(normalizedAction.slice('scene-toggle-times:'.length));
+        if (!(settingsState.asyncState.expandedSceneSlots instanceof Set)) settingsState.asyncState.expandedSceneSlots = new Set();
+        const set = settingsState.asyncState.expandedSceneSlots;
+        if (set.has(key)) set.delete(key); else set.add(key);
         return rerenderSettings();
     }
 

@@ -282,6 +282,8 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-scene-thumb{width:48px;height:27px;flex-shrink:0;object-fit:cover;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-paper);cursor:zoom-in}
 .igs-scene-thumb.is-empty{display:inline-block;cursor:default}
 .igs-scene-badge{font-size:10px;opacity:.5;flex-shrink:0;margin-right:2px}
+.igs-scene-times-toggle{flex:0 0 auto;height:24px;padding:0 8px;border:0;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);color:var(--igs-settings-ink-3);font:inherit;font-size:11px;white-space:nowrap;cursor:pointer}
+.igs-scene-times-toggle[aria-expanded="true"]{background:var(--igs-settings-highlight);color:var(--igs-settings-ink)}
 .igs-scene-url-expanded{display:none}
 /* 窄屏一行放不下：去掉「场景/时间」小字，地址框收进展开区，差分按钮收进 ⋯，名字至少留三四个字。 */
 @media (max-width:640px){.igs-scene-badge{display:none}.igs-btn-mgr-row>.igs-scene-url-input:not(.igs-scene-url-expanded){display:none}.igs-scene-url-expanded{display:block;flex:1 0 100%;width:100%;box-sizing:border-box}.igs-scene-char-group .igs-btn-mgr-label{min-width:3.5em}.igs-sprite-slot-body:has(>.igs-scene-url-expanded){flex-wrap:wrap}.igs-scene-char-group .igs-slot-act{display:none}.igs-scene-char-group .igs-add-menu-list .igs-slot-act-menu{display:flex}}

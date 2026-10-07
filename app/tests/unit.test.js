@@ -3848,14 +3848,20 @@ test('gate:scene:character-assets-render-status-avatar-row', () => {
 });
 
 test('gate:scene:scene-assets-indent-without-horizontal-overflow', () => {
-    const html = renderSceneAssetList({
+    const scenes = {
         旧城: {
             url: '',
             times: {
                 夜晚: { url: '', weathers: { 雨天: { url: '' } } },
             },
         },
-    });
+    };
+    // 时间 / 天气行默认收起，场景行上只有「1 个时间 · 1 个天气」。
+    const collapsed = renderSceneAssetList(scenes);
+    assert.match(collapsed, /data-action="scene-toggle-times:%E6%97%A7%E5%9F%8E" aria-expanded="false">1 个时间 · 1 个天气<\/button>/);
+    assert.doesNotMatch(collapsed, /igs-scene-time-group/);
+    const html = renderSceneAssetList(scenes, { expandedSlots: new Set(['times\x00旧城']) });
+    assert.match(html, /aria-expanded="true">1 个时间 · 1 个天气/);
     assert.match(html, /class="igs-scene-char-group igs-scene-time-group"/);
     assert.match(html, /class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row"/);
     assert.doesNotMatch(html, /style="margin-left:(?:16|32)px"/);
