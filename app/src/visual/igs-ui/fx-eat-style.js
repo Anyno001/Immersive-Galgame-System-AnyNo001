@@ -18,6 +18,19 @@ export const EAT_FX_STYLE_TEXT = `
 .igs-fx-symbol[data-kind="aah"]{--igs-fx-hue:#ff6fa5;}
 .igs-fx-symbol[data-kind="full"]{--igs-fx-hue:#ffc46b;}
 .igs-fx-symbol[data-kind="bubbles"]{--igs-fx-hue:#7fd3ff;}
+.igs-fx-symbol[data-kind="soul"]{--igs-fx-hue:#dfe8ff;}
+.igs-fx-symbol[data-kind="raincloud"]{--igs-fx-hue:#7d8597;}
+.igs-fx-symbol[data-kind="glint"]{--igs-fx-hue:#9fd8ff;}
+.igs-fx-symbol[data-kind="darkface"]{--igs-fx-hue:#2a1d3d;}
+.igs-fx-symbol[data-kind="darkface"] .igs-fx-shade .igs-fx-rim{opacity:0;}
+.igs-fx-symbol[data-kind="darkface"] .igs-fx-shade .igs-fx-fill{fill-opacity:.62;}
+.igs-fx-symbol[data-kind="tears"]{--igs-fx-hue:#4fb6ff;}
+.igs-fx-symbol[data-kind="tears"] .igs-fx-tear{stroke-dasharray:14 6;animation:igs-fx-tear-flow .5s linear infinite;}
+@keyframes igs-fx-tear-flow{to{stroke-dashoffset:-20;}}
+.igs-fx-symbol[data-kind="sweatfly"]{--igs-fx-hue:#5ec1ff;}
+.igs-fx-symbol[data-kind="sweatfly"] .igs-fx-g{animation:igs-fx-sweatfly .45s ease-in-out infinite alternate;}
+@keyframes igs-fx-sweatfly{from{translate:0 0;}to{translate:4px -4px;}}
+.igs-fx-symbol[data-kind="nosebleed"]{--igs-fx-hue:#e0303a;}
 .igs-fx-symbol[data-kind="blush"],.igs-fx-symbol[data-kind="sour"]{z-index:0;}
 .igs-fx-svg .igs-fx-drool{transform-origin:50% 0;animation:igs-fx-eat-drip .6s ease-out both;}
 .igs-fx-svg .igs-fx-drool-line{animation:igs-fx-part-blink .4s ease-out both;}

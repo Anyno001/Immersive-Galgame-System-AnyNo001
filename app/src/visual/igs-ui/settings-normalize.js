@@ -60,6 +60,13 @@ export function normalizeSettingsValue(path, value) {
             return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.5;
         }
         if (/^readerSettings\.metaFx\.(enabled|poke|hover|reading|clock|festivals|digest)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.comicMode\.(enabled|frame|keepPrev|tail)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.(mangaBack\.enabled|crowdFx\.(enabled|react))$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (path === 'readerSettings.comicMode.palette') return value === 'color' ? 'color' : 'mono';
+        if (path === 'readerSettings.comicMode.line') return ['thin', 'medium', 'bold'].includes(value) ? value : 'medium';
+        if (path === 'readerSettings.comicMode.gap') return ['near', 'medium', 'far'].includes(value) ? value : 'medium';
+        if (path === 'readerSettings.comicMode.inkMode') return value === 'custom' ? 'custom' : 'auto';
+        if (path === 'readerSettings.comicMode.inkColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#141414';
         if (path === 'readerSettings.metaFx.cooldownSec') return Number(value);
         if (path === 'readerSettings.metaFx.birthday') return String(value || '').trim();
         if (path === 'readerSettings.statusHud.nsfwCgPortraitShift' || path === 'readerSettings.statusHud.nsfwCgPortraitZoom') return Number(value);

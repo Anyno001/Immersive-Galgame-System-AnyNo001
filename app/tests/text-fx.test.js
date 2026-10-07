@@ -105,7 +105,7 @@ test('gate: text fx css is scoped and honours reduced motion', () => {
     for (const id of Object.values(TEXT_FX_KINDS)) assert.ok(TEXT_FX_STYLE_TEXT.includes(`.igs-tfx-${id}`), id);
     assert.match(TEXT_FX_STYLE_TEXT, /\.igs-tfx-ch\{display:inline-block/);
     assert.match(TEXT_FX_STYLE_TEXT, /var\(--i,0\)/);
-    assert.match(TEXT_FX_STYLE_TEXT, /@media \(prefers-reduced-motion: reduce\)\{\s*#igs-overlay #igs-text \.igs-tfx-ch\{animation:none/);
+    assert.match(TEXT_FX_STYLE_TEXT, /@media \(prefers-reduced-motion: reduce\)\{\s*#igs-overlay :is\(#igs-text,\.igs-comic-text\) \.igs-tfx-ch\{animation:none/);
     for (const line of TEXT_FX_STYLE_TEXT.split('\n')) {
         if (line.includes('{') && !line.startsWith('@')) assert.ok(line.startsWith('#igs-overlay'), line);
     }
@@ -122,10 +122,10 @@ test('gate: roar wraps whole run and grow/fade carry grapheme count', () => {
 });
 
 test('gate: pop effects animate only after arming with reveal delay', () => {
-    assert.match(TEXT_FX_STYLE_TEXT, /#igs-text\[data-igs-tfx-armed="1"\] \.igs-tfx-roar\{animation:igs-tfx-roar [^;]*var\(--igs-tfx-delay,0ms\)/);
-    assert.doesNotMatch(TEXT_FX_STYLE_TEXT, /^#igs-overlay #igs-text \.igs-tfx-roar\{[^}]*animation/m);
+    assert.match(TEXT_FX_STYLE_TEXT, /:is\(#igs-text,\.igs-comic-text\)\[data-igs-tfx-armed="1"\] \.igs-tfx-roar\{animation:igs-tfx-roar [^;]*var\(--igs-tfx-delay,0ms\)/);
+    assert.doesNotMatch(TEXT_FX_STYLE_TEXT, /^#igs-overlay :is\(#igs-text,\.igs-comic-text\) \.igs-tfx-roar\{[^}]*animation/m);
     const reduced = TEXT_FX_STYLE_TEXT.slice(TEXT_FX_STYLE_TEXT.indexOf('prefers-reduced-motion'));
-    assert.match(reduced, /\.igs-tfx-big,#igs-overlay #igs-text \.igs-tfx-roar\{animation:none/);
+    assert.match(reduced, /\.igs-tfx-big,#igs-overlay :is\(#igs-text,\.igs-comic-text\) \.igs-tfx-roar\{animation:none/);
     const props = [];
     const pop = (name) => ({ name, style: { setProperty: (key, value) => props.push([name, key, value]) } });
     const textEl = { dataset: {}, querySelectorAll: () => [pop('roar'), pop('big')] };

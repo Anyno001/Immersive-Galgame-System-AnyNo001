@@ -149,22 +149,22 @@ export function textFxGrammarBlock() {
 export const TEXT_FX_STYLE_TEXT = `
 @keyframes igs-tfx-shake{0%,100%{transform:translate(0,0);}20%{transform:translate(-1px,1px);}40%{transform:translate(1.5px,-1px);}60%{transform:translate(-1.5px,-.5px);}80%{transform:translate(1px,1.5px);}}
 @keyframes igs-tfx-wave{0%,100%{transform:translateY(0);}50%{transform:translateY(-.24em);}}
-#igs-overlay #igs-text .igs-tfx{white-space:inherit;}
-#igs-overlay #igs-text .igs-tfx-ch{display:inline-block;white-space:pre;}
-#igs-overlay #igs-text .igs-tfx-shake .igs-tfx-ch{will-change:transform;animation:igs-tfx-shake .36s linear infinite;animation-delay:calc(var(--i,0) * -137ms);}
-#igs-overlay #igs-text .igs-tfx-wave .igs-tfx-ch{will-change:transform;animation:igs-tfx-wave 1.4s ease-in-out infinite;animation-delay:calc(var(--i,0) * 90ms - 4.2s);}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx{white-space:inherit;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-ch{display:inline-block;white-space:pre;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-shake .igs-tfx-ch{will-change:transform;animation:igs-tfx-shake .36s linear infinite;animation-delay:calc(var(--i,0) * -137ms);}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-wave .igs-tfx-ch{will-change:transform;animation:igs-tfx-wave 1.4s ease-in-out infinite;animation-delay:calc(var(--i,0) * 90ms - 4.2s);}
 @keyframes igs-tfx-pop{0%{opacity:.25;transform:scale(1.4);}60%{opacity:1;transform:scale(.96);}100%{opacity:1;transform:none;}}
 @keyframes igs-tfx-roar{0%{opacity:0;transform:scale(2.2);}34%{opacity:1;transform:scale(.9);}46%{transform:scale(1.06) translate(-.06em,.03em);}58%{transform:scale(1) translate(.06em,-.03em);}70%{transform:translate(-.04em,.02em);}84%{transform:translate(.02em,0);}100%{opacity:1;transform:none;}}
-#igs-overlay #igs-text .igs-tfx-big{display:inline-block;font-size:1.32em;font-weight:700;line-height:1;transform-origin:50% 65%;}
-#igs-overlay #igs-text .igs-tfx-roar{display:inline-block;margin:0 .04em;font-size:1.62em;font-weight:900;line-height:1;letter-spacing:.02em;transform-origin:50% 70%;}
-#igs-overlay #igs-text[data-igs-tfx-armed="1"] .igs-tfx-big{animation:igs-tfx-pop .32s cubic-bezier(.2,.9,.3,1.2) var(--igs-tfx-delay,0ms) both;}
-#igs-overlay #igs-text[data-igs-tfx-armed="1"] .igs-tfx-roar{animation:igs-tfx-roar .56s cubic-bezier(.2,.9,.3,1) var(--igs-tfx-delay,0ms) both;}
-#igs-overlay #igs-text .igs-tfx-grow .igs-tfx-ch,#igs-overlay #igs-text .igs-tfx-fade .igs-tfx-ch{line-height:1;--igs-tfx-t:calc(var(--i,0) / max(var(--n,1) - 1, 1));}
-#igs-overlay #igs-text .igs-tfx-grow .igs-tfx-ch{font-size:calc(1em + var(--igs-tfx-t) * .6em);font-weight:700;}
-#igs-overlay #igs-text .igs-tfx-fade .igs-tfx-ch{font-size:calc(1em - var(--igs-tfx-t) * .32em);opacity:calc(1 - var(--igs-tfx-t) * .5);}
-#igs-overlay #igs-text .igs-tfx-small{font-size:.84em;opacity:.82;}
-#igs-overlay #igs-text .igs-tfx-whisper{opacity:.55;letter-spacing:.08em;font-style:italic;}
-#igs-overlay #igs-text .igs-tfx-strong{color:var(--igs-tfx-accent,#ffd479);text-shadow:0 0 .4em var(--igs-tfx-glow,rgba(255,196,90,.55));}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-big{display:inline-block;font-size:1.32em;font-weight:700;line-height:1;transform-origin:50% 65%;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-roar{display:inline-block;margin:0 .04em;font-size:1.62em;font-weight:900;line-height:1;letter-spacing:.02em;transform-origin:50% 70%;}
+#igs-overlay :is(#igs-text,.igs-comic-text)[data-igs-tfx-armed="1"] .igs-tfx-big{animation:igs-tfx-pop .32s cubic-bezier(.2,.9,.3,1.2) var(--igs-tfx-delay,0ms) both;}
+#igs-overlay :is(#igs-text,.igs-comic-text)[data-igs-tfx-armed="1"] .igs-tfx-roar{animation:igs-tfx-roar .56s cubic-bezier(.2,.9,.3,1) var(--igs-tfx-delay,0ms) both;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-grow .igs-tfx-ch,#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-fade .igs-tfx-ch{line-height:1;--igs-tfx-t:calc(var(--i,0) / max(var(--n,1) - 1, 1));}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-grow .igs-tfx-ch{font-size:calc(1em + var(--igs-tfx-t) * .6em);font-weight:700;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-fade .igs-tfx-ch{font-size:calc(1em - var(--igs-tfx-t) * .32em);opacity:calc(1 - var(--igs-tfx-t) * .5);}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-small{font-size:.84em;opacity:.82;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-whisper{opacity:.55;letter-spacing:.08em;font-style:italic;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-strong{color:var(--igs-tfx-accent,#ffd479);text-shadow:0 0 .4em var(--igs-tfx-glow,rgba(255,196,90,.55));}
 #igs-overlay[data-igs-dialog-skin="western-classic"]{--igs-tfx-accent:#ffd98a;--igs-tfx-glow:rgba(255,200,110,.5);}
 #igs-overlay[data-igs-dialog-skin="elegant-european"]{--igs-tfx-accent:#e6d8ff;--igs-tfx-glow:rgba(195,180,230,.8);}
 #igs-overlay[data-igs-dialog-skin="gradient-veil"]{--igs-tfx-accent:#ffe08f;--igs-tfx-glow:rgba(255,200,110,.45);}
@@ -184,7 +184,7 @@ export const TEXT_FX_STYLE_TEXT = `
 #igs-overlay[data-igs-dialog-skin="scifi-holo"]{--igs-tfx-accent:#7ff0ff;--igs-tfx-glow:rgba(95,227,255,.7);}
 #igs-overlay[data-igs-dialog-skin="wasteland-rust"]{--igs-tfx-accent:#f0b63a;--igs-tfx-glow:rgba(0,0,0,.9);}
 @media (prefers-reduced-motion: reduce){
-#igs-overlay #igs-text .igs-tfx-ch{animation:none!important;will-change:auto!important;}
-#igs-overlay #igs-text .igs-tfx-big,#igs-overlay #igs-text .igs-tfx-roar{animation:none!important;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-ch{animation:none!important;will-change:auto!important;}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-big,#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-roar{animation:none!important;}
 }
 `;

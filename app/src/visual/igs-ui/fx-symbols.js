@@ -55,6 +55,8 @@ const SPIRAL = 'M50 50a6 6 0 0 1 12 0a12 12 0 0 1 -24 0a18 18 0 0 1 36 0a24 24 0
 const noteHead = (cx, cy) => `M${cx - 12} ${cy}a12 9 -20 1 1 24 0a12 9 -20 1 1 -24 0Z`;
 const NOTE_PAIR = `${noteHead(34, 76)}${noteHead(74, 64)}M41 28H46V75H41ZM81 16H86V63H81ZM41 22L86 10V21L41 33Z`;
 const NOTE = `${noteHead(40, 80)}M47 20H53V79H47ZM53 20Q74 28 72 50Q66 36 53 36Z`;
+const GHOST = 'M50 12C30 12 22 28 24 46C25 62 20 74 30 82C34 74 38 84 44 76C48 86 54 78 58 84C64 74 70 84 76 72C80 58 76 46 76 36C76 22 66 12 50 12Z';
+const SWEAT_DROP = 'M50 8Q72 40 72 58A22 22 0 0 1 28 58Q28 40 50 8Z';
 const circle = (cx, cy, r) => `M${cx - r} ${cy}a${r} ${r} 0 1 1 ${2 * r} 0a${r} ${r} 0 1 1 ${-2 * r} 0Z`;
 const zee = (x, y, s) => `M${x} ${y}h${s}l${-s} ${s}h${s}`;
 // 六瓣冰晶：每条主干末端带一个 V 形分叉。
@@ -88,8 +90,8 @@ const BODIES = Object.freeze({
     anger: burst(44, 8, -67.5)
         + strokeGlyph('M42 12Q40 40 12 42M58 12Q60 40 88 42M42 88Q40 60 12 58M58 88Q60 60 88 58', 10, 'igs-fx-vein')
         + '<path class="igs-fx-hi-line" d="M40 20Q39 30 34 35M60 20Q61 30 66 35" fill="none" stroke-width="3" stroke-linecap="round"/>',
-    sweat: fillShape(DROP, 'igs-fx-drop-a', shine(40, 58, 5, 10, 20))
-        + fillShape(DROP, 'igs-fx-drop-b', shine(40, 58, 6, 11, 20), 66, 44, .42),
+    sweat: fillShape(SWEAT_DROP, 'igs-fx-drop-a', shine(40, 58, 5, 10, 20))
+        + fillShape(SWEAT_DROP, 'igs-fx-drop-b', shine(40, 58, 6, 11, 20), 66, 44, .42),
     heart: fillShape(HEART, 'igs-fx-heart-main', shine(30, 30, 8, 5, -35), 4, 14, .8)
         + fillShape(HEART, 'igs-fx-heart-b', shine(30, 30, 9, 6, -35), 68, 2, .3)
         + fillShape(HEART, 'igs-fx-heart-c', shine(30, 30, 9, 6, -35), 80, 34, .22),
@@ -135,7 +137,7 @@ const BODIES = Object.freeze({
     fire: fillShape(FLAME, 'igs-fx-flame', `<path class="igs-fx-flame-in" d="${FLAME_IN}"/>`),
     frost: burst(46, 6, -60)
         + strokeGlyph(SNOWFLAKE, 4, 'igs-fx-crystal')
-        + fillShape(DROP, 'igs-fx-drop-b', shine(40, 58, 6, 11, 20), 70, 58, .34),
+        + fillShape(SWEAT_DROP, 'igs-fx-drop-b', shine(40, 58, 6, 11, 20), 70, 58, .34),
     // 进食分镜用的符号（也可被情绪词单独触发）：口水、啊呜、嚼嚼、咕咚、小花、红晕、喷火、哈气、皱巴线、啊～气泡、满足、咕嘟气泡。
     drool: strokeGlyph('M44 6Q46 22 50 32', 4, 'igs-fx-drool-line')
         + fillShape(DROP, 'igs-fx-drool', shine(40, 58, 6, 11, 20), 22, 28, .56),
@@ -173,6 +175,19 @@ const BODIES = Object.freeze({
     bubbles: fillShape(circle(36, 72, 15), 'igs-fx-bub-a', shine(30, 66, 5, 3, -30))
         + fillShape(circle(64, 44, 11), 'igs-fx-bub-b', shine(60, 40, 4, 2.5, -30))
         + fillShape(circle(44, 16, 7), 'igs-fx-bub-c'),
+    soul: fillShape(GHOST, 'igs-fx-soul', '<circle cx="42" cy="38" r="4" fill="#1b1b1b"/><circle cx="58" cy="38" r="4" fill="#1b1b1b"/>' + shine(36, 26, 6, 3, -30)),
+    raincloud: fillShape(PUFF, 'igs-fx-puff', shine(40, 38, 9, 5, -15))
+        + strokeGlyph('M30 82l-5 12M50 82l-5 12M70 82l-5 12', 3.5, 'igs-fx-rain'),
+    glint: strokeGlyph('M8 46h32v16q0 10-10 10h-12q-10 0-10-10zM60 46h32v16q0 10-10 10h-12q-10 0-10-10zM40 52h20', 4, 'igs-fx-glasses')
+        + fillShape(STAR, 'igs-fx-star-main', '', 12, 30, .36)
+        + fillShape(STAR, 'igs-fx-star-b', '', 64, 30, .36),
+    darkface: fillShape('M6 66Q6 14 50 14Q94 14 94 66Q50 54 6 66Z', 'igs-fx-shade')
+        + strokeGlyph('M30 26v22M44 22v26M58 22v26M72 26v22', 2.5, 'igs-fx-shade-lines'),
+    tears: strokeGlyph('M26 8Q20 50 30 94M74 8Q80 50 70 94', 10, 'igs-fx-tear'),
+    sweatfly: fillShape(SWEAT_DROP, 'igs-fx-drop-a', '', 0, 6, .5)
+        + fillShape(SWEAT_DROP, 'igs-fx-drop-b', '', 52, 0, .42)
+        + fillShape(SWEAT_DROP, 'igs-fx-drop-c', '', 30, 50, .38),
+    nosebleed: strokeGlyph('M50 8Q44 46 54 78', 9, 'igs-fx-bleed') + fillShape(SWEAT_DROP, 'igs-fx-drop-a', '', 34, 64, .32),
 });
 
 const svgOf = (body) => `<svg class="igs-fx-svg" viewBox="-12 -12 124 124" aria-hidden="true" focusable="false">${body}</svg>`;

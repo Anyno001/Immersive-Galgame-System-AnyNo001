@@ -42,6 +42,13 @@ export const SYMBOL_OFFSETS = Object.freeze({
     bubbles: { dx: 0.45, dy: 0.35, size: 0.38 },
     // 古代背景的鼻涕泡：贴在鼻尖一侧。
     snot: { dx: 0.2, dy: 0.62, size: 0.36 },
+    soul: { dx: 0.15, dy: -0.75, size: 0.7 },
+    raincloud: { dx: 0, dy: -0.85, size: 0.85 },
+    glint: { dx: 0, dy: 0.38, size: 0.75 },
+    darkface: { dx: 0, dy: 0.28, size: 1.05 },
+    tears: { dx: 0, dy: 0.72, size: 0.95 },
+    sweatfly: { dx: 0.45, dy: -0.1, size: 0.6 },
+    nosebleed: { dx: 0.02, dy: 0.66, size: 0.28 },
 });
 
 const headCache = new Map();
@@ -136,7 +143,9 @@ export function measureStage(motion) {
     if (!(stageW > 0) || !(stageH > 0)) return null;
     let dialogTop = stageH;
     const dialog = motion.querySelector('#igs-dialog-layer .igs-dialog');
-    if (dialog && typeof dialog.getBoundingClientRect === 'function' && typeof motion.getBoundingClientRect === 'function') {
+    // 漫画模式的对话框铺满舞台、只是透明的点击面，不算遮挡。
+    const comicHost = dialog && dialog.getAttribute && dialog.getAttribute('data-igs-comic-host') === '1';
+    if (dialog && !comicHost && typeof dialog.getBoundingClientRect === 'function' && typeof motion.getBoundingClientRect === 'function') {
         const d = dialog.getBoundingClientRect();
         const m = motion.getBoundingClientRect();
         // 舞台可能被外层 transform 缩放：矩形差值换回舞台自身的 CSS 像素。

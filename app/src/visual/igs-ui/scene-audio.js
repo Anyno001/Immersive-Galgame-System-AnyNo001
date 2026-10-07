@@ -75,7 +75,7 @@ const URL_PATTERN = /^(https?:\/\/|data:audio\/|blob:|\/?user\/files\/igs-bgm-)/
 const NATURE_WORDS = Object.freeze(['森林', '树林', '公园', '花园', '庭院', '院子', '山', '田', '河', '湖', '郊', '草', '林', '村', '校园', '操场']);
 const INSECT_EXTRA_WORDS = Object.freeze(['草', '田', '夏']);
 const WAVE_WORDS = Object.freeze(['海', '沙滩', '港', '码头', '岸', '礁']);
-const CROWD_WORDS = Object.freeze(['街', '市', '商场', '车站', '广场', '食堂', '餐厅', '集市', '教室', '咖啡', '酒吧']);
+export const CROWD_WORDS = Object.freeze(['街', '市', '商场', '车站', '广场', '食堂', '餐厅', '集市', '教室', '咖啡', '酒吧']);
 const STREAM_WORDS = Object.freeze(['溪', '泉', '瀑', '河', '江边', '水边', '水渠']);
 const FIRE_WORDS = Object.freeze(['篝火', '营火', '壁炉', '火堆', '火炉', '炉边', '暖炉', '火塘']);
 const SUMMER_WORDS = Object.freeze(['夏', '暑', '蝉', '七月', '八月', '7月', '8月']);
@@ -87,7 +87,7 @@ const CHURCH_WORDS = Object.freeze(['教堂', '钟楼', '修道院']);
 const CLOCK_WORDS = Object.freeze(['卧室', '书房', '房间', '客厅', '办公室', '图书馆', '病房', '宿舍', '自习室', '阁楼', '钟表']);
 const DRIP_WORDS = Object.freeze(['洞', '地牢', '地下', '地窖', '遗迹', '下水道', '矿', '钟乳', '墓']);
 const TRAIN_WORDS = Object.freeze(['电车', '列车', '火车', '地铁', '车厢', '新干线', '高铁', '轻轨']);
-const TAVERN_WORDS = Object.freeze(['酒馆', '旅店', '客栈', '酒楼', '茶馆', '茶楼', '酒肆', '酒家', '公会']);
+export const TAVERN_WORDS = Object.freeze(['酒馆', '旅店', '客栈', '酒楼', '茶馆', '茶楼', '酒肆', '酒家', '公会']);
 const SHIP_WORDS = Object.freeze(['船', '甲板', '舰', '帆']);
 const TRAFFIC_WORDS = Object.freeze(['马路', '公路', '路口', '高架', '停车场', '斑马线', '公交站', '车道', '路边']);
 // thunder 只挂调度器、不常驻，不计入 MAX_LAYERS；顺序即 3 层名额的优先级。

@@ -940,7 +940,7 @@ export function applyFxToDom(root, snapshot, options = {}) {
     }
     state.castMarkKey = plan.pageKey;
     const { flashback, dream, letterbox } = plan.ranges;
-    return { played: [...plan.effects.map((effect) => effect.type), ...castPlayed], phone: remote, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox) } };
+    return { played: [...plan.effects.map((effect) => effect.type), ...castPlayed], phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox) } };
 }
 
 export function cancelFxEffects(root) {

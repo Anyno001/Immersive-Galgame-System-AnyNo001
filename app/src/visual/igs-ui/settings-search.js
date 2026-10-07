@@ -19,6 +19,8 @@ const FEATURE_ALIASES = Object.freeze({
     立绘活动: ['呼吸', '动起来', '登场'],
     情绪动作: ['跳', '抖', '动作'],
     情绪符号: ['漫画', '集中线', '符号', '汗'],
+    漫画背景: ['花背景', '气场', '石化', '风化', '反转', '速度线', '漩涡'],
+    人群剪影: ['人群', '路人', '围观', '剪影', '鼓掌'],
     心跳脉动: ['心跳', '心动'],
     闪白耳鸣: ['闪白', '耳鸣', '震惊'],
     内心弹幕: ['心声', '弹幕'],
@@ -41,6 +43,7 @@ const FEATURE_ALIASES = Object.freeze({
 // 演出档位之外、藏在折叠区里的细项：label 是界面上的原文，aliases 是用户可能输入的说法。
 // target 不写时在「阅读器 › 演出」；写了就按 target 跳到别的分页。
 const EXTRA_ENTRIES = Object.freeze([
+    { id: 'comic-mode', label: '漫画演出模式', group: 'text', open: ['perf-comic-mode'], aliases: ['漫画', '对话泡', '气泡', '竖排', '黑白', '漫画模式', '吹き出し'] },
     { id: 'cinema-bars', label: '电影黑边', group: 'stage', open: [], aliases: ['黑边', '宽银幕', '上下黑条'] },
     { id: 'cg-hold', label: '日常CG停留', group: 'rhythm', open: [], aliases: ['cg', '插图', '停留', '几页'] },
     { id: 'render-quality', label: '画质 / 省电模式', aliases: ['卡', '卡顿', '发热', '耗电', '低画质', '省电', '掉帧'], location: '基础 › 一键档位', target: { tab: 'basic', open: [] } },

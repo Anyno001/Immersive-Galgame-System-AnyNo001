@@ -50,10 +50,10 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
     assert.match(html, /data-action="perf-preset:standard"/);
     // 情绪、剧情提示、事件演出合进「情绪与提示」一张卡，组内用小标题分段。
     // 组标题旁是固定概括 + 计数，不再罗列已开启的功能名。
-    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/7<\/span><span class="igs-perf-brief">情绪 · 提示 · 事件<\/span>/);
+    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/8<\/span><span class="igs-perf-brief">情绪 · 提示 · 事件<\/span>/);
     assert.match(html, /<div class="igs-settings-subhead">情绪<\/div>[\s\S]*<div class="igs-settings-subhead">剧情提示<\/div>[\s\S]*<div class="igs-settings-subhead">事件演出<\/div>/);
     // 镜头环境与立绘合成「画面」：5 个画面开关 + 立绘活动、情绪动作、多角色同屏。
-    assert.match(html, /<b>画面<\/b><span class="igs-perf-count">0\/8<\/span>/);
+    assert.match(html, /<b>画面<\/b><span class="igs-perf-count">0\/9<\/span>/);
     // 战斗、直播、线上交流、亲密这类只在特定剧情用的，收进「题材专属」，由用户自己勾；演出页不再有剧情题材胶囊。
     assert.match(html, /<b>题材专属<\/b><span class="igs-perf-count">0\/8<\/span>/);
     assert.doesNotMatch(html, /剧情题材|perf-type:/);
@@ -74,9 +74,9 @@ test('gate:performance-layout:capsule-counts-every-visible-switch', () => {
         sentencePaging: '<i data-paging></i>', sentencePagingOn: true,
         narrationFilter: '<i data-dim></i>',
     });
-    assert.match(html, /<b>文字<\/b><span class="igs-perf-count is-on">2\/5<\/span><span class="igs-perf-brief">打字机 · 字效 · 双语<\/span>/);
-    assert.match(html, /<b>画面<\/b><span class="igs-perf-count is-on">1\/9<\/span><span class="igs-perf-brief">镜头 · 天气 · 立绘<\/span>/);
-    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/7<\/span>/);
+    assert.match(html, /<b>文字<\/b><span class="igs-perf-count is-on">2\/6<\/span><span class="igs-perf-brief">打字机 · 字效 · 双语<\/span>/);
+    assert.match(html, /<b>画面<\/b><span class="igs-perf-count is-on">1\/10<\/span><span class="igs-perf-brief">镜头 · 天气 · 立绘<\/span>/);
+    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/8<\/span>/);
 });
 
 // 角色语气音对所有角色生效，摆在「声音」卡并计入胶囊；不跟打字机挤在「文字」里。

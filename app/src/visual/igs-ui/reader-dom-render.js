@@ -62,6 +62,10 @@ import { applyHorrorDread, resolveHorrorDread } from './horror-dread.js';
 import { resolveHorrorTypewriterLevel } from './typewriter-horror.js';
 import { applyHtmlCardToDom } from './html-card-layer.js';
 import { applyChatToDom } from './chat-layer.js';
+import { dialogRenderSettings, isComicModeActive } from './comic-settings.js';
+import { applyMangaBack } from './manga-back.js';
+import { applyCrowdFx } from './crowd-fx.js';
+import { applyComicToDom, finishComicReveal, isComicGhostTarget, relayoutComic } from './comic-bubble.js';
 import { normalizeSystemRoleSettings } from './system-role.js';
 import {
     applyDialogSkinAssets,
@@ -614,7 +618,8 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     const controls = root.querySelector('.igs-controls');
     const bg = root.querySelector('#igs-bg');
     const bgBlur = root.querySelector('#igs-bg-blur');
-    const readerSettings = snapshot.readerSettings || {};
+    // 漫画模式下对话框本体按默认外观渲染（皮肤素材、九宫格都不挂），泡的配色由 comic-bubble 另取。
+    const readerSettings = dialogRenderSettings(snapshot.readerSettings || {});
     const classicDialog = isClassicDialogSkin(readerSettings);
     const materialDialog = isMaterialDialogSkin(readerSettings);
     const inlineMode = snapshot.mode === 'pc' || snapshot.mode === 'mobile';
@@ -1119,8 +1124,10 @@ function writeBackgroundImage(element, url, source = url) {
 const ROOT_TOGGLED_CLASSES = new Set(['igs-default-reader-chrome', 'igs-gradient-veil-active', 'igs-scene-nsfw']);
 
 export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
-    const materialDialog = isMaterialDialogSkin(snapshot.readerSettings);
-    const gradientVeilDialog = isGradientVeilDialogSkin(snapshot.readerSettings);
+    const comicActive = isComicModeActive(snapshot.readerSettings);
+    const dialogSettings = dialogRenderSettings(snapshot.readerSettings);
+    const materialDialog = isMaterialDialogSkin(dialogSettings);
+    const gradientVeilDialog = isGradientVeilDialogSkin(dialogSettings);
     const nsfwVeilActive = snapshot.content.sceneNsfw === true && snapshot.content.illustrationActive !== true;
     // 先算出最终类名再整串比较：覆盖后再 toggle 会让同一组类每次渲染都先删后加，反复触发样式失效。
     const rootClasses = snapshot.classes.filter((name) => !ROOT_TOGGLED_CLASSES.has(name));
@@ -1147,8 +1154,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const send = root.querySelector('#igs-send-btn');
     const dialog = root.querySelector('#igs-dialog');
     // 根节点同步皮肤标记，供对话框之外的选项气泡跟随皮肤。
-    applyDialogSkinAssets(root, snapshot.readerSettings);
-    syncDialogSkinStyle(root, snapshot.readerSettings);
+    applyDialogSkinAssets(root, dialogSettings);
+    syncDialogSkinStyle(root, dialogSettings);
     const toolbar = root.querySelector('#igs-ctrl-bar');
     const clickLayer = root.querySelector('#igs-click-layer');
     const toast = root.querySelector('#igs-toast');
@@ -1412,6 +1419,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                     const t = fxTargetOf.get(m.character);
                     if (t) Object.assign(t, { posX: m.posX, posY: m.posY, scale: m.scale });
                 }
+                relayoutComic(root);
                 // 对齐改了大小和高度，槽位编辑的起点要跟着更新，否则拖动从旧值开始。
                 if (current.castStage && Array.isArray(current.castStage.entries)) {
                     const byChar = new Map(again.members.map((m) => [m.character, m]));
@@ -1566,6 +1574,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 背景是素材自带时段变体（如夜景图）时不再叠时段调色。
         timedAsset: Boolean(snapshot.content && snapshot.content.backgroundTimed === true && snapshot.content.illustrationActive !== true),
     });
+    // 人群剪影与漫画背景：前者按地点铺在背景之后（随时段叠色），后者按情绪铺在立绘之前。
+    applyCrowdFx(root, snapshot);
+    applyMangaBack(root, snapshot, { sprite: fxSprite });
     // 场景时段挂到 overlay 上，供对话框等界面随昼夜调整明暗；不受天气/夜间调色开关影响，夜景底图本身就暗。
     const sceneTime = resolveWeatherFxTime(snapshot.content && snapshot.content.sceneTime);
     if (sceneTime) root.setAttribute('data-igs-scene-time', sceneTime);
@@ -1669,7 +1680,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     applyBgmNoteToDom(root, sceneAudio.track);
     applyStatusHudScale(root, snapshot);
     if (dialog) {
-        applyDialogSkinAssets(dialog, snapshot.readerSettings);
+        applyDialogSkinAssets(dialog, dialogSettings);
         const sceneAssetsEnabled = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.enabled;
         if (materialDialog && sceneAssetsEnabled && snapshot.content.speaker) {
             dialog.setAttribute('data-igs-has-speaker', '1');
@@ -1725,6 +1736,11 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             }
             // 最后一页且启用选项气泡时，点击空白处切换气泡显隐（消费本次点击，不翻页）。
             if (typeof ctx.handleBlankClick === 'function' && ctx.handleBlankClick()) return;
+            // 漫画模式没有对话框可点：点画面空白处翻页。
+            if (current.snapshot && isComicModeActive(current.snapshot.readerSettings)) {
+                if (finishComicReveal(root)) return;
+                if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction('next');
+            }
         });
     }
     if (dialog && !(dialog.dataset && dialog.dataset.igsBound)) {
@@ -1743,6 +1759,16 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 || event.target.closest('#igs-ctrl-bar')
                 || event.target.closest('#igs-settings')
             )) {
+                return;
+            }
+            if (current.snapshot && isComicModeActive(current.snapshot.readerSettings)) {
+                // 漫画模式：先把还在弹出的泡放完；点淡化的上一句回上一页，点泡翻下一页。
+                if (finishComicReveal(root)) {
+                    event.preventDefault();
+                    return;
+                }
+                if (root && root.getAttribute && root.getAttribute('data-igs-cg-only') === '1') return;
+                if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction(isComicGhostTarget(event.target) ? 'prev' : 'next');
                 return;
             }
             if (cancelTypewriter(textEl, { finish: true })) {
@@ -1774,7 +1800,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (textEl && typewriterRenderKey) {
         const typewriterSettings = snapshot.readerSettings.typewriter || {};
         const typewriter = applyTypewriterEffect(textEl, {
-            enabled: typewriterSettings.enabled === true,
+            // 漫画模式的台词在对话泡里整句弹出，隐藏的源文字不跑打字机。
+            enabled: typewriterSettings.enabled === true && !comicActive,
             // 告白段打字机降一档、回答页文字出现前停顿（romance-moments）。
             speed: (romanceResult.typewriter && romanceResult.typewriter.speed) || typewriterSettings.speed,
             delay: romanceResult.typewriter && romanceResult.typewriter.delay,
@@ -1811,6 +1838,20 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             cast: [content.speaker, content.spriteCharacter, ...(Array.isArray(content.castSprites) ? content.castSprites.map((m) => m && m.character) : [])],
         }, snapshot.readerSettings.voiceBark, snapshot.readerSettings._sceneAssets);
     }
+    // 漫画演出模式：台词排进竖排对话泡，底部对话框整个收起。
+    const comicOpts = {
+        dialog,
+        textEl,
+        sprite: fxSprite,
+        cast: castFxTargets,
+        renderKey: typewriterRenderKey,
+        textType: typewriterTextType,
+        whisper: Boolean(fxResult && fxResult.whisper),
+        phone: Boolean(fxResult && fxResult.phone),
+        isLastPage,
+        theme: resolveActiveTheme(snapshot),
+    };
+    applyComicToDom(root, snapshot, comicOpts);
     if (toast) {
         toast.textContent = current.toastMessage || '';
         toast.style.opacity = current.toastMessage ? '1' : '0';

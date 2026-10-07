@@ -33,6 +33,9 @@ import { HTML_CARD_LAYER_STYLE_TEXT } from './html-card-layer.js';
 import { CHAT_LAYER_STYLE_TEXT } from './chat-layer.js';
 import { SPRITE_OUTFIT_SWAP_STYLE_TEXT } from './sprite-outfit-swap.js';
 import { STAGE_PAUSE_STYLE_TEXT } from './stage-pause.js';
+import { COMIC_STYLE_TEXT } from './comic-style.js';
+import { MANGA_BACK_STYLE_TEXT } from './manga-back.js';
+import { CROWD_STYLE_TEXT } from './crowd-fx.js';
 
 import { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } from './settings-theme.js';
 import { STATUS_HUD_PHONE_MEDIA } from '../../data/shujuku/status-hud-model.js';
@@ -338,6 +341,9 @@ ${ITEM_FX_STYLE_TEXT}
 ${BATTLE_FX_STYLE_TEXT}
 ${RESULT_FX_STYLE_TEXT}
 ${DANMAKU_STYLE_TEXT}
+${COMIC_STYLE_TEXT}
+${MANGA_BACK_STYLE_TEXT}
+${CROWD_STYLE_TEXT}
 ${CG_GALLERY_STYLE_TEXT}
 ${INVENTORY_IMAGE_STYLE_TEXT}
 ${STAGE_PAUSE_STYLE_TEXT}

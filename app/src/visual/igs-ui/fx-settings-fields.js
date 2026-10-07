@@ -1,7 +1,9 @@
 import { esc } from './reader-value-utils.js';
-import { checkbox, rangeInput, field, segmentedInput } from './settings-fields.js';
+import { checkbox, colorInput, rangeInput, field, segmentedInput } from './settings-fields.js';
 import { FX_TAG_KINDS } from '../../scene/fx-directives.js';
 import { FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS, normalizeFxReaderSettings } from './fx-settings.js';
+import { COMIC_TONE_KINDS, COMIC_TONE_LABELS } from './comic-settings.js';
+import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -58,6 +60,19 @@ export function renderFxFeatureFields(reader, more = collapsible) {
     const resultFx = featureRow(more, 'result-fx', `${p}.resultFx.enabled`, s.resultFx.enabled, '选项检定掷骰');
     const tags = featureRow(more, 'fx-tags', `${p}.fxTags.enabled`, s.fxTags.enabled, '来电、通知、回忆等演出', '', grid(FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join(''))
         + (s.fxTags.call ? field(`${p}.fxTags.callSprite`, '语音通话画面', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['split', '分屏'], ['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话画面')) : ''));
+    const toneWords = (kinds) => kinds.map((kind) => renderWordListField(`comicMode.tones.${kind}`, COMIC_TONE_LABELS[kind], s.comicMode.tones[kind])).join('');
+    const comic = featureRow(more, 'comic-mode', `${p}.comicMode.enabled`, s.comicMode.enabled, '漫画演出模式', '台词变成竖排对话泡', field(`${p}.comicMode.palette`, '画面', segmentedInput(`${p}.comicMode.palette`, s.comicMode.palette, [['mono', '黑白漫画'], ['color', '彩色（跟随对话框皮肤）']], '画面'))
+        + checkbox(`${p}.comicMode.frame`, s.comicMode.frame, '画格边框')
+        + checkbox(`${p}.comicMode.keepPrev`, s.comicMode.keepPrev, '保留上一句（淡化）')
+        + field(`${p}.comicMode.line`, '泡的线条', segmentedInput(`${p}.comicMode.line`, s.comicMode.line, [['thin', '细'], ['medium', '中'], ['bold', '粗']], '泡的线条'))
+        + field(`${p}.comicMode.inkMode`, '描边颜色', segmentedInput(`${p}.comicMode.inkMode`, s.comicMode.inkMode, [['auto', '自动'], ['custom', '自选']], '描边颜色'))
+        + (s.comicMode.inkMode === 'custom' ? field(`${p}.comicMode.inkColor`, '自选描边色', colorInput(`${p}.comicMode.inkColor`, s.comicMode.inkColor)) : '')
+        + field(`${p}.comicMode.gap`, '离头部', segmentedInput(`${p}.comicMode.gap`, s.comicMode.gap, [['near', '近'], ['medium', '中'], ['far', '远']], '离头部'))
+        + checkbox(`${p}.comicMode.tail`, s.comicMode.tail, '对话泡尾巴')
+        + perfSubhead('泡的外形 · 触发情绪')
+        + toneWords(COMIC_TONE_KINDS));
+    const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));
+    const crowd = featureRow(more, 'crowd-fx', `${p}.crowdFx.enabled`, s.crowdFx.enabled, '人群剪影', '人多的地点', checkbox(`${p}.crowdFx.react`, s.crowdFx.react, '正文写到鼓掌、欢呼时整群反应'));
     const sound = featureRow(more, 'fx-sound', `${p}.fxSound.enabled`, s.fxSound.enabled, '演出音效', '', field(`${p}.fxSound.volume`, '音量', rangeInput(`${p}.fxSound.volume`, s.fxSound.volume, '音量')));
-    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, resultFx, tags, sound };
+    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, resultFx, tags, sound, comic, mangaBack, crowd };
 }
