@@ -1636,6 +1636,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     applyHorrorDread(root, { level: snapshot.content && snapshot.content.sceneDread, cap: snapshot.readerSettings && snapshot.readerSettings.horrorDreadCap });
     const stageDirection = applyStageDirection(root, snapshot, {
         bgUrl: backgroundAssetUrl,
+        bgKey: backgroundSource,
         spriteUrl: stageSprite ? stageSprite.url : '',
         spriteKey: stageSprite ? stageSprite.key : '',
         spritePosX: stageSprite ? stageSprite.posX : 50,

@@ -101,29 +101,32 @@ function clearCgFilter(bg) {
 }
 
 // CG 出场：先模糊，再在同一张图上变清晰。同一张翻页不重放。
-function playCgFocus(state, bg, url, reduced) {
-    if (!bg || !url) return;
+// 认快照里的原地址，不认解码后的缓存地址。缓存地址会变（blob 换成新的、被挤掉再读回来），
+// 用它当「换了一张图」会把正在变清晰的滤镜立刻拨回最糊，看起来就是眨一下；变几次就眨几次。
+function playCgFocus(state, bg, url, reduced, identity) {
+    const key = String(identity || url || '');
+    if (!bg || !key || !url) return;
     if (reduced) {
-        state.cgFocusUrl = url;
+        state.cgFocusUrl = key;
         state.cgFocusing = false;
         sharpenCg(bg);
         return;
     }
-    if (state.cgFocusUrl === url) {
+    if (state.cgFocusUrl === key) {
         if (!state.cgFocusing) sharpenCg(bg);
         return;
     }
-    state.cgFocusUrl = url;
+    state.cgFocusUrl = key;
     state.cgFocusing = true;
     bg.style.setProperty('transition', 'none', 'important');
     bg.style.setProperty('filter', 'blur(28px)', 'important');
     bg.style.setProperty('-webkit-filter', 'blur(28px)', 'important');
     later(state, () => {
-        if (state.cgFocusUrl !== url) return;
+        if (state.cgFocusUrl !== key) return;
         bg.style.setProperty('transition', 'filter 2.4s ease-in-out, -webkit-filter 2.4s ease-in-out', 'important');
         sharpenCg(bg);
         later(state, () => {
-            if (state.cgFocusUrl !== url) return;
+            if (state.cgFocusUrl !== key) return;
             state.cgFocusing = false;
             const transition = bg.style && typeof bg.style.getPropertyValue === 'function'
                 ? bg.style.getPropertyValue('transition') : '';
@@ -537,7 +540,7 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     if (cg) {
         flushGhosts(state.bgGhosts);
         flushGhosts(state.spriteGhosts);
-        playCgFocus(state, bg, bgUrl, reduced);
+        playCgFocus(state, bg, bgUrl, reduced, text(ctx.bgKey));
     } else {
         state.cgFocusUrl = '';
         state.cgFocusing = false;

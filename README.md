@@ -438,6 +438,11 @@ projects/Immersive Galgame System/
 14. 涉及打包、发布、上传、loader、远程 bundle 或酒馆助手脚本 JSON 时，必须先读 `docs/PACKAGING_WORKFLOW.md` 与 `docs/RELEASE.md`。
 15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
 
+### v0.35.6 - CG 切换不再连着眨眼（内测）
+
+- 换到一张新 CG 时，仍然先模糊再慢慢变清晰。
+- 同一张图只是缓存地址变了，不再把正在变清晰的画面拨回最糊，所以不会眨一下，也不会连眨几次。
+
 ### v0.35.5 - CG 头像不再闪（内测）
 
 - 挂 CG 时，对话框旁的头像和文字边距在这一页画出时就定好。图后到只填进已经空出的位置，对话框不再跟着挪一次。

@@ -125,6 +125,27 @@ test('gate: background change cross-fades through a ghost layer only after the f
     });
 });
 
+test('gate: CG focus does not restart when only the decoded address changes', () => {
+    const r = makeReader();
+    const settings = { sceneTransition: { enabled: true } };
+    const content = { cgActive: true, backgroundImage: 'https://example.test/cg.png' };
+    const run = (paint) => applyStageDirection(r.root, snapshot(settings, content), {
+        bgUrl: paint, bgKey: content.backgroundImage, reducedMotion: false, ...r.clock,
+    });
+    run('blob:one');
+    assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(28px)');
+    r.bg.style.setProperty('filter', 'blur(4px)');
+    run('blob:two');
+    assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(4px)');
+    run('');
+    assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(4px)');
+    const next = { cgActive: true, backgroundImage: 'https://example.test/other.png' };
+    applyStageDirection(r.root, snapshot(settings, next, 1), {
+        bgUrl: 'blob:three', bgKey: next.backgroundImage, reducedMotion: false, ...r.clock,
+    });
+    assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(28px)');
+});
+
 test('gate: same-location background change always fades and re-render does not replay', () => {
     const r = makeReader();
     const settings = { sceneTransition: { enabled: true, style: 'iris' } };
