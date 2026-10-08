@@ -438,6 +438,11 @@ projects/Immersive Galgame System/
 14. 涉及打包、发布、上传、loader、远程 bundle 或酒馆助手脚本 JSON 时，必须先读 `docs/PACKAGING_WORKFLOW.md` 与 `docs/RELEASE.md`。
 15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
 
+### v0.35.5 - CG 头像不再闪（内测）
+
+- 挂 CG 时，对话框旁的头像和文字边距在这一页画出时就定好。图后到只填进已经空出的位置，对话框不再跟着挪一次。
+- 换角色或换表情时，旧头像立刻拿掉，不再叠在新头像上闪一下。
+
 ### v0.35.4 - 裸体立绘标签可见、立绘缩放不设限（内测）
 
 - **素材 › 角色**：名叫「裸体」的服装会显示自己的标签，可以点进去编辑。

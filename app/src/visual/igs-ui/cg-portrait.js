@@ -11,16 +11,15 @@ const HEAD_ROOM = 0.18;
 const MIN_W = 110;
 const MAX_W = 300;
 const WIDTH_RATIO = 0.32;
-const FADE_MS = 260;
 
 export const CG_PORTRAIT_STYLE_TEXT = `
-#igs-overlay #igs-cg-portrait{position:absolute;left:0;bottom:0;width:var(--igs-cgp-w,160px);aspect-ratio:4/5;overflow:hidden;pointer-events:none;z-index:1;opacity:0;transition:opacity ${FADE_MS}ms ease;
+#igs-overlay #igs-cg-portrait{position:absolute;left:0;bottom:0;width:var(--igs-cgp-w,160px);aspect-ratio:4/5;overflow:hidden;pointer-events:none;z-index:1;opacity:0;
 -webkit-mask-image:linear-gradient(to bottom,#000 70%,transparent),linear-gradient(to right,transparent,#000 12%,#000 88%,transparent);-webkit-mask-composite:source-in;
 mask-image:linear-gradient(to bottom,#000 70%,transparent),linear-gradient(to right,transparent,#000 12%,#000 88%,transparent);mask-composite:intersect;}
 #igs-overlay #igs-dialog[data-igs-cgp] > #igs-cg-portrait{opacity:1;}
 #igs-overlay #igs-cg-portrait.is-editing{pointer-events:auto;cursor:grab;touch-action:none;outline:2px dashed rgba(255,255,255,.5);outline-offset:-2px;}
 #igs-overlay #igs-cg-portrait.is-dragging{cursor:grabbing;}
-#igs-overlay #igs-cg-portrait > img{position:absolute;max-width:none;height:auto;opacity:0;transition:opacity ${FADE_MS}ms ease;transform-origin:50% 30%;user-select:none;-webkit-user-drag:none;}
+#igs-overlay #igs-cg-portrait > img{position:absolute;max-width:none;height:auto;opacity:0;transform-origin:50% 30%;user-select:none;-webkit-user-drag:none;}
 #igs-overlay #igs-cg-portrait > img.is-in{opacity:1;}
 #igs-overlay #igs-dialog[data-igs-cgp] #igs-text,#igs-overlay #igs-dialog[data-igs-cgp] #igs-speaker{margin-left:calc(var(--igs-cgp-w,160px) - 14px);}
 `;
@@ -47,6 +46,7 @@ function clearPortrait(dialog) {
     if (editing && typeof editing.igsEditDone === 'function') editing.igsEditDone(false);
     if (dialog.hasAttribute('data-igs-cgp')) dialog.removeAttribute('data-igs-cgp');
     if (dialog.hasAttribute('data-igs-cgp-src')) dialog.removeAttribute('data-igs-cgp-src');
+    if (dialog.style && typeof dialog.style.removeProperty === 'function') dialog.style.removeProperty('--igs-cgp-w');
     const box = dialog.querySelector('#igs-cg-portrait');
     if (box) box.dataset.key = '';
 }
@@ -199,6 +199,23 @@ function ensureBox(dialog) {
     return box;
 }
 
+// 宽度只定一次。图解码完再改宽度，文字边距会再挪一截。
+function lockPortraitWidth(dialog) {
+    const style = dialog.style;
+    if (!style || typeof style.setProperty !== 'function' || typeof style.getPropertyValue !== 'function') return;
+    if (style.getPropertyValue('--igs-cgp-w')) return;
+    const client = Number(dialog.clientWidth) || 0;
+    const width = client > 0 ? Math.round(Math.max(MIN_W, Math.min(MAX_W, client * WIDTH_RATIO))) : 160;
+    style.setProperty('--igs-cgp-w', `${width}px`);
+}
+
+function dropImages(box) {
+    if (!box) return;
+    for (const old of Array.from(box.children || [])) {
+        if (old.parentNode === box && typeof old.remove === 'function') old.remove();
+    }
+}
+
 function showImage(box, url, crop) {
     const doc = box.ownerDocument;
     const img = doc.createElement('img');
@@ -207,17 +224,20 @@ function showImage(box, url, crop) {
     img.style.width = `${crop.width}%`;
     img.style.left = `${crop.left}%`;
     img.style.top = `${crop.top}%`;
+    let shown = false;
     const reveal = () => {
+        if (shown || !img.isConnected) return;
+        shown = true;
         img.classList.add('is-in');
-        // 换表情：新图淡入后再撤掉旧图，两张叠着过渡。
         for (const old of Array.from(box.children)) {
-            if (old !== img) setTimeout(() => old.remove(), FADE_MS);
+            if (old !== img && old.parentNode === box) old.remove();
         }
     };
-    img.onload = () => requestAnimationFrame(reveal);
-    img.onerror = () => img.remove();
+    img.onerror = () => { if (img.parentNode === box) img.remove(); };
     img.src = url;
     box.appendChild(img);
+    if (img.complete && img.naturalWidth > 0) reveal();
+    else img.onload = reveal;
 }
 
 export function applyCgPortrait(root, snapshot, ctx = {}) {
@@ -226,19 +246,22 @@ export function applyCgPortrait(root, snapshot, ctx = {}) {
     const content = (snapshot && snapshot.content) || {};
     const raw = String(content.nsfwCgPortrait || '').trim();
     const url = raw && typeof ctx.resolveAssetUrl === 'function' ? String(ctx.resolveAssetUrl(raw) || '').trim() : raw;
-    if (!url) {
-        // 本地图解码前解析结果会暂时为空。已经挂上的头像先留着，否则对话框边距和头像会反复淡入淡出。
-        if (raw && dialog.getAttribute('data-igs-cgp-src') === raw) return;
+    if (!raw) {
         clearPortrait(dialog);
         return;
     }
-    if (typeof dialog.setAttribute === 'function') dialog.setAttribute('data-igs-cgp-src', raw);
+    // 这一页要头像：边距在这一帧就占上，并且宽度不再改。图什么时候解码完，对话框都不再挪。
+    const prevRaw = dialog.getAttribute('data-igs-cgp-src');
+    lockPortraitWidth(dialog);
+    dialog.setAttribute('data-igs-cgp', '');
+    dialog.setAttribute('data-igs-cgp-src', raw);
+    if (!url) {
+        // 换了人但新图还没解码：旧脸马上拿掉。边距留着。
+        if (prevRaw && prevRaw !== raw) dropImages(dialog.querySelector('#igs-cg-portrait'));
+        return;
+    }
     const hud = normalizeStatusHudSettings(snapshot.readerSettings && snapshot.readerSettings.statusHud);
     const opts = { shift: hud.nsfwCgPortraitShift, shiftX: hud.nsfwCgPortraitShiftX, zoom: hud.nsfwCgPortraitZoom };
-    const width = Math.round(Math.max(MIN_W, Math.min(MAX_W, (dialog.clientWidth || 0) * WIDTH_RATIO)));
-    dialog.style.setProperty('--igs-cgp-w', `${width}px`);
-    // 先占位让文字让开，图在头位探测完后淡入；同一张图同一取景不重建。
-    dialog.setAttribute('data-igs-cgp', '');
     const box = ensureBox(dialog);
     const onMove = typeof ctx.onMove === 'function' ? (next) => ctx.onMove({ ...hud, nsfwCgPortraitShift: next.shift, nsfwCgPortraitShiftX: next.shiftX, nsfwCgPortraitZoom: next.zoom }) : null;
     // 编辑中重渲染：保留未保存的取景，只换存设置的回调。
@@ -252,12 +275,13 @@ export function applyCgPortrait(root, snapshot, ctx = {}) {
     box.igsDrag = { ...opts, info: keepInfo, onMove };
     if (box.dataset.key === key) return;
     box.dataset.key = key;
+    dropImages(box);
     const place = (info) => {
         if (box.dataset.key !== key || !box.isConnected) return;
         if (box.igsDrag) box.igsDrag.info = info;
         const crop = computeCgPortraitCrop(info, opts);
-        if (crop) showImage(box, url, crop);
-        else clearPortrait(dialog);
+        if (!crop) return;
+        showImage(box, url, crop);
     };
     const known = peekSpriteHead(url);
     if (known) place(known);
