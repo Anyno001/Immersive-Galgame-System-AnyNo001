@@ -6278,7 +6278,7 @@ test('gate:simulation:igs-ui-generic-message-images-follow-image-tags-while-pagi
     vn.destroy();
 });
 
-test('gate:simulation:host-adapter-hide-state-skips-hidden-turns-in-real-bootstrap', async () => {
+test('gate:simulation:host-adapter-hide-state-keeps-hidden-ai-turns-readable-in-real-bootstrap', async () => {
     const document = createFakeDocument();
     const jumps = [];
     const messages = [
@@ -6310,7 +6310,8 @@ test('gate:simulation:host-adapter-hide-state-skips-hidden-turns-in-real-bootstr
 
     assert.equal(opened.reader.snapshot.messageId, 3);
     assert.equal(prevTurn.ok, true);
-    assert.equal(prevTurn.messageId, 1);
+    // 隐藏只是不发给模型，剧情照读：上一轮进到被隐藏的第 2 楼，玩家楼仍跳过。
+    assert.equal(prevTurn.messageId, 2);
     // 切轮不再让酒馆跳楼。
     assert.deepEqual(jumps, []);
 

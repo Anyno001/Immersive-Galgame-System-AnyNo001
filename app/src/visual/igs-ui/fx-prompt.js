@@ -84,7 +84,7 @@ export function resolveRomanceFxPromptRule(settings) {
     const s = settings === true ? { enabled: true } : settings && typeof settings === 'object' ? settings : {};
     if (s.enabled !== true) return '';
     const lines = [
-        `[igs-fx:romance|暧昧${s.rival === true ? '|对象角色名' : ''}] … [igs-fx:romance-end]：包住两人关系升温、心动、暧昧的段落${s.rival === true ? '；对象角色名写与主角暧昧的那位，可省略' : ''}`,
+        `[igs-fx:romance|暧昧${s.rival === true ? '|对象角色名' : ''}] … [igs-fx:romance-end]：包住两人关系升温、心动、暧昧的段落${s.rival === true ? '；对象角色名写与主角暧昧的那位（不写主角本人），可省略' : ''}`,
         '[igs-fx:romance|亲密]：在区间内升档，用于拥抱、依偎、亲吻等明显亲密的段落，可直接写在暧昧区间里而不先结束',
     ];
     if (s.confess === true) lines.push('[igs-fx:confess]：放在告白台词之前，只用于角色正式表白心意的那一刻，对方的回答照常写在后面');
@@ -142,7 +142,7 @@ export function romanceGrammarLines(settings) {
     const s = settings === true ? { enabled: true } : settings && typeof settings === 'object' ? settings : {};
     if (s.enabled !== true) return [];
     const lines = [
-        `romance|暧昧${s.rival === true ? '|对象角色名' : ''} … romance-end：包住关系升温、心动、暧昧的段落${s.rival === true ? '，对象角色名可省' : ''}；拥抱、亲吻等明显亲密处在区间内写 romance|亲密 升档；只标氛围，不因此增加露骨描写`,
+        `romance|暧昧${s.rival === true ? '|对象角色名' : ''} … romance-end：包住关系升温、心动、暧昧的段落${s.rival === true ? '，对象角色名不写主角本人、可省' : ''}；拥抱、亲吻等明显亲密处在区间内写 romance|亲密 升档；只标氛围，不因此增加露骨描写`,
     ];
     if (s.confess === true) lines.push('confess：放在正式告白台词之前，对方的回答照常写在后面');
     if (s.memories === true) lines.push('memory|回忆名称：两人关系里值得纪念的节点，名称不超过8字');

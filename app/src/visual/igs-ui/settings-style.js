@@ -252,7 +252,7 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-btn-mgr-row:last-child{border-bottom:0}
 .igs-btn-mgr-row:hover{background:var(--igs-settings-highlight)}
 .igs-btn-mgr-row.is-hidden-btn{opacity:.45}
-.igs-btn-mgr-handle{cursor:pointer;color:var(--igs-settings-ink-4);font-size:14px;user-select:none;width:18px;text-align:center;flex-shrink:0}
+.igs-btn-mgr-handle{cursor:grab;touch-action:none;color:var(--igs-settings-ink-4);font-size:14px;user-select:none;width:18px;text-align:center;flex-shrink:0}
 .igs-btn-mgr-handle:hover{color:var(--igs-settings-ink)}
 .igs-btn-mgr-handle:active{color:var(--igs-settings-accent)}
 .igs-btn-mgr-label{flex:1;font-size:12px;color:var(--igs-settings-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

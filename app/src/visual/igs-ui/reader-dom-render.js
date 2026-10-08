@@ -1324,6 +1324,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         speaker: spriteAssetUrl ? withCastSlot({
             ...presentSpriteLayout(castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
             ...(speakerSlotX != null ? { posX: speakerSlotX } : {}),
+            character: castSpeakerKey,
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
@@ -1644,7 +1645,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         });
     }
     // 亲密演出与 NSFW 仅露脸剪影：复用 fxSprite（布局 + 手动头部标定），编辑立绘时 fxSprite 为 null、不逼近不剪影。
-    const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory, resolveAssetUrl });
+    const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory, resolveAssetUrl, userName: ctx.userName });
     // Meta 互动：头部热区在亲密演出之后同步，心形快捷按钮已在前层时热区插到它下面。
     applyMetaFx(root, snapshot, { sprite: fxSprite, chatId: ctx.chatId, cast: castFxTargets });
     // NSFW 挂 CG 时对话框左侧的裸体头像（开关默认关，旁白页为空即撤下）。

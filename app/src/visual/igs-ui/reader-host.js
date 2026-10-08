@@ -287,8 +287,13 @@ export function createIgsReaderHost(options = {}) {
             const doc = (options.global || globalThis).document;
             return doc && (doc.body || doc.documentElement);
         },
+        getTheme: () => readSettingsTheme(),
         global: options.global || globalThis,
     });
+    // 目录、提示弹窗、续读提示条跟设置器同一个配色。
+    function readSettingsTheme() {
+        try { return resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.settingsTheme || ''; } catch (_) { return ''; }
+    }
     // 阅读进度：上次位置 / 最远 / 已读 / 存档位，按聊天存本机；真正关闭阅读器或存档时同步进聊天元数据。
     const readingProgress = createReadingProgress({
         getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
@@ -1940,6 +1945,8 @@ export function createIgsReaderHost(options = {}) {
             onQuickSave: () => quickSaveReading(),
             confirm: (message) => pageModal.confirm(message),
             prompt: (message, value) => pageModal.prompt(message, value),
+            getTheme: () => readSettingsTheme(),
+            setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
         return turnIndexPanel.open(overlay);
     }
@@ -1995,6 +2002,8 @@ export function createIgsReaderHost(options = {}) {
         const bar = overlay.ownerDocument.createElement('div');
         bar.id = 'igs-resume-bar';
         bar.setAttribute('role', 'status');
+        const hintTheme = readSettingsTheme();
+        if (hintTheme) bar.setAttribute('data-igs-hint-theme', hintTheme);
         const doc = overlay.ownerDocument;
         const label = doc.createElement('span');
         label.textContent = current.resumeBar.text;

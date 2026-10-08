@@ -3360,6 +3360,30 @@ test('gate:host:tavern-helper-adapter-uses-hide-state-fallback-for-hidden-messag
     assert.equal(current.id, 2);
 });
 
+test('gate:host:tavern-helper-adapter-lists-hidden-ai-floors-for-reading', async () => {
+    const messages = [
+        { message_id: 0, message: '开场白', role: 'assistant', is_hidden: true },
+        { message_id: 1, message: '玩家', role: 'user', is_hidden: true },
+        { message_id: 2, message: '旁白', role: 'system' },
+        { message_id: 3, message: '注释', role: 'assistant', extra: { type: 'comment' } },
+        { message_id: 4, message: '可见楼层', role: 'assistant' },
+    ];
+    const adapter = createTavernHelperAdapter({
+        TavernHelper: {
+            getLastMessageId: () => 4,
+            getChatMessages(_range, options = {}) {
+                if (options.hide_state === 'hidden') return [{ message_id: 0 }, { message_id: 1 }];
+                return messages;
+            },
+        },
+        document: { querySelectorAll: () => [] },
+    });
+
+    assert.deepEqual((await adapter.listTurns()).map((turn) => turn.id), [0, 4]);
+    assert.equal((await adapter.getAdjacentMessage(4, -1)).id, 0);
+    assert.equal((await adapter.getCurrentMessage()).id, 4);
+});
+
 test('gate:host:tavern-helper-adapter-falls-back-to-sillytavern-context-chat', async () => {
     const adapter = createTavernHelperAdapter({
         SillyTavern: {

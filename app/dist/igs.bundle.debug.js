@@ -5222,15 +5222,15 @@ function createTavernHelperAdapter(globalObject = globalThis.window || globalThi
             const normalizedId = normalizeMessageId(messageId);
             if (normalizedId == null) return null;
             const step = Number(delta) < 0 ? -1 : 1;
-            const messages = getNormalizedMessages(globalObject, hiddenMessageCache).filter(isTurnCandidate);
+            const messages = getNormalizedMessages(globalObject, hiddenMessageCache).filter(isReadableTurn);
             const currentIndex = messages.findIndex((message) => message.id === normalizedId);
             if (currentIndex < 0) return null;
             return messages[currentIndex + step] || null;
         },
 
-        // 阅读器按顺序读楼用：只读数据层，不碰 DOM。
+        // 阅读器按顺序读楼用：只读数据层，不碰 DOM。被隐藏的 AI 楼也列出，见 isReadableTurn。
         async listTurns() {
-            return getNormalizedMessages(globalObject, hiddenMessageCache).filter(isTurnCandidate);
+            return getNormalizedMessages(globalObject, hiddenMessageCache).filter(isReadableTurn);
         },
 
         async jumpToMessage(messageId) {
@@ -5806,6 +5806,17 @@ function isTurnCandidate(message) {
         && !message.isHidden
         && !message.isUser,
     );
+}
+
+// 阅读器翻楼用：/hide 或数据库、总结插件隐藏的旧楼只是不发给模型，剧情照样能读；
+// 用户楼和旁白、注释这类真正的系统消息仍跳过。酒馆把隐藏也记成 is_system，所以只看旁白标记。
+const NON_STORY_SYSTEM_TYPES = new Set(['narrator', 'comment']);
+function isReadableTurn(message) {
+    if (!message || message.isUser) return false;
+    const raw = message.raw && typeof message.raw === 'object' ? message.raw : null;
+    if (!raw) return !message.isSystem || message.isHidden;
+    const type = raw.extra && typeof raw.extra === 'object' ? String(raw.extra.type || '') : '';
+    return raw.role !== 'system' && !NON_STORY_SYSTEM_TYPES.has(type);
 }
 
 function findMessageRegenerateButton(message, imageIndex, imageState = null) {
@@ -11096,8 +11107,13 @@ function createIgsReaderHost(options = {}) {
             const doc = (options.global || globalThis).document;
             return doc && (doc.body || doc.documentElement);
         },
+        getTheme: () => readSettingsTheme(),
         global: options.global || globalThis,
     });
+    // 目录、提示弹窗、续读提示条跟设置器同一个配色。
+    function readSettingsTheme() {
+        try { return resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.settingsTheme || ''; } catch (_) { return ''; }
+    }
     // 阅读进度：上次位置 / 最远 / 已读 / 存档位，按聊天存本机；真正关闭阅读器或存档时同步进聊天元数据。
     const readingProgress = createReadingProgress({
         getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
@@ -12749,6 +12765,8 @@ function createIgsReaderHost(options = {}) {
             onQuickSave: () => quickSaveReading(),
             confirm: (message) => pageModal.confirm(message),
             prompt: (message, value) => pageModal.prompt(message, value),
+            getTheme: () => readSettingsTheme(),
+            setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
         return turnIndexPanel.open(overlay);
     }
@@ -12804,6 +12822,8 @@ function createIgsReaderHost(options = {}) {
         const bar = overlay.ownerDocument.createElement('div');
         bar.id = 'igs-resume-bar';
         bar.setAttribute('role', 'status');
+        const hintTheme = readSettingsTheme();
+        if (hintTheme) bar.setAttribute('data-igs-hint-theme', hintTheme);
         const doc = overlay.ownerDocument;
         const label = doc.createElement('span');
         label.textContent = current.resumeBar.text;
@@ -15973,6 +15993,42 @@ function createSettingsHost(deps) {
             // 让这次点击先落到按钮上，再补刷搁着的缩略图。
             (doc.defaultView || globalThis).setTimeout(flushDeferredImageRefresh, 0);
         };
+        // 工具栏「按钮管理」：按住 ☰ 拖动换行，松手提交顺序；没拖动时仍按点击上移处理。
+        let btnDrag = null;
+        const btnRowId = (row) => {
+            const handle = row && row.querySelector ? row.querySelector('.igs-btn-mgr-handle') : null;
+            return handle ? String(handle.getAttribute('data-action') || '').replace(/^toolbar-move-up:/, '') : '';
+        };
+        root.addEventListener('pointerdown', (event) => {
+            const handle = event.target && event.target.closest ? event.target.closest('.igs-btn-mgr-handle') : null;
+            const row = handle && handle.closest('.igs-btn-mgr-row');
+            if (row && row.parentNode) btnDrag = { row, list: row.parentNode, startY: Number(event.clientY) || 0, moved: false };
+        });
+        root.addEventListener('pointermove', (event) => {
+            if (!btnDrag) return;
+            const y = Number(event.clientY) || 0;
+            if (!btnDrag.moved && Math.abs(y - btnDrag.startY) < 6) return;
+            btnDrag.moved = true;
+            if (event.cancelable) event.preventDefault();
+            for (const other of btnDrag.list.children) {
+                if (other === btnDrag.row) continue;
+                const rect = other.getBoundingClientRect();
+                if (y < rect.top || y > rect.bottom) continue;
+                btnDrag.list.insertBefore(btnDrag.row, y < rect.top + rect.height / 2 ? other : other.nextSibling);
+                break;
+            }
+        });
+        const btnDragEnd = () => {
+            const drag = btnDrag;
+            btnDrag = null;
+            if (!drag || !drag.moved) return;
+            const swallow = (event) => { event.stopPropagation(); event.preventDefault(); };
+            root.addEventListener('click', swallow, true);
+            (doc.defaultView || globalThis).setTimeout(() => root.removeEventListener('click', swallow, true), 0);
+            controller.invoke('toolbar-reorder:' + Array.from(drag.list.children, btnRowId).filter(Boolean).join(','));
+        };
+        root.addEventListener('pointerup', btnDragEnd);
+        root.addEventListener('pointercancel', btnDragEnd);
         root.addEventListener('pointerdown', pointerDown, true);
         root.addEventListener('pointerup', pointerUp, true);
         root.addEventListener('pointercancel', pointerUp, true);
@@ -18971,16 +19027,37 @@ __igsDefine(exports, "mountEditControls", () => mountEditControls);
 __igsRegister("src/visual/igs-ui/igs-modal.js", function(module, exports, require) {
 // 页面内的提示、确认和输入。挂在阅读器或当前层上，不调用浏览器 alert / confirm / prompt。
 // 浏览器那三个弹窗会退出全屏；这里的层在全屏元素里面，全屏保持不变。
-
+const { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette, normalizeSettingsTheme } = require("src/visual/igs-ui/settings-theme.js");
 const STYLE_ID = 'igs-page-modal-style';
+
+// 提示类小浮层（确认 / 输入弹窗、续读提示条）跟设置器同一套四色：实色面板、主题墨色、高亮色做主按钮。
+// 没给配色时用地雷色（SETTINGS_THEME_BASE）。
+const HINT_SCOPES = '.igs-page-modal,#igs-resume-bar';
+const hintThemeVars = (theme) => {
+    const { tokens } = getSettingsThemePalette(theme);
+    return `--igs-hint-bg:${tokens.panel};--igs-hint-ink:${tokens.ink};--igs-hint-soft:${tokens['ink-2']};--igs-hint-field:${tokens.field};--igs-hint-fill:${tokens.highlight};`
+        + `--igs-hint-accent:${tokens.accent};--igs-hint-on-accent:${tokens['on-accent']};--igs-hint-shadow:${tokens['shell-shadow']};`;
+};
+const IGS_HINT_THEME_STYLE_TEXT = [
+    `${HINT_SCOPES}{${hintThemeVars(SETTINGS_THEME_BASE)}}`,
+    ...SETTINGS_THEME_OPTIONS.map(({ value }) => HINT_SCOPES.split(',').map((scope) => `${scope}[data-igs-hint-theme="${value}"]`).join(',') + `{${hintThemeVars(value)}}`),
+    '#igs-resume-bar{background:var(--igs-hint-bg);color:var(--igs-hint-ink);box-shadow:var(--igs-hint-shadow);}',
+].join('\n');
 const IGS_MODAL_STYLE_TEXT = `
-.igs-page-modal{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:rgba(0,0,0,.45);color:#f2efe9;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;}
-.igs-page-modal-card{width:min(440px,100%);display:flex;flex-direction:column;gap:14px;box-sizing:border-box;padding:18px 18px 14px;border-radius:14px;background:rgba(22,24,28,.96);border:1px solid rgba(255,255,255,.12);box-shadow:0 16px 48px rgba(0,0,0,.45);}
-.igs-page-modal-msg{margin:0;font-size:14px;line-height:1.6;white-space:pre-line;word-break:break-word;}
-.igs-page-modal-input{width:100%;box-sizing:border-box;margin:0;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit;font:inherit;font-size:14px;}
-.igs-page-modal-actions{display:flex;justify-content:flex-end;gap:8px;}
-.igs-page-modal-actions button{min-height:36px;padding:0 14px;border:0;border-radius:8px;background:rgba(255,255,255,.12);color:inherit;font:inherit;font-size:13px;cursor:pointer;}
-.igs-page-modal-actions [data-igs-modal="ok"]{background:#e8e4dc;color:#1a1c1f;}
+${IGS_HINT_THEME_STYLE_TEXT}
+.igs-page-modal{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:rgba(0,0,0,.38);color:var(--igs-hint-ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;animation:igs-page-modal-fade .18s ease both;}
+.igs-page-modal-card{width:min(400px,100%);display:flex;flex-direction:column;gap:18px;box-sizing:border-box;padding:24px 22px 16px;border-radius:14px;background:var(--igs-hint-bg);box-shadow:var(--igs-hint-shadow);animation:igs-page-modal-rise .22s cubic-bezier(.2,.8,.2,1) both;}
+.igs-page-modal-msg{margin:0;font-size:15px;line-height:1.7;letter-spacing:.04em;white-space:pre-line;word-break:break-word;}
+.igs-page-modal-input{width:100%;box-sizing:border-box;margin:0;padding:9px 12px;border-radius:8px;border:0;outline:0;background:var(--igs-hint-field);color:inherit;font:inherit;font-size:14px;}
+.igs-page-modal-input:focus{box-shadow:inset 0 0 0 1.5px var(--igs-hint-accent);}
+.igs-page-modal-actions{display:flex;justify-content:flex-end;gap:6px;}
+.igs-page-modal-actions button{min-height:36px;padding:0 16px;border:0;border-radius:8px;background:transparent;color:var(--igs-hint-soft);font:inherit;font-size:13px;letter-spacing:.08em;cursor:pointer;transition:background .15s,opacity .15s;}
+.igs-page-modal-actions button:hover,.igs-page-modal-actions button:focus-visible{background:var(--igs-hint-fill);color:var(--igs-hint-ink);outline:none;}
+.igs-page-modal-actions [data-igs-modal="ok"]{background:var(--igs-hint-accent);color:var(--igs-hint-on-accent);font-weight:600;}
+.igs-page-modal-actions [data-igs-modal="ok"]:hover,.igs-page-modal-actions [data-igs-modal="ok"]:focus-visible{background:var(--igs-hint-accent);color:var(--igs-hint-on-accent);opacity:.88;}
+@keyframes igs-page-modal-fade{from{opacity:0;}to{opacity:1;}}
+@keyframes igs-page-modal-rise{from{opacity:0;transform:translateY(6px) scale(.98);}to{opacity:1;transform:none;}}
+@media (prefers-reduced-motion:reduce){.igs-page-modal,.igs-page-modal-card{animation:none;}}
 `;
 
 function ensureStyle(doc) {
@@ -19022,7 +19099,7 @@ function pinToVisibleScreen(el, doc) {
     el.style.setProperty('right', 'auto');
     el.style.setProperty('bottom', 'auto');
 }
-function createIgsModal({ getHost = () => null, global: globalObj = globalThis } = {}) {
+function createIgsModal({ getHost = () => null, getTheme = () => '', global: globalObj = globalThis } = {}) {
     let pending = null;
 
     function detach(entry) {
@@ -19052,6 +19129,9 @@ function createIgsModal({ getHost = () => null, global: globalObj = globalThis }
         detach(entry);
         const el = doc.createElement('div');
         el.className = 'igs-page-modal';
+        let theme = '';
+        try { theme = getTheme() ? normalizeSettingsTheme(getTheme()) : ''; } catch (_) { theme = ''; }
+        if (theme) el.setAttribute('data-igs-hint-theme', theme);
         el.setAttribute('role', entry.kind === 'prompt' ? 'dialog' : 'alertdialog');
         el.setAttribute('aria-modal', 'true');
         el.setAttribute('aria-label', entry.message);
@@ -19148,7 +19228,223 @@ function createIgsModal({ getHost = () => null, global: globalObj = globalThis }
 }
 
 __igsDefine(exports, "createIgsModal", () => createIgsModal);
+__igsDefine(exports, "IGS_HINT_THEME_STYLE_TEXT", () => IGS_HINT_THEME_STYLE_TEXT);
 __igsDefine(exports, "IGS_MODAL_STYLE_TEXT", () => IGS_MODAL_STYLE_TEXT);
+});
+__igsRegister("src/visual/igs-ui/settings-theme.js", function(module, exports, require) {
+const { IGS_UI_EDGE_DAY, IGS_UI_EDGE_NIGHT, IGS_UI_GRAIN_DAY, IGS_UI_THICKNESS, igsUiSurface } = require("src/styles/ui-material.js");
+// swatch 是头部色板按钮的预览色：底色取面板本身，点取该主题的高亮色，由 SVG 绘制。
+const SETTINGS_THEME_OPTIONS = Object.freeze([
+    Object.freeze({ value: 'cream', label: '奶油风', scheme: 'light', swatch: Object.freeze({ base: '#f7f0e6', accent: '#85a76a' }) }),
+    Object.freeze({ value: 'light', label: '浅色', scheme: 'light', swatch: Object.freeze({ base: '#fbfaf6', accent: '#11110f' }) }),
+    Object.freeze({ value: 'landmine', label: '地雷色', scheme: 'dark', swatch: Object.freeze({ base: '#2b2b2b', accent: '#ffc4d4' }) }),
+    Object.freeze({ value: 'dark', label: '深色', scheme: 'dark', swatch: Object.freeze({ base: '#24292e', accent: '#7fd6ca' }) }),
+]);
+const DEFAULT_SETTINGS_THEME = 'cream';
+
+const SETTINGS_THEME_VALUES = new Set(SETTINGS_THEME_OPTIONS.map((theme) => theme.value));
+const SETTINGS_THEME_LEGACY_VALUES = Object.freeze({
+    night: 'landmine',
+    day: 'cream',
+});
+function normalizeSettingsTheme(theme) {
+    const raw = String(theme || '').trim();
+    if (SETTINGS_THEME_LEGACY_VALUES[raw]) return SETTINGS_THEME_LEGACY_VALUES[raw];
+    return SETTINGS_THEME_VALUES.has(raw) ? raw : DEFAULT_SETTINGS_THEME;
+}
+function getNextSettingsTheme(theme) {
+    const current = normalizeSettingsTheme(theme);
+    const index = SETTINGS_THEME_OPTIONS.findIndex((option) => option.value === current);
+    return SETTINGS_THEME_OPTIONS[(index + 1) % SETTINGS_THEME_OPTIONS.length].value;
+}
+
+function renderSettingsThemeSwatch({ base, accent }) {
+    return `<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><rect x=".5" y=".5" width="19" height="19" rx="4" fill="${base}" stroke="rgba(128,128,128,.34)"/><rect x="10.5" y="10.5" width="6" height="6" rx="1.5" fill="${accent}"/></svg>`;
+}
+
+// 资料页复用同一组色板按钮，只换 class 与点击属性。
+function renderSettingsThemeSwitch(theme, { optionClass = 'igs-settings-theme-option', attrs = (value) => `data-action="set-settings-theme:${value}"` } = {}) {
+    const current = normalizeSettingsTheme(theme);
+    return SETTINGS_THEME_OPTIONS.map((option) => {
+        const active = option.value === current;
+        return `<button type="button" class="${optionClass}${active ? ' is-active' : ''}" ${attrs(option.value)} data-theme="${option.value}" role="radio" aria-checked="${active}" aria-label="${option.label}" title="${option.label}">${renderSettingsThemeSwatch(option.swatch)}</button>`;
+    }).join('');
+}
+
+// 四套界面配色的唯一来源：设置器与资料页都从这里生成 CSS 变量。
+// backdrop 是全屏遮罩底色（贴近面板本身，只靠阴影分层），solid 是不支持模糊/减少透明度时的回退。
+// surface/field/highlight/raised 用实色（按画在本主题面板上的样子取色）：控件层层嵌套也不会越叠越灰。
+const SETTINGS_THEME_PALETTES = Object.freeze({
+    landmine: Object.freeze({
+        scheme: 'dark', backdrop: 'rgba(34,33,36,.86)', backdropSolid: 'rgba(34,33,36,.96)', shellSolid: '#2b2b2b', ripple: .2,
+        tokens: Object.freeze({ 'shell-bg': igsUiSurface(IGS_UI_THICKNESS.thick), 'shell-shadow': `0 8px 24px rgba(0,0,0,.45),${IGS_UI_EDGE_NIGHT}`, paper: 'rgba(255,196,212,.08)', panel: '#2b2b2b', surface: '#322f32', field: '#3e383b', line: 'transparent', 'line-strong': 'transparent', ink: '#fff', 'ink-2': 'rgba(255,255,255,.7)', 'ink-3': 'rgba(255,255,255,.5)', 'ink-4': 'rgba(255,255,255,.34)', accent: '#ffc4d4', 'accent-2': '#ffd9e4', 'on-accent': '#2b2b2b', danger: '#d96c6c', highlight: '#4a4246', raised: '#574e53', knob: '#ffd9e4', ripple: '#ff6f9c' }),
+    }),
+    cream: Object.freeze({
+        scheme: 'light', backdrop: 'rgba(243,233,218,.93)', backdropSolid: 'rgba(243,233,218,.97)', shellSolid: '#f7f0e6', ripple: .22,
+        tokens: Object.freeze({ 'shell-bg': `${IGS_UI_GRAIN_DAY},rgba(251,246,238,.94)`, 'shell-shadow': `0 8px 24px rgba(92,70,44,.1),${IGS_UI_EDGE_DAY}`, paper: '#efe4d7', panel: '#f7f0e6', surface: '#f3ece1', field: '#ebe2d5', line: 'rgba(116,91,62,.12)', 'line-strong': 'rgba(116,91,62,.18)', ink: '#514638', 'ink-2': '#735f4a', 'ink-3': '#9a8268', 'ink-4': 'rgba(154,130,104,.7)', accent: '#85a76a', 'accent-2': '#738f5b', 'on-accent': '#fcf8f1', danger: '#a76561', highlight: '#e3d8c8', raised: '#fffaf3', knob: '#fcf8f1', ripple: '#6cb33f' }),
+    }),
+    light: Object.freeze({
+        scheme: 'light', backdrop: 'rgba(240,238,232,.9)', backdropSolid: 'rgba(240,238,232,.97)', shellSolid: '#f8f5ee', ripple: .07,
+        tokens: Object.freeze({ 'shell-bg': '#fbfaf6', 'shell-shadow': `0 12px 32px rgba(23,23,20,.12),${IGS_UI_EDGE_DAY}`, paper: '#ebe9e3', panel: '#f8f5ee', surface: '#f3f2ee', field: '#ebe9e4', line: 'rgba(23,23,20,.06)', 'line-strong': 'rgba(23,23,20,.1)', ink: '#11110f', 'ink-2': '#46443d', 'ink-3': '#77736a', 'ink-4': 'rgba(119,115,106,.72)', accent: '#11110f', 'accent-2': '#2d2b26', 'on-accent': '#fbfaf7', danger: '#95514b', highlight: '#e1dfd9', raised: '#ffffff', knob: '#fbfaf7', ripple: '#11110f' }),
+    }),
+    dark: Object.freeze({
+        scheme: 'dark', backdrop: 'rgba(33,38,43,.9)', backdropSolid: 'rgba(33,38,43,.97)', shellSolid: '#1f2428', ripple: .16,
+        tokens: Object.freeze({ 'shell-bg': '#24292e', 'shell-shadow': `0 18px 48px rgba(1,4,9,.36),${IGS_UI_EDGE_NIGHT}`, paper: '#2d343b', panel: '#1f2428', surface: '#2a3036', field: '#31383f', line: 'rgba(205,217,229,.08)', 'line-strong': 'rgba(205,217,229,.14)', ink: '#f0f3f6', 'ink-2': '#c9d1d9', 'ink-3': '#8b949e', 'ink-4': 'rgba(139,148,158,.72)', accent: '#7fd6ca', 'accent-2': '#69c7bc', 'on-accent': '#1f2428', danger: '#d07a74', highlight: '#3a424a', raised: '#454e57', knob: '#f0f3f6', ripple: '#1fe0c6' }),
+    }),
+});
+
+// 地雷色是无属性时的基底；其余三套按属性覆盖。
+const SETTINGS_THEME_BASE = 'landmine';
+function getSettingsThemePalette(theme) {
+    return SETTINGS_THEME_PALETTES[normalizeSettingsTheme(theme)] || SETTINGS_THEME_PALETTES[SETTINGS_THEME_BASE];
+}
+function settingsThemeVars(theme, prefix = '--igs-settings-') {
+    return Object.entries(getSettingsThemePalette(theme).tokens).map(([key, value]) => `${prefix}${key}:${value};`).join('');
+}
+
+__igsDefine(exports, "normalizeSettingsTheme", () => normalizeSettingsTheme);
+__igsDefine(exports, "getNextSettingsTheme", () => getNextSettingsTheme);
+__igsDefine(exports, "renderSettingsThemeSwitch", () => renderSettingsThemeSwitch);
+__igsDefine(exports, "getSettingsThemePalette", () => getSettingsThemePalette);
+__igsDefine(exports, "settingsThemeVars", () => settingsThemeVars);
+__igsDefine(exports, "SETTINGS_THEME_OPTIONS", () => SETTINGS_THEME_OPTIONS);
+__igsDefine(exports, "DEFAULT_SETTINGS_THEME", () => DEFAULT_SETTINGS_THEME);
+__igsDefine(exports, "SETTINGS_THEME_BASE", () => SETTINGS_THEME_BASE);
+});
+__igsRegister("src/styles/ui-material.js", function(module, exports, require) {
+const { IGS_CAUSTIC_ART } = require("src/styles/ui-caustic-art.js");
+const { IGS_FROST_NIGHT_RGB } = require("src/styles/glass-material.js");
+// 霜夜材质：设置、资料页、地图卡片、toast 共用同一底色与同一套厚度/圆角/墨色，
+// 只调不透明度区分层级；模糊全屏只做一层，面板本身不再叠第二层 backdrop。
+const IGS_UI_NIGHT_RGB = IGS_FROST_NIGHT_RGB;
+const IGS_UI_DAY_RGB = '250,250,249';
+const IGS_UI_THICKNESS = Object.freeze({ airy: 0.3, thin: 0.6, regular: 0.64, thick: 0.88 });
+const IGS_UI_RADIUS = Object.freeze({ small: '4px', control: '6px', card: '8px' });
+const IGS_UI_BLUR = 'blur(28px) saturate(150%)';
+const IGS_UI_PANE = 'rgba(255,255,255,.07)';
+const IGS_UI_PANE_EDGE = 'inset 0 1px 0 rgba(255,255,255,.09)';
+const IGS_UI_INK = Object.freeze({ primary: '#eceae6', secondary: 'rgba(236,234,230,.72)', tertiary: 'rgba(236,234,230,.5)', quaternary: 'rgba(236,234,230,.34)' });
+const IGS_UI_FILL = Object.freeze({ rest: 'rgba(255,255,255,.06)', hover: 'rgba(255,255,255,.1)', active: 'rgba(255,255,255,.16)' });
+const IGS_UI_WARM = '#f2d49b';
+const IGS_UI_ELEVATION = '0 28px 64px -18px rgba(0,0,0,.55)';
+const IGS_UI_EDGE_NIGHT = 'inset 0 1px 0 rgba(255,255,255,.07)';
+const IGS_UI_EDGE_DAY = 'inset 0 1px 0 rgba(255,255,255,.9)';
+const IGS_UI_FONT_SANS = '-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC","Noto Sans CJK SC",sans-serif';
+const IGS_UI_FONT_SERIF = '"Source Han Serif CN","Noto Serif CJK SC","Noto Serif SC","Songti SC",serif';
+
+const grain = (channel, alpha) => `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 ${channel} 0 0 0 0 ${channel} 0 0 0 0 ${channel} 0 0 0 ${alpha} 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")`;
+const IGS_UI_GRAIN_NIGHT = grain(1, '.05');
+const IGS_UI_GRAIN_DAY = grain(0, '.035');
+function igsUiSurface(thickness, theme = 'night') {
+    return theme === 'day'
+        ? `${IGS_UI_GRAIN_DAY},rgba(${IGS_UI_DAY_RGB},${thickness})`
+        : `${IGS_UI_GRAIN_NIGHT},rgba(${IGS_UI_NIGHT_RGB},${thickness})`;
+}
+
+// 水底焦散：scripts/caustic-art.mjs 预生成。设置器允许平铺；其余界面只放一张，
+// 从左上向右下渐隐，避免规则纹路铺满整页。各界面只调尺度与浓度。
+const IGS_UI_LIQUID_KEYFRAMES = '@keyframes igs-ui-liquid{0%,100%{transform:translate3d(-1.5%,-1%,0)}50%{transform:translate3d(1.5%,1%,0)}}';
+
+// tint：把焦散当遮罩、用纯色填充，纹路颜色随主题高亮色走，而不是固定白线。
+function igsUiLiquidRule(selector, opacity = 1, { tile = false, tint = '' } = {}) {
+    const size = 'var(--igs-ui-caustic-size,640px) var(--igs-ui-caustic-size,640px)';
+    const repeat = tile ? 'repeat' : 'no-repeat';
+    const artwork = tint
+        ? `background-color:${tint};-webkit-mask-image:${IGS_CAUSTIC_ART};mask-image:${IGS_CAUSTIC_ART};-webkit-mask-position:left top;mask-position:left top;-webkit-mask-size:${size};mask-size:${size};-webkit-mask-repeat:${repeat};mask-repeat:${repeat};`
+        : `background-image:${IGS_CAUSTIC_ART};background-position:left top;background-size:${size};background-repeat:${repeat};`;
+    const fade = tile || tint
+        ? ''
+        : '-webkit-mask-image:linear-gradient(135deg,#000 0%,rgba(0,0,0,.82) 42%,transparent 88%);mask-image:linear-gradient(135deg,#000 0%,rgba(0,0,0,.82) 42%,transparent 88%);';
+    return `${selector}{content:"";position:absolute;inset:-4%;z-index:0;pointer-events:none;${artwork}${fade}opacity:${opacity};animation:igs-ui-liquid 60s ease-in-out infinite;will-change:transform;}
+@media (prefers-reduced-motion:reduce){${selector}{animation:none;}}
+@media (prefers-reduced-transparency:reduce){${selector}{display:none;}}`;
+}
+
+__igsDefine(exports, "igsUiSurface", () => igsUiSurface);
+__igsDefine(exports, "igsUiLiquidRule", () => igsUiLiquidRule);
+__igsDefine(exports, "IGS_UI_NIGHT_RGB", () => IGS_UI_NIGHT_RGB);
+__igsDefine(exports, "IGS_UI_DAY_RGB", () => IGS_UI_DAY_RGB);
+__igsDefine(exports, "IGS_UI_THICKNESS", () => IGS_UI_THICKNESS);
+__igsDefine(exports, "IGS_UI_RADIUS", () => IGS_UI_RADIUS);
+__igsDefine(exports, "IGS_UI_BLUR", () => IGS_UI_BLUR);
+__igsDefine(exports, "IGS_UI_PANE", () => IGS_UI_PANE);
+__igsDefine(exports, "IGS_UI_PANE_EDGE", () => IGS_UI_PANE_EDGE);
+__igsDefine(exports, "IGS_UI_INK", () => IGS_UI_INK);
+__igsDefine(exports, "IGS_UI_FILL", () => IGS_UI_FILL);
+__igsDefine(exports, "IGS_UI_WARM", () => IGS_UI_WARM);
+__igsDefine(exports, "IGS_UI_ELEVATION", () => IGS_UI_ELEVATION);
+__igsDefine(exports, "IGS_UI_EDGE_NIGHT", () => IGS_UI_EDGE_NIGHT);
+__igsDefine(exports, "IGS_UI_EDGE_DAY", () => IGS_UI_EDGE_DAY);
+__igsDefine(exports, "IGS_UI_FONT_SANS", () => IGS_UI_FONT_SANS);
+__igsDefine(exports, "IGS_UI_FONT_SERIF", () => IGS_UI_FONT_SERIF);
+__igsDefine(exports, "IGS_UI_GRAIN_NIGHT", () => IGS_UI_GRAIN_NIGHT);
+__igsDefine(exports, "IGS_UI_GRAIN_DAY", () => IGS_UI_GRAIN_DAY);
+__igsDefine(exports, "IGS_UI_LIQUID_KEYFRAMES", () => IGS_UI_LIQUID_KEYFRAMES);
+});
+__igsRegister("src/styles/ui-caustic-art.js", function(module, exports, require) {
+// 由 scripts/caustic-art.mjs 生成，勿手改；调参数改脚本后重新生成。纹理在 assets/caustic-art.png，构建时外置到 dist/ui/。
+const IGS_CAUSTIC_TILE_SIZE = 640;
+const IGS_CAUSTIC_ART = `url("${new URL('./ui/caustic-art.webp', import.meta.url).href}")`;
+
+__igsDefine(exports, "IGS_CAUSTIC_TILE_SIZE", () => IGS_CAUSTIC_TILE_SIZE);
+__igsDefine(exports, "IGS_CAUSTIC_ART", () => IGS_CAUSTIC_ART);
+});
+__igsRegister("src/styles/glass-material.js", function(module, exports, require) {
+const IGS_TRANSPARENT_GLASS_ALPHA = 0.62;
+const IGS_FROST_NIGHT_RGB = '31,34,37';
+const IGS_TRANSPARENT_GLASS_BG = `rgba(${IGS_FROST_NIGHT_RGB},${IGS_TRANSPARENT_GLASS_ALPHA})`;
+const IGS_TRANSPARENT_GLASS_BACKDROP_FILTER = 'none';
+const IGS_FROSTED_GLASS_BACKDROP_FILTER = 'blur(32px) saturate(180%)';
+function normalizeGlassDensity(value, fallback = IGS_TRANSPARENT_GLASS_ALPHA) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.min(1, Math.max(0, numeric));
+}
+function createTransparentGlassBg(density) {
+    return `rgba(${IGS_FROST_NIGHT_RGB},${normalizeGlassDensity(density)})`;
+}
+function resolveGlassBackdropFilter(value) {
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed || trimmed === '0' || trimmed === 'false' || trimmed === 'none') return IGS_TRANSPARENT_GLASS_BACKDROP_FILTER;
+        if (trimmed === 'true') return IGS_FROSTED_GLASS_BACKDROP_FILTER;
+        return trimmed;
+    }
+    return value ? IGS_FROSTED_GLASS_BACKDROP_FILTER : IGS_TRANSPARENT_GLASS_BACKDROP_FILTER;
+}
+function applyTransparentGlassMaterial(target, density, options = {}) {
+    const style = target && target.style ? target.style : target;
+    if (!style || typeof style.setProperty !== 'function') return;
+    const normalizedDensity = normalizeGlassDensity(density);
+    const glassBg = createTransparentGlassBg(normalizedDensity);
+    const backdropFilter = resolveGlassBackdropFilter(options.backdropFilter);
+    style.setProperty('--igs-glass-opacity', String(normalizedDensity));
+    style.setProperty('--igs-glass-density', String(normalizedDensity));
+    style.setProperty('--igs-glass-fill-alpha', String(normalizedDensity));
+    style.setProperty('--igs-transparent-glass-bg', glassBg);
+    style.setProperty('--igs-glass-bg', glassBg);
+    style.setProperty('--igs-glass-blur', backdropFilter);
+    style.setProperty('--igs-dialog-bg', glassBg);
+    style.setProperty('--igs-dialog-blur', backdropFilter);
+    style.setProperty('--igs-toolbar-bg', glassBg);
+    style.setProperty('--igs-toolbar-blur', backdropFilter);
+    style.setProperty('--igs-choice-bg', glassBg);
+    style.setProperty('--igs-choice-blur', backdropFilter);
+    style.setProperty('--igs-db-bg', glassBg);
+    style.setProperty('--igs-db-blur', backdropFilter);
+    style.setProperty('--igs-db-head-bg', glassBg);
+    style.setProperty('--igs-db-head-blur', backdropFilter);
+}
+
+__igsDefine(exports, "normalizeGlassDensity", () => normalizeGlassDensity);
+__igsDefine(exports, "createTransparentGlassBg", () => createTransparentGlassBg);
+__igsDefine(exports, "resolveGlassBackdropFilter", () => resolveGlassBackdropFilter);
+__igsDefine(exports, "applyTransparentGlassMaterial", () => applyTransparentGlassMaterial);
+__igsDefine(exports, "IGS_TRANSPARENT_GLASS_ALPHA", () => IGS_TRANSPARENT_GLASS_ALPHA);
+__igsDefine(exports, "IGS_FROST_NIGHT_RGB", () => IGS_FROST_NIGHT_RGB);
+__igsDefine(exports, "IGS_TRANSPARENT_GLASS_BG", () => IGS_TRANSPARENT_GLASS_BG);
+__igsDefine(exports, "IGS_TRANSPARENT_GLASS_BACKDROP_FILTER", () => IGS_TRANSPARENT_GLASS_BACKDROP_FILTER);
+__igsDefine(exports, "IGS_FROSTED_GLASS_BACKDROP_FILTER", () => IGS_FROSTED_GLASS_BACKDROP_FILTER);
 });
 __igsRegister("src/generated-images/illustration/inpaint-transaction.js", function(module, exports, require) {
 // AI 局部重绘事务：必须由用户显式触发；预览只在内存中，接受时按 revision 原子写入。
@@ -21810,7 +22106,7 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-btn-mgr-row:last-child{border-bottom:0}
 .igs-btn-mgr-row:hover{background:var(--igs-settings-highlight)}
 .igs-btn-mgr-row.is-hidden-btn{opacity:.45}
-.igs-btn-mgr-handle{cursor:pointer;color:var(--igs-settings-ink-4);font-size:14px;user-select:none;width:18px;text-align:center;flex-shrink:0}
+.igs-btn-mgr-handle{cursor:grab;touch-action:none;color:var(--igs-settings-ink-4);font-size:14px;user-select:none;width:18px;text-align:center;flex-shrink:0}
 .igs-btn-mgr-handle:hover{color:var(--igs-settings-ink)}
 .igs-btn-mgr-handle:active{color:var(--igs-settings-accent)}
 .igs-btn-mgr-label{flex:1;font-size:12px;color:var(--igs-settings-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -21982,221 +22278,6 @@ function getSettingsStyleText() {
 }
 
 __igsDefine(exports, "getSettingsStyleText", () => getSettingsStyleText);
-});
-__igsRegister("src/styles/ui-material.js", function(module, exports, require) {
-const { IGS_CAUSTIC_ART } = require("src/styles/ui-caustic-art.js");
-const { IGS_FROST_NIGHT_RGB } = require("src/styles/glass-material.js");
-// 霜夜材质：设置、资料页、地图卡片、toast 共用同一底色与同一套厚度/圆角/墨色，
-// 只调不透明度区分层级；模糊全屏只做一层，面板本身不再叠第二层 backdrop。
-const IGS_UI_NIGHT_RGB = IGS_FROST_NIGHT_RGB;
-const IGS_UI_DAY_RGB = '250,250,249';
-const IGS_UI_THICKNESS = Object.freeze({ airy: 0.3, thin: 0.6, regular: 0.64, thick: 0.88 });
-const IGS_UI_RADIUS = Object.freeze({ small: '4px', control: '6px', card: '8px' });
-const IGS_UI_BLUR = 'blur(28px) saturate(150%)';
-const IGS_UI_PANE = 'rgba(255,255,255,.07)';
-const IGS_UI_PANE_EDGE = 'inset 0 1px 0 rgba(255,255,255,.09)';
-const IGS_UI_INK = Object.freeze({ primary: '#eceae6', secondary: 'rgba(236,234,230,.72)', tertiary: 'rgba(236,234,230,.5)', quaternary: 'rgba(236,234,230,.34)' });
-const IGS_UI_FILL = Object.freeze({ rest: 'rgba(255,255,255,.06)', hover: 'rgba(255,255,255,.1)', active: 'rgba(255,255,255,.16)' });
-const IGS_UI_WARM = '#f2d49b';
-const IGS_UI_ELEVATION = '0 28px 64px -18px rgba(0,0,0,.55)';
-const IGS_UI_EDGE_NIGHT = 'inset 0 1px 0 rgba(255,255,255,.07)';
-const IGS_UI_EDGE_DAY = 'inset 0 1px 0 rgba(255,255,255,.9)';
-const IGS_UI_FONT_SANS = '-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC","Noto Sans CJK SC",sans-serif';
-const IGS_UI_FONT_SERIF = '"Source Han Serif CN","Noto Serif CJK SC","Noto Serif SC","Songti SC",serif';
-
-const grain = (channel, alpha) => `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 ${channel} 0 0 0 0 ${channel} 0 0 0 0 ${channel} 0 0 0 ${alpha} 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")`;
-const IGS_UI_GRAIN_NIGHT = grain(1, '.05');
-const IGS_UI_GRAIN_DAY = grain(0, '.035');
-function igsUiSurface(thickness, theme = 'night') {
-    return theme === 'day'
-        ? `${IGS_UI_GRAIN_DAY},rgba(${IGS_UI_DAY_RGB},${thickness})`
-        : `${IGS_UI_GRAIN_NIGHT},rgba(${IGS_UI_NIGHT_RGB},${thickness})`;
-}
-
-// 水底焦散：scripts/caustic-art.mjs 预生成。设置器允许平铺；其余界面只放一张，
-// 从左上向右下渐隐，避免规则纹路铺满整页。各界面只调尺度与浓度。
-const IGS_UI_LIQUID_KEYFRAMES = '@keyframes igs-ui-liquid{0%,100%{transform:translate3d(-1.5%,-1%,0)}50%{transform:translate3d(1.5%,1%,0)}}';
-
-// tint：把焦散当遮罩、用纯色填充，纹路颜色随主题高亮色走，而不是固定白线。
-function igsUiLiquidRule(selector, opacity = 1, { tile = false, tint = '' } = {}) {
-    const size = 'var(--igs-ui-caustic-size,640px) var(--igs-ui-caustic-size,640px)';
-    const repeat = tile ? 'repeat' : 'no-repeat';
-    const artwork = tint
-        ? `background-color:${tint};-webkit-mask-image:${IGS_CAUSTIC_ART};mask-image:${IGS_CAUSTIC_ART};-webkit-mask-position:left top;mask-position:left top;-webkit-mask-size:${size};mask-size:${size};-webkit-mask-repeat:${repeat};mask-repeat:${repeat};`
-        : `background-image:${IGS_CAUSTIC_ART};background-position:left top;background-size:${size};background-repeat:${repeat};`;
-    const fade = tile || tint
-        ? ''
-        : '-webkit-mask-image:linear-gradient(135deg,#000 0%,rgba(0,0,0,.82) 42%,transparent 88%);mask-image:linear-gradient(135deg,#000 0%,rgba(0,0,0,.82) 42%,transparent 88%);';
-    return `${selector}{content:"";position:absolute;inset:-4%;z-index:0;pointer-events:none;${artwork}${fade}opacity:${opacity};animation:igs-ui-liquid 60s ease-in-out infinite;will-change:transform;}
-@media (prefers-reduced-motion:reduce){${selector}{animation:none;}}
-@media (prefers-reduced-transparency:reduce){${selector}{display:none;}}`;
-}
-
-__igsDefine(exports, "igsUiSurface", () => igsUiSurface);
-__igsDefine(exports, "igsUiLiquidRule", () => igsUiLiquidRule);
-__igsDefine(exports, "IGS_UI_NIGHT_RGB", () => IGS_UI_NIGHT_RGB);
-__igsDefine(exports, "IGS_UI_DAY_RGB", () => IGS_UI_DAY_RGB);
-__igsDefine(exports, "IGS_UI_THICKNESS", () => IGS_UI_THICKNESS);
-__igsDefine(exports, "IGS_UI_RADIUS", () => IGS_UI_RADIUS);
-__igsDefine(exports, "IGS_UI_BLUR", () => IGS_UI_BLUR);
-__igsDefine(exports, "IGS_UI_PANE", () => IGS_UI_PANE);
-__igsDefine(exports, "IGS_UI_PANE_EDGE", () => IGS_UI_PANE_EDGE);
-__igsDefine(exports, "IGS_UI_INK", () => IGS_UI_INK);
-__igsDefine(exports, "IGS_UI_FILL", () => IGS_UI_FILL);
-__igsDefine(exports, "IGS_UI_WARM", () => IGS_UI_WARM);
-__igsDefine(exports, "IGS_UI_ELEVATION", () => IGS_UI_ELEVATION);
-__igsDefine(exports, "IGS_UI_EDGE_NIGHT", () => IGS_UI_EDGE_NIGHT);
-__igsDefine(exports, "IGS_UI_EDGE_DAY", () => IGS_UI_EDGE_DAY);
-__igsDefine(exports, "IGS_UI_FONT_SANS", () => IGS_UI_FONT_SANS);
-__igsDefine(exports, "IGS_UI_FONT_SERIF", () => IGS_UI_FONT_SERIF);
-__igsDefine(exports, "IGS_UI_GRAIN_NIGHT", () => IGS_UI_GRAIN_NIGHT);
-__igsDefine(exports, "IGS_UI_GRAIN_DAY", () => IGS_UI_GRAIN_DAY);
-__igsDefine(exports, "IGS_UI_LIQUID_KEYFRAMES", () => IGS_UI_LIQUID_KEYFRAMES);
-});
-__igsRegister("src/styles/ui-caustic-art.js", function(module, exports, require) {
-// 由 scripts/caustic-art.mjs 生成，勿手改；调参数改脚本后重新生成。纹理在 assets/caustic-art.png，构建时外置到 dist/ui/。
-const IGS_CAUSTIC_TILE_SIZE = 640;
-const IGS_CAUSTIC_ART = `url("${new URL('./ui/caustic-art.webp', import.meta.url).href}")`;
-
-__igsDefine(exports, "IGS_CAUSTIC_TILE_SIZE", () => IGS_CAUSTIC_TILE_SIZE);
-__igsDefine(exports, "IGS_CAUSTIC_ART", () => IGS_CAUSTIC_ART);
-});
-__igsRegister("src/styles/glass-material.js", function(module, exports, require) {
-const IGS_TRANSPARENT_GLASS_ALPHA = 0.62;
-const IGS_FROST_NIGHT_RGB = '31,34,37';
-const IGS_TRANSPARENT_GLASS_BG = `rgba(${IGS_FROST_NIGHT_RGB},${IGS_TRANSPARENT_GLASS_ALPHA})`;
-const IGS_TRANSPARENT_GLASS_BACKDROP_FILTER = 'none';
-const IGS_FROSTED_GLASS_BACKDROP_FILTER = 'blur(32px) saturate(180%)';
-function normalizeGlassDensity(value, fallback = IGS_TRANSPARENT_GLASS_ALPHA) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return fallback;
-    return Math.min(1, Math.max(0, numeric));
-}
-function createTransparentGlassBg(density) {
-    return `rgba(${IGS_FROST_NIGHT_RGB},${normalizeGlassDensity(density)})`;
-}
-function resolveGlassBackdropFilter(value) {
-    if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (!trimmed || trimmed === '0' || trimmed === 'false' || trimmed === 'none') return IGS_TRANSPARENT_GLASS_BACKDROP_FILTER;
-        if (trimmed === 'true') return IGS_FROSTED_GLASS_BACKDROP_FILTER;
-        return trimmed;
-    }
-    return value ? IGS_FROSTED_GLASS_BACKDROP_FILTER : IGS_TRANSPARENT_GLASS_BACKDROP_FILTER;
-}
-function applyTransparentGlassMaterial(target, density, options = {}) {
-    const style = target && target.style ? target.style : target;
-    if (!style || typeof style.setProperty !== 'function') return;
-    const normalizedDensity = normalizeGlassDensity(density);
-    const glassBg = createTransparentGlassBg(normalizedDensity);
-    const backdropFilter = resolveGlassBackdropFilter(options.backdropFilter);
-    style.setProperty('--igs-glass-opacity', String(normalizedDensity));
-    style.setProperty('--igs-glass-density', String(normalizedDensity));
-    style.setProperty('--igs-glass-fill-alpha', String(normalizedDensity));
-    style.setProperty('--igs-transparent-glass-bg', glassBg);
-    style.setProperty('--igs-glass-bg', glassBg);
-    style.setProperty('--igs-glass-blur', backdropFilter);
-    style.setProperty('--igs-dialog-bg', glassBg);
-    style.setProperty('--igs-dialog-blur', backdropFilter);
-    style.setProperty('--igs-toolbar-bg', glassBg);
-    style.setProperty('--igs-toolbar-blur', backdropFilter);
-    style.setProperty('--igs-choice-bg', glassBg);
-    style.setProperty('--igs-choice-blur', backdropFilter);
-    style.setProperty('--igs-db-bg', glassBg);
-    style.setProperty('--igs-db-blur', backdropFilter);
-    style.setProperty('--igs-db-head-bg', glassBg);
-    style.setProperty('--igs-db-head-blur', backdropFilter);
-}
-
-__igsDefine(exports, "normalizeGlassDensity", () => normalizeGlassDensity);
-__igsDefine(exports, "createTransparentGlassBg", () => createTransparentGlassBg);
-__igsDefine(exports, "resolveGlassBackdropFilter", () => resolveGlassBackdropFilter);
-__igsDefine(exports, "applyTransparentGlassMaterial", () => applyTransparentGlassMaterial);
-__igsDefine(exports, "IGS_TRANSPARENT_GLASS_ALPHA", () => IGS_TRANSPARENT_GLASS_ALPHA);
-__igsDefine(exports, "IGS_FROST_NIGHT_RGB", () => IGS_FROST_NIGHT_RGB);
-__igsDefine(exports, "IGS_TRANSPARENT_GLASS_BG", () => IGS_TRANSPARENT_GLASS_BG);
-__igsDefine(exports, "IGS_TRANSPARENT_GLASS_BACKDROP_FILTER", () => IGS_TRANSPARENT_GLASS_BACKDROP_FILTER);
-__igsDefine(exports, "IGS_FROSTED_GLASS_BACKDROP_FILTER", () => IGS_FROSTED_GLASS_BACKDROP_FILTER);
-});
-__igsRegister("src/visual/igs-ui/settings-theme.js", function(module, exports, require) {
-const { IGS_UI_EDGE_DAY, IGS_UI_EDGE_NIGHT, IGS_UI_GRAIN_DAY, IGS_UI_THICKNESS, igsUiSurface } = require("src/styles/ui-material.js");
-// swatch 是头部色板按钮的预览色：底色取面板本身，点取该主题的高亮色，由 SVG 绘制。
-const SETTINGS_THEME_OPTIONS = Object.freeze([
-    Object.freeze({ value: 'cream', label: '奶油风', scheme: 'light', swatch: Object.freeze({ base: '#f7f0e6', accent: '#85a76a' }) }),
-    Object.freeze({ value: 'light', label: '浅色', scheme: 'light', swatch: Object.freeze({ base: '#fbfaf6', accent: '#11110f' }) }),
-    Object.freeze({ value: 'landmine', label: '地雷色', scheme: 'dark', swatch: Object.freeze({ base: '#2b2b2b', accent: '#ffc4d4' }) }),
-    Object.freeze({ value: 'dark', label: '深色', scheme: 'dark', swatch: Object.freeze({ base: '#24292e', accent: '#7fd6ca' }) }),
-]);
-const DEFAULT_SETTINGS_THEME = 'cream';
-
-const SETTINGS_THEME_VALUES = new Set(SETTINGS_THEME_OPTIONS.map((theme) => theme.value));
-const SETTINGS_THEME_LEGACY_VALUES = Object.freeze({
-    night: 'landmine',
-    day: 'cream',
-});
-function normalizeSettingsTheme(theme) {
-    const raw = String(theme || '').trim();
-    if (SETTINGS_THEME_LEGACY_VALUES[raw]) return SETTINGS_THEME_LEGACY_VALUES[raw];
-    return SETTINGS_THEME_VALUES.has(raw) ? raw : DEFAULT_SETTINGS_THEME;
-}
-function getNextSettingsTheme(theme) {
-    const current = normalizeSettingsTheme(theme);
-    const index = SETTINGS_THEME_OPTIONS.findIndex((option) => option.value === current);
-    return SETTINGS_THEME_OPTIONS[(index + 1) % SETTINGS_THEME_OPTIONS.length].value;
-}
-
-function renderSettingsThemeSwatch({ base, accent }) {
-    return `<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><rect x=".5" y=".5" width="19" height="19" rx="4" fill="${base}" stroke="rgba(128,128,128,.34)"/><rect x="10.5" y="10.5" width="6" height="6" rx="1.5" fill="${accent}"/></svg>`;
-}
-
-// 资料页复用同一组色板按钮，只换 class 与点击属性。
-function renderSettingsThemeSwitch(theme, { optionClass = 'igs-settings-theme-option', attrs = (value) => `data-action="set-settings-theme:${value}"` } = {}) {
-    const current = normalizeSettingsTheme(theme);
-    return SETTINGS_THEME_OPTIONS.map((option) => {
-        const active = option.value === current;
-        return `<button type="button" class="${optionClass}${active ? ' is-active' : ''}" ${attrs(option.value)} data-theme="${option.value}" role="radio" aria-checked="${active}" aria-label="${option.label}" title="${option.label}">${renderSettingsThemeSwatch(option.swatch)}</button>`;
-    }).join('');
-}
-
-// 四套界面配色的唯一来源：设置器与资料页都从这里生成 CSS 变量。
-// backdrop 是全屏遮罩底色（贴近面板本身，只靠阴影分层），solid 是不支持模糊/减少透明度时的回退。
-// surface/field/highlight/raised 用实色（按画在本主题面板上的样子取色）：控件层层嵌套也不会越叠越灰。
-const SETTINGS_THEME_PALETTES = Object.freeze({
-    landmine: Object.freeze({
-        scheme: 'dark', backdrop: 'rgba(34,33,36,.86)', backdropSolid: 'rgba(34,33,36,.96)', shellSolid: '#2b2b2b', ripple: .2,
-        tokens: Object.freeze({ 'shell-bg': igsUiSurface(IGS_UI_THICKNESS.thick), 'shell-shadow': `0 8px 24px rgba(0,0,0,.45),${IGS_UI_EDGE_NIGHT}`, paper: 'rgba(255,196,212,.08)', panel: '#2b2b2b', surface: '#322f32', field: '#3e383b', line: 'transparent', 'line-strong': 'transparent', ink: '#fff', 'ink-2': 'rgba(255,255,255,.7)', 'ink-3': 'rgba(255,255,255,.5)', 'ink-4': 'rgba(255,255,255,.34)', accent: '#ffc4d4', 'accent-2': '#ffd9e4', 'on-accent': '#2b2b2b', danger: '#d96c6c', highlight: '#4a4246', raised: '#574e53', knob: '#ffd9e4', ripple: '#ff6f9c' }),
-    }),
-    cream: Object.freeze({
-        scheme: 'light', backdrop: 'rgba(243,233,218,.93)', backdropSolid: 'rgba(243,233,218,.97)', shellSolid: '#f7f0e6', ripple: .22,
-        tokens: Object.freeze({ 'shell-bg': `${IGS_UI_GRAIN_DAY},rgba(251,246,238,.94)`, 'shell-shadow': `0 8px 24px rgba(92,70,44,.1),${IGS_UI_EDGE_DAY}`, paper: '#efe4d7', panel: '#f7f0e6', surface: '#f3ece1', field: '#ebe2d5', line: 'rgba(116,91,62,.12)', 'line-strong': 'rgba(116,91,62,.18)', ink: '#514638', 'ink-2': '#735f4a', 'ink-3': '#9a8268', 'ink-4': 'rgba(154,130,104,.7)', accent: '#85a76a', 'accent-2': '#738f5b', 'on-accent': '#fcf8f1', danger: '#a76561', highlight: '#e3d8c8', raised: '#fffaf3', knob: '#fcf8f1', ripple: '#6cb33f' }),
-    }),
-    light: Object.freeze({
-        scheme: 'light', backdrop: 'rgba(240,238,232,.9)', backdropSolid: 'rgba(240,238,232,.97)', shellSolid: '#f8f5ee', ripple: .07,
-        tokens: Object.freeze({ 'shell-bg': '#fbfaf6', 'shell-shadow': `0 12px 32px rgba(23,23,20,.12),${IGS_UI_EDGE_DAY}`, paper: '#ebe9e3', panel: '#f8f5ee', surface: '#f3f2ee', field: '#ebe9e4', line: 'rgba(23,23,20,.06)', 'line-strong': 'rgba(23,23,20,.1)', ink: '#11110f', 'ink-2': '#46443d', 'ink-3': '#77736a', 'ink-4': 'rgba(119,115,106,.72)', accent: '#11110f', 'accent-2': '#2d2b26', 'on-accent': '#fbfaf7', danger: '#95514b', highlight: '#e1dfd9', raised: '#ffffff', knob: '#fbfaf7', ripple: '#11110f' }),
-    }),
-    dark: Object.freeze({
-        scheme: 'dark', backdrop: 'rgba(33,38,43,.9)', backdropSolid: 'rgba(33,38,43,.97)', shellSolid: '#1f2428', ripple: .16,
-        tokens: Object.freeze({ 'shell-bg': '#24292e', 'shell-shadow': `0 18px 48px rgba(1,4,9,.36),${IGS_UI_EDGE_NIGHT}`, paper: '#2d343b', panel: '#1f2428', surface: '#2a3036', field: '#31383f', line: 'rgba(205,217,229,.08)', 'line-strong': 'rgba(205,217,229,.14)', ink: '#f0f3f6', 'ink-2': '#c9d1d9', 'ink-3': '#8b949e', 'ink-4': 'rgba(139,148,158,.72)', accent: '#7fd6ca', 'accent-2': '#69c7bc', 'on-accent': '#1f2428', danger: '#d07a74', highlight: '#3a424a', raised: '#454e57', knob: '#f0f3f6', ripple: '#1fe0c6' }),
-    }),
-});
-
-// 地雷色是无属性时的基底；其余三套按属性覆盖。
-const SETTINGS_THEME_BASE = 'landmine';
-function getSettingsThemePalette(theme) {
-    return SETTINGS_THEME_PALETTES[normalizeSettingsTheme(theme)] || SETTINGS_THEME_PALETTES[SETTINGS_THEME_BASE];
-}
-function settingsThemeVars(theme, prefix = '--igs-settings-') {
-    return Object.entries(getSettingsThemePalette(theme).tokens).map(([key, value]) => `${prefix}${key}:${value};`).join('');
-}
-
-__igsDefine(exports, "normalizeSettingsTheme", () => normalizeSettingsTheme);
-__igsDefine(exports, "getNextSettingsTheme", () => getNextSettingsTheme);
-__igsDefine(exports, "renderSettingsThemeSwitch", () => renderSettingsThemeSwitch);
-__igsDefine(exports, "getSettingsThemePalette", () => getSettingsThemePalette);
-__igsDefine(exports, "settingsThemeVars", () => settingsThemeVars);
-__igsDefine(exports, "SETTINGS_THEME_OPTIONS", () => SETTINGS_THEME_OPTIONS);
-__igsDefine(exports, "DEFAULT_SETTINGS_THEME", () => DEFAULT_SETTINGS_THEME);
-__igsDefine(exports, "SETTINGS_THEME_BASE", () => SETTINGS_THEME_BASE);
 });
 __igsRegister("src/visual/igs-ui/settings-notice.js", function(module, exports, require) {
 // 设置面板内的失败提示：保存失败、动作抛异常时在面板底部弹一条，几秒后自动收起。
@@ -36415,6 +36496,15 @@ async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction.startsWith('toolbar-reorder:')) {
+        const canonical = TOOLBAR_ACTIONS.map(([actionId]) => actionId);
+        const picked = normalizedAction.slice('toolbar-reorder:'.length).split(',').filter((id, i, all) => canonical.includes(id) && all.indexOf(id) === i);
+        settingsState.draft.readerSettings.btnOrder = picked.concat(canonical.filter((id) => !picked.includes(id)));
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('toolbar-move-up:')) {
         const id = normalizedAction.slice('toolbar-move-up:'.length);
         const order = Array.isArray(settingsState.draft.readerSettings.btnOrder)
@@ -38584,7 +38674,7 @@ function resolveRomanceFxPromptRule(settings) {
     const s = settings === true ? { enabled: true } : settings && typeof settings === 'object' ? settings : {};
     if (s.enabled !== true) return '';
     const lines = [
-        `[igs-fx:romance|暧昧${s.rival === true ? '|对象角色名' : ''}] … [igs-fx:romance-end]：包住两人关系升温、心动、暧昧的段落${s.rival === true ? '；对象角色名写与主角暧昧的那位，可省略' : ''}`,
+        `[igs-fx:romance|暧昧${s.rival === true ? '|对象角色名' : ''}] … [igs-fx:romance-end]：包住两人关系升温、心动、暧昧的段落${s.rival === true ? '；对象角色名写与主角暧昧的那位（不写主角本人），可省略' : ''}`,
         '[igs-fx:romance|亲密]：在区间内升档，用于拥抱、依偎、亲吻等明显亲密的段落，可直接写在暧昧区间里而不先结束',
     ];
     if (s.confess === true) lines.push('[igs-fx:confess]：放在告白台词之前，只用于角色正式表白心意的那一刻，对方的回答照常写在后面');
@@ -38639,7 +38729,7 @@ function romanceGrammarLines(settings) {
     const s = settings === true ? { enabled: true } : settings && typeof settings === 'object' ? settings : {};
     if (s.enabled !== true) return [];
     const lines = [
-        `romance|暧昧${s.rival === true ? '|对象角色名' : ''} … romance-end：包住关系升温、心动、暧昧的段落${s.rival === true ? '，对象角色名可省' : ''}；拥抱、亲吻等明显亲密处在区间内写 romance|亲密 升档；只标氛围，不因此增加露骨描写`,
+        `romance|暧昧${s.rival === true ? '|对象角色名' : ''} … romance-end：包住关系升温、心动、暧昧的段落${s.rival === true ? '，对象角色名不写主角本人、可省' : ''}；拥抱、亲吻等明显亲密处在区间内写 romance|亲密 升档；只标氛围，不因此增加露骨描写`,
     ];
     if (s.confess === true) lines.push('confess：放在正式告白台词之前，对方的回答照常写在后面');
     if (s.memories === true) lines.push('memory|回忆名称：两人关系里值得纪念的节点，名称不超过8字');
@@ -48780,6 +48870,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         speaker: spriteAssetUrl ? withCastSlot({
             ...presentSpriteLayout(castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
             ...(speakerSlotX != null ? { posX: speakerSlotX } : {}),
+            character: castSpeakerKey,
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
@@ -49100,7 +49191,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         });
     }
     // 亲密演出与 NSFW 仅露脸剪影：复用 fxSprite（布局 + 手动头部标定），编辑立绘时 fxSprite 为 null、不逼近不剪影。
-    const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory, resolveAssetUrl });
+    const romanceResult = applyRomanceToDom(root, snapshot, { sprite: fxSprite, onMemory: ctx.onRomanceMemory, resolveAssetUrl, userName: ctx.userName });
     // Meta 互动：头部热区在亲密演出之后同步，心形快捷按钮已在前层时热区插到它下面。
     applyMetaFx(root, snapshot, { sprite: fxSprite, chatId: ctx.chatId, cast: castFxTargets });
     // NSFW 挂 CG 时对话框左侧的裸体头像（开关默认关，旁白页为空即撤下）。
@@ -49631,8 +49722,8 @@ const ORIGINAL_READER_ICONS = Object.freeze({
     prevTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor" stroke="none"/><line x1="5" y1="19" x2="5" y2="5"/></svg>',
     nextTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/></svg>',
     firstTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>',
-    quickSave: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 3v5h7V3"/><path d="M12 12v6M9 15l3 3 3-3"/></svg>',
-    quickLoad: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 3v5h7V3"/><path d="M12 18v-6M9 15l3-3 3 3"/></svg>',
+    quickSave: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M6 3.5h12v17l-6-4.5-6 4.5z"/><path d="M12 7v6M9 10h6"/></svg>',
+    quickLoad: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 3.5V8H8"/><path d="M12 7.5V12l3 2"/></svg>',
     toggleBar: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:block"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
     firstPage: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>',
     lastPage: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>',
@@ -49670,17 +49761,17 @@ const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
 
 // 对话框底部快捷栏：经典 galgame 文本框底部那一排。透明底、跟对话框文字同色，换皮肤自动跟随；手机居中，电脑（精确指针）靠左。
 const DIALOG_BAR_STYLE_TEXT = `
-#igs-dialog-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px;margin-top:6px;flex-shrink:0;pointer-events:auto;color:inherit;}
+#igs-dialog-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0;margin-top:4px;flex-shrink:0;pointer-events:auto;color:inherit;}
 #igs-dialog-bar[hidden]{display:none!important;}
 @media (hover:hover) and (pointer:fine){#igs-dialog-bar{justify-content:flex-start;}}
-#igs-dialog-bar .igs-icon-btn{width:30px;height:30px;min-width:30px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:6px;background:transparent;color:inherit;opacity:.62;cursor:pointer;box-shadow:none;transition:opacity .15s,background .15s;}
-#igs-dialog-bar .igs-icon-btn:hover,#igs-dialog-bar .igs-icon-btn:focus-visible{opacity:1;background:rgba(127,127,127,.16);}
+#igs-dialog-bar .igs-icon-btn{width:28px;height:26px;min-width:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:6px;background:transparent;color:inherit;opacity:.34;cursor:pointer;box-shadow:none;transition:opacity .15s,background .15s;}
+#igs-dialog-bar .igs-icon-btn:hover,#igs-dialog-bar .igs-icon-btn:focus-visible{opacity:.9;background:rgba(127,127,127,.12);}
 #igs-dialog-bar .igs-icon-btn:focus-visible{outline:1px solid currentColor;outline-offset:1px;}
-#igs-dialog-bar .igs-icon-btn[aria-pressed="true"]{opacity:1;}
-#igs-dialog-bar .igs-icon-btn:disabled{opacity:.25;cursor:default;}
-#igs-dialog-bar .igs-icon-btn svg{width:16px;height:16px;}
-#igs-dialog-bar .igs-icon-btn.igs-group-start{margin-left:8px;}
-.igs-mode-embedded #igs-dialog-bar{margin-top:4px;}
+#igs-dialog-bar .igs-icon-btn[aria-pressed="true"]{opacity:.8;}
+#igs-dialog-bar .igs-icon-btn:disabled{opacity:.14;cursor:default;}
+#igs-dialog-bar .igs-icon-btn svg{width:14px;height:14px;}
+#igs-dialog-bar .igs-icon-btn.igs-group-start{margin-left:6px;}
+.igs-mode-embedded #igs-dialog-bar{margin-top:2px;}
 `;
 
 const ORIGINAL_READER_STYLE_TEXT = `
@@ -52182,17 +52273,21 @@ function alignToReference({ stageW, stageH, reference, member }) {
     const targetTop = stageH - (stageH - (ref.top + ref.h * reference.head.top)) * tall;
     const room = stageH - rect.h;
     if (Math.abs(room) < 1) return { scale, posY: member.posY };
-    const posY = ((targetTop - rect.h * member.head.top) / room) * 100;
+    let posY = ((targetTop - rect.h * member.head.top) / room) * 100;
+    // 底边钉死：只许放大缩小、不许为了头顶齐平把人抬离舞台底；原本就悬空的立绘最多悬到原来的高度。
+    const allowLift = Math.max(0, stageH - (own.top + own.h));
+    if (stageH - (room * posY / 100 + rect.h) > allowLift + 0.5) posY = ((room - allowLift) / room) * 100;
     return { scale, posY: Math.max(-200, Math.min(300, posY)) };
 }
 
-// 参照物是本场景最早开口（order 最小）的在场者；locked 的条目（用户手调过）不被改，但可以当参照。
-// locked 条目按 autoGeometry（删掉槽位后的样子）另算一份，只给「还原自动」用。
-function alignCastLayouts({ stageW, stageH, entries = [] }) {
+// 参照物默认是本场景最早开口（order 最小）的在场者；传 refKey 时用这个人（还没探测好就不对齐）。
+// locked 的条目（用户手调过）不被改，但可以当参照；locked 条目按 autoGeometry（删掉槽位后的样子）另算一份，只给「还原自动」用。
+function alignCastLayouts({ stageW, stageH, entries = [], refKey = null }) {
     const out = new Map();
     const ready = entries.filter((e) => e && e.geometry && e.geometry.head);
     if (ready.length < 2) return out;
-    const ref = ready.reduce((a, b) => (b.order < a.order ? b : a));
+    const ref = refKey == null ? ready.reduce((a, b) => (b.order < a.order ? b : a)) : ready.find((e) => e.key === refKey);
+    if (!ref) return out;
     for (const e of ready) {
         if (e === ref) continue;
         const member = e.locked ? e.autoGeometry : e.geometry;
@@ -52205,17 +52300,33 @@ function withBaseHeight(geometry, baseHeight) {
     return geometry && Number(baseHeight) > 0 ? { ...geometry, baseHeight: Number(baseHeight) } : geometry;
 }
 
+// 头部对齐的参照锁：参照一旦定下，只要还在台上就不换，进出场、换表情都不会让台上原有的人重新对齐。
+// memo 记每人上次的对齐结果：参照换了表情、图还没探测好时先沿用，避免先跳回原样再跳回来。
+function createCastAlignLock() {
+    return { ref: null, memo: new Map() };
+}
+
+const sharedAlignLock = createCastAlignLock();
+
+function alignMemoSig(stageW, stageH, e, geometry) {
+    return [stageW, stageH, e.url, geometry && geometry.scale, geometry && geometry.posY, e.baseHeight].join('|');
+}
+
 // speaker / members 条目：{ url, order, posX, posY, scale, head(手动标定或 null), baseHeight?, auto?, locked?, ... }，其余字段原样带出。
+// 说话人条目带 character 时按人锁参照，否则当作同一个「说话人」。
 // auto 换成对齐后的样子：「还原自动」预览的就是保存后画面上会出现的样子。
 // pending 为还没有探测数据、需要先 probeSpriteHead 的地址。
-function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker = null, members = [], peek = () => null } = {}) {
+function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker = null, members = [], peek = () => null, lock = sharedAlignLock } = {}) {
     const all = [
-        ...(speaker ? [{ ...speaker, id: SPEAKER_ID }] : []),
-        ...members.map((m) => ({ ...m, id: `m:${m.character}` })),
+        ...(speaker ? [{ ...speaker, id: SPEAKER_ID, key: speaker.character || SPEAKER_ID }] : []),
+        ...members.map((m) => ({ ...m, id: `m:${m.character}`, key: m.character })),
     ];
     const aligned = new Map();
     const pending = [];
-    if (align && all.length > 1 && stageW > 0 && stageH > 0) {
+    if (!align) {
+        lock.ref = null;
+        lock.memo.clear();
+    } else if (all.length > 1 && stageW > 0 && stageH > 0) {
         const entries = [];
         for (const e of all) {
             const probed = e.url ? peek(e.url) : null;
@@ -52223,15 +52334,35 @@ function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker = null
             const locked = e.locked === true;
             entries.push({
                 id: e.id,
+                key: e.key,
+                url: e.url,
+                baseHeight: e.baseHeight,
                 order: Number.isFinite(e.order) ? e.order : Number.MAX_SAFE_INTEGER,
                 locked,
                 geometry: withBaseHeight(spriteGeometry(e, probed), e.baseHeight),
                 autoGeometry: locked && e.auto ? withBaseHeight(spriteGeometry({ ...e, ...e.auto }, probed), e.baseHeight) : null,
             });
         }
-        for (const [id, value] of alignCastLayouts({ stageW, stageH, entries })) aligned.set(id, value);
+        // 参照下台了才换人：换成在场者里本场景最早开口的那个（不管图探测好没有，免得探测完又换一次）。
+        if (!entries.some((e) => e.key === lock.ref)) {
+            lock.ref = entries.reduce((a, b) => (b.order < a.order ? b : a)).key;
+            lock.memo.clear();
+        }
+        const fresh = alignCastLayouts({ stageW, stageH, entries, refKey: lock.ref });
+        for (const e of entries) {
+            if (e.key === lock.ref) continue;
+            const sig = alignMemoSig(stageW, stageH, e, e.locked ? e.autoGeometry : e.geometry);
+            const value = fresh.get(e.id);
+            if (value) {
+                lock.memo.set(e.key, { sig, value });
+                aligned.set(e.id, value);
+                continue;
+            }
+            const memo = lock.memo.get(e.key);
+            if (memo && memo.sig === sig) aligned.set(e.id, memo.value);
+        }
     }
-    const finish = ({ id, ...e }) => {
+    const finish = ({ id, key, ...e }) => {
         const value = aligned.get(id);
         if (!value) return e;
         const next = e.locked ? { ...e } : { ...e, ...value };
@@ -52283,6 +52414,7 @@ __igsDefine(exports, "castSideOf", () => castSideOf);
 __igsDefine(exports, "resolveCastHandoff", () => resolveCastHandoff);
 __igsDefine(exports, "alignToReference", () => alignToReference);
 __igsDefine(exports, "alignCastLayouts", () => alignCastLayouts);
+__igsDefine(exports, "createCastAlignLock", () => createCastAlignLock);
 __igsDefine(exports, "planCastLayouts", () => planCastLayouts);
 __igsDefine(exports, "playSpeakerMove", () => playSpeakerMove);
 __igsDefine(exports, "playSpeakerCastMotion", () => playSpeakerCastMotion);
@@ -57321,16 +57453,25 @@ function createCgLibraryView(library, options = {}) {
 __igsDefine(exports, "createCgLibraryView", () => createCgLibraryView);
 });
 __igsRegister("src/visual/igs-ui/turn-index-panel.js", function(module, exports, require) {
-// 目录面板（工具栏 turn-index）：进度条 + 续读 / 第 0 层 / 最远未读 / 最新 + 输入楼号跳转；
-// 「楼层」页按章节（读过时记下的地点）分组，已读 / 读了一半 / 未读三态，只渲染可见的行；
-// 「存档」页：快速存档 / 快速读档 + 至多 10 个存档位（缩略图、名字、改名、覆盖、删除）。
-// 跳转只换阅读源（由 onJump 交给阅读器），不调用宿主跳楼。
+// 目录面板（工具栏 turn-index）：照日记页排版——页头（返回 + 居中标题 + 配色）、左栏列表、右栏阅读面板。
+// 「楼层」页：左栏快捷跳转 + 楼号输入 + 按章节（读过时记下的地点）分组的楼层列表（只渲染可见的行），
+// 右栏是选中那楼的开头与「从这里读」；「存档」页：左栏快速存档 + 至多 10 个存档位，右栏是选中存档的缩略图与操作。
+// 跳转只换阅读源（由 onJump 交给阅读器），不调用宿主跳楼。配色与日记、背包、设置器共用。
 const { setStagePauseReason } = require("src/visual/igs-ui/stage-pause.js");
 const { READING_SLOT_LIMIT } = require("src/visual/igs-ui/reading-progress.js");
-const ROW_HEIGHT = 48;
+const { RECORD_ICONS } = require("src/visual/igs-ui/record-icons.js");
+const { recordPageHeadHtml, watchRecordPageLayout } = require("src/visual/igs-ui/record-page-shell.js");
+const { RECORD_PAGE_SHELL_STYLE_TEXT } = require("src/visual/igs-ui/record-page-shell-style.js");
+const { normalizeSettingsTheme, renderSettingsThemeSwitch } = require("src/visual/igs-ui/settings-theme.js");
+const { IGS_HINT_THEME_STYLE_TEXT } = require("src/visual/igs-ui/igs-modal.js");
+const ROW_HEIGHT = 40;
 const OVERSCAN = 8;
+const ROW_SNIPPET = 40;
+const DETAIL_SNIPPET = 360;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const STATE_LABEL = { read: '已读', partial: '读了一半', unread: '未读' };
+const OPEN_CLASS = 'igs-turn-index-open';
+const BOOKMARK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h11v17L12 16.5l-5.5 4Z"/></svg>';
 
 function findAction(target) {
     let node = target;
@@ -57353,7 +57494,7 @@ function positionLabel(pos) {
 }
 
 // options: progress, listTurns() → Promise<turn[]>, snippetOf(turn), currentId(), onJump({ id, page, pos }), onUnread(),
-//          onSaveSlot(key?) → slot|null, onQuickSave(), confirm(message), prompt(message, value), tab
+//          onSaveSlot(key?) → slot|null, onQuickSave(), confirm(message), prompt(message, value), tab, getTheme(), setTheme(theme)
 function createTurnIndexPanel(doc, options = {}) {
     const progress = options.progress;
     let root = null;
@@ -57365,6 +57506,10 @@ function createTurnIndexPanel(doc, options = {}) {
     let collapsed = new Set();
     let previousFocus = null;
     let notice = '';
+    let selectedId = null;
+    let selectedSlot = '';
+    let theme = '';
+    let unwatchLayout = () => { };
     let acting = Promise.resolve();
     const snippets = new Map();
 
@@ -57376,15 +57521,16 @@ function createTurnIndexPanel(doc, options = {}) {
         return ids.find((id) => id >= (far ? far.id : -1) && progress.floorState(id) !== 'read') ?? null;
     };
 
-    function snippet(turn) {
-        const id = Number(turn.id);
+    function fullSnippet(turn) {
+        const id = Number(turn && turn.id);
         if (!snippets.has(id)) {
             let text = '';
             try { text = String(options.snippetOf?.(turn) || ''); } catch (_) { text = ''; }
-            snippets.set(id, text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 40));
+            snippets.set(id, text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, DETAIL_SNIPPET));
         }
         return snippets.get(id);
     }
+    const snippet = (turn) => fullSnippet(turn).slice(0, ROW_SNIPPET);
 
     function buildRows() {
         rows = [];
@@ -57404,41 +57550,43 @@ function createTurnIndexPanel(doc, options = {}) {
     }
 
     function headHtml() {
+        const themeSwitch = `<div class="igs-rp-theme-switch" role="radiogroup" aria-label="界面配色">${renderSettingsThemeSwitch(theme, {
+            optionClass: 'igs-rp-theme-option', attrs: (value) => `data-ti-act="theme" data-ti-value="${value}"` })}</div>`;
+        return recordPageHeadHtml('目录', { closeAttr: 'data-ti-act', backAriaLabel: '关闭目录', trailing: options.setTheme ? themeSwitch : '' })
+            + `<div class="igs-ti-tabs"><div class="igs-rp-segment" role="tablist" aria-label="目录分页">`
+            + `<button type="button" role="tab" data-ti-act="tab" data-ti-value="floors" aria-pressed="${tab === 'floors'}" aria-selected="${tab === 'floors'}">${RECORD_ICONS.book}<span>楼层</span></button>`
+            + `<button type="button" role="tab" data-ti-act="tab" data-ti-value="slots" aria-pressed="${tab === 'slots'}" aria-selected="${tab === 'slots'}">${BOOKMARK_ICON}<span>存档</span></button>`
+            + `</div></div>`;
+    }
+
+    function summaryText() {
         const last = progress.getLast();
         const far = progress.getFarthest();
         const latest = latestId();
-        const parts = [
-            last ? `上次 ${escapeHtml(positionLabel(last))}` : '还没有阅读记录',
+        return [
+            last ? `上次 ${positionLabel(last)}` : '还没有阅读记录',
             far ? `最远 ${far.id} 楼` : '',
             latest != null ? `最新 ${latest} 楼` : '',
-        ].filter(Boolean);
-        const unread = nextUnreadId();
-        return `<header class="igs-ti-head"><h2>目录</h2><button type="button" data-ti-act="close" aria-label="关闭目录">×</button></header>`
-            + `<p class="igs-ti-summary">${parts.join(' ／ ')}</p>`
-            + `<div class="igs-ti-quick" role="group" aria-label="快速跳转">`
-            + `<button type="button" data-ti-act="resume" ${last ? '' : 'disabled'}>续读</button>`
-            + `<button type="button" data-ti-act="first" ${ids.length ? '' : 'disabled'}>第 0 层</button>`
-            + `<button type="button" data-ti-act="unread" ${unread != null ? '' : 'disabled'}>最远未读</button>`
-            + `<button type="button" data-ti-act="latest" ${ids.length ? '' : 'disabled'}>最新</button>`
-            + `<form class="igs-ti-goto" data-ti-goto><input type="number" inputmode="numeric" min="0" placeholder="楼号" aria-label="输入楼号"><button type="submit">跳转</button></form>`
-            + `</div>`
-            + `<div class="igs-ti-tabs" role="tablist"><button type="button" role="tab" data-ti-act="tab" data-ti-value="floors" aria-selected="${tab === 'floors'}">楼层</button><button type="button" role="tab" data-ti-act="tab" data-ti-value="slots" aria-selected="${tab === 'slots'}">存档</button></div>`
-            + `<p class="igs-ti-notice" role="status" data-ti-notice${notice ? '' : ' hidden'}>${escapeHtml(notice)}</p>`;
+        ].filter(Boolean).join(' · ');
+    }
+
+    function noticeHtml() {
+        return `<p class="igs-rp-notice igs-ti-notice" role="status" data-ti-notice${notice ? '' : ' hidden'}>${escapeHtml(notice)}</p>`;
     }
 
     function rowHtml(row, index) {
         const top = index * ROW_HEIGHT;
         if (row.kind === 'chapter') {
             const closed = collapsed.has(row.key);
-            return `<button type="button" class="igs-ti-row igs-ti-chapter" style="top:${top}px" data-ti-act="chapter" data-ti-value="${escapeHtml(row.key)}" aria-expanded="${!closed}">${closed ? '▸' : '▾'} ${escapeHtml(row.name)}</button>`;
+            return `<button type="button" class="igs-ti-row igs-ti-chapter" style="top:${top}px" data-ti-act="chapter" data-ti-value="${escapeHtml(row.key)}" aria-expanded="${!closed}">${escapeHtml(row.name)}<span aria-hidden="true">${closed ? '▸' : '▾'}</span></button>`;
         }
         const stateName = progress.floorState(row.id);
-        const last = progress.getLast();
         const current = Number(options.currentId?.()) === row.id;
-        const marks = (current ? '<span class="igs-ti-mark">当前</span>' : '') + (last && last.id === row.id ? `<span class="igs-ti-mark">书签 · 第 ${last.page + 1} 页</span>` : '');
-        return `<button type="button" class="igs-ti-row igs-ti-floor is-${stateName}${current ? ' is-current' : ''}" style="top:${top}px" data-ti-act="floor" data-ti-value="${row.id}">`
-            + `<span class="igs-ti-no">${row.id}</span><span class="igs-ti-text">${escapeHtml(snippet(row.turn)) || '（空）'}</span>`
-            + `<span class="igs-ti-state">${marks}<span>${STATE_LABEL[stateName]}</span></span></button>`;
+        const last = progress.getLast();
+        const dot = stateName === 'read' ? '' : `<i class="igs-rp-dot is-${stateName}" aria-label="${STATE_LABEL[stateName]}"></i>`;
+        const mark = current ? '<small class="igs-ti-mark">当前</small>' : last && last.id === row.id ? '<small class="igs-ti-mark">书签</small>' : '';
+        return `<button type="button" class="igs-ti-row igs-ti-floor is-${stateName}" style="top:${top}px" data-ti-act="select" data-ti-value="${row.id}"${selectedId === row.id ? ' aria-current="true"' : ''}>`
+            + `<span class="igs-ti-no">${row.id}</span><span class="igs-ti-text">${escapeHtml(snippet(row.turn)) || '（空）'}</span>${mark}${dot}</button>`;
     }
 
     function paintRows() {
@@ -57453,29 +57601,85 @@ function createTurnIndexPanel(doc, options = {}) {
         inner.innerHTML = html;
     }
 
+    function floorDetailHtml() {
+        const index = selectedId == null ? -1 : ids.indexOf(selectedId);
+        if (index < 0) {
+            const read = ids.filter((id) => progress.floorState(id) === 'read').length;
+            const ratio = ids.length ? Math.round((read / ids.length) * 100) : 0;
+            return `<div class="igs-ti-detail igs-ti-overview"><p class="igs-ti-meta">阅读进度</p><h3>${read} / ${ids.length} 楼</h3>`
+                + `<div class="igs-ti-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${ratio}"><span style="width:${ratio}%"></span></div>`
+                + `<p class="igs-ti-summary">${escapeHtml(summaryText())}</p>`
+                + `<p class="igs-ti-hint">在左边选一楼，看开头再决定从哪读</p></div>`;
+        }
+        const turn = turns[index];
+        const stateName = progress.floorState(selectedId);
+        const last = progress.getLast();
+        const place = progress.chapterAt(selectedId);
+        const meta = [`第 ${selectedId} 楼`, place, STATE_LABEL[stateName]].filter(Boolean).map(escapeHtml).join('<i aria-hidden="true">·</i>');
+        const text = fullSnippet(turn);
+        const resumeHere = last && last.id === selectedId && last.page > 0
+            ? `<button type="button" class="igs-rp-chip" data-ti-act="resume">续读第 ${last.page + 1} 页</button>` : '';
+        return `<article class="igs-ti-detail"><p class="igs-ti-meta">${meta}</p>`
+            + `<p class="igs-ti-body">${escapeHtml(text) || '（这楼没有可读的文字）'}${text.length >= DETAIL_SNIPPET ? '…' : ''}</p>`
+            + `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${selectedId}">从这里读</button>${resumeHere}</div>`
+            + `<footer class="igs-ti-nav"><button type="button" data-ti-act="select-step" data-ti-value="-1" ${index <= 0 ? 'disabled' : ''}>← 上一楼</button>`
+            + `<span>${String(index + 1).padStart(2, '0')} / ${String(ids.length).padStart(2, '0')}</span>`
+            + `<button type="button" data-ti-act="select-step" data-ti-value="1" ${index >= ids.length - 1 ? 'disabled' : ''}>下一楼 →</button></footer></article>`;
+    }
+
+    function floorsHtml() {
+        const last = progress.getLast();
+        const unread = nextUnreadId();
+        const quick = `<div class="igs-ti-quick" role="group" aria-label="快速跳转">`
+            + `<button type="button" class="igs-rp-chip" data-ti-act="resume" ${last ? '' : 'disabled'}>续读</button>`
+            + `<button type="button" class="igs-rp-chip" data-ti-act="first" ${ids.length ? '' : 'disabled'}>第 0 层</button>`
+            + `<button type="button" class="igs-rp-chip" data-ti-act="unread" ${unread != null ? '' : 'disabled'}>最远未读</button>`
+            + `<button type="button" class="igs-rp-chip" data-ti-act="latest" ${ids.length ? '' : 'disabled'}>最新</button></div>`;
+        const goto = `<form class="igs-rp-search igs-ti-goto" data-ti-goto>${RECORD_ICONS.search}<input type="number" inputmode="numeric" min="0" placeholder="输入楼号，回车跳转" aria-label="输入楼号跳转"></form>`;
+        const list = rows.length
+            ? `<div class="igs-ti-list" data-ti-list><div class="igs-ti-inner" data-ti-inner style="height:${rows.length * ROW_HEIGHT}px"></div></div>`
+            : '<p class="igs-ti-empty">没有可读的楼层</p>';
+        return `<div class="igs-ti-layout"><aside class="igs-ti-side"><p class="igs-ti-summary">${escapeHtml(summaryText())}</p>${quick}${goto}${noticeHtml()}${list}</aside>${floorDetailHtml()}</div>`;
+    }
+
+    function slotThumb(slot, cls) {
+        return slot.thumb
+            ? `<img class="${cls}" src="${escapeHtml(slot.thumb)}" alt="" decoding="async" loading="lazy">`
+            : `<span class="${cls} is-blank" aria-hidden="true">${RECORD_ICONS.book}</span>`;
+    }
+
     function slotsHtml() {
         const slots = progress.listSlots();
         const quick = progress.getQuick();
-        const card = (slot, actions) => `<li class="igs-ti-slot">`
-            + (slot.thumb ? `<img src="${escapeHtml(slot.thumb)}" alt="" decoding="async" loading="lazy">` : '<span class="igs-ti-slot-blank" aria-hidden="true"></span>')
-            + `<span class="igs-ti-slot-info"><strong>${escapeHtml(slot.name || positionLabel(slot))}</strong><span>${escapeHtml(positionLabel(slot))}${slot.place ? ` · ${escapeHtml(slot.place)}` : ''} · ${formatTime(slot.at)}</span><span class="igs-ti-slot-head">${escapeHtml(slot.head)}</span></span>`
-            + `<span class="igs-ti-slot-actions">${actions}</span></li>`;
-        const btn = (act, key, label, danger) => `<button type="button"${danger ? ' class="is-danger"' : ''} data-ti-act="${act}" data-ti-value="${escapeHtml(key)}">${label}</button>`;
-        return `<div class="igs-ti-slot-bar"><button type="button" data-ti-act="quick-save">快速存档</button><button type="button" data-ti-act="quick-load" ${quick ? '' : 'disabled'}>快速读档</button><button type="button" data-ti-act="slot-new" ${slots.length >= READING_SLOT_LIMIT ? 'disabled' : ''}>存到新档位（${slots.length}/${READING_SLOT_LIMIT}）</button></div>`
-            + `<ul class="igs-ti-slots">`
-            + (quick ? card({ ...quick, name: quick.name || '快速存档' }, btn('quick-load', 'quick', '读取')) : '')
-            + slots.map((slot) => card(slot, btn('slot-load', slot.key, '读取') + btn('slot-rename', slot.key, '改名') + btn('slot-over', slot.key, '覆盖') + btn('slot-delete', slot.key, '删除', true))).join('')
-            + `</ul>`
-            + (!quick && !slots.length ? '<p class="igs-ti-empty">还没有存档</p>' : '');
+        const entries = [...(quick ? [{ ...quick, key: 'quick', name: quick.name || '快速存档', isQuick: true }] : []), ...slots];
+        if (selectedSlot && !entries.some((slot) => slot.key === selectedSlot)) selectedSlot = '';
+        const tools = `<div class="igs-ti-quick" role="group" aria-label="存档">`
+            + `<button type="button" class="igs-rp-chip" data-ti-act="quick-save">快速存档</button>`
+            + `<button type="button" class="igs-rp-chip" data-ti-act="slot-new" ${slots.length >= READING_SLOT_LIMIT ? 'disabled' : ''}>存到新档位<small>${slots.length}/${READING_SLOT_LIMIT}</small></button></div>`;
+        const list = entries.length
+            ? `<ol class="igs-ti-slots" aria-label="存档列表">${entries.map((slot) => `<li><button type="button" data-ti-act="slot-select" data-ti-value="${escapeHtml(slot.key)}"${slot.key === selectedSlot ? ' aria-current="true"' : ''}>`
+                + `${slotThumb(slot, 'igs-ti-slot-thumb')}<span class="igs-ti-slot-copy"><strong>${escapeHtml(slot.name || positionLabel(slot))}</strong><small>${escapeHtml(positionLabel(slot))} · ${formatTime(slot.at)}</small></span></button></li>`).join('')}</ol>`
+            : '<p class="igs-ti-empty">还没有存档</p>';
+        const chosen = entries.find((slot) => slot.key === selectedSlot);
+        let detail;
+        if (!chosen) {
+            detail = `<div class="igs-ti-detail igs-ti-empty-pane"><span aria-hidden="true">${RECORD_ICONS.book}</span><p>${entries.length ? '选择一个存档查看' : '读到想留的地方，点「快速存档」或「存到新档位」'}</p></div>`;
+        } else {
+            const meta = [positionLabel(chosen), chosen.place, formatTime(chosen.at)].filter(Boolean).map(escapeHtml).join('<i aria-hidden="true">·</i>');
+            const manage = chosen.isQuick ? '' : `<button type="button" class="igs-rp-chip" data-ti-act="slot-rename" data-ti-value="${escapeHtml(chosen.key)}">改名</button>`
+                + `<button type="button" class="igs-rp-chip" data-ti-act="slot-over" data-ti-value="${escapeHtml(chosen.key)}">用当前位置覆盖</button>`
+                + `<button type="button" class="igs-rp-chip is-danger" data-ti-act="slot-delete" data-ti-value="${escapeHtml(chosen.key)}">删除</button>`;
+            detail = `<article class="igs-ti-detail">${chosen.thumb ? slotThumb(chosen, 'igs-ti-detail-thumb') : ''}<p class="igs-ti-meta">${meta}</p><h3>${escapeHtml(chosen.name || positionLabel(chosen))}</h3>`
+                + (chosen.head ? `<p class="igs-ti-body">${escapeHtml(chosen.head)}</p>` : '')
+                + `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="${chosen.isQuick ? 'quick-load' : 'slot-load'}" data-ti-value="${escapeHtml(chosen.key)}">读取</button>${manage}</div></article>`;
+        }
+        return `<div class="igs-ti-layout"><aside class="igs-ti-side">${tools}${noticeHtml()}${list}</aside>${detail}</div>`;
     }
 
     function render() {
         if (!root) return;
         buildRows();
-        const body = tab === 'slots'
-            ? `<div class="igs-ti-body">${slotsHtml()}</div>`
-            : `<div class="igs-ti-list" data-ti-list><div class="igs-ti-inner" data-ti-inner style="height:${rows.length * ROW_HEIGHT}px"></div></div>`;
-        root.innerHTML = headHtml() + body + (tab === 'floors' && !rows.length ? '<p class="igs-ti-empty">没有可读的楼层</p>' : '');
+        root.innerHTML = `<div class="igs-rp-page">${headHtml()}<div class="igs-rp-body"><div class="igs-ti-scroll">${tab === 'slots' ? slotsHtml() : floorsHtml()}</div></div></div>`;
         const list = query('[data-ti-list]');
         if (list) {
             list.addEventListener('scroll', paintRows, { passive: true });
@@ -57500,6 +57704,16 @@ function createTurnIndexPanel(doc, options = {}) {
         paintRows();
     }
 
+    // 只重画右栏和列表可见行，列表滚动位置不动。
+    function selectFloor(id) {
+        selectedId = ids.includes(id) ? id : null;
+        const list = query('[data-ti-list]');
+        const top = list ? list.scrollTop : 0;
+        render();
+        const next = query('[data-ti-list]');
+        if (next) { next.scrollTop = top; paintRows(); }
+    }
+
     function jump(target) {
         close();
         return options.onJump?.(target);
@@ -57507,8 +57721,23 @@ function createTurnIndexPanel(doc, options = {}) {
 
     async function handle(act, value) {
         if (act === 'close') return close();
-        if (act === 'tab') { tab = value === 'slots' ? 'slots' : 'floors'; notice = ''; render(); if (tab === 'floors') scrollToId(Number(options.currentId?.())); return null; }
-        if (act === 'chapter') { if (collapsed.has(value)) collapsed.delete(value); else collapsed.add(value); render(); return null; }
+        if (act === 'theme') {
+            theme = normalizeSettingsTheme(value);
+            root?.setAttribute('data-rp-theme', theme);
+            render();
+            if (tab === 'floors') scrollToId(selectedId ?? Number(options.currentId?.()));
+            try { options.setTheme?.(theme); } catch (_) { /* 保存失败只影响下次打开 */ }
+            return null;
+        }
+        if (act === 'tab') { tab = value === 'slots' ? 'slots' : 'floors'; notice = ''; render(); if (tab === 'floors') scrollToId(selectedId ?? Number(options.currentId?.())); return null; }
+        if (act === 'chapter') { if (collapsed.has(value)) collapsed.delete(value); else collapsed.add(value); selectFloor(selectedId); return null; }
+        if (act === 'select') { selectFloor(Number(value)); return null; }
+        if (act === 'select-step') {
+            const index = ids.indexOf(selectedId) + Number(value);
+            if (index >= 0 && index < ids.length) { selectedId = ids[index]; render(); scrollToId(selectedId); }
+            return null;
+        }
+        if (act === 'slot-select') { selectedSlot = value; render(); return null; }
         if (act === 'resume') { const last = progress.getLast(); return last ? jump({ pos: last }) : null; }
         if (act === 'first') return ids.length ? jump({ id: ids[0], page: 0 }) : null;
         if (act === 'latest') return ids.length ? jump({ id: latestId(), page: 0 }) : null;
@@ -57518,12 +57747,19 @@ function createTurnIndexPanel(doc, options = {}) {
             return options.onUnread?.();
         }
         if (act === 'floor') return jump({ id: Number(value), page: 0 });
-        if (act === 'quick-save') { const slot = await options.onQuickSave?.(); setNotice(slot ? `已快速存档：${positionLabel(slot)}` : '存档失败'); if (slot) render(); return slot; }
+        if (act === 'quick-save') {
+            const slot = await options.onQuickSave?.();
+            notice = slot ? `已快速存档：${positionLabel(slot)}` : '存档失败';
+            if (slot) selectedSlot = 'quick';
+            render();
+            return slot;
+        }
         if (act === 'quick-load') { const quick = progress.getQuick(); return quick ? jump({ pos: quick }) : null; }
         if (act === 'slot-new' || act === 'slot-over') {
             if (act === 'slot-over' && options.confirm && !(await options.confirm('用当前位置覆盖这个存档？'))) return null;
             const result = await options.onSaveSlot?.(act === 'slot-over' ? value : undefined);
             notice = result && result.ok ? `已存档：${positionLabel(result.slot)}` : (result && result.reason === 'slots-full' ? `档位已满（${READING_SLOT_LIMIT} 个），请先删一个或覆盖` : '存档失败');
+            if (result && result.ok && result.slot && result.slot.key) selectedSlot = result.slot.key;
             render();
             return result;
         }
@@ -57540,6 +57776,7 @@ function createTurnIndexPanel(doc, options = {}) {
         if (act === 'slot-delete') {
             if (options.confirm && !(await options.confirm('删除这个存档？'))) return null;
             progress.removeSlot(value);
+            selectedSlot = '';
             render();
             return null;
         }
@@ -57561,7 +57798,7 @@ function createTurnIndexPanel(doc, options = {}) {
         if (!Number.isInteger(id)) return;
         if (!ids.includes(id)) {
             const next = ids.find((n) => n >= id);
-            if (next != null) { tab = 'floors'; render(); scrollToId(next); }
+            if (next != null) { tab = 'floors'; selectedId = next; render(); scrollToId(next); }
             setNotice(next != null ? `第 ${id} 楼不是 AI 楼层，已定位到第 ${next} 楼` : `没有第 ${id} 楼`);
             return;
         }
@@ -57579,23 +57816,29 @@ function createTurnIndexPanel(doc, options = {}) {
         if (root) return { ok: true, reason: 'already-open' };
         if (!container || typeof container.appendChild !== 'function') return { ok: false, reason: 'no-container' };
         previousFocus = doc.activeElement || null;
+        try { theme = normalizeSettingsTheme(options.getTheme?.() || ''); } catch (_) { theme = normalizeSettingsTheme(''); }
         root = doc.createElement('div');
         root.id = 'igs-turn-index';
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-modal', 'true');
         root.setAttribute('aria-label', '目录');
+        root.setAttribute('data-rp-theme', theme);
         root.addEventListener('click', onClick);
         root.addEventListener('submit', onSubmit);
         root.addEventListener('keydown', onKeydown);
         container.appendChild(root);
         host = container;
+        host.classList?.toggle(OPEN_CLASS, true);
         setStagePauseReason(host, 'panel:turn-index', true);
-        root.innerHTML = '<p class="igs-ti-empty">正在读取楼层…</p>';
+        unwatchLayout = watchRecordPageLayout(root, doc);
+        root.innerHTML = '<p class="igs-ti-empty igs-ti-loading">正在读取楼层…</p>';
         try { turns = (await options.listTurns?.()) || []; } catch (_) { turns = []; }
         if (!root) return { ok: false, reason: 'closed' };
         ids = turns.map((turn) => Number(turn && turn.id)).filter(Number.isInteger);
+        const currentId = Number(options.currentId?.());
+        selectedId = ids.includes(currentId) ? currentId : null;
         render();
-        if (tab === 'floors') scrollToId(Number(options.currentId?.()));
+        if (tab === 'floors') scrollToId(currentId);
         return { ok: true };
     }
 
@@ -57604,8 +57847,11 @@ function createTurnIndexPanel(doc, options = {}) {
         root.removeEventListener('click', onClick);
         root.removeEventListener('submit', onSubmit);
         root.removeEventListener('keydown', onKeydown);
+        unwatchLayout();
+        unwatchLayout = () => { };
         root.remove();
         root = null;
+        host?.classList?.toggle(OPEN_CLASS, false);
         setStagePauseReason(host, 'panel:turn-index', false);
         host = null;
         previousFocus?.focus?.();
@@ -57618,49 +57864,101 @@ function createTurnIndexPanel(doc, options = {}) {
         close,
         isOpen: () => Boolean(root),
         whenIdle: () => acting,
-        getState: () => ({ tab, rows: rows.length, ids: ids.slice(), notice }),
+        getState: () => ({ tab, rows: rows.length, ids: ids.slice(), notice, selectedId, selectedSlot, theme }),
         act: (act, value) => (acting = acting.then(() => handle(act, value))),
     };
 }
+
+// 外壳（毛玻璃底、水纹、四套配色、页头、chip / 分段 / 主按钮）直接复用资料页的，只换选择器；地图页那半不要。
+const SHELL_STYLE_TEXT = RECORD_PAGE_SHELL_STYLE_TEXT
+    .replace(/#igs-map-panel[^,{]*,?/g, '')
+    .replace(/,\s*{/g, '{')
+    .replaceAll('#igs-record-panel', '#igs-turn-index')
+    .replaceAll('.igs-record-screen-open', `.${OPEN_CLASS}`);
+const T = '#igs-turn-index';
+
+// 续读提示条与提示弹窗都走设置器配色（IGS_HINT_THEME_STYLE_TEXT）。
 const TURN_INDEX_STYLE_TEXT = `
-#igs-turn-index{position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;gap:8px;padding:16px;box-sizing:border-box;background:rgba(14,14,18,.94);color:#fff;}
-#igs-turn-index .igs-ti-head{display:flex;align-items:center;justify-content:space-between;}
-#igs-turn-index .igs-ti-head h2{margin:0;font-size:16px;}
-#igs-turn-index button{min-height:40px;min-width:40px;border:none;border-radius:8px;background:rgba(255,255,255,.1);color:inherit;cursor:pointer;padding:0 12px;font:inherit;}
-#igs-turn-index button:disabled{opacity:.35;cursor:default;}
-#igs-turn-index button:focus-visible{outline:2px solid #fff;outline-offset:2px;}
-#igs-turn-index button[aria-selected="true"]{background:rgba(255,255,255,.26);}
-#igs-turn-index .is-danger{background:rgba(220,60,60,.3);}
-#igs-turn-index .igs-ti-summary{margin:0;font-size:13px;opacity:.85;}
-#igs-turn-index .igs-ti-quick,#igs-turn-index .igs-ti-tabs,#igs-turn-index .igs-ti-slot-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
-#igs-turn-index .igs-ti-goto{display:flex;gap:4px;margin:0;}
-#igs-turn-index .igs-ti-goto input{width:84px;min-height:40px;box-sizing:border-box;border:1px solid rgba(255,255,255,.2);border-radius:8px;background:rgba(0,0,0,.3);color:inherit;padding:0 8px;font:inherit;}
-#igs-turn-index .igs-ti-notice{margin:0;font-size:12px;opacity:.85;}
-#igs-turn-index .igs-ti-empty{margin:12px 0;opacity:.7;font-size:13px;}
-#igs-turn-index .igs-ti-list{flex:1;min-height:0;overflow:auto;position:relative;}
-#igs-turn-index .igs-ti-inner{position:relative;}
-#igs-turn-index .igs-ti-row{position:absolute;left:0;right:0;height:44px;display:flex;align-items:center;gap:10px;text-align:left;}
-#igs-turn-index .igs-ti-chapter{background:transparent;font-weight:600;opacity:.9;}
-#igs-turn-index .igs-ti-floor.is-current{background:rgba(255,255,255,.22);}
-#igs-turn-index .igs-ti-floor.is-unread .igs-ti-text{font-weight:600;}
-#igs-turn-index .igs-ti-floor.is-read{opacity:.7;}
-#igs-turn-index .igs-ti-no{flex:none;width:44px;font-variant-numeric:tabular-nums;opacity:.8;}
-#igs-turn-index .igs-ti-text{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;}
-#igs-turn-index .igs-ti-state{flex:none;display:flex;gap:6px;font-size:11px;opacity:.85;}
-#igs-turn-index .igs-ti-mark{padding:1px 6px;border-radius:6px;background:rgba(255,214,120,.25);}
-#igs-turn-index .igs-ti-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;}
-#igs-turn-index .igs-ti-slots{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;}
-#igs-turn-index .igs-ti-slot{display:flex;gap:10px;align-items:center;padding:6px;border-radius:8px;background:rgba(255,255,255,.06);}
-#igs-turn-index .igs-ti-slot img,#igs-turn-index .igs-ti-slot-blank{flex:none;width:96px;height:60px;border-radius:6px;object-fit:cover;background:rgba(255,255,255,.08);}
-#igs-turn-index .igs-ti-slot-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:12px;}
-#igs-turn-index .igs-ti-slot-info strong{font-size:14px;}
-#igs-turn-index .igs-ti-slot-head{opacity:.7;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
-#igs-turn-index .igs-ti-slot-actions{flex:none;display:flex;flex-wrap:wrap;gap:4px;max-width:45%;justify-content:flex-end;}
-#igs-turn-index .igs-ti-slot-actions button{font-size:12px;min-height:34px;padding:0 8px;}
-#igs-resume-bar{position:absolute;top:calc(var(--igs-toolbar-h,50px) + 8px);left:50%;transform:translateX(-50%);z-index:25;display:flex;align-items:center;gap:6px;max-width:calc(100% - 24px);padding:4px 6px 4px 12px;border-radius:999px;background:rgba(14,14,18,.82);color:#fff;font-size:13px;box-sizing:border-box;}
-#igs-resume-bar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-#igs-resume-bar button{min-height:32px;min-width:32px;border:none;border-radius:999px;background:rgba(255,255,255,.14);color:inherit;cursor:pointer;padding:0 10px;font:inherit;}
-@media (max-width:420px){#igs-turn-index .igs-ti-slot-actions{max-width:none;}#igs-turn-index .igs-ti-slot{flex-wrap:wrap;}}
+${SHELL_STYLE_TEXT}
+${IGS_HINT_THEME_STYLE_TEXT}
+#igs-overlay.${OPEN_CLASS} #igs-click-layer,#igs-overlay.${OPEN_CLASS} #igs-sprite,#igs-overlay.${OPEN_CLASS} #igs-dialog-layer,#igs-overlay.${OPEN_CLASS} #igs-toolbar-layer,#igs-overlay.${OPEN_CLASS} #igs-option-layer,#igs-overlay.${OPEN_CLASS} #igs-status-hud,#igs-overlay.${OPEN_CLASS} #igs-sprite-edit-bar,#igs-overlay.${OPEN_CLASS} #igs-resume-bar{display:none!important;pointer-events:none!important;}
+${T}{position:absolute;inset:0;z-index:30;pointer-events:auto;color:var(--igs-rp-text,#eceae6);}
+${T} button{color:inherit;cursor:pointer;font-family:inherit;}
+${T} svg{width:18px;height:18px;flex:none;}
+${T} .igs-ti-loading{position:absolute;inset:0;display:grid;place-items:center;margin:0;background:var(--igs-rp-backdrop-solid,rgba(14,14,18,.94));}
+${T} .igs-ti-tabs{position:relative;z-index:2;display:flex;justify-content:center;padding:0 16px 8px;flex:none;}
+${T} .igs-ti-scroll{flex:1 1 auto;min-width:0;min-height:0;width:100%;overflow:auto;padding:8px clamp(18px,4vw,56px) 28px;overscroll-behavior:contain;box-sizing:border-box;}
+${T} .igs-ti-layout{display:grid;grid-template-columns:minmax(260px,32%) minmax(0,1fr);gap:clamp(20px,3vw,40px);height:100%;min-height:0;}
+${T} .igs-ti-side{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;}
+${T} .igs-ti-summary{margin:0;color:var(--igs-rp-text-faint);font-size:12px;letter-spacing:.06em;font-variant-numeric:tabular-nums;}
+${T} .igs-ti-quick{display:flex;flex-wrap:wrap;gap:2px;margin:0 -6px;}
+${T} .igs-rp-chip:disabled{opacity:.35;cursor:default;background:transparent;}
+${T} .igs-rp-chip.is-danger:hover{color:var(--igs-rp-danger,#d96c6c);}
+${T} .igs-ti-goto{margin:0;}
+${T} .igs-ti-goto input{flex:1;min-width:0;height:100%;margin:0;padding:0;border:0!important;outline:0!important;background:transparent!important;box-shadow:none!important;color:var(--igs-rp-text);font:inherit;font-size:13px;-webkit-appearance:none;appearance:none;-moz-appearance:textfield;}
+${T} .igs-ti-goto input::-webkit-outer-spin-button,${T} .igs-ti-goto input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+${T} .igs-ti-goto input::placeholder{color:var(--igs-rp-text-faint);}
+${T} .igs-ti-notice{margin:0;}
+${T} .igs-ti-empty{margin:16px 0;color:var(--igs-rp-text-faint);font-size:13px;text-align:center;}
+${T} .igs-ti-list{flex:1 1 auto;min-height:160px;overflow:auto;position:relative;margin:0 -6px;}
+${T} .igs-ti-inner{position:relative;}
+${T} .igs-ti-row{position:absolute;left:0;right:0;height:${ROW_HEIGHT - 2}px;display:flex;align-items:center;gap:12px;padding:0 10px;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);text-align:left;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+${T} .igs-ti-row:hover{background:var(--igs-rp-fill);color:var(--igs-rp-text);}
+${T} .igs-ti-floor[aria-current="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
+${T} .igs-ti-chapter{justify-content:space-between;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.16em;}
+${T} .igs-ti-chapter:hover{background:transparent;color:var(--igs-rp-text-soft);}
+${T} .igs-ti-no{flex:0 0 3em;color:var(--igs-rp-text-faint);font-size:12px;font-variant-numeric:tabular-nums;}
+${T} .igs-ti-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;}
+${T} .igs-ti-floor.is-read .igs-ti-text{color:var(--igs-rp-text-faint);}
+${T} .igs-ti-mark{flex:none;color:var(--igs-rp-accent,var(--igs-rp-text));font-size:11px;letter-spacing:.08em;}
+${T} .igs-rp-dot{display:inline-block;flex:none;width:6px;height:6px;border-radius:50%;background:var(--igs-rp-warm);}
+${T} .igs-rp-dot.is-partial{background:transparent;box-shadow:inset 0 0 0 1.5px var(--igs-rp-warm);}
+${T} .igs-ti-detail{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:auto;box-sizing:border-box;padding:clamp(24px,3.4vw,44px) clamp(22px,4vw,56px) 16px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-reading);box-shadow:var(--igs-rp-pane-edge);}
+${T} .igs-ti-meta{display:flex;flex-wrap:wrap;align-items:center;margin:0;color:var(--igs-rp-text-faint);font-size:12px;font-weight:500;letter-spacing:.12em;}
+${T} .igs-ti-meta i{margin:0 10px;font-style:normal;color:var(--igs-rp-text-ghost);}
+${T} .igs-ti-detail h3{margin:12px 0 18px;font-family:var(--igs-rp-font-body);font-size:24px;font-weight:400;letter-spacing:.08em;line-height:1.4;overflow-wrap:anywhere;}
+${T} .igs-ti-body{margin:18px 0 0;max-width:34em;font-family:var(--igs-rp-font-body);font-size:16px;line-height:1.95;letter-spacing:.03em;color:var(--igs-rp-text);white-space:pre-wrap;overflow-wrap:anywhere;}
+${T} .igs-ti-detail h3 + .igs-ti-body{margin-top:0;color:var(--igs-rp-text-soft);}
+${T} .igs-ti-detail-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:28px;}
+${T} .igs-ti-nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:auto;padding-top:28px;font-size:13px;}
+${T} .igs-ti-nav button{min-height:36px;padding:7px 12px;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);font-weight:500;letter-spacing:.06em;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+${T} .igs-ti-nav button:hover:not([disabled]){background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+${T} .igs-ti-nav button:first-child{justify-self:start;}
+${T} .igs-ti-nav button:last-child{justify-self:end;}
+${T} .igs-ti-nav button[disabled]{opacity:.3;cursor:default;}
+${T} .igs-ti-nav span{color:var(--igs-rp-text-faint);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.16em;}
+${T} .igs-ti-overview h3{font-variant-numeric:tabular-nums;}
+${T} .igs-ti-progress{height:3px;border-radius:2px;background:var(--igs-rp-fill-active);overflow:hidden;}
+${T} .igs-ti-progress span{display:block;height:100%;background:var(--igs-rp-accent,var(--igs-rp-text));}
+${T} .igs-ti-overview .igs-ti-summary{margin-top:14px;}
+${T} .igs-ti-hint{margin:auto 0 0;padding-top:28px;color:var(--igs-rp-text-faint);font-size:13px;letter-spacing:.08em;}
+${T} .igs-ti-empty-pane{align-items:center;justify-content:center;gap:12px;color:var(--igs-rp-text-faint);background:var(--igs-rp-pane);}
+${T} .igs-ti-empty-pane p{margin:0;font-size:13px;letter-spacing:.08em;text-align:center;}
+${T} .igs-ti-empty-pane svg{width:28px;height:28px;opacity:.6;}
+${T} .igs-ti-slots{list-style:none;margin:0 -6px;padding:0;display:flex;flex-direction:column;gap:2px;overflow:auto;}
+${T} .igs-ti-slots button{display:flex;align-items:center;gap:12px;width:100%;padding:7px 10px 7px 8px;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);text-align:left;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+${T} .igs-ti-slots button:hover{background:var(--igs-rp-fill);color:var(--igs-rp-text);}
+${T} .igs-ti-slots button[aria-current="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
+${T} .igs-ti-slot-thumb{flex:none;width:56px;height:36px;border-radius:var(--igs-rp-radius-s);object-fit:cover;background:var(--igs-rp-fill);}
+${T} .igs-ti-slot-thumb.is-blank{display:grid;place-items:center;color:var(--igs-rp-text-ghost);}
+${T} .igs-ti-slot-copy{display:flex;flex-direction:column;flex:1;min-width:0;}
+${T} .igs-ti-slot-copy strong{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+${T} .igs-ti-slot-copy small{color:var(--igs-rp-text-faint);font-size:11px;font-variant-numeric:tabular-nums;}
+${T} .igs-ti-detail-thumb{display:block;width:100%;max-height:42%;margin:0 0 20px;border-radius:var(--igs-rp-radius-m);object-fit:cover;}
+${T}.igs-rp-narrow .igs-ti-scroll{padding:4px 14px 20px;}
+${T}.igs-rp-narrow .igs-ti-layout{display:flex;flex-direction:column;gap:14px;height:auto;min-height:100%;}
+${T}.igs-rp-narrow .igs-ti-list{flex:none;height:38vh;}
+${T}.igs-rp-narrow .igs-ti-slots{max-height:34vh;}
+${T}.igs-rp-narrow .igs-ti-detail{flex:1 0 auto;min-height:260px;overflow:visible;padding:22px 18px 12px;}
+${T}.igs-rp-narrow .igs-ti-detail h3{font-size:20px;margin:10px 0 14px;}
+#igs-resume-bar{position:absolute;top:calc(var(--igs-toolbar-h,50px) + 10px);left:50%;transform:translateX(-50%);z-index:25;display:flex;align-items:center;gap:2px;max-width:calc(100% - 24px);padding:4px 4px 4px 14px;border-radius:12px;box-sizing:border-box;font-size:13px;line-height:1.4;letter-spacing:.04em;animation:igs-resume-in .28s cubic-bezier(.2,.8,.2,1) both;}
+#igs-resume-bar span{flex:1;min-width:0;margin-right:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#igs-resume-bar button{flex:none;min-height:32px;min-width:32px;border:0;border-radius:8px;background:transparent;color:inherit;cursor:pointer;padding:0 10px;font:inherit;opacity:.72;transition:opacity .15s,background .15s;}
+#igs-resume-bar button:hover,#igs-resume-bar button:focus-visible{opacity:1;background:var(--igs-hint-fill,rgba(127,127,127,.16));outline:none;}
+#igs-resume-bar button[data-igs-resume="resume"]{opacity:1;font-weight:600;color:var(--igs-hint-accent,inherit);}
+#igs-resume-bar button[data-igs-resume="close"]{font-size:16px;padding:0;}
+@keyframes igs-resume-in{from{opacity:0;transform:translate(-50%,-6px);}to{opacity:1;transform:translate(-50%,0);}}
+@media (prefers-reduced-motion:reduce){#igs-resume-bar{animation:none;}}
 `;
 
 __igsDefine(exports, "positionLabel", () => positionLabel);
@@ -57987,6 +58285,217 @@ __igsDefine(exports, "READING_PROGRESS_PREFIX", () => READING_PROGRESS_PREFIX);
 __igsDefine(exports, "LEGACY_TURN_BOOKMARK_PREFIX", () => LEGACY_TURN_BOOKMARK_PREFIX);
 __igsDefine(exports, "READING_SLOT_LIMIT", () => READING_SLOT_LIMIT);
 __igsDefine(exports, "READING_METADATA_KEY", () => READING_METADATA_KEY);
+});
+__igsRegister("src/visual/igs-ui/record-page-shell.js", function(module, exports, require) {
+// 四类资料页共用外壳：页头（返回 + 居中标题）、遮挡恢复、容器布局状态。
+// 只服务地图/心事/背包/关系四页，不发展为通用弹窗框架。
+const { RECORD_ICONS } = require("src/visual/igs-ui/record-icons.js");
+// 容器断点：宽屏 ≥1100、中间 768–1100、窄屏 <768；短容器 H<600 叠加短屏处理。
+function recordPageLayoutClass(width, height) {
+    const classes = [];
+    if (width < 768) classes.push('igs-rp-narrow');
+    else if (width < 1100) classes.push('igs-rp-mid');
+    if (height < 600) classes.push('igs-rp-short');
+    return classes.join(' ');
+}
+
+// 观察面板容器实际宽高并写布局 class；返回解除函数。优先 ResizeObserver，无轮询。
+function watchRecordPageLayout(panel, doc) {
+    if (!panel) return () => { };
+    const apply = () => {
+        const rect = panel.getBoundingClientRect?.() || { width: 0, height: 0 };
+        panel.classList.remove('igs-rp-narrow', 'igs-rp-mid', 'igs-rp-short');
+        const cls = recordPageLayoutClass(rect.width, rect.height);
+        if (cls) for (const name of cls.split(' ')) panel.classList.add(name);
+    };
+    apply();
+    const view = doc?.defaultView;
+    if (view?.ResizeObserver) {
+        const observer = new view.ResizeObserver(apply);
+        observer.observe(panel);
+        return () => { try { observer.disconnect(); } catch (_) { /* already gone */ } };
+    }
+    return () => { };
+}
+
+// 页头 DOM：返回按钮（44px 命中区）+ 居中标题 + 可选右侧附件（资料页放配色色板）。
+function recordPageHeadHtml(title, options = {}) {
+    const closeAttr = options.closeAttr || 'data-record-act';
+    const backAriaLabel = options.backAriaLabel || '返回';
+    const trailing = options.trailing ? `<div class="igs-rp-head-end">${options.trailing}</div>` : '';
+    return `<header class="igs-rp-head"><button type="button" class="igs-rp-back" ${closeAttr}="close" aria-label="${backAriaLabel}">${RECORD_ICONS.back}</button><h2 class="igs-rp-title">${title}</h2>${trailing}</header>`;
+}
+
+__igsDefine(exports, "recordPageLayoutClass", () => recordPageLayoutClass);
+__igsDefine(exports, "watchRecordPageLayout", () => watchRecordPageLayout);
+__igsDefine(exports, "recordPageHeadHtml", () => recordPageHeadHtml);
+});
+__igsRegister("src/visual/igs-ui/record-page-shell-style.js", function(module, exports, require) {
+const { IGS_UI_BLUR, IGS_UI_FILL, IGS_UI_PANE, IGS_UI_PANE_EDGE, IGS_UI_FONT_SANS, IGS_UI_FONT_SERIF, IGS_UI_INK, IGS_UI_NIGHT_RGB, IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, IGS_UI_WARM, igsUiLiquidRule } = require("src/styles/ui-material.js");
+const { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette } = require("src/visual/igs-ui/settings-theme.js");
+// 背包/心事/关系三页与设置器共用四套配色：资料页语义 token 一一映射到设置器色板。
+// 后景 = 近不透明遮罩 + 主题色淡水纹（与设置器同一套），前景 = 设置器面板实色卡片 + 阴影。
+const RECORD_THEME_TOKENS = Object.freeze({
+    text: 'ink', 'text-soft': 'ink-2', 'text-faint': 'ink-3', 'text-ghost': 'ink-4',
+    fill: 'field', 'fill-hover': 'highlight', 'fill-active': 'raised', 'line-soft': 'line-strong',
+    pane: 'shell-bg', 'pane-edge': 'shell-shadow', reading: 'shell-bg', solid: 'panel',
+    accent: 'accent', 'on-ink': 'on-accent', warm: 'accent', ripple: 'ripple',
+});
+const recordThemeRule = (selector, theme) => {
+    const palette = getSettingsThemePalette(theme);
+    const vars = Object.entries(RECORD_THEME_TOKENS).map(([key, token]) => `--igs-rp-${key}:${palette.tokens[token]};`).join('');
+    return `${selector}{${vars}--igs-rp-backdrop:${palette.backdrop};--igs-rp-backdrop-solid:${palette.backdropSolid};--igs-rp-ripple-opacity:${palette.ripple};color-scheme:${palette.scheme};}`;
+};
+const RECORD_THEME_RULES = [
+    recordThemeRule('#igs-record-panel', SETTINGS_THEME_BASE),
+    ...SETTINGS_THEME_OPTIONS.filter(option => option.value !== SETTINGS_THEME_BASE)
+        .map(option => recordThemeRule(`#igs-record-panel[data-rp-theme="${option.value}"]`, option.value)),
+].join('\n');
+
+// 四类资料页共用外壳（地图页沿用霜夜默认 token，不跟随配色）。
+// 界面文字用黑体，只有正文内容（日记、描述）用宋体。
+const RECORD_PAGE_SHELL_STYLE_TEXT = `
+#igs-record-panel,#igs-map-panel{
+  --igs-rp-bg:rgb(${IGS_UI_NIGHT_RGB});
+  --igs-rp-text:${IGS_UI_INK.primary};
+  --igs-rp-text-soft:${IGS_UI_INK.secondary};
+  --igs-rp-text-faint:${IGS_UI_INK.tertiary};
+  --igs-rp-text-ghost:${IGS_UI_INK.quaternary};
+  --igs-rp-fill:${IGS_UI_FILL.rest};
+  --igs-rp-pane:${IGS_UI_PANE};
+  --igs-rp-pane-edge:${IGS_UI_PANE_EDGE};
+  --igs-rp-reading:rgba(18,20,23,.34);
+  --igs-rp-fill-hover:${IGS_UI_FILL.hover};
+  --igs-rp-fill-active:${IGS_UI_FILL.active};
+  --igs-rp-line-soft:rgba(236,234,230,.07);
+  --igs-rp-on-ink:rgb(${IGS_UI_NIGHT_RGB});
+  --igs-rp-warm:${IGS_UI_WARM};
+  --igs-rp-radius-s:${IGS_UI_RADIUS.small};
+  --igs-rp-radius-m:${IGS_UI_RADIUS.control};
+  --igs-rp-radius-l:${IGS_UI_RADIUS.card};
+  --igs-rp-blur:${IGS_UI_BLUR};
+  --igs-rp-font-ui:${IGS_UI_FONT_SANS};
+  --igs-rp-font-body:${IGS_UI_FONT_SERIF};
+  --igs-rp-title-size:16px;
+  --igs-rp-body-size:14px;
+  --igs-rp-line-height:1.6;
+  --igs-rp-diary-size:17px;
+  --igs-rp-ease:cubic-bezier(.2,.8,.2,1);
+}
+#igs-overlay.igs-record-screen-open{background:transparent!important;}
+#igs-record-panel .igs-rp-page,#igs-map-panel .igs-rp-page{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  font-family:var(--igs-rp-font-ui);color:var(--igs-rp-text);
+  font-size:var(--igs-rp-body-size);line-height:var(--igs-rp-line-height);
+  background:transparent;overflow:hidden;box-sizing:border-box;text-shadow:none;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+}
+${RECORD_THEME_RULES}
+/* 后景柔光：左上一束淡高光 + 整体轻微提亮，叠在主题遮罩上，四套配色相对浓淡不变。 */
+#igs-record-panel{--igs-rp-lift:radial-gradient(120% 90% at 0% 0%,rgba(255,255,255,.12),rgba(255,255,255,0) 70%),linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06));}
+#igs-record-panel .igs-rp-page::before{
+  content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+  background:var(--igs-rp-lift),var(--igs-rp-backdrop);
+  -webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};
+}
+#igs-record-panel{--igs-ui-caustic-size:900px;}
+${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .2, { tile: true, tint: 'var(--igs-rp-ripple)' })}
+#igs-record-panel .igs-rp-page::after{opacity:calc(var(--igs-rp-ripple-opacity) / 3);}
+${IGS_UI_LIQUID_KEYFRAMES}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  #igs-record-panel .igs-rp-page::before{background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
+}
+@media (prefers-reduced-transparency:reduce){
+  #igs-record-panel .igs-rp-page::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
+  #igs-record-panel{--igs-rp-pane:var(--igs-rp-solid);--igs-rp-reading:var(--igs-rp-solid);}
+}
+#igs-record-panel .igs-rp-head,#igs-map-panel .igs-rp-head{
+  position:relative;z-index:2;display:grid;grid-template-columns:minmax(44px,1fr) auto minmax(44px,1fr);align-items:center;column-gap:12px;
+  min-height:60px;padding:8px 16px 4px;padding-top:calc(8px + env(safe-area-inset-top,0px));
+  background:transparent;flex:none;
+}
+#igs-record-panel .igs-rp-title,#igs-map-panel .igs-rp-title{
+  margin:0;justify-self:center;font-size:var(--igs-rp-title-size);font-weight:600;
+  min-width:0;letter-spacing:.2em;padding-left:.2em;white-space:nowrap;color:var(--igs-rp-text);
+}
+#igs-record-panel .igs-rp-back,#igs-map-panel .igs-rp-back{
+  justify-self:start;width:44px;height:44px;min-width:44px;min-height:44px;display:grid;place-items:center;
+  padding:0;border:0;background:transparent;color:var(--igs-rp-text);cursor:pointer;border-radius:var(--igs-rp-radius-m);transition:background .18s var(--igs-rp-ease);
+}
+#igs-record-panel .igs-rp-back:hover,#igs-map-panel .igs-rp-back:hover{background:var(--igs-rp-fill-hover);}
+#igs-record-panel .igs-rp-back svg,#igs-map-panel .igs-rp-back svg{width:20px;height:20px;stroke-width:1.6;}
+#igs-record-panel .igs-rp-body,#igs-map-panel .igs-rp-body{
+  position:relative;z-index:1;flex:1 1 auto;min-height:0;display:flex;overflow:hidden;
+}
+#igs-record-panel button:focus-visible,#igs-map-panel button:focus-visible{outline:2px solid var(--igs-rp-accent,rgba(236,234,230,.5));outline-offset:2px;}
+#igs-record-panel,#igs-map-panel,#igs-record-panel *,#igs-map-panel *{scrollbar-width:none;}
+#igs-record-panel ::-webkit-scrollbar,#igs-map-panel ::-webkit-scrollbar{display:none;}
+#igs-record-panel .igs-rp-chip,#igs-map-panel .igs-rp-chip,#igs-record-panel .igs-rp-segment button{
+  display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 12px;border:0;border-radius:var(--igs-rp-radius-m);
+  background:transparent;color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;line-height:1.2;white-space:nowrap;
+  transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);
+}
+#igs-record-panel .igs-rp-chip:hover,#igs-map-panel .igs-rp-chip:hover,#igs-record-panel .igs-rp-segment button:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+#igs-record-panel .igs-rp-chip[aria-pressed="true"],#igs-map-panel .igs-rp-chip[aria-pressed="true"],#igs-record-panel .igs-rp-segment button[aria-pressed="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);font-weight:600;}
+#igs-record-panel .igs-rp-chip small{font-size:11px;font-weight:500;opacity:.56;font-variant-numeric:tabular-nums;}
+#igs-record-panel .igs-rp-chip svg,#igs-map-panel .igs-rp-chip svg,#igs-record-panel .igs-rp-segment svg{width:15px;height:15px;flex:none;stroke-width:1.6;}
+#igs-record-panel .igs-rp-segment{display:inline-flex;gap:2px;padding:2px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+#igs-record-panel .igs-rp-segment button{min-height:30px;border-radius:calc(var(--igs-rp-radius-m) - 2px);}
+#igs-record-panel .igs-rp-icon-btn{display:grid;place-items:center;width:36px;height:36px;min-width:36px;padding:0;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-icon-btn:hover,#igs-record-panel .igs-rp-icon-btn[aria-expanded="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
+#igs-record-panel .igs-rp-icon-btn svg{width:18px;height:18px;stroke-width:1.6;}
+#igs-record-panel .igs-rp-btn,#igs-map-panel .igs-rp-btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:9px 24px;border:0;border-radius:var(--igs-rp-radius-m);
+  background:var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;
+  transition:opacity .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);
+}
+#igs-record-panel .igs-rp-btn:hover,#igs-map-panel .igs-rp-btn:hover{opacity:.88;}
+#igs-record-panel .igs-rp-btn:active,#igs-map-panel .igs-rp-btn:active,#igs-record-panel .igs-rp-chip:active,#igs-map-panel .igs-rp-chip:active,#igs-record-panel .igs-rp-icon-btn:active{transform:scale(.97);}
+#igs-record-panel .igs-rp-notice,#igs-map-panel .igs-rp-notice{margin:0 0 12px;padding:8px 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;line-height:1.6;overflow-wrap:anywhere;}
+#igs-record-panel .igs-rp-dot{display:inline-block;flex:none;width:6px;height:6px;border-radius:50%;background:var(--igs-rp-warm);}
+#igs-record-panel .igs-rp-search{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-faint);transition:background .18s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-search:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text-soft);}
+#igs-record-panel .igs-rp-search svg{width:15px;height:15px;flex:none;stroke-width:1.6;}
+#igs-record-panel .igs-rp-search input{
+  flex:1;min-width:0;width:9em;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
+  background:transparent!important;box-shadow:none!important;color:var(--igs-rp-text);font:inherit;font-size:13px;line-height:1;
+  -webkit-appearance:none;appearance:none;text-shadow:none;
+}
+#igs-record-panel .igs-rp-search input::placeholder{color:var(--igs-rp-text-faint);}
+#igs-record-panel .igs-rp-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
+#igs-record-panel .igs-rp-switch{position:relative;flex:none;width:30px;height:18px;border-radius:5px;background:var(--igs-rp-fill-active);transition:background .2s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:3px;background:var(--igs-rp-text-soft);transition:transform .2s var(--igs-rp-ease),background .2s var(--igs-rp-ease);}
+#igs-record-panel [aria-pressed="true"] .igs-rp-switch{background:var(--igs-rp-accent);}
+#igs-record-panel [aria-pressed="true"] .igs-rp-switch::after{transform:translateX(12px);background:var(--igs-rp-on-ink);}
+#igs-record-panel .igs-rp-head-end{justify-self:end;display:flex;align-items:center;gap:8px;min-width:0;}
+#igs-record-panel .igs-rp-font-select{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;transition:background .18s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-font-select:hover,#igs-record-panel .igs-rp-font-select:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+#igs-record-panel .igs-rp-font-select b{font-weight:600;font-family:var(--igs-rp-font-body);}
+#igs-record-panel .igs-rp-font-select select{
+  position:absolute;inset:0;width:100%;max-width:none;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
+  background:transparent!important;box-shadow:none!important;color:transparent;font:inherit;font-size:13px;cursor:pointer;opacity:0;
+  -webkit-appearance:none;appearance:none;
+}
+#igs-record-panel .igs-rp-font-select select option{color:var(--igs-rp-text);background:var(--igs-rp-solid);}
+#igs-record-panel .igs-rp-theme-switch{display:inline-flex;align-items:center;gap:5px;padding:4px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+#igs-record-panel .igs-rp-theme-option{display:inline-flex;width:20px;height:20px;flex:none;padding:0;border:0;border-radius:var(--igs-rp-radius-s);background:transparent;outline:1.5px solid transparent;outline-offset:1.5px;transition:transform .14s ease,outline-color .14s ease;}
+#igs-record-panel .igs-rp-theme-option svg{display:block;width:20px;height:20px;}
+#igs-record-panel .igs-rp-theme-option:hover{transform:translateY(-1px);}
+#igs-record-panel .igs-rp-theme-option.is-active{outline-color:var(--igs-rp-accent);}
+#igs-record-panel.igs-rp-narrow,#igs-map-panel.igs-rp-narrow{
+  --igs-rp-title-size:15px;--igs-rp-line-height:1.58;
+}
+#igs-record-panel.igs-rp-narrow .igs-rp-head{padding-left:8px;padding-right:12px;column-gap:8px;}
+#igs-record-panel.igs-rp-narrow .igs-rp-theme-switch{gap:4px;padding:3px;}
+#igs-record-panel.igs-rp-narrow .igs-rp-font-select select{max-width:4.5em;}
+#igs-record-panel.igs-rp-narrow .igs-rp-theme-option,#igs-record-panel.igs-rp-narrow .igs-rp-theme-option svg{width:18px;height:18px;}
+#igs-record-panel.igs-rp-short .igs-rp-head,#igs-map-panel.igs-rp-short .igs-rp-head{min-height:50px;padding-top:calc(4px + env(safe-area-inset-top,0px));}
+@media (prefers-reduced-motion:reduce){
+  #igs-record-panel *,#igs-map-panel *{transition:none!important;animation:none!important;}
+}
+`;
+
+__igsDefine(exports, "RECORD_PAGE_SHELL_STYLE_TEXT", () => RECORD_PAGE_SHELL_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/generation-strip.js", function(module, exports, require) {
 // 生成细线：对话框顶边一条 2px 渐变线，颜色取对话框文字色（换皮肤自动跟随），不压正文、不碰关闭键。
@@ -58503,173 +59012,6 @@ const RECORD_PANEL_STYLE_TEXT = `
 `;
 
 __igsDefine(exports, "RECORD_PANEL_STYLE_TEXT", () => RECORD_PANEL_STYLE_TEXT);
-});
-__igsRegister("src/visual/igs-ui/record-page-shell-style.js", function(module, exports, require) {
-const { IGS_UI_BLUR, IGS_UI_FILL, IGS_UI_PANE, IGS_UI_PANE_EDGE, IGS_UI_FONT_SANS, IGS_UI_FONT_SERIF, IGS_UI_INK, IGS_UI_NIGHT_RGB, IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, IGS_UI_WARM, igsUiLiquidRule } = require("src/styles/ui-material.js");
-const { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette } = require("src/visual/igs-ui/settings-theme.js");
-// 背包/心事/关系三页与设置器共用四套配色：资料页语义 token 一一映射到设置器色板。
-// 后景 = 近不透明遮罩 + 主题色淡水纹（与设置器同一套），前景 = 设置器面板实色卡片 + 阴影。
-const RECORD_THEME_TOKENS = Object.freeze({
-    text: 'ink', 'text-soft': 'ink-2', 'text-faint': 'ink-3', 'text-ghost': 'ink-4',
-    fill: 'field', 'fill-hover': 'highlight', 'fill-active': 'raised', 'line-soft': 'line-strong',
-    pane: 'shell-bg', 'pane-edge': 'shell-shadow', reading: 'shell-bg', solid: 'panel',
-    accent: 'accent', 'on-ink': 'on-accent', warm: 'accent', ripple: 'ripple',
-});
-const recordThemeRule = (selector, theme) => {
-    const palette = getSettingsThemePalette(theme);
-    const vars = Object.entries(RECORD_THEME_TOKENS).map(([key, token]) => `--igs-rp-${key}:${palette.tokens[token]};`).join('');
-    return `${selector}{${vars}--igs-rp-backdrop:${palette.backdrop};--igs-rp-backdrop-solid:${palette.backdropSolid};--igs-rp-ripple-opacity:${palette.ripple};color-scheme:${palette.scheme};}`;
-};
-const RECORD_THEME_RULES = [
-    recordThemeRule('#igs-record-panel', SETTINGS_THEME_BASE),
-    ...SETTINGS_THEME_OPTIONS.filter(option => option.value !== SETTINGS_THEME_BASE)
-        .map(option => recordThemeRule(`#igs-record-panel[data-rp-theme="${option.value}"]`, option.value)),
-].join('\n');
-
-// 四类资料页共用外壳（地图页沿用霜夜默认 token，不跟随配色）。
-// 界面文字用黑体，只有正文内容（日记、描述）用宋体。
-const RECORD_PAGE_SHELL_STYLE_TEXT = `
-#igs-record-panel,#igs-map-panel{
-  --igs-rp-bg:rgb(${IGS_UI_NIGHT_RGB});
-  --igs-rp-text:${IGS_UI_INK.primary};
-  --igs-rp-text-soft:${IGS_UI_INK.secondary};
-  --igs-rp-text-faint:${IGS_UI_INK.tertiary};
-  --igs-rp-text-ghost:${IGS_UI_INK.quaternary};
-  --igs-rp-fill:${IGS_UI_FILL.rest};
-  --igs-rp-pane:${IGS_UI_PANE};
-  --igs-rp-pane-edge:${IGS_UI_PANE_EDGE};
-  --igs-rp-reading:rgba(18,20,23,.34);
-  --igs-rp-fill-hover:${IGS_UI_FILL.hover};
-  --igs-rp-fill-active:${IGS_UI_FILL.active};
-  --igs-rp-line-soft:rgba(236,234,230,.07);
-  --igs-rp-on-ink:rgb(${IGS_UI_NIGHT_RGB});
-  --igs-rp-warm:${IGS_UI_WARM};
-  --igs-rp-radius-s:${IGS_UI_RADIUS.small};
-  --igs-rp-radius-m:${IGS_UI_RADIUS.control};
-  --igs-rp-radius-l:${IGS_UI_RADIUS.card};
-  --igs-rp-blur:${IGS_UI_BLUR};
-  --igs-rp-font-ui:${IGS_UI_FONT_SANS};
-  --igs-rp-font-body:${IGS_UI_FONT_SERIF};
-  --igs-rp-title-size:16px;
-  --igs-rp-body-size:14px;
-  --igs-rp-line-height:1.6;
-  --igs-rp-diary-size:17px;
-  --igs-rp-ease:cubic-bezier(.2,.8,.2,1);
-}
-#igs-overlay.igs-record-screen-open{background:transparent!important;}
-#igs-record-panel .igs-rp-page,#igs-map-panel .igs-rp-page{
-  position:absolute;inset:0;display:flex;flex-direction:column;
-  font-family:var(--igs-rp-font-ui);color:var(--igs-rp-text);
-  font-size:var(--igs-rp-body-size);line-height:var(--igs-rp-line-height);
-  background:transparent;overflow:hidden;box-sizing:border-box;text-shadow:none;
-  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
-}
-${RECORD_THEME_RULES}
-/* 后景柔光：左上一束淡高光 + 整体轻微提亮，叠在主题遮罩上，四套配色相对浓淡不变。 */
-#igs-record-panel{--igs-rp-lift:radial-gradient(120% 90% at 0% 0%,rgba(255,255,255,.12),rgba(255,255,255,0) 70%),linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06));}
-#igs-record-panel .igs-rp-page::before{
-  content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
-  background:var(--igs-rp-lift),var(--igs-rp-backdrop);
-  -webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};
-}
-#igs-record-panel{--igs-ui-caustic-size:900px;}
-${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .2, { tile: true, tint: 'var(--igs-rp-ripple)' })}
-#igs-record-panel .igs-rp-page::after{opacity:calc(var(--igs-rp-ripple-opacity) / 3);}
-${IGS_UI_LIQUID_KEYFRAMES}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  #igs-record-panel .igs-rp-page::before{background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
-}
-@media (prefers-reduced-transparency:reduce){
-  #igs-record-panel .igs-rp-page::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
-  #igs-record-panel{--igs-rp-pane:var(--igs-rp-solid);--igs-rp-reading:var(--igs-rp-solid);}
-}
-#igs-record-panel .igs-rp-head,#igs-map-panel .igs-rp-head{
-  position:relative;z-index:2;display:grid;grid-template-columns:minmax(44px,1fr) auto minmax(44px,1fr);align-items:center;column-gap:12px;
-  min-height:60px;padding:8px 16px 4px;padding-top:calc(8px + env(safe-area-inset-top,0px));
-  background:transparent;flex:none;
-}
-#igs-record-panel .igs-rp-title,#igs-map-panel .igs-rp-title{
-  margin:0;justify-self:center;font-size:var(--igs-rp-title-size);font-weight:600;
-  min-width:0;letter-spacing:.2em;padding-left:.2em;white-space:nowrap;color:var(--igs-rp-text);
-}
-#igs-record-panel .igs-rp-back,#igs-map-panel .igs-rp-back{
-  justify-self:start;width:44px;height:44px;min-width:44px;min-height:44px;display:grid;place-items:center;
-  padding:0;border:0;background:transparent;color:var(--igs-rp-text);cursor:pointer;border-radius:var(--igs-rp-radius-m);transition:background .18s var(--igs-rp-ease);
-}
-#igs-record-panel .igs-rp-back:hover,#igs-map-panel .igs-rp-back:hover{background:var(--igs-rp-fill-hover);}
-#igs-record-panel .igs-rp-back svg,#igs-map-panel .igs-rp-back svg{width:20px;height:20px;stroke-width:1.6;}
-#igs-record-panel .igs-rp-body,#igs-map-panel .igs-rp-body{
-  position:relative;z-index:1;flex:1 1 auto;min-height:0;display:flex;overflow:hidden;
-}
-#igs-record-panel button:focus-visible,#igs-map-panel button:focus-visible{outline:2px solid var(--igs-rp-accent,rgba(236,234,230,.5));outline-offset:2px;}
-#igs-record-panel,#igs-map-panel,#igs-record-panel *,#igs-map-panel *{scrollbar-width:none;}
-#igs-record-panel ::-webkit-scrollbar,#igs-map-panel ::-webkit-scrollbar{display:none;}
-#igs-record-panel .igs-rp-chip,#igs-map-panel .igs-rp-chip,#igs-record-panel .igs-rp-segment button{
-  display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 12px;border:0;border-radius:var(--igs-rp-radius-m);
-  background:transparent;color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;line-height:1.2;white-space:nowrap;
-  transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);
-}
-#igs-record-panel .igs-rp-chip:hover,#igs-map-panel .igs-rp-chip:hover,#igs-record-panel .igs-rp-segment button:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
-#igs-record-panel .igs-rp-chip[aria-pressed="true"],#igs-map-panel .igs-rp-chip[aria-pressed="true"],#igs-record-panel .igs-rp-segment button[aria-pressed="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);font-weight:600;}
-#igs-record-panel .igs-rp-chip small{font-size:11px;font-weight:500;opacity:.56;font-variant-numeric:tabular-nums;}
-#igs-record-panel .igs-rp-chip svg,#igs-map-panel .igs-rp-chip svg,#igs-record-panel .igs-rp-segment svg{width:15px;height:15px;flex:none;stroke-width:1.6;}
-#igs-record-panel .igs-rp-segment{display:inline-flex;gap:2px;padding:2px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
-#igs-record-panel .igs-rp-segment button{min-height:30px;border-radius:calc(var(--igs-rp-radius-m) - 2px);}
-#igs-record-panel .igs-rp-icon-btn{display:grid;place-items:center;width:36px;height:36px;min-width:36px;padding:0;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
-#igs-record-panel .igs-rp-icon-btn:hover,#igs-record-panel .igs-rp-icon-btn[aria-expanded="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
-#igs-record-panel .igs-rp-icon-btn svg{width:18px;height:18px;stroke-width:1.6;}
-#igs-record-panel .igs-rp-btn,#igs-map-panel .igs-rp-btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:9px 24px;border:0;border-radius:var(--igs-rp-radius-m);
-  background:var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;
-  transition:opacity .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);
-}
-#igs-record-panel .igs-rp-btn:hover,#igs-map-panel .igs-rp-btn:hover{opacity:.88;}
-#igs-record-panel .igs-rp-btn:active,#igs-map-panel .igs-rp-btn:active,#igs-record-panel .igs-rp-chip:active,#igs-map-panel .igs-rp-chip:active,#igs-record-panel .igs-rp-icon-btn:active{transform:scale(.97);}
-#igs-record-panel .igs-rp-notice,#igs-map-panel .igs-rp-notice{margin:0 0 12px;padding:8px 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;line-height:1.6;overflow-wrap:anywhere;}
-#igs-record-panel .igs-rp-dot{display:inline-block;flex:none;width:6px;height:6px;border-radius:50%;background:var(--igs-rp-warm);}
-#igs-record-panel .igs-rp-search{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-faint);transition:background .18s var(--igs-rp-ease);}
-#igs-record-panel .igs-rp-search:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text-soft);}
-#igs-record-panel .igs-rp-search svg{width:15px;height:15px;flex:none;stroke-width:1.6;}
-#igs-record-panel .igs-rp-search input{
-  flex:1;min-width:0;width:9em;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
-  background:transparent!important;box-shadow:none!important;color:var(--igs-rp-text);font:inherit;font-size:13px;line-height:1;
-  -webkit-appearance:none;appearance:none;text-shadow:none;
-}
-#igs-record-panel .igs-rp-search input::placeholder{color:var(--igs-rp-text-faint);}
-#igs-record-panel .igs-rp-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
-#igs-record-panel .igs-rp-switch{position:relative;flex:none;width:30px;height:18px;border-radius:5px;background:var(--igs-rp-fill-active);transition:background .2s var(--igs-rp-ease);}
-#igs-record-panel .igs-rp-switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:3px;background:var(--igs-rp-text-soft);transition:transform .2s var(--igs-rp-ease),background .2s var(--igs-rp-ease);}
-#igs-record-panel [aria-pressed="true"] .igs-rp-switch{background:var(--igs-rp-accent);}
-#igs-record-panel [aria-pressed="true"] .igs-rp-switch::after{transform:translateX(12px);background:var(--igs-rp-on-ink);}
-#igs-record-panel .igs-rp-head-end{justify-self:end;display:flex;align-items:center;gap:8px;min-width:0;}
-#igs-record-panel .igs-rp-font-select{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;transition:background .18s var(--igs-rp-ease);}
-#igs-record-panel .igs-rp-font-select:hover,#igs-record-panel .igs-rp-font-select:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
-#igs-record-panel .igs-rp-font-select b{font-weight:600;font-family:var(--igs-rp-font-body);}
-#igs-record-panel .igs-rp-font-select select{
-  position:absolute;inset:0;width:100%;max-width:none;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
-  background:transparent!important;box-shadow:none!important;color:transparent;font:inherit;font-size:13px;cursor:pointer;opacity:0;
-  -webkit-appearance:none;appearance:none;
-}
-#igs-record-panel .igs-rp-font-select select option{color:var(--igs-rp-text);background:var(--igs-rp-solid);}
-#igs-record-panel .igs-rp-theme-switch{display:inline-flex;align-items:center;gap:5px;padding:4px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
-#igs-record-panel .igs-rp-theme-option{display:inline-flex;width:20px;height:20px;flex:none;padding:0;border:0;border-radius:var(--igs-rp-radius-s);background:transparent;outline:1.5px solid transparent;outline-offset:1.5px;transition:transform .14s ease,outline-color .14s ease;}
-#igs-record-panel .igs-rp-theme-option svg{display:block;width:20px;height:20px;}
-#igs-record-panel .igs-rp-theme-option:hover{transform:translateY(-1px);}
-#igs-record-panel .igs-rp-theme-option.is-active{outline-color:var(--igs-rp-accent);}
-#igs-record-panel.igs-rp-narrow,#igs-map-panel.igs-rp-narrow{
-  --igs-rp-title-size:15px;--igs-rp-line-height:1.58;
-}
-#igs-record-panel.igs-rp-narrow .igs-rp-head{padding-left:8px;padding-right:12px;column-gap:8px;}
-#igs-record-panel.igs-rp-narrow .igs-rp-theme-switch{gap:4px;padding:3px;}
-#igs-record-panel.igs-rp-narrow .igs-rp-font-select select{max-width:4.5em;}
-#igs-record-panel.igs-rp-narrow .igs-rp-theme-option,#igs-record-panel.igs-rp-narrow .igs-rp-theme-option svg{width:18px;height:18px;}
-#igs-record-panel.igs-rp-short .igs-rp-head,#igs-map-panel.igs-rp-short .igs-rp-head{min-height:50px;padding-top:calc(4px + env(safe-area-inset-top,0px));}
-@media (prefers-reduced-motion:reduce){
-  #igs-record-panel *,#igs-map-panel *{transition:none!important;animation:none!important;}
-}
-`;
-
-__igsDefine(exports, "RECORD_PAGE_SHELL_STYLE_TEXT", () => RECORD_PAGE_SHELL_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/html-card-layer.js", function(module, exports, require) {
 const { sanitizeHtmlCard } = require("src/scene/html-cards.js");
@@ -64590,6 +64932,7 @@ __igsRegister("src/visual/igs-ui/romance-runtime.js", function(module, exports, 
 const { prefersReducedMotion } = require("src/visual/igs-ui/reduced-motion.js");
 const { measureStage, peekSpriteHead, probeSpriteHead, resolveSymbolPlacement } = require("src/visual/igs-ui/fx-anchor.js");
 const { resolveCharacterKey } = require("src/scene/scene-directives.js");
+const { isPlayerName } = require("src/scene/battle-context.js");
 const { resolveWeatherFxTime } = require("src/visual/igs-ui/weather-fx-runtime.js");
 const { normalizeStatusHudSettings } = require("src/data/shujuku/status-hud-model.js");
 const { computeRomanceApproach, computeShadeNeck, normalizeRomanceFxSettings, pickFavorPercent, resolveRomanceLevel, nsfwCurveFactor, resolveRomanceParams, scaleRomanceParams } = require("src/visual/igs-ui/romance-settings.js");
@@ -64676,13 +65019,30 @@ function characterKey(sceneAssets, name) {
 
 // 修罗场：只认 romance 标签第 3 栏写明的对象（与同屏 resolveRomanceRivalTarget 一致）。
 // 对象栏缺省时不猜——按「区间里第一个出场的人」猜会猜错，心动 / 动情段里换人说话就频繁弹心碎。
-// 返回当前立绘角色是否为「另一位已登记角色」（非本区间对象）。
-function resolveRival(content, sceneAssets) {
+// 主角本人不算对象也不算情敌；情敌只认当过 romance 对象的角色（好感不一定是爱情，系统 / 家人 / 朋友插话不算）。
+const romanceTargets = new Set();
+
+function romanceOwner(content, sceneAssets, userName) {
     const fx = content.fx || {};
-    if (!fx.romance || Number(fx.romanceAt) < 0) return false;
-    const current = characterKey(sceneAssets, content.spriteCharacter || content.speaker);
-    const owner = characterKey(sceneAssets, fx.romanceTarget) || String(fx.romanceTarget || '').trim();
-    return Boolean(current && owner && current !== owner);
+    if (!fx.romance || Number(fx.romanceAt) < 0) return '';
+    const target = String(fx.romanceTarget || '').trim();
+    if (!target || isPlayerName(target, userName)) return '';
+    return characterKey(sceneAssets, target) || target;
+}
+
+// 每页都记（不论档位、有没有立绘），往后翻到其他段落时才认得出谁是情敌。
+function rememberRomanceTarget(content, sceneAssets, userName) {
+    const owner = romanceOwner(content, sceneAssets, userName);
+    if (owner) remember(romanceTargets, owner);
+}
+
+// 返回当前立绘角色是否为「另一位当过恋爱对象的角色」（非本区间对象）。
+function resolveRival(content, sceneAssets, userName) {
+    const owner = romanceOwner(content, sceneAssets, userName);
+    const name = String(content.spriteCharacter || content.speaker || '').trim();
+    if (!owner || isPlayerName(name, userName)) return false;
+    const current = characterKey(sceneAssets, name);
+    return Boolean(current && current !== owner && romanceTargets.has(current));
 }
 
 // 心形按钮落在头部右上方（复用漫画符号「心」的落点）；原图尺寸未知时贴在立绘上方中间。
@@ -64812,6 +65172,7 @@ function applyRomanceToDom(root, snapshot, ctx = {}) {
     let moments = { played: [], typewriter: null };
     if (settings.enabled) {
         rememberFavor(content.statusHud, settings.favorWords);
+        rememberRomanceTarget(content, reader._sceneAssets, ctx.userName);
         moments = applyRomanceMoments(root, snapshot, ctx);
     }
     // 脱衣：每个文字页都记一次「这个角色现在是不是裸体」，这样进入亲密段时才知道是不是刚脱。
@@ -64846,7 +65207,7 @@ function applyRomanceToDom(root, snapshot, ctx = {}) {
     setAttr(stage, 'data-igs-rm-level', level > 0, String(level));
     setAttr(stage, 'data-igs-rm-favor', favor);
     setAttr(stage, 'data-igs-rm-strength', level > 0 || favor, settings.strength);
-    const rival = settings.rival && !nsfw && (level === 1 || level === 2) && hasSprite && resolveRival(content, reader._sceneAssets);
+    const rival = settings.rival && !nsfw && (level === 1 || level === 2) && hasSprite && resolveRival(content, reader._sceneAssets, ctx.userName);
     setAttr(stage, 'data-igs-rm-tone', true, rival ? 'rival' : MOON_TIMES.has(resolveWeatherFxTime(content.sceneTime)) ? 'moon' : 'warm');
 
     // 多人同屏（ctx.sprite.multi）时不向中线收拢，否则说话人会压到陪衬上；只保留以头部为原点的放大。
@@ -75118,50 +75479,6 @@ function resolveMapTimeBasemap(baseUrl, time) {
 
 __igsDefine(exports, "normalizeMapTime", () => normalizeMapTime);
 __igsDefine(exports, "resolveMapTimeBasemap", () => resolveMapTimeBasemap);
-});
-__igsRegister("src/visual/igs-ui/record-page-shell.js", function(module, exports, require) {
-// 四类资料页共用外壳：页头（返回 + 居中标题）、遮挡恢复、容器布局状态。
-// 只服务地图/心事/背包/关系四页，不发展为通用弹窗框架。
-const { RECORD_ICONS } = require("src/visual/igs-ui/record-icons.js");
-// 容器断点：宽屏 ≥1100、中间 768–1100、窄屏 <768；短容器 H<600 叠加短屏处理。
-function recordPageLayoutClass(width, height) {
-    const classes = [];
-    if (width < 768) classes.push('igs-rp-narrow');
-    else if (width < 1100) classes.push('igs-rp-mid');
-    if (height < 600) classes.push('igs-rp-short');
-    return classes.join(' ');
-}
-
-// 观察面板容器实际宽高并写布局 class；返回解除函数。优先 ResizeObserver，无轮询。
-function watchRecordPageLayout(panel, doc) {
-    if (!panel) return () => { };
-    const apply = () => {
-        const rect = panel.getBoundingClientRect?.() || { width: 0, height: 0 };
-        panel.classList.remove('igs-rp-narrow', 'igs-rp-mid', 'igs-rp-short');
-        const cls = recordPageLayoutClass(rect.width, rect.height);
-        if (cls) for (const name of cls.split(' ')) panel.classList.add(name);
-    };
-    apply();
-    const view = doc?.defaultView;
-    if (view?.ResizeObserver) {
-        const observer = new view.ResizeObserver(apply);
-        observer.observe(panel);
-        return () => { try { observer.disconnect(); } catch (_) { /* already gone */ } };
-    }
-    return () => { };
-}
-
-// 页头 DOM：返回按钮（44px 命中区）+ 居中标题 + 可选右侧附件（资料页放配色色板）。
-function recordPageHeadHtml(title, options = {}) {
-    const closeAttr = options.closeAttr || 'data-record-act';
-    const backAriaLabel = options.backAriaLabel || '返回';
-    const trailing = options.trailing ? `<div class="igs-rp-head-end">${options.trailing}</div>` : '';
-    return `<header class="igs-rp-head"><button type="button" class="igs-rp-back" ${closeAttr}="close" aria-label="${backAriaLabel}">${RECORD_ICONS.back}</button><h2 class="igs-rp-title">${title}</h2>${trailing}</header>`;
-}
-
-__igsDefine(exports, "recordPageLayoutClass", () => recordPageLayoutClass);
-__igsDefine(exports, "watchRecordPageLayout", () => watchRecordPageLayout);
-__igsDefine(exports, "recordPageHeadHtml", () => recordPageHeadHtml);
 });
 __igsRegister("src/visual/igs-ui/map-viewport.js", function(module, exports, require) {
 // 地图视口纯函数：相机模型 screen = world * k + [tx, ty]（transform-origin 0 0）。

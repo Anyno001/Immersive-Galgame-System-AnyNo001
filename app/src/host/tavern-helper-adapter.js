@@ -46,15 +46,15 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
             const normalizedId = normalizeMessageId(messageId);
             if (normalizedId == null) return null;
             const step = Number(delta) < 0 ? -1 : 1;
-            const messages = getNormalizedMessages(globalObject, hiddenMessageCache).filter(isTurnCandidate);
+            const messages = getNormalizedMessages(globalObject, hiddenMessageCache).filter(isReadableTurn);
             const currentIndex = messages.findIndex((message) => message.id === normalizedId);
             if (currentIndex < 0) return null;
             return messages[currentIndex + step] || null;
         },
 
-        // 阅读器按顺序读楼用：只读数据层，不碰 DOM。
+        // 阅读器按顺序读楼用：只读数据层，不碰 DOM。被隐藏的 AI 楼也列出，见 isReadableTurn。
         async listTurns() {
-            return getNormalizedMessages(globalObject, hiddenMessageCache).filter(isTurnCandidate);
+            return getNormalizedMessages(globalObject, hiddenMessageCache).filter(isReadableTurn);
         },
 
         async jumpToMessage(messageId) {
@@ -637,6 +637,17 @@ function isTurnCandidate(message) {
         && !message.isHidden
         && !message.isUser,
     );
+}
+
+// 阅读器翻楼用：/hide 或数据库、总结插件隐藏的旧楼只是不发给模型，剧情照样能读；
+// 用户楼和旁白、注释这类真正的系统消息仍跳过。酒馆把隐藏也记成 is_system，所以只看旁白标记。
+const NON_STORY_SYSTEM_TYPES = new Set(['narrator', 'comment']);
+function isReadableTurn(message) {
+    if (!message || message.isUser) return false;
+    const raw = message.raw && typeof message.raw === 'object' ? message.raw : null;
+    if (!raw) return !message.isSystem || message.isHidden;
+    const type = raw.extra && typeof raw.extra === 'object' ? String(raw.extra.type || '') : '';
+    return raw.role !== 'system' && !NON_STORY_SYSTEM_TYPES.has(type);
 }
 
 function findMessageRegenerateButton(message, imageIndex, imageState = null) {

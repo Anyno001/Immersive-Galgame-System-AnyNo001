@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
-import { alignToReference, castSideOf, planCastLayouts, playSpeakerCastMotion, resolveCastHandoff } from '../src/visual/igs-ui/stage-cast-motion.js';
+import { alignToReference, castSideOf, createCastAlignLock, planCastLayouts, playSpeakerCastMotion, resolveCastHandoff } from '../src/visual/igs-ui/stage-cast-motion.js';
 import { applyCastToDom } from '../src/visual/igs-ui/stage-cast-render.js';
 
 function fakeCastRoot() {
@@ -165,4 +165,49 @@ test('gate: head alignment keeps configured sprite heights apart', () => {
     assert.ok(Math.abs(framed.scale - 87.5) < 1e-9, '构图差别照常抹平');
     const same = alignToReference({ ...stage, reference: { ...reference, baseHeight: undefined }, member: { ...member, scale: 50, baseHeight: undefined, head: { ...head, w: 0.16 } } });
     assert.equal(same.scale, 62.5, '没有设定高度时与原来一致');
+});
+
+// 参照一旦定下，只要还在台上就不换：开口更早的人回台、参照换表情都不会让台上原有的人跳。
+test('gate: cast alignment keeps its reference while that person stays on stage', () => {
+    const base = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 } };
+    const small = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.1, w: 0.16 } };
+    const heads = { 'a.png': small, 'b.png': base, 'c.png': small };
+    const peek = (url) => heads[url] || null;
+    const lock = createCastAlignLock();
+    const stage = { stageW: 1000, stageH: 600, align: true, peek, lock };
+    const m = (character, url, order) => ({ character, url, order, posX: 50, posY: 100, scale: 50, head: null });
+    const first = planCastLayouts({ ...stage, speaker: { ...m('乙', 'b.png', 1) }, members: [m('丙', 'c.png', 2)] });
+    const bing = first.members[0];
+    assert.equal(lock.ref, '乙');
+    assert.equal(bing.scale, 62.5);
+    // 甲本场景开口更早，回台后也不抢参照。
+    const back = planCastLayouts({ ...stage, speaker: { ...m('乙', 'b.png', 1) }, members: [m('甲', 'a.png', 0), m('丙', 'c.png', 2)] });
+    assert.equal(lock.ref, '乙');
+    assert.deepEqual([back.members[1].scale, back.members[1].posY], [bing.scale, bing.posY]);
+    assert.equal(back.speaker.scale, 50, '参照物自己不对齐');
+    // 参照换了表情、新图还没探测好：其余人沿用上次结果，不先跳回原样。
+    const swap = planCastLayouts({ ...stage, speaker: { ...m('乙', 'b2.png', 1) }, members: [m('丙', 'c.png', 2)] });
+    assert.deepEqual(swap.pending, ['b2.png']);
+    assert.deepEqual([swap.members[0].scale, swap.members[0].posY], [bing.scale, bing.posY]);
+    // 参照下台才换人，换成在场者里最早开口的那个。
+    planCastLayouts({ ...stage, speaker: { ...m('丙', 'c.png', 2) }, members: [m('甲', 'a.png', 0)] });
+    assert.equal(lock.ref, '甲');
+    planCastLayouts({ ...stage, align: false, speaker: { ...m('丙', 'c.png', 2) }, members: [m('甲', 'a.png', 0)] });
+    assert.equal(lock.ref, null, '关掉对齐就放开参照');
+});
+
+// 底边钉死：头顶偏下的人放大后不会被抬离舞台底；原本就悬空的最多悬到原来的高度。
+test('gate: head alignment never lifts a sprite off the stage floor', () => {
+    const stage = { stageW: 1000, stageH: 600 };
+    const reference = { naturalW: 1000, naturalH: 2000, posX: 50, posY: 100, scale: 80, head: { x: 0.5, top: 0.02, w: 0.2 } };
+    const member = { naturalW: 1000, naturalH: 2000, posX: 50, posY: 100, scale: 80, head: { x: 0.5, top: 0.3, w: 0.2 } };
+    const bottomOf = (sprite) => {
+        const h = stage.stageH * sprite.scale / 100;
+        return (stage.stageH - h) * sprite.posY / 100 + h;
+    };
+    const out = alignToReference({ ...stage, reference, member });
+    assert.ok(bottomOf(out) >= stage.stageH - 0.5, `脚贴底：${bottomOf(out)}`);
+    const floating = { ...member, scale: 60, posY: 50 };
+    const lifted = alignToReference({ ...stage, reference, member: floating });
+    assert.ok(bottomOf(lifted) >= bottomOf(floating) - 0.5, '悬空的不会悬得更高');
 });

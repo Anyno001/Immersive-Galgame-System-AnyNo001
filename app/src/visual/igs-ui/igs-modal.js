@@ -1,16 +1,39 @@
 // 页面内的提示、确认和输入。挂在阅读器或当前层上，不调用浏览器 alert / confirm / prompt。
 // 浏览器那三个弹窗会退出全屏；这里的层在全屏元素里面，全屏保持不变。
 
+import { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette, normalizeSettingsTheme } from './settings-theme.js';
+
 const STYLE_ID = 'igs-page-modal-style';
 
+// 提示类小浮层（确认 / 输入弹窗、续读提示条）跟设置器同一套四色：实色面板、主题墨色、高亮色做主按钮。
+// 没给配色时用地雷色（SETTINGS_THEME_BASE）。
+const HINT_SCOPES = '.igs-page-modal,#igs-resume-bar';
+const hintThemeVars = (theme) => {
+    const { tokens } = getSettingsThemePalette(theme);
+    return `--igs-hint-bg:${tokens.panel};--igs-hint-ink:${tokens.ink};--igs-hint-soft:${tokens['ink-2']};--igs-hint-field:${tokens.field};--igs-hint-fill:${tokens.highlight};`
+        + `--igs-hint-accent:${tokens.accent};--igs-hint-on-accent:${tokens['on-accent']};--igs-hint-shadow:${tokens['shell-shadow']};`;
+};
+export const IGS_HINT_THEME_STYLE_TEXT = [
+    `${HINT_SCOPES}{${hintThemeVars(SETTINGS_THEME_BASE)}}`,
+    ...SETTINGS_THEME_OPTIONS.map(({ value }) => HINT_SCOPES.split(',').map((scope) => `${scope}[data-igs-hint-theme="${value}"]`).join(',') + `{${hintThemeVars(value)}}`),
+    '#igs-resume-bar{background:var(--igs-hint-bg);color:var(--igs-hint-ink);box-shadow:var(--igs-hint-shadow);}',
+].join('\n');
+
 export const IGS_MODAL_STYLE_TEXT = `
-.igs-page-modal{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:rgba(0,0,0,.45);color:#f2efe9;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;}
-.igs-page-modal-card{width:min(440px,100%);display:flex;flex-direction:column;gap:14px;box-sizing:border-box;padding:18px 18px 14px;border-radius:14px;background:rgba(22,24,28,.96);border:1px solid rgba(255,255,255,.12);box-shadow:0 16px 48px rgba(0,0,0,.45);}
-.igs-page-modal-msg{margin:0;font-size:14px;line-height:1.6;white-space:pre-line;word-break:break-word;}
-.igs-page-modal-input{width:100%;box-sizing:border-box;margin:0;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit;font:inherit;font-size:14px;}
-.igs-page-modal-actions{display:flex;justify-content:flex-end;gap:8px;}
-.igs-page-modal-actions button{min-height:36px;padding:0 14px;border:0;border-radius:8px;background:rgba(255,255,255,.12);color:inherit;font:inherit;font-size:13px;cursor:pointer;}
-.igs-page-modal-actions [data-igs-modal="ok"]{background:#e8e4dc;color:#1a1c1f;}
+${IGS_HINT_THEME_STYLE_TEXT}
+.igs-page-modal{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:rgba(0,0,0,.38);color:var(--igs-hint-ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;animation:igs-page-modal-fade .18s ease both;}
+.igs-page-modal-card{width:min(400px,100%);display:flex;flex-direction:column;gap:18px;box-sizing:border-box;padding:24px 22px 16px;border-radius:14px;background:var(--igs-hint-bg);box-shadow:var(--igs-hint-shadow);animation:igs-page-modal-rise .22s cubic-bezier(.2,.8,.2,1) both;}
+.igs-page-modal-msg{margin:0;font-size:15px;line-height:1.7;letter-spacing:.04em;white-space:pre-line;word-break:break-word;}
+.igs-page-modal-input{width:100%;box-sizing:border-box;margin:0;padding:9px 12px;border-radius:8px;border:0;outline:0;background:var(--igs-hint-field);color:inherit;font:inherit;font-size:14px;}
+.igs-page-modal-input:focus{box-shadow:inset 0 0 0 1.5px var(--igs-hint-accent);}
+.igs-page-modal-actions{display:flex;justify-content:flex-end;gap:6px;}
+.igs-page-modal-actions button{min-height:36px;padding:0 16px;border:0;border-radius:8px;background:transparent;color:var(--igs-hint-soft);font:inherit;font-size:13px;letter-spacing:.08em;cursor:pointer;transition:background .15s,opacity .15s;}
+.igs-page-modal-actions button:hover,.igs-page-modal-actions button:focus-visible{background:var(--igs-hint-fill);color:var(--igs-hint-ink);outline:none;}
+.igs-page-modal-actions [data-igs-modal="ok"]{background:var(--igs-hint-accent);color:var(--igs-hint-on-accent);font-weight:600;}
+.igs-page-modal-actions [data-igs-modal="ok"]:hover,.igs-page-modal-actions [data-igs-modal="ok"]:focus-visible{background:var(--igs-hint-accent);color:var(--igs-hint-on-accent);opacity:.88;}
+@keyframes igs-page-modal-fade{from{opacity:0;}to{opacity:1;}}
+@keyframes igs-page-modal-rise{from{opacity:0;transform:translateY(6px) scale(.98);}to{opacity:1;transform:none;}}
+@media (prefers-reduced-motion:reduce){.igs-page-modal,.igs-page-modal-card{animation:none;}}
 `;
 
 function ensureStyle(doc) {
@@ -53,7 +76,7 @@ function pinToVisibleScreen(el, doc) {
     el.style.setProperty('bottom', 'auto');
 }
 
-export function createIgsModal({ getHost = () => null, global: globalObj = globalThis } = {}) {
+export function createIgsModal({ getHost = () => null, getTheme = () => '', global: globalObj = globalThis } = {}) {
     let pending = null;
 
     function detach(entry) {
@@ -83,6 +106,9 @@ export function createIgsModal({ getHost = () => null, global: globalObj = globa
         detach(entry);
         const el = doc.createElement('div');
         el.className = 'igs-page-modal';
+        let theme = '';
+        try { theme = getTheme() ? normalizeSettingsTheme(getTheme()) : ''; } catch (_) { theme = ''; }
+        if (theme) el.setAttribute('data-igs-hint-theme', theme);
         el.setAttribute('role', entry.kind === 'prompt' ? 'dialog' : 'alertdialog');
         el.setAttribute('aria-modal', 'true');
         el.setAttribute('aria-label', entry.message);

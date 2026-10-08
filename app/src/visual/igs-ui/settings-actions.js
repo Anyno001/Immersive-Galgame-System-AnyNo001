@@ -2607,6 +2607,15 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction.startsWith('toolbar-reorder:')) {
+        const canonical = TOOLBAR_ACTIONS.map(([actionId]) => actionId);
+        const picked = normalizedAction.slice('toolbar-reorder:'.length).split(',').filter((id, i, all) => canonical.includes(id) && all.indexOf(id) === i);
+        settingsState.draft.readerSettings.btnOrder = picked.concat(canonical.filter((id) => !picked.includes(id)));
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('toolbar-move-up:')) {
         const id = normalizedAction.slice('toolbar-move-up:'.length);
         const order = Array.isArray(settingsState.draft.readerSettings.btnOrder)

@@ -733,6 +733,42 @@ export function createSettingsHost(deps) {
             // 让这次点击先落到按钮上，再补刷搁着的缩略图。
             (doc.defaultView || globalThis).setTimeout(flushDeferredImageRefresh, 0);
         };
+        // 工具栏「按钮管理」：按住 ☰ 拖动换行，松手提交顺序；没拖动时仍按点击上移处理。
+        let btnDrag = null;
+        const btnRowId = (row) => {
+            const handle = row && row.querySelector ? row.querySelector('.igs-btn-mgr-handle') : null;
+            return handle ? String(handle.getAttribute('data-action') || '').replace(/^toolbar-move-up:/, '') : '';
+        };
+        root.addEventListener('pointerdown', (event) => {
+            const handle = event.target && event.target.closest ? event.target.closest('.igs-btn-mgr-handle') : null;
+            const row = handle && handle.closest('.igs-btn-mgr-row');
+            if (row && row.parentNode) btnDrag = { row, list: row.parentNode, startY: Number(event.clientY) || 0, moved: false };
+        });
+        root.addEventListener('pointermove', (event) => {
+            if (!btnDrag) return;
+            const y = Number(event.clientY) || 0;
+            if (!btnDrag.moved && Math.abs(y - btnDrag.startY) < 6) return;
+            btnDrag.moved = true;
+            if (event.cancelable) event.preventDefault();
+            for (const other of btnDrag.list.children) {
+                if (other === btnDrag.row) continue;
+                const rect = other.getBoundingClientRect();
+                if (y < rect.top || y > rect.bottom) continue;
+                btnDrag.list.insertBefore(btnDrag.row, y < rect.top + rect.height / 2 ? other : other.nextSibling);
+                break;
+            }
+        });
+        const btnDragEnd = () => {
+            const drag = btnDrag;
+            btnDrag = null;
+            if (!drag || !drag.moved) return;
+            const swallow = (event) => { event.stopPropagation(); event.preventDefault(); };
+            root.addEventListener('click', swallow, true);
+            (doc.defaultView || globalThis).setTimeout(() => root.removeEventListener('click', swallow, true), 0);
+            controller.invoke('toolbar-reorder:' + Array.from(drag.list.children, btnRowId).filter(Boolean).join(','));
+        };
+        root.addEventListener('pointerup', btnDragEnd);
+        root.addEventListener('pointercancel', btnDragEnd);
         root.addEventListener('pointerdown', pointerDown, true);
         root.addEventListener('pointerup', pointerUp, true);
         root.addEventListener('pointercancel', pointerUp, true);

@@ -54,17 +54,21 @@ export function alignToReference({ stageW, stageH, reference, member }) {
     const targetTop = stageH - (stageH - (ref.top + ref.h * reference.head.top)) * tall;
     const room = stageH - rect.h;
     if (Math.abs(room) < 1) return { scale, posY: member.posY };
-    const posY = ((targetTop - rect.h * member.head.top) / room) * 100;
+    let posY = ((targetTop - rect.h * member.head.top) / room) * 100;
+    // 底边钉死：只许放大缩小、不许为了头顶齐平把人抬离舞台底；原本就悬空的立绘最多悬到原来的高度。
+    const allowLift = Math.max(0, stageH - (own.top + own.h));
+    if (stageH - (room * posY / 100 + rect.h) > allowLift + 0.5) posY = ((room - allowLift) / room) * 100;
     return { scale, posY: Math.max(-200, Math.min(300, posY)) };
 }
 
-// 参照物是本场景最早开口（order 最小）的在场者；locked 的条目（用户手调过）不被改，但可以当参照。
-// locked 条目按 autoGeometry（删掉槽位后的样子）另算一份，只给「还原自动」用。
-export function alignCastLayouts({ stageW, stageH, entries = [] }) {
+// 参照物默认是本场景最早开口（order 最小）的在场者；传 refKey 时用这个人（还没探测好就不对齐）。
+// locked 的条目（用户手调过）不被改，但可以当参照；locked 条目按 autoGeometry（删掉槽位后的样子）另算一份，只给「还原自动」用。
+export function alignCastLayouts({ stageW, stageH, entries = [], refKey = null }) {
     const out = new Map();
     const ready = entries.filter((e) => e && e.geometry && e.geometry.head);
     if (ready.length < 2) return out;
-    const ref = ready.reduce((a, b) => (b.order < a.order ? b : a));
+    const ref = refKey == null ? ready.reduce((a, b) => (b.order < a.order ? b : a)) : ready.find((e) => e.key === refKey);
+    if (!ref) return out;
     for (const e of ready) {
         if (e === ref) continue;
         const member = e.locked ? e.autoGeometry : e.geometry;
@@ -77,17 +81,33 @@ function withBaseHeight(geometry, baseHeight) {
     return geometry && Number(baseHeight) > 0 ? { ...geometry, baseHeight: Number(baseHeight) } : geometry;
 }
 
+// 头部对齐的参照锁：参照一旦定下，只要还在台上就不换，进出场、换表情都不会让台上原有的人重新对齐。
+// memo 记每人上次的对齐结果：参照换了表情、图还没探测好时先沿用，避免先跳回原样再跳回来。
+export function createCastAlignLock() {
+    return { ref: null, memo: new Map() };
+}
+
+const sharedAlignLock = createCastAlignLock();
+
+function alignMemoSig(stageW, stageH, e, geometry) {
+    return [stageW, stageH, e.url, geometry && geometry.scale, geometry && geometry.posY, e.baseHeight].join('|');
+}
+
 // speaker / members 条目：{ url, order, posX, posY, scale, head(手动标定或 null), baseHeight?, auto?, locked?, ... }，其余字段原样带出。
+// 说话人条目带 character 时按人锁参照，否则当作同一个「说话人」。
 // auto 换成对齐后的样子：「还原自动」预览的就是保存后画面上会出现的样子。
 // pending 为还没有探测数据、需要先 probeSpriteHead 的地址。
-export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker = null, members = [], peek = () => null } = {}) {
+export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker = null, members = [], peek = () => null, lock = sharedAlignLock } = {}) {
     const all = [
-        ...(speaker ? [{ ...speaker, id: SPEAKER_ID }] : []),
-        ...members.map((m) => ({ ...m, id: `m:${m.character}` })),
+        ...(speaker ? [{ ...speaker, id: SPEAKER_ID, key: speaker.character || SPEAKER_ID }] : []),
+        ...members.map((m) => ({ ...m, id: `m:${m.character}`, key: m.character })),
     ];
     const aligned = new Map();
     const pending = [];
-    if (align && all.length > 1 && stageW > 0 && stageH > 0) {
+    if (!align) {
+        lock.ref = null;
+        lock.memo.clear();
+    } else if (all.length > 1 && stageW > 0 && stageH > 0) {
         const entries = [];
         for (const e of all) {
             const probed = e.url ? peek(e.url) : null;
@@ -95,15 +115,35 @@ export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker
             const locked = e.locked === true;
             entries.push({
                 id: e.id,
+                key: e.key,
+                url: e.url,
+                baseHeight: e.baseHeight,
                 order: Number.isFinite(e.order) ? e.order : Number.MAX_SAFE_INTEGER,
                 locked,
                 geometry: withBaseHeight(spriteGeometry(e, probed), e.baseHeight),
                 autoGeometry: locked && e.auto ? withBaseHeight(spriteGeometry({ ...e, ...e.auto }, probed), e.baseHeight) : null,
             });
         }
-        for (const [id, value] of alignCastLayouts({ stageW, stageH, entries })) aligned.set(id, value);
+        // 参照下台了才换人：换成在场者里本场景最早开口的那个（不管图探测好没有，免得探测完又换一次）。
+        if (!entries.some((e) => e.key === lock.ref)) {
+            lock.ref = entries.reduce((a, b) => (b.order < a.order ? b : a)).key;
+            lock.memo.clear();
+        }
+        const fresh = alignCastLayouts({ stageW, stageH, entries, refKey: lock.ref });
+        for (const e of entries) {
+            if (e.key === lock.ref) continue;
+            const sig = alignMemoSig(stageW, stageH, e, e.locked ? e.autoGeometry : e.geometry);
+            const value = fresh.get(e.id);
+            if (value) {
+                lock.memo.set(e.key, { sig, value });
+                aligned.set(e.id, value);
+                continue;
+            }
+            const memo = lock.memo.get(e.key);
+            if (memo && memo.sig === sig) aligned.set(e.id, memo.value);
+        }
     }
-    const finish = ({ id, ...e }) => {
+    const finish = ({ id, key, ...e }) => {
         const value = aligned.get(id);
         if (!value) return e;
         const next = e.locked ? { ...e } : { ...e, ...value };

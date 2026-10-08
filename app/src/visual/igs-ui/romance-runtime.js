@@ -1,6 +1,7 @@
 import { prefersReducedMotion } from './reduced-motion.js';
 import { measureStage, peekSpriteHead, probeSpriteHead, resolveSymbolPlacement } from './fx-anchor.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
+import { isPlayerName } from '../../scene/battle-context.js';
 import { resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import {
@@ -107,13 +108,30 @@ function characterKey(sceneAssets, name) {
 
 // 修罗场：只认 romance 标签第 3 栏写明的对象（与同屏 resolveRomanceRivalTarget 一致）。
 // 对象栏缺省时不猜——按「区间里第一个出场的人」猜会猜错，心动 / 动情段里换人说话就频繁弹心碎。
-// 返回当前立绘角色是否为「另一位已登记角色」（非本区间对象）。
-function resolveRival(content, sceneAssets) {
+// 主角本人不算对象也不算情敌；情敌只认当过 romance 对象的角色（好感不一定是爱情，系统 / 家人 / 朋友插话不算）。
+const romanceTargets = new Set();
+
+function romanceOwner(content, sceneAssets, userName) {
     const fx = content.fx || {};
-    if (!fx.romance || Number(fx.romanceAt) < 0) return false;
-    const current = characterKey(sceneAssets, content.spriteCharacter || content.speaker);
-    const owner = characterKey(sceneAssets, fx.romanceTarget) || String(fx.romanceTarget || '').trim();
-    return Boolean(current && owner && current !== owner);
+    if (!fx.romance || Number(fx.romanceAt) < 0) return '';
+    const target = String(fx.romanceTarget || '').trim();
+    if (!target || isPlayerName(target, userName)) return '';
+    return characterKey(sceneAssets, target) || target;
+}
+
+// 每页都记（不论档位、有没有立绘），往后翻到其他段落时才认得出谁是情敌。
+function rememberRomanceTarget(content, sceneAssets, userName) {
+    const owner = romanceOwner(content, sceneAssets, userName);
+    if (owner) remember(romanceTargets, owner);
+}
+
+// 返回当前立绘角色是否为「另一位当过恋爱对象的角色」（非本区间对象）。
+function resolveRival(content, sceneAssets, userName) {
+    const owner = romanceOwner(content, sceneAssets, userName);
+    const name = String(content.spriteCharacter || content.speaker || '').trim();
+    if (!owner || isPlayerName(name, userName)) return false;
+    const current = characterKey(sceneAssets, name);
+    return Boolean(current && current !== owner && romanceTargets.has(current));
 }
 
 // 心形按钮落在头部右上方（复用漫画符号「心」的落点）；原图尺寸未知时贴在立绘上方中间。
@@ -244,6 +262,7 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
     let moments = { played: [], typewriter: null };
     if (settings.enabled) {
         rememberFavor(content.statusHud, settings.favorWords);
+        rememberRomanceTarget(content, reader._sceneAssets, ctx.userName);
         moments = applyRomanceMoments(root, snapshot, ctx);
     }
     // 脱衣：每个文字页都记一次「这个角色现在是不是裸体」，这样进入亲密段时才知道是不是刚脱。
@@ -278,7 +297,7 @@ export function applyRomanceToDom(root, snapshot, ctx = {}) {
     setAttr(stage, 'data-igs-rm-level', level > 0, String(level));
     setAttr(stage, 'data-igs-rm-favor', favor);
     setAttr(stage, 'data-igs-rm-strength', level > 0 || favor, settings.strength);
-    const rival = settings.rival && !nsfw && (level === 1 || level === 2) && hasSprite && resolveRival(content, reader._sceneAssets);
+    const rival = settings.rival && !nsfw && (level === 1 || level === 2) && hasSprite && resolveRival(content, reader._sceneAssets, ctx.userName);
     setAttr(stage, 'data-igs-rm-tone', true, rival ? 'rival' : MOON_TIMES.has(resolveWeatherFxTime(content.sceneTime)) ? 'moon' : 'warm');
 
     // 多人同屏（ctx.sprite.multi）时不向中线收拢，否则说话人会压到陪衬上；只保留以头部为原点的放大。
