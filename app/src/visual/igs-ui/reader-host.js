@@ -3904,6 +3904,7 @@ export function createIgsReaderHost(options = {}) {
             snapshot: current.snapshot,
             gate: current.titleGate,
             card: titleCardOf(getSillyTavernContext(options.global || globalThis)),
+            userName: (getSillyTavernContext(options.global || globalThis) || {}).name1 || '',
             globalSkin: resolveBridgeConfigSnapshot({ mode: current.mode }).readerSettings.dialogSkin,
             resolveUrl: (url) => resolveReaderAssetUrl(url, current),
         });
@@ -3935,6 +3936,7 @@ export function createIgsReaderHost(options = {}) {
         current.titleGate = next.gate;
         if (next.effect === 'close') return current.controller.close();
         if (next.effect === 'settings') return current.controller.openSettings();
+        if (next.effect === 'user-char') return generateUserCharFromTitle(current);
         if (next.effect === 'continue') return continueFromTitle(current);
         if (next.effect === 'start') return playOpeningFromTitle(current);
         if (next.effect === 'save' || next.effect === 'save-start') {
@@ -3952,6 +3954,16 @@ export function createIgsReaderHost(options = {}) {
         }
         renderTitleGate(current);
         return null;
+    }
+
+    // 世界观页「生成主角立绘」：打开设置的角色页，走和「＋ › 用酒馆用户设定生成主角」同一个动作，进度和结果都在那里看；关掉设置回到世界观页。
+    async function generateUserCharFromTitle(current) {
+        openSettings({ tab: 'scene', mode: current.mode });
+        const settings = state.activeSettings;
+        if (!settings || !settings.controller || typeof settings.controller.invoke !== 'function') return { ok: false, reason: 'settings-not-open' };
+        settings.asyncState.sceneSubTab = 'characters';
+        rerenderSettings();
+        return settings.controller.invoke('scene-add-user-char');
     }
 
     async function continueFromTitle(current) {

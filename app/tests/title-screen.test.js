@@ -143,6 +143,13 @@ test('title-screen:menu-and-worldview-page-render-and-dispatch-clicks', () => {
     assert.equal((layer.innerHTML.match(/data-ts-act="world:/g) || []).length, 8, '8 个世界观各一张卡');
     assert.match(layer.innerHTML, /data-ts-act="skin:horror-gore"/);
     assert.match(layer.innerHTML, /data-ts-act="confirm"[^>]*>开始/);
+    assert.doesNotMatch(layer.innerHTML, /data-ts-act="user-char"/, '读不到用户名时不出「生成主角立绘」');
+    const withUser = buildTitleScreenModel({ snapshot: snapshotOf(), userName: '林舟', gate: { ...createTitleGate(), hasLater: false, view: 'worldview' } });
+    assert.equal(withUser.userName, '林舟');
+    renderTitleScreen(overlay, withUser, handlers);
+    assert.match(layer.innerHTML, /data-ts-act="user-char"[^>]*>生成主角立绘/, '世界观页能按酒馆用户设定生成主角立绘');
+    assert.equal(reduceTitleAction(createTitleGate(), withUser, 'user-char').effect, 'user-char');
+    renderTitleScreen(overlay, page, handlers);
 
     layer.fire('click', clickOn('world:scifi'));
     layer.fire('click', clickOn('confirm'));

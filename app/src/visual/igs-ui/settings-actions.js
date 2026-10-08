@@ -392,11 +392,14 @@ function normalizeMoodTier(value) {
     return MOOD_TIERS.includes(picked) ? picked : 0;
 }
 
-async function chooseMoodTier(dialogs, saved, name) {
+// firstDefault：新衣服还没有自己的图时，最上面多一项「1 张」，只画这套的「平和」。阅读器里这套缺的表情都回落到它，
+// 睡衣这类只要一张的衣服就到此为止；想要整套再点一次选档位。返回 1。
+async function chooseMoodTier(dialogs, saved, name, { firstDefault = false } = {}) {
     const remembered = normalizeMoodTier(saved);
-    const current = remembered || 8;
-    const title = `「${name}」要画多少张表情差分？`;
+    const current = firstDefault ? 1 : remembered || 8;
+    const title = firstDefault ? `「${name}」这套衣服还没有图，先画几张？` : `「${name}」要画多少张表情差分？`;
     const choices = [
+        ...(firstDefault ? [{ value: '1', label: '1', note: '只画一张平和，所有表情共用（推荐）' }] : []),
         { value: '8', label: '8', note: '普通角色' },
         { value: '12', label: '12', note: '重要配角' },
         { value: '16', label: '16', note: '主要角色' },
@@ -409,6 +412,7 @@ async function chooseMoodTier(dialogs, saved, name) {
         raw = await dialogs.prompt(`${title}\n${choices.map((item) => `${item.label} ${item.note}`).join('\n')}`, String(current));
     } else return current;
     if (raw == null) return 0;
+    if (firstDefault && Number(raw) === 1) return 1;
     const picked = normalizeMoodTier(raw);
     return picked || current;
 }
@@ -1491,7 +1495,10 @@ export async function handleSettingsAction(action, ctx) {
         const endProgress = () => { if (progress) progress.end(); };
         const allGroups = normalizeMoodGroups(settingsState.draft.bridge.sceneAssets.moodGroups);
         const savedTiers = sceneAssets.characterMoodTiers && typeof sceneAssets.characterMoodTiers === 'object' ? sceneAssets.characterMoodTiers : {};
-        const tier = retry || resume ? 8 : await chooseMoodTier(dialogs, savedTiers[name], name);
+        // 新衣服还没有自己的图：可以先只画一张「平和」，所有表情共用；之后整套差分照它的衣服画。
+        const firstDefault = outfitMode && !retry && !resume && !firstGeneratedOutfitUrl(outfitEntry);
+        const tier = retry || resume ? 8 : await chooseMoodTier(dialogs, savedTiers[name], name, { firstDefault });
+        const singleDefault = tier === 1;
         if (!retry && !resume && tier === 0) return rerenderSettings();
         const nsfw = nsfwEnabledForAssets(settingsState.draft);
         // 性格、某个情绪的特别表现：这次写词要遵守的额外要求。按角色记住，下次预填。
@@ -1501,7 +1508,8 @@ export async function handleSettingsAction(action, ctx) {
             moodNote = await askExpressionNote(dialogs, name, savedNotes[name]);
             if (moodNote === null) return rerenderSettings();
         }
-        const labels = tier
+        const labels = singleDefault ? ['平和']
+            : tier
             ? moodTierLabels(tier, { nsfw })
             : allGroups.map((group) => group.label);
         const ownUrl = outfitMode ? firstGeneratedOutfitUrl(outfitEntry) : '';
@@ -1553,7 +1561,7 @@ export async function handleSettingsAction(action, ctx) {
         }
         const slots = outfitMode ? (outfitEntry.moods || {}) : (character || {});
         // 自建组不进档位：还没图的问一句要不要一起画。
-        const customMissing = retry || resume ? [] : allGroups.map((group) => group.label)
+        const customMissing = retry || resume || singleDefault ? [] : allGroups.map((group) => group.label)
             .filter((label) => !moodPresetEntry(label) && !labels.includes(label) && !String(slots[label] || '').trim());
         if (customMissing.length) {
             const shown = `${customMissing.slice(0, 8).join('、')}${customMissing.length > 8 ? ' 等' : ''}`;
@@ -1591,7 +1599,9 @@ export async function handleSettingsAction(action, ctx) {
             }
             const paintNames = paintItems.map((item) => item.mood).join('、');
             const writeNames = writeLabels.join('、');
-            const confirmed = await dialogs.confirm(!writeLabels.length
+            const confirmed = await dialogs.confirm(singleDefault
+                ? `给${who}画 1 张「平和」立绘，这套衣服的所有表情都先用它。以后想要整套表情，再点「表情差分」选档位，会照这张的衣服来画。`
+                : !writeLabels.length
                 ? `这一档还有 ${paintItems.length} 张已写好提示词、尚未出图：${paintNames}。将只补画这 ${paintItems.length} 张，不重写提示词。`
                 : !paintItems.length
                     ? (missingLabels.length === labels.length
@@ -1638,7 +1648,8 @@ export async function handleSettingsAction(action, ctx) {
         if (!retry && !resume) {
             const tiers = liveAssets.characterMoodTiers && typeof liveAssets.characterMoodTiers === 'object'
                 ? liveAssets.characterMoodTiers : (liveAssets.characterMoodTiers = {});
-            tiers[name] = tier;
+            // 「只画一张平和」不改这个角色记住的档位。
+            if (!singleDefault) tiers[name] = tier;
             const notes = liveAssets.characterMoodNotes && typeof liveAssets.characterMoodNotes === 'object'
                 ? liveAssets.characterMoodNotes : (liveAssets.characterMoodNotes = {});
             if (String(moodNote || '').trim()) notes[name] = String(moodNote).trim();
