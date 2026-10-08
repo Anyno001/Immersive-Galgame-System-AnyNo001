@@ -183,13 +183,17 @@ export function resolveSymbolPlacement(kind, geo) {
     return { x: Math.round(x), y: Math.round(y), size: Math.round(size), flip };
 }
 
+function opaqueRow(data, width, y) {
+    let count = 0;
+    for (let x = 0; x < width; x += 1) if (data[(y * width + x) * 4 + 3] > ALPHA_MIN) count += 1;
+    return count >= 2;
+}
+
 // 在缩略画布里找第一行不透明像素作为头顶，取头顶下方一段的不透明列范围作为头宽与头部中心。
 export function scanHeadFromAlpha(data, width, height) {
     let top = -1;
     for (let y = 0; y < height && top < 0; y += 1) {
-        let count = 0;
-        for (let x = 0; x < width; x += 1) if (data[(y * width + x) * 4 + 3] > ALPHA_MIN) count += 1;
-        if (count >= 2) top = y;
+        if (opaqueRow(data, width, y)) top = y;
     }
     if (top < 0) return null;
     const band = Math.max(2, Math.round(width * 0.22));
@@ -207,6 +211,16 @@ export function scanHeadFromAlpha(data, width, height) {
     // 整幅不透明（背景未抠）时探测无意义，回落默认头位。
     if (top === 0 && w > 0.95) return null;
     return { x: (minX + maxX + 1) / 2 / width, top: top / height, w: clamp(w, 0.08, 0.6) };
+}
+
+// 最低一行不透明像素的下沿，相对原图高度。1 表示脚就在图的底边；小于 1 表示脚上面还有透明边。
+export function scanFeetFromAlpha(data, width, height) {
+    let bottom = -1;
+    for (let y = height - 1; y >= 0 && bottom < 0; y -= 1) {
+        if (opaqueRow(data, width, y)) bottom = y;
+    }
+    if (bottom < 0) return null;
+    return (bottom + 1) / height;
 }
 
 function remember(url, info) {
@@ -229,7 +243,8 @@ function readAlpha(img, doc) {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, w, h);
-    return scanHeadFromAlpha(ctx.getImageData(0, 0, w, h).data, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    return { head: scanHeadFromAlpha(data, w, h), feet: scanFeetFromAlpha(data, w, h) };
 }
 
 function loadImage(url, doc, cors) {
@@ -270,9 +285,9 @@ export function probeSpriteHead(url, doc) {
     const job = (async () => {
         const cross = isCrossOrigin(url, doc);
         let img = await loadImage(url, doc, cross);
-        let head = null;
+        let metrics = null;
         if (img) {
-            try { head = readAlpha(img, doc); } catch { head = null; }
+            try { metrics = readAlpha(img, doc); } catch { metrics = null; }
         } else if (cross) {
             img = await loadImage(url, doc, false);
         }
@@ -281,7 +296,8 @@ export function probeSpriteHead(url, doc) {
             if (failed.size > HEAD_CACHE_LIMIT) failed.delete(failed.values().next().value);
             return null;
         }
-        return remember(url, { naturalW: img.naturalWidth, naturalH: img.naturalHeight, head: head || FALLBACK_HEAD });
+        const feet = metrics && Number(metrics.feet) > 0 ? Number(metrics.feet) : 1;
+        return remember(url, { naturalW: img.naturalWidth, naturalH: img.naturalHeight, head: (metrics && metrics.head) || FALLBACK_HEAD, feet });
     })().finally(() => pending.delete(url));
     pending.set(url, job);
     return job;

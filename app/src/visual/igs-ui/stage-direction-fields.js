@@ -46,7 +46,7 @@ function renderStageFields(s, more) {
         + checkbox(`${P}.camera.aiShots`, s.camera.aiShots, 'AI镜头指令'))
         + (s.camera.closeUp ? renderWordListField('camera.closeUpEmotions', '特写触发情绪', s.camera.closeUpEmotions) : '')
         + (s.camera.impact ? renderWordListField('camera.impactEmotions', '冲击触发情绪', s.camera.impactEmotions) : ''));
-    const cast = featureRow(more, 'stage-cast', `${P}.stageCast.enabled`, s.stageCast.enabled, '多角色同屏（实验）', '电脑3人、手机2人', checkbox(`${P}.stageCast.alignHeads`, s.stageCast.alignHeads, '按头部对齐大小与高度（需抠图或标定头部）')
+    const cast = featureRow(more, 'stage-cast', `${P}.stageCast.enabled`, s.stageCast.enabled, '多角色同屏（实验）', '电脑3人、手机2人', checkbox(`${P}.stageCast.alignHeads`, s.stageCast.alignHeads, '按腿对齐到底部（需抠图）')
         + checkbox(`${P}.stageCast.romanceDuo`, s.stageCast.romanceDuo, '亲密演出时保留同屏角色')
         + checkbox(`${P}.stageCast.castReact`, s.stageCast.castReact, '同屏角色反应')
         + checkbox(`${P}.stageCast.castStage`, s.stageCast.castStage, '同屏角色走位'));

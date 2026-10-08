@@ -420,7 +420,21 @@ export function spriteGeometry(sprite, probed) {
     if (!(naturalW > 0) || !(naturalH > 0)) return null;
     // 背对时整张立绘绕图中心水平镜像：头部只做坐标镜像（x → 1 - x），符号跟随翻转后的脸。
     const head = manual || (probed && probed.head) || null;
-    return { posX: sprite.posX, posY: sprite.posY, scale: sprite.scale, naturalW, naturalH, head: sprite.flip === true && head ? { ...head, x: 1 - Number(head.x) } : head };
+    const feet = probed && Number(probed.feet) > 0 ? Number(probed.feet) : 1;
+    return { posX: sprite.posX, posY: sprite.posY, scale: sprite.scale, naturalW, naturalH, feet, head: sprite.flip === true && head ? { ...head, x: 1 - Number(head.x) } : head };
+}
+
+export function repositionFxSymbols(root, { speaker = null, cast = [] } = {}) {
+    const layers = findFxLayers(root);
+    if (!layers || !layers.stage || typeof layers.stage.querySelectorAll !== 'function') return;
+    const byChar = new Map((Array.isArray(cast) ? cast : []).filter((m) => m && m.character).map((m) => [m.character, m]));
+    for (const el of Array.from(layers.stage.querySelectorAll('.igs-fx-symbol'))) {
+        const who = el.getAttribute('data-igs-fx-cast');
+        const sprite = who ? byChar.get(who) : speaker;
+        const kind = el.getAttribute('data-igs-fx-place') || el.getAttribute('data-kind');
+        if (!sprite || !sprite.url || !kind) continue;
+        placeSymbol(el, kind, layers.motion, sprite, peekSpriteHead(sprite.url));
+    }
 }
 
 function placeSymbol(el, kind, motion, sprite, probed) {
@@ -441,6 +455,7 @@ function showSymbol(el, effect, ctx, life, sprite, head) {
     nextFrame(doc, () => {
         if (!el.parentNode) return;
         const placeKind = (ctx.ancient && ANCIENT_SYMBOL_PLACEMENT[effect.kind]) || effect.kind;
+        el.setAttribute('data-igs-fx-place', placeKind);
         placeSymbol(el, placeKind, layers.motion, sprite, head);
         el.removeAttribute('data-pending');
     });
@@ -920,7 +935,14 @@ export function applyFxToDom(root, snapshot, options = {}) {
     if (state.pageKey && state.pageKey !== plan.pageKey) clearTransients(state, layers);
     state.motion = motion;
     if (settings.mangaFx.enabled) warmSpeedLines(doc);
-    if (settings.mangaFx.enabled && options.sprite && options.sprite.url) probeSpriteHead(options.sprite.url, doc).catch(() => null);
+    if (settings.mangaFx.enabled || castMarks.length) {
+        const urls = [];
+        if (options.sprite && options.sprite.url) urls.push(options.sprite.url);
+        for (const member of Array.isArray(options.cast) ? options.cast : []) {
+            if (member && member.url) urls.push(member.url);
+        }
+        for (const url of urls) probeSpriteHead(url, doc).catch(() => null);
+    }
     // 漫画符号与来电屏颜色跟随对话主题：取主题里最鲜艳的颜色作强调色，由样式与各自固有色混合。
     const accent = settings.mangaFx.enabled || settings.fxTags.enabled ? pickFxAccent(options.theme) : '';
     if (accent !== state.accent && motion.style && typeof motion.style.setProperty === 'function') {

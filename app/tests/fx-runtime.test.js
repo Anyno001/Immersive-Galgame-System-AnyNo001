@@ -17,7 +17,7 @@ import {
 } from '../src/visual/igs-ui/fx-settings.js';
 import { renderFxFeatureFields } from '../src/visual/igs-ui/fx-settings-fields.js';
 import { FX_SFX_PARTIALS, playFxSfx } from '../src/visual/igs-ui/fx-sfx.js';
-import { SYMBOL_OFFSETS, headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanHeadFromAlpha, spriteBackgroundSize, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
+import { SYMBOL_OFFSETS, headToMarker, markerToHead, normalizeSpriteHeads, resolveSpriteHead, resolveSymbolPlacement, scanFeetFromAlpha, scanHeadFromAlpha, spriteBackgroundSize, spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
 import { spriteGeometry } from '../src/visual/igs-ui/fx-runtime.js';
 import { ANCIENT_SYMBOL_PLACEMENT, ANCIENT_SYMBOL_SVG, MANGA_SYMBOL_SVG, pickFxAccent } from '../src/visual/igs-ui/fx-symbols.js';
 import { MANGA_SYMBOL_KINDS } from '../src/visual/igs-ui/fx-settings.js';
@@ -655,6 +655,11 @@ test('gate:fx-anchor:alpha-scan-finds-head-top-and-width', () => {
     assert.equal(head.w, 0.4);
     assert.equal(scanHeadFromAlpha(new Uint8ClampedArray(w * h * 4), w, h), null);
     assert.equal(scanHeadFromAlpha(new Uint8ClampedArray(w * h * 4).fill(255), w, h), null);
+    assert.equal(scanFeetFromAlpha(data, w, h), 1);
+    const short = new Uint8ClampedArray(w * h * 4);
+    for (let y = 4; y < 16; y += 1) for (let x = 3; x < 7; x += 1) short[(y * w + x) * 4 + 3] = 255;
+    assert.equal(scanFeetFromAlpha(short, w, h), 16 / 20);
+    assert.equal(scanFeetFromAlpha(new Uint8ClampedArray(w * h * 4), w, h), null);
 });
 
 test('gate:fx-anchor:sprite-scale-fits-stage-height', () => {

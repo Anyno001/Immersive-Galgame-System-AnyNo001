@@ -35,11 +35,24 @@ export function resolveCastHandoff(prev, next) {
     };
 }
 
-// 把 member 缩放到与 reference 头宽一致（限制倍数），再调 posY 让头顶同高；几何不全时原样返回。
-// baseHeight 是两人各自的设定高度（角色立绘高度 / 性别默认高度 / 基准高度）：头宽与头顶离舞台底边的距离都按两人之比放大，
-// 对齐只抹平原图构图的差别，不抹平设定的高矮。缺 baseHeight 时按同高。
+function feetFraction(sprite) {
+    const feet = Number(sprite && sprite.feet);
+    return feet > 0 && feet <= 1 ? feet : 1;
+}
+
+// 把图的最低不透明像素（腿）放到舞台底边。脚上面的透明边会沉到舞台下面。图高已经顶满舞台时挪不动，保持原 posY。
+export function posYForFeet(stageH, sprite) {
+    const h = stageH * (Number(sprite && sprite.scale) || 100) / 100;
+    const room = stageH - h;
+    if (!(h > 0) || Math.abs(room) < 1) return Number(sprite && sprite.posY);
+    const posY = ((stageH - h * feetFraction(sprite)) / room) * 100;
+    return Math.max(-200, Math.min(300, posY));
+}
+
+// 把 member 缩放到与 reference 头宽一致（限制倍数），再把腿贴到舞台底。头顶不再拉齐。
+// baseHeight 是两人各自的设定高度：头宽按两人之比放大，对齐只抹平原图构图的差别，不抹平设定的高矮。缺 baseHeight 时按同高。
 export function alignToReference({ stageW, stageH, reference, member }) {
-    const keep = { scale: member.scale, posY: member.posY };
+    const keep = { scale: member.scale, posY: posYForFeet(stageH, member) };
     const ref = spriteDrawRect(stageW, stageH, reference);
     const own = spriteDrawRect(stageW, stageH, member);
     if (!ref || !own || !reference.head || !member.head) return keep;
@@ -49,16 +62,10 @@ export function alignToReference({ stageW, stageH, reference, member }) {
     const tall = reference.baseHeight > 0 && member.baseHeight > 0 ? member.baseHeight / reference.baseHeight : 1;
     const ratio = Math.max(ALIGN_RATIO_MIN, Math.min(ALIGN_RATIO_MAX, refHeadW * tall / ownHeadW));
     const scale = member.scale * ratio;
-    const rect = spriteDrawRect(stageW, stageH, { ...member, scale });
+    const planted = { ...member, scale };
+    const rect = spriteDrawRect(stageW, stageH, planted);
     if (!rect) return keep;
-    const targetTop = stageH - (stageH - (ref.top + ref.h * reference.head.top)) * tall;
-    const room = stageH - rect.h;
-    if (Math.abs(room) < 1) return { scale, posY: member.posY };
-    let posY = ((targetTop - rect.h * member.head.top) / room) * 100;
-    // 底边钉死：只许放大缩小、不许为了头顶齐平把人抬离舞台底；原本就悬空的立绘最多悬到原来的高度。
-    const allowLift = Math.max(0, stageH - (own.top + own.h));
-    if (stageH - (room * posY / 100 + rect.h) > allowLift + 0.5) posY = ((room - allowLift) / room) * 100;
-    return { scale, posY: Math.max(-200, Math.min(300, posY)) };
+    return { scale, posY: posYForFeet(stageH, planted) };
 }
 
 // 参照物默认是本场景最早开口（order 最小）的在场者；传 refKey 时用这个人（还没探测好就不对齐）。
@@ -70,7 +77,11 @@ export function alignCastLayouts({ stageW, stageH, entries = [], refKey = null }
     const ref = refKey == null ? ready.reduce((a, b) => (b.order < a.order ? b : a)) : ready.find((e) => e.key === refKey);
     if (!ref) return out;
     for (const e of ready) {
-        if (e === ref) continue;
+        if (e === ref) {
+            const source = e.locked ? e.autoGeometry : e.geometry;
+            if (source) out.set(e.id, { scale: source.scale, posY: posYForFeet(stageH, source) });
+            continue;
+        }
         const member = e.locked ? e.autoGeometry : e.geometry;
         if (member && member.head) out.set(e.id, alignToReference({ stageW, stageH, reference: ref.geometry, member }));
     }
@@ -111,7 +122,7 @@ export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker
         const entries = [];
         for (const e of all) {
             const probed = e.url ? peek(e.url) : null;
-            if (!probed && e.url && !(e.head && e.head.aspect)) pending.push(e.url);
+            if (!probed && e.url) pending.push(e.url);
             const locked = e.locked === true;
             entries.push({
                 id: e.id,
@@ -131,7 +142,10 @@ export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker
         }
         const fresh = alignCastLayouts({ stageW, stageH, entries, refKey: lock.ref });
         for (const e of entries) {
-            if (e.key === lock.ref) continue;
+            if (e.key === lock.ref) {
+                if (fresh.has(e.id)) aligned.set(e.id, fresh.get(e.id));
+                continue;
+            }
             const sig = alignMemoSig(stageW, stageH, e, e.locked ? e.autoGeometry : e.geometry);
             const value = fresh.get(e.id);
             if (value) {

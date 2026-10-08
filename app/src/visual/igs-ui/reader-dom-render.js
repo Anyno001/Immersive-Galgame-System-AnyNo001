@@ -32,10 +32,11 @@ import { applyVoiceBark } from './voice-bark.js';
 import { applyTts, normalizeTtsSettings } from './tts.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
-import { applyFxToDom } from './fx-runtime.js';
+import { applyFxToDom, repositionFxSymbols } from './fx-runtime.js';
 import { applyDanmakuToDom } from './danmaku-runtime.js';
 import { applyItemMentionMarkup, itemMentionsOf, renderItemFx, showItemMention } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
+import { repositionBattleImpacts } from './fx-battle.js';
 import { renderDailyFx } from './fx-daily.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
 import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
@@ -1456,6 +1457,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                     if (t) Object.assign(t, { posX: m.posX, posY: m.posY, scale: m.scale });
                 }
                 relayoutComic(root);
+                repositionFxSymbols(root, { speaker: fxSprite, cast: castFxTargets });
+                repositionBattleImpacts(root, { speaker: fxSprite, cast: castFxTargets });
                 // 对齐改了大小和高度，槽位编辑的起点要跟着更新，否则拖动从旧值开始。
                 if (current.castStage && Array.isArray(current.castStage.entries)) {
                     const byChar = new Map(again.members.map((m) => [m.character, m]));

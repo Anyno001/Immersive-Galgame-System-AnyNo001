@@ -5,7 +5,7 @@ import { worldSkinOf } from '../../scene/worldview.js';
 // 演出播放期间前层铺一块透明点击层：点一下跳到结算，这次点击不翻页。
 import { ensureFxLayers, findFxLayers } from './fx-layer.js';
 import { battleFxIdentity, resolveImpactPoint, BATTLE_SKIP_RESULT_MS } from './fx-battle-model.js';
-import { measureStage, peekSpriteHead } from './fx-anchor.js';
+import { measureStage, peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import { spriteGeometry } from './fx-runtime.js';
 
 const SHOW_ATTR = 'data-igs-fx-battle-show';
@@ -227,11 +227,32 @@ function castElOf(motion, character) {
 function placeImpact(node, event, motion, sprite) {
     if ((event.targetKind !== 'sprite' && event.targetKind !== 'cast') || !sprite || !sprite.url) return;
     const geo = measureStage(motion);
-    const point = geo && resolveImpactPoint(geo, spriteGeometry(sprite, peekSpriteHead(sprite.url)));
-    const impact = point && node.querySelector('.igs-fx-battle-impact');
-    if (!impact) return;
-    impact.style.left = `${point.x}px`;
-    impact.style.top = `${point.y}px`;
+    const apply = (probed) => {
+        const point = geo && resolveImpactPoint(geo, spriteGeometry(sprite, probed));
+        const impact = point && node.querySelector && node.querySelector('.igs-fx-battle-impact');
+        if (!impact || !impact.style) return;
+        impact.style.left = `${point.x}px`;
+        impact.style.top = `${point.y}px`;
+    };
+    const probed = peekSpriteHead(sprite.url);
+    const manual = sprite.head && Number(sprite.head.w) > 0;
+    if (probed || manual || !motion || !motion.ownerDocument) {
+        apply(probed);
+        return;
+    }
+    probeSpriteHead(sprite.url, motion.ownerDocument).then(apply, () => apply(null));
+}
+
+export function repositionBattleImpacts(root, { speaker = null, cast = [] } = {}) {
+    const motion = root && root.querySelector && root.querySelector('#igs-stage-motion');
+    if (!motion || typeof motion.querySelectorAll !== 'function') return;
+    for (const node of Array.from(motion.querySelectorAll('.igs-fx-battle-hit'))) {
+        const kind = node.getAttribute('data-igs-battle-target');
+        if (kind !== 'sprite' && kind !== 'cast') continue;
+        const who = node.getAttribute('data-igs-battle-char');
+        const sprite = kind === 'cast' ? (Array.isArray(cast) ? cast : []).find((c) => c && c.character === who) : speaker;
+        placeImpact(node, { targetKind: kind }, motion, sprite);
+    }
 }
 
 function syncPlate(state, layers, plan, ancient, worldSkin = '') {
@@ -315,6 +336,14 @@ export function applyBattleFxToDom(root, plan, options = {}) {
     const reduced = options.reducedMotion === true;
     const onEvent = typeof options.onEvent === 'function' ? options.onEvent : null;
     const { doc, front, motion } = layers;
+    if (doc) {
+        const urls = new Set();
+        if (options.sprite && options.sprite.url) urls.add(options.sprite.url);
+        for (const member of Array.isArray(options.cast) ? options.cast : []) {
+            if (member && member.url) urls.add(member.url);
+        }
+        for (const url of urls) probeSpriteHead(url, doc).catch(() => null);
+    }
     const spriteEl = motion.querySelector('#igs-sprite');
     const shown = new Set();
     const play = (event, lifeOverride) => {
@@ -337,6 +366,7 @@ export function applyBattleFxToDom(root, plan, options = {}) {
         }
         mount(state, front, node, life);
         if (event.type === 'hit') {
+            if (event.targetKind === 'cast' && event.targetChar) node.setAttribute('data-igs-battle-char', event.targetChar);
             placeImpact(node, event, motion, event.targetKind === 'cast' ? castTargetOf(options.cast, event.targetChar) : options.sprite);
             if (!reduced) {
                 const heavy = event.result === 'crit' || event.result === 'ko' || (event.targetKind === 'player' && event.result === 'hit');

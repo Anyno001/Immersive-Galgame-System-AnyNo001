@@ -56,17 +56,22 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.95';
+const IGS_VERSION = '0.34.96';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
 
-// 自动插图 / 素材补全的进度与失败原因：始终写控制台，失败与成功再按「显示提示弹窗」弹出。
-function createImageJobReporter(globalObject, getBridge, log) {
+// 自动插图 / 素材补全的进度与失败原因：始终写控制台；阅读器开着时交给对话框顶边的生成细线，
+// 没开时失败与成功再按「显示提示弹窗」弹酒馆 toastr。
+export function createImageJobReporter(globalObject, getBridge, log, getReaderNotice) {
     return (level, message) => {
         if (log && typeof log.add === 'function') log.add(level, message);
         const logger = level === 'error' ? console.warn : console.info;
         logger('[IGS 生图]', message);
+        try {
+            const readerNotice = typeof getReaderNotice === 'function' ? getReaderNotice() : null;
+            if (readerNotice && readerNotice(level, message)) return;
+        } catch (error) { /* 阅读器还没建好或细线出错时照旧弹 toastr */ }
         if (level === 'info') return;
         if ((getBridge() || {}).showToasts === false) return;
         const toastr = globalObject && globalObject.toastr;
@@ -117,7 +122,12 @@ export function bootstrapIGS(options = {}) {
         storage: storageLike,
         getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).imageJobLog,
     });
-    const reportImageJob = options.reportImageJob || createImageJobReporter(globalObject, () => (getUnifiedSettingsSnapshot() || {}).bridge || {}, imageJobLog);
+    const reportImageJob = options.reportImageJob || createImageJobReporter(
+        globalObject,
+        () => (getUnifiedSettingsSnapshot() || {}).bridge || {},
+        imageJobLog,
+        () => (app.igsUi && typeof app.igsUi.showImageNotice === 'function' ? app.igsUi.showImageNotice.bind(app.igsUi) : null),
+    );
     // 所有出图（手动 / 自动，CG / 立绘 / 背景 / 物品）都经过这一层，开始和结束各发一次活动事件给阅读器的生成细线。
     const imageBackend = trackImageActivity(options.imageBackend || createImageBackend({
         nai: naiOfficialClient,
