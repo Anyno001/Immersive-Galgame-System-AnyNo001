@@ -1065,3 +1065,58 @@ test('gate:regenerate:failure-pops-a-panel-dialog-with-the-reason', async () => 
     assert.equal(views.length, 2);
     assert.match(alerts[0], /插件没有响应/);
 });
+
+test('gate:character-sprite:one-click-user-protagonist-from-tavern-persona', async () => {
+    const seen = [];
+    const notes = [];
+    const storage = new Map();
+    const draft = { bridge: { sceneAssets: {} }, readerSettings: {} };
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: {
+            global: {
+                alert() {},
+                localStorage: { getItem: (k) => (storage.has(k) ? storage.get(k) : null), setItem: (k, v) => storage.set(k, v) },
+                SillyTavern: { getContext: () => ({ name1: '阿澈', powerUserSettings: { persona_description: '  银发蓝眼，\n二十岁，{{user}}是个怕生的大学生  ' } }) },
+            },
+            generatedAssets: {
+                generateCharacterSprite: async (input) => { seen.push(input); return { ok: true, imageId: 'made-me' }; },
+            },
+        },
+        persistSettingsDraft: () => ({ ok: true }),
+        rerenderSettings: () => ({ ok: true }),
+        dialogs: {
+            confirm: async () => true,
+            edit: async (message, current) => { notes.push([message, current]); return current; },
+        },
+    };
+    const result = await handleSettingsAction('scene-add-user-char', ctx);
+    assert.equal(result.ok, true);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].name, '阿澈');
+    assert.match(notes[0][1], /银发蓝眼/);
+    assert.match(notes[0][1], /阿澈是个怕生的大学生/);
+    assert.doesNotMatch(notes[0][1], /\{\{user\}\}/);
+    assert.ok(draft.bridge.sceneAssets.characterDna['阿澈']);
+    assert.equal(draft.bridge.sceneAssets.characters['阿澈']['默认'], 'igs-gen:made-me');
+    assert.equal(draft.bridge.sceneAssets.characterSpriteNotes['阿澈'], notes[0][1]);
+    const folders = JSON.parse(storage.get('igs-asset-folders-v1'));
+    const scopeState = folders.scopes[''];
+    assert.ok(scopeState.characters.folders.includes('主角'));
+    assert.equal(scopeState.characters.assign['阿澈'], '主角');
+
+    // 已经登记过的主角再点一次：不重复登记 DNA，沿用已有资料。
+    draft.bridge.sceneAssets.characterDna['阿澈'] = { identity: '银发', defaultAppearance: '', negative: '', triggerWords: '' };
+    const again = await handleSettingsAction('scene-add-user-char', ctx);
+    assert.equal(again.ok, true);
+    assert.equal(seen.length, 2);
+    assert.equal(seen[1].dna.identity, '银发');
+
+    // 酒馆没设用户名时停下，只提示不生成。
+    const alerts = [];
+    ctx.options.global.alert = (message) => alerts.push(message);
+    ctx.options.global.SillyTavern = { getContext: () => ({ name1: '', powerUserSettings: {} }) };
+    await handleSettingsAction('scene-add-user-char', ctx);
+    assert.equal(seen.length, 2);
+    assert.match(alerts[0], /没读到酒馆的用户名/);
+});

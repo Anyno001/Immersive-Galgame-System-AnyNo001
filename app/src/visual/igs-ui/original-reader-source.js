@@ -24,6 +24,8 @@ import { ITEM_FX_STYLE_TEXT } from './fx-item.js';
 import { BATTLE_FX_STYLE_TEXT } from './fx-battle.js';
 import { RESULT_FX_STYLE_TEXT } from './fx-result.js';
 import { CG_GALLERY_STYLE_TEXT } from './cg-gallery-panel.js';
+import { TURN_INDEX_STYLE_TEXT } from './turn-index-panel.js';
+import { GENERATION_STRIP_STYLE_TEXT } from './generation-strip.js';
 import { INVENTORY_IMAGE_STYLE_TEXT } from './inventory-slot-image.js';
 import { ITEM_CG_ICONS } from './item-cg-icons.js';
 import { ASSET_REVIEW_STYLE_TEXT } from './asset-review-panel.js';
@@ -54,6 +56,7 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
     prev: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="15 18 9 12 15 6"/></svg>',
     next: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="9 18 15 12 9 6"/></svg>',
     play: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="m8 5 11 7-11 7z"/></svg>',
+    replay: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
     stop: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
     assets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="9" cy="7" r="3.2"/><path d="M3.5 20v-1.5A4.5 4.5 0 0 1 8 14h2"/><path d="M13 20l3.2-4.2 2 2.5 1.3-1.6L22 20z"/><path d="M18 4v5M15.5 6.5h5"/></svg>',
     regen: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M4 16l4.5-4.5a1.5 1.5 0 0 1 2.1 0L16 17"/><path d="M14 15l1.5-1.5a1.5 1.5 0 0 1 2.1 0L20 16"/><path d="M18.5 2.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor"/></svg>',
@@ -67,6 +70,8 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
     prevTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor" stroke="none"/><line x1="5" y1="19" x2="5" y2="5"/></svg>',
     nextTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/></svg>',
     firstTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>',
+    quickSave: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 3v5h7V3"/><path d="M12 12v6M9 15l3 3 3-3"/></svg>',
+    quickLoad: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 3v5h7V3"/><path d="M12 18v-6M9 15l3-3 3 3"/></svg>',
     toggleBar: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:block"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
     firstPage: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>',
     lastPage: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>',
@@ -78,7 +83,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     // group 决定工具栏分隔：nav 翻页 / create 画图与素材 / view 画面 / system 系统。
     // 按钮可被用户重排、隐藏、固定，分隔由 applyToolbarState 按实际可见顺序标记，不写死在 DOM 里。
     // title 同时是悬停提示与读屏名称：用动词短语，一眼看懂做什么。
-    { id: 'first-turn', group: 'nav', title: '第一轮（停在最新轮时先续读书签）', html: ORIGINAL_READER_ICONS.firstTurn },
+    { id: 'first-turn', group: 'nav', title: '目录（续读、回第 0 层、跳到某楼、存档）', html: ORIGINAL_READER_ICONS.firstTurn },
     { id: 'prev-turn', group: 'nav', title: '上一轮', html: ORIGINAL_READER_ICONS.prevTurn },
     { id: 'first-page', group: 'nav', title: '第一页', html: ORIGINAL_READER_ICONS.firstPage },
     { id: 'prev', group: 'nav', title: '上一页', html: ORIGINAL_READER_ICONS.prev },
@@ -86,6 +91,9 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'last-page', group: 'nav', title: '最后一页', html: ORIGINAL_READER_ICONS.lastPage },
     { id: 'next-turn', group: 'nav', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
     { id: 'auto-play', group: 'nav', title: '自动播放', html: ORIGINAL_READER_ICONS.play },
+    { id: 'tts-replay', group: 'nav', title: '重听这句', html: ORIGINAL_READER_ICONS.replay },
+    { id: 'quick-save', group: 'nav', title: '快速存档', html: ORIGINAL_READER_ICONS.quickSave },
+    { id: 'quick-load', group: 'nav', title: '快速读档', html: ORIGINAL_READER_ICONS.quickLoad },
     { id: 'regen', group: 'create', title: '绘制 CG', html: ORIGINAL_READER_ICONS.regen },
     { id: 'reroll-cg', group: 'create', title: '重画这张（提示词不变，只重画当前这一张）', html: ORIGINAL_READER_ICONS.rerollCg },
     { id: 'clear-cg', group: 'create', title: '清扫当前 CG', html: ORIGINAL_READER_ICONS.clearCg },
@@ -99,6 +107,21 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'rescan', group: 'system', title: '重新加载', html: ORIGINAL_READER_ICONS.rescan },
     { id: 'settings', group: 'system', title: '设置', html: ORIGINAL_READER_ICONS.settings },
 ]);
+
+// 对话框底部快捷栏：经典 galgame 文本框底部那一排。透明底、跟对话框文字同色，换皮肤自动跟随；手机居中，电脑（精确指针）靠左。
+const DIALOG_BAR_STYLE_TEXT = `
+#igs-dialog-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px;margin-top:6px;flex-shrink:0;pointer-events:auto;color:inherit;}
+#igs-dialog-bar[hidden]{display:none!important;}
+@media (hover:hover) and (pointer:fine){#igs-dialog-bar{justify-content:flex-start;}}
+#igs-dialog-bar .igs-icon-btn{width:30px;height:30px;min-width:30px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:6px;background:transparent;color:inherit;opacity:.62;cursor:pointer;box-shadow:none;transition:opacity .15s,background .15s;}
+#igs-dialog-bar .igs-icon-btn:hover,#igs-dialog-bar .igs-icon-btn:focus-visible{opacity:1;background:rgba(127,127,127,.16);}
+#igs-dialog-bar .igs-icon-btn:focus-visible{outline:1px solid currentColor;outline-offset:1px;}
+#igs-dialog-bar .igs-icon-btn[aria-pressed="true"]{opacity:1;}
+#igs-dialog-bar .igs-icon-btn:disabled{opacity:.25;cursor:default;}
+#igs-dialog-bar .igs-icon-btn svg{width:16px;height:16px;}
+#igs-dialog-bar .igs-icon-btn.igs-group-start{margin-left:8px;}
+.igs-mode-embedded #igs-dialog-bar{margin-top:4px;}
+`;
 
 const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;height:100dvh;z-index:900;background:var(--igs-empty-bg,#16181a);overflow:hidden;overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:#d8d5cf;--igs-empty-bg:#16181a;--igs-glass-fill-alpha:.62;--igs-glass-density:.62;--igs-glass-opacity:.62;--igs-transparent-glass-bg:rgba(31,34,37,.62);--igs-glass-bg:var(--igs-transparent-glass-bg);--igs-glass-border:rgba(207,204,198,.08);--igs-glass-blur:none;--igs-glass-radius:8px;--igs-glass-shadow:none;--igs-choice-soft-shadow:none;--igs-dialog-bg:var(--igs-glass-bg);--igs-dialog-border:transparent;--igs-dialog-blur:var(--igs-glass-blur);--igs-dialog-radius:8px;--igs-dialog-shadow:none;--igs-toolbar-bg:var(--igs-glass-bg);--igs-toolbar-border:var(--igs-glass-border);--igs-toolbar-blur:var(--igs-glass-blur);--igs-toolbar-radius:8px;--igs-toolbar-shadow:none;--igs-choice-bg:var(--igs-glass-bg);--igs-choice-border:rgba(207,204,198,.08);--igs-choice-blur:var(--igs-glass-blur);--igs-choice-radius:6px;--igs-choice-shadow:none;--igs-db-bg:var(--igs-glass-bg);--igs-db-border:var(--igs-glass-border);--igs-db-blur:var(--igs-glass-blur);--igs-db-head-bg:var(--igs-db-bg);--igs-db-head-blur:var(--igs-db-blur);--igs-db-radius:var(--igs-glass-radius);--igs-db-shadow:none;--igs-toolbar-h:50px;}
@@ -137,7 +160,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-head-edit-layer .igs-fx-symbol.is-preview{animation:none;opacity:.9;pointer-events:none;}
 #igs-click-layer{position:absolute;inset:0;cursor:pointer;z-index:3;}
 /* 双击看全 CG：收起对话框、状态栏、工具栏、选项、立绘。背景和演出层不动。 */
-#igs-overlay[data-igs-cg-only="1"] :is(#igs-dialog-layer,#igs-status-hud,#igs-toolbar-layer,#igs-option-layer,#igs-db-layer,#igs-toast,#igs-sprite,#igs-cast,#igs-sprite-edit-bar,#igs-asset-review,#igs-bg-blur,#igs-map-panel,#igs-record-panel,#igs-cg-gallery){display:none!important;pointer-events:none!important;}
+#igs-overlay[data-igs-cg-only="1"] :is(#igs-dialog-layer,#igs-status-hud,#igs-toolbar-layer,#igs-option-layer,#igs-db-layer,#igs-toast,#igs-sprite,#igs-cast,#igs-sprite-edit-bar,#igs-asset-review,#igs-bg-blur,#igs-map-panel,#igs-record-panel,#igs-cg-gallery,#igs-turn-index,#igs-resume-bar){display:none!important;pointer-events:none!important;}
 #igs-status-hud{position:absolute;z-index:8;top:14px;left:14px;pointer-events:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:calc(6px * var(--igs-hud-scale,1));width:calc(340px * var(--igs-hud-scale,1));max-width:calc(100% - 28px);padding:calc(8px * var(--igs-hud-scale,1));border-radius:calc(10px * var(--igs-hud-scale,1));box-sizing:border-box;}
 #igs-status-hud.igs-hud-bg-dialog{background:color-mix(in srgb,var(--igs-dialog-bg,var(--igs-glass-bg,rgba(31,34,37,.62))) 50%,transparent);border-radius:calc(6px * var(--igs-hud-scale,1));}
 #igs-overlay.igs-toolbar-top #igs-status-hud{top:14px;}
@@ -355,6 +378,9 @@ ${COMIC_STYLE_TEXT}
 ${MANGA_BACK_STYLE_TEXT}
 ${CROWD_STYLE_TEXT}
 ${CG_GALLERY_STYLE_TEXT}
+${TURN_INDEX_STYLE_TEXT}
+${DIALOG_BAR_STYLE_TEXT}
+${GENERATION_STRIP_STYLE_TEXT}
 ${INVENTORY_IMAGE_STYLE_TEXT}
 ${STAGE_PAUSE_STYLE_TEXT}
 `.trim();
@@ -380,6 +406,7 @@ const ORIGINAL_READER_HTML = `
     <input class="igs-input" id="igs-input" type="text" placeholder="输入内容后按 Enter 发送">
     <button class="igs-send-btn" id="igs-send-btn" type="button">发送</button>
   </div>
+  <div id="igs-dialog-bar" class="igs-dialog-bar" role="toolbar" aria-label="快捷操作" hidden></div>
 </div>
 </div>
 <div id="igs-toolbar-layer" class="igs-hud-layer">

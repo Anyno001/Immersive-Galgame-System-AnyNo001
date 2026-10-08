@@ -6,7 +6,8 @@ import {
     ORIGINAL_READER_ICONS,
     ORIGINAL_READER_TOOLBAR_BUTTONS,
 } from './original-reader-source.js';
-import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
+import { DIALOG_ONLY_BUTTONS, TOOLBAR_ACTIONS } from './reader-host-constants.js';
+import { normalizeDialogBarButtons, normalizeToolbarSplit } from './settings-normalize.js';
 import {
     ensureImageLoadingSpinner,
     ensureImageEmptyPlaceholder,
@@ -28,6 +29,7 @@ import {
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyVoiceBark } from './voice-bark.js';
+import { applyTts, normalizeTtsSettings } from './tts.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { applyFxToDom } from './fx-runtime.js';
@@ -356,6 +358,15 @@ export function buildFallbackReaderOverlay(doc) {
     sendButton.textContent = '发送';
     controls.appendChild(sendButton);
 
+    // 对话框底部快捷栏：按钮由 applyToolbarState 按「按钮分布」从工具栏挪进来。
+    const dialogBar = doc.createElement('div');
+    dialogBar.id = 'igs-dialog-bar';
+    dialogBar.className = 'igs-dialog-bar';
+    dialogBar.setAttribute('role', 'toolbar');
+    dialogBar.setAttribute('aria-label', '快捷操作');
+    dialogBar.setAttribute('hidden', '');
+    dialog.appendChild(dialogBar);
+
     const toast = doc.createElement('div');
     toast.id = 'igs-toast';
     toast.setAttribute('aria-live', 'polite');
@@ -449,9 +460,17 @@ export function applyToolbarState(root, current) {
     if (!root || !current) return;
     const collapsible = root.querySelector('#igs-bar-btns');
     const pinned = root.querySelector('#igs-bar-pinned');
+    const dialogBar = root.querySelector('#igs-dialog-bar');
     const readerSettings = current.snapshot && current.snapshot.readerSettings || {};
+    // 按钮分布：split 分两截（dialogBarBtns 放对话框底部快捷栏）/ top 只用顶栏 / dialog 除设置外全放对话框下。
+    const split = normalizeToolbarSplit(readerSettings.toolbarSplit);
+    const dialogIds = new Set(normalizeDialogBarButtons(readerSettings.dialogBarBtns));
+    // 用户固定在顶栏的按钮优先留在顶栏。
+    const toDialog = (id) => Boolean(dialogBar) && id !== 'settings' && !pins.has(id) && (split === 'dialog' || (split === 'split' && dialogIds.has(id)));
     const pins = new Set(Array.isArray(readerSettings.pinnedBtns) ? readerSettings.pinnedBtns : []);
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
+    // 「重听这句」只在开了台词朗读时显示。
+    if (!normalizeTtsSettings(readerSettings.tts).enabled) hiddenSet.add('tts-replay');
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
     // 默认顶部固定：只有明确选了「紧贴对话框」才是 float。
@@ -491,12 +510,14 @@ export function applyToolbarState(root, current) {
     for (const id of order) {
         const button = root.querySelector(`#igs-btn-${id}`);
         if (!button) continue;
-        if (hiddenSet.has(id)) {
+        if (hiddenSet.has(id) || (split === 'top' && DIALOG_ONLY_BUTTONS.includes(id))) {
             button.style.display = 'none';
         } else {
             button.style.display = '';
+            if (toDialog(id)) {
+                dialogBar.appendChild(button);
             // 顶部固定模式下，按钮区横向滚动；设置键固定到右侧不随之滚动。
-            if ((pins.has(id) || (dockTop && id === 'settings')) && pinned) {
+            } else if ((pins.has(id) || (dockTop && id === 'settings')) && pinned) {
                 pinned.appendChild(button);
             } else if (collapsible) {
                 collapsible.appendChild(button);
@@ -506,7 +527,12 @@ export function applyToolbarState(root, current) {
 
     // 工具栏分组：按实际可见顺序在每组第一个按钮上标记分隔；用户重排、隐藏、固定后同样成立，不改按钮尺寸。
     const groupOf = new Map(ORIGINAL_READER_TOOLBAR_BUTTONS.map((item) => [item.id, item.group || '']));
-    for (const container of [collapsible, pinned]) {
+    if (dialogBar) {
+        const anyVisible = Array.from(dialogBar.children || []).some((button) => !(button.style && button.style.display === 'none'));
+        if (anyVisible) dialogBar.removeAttribute('hidden');
+        else dialogBar.setAttribute('hidden', '');
+    }
+    for (const container of [collapsible, pinned, dialogBar]) {
         if (!container) continue;
         let prevGroup = null;
         for (const button of Array.from(container.children || [])) {
@@ -1735,7 +1761,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         root.addEventListener('contextmenu', (event) => {
             if (current.lastPointerType === 'touch') return;
             const target = event.target;
-            if (target && typeof target.closest === 'function' && target.closest('button,input,textarea,select,a,#igs-settings,#igs-map-panel,#igs-record-panel,#igs-cg-gallery,#igs-dialog,.igs-dialog')) return;
+            if (target && typeof target.closest === 'function' && target.closest('button,input,textarea,select,a,#igs-settings,#igs-map-panel,#igs-record-panel,#igs-cg-gallery,#igs-turn-index,#igs-resume-bar,#igs-dialog,.igs-dialog')) return;
             const live = current.snapshot || snapshot;
             if (!(live && live.readerSettings && live.readerSettings.dblclickCgOnly === true)) return;
             event.preventDefault();
@@ -1805,6 +1831,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             }
             if (event.target && event.target.closest && (
                 event.target.closest('.igs-controls')
+                || event.target.closest('#igs-dialog-bar')
+                || event.target.closest('#igs-gen-strip')
                 || event.target.closest('#igs-ctrl-bar')
                 || event.target.closest('#igs-settings')
             )) {
@@ -1873,17 +1901,31 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         armTextFx(textEl, typewriter && typewriter.animated ? typewriter.revealDelay : null);
     }
     if (textEl && typewriterRenderKey) {
-        // 角色语气音：台词开头按情绪播一声「啊嗯哼」。去重只看消息与句序号，换主题、调字号等重绘不重播。
+        // 台词朗读与角色语气音二选一，朗读优先。去重只看消息与句序号，换主题、调字号等重绘不重播。
         const content = snapshot.content;
-        applyVoiceBark(root, {
+        const posX = stageSprite && (!content.spriteCharacter || content.spriteCharacter === content.speaker) ? stageSprite.posX : undefined;
+        const mood = content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '';
+        if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
+            key: `${snapshot.messageId}:${content.currentIndex}`,
+            textType: typewriterTextType,
+            text: content.displayText,
+            speaker: content.speaker || '',
+            mood,
+            phone: fxResult.phone === true,
+            nsfw: Boolean(content.sceneNsfw),
+            posX,
+            whisper: romanceResult.whisper === true,
+            next: Array.isArray(content.segments) ? content.segments[content.currentIndex + 1] : '',
+        }, snapshot.readerSettings.tts, snapshot.readerSettings._sceneAssets);
+        else applyVoiceBark(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,
             textType: typewriterTextType,
             speaker: content.speaker || '',
-            mood: content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '',
+            mood,
             phone: fxResult.phone === true,
             nsfw: Boolean(content.sceneNsfw),
             // 声像与力度：立绘就是说话人时按其位置分左右；亲密演出压成耳语时轻声贴耳。
-            posX: stageSprite && (!content.spriteCharacter || content.spriteCharacter === content.speaker) ? stageSprite.posX : undefined,
+            posX,
             whisper: romanceResult.whisper === true,
             // 场上角色的声线提前备好，第一次开口不用等下载。
             cast: [content.speaker, content.spriteCharacter, ...(Array.isArray(content.castSprites) ? content.castSprites.map((m) => m && m.character) : [])],

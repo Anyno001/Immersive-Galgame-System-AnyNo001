@@ -8,6 +8,7 @@ import { SLOT_ICONS, menuItem, transferIcons, renderCharacterSlotTabs, renderRev
 import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
 import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions } from './voice-bark.js';
+import { TTS_CHARACTER_VOLUMES, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceList } from './tts.js';
 import { SPRITE_HEIGHT_RANGE } from './settings-normalize.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { hasCharacterSpriteLayout } from './sprite-key-migration.js';
@@ -565,8 +566,42 @@ function renderCharacterHouseRow(charName, { sceneAssets, fallback }) {
 
 const VOICE_GENDER_GROUPS = [['female', '女声'], ['male', '男声 / 少年'], ['', '其他']];
 
+// 角色音高（半音）与语速的下拉选项，语气音和朗读共用。
+function voiceTuneOptions(manual) {
+    const pitches = [];
+    for (let v = -VOICE_PITCH_LIMIT; v <= VOICE_PITCH_LIMIT; v += 0.5) pitches.push(v);
+    const pitchOpts = pitches.map((v) => `<option value="${v}"${v === manual.pitch ? ' selected' : ''}>${v === 0 ? '原调' : `${v > 0 ? '+' : ''}${v}`}</option>`).join('');
+    const speeds = [];
+    for (let v = VOICE_SPEED_RANGE[0]; v <= VOICE_SPEED_RANGE[1] + 1e-6; v += 0.1) speeds.push(Math.round(v * 10) / 10);
+    const speedOpts = speeds.map((v) => `<option value="${v}"${v === manual.speed ? ' selected' : ''}>${v === 1 ? '原速' : `${v}×`}</option>`).join('');
+    return { pitchOpts, speedOpts };
+}
+
+// 台词朗读开着时：这个角色的朗读声音（自动按 DNA 性别分配，或单独指定），外加音高、语速与试听。
+function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
+    const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
+    const manual = normalizeCharacterVoice(Object.prototype.hasOwnProperty.call(voices, charName) ? voices[charName] : null);
+    const systemVoices = tts.provider === 'system' ? listSystemVoices() : [];
+    const auto = resolveTtsVoice({ textType: 'dialogue', speaker: charName }, tts, { ...sceneAssets, characterVoices: {} }, systemVoices);
+    const autoName = auto.voice ? auto.voice.replace(/^Microsoft\s+/i, '') : '默认声音';
+    const items = tts.provider === 'system' ? systemVoiceOptions(systemVoices) : ttsApiVoiceList(tts).map((v) => [v, v]);
+    if (manual.tts && !items.some(([id]) => id === manual.tts)) items.push([manual.tts, `${manual.tts}（不可用）`]);
+    const option = (id, label) => `<option value="${esc(id)}"${id === manual.tts ? ' selected' : ''}>${esc(label)}</option>`;
+    const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
+    const volumeOpts = TTS_CHARACTER_VOLUMES.map(([v, label]) => `<option value="${v}"${v === manual.ttsVolume ? ' selected' : ''}>${esc(label)}</option>`).join('');
+    // 接口来源不支持调音高，只给语速。
+    const pitchSelect = tts.provider === 'system' ? `<select class="igs-asset-move" data-char-voice-pitch="${esc(charName)}" aria-label="朗读音高" title="音高（半音）">${pitchOpts}</select>` : '';
+    return `<div class="igs-char-info-row igs-char-voice-row"><span class="igs-char-info-label">朗读</span>`
+        + `<select class="igs-asset-move" data-char-voice-tts="${esc(charName)}" aria-label="朗读声音">${option('', `自动（${autoName}）`)}${items.map(([id, label]) => option(id, label)).join('')}</select>`
+        + pitchSelect
+        + `<select class="igs-asset-move" data-char-voice-speed="${esc(charName)}" aria-label="朗读语速" title="语速">${speedOpts}</select>`
+        + `<select class="igs-asset-move" data-char-voice-ttsVolume="${esc(charName)}" aria-label="朗读音量" title="这个角色的朗读音量">${volumeOpts}</select>`
+        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview:${encSeg(charName)}">试听</button></div>`;
+}
+
 // 角色声线：自动（按 DNA 性别分配）/ 不发声 / 指定声线，外加音高微调与试听。
-function renderCharacterVoiceRow(charName, { sceneAssets }) {
+function renderCharacterVoiceRow(charName, { sceneAssets, tts }) {
+    if (tts) return renderCharacterTtsRow(charName, { sceneAssets, tts });
     const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
     const manual = normalizeCharacterVoice(Object.prototype.hasOwnProperty.call(voices, charName) ? voices[charName] : null);
     const auto = resolveCharacterVoice({ ...sceneAssets, characterVoices: {} }, charName);
@@ -577,12 +612,7 @@ function renderCharacterVoiceRow(charName, { sceneAssets }) {
         const items = packs.filter(([, , g]) => g === gender).map(([id, name]) => option(id, name)).join('');
         return items ? `<optgroup label="${esc(label)}">${items}</optgroup>` : '';
     }).join('');
-    const pitches = [];
-    for (let v = -VOICE_PITCH_LIMIT; v <= VOICE_PITCH_LIMIT; v += 0.5) pitches.push(v);
-    const pitchOpts = pitches.map((v) => `<option value="${v}"${v === manual.pitch ? ' selected' : ''}>${v === 0 ? '原调' : `${v > 0 ? '+' : ''}${v}`}</option>`).join('');
-    const speeds = [];
-    for (let v = VOICE_SPEED_RANGE[0]; v <= VOICE_SPEED_RANGE[1] + 1e-6; v += 0.1) speeds.push(Math.round(v * 10) / 10);
-    const speedOpts = speeds.map((v) => `<option value="${v}"${v === manual.speed ? ' selected' : ''}>${v === 1 ? '原速' : `${v}×`}</option>`).join('');
+    const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
     return `<div class="igs-char-info-row igs-char-voice-row"><span class="igs-char-info-label">声线</span>`
         + `<select class="igs-asset-move" data-char-voice="${esc(charName)}" aria-label="角色声线">${option('', autoText)}${option('off', '不发声')}${groups}</select>`
         + `<select class="igs-asset-move" data-char-voice-pitch="${esc(charName)}" aria-label="声线音高" title="音高（半音）">${pitchOpts}</select>`
@@ -630,7 +660,8 @@ function renderCharacterDnaFields(charName, dna) {
 // 「角色立绘」标题旁的 ＋：和场景页一样是个下拉，新增角色或只有 DNA 的角色。
 export const CHARACTER_ADD_MENU = `<details class="igs-add-menu" data-add-menu="characters"><summary class="igs-btn-mgr-icon" title="新增角色" aria-label="新增角色">+</summary>`
     + '<div class="igs-add-menu-list" role="menu"><button class="igs-add-menu-item" data-action="scene-add-char" type="button" role="menuitem">新增角色</button>'
-    + '<button class="igs-add-menu-item" data-action="scene-add-dna-char" type="button" role="menuitem">新增只有DNA的角色（先登记长相）</button></div></details>';
+    + '<button class="igs-add-menu-item" data-action="scene-add-dna-char" type="button" role="menuitem">新增只有DNA的角色（先登记长相）</button>'
+    + '<button class="igs-add-menu-item" data-action="scene-add-user-char" type="button" role="menuitem">用酒馆用户设定生成主角</button></div></details>';
 
 function renderCharacterSetupPanel(charName, dna, profileRows) {
     return `<div class="igs-char-dna-panel"><div class="igs-char-dna-panel-head">角色设定`
@@ -761,7 +792,10 @@ function renderSpriteSlotExpansion(charName, mood, url, moodGroups, icons) {
 }
 
 
-export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue) {
+export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue, dialogValue = null, splitValue = 'split') {
+    const dialogIds = Array.isArray(dialogValue) ? dialogValue : [];
+    const splitMode = splitValue === 'split';
+    const dialogIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><line x1="7" y1="16" x2="17" y2="16"/></svg>';
     const pins = Array.isArray(pinnedValue) ? pinnedValue : [];
     const hidden = Array.isArray(hiddenValue) ? hiddenValue : [];
     const canonical = TOOLBAR_ACTIONS.map(([id]) => id);
@@ -780,7 +814,12 @@ export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue) {
         const eyeBtn = canHide
             ? `<button type="button" class="igs-btn-mgr-icon${isHidden ? '' : ' is-on'}" data-action="toolbar-toggle-visible:${esc(id)}" title="显示/隐藏">${isHidden ? eyeOff : eyeOn}</button>`
             : `<span class="igs-btn-mgr-icon" title="此按钮不可隐藏" style="opacity:.3;cursor:default">${eyeOn}</span>`;
-        return `<div class="igs-btn-mgr-row${isHidden ? ' is-hidden-btn' : ''}"><span class="igs-btn-mgr-handle" data-action="toolbar-move-up:${esc(id)}" title="上移">☰</span><span class="igs-btn-mgr-label">${esc(label)}</span>${eyeBtn}<button type="button" class="igs-btn-mgr-icon${isPinned ? ' is-on' : ''}" data-action="toggle-toolbar-pin:${esc(id)}" title="常驻">${pinIcon}</button></div>`;
+        // 分两截时每个按钮可单独放到对话框下（设置键除外）。
+        const inDialog = dialogIds.includes(id);
+        const dialogBtn = splitMode && id !== 'settings'
+            ? `<button type="button" class="igs-btn-mgr-icon${inDialog ? ' is-on' : ''}" data-action="toolbar-toggle-dialog:${esc(id)}" title="放在对话框下">${dialogIcon}</button>`
+            : '';
+        return `<div class="igs-btn-mgr-row${isHidden ? ' is-hidden-btn' : ''}"><span class="igs-btn-mgr-handle" data-action="toolbar-move-up:${esc(id)}" title="上移">☰</span><span class="igs-btn-mgr-label">${esc(label)}</span>${eyeBtn}<button type="button" class="igs-btn-mgr-icon${isPinned ? ' is-on' : ''}" data-action="toggle-toolbar-pin:${esc(id)}" title="常驻">${pinIcon}</button>${dialogBtn}</div>`;
     }).join('');
     return `<div class="igs-settings-field"><span>按钮管理</span><div class="igs-btn-mgr-list">${rows}</div></div>`;
 }

@@ -11,6 +11,7 @@ import { renderDbPanelInner, getDbPanelStyles } from '../src/shujuku-panel/panel
 import { createImageResourceCache, createResourceCache } from '../src/media/resource-cache.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
+import { createIllustrationMessageHost } from '../src/host/illustration-message-host.js';
 
 // 阅读器里的确认挂在遮罩上，不走浏览器 confirm。点「确定」后再等动作完成。
 async function acceptPageModal(doc, pending) {
@@ -1312,12 +1313,10 @@ test('gate:simulation:nsfw-scene-keeps-sprite-when-hide-toggle-off', async () =>
     assert.equal(overlay.classList.contains('igs-scene-nsfw'), true);
     assert.equal(sprite.style.display, 'block');
     assert.match(sprite.style.backgroundImage, /alice\.png/);
-    // 默认「仅露脸剪影」：立绘照常显示，由舞台属性驱动剪影；未标定头部时整张剪影。
+    // 默认「显示立绘」：NSFW 场景立绘原样显示，不加剪影。
     const stage = overlay.querySelector('#igs-stage-motion');
-    assert.equal(stage.getAttribute('data-igs-rm-shade'), '1');
-    assert.equal(stage.getAttribute('data-igs-rm-face'), null);
-    vn.destroy();
     assert.equal(stage.getAttribute('data-igs-rm-shade'), null);
+    vn.destroy();
 });
 test('gate:simulation:page-turn-skips-unchanged-root-class-and-background-writes', () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
@@ -3006,13 +3005,14 @@ test('gate:simulation:igs-ui-toolbar-dock-top-fixes-bar-and-supports-collapse', 
     assert.equal(toggleResult.collapsed, false);
     assert.equal(collapsible.style.display, 'flex');
 
-    // 顶部固定模式：设置键移入固定区、退出键固定在 ctrl-bar 直属，导航键留在横滚按钮区。
+    // 顶部固定模式：设置键移入固定区、退出键固定在 ctrl-bar 直属；默认分两截，翻页键在对话框快捷栏，其余留在横滚按钮区。
     const pinned = overlay.querySelector('#igs-bar-pinned');
     const settingsBtn = overlay.querySelector('#igs-btn-settings');
     const closeBtn = toolbar.querySelector('[data-act="close"]');
     assert.equal(settingsBtn.parentNode, pinned);
     assert.equal(closeBtn.parentNode, toolbar);
-    assert.equal(overlay.querySelector('#igs-btn-next').parentNode, collapsible);
+    assert.equal(overlay.querySelector('#igs-btn-next').parentNode.id, 'igs-dialog-bar');
+    assert.equal(overlay.querySelector('#igs-btn-first-page').parentNode, collapsible);
     assert.equal(overlay.querySelector('#igs-btn-db-panel'), null);
 
     vn.destroy();
@@ -4464,7 +4464,8 @@ test('gate:simulation:igs-ui-embedded-keeps-compact-expanded-toolbar-when-top-do
 
     opened.reader.controller.toggleToolbar();
     assert.equal(collapsible.style.display, 'flex');
-    assert.equal(overlay.querySelector('#igs-btn-next').parentNode, collapsible);
+    assert.equal(overlay.querySelector('#igs-btn-next').parentNode.id, 'igs-dialog-bar');
+    assert.equal(overlay.querySelector('#igs-btn-first-page').parentNode, collapsible);
     assert.equal(overlay.querySelector('#igs-btn-settings').parentNode, collapsible);
     assert.match(opened.reader.snapshot.source.styleText, /\.igs-mode-embedded \.igs-ctrl-bar \.igs-icon-btn svg\{width:11px;height:11px;transform:scale\(1\.2\);transform-origin:center;\}/);
     vn.destroy();
@@ -5529,7 +5530,13 @@ test('gate:simulation:igs-ui-regen-gives-pending-feedback-and-reports-thrown-err
     assert.equal(opened.ok, true);
     const pending = opened.controller.invokeAction('regen');
     await Promise.resolve();
-    assert.equal(host.getState().activeReader.toastMessage, '生图中');
+    // 出图中不再盖常驻提示：对话框顶边的生成细线亮起，线上方弹一下小字。
+    const strip = document.getElementById('igs-overlay').querySelector('#igs-gen-strip');
+    assert.ok(strip);
+    assert.equal(strip.getAttribute('data-state'), 'busy');
+    assert.equal(strip.hasAttribute('hidden'), false);
+    assert.equal(strip.querySelector('.igs-gen-tip').textContent, '生图中…');
+    assert.notEqual(host.getState().activeReader.toastMessage, '生图中');
     const again = await opened.controller.invokeAction('regen');
     assert.equal(again.reason, 'regen-pending');
     assert.equal(calls, 1);
@@ -9862,4 +9869,106 @@ test('gate:simulation:settings-search-go-to-setting-opens-performance-group', as
     } finally {
         vn.destroy();
     }
+});
+
+test('gate:simulation:reading-progress-resume-bar-and-turn-index-panel', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem('igs-reading:chat-ti', JSON.stringify({ last: { id: 2, page: 1, at: 1 }, far: { id: 2, page: 1, at: 1 } }));
+    const document = createFakeDocument();
+    const messages = [0, 2, 4].map((id) => ({ id, text: `[角色: 艾莉]\n艾莉: 第${id}楼第一句。\n第${id}楼第二句。` }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        illustrationMessageHost: { ...createIllustrationMessageHost({ document }), getChatId: () => 'chat-ti' },
+        hostAdapter: {
+            getCurrentMessage: async () => messages[2],
+            getMessageById: async (messageId) => messages.find((message) => message.id === Number(messageId)) || null,
+            getAdjacentMessage: async (messageId, delta) => {
+                const index = messages.findIndex((message) => message.id === Number(messageId));
+                return index < 0 ? null : messages[index + (delta < 0 ? -1 : 1)] || null;
+            },
+            listTurns: async () => messages,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('pc');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    let overlay = document.getElementById('igs-overlay');
+    const bar = overlay.querySelector('#igs-resume-bar');
+    assert.ok(bar, '停在最新楼且上次读到别处时出续读提示');
+    const barText = bar.querySelector('span').textContent;
+    assert.match(barText, /上次读到 2 楼 · 第 2 页/);
+    assert.match(barText, /后面还有 1 楼没读/);
+
+    const opening = opened.reader.controller.invokeAction('first-turn');
+    await opening;
+    overlay = document.getElementById('igs-overlay');
+    const panel = overlay.querySelector('#igs-turn-index');
+    assert.ok(panel, '目录按钮打开目录面板');
+    assert.equal(overlay.querySelector('#igs-resume-bar'), null, '打开目录后续读提示收起');
+    assert.match(panel.innerHTML, /最新 4 楼/);
+    assert.match(panel.innerHTML, /续读/);
+
+    await opened.reader.controller.invokeAction('first-turn');
+    assert.equal(document.getElementById('igs-overlay').querySelector('#igs-turn-index'), null, '再点一次关闭目录');
+
+    const saved = await opened.reader.controller.invokeAction('quick-save');
+    assert.equal(saved.ok, true);
+    assert.equal(JSON.parse(storage.getItem('igs-reading:chat-ti')).quick.id, 4);
+    vn.destroy();
+});
+
+test('gate:simulation:reading-progress-latest-chaser-sees-no-resume-bar', async () => {
+    const storage = createMemoryStorage();
+    // 上次读完了 2 楼，之后只多出最新的 4 楼：已追平，不该弹续读提示。
+    storage.setItem('igs-reading:chat-chase', JSON.stringify({ last: { id: 2, page: 1, at: 1 }, far: { id: 2, page: 1, at: 1 }, read: '0-2' }));
+    const document = createFakeDocument();
+    const messages = [0, 2, 4].map((id) => ({ id, text: `[角色: 艾莉]\n艾莉: 第${id}楼第一句。\n第${id}楼第二句。` }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        illustrationMessageHost: { ...createIllustrationMessageHost({ document }), getChatId: () => 'chat-chase' },
+        hostAdapter: {
+            getCurrentMessage: async () => messages[2],
+            getMessageById: async (messageId) => messages.find((message) => message.id === Number(messageId)) || null,
+            getAdjacentMessage: async () => null,
+            listTurns: async () => messages,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    await vn.openLatestAvailable('pc');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(document.getElementById('igs-overlay').querySelector('#igs-resume-bar'), null);
+    vn.destroy();
+});
+
+test('gate:simulation:toolbar-split-moves-nav-buttons-under-dialog', async () => {
+    const storage = createMemoryStorage();
+    const document = createFakeDocument();
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 8, text: '[角色: 艾莉]\n艾莉: 第一段。\n第二段。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    const opened = await vn.openLatestAvailable('fullscreen');
+    const overlay = () => document.getElementById('igs-overlay');
+    const parentOf = (id) => overlay().querySelector(`#igs-btn-${id}`).parentNode.id;
+    assert.equal(opened.reader.snapshot.readerSettings.toolbarSplit, 'split');
+    for (const id of ['first-turn', 'prev', 'next', 'auto-play', 'quick-save', 'quick-load']) assert.equal(parentOf(id), 'igs-dialog-bar', id);
+    assert.notEqual(parentOf('regen'), 'igs-dialog-bar');
+    assert.equal(overlay().querySelector('#igs-dialog-bar').hasAttribute('hidden'), false);
+
+    const settings = await opened.reader.controller.invokeAction('settings');
+    settings.controller.setValue('readerSettings.toolbarSplit', 'top');
+    await settings.controller.save?.();
+    vn.closeSettings?.();
+    const top = await vn.openLatestAvailable('fullscreen');
+    assert.equal(top.reader.snapshot.readerSettings.toolbarSplit, 'top');
+    assert.notEqual(parentOf('next'), 'igs-dialog-bar');
+    assert.equal(overlay().querySelector('#igs-btn-quick-save').style.display, 'none', '只用顶栏时快速存读档不挤进顶栏');
+    assert.equal(overlay().querySelector('#igs-dialog-bar').hasAttribute('hidden'), true);
+    vn.destroy();
 });

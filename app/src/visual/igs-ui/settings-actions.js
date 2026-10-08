@@ -1,6 +1,7 @@
 import { DEFAULT_VIRTUAL_REGEX } from '../../scene/message-source.js';
 import { pendingExpressionCaptions } from './settings-outfit-fields.js';
 import { cloneData } from './reader-value-utils.js';
+import { normalizeDialogBarButtons } from './settings-normalize.js';
 import { DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule, TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { buildTagGrammar } from './tag-grammar.js';
 import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from '../../scene/prompt-rule-content.js';
@@ -44,6 +45,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterDna, normalizeCharacterDnaMap, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, resolveCharacterVoice } from './voice-bark.js';
+import { clearTtsCache, listSystemVoices, previewTts, resolveTtsVoice } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
 import { beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
@@ -2264,10 +2266,10 @@ export async function handleSettingsAction(action, ctx) {
         if (!charName || RESERVED_ASSET_NAMES.includes(charName)) return { ok: false, error: '角色名无效' };
         const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         if (voice) {
-            if (!['pack', 'pitch', 'speed'].includes(field)) return { ok: false, error: '未知的声线设置' };
+            if (!['pack', 'pitch', 'speed', 'tts', 'ttsVolume'].includes(field)) return { ok: false, error: '未知的声线设置' };
             const voices = assets.characterVoices = normalizeCharacterVoices(assets.characterVoices);
             const entry = normalizeCharacterVoice(voices[charName]);
-            entry[field] = field === 'pack' ? value : Number(value);
+            entry[field] = field === 'pack' || field === 'tts' ? value : Number(value);
             const next = normalizeCharacterVoices({ [charName]: entry })[charName];
             if (next) voices[charName] = next;
             else delete voices[charName];
@@ -2294,6 +2296,18 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'tts-clear-cache') {
+        await clearTtsCache();
+        return { ok: true, cleared: true };
+    }
+    if (normalizedAction === 'tts-preview' || normalizedAction.startsWith('tts-preview:')) {
+        // 试听台词朗读：可带角色名，按这个角色会用到的声音念。
+        const reader = settingsState.draft.readerSettings || {};
+        const charName = decodeSeg(normalizedAction.slice('tts-preview:'.length));
+        const assets = settingsState.draft.bridge.sceneAssets || {};
+        const voice = charName ? resolveTtsVoice({ textType: 'dialogue', speaker: charName }, reader.tts, assets, listSystemVoices()) : null;
+        return previewTts(reader.tts, voice ? { role: voice.role, voice: voice.voice } : {});
+    }
     if (normalizedAction.startsWith('voice-bark-preview:')) {
         const charName = decodeSeg(normalizedAction.slice('voice-bark-preview:'.length));
         const voice = resolveCharacterVoice(draftEffectiveAssets(settingsState), charName);
@@ -2535,9 +2549,32 @@ export async function handleSettingsAction(action, ctx) {
         if (index >= 0) {
             currentPins.splice(index, 1);
         } else {
-            if (!currentHidden.includes(id)) currentPins.push(id);
+            if (!currentHidden.includes(id)) {
+                currentPins.push(id);
+                // 固定到顶栏就从对话框快捷栏拿出来。
+                settingsState.draft.readerSettings.dialogBarBtns = normalizeDialogBarButtons(settingsState.draft.readerSettings.dialogBarBtns).filter((dialogId) => dialogId !== id);
+            }
         }
         settingsState.draft.readerSettings.pinnedBtns = currentPins;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('toolbar-toggle-dialog:')) {
+        const id = normalizedAction.slice('toolbar-toggle-dialog:'.length);
+        const allowed = id !== 'settings' && TOOLBAR_ACTIONS.some(([actionId]) => actionId === id);
+        if (!allowed) return { ok: false, reason: 'unknown-toolbar-btn', id };
+        const currentDialog = normalizeDialogBarButtons(settingsState.draft.readerSettings.dialogBarBtns);
+        const index = currentDialog.indexOf(id);
+        if (index >= 0) currentDialog.splice(index, 1);
+        else {
+            currentDialog.push(id);
+            // 放进对话框下就不再固定在顶栏，两者互斥。
+            const pins = Array.isArray(settingsState.draft.readerSettings.pinnedBtns) ? settingsState.draft.readerSettings.pinnedBtns : [];
+            settingsState.draft.readerSettings.pinnedBtns = pins.filter((pinId) => pinId !== id);
+        }
+        settingsState.draft.readerSettings.dialogBarBtns = currentDialog;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
@@ -3050,6 +3087,36 @@ export async function handleSettingsAction(action, ctx) {
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
+    }
+
+    // 一键主角：读酒馆当前用户名与人设，登记为 DNA 角色、归进「主角」文件夹，再走默认立绘生成；人设预填成这次的立绘说明。
+    if (normalizedAction === 'scene-add-user-char') {
+        const globalObj = options.global || globalThis;
+        const st = getSillyTavernContext(globalObj) || {};
+        const name = String(st.name1 || '').trim();
+        const alertFn = (msg) => { if (globalObj.alert) globalObj.alert(msg); };
+        if (!name || ['__proto__', 'constructor', 'prototype'].includes(name)) { alertFn('没读到酒馆的用户名，请先在酒馆里选好用户设定'); return rerenderSettings(); }
+        const persona = String((st.powerUserSettings && st.powerUserSettings.persona_description) || '')
+            .replace(/\{\{user\}\}/gi, name).replace(/\s+/g, ' ').trim().slice(0, 600);
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
+        const aliases = ensureCharacterAliases(settingsState, editTarget);
+        const aliasOwner = Object.keys(aliases).find((n) => Array.isArray(aliases[n]) && aliases[n].includes(name));
+        if (aliasOwner) { alertFn(`「${name}」已是角色「${aliasOwner}」的别名`); return rerenderSettings(); }
+        const dnaMap = normalizeCharacterDnaMap(sceneAssets.characterDna);
+        const known = Object.prototype.hasOwnProperty.call(sceneAssets.characters || {}, name) || Object.prototype.hasOwnProperty.call(dnaMap, name);
+        if (!known) {
+            dnaMap[name] = normalizeCharacterDna(null);
+            sceneAssets.characterDna = dnaMap;
+        }
+        const notes = sceneAssets.characterSpriteNotes && typeof sceneAssets.characterSpriteNotes === 'object' ? sceneAssets.characterSpriteNotes : (sceneAssets.characterSpriteNotes = {});
+        if (persona && !String(notes[name] || '').trim()) notes[name] = persona;
+        const { storage, scope } = assetFolderScope(settingsState, options);
+        let folders = loadAssetFolders(storage, scope);
+        if (!folders.characters.folders.includes('主角')) folders = addAssetFolder(folders, 'characters', '主角');
+        saveAssetFolders(storage, scope, moveAssetToFolder(folders, 'characters', name, '主角'));
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return handleSettingsAction(`char-generate-sprite:${encodeURIComponent(name)}`, ctx);
     }
 
     if (normalizedAction.startsWith('scene-remove-dna-char:')) {

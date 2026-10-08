@@ -173,9 +173,10 @@ test('gate:romance:shade-neck-below-chin-and-null-without-head', () => {
 });
 
 test('gate:romance:nsfw-sprite-mode-migrates-legacy-boolean', () => {
-    assert.equal(STATUS_HUD_DEFAULTS.nsfwSpriteMode, 'shade');
-    assert.equal(normalizeStatusHudSettings({}).nsfwSpriteMode, 'shade');
-    assert.equal(normalizeStatusHudSettings({ showSpriteOnNsfw: true }).nsfwSpriteMode, 'shade');
+    assert.equal(STATUS_HUD_DEFAULTS.nsfwSpriteMode, 'show');
+    assert.equal(normalizeStatusHudSettings({}).nsfwSpriteMode, 'show');
+    assert.equal(normalizeStatusHudSettings({ showSpriteOnNsfw: true }).nsfwSpriteMode, 'show');
+    assert.equal(normalizeStatusHudSettings({ nsfwSpriteMode: 'shade' }).nsfwSpriteMode, 'shade');
     const hidden = normalizeStatusHudSettings({ showSpriteOnNsfw: false });
     assert.equal(hidden.nsfwSpriteMode, 'hide');
     assert.equal(hidden.showSpriteOnNsfw, false);
@@ -237,7 +238,7 @@ test('gate:romance:nsfw-shade-full-silhouette-until-calibrated-head-is-sized', a
     const head = { x: 0.5, top: 0.45, w: 0.3 };
     const ctx = { sprite: { url, posX: 50, posY: 100, scale: 40, head }, reducedMotion: false };
     // 亲密演出关闭时剪影照常生效，并带一层逆光保证轮廓可读。
-    const snap = snapshotOf({ nsfw: true, statusHud: {} });
+    const snap = snapshotOf({ nsfw: true, statusHud: { nsfwSpriteMode: 'shade' } });
     const first = applyRomanceToDom(root, snap, ctx);
     assert.equal(first.level, 0);
     assert.equal(stage.getAttribute('data-igs-rm-shade'), '1');
@@ -267,7 +268,7 @@ test('gate:romance:nsfw-shade-full-silhouette-until-calibrated-head-is-sized', a
 
 test('gate:romance:nsfw-with-romance-enabled-is-level-three', () => {
     const { root, stage } = makeReader();
-    const result = applyRomanceToDom(root, snapshotOf({ romance: { enabled: true }, nsfw: true }), {
+    const result = applyRomanceToDom(root, snapshotOf({ romance: { enabled: true }, nsfw: true, statusHud: { nsfwSpriteMode: 'shade' } }), {
         sprite: { url: `e${urlSeq += 1}.png`, posX: 50, scale: 40 }, reducedMotion: false,
     });
     assert.equal(result.level, 3);

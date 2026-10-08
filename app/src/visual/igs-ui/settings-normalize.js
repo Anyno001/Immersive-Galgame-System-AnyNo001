@@ -1,7 +1,7 @@
 import { LEGACY_READER_MODES, resolveLegacyReaderMode } from '../../storage/legacy-igs.js';
 import { buildNarrativeSegments } from '../../scene/image-slots.js';
 import { SETTINGS_TAB_ALIASES, SETTINGS_TAB_DEFS } from './settings-tabs.js';
-import { TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
+import { DEFAULT_DIALOG_BAR_BUTTONS, TOOLBAR_ACTIONS, TOOLBAR_SPLIT_MODES, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { esc, normalizeFiniteNumber } from './reader-value-utils.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS, isClassicDialogSkin, normalizeDialogSkin } from './classic-dialog-skin.js';
 import { getReferenceDialogTypography } from './dialog-theme-typography.js';
@@ -164,6 +164,23 @@ export function normalizeHiddenButtons(value) {
     for (const id of Array.isArray(value) ? value : []) {
         const normalized = String(id || '').trim();
         if (!normalized || !allowed.has(normalized) || protected_.has(normalized) || output.includes(normalized)) continue;
+        output.push(normalized);
+    }
+    return output;
+}
+
+export function normalizeToolbarSplit(value) {
+    return TOOLBAR_SPLIT_MODES.includes(value) ? value : 'split';
+}
+
+// 没设过（不是数组）用默认那组；设成空数组表示快捷栏一个都不放。设置键不能挪。
+export function normalizeDialogBarButtons(value) {
+    if (!Array.isArray(value)) return Array.from(DEFAULT_DIALOG_BAR_BUTTONS);
+    const allowed = new Set(TOOLBAR_ACTIONS.map(([id]) => id));
+    const output = [];
+    for (const id of value) {
+        const normalized = String(id || '').trim();
+        if (!normalized || normalized === 'settings' || !allowed.has(normalized) || output.includes(normalized)) continue;
         output.push(normalized);
     }
     return output;

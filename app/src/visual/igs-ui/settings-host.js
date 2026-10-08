@@ -244,6 +244,10 @@ export function createSettingsHost(deps) {
         }
 
         setPath(draft, path, normalizeSettingsValue(path, value));
+        // 台词朗读与角色语气音二选一：打开一个就关掉另一个。
+        if (value === true && (path === 'readerSettings.tts.enabled' || path === 'readerSettings.voiceBark.enabled')) {
+            setPath(draft, path === 'readerSettings.tts.enabled' ? 'readerSettings.voiceBark.enabled' : 'readerSettings.tts.enabled', false);
+        }
         const themeKey = path.startsWith('readerSettings.classicVnTheme.') ? 'classicVnTheme' : 'vnTheme';
         const themeRoot = `readerSettings.${themeKey}`;
         if (path === `${themeRoot}.preset` && value === 'custom') {
@@ -659,7 +663,9 @@ export function createSettingsHost(deps) {
             }
             const voiceField = !charSelect ? '' : charSelect.hasAttribute('data-char-voice') ? 'pack'
                 : charSelect.hasAttribute('data-char-voice-pitch') ? 'pitch'
-                    : charSelect.hasAttribute('data-char-voice-speed') ? 'speed' : '';
+                    : charSelect.hasAttribute('data-char-voice-speed') ? 'speed'
+                        : charSelect.hasAttribute('data-char-voice-tts') ? 'tts'
+                            : charSelect.hasAttribute('data-char-voice-ttsVolume') ? 'ttsVolume' : '';
             if (voiceField) {
                 const voiceChar = charSelect.getAttribute(voiceField === 'pack' ? 'data-char-voice' : `data-char-voice-${voiceField}`) || '';
                 controller.invoke(`char-voice:${voiceField}:${encodeURIComponent(voiceChar)}:${encodeURIComponent(charSelect.value || '')}`);

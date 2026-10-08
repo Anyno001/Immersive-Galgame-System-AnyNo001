@@ -12,13 +12,14 @@ import { normalizeAutoIllustrationSettings } from '../../generated-images/illust
 import { normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_IMAGE_API, DIALOG_FONT_OPTIONS, DEFAULT_PINNED_TOOLBAR_BUTTONS, normalizeScenePromptRule, READER_SETTINGS_SCHEMA_VERSION, TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData, clampNumber, normalizeBoolean, normalizeFiniteNumber, normalizeNullableNumber, normalizeOpacity } from './reader-value-utils.js';
-import { normalizeBtnOrder, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
+import { normalizeBtnOrder, normalizeDialogBarButtons, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, normalizeClassicDialogWidthPercent, normalizeDialogSkin } from './classic-dialog-skin.js';
 import { MAGIC_ACCENT_DEFAULT, MAGIC_HOUSE_DEFAULT, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoices, normalizeVoiceBarkSettings } from './voice-bark.js';
+import { normalizeTtsSettings } from './tts.js';
 import { HORROR_DREAD_CAP_DEFAULT, normalizeHorrorDreadCap } from './horror-dread.js';
 import { normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
 import { SKIN_DIALOG_SCALE_DEFAULT, normalizeSkinDialogScale } from './dialog-skin-frame.js';
@@ -236,6 +237,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         typewriter: { ...TYPEWRITER_DEFAULTS },
         stageShake: normalizeStageShakeSettings(null),
         voiceBark: normalizeVoiceBarkSettings(null),
+        tts: normalizeTtsSettings(null),
         chatShow: normalizeChatShowSettings(null),
         systemRole: normalizeSystemRoleSettings(null),
         weatherFx: normalizeWeatherFxSettings(null),
@@ -244,6 +246,8 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
         hiddenBtns: [],
         btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
+        toolbarSplit: 'split',
+        dialogBarBtns: normalizeDialogBarButtons(null),
         spriteLayouts: {},
         spriteHeads: {},
         castSlotLayouts: {},
@@ -294,6 +298,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
     normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);
     normalized.voiceBark = normalizeVoiceBarkSettings(normalized.voiceBark);
+    normalized.tts = normalizeTtsSettings(normalized.tts);
     normalized.chatShow = normalizeChatShowSettings(normalized.chatShow);
     normalized.systemRole = normalizeSystemRoleSettings(normalized.systemRole);
     normalized.weatherFx = normalizeWeatherFxSettings(normalized.weatherFx);
@@ -304,6 +309,8 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);
     normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
     normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
+    normalized.toolbarSplit = normalizeToolbarSplit(normalized.toolbarSplit);
+    normalized.dialogBarBtns = normalizeDialogBarButtons(normalized.dialogBarBtns);
     normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);
     normalized.spriteDefaultScale = normalizeSpriteDefaultScale(normalized.spriteDefaultScale);
     normalized.spriteGenderScale = normalizeSpriteGenderScale(normalized.spriteGenderScale);

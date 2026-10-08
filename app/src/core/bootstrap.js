@@ -39,6 +39,7 @@ import { createPromptInjector } from '../host/prompt-injector.js';
 import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
 import { createSecondaryLlm } from '../host/secondary-llm.js';
 import { createImageBackend, mergeLegacyNaiSettings } from '../generated-images/image-backend.js';
+import { IMAGE_ACTIVITY_EVENT, trackImageActivity } from '../generated-images/generation-activity.js';
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
 import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
@@ -55,7 +56,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.34.94';
+const IGS_VERSION = '0.34.95';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -117,7 +118,8 @@ export function bootstrapIGS(options = {}) {
         getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).imageJobLog,
     });
     const reportImageJob = options.reportImageJob || createImageJobReporter(globalObject, () => (getUnifiedSettingsSnapshot() || {}).bridge || {}, imageJobLog);
-    const imageBackend = options.imageBackend || createImageBackend({
+    // 所有出图（手动 / 自动，CG / 立绘 / 背景 / 物品）都经过这一层，开始和结束各发一次活动事件给阅读器的生成细线。
+    const imageBackend = trackImageActivity(options.imageBackend || createImageBackend({
         nai: naiOfficialClient,
         getBridge: readImageBridge,
         global: globalObject,
@@ -125,7 +127,7 @@ export function bootstrapIGS(options = {}) {
         report: (level, message) => {
             if (imageJobLog && typeof imageJobLog.add === 'function') imageJobLog.add(level, message);
         },
-    });
+    }), (event) => events.emit(IMAGE_ACTIVITY_EVENT, event));
     // CG 库与自动插图共用同一个插图存储实例；写入 / 删除槽位时顺手更新 CG 库目录。
     const cgIndexStore = options.cgIndexStore || createIndexedDbCgIndexStore(globalObject);
     const illustrationStore = options.illustrationStore || withCgIndexSync(withTavernIllustrationFiles(createIndexedDbIllustrationStore(globalObject), globalObject), cgIndexStore);
@@ -231,6 +233,7 @@ export function bootstrapIGS(options = {}) {
         illustrations: illustrationService,
         onIllustrationUpdated: (handler) => events.on(ILLUSTRATION_UPDATED_EVENT, handler),
         onIllustrationProgress: (handler) => events.on(ILLUSTRATION_PROGRESS_EVENT, handler),
+        onImageActivity: (handler) => events.on(IMAGE_ACTIVITY_EVENT, handler),
         generatedAssets: assetGenerationService,
         // 遮罩修复编辑器的 AI 局部重绘：只经 describeEdit/edit 显式调用，不影响普通生成。
         imageEditBackend: imageBackend,

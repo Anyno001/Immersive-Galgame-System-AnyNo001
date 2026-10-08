@@ -20,6 +20,9 @@ import { parseTables } from '../../shujuku-panel/panel-model.js';
 import { applyDiceToHits } from '../../scene/battle-context.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
+import { createReadingProgress, resolvePositionFloor, resolvePositionPage, segmentText, textHash, textHead, READING_METADATA_KEY } from './reading-progress.js';
+import { createTurnIndexPanel, positionLabel } from './turn-index-panel.js';
+import { createGenerationStrip } from './generation-strip.js';
 import { cancelFxEffects } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
@@ -37,6 +40,7 @@ import { applyBgmNoteToDom, toggleBgmNote } from './bgm-note.js';
 import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
 import { isStagePaused, watchStagePause } from './stage-pause.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
+import { isTtsSpeaking, replayTts, setTtsErrorHandler, stopTts } from './tts.js';
 import { playUiSfx } from './ui-sfx.js';
 import { findLastDreadLevel } from '../../scene/horror.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -273,6 +277,8 @@ export function createIgsReaderHost(options = {}) {
         // T 键临时切换的双语显示方式 { base, value }：只在本次会话内有效，不写入设置；设置里改了显示方式即失效。
         bilingualDisplay: null,
     };
+    // 阅读中朗读出错（接口挂了、Key 错、浏览器拦自动朗读）在阅读器里提示，同一条 30 秒内只弹一次。
+    setTtsErrorHandler((message) => applyToastToReader(state.activeReader, true, message, null, 4000));
     // 阅读器里的确认和提示挂在遮罩上。浏览器 alert/confirm 会把全屏模式退出去。
     const pageModal = createIgsModal({
         getHost: () => {
@@ -282,6 +288,20 @@ export function createIgsReaderHost(options = {}) {
             return doc && (doc.body || doc.documentElement);
         },
         global: options.global || globalThis,
+    });
+    // 阅读进度：上次位置 / 最远 / 已读 / 存档位，按聊天存本机；真正关闭阅读器或存档时同步进聊天元数据。
+    const readingProgress = createReadingProgress({
+        getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
+        storage: () => (options.global || globalThis).localStorage,
+    });
+    const progressRuntime = { navigating: false, offered: new Set(), pulled: new Set(), pushed: new Map(), newFloorToastAt: 0 };
+    const PROGRESS_NAV_ACTIONS = new Set(['prev', 'next', 'first-page', 'last-page', 'prev-turn', 'next-turn', 'resume-reading', 'turn-first', 'turn-latest', 'skip-read', 'quick-load']);
+    let turnIndexPanel = null;
+    let generationStripRemount = false;
+    // 对话框顶边的生成细线：手动 / 自动出图共用，代替原来常驻的「生图中」提示。
+    const generationStrip = createGenerationStrip({
+        timers: options.autoPlayTimers || globalThis,
+        getDialog: () => (state.activeReader && state.activeReader.dom && state.activeReader.dom.dialog) || null,
     });
     // 新手引导：会话标记与当前步骤挂在宿主实例上，状态只存独立的 localStorage 键。
     const onboarding = createOnboardingController({
@@ -424,6 +444,9 @@ export function createIgsReaderHost(options = {}) {
     const offIllustrationProgress = typeof options.onIllustrationProgress === 'function'
         ? options.onIllustrationProgress((payload) => showIllustrationProgress(payload))
         : () => {};
+    const offImageActivity = typeof options.onImageActivity === 'function'
+        ? options.onImageActivity((event) => generationStrip.activity(event))
+        : () => {};
 
     const {
         settingsInteracting, openSettings, syncSettingsStagePause, rerenderSettings, closeSettings,
@@ -526,6 +549,8 @@ export function createIgsReaderHost(options = {}) {
             assetLoadRequests: new Set(),
         };
         const current = state.activeReader;
+        current.progressArmed = progressRuntime.navigating;
+        pullProgressFromMetadata();
         current.titleGate = openOptions.skipTitle !== true && payload.skipTitle !== true && shouldGateTitleScreen({
             readerSettings,
             messageId: snapshot.messageId,
@@ -547,7 +572,8 @@ export function createIgsReaderHost(options = {}) {
                         || Boolean(state.activeSettings) || isStagePaused(overlay)
                         || Boolean(overlay?.ownerDocument?.hidden)
                         || Boolean(overlay?.classList?.contains('igs-options-visible')),
-                    busy: current.dom?.text?.dataset?.igsTypewriter === 'running'
+                    // 台词朗读没念完也算忙，念完再翻页。
+                    busy: current.dom?.text?.dataset?.igsTypewriter === 'running' || isTtsSpeaking()
                         || Boolean(chatUnfinished && chat.pending),
                     last: isReaderLastPage(current.snapshot) && !chatUnfinished,
                 };
@@ -561,6 +587,7 @@ export function createIgsReaderHost(options = {}) {
         current.autoPlay = current.autoPlayer.getState();
         updateMountedReader(snapshot);
         startReaderImagePolling(state.activeReader);
+        if (!progressRuntime.navigating) void offerResume(current);
         if (domState && domState.overlay) {
             state.activeReader.stopStagePause = watchStagePause(domState.overlay, { offscreen: isEmbeddedReaderMode(nextMode), root: domState.root });
         }
@@ -831,10 +858,12 @@ export function createIgsReaderHost(options = {}) {
                 return closed;
             }
         }
-        // 中途退出：停在旧轮时把楼号和页码记进书签，下次「第一轮 / 续读」接着读。
-        if (Number(current.turnOffset) > 0) writeTurnBookmark(currentTurnMessageId(current), current.index);
+        if (turnIndexPanel) turnIndexPanel.close();
+        // 真正关闭（不是切轮重开）时把阅读进度同步进聊天元数据，换设备也能续读。
+        if (closeOptions.keepFullscreen !== true) pushProgressToMetadata();
         teardownStatusHudSubscription();
         current.autoPlayer?.stop();
+        stopTts();
         clearReaderToast(current);
         cancelTypewriter(current.dom && current.dom.text, { finish: false });
         const stageMotion = current.dom && current.dom.overlay && current.dom.overlay.querySelector
@@ -901,6 +930,8 @@ export function createIgsReaderHost(options = {}) {
         if (closed.ok === false) return closed;
         offIllustrationUpdated();
         offIllustrationProgress();
+        offImageActivity();
+        generationStrip.dispose();
         offGeneratedAssetUpdated();
         offItemImageUpdated();
         offImageJobLog();
@@ -924,6 +955,8 @@ export function createIgsReaderHost(options = {}) {
     function handleChatStreamActivity() {
         const current = state.activeReader;
         if (!current || !tracksHostReply(current.mode)) return;
+        // 正在读旧楼且不是自己发的：不拉回最新，只提示一句。
+        if (Number(current.turnOffset) > 0 && !current.awaitingReply) { noticeNewFloor(); return; }
         if (isEmbeddedReaderMode(current.mode)) {
             syncEmbeddedStreamMount(current);
             enterEmbeddedLoading();
@@ -1019,6 +1052,10 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         const embedded = Boolean(current && isEmbeddedReaderMode(current.mode));
         if (!current || !tracksHostReply(current.mode)) return true;
+        if (Number(current.turnOffset) > 0 && !current.awaitingReply && current.streamPhase !== 'streaming') {
+            noticeNewFloor();
+            return true;
+        }
         if (typeof options.getCurrentMessage !== 'function'
             || typeof options.openViewerFromMessage !== 'function') {
             exitEmbeddedLoading();
@@ -1248,6 +1285,13 @@ export function createIgsReaderHost(options = {}) {
 
     async function submitReaderInput(text) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
+        // 停在旧楼时发送：剧情会接在最新楼后面，先确认，免得以为是在旧楼的语境里接着写。
+        if (Number(state.activeReader.turnOffset) > 0) {
+            const floorId = currentTurnMessageId(state.activeReader);
+            const confirmed = await pageModal.confirm(`现在停在旧楼（第 ${floorId} 楼）。发送后剧情接在最新楼后面，回复到了会切过去。继续发送？`);
+            if (!confirmed) return { ok: false, sent: false, reason: 'old-floor-cancelled' };
+            if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
+        }
         const embedded = isEmbeddedReaderMode(state.activeReader.mode);
         const fullscreen = followsHostReply(state.activeReader.mode);
         if (embedded) enterEmbeddedLoading();
@@ -1440,21 +1484,10 @@ export function createIgsReaderHost(options = {}) {
         try { if (state.activeReader) writeToast(message); } catch (error) { /* ignore */ }
     }
 
+    // 插图服务的楼层进度（含写词阶段）：任何楼都点亮生成细线，不再只认当前楼、不弹提示。
     function showIllustrationProgress(payload) {
-        const current = state.activeReader;
-        if (!current || !payload) return;
-        const messageId = Number(payload.messageId);
-        const contentId = current.payload && current.payload.messageId != null
-            ? current.payload.messageId : current.contentMessageId;
-        if (contentId == null || Number(contentId) !== messageId) return;
-        if (payload.phase === 'done') {
-            if (!current.cgProgress) return;
-            current.cgProgress = false;
-            if (current.toastMessage === '生图中') clearReaderToast(current);
-            return;
-        }
-        current.cgProgress = true;
-        writeGenerating();
+        if (!payload || payload.messageId == null) return;
+        generationStrip.floor(payload.messageId, payload.phase === 'done');
     }
 
     async function handleReaderAction(action) {
@@ -1464,6 +1497,7 @@ export function createIgsReaderHost(options = {}) {
             return { ok: false, reason: 'title-screen' };
         }
         state.activeReader.lastAction = normalizedAction;
+        if (PROGRESS_NAV_ACTIONS.has(normalizedAction)) armReadingProgress(state.activeReader);
 
         if (normalizedAction === 'auto-play') {
             const player = state.activeReader.autoPlayer;
@@ -1548,6 +1582,8 @@ export function createIgsReaderHost(options = {}) {
             if (isReaderLastPage(current.snapshot) && handleOptionBubbleBlankClick(current, current.snapshot)) {
                 return { ok: true, moved: false, reason: 'option-bubbles-toggled', index: current.index };
             }
+            // 读旧楼读到最后一页：接着进下一楼，一路读到最新。
+            if (isReaderLastPage(current.snapshot) && Number(current.turnOffset) > 0) return moveReaderTurn(1);
             return moveReaderSegment(1);
         }
         if (normalizedAction === 'first-page') {
@@ -1571,6 +1607,9 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'fill-item-images') {
             return runFillItemImages();
         }
+        if (normalizedAction === 'tts-replay') {
+            return replayTts();
+        }
         if (normalizedAction === 'regen') {
             return generateOrRegenerate();
         }
@@ -1583,8 +1622,28 @@ export function createIgsReaderHost(options = {}) {
         if (['prev-turn', 'next-turn'].includes(normalizedAction)) {
             return moveReaderTurn(normalizedAction === 'prev-turn' ? -1 : 1);
         }
-        if (normalizedAction === 'first-turn') {
-            return moveReaderToFirstTurn();
+        // 工具栏按钮 id 沿用 first-turn（用户的工具栏排序 / 固定记的是 id），功能改为打开目录。
+        if (normalizedAction === 'first-turn' || normalizedAction === 'turn-index') {
+            return openTurnIndex();
+        }
+        if (normalizedAction === 'turn-first' || normalizedAction === 'turn-latest') {
+            return jumpToPosition({ edge: normalizedAction === 'turn-first' ? 'first' : 'latest' });
+        }
+        if (normalizedAction === 'resume-reading') {
+            return resumeReading();
+        }
+        if (normalizedAction === 'skip-read') {
+            return skipToUnread();
+        }
+        if (normalizedAction === 'quick-save') {
+            const slot = quickSaveReading();
+            writeToast(slot ? `已快速存档：${positionLabel(slot)}` : '存档失败');
+            return { ok: Boolean(slot), slot };
+        }
+        if (normalizedAction === 'quick-load') {
+            const quick = readingProgress.getQuick();
+            if (!quick) { writeToast('还没有快速存档'); return { ok: true, moved: false, reason: 'no-quick-save' }; }
+            return jumpToPosition({ pos: quick });
         }
         if (normalizedAction === 'sprite-edit') {
             const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
@@ -1701,31 +1760,6 @@ export function createIgsReaderHost(options = {}) {
         return openReaderTurn(current, target, nextOffset, delta > 0 ? '已切到下一轮' : '已切到上一轮');
     }
 
-    // 从第一轮读；停在最新轮且有书签时先续读书签。
-    async function moveReaderToFirstTurn() {
-        const current = state.activeReader;
-        if (!current) return { ok: false, reason: 'reader-not-open' };
-        if (typeof options.listTurns !== 'function') {
-            writeToast('楼层切换需要宿主消息列表。');
-            return { ok: true, moved: false, reason: 'turn-switch-host-required' };
-        }
-        const turns = await options.listTurns();
-        if (!Array.isArray(turns) || !turns.length) return { ok: true, moved: false, reason: 'turn-not-found' };
-        const ids = turns.map((turn) => Number(turn && turn.id));
-        const bookmark = readTurnBookmark();
-        const bookmarkIndex = bookmark ? ids.indexOf(bookmark.messageId) : -1;
-        const resume = !(Number(current.turnOffset) > 0) && bookmarkIndex > 0 && bookmarkIndex < ids.length - 1;
-        const index = resume ? bookmarkIndex : 0;
-        if (ids[index] === Number(currentTurnMessageId(current))) {
-            writeToast('已经在第一轮');
-            return { ok: true, moved: false, reason: 'already-first-turn' };
-        }
-        const result = await openReaderTurn(current, turns[index], ids.length - 1 - index,
-            resume ? `续读第 ${ids[index]} 楼，再点一次回第一轮` : '已回到第一轮');
-        if (resume && result.moved && bookmark.page > 0) jumpReaderSegment(bookmark.page);
-        return result;
-    }
-
     function currentTurnMessageId(current) {
         return current.contentMessageId != null
             ? current.contentMessageId
@@ -1738,12 +1772,19 @@ export function createIgsReaderHost(options = {}) {
         }
         // 内嵌：容器留在最新 AI 楼层原地换源；历史轮次只读文字，不收集 provider 图片、不扫不可见 DOM、不开轮询。
         const embedded = isEmbeddedReaderMode(current.mode);
-        const result = await options.openViewerFromMessage(target.id, current.mode, embedded
-            ? { startAtEnd: false, message: target, replaceActive: true, skipImageCollection: nextOffset > 0, turnOffset: nextOffset, skipTitle: true }
-            : { startAtEnd: false, message: target, skipTitle: true });
+        // 切轮是用户动作：新开的阅读器直接开始记进度，不出续读提示。
+        progressRuntime.navigating = true;
+        let result;
+        try {
+            result = await options.openViewerFromMessage(target.id, current.mode, embedded
+                ? { startAtEnd: false, message: target, replaceActive: true, skipImageCollection: nextOffset > 0, turnOffset: nextOffset, skipTitle: true }
+                : { startAtEnd: false, message: target, skipTitle: true });
+        } finally {
+            progressRuntime.navigating = false;
+        }
         if (result && result.ok !== false) {
             if (!embedded && state.activeReader) state.activeReader.turnOffset = nextOffset;
-            writeTurnBookmark(nextOffset > 0 ? target.id : null);
+            if (state.activeReader) armReadingProgress(state.activeReader);
             writeToast(toast);
             return { ok: true, moved: true, messageId: target.id, reader: result.reader };
         }
@@ -1755,32 +1796,280 @@ export function createIgsReaderHost(options = {}) {
         };
     }
 
-    // 读楼书签：每个聊天只记「楼号:页码」一条，读回最新轮即清除。
-    function turnBookmarkKey() {
-        const chatId = typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '';
-        return chatId ? `igs-turn-bookmark:${chatId}` : '';
+    // ── 阅读进度 ──
+    // 只在用户动过（翻页、切轮、跳转）之后才记位置：刚打开停在最新楼不算，否则会把上次的书签冲掉。
+    function armReadingProgress(current) {
+        if (!current || current.progressArmed) return;
+        current.progressArmed = true;
+        dismissResumeBar(current);
     }
 
-    function readTurnBookmark() {
-        const key = turnBookmarkKey();
+    function noteReadingProgress(current, snapshot) {
+        if (!current || !current.progressArmed || current.titleGate) return;
+        const content = snapshot && snapshot.content;
+        const segments = content && Array.isArray(content.segments) ? content.segments : [];
+        const id = Number(currentTurnMessageId(current));
+        if (!Number.isInteger(id) || !segments.length) return;
+        const page = Math.max(0, Math.min(segments.length - 1, Number(current.index) || 0));
+        const key = `${id}:${page}:${segments.length}`;
+        if (current.progressNotedKey === key) return;
+        current.progressNotedKey = key;
+        readingProgress.notePage({
+            id,
+            page,
+            total: segments.length,
+            text: segmentText(segments[page]),
+            floorText: content.fullText,
+            place: content.sceneLocation,
+        });
+    }
+
+    async function listTurnsSafe() {
+        if (typeof options.listTurns !== 'function') return [];
         try {
-            const value = key ? (options.global || globalThis).localStorage.getItem(key) : null;
-            const [messageId, page] = String(value || '').split(':').map(Number);
-            return value && Number.isFinite(messageId) ? { messageId, page: Number(page) || 0 } : null;
+            const turns = await options.listTurns();
+            return Array.isArray(turns) ? turns : [];
         } catch (error) {
-            return null;
+            return [];
         }
     }
 
-    function writeTurnBookmark(messageId, page = 0) {
-        const key = turnBookmarkKey();
-        if (!key) return;
+    // 跳到某楼某页。target：{ id, page } / { edge: 'first'|'latest' } / { pos }（记下的位置：楼没了退到前一楼，按页首指纹找页）。
+    // 只换阅读源，不调宿主跳楼。
+    async function jumpToPosition(target = {}) {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const turns = await listTurnsSafe();
+        if (!turns.length) {
+            writeToast('楼层切换需要宿主消息列表。');
+            return { ok: true, moved: false, reason: 'turn-switch-host-required' };
+        }
+        const ids = turns.map((turn) => Number(turn && turn.id));
+        const pos = target.pos || null;
+        let index = -1;
+        let note = '';
+        if (pos) {
+            const floor = resolvePositionFloor(pos, ids);
+            index = floor.index;
+            if (floor.reason === 'missing') note = `原来的第 ${pos.id} 楼已不存在，退到第 ${ids[index]} 楼`;
+        } else if (target.edge) {
+            index = target.edge === 'first' ? 0 : ids.length - 1;
+        } else {
+            index = ids.indexOf(Number(target.id));
+        }
+        if (index < 0) {
+            writeToast(`没有第 ${target.id} 楼`);
+            return { ok: true, moved: false, reason: 'turn-not-found' };
+        }
+        if (state.activeReader !== current) return { ok: false, reason: 'reader-changed' };
+        armReadingProgress(current);
+        const targetId = ids[index];
+        if (targetId !== Number(currentTurnMessageId(current))) {
+            const toast = index === ids.length - 1 ? '已到最新楼' : index === 0 ? '已回到第一楼' : `已跳到第 ${targetId} 楼`;
+            const result = await openReaderTurn(current, turns[index], ids.length - 1 - index, toast);
+            if (!result.moved) return result;
+        }
+        const reader = state.activeReader;
+        if (!reader) return { ok: false, reason: 'reader-not-open' };
+        const content = reader.snapshot && reader.snapshot.content || {};
+        let page = Math.max(0, Number(target.page) || 0);
+        if (pos && !note) {
+            const resolved = resolvePositionPage(pos, content.segments, content.fullText);
+            page = resolved.page;
+            if (resolved.reason === 'changed') note = `第 ${targetId} 楼内容变了，从第 1 页读`;
+            else if (resolved.reason === 'repaged' || resolved.reason === 'clamped') note = '分页变了，已尽量回到原来的位置';
+        } else if (pos) {
+            page = 0;
+        }
+        if (page !== reader.index) jumpReaderSegment(page);
+        if (pos) writeToast(note || `续读 ${positionLabel({ id: targetId, page: reader.index })}`);
+        else if (note) writeToast(note);
+        return { ok: true, moved: true, messageId: targetId, page: reader.index };
+    }
+
+    // 上次位置之后是否还有没读完的：上次楼到最新楼之前有未读 / 读了一半的楼，或上次就停在最新楼且还没读完、比现在这页靠后。
+    function hasUnreadSince(last, ids, currentPage) {
+        if (!last || !ids.length) return false;
+        const latest = ids[ids.length - 1];
+        if (ids.some((id) => id >= last.id && id < latest && readingProgress.floorState(id) !== 'read')) return true;
+        return last.id === latest && readingProgress.floorState(latest) !== 'read' && last.page > (Number(currentPage) || 0);
+    }
+
+    // 续读：上次那楼没读完就回原页；已读完就跳到它后面第一处没读的。
+    async function resumeReading() {
+        const last = readingProgress.getLast();
+        if (!last) return { ok: true, moved: false, reason: 'no-bookmark' };
+        if (readingProgress.floorState(last.id) === 'read') return skipToUnread(last.id);
+        return jumpToPosition({ pos: last });
+    }
+
+    // 跳到下一处没读过的地方：从 fromId（默认当前楼）往后找第一页没读的。
+    async function skipToUnread(fromId) {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const turns = await listTurnsSafe();
+        const ids = turns.map((turn) => Number(turn && turn.id));
+        const start = fromId != null && Number.isInteger(Number(fromId)) ? Number(fromId) : Number(currentTurnMessageId(current));
+        const partial = readingProgress.load().partial;
+        for (const id of ids) {
+            if (id < start || readingProgress.floorState(id) === 'read') continue;
+            return jumpToPosition({ id, page: partial[id] != null ? partial[id] + 1 : 0 });
+        }
+        writeToast('后面都读过了');
+        return { ok: true, moved: false, reason: 'all-read' };
+    }
+
+    function openTurnIndex(tab) {
+        const current = state.activeReader;
+        const overlay = current && current.dom && current.dom.overlay;
+        if (!overlay || !overlay.ownerDocument) return { ok: false, reason: 'reader-not-open' };
+        if (turnIndexPanel && turnIndexPanel.isOpen()) return turnIndexPanel.close();
+        dismissResumeBar(current);
+        turnIndexPanel = createTurnIndexPanel(overlay.ownerDocument, {
+            progress: readingProgress,
+            tab,
+            listTurns: listTurnsSafe,
+            snippetOf: (turn) => (turn && (turn.visibleText || getMessagePrimaryText(turn.raw || turn))) || '',
+            currentId: () => (state.activeReader ? currentTurnMessageId(state.activeReader) : null),
+            onJump: (target) => (state.activeReader ? jumpToPosition(target) : null),
+            onUnread: () => {
+                const far = readingProgress.getFarthest();
+                return state.activeReader ? skipToUnread(far ? far.id : 0) : null;
+            },
+            onSaveSlot: (key) => saveReadingSlot(key),
+            onQuickSave: () => quickSaveReading(),
+            confirm: (message) => pageModal.confirm(message),
+            prompt: (message, value) => pageModal.prompt(message, value),
+        });
+        return turnIndexPanel.open(overlay);
+    }
+
+    function currentReadingPosition() {
+        const current = state.activeReader;
+        const content = current && current.snapshot && current.snapshot.content;
+        const segments = content && Array.isArray(content.segments) ? content.segments : [];
+        const id = current ? Number(currentTurnMessageId(current)) : NaN;
+        if (!Number.isInteger(id) || !segments.length) return null;
+        const page = Math.max(0, Math.min(segments.length - 1, Number(current.index) || 0));
+        const thumb = [content.illustrationUrl, content.currentImageUrl, content.backgroundImage]
+            .find((url) => typeof url === 'string' && /^(https?:|\/|user\/)/.test(url)) || '';
+        return { id, page, head: textHead(segmentText(segments[page])), hash: textHash(content.fullText), thumb, place: content.sceneLocation || '' };
+    }
+
+    function saveReadingSlot(key) {
+        const pos = currentReadingPosition();
+        if (!pos) return { ok: false, reason: 'no-position' };
+        const result = readingProgress.saveSlot(pos, key ? { key } : {});
+        if (result.ok) pushProgressToMetadata();
+        return result;
+    }
+
+    function quickSaveReading() {
+        const pos = currentReadingPosition();
+        const slot = pos ? readingProgress.quickSave(pos) : null;
+        if (slot) pushProgressToMetadata();
+        return slot;
+    }
+
+    // 打开阅读器停在最新楼、上次读到别处时，工具栏下方出一条续读提示；一动（翻页 / 切轮 / 跳转）就收起，每个聊天每次只提示一次。
+    async function offerResume(current) {
+        const chatId = typeof options.getCurrentChatId === 'function' ? String(options.getCurrentChatId() || '') : '';
+        const last = readingProgress.getLast();
+        if (!chatId || !last || progressRuntime.offered.has(chatId) || current.titleGate || Number(current.turnOffset) > 0) return;
+        if (last.id === Number(currentTurnMessageId(current)) && last.page === current.index) return;
+        progressRuntime.offered.add(chatId);
+        const ids = (await listTurnsSafe()).map((turn) => Number(turn && turn.id));
+        if (state.activeReader !== current || current.progressArmed) return;
+        // 只追最新楼的人不打扰：上次位置到最新之间都读完了（或停在最新楼本身已读完）就不提示。
+        if (!hasUnreadSince(last, ids, current.index)) return;
+        const far = readingProgress.getFarthest();
+        const unread = far ? ids.filter((id) => id > far.id).length : 0;
+        current.resumeBar = { text: `上次读到 ${positionLabel(last)}${unread ? ` · 后面还有 ${unread} 楼没读` : ''}` };
+        ensureResumeBar(current);
+    }
+
+    function ensureResumeBar(current) {
+        const overlay = current && current.dom && current.dom.overlay;
+        if (!current || !current.resumeBar || !overlay || !overlay.ownerDocument || typeof overlay.querySelector !== 'function') return;
+        if (overlay.querySelector('#igs-resume-bar')) return;
+        const bar = overlay.ownerDocument.createElement('div');
+        bar.id = 'igs-resume-bar';
+        bar.setAttribute('role', 'status');
+        const doc = overlay.ownerDocument;
+        const label = doc.createElement('span');
+        label.textContent = current.resumeBar.text;
+        bar.appendChild(label);
+        for (const [act, text, aria] of [['resume', '续读'], ['index', '目录'], ['close', '×', '关闭续读提示']]) {
+            const button = doc.createElement('button');
+            button.setAttribute('type', 'button');
+            button.setAttribute('data-igs-resume', act);
+            if (aria) button.setAttribute('aria-label', aria);
+            button.textContent = text;
+            bar.appendChild(button);
+        }
+        bar.addEventListener('click', (event) => {
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+            const button = event && event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-igs-resume]') : null;
+            const act = button ? button.getAttribute('data-igs-resume') : '';
+            if (!act) return;
+            dismissResumeBar(current);
+            if (act === 'resume') void handleReaderAction('resume-reading');
+            else if (act === 'index') void handleReaderAction('turn-index');
+        });
+        overlay.appendChild(bar);
+    }
+
+    function dismissResumeBar(current) {
+        if (!current) return;
+        current.resumeBar = null;
+        const overlay = current.dom && current.dom.overlay;
+        const bar = overlay && typeof overlay.querySelector === 'function' ? overlay.querySelector('#igs-resume-bar') : null;
+        if (bar) bar.remove();
+    }
+
+    function noticeNewFloor() {
+        const at = Date.now();
+        if (at - progressRuntime.newFloorToastAt < 20000) return;
+        progressRuntime.newFloorToastAt = at;
+        writeToast('最新楼有更新。正在读旧楼，不打扰你；要看最新请在目录点「最新」');
+    }
+
+    function currentChatIdText() {
+        return typeof options.getCurrentChatId === 'function' ? String(options.getCurrentChatId() || '') : '';
+    }
+
+    // 聊天元数据里的进度每次会话只合并一次（取更新的位置、已读并集、存档位按更新时间）。
+    function pullProgressFromMetadata() {
+        const chatId = currentChatIdText();
+        if (!chatId || progressRuntime.pulled.has(chatId)) return;
+        progressRuntime.pulled.add(chatId);
         try {
-            const storage = (options.global || globalThis).localStorage;
-            if (messageId == null) storage.removeItem(key);
-            else storage.setItem(key, `${messageId}:${Math.max(0, Number(page) || 0)}`);
+            const ctx = getSillyTavernContext(options.global || globalThis);
+            const saved = ctx && ctx.chatMetadata && ctx.chatMetadata[READING_METADATA_KEY];
+            if (saved) {
+                readingProgress.importData(saved);
+                progressRuntime.pushed.set(chatId, JSON.stringify(saved));
+            }
         } catch (error) {
-            // 存储不可用时书签静默失效。
+            // 元数据读不到时只用本机进度。
+        }
+    }
+
+    // 只在真正关闭阅读器或手动存档时写一次，内容没变不写。
+    function pushProgressToMetadata() {
+        const chatId = currentChatIdText();
+        if (!chatId) return;
+        try {
+            const ctx = getSillyTavernContext(options.global || globalThis);
+            if (!ctx || !ctx.chatMetadata || typeof ctx.saveMetadata !== 'function') return;
+            const data = readingProgress.exportData();
+            const text = JSON.stringify(data);
+            if (progressRuntime.pushed.get(chatId) === text) return;
+            progressRuntime.pushed.set(chatId, text);
+            ctx.chatMetadata[READING_METADATA_KEY] = data;
+            Promise.resolve(ctx.saveMetadata()).catch(() => null);
+        } catch (error) {
+            // 写元数据失败不影响本机进度。
         }
     }
 
@@ -3308,6 +3597,12 @@ export function createIgsReaderHost(options = {}) {
                 controller.invokeAction('prev');
                 return;
             }
+            // Home 回第一楼，End 到最新楼。
+            if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault();
+                controller.invokeAction(event.key === 'Home' ? 'turn-first' : 'turn-latest');
+                return;
+            }
             if (event.key === 'h' || event.key === 'H') {
                 event.preventDefault();
                 controller.invokeAction('hide');
@@ -3559,7 +3854,9 @@ export function createIgsReaderHost(options = {}) {
         if (!current) return;
         warmActiveFloorImages(snapshot);
         current.autoPlayer?.setSpeed(snapshot.readerSettings?.typewriter?.speed);
+        noteReadingProgress(current, snapshot);
         if (!current.dom || !current.dom.root) return;
+        generationStripRemount = true;
         const refs = hydrateReaderMount(current.dom.root, snapshot);
         current.dom.overlay = refs.overlay;
         current.dom.dialog = refs.dialog;
@@ -3601,6 +3898,8 @@ export function createIgsReaderHost(options = {}) {
         }
         syncOptionBubblesAfterRender(current, snapshot);
         syncAssetReviewAfterRender(current, snapshot);
+        ensureResumeBar(current);
+        if (generationStripRemount) { generationStripRemount = false; generationStrip.remount(); }
     }
 
     // 第 0 层之后有没有 AI 楼层：决定「开始」先进世界观页还是直接重播，以及出不出「继续」。
@@ -3675,6 +3974,16 @@ export function createIgsReaderHost(options = {}) {
 
     async function continueFromTitle(current) {
         dropTitleGate(current);
+        // 上次位置之后还有没读完的楼时「继续」接着读；已经追平最新就照旧打开最新楼。
+        const last = readingProgress.getLast();
+        if (last && hasUnreadSince(last, (await listTurnsSafe()).map((turn) => Number(turn && turn.id)), 0)) {
+            try {
+                const resumed = await resumeReading();
+                if (resumed && resumed.ok !== false && resumed.moved !== false) return resumed;
+            } catch (error) {
+                // 续读失败时退回打开最新楼。
+            }
+        }
         if (typeof options.reopenReader === 'function') {
             try {
                 const reopened = await options.reopenReader(current.mode);
@@ -3957,11 +4266,10 @@ export function createIgsReaderHost(options = {}) {
         applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme), durationMs);
     }
 
+    // 手动出图：点亮生成细线并在线上方弹一下小字，不再盖一个常驻提示。
     function writeGenerating() {
-        const current = state.activeReader;
-        if (!current) return;
-        const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
-        applyToastToReader(current, true, '生图中', normalizeSettingsTheme(bridge.settingsTheme), 0, { sticky: true });
+        if (!state.activeReader) return;
+        generationStrip.manual('生图中…');
     }
 
     function buildSpriteEditContext() {

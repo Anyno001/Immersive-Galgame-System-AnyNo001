@@ -40,6 +40,8 @@ import { CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_W
 import { DIALOG_SKIN_CHOICES, dialogSkinLabel } from './dialog-skin-catalog.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
+import { TTS_BILINGUAL_MODES, TTS_PROVIDERS, TTS_RATES, TTS_TRANSPORTS, normalizeTtsSettings, systemVoiceOptions, ttsApiVoiceList } from './tts.js';
+import { normalizeBilingualSettings } from './bilingual-text.js';
 import { HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
 import { SKIN_DIALOG_SCALE_OPTIONS } from './dialog-skin-frame.js';
@@ -429,8 +431,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 statusAvatars: sceneAssets.statusAvatars || {},
                 // 角色学院只在魔法世界观下有意义；其他世界观的魔法星夜只当星空框用，不显示这一行。
                 magicHouse: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY && resolveWorldview(worldviewAssets) === 'magic' ? { sceneAssets, fallback: reader.magicHouse } : null,
-                // 角色声线只在开了「角色语气音」时显示。
-                voice: normalizeVoiceBarkSettings(reader.voiceBark).enabled ? { sceneAssets } : null,
+                // 角色声线只在开了「角色语气音」时显示；开了「台词朗读」时改显示朗读声音（两者二选一，朗读优先）。
+                voice: renderVoiceRowConfig(reader, sceneAssets),
                 spriteHeight: { sceneAssets, reader },
                 resolveUrl: resolveGenerated,
                 expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
@@ -573,6 +575,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const typewriter = normalizeTypewriterSettings(reader.typewriter);
         const stageShake = normalizeStageShakeSettings(reader.stageShake);
         const voiceBark = normalizeVoiceBarkSettings(reader.voiceBark);
+        const tts = normalizeTtsSettings(reader.tts);
         const chatShow = normalizeChatShowSettings(reader.chatShow);
         const systemRole = normalizeSystemRoleSettings(reader.systemRole);
         const weatherFx = normalizeWeatherFxSettings(reader.weatherFx);
@@ -612,6 +615,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             inputScaleField: field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
             toolbarScaleField: field('readerSettings.toolbarScale', '工具栏大小', selectInput('readerSettings.toolbarScale', reader.toolbarScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
             toolbarDockField: field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'top', [['float', '紧贴对话框'], ['top', '顶部固定']])),
+            toolbarSplitField: field('readerSettings.toolbarSplit', '按钮分布', selectInput('readerSettings.toolbarSplit', reader.toolbarSplit || 'split', [['split', '分两截（翻页读档在对话框下）'], ['top', '只用顶栏'], ['dialog', '全放对话框下']])),
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
             statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（电脑右键 / 手机三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面'),
@@ -641,13 +645,15 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="typewriter-preview-sound">试听</button>`
                     : '',
             ].join('') : '',
-            voiceBarkToggle: checkbox('readerSettings.voiceBark.enabled', voiceBark.enabled, '角色语气音'),
+            voiceBarkToggle: checkbox('readerSettings.voiceBark.enabled', voiceBark.enabled && !tts.enabled, '角色语气音'),
             // 台词开头按情绪播一声「啊、嗯、哼」；每个角色的声线在 素材 › 角色 › 角色设定 里选，默认按 DNA 性别自动分配。
-            voiceBarkControls: voiceBark.enabled ? [
+            voiceBarkControls: voiceBark.enabled && !tts.enabled ? [
                 field('readerSettings.voiceBark.frequency', '播放时机', segmentedInput('readerSettings.voiceBark.frequency', voiceBark.frequency, VOICE_BARK_FREQUENCIES, '播放时机')),
                 field('readerSettings.voiceBark.volume', '音量', rangeInput('readerSettings.voiceBark.volume', voiceBark.volume, '语气音音量')),
                 `<div class="igs-source-filter-note">声线可在「素材 › 角色 › 角色设定」中选择；未选择时按 DNA 中的性别分配。</div>`,
             ].join('') : '',
+            ttsToggle: checkbox('readerSettings.tts.enabled', tts.enabled, '台词朗读（TTS）'),
+            ttsControls: tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled }) : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             systemRoleFields: renderSystemRoleSettings(systemRole, {
@@ -678,7 +684,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
             optionBubbleActionField: field('bridge.optionBubble.clickAction', '点击选项', segmentedInput('bridge.optionBubble.clickAction', (bridge.optionBubble && bridge.optionBubble.clickAction) || 'send', [['send', '自动发送'], ['fill', '填入输入框']], '点击行为')),
             optionBubbleWidthToggle: checkbox('bridge.optionBubble.widthFollowsText', Boolean(bridge.optionBubble && bridge.optionBubble.widthFollowsText), '气泡宽度随文本变化'),
-            pinnedButtonsField: renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder),
+            pinnedButtonsField: renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder, reader.dialogBarBtns, reader.toolbarSplit),
             themeNoteHidden: hiddenAttr(!themeDisabled),
             themeHidden: hiddenAttr(themeDisabled),
             dividerHidden: hiddenAttr(themeDisabled || classicDialog),
@@ -702,7 +708,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 typewriter: [readerValues.typewriterToggle, readerValues.typewriterControls],
                 // 语气音的开关、时机、音量对所有角色生效，放「声音」；每个角色的声线在 素材 › 角色 › 角色设定。
                 voiceBark: [readerValues.voiceBarkToggle, readerValues.voiceBarkControls],
-                voiceBarkOn: normalizeVoiceBarkSettings(reader.voiceBark).enabled,
+                voiceBarkOn: normalizeVoiceBarkSettings(reader.voiceBark).enabled && !normalizeTtsSettings(reader.tts).enabled,
+                tts: [readerValues.ttsToggle, readerValues.ttsControls],
+                ttsOn: normalizeTtsSettings(reader.tts).enabled,
                 stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
                 weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
                 chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],
@@ -851,4 +859,56 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
     }
 
     return { buildSettingsSnapshot, renderSettingsBody, renderImageJobLogList, buildRegexPreview, settingsLowQuality };
+}
+
+function renderVoiceRowConfig(reader, sceneAssets) {
+    const tts = normalizeTtsSettings(reader.tts);
+    if (tts.enabled) return { sceneAssets, tts };
+    return normalizeVoiceBarkSettings(reader.voiceBark).enabled ? { sceneAssets } : null;
+}
+
+// 台词朗读的设置：来源、旁白、音量语速，系统语音选女声 / 男声 / 旁白，接口填地址与声音名。
+function renderTtsControls(tts, { bilingual = false } = {}) {
+    const base = 'readerSettings.tts';
+    const rates = TTS_RATES.map((v) => [v, v === 1 ? '正常' : `${v}×`]);
+    const parts = [
+        field(`${base}.provider`, '来源', segmentedInput(`${base}.provider`, tts.provider, TTS_PROVIDERS, '朗读来源')),
+        checkbox(`${base}.narration`, tts.narration, '朗读旁白'),
+        checkbox(`${base}.nsfw`, tts.nsfw, 'NSFW 场景也朗读'),
+        checkbox(`${base}.sustain`, tts.sustain, '翻页不打断（上一句念完再念下一句）'),
+        // 双语台词：读译文用中文声音；读原文时系统语音按原文语言换日文 / 英文声音。
+        bilingual ? field(`${base}.bilingual`, '双语台词', segmentedInput(`${base}.bilingual`, tts.bilingual, TTS_BILINGUAL_MODES, '双语台词朗读')) : '',
+        field(`${base}.volume`, '音量', rangeInput(`${base}.volume`, tts.volume, '朗读音量')),
+        field(`${base}.rate`, '语速', selectInput(`${base}.rate`, tts.rate, rates)),
+    ];
+    const roles = [['female', '女声'], ['male', '男声'], ['narrator', '旁白']];
+    if (tts.provider === 'system') {
+        const options = systemVoiceOptions();
+        for (const [key, label] of roles) {
+            const value = tts.system[key];
+            const items = [['', '自动']].concat(options);
+            if (value && !options.some(([id]) => id === value)) items.push([value, `${value}（本机没有）`]);
+            parts.push(field(`${base}.system.${key}`, label, selectInput(`${base}.system.${key}`, value, items)));
+        }
+        parts.push(`<div class="igs-source-filter-note">${options.length ? '' : '没读到本机的中文声音。'}Windows 推荐用 Edge 浏览器打开酒馆：有晓晓、云希等自然声；Chrome 只有慧慧、康康等本地声音。系统语音不支持声像和听筒音色。</div>`);
+    } else {
+        const api = tts.api;
+        parts.push(
+            field(`${base}.api.transport`, '传输方式', selectInput(`${base}.api.transport`, api.transport, TTS_TRANSPORTS)),
+            field(`${base}.api.endpoint`, '接口地址', textInput(`${base}.api.endpoint`, api.endpoint, 'https://api.openai.com/v1 或 http://127.0.0.1:9880/v1')),
+            field(`${base}.api.apiKey`, 'API Key', secretInput(`${base}.api.apiKey`, api.apiKey, '本地服务可留空')),
+            field(`${base}.api.model`, '模型', textInput(`${base}.api.model`, api.model, '如 tts-1、FunAudioLLM/CosyVoice2-0.5B')),
+        );
+        for (const [key, label] of roles) parts.push(field(`${base}.api.${key}`, `${label}声音`, textInput(`${base}.api.${key}`, api[key], key === 'narrator' ? '留空用女声' : '接口里的声音名')));
+        parts.push(
+            field(`${base}.api.voices`, '可选声音', textInput(`${base}.api.voices`, api.voices, '逗号分隔，给角色单独指定时用')),
+            checkbox(`${base}.api.prefetch`, api.prefetch, '提前生成下一页（在一页停留 1.5 秒后才生成，快速点过的页不生成）'),
+            '<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-clear-cache">清除朗读缓存</button>',
+            '<div class="igs-source-filter-note">兼容 OpenAI 的 /audio/speech 接口。浏览器直连被跨域拦住时，改用「酒馆 CORS 代理」（需在酒馆 config.yaml 打开 enableCorsProxy）。</div>',
+        );
+    }
+    parts.push(field(`${base}.lexicon`, '读音替换', textareaInput(`${base}.lexicon`, tts.lexicon, '每行一条：原词=读法\n例：雫=shizuku\n例：Λ=兰姆达')));
+    parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview">试听</button>');
+    parts.push('<div class="igs-source-filter-note">开启后不再播放角色语气音。每个角色的朗读声音可在「素材 › 角色 › 角色设定」单独指定。</div>');
+    return parts.join('');
 }

@@ -169,6 +169,8 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.pinnedBtns',
     'readerSettings.hiddenBtns',
     'readerSettings.btnOrder',
+    'readerSettings.toolbarSplit',
+    'readerSettings.dialogBarBtns',
     'readerSettings.spriteLayouts',
     'readerSettings.spriteDefaultScale',
     'readerSettings.spriteGenderScale.enabled',
@@ -303,7 +305,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
 });
 
 export const TOOLBAR_ACTIONS = Object.freeze([
-    ['first-turn', '第一轮 / 续读'],
+    ['first-turn', '目录 / 续读'],
     ['prev-turn', '上一轮'],
     ['first-page', '第一页'],
     ['prev', '上一页'],
@@ -311,6 +313,9 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['last-page', '最后一页'],
     ['next-turn', '下一轮'],
     ['auto-play', '自动播放'],
+    ['tts-replay', '重听这句'],
+    ['quick-save', '快速存档'],
+    ['quick-load', '快速读档'],
     ['regen', '绘制 CG'],
     ['reroll-cg', '重画这张'],
     ['clear-cg', '清扫当前 CG'],
@@ -326,6 +331,11 @@ export const TOOLBAR_ACTIONS = Object.freeze([
 ]);
 
 export const DEFAULT_PINNED_TOOLBAR_BUTTONS = Object.freeze([]);
+// 工具栏分两截：翻页和读档类默认放对话框底部的快捷栏，顶栏只留生图、素材、画面和系统。
+export const TOOLBAR_SPLIT_MODES = Object.freeze(['split', 'top', 'dialog']);
+export const DEFAULT_DIALOG_BAR_BUTTONS = Object.freeze(['first-turn', 'prev-turn', 'prev', 'auto-play', 'next', 'next-turn', 'quick-save', 'quick-load']);
+// 只在对话框快捷栏出现的按钮：选「只用顶栏」时不挤进顶栏（目录 › 存档里也能存读）。
+export const DIALOG_ONLY_BUTTONS = Object.freeze(['quick-save', 'quick-load']);
 export const READER_SETTINGS_SCHEMA_VERSION = '0.5.6';
 export const INITIAL_IMAGE_POLL_ATTEMPTS = 8;
 export const INITIAL_IMAGE_POLL_INTERVAL_MS = 250;

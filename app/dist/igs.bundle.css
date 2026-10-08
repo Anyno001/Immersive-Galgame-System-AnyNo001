@@ -10,6 +10,8 @@
 @import url("./fonts/SourceHanSansCN-Medium/font.css?v=57398e48");
 @import url("./fonts/HuiwenMincho/font.css?v=7c496731");
 @import url("./fonts/Yozai-Regular/font.css?v=ca1ec3ef");
+@import url("./fonts/ChillRoundFRegular/font.css?v=d54d253c");
+@import url("./fonts/ChillRoundFBold/font.css?v=caa529ed");
 @import url("./fonts/SourceHanSerifCN-Regular/font.css?v=6f3b4dcb");
 @font-face { font-family: "Tsanger YuYang"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/TsangerYuYangT-W05.woff2") format("woff2"); }
 @font-face { font-family: "Smiley Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/SmileySans-Oblique.ttf") format("truetype"); }
