@@ -317,10 +317,16 @@ function withTimeVariant(result, state, hit, ctx) {
     return variant.tried ? result : { ...result, timeVariant: { scene: variant.scene, time: variant.time, baseImageId: variant.baseImageId } };
 }
 
+// 补素材时才传 isMissingImage：登记着 igs-gen 图但图片本体已丢（清缓存、文件夹里没了），按缺图处理。
+function lostImage(url, ctx) {
+    return Boolean(url) && isGeneratedAssetUrl(url) && typeof ctx.isMissingImage === 'function' && ctx.isMissingImage(url);
+}
+
 export function resolveBackgroundAsset(sceneState, ctx = {}) {
     const state = sceneState || {};
     if (!state.scene) return { url: '', source: 'none', needsGeneration: false };
     const user = ctx.sceneAssets ? lookupSceneBackground(state, ctx.sceneAssets) : { url: null, quality: 'none' };
+    if (lostImage(user.url, ctx)) return { url: '', source: 'none', quality: user.quality, needsGeneration: true };
     if (user.url && isTrustedUserMatch(user.quality, ctx.strict === true)) {
         return withTimeVariant({ url: user.url, source: 'user', quality: user.quality, timed: user.timed === true, needsGeneration: false }, state, user, ctx);
     }
@@ -330,11 +336,11 @@ export function resolveBackgroundAsset(sceneState, ctx = {}) {
     }
     const library = normalizeGeneratedLibrary(ctx.generatedAssets);
     const generated = lookupSceneBackground(state, { ...ctx.sceneAssets, scenes: library.scenes });
-    if (generated.url && TRUSTED.has(generated.quality)) {
+    if (generated.url && TRUSTED.has(generated.quality) && !lostImage(generated.url, ctx)) {
         return withTimeVariant({ url: generated.url, source: 'library', quality: generated.quality, timed: generated.timed === true, needsGeneration: false }, state, generated, ctx);
     }
     const temp = typeof ctx.tempBackground === 'function' ? ctx.tempBackground(state.scene, state.time || '') : '';
-    if (temp) return { url: temp, source: 'temp', needsGeneration: false };
+    if (temp && !lostImage(temp, ctx)) return { url: temp, source: 'temp', needsGeneration: false };
     return { url: user.url || '', source: user.url ? 'placeholder' : 'none', quality: user.quality, needsGeneration: true };
 }
 
@@ -358,10 +364,11 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
                 : calm.url ? calm
                 : anySlot ? { url: entry.moods[anySlot], slot: anySlot, quality: 'group' } : {};
             const picked = own.url ? own : lookupAssetValue((userAssets.characters || {})[found.key || name], '默认', userAssets.moodGroups, false, false);
-            if (picked.url) return { url: picked.url, slot: picked.slot, outfit: outfitName, character: found.key || name, source: 'user-outfit', quality: hit.url ? hit.quality : (nudeBase && picked.url === nudeBase ? 'exact' : 'group'), needsGeneration: false };
+            if (picked.url && !lostImage(picked.url, ctx)) return { url: picked.url, slot: picked.slot, outfit: outfitName, character: found.key || name, source: 'user-outfit', quality: hit.url ? hit.quality : (nudeBase && picked.url === nudeBase ? 'exact' : 'group'), needsGeneration: false };
         }
     }
     const user = lookupSceneAssetUrls({ character: name, mood }, userAssets);
+    if (lostImage(user.spriteUrl, ctx)) return { url: '', slot: '', character: name, source: 'none', needsGeneration: true };
     if (user.spriteUrl) {
         return { url: user.spriteUrl, slot: user.spriteSlot, character: user.spriteCharacter || name, source: 'user', quality: user.spriteQuality, needsGeneration: false };
     }
@@ -371,11 +378,11 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     }
     const library = normalizeGeneratedLibrary(ctx.generatedAssets);
     const generated = lookupSceneAssetUrls({ character: name, mood }, { characters: library.characters, characterAliases: library.characterAliases, moodGroups: userAssets.moodGroups, moodFuzzyMatch: userAssets.moodFuzzyMatch });
-    if (generated.spriteUrl) {
+    if (generated.spriteUrl && !lostImage(generated.spriteUrl, ctx)) {
         return { url: generated.spriteUrl, slot: generated.spriteSlot, character: generated.spriteCharacter || name, source: 'library', quality: generated.spriteQuality, needsGeneration: false };
     }
     const temp = typeof ctx.tempSprite === 'function' ? ctx.tempSprite(name) : '';
-    if (temp) return { url: temp, slot: '默认', character: name, source: 'temp', needsGeneration: false };
+    if (temp && !lostImage(temp, ctx)) return { url: temp, slot: '默认', character: name, source: 'temp', needsGeneration: false };
     return { url: '', slot: '', character: name, source: 'none', needsGeneration: !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets, ctx.knownCharacters) };
 }
 

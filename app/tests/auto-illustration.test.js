@@ -669,6 +669,33 @@ test('gate:illustration:service-stale-text-aborts', async () => {
     assert.equal((await store.getFloor('c1|5|0')).status, 'stale');
 });
 
+test('gate:illustration:service-tail-append-during-planning-still-writes', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: NSFW_TEXT, settings: { nsfwEnabled: true } });
+    const tail = '\n\n<parallel>与此同时，另一边……</parallel>';
+    fake.llm.request = async () => { fake.messageHost.setText(NSFW_TEXT + tail); return REPLY; };
+    const store = createMemoryIllustrationStore();
+    const result = await createAutoIllustrationService({ ...fake, store }).processMessage(5);
+    assert.equal(result.ok, true);
+    assert.equal(fake.calls.writes.length, 1);
+    assert.ok(fake.calls.writes[0].includes('[igs-img:1]'));
+    assert.ok(fake.calls.writes[0].endsWith(tail), '追加的平行事件原样保留在末尾');
+    assert.ok(fake.calls.writes[0].indexOf('[igs-img:1]') < fake.calls.writes[0].indexOf('<parallel>'));
+});
+
+test('gate:illustration:appended-tail-only-accepts-pure-append', async () => {
+    const { appendedTail, reattachTail } = await import('../src/generated-images/illustration/marker-placer.js');
+    assert.equal(appendedTail('甲\n乙', '甲\n乙'), '');
+    assert.equal(appendedTail('甲\n乙', '甲\n乙\n丙'), '\n丙');
+    assert.equal(appendedTail('甲\n乙\n', '甲\n乙\n\n丙'), '\n\n丙', '原文结尾空白被改写也算追加');
+    assert.equal(appendedTail('甲\n乙', '甲\n改\n丙'), null);
+    assert.equal(appendedTail('甲\n乙', '前\n甲\n乙'), null);
+    assert.equal(appendedTail('', '丙'), null);
+    assert.equal(reattachTail('[igs-img:1]\n甲\n', '\n丙'), '[igs-img:1]\n甲\n丙');
+    assert.equal(reattachTail('甲', ''), '甲');
+});
+
 test('gate:illustration:service-stale-when-new-floor-arrives-during-planning', async () => {
     const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
     const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');

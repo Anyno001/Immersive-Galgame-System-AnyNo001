@@ -583,13 +583,30 @@ export function createAssetGenerationService(deps) {
             s,
             messageHost.getCharacterNames ? messageHost.getCharacterNames() : [],
         );
+        // 命中的 igs-gen 图先记下，查一遍图片本体还在不在；丢了的按缺图重算，否则一直「已有素材」却显示不出来。
+        const probed = new Set();
+        const lost = new Set();
+        match.isMissingImage = (url) => { probed.add(url); return lost.has(url); };
         // 背景按本楼实际缺的张数生成，不跟立绘共用每层上限。已生成的在匹配时剔掉。
-        const backgroundNeeds = s.auto.assets.backgroundEnabled
-            ? collectAssetNeeds({ scenes: numbered.scenes, characters: [] }, match, { background: true, sprite: false })
-            : [];
-        const spriteNeeds = s.auto.assets.spriteEnabled
-            ? collectAssetNeeds({ scenes: [], characters: numbered.characters }, match, { background: false, sprite: true, limit: s.auto.assets.maxPerFloor })
-            : [];
+        const collectNeeds = () => [
+            s.auto.assets.backgroundEnabled
+                ? collectAssetNeeds({ scenes: numbered.scenes, characters: [] }, match, { background: true, sprite: false })
+                : [],
+            s.auto.assets.spriteEnabled
+                ? collectAssetNeeds({ scenes: [], characters: numbered.characters }, match, { background: false, sprite: true, limit: s.auto.assets.maxPerFloor })
+                : [],
+        ];
+        let [backgroundNeeds, spriteNeeds] = collectNeeds();
+        for (const url of probed) {
+            const id = generatedAssetIdOf(url);
+            if (images.has(id)) continue;
+            const record = await store.getImage(id).catch(() => null);
+            if (!record || !record.dataUrl) lost.add(url);
+        }
+        if (lost.size) {
+            report('warn', `第 ${messageId} 楼有 ${lost.size} 张已登记素材的图片找不到了，按缺图重新生成`);
+            [backgroundNeeds, spriteNeeds] = collectNeeds();
+        }
         const variantNeeds = backgroundNeeds.filter((need) => need.variantOf);
         const needs = [...backgroundNeeds.filter((need) => !need.variantOf), ...spriteNeeds];
         attachCharacterDna(needs, s.sceneAssets);

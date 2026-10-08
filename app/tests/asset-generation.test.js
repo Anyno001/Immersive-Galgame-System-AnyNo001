@@ -370,6 +370,25 @@ test('gate:assets:manual-retries-settled-floor-without-regenerating-existing-ass
     assert.equal(calls, 1);
 });
 
+test('gate:assets:registered-generated-image-lost-is-regenerated', async () => {
+    let calls = 0;
+    const store = createMemoryGeneratedAssetStore();
+    await store.putImage({ id: 'kept', dataUrl: 'data:image/png;base64,KEEP' });
+    const assets = { ...USER_ASSETS, scenes: { ...USER_ASSETS.scenes, 废弃工厂: { url: 'igs-gen:gone', times: {} }, 旧仓库: { url: 'igs-gen:kept', times: { 夜晚: 'igs-gen:kept' } } } };
+    const make = (text) => createAssetGenerationService({
+        messageHost: fakeHost(text),
+        llm: { async request() { return 'id: bg1\ntags: factory, night'; } },
+        nai: { async generate() { calls += 1; return { ok: true, dataUrl: 'data:image/png;base64,AAA' }; } },
+        store,
+        getSettings: () => ({ autoIllustration: { assets: { backgroundEnabled: true } }, sceneAssets: assets }),
+        minBodyChars: 0,
+    });
+    assert.equal((await make('[igs-scene:旧仓库|夜晚|雨]\n雨声很大。').processMessage(3, { manual: true })).reason, 'nothing-missing');
+    const result = await make('[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。').processMessage(3, { manual: true });
+    assert.deepEqual([result.reason, result.count, calls], ['done', 1, 1]);
+    assert.equal(resolveBackgroundAsset({ scene: '废弃工厂' }, { sceneAssets: assets }).needsGeneration, false);
+});
+
 test('gate:assets:registered-characters-and-scenes-are-not-generated', async () => {
     const { collectAssetNeeds } = await import('../src/scene/asset-match.js');
     const ctx = {
@@ -628,6 +647,8 @@ test('gate:assets:later-backgrounds-skip-recall-and-already-generated', async ()
         '</content>',
     ].join('\n');
     const library = addGeneratedAssetToLibrary({}, { type: 'background', name: '教室', time: '白天', imageId: 'old' }, '教室').library;
+    const store = createMemoryGeneratedAssetStore();
+    await store.putImage({ id: 'old', dataUrl: 'data:image/png;base64,OLD' });
     const writes = [];
     const paints = [];
     const caption = {
@@ -653,7 +674,7 @@ test('gate:assets:later-backgrounds-skip-recall-and-already-generated', async ()
             },
             generate: async () => { throw new Error('背景不应逐张走召回'); },
         },
-        store: createMemoryGeneratedAssetStore(),
+        store,
         getSettings: () => ({
             autoIllustration: { assets: { backgroundEnabled: true, maxPerFloor: 1 } },
             sceneAssets: { enabled: true, scenes: {}, characters: {}, generated: library },

@@ -247,14 +247,17 @@ const KIND_MODEL_OPTIONS = Object.freeze([
     ['nai-diffusion-4-full-inpainting', 'NAI Diffusion V4 Full Inpainting'],
 ]);
 
-export function kindModelPicker(path, value) {
+// 输入框手填；右侧箭头展开内置列表与已拉取的模型，选中即写入输入框。
+export function kindModelPicker(path, value, extraModels) {
     const current = String(value || '').trim();
-    const known = KIND_MODEL_OPTIONS.some(([id]) => id === current);
-    const options = [`<option value="">跟随默认</option>`].concat(
-        KIND_MODEL_OPTIONS.map(([id, label]) => `<option value="${esc(id)}"${id === current ? ' selected' : ''}>${esc(`${label}（${id}）`)}</option>`),
-        current && !known ? [`<option value="${esc(current)}" selected>${esc(current)}</option>`] : [],
+    const known = new Set(KIND_MODEL_OPTIONS.map(([id]) => id));
+    const pulled = (Array.isArray(extraModels) ? extraModels : []).map((id) => String(id || '').trim())
+        .filter((id) => id && !known.has(id) && (known.add(id), true));
+    const options = [`<option value="" selected hidden></option>`, `<option value="">跟随默认</option>`].concat(
+        KIND_MODEL_OPTIONS.map(([id, label]) => `<option value="${esc(id)}">${esc(`${label}（${id}）`)}</option>`),
+        pulled.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`),
     ).join('');
-    return `<div class="igs-settings-model igs-settings-kind-model"><select data-model-sync="${esc(path)}" aria-label="从列表选择">${options}</select><input data-path="${esc(path)}" value="${esc(current)}" placeholder="或手填模型编号，留空跟随默认"></div>`;
+    return `<div class="igs-settings-model igs-settings-kind-model"><input data-path="${esc(path)}" value="${esc(current)}" placeholder="手填模型编号，留空跟随默认"><select data-model-sync="${esc(path)}" aria-label="读取模型列表" title="读取模型列表">${options}</select></div>`;
 }
 
 export function modelPicker(path, value, models, action, placeholder, disabled) {

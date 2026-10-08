@@ -1,4 +1,4 @@
-import { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex } from './marker-placer.js';
+import { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex, appendedTail, reattachTail } from './marker-placer.js';
 import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
 import { buildPlannerUserPrompt } from './planner-prompt.js';
 import { requestWithSoftRetry, DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
@@ -318,14 +318,16 @@ export function createAutoIllustrationService(deps) {
             return { ok: false, reason: 'plan-failed', error };
         }
         const latest = messageHost.readFloor(messageId);
-        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || latest.text !== expected.text) {
+        const tail = latest ? appendedTail(expected.text, latest.text) : null;
+        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || tail == null) {
             await store.putFloor(key, { ...base, status: 'stale', updatedAt: now() });
             report('warn', `第 ${messageId} 楼在规划期间被修改或已不是最新楼层，本次放弃生图，下次渲染时重试`);
             progress(floor, { phase: 'done' });
             return { ok: false, reason: 'stale' };
         }
+        if (tail) report('info', `第 ${messageId} 楼末尾被其他插件追加了内容，插图照常插在原文里`);
         await ensureRegexesOnce();
-        const writtenText = await messageHost.writeFloor(messageId, insertMarkersAtAnchors(floor.text, slots), expected);
+        const writtenText = await messageHost.writeFloor(messageId, reattachTail(insertMarkersAtAnchors(floor.text, slots), tail), latest);
         if (!writtenText || !writtenText.ok) {
             const stale = writtenText && writtenText.reason === 'stale';
             await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });
@@ -471,15 +473,18 @@ export function createAutoIllustrationService(deps) {
             for (const warning of bound.warnings) report('info', `第 ${messageId} 楼${warning}`);
         }
 
+        // 其他插件只在末尾追加内容（平行事件、状态栏）时，段落编号不变，标记照插，再接上追加的那段；正文中间被改才放弃。
         const latest = messageHost.readFloor(messageId);
-        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || latest.text !== expected.text) {
+        const tail = latest ? appendedTail(expected.text, latest.text) : null;
+        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || tail == null) {
             await store.putFloor(key, { ...base, status: 'stale', updatedAt: now() });
             report('warn', `第 ${messageId} 楼在规划期间被修改或已不是最新楼层（可能有其他插件改写了正文），本次放弃生图，下次渲染时重试`);
             progress(floor, { phase: 'done' });
             return { ok: false, reason: 'stale' };
         }
+        if (tail) report('info', `第 ${messageId} 楼末尾被其他插件追加了内容，插图照常插在原文里`);
         await ensureRegexesOnce();
-        const written = await messageHost.writeFloor(messageId, insertMarkers(floor.text, numbered.paragraphs, plan.slots), expected);
+        const written = await messageHost.writeFloor(messageId, reattachTail(insertMarkers(floor.text, numbered.paragraphs, plan.slots), tail), latest);
         if (!written || !written.ok) {
             const stale = written && written.reason === 'stale';
             await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });

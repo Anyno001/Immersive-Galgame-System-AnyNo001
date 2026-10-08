@@ -1,4 +1,4 @@
-import { IGS_UI_EDGE_DAY, IGS_UI_EDGE_NIGHT, IGS_UI_THICKNESS, igsUiSurface } from '../../styles/ui-material.js';
+import { IGS_UI_EDGE_DAY, IGS_UI_EDGE_NIGHT, IGS_UI_GRAIN_DAY, IGS_UI_THICKNESS, igsUiSurface } from '../../styles/ui-material.js';
 
 // swatch 是头部色板按钮的预览色：底色取面板本身，点取该主题的高亮色，由 SVG 绘制。
 export const SETTINGS_THEME_OPTIONS = Object.freeze([
@@ -43,22 +43,23 @@ export function renderSettingsThemeSwitch(theme, { optionClass = 'igs-settings-t
 
 // 四套界面配色的唯一来源：设置器与资料页都从这里生成 CSS 变量。
 // backdrop 是全屏遮罩底色（贴近面板本身，只靠阴影分层），solid 是不支持模糊/减少透明度时的回退。
+// surface/field/highlight/raised 用实色（按画在本主题面板上的样子取色）：控件层层嵌套也不会越叠越灰。
 const SETTINGS_THEME_PALETTES = Object.freeze({
     landmine: Object.freeze({
         scheme: 'dark', backdrop: 'rgba(34,33,36,.86)', backdropSolid: 'rgba(34,33,36,.96)', shellSolid: '#2b2b2b', ripple: .2,
-        tokens: Object.freeze({ 'shell-bg': igsUiSurface(IGS_UI_THICKNESS.thick), 'shell-shadow': `0 8px 24px rgba(0,0,0,.45),${IGS_UI_EDGE_NIGHT}`, paper: 'rgba(255,196,212,.08)', panel: '#2b2b2b', surface: 'rgba(255,196,212,.08)', field: 'rgba(255,196,212,.1)', line: 'transparent', 'line-strong': 'transparent', ink: '#fff', 'ink-2': 'rgba(255,255,255,.7)', 'ink-3': 'rgba(255,255,255,.5)', 'ink-4': 'rgba(255,255,255,.34)', accent: '#ffc4d4', 'accent-2': '#ffd9e4', 'on-accent': '#2b2b2b', danger: '#d96c6c', highlight: 'rgba(255,196,212,.12)', raised: 'rgba(255,255,255,.16)', knob: '#ffd9e4', ripple: '#ff6f9c' }),
+        tokens: Object.freeze({ 'shell-bg': igsUiSurface(IGS_UI_THICKNESS.thick), 'shell-shadow': `0 8px 24px rgba(0,0,0,.45),${IGS_UI_EDGE_NIGHT}`, paper: 'rgba(255,196,212,.08)', panel: '#2b2b2b', surface: '#322f32', field: '#3e383b', line: 'transparent', 'line-strong': 'transparent', ink: '#fff', 'ink-2': 'rgba(255,255,255,.7)', 'ink-3': 'rgba(255,255,255,.5)', 'ink-4': 'rgba(255,255,255,.34)', accent: '#ffc4d4', 'accent-2': '#ffd9e4', 'on-accent': '#2b2b2b', danger: '#d96c6c', highlight: '#4a4246', raised: '#574e53', knob: '#ffd9e4', ripple: '#ff6f9c' }),
     }),
     cream: Object.freeze({
         scheme: 'light', backdrop: 'rgba(243,233,218,.93)', backdropSolid: 'rgba(243,233,218,.97)', shellSolid: '#f7f0e6', ripple: .22,
-        tokens: Object.freeze({ 'shell-bg': igsUiSurface(IGS_UI_THICKNESS.thick, 'day'), 'shell-shadow': `0 8px 24px rgba(92,70,44,.1),${IGS_UI_EDGE_DAY}`, paper: '#efe4d7', panel: '#f7f0e6', surface: 'rgba(116,91,62,.06)', field: 'rgba(116,91,62,.08)', line: 'rgba(116,91,62,.12)', 'line-strong': 'rgba(116,91,62,.18)', ink: '#514638', 'ink-2': '#735f4a', 'ink-3': '#9a8268', 'ink-4': 'rgba(154,130,104,.7)', accent: '#85a76a', 'accent-2': '#738f5b', 'on-accent': '#fcf8f1', danger: '#a76561', highlight: 'rgba(116,91,62,.08)', raised: 'rgba(255,255,255,.62)', knob: '#fcf8f1', ripple: '#6cb33f' }),
+        tokens: Object.freeze({ 'shell-bg': `${IGS_UI_GRAIN_DAY},rgba(251,246,238,.94)`, 'shell-shadow': `0 8px 24px rgba(92,70,44,.1),${IGS_UI_EDGE_DAY}`, paper: '#efe4d7', panel: '#f7f0e6', surface: '#f3ece1', field: '#ebe2d5', line: 'rgba(116,91,62,.12)', 'line-strong': 'rgba(116,91,62,.18)', ink: '#514638', 'ink-2': '#735f4a', 'ink-3': '#9a8268', 'ink-4': 'rgba(154,130,104,.7)', accent: '#85a76a', 'accent-2': '#738f5b', 'on-accent': '#fcf8f1', danger: '#a76561', highlight: '#e3d8c8', raised: '#fffaf3', knob: '#fcf8f1', ripple: '#6cb33f' }),
     }),
     light: Object.freeze({
         scheme: 'light', backdrop: 'rgba(240,238,232,.9)', backdropSolid: 'rgba(240,238,232,.97)', shellSolid: '#f8f5ee', ripple: .07,
-        tokens: Object.freeze({ 'shell-bg': '#fbfaf6', 'shell-shadow': `0 12px 32px rgba(23,23,20,.12),${IGS_UI_EDGE_DAY}`, paper: '#ebe9e3', panel: '#f8f5ee', surface: 'rgba(17,17,15,.045)', field: 'rgba(17,17,15,.07)', line: 'rgba(23,23,20,.06)', 'line-strong': 'rgba(23,23,20,.1)', ink: '#11110f', 'ink-2': '#46443d', 'ink-3': '#77736a', 'ink-4': 'rgba(119,115,106,.72)', accent: '#11110f', 'accent-2': '#2d2b26', 'on-accent': '#fbfaf7', danger: '#95514b', highlight: 'rgba(17,17,15,.07)', raised: 'rgba(255,255,255,.72)', knob: '#fbfaf7', ripple: '#11110f' }),
+        tokens: Object.freeze({ 'shell-bg': '#fbfaf6', 'shell-shadow': `0 12px 32px rgba(23,23,20,.12),${IGS_UI_EDGE_DAY}`, paper: '#ebe9e3', panel: '#f8f5ee', surface: '#f3f2ee', field: '#ebe9e4', line: 'rgba(23,23,20,.06)', 'line-strong': 'rgba(23,23,20,.1)', ink: '#11110f', 'ink-2': '#46443d', 'ink-3': '#77736a', 'ink-4': 'rgba(119,115,106,.72)', accent: '#11110f', 'accent-2': '#2d2b26', 'on-accent': '#fbfaf7', danger: '#95514b', highlight: '#e1dfd9', raised: '#ffffff', knob: '#fbfaf7', ripple: '#11110f' }),
     }),
     dark: Object.freeze({
         scheme: 'dark', backdrop: 'rgba(33,38,43,.9)', backdropSolid: 'rgba(33,38,43,.97)', shellSolid: '#1f2428', ripple: .16,
-        tokens: Object.freeze({ 'shell-bg': '#24292e', 'shell-shadow': `0 18px 48px rgba(1,4,9,.36),${IGS_UI_EDGE_NIGHT}`, paper: '#2d343b', panel: '#1f2428', surface: 'rgba(201,209,217,.055)', field: 'rgba(201,209,217,.08)', line: 'rgba(205,217,229,.08)', 'line-strong': 'rgba(205,217,229,.14)', ink: '#f0f3f6', 'ink-2': '#c9d1d9', 'ink-3': '#8b949e', 'ink-4': 'rgba(139,148,158,.72)', accent: '#7fd6ca', 'accent-2': '#69c7bc', 'on-accent': '#1f2428', danger: '#d07a74', highlight: 'rgba(201,209,217,.08)', raised: 'rgba(201,209,217,.12)', knob: '#f0f3f6', ripple: '#1fe0c6' }),
+        tokens: Object.freeze({ 'shell-bg': '#24292e', 'shell-shadow': `0 18px 48px rgba(1,4,9,.36),${IGS_UI_EDGE_NIGHT}`, paper: '#2d343b', panel: '#1f2428', surface: '#2a3036', field: '#31383f', line: 'rgba(205,217,229,.08)', 'line-strong': 'rgba(205,217,229,.14)', ink: '#f0f3f6', 'ink-2': '#c9d1d9', 'ink-3': '#8b949e', 'ink-4': 'rgba(139,148,158,.72)', accent: '#7fd6ca', 'accent-2': '#69c7bc', 'on-accent': '#1f2428', danger: '#d07a74', highlight: '#3a424a', raised: '#454e57', knob: '#f0f3f6', ripple: '#1fe0c6' }),
     }),
 });
 

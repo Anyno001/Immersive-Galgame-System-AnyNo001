@@ -221,3 +221,30 @@ export function insertMarkers(raw, paragraphs, slots) {
     }
     return lines.join('\n');
 }
+
+/**
+ * 出图期间其他插件只在正文末尾追加了内容（平行事件、状态栏等）时，返回追加的那一截；
+ * 正文没变返回 ''，正文中间被改过返回 null。原文结尾的空白允许被改写。
+ * @param {string} before 开始出图时的正文
+ * @param {string} after 现在的正文
+ * @returns {string | null}
+ */
+export function appendedTail(before, after) {
+    const source = String(before || '');
+    const current = String(after || '');
+    if (current === source) return '';
+    const head = source.replace(/\s+$/, '');
+    if (!head || !current.startsWith(head)) return null;
+    return current.slice(head.length);
+}
+
+/**
+ * 把插好标记的正文接回追加的那一截。没有追加时原样返回。
+ * @param {string} marked 按开始时的正文插好标记的结果
+ * @param {string} tail appendedTail 的返回值
+ * @returns {string}
+ */
+export function reattachTail(marked, tail) {
+    if (!tail) return marked;
+    return String(marked || '').replace(/\s+$/, '') + tail;
+}
