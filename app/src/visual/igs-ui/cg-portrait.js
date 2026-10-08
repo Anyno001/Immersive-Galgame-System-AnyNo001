@@ -245,8 +245,10 @@ export function applyCgPortrait(root, snapshot, ctx = {}) {
         box.igsDrag.onMove = onMove;
         return;
     }
-    box.igsDrag = { ...opts, onMove: typeof ctx.onMove === 'function' ? (next) => ctx.onMove({ ...hud, nsfwCgPortraitShift: next.shift, nsfwCgPortraitShiftX: next.shiftX, nsfwCgPortraitZoom: next.zoom }) : null };
     const key = `${url}|${opts.shift}|${opts.shiftX}|${opts.zoom}`;
+    // 同一张图同一取景：沿用已探测到的头位，否则「调整立绘」会当成没有头像。
+    const keepInfo = box.dataset.key === key && box.igsDrag ? box.igsDrag.info : null;
+    box.igsDrag = { ...opts, info: keepInfo, onMove };
     if (box.dataset.key === key) return;
     box.dataset.key = key;
     const place = (info) => {
