@@ -4,8 +4,6 @@ import { peekSpriteHead, probeSpriteHead, spriteBackgroundSize } from './fx-anch
 import { enterSpriteEditMode, spriteDragPosition } from './sprite-edit.js';
 import { spriteEnhanceFilter } from './sprite-enhance.js';
 
-const SCALE_MIN = -500;
-const SCALE_MAX = 500;
 const EDITING_ATTR = 'data-igs-cast-editing';
 
 function targetEl(overlay, entry) {
@@ -129,7 +127,8 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
     const zoom = (factor) => {
         const person = work[selected];
         if (!person) return;
-        person.cur.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, person.cur.scale * factor));
+        const next = person.cur.scale * factor;
+        if (Number.isFinite(next) && next !== 0) person.cur.scale = next;
         touch(person);
     };
     mark();

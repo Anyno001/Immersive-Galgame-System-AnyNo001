@@ -63,8 +63,10 @@ test('CG 头像开关默认关闭，拖动偏移和捏合缩放取整并限幅',
     const custom = normalizeStatusHudSettings({ nsfwCgPortrait: true, nsfwCgPortraitShift: '10', nsfwCgPortraitZoom: 33 });
     assert.equal(custom.nsfwCgPortrait, true);
     assert.equal(custom.nsfwCgPortraitShift, 10);
-    assert.equal(custom.nsfwCgPortraitZoom, 50);
+    assert.equal(custom.nsfwCgPortraitZoom, 33);
+    assert.equal(normalizeStatusHudSettings({ nsfwCgPortraitZoom: 400 }).nsfwCgPortraitZoom, 400);
+    assert.equal(normalizeStatusHudSettings({ nsfwCgPortraitZoom: 8 }).nsfwCgPortraitZoom, 8);
     const dragged = normalizeStatusHudSettings({ nsfwCgPortraitShift: 17.6, nsfwCgPortraitShiftX: -999 });
     assert.equal(dragged.nsfwCgPortraitShift, 18);
-    assert.equal(dragged.nsfwCgPortraitShiftX, -120);
+    assert.equal(dragged.nsfwCgPortraitShiftX, -999);
 });

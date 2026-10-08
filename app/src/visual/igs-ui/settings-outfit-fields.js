@@ -259,7 +259,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
 // 角色卡的立绘区：「原装 · 服装…」标签切换。原装标签显示原有情绪槽；服装标签显示该服装的槽、词、场景、头像与缺图预览。
 export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, baseMenuItems = [], outfits, activeOutfit, sceneAssets, icons, expressionNotes, resolveUrl, isOpen = () => false }) {
     const map = plain(outfits);
-    const names = Object.keys(map).filter((item) => !isBuiltinNudeOutfit(item));
+    const names = Object.keys(map);
     const active = names.includes(activeOutfit) ? activeOutfit : '';
     const c = encSeg(charName);
     const tab = (value, label, extra = '', title = '') => (

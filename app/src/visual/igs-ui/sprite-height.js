@@ -5,7 +5,7 @@ import { canonicalName, characterDnaGender } from './voice-bark.js';
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : null);
 
-// 角色自定义高度和声线一样按主名记在根素材库：{ 角色名: 60~150 }，留空的角色不进表。
+// 角色自定义高度和声线一样按主名记在根素材库：{ 角色名: 高度 }，留空的角色不进表。
 export function normalizeCharacterSpriteScales(value) {
     const out = {};
     for (const [name, height] of Object.entries(plain(value) || {})) {

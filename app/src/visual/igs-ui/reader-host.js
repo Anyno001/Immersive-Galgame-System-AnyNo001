@@ -196,7 +196,6 @@ import {
     normalizeSpriteGenderScale,
     normalizeSpriteLayouts,
     setPath,
-    SPRITE_HEIGHT_RANGE,
 } from './settings-normalize.js';
 import { clearReaderModeRuntime, exitDocumentFullscreen } from './reader-runtime.js';
 import { enterSpriteEditMode } from './sprite-edit.js';

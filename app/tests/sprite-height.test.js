@@ -22,32 +22,38 @@ test('gate:sprite-height:normalize-clamps-rounds-and-falls-back', () => {
     assert.equal(normalizeSpriteHeight('  ', 100), 100);
     assert.equal(normalizeSpriteHeight(undefined, 95), 95);
     assert.equal(normalizeSpriteHeight('abc', 90), 90);
-    assert.equal(normalizeSpriteHeight(40), 60);
-    assert.equal(normalizeSpriteHeight('200'), 150);
+    assert.equal(normalizeSpriteHeight(40), 40);
+    assert.equal(normalizeSpriteHeight('200'), 200);
+    assert.equal(normalizeSpriteHeight(0), null);
+    assert.equal(normalizeSpriteHeight(-30), -30);
     assert.equal(normalizeSpriteHeight(92.4), 92);
     assert.equal(normalizeSpriteHeight('117'), 117);
 });
 
 test('gate:sprite-height:gender-defaults-are-90-100-95-and-off', () => {
     assert.deepEqual(normalizeSpriteGenderScale(null), { enabled: false, female: 90, male: 100, other: 95 });
-    assert.deepEqual(normalizeSpriteGenderScale({ enabled: false, female: '', male: 300, other: 'x' }), { enabled: false, female: 90, male: 150, other: 95 });
+    assert.deepEqual(normalizeSpriteGenderScale({ enabled: false, female: '', male: 300, other: 'x' }), { enabled: false, female: 90, male: 300, other: 95 });
     assert.deepEqual(normalizeSpriteGenderScale({ female: 88 }), { enabled: false, female: 88, male: 100, other: 95 });
 });
 
 test('gate:sprite-height:settings-paths-normalize-to-range', () => {
-    assert.equal(normalizeSettingsValue('readerSettings.spriteDefaultScale', '45'), 60);
+    assert.equal(normalizeSettingsValue('readerSettings.spriteDefaultScale', '45'), 45);
     assert.equal(normalizeSettingsValue('readerSettings.spriteDefaultScale', '123'), 123);
     assert.equal(normalizeSettingsValue('readerSettings.spriteDefaultScale', ''), 100);
     assert.equal(normalizeSettingsValue('readerSettings.spriteGenderScale.male', ''), 100);
     assert.equal(normalizeSettingsValue('readerSettings.spriteGenderScale.female', '130'), 130);
-    assert.equal(normalizeSettingsValue('readerSettings.spriteGenderScale.other', '999'), 150);
+    assert.equal(normalizeSettingsValue('readerSettings.spriteGenderScale.other', '999'), 999);
     assert.equal(normalizeSettingsValue('readerSettings.spriteGenderScale.enabled', 'false'), false);
     assert.equal(normalizeSettingsValue('readerSettings.spriteGenderScale.enabled', true), true);
+    assert.equal(normalizeSettingsValue('readerSettings.spriteDisplayScale', '12'), 12);
+    assert.equal(normalizeSettingsValue('readerSettings.spriteDisplayScale', '400'), 400);
+    assert.equal(normalizeSettingsValue('readerSettings.spriteDisplayScale', '0'), 100);
+    assert.equal(normalizeSettingsValue('readerSettings.spriteDisplayScale', '-20'), 100);
 });
 
 test('gate:sprite-height:character-scales-keep-only-valid-entries', () => {
     const raw = JSON.parse('{"爱丽":"120","小林":"","路人":"abc","__proto__":100,"  ":90,"阿强":30}');
-    assert.deepEqual(normalizeCharacterSpriteScales(raw), { 爱丽: 120, 阿强: 60 });
+    assert.deepEqual(normalizeCharacterSpriteScales(raw), { 爱丽: 120, 阿强: 30 });
     assert.deepEqual(normalizeCharacterSpriteScales(null), {});
 });
 
@@ -118,16 +124,16 @@ test('gate:sprite-height:settings-row-saves-renames-and-clears', async () => {
         controller.setValue('bridge.sceneAssets.characterDna', { 爱丽: { identity: '1girl' } });
         controller.switchTab('scene');
         let html = controller.switchSceneSubTab('characters').html || controller.getSnapshot().html;
-        assert.match(html, /data-path="readerSettings\.spriteDefaultScale" type="number" min="60" max="150" value="100"/);
+        assert.match(html, /data-path="readerSettings\.spriteDefaultScale" type="number" value="100"/);
         // 默认关：不打开就不改动老用户的立绘大小。
         assert.match(html, /data-switch="readerSettings\.spriteGenderScale\.enabled" aria-pressed="false"/);
         assert.doesNotMatch(html, /data-path="readerSettings\.spriteGenderScale\.female"/);
         controller.toggle('readerSettings.spriteGenderScale.enabled');
         html = controller.getSnapshot().html;
         assert.match(html, /data-switch="readerSettings\.spriteGenderScale\.enabled" aria-pressed="true"/);
-        assert.match(html, /data-path="readerSettings\.spriteGenderScale\.female" type="number" min="60" max="150" value="90"/);
-        assert.match(html, /data-path="readerSettings\.spriteGenderScale\.male" type="number" min="60" max="150" value="100"/);
-        assert.match(html, /data-path="readerSettings\.spriteGenderScale\.other" type="number" min="60" max="150" value="95"/);
+        assert.match(html, /data-path="readerSettings\.spriteGenderScale\.female" type="number" value="90"/);
+        assert.match(html, /data-path="readerSettings\.spriteGenderScale\.male" type="number" value="100"/);
+        assert.match(html, /data-path="readerSettings\.spriteGenderScale\.other" type="number" value="95"/);
 
         const name = encodeURIComponent('爱丽');
         // 角色收起时、角色设定面板里都没有这一行；点名字展开后在立绘列表最上面。
@@ -143,7 +149,7 @@ test('gate:sprite-height:settings-row-saves-renames-and-clears', async () => {
         assert.deepEqual(controller.getSnapshot().draft.bridge.sceneAssets.characterSpriteScales, { 爱丽: 117 });
         assert.match(html, /data-char-height="爱丽" value="117" placeholder="90"/);
         await controller.invoke(`char-height:${name}:999`);
-        assert.deepEqual(controller.getSnapshot().draft.bridge.sceneAssets.characterSpriteScales, { 爱丽: 150 });
+        assert.deepEqual(controller.getSnapshot().draft.bridge.sceneAssets.characterSpriteScales, { 爱丽: 999 });
 
         // 「调整立绘」调过的角色提示调整结果优先。
         controller.setValue('readerSettings.spriteLayouts', { 'pc::爱丽::默认': { posX: 50, posY: 100, scale: 130 } });
@@ -154,12 +160,12 @@ test('gate:sprite-height:settings-row-saves-renames-and-clears', async () => {
         controller.toggle('readerSettings.spriteGenderScale.enabled');
         html = controller.getSnapshot().html;
         assert.doesNotMatch(html, /data-path="readerSettings\.spriteGenderScale\.female"/);
-        assert.match(html, /data-char-height="爱丽" value="150" placeholder="100"/);
+        assert.match(html, /data-char-height="爱丽" value="999" placeholder="100"/);
 
         // 角色改名时高度跟着走。
         answers.push('爱丽丝');
         await controller.invoke(`scene-rename-char:${name}`);
-        assert.deepEqual(controller.getSnapshot().draft.bridge.sceneAssets.characterSpriteScales, { 爱丽丝: 150 });
+        assert.deepEqual(controller.getSnapshot().draft.bridge.sceneAssets.characterSpriteScales, { 爱丽丝: 999 });
 
         // 留空就删掉，回到自动。
         const renamed = encodeURIComponent('爱丽丝');

@@ -28,7 +28,8 @@ mask-image:linear-gradient(to bottom,#000 70%,transparent),linear-gradient(to ri
 // 取景框在原图上的位置换算成 <img> 相对框的百分比（宽、左按框宽，上按框高）。
 export function computeCgPortraitCrop(info, { shift = 0, shiftX = 0, zoom = 100 } = {}) {
     if (!info || !(info.naturalW > 0) || !(info.naturalH > 0) || !info.head) return null;
-    const z = Math.max(0.5, Number(zoom) / 100 || 1);
+    const rawZoom = Number(zoom) / 100;
+    const z = rawZoom > 0 ? rawZoom : 1;
     const head = info.head.w * info.naturalW;
     const cropW = CROP_W * head / z;
     const cropH = CROP_H * head / z;
@@ -74,11 +75,11 @@ function bindDrag(box) {
         const drag = box.igsDrag;
         const headPx = (box.clientWidth || 0) * drag.zoom / 100 / CROP_W;
         if (!(headPx > 0)) return;
-        // 框宽 = CROP_W 个头宽 / 缩放，图往下拖 = 取景框上移。限幅与设置归一化一致。
-        const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, Math.round(n)));
-        drag.shift = clamp(drag.shift - dy / headPx * 100, -120, 120);
-        drag.shiftX = clamp(drag.shiftX - dx / headPx * 100, -120, 120);
-        drag.zoom = clamp(drag.zoom * scale, 50, 250);
+        // 框宽 = CROP_W 个头宽 / 缩放，图往下拖 = 取景框上移。位移和缩放都不设上下限。
+        drag.shift = Math.round(drag.shift - dy / headPx * 100);
+        drag.shiftX = Math.round(drag.shiftX - dx / headPx * 100);
+        const zoom = Math.round(drag.zoom * scale);
+        if (zoom > 0) drag.zoom = zoom;
         reframe(box);
     };
     const preview = (dx, dy, scale) => {
@@ -116,7 +117,7 @@ function bindDrag(box) {
         const c = center();
         gesture.curDx = gesture.dx + c.x - gesture.x0;
         gesture.curDy = gesture.dy + c.y - gesture.y0;
-        if (gesture.d0 > 0) gesture.curScale = Math.max(0.3, Math.min(4, gesture.scale * spread() / gesture.d0));
+        if (gesture.d0 > 0) gesture.curScale = gesture.scale * spread() / gesture.d0;
         preview(gesture.curDx, gesture.curDy, gesture.curScale);
     });
     const end = (event) => {
@@ -137,7 +138,7 @@ function bindDrag(box) {
         if (!drag || !box.classList.contains('is-editing')) return;
         event.stopPropagation();
         event.preventDefault();
-        wheelScale = Math.max(0.3, Math.min(4, wheelScale * (event.deltaY < 0 ? 1.08 : 1 / 1.08)));
+        wheelScale *= event.deltaY < 0 ? 1.08 : 1 / 1.08;
         preview(0, 0, wheelScale);
         clearTimeout(wheelTimer);
         wheelTimer = setTimeout(() => { const scale = wheelScale; wheelScale = 1; save(0, 0, scale); }, 300);

@@ -36,11 +36,11 @@ export function resolveNsfwSpriteMode(src) {
 // 偏移单位为头宽的百分比（上下正数 = 取景框下移，左右正数 = 取景框右移）；缩放为百分比。
 function clampPortraitShift(value) {
     const n = Math.round(Number(value));
-    return Number.isFinite(n) ? Math.max(-120, Math.min(120, n)) : 0;
+    return Number.isFinite(n) ? n : 0;
 }
 function clampPortraitZoom(value) {
     const n = Math.round(Number(value));
-    return Number.isFinite(n) && n > 0 ? Math.max(50, Math.min(250, n)) : 100;
+    return Number.isFinite(n) && n > 0 ? n : 100;
 }
 
 // 状态栏位置：电脑 / 手机各一份，x、y 为 0~100 的百分比（0 = 贴左 / 贴上，100 = 贴右 / 贴下，边距不变）。

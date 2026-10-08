@@ -9,7 +9,6 @@ import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
 import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions } from './voice-bark.js';
 import { TTS_CHARACTER_VOLUMES, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceList } from './tts.js';
-import { SPRITE_HEIGHT_RANGE } from './settings-normalize.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { hasCharacterSpriteLayout } from './sprite-key-migration.js';
 
@@ -72,7 +71,9 @@ export function secretInput(path, value, placeholder, disabled) {
 }
 
 export function numberInput(path, value, min, max, disabled, step) {
-    return `<input data-path="${esc(path)}" type="number" min="${esc(min)}" max="${esc(max)}"${step == null ? '' : ` step="${esc(step)}"`} value="${esc(value)}"${disabledAttr(disabled)}>`;
+    const minAttr = min == null || min === '' ? '' : ` min="${esc(min)}"`;
+    const maxAttr = max == null || max === '' ? '' : ` max="${esc(max)}"`;
+    return `<input data-path="${esc(path)}" type="number"${minAttr}${maxAttr}${step == null ? '' : ` step="${esc(step)}"`} value="${esc(value)}"${disabledAttr(disabled)}>`;
 }
 
 export function rangeInput(path, value, label = '音量') {
@@ -631,7 +632,7 @@ function renderCharacterSpriteHeightRow(charName, { sceneAssets, reader }) {
     const placed = hasCharacterSpriteLayout(reader && reader.spriteLayouts, charName);
     const note = placed ? ' title="在「调整立绘」里单独调过的表情，按调整结果显示"' : '';
     return `<div class="igs-char-info-row igs-char-height-row"><span class="igs-char-info-label">立绘高度 %</span>`
-        + `<input class="igs-asset-move" type="number" min="${SPRITE_HEIGHT_RANGE[0]}" max="${SPRITE_HEIGHT_RANGE[1]}" step="1" data-char-height="${esc(charName)}" value="${manual.source === 'manual' ? esc(manual.characterScale) : ''}" placeholder="${esc(auto.defaultScale)}" aria-label="角色立绘高度（${SPRITE_HEIGHT_RANGE[0]}~${SPRITE_HEIGHT_RANGE[1]}）">`
+        + `<input class="igs-asset-move" type="number" step="1" data-char-height="${esc(charName)}" value="${manual.source === 'manual' ? esc(manual.characterScale) : ''}" placeholder="${esc(auto.defaultScale)}" aria-label="角色立绘高度">`
         + `<span class="igs-char-height-hint"${note}>默认 ${esc(autoText)}${placed ? ' · 已单独调整' : ''}</span></div>`;
 }
 

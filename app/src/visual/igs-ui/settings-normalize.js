@@ -221,20 +221,18 @@ export function normalizeSpriteLayouts(value) {
 }
 
 export function normalizeSpriteDefaultScale(value) {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.max(40, Math.min(200, n)) : 100;
+    return normalizeSpriteHeight(value, 100);
 }
 
-// 设置里能填的立绘高度（基准高度、性别默认、角色自定义），单位是舞台高度百分比。
-export const SPRITE_HEIGHT_RANGE = Object.freeze([60, 150]);
+// 立绘高度（基准高度、性别默认、角色自定义），单位是舞台高度百分比。不设上下限。
 const SPRITE_GENDER_SCALE_DEFAULTS = Object.freeze({ enabled: false, female: 90, male: 100, other: 95 });
 
-// 留空或不是数字时用 fallback；超出范围夹到两端并取整。
+// 留空、不是数字或为 0 时用 fallback；其余取整，正负都可以。
 export function normalizeSpriteHeight(value, fallback = null) {
     if (value == null || String(value).trim() === '') return fallback;
     const n = Number(value);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.round(Math.max(SPRITE_HEIGHT_RANGE[0], Math.min(SPRITE_HEIGHT_RANGE[1], n)));
+    if (!Number.isFinite(n) || n === 0) return fallback;
+    return Math.round(n);
 }
 
 export function normalizeSpriteGenderScale(value) {
@@ -248,9 +246,10 @@ export function normalizeSpriteGenderScale(value) {
     };
 }
 
-// 全局显示比例：100 是当前占满舞台的高度，所有立绘一起乘上它。
+// 全局显示比例：100 是当前占满舞台的高度，所有立绘一起乘上它。不设上下限，非法或非正数回到 100。
 export function normalizeSpriteDisplayScale(value) {
-    return normalizeSpriteDefaultScale(value);
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : 100;
 }
 
 export function applySpriteDisplayScale(layout, displayScale) {
@@ -272,7 +271,8 @@ export function spriteStoredScale(displayScale, globalPercent) {
 // defaultScale：没单独调过位置的立绘用的默认高度（舞台高度百分比），来自基准高度或性别默认高度，让位给模式整体缩放。
 // characterScale：角色在素材里单独填的高度，压过模式整体缩放；「调整立绘」存下的位置仍按自己的大小。
 export function resolveSpriteLayout(layouts, mode, character, mood, outfit = '', defaultScale = 100, characterScale = null) {
-    const own = character && characterScale != null && Number(characterScale) > 0 ? Number(characterScale) : null;
+    const ownScale = Number(characterScale);
+    const own = character && Number.isFinite(ownScale) && ownScale !== 0 ? ownScale : null;
     const def = { posX: 50, posY: 100, scale: own ?? normalizeSpriteDefaultScale(defaultScale) };
     const modeLayout = layouts && layouts[mode];
     const placed = (layout) => ({

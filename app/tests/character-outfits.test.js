@@ -121,6 +121,17 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     assert.doesNotMatch(tabs, /生成立绘|outfit-generate-nude:|char-generate-sprite:/);
     assert.equal(tabs.includes('scene-outfit-tab:%E5%86%AC%E6%9C%88:%E8%A3%B8%E4%BD%93'), false);
     assert.equal(tabs.includes('编辑提示词'), false);
+    const nudeSet = renderCharacterSlotTabs({
+        charName: '冬月',
+        baseMoods: [],
+        baseListHtml: '',
+        outfits: { 裸体: { words: [], moods: { 害羞: 'nude-shy.png' }, wardrobe: '裸体' } },
+        activeOutfit: '裸体',
+        sceneAssets: {},
+    });
+    assert.match(nudeSet, /scene-outfit-tab:%E5%86%AC%E6%9C%88:%E8%A3%B8%E4%BD%93/);
+    assert.match(nudeSet, /igs-outfit-tab is-active/);
+    assert.match(nudeSet, />裸体<span/);
 });
 
 test('gate:outfits:prompt-groups-text', () => {
