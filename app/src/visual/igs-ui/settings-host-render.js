@@ -19,10 +19,11 @@ import { getSettingsShellTemplate } from './settings-shell.js';
 import { getImageSubTabTemplate, getReaderSubTabTemplate, getSettingsTabTemplate, normalizeImageSubTab, normalizeSceneSubTab, normalizeReaderSubTab, IMAGE_SUBTAB_DEFS, SCENE_RULES_TEMPLATE, SCENE_SUBTAB_DEFS, READER_SUBTAB_DEFS, SETTINGS_TAB_DEFS } from './settings-tabs.js';
 import { getReaderModeIcon } from './icons.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
+import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OFF_HINT, PROMPT_RULE_OUTFIT_HINT, PROMPT_RULE_PRESET_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel } from '../../schemas/reader-mode.js';
 import { esc, toHex } from './reader-value-utils.js';
-import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, kindModelPicker, tableMultiSelect } from './settings-fields.js';
+import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderCustomFontManager, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
 import { normalizeSettingsTab, normalizeSpriteDefaultScale, normalizeSpriteGenderScale, SPRITE_HEIGHT_RANGE } from './settings-normalize.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { listStatusHudTables, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
@@ -246,16 +247,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭，关闭后改为白色背景）'),
+                // 分类型模型收在「图像来源 › 模型」下的折叠项里，默认收起；生成开关只在「生图 › 内容」一处。
                 kindModelFields: field('bridge.imageApi.cgModel', '剧情 CG 模型', kindModelPicker('bridge.imageApi.cgModel', imageApi.cgModel, pulledImageModels))
-                    + ['sprite', 'background', 'item'].map((kind) => {
-                    // 每类一个「生成」开关，与「生图 › 内容」里的素材补全 / 物品图开关是同一项设置。
-                    const toggle = {
-                        sprite: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '生成立绘'),
-                        background: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '生成背景'),
-                        item: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '生成物品图'),
-                    }[kind];
-                    return toggle + field(`bridge.imageApi.${kind}Model`, { sprite: '立绘模型', background: '背景模型', item: '物品模型' }[kind], kindModelPicker(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], pulledImageModels));
-                }).join(''),
+                    + ['sprite', 'background', 'item'].map((kind) => field(`bridge.imageApi.${kind}Model`, { sprite: '立绘模型', background: '背景模型', item: '物品模型' }[kind], kindModelPicker(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], pulledImageModels))).join(''),
                 advancedKindModelsOpen: advancedOpen('kind-models'),
                 advancedNaiOpen: advancedOpen('nai'),
                 advancedExtensionOpen: advancedOpen('extension'),
@@ -589,7 +583,13 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const readerSubTabs = READER_SUBTAB_DEFS.map(([id, label]) => (
             `<button type="button" class="igs-reader-subtab${readerSubTab === id ? ' is-active' : ''}" data-reader-subtab="${id}" role="tab" aria-selected="${readerSubTab === id ? 'true' : 'false'}">${label}</button>`
         )).join('');
+        // 字体下拉 = 内置字体 + 用户上传的字体；上传的字体先注册进页面，下拉里选中即可预览。
+        const hostGlobal = options.global || globalThis;
+        const customFonts = loadCustomFonts(hostGlobal);
+        if (customFonts.length) registerCustomFonts(hostGlobal.document, customFonts);
+        const fontOptions = fontOptionsWith(DIALOG_FONT_OPTIONS, customFonts);
         const readerValues = {
+            customFontManager: renderCustomFontManager(customFonts, asyncState.customFontMessage || ''),
             ...sectionResetPlaceholders(),
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
             dialogFontWeightField: field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])),
@@ -651,7 +651,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             systemRoleFields: renderSystemRoleSettings(systemRole, {
-                fontOptions: DIALOG_FONT_OPTIONS,
+                fontOptions,
                 narrationColor: toHex(displayTheme.narrationColor || '#f4f4f6'),
                 disabled: themeDisabled,
             }),
@@ -683,13 +683,13 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             themeHidden: hiddenAttr(themeDisabled),
             dividerHidden: hiddenAttr(themeDisabled || classicDialog),
             dividerField: field(`${themePath}.dividerSymbol`, '样式', selectInput(`${themePath}.dividerSymbol`, displayTheme.dividerSymbol || 'none', [['gradient', '渐变线'], ['none', '无']], themeDisabled || classicDialog || !themeCustom)),
-            nameFontField: field(`${themePath}.nameFont`, '字体', selectInput(`${themePath}.nameFont`, displayTheme.nameFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
-            textFontField: field(`${themePath}.textFont`, '字体', selectInput(`${themePath}.textFont`, displayTheme.textFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
-            thoughtFontField: field(`${themePath}.thoughtFont`, '字体', selectInput(`${themePath}.thoughtFont`, displayTheme.thoughtFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
+            nameFontField: field(`${themePath}.nameFont`, '字体', selectInput(`${themePath}.nameFont`, displayTheme.nameFont || 'inherit', fontOptions, themeDisabled || !themeCustom)),
+            textFontField: field(`${themePath}.textFont`, '字体', selectInput(`${themePath}.textFont`, displayTheme.textFont || 'inherit', fontOptions, themeDisabled || !themeCustom)),
+            thoughtFontField: field(`${themePath}.thoughtFont`, '字体', selectInput(`${themePath}.thoughtFont`, displayTheme.thoughtFont || 'inherit', fontOptions, themeDisabled || !themeCustom)),
             nameColorField: field(`${themePath}.nameColor`, '颜色', colorInput(`${themePath}.nameColor`, toHex(displayTheme.nameColor || '#ffeeb8'), themeDisabled || !themeCustom)),
             textColorField: field(`${themePath}.textColor`, '颜色', colorInput(`${themePath}.textColor`, toHex(displayTheme.textColor || '#f4f4f6'), themeDisabled || !themeCustom)),
             thoughtColorField: field(`${themePath}.thoughtColor`, '颜色', colorInput(`${themePath}.thoughtColor`, toHex(displayTheme.thoughtColor || '#c8c8dc'), themeDisabled || !themeCustom)),
-            narrationFontField: field(`${themePath}.narrationFont`, '字体', selectInput(`${themePath}.narrationFont`, displayTheme.narrationFont || 'inherit', DIALOG_FONT_OPTIONS, themeDisabled || !themeCustom)),
+            narrationFontField: field(`${themePath}.narrationFont`, '字体', selectInput(`${themePath}.narrationFont`, displayTheme.narrationFont || 'inherit', fontOptions, themeDisabled || !themeCustom)),
             narrationColorField: field(`${themePath}.narrationColor`, '颜色', colorInput(`${themePath}.narrationColor`, toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
             dividerColorField: field(`${themePath}.dividerColor`, '颜色', colorInput(`${themePath}.dividerColor`, toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || classicDialog || !themeCustom)),
             dialogBgField: dialogBgEditable ? field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), !themeCustom)) : '',

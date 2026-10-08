@@ -28,12 +28,27 @@ const LEGACY_TEXT_EXCLUDE_TAGS = Object.freeze([
 
 // 字段不得跨行：AI 漏写 "]" 时旧规则会一路吞到后文下一个 "]"，把旁白并进台词。
 // 表情栏可省略：AI 偶发 [igs-char:角色|台词] 两栏写法，按「没写表情」的台词处理。
+// 内置追加规则：把整段 HTML 注释连同它独占的换行一起去掉，避免正文里留一大片空行。
+// 它排在用户规则之前，所以用户自己的规则仍然后跑、可以覆盖它。
+export const DEFAULT_VIRTUAL_REGEX_RULES = Object.freeze([
+    Object.freeze({
+        pattern: '\\s*<!--[\\s\\S]*?-->\\s*\\n?',
+        flags: 'g',
+        replacement: '',
+    }),
+]);
+
 export const DEFAULT_VIRTUAL_REGEX = Object.freeze({
     enabled: true,
     pattern: '\\[igs-char:([^|\\]\\n]+)\\|(?:[^|\\]\\n]*\\|)?([^\\]\\n]+)\\]?',
     flags: 'gm',
     replacement: '[$1]：$2',
+    rules: DEFAULT_VIRTUAL_REGEX_RULES,
 });
+
+// 内置规则的注入版本。老存档里的 virtualRegex.rules 是空数组，靠这个标记补一次内置规则；
+// 补过之后用户删掉它就真的删掉了，不会每次保存又冒出来。
+export const DEFAULT_VIRTUAL_REGEX_RULES_VERSION = 1;
 
 // 已保存设置中的旧默认规则按原值迁移，用户自定义规则不动。
 const LEGACY_VIRTUAL_REGEX_PATTERNS = Object.freeze([
@@ -179,15 +194,24 @@ export function normalizeVirtualRegex(value) {
     const source = isPlainObject(value) ? value : {};
     const merged = { ...DEFAULT_VIRTUAL_REGEX, ...source };
     const pattern = String(merged.pattern == null ? DEFAULT_VIRTUAL_REGEX.pattern : merged.pattern);
-    const rules = Array.isArray(merged.rules)
+    let rules = Array.isArray(merged.rules)
         ? merged.rules.map(normalizeVirtualRegexRule)
         : [];
+    // 老存档（rulesVersion 缺失）没见过内置规则，补一次；用户删掉后版本号仍在，不会重新长出来。
+    const sourceVersion = Number(merged.rulesVersion);
+    const rulesVersion = Number.isInteger(sourceVersion) && sourceVersion >= DEFAULT_VIRTUAL_REGEX_RULES_VERSION
+        ? sourceVersion
+        : DEFAULT_VIRTUAL_REGEX_RULES_VERSION;
+    if (rulesVersion < DEFAULT_VIRTUAL_REGEX_RULES_VERSION) {
+        rules = [...DEFAULT_VIRTUAL_REGEX_RULES.map((rule) => normalizeVirtualRegexRule(rule)), ...rules];
+    }
     return {
         enabled: merged.enabled !== false,
         pattern: LEGACY_VIRTUAL_REGEX_PATTERNS.includes(pattern) ? DEFAULT_VIRTUAL_REGEX.pattern : pattern,
         flags: String(merged.flags == null ? DEFAULT_VIRTUAL_REGEX.flags : merged.flags).replace(/\s+/g, ''),
         replacement: String(merged.replacement == null ? DEFAULT_VIRTUAL_REGEX.replacement : merged.replacement),
         rules,
+        rulesVersion,
     };
 }
 

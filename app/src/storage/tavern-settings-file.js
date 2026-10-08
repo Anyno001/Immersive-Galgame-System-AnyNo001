@@ -16,6 +16,7 @@ const GLOBAL_KEYS = new Set([
     'igs:scene-presets:v1',
     'igs-asset-folders-v1',
     'igs_record_fonts',
+    'igs-custom-fonts-v1',
     'igs_record_diary_prefs',
     'igs-map-basemap-source',
     'igs-map-gen-palette',

@@ -97,11 +97,6 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-source="dbgen"{{sourceDbgenHidden}}>
       {{dbgenSpriteTransparentField}}
     </div>
-    <details class="igs-settings-sub igs-settings-advanced" data-advanced="kind-models"{{advancedKindModelsOpen}}>
-      <summary>分类型生成与模型</summary>
-      <div class="igs-source-filter-note">剧情 CG、立绘、背景、物品可以各用一个模型：从列表选择，或手填编号，留空跟随默认。立绘、背景、物品还可以分别关掉不生成。对内置 NAI 和数据库生图插件生效；智绘姬、柏宝绘用插件自己的模型，只在退回内置 NAI 时生效。</div>
-      <div class="igs-source-filter-grid">{{kindModelFields}}</div>
-    </details>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>插件设置</button></div>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
@@ -164,6 +159,7 @@ const IMAGE_CG_TEMPLATE = `
     <div class="igs-source-filter-title">CG 库</div>
     <div class="igs-source-filter-note">生成过的 CG 都在这里，点图看大图。</div>
     <div class="igs-source-filter-grid">{{imageCacheCountField}}</div>
+    <div class="igs-settings-row"><button class="igs-settings-action" data-action="purge-asset-cache" type="button" title="清空浏览器里缓存的图片和设置页缩略图，酒馆上的原图不动">清除素材缓存</button></div>
     <div class="igs-cg-actions">
       <div class="igs-cg-actions-row"><span class="igs-cg-actions-label">查看</span>
         <button class="igs-settings-action" data-action="image-cg-refresh" type="button">刷新</button>
@@ -288,6 +284,7 @@ const READER_TEXT_TEMPLATE = `
     <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}</div></div>
     <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}</div></div>
     <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">系统角色</div>{{systemRoleFields}}</div>
+    <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">上传字体</div>{{customFontManager}}</div>
     <div class="igs-settings-group igs-text-style-line"{{dividerHidden}}><div class="igs-settings-subhead">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
   </div>
 </div>

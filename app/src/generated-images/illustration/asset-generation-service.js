@@ -821,9 +821,9 @@ export function createAssetGenerationService(deps) {
         };
     }
 
-    // 标签顺序：DNA → 表情 → 衣服与长相 → 写词结果。
-    async function paintExpressionCaption(name, mood, caption, dna, { look = '', seed, nsfw = false } = {}) {
-        const upright = uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(applyLookToCaption(caption, look), mood, { nsfw }), dna)) || caption;
+    // 标签顺序：DNA → 表情 → 衣服与长相 → 写词结果。exact：用户改过的词原样出图，不硬合，新图继续记为「改过」。
+    async function paintExpressionCaption(name, mood, caption, dna, { look = '', seed, nsfw = false, exact = false } = {}) {
+        const upright = exact ? caption : (uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(applyLookToCaption(caption, look), mood, { nsfw }), dna)) || caption);
         const meta = expressionPaintMeta();
         let painted;
         try {
@@ -845,6 +845,7 @@ export function createAssetGenerationService(deps) {
         const image = await buildSpriteImageRecord(imageId, painted.dataUrl, meta.transparent, createdAt);
         const prompt = normalizeStoredPrompt(painted.prompt) || promptFromCaption(upright);
         if (prompt) image.prompt = prompt;
+        if (exact) image.promptEdited = true;
         await putImageWithQuotaFallback(image);
         rememberImage(imageId, image.dataUrl);
         return { mood, ok: true, imageId, prompt, name };
@@ -958,13 +959,13 @@ export function createAssetGenerationService(deps) {
 
     // 单张重画：有这一格的提示词就不再写词（写词要等插件的模型，单张也得几十秒），
     // 直接叠上当前的表情、衣服、DNA 硬合再出图；显式换一颗随机种子——不传种子时插件用自己的配置，固定种子会画出同一张。
-    async function generateExpressionImage({ name, mood, caption, basePrompt, dna, outfit, note, nsfw, onProgress } = {}) {
+    async function generateExpressionImage({ name, mood, caption, exact = false, basePrompt, dna, outfit, note, nsfw, onProgress } = {}) {
         const label = String(mood || '').trim();
         if (!label) return { ok: false, error: '没有表情' };
         if (caption) {
             reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: label });
             const look = expressionLookTags(basePrompt, outfit);
-            const item = await paintExpressionCaption(name, label, caption, expressionPaintDna(dna, outfit), { look, seed: randomSeed(), nsfw: nsfw === true });
+            const item = await paintExpressionCaption(name, label, caption, expressionPaintDna(dna, outfit), { look, seed: randomSeed(), nsfw: nsfw === true, exact: exact === true });
             return { ok: true, items: [item] };
         }
         return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, note, nsfw, onProgress });
@@ -1050,13 +1051,13 @@ export function createAssetGenerationService(deps) {
 
     // 设置页主动出一张默认立绘：先让 LLM 写提示词，再出图，不经过楼内补图。
     // 格子里已有图的「重新生成」带着那张图的 caption 进来：不写词，换一颗新种子直接画。
-    async function generateCharacterSprite({ name, dna, nude = false, note = '', caption, onProgress } = {}) {
+    async function generateCharacterSprite({ name, dna, nude = false, note = '', caption, exact = false, onProgress } = {}) {
         const who = String(name || '').trim();
         if (!who) return { ok: false, error: '没有角色' };
         if (caption) {
             if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能画立绘' };
             reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: '默认' });
-            const repainted = await paintExpressionCaption(who, '默认', caption, dna, { seed: randomSeed() });
+            const repainted = await paintExpressionCaption(who, '默认', caption, dna, { seed: randomSeed(), exact: exact === true });
             if (!repainted.ok) return { ok: false, error: repainted.error || '出图失败', prompt: repainted.prompt };
             return { ok: true, imageId: repainted.imageId, prompt: repainted.prompt };
         }
@@ -1129,11 +1130,13 @@ export function createAssetGenerationService(deps) {
         return { ok: true, prompt: text };
     }
 
+    // edited：用户在「提示词」里改过并保存。重画时照原样用，不再叠情绪 / 衣服 / DNA。
     async function getImagePrompt(id) {
         const key = String(id || '');
         if (!key || !store || typeof store.getImage !== 'function') return null;
         const record = await store.getImage(key);
-        return normalizeStoredPrompt(record && record.prompt);
+        const prompt = normalizeStoredPrompt(record && record.prompt);
+        return prompt && record.promptEdited === true ? { ...prompt, edited: true } : prompt;
     }
 
     async function saveImagePrompt(id, prompt) {
@@ -1145,7 +1148,7 @@ export function createAssetGenerationService(deps) {
         }
         const record = await store.getImage(key);
         if (!record) return { ok: false, error: '找不到这张立绘' };
-        await store.putImage({ ...record, prompt: stored });
+        await store.putImage({ ...record, prompt: stored, promptEdited: true });
         return { ok: true, prompt: stored };
     }
 

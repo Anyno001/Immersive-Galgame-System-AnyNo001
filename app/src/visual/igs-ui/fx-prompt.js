@@ -3,6 +3,7 @@ import { enabledFxTagKinds } from './fx-settings.js';
 const FX_PROMPT_LINES = Object.freeze({
     call: '[igs-fx:call|来电角色名] … [igs-fx:call-end]：角色打来电话；主角主动打给对方时改用[igs-fx:dial|角色名]；视频通话在名字后加第3段「视频」，如[igs-fx:call|爱丽丝|视频]。通话标签放在通话内容之前，通话中的台词照常用[igs-char]，挂断后输出[igs-fx:call-end]；没接通、被拒接或被对方挂断时写[igs-fx:call-end|未接]、[igs-fx:call-end|拒接]、[igs-fx:call-end|对方挂断]',
     notify: '[igs-fx:notify|发送者|一句话内容]：手机弹出一条通知或短消息，不打断叙事；需要完整聊天记录时仍用线上聊天标签',
+    delivery: '[igs-fx:delivery|物品|配送方|阶段]：外卖、快递之类送到手上的东西，送出时舞台上方弹出一张卡片。物品写具体名目，如外卖、奶茶、快递；配送方可省，如美团骑手、顺丰；阶段写order（刚下单）或arrive（送到并按下门铃，默认），如[igs-fx:delivery|外卖|美团骑手|arrive]',
     flashback: '[igs-fx:flashback] … [igs-fx:flashback-end]：包住一段回忆或闪回的正文',
     dream: '[igs-fx:dream] … [igs-fx:dream-end]：包住梦境、幻觉或介于现实与想象之间的朦胧段落',
     letterbox: '[igs-fx:letterbox] … [igs-fx:letterbox-end]：包住告白、对峙、决战等需要电影感的严肃段落',
@@ -38,7 +39,7 @@ ${lines.join('\n')}
 语法要求：
 1. 每条标签独立成行，放在它所作用的正文之前
 2. 字段不得换行，不得含 | 或 ]
-3. 只在确实关键的时刻使用：每层回复中 call、dial、notify、sfx、eye 这类瞬时标签合计不超过2个，不要每层都用
+3. 只在确实关键的时刻使用：每层回复中 call、dial、notify、delivery、sfx、eye 这类瞬时标签合计不超过2个，不要每层都用
 4. 成对标签必须闭合；不要发明未列出的类型`;
 }
 

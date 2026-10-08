@@ -54,6 +54,7 @@ import { isConfessionLine } from './bgm-library.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
+import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
 import { spriteEnhanceFilter } from './sprite-enhance.js';
 import { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH, isPortraitTouchWindow } from '../../generated-images/illustration/auto-illustration-service.js';
@@ -1507,7 +1508,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         applyAlignStyle(textEl, themeEnabled ? segAlign : '');
         if (themeEnabled && segFont && segFont !== 'inherit') {
             textEl.style.fontFamily = segFont;
-            preloadDialogFonts(textEl.ownerDocument, [theme.nameFont, theme.textFont, theme.thoughtFont, theme.narrationFont]);
+            const themeFonts = [theme.nameFont, theme.textFont, theme.thoughtFont, theme.narrationFont];
+            // 选了上传字体才读字体表注册，其余页面不碰 localStorage。
+            if (themeFonts.some((stack) => String(stack || '').includes('IGSUserFont-'))) {
+                const hostDoc = textEl.ownerDocument;
+                registerCustomFonts(hostDoc, loadCustomFonts((hostDoc && hostDoc.defaultView) || globalThis));
+            }
+            preloadDialogFonts(textEl.ownerDocument, themeFonts);
         } else {
             textEl.style.fontFamily = '';
         }
@@ -1650,6 +1657,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             speakerEl.style.display = 'block';
             applyAlignStyle(speakerEl, theme.nameAlign);
             speakerEl.style.fontFamily = theme.nameFont && theme.nameFont !== 'inherit' ? theme.nameFont : '';
+            if (String(theme.nameFont || '').includes('IGSUserFont-')) {
+                const hostDoc = speakerEl.ownerDocument;
+                registerCustomFonts(hostDoc, loadCustomFonts((hostDoc && hostDoc.defaultView) || globalThis));
+            }
             speakerEl.style.fontWeight = snapshot.readerSettings.dialogFontWeight == null ? '' : String(snapshot.readerSettings.dialogFontWeight);
             speakerEl.style.color = theme.nameColor || '';
         } else {

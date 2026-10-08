@@ -13,6 +13,7 @@ import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneA
 import { buildCharacterCardPack, buildImageZip, buildPresetArchive, mergeLabelGroups, parseCharacterCardPack, parsePresetArchive, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
+import { createIndexedDbAssetThumbStore } from '../../media/asset-thumb-store.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
@@ -34,6 +35,7 @@ import { applyPerformanceProfile, hasPerformanceProfile, profileDiff, profileFro
 import { WORLDVIEWS, applyWorldview, resolveWorldview } from '../../scene/worldview.js';
 import { normalizeHorrorGore, normalizeHorrorStyle } from '../../scene/horror.js';
 import { BGM_ACTION_RE, handleBgmSettingsAction } from './bgm-settings-actions.js';
+import { deleteTavernFont, loadCustomFonts, pickFontFile, saveCustomFonts, uploadFontFile } from '../../media/custom-fonts.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, bindGeneratedBackground, bindGeneratedSprite, collectGeneratedImageIds, generatedAssetIdOf, isGeneratedAssetUrl, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, setGeneratedExpressionNote } from '../../scene/asset-match.js';
@@ -709,6 +711,7 @@ const RISKY_ACTIONS = [
     ['meta-scope-remove:', () => '删除这条生效范围？'],
     ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
     ['image-log-clear', () => '清空生图日志？'],
+    ['purge-asset-cache', () => '清除素材缓存？浏览器里缓存的图片与设置页缩略图都会清空；酒馆上的原图还在，下次查看会重新读取。'],
     ['image-cache-clear', () => '清空浏览器里缓存的图片？酒馆上的原图还在，下次查看会重新下载。'],
     ['mood-review-clear', () => '清空待确认的情绪词？'],
     ['reset-virtual-regex', () => '正文格式化恢复默认？当前的查找与替换内容将被覆盖。'],
@@ -735,6 +738,19 @@ function riskyActionMessage(action, settingsState, editTarget) {
     }
     const hit = RISKY_ACTIONS.find(([prefix]) => (prefix.endsWith(':') ? action.startsWith(prefix) : action === prefix || action.startsWith(`${prefix}:`)));
     return hit ? hit[1](action) : '';
+}
+
+// 删掉上传字体后，把还引用它的字体设置（对话框四个位置 + 系统角色）还原成默认。
+function resetThemeFontsUsing(draft, family) {
+    const needle = String(family || '');
+    if (!needle) return;
+    const reader = (draft && draft.readerSettings) || {};
+    for (const target of [reader.vnTheme, reader.classicVnTheme, reader.systemRole]) {
+        if (!target || typeof target !== 'object') continue;
+        for (const [key, value] of Object.entries(target)) {
+            if (/font/i.test(key) && String(value || '').includes(needle)) target[key] = 'inherit';
+        }
+    }
 }
 
 export async function handleSettingsAction(action, ctx) {
@@ -1330,6 +1346,7 @@ export async function handleSettingsAction(action, ctx) {
         const current = String((character && character['默认']) || '').trim();
         // 格子里已有生成图时「重新生成」不写词：读这张图存下的提示词，换种子重画；读不到才走写词。
         let redrawCaption = null;
+        let redrawExact = false;
         const currentId = generatedAssetIdOf(current);
         if (currentId && typeof service.getImagePrompt === 'function') {
             try {
@@ -1342,6 +1359,7 @@ export async function handleSettingsAction(action, ctx) {
                     ].filter(Boolean).join('\n'));
                     redrawCaption = (parsed && parsed.caption) || null;
                 }
+                redrawExact = Boolean(redrawCaption && saved && saved.edited === true);
             } catch (error) { redrawCaption = null; }
         }
         let spriteNote = savedSpriteNotes[name] || '';
@@ -1360,7 +1378,7 @@ export async function handleSettingsAction(action, ctx) {
             return generationFailure(globalObj, dialogs, `「${name}」的默认立绘未能生成：${errorText(error, '未返回原因')}${current ? '\n原有图片保持不变。' : ''}`, 'sprite-generate-failed');
         };
         try {
-            result = await service.generateCharacterSprite({ name, dna, note: spriteNote, caption: redrawCaption, onProgress: progress.onProgress });
+            result = await service.generateCharacterSprite({ name, dna, note: spriteNote, caption: redrawCaption, exact: redrawExact, onProgress: progress.onProgress });
         } catch (error) {
             return failed(error);
         }
@@ -1500,8 +1518,11 @@ export async function handleSettingsAction(action, ctx) {
         const library = normalizeGeneratedLibrary(sceneAssets.generated);
         const noteKey = expressionNoteKey(name, outfitName);
         const note = retry ? (library.expressionNotes[noteKey] || {})[mood] : null;
-        let savedCaption = note && note.caption;
-        if (retry && !savedCaption) {
+        // 重画读词：这一格已有图时以图上存的提示词为准（「提示词」里保存的就是它），
+        // 没图时才用待出图的草稿；之前那次失败留下的草稿不能盖掉用户后来改的词。
+        let savedCaption = null;
+        let savedExact = false;
+        if (retry) {
             const slotUrl = outfitMode ? String((outfitEntry.moods || {})[mood] || '') : String((character || {})[mood] || '');
             const slotId = generatedAssetIdOf(slotUrl);
             if (slotId) {
@@ -1515,8 +1536,10 @@ export async function handleSettingsAction(action, ctx) {
                         ].filter(Boolean).join('\n'));
                         savedCaption = parsed && parsed.caption;
                     }
+                    savedExact = Boolean(savedCaption && saved && saved.edited === true);
                 } catch (error) { savedCaption = null; }
             }
+            if (!savedCaption && note && note.caption) savedCaption = note.caption;
         }
         const dna = characterExpressionDna(sceneAssets, name);
         const nude = outfitMode && isBuiltinNudeOutfit(outfitEntry.wardrobe);
@@ -1596,7 +1619,7 @@ export async function handleSettingsAction(action, ctx) {
             result = resume || paintOnly
                 ? await service.paintExpressionCaptions({ name, items: resumeItems, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal })
                 : retry && savedCaption && typeof service.generateExpressionImage === 'function'
-                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal })
+                ? await service.generateExpressionImage({ name, mood, caption: savedCaption, exact: savedExact, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal })
                 : retry
                     ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal })
                     : await paintThenWriteExpressions({
@@ -2022,6 +2045,37 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 文字样式 › 上传字体：上传后记进 localStorage 并重绘，立即出现在字体下拉末尾；删除时把还在用它的字体设置还原成默认。
+    if (normalizedAction === 'custom-font-upload' || normalizedAction.startsWith('custom-font-remove:')) {
+        const hostGlobal = options.global || globalThis;
+        const fonts = loadCustomFonts(hostGlobal);
+        if (normalizedAction === 'custom-font-upload') {
+            const doc = hostGlobal.document;
+            if (!doc) return rerenderSettings();
+            const file = await pickFontFile(doc);
+            if (!file) return rerenderSettings();
+            const uploaded = await uploadFontFile(hostGlobal, file);
+            if (!uploaded.ok) {
+                settingsState.asyncState.customFontMessage = uploaded.reason || '上传失败。';
+                return rerenderSettings();
+            }
+            saveCustomFonts(hostGlobal, fonts.concat([uploaded.font]));
+            settingsState.asyncState.customFontMessage = `已上传「${uploaded.font.label}」，在字体下拉末尾选择。`;
+            return rerenderSettings();
+        }
+        const id = decodeSeg(normalizedAction.slice('custom-font-remove:'.length));
+        const target = fonts.find((font) => font.id === id);
+        if (!target) return rerenderSettings();
+        if (!(await dialogs.confirm(`删除上传的字体「${target.label}」？用它排版的文字会退回默认字体。`, { okLabel: '删除' }))) return rerenderSettings();
+        saveCustomFonts(hostGlobal, fonts.filter((font) => font.id !== target.id));
+        resetThemeFontsUsing(settingsState.draft, target.family);
+        await deleteTavernFont(hostGlobal, target.path);
+        settingsState.asyncState.customFontMessage = `已删除「${target.label}」。`;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (BGM_ACTION_RE.test(normalizedAction)) {
         const result = await handleBgmSettingsAction(normalizedAction, {
             readerDraft: settingsState.draft.readerSettings = settingsState.draft.readerSettings || {},
@@ -2404,10 +2458,21 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
-    if (normalizedAction === 'image-cache-clear') {
-        await localImageCacheFor(options.global || globalThis).clear();
+    // 「清除素材缓存」：清掉三条本地缓存——图片按路径留的 dataUrl、设置页缩略图、内存里的解码图。
+    // 酒馆上的原图不动，下次查看重新下载 / 重新缩图；遇到「图不更新」「占空间」时一键重置。
+    if (normalizedAction === 'image-cache-clear' || normalizedAction === 'purge-asset-cache') {
+        const hostGlobal = options.global || globalThis;
+        await localImageCacheFor(hostGlobal).clear();
+        if (normalizedAction === 'purge-asset-cache') {
+            try {
+                const thumbs = createIndexedDbAssetThumbStore(hostGlobal);
+                if (thumbs && typeof thumbs.clear === 'function') await thumbs.clear();
+            } catch (error) { /* 缩略图库打不开也不影响其余缓存清空 */ }
+        }
         resetCgView(settingsState.asyncState);
-        settingsState.asyncState.imageCgStatus = '已清空本地图片缓存。';
+        settingsState.asyncState.imageCgStatus = normalizedAction === 'purge-asset-cache'
+            ? '已清除素材缓存，图片与缩略图会在查看时重新读取。'
+            : '已清空本地图片缓存。';
         return rerenderSettings();
     }
 

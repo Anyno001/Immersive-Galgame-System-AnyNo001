@@ -28,3 +28,5 @@
 - 背景匹配属于 `backgrounds` / `scene`。
 - 角色匹配属于 `characters` / `scene`。
 - 生图请求、轮询和 provider 适配属于 `generated-images`。
+- 用户上传字体（`custom-fonts.js`）：文件存酒馆 `user/files/igs-font-*`，清单存 localStorage `igs-custom-fonts-v1`（随全局配置同步）；用 FontFace 注册到宿主 document，渲染只读 font-family 栈。
+- 酒馆图片搬家（`tavern-image-files.js`）只在整条记录未被改写时落盘，避免用旧记录覆盖期间保存的提示词等字段。

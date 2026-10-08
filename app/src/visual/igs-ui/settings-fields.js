@@ -258,6 +258,17 @@ export function kindModelPicker(path, value, extraModels) {
         pulled.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`),
     ).join('');
     return `<div class="igs-settings-model igs-settings-kind-model"><input data-path="${esc(path)}" value="${esc(current)}" placeholder="手填模型编号，留空跟随默认"><select data-model-sync="${esc(path)}" aria-label="读取模型列表" title="读取模型列表">${options}</select></div>`;
+
+// 文字样式 › 上传字体：已上传的字体列成一行一个，可删除；上传后出现在上面四个字体下拉的末尾。
+export function renderCustomFontManager(fonts, message = '') {
+    const list = Array.isArray(fonts) ? fonts : [];
+    const rows = list.map((font) => `<div class="igs-settings-row igs-custom-font-row"><span style="font-family:${esc(`"${font.family}",serif`)}">${esc(font.label)}　永字八法 Aa</span><button class="igs-settings-action" data-action="custom-font-remove:${esc(encodeURIComponent(font.id))}" type="button">删除</button></div>`).join('');
+    return `<div class="igs-custom-fonts">
+        <div class="igs-source-filter-note">支持 ttf / otf / woff / woff2，单个不超过 32MB；文件存进酒馆的 user/files，上传后在上面的字体下拉末尾选择。</div>
+        ${rows}
+        <div class="igs-settings-row"><button class="igs-settings-action" data-action="custom-font-upload" type="button">上传字体</button></div>
+        ${message ? `<div class="igs-settings-result" data-result="custom-font">${esc(message)}</div>` : ''}
+    </div>`;
 }
 
 export function modelPicker(path, value, models, action, placeholder, disabled) {

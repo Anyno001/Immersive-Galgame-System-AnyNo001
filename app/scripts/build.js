@@ -69,6 +69,8 @@ const dialogFontAssets = [
     { family: 'Smiley Sans', file: 'SmileySans-Oblique.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'ZCOOL KuaiLe', file: 'ZCOOLKuaiLe-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'Yozai', file: 'Yozai-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    { family: 'ChillRoundF', file: 'ChillRoundFRegular.otf', weight: 400, style: 'normal', format: 'opentype' },
+    { family: 'ChillRoundF', file: 'ChillRoundFBold.otf', weight: 700, style: 'normal', format: 'opentype' },
     { family: 'Cinzel', file: 'Cinzel-Variable.ttf', weight: '100 900', style: 'normal', format: 'truetype' },
     { family: 'Great Vibes', file: 'GreatVibes-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
     { family: 'Pinyon Script', file: 'PinyonScript-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
@@ -116,7 +118,7 @@ const fontLicenseFiles = [
     'Cormorant-OFL.txt', 'Cormorant-OFL-FAQ.txt', 'LXGW-OFL.txt', 'Yozai-OFL.txt',
     'HuiwenMincho-CC0.txt', 'TsangerYuYangT-MIT.txt', 'SmileySans-OFL.txt',
     'Cinzel-OFL.txt', 'ZCOOLKuaiLe-OFL.txt', 'GreatVibes-OFL.txt', 'PinyonScript-OFL.txt',
-    'Quicksand-OFL.txt', 'Caveat-OFL.txt', 'IMFellEnglish-OFL.txt',
+    'Quicksand-OFL.txt', 'Caveat-OFL.txt', 'IMFellEnglish-OFL.txt', 'ChillRoundF-OFL.txt',
 ];
 fs.mkdirSync(fontTargetDir, { recursive: true });
 for (const weight of roundedFontWeights) {

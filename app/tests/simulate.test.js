@@ -72,24 +72,64 @@ test('gate:simulation:virtual-regex-extra-rules-render-add-save-and-remove', asy
         const settings = opened.reader.controller.openSettings('regex').controller;
         let snapshot = settings.getSnapshot();
         assert.match(snapshot.html, /自定义规则（依上下顺序生效）/);
-        assert.deepEqual(snapshot.draft.bridge.virtualRegex.rules, []);
+        // 内置的 HTML 注释剥离规则随默认值一起下发（用户删掉后不会再长回来）。
+        const builtinRule = { pattern: '\\s*<!--[\\s\\S]*?-->\\s*\\n?', flags: 'g', replacement: '' };
+        assert.deepEqual(snapshot.draft.bridge.virtualRegex.rules, [builtinRule]);
 
         const added = await settings.invoke('add-virtual-regex');
         assert.equal(added.ok, true);
         snapshot = settings.getSnapshot();
         assert.match(snapshot.html, /data-path="bridge\.virtualRegex\.rules\.0\.pattern"/);
-        settings.setValue('bridge.virtualRegex.rules.0.pattern', 'foo');
-        settings.setValue('bridge.virtualRegex.rules.0.flags', 'g');
-        settings.setValue('bridge.virtualRegex.rules.0.replacement', 'bar');
-        assert.deepEqual(settings.getSnapshot().draft.bridge.virtualRegex.rules, [{ pattern: 'foo', flags: 'g', replacement: 'bar' }]);
+        settings.setValue('bridge.virtualRegex.rules.1.pattern', 'foo');
+        settings.setValue('bridge.virtualRegex.rules.1.flags', 'g');
+        settings.setValue('bridge.virtualRegex.rules.1.replacement', 'bar');
+        assert.deepEqual(settings.getSnapshot().draft.bridge.virtualRegex.rules, [builtinRule, { pattern: 'foo', flags: 'g', replacement: 'bar' }]);
         assert.equal(settings.close().ok, true);
-        assert.deepEqual(vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex.rules, [{ pattern: 'foo', flags: 'g', replacement: 'bar' }]);
+        assert.deepEqual(vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex.rules, [builtinRule, { pattern: 'foo', flags: 'g', replacement: 'bar' }]);
 
         const reopened = vn.openSettings({ tab: 'regex', mode: 'pc' }).controller;
-        const removed = await invokeConfirmed(reopened, document, 'remove-virtual-regex:0');
+        const removed = await invokeConfirmed(reopened, document, 'remove-virtual-regex:1');
         assert.equal(removed.ok, true);
+        assert.deepEqual(reopened.getSnapshot().draft.bridge.virtualRegex.rules, [builtinRule]);
+        assert.deepEqual(vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex.rules, [builtinRule]);
+        assert.equal(reopened.close().ok, true);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('gate:simulation:virtual-regex-strips-html-comments-and-keeps-deleted-builtins-deleted', async () => {
+    const storage = createMemoryStorage();
+    const document = createFakeDocument();
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        hostAdapter: {
+            getCurrentMessage: async () => ({ id: 1, text: '注释测试。' }),
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        const settings = opened.reader.controller.openSettings('regex').controller;
+        const builtinRule = { pattern: '\\s*<!--[\\s\\S]*?-->\\s*\\n?', flags: 'g', replacement: '' };
+
+        // 内置规则真的生效：注释整段消失，正文一个字不丢。
+        const cleaned = vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex;
+        const { applyImmersiveGalgameSystemBodyFormat } = await import('../src/scene/message-source.js');
+        const formatted = applyImmersiveGalgameSystemBodyFormat(
+            '前文<!-- 这是给AI看的注释\n第二行 -->后文',
+            cleaned,
+        ).formattedRaw;
+        assert.equal(formatted, '前文后文');
+
+        // 用户删掉内置规则并保存后，重新打开不会又冒出来。
+        const removed = await invokeConfirmed(settings, document, 'remove-virtual-regex:0');
+        assert.equal(removed.ok, true);
+        assert.deepEqual(settings.getSnapshot().draft.bridge.virtualRegex.rules, []);
+        assert.equal(settings.close().ok, true);
+        const reopened = vn.openSettings({ tab: 'regex', mode: 'pc' }).controller;
         assert.deepEqual(reopened.getSnapshot().draft.bridge.virtualRegex.rules, []);
-        assert.deepEqual(vn.getUnifiedSettings({ mode: 'pc' }).bridge.virtualRegex.rules, []);
         assert.equal(reopened.close().ok, true);
     } finally {
         vn.destroy();

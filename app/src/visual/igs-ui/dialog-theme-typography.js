@@ -1,5 +1,6 @@
 export const DIALOG_FONT_SERIF = '"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif';
 export const DIALOG_FONT_ROUNDED = '"IGS Rounded","Microsoft YaHei",sans-serif';
+export const DIALOG_FONT_CHILL_ROUND = '"ChillRoundF","IGS Rounded","Microsoft YaHei",sans-serif';
 export const DIALOG_FONT_SANS = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
 export const DIALOG_FONT_CLASSIC_DISPLAY = '"Cormorant Garamond","Source Han Serif CN",serif';
 export const DIALOG_FONT_WENKAI = '"LXGW WenKai","Source Han Serif CN",serif';

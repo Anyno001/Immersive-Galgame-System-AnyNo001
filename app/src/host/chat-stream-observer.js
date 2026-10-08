@@ -37,6 +37,10 @@ export function createChatStreamObserver(opts = {}) {
     let waitTimedOut = false;
     let manualArmed = false;
     let lifecycleAvailable = false;
+    // 最近一次 #chat 外部变更的时刻。生成事件缺失时用它判断「已经静下来」，
+    // 否则全屏的等待提示只能等 120 秒硬超时才收起。
+    let lastActivityAt = 0;
+    const now = typeof opts.now === 'function' ? opts.now : () => Date.now();
     const lifecycleCleanup = [];
 
     const getSetter = () => typeof globalObject.setTimeout === 'function'
@@ -118,6 +122,7 @@ export function createChatStreamObserver(opts = {}) {
 
     const scheduleActivity = () => {
         if (!active) return;
+        lastActivityAt = now();
         emitActivity();
         ensureHard();
         // 生成期间结束事件可能缺失（宿主报错、版本差异），#chat 静默 idleMs 即先收尾；
@@ -226,6 +231,7 @@ export function createChatStreamObserver(opts = {}) {
         generationSeen = false;
         waitTimedOut = false;
         manualArmed = false;
+        lastActivityAt = 0;
         clearStable();
         clearHard();
         clearActivity();
@@ -235,10 +241,22 @@ export function createChatStreamObserver(opts = {}) {
     // 生成已经开始则保留，避免发送函数返回前触发的开始事件被立刻抹掉。
     const prepareForReply = () => {
         waitTimedOut = false;
+        lastActivityAt = 0;
         if (!generationActive) generationSeen = false;
     };
 
-    const hasGenerationSettled = () => waitTimedOut || (generationSeen && !generationActive);
+    // 生成结束的判定。前两条是正常路径：硬超时到了，或看到了开始事件又看到了结束事件。
+    // 第三条是兜底：宿主版本差异、quiet 请求、后台生成等情况可能只发结束事件或什么都不发，
+    // 补了没有开始事件的空档——否则全屏的「正在生成」会一直挂到 120 秒硬超时。
+    // 仍在生成时用更长的静默窗口，避免模型思考间隙里反复收起又弹回。
+    const hasGenerationSettled = () => {
+        if (waitTimedOut) return true;
+        if (generationSeen && !generationActive) return true;
+        if (!lastActivityAt) return false;
+        const quietMs = now() - lastActivityAt;
+        if (quietMs < 0) return false;
+        return generationActive ? quietMs >= idleMs * 3 : quietMs >= idleMs;
+    };
 
     const stop = () => {
         active = false;

@@ -1,8 +1,11 @@
 import { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX, dailyFxOf, parseDailyFxBody } from './daily-fx-directives.js';
 import { normalizeBgmCue } from './bgm-moods.js';
 
-export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
+export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'delivery', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
 export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox', 'whisper', 'movie', 'light', 'umbrella']);
+// 外卖 / 快递 [igs-fx:delivery|物品|配送方|阶段]：物品必填（外卖、快递、奶茶…），配送方可省，
+// 阶段 order 为刚下单、arrive 为送到门口按门铃（默认）；阶段词写错按 arrive 处理。
+export const FX_DELIVERY_STAGES = Object.freeze(['order', 'arrive']);
 // 关灯区间：light|off 开始、light|on 或 light-end 结束；其余写法整条丢弃。
 const FX_LIGHT_MODES = Object.freeze({ off: 'off', 关: 'off', 关灯: 'off', 吹灯: 'off', on: 'on', 开: 'on', 开灯: 'on', 点灯: 'on' });
 export const FX_EYE_MODES = Object.freeze(['open', 'close']);
@@ -222,6 +225,12 @@ export function parseFxBody(body) {
         return null;
     }
     if (kind === 'sfx' && !args[0]) return null;
+    // 外卖 / 快递：物品栏必填；配送方可省；阶段词只认 order / arrive，写别的按 arrive（默认送到）。
+    if (kind === 'delivery') {
+        if (!args[0]) return null;
+        const stage = String(args[2] || '').toLowerCase();
+        return { kind, end: false, args: [args[0], args[1] || '', FX_DELIVERY_STAGES.includes(stage) ? stage : 'arrive'] };
+    }
     if (kind === 'eye') {
         const mode = String(args[0] || '').toLowerCase();
         if (!FX_EYE_MODES.includes(mode)) return null;
@@ -256,6 +265,7 @@ function instantOf(d, openCall) {
         return { kind: 'call-end', reason: d.args[0] || 'end', name: openCall ? openCall.name : '', dir: openCall ? openCall.dir : 'in', mode: openCall ? openCall.mode : 'voice' };
     }
     if (d.kind === 'notify') return { kind: 'notify', sender: d.args[1] ? d.args[0] : '', text: d.args[1] || d.args[0] };
+    if (d.kind === 'delivery') return { kind: 'delivery', item: d.args[0], sender: d.args[1] || '', stage: d.args[2] || 'arrive' };
     if (d.kind === 'sfx') return { kind: 'sfx', text: d.args[0] };
     if (d.kind === 'eye') return { kind: 'eye', mode: d.args[0] };
     if (d.kind === 'nickname') return { kind: 'nickname', name: d.args[0], nick: d.args[1] };

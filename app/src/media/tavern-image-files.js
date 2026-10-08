@@ -148,6 +148,17 @@ function createTavernImageFiles(globalObject, dir) {
     return {
         hasData: (rec) => Boolean(rec) && Object.values(rec).some(isData),
         sameData: (a, b) => Boolean(a && b) && Object.keys(a).every((k) => !isData(a[k]) || a[k] === b[k]),
+        // 整条记录没被改过（提示词、状态等非图片字段也算）。搬家只在这时落盘，
+        // 否则读图时排下的搬家会把刚保存的提示词用旧记录覆盖回去。
+        sameRecord: (a, b) => {
+            if (!a || !b) return false;
+            const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+            for (const k of keys) {
+                if (a[k] === b[k]) continue;
+                if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+            }
+            return true;
+        },
         // 只换顶层 data:image 字段；old 里已有同名文件时直接复用，读出再写回不会重复上传。
         async offload(rec, key, old) {
             if (!rec || !Object.values(rec).some(isData) || !headers()) return rec;
@@ -196,7 +207,7 @@ export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) 
     const migrate = async (raw) => {
         const next = await files.offload(raw, raw.id);
         const now = await store.getImage(raw.id);
-        if (now && now.revision === raw.revision && files.sameData(raw, now)) await store.putImage(next);
+        if (now && now.revision === raw.revision && files.sameRecord(raw, now)) await store.putImage(next);
     };
     const restoring = new Map();
     const restore = async (id) => {
@@ -252,7 +263,7 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
     const rawSlot = async (floorKey, slot) => (await store.getSlots(floorKey)).find((s) => s.slot === slot) || null;
     const migrate = async (floorKey, raw) => {
         const next = await files.offload(raw, keyOf(floorKey, raw.slot));
-        if (files.sameData(raw, await rawSlot(floorKey, raw.slot))) await store.putSlot(floorKey, next);
+        if (files.sameRecord(raw, await rawSlot(floorKey, raw.slot))) await store.putSlot(floorKey, next);
     };
     return {
         ...store,

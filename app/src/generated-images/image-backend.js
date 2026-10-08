@@ -164,15 +164,6 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         return { mode, via: 'nai', ownPrompts: false, ready: { ok: true } };
     }
 
-    // 生图 → 图像来源 → 分类型模型：剧情 CG / 立绘 / 背景 / 物品各自的模型，留空跟随默认。
-    // 内置 NAI 改 settings.model，数据库生图经 params.model 传给插件；智绘姬 / 柏宝绘没有模型参数，仍用插件自己的。
-    function kindModel(meta) {
-        const kind = meta && meta.imageKind;
-        if (kind !== 'cg' && kind !== 'sprite' && kind !== 'background' && kind !== 'item') return '';
-        const imageApi = readBridge().imageApi || {};
-        return String(imageApi[`${kind}Model`] || '').trim();
-    }
-
     // 写词接口只收到「画什么」。前端正负模板不进这段描述，出图前再合并进插件返回的 caption。
     async function viaDbgen(meta = {}) {
         const api = findDbgenApi(globalObject);
@@ -291,11 +282,9 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             : '（这次没带模板）');
         reportLong(report, '发出去', captionLogText(merged));
         const size = parseSize(meta.size);
-        // 立绘走数据库生图时默认打开透明底。模型默认用插件自己的运行配置；填了分类型模型才传 model。
-        const model = kindModel(meta);
+        // 立绘走数据库生图时默认打开透明底。模型一律用插件自己的运行配置，IGS 不再按类型改模型。
         const params = {
             ...(size || {}),
-            ...(model && { model }),
             ...(meta.transparent === true && { straight_alpha: true, tag_hint_transparent_background: true }),
             ...(Number.isInteger(meta.seed) && meta.seed >= 0 && { seed: meta.seed }),
         };
@@ -412,8 +401,6 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
     // 剧情 CG / 素材补全入口，签名与 nai-official-client 的 generate 一致，多一个 meta。
     async function generate(slot, naiSettings, meta = {}) {
         const mode = describe().mode;
-        const model = kindModel(meta);
-        if (model && naiSettings && typeof naiSettings === 'object') naiSettings = { ...naiSettings, model };
         if (mode === 'dbgen') return viaDbgen(meta);
         if (mode === 'extension') return viaChatu8(slot, naiSettings, meta);
         if (mode === 'baibai') return viaBaibai(slot, naiSettings, meta);
@@ -440,8 +427,6 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         let settings = normalizeAutoIllustrationSettings(bridge.autoIllustration).nai;
         if (!String(settings.apiKey || '').trim()) return { delegate: true };
         if (!prompt) return { ok: false, reason: '没有可用于生图的提示词' };
-        const cgModel = kindModel({ imageKind: 'cg' });
-        if (cgModel) settings = { ...settings, model: cgModel };
         const result = await nai.generate({ scene: prompt }, settings);
         return result && result.ok ? { url: result.dataUrl, providerId: 'vn.provider.nai' } : { ok: false, reason: (result && result.error) || 'NAI 生成失败' };
     }

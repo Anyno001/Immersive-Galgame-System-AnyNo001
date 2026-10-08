@@ -16,6 +16,7 @@ export function createMemoryAssetThumbStore() {
         async get(id) { return thumbs.get(keyOf(id)) || ''; },
         async put(id, dataUrl) { thumbs.set(keyOf(id), String(dataUrl || '')); },
         async remove(ids) { for (const id of ids || []) thumbs.delete(keyOf(id)); },
+        async clear() { thumbs.clear(); },
     };
 }
 
@@ -29,6 +30,10 @@ export function createIndexedDbAssetThumbStore(globalObject = globalThis) {
         async get(id) {
             const row = await conn.transact(STORE, 'readonly', (tx) => tx.objectStore(STORE).get(keyOf(id)));
             return row && typeof row.dataUrl === 'string' ? row.dataUrl : '';
+        },
+        // 「清除素材缓存」用：整库清空，下次看列表时重新缩图。
+        async clear() {
+            await conn.transact(STORE, 'readwrite', (tx) => tx.objectStore(STORE).clear());
         },
         async put(id, dataUrl) {
             await conn.transact(STORE, 'readwrite', (tx) => tx.objectStore(STORE).put({ id: keyOf(id), dataUrl: String(dataUrl || '') }));

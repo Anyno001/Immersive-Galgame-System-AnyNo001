@@ -35,12 +35,12 @@ export const MANGA_SYMBOL_LABELS = Object.freeze({
 // split 为语音通话斜切分屏（默认），avatar 为右上角头像小窗。
 export const FX_CALL_SPRITE_MODES = Object.freeze(['split', 'avatar', 'hide', 'show']);
 export const FX_TAG_LABELS = Object.freeze({
-    call: '来电 / 通话', notify: '通知横幅', flashback: '回忆滤镜', dream: '梦境滤镜', letterbox: '电影黑边', sfx: '拟声音效', eye: '睁眼 / 闭眼',
+    call: '来电 / 通话', notify: '通知横幅', delivery: '外卖 / 快递', flashback: '回忆滤镜', dream: '梦境滤镜', letterbox: '电影黑边', sfx: '拟声音效', eye: '睁眼 / 闭眼',
     whisper: '悄悄话', nickname: '称呼变化', voicemail: '语音留言', contact: '交换联系方式', cutin: '脸部特写切入', promise: '约定',
     movie: '看电影', light: '关灯', umbrella: '撑伞',
 });
 // 后加的标签类型需显式勾选：旧存档里「演出标签」已开启的用户不会突然收到新语法。
-const FX_TAG_OPT_IN = new Set(['whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
+const FX_TAG_OPT_IN = new Set(['delivery', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
 
 const freezeList = (list) => Object.freeze(list.slice());
 

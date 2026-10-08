@@ -23,6 +23,13 @@ const handsetClick = [
 ];
 
 export const FX_SFX_PARTIALS = Object.freeze({
+    // 外卖 / 快递送到：门铃「叮—咚」，高低两声各带一个泛音，尾音拖长。
+    doorbell: Object.freeze([
+        p('sine', 659, 659, 0, 0.9, 0.7, { attack: 0.004 }),
+        p('sine', 1318, 1318, 0, 0.4, 0.18, { attack: 0.004 }),
+        p('sine', 523, 523, 0.55, 1.3, 0.7, { attack: 0.004 }),
+        p('sine', 1046, 1046, 0.55, 0.5, 0.18, { attack: 0.004 }),
+    ]),
     ring: Object.freeze(rings(2)),
     // 同页就已未接 / 拒接时来电屏停留更久，铃声与回铃音也多响一轮，挂断时由演出掐断。
     'ring-long': Object.freeze(rings(3)),

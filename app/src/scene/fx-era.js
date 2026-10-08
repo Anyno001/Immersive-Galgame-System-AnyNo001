@@ -6,7 +6,8 @@ import { buildHorrorPromptRule } from './horror.js';
 
 export const FX_ERA_MODERN_ONLY = Object.freeze({
     // notify 在古代模式下换成「家仆通报」（提示词与画面都按时代切换），不在此列。
-    fxTags: Object.freeze(['call', 'voicemail', 'contact', 'movie']),
+    // 外卖 / 快递是近代以后才有的服务，古代与西幻一律拨掉。
+    fxTags: Object.freeze(['call', 'delivery', 'voicemail', 'contact', 'movie']),
     // 车票、淋浴、吹风机都是近代以后的东西；古代与西幻坐车按马车演，洗浴只留水汽与泼水。
     dailyFx: Object.freeze(['photo', 'bell', 'broadcast', 'alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'shower', 'hairdry']),
 });

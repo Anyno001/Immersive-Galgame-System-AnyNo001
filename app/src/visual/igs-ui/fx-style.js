@@ -228,6 +228,20 @@ export const FX_STYLE_TEXT = `
 @keyframes igs-fx-slip{0%{opacity:0;transform:translateX(120%);}12%{opacity:1;transform:translateX(0);}86%{opacity:1;transform:translateX(0);}100%{opacity:0;transform:translateX(120%);}}
 .igs-fx-notify.is-ancient{left:auto;right:16px;top:14px;width:auto;max-height:min(62%,320px);padding:14px 10px;border-radius:2px;writing-mode:vertical-rl;color:#2b1d12;background:#f6ecd4;border:1px solid rgba(120,70,30,.45);box-shadow:0 6px 22px rgba(0,0,0,.35);font-family:"STKaiti","KaiTi","Kaiti SC","楷体",serif;animation:igs-fx-slip var(--igs-fx-life,3.3s) ease both;}
 .igs-fx-notify.is-ancient .igs-fx-notify-seal{width:26px;height:26px;margin-left:8px;border-radius:3px;background:#b8452f;color:#fff6e6;font-size:16px;line-height:26px;text-align:center;}
+/* 外卖 / 快递：与通知横幅同位置同动画；下单是黄色提袋，送到时橙色图标抖三下。 */
+.igs-fx-delivery{position:absolute;top:12px;left:50%;width:min(86%,360px);display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:16px;color:#1d1d24;background:rgba(250,250,252,.95);box-shadow:0 6px 22px rgba(0,0,0,.28);box-sizing:border-box;animation:igs-fx-drop var(--igs-fx-life,3.3s) ease both;}
+.igs-fx-delivery-icon{flex:none;width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;background:#ffb300;}
+.igs-fx-delivery[data-stage="arrive"] .igs-fx-delivery-icon{background:#ff6d00;animation:igs-fx-buzz .35s linear 3;}
+.igs-fx-delivery-icon svg{width:24px;height:24px;}
+.igs-fx-delivery-body{min-width:0;}
+.igs-fx-delivery-title{font-size:15px;font-weight:700;}
+.igs-fx-delivery-sub{font-size:12px;opacity:.7;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.igs-fx-delivery.is-scifi{color:#d8fbff;background:rgba(8,24,36,.88);border:1px solid rgba(80,220,255,.7);border-radius:4px;box-shadow:0 0 14px rgba(60,200,255,.45);}
+.igs-fx-delivery.is-scifi .igs-fx-delivery-icon{background:#0aa7c9;}
+.igs-fx-delivery.is-apocalypse{color:#e8dfcf;background:rgba(48,40,32,.93);border:1px dashed rgba(200,150,80,.6);border-radius:2px;font-family:"Courier New",monospace;}
+.igs-fx-delivery.is-apocalypse .igs-fx-delivery-icon{background:#8a5a2a;}
+.igs-fx-delivery.is-horror{color:#e4dad4;background:linear-gradient(180deg,rgba(18,12,12,.94),rgba(8,6,6,.96));border-left:3px solid #8c0c14;border-radius:2px;}
+.igs-fx-delivery.is-horror .igs-fx-delivery-icon{background:#5a0a10;}
 /* 世界观换皮：西幻为羊皮纸与蜡封，科幻为全息面板青色辉光，末日为旧纸与锈色虚线。只改配色字体，不改位置与动画。 */
 .igs-fx-notify.is-fantasy{color:#3a2614;background:#efe2c2;border:1px solid rgba(110,70,30,.5);border-radius:4px;box-shadow:0 6px 22px rgba(0,0,0,.32),inset 0 0 18px rgba(120,80,30,.18);font-family:Georgia,"Times New Roman",serif;}
 .igs-fx-notify.is-scifi{color:#d8fbff;background:rgba(8,24,36,.88);border:1px solid rgba(80,220,255,.7);border-radius:4px;box-shadow:0 0 14px rgba(60,200,255,.45),inset 0 0 12px rgba(60,200,255,.18);letter-spacing:.04em;}
@@ -384,14 +398,14 @@ export const FX_STYLE_TEXT = `
 #igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-speedlines{animation-name:igs-fx-speed-snap;animation-timing-function:steps(1,end);}
 #igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-flash{animation-name:igs-fx-flash-snap;animation-timing-function:steps(1,end);}
 #igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-heartbeat{animation-timing-function:steps(1,end);}
-#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-title-card,#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-favor,#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-notify,#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-call-end{animation-timing-function:steps(3,end);}
+#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-title-card,#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-favor,#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-notify,#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-delivery,#igs-stage-motion[data-igs-fx-motion="snappy"] .igs-fx-call-end{animation-timing-function:steps(3,end);}
 @media (prefers-reduced-motion: reduce){
 .igs-fx-layer *,.igs-fx-layer *::before,.igs-fx-layer *::after{animation:none!important;transition:none!important;}
 .igs-fx-layer .igs-fx-call-timer::after{animation:${CALL_TIMER_ANIMATION}!important;animation-delay:var(--igs-fx-call-delay,0s)!important;}
 #igs-stage-motion[data-igs-fx-call-remote] .igs-speaker::after{animation:none!important;}
 .igs-fx-video-close{display:none!important;}
 .igs-fx-eye,.igs-fx-flash,.igs-fx-speedlines{display:none!important;}
-.igs-fx-notify{transform:translateX(-50%);}
+.igs-fx-notify,.igs-fx-delivery{transform:translateX(-50%);}
 .igs-fx-notify.is-ancient{transform:none;}
 .igs-fx-symbol{transform:none;}
 }

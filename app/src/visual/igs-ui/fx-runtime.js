@@ -23,14 +23,14 @@ import { normalizeDailyFxSettings } from './fx-daily-model.js';
 
 export const FX_LIFETIME_MS = Object.freeze({
     symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 800,
-    favor: 2400, notify: 3300, eye: 1600, call: 2400, 'call-end': 1800, nickname: 2400, voicemail: 4200, contact: 3000, cutin: 1400, promise: 3200, 'promise-due': 3600,
+    favor: 2400, notify: 3300, delivery: 3300, eye: 1600, call: 2400, 'call-end': 1800, nickname: 2400, voicemail: 4200, contact: 3000, cutin: 1400, promise: 3200, 'promise-due': 3600,
 });
 export const TITLE_CARD_LIFETIME_MS = Object.freeze({ fast: 1800, medium: 2700, slow: 4200 });
 const SEEN_LIMIT = 256;
 const FAVOR_LIMIT = 256;
 const MIN_FAVOR_DELTA = 1;
 // 停留时间只拉长「出现—停留—消失」类演出；心跳、闪白、睁眼与来电跟音效节奏绑定，不随档位变化。
-const HOLDABLE = new Set(['symbol', 'speedLines', 'favor', 'notify', 'call-end', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'promise-due']);
+const HOLDABLE = new Set(['symbol', 'speedLines', 'favor', 'notify', 'delivery', 'call-end', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'promise-due']);
 // 脸部特写分格的高宽比（面板高 / 面板宽），与 .igs-fx-cutin-face 的 aspect-ratio 一致。
 export const CUTIN_RATIO = 0.34;
 // 头宽占分格宽度的比例的倒数系数：头约占分格 42%。
@@ -516,6 +516,28 @@ function playCallEnd(effect, ctx, life) {
     else show();
 }
 
+const DELIVERY_ICON = Object.freeze({
+    box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9M7.5 5.2l9 4.5"/></svg>',
+    bag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>',
+});
+
+// 配送卡片：快递 / 包裹用纸箱图标，其余（外卖、奶茶…）用提袋；送到时图标抖三下。
+export function renderDeliveryCard(doc, effect, skinClass = '') {
+    const arrive = effect.stage !== 'order';
+    const card = node(doc, `igs-fx-delivery${skinClass}`);
+    card.setAttribute('data-stage', arrive ? 'arrive' : 'order');
+    card.setAttribute('role', 'status');
+    const icon = node(doc, 'igs-fx-delivery-icon');
+    icon.innerHTML = /快递|包裹|件|箱/.test(effect.item) ? DELIVERY_ICON.box : DELIVERY_ICON.bag;
+    const body = node(doc, 'igs-fx-delivery-body');
+    body.appendChild(node(doc, 'igs-fx-delivery-title', arrive ? `${effect.item}已送达` : `${effect.item}已下单`));
+    const detail = arrive ? `${effect.sender || '配送员'}正在门口` : `${effect.sender ? `${effect.sender} · ` : ''}等待配送`;
+    body.appendChild(node(doc, 'igs-fx-delivery-sub', detail));
+    card.appendChild(icon);
+    card.appendChild(body);
+    return card;
+}
+
 function playEffect(effect, ctx) {
     const { state, layers, doc, snapshot, options, reduced, plan } = ctx;
     const base = effect.type === 'title'
@@ -558,6 +580,11 @@ function playEffect(effect, ctx) {
         el.appendChild(node(doc, 'igs-fx-notify-text', effect.text));
         spawn(state, layers.front, el, life);
         sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
+    } else if (effect.type === 'delivery') {
+        // 外卖 / 快递：顶部配送卡片；下单只响通知音，送到时按门铃「叮咚」。
+        const el = renderDeliveryCard(doc, effect, ctx.worldSkin || '');
+        spawn(state, layers.front, el, life);
+        sound(state, effect.stage === 'order' ? 'notify' : 'doorbell', plan.sound, options);
     } else if (effect.type === 'nickname') {
         // 称呼变化复用数值提示的堆叠栏，与好感变化同一视觉语言。
         const el = node(doc, 'igs-fx-favor igs-fx-nickname', `${effect.name}开始叫你『${effect.nick}』了`);

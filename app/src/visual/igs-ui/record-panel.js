@@ -7,6 +7,7 @@ import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIcon
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
 import { setStagePauseReason } from './stage-pause.js';
 import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
+import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { inventoryIconHtml } from './inventory-slot-image.js';
@@ -23,7 +24,8 @@ const DIARY_READ_LIMIT = 2000;
 // 三页各自记一种字体；“默认”即沿用外壳的黑体界面 + 宋体正文。
 const RECORD_FONTS_KEY = 'igs_record_fonts';
 const RECORD_FONT_DEFAULT = 'inherit';
-const normalizeRecordFont = value => DIALOG_FONT_OPTIONS.some(([font]) => font === value) ? value : RECORD_FONT_DEFAULT;
+// 用户上传的字体也算合法选项（见 media/custom-fonts.js）。
+const normalizeRecordFont = (value, options = DIALOG_FONT_OPTIONS) => options.some(([font]) => font === value) ? value : RECORD_FONT_DEFAULT;
 const DIARY_PREFS = Object.freeze([
     ['pageTurn', '翻页动画', '切换篇章时轻翻入场'],
     ['typewriter', '打字机', '打开篇章时逐字浮现，点击正文立即显示'],
@@ -109,6 +111,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     const saveJson = (key, value) => { try { storage()?.setItem?.(key, JSON.stringify(value)); } catch (_) { /* Storage may be full or blocked. */ } };
     let prefs = { ...DIARY_PREF_DEFAULTS };
     let font = RECORD_FONT_DEFAULT;
+    const fontOptions = () => fontOptionsWith(DIALOG_FONT_OPTIONS, loadCustomFonts(global || globalThis));
     const table = () => model?.tables?.find(item => item.uid === activeUid);
     const relationshipPeople = () => model?.people?.filter(item => item.uid === activeUid) || [];
     // 背包格位与详情头图标：设置为「生图」且本聊天已有物品图时显示图片，否则保留 SVG。
@@ -187,7 +190,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         prefs = { ...DIARY_PREF_DEFAULTS, ...loadJson(DIARY_PREFS_KEY, {}) };
         prefs.fontSize = clampDiaryFontSize(prefs.fontSize);
         diaryView = loadJson(DIARY_PREFS_KEY, {})?.view === 'timeline' ? 'timeline' : 'books';
-        font = normalizeRecordFont(loadJson(RECORD_FONTS_KEY, {})?.[type]);
+        font = normalizeRecordFont(loadJson(RECORD_FONTS_KEY, {})?.[type], fontOptions());
+        registerCustomFonts(doc, loadCustomFonts(global || globalThis));
         theme = normalizeSettingsTheme(readTheme());
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
@@ -311,7 +315,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     function onChange(event) {
         const input = event.target;
         if (!root || input?.getAttribute?.('data-record-input') !== 'font') return;
-        font = normalizeRecordFont(String(input.value ?? ''));
+        font = normalizeRecordFont(String(input.value ?? ''), fontOptions());
         saveJson(RECORD_FONTS_KEY, { ...loadJson(RECORD_FONTS_KEY, {}), [category]: font });
         applyRecordFont();
     }
@@ -588,7 +592,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         }
         const themeSwitch = `<div class="igs-rp-theme-switch" role="radiogroup" aria-label="界面配色">${renderSettingsThemeSwitch(theme, {
             optionClass: 'igs-rp-theme-option', attrs: value => `data-record-act="theme" data-record-id="${value}"` })}</div>`;
-        const fontSelect = `<label class="igs-rp-font-select" title="字体"><b aria-hidden="true">Aa</b><select data-record-input="font" aria-label="${labels[category]}字体">${DIALOG_FONT_OPTIONS.map(([value, label]) =>
+        const fontSelect = `<label class="igs-rp-font-select" title="字体"><b aria-hidden="true">Aa</b><select data-record-input="font" aria-label="${labels[category]}字体">${fontOptions().map(([value, label]) =>
             `<option value="${escapeHtml(value)}"${value === font ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select></label>`;
         root.innerHTML = `<div class="igs-rp-page igs-record-window">${recordPageHeadHtml(pageTitles[category], { trailing: fontSelect + themeSwitch })}` +
             tabs + `<div class="igs-rp-body"><div class="igs-record-scroll">` +
