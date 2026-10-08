@@ -15,6 +15,8 @@ export const STAGE_DIRECTION_STYLE_TEXT = `
 #igs-overlay #igs-sprite:not(.igs-sprite-editing){scale:min(1.3,calc(var(--igs-sd-closeup-scale,1) * var(--igs-rm-scale,1)));translate:calc(var(--igs-sd-tx,0px) + var(--igs-rm-dx,0%)) var(--igs-sd-ty,0px);}
 #igs-overlay #igs-bg{transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1);}
 #igs-overlay[data-igs-cg] #igs-bg,#igs-stage-motion[data-igs-cg] #igs-bg{animation:none!important;scale:1;}
+/* CG 对焦时 filter 过渡一开一停，浏览器会把 #igs-bg 拆成独立图层又并回去，每次整张 CG 重新栅格化，没画完的那一帧就是一闪。CG 页上让它一直是独立图层。 */
+#igs-stage-motion[data-igs-cg] #igs-bg{will-change:filter;}
 #igs-overlay[data-igs-cg] #igs-bg-blur,#igs-stage-motion[data-igs-cg] #igs-bg-blur{display:none!important;opacity:0!important;}
 /* 播 CG 时底图在对焦或运镜。对话框若还挂着毛玻璃，或还留着透明度 / 位移过渡，就会跟着底图每一帧重绘，看起来只有对话框在闪。 */
 #igs-stage-motion[data-igs-cg] .igs-dialog{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;transition:none!important;}

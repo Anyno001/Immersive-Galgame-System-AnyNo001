@@ -438,6 +438,15 @@ projects/Immersive Galgame System/
 14. 涉及打包、发布、上传、loader、远程 bundle 或酒馆助手脚本 JSON 时，必须先读 `docs/PACKAGING_WORKFLOW.md` 与 `docs/RELEASE.md`。
 15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
 
+### v0.35.11 - CG 变清晰时不再闪（内测）
+
+- 换 CG 的模糊和慢慢变清晰效果不变。
+- 变清晰的过程中画面不再一闪：浏览器原先会在过渡开始、结束时把 CG 这层拆开又合回去，每次都要重画整张图，没画完的那一帧就闪。现在 CG 页上这层一直保持独立，不再重画。
+
+### v0.35.10 - 恢复 CG 原有对焦（内测）
+
+- 换 CG 仍是这张图先模糊，再在同一张图上慢慢变清晰。
+
 ### v0.35.6 - CG 切换不再连着眨眼（内测）
 
 - 换到一张新 CG 时，仍然先模糊再慢慢变清晰。

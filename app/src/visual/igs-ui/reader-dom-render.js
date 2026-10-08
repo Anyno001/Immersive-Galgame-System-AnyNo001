@@ -41,7 +41,7 @@ import { renderDailyFx } from './fx-daily.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
 import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
-import { applyStageDirection } from './stage-direction-runtime.js';
+import { applyStageDirection, cancelCgReveal, revealCgImage } from './stage-direction-runtime.js';
 import { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances } from './stage-cast-render.js';
 import { applySavedCastSlot } from './cast-slot-edit.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
@@ -1235,14 +1235,39 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
 
+    let deferCgFocus = false;
     if (bg && backgroundAssetUrl) {
-        writeBackgroundImage(bg, backgroundAssetUrl, backgroundSource);
-        bg.setAttribute('data-igs-has-image', '1');
-        removeImageLoadingSpinner(bg);
-        removeImageEmptyPlaceholder(bg);
+        const cgImageChanged = cgActive && backgroundImageSources.get(bg) !== backgroundSource;
+        if (cgImageChanged) {
+            const url = backgroundAssetUrl;
+            const source = backgroundSource;
+            const deferred = revealCgImage(root, snapshot, bg, url, source, () => {
+                writeBackgroundImage(bg, url, source);
+                bg.setAttribute('data-igs-has-image', '1');
+                removeImageLoadingSpinner(bg);
+                removeImageEmptyPlaceholder(bg);
+            });
+            if (deferred) {
+                deferCgFocus = true;
+                if (backgroundImageKeys.get(bg)) {
+                    bg.setAttribute('data-igs-has-image', '1');
+                    removeImageLoadingSpinner(bg);
+                    removeImageEmptyPlaceholder(bg);
+                }
+            }
+        } else {
+            cancelCgReveal(bg);
+            writeBackgroundImage(bg, backgroundAssetUrl, backgroundSource);
+            bg.setAttribute('data-igs-has-image', '1');
+            removeImageLoadingSpinner(bg);
+            removeImageEmptyPlaceholder(bg);
+        }
     } else if (bg && backgroundSource && backgroundImageSources.get(bg) === backgroundSource && backgroundImageKeys.get(bg)) {
         // 同一张还没解码出来：留着已经画上的这张。换了素材（比如场景背景换成 CG）就不能留。
+    } else if (bg && cgActive && backgroundImageKeys.get(bg)) {
+        // 下一张 CG 还没有可画的地址：留着当前这张，不要先清成空白再补上。
     } else if (bg) {
+        cancelCgReveal(bg);
         writeBackgroundImage(bg, '', backgroundSource);
         bg.removeAttribute('data-igs-has-image');
         const expectsImage = snapshot.content.imageExpectedCount > 0
@@ -1637,6 +1662,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const stageDirection = applyStageDirection(root, snapshot, {
         bgUrl: backgroundAssetUrl,
         bgKey: backgroundSource,
+        deferCgFocus,
         spriteUrl: stageSprite ? stageSprite.url : '',
         spriteKey: stageSprite ? stageSprite.key : '',
         spritePosX: stageSprite ? stageSprite.posX : 50,

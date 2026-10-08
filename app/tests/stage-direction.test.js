@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     applyStageDirection,
+    cancelCgReveal,
     cancelStageDirection,
     normalizeStageDirectionSettings,
     resolveCameraShot,
+    revealCgImage,
 } from '../src/visual/igs-ui/stage-direction-runtime.js';
 import {
     CAMERA_CLOSE_UP_DEFAULTS,
@@ -125,7 +127,7 @@ test('gate: background change cross-fades through a ghost layer only after the f
     });
 });
 
-test('gate: CG focus does not restart when only the decoded address changes', () => {
+test('gate: CG focus blurs the picture once per image, not when only the decoded address changes', () => {
     const r = makeReader();
     const settings = { sceneTransition: { enabled: true } };
     const content = { cgActive: true, backgroundImage: 'https://example.test/cg.png' };
@@ -134,16 +136,72 @@ test('gate: CG focus does not restart when only the decoded address changes', ()
     });
     run('blob:one');
     assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(28px)');
+    assert.equal(r.motion.children.some((child) => String(child.className).includes('igs-cg-focus-veil')), false);
     r.bg.style.setProperty('filter', 'blur(4px)');
     run('blob:two');
-    assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(4px)');
-    run('');
     assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(4px)');
     const next = { cgActive: true, backgroundImage: 'https://example.test/other.png' };
     applyStageDirection(r.root, snapshot(settings, next, 1), {
         bgUrl: 'blob:three', bgKey: next.backgroundImage, reducedMotion: false, ...r.clock,
     });
     assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(28px)');
+});
+
+test('gate: a new CG stays on the old picture until decoded, then swaps without blurring', async () => {
+    const r = makeReader();
+    const settings = { sceneTransition: { enabled: true } };
+    const releases = new Map();
+    r.doc.defaultView = {
+        Image: class {
+            set src(value) { this._src = value; }
+            decode() { return new Promise((resolve) => { releases.set(this._src, resolve); }); }
+        },
+    };
+    applyStageDirection(r.root, snapshot(settings, { cgActive: true, backgroundImage: 'old' }), {
+        bgUrl: 'blob:old', bgKey: 'old', reducedMotion: false, ...r.clock,
+    });
+    r.bg.style.backgroundImage = 'url("blob:old")';
+    const order = [];
+    const orig = r.bg.style.setProperty.bind(r.bg.style);
+    r.bg.style.setProperty = (name, value) => {
+        order.push(`${name}=${value}`);
+        orig(name, value);
+    };
+    const paint = (url) => {
+        order.push(`image:${r.bg.style.getPropertyValue('filter')}`);
+        r.bg.style.backgroundImage = `url("${url}")`;
+    };
+    const held = revealCgImage(r.root, snapshot(settings), r.bg, 'blob:new', 'new', () => paint('blob:new'));
+    assert.equal(held, true);
+    assert.equal(r.bg.style.backgroundImage, 'url("blob:old")');
+    assert.equal(revealCgImage(r.root, snapshot(settings), r.bg, 'blob:new', 'new', () => paint('blob:again')), true);
+    releases.get('blob:new')();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(r.bg.style.backgroundImage, 'url("blob:new")');
+    assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(28px)');
+    assert.equal(r.motion.children.some((child) => String(child.className).includes('igs-cg-focus-veil')), false);
+    const dropped = [];
+    const replaced = revealCgImage(r.root, snapshot(settings), r.bg, 'blob:late', 'late', () => dropped.push('late'));
+    assert.equal(replaced, true);
+    cancelCgReveal(r.bg);
+    revealCgImage(r.root, snapshot(settings), r.bg, 'blob:final', 'final', () => dropped.push('final'));
+    releases.get('blob:late')();
+    releases.get('blob:final')();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(dropped, ['final']);
+});
+
+test('gate: CG focus does not start while the new picture is still decoding', () => {
+    const r = makeReader();
+    const settings = { sceneTransition: { enabled: true } };
+    applyStageDirection(r.root, snapshot(settings, { cgActive: true, backgroundImage: 'old' }), {
+        bgUrl: 'blob:old', bgKey: 'old', reducedMotion: false, ...r.clock,
+    });
+    r.bg.style.setProperty('filter', 'none');
+    applyStageDirection(r.root, snapshot(settings, { cgActive: true, backgroundImage: 'new' }, 1), {
+        bgUrl: 'blob:new', bgKey: 'new', deferCgFocus: true, reducedMotion: false, ...r.clock,
+    });
+    assert.equal(r.bg.style.getPropertyValue('filter'), 'none');
 });
 
 test('gate: same-location background change always fades and re-render does not replay', () => {
