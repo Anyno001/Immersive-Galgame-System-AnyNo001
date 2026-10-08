@@ -89,6 +89,7 @@ export function normalizeSceneAssets(value) {
     normalized.promptPlacement = normalizePromptPlacement(normalized.promptPlacement);
     normalized.spriteEnhance = normalizeSpriteEnhance(normalized.spriteEnhance);
     normalized.promptAdaptive = normalized.promptAdaptive !== false;
+    normalized.promptRuleEnabled = normalized.promptRuleEnabled !== false;
     if (!normalized.scenes || typeof normalized.scenes !== 'object' || Array.isArray(normalized.scenes)) {
         normalized.scenes = {};
     }

@@ -100,6 +100,7 @@ export function normalizeSettingsValue(path, value) {
     if (path === 'bridge.sceneAssets.spriteEnhance.size') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
     if (path === 'bridge.sceneAssets.promptPlacement') return value === 'depth0' ? 'depth0' : 'system';
     if (path === 'bridge.sceneAssets.promptAdaptive') return !(value === false || value === 'false' || value === 0 || value === '0');
+    if (path === 'bridge.sceneAssets.promptRuleEnabled') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|assets\.(spriteEnabled|backgroundEnabled|strictMatch))$/.test(path)) {
         return value === true || value === 'true' || value === 1 || value === '1';
     }

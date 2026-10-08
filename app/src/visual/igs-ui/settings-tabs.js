@@ -325,15 +325,17 @@ const SCENE_TAB_TEMPLATE = `
 </div>
 `.trim();
 
-// 规则页：上面是发给聊天模型的格式规则，下面是只在生图时用的衣柜提示词，两样分开写清楚。
+// 规则页：上面是发给聊天模型的格式规则（可关掉自动注入，改由酒馆预设提供），下面是只在生图时用的衣柜提示词，两样分开写清楚。
 export const SCENE_RULES_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="rules">
   <div class="igs-source-filter">
-    <div class="igs-source-filter-title">AI 格式规则<span class="igs-outfit-muted">发给聊天模型</span></div>
+    <div class="igs-source-filter-title">AI 格式规则<span class="igs-outfit-muted">{{promptRuleTag}}</span></div>
+    {{promptRuleToggle}}
     {{promptRuleField}}
     <div class="igs-settings-row">
       <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认</button>
       <button class="igs-settings-action" data-action="save-prompt-rule" type="button">保存</button>
+      <button class="igs-settings-action" data-action="copy-prompt-rule" type="button">复制到酒馆预设</button>
     </div>
     <div class="igs-settings-result" data-result="prompt-rule">{{promptRuleStatus}}</div>
     {{promptRuleOutfitHint}}

@@ -194,5 +194,6 @@
 - 「正在输入」只在自动连发、下一条为左侧消息、间隔不低于 600ms 且未开启减少动态效果时出现，重绘时保留，冒出、全显、翻页与关闭时移除。
 - 头像只接受状态栏头像的 http(s) / data:image 地址，否则显示首字方标；主题跟随经 `chat-themes.js` 映射全部对话框皮肤并以 `--igs-chat-*` 变量下发，联系人自设颜色优先于主题默认色。
 - 线上交流注入提示词存于 `readerSettings.chatShow.promptRule`：空串表示使用内置 `CHAT_SHOW_PROMPT_RULE`，与默认一致的内容归一为空；编辑草稿只存在设置面板 asyncState，点「保存提示词」才持久化并刷新注入。
+- 素材 › 规则 › AI 格式规则：标题后缀随开关显示「发给聊天模型 / 已关闭」；开关 `bridge.sceneAssets.promptRuleEnabled`（「自动注入格式规则」，缺省开）下方常驻一行提醒（开：可复制到酒馆预设、粘贴后关掉开关；关：须粘贴到预设，否则 AI 不写场景与台词标签）。「复制到酒馆预设」（`copy-prompt-rule`）复制词表已展开的独立规则，并用 `dialogs.edit` 弹出全文供手动复制，结果写在 `data-result="prompt-rule"`。
 - 系统类角色由 `readerSettings.systemRole`（`system-role.js`）统一定义：`words` 词池匹配时忽略首尾【】[]()等括号且不区分大小写，显式空词池保持为空；空 `font`/`color` 跟随旁白样式。命中的 char 台词页 `textType` 为 `system`，不显示名字（`showName` 开启除外）、不解析立绘、不进状态栏角色；线上交流中命中的发送者渲染为居中提示条，整段只有系统发送者时不开聊天页。
 - 返回看过的聊天页由 `chatShow.returnMode` 决定：`full` 一次平铺、`replay` 不分冒泡节奏自动逐条重播（不显示「正在输入」）、`restart` 按冒泡节奏从头开始。收发音色 `chatShow.sound.preset` 取 `CHAT_SFX_PRESETS` 的键，未知值回退 `cute`。

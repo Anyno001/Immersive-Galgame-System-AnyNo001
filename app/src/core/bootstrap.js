@@ -50,8 +50,7 @@ import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../
 import { createItemAndCgServices } from './item-cg-services.js';
 import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-store.js';
 import { createAlphaMatte } from '../media/alpha-matte.js';
-import { buildCompactGroupsText, buildCompactMoodGroupsText, buildCompactSceneNamesText, buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from '../scene/mood-groups.js';
-import { buildOutfitGroupsText, buildScopedOutfitGroupsText, normalizeCharacterOutfits, OUTFIT_GROUPS_PLACEHOLDER } from '../scene/character-outfits.js';
+import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from '../scene/prompt-rule-content.js';
 import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
@@ -589,7 +588,7 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'generation-type-skipped' };
         }
         const promptContext = collectPromptContext(resolveTavernContext(), { document: globalObject.document });
-        const sceneOn = Boolean(sceneAssets && sceneAssets.enabled && sceneAssets.promptRule);
+        const sceneOn = Boolean(sceneAssets && sceneAssets.enabled && scenePromptRuleEnabled(sceneAssets) && sceneAssets.promptRule);
         const grammar = buildTagGrammar({
             readerSettings,
             sceneRule: sceneOn ? resolvePromptRuleContent(sceneAssets, { compact: true, presentText: promptContext.presentText }) : '',
@@ -610,7 +609,7 @@ export function bootstrapIGS(options = {}) {
     // 关闭按需注入时的旧行为：各块完整拼接；未自定义的场景规则用改版前的长版原文。
     function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule }) {
         const rules = [];
-        if (sceneAssets && sceneAssets.enabled && sceneAssets.promptRule) {
+        if (sceneAssets && sceneAssets.enabled && scenePromptRuleEnabled(sceneAssets) && sceneAssets.promptRule) {
             const promptRule = sceneAssets.promptRule === DEFAULT_SCENE_PROMPT_RULE ? LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 : sceneAssets.promptRule;
             rules.push(resolvePromptRuleContent({ ...sceneAssets, promptRule }));
         }
@@ -645,44 +644,6 @@ export function bootstrapIGS(options = {}) {
         }
         const depth0Content = split ? [DEPTH0_REMINDER, metaDigestRule].filter(Boolean).join('\n\n') : '';
         return promptInjector.inject(rules.join('\n\n'), { placement, depth0Content });
-    }
-
-    function firstMoodWord(sceneAssets) {
-        const groups = sceneAssets && Array.isArray(sceneAssets.moodGroups) ? sceneAssets.moodGroups : [];
-        const group = groups.find((g) => g && Array.isArray(g.words) && g.words.some(Boolean));
-        return group ? String(group.words.find(Boolean)) : '';
-    }
-
-    function moodSlotWords(sceneAssets) {
-        const words = new Set();
-        for (const moods of Object.values((sceneAssets && sceneAssets.characters) || {})) {
-            if (moods && typeof moods === 'object') for (const word of Object.keys(moods)) words.add(word);
-        }
-        return words;
-    }
-
-    function resolvePromptRuleContent(sceneAssets, { compact = false, presentText = null } = {}) {
-        let rule = String(sceneAssets.promptRule || '');
-        if (rule.includes(MOOD_GROUPS_PLACEHOLDER)) {
-            const moods = compact ? buildCompactMoodGroupsText(sceneAssets.moodGroups, moodSlotWords(sceneAssets)) : buildMoodGroupsText(sceneAssets.moodGroups);
-            rule = rule.split(MOOD_GROUPS_PLACEHOLDER).join(moods);
-        }
-        if (rule.includes(SCENE_GROUPS_PLACEHOLDER)) {
-            rule = rule.split(SCENE_GROUPS_PLACEHOLDER).join(compact ? buildCompactSceneNamesText(sceneAssets.scenes) : buildSceneGroupsText(sceneAssets.scenes));
-        }
-        if (rule.includes(TIME_GROUPS_PLACEHOLDER)) {
-            rule = rule.split(TIME_GROUPS_PLACEHOLDER).join(compact ? buildCompactGroupsText(sceneAssets.timeGroups) : buildGroupsText(sceneAssets.timeGroups));
-        }
-        if (rule.includes(WEATHER_GROUPS_PLACEHOLDER)) {
-            rule = rule.split(WEATHER_GROUPS_PLACEHOLDER).join(compact ? buildCompactGroupsText(sceneAssets.weatherGroups) : buildGroupsText(sceneAssets.weatherGroups));
-        }
-        if (rule.includes(OUTFIT_GROUPS_PLACEHOLDER)) {
-            const outfits = normalizeCharacterOutfits(sceneAssets.characterOutfits);
-            rule = rule.split(OUTFIT_GROUPS_PLACEHOLDER).join(compact
-                ? buildScopedOutfitGroupsText(outfits, { presentText, characterAliases: sceneAssets.characterAliases })
-                : buildOutfitGroupsText(outfits));
-        }
-        return compact ? rule.replace(/\n{2,}/g, '\n').trim() : rule;
     }
 
     function syncSceneAssetsInjectionWithRetry(attempt) {

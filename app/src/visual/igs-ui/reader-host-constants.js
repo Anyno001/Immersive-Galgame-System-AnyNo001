@@ -285,11 +285,13 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
         requiredPaths: Object.freeze([
             'bridge.sceneAssets.enabled',
             'bridge.sceneAssets.promptRule',
+            'bridge.sceneAssets.promptRuleEnabled',
             'bridge.autoIllustration.assets.strictMatch',
         ]),
         requiredActions: Object.freeze([
             'reset-prompt-rule',
             'save-prompt-rule',
+            'copy-prompt-rule',
         ]),
     }),
     reader: Object.freeze({
@@ -402,3 +404,7 @@ export const PROMPT_RULE_OUTFIT_HINT = '当前为自定义规则，未包含服�
 export function scenePromptRuleOutfitHint(rule) {
     return String(rule || '').includes('{{outfit_groups}}') ? '' : PROMPT_RULE_OUTFIT_HINT;
 }
+
+// 规则原文里的 {{mood_groups}} 等占位符酒馆不认识，所以提醒用「复制到酒馆预设」拿词表已展开的版本，而不是直接复制输入框。
+export const PROMPT_RULE_PRESET_HINT = '也可点击「复制到酒馆预设」，将词表已展开的完整规则粘贴到酒馆预设中使用；粘贴后请关闭上方开关，以免重复发送。';
+export const PROMPT_RULE_OFF_HINT = '自动注入已关闭，聊天模型将不再收到这段规则。请将「复制到酒馆预设」的内容粘贴到酒馆预设中，否则 AI 不会输出场景与台词标签，背景与立绘将无法切换；场景、表情或服装有变动后需重新复制。';

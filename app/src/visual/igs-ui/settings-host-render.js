@@ -19,7 +19,7 @@ import { getSettingsShellTemplate } from './settings-shell.js';
 import { getImageSubTabTemplate, getReaderSubTabTemplate, getSettingsTabTemplate, normalizeImageSubTab, normalizeSceneSubTab, normalizeReaderSubTab, IMAGE_SUBTAB_DEFS, SCENE_RULES_TEMPLATE, SCENE_SUBTAB_DEFS, READER_SUBTAB_DEFS, SETTINGS_TAB_DEFS } from './settings-tabs.js';
 import { getReaderModeIcon } from './icons.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
-import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OUTFIT_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
+import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OFF_HINT, PROMPT_RULE_OUTFIT_HINT, PROMPT_RULE_PRESET_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel } from '../../schemas/reader-mode.js';
 import { esc, toHex } from './reader-value-utils.js';
 import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, kindModelPicker, tableMultiSelect } from './settings-fields.js';
@@ -522,7 +522,11 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const promptRuleDraft = typeof asyncState.promptRuleDraft === 'string'
                 ? asyncState.promptRuleDraft
                 : String(sceneAssets.promptRule || '');
+            const promptRuleOn = sceneAssets.promptRuleEnabled !== false;
             const sceneValues = {
+                promptRuleTag: promptRuleOn ? '发给聊天模型' : '已关闭',
+                promptRuleToggle: checkbox('bridge.sceneAssets.promptRuleEnabled', promptRuleOn, '自动注入格式规则')
+                    + `<div class="igs-source-filter-note" data-result="prompt-rule-preset">${esc(promptRuleOn ? PROMPT_RULE_PRESET_HINT : PROMPT_RULE_OFF_HINT)}</div>`,
                 promptRuleField: `<div class="igs-settings-field"><textarea data-prompt-rule-draft="1" aria-label="AI格式规则" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea></div>`,
                 promptRuleStatus: esc(asyncState.promptRuleStatus || ''),
                 promptRuleOutfitHint: scenePromptRuleOutfitHint(sceneAssets.promptRule)
