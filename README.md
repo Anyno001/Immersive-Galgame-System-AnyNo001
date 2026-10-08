@@ -438,6 +438,10 @@ projects/Immersive Galgame System/
 14. 涉及打包、发布、上传、loader、远程 bundle 或酒馆助手脚本 JSON 时，必须先读 `docs/PACKAGING_WORKFLOW.md` 与 `docs/RELEASE.md`。
 15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
 
+### v0.34.96 - 多人同屏按腿贴地（内测）
+
+- **多角色同屏**：对齐改为把每张立绘最低的不透明像素（腿）贴到舞台底边，不再把头顶拉成一条线。脚下面的透明边沉到舞台外。漫画符号和战斗命中点按每个人自己的头部定位。
+
 ### v0.34.95 - 台词朗读、阅读进度、上传字体、外卖演出（内测）
 
 - **台词朗读（TTS）**：演出 › 声音 新增朗读，可用系统语音或 OpenAI 兼容接口（含本地 GPT-SoVITS / CosyVoice）。与角色语气音二选一；旁白可选不读；NSFW 默认不读；每个角色可单独设声音、音量或不朗读；工具栏「重听这句」；预取下一页、本地缓存与「清除朗读缓存」。

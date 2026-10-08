@@ -41,17 +41,23 @@ test('gate: cast side follows slot position', () => {
     assert.equal(castSideOf(94), 1);
 });
 
-test('gate: head alignment matches head width and head top within limits', () => {
+test('gate: foot alignment matches head width and plants the legs on the stage bottom', () => {
     const stage = { stageW: 1000, stageH: 600 };
-    const reference = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 } };
-    const member = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.18 } };
+    const reference = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 }, feet: 1 };
+    const member = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.18 }, feet: 0.8 };
     const out = alignToReference({ ...stage, reference, member });
     const rect = spriteDrawRect(stage.stageW, stage.stageH, { ...member, ...out });
     assert.ok(Math.abs(rect.w * member.head.w - 30) < 0.01);
-    assert.ok(Math.abs(rect.top + rect.h * member.head.top - 315) < 0.01);
-    const tiny = alignToReference({ ...stage, reference, member: { ...member, head: { x: 0.5, top: 0.05, w: 0.05 } } });
+    assert.ok(Math.abs(rect.top + rect.h * member.feet - stage.stageH) < 0.01);
+    assert.ok(rect.top + rect.h > stage.stageH, '图的底边沉到舞台下面，腿留在底边上');
+    const refRect = spriteDrawRect(stage.stageW, stage.stageH, reference);
+    const refHead = refRect.top + refRect.h * reference.head.top;
+    const ownHead = rect.top + rect.h * member.head.top;
+    assert.ok(ownHead !== refHead);
+    const tiny = alignToReference({ ...stage, reference, member: { ...member, feet: 1, head: { x: 0.5, top: 0.05, w: 0.05 } } });
     assert.equal(tiny.scale, 62.5);
-    assert.deepEqual(alignToReference({ ...stage, reference, member: { ...member, head: null } }), { scale: 50, posY: 100 });
+    assert.equal(tiny.posY, 100);
+    assert.deepEqual(alignToReference({ ...stage, reference, member: { ...member, head: null, feet: 1 } }), { scale: 50, posY: 100 });
 });
 
 test('gate: cast alignment uses the earliest speaker in scene as reference and waits for probes', () => {
@@ -146,7 +152,7 @@ test('gate: cast reset-auto previews the aligned layout, locked entries included
     assert.equal(plan.speaker.auto.posX, 94);
     assert.equal(plan.members[1].scale, 62.5);
     assert.deepEqual(plan.members[1].auto, { posX: 50, posY: plan.members[1].posY, scale: 62.5 });
-    assert.deepEqual(plan.members[0].auto, { posX: 6, posY: 100, scale: 50 }, '参照物自己不对齐');
+    assert.deepEqual(plan.members[0].auto, { posX: 6, posY: 100, scale: 50 }, '参照物不改大小，脚已在底边时 posY 仍是 100');
 });
 
 test('gate: head alignment keeps configured sprite heights apart', () => {
