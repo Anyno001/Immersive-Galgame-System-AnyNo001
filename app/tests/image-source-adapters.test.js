@@ -223,3 +223,26 @@ test('gate:image-backend:kind-models-override-nai-and-dbgen', async () => {
     assert.equal(dbgenCalls[1].params, undefined);
     assert.equal(dbgenCalls[2].params.model, 'nai-diffusion-5-full');
 });
+
+test('gate:image-backend:dbgen-refuses-empty-caption', async () => {
+    let paints = 0;
+    const backend = createImageBackend({
+        global: {
+            NaiDbGen: {
+                async generate() { paints += 1; return { ok: true, value: [{ blob: 'data:image/png;base64,DB' }] }; },
+            },
+        },
+        getBridge: () => ({ imageApi: { mode: 'dbgen' } }),
+    });
+    const empty = {
+        v4_prompt: { caption: { base_caption: '', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'lowres', char_captions: [] } },
+    };
+    const result = await backend.generateDbgenCaption({
+        caption: empty,
+        userPrompts: { positive: '1girl, solo', negative: 'lowres' },
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /不是生图提示词/);
+    assert.equal(paints, 0);
+});

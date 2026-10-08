@@ -269,7 +269,18 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         return { ok: true, caption: written.value.caption, captions };
     }
 
+    function captionHasPromptText(caption) {
+        const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
+        if (!pos || typeof pos !== 'object') return false;
+        if (String(pos.base_caption || '').trim()) return true;
+        const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
+        return chars.some((item) => String(item && item.char_caption || '').trim());
+    }
+
     async function paintDbgenCaption(api, meta, caption) {
+        if (!captionHasPromptText(caption)) {
+            return { ok: false, error: `${DBGEN_LABEL}返回的不是生图提示词，已停止出图`, prompt: promptFromCaption(caption) };
+        }
         const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
         const merged = userPrompts ? applyUserPromptsToCaption(caption, userPrompts) : caption;
         const positive = userPrompts ? String(userPrompts.positive || '').trim() : '';
