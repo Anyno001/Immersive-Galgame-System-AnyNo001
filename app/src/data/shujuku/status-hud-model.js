@@ -24,12 +24,12 @@ export const NSFW_VEIL_LEVEL_STYLE = Object.freeze({
 });
 
 // NSFW 场景立绘：显示 / 隐藏 / 仅露脸剪影（按头部标定，头以下黑幕）。取代旧布尔 showSpriteOnNsfw：
-// 旧值 false 迁为 hide，其余迁为 shade；输出里的 showSpriteOnNsfw 只由档位派生，供旧读取点兼容。
+// 旧值 false 迁为 hide，其余默认 show；输出里的 showSpriteOnNsfw 只由档位派生，供旧读取点兼容。
 export const NSFW_SPRITE_MODE_IDS = Object.freeze(['show', 'hide', 'shade']);
 
 export function resolveNsfwSpriteMode(src) {
     if (NSFW_SPRITE_MODE_IDS.includes(src.nsfwSpriteMode)) return src.nsfwSpriteMode;
-    return src.showSpriteOnNsfw === false ? 'hide' : 'shade';
+    return src.showSpriteOnNsfw === false ? 'hide' : 'show';
 }
 
 // NSFW 挂 CG 时对话框左侧的裸体头像（头颈到锁骨，下缘渐隐）：自动按头部探测取景，档位只做手动微调。
@@ -51,10 +51,10 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     showLocation: false,
     showLocationDetails: false,
     showSpriteOnNsfw: true,
-    nsfwSpriteMode: 'shade',
+    nsfwSpriteMode: 'show',
     dimSpriteOnNarration: true,
     nsfwVeilLevel: 'medium',
-    nsfwCgPortrait: true,
+    nsfwCgPortrait: false,
     nsfwCgPortraitShift: 0,
     nsfwCgPortraitZoom: 100,
     avatarRadius: 'circle',
@@ -92,7 +92,7 @@ export function normalizeStatusHudSettings(raw) {
         nsfwSpriteMode,
         dimSpriteOnNarration: src.dimSpriteOnNarration === false ? false : true,
         nsfwVeilLevel: NSFW_VEIL_LEVEL_IDS.includes(src.nsfwVeilLevel) ? src.nsfwVeilLevel : STATUS_HUD_DEFAULTS.nsfwVeilLevel,
-        nsfwCgPortrait: src.nsfwCgPortrait === false ? false : true,
+        nsfwCgPortrait: src.nsfwCgPortrait === true,
         nsfwCgPortraitShift: NSFW_CG_PORTRAIT_SHIFTS.includes(Number(src.nsfwCgPortraitShift)) ? Number(src.nsfwCgPortraitShift) : 0,
         nsfwCgPortraitZoom: NSFW_CG_PORTRAIT_ZOOMS.includes(Number(src.nsfwCgPortraitZoom)) ? Number(src.nsfwCgPortraitZoom) : 100,
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,

@@ -55,13 +55,11 @@ test('CG 头像：取景以头位为中心，缩放放大脸、偏移下移取�
     assert.equal(computeCgPortraitCrop({ naturalW: 0, naturalH: 0, head: info.head }), null);
 });
 
-test('CG 头像开关默认开启，微调档位只认预设值', () => {
+test('CG 头像开关默认关闭，微调档位只认预设值', () => {
     const hud = normalizeStatusHudSettings({});
-    assert.equal(hud.nsfwCgPortrait, true);
+    assert.equal(hud.nsfwCgPortrait, false);
     assert.equal(hud.nsfwCgPortraitShift, 0);
     assert.equal(hud.nsfwCgPortraitZoom, 100);
-    const off = normalizeStatusHudSettings({ nsfwCgPortrait: false });
-    assert.equal(off.nsfwCgPortrait, false);
     const custom = normalizeStatusHudSettings({ nsfwCgPortrait: true, nsfwCgPortraitShift: '10', nsfwCgPortraitZoom: 33 });
     assert.equal(custom.nsfwCgPortrait, true);
     assert.equal(custom.nsfwCgPortraitShift, 10);

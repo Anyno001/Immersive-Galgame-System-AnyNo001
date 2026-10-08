@@ -258,6 +258,7 @@ export function kindModelPicker(path, value, extraModels) {
         pulled.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`),
     ).join('');
     return `<div class="igs-settings-model igs-settings-kind-model"><input data-path="${esc(path)}" value="${esc(current)}" placeholder="手填模型编号，留空跟随默认"><select data-model-sync="${esc(path)}" aria-label="读取模型列表" title="读取模型列表">${options}</select></div>`;
+}
 
 // 文字样式 › 上传字体：已上传的字体列成一行一个，可删除；上传后出现在上面四个字体下拉的末尾。
 export function renderCustomFontManager(fonts, message = '') {

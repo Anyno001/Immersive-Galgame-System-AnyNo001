@@ -76,11 +76,6 @@ export function normalizeImageApi(value) {
         ? normalized.availableModels.filter(Boolean)
         : [];
     normalized.dbgenSpriteTransparent = normalized.dbgenSpriteTransparent !== false;
-    // 分类型模型（cg / sprite / background / item Model）已取消：模型只有「生图 › 图像来源 › 模型」一处。
-    // 旧存档里残留的值会让后端继续按类型改模型，这里统一清空，让所有类型都走默认模型。
-    for (const kind of ['cg', 'sprite', 'background', 'item']) {
-        normalized[`${kind}Model`] = '';
-    }
     return normalized;
 }
 

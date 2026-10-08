@@ -197,9 +197,7 @@ test('gate:chatu8:waits-only-when-it-writes-back', async () => {
     assert.equal(off.prompts[0], 'cafe, afternoon light, 1girl, silver hair');
 });
 
-test('gate:image-backend:no-per-kind-model-override', async () => {
-    // 分类型模型已取消：旧存档里残留的 cg/sprite/background/itemModel 不再影响出图，
-    // 所有类型都用「生图 › 图像来源 › 模型」这一处。
+test('gate:image-backend:kind-models-override-nai-and-dbgen', async () => {
     const naiCalls = [];
     const dbgenCalls = [];
     let mode = 'nai';
@@ -214,16 +212,16 @@ test('gate:image-backend:no-per-kind-model-override', async () => {
     await backend.generate({ scene: 'apple' }, { model: 'nai-diffusion-4-5-full' }, { imageKind: 'item' });
     await backend.generate({ scene: 'cg' }, { model: 'nai-diffusion-4-5-full' }, {});
     await backend.generate({ scene: 'cg' }, { model: 'nai-diffusion-4-5-full' }, { imageKind: 'cg' });
-    assert.deepEqual(naiCalls.map((s) => s.model), Array(5).fill('nai-diffusion-4-5-full'));
+    assert.deepEqual(naiCalls.map((s) => s.model), ['nai-diffusion-4-full', 'nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-5-full', 'nai-diffusion-5-full']);
 
     mode = 'dbgen';
     const caption = { v4_prompt: { caption: { base_caption: '1girl', char_captions: [] } }, v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } } };
     await backend.generateDbgenCaption({ caption, imageKind: 'sprite' });
     await backend.generateDbgenCaption({ caption, imageKind: 'background' });
     await backend.generateDbgenCaption({ caption, imageKind: 'cg' });
-    assert.equal(dbgenCalls[0].params, undefined);
+    assert.equal(dbgenCalls[0].params.model, 'nai-diffusion-4-full');
     assert.equal(dbgenCalls[1].params, undefined);
-    assert.equal(dbgenCalls[2].params, undefined);
+    assert.equal(dbgenCalls[2].params.model, 'nai-diffusion-5-full');
 });
 
 test('gate:image-backend:dbgen-refuses-empty-caption', async () => {
