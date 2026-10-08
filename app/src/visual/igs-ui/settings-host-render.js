@@ -244,7 +244,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭，关闭后改为白色背景）'),
-                kindModelFields: ['sprite', 'background', 'item'].map((kind) => {
+                kindModelFields: field('bridge.imageApi.cgModel', '剧情 CG 模型', kindModelPicker('bridge.imageApi.cgModel', imageApi.cgModel))
+                    + ['sprite', 'background', 'item'].map((kind) => {
                     // 每类一个「生成」开关，与「生图 › 内容」里的素材补全 / 物品图开关是同一项设置。
                     const toggle = {
                         sprite: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '生成立绘'),

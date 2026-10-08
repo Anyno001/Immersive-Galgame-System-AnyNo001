@@ -518,7 +518,7 @@ export function createAutoIllustrationService(deps) {
             progress(floor, { phase: 'paint', done: index + 1, total: requests.length });
             let result;
             const size = cgSize(s);
-            const meta = { messageId, slot: request.slot, description: request.description || request.scene, size };
+            const meta = { messageId, slot: request.slot, description: request.description || request.scene, size, imageKind: 'cg' };
             try { result = await nai.generate(request, { ...s.nai, size }, meta); }
             catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
             if (result && result.ok) succeeded += 1;

@@ -164,11 +164,11 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         return { mode, via: 'nai', ownPrompts: false, ready: { ok: true } };
     }
 
-    // 生图 → 图像来源 → 分类型模型：立绘 / 背景 / 物品各自的模型，留空跟随默认。
+    // 生图 → 图像来源 → 分类型模型：剧情 CG / 立绘 / 背景 / 物品各自的模型，留空跟随默认。
     // 内置 NAI 改 settings.model，数据库生图经 params.model 传给插件；智绘姬 / 柏宝绘没有模型参数，仍用插件自己的。
     function kindModel(meta) {
         const kind = meta && meta.imageKind;
-        if (kind !== 'sprite' && kind !== 'background' && kind !== 'item') return '';
+        if (kind !== 'cg' && kind !== 'sprite' && kind !== 'background' && kind !== 'item') return '';
         const imageApi = readBridge().imageApi || {};
         return String(imageApi[`${kind}Model`] || '').trim();
     }
@@ -423,12 +423,14 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         }
         if (mode === 'dbgen') {
             const messageId = opts.message && opts.message.id != null ? opts.message.id : opts.messageId;
-            const result = await viaDbgen({ description: prompt, messageId });
+            const result = await viaDbgen({ description: prompt, messageId, imageKind: 'cg' });
             return result.ok ? { url: result.dataUrl, providerId: 'vn.provider.dbgen' } : { ok: false, reason: result.error };
         }
-        const settings = normalizeAutoIllustrationSettings(bridge.autoIllustration).nai;
+        let settings = normalizeAutoIllustrationSettings(bridge.autoIllustration).nai;
         if (!String(settings.apiKey || '').trim()) return { delegate: true };
         if (!prompt) return { ok: false, reason: '没有可用于生图的提示词' };
+        const cgModel = kindModel({ imageKind: 'cg' });
+        if (cgModel) settings = { ...settings, model: cgModel };
         const result = await nai.generate({ scene: prompt }, settings);
         return result && result.ok ? { url: result.dataUrl, providerId: 'vn.provider.nai' } : { ok: false, reason: (result && result.error) || 'NAI 生成失败' };
     }
