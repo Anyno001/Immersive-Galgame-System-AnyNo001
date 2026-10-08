@@ -13,6 +13,7 @@ import {
     ILLUSTRATED_DIALOG_STYLE_TEXT,
     buildSlicedDialogSkinCss,
     isIllustratedDialogSkin,
+    supportsDialogAutoHeight,
 } from './dialog-theme-skins.js';
 
 export const DIALOG_SKIN_DEFAULT = 'default';
@@ -30,6 +31,7 @@ export {
     ILLUSTRATED_DIALOG_SKINS,
     ILLUSTRATED_DIALOG_STYLE_TEXT,
     isIllustratedDialogSkin,
+    supportsDialogAutoHeight,
 };
 export const CLASSIC_DIALOG_HEIGHT = 184;
 export const CLASSIC_DIALOG_EDGE_WIDTH = 110;

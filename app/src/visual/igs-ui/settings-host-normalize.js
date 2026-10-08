@@ -233,6 +233,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         showStatusLine: false,
         dblclickCgOnly: false,
         titleScreen: true,
+        dialogAutoHeight: false,
         cinemaBars: false,
         typewriter: { ...TYPEWRITER_DEFAULTS },
         stageShake: normalizeStageShakeSettings(null),
@@ -295,6 +296,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
     normalized.dblclickCgOnly = normalizeBoolean(normalized.dblclickCgOnly, false);
     normalized.titleScreen = normalizeBoolean(normalized.titleScreen, true);
+    normalized.dialogAutoHeight = normalizeBoolean(normalized.dialogAutoHeight, false);
     normalized.cinemaBars = normalizeBoolean(normalized.cinemaBars, false);
     normalized.typewriter = normalizeTypewriterSettings(normalized.typewriter);
     normalized.stageShake = normalizeStageShakeSettings(normalized.stageShake);

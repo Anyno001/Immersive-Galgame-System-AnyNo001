@@ -30,6 +30,12 @@ const SLICED_DIALOG_SKINS = Object.freeze([
 // 「插画式」= 固定高度、自带排版默认值的主题，含三片素材主题与纯 CSS 还原主题。
 export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, DIALOG_SKIN_SCIFI_HOLO, DIALOG_SKIN_WASTELAND_RUST]);
 
+// 可开「对话框高度自适应」的主题：三片素材只横向切、纵向拉伸，压矮不会裁边；伪元素装饰按固定高度摆的主题不开放。
+export function supportsDialogAutoHeight(value) {
+    const skin = typeof value === 'string' ? value : value && value.dialogSkin;
+    return SLICED_DIALOG_SKINS.includes(skin);
+}
+
 export function isIllustratedDialogSkin(value) {
     const skin = typeof value === 'string' ? value : value && value.dialogSkin;
     return ILLUSTRATED_DIALOG_SKINS.includes(skin);
@@ -122,6 +128,7 @@ export function buildSlicedDialogSkinCss(skin, spec, assets) {
         frameCss: `${threeSliceCss(assets.dialog, dialog.slice, dialog.left, dialog.right)}border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
         speakerCss: `left:${px(plate.x)};top:${px(-plate.rise)};width:max-content;min-width:${px(plate.minWidth)};max-width:calc(100% - ${px(plate.x * 2)});height:${px(plate.height)};line-height:${px(plate.lineHeight)};margin:0;padding:${plate.padding};${threeSliceCss(assets.name, plate.slice, plate.left, plate.right)}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${spec.nameCss || ''}`,
         textCss: spec.textCss || '',
+        autoHeight: true,
     });
 }
 

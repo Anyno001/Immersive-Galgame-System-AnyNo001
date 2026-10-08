@@ -77,6 +77,7 @@ import {
     isClassicDialogSkin,
     isGradientVeilDialogSkin,
     isMaterialDialogSkin,
+    supportsDialogAutoHeight,
     normalizeClassicDialogWidthPercent,
 } from './classic-dialog-skin.js';
 import { syncDialogSkinStyle } from './dialog-skin-style.js';
@@ -689,6 +690,8 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             clearFrozenDialogHeight(current);
             dialog.style.minHeight = '';
             dialog.style.maxHeight = '';
+            if (readerSettings.dialogAutoHeight === true && supportsDialogAutoHeight(readerSettings)) dialog.setAttribute('data-igs-auto-h', '');
+            else dialog.removeAttribute('data-igs-auto-h');
         } else {
             const viewportHeight = Number(win && win.visualViewport && win.visualViewport.height)
                 || Number(win && win.innerHeight)

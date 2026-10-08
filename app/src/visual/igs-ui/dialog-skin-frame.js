@@ -31,7 +31,7 @@ export function stroke(color) {
 
 // 素材/CSS 主题共用的对话框骨架：固定高度、正文安全区与悬浮姓名牌；外观由 frameCss/speakerCss 注入。
 // flush 主题是横贯画面的通栏，全部阅读模式都贴合阅读器左右与底边，不按卡片留边距。
-export function buildDialogFrameCss(skin, { height, text, rise, frameCss, speakerCss, textCss = '', flush = false }) {
+export function buildDialogFrameCss(skin, { height, text, rise, frameCss, speakerCss, textCss = '', flush = false, autoHeight = false }) {
     const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]`;
     const embeddedMax = flush ? '100%' : 'calc(100% - 28px)';
     const padding = (top) => `padding:${sp(top)} ${sp(text.right)} ${sp(text.bottom)} ${sp(text.left)};`;
@@ -44,6 +44,8 @@ export function buildDialogFrameCss(skin, { height, text, rise, frameCss, speake
         `${scope} .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;${scalePx(speakerCss)}}`,
         `#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{height:min(${sp(height)},${embeddedMax});min-height:min(${sp(height)},${embeddedMax});max-height:${embeddedMax};}`,
         `#igs-overlay[data-igs-dialog-skin="${skin}"]{--igs-skin-plate-rise:${sp(rise)};}`,
+        // 高度自适应（开关在设置里，只开放给边框只拉伸左右的主题）：字少压矮到六成，字多不超过原高度、超出照旧滚动。
+        ...(autoHeight ? [`${scope}[data-igs-auto-h]{height:auto;min-height:min(${sp(Math.round(height * 0.6))},${embeddedMax});max-height:min(${sp(height)},${embeddedMax});}`] : []),
         ...(flush ? [
             `${scope},#igs-overlay.igs-floating .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-floating-mobile .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{left:0;right:0;bottom:0;width:auto;margin:0;transform:none;}`,
             `${scope}.igs-hidden{transform:translateY(20px);}`,

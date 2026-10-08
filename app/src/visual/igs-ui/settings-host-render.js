@@ -36,7 +36,7 @@ import { loadAssetFoldersFor } from './asset-folders.js';
 import { isLayeredPreset, loadLegacyPresets, legacyPresetHasContent, presetCardLayers } from '../../scene/legacy-preset.js';
 import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview } from '../../scene/mood-review-store.js';
-import { CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_WESTERN_CLASSIC, isIllustratedDialogSkin } from './classic-dialog-skin.js';
+import { CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_WESTERN_CLASSIC, isIllustratedDialogSkin, supportsDialogAutoHeight } from './classic-dialog-skin.js';
 import { DIALOG_SKIN_CHOICES, dialogSkinLabel } from './dialog-skin-catalog.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
@@ -619,7 +619,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             dialogBarAlignField: reader.toolbarSplit === 'top' ? '' : field('readerSettings.dialogBarAlign', '对话框下按钮位置', selectInput('readerSettings.dialogBarAlign', reader.dialogBarAlign || 'auto', [['auto', '自动（手机居中、电脑靠左）'], ['left', '靠左'], ['center', '居中'], ['right', '靠右']])),
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（电脑右键 / 手机三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面'),
+            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（右键 / 三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面')
+                + (supportsDialogAutoHeight(reader.dialogSkin) ? checkbox('readerSettings.dialogAutoHeight', reader.dialogAutoHeight, '对话框高度自适应（字少变矮）') : ''),
             cinemaBarsToggle: checkbox('readerSettings.cinemaBars', reader.cinemaBars, '电影黑边'),
             backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '毛玻璃模糊'),
             // 玻璃作用于工具栏、选项、数据库、地图和记录面板；对话框只有默认皮肤跟随，其余皮肤自带底色。

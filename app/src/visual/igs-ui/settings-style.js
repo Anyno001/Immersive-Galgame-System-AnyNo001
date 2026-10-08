@@ -240,6 +240,8 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-image-log-empty{padding:10px 4px;opacity:.6}
 .igs-body-format textarea[data-path="bridge.virtualRegex.replacement"]{min-height:132px}
 .igs-settings-row{display:flex;gap:10px;align-items:center;min-width:0}
+/* 一行几个带说明的开关：手机上一项一行，不挤成三窄条。 */
+@media (max-width:640px){.igs-settings-row.igs-switch-stack{flex-direction:column;align-items:stretch;gap:6px}.igs-settings-row.igs-switch-stack>*{flex:none;width:100%}}
 .igs-settings-row > *{flex:1;min-width:0}
 .igs-settings-result{font-size:12px;color:var(--igs-settings-ink-3);line-height:1.5}
 .igs-settings-result:empty,.igs-settings-preview:empty{display:none}

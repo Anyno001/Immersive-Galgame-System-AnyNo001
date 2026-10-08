@@ -154,6 +154,7 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.showStatusLine',
     'readerSettings.dblclickCgOnly',
     'readerSettings.titleScreen',
+    'readerSettings.dialogAutoHeight',
     'readerSettings.cinemaBars',
     'readerSettings.typewriter.enabled',
     'readerSettings.typewriter.speed',
