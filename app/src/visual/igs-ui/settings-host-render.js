@@ -22,7 +22,7 @@ import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-th
 import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OUTFIT_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel } from '../../schemas/reader-mode.js';
 import { esc, toHex } from './reader-value-utils.js';
-import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
+import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, kindModelPicker, tableMultiSelect } from './settings-fields.js';
 import { normalizeSettingsTab, normalizeSpriteDefaultScale, normalizeSpriteGenderScale, SPRITE_HEIGHT_RANGE } from './settings-normalize.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { listStatusHudTables, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
@@ -251,9 +251,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         background: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '生成背景'),
                         item: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '生成物品图'),
                     }[kind];
-                    return toggle + field(`bridge.imageApi.${kind}Model`, { sprite: '立绘模型', background: '背景模型', item: '物品模型' }[kind], textInput(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], '留空跟随默认').replace('<input ', '<input list="igs-kind-model-list" '));
-                }).join('')
-                    + `<datalist id="igs-kind-model-list">${(Array.isArray(asyncState.naiModels) ? asyncState.naiModels : []).filter(Boolean).map((model) => `<option value="${esc(model)}"></option>`).join('')}</datalist>`,
+                    return toggle + field(`bridge.imageApi.${kind}Model`, { sprite: '立绘模型', background: '背景模型', item: '物品模型' }[kind], kindModelPicker(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`]));
+                }).join(''),
                 advancedKindModelsOpen: advancedOpen('kind-models'),
                 advancedNaiOpen: advancedOpen('nai'),
                 advancedExtensionOpen: advancedOpen('extension'),

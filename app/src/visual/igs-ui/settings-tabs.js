@@ -99,7 +99,7 @@ const IMAGE_SOURCE_TEMPLATE = `
     </div>
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="kind-models"{{advancedKindModelsOpen}}>
       <summary>分类型生成与模型</summary>
-      <div class="igs-source-filter-note">立绘、背景、物品可以分别关掉不生成，也可以各用一个模型（留空跟随默认）。对内置 NAI 和数据库生图插件生效；智绘姬、柏宝绘用插件自己的模型，只在退回内置 NAI 时生效。</div>
+      <div class="igs-source-filter-note">立绘、背景、物品可以分别关掉不生成，也可以各用一个模型：从列表选择，或手填编号，留空跟随默认。对内置 NAI 和数据库生图插件生效；智绘姬、柏宝绘用插件自己的模型，只在退回内置 NAI 时生效。</div>
       <div class="igs-source-filter-grid">{{kindModelFields}}</div>
     </details>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>插件设置</button></div>

@@ -136,6 +136,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-settings-model input{height:36px;min-width:0}
 .igs-settings-model select{grid-column:1/-1;height:36px}
 .igs-settings-model select:disabled{opacity:.55;cursor:not-allowed}
+.igs-settings-kind-model{grid-template-columns:minmax(0,1fr)}
 .igs-settings-inline-action{width:96px;height:36px;padding:0 10px;white-space:nowrap}
 .igs-settings-action.is-active,.igs-settings-inline-action.is-active{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent);box-shadow:none}
 .igs-settings-action[disabled],.igs-settings-inline-action[disabled]{opacity:.55;cursor:not-allowed;pointer-events:none}

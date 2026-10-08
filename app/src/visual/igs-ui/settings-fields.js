@@ -232,6 +232,31 @@ export function renderWeatherFxSettings(settings) {
     return `<div class="igs-settings-sub igs-weather-fx-settings">${intensityField}<div class="igs-source-filter-note">背景与立绘随天气调色；回忆、梦境中暂停。</div><div class="igs-settings-field"><span>室内地点词</span>${wordList('indoor', '室内地点词', source.indoorWords)}</div><div class="igs-settings-field"><span>室外地点词</span>${wordList('outdoor', '室外地点词', source.outdoorWords)}</div></div>`;
 }
 
+// 与数据库生图插件的模型框同一套：列表里选，也可以手填任意编号。留空表示跟随来源自己的模型。
+const KIND_MODEL_OPTIONS = Object.freeze([
+    ['nai-diffusion-5-curated', 'NAI Diffusion V5 Curated'],
+    ['nai-diffusion-5-full', 'NAI Diffusion V5 Full'],
+    ['nai-diffusion-5-full-inpainting', 'NAI Diffusion V5 Full Inpainting'],
+    ['nai-diffusion-4-5-curated', 'NAI Diffusion V4.5 Curated'],
+    ['nai-diffusion-4-5-full', 'NAI Diffusion V4.5 Full'],
+    ['nai-diffusion-4-5-curated-inpainting', 'NAI Diffusion V4.5 Curated Inpainting'],
+    ['nai-diffusion-4-5-full-inpainting', 'NAI Diffusion V4.5 Full Inpainting'],
+    ['nai-diffusion-4-curated-preview', 'NAI Diffusion V4 Curated'],
+    ['nai-diffusion-4-full', 'NAI Diffusion V4 Full'],
+    ['nai-diffusion-4-curated-inpainting', 'NAI Diffusion V4 Curated Inpainting'],
+    ['nai-diffusion-4-full-inpainting', 'NAI Diffusion V4 Full Inpainting'],
+]);
+
+export function kindModelPicker(path, value) {
+    const current = String(value || '').trim();
+    const known = KIND_MODEL_OPTIONS.some(([id]) => id === current);
+    const options = [`<option value="">跟随默认</option>`].concat(
+        KIND_MODEL_OPTIONS.map(([id, label]) => `<option value="${esc(id)}"${id === current ? ' selected' : ''}>${esc(`${label}（${id}）`)}</option>`),
+        current && !known ? [`<option value="${esc(current)}" selected>${esc(current)}</option>`] : [],
+    ).join('');
+    return `<div class="igs-settings-model igs-settings-kind-model"><select data-model-sync="${esc(path)}" aria-label="从列表选择">${options}</select><input data-path="${esc(path)}" value="${esc(current)}" placeholder="或手填模型编号，留空跟随默认"></div>`;
+}
+
 export function modelPicker(path, value, models, action, placeholder, disabled) {
     const items = Array.isArray(models) ? models.filter(Boolean) : [];
     const options = ['<option value="">从已拉取模型中选择</option>'].concat(items.map((model) => {
