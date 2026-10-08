@@ -79,3 +79,40 @@ test('出图入口包一层：开始 / 结束事件带种类和成败', async ()
     assert.equal(events[3].error, '插件没开');
     assert.equal(backend.describe().mode, 'nai');
 });
+
+test('生成细线：生图服务的失败停红线并直接展开原因，点一下收起', () => {
+    const t = fakeTimers();
+    const strip = createGenerationStrip({ timers: t, now: t.now });
+    strip.notice('error', '第 3 楼素材未发送生图请求：超时');
+    assert.equal(strip.getState().phase, 'failed');
+    assert.equal(strip.getState().tip, '第 3 楼素材未发送生图请求：超时');
+    t.advance(10000);
+    assert.equal(strip.getState().phase, 'failed');
+});
+
+test('生成细线：成功说明弹小字，没亮时也挂得上，读完再熄', () => {
+    const t = fakeTimers();
+    const strip = createGenerationStrip({ timers: t, now: t.now });
+    strip.notice('info', '正在请求副 LLM…');
+    assert.equal(strip.getState().phase, 'idle');
+    strip.notice('success', '补全素材完成：已生成 2 项素材，待确认');
+    assert.equal(strip.getState().tip, '补全素材完成：已生成 2 项素材，待确认');
+    t.advance(1500);
+    assert.notEqual(strip.getState().phase, 'idle');
+    t.advance(5000);
+    assert.equal(strip.getState().phase, 'idle');
+    assert.equal(strip.getState().tip, '');
+});
+
+test('生成细线：忙完时结果小字不跟着闪一下就熄', () => {
+    const t = fakeTimers();
+    const strip = createGenerationStrip({ timers: t, now: t.now });
+    strip.activity({ type: 'start', id: 'a', kind: 'background' });
+    strip.notice('info', '第 2 楼缺少 1 项素材，正在请求副 LLM…');
+    assert.equal(strip.getState().tip, '第 2 楼缺少 1 项素材，正在请求副 LLM…');
+    strip.notice('success', '第 2 楼已生成 1 项素材，待确认');
+    strip.activity({ type: 'end', id: 'a', kind: 'background', ok: true });
+    t.advance(1300);
+    assert.equal(strip.getState().phase, 'done');
+    assert.equal(strip.getState().tip, '第 2 楼已生成 1 项素材，待确认');
+});

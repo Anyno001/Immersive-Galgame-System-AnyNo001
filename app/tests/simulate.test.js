@@ -711,6 +711,24 @@ test('gate:simulation:nsfw-scene-hides-character-visuals-and-applies-neutral-vei
     vn.destroy();
 });
 
+test('gate:assets:reader-open-routes-service-notices-to-strip', async () => {
+    const document = createFakeDocument();
+    const raw = '[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。';
+    const host = createIgsReaderHost({
+        global: { document },
+        getUnifiedSettings: () => ({ bridge: { sceneAssets: { enabled: true, scenes: {}, characters: {} } }, readerSettings: {} }),
+    });
+    try {
+        assert.equal(host.showImageNotice('error', '素材「教室」生成失败：超时'), false, '阅读器没开时交回 toastr');
+        host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
+        assert.equal(host.showImageNotice('error', '素材「教室」生成失败：超时'), true);
+        const strip = document.getElementById('igs-gen-strip');
+        assert.equal(strip.getAttribute('data-state'), 'failed');
+        assert.equal(strip.querySelector('.igs-gen-tip').textContent, '素材「教室」生成失败：超时');
+        assert.ok(!host.getState().activeReader.toastMessage, '不再弹阅读器旧提示');
+    } finally { host.destroy(); }
+});
+
 test('gate:assets:reader-manual-generation-feedback', async () => {
     const document = createFakeDocument();
     const raw = '[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。';
@@ -732,7 +750,7 @@ test('gate:assets:reader-manual-generation-feedback', async () => {
         assert.ok(button, '阅读器必须有可点击的手动生图按钮');
         await overlay.parentNode.dispatchEvent({ type: 'click', target: button });
         assert.deepEqual(calls, [[39, { manual: true }]]);
-        assert.match(host.getState().activeReader.toastMessage, /已生成 1 项/);
+        assert.match(host.getState().activeReader.generationTip, /已生成 1 项/);
         assert.equal(logs.at(-1).level, 'success');
         for (const [next, text, level] of [
             [{ ok: false, reason: 'generation-failed' }, /补全素材失败/, 'error'],
@@ -743,7 +761,7 @@ test('gate:assets:reader-manual-generation-feedback', async () => {
         ]) {
             result = next;
             assert.equal(await opened.controller.invokeAction('generate-assets'), next);
-            assert.match(host.getState().activeReader.toastMessage, text);
+            assert.match(host.getState().activeReader.generationTip, text);
             assert.equal(logs.at(-1).level, level);
         }
     } finally { host.destroy(); }
@@ -788,13 +806,13 @@ test('gate:assets:reader-manual-retries-settled-floor', async () => {
         await overlay.parentNode.dispatchEvent({ type: 'click', target: button });
         assert.equal(calls, 1);
         assert.equal((await store.getFloor('chat-1|39|0')).status, 'failed');
-        assert.match(host.getState().activeReader.toastMessage, /补全素材失败/);
+        assert.match(host.getState().activeReader.generationTip, /补全素材失败/);
         assert.ok(logs.some((entry) => entry.message.includes('模拟 NAI 请求失败')));
         const retry = await opened.controller.invokeAction('generate-assets');
         assert.deepEqual([retry.ok, retry.count, calls], [true, 1, 2]);
         assert.equal((await store.getFloor('chat-1|39|0')).status, 'done');
         assert.equal(service.listReview('chat-1|39|0').length, 1);
-        assert.match(host.getState().activeReader.toastMessage, /已生成 1 项/);
+        assert.match(host.getState().activeReader.generationTip, /已生成 1 项/);
     } finally { host.destroy(); }
 });
 
@@ -820,7 +838,7 @@ test('gate:assets:reader-manual-rejects-ineligible-or-changed-floor', async () =
         ]) {
             floor = { ...initial, ...change };
             assert.equal((await opened.controller.invokeAction('generate-assets')).reason, reason);
-            assert.match(host.getState().activeReader.toastMessage, /已跳过/);
+            assert.match(host.getState().activeReader.generationTip, /已跳过/);
         }
         assert.equal(calls, 0);
     } finally { host.destroy(); }
@@ -5543,12 +5561,12 @@ test('gate:simulation:igs-ui-regen-gives-pending-feedback-and-reports-thrown-err
     release.reject(new Error('NAI 鉴权失败（401）'));
     const result = await pending;
     assert.equal(result.ok, false);
-    assert.match(host.getState().activeReader.toastMessage, /重新生图失败：NAI 鉴权失败/);
+    assert.match(host.getState().activeReader.generationTip, /重新生图失败：NAI 鉴权失败/);
     const retry = opened.controller.invokeAction('regen');
     await Promise.resolve();
     release.resolve({ ok: false, reason: 'provider-not-enabled' });
     await retry;
-    assert.match(host.getState().activeReader.toastMessage, /当前图像来源无法重画/);
+    assert.match(host.getState().activeReader.generationTip, /当前图像来源无法重画/);
     host.destroy();
 });
 
@@ -5741,7 +5759,7 @@ test('gate:simulation:igs-ui-builtin-nai-empty-endpoint-tests-and-regenerates-vi
         assert.equal(regen.ok, true, regen.reason);
         const reader = vn.getState().igsUi.activeReader;
         assert.match(reader.snapshot.content.backgroundImage, /^data:image\/png;base64,/);
-        assert.match(reader.toastMessage, /背景图已更新/);
+        assert.match(reader.generationTip, /背景图已更新/);
         assert.equal(server.calls.length, 2);
         assert.ok(server.calls.every(({ url }) => url === official));
         const body = JSON.parse(server.calls[1].init.body);
@@ -9364,7 +9382,7 @@ test('gate:assets:reader-cg-and-asset-buttons-are-independent', async () => {
         assert.ok(overlay.querySelector('[data-act="generate-assets"]'));
         assert.equal((await opened.controller.invokeAction('regen')).count, 2);
         assert.deepEqual([cgCalls.length, assetCalls.length], [1, 0], '画 CG 不应顺带补素材');
-        assert.match(host.getState().activeReader.toastMessage, /插图完成：已生成 2 张/);
+        assert.match(host.getState().activeReader.generationTip, /插图完成：已生成 2 张/);
         await opened.controller.invokeAction('generate-assets');
         assert.deepEqual([cgCalls.length, assetCalls.length], [1, 1], '补全素材不应顺带画 CG');
     } finally { host.destroy(); }

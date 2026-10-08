@@ -1,9 +1,12 @@
 // 生成细线：对话框顶边一条 2px 渐变线，颜色取对话框文字色（换皮肤自动跟随），不压正文、不碰关闭键。
 // 在画：线慢慢流动；画完：亮一下淡出；失败：停成偏红的一段，点开看原因，点过即收。
 // 线上下留透明的可点区域，点一下在线上方弹一行小字说明在画什么。手动出图时也弹一下小字代替原来常驻的「生图中」提示。
+// 生图服务的进度 / 结果（补全素材、插图）阅读器开着时也走这里：失败停红线并展开原因，其余弹一下小字，不再弹酒馆 toastr。
 const KIND_LABEL = { cg: 'CG', sprite: '立绘', background: '背景', item: '物品', edit: '局部重绘' };
 const DONE_FLASH_MS = 1200;
 const NOTE_MS = 1800;
+// 结果说明按字数多留一会儿：每字 120ms，最长 6 秒。
+const NOTICE_MAX_MS = 6000;
 const MANUAL_HOLD_MS = 6000;
 // 楼层进度没发「完成」（服务中途跳过 / 出错）时的兜底：这么久没更新就当它结束。
 const FLOOR_STALE_MS = 120000;
@@ -20,6 +23,7 @@ export function createGenerationStrip(options = {}) {
     let noteText = '';
     let timer = null;
     let noteTimer = null;
+    let noteUntil = 0;
 
     function liveFloors() {
         const at = now();
@@ -46,7 +50,7 @@ export function createGenerationStrip(options = {}) {
     function tipText() {
         if (noteText) return noteText;
         if (!tipOpen) return '';
-        if (phase === 'failed' && failure) return `${KIND_LABEL[failure.kind] || '图片'}没画成：${failure.error}`;
+        if (phase === 'failed' && failure) return failure.text || `${KIND_LABEL[failure.kind] || '图片'}没画成：${failure.error}`;
         if (phase === 'busy') return summary();
         return '';
     }
@@ -85,6 +89,8 @@ export function createGenerationStrip(options = {}) {
         if (tip) {
             const text = tipText();
             tip.textContent = text;
+            if (text.length > 26) tip.setAttribute('data-wrap', '');
+            else tip.removeAttribute('data-wrap');
             if (text) tip.removeAttribute('hidden');
             else tip.setAttribute('hidden', '');
         }
@@ -105,7 +111,8 @@ export function createGenerationStrip(options = {}) {
         } else if (phase === 'busy') {
             phase = 'done';
             tipOpen = false;
-            schedule(DONE_FLASH_MS);
+            // 结果小字还没读完就别跟着熄掉。
+            schedule(Math.max(DONE_FLASH_MS, noteText ? noteUntil - now() : 0));
         } else if (phase === 'done' && !timer) {
             phase = 'idle';
         }
@@ -125,10 +132,13 @@ export function createGenerationStrip(options = {}) {
         render();
     }
 
-    function note(text) {
+    const noticeMs = (text) => Math.min(NOTICE_MAX_MS, Math.max(NOTE_MS, text.length * 120));
+
+    function note(text, ms = NOTE_MS) {
         noteText = String(text || '');
+        noteUntil = now() + ms;
         if (noteTimer) timers.clearTimeout(noteTimer);
-        noteTimer = timers.setTimeout(() => { noteTimer = null; noteText = ''; render(); }, NOTE_MS);
+        noteTimer = timers.setTimeout(() => { noteTimer = null; noteText = ''; render(); }, ms);
         render();
     }
 
@@ -160,6 +170,45 @@ export function createGenerationStrip(options = {}) {
             settle();
             note(text);
         },
+        // 生图服务的说明：error 停红线并展开原因（点一下收起），success / warn 弹一下小字；info 是过程记录，只在已亮时换小字。
+        notice(level, message) {
+            const text = String(message || '').trim();
+            if (!text) return;
+            if (level === 'info') {
+                if (phase === 'busy') note(text, noticeMs(text));
+                return;
+            }
+            // 有了结果，手动出图的兜底保持就到头了；后端还在画的照常亮着。
+            manualUntil = 0;
+            if (level === 'error') {
+                failure = { kind: 'cg', error: text, text };
+                tipOpen = true;
+                noteText = '';
+                if (noteTimer) timers.clearTimeout(noteTimer);
+                noteTimer = null;
+                settle();
+                return;
+            }
+            if (level === 'success' && failure && !jobs.size) {
+                failure = null;
+                tipOpen = false;
+                if (phase === 'failed') phase = 'idle';
+            }
+            note(text, noticeMs(text));
+            if (phase === 'idle' || phase === 'done') {
+                // 没亮时先亮起来，小字才挂得上；读完再熄。
+                phase = 'done';
+                schedule(noticeMs(text));
+                render();
+            } else {
+                settle();
+            }
+        },
+        // 对话框在不在：不在时细线挂不上，提示得交回调用方。
+        getDialogReady: () => {
+            const dialog = typeof options.getDialog === 'function' ? options.getDialog() : null;
+            return Boolean(dialog && typeof dialog.querySelector === 'function');
+        },
         // 阅读器重建对话框后补挂。
         remount: render,
         getState: () => ({ phase, jobs: jobs.size, floors: floors.size, failure: failure ? { ...failure } : null, tip: tipText() }),
@@ -180,6 +229,7 @@ export const GENERATION_STRIP_STYLE_TEXT = `
 #igs-gen-strip[data-state="done"] .igs-gen-line{background-size:100% 100%;opacity:0;animation:igs-gen-done 1.2s ease-out;}
 #igs-gen-strip[data-state="failed"] .igs-gen-line{left:35%;right:35%;background:linear-gradient(90deg,transparent,#e07070,transparent);background-size:100% 100%;opacity:.85;}
 #igs-gen-strip .igs-gen-tip{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);max-width:min(420px,80vw);padding:3px 10px;border-radius:999px;background:var(--igs-dialog-bg,rgba(20,20,24,.82));font-size:12px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#igs-gen-strip .igs-gen-tip[data-wrap]{white-space:normal;width:max-content;text-align:center;border-radius:10px;line-height:17px;padding:4px 10px;overflow:visible;}
 #igs-gen-strip .igs-gen-tip[hidden]{display:none;}
 @keyframes igs-gen-flow{0%{background-position:-60% 0;}100%{background-position:160% 0;}}
 @keyframes igs-gen-done{0%{opacity:.9;}100%{opacity:0;}}

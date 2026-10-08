@@ -470,6 +470,12 @@ export function createIgsReaderHost(options = {}) {
         closeSettings,
         getState,
         destroy,
+        // 生图服务的进度 / 结果：阅读器开着时进生成细线，返回 true；没开返回 false，由调用方退回酒馆 toastr。
+        showImageNotice(level, message) {
+            if (!state.activeReader || !generationStrip.getDialogReady()) return false;
+            imageNotice(level, message);
+            return true;
+        },
         getReaderSnapshotContract() {
             return {
                 selectors: Array.from(ORIGINAL_READER_REQUIRED_SELECTORS),
@@ -912,6 +918,7 @@ export function createIgsReaderHost(options = {}) {
                 lastAction: state.activeReader.lastAction,
                 inputValue: state.activeReader.inputValue,
                 toastMessage: state.activeReader.toastMessage,
+                generationTip: generationStrip.getState().tip,
                 floatingState: cloneData(state.activeReader.floatingState),
                 snapshot: cloneData(state.activeReader.snapshot),
             } : null,
@@ -2192,7 +2199,7 @@ export function createIgsReaderHost(options = {}) {
         if (!cg || !cg.skipMessage) return cg;
         const regen = await regenerateCurrentImage();
         if (regen && regen.reason === 'provider-not-enabled') {
-            writeToastSafe(cg.skipMessage);
+            imageNotice('warn', cg.skipMessage);
             return cg;
         }
         return regen;
@@ -2230,13 +2237,13 @@ export function createIgsReaderHost(options = {}) {
                 slot: content.illustrationSlot,
             });
             if (state.activeReader === current) {
-                if (!result || result.ok === false) writeToastSafe(`重画失败：${(result && result.error) || '未返回具体原因'}`);
-                else if (result.reason === 'not-eligible') writeToastSafe('请打开当前聊天最新的非空 AI 楼层');
-                else writeToastSafe('这一张已重画。');
+                if (!result || result.ok === false) imageNotice('error', `重画失败：${(result && result.error) || '未返回具体原因'}`);
+                else if (result.reason === 'not-eligible') imageNotice('warn', '请打开当前聊天最新的非空 AI 楼层');
+                else imageNotice('success', '这一张已重画。');
             }
             return result || { ok: false, reason: 'error' };
         } catch (error) {
-            if (state.activeReader === current) writeToastSafe(`重画异常：${(error && error.message) || error || '未知错误'}`);
+            if (state.activeReader === current) imageNotice('error', `重画异常：${(error && error.message) || error || '未知错误'}`);
             return { ok: false, reason: 'error' };
         } finally {
             current.illustrationPending = false;
@@ -2293,7 +2300,7 @@ export function createIgsReaderHost(options = {}) {
             if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
             if (state.activeReader !== current) return;
             if (generating) writeGenerating();
-            else writeToastSafe(message);
+            else imageNotice(level, message);
         };
         const skip = (result, message) => {
             if (!deferSkip) {
@@ -2349,7 +2356,7 @@ export function createIgsReaderHost(options = {}) {
             if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
             if (state.activeReader !== current) return;
             if (generating) writeGenerating();
-            else writeToastSafe(message);
+            else imageNotice(level, message);
         };
         // 没有可补全素材时交给重画当前图，这类跳过不必单独提示。
         const skip = (result, message) => {
@@ -2432,9 +2439,8 @@ export function createIgsReaderHost(options = {}) {
             current.payload.imageState = cloneData(result.imageState);
             rerenderActiveReader();
         }
-        writeToast(result && result.ok !== false
-            ? '背景图已更新。'
-            : `重新生图失败：${describeRegenFailure(result && result.reason)}`);
+        if (result && result.ok !== false) imageNotice('success', '背景图已更新。');
+        else imageNotice('error', `重新生图失败：${describeRegenFailure(result && result.reason)}`);
         return result;
     }
 
@@ -4264,6 +4270,14 @@ export function createIgsReaderHost(options = {}) {
         if (!current) return;
         const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
         applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme), durationMs);
+    }
+
+    // 出图结果进生成细线：失败停红线展开原因；成功 / 跳过弹一下小字。关了「显示提示弹窗」时只留失败的红线。
+    function imageNotice(level, message) {
+        const current = state.activeReader;
+        if (!current || !message) return;
+        if (level !== 'error' && resolveBridgeConfigSnapshot({ mode: current.mode }).bridge.showToasts === false) return;
+        generationStrip.notice(level, message);
     }
 
     // 手动出图：点亮生成细线并在线上方弹一下小字，不再盖一个常驻提示。

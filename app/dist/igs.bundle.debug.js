@@ -114,12 +114,17 @@ const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
 
-// 自动插图 / 素材补全的进度与失败原因：始终写控制台，失败与成功再按「显示提示弹窗」弹出。
-function createImageJobReporter(globalObject, getBridge, log) {
+// 自动插图 / 素材补全的进度与失败原因：始终写控制台；阅读器开着时交给对话框顶边的生成细线，
+// 没开时失败与成功再按「显示提示弹窗」弹酒馆 toastr。
+function createImageJobReporter(globalObject, getBridge, log, getReaderNotice) {
     return (level, message) => {
         if (log && typeof log.add === 'function') log.add(level, message);
         const logger = level === 'error' ? console.warn : console.info;
         logger('[IGS 生图]', message);
+        try {
+            const readerNotice = typeof getReaderNotice === 'function' ? getReaderNotice() : null;
+            if (readerNotice && readerNotice(level, message)) return;
+        } catch (error) { /* 阅读器还没建好或细线出错时照旧弹 toastr */ }
         if (level === 'info') return;
         if ((getBridge() || {}).showToasts === false) return;
         const toastr = globalObject && globalObject.toastr;
@@ -169,7 +174,12 @@ function bootstrapIGS(options = {}) {
         storage: storageLike,
         getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).imageJobLog,
     });
-    const reportImageJob = options.reportImageJob || createImageJobReporter(globalObject, () => (getUnifiedSettingsSnapshot() || {}).bridge || {}, imageJobLog);
+    const reportImageJob = options.reportImageJob || createImageJobReporter(
+        globalObject,
+        () => (getUnifiedSettingsSnapshot() || {}).bridge || {},
+        imageJobLog,
+        () => (app.igsUi && typeof app.igsUi.showImageNotice === 'function' ? app.igsUi.showImageNotice.bind(app.igsUi) : null),
+    );
     // 所有出图（手动 / 自动，CG / 立绘 / 背景 / 物品）都经过这一层，开始和结束各发一次活动事件给阅读器的生成细线。
     const imageBackend = trackImageActivity(options.imageBackend || createImageBackend({
         nai: naiOfficialClient,
@@ -1005,6 +1015,7 @@ function cloneData(value) {
     return value;
 }
 
+__igsDefine(exports, "createImageJobReporter", () => createImageJobReporter);
 __igsDefine(exports, "bootstrapIGS", () => bootstrapIGS);
 __igsDefine(exports, "destroyIGS", () => destroyIGS);
 });
@@ -11279,6 +11290,12 @@ function createIgsReaderHost(options = {}) {
         closeSettings,
         getState,
         destroy,
+        // 生图服务的进度 / 结果：阅读器开着时进生成细线，返回 true；没开返回 false，由调用方退回酒馆 toastr。
+        showImageNotice(level, message) {
+            if (!state.activeReader || !generationStrip.getDialogReady()) return false;
+            imageNotice(level, message);
+            return true;
+        },
         getReaderSnapshotContract() {
             return {
                 selectors: Array.from(ORIGINAL_READER_REQUIRED_SELECTORS),
@@ -11721,6 +11738,7 @@ function createIgsReaderHost(options = {}) {
                 lastAction: state.activeReader.lastAction,
                 inputValue: state.activeReader.inputValue,
                 toastMessage: state.activeReader.toastMessage,
+                generationTip: generationStrip.getState().tip,
                 floatingState: cloneData(state.activeReader.floatingState),
                 snapshot: cloneData(state.activeReader.snapshot),
             } : null,
@@ -13001,7 +13019,7 @@ function createIgsReaderHost(options = {}) {
         if (!cg || !cg.skipMessage) return cg;
         const regen = await regenerateCurrentImage();
         if (regen && regen.reason === 'provider-not-enabled') {
-            writeToastSafe(cg.skipMessage);
+            imageNotice('warn', cg.skipMessage);
             return cg;
         }
         return regen;
@@ -13039,13 +13057,13 @@ function createIgsReaderHost(options = {}) {
                 slot: content.illustrationSlot,
             });
             if (state.activeReader === current) {
-                if (!result || result.ok === false) writeToastSafe(`重画失败：${(result && result.error) || '未返回具体原因'}`);
-                else if (result.reason === 'not-eligible') writeToastSafe('请打开当前聊天最新的非空 AI 楼层');
-                else writeToastSafe('这一张已重画。');
+                if (!result || result.ok === false) imageNotice('error', `重画失败：${(result && result.error) || '未返回具体原因'}`);
+                else if (result.reason === 'not-eligible') imageNotice('warn', '请打开当前聊天最新的非空 AI 楼层');
+                else imageNotice('success', '这一张已重画。');
             }
             return result || { ok: false, reason: 'error' };
         } catch (error) {
-            if (state.activeReader === current) writeToastSafe(`重画异常：${(error && error.message) || error || '未知错误'}`);
+            if (state.activeReader === current) imageNotice('error', `重画异常：${(error && error.message) || error || '未知错误'}`);
             return { ok: false, reason: 'error' };
         } finally {
             current.illustrationPending = false;
@@ -13102,7 +13120,7 @@ function createIgsReaderHost(options = {}) {
             if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
             if (state.activeReader !== current) return;
             if (generating) writeGenerating();
-            else writeToastSafe(message);
+            else imageNotice(level, message);
         };
         const skip = (result, message) => {
             if (!deferSkip) {
@@ -13158,7 +13176,7 @@ function createIgsReaderHost(options = {}) {
             if (options.imageJobLog && typeof options.imageJobLog.add === 'function') options.imageJobLog.add(level, message);
             if (state.activeReader !== current) return;
             if (generating) writeGenerating();
-            else writeToastSafe(message);
+            else imageNotice(level, message);
         };
         // 没有可补全素材时交给重画当前图，这类跳过不必单独提示。
         const skip = (result, message) => {
@@ -13241,9 +13259,8 @@ function createIgsReaderHost(options = {}) {
             current.payload.imageState = cloneData(result.imageState);
             rerenderActiveReader();
         }
-        writeToast(result && result.ok !== false
-            ? '背景图已更新。'
-            : `重新生图失败：${describeRegenFailure(result && result.reason)}`);
+        if (result && result.ok !== false) imageNotice('success', '背景图已更新。');
+        else imageNotice('error', `重新生图失败：${describeRegenFailure(result && result.reason)}`);
         return result;
     }
 
@@ -15073,6 +15090,14 @@ function createIgsReaderHost(options = {}) {
         if (!current) return;
         const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
         applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme), durationMs);
+    }
+
+    // 出图结果进生成细线：失败停红线展开原因；成功 / 跳过弹一下小字。关了「显示提示弹窗」时只留失败的红线。
+    function imageNotice(level, message) {
+        const current = state.activeReader;
+        if (!current || !message) return;
+        if (level !== 'error' && resolveBridgeConfigSnapshot({ mode: current.mode }).bridge.showToasts === false) return;
+        generationStrip.notice(level, message);
     }
 
     // 手动出图：点亮生成细线并在线上方弹一下小字，不再盖一个常驻提示。
@@ -58079,9 +58104,12 @@ __igsRegister("src/visual/igs-ui/generation-strip.js", function(module, exports,
 // 生成细线：对话框顶边一条 2px 渐变线，颜色取对话框文字色（换皮肤自动跟随），不压正文、不碰关闭键。
 // 在画：线慢慢流动；画完：亮一下淡出；失败：停成偏红的一段，点开看原因，点过即收。
 // 线上下留透明的可点区域，点一下在线上方弹一行小字说明在画什么。手动出图时也弹一下小字代替原来常驻的「生图中」提示。
+// 生图服务的进度 / 结果（补全素材、插图）阅读器开着时也走这里：失败停红线并展开原因，其余弹一下小字，不再弹酒馆 toastr。
 const KIND_LABEL = { cg: 'CG', sprite: '立绘', background: '背景', item: '物品', edit: '局部重绘' };
 const DONE_FLASH_MS = 1200;
 const NOTE_MS = 1800;
+// 结果说明按字数多留一会儿：每字 120ms，最长 6 秒。
+const NOTICE_MAX_MS = 6000;
 const MANUAL_HOLD_MS = 6000;
 // 楼层进度没发「完成」（服务中途跳过 / 出错）时的兜底：这么久没更新就当它结束。
 const FLOOR_STALE_MS = 120000;
@@ -58097,6 +58125,7 @@ function createGenerationStrip(options = {}) {
     let noteText = '';
     let timer = null;
     let noteTimer = null;
+    let noteUntil = 0;
 
     function liveFloors() {
         const at = now();
@@ -58123,7 +58152,7 @@ function createGenerationStrip(options = {}) {
     function tipText() {
         if (noteText) return noteText;
         if (!tipOpen) return '';
-        if (phase === 'failed' && failure) return `${KIND_LABEL[failure.kind] || '图片'}没画成：${failure.error}`;
+        if (phase === 'failed' && failure) return failure.text || `${KIND_LABEL[failure.kind] || '图片'}没画成：${failure.error}`;
         if (phase === 'busy') return summary();
         return '';
     }
@@ -58162,6 +58191,8 @@ function createGenerationStrip(options = {}) {
         if (tip) {
             const text = tipText();
             tip.textContent = text;
+            if (text.length > 26) tip.setAttribute('data-wrap', '');
+            else tip.removeAttribute('data-wrap');
             if (text) tip.removeAttribute('hidden');
             else tip.setAttribute('hidden', '');
         }
@@ -58182,7 +58213,8 @@ function createGenerationStrip(options = {}) {
         } else if (phase === 'busy') {
             phase = 'done';
             tipOpen = false;
-            schedule(DONE_FLASH_MS);
+            // 结果小字还没读完就别跟着熄掉。
+            schedule(Math.max(DONE_FLASH_MS, noteText ? noteUntil - now() : 0));
         } else if (phase === 'done' && !timer) {
             phase = 'idle';
         }
@@ -58202,10 +58234,13 @@ function createGenerationStrip(options = {}) {
         render();
     }
 
-    function note(text) {
+    const noticeMs = (text) => Math.min(NOTICE_MAX_MS, Math.max(NOTE_MS, text.length * 120));
+
+    function note(text, ms = NOTE_MS) {
         noteText = String(text || '');
+        noteUntil = now() + ms;
         if (noteTimer) timers.clearTimeout(noteTimer);
-        noteTimer = timers.setTimeout(() => { noteTimer = null; noteText = ''; render(); }, NOTE_MS);
+        noteTimer = timers.setTimeout(() => { noteTimer = null; noteText = ''; render(); }, ms);
         render();
     }
 
@@ -58237,6 +58272,45 @@ function createGenerationStrip(options = {}) {
             settle();
             note(text);
         },
+        // 生图服务的说明：error 停红线并展开原因（点一下收起），success / warn 弹一下小字；info 是过程记录，只在已亮时换小字。
+        notice(level, message) {
+            const text = String(message || '').trim();
+            if (!text) return;
+            if (level === 'info') {
+                if (phase === 'busy') note(text, noticeMs(text));
+                return;
+            }
+            // 有了结果，手动出图的兜底保持就到头了；后端还在画的照常亮着。
+            manualUntil = 0;
+            if (level === 'error') {
+                failure = { kind: 'cg', error: text, text };
+                tipOpen = true;
+                noteText = '';
+                if (noteTimer) timers.clearTimeout(noteTimer);
+                noteTimer = null;
+                settle();
+                return;
+            }
+            if (level === 'success' && failure && !jobs.size) {
+                failure = null;
+                tipOpen = false;
+                if (phase === 'failed') phase = 'idle';
+            }
+            note(text, noticeMs(text));
+            if (phase === 'idle' || phase === 'done') {
+                // 没亮时先亮起来，小字才挂得上；读完再熄。
+                phase = 'done';
+                schedule(noticeMs(text));
+                render();
+            } else {
+                settle();
+            }
+        },
+        // 对话框在不在：不在时细线挂不上，提示得交回调用方。
+        getDialogReady: () => {
+            const dialog = typeof options.getDialog === 'function' ? options.getDialog() : null;
+            return Boolean(dialog && typeof dialog.querySelector === 'function');
+        },
         // 阅读器重建对话框后补挂。
         remount: render,
         getState: () => ({ phase, jobs: jobs.size, floors: floors.size, failure: failure ? { ...failure } : null, tip: tipText() }),
@@ -58256,6 +58330,7 @@ const GENERATION_STRIP_STYLE_TEXT = `
 #igs-gen-strip[data-state="done"] .igs-gen-line{background-size:100% 100%;opacity:0;animation:igs-gen-done 1.2s ease-out;}
 #igs-gen-strip[data-state="failed"] .igs-gen-line{left:35%;right:35%;background:linear-gradient(90deg,transparent,#e07070,transparent);background-size:100% 100%;opacity:.85;}
 #igs-gen-strip .igs-gen-tip{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);max-width:min(420px,80vw);padding:3px 10px;border-radius:999px;background:var(--igs-dialog-bg,rgba(20,20,24,.82));font-size:12px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#igs-gen-strip .igs-gen-tip[data-wrap]{white-space:normal;width:max-content;text-align:center;border-radius:10px;line-height:17px;padding:4px 10px;overflow:visible;}
 #igs-gen-strip .igs-gen-tip[hidden]{display:none;}
 @keyframes igs-gen-flow{0%{background-position:-60% 0;}100%{background-position:160% 0;}}
 @keyframes igs-gen-done{0%{opacity:.9;}100%{opacity:0;}}
