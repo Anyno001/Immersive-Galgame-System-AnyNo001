@@ -676,8 +676,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')),
             nsfwCgPortraitToggle: checkbox('readerSettings.statusHud.nsfwCgPortrait', statusHud.nsfwCgPortrait, 'CG时对话框旁显示裸体头像（需衣柜里有引用「裸体」的服装）'),
             nsfwCgPortraitControls: statusHud.nsfwCgPortrait
-                ? field('readerSettings.statusHud.nsfwCgPortraitShift', '头像上下', selectInput('readerSettings.statusHud.nsfwCgPortraitShift', statusHud.nsfwCgPortraitShift, [[-30, '上移3'], [-20, '上移2'], [-10, '上移1'], [0, '自动'], [10, '下移1'], [20, '下移2'], [30, '下移3']]))
-                    + field('readerSettings.statusHud.nsfwCgPortraitZoom', '头像缩放', selectInput('readerSettings.statusHud.nsfwCgPortraitZoom', statusHud.nsfwCgPortraitZoom, [[80, '80%'], [90, '90%'], [100, '100%'], [115, '115%'], [130, '130%'], [150, '150%']]))
+                ? '<div class="igs-settings-field"><em>位置和大小在阅读器里调：按住头像拖动，双指捏合或滚轮缩放，双击复位</em></div>'
                 : '',
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),

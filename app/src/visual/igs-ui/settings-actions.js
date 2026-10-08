@@ -397,9 +397,9 @@ function normalizeMoodTier(value) {
 async function chooseMoodTier(dialogs, saved, name, { firstDefault = false } = {}) {
     const remembered = normalizeMoodTier(saved);
     const current = firstDefault ? 1 : remembered || 8;
-    const title = firstDefault ? `「${name}」这套衣服还没有图，先画几张？` : `「${name}」要画多少张表情差分？`;
+    const title = firstDefault ? `「${name}」新衣服，画几张？` : `「${name}」要画多少张表情差分？`;
     const choices = [
-        ...(firstDefault ? [{ value: '1', label: '1', note: '只画一张平和，所有表情共用（推荐）' }] : []),
+        ...(firstDefault ? [{ value: '1', label: '1', note: '平和一张，表情共用' }] : []),
         { value: '8', label: '8', note: '普通角色' },
         { value: '12', label: '12', note: '重要配角' },
         { value: '16', label: '16', note: '主要角色' },
@@ -1600,7 +1600,7 @@ export async function handleSettingsAction(action, ctx) {
             const paintNames = paintItems.map((item) => item.mood).join('、');
             const writeNames = writeLabels.join('、');
             const confirmed = await dialogs.confirm(singleDefault
-                ? `给${who}画 1 张「平和」立绘，这套衣服的所有表情都先用它。以后想要整套表情，再点「表情差分」选档位，会照这张的衣服来画。`
+                ? `给${who}画 1 张「平和」，表情先共用。`
                 : !writeLabels.length
                 ? `这一档还有 ${paintItems.length} 张已写好提示词、尚未出图：${paintNames}。将只补画这 ${paintItems.length} 张，不重写提示词。`
                 : !paintItems.length

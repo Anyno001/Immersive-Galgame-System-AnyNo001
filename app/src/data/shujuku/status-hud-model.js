@@ -32,10 +32,16 @@ export function resolveNsfwSpriteMode(src) {
     return src.showSpriteOnNsfw === false ? 'hide' : 'show';
 }
 
-// NSFW 挂 CG 时对话框左侧的裸体头像（头颈到锁骨，下缘渐隐）：自动按头部探测取景，档位只做手动微调。
-// 上下偏移单位为头宽的百分比（正数 = 取景框下移，露出更多胸口以上）；缩放为百分比。
-export const NSFW_CG_PORTRAIT_SHIFTS = Object.freeze([-30, -20, -10, 0, 10, 20, 30]);
-export const NSFW_CG_PORTRAIT_ZOOMS = Object.freeze([80, 90, 100, 115, 130, 150]);
+// NSFW 挂 CG 时对话框左侧的裸体头像（头颈到锁骨，下缘渐隐）：自动按头部探测取景，在对话框里拖动、捏合微调。
+// 偏移单位为头宽的百分比（上下正数 = 取景框下移，左右正数 = 取景框右移）；缩放为百分比。
+function clampPortraitShift(value) {
+    const n = Math.round(Number(value));
+    return Number.isFinite(n) ? Math.max(-120, Math.min(120, n)) : 0;
+}
+function clampPortraitZoom(value) {
+    const n = Math.round(Number(value));
+    return Number.isFinite(n) && n > 0 ? Math.max(50, Math.min(250, n)) : 100;
+}
 
 // 状态栏位置：电脑 / 手机各一份，x、y 为 0~100 的百分比（0 = 贴左 / 贴上，100 = 贴右 / 贴下，边距不变）。
 // 哪一份生效由 STATUS_HUD_PHONE_MEDIA 决定，与内嵌框「手机」判定同一口径（窗口宽 ≤ 640，或竖着拿的触屏）。
@@ -56,6 +62,7 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     nsfwVeilLevel: 'medium',
     nsfwCgPortrait: false,
     nsfwCgPortraitShift: 0,
+    nsfwCgPortraitShiftX: 0,
     nsfwCgPortraitZoom: 100,
     avatarRadius: 'circle',
     background: 'none',
@@ -93,8 +100,10 @@ export function normalizeStatusHudSettings(raw) {
         dimSpriteOnNarration: src.dimSpriteOnNarration === false ? false : true,
         nsfwVeilLevel: NSFW_VEIL_LEVEL_IDS.includes(src.nsfwVeilLevel) ? src.nsfwVeilLevel : STATUS_HUD_DEFAULTS.nsfwVeilLevel,
         nsfwCgPortrait: src.nsfwCgPortrait === true,
-        nsfwCgPortraitShift: NSFW_CG_PORTRAIT_SHIFTS.includes(Number(src.nsfwCgPortraitShift)) ? Number(src.nsfwCgPortraitShift) : 0,
-        nsfwCgPortraitZoom: NSFW_CG_PORTRAIT_ZOOMS.includes(Number(src.nsfwCgPortraitZoom)) ? Number(src.nsfwCgPortraitZoom) : 100,
+        // 头像位置在对话框里直接拖：上下、左右偏移按头宽百分比连续取值。
+        nsfwCgPortraitShift: clampPortraitShift(src.nsfwCgPortraitShift),
+        nsfwCgPortraitShiftX: clampPortraitShift(src.nsfwCgPortraitShiftX),
+        nsfwCgPortraitZoom: clampPortraitZoom(src.nsfwCgPortraitZoom),
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
         barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,

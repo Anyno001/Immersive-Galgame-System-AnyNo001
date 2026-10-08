@@ -341,7 +341,7 @@ test('gate:expression-set:new-outfit-can-paint-one-default-first', async () => {
     assert.deepEqual(choose[0].values, ['1', '8', '12', '16', '20']);
     assert.equal(choose[0].current, '1', '新衣服默认选「1 张」');
     assert.deepEqual(seen[0], ['平和']);
-    assert.match(asks[0], /给「冬月」的服装「泳装」画 1 张「平和」立绘/);
+    assert.match(asks[0], /给「冬月」的服装「泳装」画 1 张「平和」/);
     const outfit = draft.bridge.sceneAssets.characterOutfits['冬月']['泳装'];
     assert.equal(outfit.moods['平和'], 'igs-gen:new-平和');
     assert.deepEqual(Object.keys(outfit.moods), ['平和']);

@@ -768,6 +768,7 @@ export function createIgsReaderHost(options = {}) {
             get userName() { return String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''); },
             onDailyPhoto: saveDailyPhoto,
             onRomanceMemory: saveRomanceMemory,
+            onCgPortraitMove: (statusHud) => saveReaderSettingsPatch({ statusHud }),
         });
     }
 
@@ -3873,6 +3874,7 @@ export function createIgsReaderHost(options = {}) {
             get userName() { return String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''); },
             onDailyPhoto: saveDailyPhoto,
             onRomanceMemory: saveRomanceMemory,
+            onCgPortraitMove: (statusHud) => saveReaderSettingsPatch({ statusHud }),
         });
         if (current.dom.progress) {
             const progressText = formatReaderProgress(snapshot);

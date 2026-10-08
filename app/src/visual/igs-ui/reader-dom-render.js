@@ -1655,7 +1655,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     // Meta 互动：头部热区在亲密演出之后同步，心形快捷按钮已在前层时热区插到它下面。
     applyMetaFx(root, snapshot, { sprite: fxSprite, chatId: ctx.chatId, cast: castFxTargets });
     // NSFW 挂 CG 时对话框左侧的裸体头像（开关默认关，旁白页为空即撤下）。
-    applyCgPortrait(root, snapshot, { resolveAssetUrl });
+    applyCgPortrait(root, snapshot, { resolveAssetUrl, onMove: ctx.onCgPortraitMove });
     const sceneAudio = applySceneAudio(root, {
         master: snapshot.readerSettings && snapshot.readerSettings.audioMaster,
         bgm: snapshot.readerSettings && snapshot.readerSettings.bgm,
