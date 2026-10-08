@@ -15,6 +15,15 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         return String(ctx.chatId || '');
     }
 
+    // 「最新楼」= 后面还没有用户发言。平行事件、状态栏这类插件会在 AI 楼后面再插一条（常是隐藏的系统消息），
+    // 按「最后一条」判断会让这楼的立绘、场景、CG 全部不生成。
+    function isLatestTurn(chat, messageId) {
+        for (let i = messageId + 1; i < chat.length; i += 1) {
+            if (chat[i] && chat[i].is_user) return false;
+        }
+        return true;
+    }
+
     function readFloor(messageId) {
         const ctx = context();
         const msg = ctx && Array.isArray(ctx.chat) ? ctx.chat[messageId] : null;
@@ -24,7 +33,7 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
             messageId: Number(messageId),
             swipeId: Number.isInteger(msg.swipe_id) ? msg.swipe_id : 0,
             isAi: !msg.is_user && !msg.is_system,
-            isLatest: Number(messageId) === ctx.chat.length - 1,
+            isLatest: isLatestTurn(ctx.chat, Number(messageId)),
             text: typeof msg.mes === 'string' ? msg.mes : '',
         };
     }

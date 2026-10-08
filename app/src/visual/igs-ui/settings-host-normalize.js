@@ -12,7 +12,7 @@ import { normalizeAutoIllustrationSettings } from '../../generated-images/illust
 import { normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_IMAGE_API, DIALOG_FONT_OPTIONS, DEFAULT_PINNED_TOOLBAR_BUTTONS, normalizeScenePromptRule, READER_SETTINGS_SCHEMA_VERSION, TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData, clampNumber, normalizeBoolean, normalizeFiniteNumber, normalizeNullableNumber, normalizeOpacity } from './reader-value-utils.js';
-import { normalizeBtnOrder, normalizeDialogBarButtons, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
+import { normalizeBtnOrder, normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, normalizeClassicDialogWidthPercent, normalizeDialogSkin } from './classic-dialog-skin.js';
@@ -247,6 +247,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         hiddenBtns: [],
         btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
         toolbarSplit: 'split',
+        dialogBarAlign: 'auto',
         dialogBarBtns: normalizeDialogBarButtons(null),
         spriteLayouts: {},
         spriteHeads: {},
@@ -310,6 +311,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
     normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
     normalized.toolbarSplit = normalizeToolbarSplit(normalized.toolbarSplit);
+    normalized.dialogBarAlign = normalizeDialogBarAlign(normalized.dialogBarAlign);
     normalized.dialogBarBtns = normalizeDialogBarButtons(normalized.dialogBarBtns);
     normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);
     normalized.spriteDefaultScale = normalizeSpriteDefaultScale(normalized.spriteDefaultScale);

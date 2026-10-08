@@ -290,7 +290,7 @@ export function createIgsReaderHost(options = {}) {
         getTheme: () => readSettingsTheme(),
         global: options.global || globalThis,
     });
-    // 目录、提示弹窗、续读提示条跟设置器同一个配色。
+    // 目录、提示弹窗、续读弹窗跟设置器同一个配色。
     function readSettingsTheme() {
         try { return resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.settingsTheme || ''; } catch (_) { return ''; }
     }
@@ -1813,7 +1813,6 @@ export function createIgsReaderHost(options = {}) {
     function armReadingProgress(current) {
         if (!current || current.progressArmed) return;
         current.progressArmed = true;
-        dismissResumeBar(current);
     }
 
     function noteReadingProgress(current, snapshot) {
@@ -1907,6 +1906,16 @@ export function createIgsReaderHost(options = {}) {
         return last.id === latest && readingProgress.floorState(latest) !== 'read' && last.page > (Number(currentPage) || 0);
     }
 
+    // 断点续读：上次位置之后还有没读的（unread），或上次是自己翻回旧楼才退出的（back：比读到过的最远处靠前）。
+    // 只追最新楼的人两样都不沾，不打扰。
+    function resumeKind(last, ids, currentPage) {
+        if (!last || !ids.length) return '';
+        if (hasUnreadSince(last, ids, currentPage)) return 'unread';
+        const far = readingProgress.getFarthest();
+        const latest = ids[ids.length - 1];
+        return far && ids.includes(last.id) && last.id < latest && last.id < far.id ? 'back' : '';
+    }
+
     // 续读：上次那楼没读完就回原页；已读完就跳到它后面第一处没读的。
     async function resumeReading() {
         const last = readingProgress.getLast();
@@ -1936,7 +1945,6 @@ export function createIgsReaderHost(options = {}) {
         const overlay = current && current.dom && current.dom.overlay;
         if (!overlay || !overlay.ownerDocument) return { ok: false, reason: 'reader-not-open' };
         if (turnIndexPanel && turnIndexPanel.isOpen()) return turnIndexPanel.close();
-        dismissResumeBar(current);
         turnIndexPanel = createTurnIndexPanel(overlay.ownerDocument, {
             progress: readingProgress,
             tab,
@@ -1985,7 +1993,7 @@ export function createIgsReaderHost(options = {}) {
         return slot;
     }
 
-    // 打开阅读器停在最新楼、上次读到别处时，工具栏下方出一条续读提示；一动（翻页 / 切轮 / 跳转）就收起，每个聊天每次只提示一次。
+    // 打开阅读器停在最新楼、上次读到别处时弹窗问：回上次那楼，还是留在最新楼。每个聊天每次只问一次。
     async function offerResume(current) {
         const chatId = typeof options.getCurrentChatId === 'function' ? String(options.getCurrentChatId() || '') : '';
         const last = readingProgress.getLast();
@@ -1994,53 +2002,13 @@ export function createIgsReaderHost(options = {}) {
         progressRuntime.offered.add(chatId);
         const ids = (await listTurnsSafe()).map((turn) => Number(turn && turn.id));
         if (state.activeReader !== current || current.progressArmed) return;
-        // 只追最新楼的人不打扰：上次位置到最新之间都读完了（或停在最新楼本身已读完）就不提示。
-        if (!hasUnreadSince(last, ids, current.index)) return;
+        if (!resumeKind(last, ids, current.index)) return;
         const far = readingProgress.getFarthest();
         const unread = far ? ids.filter((id) => id > far.id).length : 0;
-        current.resumeBar = { text: `上次读到 ${positionLabel(last)}${unread ? ` · 后面还有 ${unread} 楼没读` : ''}` };
-        ensureResumeBar(current);
-    }
-
-    function ensureResumeBar(current) {
-        const overlay = current && current.dom && current.dom.overlay;
-        if (!current || !current.resumeBar || !overlay || !overlay.ownerDocument || typeof overlay.querySelector !== 'function') return;
-        if (overlay.querySelector('#igs-resume-bar')) return;
-        const bar = overlay.ownerDocument.createElement('div');
-        bar.id = 'igs-resume-bar';
-        bar.setAttribute('role', 'status');
-        const hintTheme = readSettingsTheme();
-        if (hintTheme) bar.setAttribute('data-igs-hint-theme', hintTheme);
-        const doc = overlay.ownerDocument;
-        const label = doc.createElement('span');
-        label.textContent = current.resumeBar.text;
-        bar.appendChild(label);
-        for (const [act, text, aria] of [['resume', '续读'], ['index', '目录'], ['close', '×', '关闭续读提示']]) {
-            const button = doc.createElement('button');
-            button.setAttribute('type', 'button');
-            button.setAttribute('data-igs-resume', act);
-            if (aria) button.setAttribute('aria-label', aria);
-            button.textContent = text;
-            bar.appendChild(button);
-        }
-        bar.addEventListener('click', (event) => {
-            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-            const button = event && event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-igs-resume]') : null;
-            const act = button ? button.getAttribute('data-igs-resume') : '';
-            if (!act) return;
-            dismissResumeBar(current);
-            if (act === 'resume') void handleReaderAction('resume-reading');
-            else if (act === 'index') void handleReaderAction('turn-index');
-        });
-        overlay.appendChild(bar);
-    }
-
-    function dismissResumeBar(current) {
-        if (!current) return;
-        current.resumeBar = null;
-        const overlay = current.dom && current.dom.overlay;
-        const bar = overlay && typeof overlay.querySelector === 'function' ? overlay.querySelector('#igs-resume-bar') : null;
-        if (bar) bar.remove();
+        const message = `上次读到 ${positionLabel(last)}${unread ? `，后面还有 ${unread} 楼没读` : ''}。\n接着上次阅读的地方，还是阅读最新一层？`;
+        const resume = await pageModal.confirm(message, { okLabel: `续读 ${last.id} 楼`, cancelLabel: '最新一层' });
+        if (!resume || state.activeReader !== current || current.progressArmed) return;
+        await jumpToPosition({ pos: last });
     }
 
     function noticeNewFloor() {
@@ -3913,7 +3881,6 @@ export function createIgsReaderHost(options = {}) {
         }
         syncOptionBubblesAfterRender(current, snapshot);
         syncAssetReviewAfterRender(current, snapshot);
-        ensureResumeBar(current);
         if (generationStripRemount) { generationStripRemount = false; generationStrip.remount(); }
     }
 
@@ -3989,11 +3956,12 @@ export function createIgsReaderHost(options = {}) {
 
     async function continueFromTitle(current) {
         dropTitleGate(current);
-        // 上次位置之后还有没读完的楼时「继续」接着读；已经追平最新就照旧打开最新楼。
+        // 上次位置之后还有没读完的楼时「继续」接着读；上次是翻回旧楼才退出的就回那一页；已经追平最新就照旧打开最新楼。
         const last = readingProgress.getLast();
-        if (last && hasUnreadSince(last, (await listTurnsSafe()).map((turn) => Number(turn && turn.id)), 0)) {
+        const kind = last ? resumeKind(last, (await listTurnsSafe()).map((turn) => Number(turn && turn.id)), 0) : '';
+        if (kind) {
             try {
-                const resumed = await resumeReading();
+                const resumed = kind === 'back' ? await jumpToPosition({ pos: last }) : await resumeReading();
                 if (resumed && resumed.ok !== false && resumed.moved !== false) return resumed;
             } catch (error) {
                 // 续读失败时退回打开最新楼。

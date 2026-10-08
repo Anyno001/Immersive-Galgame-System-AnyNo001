@@ -5,9 +5,9 @@ import { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette, n
 
 const STYLE_ID = 'igs-page-modal-style';
 
-// 提示类小浮层（确认 / 输入弹窗、续读提示条）跟设置器同一套四色：实色面板、主题墨色、高亮色做主按钮。
+// 提示类小浮层（确认 / 输入 / 续读弹窗）跟设置器同一套四色：实色面板、主题墨色、高亮色做主按钮。
 // 没给配色时用地雷色（SETTINGS_THEME_BASE）。
-const HINT_SCOPES = '.igs-page-modal,#igs-resume-bar';
+const HINT_SCOPES = '.igs-page-modal';
 const hintThemeVars = (theme) => {
     const { tokens } = getSettingsThemePalette(theme);
     return `--igs-hint-bg:${tokens.panel};--igs-hint-ink:${tokens.ink};--igs-hint-soft:${tokens['ink-2']};--igs-hint-field:${tokens.field};--igs-hint-fill:${tokens.highlight};`
@@ -16,7 +16,6 @@ const hintThemeVars = (theme) => {
 export const IGS_HINT_THEME_STYLE_TEXT = [
     `${HINT_SCOPES}{${hintThemeVars(SETTINGS_THEME_BASE)}}`,
     ...SETTINGS_THEME_OPTIONS.map(({ value }) => HINT_SCOPES.split(',').map((scope) => `${scope}[data-igs-hint-theme="${value}"]`).join(',') + `{${hintThemeVars(value)}}`),
-    '#igs-resume-bar{background:var(--igs-hint-bg);color:var(--igs-hint-ink);box-shadow:var(--igs-hint-shadow);}',
 ].join('\n');
 
 export const IGS_MODAL_STYLE_TEXT = `

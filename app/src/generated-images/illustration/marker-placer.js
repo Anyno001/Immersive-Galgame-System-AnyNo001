@@ -248,3 +248,43 @@ export function reattachTail(marked, tail) {
     if (!tail) return marked;
     return String(marked || '').replace(/\s+$/, '') + tail;
 }
+
+const TRANSPLANT_MARKER_RE = /\[igs-img:(\d+)\]/g;
+const TRANSPLANT_CONTEXT = 60;
+
+function contextLine(text, fromEnd) {
+    const lines = String(text || '').replace(/\[igs-img:\d+\]/g, '').split('\n').map((line) => line.trim()).filter(Boolean);
+    const line = fromEnd ? lines[lines.length - 1] : lines[0];
+    if (!line) return '';
+    return fromEnd ? line.slice(-TRANSPLANT_CONTEXT) : line.slice(0, TRANSPLANT_CONTEXT);
+}
+
+/**
+ * 出图期间正文被其他插件改过（开头、中间、content 外插了平行事件等）时，把按旧正文插好的标记搬到现在的正文上：
+ * 每个标记按它前面一行（没有就按后面一行）的文字在新正文里找位置；对不上的那张丢掉，不连累整楼。
+ * @param {string} marked 按旧正文插好标记的结果
+ * @param {string} current 现在的正文
+ * @returns {{ text: string, slots: number[] }} slots 为搬过去的标记编号
+ */
+export function transplantMarkers(marked, current) {
+    const source = String(marked || '');
+    const target = String(current || '');
+    const placed = [];
+    TRANSPLANT_MARKER_RE.lastIndex = 0;
+    let match;
+    while ((match = TRANSPLANT_MARKER_RE.exec(source))) {
+        const slot = Number(match[1]);
+        const before = contextLine(source.slice(0, match.index), true);
+        let index = before ? findAnchorInsertIndex(target, before).index : -1;
+        if (index < 0) {
+            const after = contextLine(source.slice(match.index + match[0].length), false);
+            const at = after ? target.indexOf(after) : -1;
+            index = at;
+        }
+        if (index >= 0) placed.push({ index, slot });
+    }
+    placed.sort((a, b) => b.index - a.index || b.slot - a.slot);
+    let text = target;
+    for (const item of placed) text = insertTokenOnOwnLine(text, item.index, `[igs-img:${item.slot}]`);
+    return { text, slots: placed.map((item) => item.slot).sort((a, b) => a - b) };
+}

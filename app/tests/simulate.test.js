@@ -9890,7 +9890,7 @@ test('gate:simulation:settings-search-go-to-setting-opens-performance-group', as
     }
 });
 
-test('gate:simulation:reading-progress-resume-bar-and-turn-index-panel', async () => {
+test('gate:simulation:reading-progress-resume-modal-and-turn-index-panel', async () => {
     const storage = createMemoryStorage();
     storage.setItem('igs-reading:chat-ti', JSON.stringify({ last: { id: 2, page: 1, at: 1 }, far: { id: 2, page: 1, at: 1 } }));
     const document = createFakeDocument();
@@ -9913,18 +9913,23 @@ test('gate:simulation:reading-progress-resume-bar-and-turn-index-panel', async (
     const opened = await vn.openLatestAvailable('pc');
     await new Promise((resolve) => setTimeout(resolve, 0));
     let overlay = document.getElementById('igs-overlay');
-    const bar = overlay.querySelector('#igs-resume-bar');
-    assert.ok(bar, '停在最新楼且上次读到别处时出续读提示');
-    const barText = bar.querySelector('span').textContent;
-    assert.match(barText, /上次读到 2 楼 · 第 2 页/);
-    assert.match(barText, /后面还有 1 楼没读/);
+    for (let i = 0; i < 20 && !document.querySelector('.igs-page-modal'); i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    const modal = document.querySelector('.igs-page-modal');
+    assert.ok(modal, '停在最新楼且上次读到别处时弹续读窗');
+    const modalText = modal.querySelector('.igs-page-modal-msg').textContent;
+    assert.match(modalText, /上次读到 2 楼 · 第 2 页/);
+    assert.match(modalText, /后面还有 1 楼没读/);
+    assert.equal(modal.querySelector('[data-igs-modal="ok"]').textContent, '续读 2 楼');
+    assert.equal(modal.querySelector('[data-igs-modal="cancel"]').textContent, '最新一层');
+    modal.dispatchEvent({ type: 'click', target: { closest: () => ({ getAttribute: () => 'cancel' }) } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(document.querySelector('.igs-page-modal'), null, '选「最新一层」后弹窗收起、留在最新楼');
 
     const opening = opened.reader.controller.invokeAction('first-turn');
     await opening;
     overlay = document.getElementById('igs-overlay');
     const panel = overlay.querySelector('#igs-turn-index');
     assert.ok(panel, '目录按钮打开目录面板');
-    assert.equal(overlay.querySelector('#igs-resume-bar'), null, '打开目录后续读提示收起');
     assert.match(panel.innerHTML, /最新 4 楼/);
     assert.match(panel.innerHTML, /续读/);
 
@@ -9957,7 +9962,44 @@ test('gate:simulation:reading-progress-latest-chaser-sees-no-resume-bar', async 
     });
     await vn.openLatestAvailable('pc');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(document.getElementById('igs-overlay').querySelector('#igs-resume-bar'), null);
+    for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(document.querySelector('.igs-page-modal'), null);
+    vn.destroy();
+});
+
+test('gate:simulation:reading-progress-offers-old-floor-after-jumping-back', async () => {
+    const storage = createMemoryStorage();
+    // 读到过最新的 4 楼，又跳回 2 楼后退出：中间都读过，但仍要问回 2 楼还是看最新。
+    storage.setItem('igs-reading:chat-back', JSON.stringify({ last: { id: 2, page: 1, at: 2 }, far: { id: 4, page: 1, at: 1 }, read: '0-4' }));
+    const document = createFakeDocument();
+    const messages = [0, 2, 4].map((id) => ({ id, text: `[角色: 艾莉]
+艾莉: 第${id}楼第一句。
+第${id}楼第二句。` }));
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage },
+        autoAttachMagicWand: false,
+        illustrationMessageHost: { ...createIllustrationMessageHost({ document }), getChatId: () => 'chat-back' },
+        hostAdapter: {
+            getCurrentMessage: async () => messages[2],
+            getMessageById: async (messageId) => messages.find((message) => message.id === Number(messageId)) || null,
+            getAdjacentMessage: async () => null,
+            listTurns: async () => messages,
+            typeAndSend: async () => ({ ok: true }),
+        },
+    });
+    await vn.openLatestAvailable('pc');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 20 && !document.querySelector('.igs-page-modal'); i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    const modal = document.querySelector('.igs-page-modal');
+    assert.ok(modal, '跳回旧楼后退出，下次打开要问');
+    assert.equal(modal.querySelector('[data-igs-modal="ok"]').textContent, '续读 2 楼');
+    modal.dispatchEvent({ type: 'click', target: { closest: () => ({ getAttribute: () => 'ok' }) } });
+    const shownId = () => {
+        const reader = vn.getState().igsUi.activeReader;
+        return reader ? Number(reader.contentMessageId != null ? reader.contentMessageId : reader.snapshot.messageId) : NaN;
+    };
+    for (let i = 0; i < 40 && shownId() !== 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(shownId(), 2, '选「续读」回到 2 楼');
     vn.destroy();
 });
 

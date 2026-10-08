@@ -356,7 +356,7 @@ test('gate:illustration:message-host-rejects-stale-floor-before-helper-write', a
         TavernHelper: { setChatMessages: async () => { writes++; } },
     });
     const expected = host.readFloor(0);
-    ctx.chat.push({ mes: 'next', is_user: false });
+    ctx.chat.push({ mes: 'next', is_user: true });
     assert.equal((await host.writeFloor(0, 'updated', expected)).reason, 'stale');
     ctx.chat.pop();
     ctx.chat[0].swipe_id = 1;
@@ -985,4 +985,38 @@ test('数据库生图 CG：单人且上下文唯一角色时 DNA 并进 char cap
     const pair = bindCharacterDnaToCaption(caption(2), assets, ['小雪'], 2);
     assert.equal(pair.caption.v4_prompt.caption.char_captions[0].char_caption, 'smile');
     assert.equal(pair.warnings.length, 1);
+});
+
+// 平行事件插件在 AI 楼后面另插一条（隐藏的系统消息或旁白楼）：这楼仍算最新楼，立绘、场景、CG 照常生成；用户发言后才不算。
+test('gate:illustration:message-host-latest-ignores-plugin-floors-after-ai', async () => {
+    const { createIllustrationMessageHost } = await import('../src/host/illustration-message-host.js');
+    const ctx = { chatId: 'c1', chat: [{ mes: 'u', is_user: true }, { mes: 'ai', is_user: false }, { mes: '平行事件', is_user: false, is_system: true }, { mes: '旁白', is_user: false }] };
+    const host = createIllustrationMessageHost({ SillyTavern: { getContext: () => ctx } });
+    assert.equal(host.readFloor(1).isLatest, true);
+    ctx.chat.push({ mes: '下一句', is_user: true });
+    assert.equal(host.readFloor(1).isLatest, false);
+});
+
+// 规划期间正文开头 / 中间被插了内容：标记按前后文搬到新正文，照常出图；对不上的那张丢掉。
+test('gate:illustration:service-mid-edit-during-planning-transplants-markers', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: NSFW_TEXT, settings: { nsfwEnabled: true } });
+    const head = '<parallel>与此同时，另一边……</parallel>\n';
+    fake.llm.request = async () => { fake.messageHost.setText(head + NSFW_TEXT); return REPLY; };
+    const store = createMemoryIllustrationStore();
+    const result = await createAutoIllustrationService({ ...fake, store }).processMessage(5);
+    assert.equal(result.ok, true);
+    assert.equal(fake.calls.writes.length, 1);
+    assert.ok(fake.calls.writes[0].startsWith(head), '插件插的内容原样保留');
+    assert.ok(fake.calls.writes[0].includes('\n[igs-img:1]\n二段。'));
+    assert.equal(fake.calls.nai, 1);
+});
+
+test('gate:illustration:transplant-markers-follows-context', async () => {
+    const { transplantMarkers } = await import('../src/generated-images/illustration/marker-placer.js');
+    const moved = transplantMarkers('甲段落一句。\n[igs-img:1]\n乙段落二句。\n丙三。\n[igs-img:2]', '【平行事件】别处。\n甲段落一句。\n乙段落二句改过。\n丙三。\n<状态栏>');
+    assert.deepEqual(moved.slots, [1, 2]);
+    assert.equal(moved.text, '【平行事件】别处。\n甲段落一句。\n[igs-img:1]\n乙段落二句改过。\n丙三。\n[igs-img:2]\n<状态栏>');
+    assert.deepEqual(transplantMarkers('甲。\n[igs-img:1]\n乙。', '完全不同的内容').slots, []);
 });

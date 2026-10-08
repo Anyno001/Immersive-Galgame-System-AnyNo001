@@ -70,8 +70,8 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
     prevTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor" stroke="none"/><line x1="5" y1="19" x2="5" y2="5"/></svg>',
     nextTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/></svg>',
     firstTurn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>',
-    quickSave: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M6 3.5h12v17l-6-4.5-6 4.5z"/><path d="M12 7v6M9 10h6"/></svg>',
-    quickLoad: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 3.5V8H8"/><path d="M12 7.5V12l3 2"/></svg>',
+    quickSave: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M6 3.5h12v17l-6-4.5-6 4.5z"/><path d="M12 6.5v6M9.5 10l2.5 2.5 2.5-2.5"/></svg>',
+    quickLoad: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M6 3.5h12v17l-6-4.5-6 4.5z"/><path d="M12 12.5v-6M9.5 9l2.5-2.5L14.5 9"/></svg>',
     toggleBar: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:block"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
     firstPage: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>',
     lastPage: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>',
@@ -112,7 +112,10 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
 const DIALOG_BAR_STYLE_TEXT = `
 #igs-dialog-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0;margin-top:4px;flex-shrink:0;pointer-events:auto;color:inherit;}
 #igs-dialog-bar[hidden]{display:none!important;}
-@media (hover:hover) and (pointer:fine){#igs-dialog-bar{justify-content:flex-start;}}
+@media (hover:hover) and (pointer:fine){#igs-dialog-bar:not([data-igs-align]){justify-content:flex-start;}}
+#igs-dialog-bar[data-igs-align="left"]{justify-content:flex-start;}
+#igs-dialog-bar[data-igs-align="center"]{justify-content:center;}
+#igs-dialog-bar[data-igs-align="right"]{justify-content:flex-end;}
 #igs-dialog-bar .igs-icon-btn{width:28px;height:26px;min-width:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:6px;background:transparent;color:inherit;opacity:.34;cursor:pointer;box-shadow:none;transition:opacity .15s,background .15s;}
 #igs-dialog-bar .igs-icon-btn:hover,#igs-dialog-bar .igs-icon-btn:focus-visible{opacity:.9;background:rgba(127,127,127,.12);}
 #igs-dialog-bar .igs-icon-btn:focus-visible{outline:1px solid currentColor;outline-offset:1px;}

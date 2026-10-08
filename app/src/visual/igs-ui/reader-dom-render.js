@@ -7,7 +7,7 @@ import {
     ORIGINAL_READER_TOOLBAR_BUTTONS,
 } from './original-reader-source.js';
 import { DIALOG_ONLY_BUTTONS, TOOLBAR_ACTIONS } from './reader-host-constants.js';
-import { normalizeDialogBarButtons, normalizeToolbarSplit } from './settings-normalize.js';
+import { normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarSplit } from './settings-normalize.js';
 import {
     ensureImageLoadingSpinner,
     ensureImageEmptyPlaceholder,
@@ -529,6 +529,9 @@ export function applyToolbarState(root, current) {
     // 工具栏分组：按实际可见顺序在每组第一个按钮上标记分隔；用户重排、隐藏、固定后同样成立，不改按钮尺寸。
     const groupOf = new Map(ORIGINAL_READER_TOOLBAR_BUTTONS.map((item) => [item.id, item.group || '']));
     if (dialogBar) {
+        const align = normalizeDialogBarAlign(readerSettings.dialogBarAlign);
+        if (align === 'auto') dialogBar.removeAttribute('data-igs-align');
+        else dialogBar.setAttribute('data-igs-align', align);
         const anyVisible = Array.from(dialogBar.children || []).some((button) => !(button.style && button.style.display === 'none'));
         if (anyVisible) dialogBar.removeAttribute('hidden');
         else dialogBar.setAttribute('hidden', '');

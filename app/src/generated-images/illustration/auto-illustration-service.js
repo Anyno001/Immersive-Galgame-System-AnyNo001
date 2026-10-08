@@ -1,4 +1,4 @@
-import { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex, appendedTail, reattachTail } from './marker-placer.js';
+import { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex, appendedTail, reattachTail, transplantMarkers } from './marker-placer.js';
 import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
 import { buildPlannerUserPrompt } from './planner-prompt.js';
 import { requestWithSoftRetry, DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
@@ -317,26 +317,32 @@ export function createAutoIllustrationService(deps) {
             progress(floor, { phase: 'done' });
             return { ok: false, reason: 'plan-failed', error };
         }
-        const latest = messageHost.readFloor(messageId);
-        const tail = latest ? appendedTail(expected.text, latest.text) : null;
-        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || tail == null) {
+        const markedText = insertMarkersAtAnchors(floor.text, slots);
+        let merged = mergeIntoLatest(messageId, floor, expected, markedText);
+        if (!merged) {
             await store.putFloor(key, { ...base, status: 'stale', updatedAt: now() });
-            report('warn', `第 ${messageId} 楼在规划期间被修改或已不是最新楼层，本次放弃生图，下次渲染时重试`);
+            report('warn', `第 ${messageId} 楼在规划期间已经有了新回复，或正文被大幅改写、插图位置都找不到，本楼不出 CG；需要的话点「绘制 CG」重画`);
             progress(floor, { phase: 'done' });
             return { ok: false, reason: 'stale' };
         }
-        if (tail) report('info', `第 ${messageId} 楼末尾被其他插件追加了内容，插图照常插在原文里`);
         await ensureRegexesOnce();
-        const writtenText = await messageHost.writeFloor(messageId, reattachTail(insertMarkersAtAnchors(floor.text, slots), tail), latest);
+        let writtenText = await messageHost.writeFloor(messageId, merged.text, merged.latest);
+        // 读和写之间又被插件改了一次：按最新正文重搬，最多再试两次。
+        for (let retry = 0; retry < 2 && writtenText && writtenText.reason === 'stale'; retry += 1) {
+            merged = mergeIntoLatest(messageId, floor, expected, markedText);
+            if (!merged) break;
+            writtenText = await messageHost.writeFloor(messageId, merged.text, merged.latest);
+        }
+        const keptSlots = merged && merged.slots ? slots.filter((item) => merged.slots.includes(item.slot)) : slots;
         if (!writtenText || !writtenText.ok) {
             const stale = writtenText && writtenText.reason === 'stale';
             await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });
-            report(stale ? 'warn' : 'error', `第 ${messageId} 楼${stale ? '在写回前被修改' : '无法写回插图标记'}，本次放弃生图`);
+            report(stale ? 'warn' : 'error', `第 ${messageId} 楼${stale ? '写回时一直被其他插件改动' : '无法写回插图标记'}，本楼不出 CG；需要的话点「绘制 CG」重画`);
             progress(floor, { phase: 'done' });
             return { ok: false, reason: stale ? 'stale' : 'write-failed' };
         }
-        report('info', `第 ${messageId} 楼已写入 ${slots.length} 个生成点，正在出图…`);
-        return paintDbgenCaptions(messageId, floor, key, s, base, slots);
+        report('info', `第 ${messageId} 楼已写入 ${keptSlots.length} 个生成点，正在出图…`);
+        return paintDbgenCaptions(messageId, floor, key, s, base, keptSlots);
     }
 
     async function paintDbgenCaptions(messageId, floor, key, s, base, slots) {
@@ -381,6 +387,23 @@ export function createAutoIllustrationService(deps) {
             ok: false, reason: 'generation-failed', count: succeeded, failedCount,
             error: `${failedCount} 张插图失败${succeeded ? `（成功 ${succeeded} 张）` : ''}：${Array.from(new Set(errors)).join('；')}`,
         };
+    }
+
+    // 规划期间正文被其他插件改了：只在末尾追加时原样接上；别处改过就把标记按前后文搬到新正文，对不上的那张丢掉。
+    // 「最新楼」只看后面有没有用户发言，插件在后面另起的楼不影响写回。
+    // 返回 { text, latest, slots }，slots 为 null 表示全部保留；一张都放不下返回 null。
+    function mergeIntoLatest(messageId, floor, expected, markedText) {
+        const latest = messageHost.readFloor(messageId);
+        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId) return null;
+        const tail = appendedTail(expected.text, latest.text);
+        if (tail != null) {
+            if (tail) report('info', `第 ${messageId} 楼末尾被其他插件追加了内容，插图照常插在原文里`);
+            return { text: reattachTail(markedText, tail), latest, slots: null };
+        }
+        const moved = transplantMarkers(markedText, stripIllustrationMarkers(latest.text));
+        if (!moved.slots.length) return null;
+        report('info', `第 ${messageId} 楼在规划期间被其他插件改过，插图按前后文对到新正文上（${moved.slots.length} 张）`);
+        return { text: moved.text, latest, slots: moved.slots };
     }
 
     async function run(messageId, floor, key, s, manual) {
@@ -473,22 +496,26 @@ export function createAutoIllustrationService(deps) {
             for (const warning of bound.warnings) report('info', `第 ${messageId} 楼${warning}`);
         }
 
-        // 其他插件只在末尾追加内容（平行事件、状态栏）时，段落编号不变，标记照插，再接上追加的那段；正文中间被改才放弃。
-        const latest = messageHost.readFloor(messageId);
-        const tail = latest ? appendedTail(expected.text, latest.text) : null;
-        if (!latest || !latest.isAi || !latest.isLatest || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId || tail == null) {
+        const markedText = insertMarkers(floor.text, numbered.paragraphs, plan.slots);
+        let merged = mergeIntoLatest(messageId, floor, expected, markedText);
+        if (!merged) {
             await store.putFloor(key, { ...base, status: 'stale', updatedAt: now() });
-            report('warn', `第 ${messageId} 楼在规划期间被修改或已不是最新楼层（可能有其他插件改写了正文），本次放弃生图，下次渲染时重试`);
+            report('warn', `第 ${messageId} 楼在规划期间已经有了新回复，或正文被大幅改写、插图位置都找不到，本楼不出 CG；需要的话点「绘制 CG」重画`);
             progress(floor, { phase: 'done' });
             return { ok: false, reason: 'stale' };
         }
-        if (tail) report('info', `第 ${messageId} 楼末尾被其他插件追加了内容，插图照常插在原文里`);
         await ensureRegexesOnce();
-        const written = await messageHost.writeFloor(messageId, reattachTail(insertMarkers(floor.text, numbered.paragraphs, plan.slots), tail), latest);
+        let written = await messageHost.writeFloor(messageId, merged.text, merged.latest);
+        for (let retry = 0; retry < 2 && written && written.reason === 'stale'; retry += 1) {
+            merged = mergeIntoLatest(messageId, floor, expected, markedText);
+            if (!merged) break;
+            written = await messageHost.writeFloor(messageId, merged.text, merged.latest);
+        }
+        if (merged && merged.slots) plan.slots = plan.slots.filter((slot) => merged.slots.includes(Number(slot.slot)));
         if (!written || !written.ok) {
             const stale = written && written.reason === 'stale';
             await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });
-            report(stale ? 'warn' : 'error', `第 ${messageId} 楼${stale ? '在写回前被修改' : '无法写回插图标记'}，本次放弃生图`);
+            report(stale ? 'warn' : 'error', `第 ${messageId} 楼${stale ? '写回时一直被其他插件改动' : '无法写回插图标记'}，本楼不出 CG；需要的话点「绘制 CG」重画`);
             progress(floor, { phase: 'done' });
             return { ok: false, reason: stale ? 'stale' : 'write-failed' };
         }
