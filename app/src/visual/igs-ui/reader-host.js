@@ -200,6 +200,7 @@ import {
 } from './settings-normalize.js';
 import { clearReaderModeRuntime, exitDocumentFullscreen } from './reader-runtime.js';
 import { enterSpriteEditMode } from './sprite-edit.js';
+import { enterCgPortraitEdit } from './cg-portrait.js';
 import { enterCastSlotEdit } from './cast-slot-edit.js';
 import { createDbPanelController } from '../../shujuku-panel/panel-controller.js';
 import { createMapPanelController } from './map-panel.js';
@@ -1660,7 +1661,7 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'sprite-edit') {
             const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
-            if (overlay && !enterCastSlotEdit(overlay, state.activeReader, buildSpriteEditContext())) enterSpriteEditMode(overlay, state.activeReader, buildSpriteEditContext());
+            if (overlay && !enterCgPortraitEdit(overlay, buildSpriteEditContext()) && !enterCastSlotEdit(overlay, state.activeReader, buildSpriteEditContext())) enterSpriteEditMode(overlay, state.activeReader, buildSpriteEditContext());
             return { ok: true };
         }
         if (normalizedAction === 'db-panel') {

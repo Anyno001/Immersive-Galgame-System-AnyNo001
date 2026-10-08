@@ -677,7 +677,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')),
             nsfwCgPortraitToggle: checkbox('readerSettings.statusHud.nsfwCgPortrait', statusHud.nsfwCgPortrait, 'CG时对话框旁显示裸体头像（需衣柜里有引用「裸体」的服装）'),
             nsfwCgPortraitControls: statusHud.nsfwCgPortrait
-                ? '<div class="igs-settings-field"><em>位置和大小在阅读器里调：按住头像拖动，双指捏合或滚轮缩放，双击复位</em></div>'
+                ? '<div class="igs-settings-field"><em>位置和大小在阅读器里调：挂着头像时点工具栏「调整立绘」，拖动、双指捏合或滚轮缩放后保存</em></div>'
                 : '',
             statusHudSection: buildStatusHudSettingsHtml(reader, options),
             optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
