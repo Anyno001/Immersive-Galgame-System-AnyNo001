@@ -1,4 +1,5 @@
 // 设置快照的规范化（bridge 配置与阅读器设置）：纯函数，阅读器和设置器共用。
+import { normalizeEventCgs } from '../../scene/event-cg.js';
 import { normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
 import { normalizeSpriteEnhance } from './sprite-enhance.js';
 import { normalizeAssetCards } from '../../scene/asset-scope.js';
@@ -136,6 +137,7 @@ export function normalizeSceneAssets(value) {
     normalized.characterVoices = normalizeCharacterVoices(normalized.characterVoices);
     normalized.characterSpriteScales = normalizeCharacterSpriteScales(normalized.characterSpriteScales);
     normalized.wardrobe = normalizeWardrobe(normalized.wardrobe);
+    normalized.eventCgs = normalizeEventCgs(normalized.eventCgs);
     normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
     // init group arrays
     if (!Array.isArray(normalized.timeGroups)) normalized.timeGroups = [];

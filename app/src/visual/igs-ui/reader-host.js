@@ -52,6 +52,7 @@ import { resolveRomanceRivalTarget } from './romance-settings.js';
 import { clearCastDom } from './stage-cast-render.js';
 import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { createOutfitResolver, resolveSpriteOutfit } from '../../scene/character-outfits.js';
+import { resolveEventCgForPage } from '../../scene/event-cg.js';
 import { collectOutfitClues } from '../../data/shujuku/outfit-clues.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
@@ -1606,8 +1607,13 @@ export function createIgsReaderHost(options = {}) {
             if (isReaderLastPage(current.snapshot) && handleOptionBubbleBlankClick(current, current.snapshot)) {
                 return { ok: true, moved: false, reason: 'option-bubbles-toggled', index: current.index };
             }
-            // 读旧楼读到最后一页：接着进下一楼，一路读到最新。
-            if (isReaderLastPage(current.snapshot) && Number(current.turnOffset) > 0) return moveReaderTurn(1);
+            // 读到最后一页：后面还有楼就接着进下一楼。不只看 turnOffset：新楼生成时阅读器没跟过去（设置开着、
+            // 生成没走阅读器等），turnOffset 仍是 0，后面却已经有楼了。
+            if (isReaderLastPage(current.snapshot) && (Number(current.turnOffset) > 0
+                || (!current.awaitingReply && current.streamPhase !== 'streaming'))) {
+                const moved = await moveReaderTurn(1, { quiet: true });
+                if (moved.reason !== 'turn-not-found') return moved;
+            }
             return moveReaderSegment(1);
         }
         if (normalizedAction === 'first-page') {
@@ -1765,7 +1771,7 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 切轮只换阅读源，不调用宿主跳楼：/chat-jump 到截断范围外的旧楼会让酒馆把中间楼层全部渲染出来。
-    async function moveReaderTurn(delta) {
+    async function moveReaderTurn(delta, { quiet = false } = {}) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
         const getAdjacentMessage = typeof options.getAdjacentMessage === 'function'
@@ -1778,7 +1784,7 @@ export function createIgsReaderHost(options = {}) {
         }
         const target = await getAdjacentMessage(currentMessageId, delta);
         if (!target) {
-            writeToast(delta > 0 ? '没有下一轮' : '没有上一轮');
+            if (!quiet) writeToast(delta > 0 ? '没有下一轮' : '没有上一轮');
             return { ok: true, moved: false, reason: 'turn-not-found', messageId: currentMessageId };
         }
         const nextOffset = Math.max(0, (Number(current.turnOffset) || 0) - Number(delta));
@@ -3080,6 +3086,11 @@ export function createIgsReaderHost(options = {}) {
         const boundMarkerUrl = illustrationHit && !illustrationUrl
             ? resolveBoundSlotImageUrl(displayImageState, illustrationHit.slot)
             : '';
+        // CG 库：本页没有生成 / 插件 CG 时，按关键词或 [igs-cg:名字] 显示作者预置的那张，停留同 CG 停留页数。
+        const eventCg = !illustrationHit && !slotBoundUrl && sceneAssets && sceneAssets.enabled && sceneAssets.eventCgs
+            ? resolveEventCgForPage({ source: sceneSourceForOffset, segments, index: normalizedIndex, holdPages: readerSettings && readerSettings.cgHoldPages, eventCgs: sceneAssets.eventCgs })
+            : null;
+        const eventCgUrl = eventCg ? String(resolveGenerated(eventCg.url) || '') : '';
         // 这一页挂了 CG。图还没从存储读回来时不要先铺场景背景，否则两张图先后写上同一层，对话框会跟着闪，最后往往只剩背景。
         const cgWaiting = Boolean(illustrationHit) && !illustrationUrl && !boundMarkerUrl;
         if (illustrationUrl) {
@@ -3094,6 +3105,10 @@ export function createIgsReaderHost(options = {}) {
             finalBackgroundImage = '';
             spriteImage = null;
             backgroundMatch = { source: 'cg' };
+        } else if (eventCgUrl) {
+            finalBackgroundImage = eventCgUrl;
+            spriteImage = null;
+            backgroundMatch = { source: 'event-cg' };
         } else if (slotBoundUrl) {
             finalBackgroundImage = slotBoundUrl;
             spriteImage = null;
@@ -3109,7 +3124,7 @@ export function createIgsReaderHost(options = {}) {
             }
             spriteImage = null;
         }
-        const cgActive = Boolean(illustrationUrl || boundMarkerUrl || cgWaiting);
+        const cgActive = Boolean(illustrationUrl || boundMarkerUrl || cgWaiting || eventCgUrl);
         // Per-segment classification from the formatted segment text itself.
         // Order matters: thought (*...*) is checked before dialogue ([名字]：) because
         // a thought segment looks like *[名字]：...* and would otherwise match dialogue.
@@ -3439,6 +3454,7 @@ export function createIgsReaderHost(options = {}) {
                 sceneWeather: statusSceneInfo.weather,
                 sceneDread,
                 sceneNsfw: Boolean(sceneStateForBg && sceneStateForBg.nsfw),
+                cgNsfw: Boolean(eventCgUrl && eventCg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
                 cgActive,
                 nsfwCgPortrait,

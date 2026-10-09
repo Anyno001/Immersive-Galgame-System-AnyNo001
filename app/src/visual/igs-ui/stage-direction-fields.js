@@ -2,6 +2,8 @@ import { esc } from './reader-value-utils.js';
 import { checkbox, field, rangeInput, segmentedInput, selectInput } from './settings-fields.js';
 import { collapsible, featureRow, perfItem, renderWordListField } from './fx-settings-fields.js';
 import {
+    CG_INTERLUDE_LABELS,
+    CG_INTERLUDE_STYLES,
     SCENE_TRANSITION_LABELS,
     SCENE_TRANSITION_STYLES,
     SPRITE_ACTION_KINDS,
@@ -50,7 +52,11 @@ function renderStageFields(s, more) {
         + checkbox(`${P}.stageCast.romanceDuo`, s.stageCast.romanceDuo, '亲密演出时保留同屏角色')
         + checkbox(`${P}.stageCast.castReact`, s.stageCast.castReact, '同屏角色反应')
         + checkbox(`${P}.stageCast.castStage`, s.stageCast.castStage, '同屏角色走位'));
-    return { transition, tint, motion, actions, camera, cast };
+    const cgOn = CG_INTERLUDE_STYLES.some((id) => s.cgEntrance.styles[id]);
+    const cgEntrance = perfItem(more, 'cg-interlude', '<span class="igs-perf-item-label">过场 CG 出场</span>', { hint: cgOn ? '勾选的效果每次随机抽' : '全不勾即关闭', detail: grid(
+        CG_INTERLUDE_STYLES.map((id) => checkbox(`${P}.cgEntrance.styles.${id}`, s.cgEntrance.styles[id], CG_INTERLUDE_LABELS[id])).join('')) })
+        + perfItem(more, 'cg-nsfw', field(`${P}.cgEntrance.nsfw`, 'NSFW 模糊到清晰', segmentedInput(`${P}.cgEntrance.nsfw`, s.cgEntrance.nsfw, [['off', '关'], ['fast', '快'], ['medium', '中'], ['slow', '慢']], 'NSFW 模糊到清晰')));
+    return { transition, tint, motion, actions, camera, cast, cgEntrance };
 }
 
 function renderTextFields(textFx, clickWait, more) {

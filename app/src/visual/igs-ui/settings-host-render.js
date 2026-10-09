@@ -11,6 +11,7 @@ import { renderWorldviewRow } from './worldview-fields.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { isGeneratedAssetUrl, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { createOutfitResolver } from '../../scene/character-outfits.js';
+import { renderEventCgList } from './settings-event-cg.js';
 import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList, kindModelPicker } from './settings-fields.js';
 import { NSFW_COUNT_MAX, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { describeLlmReady } from '../../generated-images/illustration/caption-writer.js';
@@ -534,6 +535,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + '<div class="igs-source-filter-note">仅在需要时附上完整说明。</div></details>',
                 wardrobeSection: checkbox('bridge.sceneAssets.wardrobeAutoFlow', sceneAssets.wardrobeAutoFlow !== false, '自动流程（新建后自动写提示词、生成参考图）')
                     + renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
+                eventCgSection: renderEventCgList(scopedEntries('eventCgs'), { resolveUrl: resolveGenerated, scopeTag }),
                 moodSection: checkbox('bridge.sceneAssets.moodAutoClassify', sceneAssets.moodAutoClassify === true, '自动归类（用副API）')
                     + (asyncState.moodAutoStatus ? `<div class="igs-source-filter-note" data-mood-auto-status>${esc(asyncState.moodAutoStatus)}</div>` : '')
                     + renderMoodGroupList(sceneAssets.moodGroups, { isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]) })

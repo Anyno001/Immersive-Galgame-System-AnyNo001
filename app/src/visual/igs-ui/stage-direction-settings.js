@@ -86,6 +86,29 @@ export function normalizeCameraSettings(value) {
     };
 }
 
+// CG 出场：过场 CG 与 NSFW CG 分开设。过场效果勾选哪些就从哪些里每次随机抽一种，一张图一个效果，全不勾即关闭；
+// NSFW 是先模糊再清晰的速度。
+export const CG_INTERLUDE_STYLES = Object.freeze(['cinema', 'photo', 'flash', 'panels', 'blinds', 'ink', 'tear', 'focus', 'film', 'puzzle', 'ripple']);
+export const CG_INTERLUDE_LABELS = Object.freeze({
+    cinema: '宽银幕拉开', photo: '相片落下', flash: '快门闪白', panels: '漫画分格', blinds: '百叶窗', ink: '墨晕',
+    tear: '撕纸', focus: '镜头对焦', film: '胶片', puzzle: '拼图', ripple: '涟漪',
+});
+export const CG_NSFW_SPEEDS = Object.freeze(['off', 'fast', 'medium', 'slow']);
+
+export function normalizeCgEntranceSettings(value) {
+    const src = plain(value);
+    const raw = plain(src.styles);
+    // 旧版是单选下拉 interlude：关 / 某一种 / 随机 / 两种搭配。
+    const legacy = typeof src.interlude === 'string' && !Object.keys(raw).length ? src.interlude : '';
+    const styles = {};
+    for (const id of CG_INTERLUDE_STYLES) {
+        styles[id] = legacy ? (legacy === 'random' || legacy === 'combo' || legacy === id) : raw[id] !== false;
+    }
+    const nsfw = pick(src.nsfw, CG_NSFW_SPEEDS, 'medium');
+    // 不带 enabled：跟随舞台调度其余项，单独设它不会把舞台调度打开。
+    return { styles, nsfw };
+}
+
 // 多角色同屏：实验功能，不进入一键演出档位；人数上限按设备固定，不开放配置。
 // romanceDuo（默认关）：恋爱演出时暧昧档保留陪衬退到背景、修罗场对象同台；关闭时有档位即收成单人。
 // castReact（默认关）：陪衬反应（react 标签、点名提亮、全员小跳、戳陪衬）；提示词只在开启时注入。
@@ -101,6 +124,7 @@ export const STAGE_DIRECTION_NORMALIZERS = Object.freeze({
     spriteActions: normalizeSpriteActionSettings,
     camera: normalizeCameraSettings,
     stageCast: normalizeStageCastSettings,
+    cgEntrance: normalizeCgEntranceSettings,
 });
 
 export const STAGE_DIRECTION_WORD_LIST_PATHS = Object.freeze([

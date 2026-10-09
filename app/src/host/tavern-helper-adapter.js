@@ -48,7 +48,11 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
             const step = Number(delta) < 0 ? -1 : 1;
             const messages = getNormalizedMessages(globalObject, hiddenMessageCache).filter(isReadableTurn);
             const currentIndex = messages.findIndex((message) => message.id === normalizedId);
-            if (currentIndex < 0) return null;
+            // 当前楼不在列表里（被删、被改成系统楼）时按楼号找最近的一楼，不当作没有。
+            if (currentIndex < 0) {
+                return (step > 0 ? messages.find((message) => message.id > normalizedId)
+                    : messages.slice().reverse().find((message) => message.id < normalizedId)) || null;
+            }
             return messages[currentIndex + step] || null;
         },
 

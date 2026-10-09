@@ -59,6 +59,7 @@ export function normalizeSettingsValue(path, value) {
             const volume = Number(value);
             return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.5;
         }
+        if (/^readerSettings\.cgEntrance\.styles\.[a-z]+$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.metaFx\.(enabled|poke|hover|reading|clock|festivals|digest)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.comicMode\.(enabled|frame|keepPrev|tail)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.(mangaBack\.enabled|crowdFx\.(enabled|react))$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';

@@ -3,7 +3,7 @@
 
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
-const LIBRARY_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'wardrobe', 'statusAvatars'];
+const LIBRARY_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'wardrobe', 'eventCgs', 'statusAvatars'];
 
 export function resolveAssetScope(ctx) {
     if (!ctx || typeof ctx !== 'object') return { key: '', legacyKey: '', kind: 'global', label: '全局' };
@@ -92,6 +92,7 @@ export function emptyCardLibrary() {
         characterDna: {},
         characterOutfits: {},
         wardrobe: {},
+        eventCgs: {},
         generated: { scenes: {}, characters: {}, characterAliases: {}, expressionNotes: {} },
         statusAvatars: {},
     };
@@ -137,6 +138,7 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
         characterDna: { ...plain(rest.characterDna), ...plain(card.characterDna) },
         characterOutfits: { ...plain(rest.characterOutfits), ...plain(card.characterOutfits) },
         wardrobe: { ...plain(rest.wardrobe), ...plain(card.wardrobe) },
+        eventCgs: { ...plain(rest.eventCgs), ...plain(card.eventCgs) },
         statusAvatars: { ...plain(rest.statusAvatars), ...plain(card.statusAvatars) },
         generated: mergeGenerated(rest.generated, card.generated),
     };
@@ -157,6 +159,7 @@ export function normalizeAssetCards(sceneAssets) {
             characterDna: plain(card.characterDna),
             characterOutfits: plain(card.characterOutfits),
             wardrobe: plain(card.wardrobe),
+            eventCgs: plain(card.eventCgs),
             generated: {
                 scenes: plain(plain(card.generated).scenes),
                 characters: plain(plain(card.generated).characters),

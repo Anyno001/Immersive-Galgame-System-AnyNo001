@@ -127,7 +127,7 @@ function shownUrl(url, resolveUrl) {
 }
 
 // note：点开大图时底部的说明（淡色借图要说清楚这不是这一格自己的图）。
-function thumb(url, alt, extraClass = '', resolveUrl, note = '') {
+export function thumb(url, alt, extraClass = '', resolveUrl, note = '') {
     const value = shownUrl(url, resolveUrl);
     if (isImageUrl(value)) {
         return `<img loading="lazy" decoding="async" class="igs-outfit-thumb${extraClass}" src="${esc(value)}" alt="${esc(alt)}" data-action="sprite-preview"${note ? ` data-preview-note="${esc(note)}"` : ''} onerror="this.classList.add('igs-sprite-thumb-broken')">`;

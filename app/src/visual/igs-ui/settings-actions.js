@@ -48,6 +48,7 @@ import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSe
 import { clearTtsCache, listSystemVoices, previewTts, resolveTtsVoice } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction } from './settings-outfit-actions.js';
+import { handleEventCgAction } from './settings-event-cg.js';
 import { beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { SETTINGS_SECTIONS, buildSettingsExport, parseSettingsImport, resetSettingsSection, settingsExportFileName } from './settings-sections.js';
@@ -3066,6 +3067,9 @@ export async function handleSettingsAction(action, ctx) {
 
     const outfitResult = handleOutfitAction(normalizedAction, { settingsState, options, persistSettingsDraft, rerenderSettings, dialogs, rerun: (next) => handleSettingsAction(next, ctx) });
     if (outfitResult) return outfitResult;
+    const eventCgResult = handleEventCgAction(normalizedAction, { settingsState, options, persistSettingsDraft, rerenderSettings, dialogs,
+        pickImage: () => { const g = options.global || globalThis; return g.document ? pickAssetImageFile(g.document, g) : null; } });
+    if (eventCgResult) return eventCgResult;
 
     if (normalizedAction === 'scene-add-char') {
         const globalObj = options.global || globalThis;

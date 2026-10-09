@@ -104,7 +104,7 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
     const bodies = {
         text: [fx.comic, host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.clickWaitMark, stage.textFx, stage.bilingual, host('sentence-paging', extras.sentencePaging)],
         stage: [
-            section('镜头与环境', [stage.transition, stage.tint, stage.camera, host('weather', extras.weatherFx, '雨雪雾粒子'), fx.crowd, host('stage-shake', extras.stageShake, '冲击时晃屏'), host('cinema-bars', extras.cinemaBars, '只盖背景，CG时收起')]),
+            section('镜头与环境', [stage.transition, stage.cgEntrance, stage.tint, stage.camera, host('weather', extras.weatherFx, '雨雪雾粒子'), fx.crowd, host('stage-shake', extras.stageShake, '冲击时晃屏'), host('cinema-bars', extras.cinemaBars, '只盖背景，CG时收起')]),
             section('立绘', [stage.motion, stage.actions, stage.cast, host('narration-filter', extras.narrationFilter)]),
         ],
         story: [

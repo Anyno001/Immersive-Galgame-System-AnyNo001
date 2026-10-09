@@ -1,3 +1,4 @@
+import { floorHasEventCg } from '../../scene/event-cg.js';
 import { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex, appendedTail, reattachTail, transplantMarkers } from './marker-placer.js';
 import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
 import { buildPlannerUserPrompt } from './planner-prompt.js';
@@ -448,10 +449,13 @@ export function createAutoIllustrationService(deps) {
         const numbered = numberParagraphs(floor.text);
         // 本楼没写场景标签 = 场景延续：继承最近一个带场景标签的楼的 NSFW，不让 NSFW 掉进过场概率。
         if (!numbered.scenes.length) numbered.isNsfw = inheritedNsfw(messageId);
-        const decision = numbered.paragraphs.length ? decide(s, numbered.isNsfw, manual) : null;
+        // 作者在 CG 库里预置了这一幕：用库里的图，不再生成过场图（NSFW 照常）。
+        const presetCg = !numbered.isNsfw && typeof deps.getSceneAssets === 'function'
+            && floorHasEventCg(floor.text, (deps.getSceneAssets() || {}).eventCgs);
+        const decision = numbered.paragraphs.length && !presetCg ? decide(s, numbered.isNsfw, manual) : null;
         if (!decision) {
             await store.putFloor(key, { kind: 'none', status: 'done', updatedAt: now() });
-            const why = !numbered.paragraphs.length ? '本楼没有可读正文'
+            const why = !numbered.paragraphs.length ? '本楼没有可读正文' : presetCg ? '本楼命中 CG 库里的预置 CG'
                 : (!numbered.isNsfw && !s.interludeEnabled ? '本楼未标记 NSFW 场景（需正文含 [igs-scene:场景|时间|天气|nsfw]），且未开启过场插图'
                     : '过场插图本次未触发（按触发概率随机）');
             report('info', `第 ${messageId} 楼跳过：${why}`);

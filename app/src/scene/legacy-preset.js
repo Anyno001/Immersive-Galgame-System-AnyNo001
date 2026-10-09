@@ -11,7 +11,7 @@ export const LEGACY_PRESET_KEY = 'igs:scene-presets:v1';
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 const isPlain = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const BLOCKED = new Set(['__proto__', 'prototype', 'constructor']);
-const NAME_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'wardrobe', 'statusAvatars'];
+const NAME_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'wardrobe', 'eventCgs', 'statusAvatars'];
 const GENERATED_FIELDS = ['scenes', 'characters', 'characterAliases', 'expressionNotes'];
 
 function clone(value) {
@@ -26,7 +26,7 @@ export function isLegacyPresetData(data) {
 
 // 设置页只列真有素材的旧预设；空壳不算「识别到」，免得顶部常驻一块点了也没东西的入口。
 export function legacyPresetHasContent(preset) {
-    return ['scenes', 'characters', 'wardrobe', 'characterOutfits'].some((key) => Object.keys(cleanMap(plain(preset)[key])).length > 0);
+    return ['scenes', 'characters', 'wardrobe', 'characterOutfits', 'eventCgs'].some((key) => Object.keys(cleanMap(plain(preset)[key])).length > 0);
 }
 
 function cleanMap(value) {

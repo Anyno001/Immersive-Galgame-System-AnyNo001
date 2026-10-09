@@ -92,7 +92,10 @@ function ghosts(motion) {
 
 test('gate: stage direction settings default off and register in reader normalizers and word list paths', () => {
     const s = normalizeStageDirectionSettings(null);
-    for (const value of Object.values(s)) assert.equal(value.enabled, false);
+    for (const [key, value] of Object.entries(s)) if (key !== 'cgEntrance') assert.equal(value.enabled, false);
+    assert.equal(Object.values(s.cgEntrance.styles).every(Boolean), true);
+    assert.equal(s.cgEntrance.nsfw, 'medium');
+    assert.deepEqual(Object.entries(normalizeStageDirectionSettings({ cgEntrance: { interlude: 'photo' } }).cgEntrance.styles).filter(([, on]) => on).map(([id]) => id), ['photo']);
     assert.equal(s.sceneTransition.style, 'fade');
     assert.deepEqual(s.spriteActions.hop, SPRITE_ACTION_DEFAULTS.hop);
     assert.deepEqual(s.camera.closeUpEmotions, CAMERA_CLOSE_UP_DEFAULTS);
@@ -128,7 +131,7 @@ test('gate: background change cross-fades through a ghost layer only after the f
 test('gate: CG focus does not restart when only the decoded address changes', () => {
     const r = makeReader();
     const settings = { sceneTransition: { enabled: true } };
-    const content = { cgActive: true, backgroundImage: 'https://example.test/cg.png' };
+    const content = { cgActive: true, sceneNsfw: true, backgroundImage: 'https://example.test/cg.png' };
     const run = (paint) => applyStageDirection(r.root, snapshot(settings, content), {
         bgUrl: paint, bgKey: content.backgroundImage, reducedMotion: false, ...r.clock,
     });
@@ -139,11 +142,22 @@ test('gate: CG focus does not restart when only the decoded address changes', ()
     assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(4px)');
     run('');
     assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(4px)');
-    const next = { cgActive: true, backgroundImage: 'https://example.test/other.png' };
+    const next = { cgActive: true, sceneNsfw: true, backgroundImage: 'https://example.test/other.png' };
     applyStageDirection(r.root, snapshot(settings, next, 1), {
         bgUrl: 'blob:three', bgKey: next.backgroundImage, reducedMotion: false, ...r.clock,
     });
     assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(28px)');
+});
+
+test('gate: interlude CG uses its own entrance, NSFW blur speed can be turned off', () => {
+    const r = makeReader();
+    const settings = { sceneTransition: { enabled: true }, cgEntrance: { styles: { cinema: true, photo: false, flash: false, panels: false, blinds: false, ink: false, tear: false, focus: false, film: false, puzzle: false, ripple: false }, nsfw: 'off' } };
+    applyStageDirection(r.root, snapshot(settings, { cgActive: true, backgroundImage: 'a.png' }), { bgUrl: 'a.png', bgKey: 'a.png', reducedMotion: false, ...r.clock });
+    assert.match(r.bg.style.getPropertyValue('clip-path'), /inset/);
+    assert.notEqual(r.bg.style.getPropertyValue('filter'), 'blur(28px)');
+    const n = makeReader();
+    applyStageDirection(n.root, snapshot(settings, { cgActive: true, sceneNsfw: true, backgroundImage: 'b.png' }), { bgUrl: 'b.png', bgKey: 'b.png', reducedMotion: false, ...n.clock });
+    assert.equal(n.bg.style.getPropertyValue('filter'), 'none');
 });
 
 test('gate: same-location background change always fades and re-render does not replay', () => {
