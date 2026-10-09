@@ -8,7 +8,7 @@ import {
 import { canonicalName, noteFormGender, setActiveFormGenders } from './voice-bark.js';
 import { createSettingsHost } from './settings-host.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
-import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers } from '../../scene/scene-directives.js';
+import { extractSceneDirectives, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
 import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
 import { draftAssetLibrary, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
@@ -1437,6 +1437,23 @@ export function createIgsReaderHost(options = {}) {
                 onOptionBubbleClick(container, send, cfg, dice ? { display, dice } : null);
             });
             container.appendChild(bubble);
+        }
+        const overlayForInput = container.closest && container.closest('#igs-overlay');
+        if (overlayForInput && overlayForInput.classList) overlayForInput.classList.remove('igs-free-input');
+        if (overlayForInput && overlayForInput.getAttribute('data-igs-input') === 'float') {
+            const free = doc.createElement('button');
+            free.type = 'button';
+            free.className = 'igs-option-bubble igs-bubble igs-free-input-bubble';
+            free.textContent = '自由输入…';
+            free.addEventListener('click', (event) => {
+                if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+                playReaderUiSfx('confirm');
+                hideOptionBubbles(container);
+                overlayForInput.classList.add('igs-free-input');
+                const input = overlayForInput.querySelector('#igs-input');
+                if (input && typeof input.focus === 'function') input.focus();
+            });
+            container.appendChild(free);
         }
         container.removeAttribute('hidden');
         syncStatusHudOptionSuppression(container, true);
@@ -2980,20 +2997,24 @@ export function createIgsReaderHost(options = {}) {
         // 场景切换只看 [igs-scene] 标签：直接在原文里定位「当前页正文」，
         // 再取它前方最近的场景标签。不依赖段数、不做偏移累加。
         const sceneSourceForOffset = String(payload.raw || text || '');
-        const currentOffset = sceneDirectives.length
-            ? locateTextOffsetInSource(sceneSourceForOffset, currentText)
-            : -1;
+        // 说话页正文带「[名字]：」前缀，原文里找不到时先去掉前缀再找；仍找不到就借前面最近一页的位置。
+        // 不按序号推断：说话指令常常没有序号，会一路读到本楼最后一个场景标签，说话页的背景就提前换掉。
+        const locateSegment = (segment) => {
+            const exact = locateTextOffsetInSource(sceneSourceForOffset, segment);
+            return exact >= 0 ? exact : locateTextOffsetInSource(sceneSourceForOffset, stripSegmentSpeaker(segment));
+        };
+        let currentOffset = sceneDirectives.length ? locateSegment(currentText) : -1;
+        for (let back = normalizedIndex - 1; sceneDirectives.length && currentOffset < 0 && back >= 0; back -= 1) {
+            currentOffset = locateSegment(segments[back]);
+        }
         const inheritedSceneState = payload.inheritedSceneState && payload.inheritedSceneState.scene
             ? { ...payload.inheritedSceneState, lastDirectiveType: 'scene' }
             : null;
         // 本楼正文解析出的场景优先；AI 漏发 [igs-scene:]（本楼可能仍有 char/thought 指令）
         // 时继承 payload.inheritedSceneState——它由 buildReaderPayload 向前最多追溯
         // 3 个 AI 楼层取得，只影响背景/地点栏，不影响立绘与分页归属。
-        const ownSceneState = sceneDirectives.length
-            ? (currentOffset >= 0
-                ? resolveSceneAtSourceOffset(sceneSourceForOffset, currentOffset)
-                : resolveSceneStateAtIndex(sceneDirectives, normalizedIndex))
-            : null;
+        // 说话页和旁白页同一条路：只按原文位置取前方最近的场景标签，定位不到就用继承来的场景。
+        const ownSceneState = currentOffset >= 0 ? resolveSceneAtSourceOffset(sceneSourceForOffset, currentOffset) : null;
         const sceneStateForBg = (ownSceneState && ownSceneState.scene) ? ownSceneState : inheritedSceneState;
         // 恐怖档位：取当前页正文之前最近的 [igs-dread:N]，本楼没有就用向前追溯到的（见 igs-compat）。
         const ownDread = sceneSourceForOffset.indexOf('[igs-dread') === -1 ? null : (() => {
@@ -3007,10 +3028,8 @@ export function createIgsReaderHost(options = {}) {
         const nsfwSpan = romanceForSpan.enabled && sceneStateForBg && sceneStateForBg.nsfw
             ? resolveNsfwSpan(segments.map((segment, index) => {
                 if (index === normalizedIndex) return true;
-                const offset = sceneDirectives.length ? locateTextOffsetInSource(sceneSourceForOffset, segment) : -1;
-                const own = sceneDirectives.length
-                    ? (offset >= 0 ? resolveSceneAtSourceOffset(sceneSourceForOffset, offset) : resolveSceneStateAtIndex(sceneDirectives, index))
-                    : null;
+                const offset = sceneDirectives.length ? locateSegment(segment) : -1;
+                const own = offset >= 0 ? resolveSceneAtSourceOffset(sceneSourceForOffset, offset) : null;
                 const pageState = own && own.scene ? own : inheritedSceneState;
                 return Boolean(pageState && pageState.nsfw);
             }), normalizedIndex, Boolean(payload.inheritedSceneState && payload.inheritedSceneState.nsfw))

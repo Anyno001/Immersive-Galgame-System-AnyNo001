@@ -1564,6 +1564,22 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         } else {
             textEl.style.color = '';
         }
+        // 对话框底部快捷栏跟正文同色：颜色只写在正文上，按钮栏继承到的是对话框外层的浅色，浅色对话框上就看不见。
+        const quickBar = dialog && dialog.querySelector('#igs-dialog-bar');
+        const view = textEl.ownerDocument && textEl.ownerDocument.defaultView;
+        if (quickBar && view && typeof view.getComputedStyle === 'function') quickBar.style.color = view.getComputedStyle(textEl).color || '';
+        // 顶部工具栏淡淡跟随皮肤：底板取对话框底色、图标取正文色；切图皮肤的对话框没有底色，按正文深浅配一块反差底。
+        if (view && typeof view.getComputedStyle === 'function' && root.style && typeof root.style.setProperty === 'function') {
+            const ink = view.getComputedStyle(textEl).color || '';
+            const rgba = (value) => (String(value).match(/[\d.]+/g) || []).map(Number);
+            const [r = 255, g = 255, b = 255] = rgba(ink);
+            const plateParts = rgba(dialog ? view.getComputedStyle(dialog).backgroundColor : '');
+            const plateAlpha = plateParts.length > 3 ? plateParts[3] : (plateParts.length ? 1 : 0);
+            const lightInk = (r * 299 + g * 587 + b * 114) / 1000 > 140;
+            const plate = plateAlpha >= 0.15 ? `rgb(${plateParts.slice(0, 3).join(',')})` : (lightInk ? 'rgb(18,18,20)' : 'rgb(246,244,240)');
+            if (ink) root.style.setProperty('--igs-bar-ink', ink);
+            root.style.setProperty('--igs-bar-plate', plate);
+        }
         // 字体、字号定下后再量：放不下一行的注音改成译文单独成行，打字机随后按改好的排版测量。
         if (bilingualDisplay === 'ruby') fitBilingualRuby(textEl);
     }
@@ -1732,6 +1748,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         }
     }
     const controls = root.querySelector('.igs-controls');
+    // 漫画模式的输入框样式写在对话框里，悬浮时一律放回去。
+    const floatInput = snapshot.mode !== 'embedded' && !comicActive && snapshot.readerSettings.inputPlacement === 'float';
+    if (root.setAttribute) root.setAttribute('data-igs-input', floatInput ? 'float' : 'dialog');
+    if (controls && dialog) {
+        if (floatInput && controls.parentNode !== root) root.appendChild(controls);
+        else if (!floatInput && controls.parentNode !== dialog) dialog.insertBefore(controls, dialog.querySelector('#igs-dialog-bar'));
+    }
     if (controls) {
         // 内嵌模式使用酒馆默认输入框；其它模式的 IGS 输入区只在最后一页显示。
         const comicSent = isComicModeActive(snapshot.readerSettings) && current.comicInputSent && current.comicInputSent === comicContentKey(snapshot);

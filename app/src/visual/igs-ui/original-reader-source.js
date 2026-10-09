@@ -326,6 +326,40 @@ ${TOAST_THEME_STYLE_TEXT}
 #igs-overlay.igs-default-reader-chrome .igs-ctrl-bar .igs-icon-btn{width:32px;height:32px;border:0;background:transparent;border-radius:0;box-shadow:none;color:rgba(255,255,255,.32);}
 #igs-overlay.igs-default-reader-chrome .igs-ctrl-bar .igs-icon-btn svg{width:11px;height:11px;transform:scale(1.2);transform-origin:center;}
 #igs-overlay.igs-default-reader-chrome .igs-ctrl-bar .igs-icon-btn:hover{background:transparent;border-color:transparent;color:rgba(255,255,255,.52);}
+/* 输入区：不描边，底色是正文色的一层薄纱，文字和占位跟正文色；悬浮时用对话框底色做底板。 */
+#igs-overlay .igs-controls{border-top:0;}
+#igs-overlay .igs-input,#igs-overlay .igs-send-btn,#igs-overlay #igs-send-status{border:0;box-shadow:none;color:var(--igs-bar-ink,#fff);}
+#igs-overlay .igs-input{border-radius:10px;background:color-mix(in srgb,var(--igs-bar-ink,#fff) 9%,transparent);}
+#igs-overlay .igs-input:focus{background:color-mix(in srgb,var(--igs-bar-ink,#fff) 14%,transparent);}
+#igs-overlay .igs-input::placeholder{color:color-mix(in srgb,var(--igs-bar-ink,#fff) 45%,transparent);}
+#igs-overlay .igs-send-btn{border-radius:10px;background:color-mix(in srgb,var(--igs-bar-ink,#fff) 14%,transparent);}
+#igs-overlay .igs-send-btn:hover{background:color-mix(in srgb,var(--igs-bar-ink,#fff) 22%,transparent);}
+#igs-overlay .igs-send-btn:focus{box-shadow:none;}
+#igs-overlay #igs-send-status{background:color-mix(in srgb,var(--igs-bar-ink,#fff) 7%,transparent);}
+#igs-overlay[data-igs-input="float"]>.igs-controls{position:absolute;z-index:7;left:50%;transform:translateX(-50%);bottom:calc(24px + var(--igs-dialog-h,160px) + 10px);width:min(620px,calc(100% - 32px));box-sizing:border-box;padding:6px;border-radius:14px;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 72%,transparent);}
+#igs-overlay[data-igs-input="float"]:not(.igs-toolbar-top)>.igs-controls{bottom:calc(24px + var(--igs-dialog-h,160px) + 50px);}
+#igs-overlay[data-igs-input="float"].igs-options-visible:not(.igs-free-input)>.igs-controls{display:none!important;}
+#igs-overlay .igs-option-bubble.igs-free-input-bubble{opacity:.72;}
+/* 工具栏统一：干净的半透明小底板，淡淡跟随皮肤（--igs-bar-plate 对话框底色、--igs-bar-ink 正文色，由渲染层写入）；单行、等大、等距，不用毛玻璃和阴影。 */
+#igs-overlay #igs-ctrl-bar{display:flex;flex-wrap:nowrap;align-items:center;gap:0;padding:2px 3px;border:0;border-radius:10px;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 40%,transparent);color:var(--igs-bar-ink,#fff);}
+#igs-overlay:not(.igs-toolbar-top):not(.igs-mode-embedded) #igs-ctrl-bar{top:auto;bottom:calc(100% + 8px);}
+#igs-overlay #igs-ctrl-bar{align-items:flex-start;}
+#igs-overlay #igs-bar-btns,#igs-overlay #igs-bar-pinned{gap:0!important;align-items:center;align-content:flex-start;height:auto;min-height:28px;}
+/* 放得下就一行；放不下按整格换行，每行右对齐、同一网格，不横向滚动。 */
+#igs-overlay #igs-bar-btns{flex-wrap:wrap;justify-content:flex-end;overflow:visible;max-width:calc(100vw - 120px);}
+#igs-overlay.igs-toolbar-top #igs-bar-btns.igs-bar-overflow{cursor:auto;}
+#igs-overlay.igs-toolbar-top #igs-bar-btns,#igs-overlay.igs-toolbar-top #igs-bar-btns.igs-bar-overflow{max-width:calc(100vw - 120px);flex-wrap:wrap;justify-content:flex-end;}
+#igs-overlay #igs-bar-btns::-webkit-scrollbar{display:none;}
+#igs-overlay #igs-ctrl-bar .igs-icon-btn{flex:0 0 auto;width:28px;height:28px;min-width:28px;padding:0;margin:0;border:0;border-radius:7px;background:transparent;box-shadow:none;color:inherit;opacity:.5;transition:opacity .15s,background-color .15s;}
+#igs-overlay #igs-ctrl-bar .igs-icon-btn:hover,#igs-overlay #igs-ctrl-bar .igs-icon-btn:focus-visible{opacity:.95;background:color-mix(in srgb,currentColor 12%,transparent);}
+#igs-overlay #igs-ctrl-bar .igs-icon-btn[aria-pressed="true"]{opacity:.85;}
+#igs-overlay #igs-ctrl-bar .igs-icon-btn:disabled{opacity:.2;}
+#igs-overlay #igs-ctrl-bar .igs-icon-btn svg{width:13px;height:13px;transform:none;}
+/* 分组、固定区、折叠钮与普通按钮同间距，第一排和折叠钮在同一条线上。 */
+#igs-overlay #igs-ctrl-bar .igs-icon-btn.igs-group-start,#igs-overlay #igs-bar-pinned,#igs-overlay #igs-ctrl-bar>.igs-icon-btn{margin-left:0;}
+#igs-overlay #igs-ctrl-bar>.igs-icon-btn{align-self:flex-start;}
+#igs-overlay #igs-ctrl-bar>[data-act="toggle-bar"] svg{transition:transform .2s ease;}
+#igs-overlay.igs-toolbar-expanded #igs-ctrl-bar>[data-act="toggle-bar"] svg{transform:rotate(180deg);}
 .igs-mode-embedded .igs-ctrl-bar,.igs-mode-embedded #igs-bar-btns,#igs-overlay.igs-default-reader-chrome:not(.igs-toolbar-top) .igs-ctrl-bar,#igs-overlay.igs-default-reader-chrome:not(.igs-toolbar-top) #igs-bar-btns{justify-content:flex-end;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-pos]{top:calc(14px + var(--igs-toolbar-h,32px) + 8px);bottom:calc(14px + var(--igs-dialog-h,220px) + 10px);max-height:none;overflow-y:auto;overscroll-behavior:contain;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}

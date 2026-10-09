@@ -225,6 +225,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         glassBackdropFilter: false,
         toolbarScale: 100,
         toolbarDock: 'top',
+        inputPlacement: 'dialog',
         inputScale: 100,
         imgMode: 'adaptive',
         imgBrightness: 100,
@@ -292,6 +293,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.glassBackdropFilter = normalizeBoolean(normalized.glassBackdropFilter, base.glassBackdropFilter);
     normalized.toolbarScale = normalizeFiniteNumber(normalized.toolbarScale, base.toolbarScale);
     normalized.toolbarDock = normalized.toolbarDock === 'float' ? 'float' : 'top';
+    normalized.inputPlacement = normalized.inputPlacement === 'float' ? 'float' : 'dialog';
     normalized.inputScale = normalizeFiniteNumber(normalized.inputScale, base.inputScale);
     normalized.imgMode = normalized.imgMode === 'contain' ? 'contain' : 'adaptive';
     normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);

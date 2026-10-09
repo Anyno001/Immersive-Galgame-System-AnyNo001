@@ -312,7 +312,7 @@ const READER_INTERFACE_TEMPLATE = `
       {{optionBubbleActionField}}
     </div>
   </div>
-  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏{{resetReaderInterfaceToolbar}}</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}{{toolbarSplitField}}{{dialogBarAlignField}}</div>{{pinnedButtonsField}}</div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏{{resetReaderInterfaceToolbar}}</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}{{inputPlacementField}}{{toolbarSplitField}}{{dialogBarAlignField}}</div>{{pinnedButtonsField}}</div>
 </div>
 `.trim();
 

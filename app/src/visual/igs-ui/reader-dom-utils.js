@@ -188,7 +188,9 @@ export function syncSettingsViewportVars(root) {
         ? viewport.height
         : (win && win.innerHeight) || docEl.clientHeight || 480;
     root.style.setProperty('--igs-settings-vleft', `${Math.round(left)}px`);
-    root.style.setProperty('--igs-settings-vtop', `${Math.round(top)}px`);
-    root.style.setProperty('--igs-settings-vw', `${Math.round(width)}px`);
-    root.style.setProperty('--igs-settings-vh', `${Math.round(height)}px`);
+    // iOS 软键盘收放时 offsetTop / height 是小数且变化慢一拍，外壳上下各多出 4px，露不出缝；多出的部分在屏幕外。
+    const bleed = 4;
+    root.style.setProperty('--igs-settings-vtop', `${Math.floor(top) - bleed}px`);
+    root.style.setProperty('--igs-settings-vw', `${Math.ceil(width)}px`);
+    root.style.setProperty('--igs-settings-vh', `${Math.ceil(height + top - Math.floor(top)) + bleed * 2}px`);
 }

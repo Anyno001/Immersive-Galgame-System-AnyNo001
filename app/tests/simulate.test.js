@@ -5344,9 +5344,9 @@ test('gate:simulation:igs-ui-settings-follows-visual-viewport-in-web-and-fullscr
         assert.equal(overlay.querySelectorAll('.igs-settings-tab').length, 4);
         assert.ok(overlay.querySelector('.igs-settings-body'));
         assert.equal(overlay.style['--igs-settings-vleft'], '36px');
-        assert.equal(overlay.style['--igs-settings-vtop'], '22px');
+        assert.equal(overlay.style['--igs-settings-vtop'], '18px');
         assert.equal(overlay.style['--igs-settings-vw'], '980px');
-        assert.equal(overlay.style['--igs-settings-vh'], '540px');
+        assert.equal(overlay.style['--igs-settings-vh'], '548px');
 
         globalObject.visualViewport.offsetLeft = 48;
         globalObject.visualViewport.offsetTop = 40;
@@ -5355,9 +5355,9 @@ test('gate:simulation:igs-ui-settings-follows-visual-viewport-in-web-and-fullscr
         globalObject.visualViewport.dispatchEvent({ type: 'scroll' });
 
         assert.equal(overlay.style['--igs-settings-vleft'], '48px');
-        assert.equal(overlay.style['--igs-settings-vtop'], '40px');
+        assert.equal(overlay.style['--igs-settings-vtop'], '36px');
         assert.equal(overlay.style['--igs-settings-vw'], '920px');
-        assert.equal(overlay.style['--igs-settings-vh'], '500px');
+        assert.equal(overlay.style['--igs-settings-vh'], '508px');
 
         settingsResult.controller.close();
         assert.equal(document.getElementById('igs-unified-settings'), null);
