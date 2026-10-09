@@ -5,7 +5,7 @@ import { renderMoodReviewList } from '../src/visual/igs-ui/settings-fields.js';
 import { renderStageDirectionFields } from '../src/visual/igs-ui/stage-direction-fields.js';
 
 test('gate:settings-polish:image-tab-has-cg-gallery-pane', () => {
-    assert.deepEqual(IMAGE_SUBTAB_DEFS.map(([id]) => id), ['source', 'llm', 'auto', 'logs', 'cg']);
+    assert.deepEqual(IMAGE_SUBTAB_DEFS.map(([id]) => id), ['source', 'llm', 'auto', 'prompts', 'logs', 'cg']);
     const cg = getImageSubTabTemplate('cg');
     assert.match(cg, /data-image-pane="cg"/);
     assert.match(cg, /\{\{imageCgList\}\}/);
@@ -103,8 +103,8 @@ test('gate:settings-polish:subtab-bars-scroll-with-content', async () => {
         const rule = css.match(new RegExp(`\\.${bar}\\{[^}]*\\}`))[0];
         assert.doesNotMatch(rule, /position:sticky/, bar);
     }
-    assert.match(css, /\.igs-image-subtabs\{[^}]*grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
-    assert.equal(IMAGE_SUBTAB_DEFS.length, 5);
+    assert.match(css, /\.igs-image-subtabs\{[^}]*grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
+    assert.equal(IMAGE_SUBTAB_DEFS.length, 6);
     // 仍吸顶的批量选择栏要垫不透明底色，内容滚过去时不透出来；高亮色叠在伪元素上（设置器不用渐变）。
     assert.match(css, /\.igs-asset-select-bar\{[^}]*position:sticky[^}]*background:var\(--igs-settings-panel\)/);
     assert.match(css, /\.igs-asset-select-bar::before\{[^}]*z-index:-1;[^}]*background:var\(--igs-settings-highlight\)/);

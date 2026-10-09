@@ -2,6 +2,7 @@
 // 输出格式与解析复用素材补全的 id/tags/uc 协议（parseAssetPlan），编号用 ch1、ch2…。
 import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, MATTE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, dropMatteTagsWhenTransparent } from './prompt-kit.js';
 import { parseAssetPlan } from './asset-prompt.js';
+import { BUILTIN_PROMPTS } from '../prompt-registry.js';
 
 const ITEM_TASK = [
     '任务：为「需要生成的物品」清单里的每一项写英文 tag，用于生成单个物品的静物图标。',
@@ -17,8 +18,8 @@ const ITEM_TASK = [
 
 export const ITEM_PLANNER_SYSTEM_PROMPT = [...FICTION_FRAME, ...ITEM_TASK].join('\n');
 export const ITEM_PLANNER_SOFT_SYSTEM_PROMPT = [...FICTION_FRAME, ...ITEM_TASK, '', ...SOFT_MODE_NOTE].join('\n');
-const ITEM_BASE_TAGS = 'no humans, still life, item focus, single object, centered';
-const ITEM_NEGATIVE_TAGS = 'human, hands, text, watermark, multiple objects, cropped';
+const ITEM_BASE_TAGS = BUILTIN_PROMPTS.item.positive;
+const ITEM_NEGATIVE_TAGS = BUILTIN_PROMPTS.item.negative;
 
 export function buildItemPlannerUserPrompt(needs = [], readableText = '') {
     const listed = needs.map((need, i) => `ch${i + 1}｜物品：${need.name}${need.description ? `｜描述：${need.description}` : ''}`);

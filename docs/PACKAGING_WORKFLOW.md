@@ -114,7 +114,7 @@ npm run build:loader -- --release v<当前版本>
 npm run gate
 ```
 
-`--release` 接受与 `app/package.json` 一致的版本号并生成版本化自动更新导入件；每次升版本后先生成对应导入件，再运行包含发布产物一致性测试的 `gate`。无参数的 `build:loader` 仍只更新固定入口和调试版。
+`--release` 接受与 `app/package.json` 一致的版本号，生成锁定该 tag 的 `沉浸式Galgame系统 vX.Y.Z.json`，并删除 loader/ 里所有旧的版本化导入件（只留最新一份）；推送时必须同时推送同名 tag，否则 jsDelivr 取不到会退回 @main。每次升版本后先生成对应导入件，再运行包含发布产物一致性测试的 `gate`。无参数的 `build:loader` 仍只更新固定入口和调试版。
 
 `gate` 顺序固定为：
 

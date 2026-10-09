@@ -166,21 +166,15 @@ test('gate:loader-json:matches loader source and references public bundle', () =
     });
     assert.match(loaderJson.content, /QR_BUTTON_NAME = 'Gal模拟'/);
     assert.match(loaderJson.content, /getButtonEvent\(QR_BUTTON_NAME\)/);
-    const version = readJson('package.json').version;
-    const releasePath = path.join(projectRoot, 'loader', `酒馆助手脚本-沉浸式Galgame系统（自动更新） v${version}.json`);
-    assert.deepEqual(JSON.parse(fs.readFileSync(releasePath, 'utf8')), loaderJson);
-
-    // 固定版 loader：锁定具体 tag、注入 IGS_LOADER_REF、不自动更新。按需生成（--pin），
-    // 不随升号自动产出。固定版是历史产物，只校验它仍锁定自己的 ref 且是可导入脚本体，
-    // 不再要求它包含当前 mutable 的 loader 源码。
-    const pinnedRef = 'v0.23.21';
-    const pinnedJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'loader', `沉浸式Galgame系统 ${pinnedRef}.json`), 'utf8'));
+    // 发布产物只留最新一个，锁定到当前版本的 tag，不追 main（避开 CDN 缓存），与自动更新版同一份源码。
+    const pinnedRef = `v${readJson('package.json').version}`;
+    const releaseFiles = fs.readdirSync(path.join(projectRoot, 'loader')).filter((name) => / v\d+\.\d+\.\d+\.json$/.test(name));
+    assert.deepEqual(releaseFiles, [`沉浸式Galgame系统 ${pinnedRef}.json`]);
+    const pinnedJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'loader', releaseFiles[0]), 'utf8'));
     assert.equal(pinnedJson.name, `沉浸式Galgame系统 ${pinnedRef}`);
     assert.match(pinnedJson.content, new RegExp(`IGS_LOADER_REF=["']${pinnedRef.replace(/\./g, '\\.')}["']`));
-    assert.equal(pinnedJson.type, 'script');
-    assert.equal(typeof pinnedJson.content, 'string');
-    assert.match(pinnedJson.content, /igs\.bundle\.js/);
-    assert.match(pinnedJson.content, /REPOSITORY = '\S+'/);
+    assert.ok(pinnedJson.content.endsWith(loaderJson.content));
+    assert.deepEqual(pinnedJson.button, loaderJson.button);
 });
 
 test('gate:dist-bundle:is-self-contained-for-loader-cache-bust', () => {

@@ -2,27 +2,13 @@
 // 中文名按子串命中，先具体后泛化；都不中就用原名，插件模型多少能认一些。
 
 import { TIME_WORDS } from '../scene/time-bucket.js';
+import { SCENE_DICTIONARY } from './prompt-registry.js';
 
-const TIME_TAGS = {
-    midnight: 'midnight, night, dark, moonlight, starry sky, dim lighting',
-    dusk: 'sunset, dusk, orange sky, golden hour, long shadows',
-    morning: 'morning, sunrise, soft sunlight, pale sky, light mist',
-    night: 'night, night sky, moonlight, dark, artificial lighting',
-    day: 'day, daylight, bright, blue sky',
-};
+const TIME_TAGS = SCENE_DICTIONARY.variantTime;
 
 const TIME_RULES = TIME_WORDS.map(([key, , words]) => [words, TIME_TAGS[key]]);
 
-const WEATHER_RULES = [
-    [['雷', '闪电', 'thunder', 'lightning'], 'thunderstorm, lightning, heavy rain, dark clouds'],
-    [['暴雪', '雪', 'snow', 'blizzard'], 'snow, snowing, snowflakes, snow on ground'],
-    [['雨', 'rain'], 'rain, raining, wet ground, overcast, puddle'],
-    [['雾', 'fog', 'mist'], 'fog, misty, hazy, low visibility'],
-    [['沙', '尘', 'sand', 'dust'], 'sandstorm, dust, hazy, yellow sky'],
-    [['风', 'wind'], 'windy, wind, swaying trees, flying leaves'],
-    [['阴', '云', 'cloud', 'overcast'], 'cloudy, overcast, grey sky'],
-    [['晴', 'sun', 'clear'], 'sunny, clear sky, sunlight'],
-];
+const WEATHER_RULES = SCENE_DICTIONARY.variantWeather;
 
 const STRIP = new Set([
     'day', 'daytime', 'daylight', 'night', 'nighttime', 'night sky', 'midnight', 'evening', 'morning', 'afternoon', 'noon',

@@ -73,7 +73,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-reader-subtab.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);font-weight:600;box-shadow:none}
 .igs-reader-subpane{min-width:0}
 .igs-image-settings{min-width:0}
-.igs-image-subtabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;margin:0 0 12px;padding:3px;background:var(--igs-settings-field);border-radius:var(--igs-settings-radius-control)}
+.igs-image-subtabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:2px;margin:0 0 12px;padding:3px;background:var(--igs-settings-field);border-radius:var(--igs-settings-radius-control)}
 .igs-image-subtab{height:32px;border:0;border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink-3);font:inherit;font-size:12px;cursor:pointer}
 .igs-image-subtab.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);font-weight:600}
 .igs-image-subtab:hover,.igs-image-subtab:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
@@ -117,7 +117,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-table-pick.is-on{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
 .igs-table-pick.is-on>i{border-color:var(--igs-settings-on-accent);background:var(--igs-settings-on-accent)}
 .igs-table-pick.is-missing{opacity:.66}
-.igs-settings-field input,.igs-settings-field select,.igs-settings-field textarea{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid transparent;background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:8px 10px;font:inherit;font-size:13px;line-height:1.5;outline:none;transition:background-color .14s ease,border-color .14s ease}
+.igs-settings-field input,.igs-settings-field select,.igs-settings-field textarea{width:100%;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--igs-settings-ink) 22%,transparent);background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:8px 10px;font:inherit;font-size:13px;line-height:1.5;outline:none;transition:background-color .14s ease,border-color .14s ease}
 .igs-settings-range{display:flex;align-items:center;gap:10px;min-width:0;width:100%}
 .igs-settings-field .igs-settings-range input[type="range"]{min-width:0;flex:1;height:36px;padding:0 8px;cursor:pointer;accent-color:var(--igs-settings-accent)}.igs-settings-range output{flex:none;min-width:3.5em;text-align:right;color:var(--igs-settings-ink-2);font-size:12px}
 .igs-settings-field option{background:var(--igs-settings-panel);color:var(--igs-settings-ink)}
@@ -125,7 +125,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-settings-field input[type="color"]::-webkit-color-swatch-wrapper{padding:0}
 .igs-settings-field input[type="color"]::-webkit-color-swatch{border:0;border-radius:var(--igs-settings-radius-small)}
 .igs-settings-field textarea{min-height:132px;resize:vertical;line-height:1.55;font-family:ui-monospace,Consolas,monospace}
-.igs-settings-field input:focus,.igs-settings-field select:focus,.igs-settings-field textarea:focus{border-bottom-color:var(--igs-settings-line-strong);background:var(--igs-settings-highlight)}
+.igs-settings-field input:focus,.igs-settings-field select:focus,.igs-settings-field textarea:focus{border-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
 .igs-settings-field input:disabled,.igs-settings-field select:disabled,.igs-settings-field textarea:disabled{opacity:.5;cursor:not-allowed}
 .igs-settings-secret{display:flex;align-items:center;gap:8px}
 .igs-settings-secret input{flex:1;min-width:0}
@@ -274,8 +274,8 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 @media (pointer:coarse){.igs-add-menu-list{gap:14px;padding:9px 4px}.igs-add-menu-item{position:relative}.igs-add-menu-item:not(.igs-folder-pick-item)::after{content:"";position:absolute;inset:-7px 0}}
 
 .igs-btn-mgr-icon.is-on:hover{color:var(--igs-settings-on-accent);background:var(--igs-settings-accent)}
-.igs-scene-url-input{flex:1;min-width:0;height:28px;border:0;border-bottom:1px solid transparent;background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:0 8px;font:inherit;font-size:11px;outline:none}
-.igs-scene-url-input:focus{border-bottom-color:var(--igs-settings-line-strong);background:var(--igs-settings-highlight)}
+.igs-scene-url-input{flex:1;min-width:0;height:28px;border:1px solid color-mix(in srgb,var(--igs-settings-ink) 22%,transparent);background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:0 8px;font:inherit;font-size:11px;outline:none}
+.igs-scene-url-input:focus{border-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
 .igs-scene-char-group{min-width:0;max-width:100%;box-sizing:border-box;margin-bottom:8px;border:0;border-bottom:1px solid var(--igs-settings-line);border-radius:0;padding:4px;background:transparent}
 .igs-scene-time-group{margin-left:16px;max-width:calc(100% - 16px);padding-left:0;padding-right:0}
 .igs-scene-thumb{width:48px;height:27px;flex-shrink:0;object-fit:cover;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-paper);cursor:zoom-in}
@@ -387,8 +387,8 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-asset-grid.is-scenes .igs-asset-tile-thumb{aspect-ratio:16/9}
 .igs-asset-tile-head .igs-asset-tile-name{flex:1 1 auto;min-width:0}
 /* 与 .igs-settings-field select 同一套视觉；仅高度收紧到 28px 以适配 36px 列表行 */
-.igs-asset-move{box-sizing:border-box;width:100%;min-width:0;height:28px;border:0;border-bottom:1px solid transparent;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);color:var(--igs-settings-ink);padding:0 10px;font:inherit;font-size:13px;line-height:1.5;outline:none;cursor:pointer;transition:background-color .14s ease,border-color .14s ease}
-.igs-asset-move:focus{border-bottom-color:var(--igs-settings-line-strong);background:var(--igs-settings-highlight)}
+.igs-asset-move{box-sizing:border-box;width:100%;min-width:0;height:28px;border:1px solid color-mix(in srgb,var(--igs-settings-ink) 22%,transparent);border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);color:var(--igs-settings-ink);padding:0 10px;font:inherit;font-size:13px;line-height:1.5;outline:none;cursor:pointer;transition:background-color .14s ease,border-color .14s ease}
+.igs-asset-move:focus{border-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
 .igs-asset-move option{background:var(--igs-settings-panel);color:var(--igs-settings-ink)}
 .igs-btn-mgr-row .igs-asset-move{flex:0 0 96px;width:96px}
 
@@ -420,6 +420,12 @@ ${touchSel('::after')}{content:"";position:absolute;left:0;right:0;top:50%;heigh
 #igs-unified-settings .igs-add-menu>summary.igs-btn-mgr-icon::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,40px);height:max(100%,40px);transform:translate(-50%,-50%)}
 #igs-unified-settings .igs-settings-close{position:relative}
 #igs-unified-settings .igs-settings-close::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
+.igs-prompt-builtin textarea{width:100%;box-sizing:border-box;border:1px dashed color-mix(in srgb,var(--igs-settings-ink) 18%,transparent);background:transparent;color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:6px 10px;font:12px/1.5 ui-monospace,Consolas,monospace;opacity:.8;resize:vertical}
+.igs-prompt-builtin>span{display:block;font-size:12px;margin:6px 0 2px}
+.igs-form-badge{display:inline-block;margin-left:4px;padding:0 4px;border-radius:4px;font-size:11px;line-height:16px;color:#fff}
+.igs-form-badge.is-sex{background:#c0648c}
+.igs-form-badge.is-age{background:#5f86b8}
+.igs-form-badge.is-other{background:#8a6cc0}
 }`;
 
 export function getSettingsStyleText() {

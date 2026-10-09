@@ -1,4 +1,5 @@
 import { moodPresetAct, moodPresetTags, moodPresetUse } from '../scene/mood-groups.js';
+import { BUILTIN_PROMPTS } from './prompt-registry.js';
 
 // 楼内补立绘一次最多写 8 份，超过则平分 2 批。
 export const EXPRESSION_WRITE_BATCH_MAX = 8;
@@ -146,9 +147,9 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
     ].filter(Boolean).join('\n');
 }
 
-const UPRIGHT_POSITIVE = 'cowboy shot, standing, facing viewer, straight-on';
-const UPRIGHT_NEGATIVE = 'dutch angle, from side, profile, full body, feet';
-const EXPRESSION_DROP_POSITIVE = new Set(['arms at sides'].map(tagKey));
+const UPRIGHT_POSITIVE = BUILTIN_PROMPTS.expression.positive;
+const UPRIGHT_NEGATIVE = BUILTIN_PROMPTS.expression.negative;
+const EXPRESSION_DROP_POSITIVE = new Set(splitTags(BUILTIN_PROMPTS.expression.dropPositive).map(tagKey));
 
 // 景别回到大腿以上。只拿掉双手下垂，避免表情动作被锁死。
 export function expressionSpritePrompts(positive, negative) {
@@ -210,8 +211,7 @@ function characterDnaLines(name, dna) {
     ].filter(Boolean);
 }
 
-// 立绘站得太板正：要一个不挡身体的日常小动作。
-const SPRITE_DAILY_POSE_LINE = '姿势带一个轻量的日常小动作（如一只手拨头发、手背在身后、手插口袋、轻抓衣角），不要双手僵直下垂，也不要大幅动作或拿道具挡住身体。';
+const SPRITE_DAILY_POSE_LINE = BUILTIN_PROMPTS.sprite.poseRule;
 
 function spriteGroundLine(transparent) {
     return transparent === false ? '白色背景，不要透明底。' : '无背景，透明底。';
@@ -251,8 +251,8 @@ export function buildCharacterAvatarDescription(name, dna) {
 // 勾选「瑟瑟加强」后追加。只告诉模型这是成年人的色情服装、不要改成普通衣服，不附带成套标签。
 export function nsfwClothingBoostLine(kind = 'clothes') {
     return kind === 'character'
-        ? '这套是色情服装。不要回避，不要审查，不要改成普通、得体或日常衣服，也不要用衣物遮住这套该露的地方。按服装提示词加强暴露和色情。'
-        : '这是色情服装。不要回避，不要审查，不要改成普通、得体或日常衣服，也不要把暴露的设计改成遮盖。按这个服装名加强色情和暴露，把款式、颜色、材质和露出的位置写清楚。';
+        ? BUILTIN_PROMPTS.wardrobe.nsfwBoostCharacter
+        : BUILTIN_PROMPTS.wardrobe.nsfwBoostClothes;
 }
 
 // 待确认服装：只写这一套衣服的生图标签，不写出图。
@@ -419,12 +419,13 @@ export function expressionPaintDna(dna, outfit) {
 }
 
 // 变身形态：身份、外观整段让给这一套的生图词；触发词里的性别 / 年龄标签摘掉，再按 form.gender 补一个。
-const FORM_BODY_TAG_RE = /^(?:\d+\s*(?:boy|girl)s?|male|female|boy|girl|man|woman|loli|shota|child|kid|teen(?:ager)?|adult|mature(?: \w+)?|old(?: \w+)?|young(?: \w+)?|elderly|milf|petite|aged (?:up|down)|male focus|female focus)$/i;
-const FORM_GENDER_TAG = Object.freeze({ male: '1boy', female: '1girl' });
+const FORM_BODY_TAG_RE = new RegExp(`^(?:${BUILTIN_PROMPTS.form.bodyTagPattern})$`, 'i');
+const FORM_GENDER_TAG = BUILTIN_PROMPTS.form.gender;
 function formPaintDna(dna, form) {
     const triggers = String(dna.triggerWords || '').split(/[,，]/).map((t) => t.trim()).filter((t) => t && !FORM_BODY_TAG_RE.test(t));
     const gender = FORM_GENDER_TAG[form && form.gender];
-    return { ...dna, identity: '', defaultAppearance: '', triggerWords: [gender, ...triggers].filter(Boolean).join(', ') };
+    const age = BUILTIN_PROMPTS.form.age[form && form.age];
+    return { ...dna, identity: '', defaultAppearance: '', triggerWords: [gender, age, ...triggers].filter(Boolean).join(', ') };
 }
 
 export function applyLookToCaption(caption, tags) {

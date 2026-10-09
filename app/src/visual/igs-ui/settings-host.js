@@ -700,7 +700,7 @@ export function createSettingsHost(deps) {
             }
             const formChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-form-char') : '';
             if (formChar) {
-                controller.invoke(`scene-set-outfit-form:${[formChar, event.target.getAttribute('data-outfit-form') || '', event.target.value].map((value) => encodeURIComponent(value || '')).join(':')}`);
+                controller.invoke(`scene-set-outfit-form:${[formChar, event.target.getAttribute('data-outfit-form') || '', event.target.value, event.target.getAttribute('data-outfit-form-field') || 'gender'].map((value) => encodeURIComponent(value || '')).join(':')}`);
                 return;
             }
             const wardrobeChar = event.target && event.target.getAttribute ? event.target.getAttribute('data-outfit-wardrobe-char') : '';

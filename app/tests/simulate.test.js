@@ -2277,7 +2277,9 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.equal(llmPane.imageSubTab, 'llm');
         assert.match(llmPane.html, /data-image-feature="llm"(?![^>]*\shidden)/);
         assert.match(llmPane.html, /data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*disabled/);
-        const rendered = initial.html + content.html + llmPane.html;
+        const promptsPane = opened.controller.switchImageSubTab('prompts').snapshot;
+        assert.match(promptsPane.html, /data-switch="bridge.autoIllustration.nai.artistByKind.enabled"/);
+        const rendered = initial.html + content.html + llmPane.html + promptsPane.html;
         for (const path of initial.activeContract.requiredPaths.filter((item) => item.startsWith('bridge.autoIllustration.'))) {
             assert.ok(rendered.includes(`data-path="${path}"`) || rendered.includes(`data-switch="${path}"`), `Missing image field: ${path}`);
         }
@@ -3805,7 +3807,7 @@ test('gate:simulation:large-settings-draft-typing-does-not-copy-or-persist-per-c
         // 副 LLM 单独成页：先确认 Key 输入框在副 LLM 页，再回到生图内容页测模板输入。
         assert.equal(settings.switchImageSubTab('llm').ok, true);
         assert.ok(settings.getSnapshot().html.includes('data-path="bridge.autoIllustration.llm.apiKey"'));
-        assert.equal(settings.switchImageSubTab('auto').ok, true);
+        assert.equal(settings.switchImageSubTab('prompts').ok, true);
         const root = document.getElementById('igs-unified-settings').parentNode;
         let html = root.innerHTML;
         let rebuilds = 0;

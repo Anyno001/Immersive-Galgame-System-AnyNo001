@@ -1,5 +1,16 @@
 import { resolveCharacterKey } from './scene-directives.js';
 
+// 变身形态三栏：性别 / 年龄档 / 其他变化（自由文字，比如兽化）。
+export const FORM_AGES = Object.freeze(['child', 'teen', 'adult', 'elder']);
+export function normalizeOutfitForm(form) {
+    const src = form && typeof form === 'object' ? form : {};
+    const out = { gender: ['male', 'female', 'other'].includes(src.gender) ? src.gender : '' };
+    if (FORM_AGES.includes(src.age)) out.age = src.age;
+    const note = typeof src.note === 'string' ? src.note.trim() : '';
+    if (note) out.note = note;
+    return out;
+}
+
 export const OUTFIT_RESET = '默认';
 export const BUILTIN_NUDE_OUTFIT = '裸体';
 const OUTFIT_BASE_WORDS = new Set([OUTFIT_RESET, '原装']);
@@ -76,7 +87,7 @@ export function normalizeCharacterOutfits(value) {
             if (base) outfits[name].base = base;
             // 变身形态（性转 / 成长 / 返老还童）：这一套的生图词替换 DNA 的身份与外观，gender 覆盖 DNA 推断的性别。
             const form = plain(entry.form);
-            if (form) outfits[name].form = { gender: ['male', 'female', 'other'].includes(form.gender) ? form.gender : '' };
+            if (form) outfits[name].form = normalizeOutfitForm(form);
         }
         out[character] = outfits;
     }

@@ -1,5 +1,6 @@
 // 生图提示词公共模块：CG 插图与素材补全共用的 LLM 规则、防拦截重试、内置 NAI 模板与词典。
 // 只服务 NovelAI 结构化 caption，按契约放在 generated-images 而不是通用 prompts。
+import { BUILTIN_PROMPTS, SCENE_DICTIONARY } from '../prompt-registry.js';
 
 export const TAG_WRITING_RULES = [
     'tag 用英文小写逗号分隔，遵循 danbooru 标签习惯，可用 NovelAI 权重语法（如 1.2::red hair::）。',
@@ -72,18 +73,18 @@ export async function requestWithSoftRetry(llm, { system, user, softSystem, soft
 
 // ---- 内置 NAI 模板（用户可在设置里改）；{tags} 为 LLM 或词典给出的内容 tag ----
 
+// 内置模板与底色词来自 prompt-registry.js（IGS 自带生图词库）。
 export const DEFAULT_ASSET_TEMPLATES = Object.freeze({
-    background: '{tags}, no humans, scenery, wide shot, detailed background, visual novel background',
-    backgroundNegative: '1girl, 1boy, people, person, character, crowd, silhouette, human, animal, text, speech bubble, watermark, signature, frame, border, ui, letterboxed',
-    sprite: '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
-    spriteNegative: 'multiple views, 2girls, 2boys, multiple girls, multiple boys, crowd, close-up, portrait, upper body, full body, feet, head out of frame, cropped arms, scenery, detailed background, white background, gradient background, patterned background, drop shadow, floor, furniture, holding weapon, text, speech bubble, watermark, signature, frame, border',
-    nsfwExtra: 'nsfw',
+    background: BUILTIN_PROMPTS.background.positive,
+    backgroundNegative: BUILTIN_PROMPTS.background.negative,
+    sprite: BUILTIN_PROMPTS.sprite.positive,
+    spriteNegative: BUILTIN_PROMPTS.sprite.negative,
+    nsfwExtra: BUILTIN_PROMPTS.nsfw.positive,
 });
 
-// 浅灰底比纯白更好抠：白衣服、高光与底色区分度高，羽化边缘不会留下刺眼白边。
-export const MATTE_BACKGROUND_TAGS = 'simple background, grey background, light grey background, flat color background';
-export const WHITE_BACKGROUND_TAGS = 'simple background, white background, flat color background';
-export const TRANSPARENT_BACKGROUND_TAGS = 'transparent background';
+export const MATTE_BACKGROUND_TAGS = BUILTIN_PROMPTS.ground.matte;
+export const WHITE_BACKGROUND_TAGS = BUILTIN_PROMPTS.ground.white;
+export const TRANSPARENT_BACKGROUND_TAGS = BUILTIN_PROMPTS.ground.transparent;
 
 // 用户在模板 / 画师串里已经要透明底（含加权写法）时，摘掉自动补的灰底词，免得正向词里两种底色打架。
 const MATTE_TAG_KEYS = new Set(MATTE_BACKGROUND_TAGS.split(',').map((t) => t.trim()));
@@ -104,54 +105,10 @@ export function applyTemplate(template, vars = {}) {
 
 // ---- 词典兜底：LLM 失败时背景仍可按场景名、时间、天气拼出基础 tag ----
 
-const LOCATION_DICTIONARY = [
-    [/天台|屋顶/, 'rooftop, fence, sky'],
-    [/教室/, 'classroom, desk, chair, chalkboard, window'],
-    [/走廊|过道/, 'hallway, corridor, window, floor'],
-    [/图书(馆|室)|书房/, 'library, bookshelf, book, desk'],
-    [/卧室|寝室|房间/, 'bedroom, bed, curtains, window, lamp'],
-    [/客厅/, 'living room, sofa, table, window, indoors'],
-    [/厨房/, 'kitchen, counter, stove, cabinet'],
-    [/浴室|浴池|温泉/, 'bathroom, bathtub, tiles, steam'],
-    [/咖啡(馆|厅|店)/, 'cafe, table, chair, counter, coffee cup'],
-    [/餐厅|饭店|酒馆/, 'restaurant, table, chair, indoors, warm lighting'],
-    [/商店|便利店|超市/, 'shop, shelf, store interior, indoors'],
-    [/街|马路|路口/, 'city street, road, building, sidewalk'],
-    [/公园/, 'park, tree, bench, grass, path'],
-    [/森林|树林/, 'forest, tree, nature, foliage'],
-    [/海边|沙滩|海滩/, 'beach, ocean, sand, horizon'],
-    [/车站|站台/, 'train station, platform, railway'],
-    [/神社/, 'shrine, torii, stone lantern, japanese architecture'],
-    [/寺|庙/, 'temple, east asian architecture, courtyard'],
-    [/城堡|宫殿|王宫/, 'castle, palace interior, pillar, chandelier, fantasy'],
-    [/教堂/, 'church, stained glass, pew, altar'],
-    [/办公室|公司/, 'office, desk, computer, window, indoors'],
-    [/医院|病房/, 'hospital, hospital bed, curtain, indoors'],
-    [/工厂|仓库/, 'factory, warehouse, industrial, pipes, metal'],
-    [/地下室|地牢|牢房/, 'basement, dungeon, stone wall, dim'],
-    [/酒店|旅馆/, 'hotel room, bed, lamp, window, indoors'],
-    [/庭院|院子|花园/, 'garden, courtyard, flower, tree'],
-    [/山|山顶|山路/, 'mountain, cliff, sky, path'],
-    [/河|湖/, 'river, lake, water, reflection'],
-    [/村|村庄/, 'village, house, dirt road, rural'],
-    [/操场|运动场/, 'school ground, running track, field'],
-];
-
-const TIME_DICTIONARY = [
-    [/清晨|早晨|黎明|早上/, 'morning, sunrise, soft lighting'],
-    [/上午|白天|中午|正午|下午/, 'daytime, sunlight, blue sky'],
-    [/黄昏|傍晚|夕阳/, 'sunset, orange sky, evening'],
-    [/夜|晚|午夜|深夜/, 'night, moonlight, dim lighting'],
-];
-
-const WEATHER_DICTIONARY = [
-    [/雷/, 'thunderstorm, lightning, rain, dark clouds'],
-    [/雨/, 'rain, wet ground, overcast'],
-    [/雪/, 'snow, snowing'],
-    [/雾/, 'fog, mist'],
-    [/阴|多云/, 'cloudy, overcast'],
-    [/晴/, 'clear sky'],
-];
+const compileDictionary = (rows) => rows.map(([pattern, tags]) => [new RegExp(pattern), tags]);
+const LOCATION_DICTIONARY = compileDictionary(SCENE_DICTIONARY.location);
+const TIME_DICTIONARY = compileDictionary(SCENE_DICTIONARY.time);
+const WEATHER_DICTIONARY = compileDictionary(SCENE_DICTIONARY.weather);
 
 function lookupDictionary(dictionary, text) {
     const value = String(text || '');

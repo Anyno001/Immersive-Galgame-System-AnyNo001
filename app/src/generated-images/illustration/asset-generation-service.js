@@ -14,6 +14,7 @@ import { promptTimeBucket, sceneVariantCaption, sceneVariantTags } from '../scen
 import { sceneTimeBucket } from '../../scene/time-bucket.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
+import { BUILTIN_PROMPTS } from '../prompt-registry.js';
 
 export const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
 const IMAGE_CACHE_LIMIT = 60;
@@ -22,8 +23,8 @@ const IMAGE_CACHE_LIMIT = 60;
 const IMAGE_IN_USE_MS = 5000;
 const AVATAR_SIZE = '1024x1024';
 // 头像按圆形裁切：只到头、颈、肩，脸占画面大半；胸以下一律进负面。
-const AVATAR_POSITIVE = 'chibi, solo, portrait, head and shoulders, neck, face focus, close-up, large face, centered, looking at viewer, smile, simple background';
-const AVATAR_NEGATIVE = 'upper body, cowboy shot, full body, lower body, waist, hips, midriff, navel, legs, feet, hands, arms, cleavage, multiple views, realistic, text, watermark, signature, frame, border';
+const AVATAR_POSITIVE = BUILTIN_PROMPTS.avatar.positive;
+const AVATAR_NEGATIVE = BUILTIN_PROMPTS.avatar.negative;
 // review：等待楼层结束时让用户处理；chat：用户选择仅本聊天使用；
 // library：已加入素材库（由生成区条目接管）；discarded：丢弃。
 const ACTIVE_TEMP_STATUSES = new Set(['review', 'chat']);
@@ -825,7 +826,7 @@ export function createAssetGenerationService(deps) {
     // 标签顺序：DNA → 表情 → 衣服与长相 → 写词结果。exact：用户改过的词原样出图，不硬合，新图继续记为「改过」。
     async function paintExpressionCaption(name, mood, caption, dna, { look = '', seed, nsfw = false, exact = false } = {}) {
         const upright = exact ? caption : (uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(applyLookToCaption(caption, look), mood, { nsfw }), dna)) || caption);
-        const meta = expressionPaintMeta();
+        const meta = { ...expressionPaintMeta(), promptKind: mood === '默认' ? 'sprite' : 'expression' };
         let painted;
         try {
             painted = await nai.generateDbgenCaption({ ...meta, caption: upright, ...(seed != null && { seed }) });
@@ -1040,7 +1041,7 @@ export function createAssetGenerationService(deps) {
             painted = await nai.generateDbgenCaption({
                 caption: applyCharacterDnaToCaption(written.caption, dna),
                 size: AVATAR_SIZE,
-                imageKind: 'sprite',
+                imageKind: 'sprite', promptKind: 'avatar',
                 userPrompts: { positive: AVATAR_POSITIVE, negative: AVATAR_NEGATIVE },
             });
         } catch (error) {
@@ -1095,7 +1096,7 @@ export function createAssetGenerationService(deps) {
         const text = String(prompt || '').trim();
         if (!text) return { ok: false, error: '这套衣服还没有提示词' };
         if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出参考图' };
-        const meta = expressionPaintMeta();
+        const meta = { ...expressionPaintMeta(), promptKind: 'wardrobe' };
         let painted;
         try {
             painted = await nai.generateDbgenCaption({ ...meta, caption: clothingCaption(text, { nsfwBoost }) });

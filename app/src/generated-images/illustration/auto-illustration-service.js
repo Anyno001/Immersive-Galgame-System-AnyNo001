@@ -371,7 +371,7 @@ export function createAutoIllustrationService(deps) {
                 result = { ok: false, error: '没有可出图的提示词' };
             } else {
                 try {
-                    result = await nai.generateDbgenCaption({ caption: request.caption, size: cgSize(s), messageId });
+                    result = await nai.generateDbgenCaption({ caption: request.caption, size: cgSize(s), messageId, promptKind: base.kind === 'nsfw' ? 'nsfwCg' : 'cg' });
                 } catch (error) {
                     result = { ok: false, error: (error && error.message) || '出图失败' };
                 }
@@ -569,7 +569,7 @@ export function createAutoIllustrationService(deps) {
             progress(floor, { phase: 'paint', done: index + 1, total: requests.length });
             let result;
             const size = cgSize(s);
-            const meta = { messageId, slot: request.slot, description: request.description || request.scene, size, imageKind: 'cg' };
+            const meta = { messageId, slot: request.slot, description: request.description || request.scene, size, imageKind: 'cg', promptKind: base.kind === 'nsfw' ? 'nsfwCg' : 'cg' };
             try { result = await nai.generate(request, { ...s.nai, size }, meta); }
             catch (error) { result = { ok: false, error: `NAI 生成失败：${(error && error.message) || error}` }; }
             if (result && result.ok) succeeded += 1;

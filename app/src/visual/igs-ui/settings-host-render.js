@@ -19,6 +19,7 @@ import { normalizeImageSourceMode, mergeLegacyNaiSettings } from '../../generate
 import { getSettingsShellTemplate } from './settings-shell.js';
 import { getImageSubTabTemplate, getReaderSubTabTemplate, getSettingsTabTemplate, normalizeImageSubTab, normalizeSceneSubTab, normalizeReaderSubTab, IMAGE_SUBTAB_DEFS, SCENE_RULES_TEMPLATE, SCENE_SUBTAB_DEFS, READER_SUBTAB_DEFS, SETTINGS_TAB_DEFS } from './settings-tabs.js';
 import { getReaderModeIcon } from './icons.js';
+import { renderPromptKindsPanel } from './settings-prompt-kinds.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OFF_HINT, PROMPT_RULE_OUTFIT_HINT, PROMPT_RULE_PRESET_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
@@ -317,6 +318,14 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoNaiArtistField: field('bridge.autoIllustration.nai.artistPrefix', '画师串 / 固定前缀', autoTextarea('bridge.autoIllustration.nai.artistPrefix', auto.nai.artistPrefix, '可选，拼在每张图的正向提示词最前面')),
                 autoNaiNegativeField: field('bridge.autoIllustration.nai.negativePrompt', '负面提示词', autoTextarea('bridge.autoIllustration.nai.negativePrompt', auto.nai.negativePrompt, '')),
             };
+            imageFields.promptKindsPanel = renderPromptKindsPanel({
+                nai: auto.nai, field, textarea: autoTextarea, checkbox, advancedOpen,
+                templateFields: {
+                    sprite: [imageFields.autoAssetSpriteTemplateField, imageFields.autoAssetSpriteNegativeTemplateField],
+                    background: [imageFields.autoAssetBackgroundTemplateField, imageFields.autoAssetBackgroundNegativeTemplateField],
+                    nsfwCg: [imageFields.autoAssetNsfwExtraField],
+                },
+            });
             return renderTemplate(getSettingsTabTemplate('image'), {
                 imageSubTabs: IMAGE_SUBTAB_DEFS.map(([id, label]) => `<button type="button" class="igs-image-subtab${imageSubTab === id ? ' is-active' : ''}" data-image-subtab="${id}" role="tab" aria-selected="${imageSubTab === id}">${label}</button>`).join(''),
                 imageSubPane: renderTemplate(getImageSubTabTemplate(imageSubTab), imageFields),

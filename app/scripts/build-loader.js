@@ -92,21 +92,18 @@ assertLoaderButtonConfig(parsed.button, path.relative(projectRoot, jsonPath));
 
 console.log(`loader:build ok ${path.relative(projectRoot, jsonPath)}`);
 
-// 自动更新版的版本化导入文件按需生成，与固定入口复用同一份内容和元数据。
+// 发布：只留最新一个版本化导入文件，锁定到这个版本的 tag（jsDelivr 的 @tag 地址不变，不受 @main 缓存影响），旧的全删。
+const RELEASE_FILE_RE = /^(?:酒馆助手脚本-)?沉浸式Galgame系统.* v\d+\.\d+\.\d+\.json$/;
 const releaseArgIndex = process.argv.indexOf('--release');
 if (releaseArgIndex !== -1) {
     const releaseRef = process.argv[releaseArgIndex + 1];
     if (!/^v\d+\.\d+\.\d+$/.test(releaseRef || '')) {
         throw new Error('--release requires a vX.Y.Z ref.');
     }
-    const releasePath = path.join(loaderRoot, `酒馆助手脚本-沉浸式Galgame系统（自动更新） ${releaseRef}.json`);
-    fs.writeFileSync(releasePath, `${JSON.stringify(loaderJson, null, 2)}\n`, 'utf8');
-    const releaseJson = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
-    if (releaseJson.content !== content || releaseJson.name !== parsed.name) {
-        throw new Error(`Release loader JSON does not match ${path.relative(projectRoot, jsonPath)}.`);
+    for (const name of fs.readdirSync(loaderRoot)) {
+        if (RELEASE_FILE_RE.test(name)) fs.unlinkSync(path.join(loaderRoot, name));
     }
-    assertLoaderButtonConfig(releaseJson.button, path.relative(projectRoot, releasePath));
-    console.log(`loader:release ok ${path.relative(projectRoot, releasePath)}`);
+    writePinnedLoader(releaseRef);
 }
 
 // 固定版 loader 按需生成：`node scripts/build-loader.js --pin v0.23.21 v0.23.15`

@@ -1,4 +1,4 @@
-import { BUILTIN_NUDE_OUTFIT, fuzzyOutfitName, isBuiltinNudeOutfit, isValidOutfitName, isValidOutfitWord, normalizeWardrobe, OUTFIT_RESET } from '../../scene/character-outfits.js';
+import { BUILTIN_NUDE_OUTFIT, normalizeOutfitForm, fuzzyOutfitName, isBuiltinNudeOutfit, isValidOutfitName, isValidOutfitWord, normalizeWardrobe, OUTFIT_RESET } from '../../scene/character-outfits.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { classifySceneKey } from '../../scene/scene-directives.js';
 import { clearOutfitReview, loadOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
@@ -483,8 +483,14 @@ async function runOutfitAction(match, ctx) {
     if (command === 'scene-set-outfit-form') {
         if (!entry) return rerenderSettings();
         const picked = decodeSeg(segs[2] || '');
-        if (!picked) delete entry.form;
-        else entry.form = { gender: picked === 'female' || picked === 'male' ? picked : '' };
+        const fieldName = decodeSeg(segs[3] || '') || 'gender';
+        if (fieldName === 'gender') {
+            if (!picked) delete entry.form;
+            else entry.form = normalizeOutfitForm({ ...entry.form, gender: picked });
+        } else if (fieldName === 'age' || fieldName === 'note') {
+            const next = normalizeOutfitForm({ ...entry.form, [fieldName]: picked });
+            if (entry.form || next.age || next.note) entry.form = next;
+        }
         return done();
     }
     if (command === 'scene-set-outfit-wardrobe-url') {

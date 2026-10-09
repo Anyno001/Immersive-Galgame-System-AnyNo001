@@ -192,10 +192,28 @@ function wardrobeChoices(charName, outfitName, entry, wardrobe) {
 // 变身形态（性转 / 成长）：这套的生图词替换 DNA 的身份与外观，性别盖过 DNA；切入切出时播变身转场。
 const FORM_CHOICES = [['', '不是变身'], ['keep', '变身·性别不变'], ['female', '变身·女'], ['male', '变身·男']];
 function formChoices(charName, outfitName, entry) {
-    const form = plain(entry.form);
+    const form = entry.form && typeof entry.form === 'object' ? entry.form : null;
     const selected = form ? (form.gender || 'keep') : '';
     const options = FORM_CHOICES.map(([value, label]) => `<option value="${esc(value)}"${value === selected ? ' selected' : ''}>${esc(label)}</option>`);
-    return `<select class="igs-asset-move igs-wardrobe-pick" aria-label="变身形态" data-outfit-form-char="${esc(charName)}" data-outfit-form="${esc(outfitName)}">${options.join('')}</select>`;
+    const attrs = (fieldName) => `data-outfit-form-char="${esc(charName)}" data-outfit-form="${esc(outfitName)}" data-outfit-form-field="${fieldName}"`;
+    const age = FORM_AGE_CHOICES.map(([value, label]) => `<option value="${esc(value)}"${value === ((form && form.age) || '') ? ' selected' : ''}>${esc(label)}</option>`);
+    return `<select class="igs-asset-move igs-wardrobe-pick" aria-label="变身性别" ${attrs('gender')}>${options.join('')}</select>`
+        + `<select class="igs-asset-move igs-wardrobe-pick" aria-label="变身年龄" ${attrs('age')}>${age.join('')}</select>`
+        + `<input class="igs-scene-url-input" aria-label="其他变化" ${attrs('note')} value="${esc((form && form.note) || '')}" placeholder="其他变化，如兽耳化">`;
+}
+const FORM_AGE_CHOICES = [['', '年龄不变'], ['child', '幼'], ['teen', '少年'], ['adult', '成年'], ['elder', '年长']];
+
+// 服装标签上的变身徽章：性转 / 年龄 / 其他变化，可同时出现。
+function formBadges(entry) {
+    if (!entry || !entry.form || typeof entry.form !== 'object') return '';
+    const form = entry.form;
+    const ages = Object.fromEntries(FORM_AGE_CHOICES);
+    return [
+        form.gender === 'male' || form.gender === 'female' ? ['sex', '⚧', `性转·${form.gender === 'male' ? '男' : '女'}`] : null,
+        form.age ? ['age', '⏳', `年龄·${ages[form.age]}`] : null,
+        form.note ? ['other', '✦', `变身·${form.note}`] : null,
+        !form.gender && !form.age && !form.note ? ['other', '✦', '变身'] : null,
+    ].filter(Boolean).map(([kind, icon, title]) => `<span class="igs-form-badge is-${kind}" title="${esc(title)}">${icon}</span>`).join('');
 }
 
 function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen) {
@@ -272,7 +290,7 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
     const tabs = [tab('', '原装')].concat(names.map((name) => {
         const moods = plain(map[name] && map[name].moods);
         const filled = Object.values(moods).filter((url) => String(url || '').trim()).length;
-        return tab(name, esc(name), `<span class="igs-outfit-tab-count">${filled}</span>`, `AI 写法：[igs-char:${charName}|表情|${name}|对白]`);
+        return tab(name, esc(name) + formBadges(map[name]), `<span class="igs-outfit-tab-count">${filled}</span>`, `AI 写法：[igs-char:${charName}|表情|${name}|对白]`);
     })).join('');
     const o = encSeg(active);
     const metaKey = `outfit-meta:${charName}\u0001${active}`;

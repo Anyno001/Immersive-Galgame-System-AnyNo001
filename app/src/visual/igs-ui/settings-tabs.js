@@ -193,10 +193,6 @@ const IMAGE_AUTO_TEMPLATE = `
     {{autoNsfwField}}
     <div class="igs-settings-sub" data-image-feature="nsfw"{{autoNsfwHidden}}>
       <div class="igs-source-filter-grid">{{autoNsfwCountField}}</div>
-      <details class="igs-settings-sub igs-settings-advanced" data-advanced="nsfw"{{advancedNsfwOpen}}>
-        <summary>NSFW 附加词</summary>
-        <div class="igs-settings-full">{{autoAssetNsfwExtraField}}</div>
-      </details>
     </div>
     {{autoInterludeField}}
     <div class="igs-settings-sub" data-image-feature="interlude"{{autoInterludeHidden}}>
@@ -212,13 +208,6 @@ const IMAGE_AUTO_TEMPLATE = `
         {{autoAssetMaxField}}
         {{autoAssetSpriteSizeField}}{{autoAssetBackgroundSizeField}}
       </div>
-      <details class="igs-settings-sub igs-settings-advanced" data-advanced="asset-templates"{{advancedAssetTemplatesOpen}}>
-        <summary>提示词模板</summary>
-        <div class="igs-settings-full">{{autoAssetBackgroundTemplateField}}</div>
-        <div class="igs-settings-full">{{autoAssetBackgroundNegativeTemplateField}}</div>
-        <div class="igs-settings-full">{{autoAssetSpriteTemplateField}}</div>
-        <div class="igs-settings-full">{{autoAssetSpriteNegativeTemplateField}}</div>
-      </details>
     </div>
   </div>
   <div class="igs-source-filter" data-image-feature="item-images">
@@ -375,6 +364,7 @@ export const IMAGE_SUBTAB_DEFS = Object.freeze([
     ['source', '图像来源'],
     ['llm', '副LLM'],
     ['auto', '生图内容'],
+    ['prompts', '提示词'],
     ['logs', '日志'],
     ['cg', 'CG库'],
 ]);
@@ -442,6 +432,7 @@ export function getImageSubTabTemplate(subTab) {
     if (id === 'llm') return IMAGE_LLM_TEMPLATE;
     if (id === 'logs') return IMAGE_LOGS_TEMPLATE;
     if (id === 'cg') return IMAGE_CG_TEMPLATE;
+    if (id === 'prompts') return '<div class="igs-settings-grid" data-image-pane="prompts">{{promptKindsPanel}}</div>';
     return IMAGE_AUTO_TEMPLATE;
 }
 
