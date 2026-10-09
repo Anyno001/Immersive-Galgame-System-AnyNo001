@@ -327,8 +327,9 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
 }
 
 // 规则页的衣柜提示词。focus 是从服装面板跳过来的那一条，高亮显示。
-export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, focus = '', lead = '' } = {}) {
+export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, scopeMenu, focus = '', lead = '' } = {}) {
     const tag = typeof scopeTag === 'function' ? scopeTag : () => '';
+    const ownItem = typeof scopeMenu === 'function' ? scopeMenu : () => '';
     const rows = Object.entries(plain(wardrobe)).filter(([name]) => !isBuiltinNudeOutfit(name)).map(([name, entry]) => {
         const reference = entry && typeof entry.reference === 'string' ? entry.reference : '';
         const encoded = encSeg(name);
@@ -339,6 +340,7 @@ export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, focus = '', lea
             menuItem(`wardrobe-reference:${encoded}`, '生图参考'),
             `<button type="button" class="igs-add-menu-item igs-wardrobe-nsfw${nsfwBoost ? ' is-on' : ''}" data-action="wardrobe-nsfw:${encoded}" role="menuitem" aria-pressed="${nsfwBoost ? 'true' : 'false'}">${nsfwBoost ? '关闭瑟瑟加强' : '瑟瑟加强'}</button>`,
             menuItem(`wardrobe-rename:${encoded}`, '重命名'),
+            ownItem('wardrobe', name),
             menuItem(`wardrobe-remove:${encoded}`, '删除', ' is-danger'),
         ], `「${name}」的操作`);
         const rowThumb = reference

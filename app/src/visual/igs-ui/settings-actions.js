@@ -10,7 +10,7 @@ import { formatEditablePrompt, formatStoredPrompt, normalizeStoredPrompt, parseE
 import { getNextSettingsTheme, normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_MOOD_GROUPS, MOOD_PRESET, moodPresetEntry, moodTierLabels, normalizeMoodGroups, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { collectAssetZipEntries } from '../../scene/asset-zip.js';
-import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, libraryHasContent, moveLibraryEntry, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, hasSharedCopy, isSharedCollection, libraryHasContent, moveLibraryEntry, rememberAssetScope } from '../../scene/asset-scope.js';
 import { buildCharacterCardPack, buildImageZip, buildPresetArchive, mergeLabelGroups, parseCharacterCardPack, parsePresetArchive, parseSettingsArchive, spriteEntriesForNames } from '../../scene/card-pack.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
@@ -745,6 +745,19 @@ function riskyActionMessage(action, settingsState, editTarget) {
         if (!found || resolveWorldview(draftAssetLibrary(settingsState, editTarget)) === found.id) return '';
         return `切换到「${found.label}」世界观？演出用词、音效和界面将随之切换。`;
     }
+    const shared = /^(scene-remove-char|wardrobe-remove):([^:]*)/.exec(action);
+    const cardKey = String((settingsState.asyncState && settingsState.asyncState.assetScopeKey) || '');
+    if (shared && cardKey) {
+        const collection = shared[1] === 'wardrobe-remove' ? 'wardrobe' : 'characters';
+        const name = decodeSeg(shared[2]);
+        const root = (settingsState.draft.bridge && settingsState.draft.bridge.sceneAssets) || {};
+        if (assetOwnerKey(root, cardKey, [collection], name) === cardKey && hasSharedCopy(root, cardKey, collection, name)) {
+            return `是否删除「${name}」的本卡专属版本？\n删除后，本卡将恢复使用共用的「${name}」。`;
+        }
+        return collection === 'wardrobe'
+            ? `是否删除衣柜中的「${name}」？\n衣柜为所有角色卡共用，删除后其他角色卡也将无法使用该服装。`
+            : `是否删除角色「${name}」？\n立绘与别名将一并删除。该角色为所有角色卡共用，删除后其他角色卡也将无法使用。`;
+    }
     const hit = RISKY_ACTIONS.find(([prefix]) => (prefix.endsWith(':') ? action.startsWith(prefix) : action === prefix || action.startsWith(`${prefix}:`)));
     return hit ? hit[1](action) : '';
 }
@@ -856,6 +869,22 @@ export async function handleSettingsAction(action, ctx) {
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
+    // 角色、衣服所有卡共用。同名不同人（另一个世界的「莉莉」）时，给这张卡复制一份自己改，别的卡不受影响。
+    if (normalizedAction.startsWith('asset-own:')) {
+        const [collection, encoded = ''] = normalizedAction.slice('asset-own:'.length).split(':');
+        const name = decodeSeg(encoded);
+        const cardKey = String(settingsState.asyncState.assetScopeKey || '');
+        const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const owner = cardKey && isSharedCollection(collection) ? assetOwnerKey(root, cardKey, [collection], name) : cardKey;
+        if (!cardKey || owner === cardKey) return rerenderSettings();
+        const kind = collection === 'wardrobe' ? '衣服' : '角色';
+        const message = `是否为当前角色卡创建「${name}」的专属版本？\n创建后，在本卡中所做的修改仅对本卡生效，其他角色卡仍使用原有的「${name}」。\n适用于不同故事中同名但并非同一${kind === '衣服' ? '服装' : '角色'}的情况。`;
+        if (!await dialogs.confirm(message, { okLabel: '创建' })) return rerenderSettings();
+        if (!moveLibraryEntry(root, owner, cardKey, collection, name, { copy: true }).ok) return rerenderSettings();
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
     // 点条目上的「本卡 / 全局」标签：本卡的挪回全局，全局的收进本卡。挪回全局时全局已有同名的先问。
     if (normalizedAction.startsWith('asset-move:')) {
         const rest = normalizedAction.slice('asset-move:'.length);
@@ -867,6 +896,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!cardKey) return rerenderSettings();
         const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         const owner = assetOwnerKey(root, cardKey, [collection], name);
+        if (isSharedCollection(collection)) return rerenderSettings();
         if (owner) {
             const taken = Object.prototype.hasOwnProperty.call(root[collection] || {}, name);
             const message = taken
@@ -4251,7 +4281,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     const keepBackup = name !== backupName && layers.some((layer) => libraryHasContent(targetOf(layer.key)));
     const lines = layers.map((layer) => `${layer.label}：当前的 ${counts(targetOf(layer.key))} 将整体替换为预设中的 ${counts(layer.pack.library)}。`);
     const message = `套用预设「${name}」？\n${lines.join('\n')}`
-        + (layers.length > 1 ? '\n别的角色卡不受影响。' : '')
+        + (layers.some((layer) => !layer.key) ? '\n全局素材所有角色卡都在用，换掉会影响每一张卡。' : '')
         + (keepBackup ? `\n原有内容会先保存为预设「${backupName}」，如需恢复，套用该预设即可。` : '');
     if (!await dialogs.confirm(message, { okLabel: '套用' })) return rerenderSettings();
     if (keepBackup) {
@@ -4300,9 +4330,16 @@ async function importLegacyPreset(settingsState, options, dialogs, persistSettin
     const cardLabel = String(asyncState.assetScopeLabel || '');
     let dest = '';
     if (cardKey) {
-        const toCard = await dialogs.confirm(`「${label}」要放在哪里？\n放入本卡：仅角色卡「${cardLabel}」使用。\n放入全局：所有角色卡均可使用。`,
-            { okLabel: `放进本卡「${cardLabel}」`, cancelLabel: '放进全局' });
-        dest = toCard ? cardKey : '';
+        // 关掉弹窗就是不导入，不能当成选了全局。
+        const choices = [
+            { value: 'card', label: `放进本卡「${cardLabel}」`, note: '角色别的卡也能直接用，场景只这张卡用' },
+            { value: 'global', label: '放进全局', note: '所有角色卡都能用' },
+        ];
+        const picked = typeof dialogs.choose === 'function'
+            ? await dialogs.choose(`「${label}」要放在哪里？`, choices, 'card', { okLabel: '下一步' })
+            : (await dialogs.confirm(`「${label}」放进本卡「${cardLabel}」？`, { okLabel: '放进本卡' }) ? 'card' : null);
+        if (picked !== 'card' && picked !== 'global') return rerenderSettings();
+        dest = picked === 'card' ? cardKey : '';
     }
     const target = dest ? ensureCardLibrary(root, dest) : root;
     const where = dest ? `角色卡「${cardLabel}」` : '全局';
@@ -4340,7 +4377,8 @@ async function exportCharacterCardPack(settingsState, options) {
         return { ok: false, reason: 'no-card' };
     }
     const root = (settingsState.draft.bridge && settingsState.draft.bridge.sceneAssets) || {};
-    const effective = sceneAssetsForContext(root, getSillyTavernContext(globalObj));
+    const ownCards = root.cards && root.cards[scopeKey] ? { [scopeKey]: root.cards[scopeKey] } : {};
+    const effective = effectiveSceneAssets({ ...root, cards: ownCards }, scopeKey);
     const library = cardLibrarySnapshot(effective);
     const { images, missing } = await readPackImages(collectGeneratedImageIds(library), options);
     const readerSettings = settingsState.draft.readerSettings || {};

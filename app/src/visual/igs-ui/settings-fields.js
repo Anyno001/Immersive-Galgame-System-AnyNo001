@@ -538,6 +538,7 @@ export function renderCharacterAssetList(characters, options = {}) {
                 menuItem(`scene-toggle-dna:${encSeg(charName)}`, dnaOpen ? '收起角色设定' : `角色设定${characterDnaFilled(dna) ? '' : '（DNA未填）'}`),
                 folderSelect(charName, { menu: true }),
                 menuItem(`scene-rename-char:${encSeg(charName)}`, '重命名'),
+                options && typeof options.scopeMenu === 'function' ? options.scopeMenu('characters', charName) : '',
                 menuItem(`scene-remove-char:${encSeg(charName)}`, '删除角色', ' is-danger'),
             ], `「${charName}」的操作`)
             + `<button type="button" class="igs-btn-mgr-icon" data-action="${toggle}" title="${open ? '收起' : '展开服装和立绘'}" aria-expanded="${open}">${open ? chevronUp : chevronDown}</button></div>`;

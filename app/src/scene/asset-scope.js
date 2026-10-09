@@ -1,5 +1,7 @@
 // 场景、角色、衣柜、生成库按角色卡分开。根上的同名字段是全局兜底：
 // 当前角色卡里没有这个名字时才用全局，卡里有同名条目时以卡为准。
+// 角色和衣柜跟人走不跟世界走：本卡、全局都没有时再去别的卡找，在 A 卡建的角色 B 卡直接能用。
+// 场景、事件 CG、世界观、皮肤属于这张卡的世界，不跨卡借。
 
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
@@ -109,15 +111,43 @@ export function ensureCardLibrary(sceneAssets, scopeKey) {
     return root.cards[key];
 }
 
-function mergeGenerated(globalGenerated, cardGenerated) {
-    const globalLibrary = plain(globalGenerated);
-    const cardLibrary = plain(cardGenerated);
-    return {
-        scenes: { ...plain(globalLibrary.scenes), ...plain(cardLibrary.scenes) },
-        characters: { ...plain(globalLibrary.characters), ...plain(cardLibrary.characters) },
-        characterAliases: { ...plain(globalLibrary.characterAliases), ...plain(cardLibrary.characterAliases) },
-        expressionNotes: { ...plain(globalLibrary.expressionNotes), ...plain(cardLibrary.expressionNotes) },
-    };
+const BORROW_FIELDS = ['characters', 'characterAliases', 'characterDna', 'characterOutfits', 'statusAvatars', 'wardrobe'];
+const BORROW_GENERATED = ['characters', 'characterAliases', 'expressionNotes'];
+const BORROWABLE = new Set([...BORROW_FIELDS, ...BORROW_GENERATED.map((group) => `generated.${group}`)]);
+
+// 按顺序叠成一个新对象，后面的同名盖前面的。每次取素材都会走这里（别的卡可能很多），
+// 所以用 for-in 直接写，不用展开 / Object.assign 先叠中间层，省一倍拷贝。
+function stack(sources) {
+    const out = {};
+    for (const source of sources) {
+        if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+        for (const name in source) if (Object.prototype.hasOwnProperty.call(source, name)) out[name] = source[name];
+    }
+    return out;
+}
+
+// 别的卡（插入顺序，后建的在后，同名以它为准），垫在全局下面。
+function otherCards(cards, scopeKey) {
+    const out = [];
+    for (const key in plain(cards)) if (key !== scopeKey && Object.prototype.hasOwnProperty.call(cards, key)) out.push(plain(cards[key]));
+    return out;
+}
+
+// 本卡、全局都没有这个名字时，它在哪张别的卡里（同名取后建的那张）。只认角色和衣柜。
+export function borrowedOwnerKey(sceneAssets, cardKey, collections, name) {
+    const key = String(cardKey || '');
+    const label = String(name == null ? '' : name);
+    const list = (Array.isArray(collections) ? collections : [collections]).filter((field) => BORROWABLE.has(field));
+    if (!key || !label || !list.length) return '';
+    const root = plain(sceneAssets);
+    const card = plain(plain(root.cards)[key]);
+    if (list.some((field) => holds(card, field, label) || holds(root, field, label))) return '';
+    const others = Object.keys(plain(root.cards)).filter((other) => other !== key).reverse();
+    return others.find((other) => list.some((field) => holds(plain(root.cards)[other], field, label))) || '';
+}
+
+export function cardKeyLabel(cardKey) {
+    return String(cardKey || '').replace(/^(?:card|group):/, '');
 }
 
 // 读路径用的合并结果。不带 cards，避免下游再扫到别的角色卡。
@@ -125,23 +155,23 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
     if (!sceneAssets || typeof sceneAssets !== 'object') return sceneAssets || null;
     const { cards, ...rest } = sceneAssets;
     const key = String(scopeKey || '');
-    const card = key && cards && typeof cards === 'object' ? cards[key] : null;
-    if (!card || typeof card !== 'object') return rest;
-    const worldview = ownedWorldview(card);
-    return {
+    if (!key) return rest;
+    const found = cards && typeof cards === 'object' ? cards[key] : null;
+    const card = found && typeof found === 'object' && !Array.isArray(found) ? found : {};
+    const others = otherCards(cards, key);
+    const layered = (field) => stack([...others.map((other) => other[field]), rest[field], card[field]]);
+    const layeredGenerated = (group) => stack([...others.map((other) => plain(other.generated)[group]), plain(rest.generated)[group], plain(card.generated)[group]]);
+    const out = {
         ...rest,
-        ...(worldview || {}),
+        ...(ownedWorldview(card) || {}),
         ...(ownedDialogSkin(card) || {}),
-        scenes: { ...plain(rest.scenes), ...plain(card.scenes) },
-        characters: { ...plain(rest.characters), ...plain(card.characters) },
-        characterAliases: { ...plain(rest.characterAliases), ...plain(card.characterAliases) },
-        characterDna: { ...plain(rest.characterDna), ...plain(card.characterDna) },
-        characterOutfits: { ...plain(rest.characterOutfits), ...plain(card.characterOutfits) },
-        wardrobe: { ...plain(rest.wardrobe), ...plain(card.wardrobe) },
-        eventCgs: { ...plain(rest.eventCgs), ...plain(card.eventCgs) },
-        statusAvatars: { ...plain(rest.statusAvatars), ...plain(card.statusAvatars) },
-        generated: mergeGenerated(rest.generated, card.generated),
+        scenes: stack([rest.scenes, card.scenes]),
+        eventCgs: stack([rest.eventCgs, card.eventCgs]),
+        generated: { scenes: stack([plain(rest.generated).scenes, plain(card.generated).scenes]) },
     };
+    for (const field of BORROW_FIELDS) out[field] = layered(field);
+    for (const group of BORROW_GENERATED) out.generated[group] = layeredGenerated(group);
+    return out;
 }
 
 export function normalizeAssetCards(sceneAssets) {
@@ -175,31 +205,36 @@ export function normalizeAssetCards(sceneAssets) {
     return sceneAssets;
 }
 
-function moveKey(from, to, collection, name) {
+const cloneEntry = (value) => (value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value);
+
+function moveKey(from, to, collection, name, copy = false) {
     const source = plain(from[collection]);
     if (!Object.prototype.hasOwnProperty.call(source, name)) return;
-    to[collection] = { ...plain(to[collection]), [name]: source[name] };
+    to[collection] = { ...plain(to[collection]), [name]: copy ? cloneEntry(source[name]) : source[name] };
+    if (copy) return;
     const rest = { ...source };
     delete rest[name];
     from[collection] = rest;
 }
 
-function moveGeneratedName(from, to, group, name) {
+function moveGeneratedName(from, to, group, name, copy = false) {
     const fromGenerated = plain(from.generated);
     const source = plain(fromGenerated[group]);
     if (!Object.prototype.hasOwnProperty.call(source, name)) return;
     const toGenerated = plain(to.generated);
     to.generated = {
         ...toGenerated,
-        [group]: { ...plain(toGenerated[group]), [name]: source[name] },
+        [group]: { ...plain(toGenerated[group]), [name]: copy ? cloneEntry(source[name]) : source[name] },
     };
+    if (copy) return;
     const rest = { ...source };
     delete rest[name];
     from.generated = { ...fromGenerated, [group]: rest };
 }
 
 // 把一条场景、角色或衣柜从全局挪到当前角色卡，或反向挪回。角色会连同别名、DNA、服装和生成图一起走。
-export function moveLibraryEntry(sceneAssets, fromKey, toKey, collection, name) {
+// copy：不挪走，复制一份（给这张卡单独做一版同名角色 / 衣服时用）。
+export function moveLibraryEntry(sceneAssets, fromKey, toKey, collection, name, { copy = false } = {}) {
     const allowed = new Set(['scenes', 'characters', 'wardrobe']);
     const label = String(name || '').trim();
     if (!sceneAssets || !allowed.has(collection) || !label || String(fromKey || '') === String(toKey || '')) {
@@ -208,17 +243,31 @@ export function moveLibraryEntry(sceneAssets, fromKey, toKey, collection, name) 
     const from = fromKey ? ensureCardLibrary(sceneAssets, fromKey) : sceneAssets;
     const to = toKey ? ensureCardLibrary(sceneAssets, toKey) : sceneAssets;
     if (!Object.prototype.hasOwnProperty.call(plain(from[collection]), label)) return { ok: false, reason: 'missing' };
-    moveKey(from, to, collection, label);
+    moveKey(from, to, collection, label, copy);
     if (collection === 'characters') {
         for (const extra of ['characterAliases', 'characterDna', 'characterOutfits', 'statusAvatars']) {
-            moveKey(from, to, extra, label);
+            moveKey(from, to, extra, label, copy);
         }
-        moveGeneratedName(from, to, 'characters', label);
-        moveGeneratedName(from, to, 'characterAliases', label);
-        moveGeneratedName(from, to, 'expressionNotes', label);
+        moveGeneratedName(from, to, 'characters', label, copy);
+        moveGeneratedName(from, to, 'characterAliases', label, copy);
+        moveGeneratedName(from, to, 'expressionNotes', label, copy);
     }
-    if (collection === 'scenes') moveGeneratedName(from, to, 'scenes', label);
+    if (collection === 'scenes') moveGeneratedName(from, to, 'scenes', label, copy);
     return { ok: true };
+}
+
+// 角色、衣柜所有卡共用，不分本卡 / 全局。本卡里有同名的、且全局或别的卡也有一份时，本卡这份是「本卡专用版」。
+export function isSharedCollection(collection) {
+    return collection === 'characters' || collection === 'wardrobe';
+}
+
+export function hasSharedCopy(sceneAssets, cardKey, collection, name) {
+    const key = String(cardKey || '');
+    const label = String(name == null ? '' : name);
+    const root = plain(sceneAssets);
+    if (holds(root, collection, label)) return true;
+    for (const other in plain(root.cards)) if (other !== key && holds(root.cards[other], collection, label)) return true;
+    return false;
 }
 
 export function rememberAssetScope(settingsState, ctx) {
@@ -240,7 +289,8 @@ function holds(library, collection, name) {
 }
 
 // 设置页显示合并后的一份：本卡和全局混在一起，同名时本卡优先。
-// 改一条素材要写回它所在的那一边：本卡有就写本卡，只有全局有就写全局，都没有（新建）时进本卡。
+// 改一条素材要写回它所在的那一边：本卡有就写本卡，只有全局有就写全局，借自别的卡就写回那张卡（两边一起变），
+// 都没有（新建）时进本卡。
 // collections 可给多个字段（如角色连同服装、DNA），任一字段里有这个名字就算归属。返回 '' 表示全局。
 export function assetOwnerKey(sceneAssets, cardKey, collections, name) {
     const key = String(cardKey || '');
@@ -251,7 +301,7 @@ export function assetOwnerKey(sceneAssets, cardKey, collections, name) {
     const card = plain(plain(plain(sceneAssets).cards)[key]);
     if (list.some((field) => holds(card, field, label))) return key;
     if (list.some((field) => holds(sceneAssets, field, label))) return '';
-    return key;
+    return borrowedOwnerKey(sceneAssets, key, list, label) || key;
 }
 
 // 本卡和全局都有同名条目：显示的是本卡那份，全局那份在这张卡里不生效。

@@ -11,7 +11,7 @@ import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-
 import { extractSceneDirectives, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
 import { recordOutfitReview, dropConfirmedOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
-import { draftAssetLibrary, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { assetOwnerKey, draftAssetLibrary, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
@@ -271,6 +271,8 @@ import {
     normalizeReaderStableLayers,
     pinEmbeddedHostFrame,
 } from './reader-dom-render.js';
+
+const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 
 export function createIgsReaderHost(options = {}) {
     let statusHudClient = null;
@@ -4205,7 +4207,7 @@ export function createIgsReaderHost(options = {}) {
                 entry.words = Array.isArray(entry.words) ? entry.words : [];
                 if (!entry.words.includes(ask.word)) entry.words.push(ask.word);
                 return { ok: true };
-            });
+            }, { character: ask.character });
             if (added && added.ok !== false) {
                 removeOutfitReview((options.global || globalThis).localStorage, ask.character, ask.word);
                 writeToastSafe(`已把「${ask.word}」归入「${ask.character}」的「${name}」`);
@@ -4220,10 +4222,12 @@ export function createIgsReaderHost(options = {}) {
         if (state.activeReader) rerenderActiveReader();
     }
 
-    function mutateSceneLibrary(mutator) {
+    // character：改的是哪个角色。借自别的卡的角色要写回那张卡，不然本卡会冒出一个只有这一处改动的同名角色，把原来那份盖住。
+    function mutateSceneLibrary(mutator, { character = '' } = {}) {
+        const target = character ? { collections: CHARACTER_COLLECTIONS, name: character } : undefined;
         if (state.activeSettings) {
             rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
-            const sceneAssets = draftAssetLibrary(state.activeSettings);
+            const sceneAssets = draftAssetLibrary(state.activeSettings, target);
             const result = mutator(sceneAssets);
             if (!result || result.ok === false) return result || { ok: false };
             const persisted = persistSettingsDraft();
@@ -4235,7 +4239,8 @@ export function createIgsReaderHost(options = {}) {
             const root = bridge.sceneAssets = bridge.sceneAssets || {};
             const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis));
             relocateLegacyCard(root, scope.key, scope.legacyKey);
-            const bucket = scope.key ? ensureCardLibrary(root, scope.key) : root;
+            const owner = scope.key ? (character ? assetOwnerKey(root, scope.key, CHARACTER_COLLECTIONS, character) : scope.key) : '';
+            const bucket = owner ? ensureCardLibrary(root, owner) : root;
             result = mutator(bucket);
             if (!result || result.ok === false) return null;
             return { sceneAssets: root };
@@ -4282,7 +4287,7 @@ export function createIgsReaderHost(options = {}) {
                 assets.characters = bound.characters;
                 assets.characterAliases = bound.characterAliases;
                 return bound;
-            });
+            }, { character: name || item.name });
             if (!added || added.ok === false) {
                 writeToastSafe('放入角色立绘失败：名称不能为空');
                 return;
