@@ -25,6 +25,7 @@ export const PERFORMANCE_FEATURES = Object.freeze([
     Object.freeze({ key: 'battleFx', label: '战斗', group: 'special', tier: 3 }),
     Object.freeze({ key: 'chatShow', label: '线上交流', group: 'special', tier: 3 }),
     Object.freeze({ key: 'liveFx', label: '直播间', group: 'special', tier: 3 }),
+    Object.freeze({ key: 'feedFx', label: '手机社区', group: 'special', tier: 3 }),
     Object.freeze({ key: 'audienceFx', label: '观众弹幕', group: 'special', tier: 3 }),
     Object.freeze({ key: 'romanceFx', label: '亲密演出', group: 'special', tier: 3 }),
     Object.freeze({ key: 'fxSound', label: '演出音效', group: 'sound', tier: 2 }),

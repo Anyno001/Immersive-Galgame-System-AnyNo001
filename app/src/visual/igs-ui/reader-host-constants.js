@@ -242,6 +242,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.interludeEnabled',
             'bridge.autoIllustration.interludeProbability',
             'bridge.autoIllustration.interludeMaxCount',
+            'bridge.autoIllustration.backfillOldFloors',
             'bridge.autoIllustration.assets.spriteEnabled',
             'bridge.autoIllustration.assets.backgroundEnabled',
             'bridge.autoIllustration.assets.maxPerFloor',

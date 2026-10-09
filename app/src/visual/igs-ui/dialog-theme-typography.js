@@ -136,6 +136,18 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#b8c3ff',
         narrationColor: '#c9c7dd',
     }),
+    // 深海人鱼：珠光白，内心独白取淡海蓝，旁白再淡一层；姓名同星夜用纤细的 Cormorant 衬线。
+    'mermaid-deep': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_CORMORANT,
+        textFont: DIALOG_FONT_HUIWEN,
+        thoughtFont: DIALOG_FONT_HUIWEN,
+        narrationFont: DIALOG_FONT_HUIWEN,
+        nameColor: '#f4f8ff',
+        textColor: '#eaf1fb',
+        thoughtColor: '#b6cdf4',
+        narrationColor: '#c2cde0',
+    }),
     // 童话小镇：姓名用圆润的站酷快乐体，正文文楷，心里话转鼠尾草绿；墨色取暖棕，不用纯黑。
     'fairy-tale': Object.freeze({
         nameAlign: 'left',

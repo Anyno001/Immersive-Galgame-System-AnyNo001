@@ -538,6 +538,12 @@ export const DAILY_FX_STYLE_TEXT = `
 @keyframes igs-dfx-dive-flash{0%{opacity:0}15%{opacity:1}100%{opacity:0}}
 @keyframes igs-dfx-dive-veil{0%{transform:translate3d(0,-100%,0);opacity:1}30%{transform:none;opacity:1}100%{transform:none;opacity:0}}
 @keyframes igs-dfx-dive-bubble{0%{opacity:0;transform:translate3d(0,0,0)}15%{opacity:1}100%{opacity:0;transform:translate3d(10px,-90vh,0)}}
+/* 出水：满屏的蓝往下退去，水面一亮。 */
+#igs-overlay .igs-dfx-surface{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-dfx-surface-veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(30,120,160,.5),rgba(8,40,80,.62));animation:igs-dfx-surface-veil var(--igs-dfx-life) cubic-bezier(.5,0,.6,.5) both;}
+#igs-overlay .igs-dfx-surface .igs-dfx-dive-flash{animation-delay:.35s;}
+@keyframes igs-dfx-surface-veil{0%,15%{transform:none;opacity:1}100%{transform:translate3d(0,100%,0);opacity:.3}}
+#igs-overlay .igs-dfx.is-reduced .igs-dfx-surface-veil{transform:none;animation:igs-dfx-fade var(--igs-dfx-life) ease both;opacity:.6;}
 #igs-overlay .igs-dfx-bubble-rise{position:absolute;top:24%;width:0;height:0;}
 #igs-overlay .igs-dfx-bubble-rise i{animation:igs-dfx-bubble-up 1.5s ease-out both;}
 @keyframes igs-dfx-bubble-up{0%{opacity:0;transform:translate3d(0,0,0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translate3d(6px,-120px,0) scale(1.1)}}
@@ -560,6 +566,17 @@ export const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-amb-bubbles::before{left:5%;width:12%;}
 #igs-overlay .igs-dfx-amb-bubbles::after{right:8%;width:9%;background-size:48px 190px;animation-duration:21s;}
 @keyframes igs-amb-bubbles{from{transform:translate3d(0,0,0)}to{transform:translate3d(0,-50%,0)}}
+/* 深海（阳光照不到）：更暗、不挂光柱，原光柱元素换成幽幽发光的浮游慢慢漂，气泡只留一列。 */
+#igs-overlay .igs-dfx-amb.is-abyss .igs-dfx-amb-deep{background:linear-gradient(180deg,rgba(8,40,72,.42),rgba(0,6,22,.66));}
+#igs-overlay .igs-dfx-amb.is-abyss .igs-dfx-amb-rays{inset:-6%;height:auto;opacity:1;-webkit-mask-image:none;mask-image:none;background:radial-gradient(circle,rgba(120,240,255,.75) 0 1.5px,transparent 2.5px),radial-gradient(circle,rgba(150,200,255,.5) 0 1px,transparent 2px);background-size:170px 150px,110px 130px;background-position:0 0,50px 70px;animation:igs-amb-drift 34s ease-in-out infinite alternate;}
+#igs-overlay .igs-dfx-amb.is-abyss .igs-dfx-amb-bubbles::after{display:none;}
+/* 水下立绘：把呼吸换成随水漂浮——以脚为轴轻轻摆、整体上下浮几个像素（仍只动 transform，与镜头的 translate/scale 叠加不冲突）。
+   呼吸关了、低画质、减少动态、亲密演出自带呼吸时都不漂。 */
+@media (prefers-reduced-motion: no-preference){
+#igs-overlay[data-igs-underwater][data-igs-sd-breathe]:not([data-igs-quality="low"]) #igs-stage-motion:not([data-igs-rm-breathe]) #igs-sprite:not(.igs-sprite-editing){animation-name:igs-uw-float;animation-duration:6.8s;}
+#igs-overlay[data-igs-underwater][data-igs-cast-breathe]:not([data-igs-quality="low"]) #igs-cast .igs-cast-sprite:not([data-igs-cast-leaving]):not([data-igs-cast-ghost]){animation-name:igs-uw-float;animation-duration:7.4s;}
+}
+@keyframes igs-uw-float{0%,100%{transform:translate3d(0,0,0) rotate(-.4deg) scale(1,1)}50%{transform:translate3d(0,-7px,0) rotate(.4deg) scale(1.004,1.011)}}
 /* 太空真空常驻：四周压暗，极慢漂过的尘埃光点。 */
 #igs-overlay .igs-dfx-amb-void{inset:0;background:radial-gradient(ellipse 82% 78% at 50% 46%,transparent 48%,rgba(0,0,8,.55) 100%);}
 #igs-overlay .igs-dfx-amb-dust{inset:-6%;background-image:radial-gradient(circle,rgba(255,255,255,.55) 0 1px,transparent 1.5px),radial-gradient(circle,rgba(200,220,255,.35) 0 1px,transparent 1.5px);background-size:130px 110px,190px 170px;background-position:0 0,60px 40px;animation:igs-amb-drift 40s ease-in-out infinite alternate;}

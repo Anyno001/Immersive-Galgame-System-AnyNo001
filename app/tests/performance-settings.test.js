@@ -54,8 +54,8 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
     assert.match(html, /<div class="igs-settings-subhead">情绪<\/div>[\s\S]*<div class="igs-settings-subhead">剧情提示<\/div>[\s\S]*<div class="igs-settings-subhead">事件演出<\/div>/);
     // 镜头环境与立绘合成「画面」：5 个画面开关 + 立绘活动、情绪动作、多角色同屏。
     assert.match(html, /<b>画面<\/b><span class="igs-perf-count">0\/9<\/span>/);
-    // 战斗、直播、线上交流、亲密这类只在特定剧情用的，收进「题材专属」，由用户自己勾；演出页不再有剧情题材胶囊。
-    assert.match(html, /<b>题材专属<\/b><span class="igs-perf-count">0\/8<\/span>/);
+    // 战斗、直播、手机社区、线上交流、亲密这类只在特定剧情用的，收进「题材专属」，由用户自己勾；演出页不再有剧情题材胶囊。
+    assert.match(html, /<b>题材专属<\/b><span class="igs-perf-count">0\/9<\/span>/);
     assert.doesNotMatch(html, /剧情题材|perf-type:/);
     assert.match(html, /<details data-advanced="perf-group-rhythm"><summary><b>节奏与互动<\/b>/);
     assert.equal(PERFORMANCE_GROUPS.length, 5);

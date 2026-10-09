@@ -144,10 +144,43 @@ function stripKinds(readerSettings, off) {
     return out;
 }
 
+// 随身带着现代手机：可开启的世界观（现代 / 科幻 / 恐怖本来就有手机，不需要）。
+export const CARRY_PHONE_WORLDVIEWS = Object.freeze(['ancient', 'fantasy', 'apocalypse', 'taisho', 'magic']);
+// 手机相关演出：放行直播、手机社区、线上聊天，以及演出标签里的来电 / 语音留言 / 联系人；外卖、电影等不是手机，照旧拨掉。
+export const CARRY_PHONE_FX_TAGS = Object.freeze(['call', 'voicemail', 'contact']);
+export const CARRY_PHONE_DEFAULT_PROMPT = '{{user}}随身带着一部现代智能手机（穿越带来），可以照常使用手机相关的演出标签；这个世界的其他人不认识手机，也不会用，手机里的现代平台内容可以照常出现，但不要让本世界的人发帖或打电话。';
+
+export function canCarryPhone(worldview) {
+    return CARRY_PHONE_WORLDVIEWS.includes(worldview);
+}
+
+// 提示句：开关开且世界观非现代才返回；自定义留空用默认。
+export function resolveCarryPhonePrompt(worldview, sceneAssets) {
+    if (!canCarryPhone(worldview) || !sceneAssets || typeof sceneAssets !== 'object' || sceneAssets.carryPhone !== true) return '';
+    const custom = typeof sceneAssets.carryPhonePrompt === 'string' ? sceneAssets.carryPhonePrompt.trim() : '';
+    return custom || CARRY_PHONE_DEFAULT_PROMPT;
+}
+
 // 按世界观 id 过滤演出，不改入参；ancient 与 applyFxEra(_, true) 完全等价，modern / 未知 id 与 applyFxEra(_, false) 等价。
-export function applyFxWorldview(readerSettings, worldview) {
+// options.carryPhone：非现代世界观里放行手机相关演出，并给 feedFx 写 carryPhone（手机社区并入现代平台）。
+export function applyFxWorldview(readerSettings, worldview, options = {}) {
     if (!readerSettings || typeof readerSettings !== 'object') return readerSettings;
-    if (worldview === 'ancient') return applyFxEra(readerSettings, true);
+    let out = worldview === 'ancient' ? applyFxEra(readerSettings, true) : filterWorldview(readerSettings, worldview);
+    if (options && options.carryPhone === true && canCarryPhone(worldview)) {
+        out = { ...out };
+        if (readerSettings.liveFx !== undefined) out.liveFx = readerSettings.liveFx;
+        if (readerSettings.fxTags && typeof readerSettings.fxTags === 'object') {
+            out.fxTags = { ...plain(out.fxTags) };
+            for (const kind of CARRY_PHONE_FX_TAGS) if (kind in readerSettings.fxTags) out.fxTags[kind] = readerSettings.fxTags[kind];
+        }
+        out.feedFx = { ...plain(out.feedFx), carryPhone: true };
+    }
+    // 手机社区按世界观换平台：把当前世界观写进快照（不改入参）。
+    if (out && out.feedFx && typeof out.feedFx === 'object') return { ...out, feedFx: { ...out.feedFx, worldview } };
+    return out;
+}
+
+function filterWorldview(readerSettings, worldview) {
     const base = stripExclusive(readerSettings, worldview);
     const off = FX_WORLDVIEW_OFF[worldview];
     return off ? stripKinds(base, off) : base;

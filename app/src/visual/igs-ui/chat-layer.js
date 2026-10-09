@@ -1,3 +1,4 @@
+import { PHONE_CASE_DEFAULT, applyPhoneLook, myPhoneOf } from './my-phone.js';
 import { worldSkinOf } from '../../scene/worldview.js';
 
 import { prefersReducedMotion } from './reduced-motion.js';
@@ -9,6 +10,12 @@ const FIRST_TYPING_DELAY_MS = 900;
 const TYPING_MIN_DELAY_MS = 600;
 const TYPING_LEAD_RATIO = 0.4;
 const SEEN_LIMIT = 64;
+// 输入后放弃的提示停留 / 撤回前原话停留（毫秒）。
+const TYPING_HOLD_MS = 1800;
+const RECALL_HOLD_MS = 1200;
+const TYPING_LABEL = Object.freeze({ modern: '对方正在输入…', ancient: '对方提笔又放下' });
+const READ_LABEL = Object.freeze({ modern: '已读', ancient: '已阅' });
+const RECALL_ANCIENT_TEXT = '信被抽回';
 const THEME_VARS = Object.freeze(['shell', 'head', 'headInk', 'frame', 'sub', 'border']);
 const states = new WeakMap();
 const seenByRoot = new WeakMap();
@@ -90,14 +97,22 @@ function renderLetterRow(doc, m) {
     letter.appendChild(el(doc, 'div', 'igs-chat-letter-text', `${LETTER_TYPE_PREFIX[m.type] || ''}${m.text || ''}`));
     if (m.displayName) letter.appendChild(el(doc, 'div', 'igs-chat-letter-sign', m.displayName));
     row.appendChild(letter);
+    if (m.read) row.appendChild(el(doc, 'div', 'igs-chat-read', READ_LABEL.ancient));
     return row;
 }
 
 function renderRow(doc, m, ancient = false) {
     if (ancient && m.kind === 'msg') return renderLetterRow(doc, m);
-    if (m.kind === 'time') {
+    if (m.kind === 'time' || m.kind === 'lapse') {
         const row = el(doc, 'div', 'igs-chat-row is-time');
-        row.appendChild(el(doc, 'span', 'igs-chat-time', m.text));
+        row.appendChild(el(doc, 'span', 'igs-chat-time', ancient && m.ancientText ? m.ancientText : m.text));
+        return row;
+    }
+    // 输入中只是瞬时提示，行本身永不显示。
+    if (m.kind === 'typing') return el(doc, 'div', 'igs-chat-row is-typing-slot');
+    if (m.kind === 'recall' && ancient) {
+        const row = el(doc, 'div', 'igs-chat-row is-note');
+        row.appendChild(el(doc, 'span', 'igs-chat-note', RECALL_ANCIENT_TEXT));
         return row;
     }
     if (m.kind === 'system') {
@@ -117,6 +132,7 @@ function renderRow(doc, m, ancient = false) {
     if (m.showName) body.appendChild(el(doc, 'div', 'igs-chat-name', m.displayName));
     body.appendChild(renderBubble(doc, m));
     if (m.type === 'voice' && m.text) body.appendChild(el(doc, 'div', 'igs-chat-voice-text', m.text));
+    if (m.read) body.appendChild(el(doc, 'div', 'igs-chat-read', READ_LABEL.modern));
     row.appendChild(body);
     return row;
 }
@@ -163,27 +179,71 @@ function clearTimer(state) {
     }
 }
 
+function clearHold(state) {
+    if (state.holdTimer != null) {
+        (state.clear || clearTimeout)(state.holdTimer);
+        state.holdTimer = null;
+    }
+}
+
+// 撤回预览：收掉原话气泡，露出灰字行。
+function settleRecall(state) {
+    const pending = state.recallPending;
+    if (!pending) return;
+    state.recallPending = null;
+    pending.preview.remove();
+    pending.note.hidden = false;
+}
+
 function hideTyping(state) {
+    clearHold(state);
+    settleRecall(state);
     if (state.typingRow) {
         state.typingRow.remove();
         state.typingRow = null;
     }
+    if (state.headSwapped) {
+        state.headSwapped = false;
+        const head = state.layer.querySelector('.igs-chat-head');
+        if (head) {
+            head.textContent = state.chat.title || '';
+            head.hidden = !state.chat.title;
+        }
+    }
 }
 
-function showTyping(state, message) {
+function holdThen(state, ms, fn) {
+    clearHold(state);
+    state.holdTimer = (state.schedule || setTimeout)(() => {
+        state.holdTimer = null;
+        if (states.get(state.layer) !== state) return;
+        fn();
+    }, ms);
+}
+
+function showTyping(state, message, abandon = false) {
     hideTyping(state);
     const doc = state.layer.ownerDocument;
     const list = state.layer.querySelector('.igs-chat-list');
     if (!doc || !list) return;
+    if (abandon) {
+        // 标题栏同步换成「对方正在输入…」，放下后恢复名字。
+        const head = state.layer.querySelector('.igs-chat-head');
+        if (head) {
+            head.textContent = TYPING_LABEL[state.ancient ? 'ancient' : 'modern'];
+            head.hidden = false;
+            state.headSwapped = true;
+        }
+    }
     if (state.ancient) {
         const row = el(doc, 'div', 'igs-chat-row is-left is-letter is-typing');
-        row.appendChild(el(doc, 'div', 'igs-chat-letter is-typing', '提笔中……'));
+        row.appendChild(el(doc, 'div', 'igs-chat-letter is-typing', abandon ? TYPING_LABEL.ancient : '提笔中……'));
         list.appendChild(row);
         state.typingRow = row;
         list.scrollTop = list.scrollHeight || 0;
         return;
     }
-    const row = el(doc, 'div', `igs-chat-row is-left is-typing${message.initial ? ' has-avatar' : ''}`);
+    const row = el(doc, 'div', `igs-chat-row is-${abandon && message.side === 'right' ? 'right' : 'left'} is-typing${message.initial ? ' has-avatar' : ''}`);
     if (message.initial) row.appendChild(renderAvatar(doc, message));
     const body = el(doc, 'div', 'igs-chat-body');
     const bubble = el(doc, 'div', 'igs-chat-bubble igs-chat-typing');
@@ -197,17 +257,44 @@ function showTyping(state, message) {
     list.scrollTop = list.scrollHeight || 0;
 }
 
+function showRecallPreview(state, index) {
+    const m = state.chat.messages[index];
+    const note = state.rows[index];
+    const doc = state.layer.ownerDocument;
+    const preview = renderRow(doc, { ...m, kind: 'msg', type: 'text', text: m.original, read: false }, state.ancient);
+    note.parentNode.insertBefore(preview, note);
+    if (!hasReducedMotion()) preview.classList.add('igs-chat-pop');
+    state.recallPending = { preview, note };
+    holdThen(state, RECALL_HOLD_MS, () => {
+        settleRecall(state);
+        if (!hasReducedMotion()) note.classList.add('igs-chat-pop');
+    });
+}
+
 function revealTo(state, count, { animate = true, sound = true } = {}) {
     const target = Math.min(state.rows.length, count);
     const from = state.revealed;
     if (target <= from) return false;
     hideTyping(state);
     const pop = animate && !hasReducedMotion();
+    const messages = state.chat.messages;
     for (let i = from; i < target; i += 1) {
+        const kind = messages[i] && messages[i].kind;
+        if (kind === 'typing') continue;
+        // 带原话的撤回：只有最后一条且有动画时才先亮原话，其余直接是灰字。
+        if (kind === 'recall' && messages[i].original && animate && i === target - 1) {
+            showRecallPreview(state, i);
+            continue;
+        }
         state.rows[i].hidden = false;
         if (pop) state.rows[i].classList.add('igs-chat-pop');
     }
     state.revealed = target;
+    const lastItem = messages[target - 1];
+    if (animate && lastItem && lastItem.kind === 'typing') {
+        showTyping(state, lastItem, true);
+        holdThen(state, TYPING_HOLD_MS, () => hideTyping(state));
+    }
     const list = state.layer.querySelector('.igs-chat-list');
     if (list) list.scrollTop = list.scrollHeight || 0;
     const settings = state.settings;
@@ -227,8 +314,10 @@ function scheduleAuto(state) {
     const previous = state.revealed > 0 ? state.chat.messages[state.revealed - 1] : null;
     const next = state.chat.messages[state.revealed];
     const typing = state.settings.typingIndicator && !state.replay && next.kind === 'msg' && next.side === 'left' && !hasReducedMotion();
+    const holdMs = previous && previous.kind === 'typing' ? TYPING_HOLD_MS + 300
+        : previous && previous.kind === 'recall' && previous.original ? RECALL_HOLD_MS + 400 : 0;
     const delay = previous
-        ? chatRevealDelayMs(state.replay ? '' : previous.text, state.settings.autoSpeed)
+        ? Math.max(holdMs, chatRevealDelayMs(state.replay ? '' : previous.text, state.settings.autoSpeed))
         : typing ? FIRST_TYPING_DELAY_MS : FIRST_AUTO_DELAY_MS;
     const fire = () => {
         state.timer = null;
@@ -286,13 +375,16 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
     const settings = normalizeChatShowSettings(snapshot.readerSettings && snapshot.readerSettings.chatShow);
     const chat = content.chat;
     // 古代背景：手机框换成书信，外框设置不再生效。
-    const ancient = Boolean(snapshot.readerSettings && snapshot.readerSettings._ancientEra === true);
+    const ancient = Boolean(snapshot.readerSettings && snapshot.readerSettings._ancientEra === true && snapshot.readerSettings._carryPhone !== true);
     layer.setAttribute('data-igs-chat-era', ancient ? 'ancient' : 'modern');
     // 西幻 / 科幻 / 末日：在现代聊天框上另挂 data-igs-chat-world 换配色字体，era 仍为 modern，结构与外框设置不变。
     const world = String((snapshot.readerSettings && snapshot.readerSettings._worldview) || '');
     if (!ancient && worldSkinOf(world)) layer.setAttribute('data-igs-chat-world', world);
     else layer.removeAttribute('data-igs-chat-world');
     layer.setAttribute('data-igs-chat-frame', ancient ? 'letter' : settings.frame);
+    // 聊天手机框借「我的手机」的壳色；默认黑色时不覆盖主题自己的框色。
+    const caseColor = myPhoneOf(snapshot.readerSettings).caseColor;
+    applyPhoneLook(layer, { caseColor: caseColor === PHONE_CASE_DEFAULT ? '' : caseColor });
     layer.style.setProperty('--igs-chat-dim', String(settings.dim));
     // 气泡圆角由用户设置；无有效数值时移除变量，样式表回落 16px。
     if (Number.isFinite(settings.bubbleRadius)) layer.style.setProperty('--igs-chat-radius', `${settings.bubbleRadius}px`);
@@ -327,6 +419,9 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
         revealed: 0,
         timer: null,
         typingRow: null,
+        holdTimer: null,
+        recallPending: null,
+        headSwapped: false,
         auto: settings.revealMode === 'auto',
         replay: false,
         schedule: ctx.setTimeout,
@@ -408,6 +503,10 @@ export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer .igs-chat-dot:nth-child(3){animation-delay:.32s;}
 @keyframes igs-chat-dot{0%,80%,100%{opacity:.3;transform:translateY(0);}40%{opacity:.85;transform:translateY(-3px);}}
 #igs-chat-layer .igs-chat-note{padding:3px 10px;border-radius:8px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.78);font-size:12px;line-height:1.5;text-align:center;}
+#igs-chat-layer .igs-chat-row.is-typing-slot{display:none;}
+#igs-chat-layer .igs-chat-read{margin:2px 6px 0;color:rgba(255,255,255,.62);font-size:11px;line-height:1.3;}
+#igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-read{color:var(--igs-chat-sub,#8a8a8a);}
+#igs-chat-layer[data-igs-chat-era="ancient"] .igs-chat-read{align-self:flex-end;color:rgba(243,230,200,.85);letter-spacing:.2em;}
 #igs-chat-layer .igs-chat-system{font-weight:600;letter-spacing:.02em;}
 #igs-chat-layer .igs-chat-time{color:rgba(255,255,255,.7);font-size:12px;line-height:1.5;text-shadow:0 1px 2px rgba(0,0,0,.5);}
 #igs-chat-layer .igs-chat-row.is-left.igs-chat-pop{transform-origin:left bottom;animation:igs-chat-pop .24s cubic-bezier(.34,1.56,.64,1) both;}
@@ -417,7 +516,7 @@ export const CHAT_LAYER_STYLE_TEXT = `
 @keyframes igs-chat-fade{from{opacity:0;}to{opacity:1;}}
 /* 手机框按 iPhone 比例（9:19.5）竖长：高度撑满可用区，宽度由比例推出；窄屏时宽度封顶、比例放宽。
    细黑边框 + 金属外沿 + 灵动岛 + 底部横条，标题栏让出灵动岛的高度。 */
-#igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-shell{position:relative;width:auto;height:100%;max-height:min(820px,100%);aspect-ratio:9/19.5;max-width:100%;border-radius:clamp(30px,11%,48px)/clamp(30px,5%,48px);border:8px solid var(--igs-chat-frame,#1c1c1f);background:var(--igs-chat-shell,#ededed);box-shadow:0 0 0 2px #45454b,0 18px 50px rgba(0,0,0,.5);overflow:hidden;}
+#igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-shell{position:relative;width:auto;height:100%;max-height:min(820px,100%);aspect-ratio:9/19.5;max-width:100%;border-radius:clamp(30px,11%,48px)/clamp(30px,5%,48px);border:8px solid var(--igs-phone-case,var(--igs-chat-frame,#1c1c1f));background:var(--igs-chat-shell,#ededed);box-shadow:0 0 0 2px #45454b,0 18px 50px rgba(0,0,0,.5);overflow:hidden;}
 #igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-shell::before{content:"";position:absolute;top:8px;left:50%;z-index:2;width:32%;max-width:110px;height:24px;border-radius:999px;background:#0b0b0d;transform:translateX(-50%);pointer-events:none;}
 #igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-shell::after{content:"";position:absolute;bottom:7px;left:50%;z-index:2;width:36%;height:4px;border-radius:999px;background:rgba(0,0,0,.35);transform:translateX(-50%);pointer-events:none;}
 #igs-chat-layer[data-igs-chat-frame="phone"][data-igs-chat-theme="gradient-veil"] .igs-chat-shell::after{background:rgba(255,255,255,.4);}

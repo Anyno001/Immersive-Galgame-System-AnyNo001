@@ -172,6 +172,7 @@ export const TEXT_FX_STYLE_TEXT = `
 #igs-overlay[data-igs-dialog-skin="adventure-journey"]{--igs-tfx-accent:#8a4f16;--igs-tfx-glow:rgba(255,250,238,.95);}
 #igs-overlay[data-igs-dialog-skin="plant-coffee"]{--igs-tfx-accent:#a4492a;--igs-tfx-glow:rgba(255,255,255,.9);}
 #igs-overlay[data-igs-dialog-skin="magic-academy"]{--igs-tfx-accent:#f0cf78;--igs-tfx-glow:rgba(255,214,120,.85);}
+#igs-overlay[data-igs-dialog-skin="mermaid-deep"]{--igs-tfx-accent:#b6d4ff;--igs-tfx-glow:rgba(140,180,255,.8);}
 #igs-overlay[data-igs-dialog-skin="qinglv-shanshui"]{--igs-tfx-accent:#2f5d7c;--igs-tfx-glow:rgba(244,240,229,.9);}
 #igs-overlay[data-igs-dialog-skin="warm-picturebook"]{--igs-tfx-accent:#c8553d;--igs-tfx-glow:rgba(255,255,255,.8);}
 #igs-overlay[data-igs-dialog-skin="fairy-tale"]{--igs-tfx-accent:#b4702c;--igs-tfx-glow:rgba(250,246,234,.9);}

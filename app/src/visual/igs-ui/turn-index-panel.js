@@ -9,15 +9,19 @@ import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.j
 import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { IGS_HINT_THEME_STYLE_TEXT } from './igs-modal.js';
+import { collectFeedPosts, feedPlatformById, isOwnPhone } from '../../scene/feed-platforms.js';
 
 const ROW_HEIGHT = 40;
 const OVERSCAN = 8;
 const ROW_SNIPPET = 40;
 const DETAIL_SNIPPET = 360;
+const FEED_LIST_MAX = 200;
+const FEED_ROW_SNIPPET = 60;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const STATE_LABEL = { read: '已读', partial: '读了一半', unread: '未读' };
 const OPEN_CLASS = 'igs-turn-index-open';
 const BOOKMARK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h11v17L12 16.5l-5.5 4Z"/></svg>';
+const FEED_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-7l-4.5 3.5V16.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z"/></svg>';
 
 function findAction(target) {
     let node = target;
@@ -40,7 +44,7 @@ export function positionLabel(pos) {
     return pos ? `${pos.id} 楼 · 第 ${pos.page + 1} 页` : '';
 }
 
-// options: progress, listTurns() → Promise<turn[]>, snippetOf(turn), currentId(), onJump({ id, page, pos }), onUnread(),
+// options: progress, listTurns() → Promise<turn[]>, snippetOf(turn), rawOf(turn)（带 [igs-fx:...] 的原文，社区页解析帖子用）, currentId(), onJump({ id, page, pos }), onUnread(),
 //          onSaveSlot(key?) → slot|null, onQuickSave(), confirm(message), prompt(message, value), tab, getTheme(), setTheme(theme)
 export function createTurnIndexPanel(doc, options = {}) {
     const progress = options.progress;
@@ -49,7 +53,10 @@ export function createTurnIndexPanel(doc, options = {}) {
     let turns = [];
     let ids = [];
     let rows = [];
-    let tab = options.tab === 'slots' ? 'slots' : 'floors';
+    let tab = options.tab === 'slots' ? 'slots' : options.tab === 'feed' ? 'feed' : 'floors';
+    let feedFilter = '';
+    let feedKey = '';
+    const feedCache = new Map();
     let collapsed = new Set();
     let previousFocus = null;
     let notice = '';
@@ -73,7 +80,10 @@ export function createTurnIndexPanel(doc, options = {}) {
         if (!snippets.has(id)) {
             let text = '';
             try { text = String(options.snippetOf?.(turn) || ''); } catch (_) { text = ''; }
-            snippets.set(id, text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, DETAIL_SNIPPET));
+            snippets.set(id, text.replace(/<[^>]*>/g, '')
+                // IGS 指令不进目录：台词/心声留「名字：话」，其余指令整条去掉。
+                .replace(/\[igs-(?:char|thought):([^|\]\n]+)\|(?:[^|\]\n]*\|)?([^\]\n]+)\]?/g, '$1：$2')
+                .replace(/\[\/?igs-[^\]\n]*\]?/g, ' ').replace(/\s+/g, ' ').trim().slice(0, DETAIL_SNIPPET));
         }
         return snippets.get(id);
     }
@@ -103,6 +113,7 @@ export function createTurnIndexPanel(doc, options = {}) {
             + `<div class="igs-ti-tabs"><div class="igs-rp-segment" role="tablist" aria-label="目录分页">`
             + `<button type="button" role="tab" data-ti-act="tab" data-ti-value="floors" aria-pressed="${tab === 'floors'}" aria-selected="${tab === 'floors'}">${RECORD_ICONS.book}<span>楼层</span></button>`
             + `<button type="button" role="tab" data-ti-act="tab" data-ti-value="slots" aria-pressed="${tab === 'slots'}" aria-selected="${tab === 'slots'}">${BOOKMARK_ICON}<span>存档</span></button>`
+            + `<button type="button" role="tab" data-ti-act="tab" data-ti-value="feed" aria-pressed="${tab === 'feed'}" aria-selected="${tab === 'feed'}">${FEED_ICON}<span>社区</span></button>`
             + `</div></div>`;
     }
 
@@ -223,10 +234,78 @@ export function createTurnIndexPanel(doc, options = {}) {
         return `<div class="igs-ti-layout"><aside class="igs-ti-side">${tools}${noticeHtml()}${list}</aside>${detail}</div>`;
     }
 
+    // 社区页：打开该分页时才按楼解析原文，结果按楼号缓存；最新楼在前。
+    function feedPosts() {
+        const all = [];
+        for (let i = turns.length - 1; i >= 0; i -= 1) {
+            const turn = turns[i];
+            const id = Number(turn && turn.id);
+            if (!Number.isInteger(id)) continue;
+            if (!feedCache.has(id)) {
+                let raw = '';
+                try { raw = String((options.rawOf || options.snippetOf)?.(turn) || ''); } catch (_) { raw = ''; }
+                feedCache.set(id, collectFeedPosts(raw).map((post, n) => ({ ...post, id, key: `${id}:${n}` })));
+            }
+            all.push(...feedCache.get(id));
+        }
+        return all;
+    }
+
+    const feedPlatformName = (id) => (feedPlatformById(id) || {}).name || String(id);
+
+    // 偷看别人手机的条目：平台名前加「X的手机」小标。
+    const peekTag = (post) => (post.owner && !isOwnPhone(post.owner, options.userName) ? `<b class="igs-ti-peek">${escapeHtml(post.owner)}的手机</b>` : '');
+
+    // 风暴评论的小标签：红（爆红）金色、黑（爆黑）红色，实色。
+    const stormTag = (post) => (post.kind === 'storm' ? `<b class="igs-ti-storm" data-tone="${post.tone === 'black' ? 'black' : 'red'}">风暴</b>` : '');
+
+    function feedRowHtml(post) {
+        const accent = (feedPlatformById(post.platform) || {}).accent || '#888';
+        return `<button type="button" class="igs-ti-feed-row" data-ti-act="feed-select" data-ti-value="${escapeHtml(post.key)}"${post.key === feedKey ? ' aria-current="true"' : ''}>`
+            + `<i class="igs-ti-feed-dot" style="background:${escapeHtml(accent)}" aria-hidden="true"></i>`
+            + `<span class="igs-ti-feed-copy"><small>${stormTag(post)}${peekTag(post)}${post.platform ? `${escapeHtml(feedPlatformName(post.platform))} · ` : ''}${escapeHtml(post.author)}</small>`
+            + `<span class="igs-ti-feed-text">${escapeHtml(Array.from(post.text.replace(/\s+/g, ' ')).slice(0, FEED_ROW_SNIPPET).join(''))}</span></span>`
+            + `<span class="igs-ti-no">${post.id}</span></button>`;
+    }
+
+    function feedHtml() {
+        const all = feedPosts();
+        if (feedFilter && !all.some((p) => p.platform === feedFilter)) feedFilter = '';
+        const shown = feedFilter ? all.filter((p) => p.platform === feedFilter) : all;
+        if (feedKey && !shown.some((p) => p.key === feedKey)) feedKey = '';
+        const platforms = [...new Set(all.map((p) => p.platform))].filter(Boolean);
+        const chips = platforms.length
+            ? `<div class="igs-ti-quick" role="group" aria-label="平台筛选">`
+                + `<button type="button" class="igs-rp-chip" data-ti-act="feed-filter" data-ti-value="" aria-pressed="${!feedFilter}">全部</button>`
+                + platforms.map((id) => `<button type="button" class="igs-rp-chip" data-ti-act="feed-filter" data-ti-value="${escapeHtml(id)}" aria-pressed="${feedFilter === id}">${escapeHtml(feedPlatformName(id))}</button>`).join('')
+                + `</div>` : '';
+        const visible = shown.slice(0, FEED_LIST_MAX);
+        const list = shown.length
+            ? `<div class="igs-ti-feed-list" data-ti-feed-list>${visible.map(feedRowHtml).join('')}${shown.length > FEED_LIST_MAX ? `<p class="igs-ti-empty">仅显示最近 ${FEED_LIST_MAX} 条</p>` : ''}</div>`
+            : '<p class="igs-ti-empty">还没有刷到过帖子</p>';
+        const chosen = shown.find((p) => p.key === feedKey);
+        let detail;
+        if (!chosen) {
+            detail = `<div class="igs-ti-detail igs-ti-empty-pane"><span aria-hidden="true">${FEED_ICON}</span><p>正文里刷到的帖子会收在这里</p></div>`;
+        } else {
+            const meta = [chosen.owner && !isOwnPhone(chosen.owner, options.userName) ? `${chosen.owner}的手机` : '', chosen.platform ? feedPlatformName(chosen.platform) : '', chosen.kind === 'storm' ? '风暴' : '', `第 ${chosen.id} 楼`, chosen.extra].filter(Boolean).map(escapeHtml).join('<i aria-hidden="true">·</i>');
+            const replies = chosen.replies.length
+                ? `<ul class="igs-ti-feed-replies" aria-label="回复">${chosen.replies.map((r) => `<li><strong>${escapeHtml(r.author)}</strong>：${escapeHtml(r.text)}</li>`).join('')}</ul>` : '';
+            detail = `<article class="igs-ti-detail"><p class="igs-ti-meta">${meta}</p><h3>${escapeHtml(chosen.author)}</h3>`
+                + `<p class="igs-ti-body">${escapeHtml(chosen.text)}</p>${replies}`
+                + `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${chosen.id}">跳到这一楼</button></div></article>`;
+        }
+        return `<div class="igs-ti-layout"><aside class="igs-ti-side">${chips}${list}</aside>${detail}</div>`;
+    }
+
     function render() {
         if (!root) return;
         buildRows();
-        root.innerHTML = `<div class="igs-rp-page">${headHtml()}<div class="igs-rp-body"><div class="igs-ti-scroll">${tab === 'slots' ? slotsHtml() : floorsHtml()}</div></div></div>`;
+        const feedList = tab === 'feed' ? query('[data-ti-feed-list]') : null;
+        const feedTop = feedList ? feedList.scrollTop : 0;
+        root.innerHTML = `<div class="igs-rp-page">${headHtml()}<div class="igs-rp-body"><div class="igs-ti-scroll">${tab === 'slots' ? slotsHtml() : tab === 'feed' ? feedHtml() : floorsHtml()}</div></div></div>`;
+        const nextFeed = feedTop ? query('[data-ti-feed-list]') : null;
+        if (nextFeed) nextFeed.scrollTop = feedTop;
         const list = query('[data-ti-list]');
         if (list) {
             list.addEventListener('scroll', paintRows, { passive: true });
@@ -276,7 +355,9 @@ export function createTurnIndexPanel(doc, options = {}) {
             try { options.setTheme?.(theme); } catch (_) { /* 保存失败只影响下次打开 */ }
             return null;
         }
-        if (act === 'tab') { tab = value === 'slots' ? 'slots' : 'floors'; notice = ''; render(); if (tab === 'floors') scrollToId(selectedId ?? Number(options.currentId?.())); return null; }
+        if (act === 'feed-filter') { feedFilter = value; feedKey = ''; render(); return null; }
+        if (act === 'feed-select') { feedKey = value; render(); return null; }
+        if (act === 'tab') { tab = value === 'slots' ? 'slots' : value === 'feed' ? 'feed' : 'floors'; notice = ''; render(); if (tab === 'floors') scrollToId(selectedId ?? Number(options.currentId?.())); return null; }
         if (act === 'chapter') { if (collapsed.has(value)) collapsed.delete(value); else collapsed.add(value); selectFloor(selectedId); return null; }
         if (act === 'select') { selectFloor(Number(value)); return null; }
         if (act === 'select-step') {
@@ -411,7 +492,7 @@ export function createTurnIndexPanel(doc, options = {}) {
         close,
         isOpen: () => Boolean(root),
         whenIdle: () => acting,
-        getState: () => ({ tab, rows: rows.length, ids: ids.slice(), notice, selectedId, selectedSlot, theme }),
+        getState: () => ({ tab, rows: rows.length, ids: ids.slice(), notice, selectedId, selectedSlot, theme, feedFilter, feedKey }),
         act: (act, value) => (acting = acting.then(() => handle(act, value))),
     };
 }
@@ -466,7 +547,7 @@ ${T} .igs-ti-meta i{margin:0 10px;font-style:normal;color:var(--igs-rp-text-ghos
 ${T} .igs-ti-detail h3{margin:12px 0 18px;font-family:var(--igs-rp-font-body);font-size:24px;font-weight:400;letter-spacing:.08em;line-height:1.4;overflow-wrap:anywhere;}
 ${T} .igs-ti-body{margin:18px 0 0;max-width:34em;font-family:var(--igs-rp-font-body);font-size:16px;line-height:1.95;letter-spacing:.03em;color:var(--igs-rp-text);white-space:pre-wrap;overflow-wrap:anywhere;}
 ${T} .igs-ti-detail h3 + .igs-ti-body{margin-top:0;color:var(--igs-rp-text-soft);}
-${T} .igs-ti-detail-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:28px;}
+${T} .igs-ti-detail-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;margin-top:28px;}
 ${T} .igs-ti-nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:auto;padding-top:28px;font-size:13px;}
 ${T} .igs-ti-nav button{min-height:36px;padding:7px 12px;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);font-weight:500;letter-spacing:.06em;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
 ${T} .igs-ti-nav button:hover:not([disabled]){background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
@@ -492,6 +573,22 @@ ${T} .igs-ti-slot-copy{display:flex;flex-direction:column;flex:1;min-width:0;}
 ${T} .igs-ti-slot-copy strong{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 ${T} .igs-ti-slot-copy small{color:var(--igs-rp-text-faint);font-size:11px;font-variant-numeric:tabular-nums;}
 ${T} .igs-ti-detail-thumb{display:block;width:100%;max-height:42%;margin:0 0 20px;border-radius:var(--igs-rp-radius-m);object-fit:cover;}
+${T} .igs-ti-feed-list{flex:1 1 auto;min-height:160px;overflow:auto;margin:0 -6px;display:flex;flex-direction:column;gap:2px;}
+${T} .igs-ti-feed-row{flex:none;display:flex;align-items:center;gap:10px;min-height:${ROW_HEIGHT + 8}px;padding:4px 10px;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);text-align:left;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+${T} .igs-ti-feed-row:hover{background:var(--igs-rp-fill);color:var(--igs-rp-text);}
+${T} .igs-ti-feed-row[aria-current="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
+${T} .igs-ti-feed-dot{flex:none;width:8px;height:8px;border-radius:50%;}
+${T} .igs-ti-feed-copy{display:flex;flex-direction:column;flex:1;min-width:0;}
+${T} .igs-ti-feed-copy small{color:var(--igs-rp-text-faint);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+${T} .igs-ti-storm{display:inline-block;margin-right:5px;padding:0 5px;border-radius:3px;font-size:10px;font-weight:600;line-height:15px;color:#fff;background:#b8860b;}
+${T} .igs-ti-storm[data-tone="black"]{background:#c0392b;}
+${T} .igs-ti-peek{display:inline-block;margin-right:5px;padding:0 5px;border-radius:3px;font-size:10px;font-weight:600;line-height:15px;color:#fff;background:#d6453d;}
+${T} .igs-ti-feed-text{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+${T} .igs-ti-feed-row .igs-ti-no{flex:none;text-align:right;}
+${T} .igs-ti-feed-replies{list-style:none;margin:22px 0 0;padding:0 0 0 14px;max-width:34em;border-left:1px solid var(--igs-rp-text-ghost);display:flex;flex-direction:column;gap:8px;}
+${T} .igs-ti-feed-replies li{font-size:13px;line-height:1.7;color:var(--igs-rp-text-soft);overflow-wrap:anywhere;}
+${T} .igs-ti-feed-replies strong{font-weight:500;color:var(--igs-rp-text-faint);}
+${T}.igs-rp-narrow .igs-ti-feed-list{flex:none;height:38vh;}
 ${T}.igs-rp-narrow .igs-ti-scroll{padding:4px 14px 20px;}
 ${T}.igs-rp-narrow .igs-ti-layout{display:flex;flex-direction:column;gap:14px;height:auto;min-height:100%;}
 ${T}.igs-rp-narrow .igs-ti-list{flex:none;height:38vh;}

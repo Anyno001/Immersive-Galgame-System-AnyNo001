@@ -15,6 +15,8 @@ const CLAUSE_AFTER = new Set('，、；：,;:'.split(''));
 const PARTICLES = new Set('的了吗呢吧啊呀哦嘛着过地得'.split(''));
 // 修饰后文的字（不、很、也、把……）后面断开会把词组拆散。
 const BIND_AFTER = new Set('不没别很最太再更都也还又才就把被让给向从在对跟和与是一这那'.split(''));
+// 单字后缀（图书「馆」、他「们」、家「里」）分词器常切成独立的词，换列时仍要跟着前文。
+const SUFFIX = new Set('馆室店厅院场楼园站部局所班们家者员里边面时候性化式型'.split(''));
 const LATIN_RUN = /[A-Za-z][A-Za-z0-9'’.\-]*/y;
 const DIGIT_RUN = /[0-9]+/y;
 const BANG_RUN = /[！？!?]{2,3}/y;
@@ -108,7 +110,8 @@ export function wordBoundaries(text) {
 function breakBonus(prev, next, words) {
     if (!prev) return 0;
     // 把一个词拆到两列：仅次于禁则的大忌。
-    if (words && next && !words.has(next.start)) return 5;
+    if (words && next && !words.has(next.start)) return 12;
+    if (next && next.text.length === 1 && SUFFIX.has(next.text)) return 4;
     const last = prev.text[prev.text.length - 1];
     // 语气词、助词粘着前文：换列后落在列首很难看。
     if (next && PARTICLES.has(next.text[0])) return 3;
@@ -132,9 +135,9 @@ export function columnTargets(total, count) {
     return weights.map((w) => total * w / sum);
 }
 
-// 估一个合适的列数：竖排泡宜略高于宽（列距 1.5 格），短句一列到底。
+// 估一个合适的列数：竖排泡要细长（列长约为泡宽的两三倍），十来个字以内一列到底。
 export function idealColumnCount(total, maxLen) {
-    let count = Math.max(1, Math.round(Math.sqrt(total / 2.1)));
+    let count = Math.max(1, Math.round(Math.sqrt(total / 4.5)));
     while (total / count > maxLen) count += 1;
     return count;
 }
@@ -154,6 +157,13 @@ function solveColumns(tokens, count, maxLen, words) {
     const prefix = [0];
     for (const t of tokens) prefix.push(prefix[prefix.length - 1] + t.len);
     const hardAt = tokens.map((t) => t.hard === true);
+    // 句读夹在列中间（明明可以在那里换列却没换）读起来别扭：按个数加代价。
+    const pauses = [0];
+    tokens.forEach((t, k) => {
+        const last = t.text[t.text.length - 1];
+        const next = tokens[k + 1];
+        pauses.push(pauses[k] + ((SENTENCE_AFTER.has(last) || CLAUSE_AFTER.has(last)) && next && !next.noStart ? 1 : 0));
+    });
     const INF = Infinity;
     // dp[c][j]：前 j 个 token 排成 c 列的最小代价。
     const dp = Array.from({ length: count + 1 }, () => new Array(n + 1).fill(INF));
@@ -184,7 +194,7 @@ function solveColumns(tokens, count, maxLen, words) {
                     if (len > maxLen + 1) break;
                     continue;
                 }
-                let total2 = dp[c - 1][i] + cost + (j < n ? breakBonus(tokens[j - 1], tokens[j], words) : 0);
+                let total2 = dp[c - 1][i] + cost + (pauses[j - 1] - pauses[i]) * 3.5 + (j < n ? breakBonus(tokens[j - 1], tokens[j], words) : 0);
                 // 末列不孤字：只剩一个字（或一个标点）单独成列很难看。
                 if (c === count && count > 1 && len < 1.6) total2 += 9;
                 if (total2 < dp[c][j]) {

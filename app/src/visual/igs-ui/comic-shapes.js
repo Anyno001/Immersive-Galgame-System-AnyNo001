@@ -26,15 +26,27 @@ export function hashSeed(text) {
 const r1 = (v) => Math.round(v * 10) / 10;
 
 // 超椭圆上的点：指数 n 越大越接近圆角矩形；n=2 为椭圆。
-export function superPoint(cx, cy, a, b, n, t) {
+// tip 单独管上下两头：小于 2 时两头收成圆圆的尖，两侧仍按 n 保持挺直。
+export function superPoint(cx, cy, a, b, n, t, tip = n) {
     const c = Math.cos(t);
     const s = Math.sin(t);
-    const e = 2 / n;
-    return [cx + a * Math.sign(c) * Math.abs(c) ** e, cy + b * Math.sign(s) * Math.abs(s) ** e];
+    return [cx + a * Math.sign(c) * Math.abs(c) ** (2 / tip), cy + b * Math.sign(s) * Math.abs(s) ** (2 / n)];
 }
 
 // 包住一组点（文字块各列的首尾角点）所需的最小超椭圆半轴，宽高比按 aspect 给定。
-export function fitSuperellipse(points, cx, cy, aspect, n) {
+export function fitSuperellipse(points, cx, cy, aspect, n, tip = n) {
+    if (tip !== n) {
+        // 两个方向指数不同时没有闭式解：对半轴二分。
+        const inside = (k) => points.every(([x, y]) => (Math.abs(x - cx) / k) ** tip + (Math.abs(y - cy) / (k * aspect)) ** n <= 1);
+        let lo = 0;
+        let hi = 1;
+        while (!inside(hi) && hi < 1e6) hi *= 2;
+        for (let i = 0; i < 24; i += 1) {
+            const mid = (lo + hi) / 2;
+            if (inside(mid)) hi = mid; else lo = mid;
+        }
+        return { a: hi, b: hi * aspect };
+    }
     let scale = 0;
     for (const [x, y] of points) {
         const dx = Math.abs(x - cx);
@@ -71,7 +83,7 @@ function perimeter(a, b) {
 }
 
 // 泡体：kind 决定轮廓。所有尺寸都是像素；rand 给手绘的细微起伏，同一种子每次画出一样的形状。
-export function bodyPath(kind, { cx, cy, a, b, n = 2.4 }, rand) {
+export function bodyPath(kind, { cx, cy, a, b, n = 2.4, tip = n }, rand) {
     const per = perimeter(a, b);
     if (kind === 'box' || kind === 'narration' || kind === 'system') {
         const r = kind === 'narration' ? 1.5 : Math.min(a, b) * 0.14;
@@ -95,19 +107,19 @@ export function bodyPath(kind, { cx, cy, a, b, n = 2.4 }, rand) {
         return polygonPath(pts);
     }
     if (kind === 'thought') {
-        // 云框：沿椭圆排一圈向外鼓的圆弧。
-        const bumps = Math.max(9, Math.round(per / 46));
+        // 心里话：圆方框上一圈浅浅的弧，不鼓成云朵。
+        const bumps = Math.max(8, Math.round(per / 58));
         const pts = [];
         for (let i = 0; i < bumps; i += 1) {
             const t = (i / bumps) * Math.PI * 2 + (rand() - 0.5) * 0.12;
-            pts.push(superPoint(cx, cy, a * 0.97, b * 0.97, 2.1, t));
+            pts.push(superPoint(cx, cy, a * 0.99, b * 0.99, n, t));
         }
         let d = `M${r1(pts[0][0])} ${r1(pts[0][1])}`;
         for (let i = 0; i < bumps; i += 1) {
             const p = pts[i];
             const q = pts[(i + 1) % bumps];
             const chord = Math.hypot(q[0] - p[0], q[1] - p[1]);
-            const r = chord * (0.56 + rand() * 0.12);
+            const r = chord * (0.86 + rand() * 0.16);
             d += `A${r1(r)} ${r1(r)} 0 0 1 ${r1(q[0])} ${r1(q[1])}`;
         }
         return `${d}Z`;
@@ -131,17 +143,19 @@ export function bodyPath(kind, { cx, cy, a, b, n = 2.4 }, rand) {
         for (let i = 0; i < steps; i += 1) {
             const t = (i / steps) * Math.PI * 2;
             const k = 1 + (rand() - 0.5) * 0.045;
-            pts.push(superPoint(cx, cy, a * k, b * k, n, t));
+            pts.push(superPoint(cx, cy, a * k, b * k, n, t, tip));
         }
         return polygonPath(pts);
     }
-    // 普通对白、小声、阴沉、电话：平滑的超椭圆，带极轻的手绘起伏。
+    // 普通对白、小声、阴沉、电话：带一点方角的超椭圆。手绘感来自几道低频起伏（一笔画下来的不匀），不是高频抖动。
     const steps = 40;
     const pts = [];
+    const waves = [[2, 0.02], [3, 0.014], [5, 0.008]].map(([f, amp]) => [f, amp * (0.7 + rand() * 0.6), rand() * Math.PI * 2]);
     for (let i = 0; i < steps; i += 1) {
         const t = (i / steps) * Math.PI * 2;
-        const k = 1 + (rand() - 0.5) * 0.012;
-        pts.push(superPoint(cx, cy, a * k, b * k, n, t));
+        let k = 1 + (rand() - 0.5) * 0.006;
+        for (const [f, amp, phase] of waves) k += amp * Math.sin(t * f + phase);
+        pts.push(superPoint(cx, cy, a * k, b * k, n, t, tip));
     }
     return smoothClosedPath(pts);
 }
@@ -195,6 +209,24 @@ export function tailPath(kind, body, tip, rand) {
     const c1 = [left[0] + (tip[0] - left[0]) * 0.55 + px * bend, left[1] + (tip[1] - left[1]) * 0.55 + py * bend];
     const c2 = [right[0] + (tip[0] - right[0]) * 0.5 + px * bend, right[1] + (tip[1] - right[1]) * 0.5 + py * bend];
     return `M${r1(left[0])} ${r1(left[1])}Q${r1(c1[0])} ${r1(c1[1])} ${r1(tip[0])} ${r1(tip[1])}Q${r1(c2[0])} ${r1(c2[1])} ${r1(right[0])} ${r1(right[1])}Z`;
+}
+
+// 两个不相叠的泡之间一道细细的连线：两端埋进泡体，中段收细。
+export function linkPath(from, to, width) {
+    const dx = to.cx - from.cx;
+    const dy = to.cy - from.cy;
+    const dist = Math.hypot(dx, dy) || 1;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const px = -uy;
+    const py = ux;
+    const reach = (body) => 0.8 / Math.sqrt((ux / body.a) ** 2 + (uy / body.b) ** 2);
+    const p = [from.cx + ux * reach(from), from.cy + uy * reach(from)];
+    const q = [to.cx - ux * reach(to), to.cy - uy * reach(to)];
+    const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+    const w = width / 2;
+    const m = w * 0.55;
+    return `M${r1(p[0] + px * w)} ${r1(p[1] + py * w)}Q${r1(mid[0] + px * m)} ${r1(mid[1] + py * m)} ${r1(q[0] + px * w)} ${r1(q[1] + py * w)}L${r1(q[0] - px * w)} ${r1(q[1] - py * w)}Q${r1(mid[0] - px * m)} ${r1(mid[1] - py * m)} ${r1(p[0] - px * w)} ${r1(p[1] - py * w)}Z`;
 }
 
 // 心里话的尾巴：一串由大到小的小圆，从泡边飘向说话人头顶。

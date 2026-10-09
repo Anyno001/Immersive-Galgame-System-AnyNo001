@@ -1,4 +1,5 @@
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
+import { DIALOG_SKIN_MERMAID, MERMAID_TONES, normalizeMermaidAccent, normalizeMermaidTone } from './dialog-theme-mermaid.js';
 import { buildIgsTextPayload, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
 import { dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
 import { assetOwnerKey, assetShadowsGlobal, draftEffectiveAssets, effectiveSceneAssets, hasSharedCopy, isSharedCollection, rememberAssetScope } from '../../scene/asset-scope.js';
@@ -54,6 +55,8 @@ import { TYPEWRITER_VOICE_LABELS } from './typewriter-audio.js';
 import { normalizeChatShowSettings } from './chat-show-runtime.js';
 import { normalizeSystemRoleSettings } from './system-role.js';
 import { normalizePromptPlacement } from './tag-grammar.js';
+import { renderPromptEntryFields } from './prompt-entries-fields.js';
+import { getLastPromptReport } from '../../scene/prompt-triggers.js';
 import { resolveRenderQuality } from './render-quality.js';
 
 const ASSET_MOVE_ALL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>';
@@ -270,6 +273,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoNsfwCountField: field('bridge.autoIllustration.nsfwCount', '每层张数', numberInput('bridge.autoIllustration.nsfwCount', auto.nsfwCount, 1, NSFW_COUNT_MAX)),
                 autoInterludeField: checkbox('bridge.autoIllustration.interludeEnabled', auto.interludeEnabled, '过场插图'),
                 autoInterludeHidden: hiddenAttr(!auto.interludeEnabled),
+                autoBackfillField: checkbox('bridge.autoIllustration.backfillOldFloors', auto.backfillOldFloors, '阅读旧楼层时补全插图'),
                 autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
                 autoInterludeMaxField: field('bridge.autoIllustration.interludeMaxCount', '每层最多张数', numberInput('bridge.autoIllustration.interludeMaxCount', auto.interludeMaxCount, 1, 16)),
                 autoAssetSpriteField: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '自动生成角色立绘'),
@@ -339,7 +343,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + grid(kindModel('item', '物品模型')),
                     cg: imageFields.autoInterludeField
                         + `<div class="igs-settings-sub" data-image-feature="interlude"${imageFields.autoInterludeHidden}>${grid(imageFields.autoInterludeProbabilityField, imageFields.autoInterludeMaxField)}</div>`
-                        + grid(kindModel('cg', '剧情 CG 模型')),
+                        + grid(kindModel('cg', '剧情 CG 模型'))
+                        + `<div class="igs-settings-sub" data-image-feature="backfill"${hiddenAttr(!auto.interludeEnabled && !auto.nsfwEnabled)}>${imageFields.autoBackfillField}<div class="igs-source-filter-note">开启后，翻阅较早的楼层时，若该楼层从未生成过插图，或上次生成失败，将按当前的过场与 NSFW 规则补全。已判定无需插图的楼层不会重复处理。会消耗生图额度。</div></div>`,
                     nsfw: imageFields.autoNsfwField
                         + `<div class="igs-settings-sub" data-image-feature="nsfw"${imageFields.autoNsfwHidden}>${grid(imageFields.autoNsfwCountField)}</div>`,
                 },
@@ -570,7 +575,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区'], ['depth0', '聊天末尾']]),
                         '如 AI 未按标签输出，可改回聊天末尾。')
                     + checkbox('bridge.sceneAssets.promptAdaptive', sceneAssets.promptAdaptive !== false, '按需注入')
-                    + '<div class="igs-source-filter-note">仅在需要时附上完整说明。</div></details>',
+                    + '<div class="igs-source-filter-note">仅在需要时附上完整说明。</div>'
+                    + (sceneAssets.promptAdaptive !== false ? renderPromptEntryFields(sceneAssets, { report: getLastPromptReport(), isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]) }) : '')
+                    + '</details>',
                 wardrobeSection: checkbox('bridge.sceneAssets.wardrobeAutoFlow', sceneAssets.wardrobeAutoFlow !== false, '自动流程（新建后自动写提示词、生成参考图）')
                     + renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, scopeMenu, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
                 moodSectionOpen: asyncState.advancedOpen && asyncState.advancedOpen['rules-mood'] ? ' open' : '',
@@ -664,7 +671,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             dialogBarAlignField: reader.toolbarSplit === 'top' ? '' : field('readerSettings.dialogBarAlign', '对话框下按钮位置', selectInput('readerSettings.dialogBarAlign', reader.dialogBarAlign || 'auto', [['auto', '自动（手机居中、电脑靠左）'], ['left', '靠左'], ['center', '居中'], ['right', '靠右']])),
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（右键 / 三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面')
+            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（右键 / 三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面') + checkbox('readerSettings.underwaterSkin', reader.underwaterSkin !== false, '场景在水下时换成深海人鱼')
+                + (reader.underwaterSkin !== false || reader.dialogSkin === DIALOG_SKIN_MERMAID ? field('readerSettings.mermaidTone', '深海人鱼配色', selectInput('readerSettings.mermaidTone', normalizeMermaidTone(reader.mermaidTone), MERMAID_TONES.map((tone) => [tone.id, tone.label])))
+                    + (normalizeMermaidTone(reader.mermaidTone) === 'custom' ? field('readerSettings.mermaidAccent', '珠光颜色', colorInput('readerSettings.mermaidAccent', normalizeMermaidAccent(reader.mermaidAccent))) : '') : '')
                 + (supportsDialogAutoHeight(reader.dialogSkin) ? checkbox('readerSettings.dialogAutoHeight', reader.dialogAutoHeight, '对话框高度自适应（字少变矮）') : ''),
             cinemaBarsToggle: checkbox('readerSettings.cinemaBars', reader.cinemaBars, '电影黑边'),
             backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '毛玻璃模糊'),

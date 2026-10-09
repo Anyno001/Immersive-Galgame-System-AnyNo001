@@ -25,6 +25,7 @@ const ALL_ON = Object.freeze({
     romanceFx: { enabled: true, rival: true, confess: true, memories: true },
     camera: { enabled: true },
     liveFx: { enabled: true },
+    feedFx: { enabled: true },
 });
 
 const len = (text) => Array.from(String(text || '')).length;
@@ -45,7 +46,7 @@ test('gate:prompt-budget:all-on-fixed-part-stays-under-3000-chars-with-one-share
     assert.match(system, /新衣服示例：去宴会，上面没有能对上的说明/);
     assert.match(system, /去宴会，没有能对上的衣服，新起短名/);
     // 按需块只列索引行，不出现完整说明。
-    assert.match(system, /【按需】.*线上聊天 igs-chat\/igs-msg\/igs-chat-end/);
+    assert.match(system, /【按需】.*线上聊天/);
     assert.doesNotMatch(system, /【线上聊天】/);
     assert.match(system, /效果只有以下9种/);
     assert.ok(len(system) <= 3000, `system ${len(system)} 字 / ${estimatePromptTokens(system)} token`);
@@ -61,7 +62,8 @@ test('gate:prompt-budget:adaptive-blocks-stay-within-measured-budget', () => {
     const report = JSON.stringify(sizes);
     for (const [key, size] of Object.entries(sizes)) assert.ok(size <= (key === 'daily' ? DAILY_SUPERSET_MAX : 1150), `${key} 单块超预算 ${report}`);
     const all = buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set(ADAPTIVE_PROMPT_BLOCKS) });
-    assert.ok(len(all.depth0) <= 2800, `全展开 ${len(all.depth0)} 字 / ${estimatePromptTokens(all.depth0)} token ${report}`);
+    // 10-10 加手机社区：社区块平台写法只展开最近提到的平台（全集未提到时 292 字），全展开实测 3053 字，上限随之 2800 → 3150。
+    assert.ok(len(all.depth0) <= 3150,`全展开 ${len(all.depth0)} 字 / ${estimatePromptTokens(all.depth0)} token ${report}`);
 });
 
 test('gate:prompt-budget:daily-block-per-worldview-stays-under-1150', () => {
@@ -193,7 +195,7 @@ test('gate:prompt-budget:generation-start-reinjects-with-triggers-and-skips-impe
     try {
         emit('generation_started', 'normal', {}, false);
         assert.equal(extensionPrompts[MAIN].position, 0);
-        assert.match(extensionPrompts[MAIN].value, /线上聊天 igs-chat/);
+        assert.match(extensionPrompts[MAIN].value, /【按需】.*线上聊天/);
         assert.equal(extensionPrompts[DEPTH0].value, DEPTH0_REMINDER);
         const systemBefore = extensionPrompts[MAIN].value;
 
@@ -253,7 +255,7 @@ test('gate:prompt-budget:ancient-era-applies-to-adaptive-grammar', () => {
         emit('chat_changed');
         const value = extensionPrompts[MAIN].value;
         assert.match(value, /igs时代背景/);
-        assert.match(value, /书信往来 igs-chat/);
+        assert.match(value, /【按需】.*书信往来/);
         assert.match(value, /notify\|来人\|/);
         assert.doesNotMatch(value, /\bcall\|/);
         assert.doesNotMatch(value, /photo/);

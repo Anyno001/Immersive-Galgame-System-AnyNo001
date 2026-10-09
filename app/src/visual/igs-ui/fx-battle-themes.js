@@ -1,6 +1,7 @@
 import { stroke } from './dialog-skin-frame.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, MAGIC_VEIL, magicTint } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
+import { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, MERMAID_PEARL_HI, mermaidAbyss, mermaidPearl } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiDeep, scifiHolo } from './dialog-theme-scifi.js';
@@ -89,6 +90,14 @@ const BATTLE_THEMES = Object.freeze({
         font: DIALOG_FONT_HUIWEN,
         vars: { veil: nightVeil(80), rule: magicTint(MAGIC_METAL, 62), ink: '#ecebf7', halo: `0 0 10px ${magicTint(MAGIC_METAL_HI, 50)},0 1px 3px rgba(0,0,0,.9)`, 'title-halo': `0 0 20px ${magicTint(MAGIC_METAL_HI, 60)},0 2px 4px rgba(0,0,0,.7)`, wipe: nightVeil(92) },
         mark: `width:11px;height:11px;align-self:center;font-size:0;background:${MAGIC_METAL_HI};-webkit-mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;mask:${MAGIC_SPARKLE_MASK} center/contain no-repeat;filter:drop-shadow(0 0 3px ${magicTint(MAGIC_METAL_HI, 80)});`,
+        title: 'font-style:normal;font-weight:600;',
+    },
+    // 深海人鱼：深海薄纱、珠光细线，名牌标记换成一颗珍珠。
+    [DIALOG_SKIN_MERMAID]: {
+        accent: MERMAID_PEARL_HI,
+        font: DIALOG_FONT_HUIWEN,
+        vars: { veil: mermaidAbyss(0.8), rule: mermaidPearl(0.62), ink: '#eef4fb', halo: `0 0 10px ${mermaidPearl(0.5)},0 1px 3px rgba(0,0,0,.9)`, 'title-halo': `0 0 20px ${mermaidPearl(0.6)},0 2px 4px rgba(0,0,0,.7)`, wipe: mermaidAbyss(0.92) },
+        mark: `width:10px;height:10px;align-self:center;font-size:0;border-radius:50%;background:${MERMAID_PEARL_DOT};box-shadow:0 0 5px ${mermaidPearl(0.8)};`,
         title: 'font-style:normal;font-weight:600;',
     },
     // 西欧古典：橄榄墨底、金线。

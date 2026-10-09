@@ -8814,7 +8814,7 @@ test('gate:simulation:chat-show-settings-edit-contacts-and-inject-prompt-rule', 
         assert.deepEqual(persisted.chatShow.contacts, { 爱丽丝: { aliases: ['alice_cat'], color: '', side: 'right' } });
         // 恢复默认后聊天块回到按需：主注入只留索引行，完整写法等触发时再附。
         const lastMain = String(injected.filter(([id]) => id === 'igs-scene-assets-format-rule').at(-1)[1]);
-        assert.match(lastMain, /线上聊天 igs-chat\/igs-msg\/igs-chat-end/);
+        assert.match(lastMain, /【按需】.*线上聊天/);
         assert.doesNotMatch(lastMain, /自定义聊天规则/);
     } finally {
         vn.destroy();

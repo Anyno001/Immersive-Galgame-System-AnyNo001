@@ -12,6 +12,8 @@ const NARROW_MODES = new Set(['mobile', 'embedded']);
 const NARROW_STAGE_WIDTH = 768;
 // background-position 百分比是「图上该比例点对齐容器该比例点」，不是中心坐标。
 const SLOT_POS_X = Object.freeze({ 2: Object.freeze([18, 82]), 3: Object.freeze([6, 50, 94]) });
+// 槽位中心（舞台宽度百分比）：等于上面的 posX 在图宽约 28% 舞台宽时的落点；图宽探测好后按它换算 posX（posXForCenter）。
+const SLOT_CENTER_X = Object.freeze({ 2: Object.freeze([27, 73]), 3: Object.freeze([18, 50, 82]) });
 const FADE_MS = 220;
 const SWAP_FADE_MS = 180;
 
@@ -59,22 +61,25 @@ export function layoutCastSlots({ members = [], speakerOrder = null, hasSpeaker 
     const onStage = kept.map((m) => ({ ...m, speaker: false }));
     if (hasSpeaker) onStage.push({ speaker: true, order: Number.isFinite(speakerOrder) ? speakerOrder : Number.MAX_SAFE_INTEGER });
     if (onStage.length < 2) {
-        return { multi: false, speakerPosX: null, speakerSlot: null, count: onStage.length, members: kept.map((m) => ({ ...m, posX: null, slotIndex: null })) };
+        return { multi: false, speakerPosX: null, speakerCenterX: null, speakerSlot: null, count: onStage.length, members: kept.map((m) => ({ ...m, posX: null, centerX: null, slotIndex: null })) };
     }
     onStage.sort((a, b) => a.order - b.order);
     const slots = SLOT_POS_X[onStage.length];
+    const centers = SLOT_CENTER_X[onStage.length];
     let speakerPosX = null;
+    let speakerCenterX = null;
     let speakerSlot = null;
     const placed = [];
     onStage.forEach(({ speaker, ...m }, index) => {
         if (speaker) {
             speakerPosX = slots[index];
+            speakerCenterX = centers[index];
             speakerSlot = index;
         } else {
-            placed.push({ ...m, posX: slots[index], slotIndex: index });
+            placed.push({ ...m, posX: slots[index], centerX: centers[index], slotIndex: index });
         }
     });
-    return { multi: true, speakerPosX, speakerSlot, count: onStage.length, members: placed };
+    return { multi: true, speakerPosX, speakerCenterX, speakerSlot, count: onStage.length, members: placed };
 }
 
 // 特写、NSFW、HTML 卡片与单人立绘编辑都只围绕说话人，这些情况收成单人；恋爱演出按 resolveCastRomanceMode 决定。

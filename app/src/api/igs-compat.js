@@ -10,6 +10,8 @@ import { buildIgsTextPayload, getMessagePrimaryText } from '../scene/message-sou
 import { extractSceneDirectives, resolveLatestSceneDirective } from '../scene/scene-directives.js';
 import { BATTLE_CHAIN_MAX_FLOORS, createBattleHistoryScanner } from '../scene/battle-context.js';
 import { collectPromises } from '../scene/promise-reminder.js';
+import { createLiveHistoryScanner, liveFallbackOf } from '../scene/live-context.js';
+import { createStormHistoryScanner } from '../scene/storm-context.js';
 import { PUBLIC_READER_MODES } from '../schemas/reader-mode.js';
 
 export function createIgsCompatApi(app) {
@@ -31,7 +33,8 @@ export function createIgsCompatApi(app) {
 
         getUnifiedSettings(options = {}) {
             if (typeof app.getUnifiedSettingsSnapshot === 'function') {
-                return app.getUnifiedSettingsSnapshot(options);
+                // 内部共享只读的那份，对外交副本：外部怎么改都碰不到内部配置。
+                return cloneData(app.getUnifiedSettingsSnapshot(options));
             }
 
             const legacy = getLegacySettings(app);
@@ -239,6 +242,47 @@ async function resolveBattleContext(app, messageId) {
     return scanner.result();
 }
 
+// 直播跨楼继承：只在直播间开启时向前读宿主原文，找到最近的开播 / 下播信号为止。
+async function resolveLiveContext(app, messageId) {
+    if (!app || !app.hostAdapter || typeof app.hostAdapter.getAdjacentMessage !== 'function') return null;
+    let cursor = Number(messageId);
+    if (!Number.isFinite(cursor) || cursor < 0) return null;
+    const context = getSillyTavernContext() || {};
+    const scanner = createLiveHistoryScanner(liveFallbackOf(context.name1));
+    for (;;) {
+        let previous = null;
+        try {
+            previous = await app.hostAdapter.getAdjacentMessage(cursor, -1);
+        } catch (error) {
+            break;
+        }
+        if (!previous || previous.id == null || Number(previous.id) === cursor) break;
+        cursor = Number(previous.id);
+        if (scanner.push({ isUser: previous.isUser === true, text: getMessagePrimaryText(previous) })) break;
+    }
+    return scanner.result();
+}
+
+// 舆论风暴跨楼继承：只在手机社区与风暴都开启时向前读宿主原文，找到最近的 storm / storm-end 为止。
+async function resolveStormContext(app, messageId) {
+    if (!app || !app.hostAdapter || typeof app.hostAdapter.getAdjacentMessage !== 'function') return null;
+    let cursor = Number(messageId);
+    if (!Number.isFinite(cursor) || cursor < 0) return null;
+    const scanner = createStormHistoryScanner();
+    for (;;) {
+        let previous = null;
+        try {
+            previous = await app.hostAdapter.getAdjacentMessage(cursor, -1);
+        } catch (error) {
+            break;
+        }
+        if (!previous || previous.id == null || Number(previous.id) === cursor) break;
+        cursor = Number(previous.id);
+        if (scanner.push({ isUser: previous.isUser === true, text: getMessagePrimaryText(previous) })) break;
+    }
+    return scanner.result();
+}
+
 // 约定到期提醒：只在「约定」标签开启时读宿主原文，向前最多 PROMISE_LOOKBACK_FLOORS 层收集 promise 标签；
 // 来源永远是当前聊天楼层原文，楼层删除或 swipe 切换后自然失效，不写任何存储。
 export const PROMISE_LOOKBACK_FLOORS = 40;
@@ -346,6 +390,14 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     const battleContext = battleFxSettings && battleFxSettings.enabled === true
         ? await resolveBattleContext(app, messageId)
         : null;
+    const liveFxSettings = unifiedSettings && unifiedSettings.readerSettings && unifiedSettings.readerSettings.liveFx;
+    const liveContext = liveFxSettings && liveFxSettings.enabled === true
+        ? await resolveLiveContext(app, messageId)
+        : null;
+    const feedFxSettings = unifiedSettings && unifiedSettings.readerSettings && unifiedSettings.readerSettings.feedFx;
+    const stormContext = feedFxSettings && feedFxSettings.enabled === true && !(feedFxSettings.storm && feedFxSettings.storm.enabled === false)
+        ? await resolveStormContext(app, messageId)
+        : null;
     const fxTagSettings = unifiedSettings && unifiedSettings.readerSettings && unifiedSettings.readerSettings.fxTags;
     const promiseHistory = fxTagSettings && fxTagSettings.enabled === true && fxTagSettings.promise === true
         ? await resolvePromiseHistory(app, message, messageId)
@@ -364,6 +416,8 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
         inheritedOutfits,
         inheritedDread,
         battleContext,
+        liveContext,
+        stormContext,
         promiseHistory,
         message,
         messageId,

@@ -232,6 +232,17 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 /* 只有整段细项包在一层 sub 里时才去掉它的缩进（免得双重缩进）；挂在某个开关下的子项要保留缩进，才看得出从属。 */
 .igs-perf-item-body>.igs-settings-sub:only-child{margin-left:0;padding-left:0;border-left:0}
 .igs-perf-item-subhead{margin-top:4px;font-size:12px;font-weight:600;color:var(--igs-settings-ink-3)}
+.igs-feed-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;min-width:0;padding-top:8px}
+.igs-feed-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 12px;border-radius:var(--igs-settings-radius-control);border:1px solid var(--igs-settings-line,rgba(128,128,128,.14));background:var(--igs-settings-field)}
+.igs-feed-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.igs-feed-name{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;font-weight:600;color:var(--igs-settings-ink)}
+.igs-feed-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--igs-settings-accent)}
+.igs-feed-card .igs-switch{flex:0 0 auto;height:30px;padding:0 8px;background:transparent}
+.igs-feed-card textarea{width:100%;box-sizing:border-box;min-height:96px;resize:vertical;border:0;border-bottom:1px solid color-mix(in srgb,var(--igs-settings-ink) 16%,transparent);border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-bg,transparent);color:var(--igs-settings-ink);padding:8px 10px;font:inherit;font-size:12px;line-height:1.55;outline:none}
+.igs-feed-card textarea:focus{border-bottom-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
+.igs-feed-card-foot{display:flex;justify-content:flex-end}
+.igs-feed-card-foot .igs-settings-action{height:28px;padding:0 10px}
+.igs-feed-card-foot .igs-settings-action:disabled{opacity:.4;cursor:default}
 .igs-image-log-list{display:flex;flex-direction:column;gap:2px;max-height:420px;overflow:auto;padding:6px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5;user-select:text}
 .igs-image-log-item{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:8px;padding:3px 4px;border-radius:4px;color:var(--igs-settings-ink)}
 .igs-image-log-time{opacity:.6;white-space:nowrap}

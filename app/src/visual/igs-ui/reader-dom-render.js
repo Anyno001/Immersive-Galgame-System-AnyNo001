@@ -1,4 +1,5 @@
 import { magicHouseVars } from './dialog-theme-css-skins.js';
+import { mermaidToneVars } from './dialog-theme-mermaid.js';
 import { resolveSpeakerMagicHouse } from './magic-house.js';
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
@@ -700,6 +701,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         const speaker = byCharacter ? (content.spriteCharacter || content.speaker) : '';
         const house = resolveSpeakerMagicHouse(readerSettings._sceneAssets, speaker, readerSettings.magicHouse);
         for (const [name, value] of Object.entries(magicHouseVars(house, readerSettings.magicAccent))) root.style.setProperty(name, value);
+        for (const [name, value] of Object.entries(mermaidToneVars(readerSettings.mermaidTone, readerSettings.mermaidAccent))) root.style.setProperty(name, value);
     }
     applyGradientVeilToDom(root, dialog, readerSettings);
 
@@ -1381,7 +1383,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         align: isCastAlignEnabled(snapshot),
         speaker: spriteAssetUrl ? withCastSlot({
             ...presentSpriteLayout(castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
-            ...(speakerSlotX != null ? { posX: speakerSlotX } : {}),
+            ...(speakerSlotX != null ? { posX: speakerSlotX, centerX: castLayout.speakerCenterX } : {}),
             character: castSpeakerKey,
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
@@ -1395,6 +1397,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 url: resolveAssetUrl(m.image),
                 order: m.order,
                 posX: m.posX == null ? layout.posX : m.posX,
+                centerX: m.centerX,
                 posY: layout.posY,
                 scale: layout.scale,
                 head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, m.character, m.mood, m.outfit),
@@ -1670,7 +1673,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
     // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
-    applyDanmakuToDom(root, snapshot, { sprite: fxSprite, resolveAssetUrl, userName: ctx.userName });
+    applyDanmakuToDom(root, snapshot, { sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');
@@ -1706,6 +1709,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const sceneTime = resolveWeatherFxTime(snapshot.content && snapshot.content.sceneTime);
     if (sceneTime) root.setAttribute('data-igs-scene-time', sceneTime);
     else root.removeAttribute('data-igs-scene-time');
+    // 水下：立绘的呼吸换成随水漂浮（样式见 fx-daily-style），不分世界观。
+    if (isUnderwaterScene(snapshot.content, snapshot.readerSettings)) root.setAttribute('data-igs-underwater', '1');
+    else root.removeAttribute('data-igs-underwater');
     applyClickWaitMark(root, snapshot.readerSettings && snapshot.readerSettings.clickWaitMark);
     applyHorrorDread(root, { level: snapshot.content && snapshot.content.sceneDread, cap: snapshot.readerSettings && snapshot.readerSettings.horrorDreadCap });
     const stageDirection = applyStageDirection(root, snapshot, {

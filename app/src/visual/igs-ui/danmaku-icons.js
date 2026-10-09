@@ -15,20 +15,45 @@ export const LIVE_ICONS = Object.freeze({
     plus: svg('<path d="M12 7v10M7 12h10"/>'),
 });
 
-const STATUS_ICONS = '<svg viewBox="0 0 17 11" aria-hidden="true"><rect x="0" y="7" width="3" height="4" rx=".8"/><rect x="4.5" y="5" width="3" height="6" rx=".8"/><rect x="9" y="2.5" width="3" height="8.5" rx=".8"/><rect x="13.5" y="0" width="3" height="11" rx=".8"/></svg>'
-    + '<svg viewBox="0 0 16 11" aria-hidden="true"><path d="M8 2.2c2.3 0 4.4.9 6 2.4l1.1-1.2A10.2 10.2 0 0 0 8 .5 10.2 10.2 0 0 0 .9 3.4L2 4.6a8.6 8.6 0 0 1 6-2.4zm0 3.3c1.4 0 2.6.5 3.6 1.4l1.1-1.2A6.8 6.8 0 0 0 8 3.8a6.8 6.8 0 0 0-4.7 1.9l1.1 1.2c1-.9 2.2-1.4 3.6-1.4zm0 3.3c.5 0 1 .2 1.3.5L8 10.7 6.7 9.3c.3-.3.8-.5 1.3-.5z"/></svg>'
-    + '<svg viewBox="0 0 26 12" aria-hidden="true"><rect x=".5" y=".5" width="22" height="11" rx="3" fill="none" stroke="currentColor" stroke-opacity=".4"/><rect x="2" y="2" width="16" height="8" rx="1.8"/><path d="M24 4v4c.8-.3 1.3-1.1 1.3-2S24.8 4.3 24 4z" fill-opacity=".45"/></svg>';
+const SIGNAL_ICON = '<svg viewBox="0 0 17 11" aria-hidden="true"><rect x="0" y="7" width="3" height="4" rx=".8"/><rect x="4.5" y="5" width="3" height="6" rx=".8"/><rect x="9" y="2.5" width="3" height="8.5" rx=".8"/><rect x="13.5" y="0" width="3" height="11" rx=".8"/></svg>';
+const WIFI_ICON = '<svg viewBox="0 0 16 11" aria-hidden="true"><path d="M8 2.2c2.3 0 4.4.9 6 2.4l1.1-1.2A10.2 10.2 0 0 0 8 .5 10.2 10.2 0 0 0 .9 3.4L2 4.6a8.6 8.6 0 0 1 6-2.4zm0 3.3c1.4 0 2.6.5 3.6 1.4l1.1-1.2A6.8 6.8 0 0 0 8 3.8a6.8 6.8 0 0 0-4.7 1.9l1.1 1.2c1-.9 2.2-1.4 3.6-1.4zm0 3.3c.5 0 1 .2 1.3.5L8 10.7 6.7 9.3c.3-.3.8-.5 1.3-.5z"/></svg>';
+const batteryIcon = (low) => `<svg viewBox="0 0 26 12" aria-hidden="true"><rect x=".5" y=".5" width="22" height="11" rx="3" fill="none" stroke="currentColor" stroke-opacity=".4"/><rect x="2" y="2" width="${low ? 4 : 16}" height="8" rx="1.8"${low ? ' fill="#ff3b30"' : ''}/><path d="M24 4v4c.8-.3 1.3-1.1 1.3-2S24.8 4.3 24 4z" fill-opacity=".45"/></svg>`;
+
+const statusParts = new WeakMap();
+
+function realClock(now) {
+    const date = new Date(now());
+    return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+// 状态栏随剧情：status = { time, night, battery: { low, pct }, signal: 'none' }；只在内容变化时写 DOM。
+export function setPhoneStatus(bar, status) {
+    const parts = statusParts.get(bar);
+    if (!parts || !status) return;
+    const low = Boolean(status.battery && status.battery.low);
+    const pct = low ? Math.max(1, Math.min(99, Number(status.battery.pct) || 5)) : 0;
+    const key = `${status.time}|${low ? pct : ''}|${status.signal === 'none' ? 1 : 0}`;
+    if (parts.key !== key) {
+        parts.key = key;
+        parts.time.textContent = status.time;
+        parts.icons.innerHTML = (status.signal === 'none' ? '<span class="igs-phone-nosig">无服务</span>' : SIGNAL_ICON + WIFI_ICON)
+            + (low ? `<span class="igs-phone-lowbat">${pct}%</span>` : '') + batteryIcon(low);
+        bar.setAttribute('data-battery', low ? 'low' : 'full');
+    }
+    if (status.night) bar.setAttribute('data-night', '1');
+    else bar.removeAttribute('data-night');
+}
 
 // 手机状态栏：左侧时间，右侧信号 / Wi-Fi / 电量；灵动岛与底部横条由样式伪元素绘制。
-export function buildPhoneStatus(doc, now = Date.now) {
+// 不传 status 时用真实时间与满格；传了就按剧情（时间、低电量、无服务）。
+export function buildPhoneStatus(doc, now = Date.now, status = null) {
     const bar = doc.createElement('div');
     bar.className = 'igs-phone-status';
     const time = doc.createElement('span');
-    const date = new Date(now());
-    time.textContent = `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
     const icons = doc.createElement('span');
     icons.className = 'igs-phone-status-icons';
-    icons.innerHTML = STATUS_ICONS;
     bar.append(time, icons);
+    statusParts.set(bar, { time, icons, key: '' });
+    setPhoneStatus(bar, status || { time: realClock(now), night: false, battery: { low: false }, signal: 'ok' });
     return bar;
 }

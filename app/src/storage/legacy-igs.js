@@ -37,7 +37,7 @@ export function readLegacyIgsSettings(storageLike, preferredMode) {
     }
 
     result.readerMode = resolveLegacyReaderMode(preferredMode, result.displayMode, result.bridge);
-    result.readerSettings = cloneData(result.readerSettingsByMode[result.readerMode] || {});
+    result.readerSettings = result.readerSettingsByMode[result.readerMode] || {};
     return result;
 }
 
@@ -94,9 +94,10 @@ export function writeLegacyIgsSettings(storageLike, nextState = {}) {
     }
 }
 
+// 不深拷：读路径的入参是刚 JSON.parse 出来的新对象，写路径的入参由调用方交出所有权（bootstrap 已拷好）。
 export function normalizeLegacyIgsSettings(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-    return cloneData(raw);
+    return raw;
 }
 
 export function resolveLegacyReaderMode(preferredMode, displayMode, bridgeConfig) {
@@ -153,7 +154,7 @@ function normalizeLegacySnapshot(raw) {
         bridge,
         displayMode,
         readerMode,
-        readerSettings: cloneData(readerSettingsByMode[readerMode] || {}),
+        readerSettings: readerSettingsByMode[readerMode] || {},
         readerSettingsByMode,
     };
 }

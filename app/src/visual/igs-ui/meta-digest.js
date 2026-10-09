@@ -27,6 +27,11 @@ export function pendingMetaDigest() {
     return summarizeMetaEvents(events);
 }
 
+// 原始事件副本：直播互动等其他模块据此拼自己的摘要，与 Meta 互动共用送出 / 清空节奏。
+export function pendingMetaEvents() {
+    return events.map((event) => ({ ...event }));
+}
+
 export function beginMetaDigestSend() {
     sentCount = events.length;
 }

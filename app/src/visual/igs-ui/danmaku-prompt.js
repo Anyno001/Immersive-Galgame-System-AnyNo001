@@ -2,7 +2,7 @@ import { normalizeDanmakuSettings, resolveAudiencePersona } from './danmaku-sett
 
 // 内心弹幕是纯本地演出，不向 AI 注入任何规则；直播间与观众弹幕各一块。
 const LIVE_GRAMMAR_LINES = Object.freeze([
-    'live|主播名|直播间标题|视角 … live-end：包住整段直播；视角写 观看（{{user}}在看别人直播，默认）或 主播（主播本人看到的后台）',
+    'live|主播名|直播间标题|视角 … live-end：包住整段直播；视角写 观看（{{user}}在看别人直播，默认）或 主播（主播本人看到的后台）；{{user}}自己开播时主播名写{{user}}、视角写 主播，下播写 live-end',
     'dm|观众名|弹幕内容：一条直播弹幕，放在它出现时机的正文之前，可连续多行；主播说的话照常用[igs-char]',
     'dm|观众名|内容|类型|附加：特殊弹幕，类型写 醒目留言（附加写金额如30/100/1000）、礼物（内容写礼物名，附加写数量）、上舰（附加写 舰长/提督/总督）、进场（内容留空）、房管',
 ]);

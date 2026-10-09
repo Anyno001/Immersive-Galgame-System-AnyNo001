@@ -99,6 +99,7 @@ export function createSettingsHost(deps) {
         const controller = createSettingsController();
         const settingsState = {
             tab: normalizedTab,
+            // 草稿是设置里唯一可原地改的副本：打开时整份拷一次，存储里那份是共享只读的。
             draft: cloneData(initialSnapshot),
             initialOpenMode: initialSnapshot.bridge.openMode,
             asyncState: {
@@ -337,7 +338,7 @@ export function createSettingsHost(deps) {
                 if (result === false || (result && result.ok === false)) reportDeleteFailure();
             }).catch(reportDeleteFailure);
         }
-        state.activeSettings.draft = cloneData(snapshot);
+        // 草稿不重拷：存储那份是从草稿深拷出来的，两边不共享；草稿继续作为设置里唯一可原地改的副本。
         if (state.activeReader) {
             const current = state.activeReader.payload;
             const filterChanged = JSON.stringify(current.sourceFilter) !== JSON.stringify(snapshot.bridge.sourceFilter);
@@ -718,6 +719,14 @@ export function createSettingsHost(deps) {
             // 一键档位条的「适配世界」下拉：转成 worldview:<id> 动作，未就绪的世界观由动作层拒绝。
             if (event.target && event.target.getAttribute && event.target.getAttribute('data-worldview-select') !== null) {
                 controller.invoke('worldview:' + String(event.target.value || ''));
+                return;
+            }
+            if (event.target && event.target.getAttribute && event.target.getAttribute('data-carry-phone') !== null) {
+                controller.invoke(event.target.checked ? 'carry-phone:on' : 'carry-phone:off');
+                return;
+            }
+            if (event.target && event.target.getAttribute && event.target.getAttribute('data-carry-phone-prompt') !== null) {
+                controller.invoke('carry-phone-prompt:' + encodeURIComponent(String(event.target.value || '')));
                 return;
             }
             const horrorKind = event.target && event.target.getAttribute ? event.target.getAttribute('data-horror-select') : null;

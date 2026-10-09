@@ -77,6 +77,7 @@ const SKIN_FAMILIES = Object.freeze({
     'day-minimal': 'soft',
     'elegant-european': 'glass',
     'magic-academy': 'glass',
+    'mermaid-deep': 'glass',
     'gradient-veil': 'glass',
     'horror-gore': 'dread',
     'horror-psych': 'soft',

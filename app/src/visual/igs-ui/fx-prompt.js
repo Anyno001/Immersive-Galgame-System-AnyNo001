@@ -3,7 +3,7 @@ import { enabledFxTagKinds } from './fx-settings.js';
 
 const FX_PROMPT_LINES = Object.freeze({
     call: '[igs-fx:call|来电角色名] … [igs-fx:call-end]：角色打来电话；主角主动打给对方时改用[igs-fx:dial|角色名]；视频通话在名字后加第3段「视频」，如[igs-fx:call|爱丽丝|视频]。通话标签放在通话内容之前，通话中的台词照常用[igs-char]，挂断后输出[igs-fx:call-end]；没接通、被拒接或被对方挂断时写[igs-fx:call-end|未接]、[igs-fx:call-end|拒接]、[igs-fx:call-end|对方挂断]',
-    notify: '[igs-fx:notify|发送者|一句话内容]：手机弹出一条通知或短消息，不打断叙事；需要完整聊天记录时仍用线上聊天标签',
+    notify: '[igs-fx:notify|发送者|一句话内容]：手机弹出一条通知或短消息，不打断叙事；需要完整聊天记录时仍用线上聊天标签；偶尔可写垃圾广告短信，发送者写平台名',
     delivery: '[igs-fx:delivery|物品|配送方|阶段]：外卖、快递之类送到手上的东西，送出时舞台上方弹出一张卡片。物品写具体名目，如外卖、奶茶、快递；配送方可省，如美团骑手、顺丰；阶段写order（刚下单）或arrive（送到并按下门铃，默认），如[igs-fx:delivery|外卖|美团骑手|arrive]',
     flashback: '[igs-fx:flashback] … [igs-fx:flashback-end]：包住一段回忆或闪回的正文',
     dream: '[igs-fx:dream] … [igs-fx:dream-end]：包住梦境、幻觉或介于现实与想象之间的朦胧段落',
@@ -111,10 +111,10 @@ const SENSE_PROMPT_TEXT = '亲密或情事段落里某一种感官明显占主�
 // 精简语法（tag-grammar 统一拼接）：只写「类型|参数：用途」，通用规则由组装器写一次。
 export const FX_GRAMMAR_LINES = Object.freeze({
     call: 'call|来电角色名 … call-end：角色来电，通话台词照常用 igs-char；视频通话加第3段「视频」；主角拨出改用 dial|角色名；没接通写 call-end|未接、call-end|拒接 或 call-end|对方挂断',
-    notify: 'notify|发送者|一句话内容：手机弹出一条通知或短消息，不打断叙事',
+    notify: 'notify|发送者|一句话内容：手机弹出通知或短消息，不打断叙事；偶尔可写垃圾广告短信，发送者写平台名',
     flashback: 'flashback … flashback-end：包住回忆或闪回',
-    dream: 'dream … dream-end：包住梦境、幻觉或介于现实与想象之间的朦胧段落',
-    letterbox: 'letterbox … letterbox-end：包住告白、对峙、决战等需要电影感的严肃段落',
+    dream: 'dream … dream-end：包住梦境、幻觉或朦胧段落',
+    letterbox: 'letterbox … letterbox-end：包住告白、对峙、决战等严肃段落',
     sfx: 'sfx|拟声词：巨响、撞击、破碎、铃响等瞬间音效，只发声不显示，拟声词不超过4字',
     eye: 'eye|open / eye|close：主视角醒来睁眼 / 晕倒、入睡闭眼',
     whisper: 'whisper … whisper-end：包住耳语、悄悄话，只标说话方式，台词照常用 igs-char',

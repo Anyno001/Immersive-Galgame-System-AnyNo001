@@ -21,6 +21,8 @@ import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-them
 import { DIALOG_SKIN_SCIFI_HOLO } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST } from './dialog-theme-wasteland.js';
 import { listDlcSkins } from './dlc-skin-registry.js';
+import { DIALOG_SKIN_MERMAID } from './dialog-theme-mermaid.js';
+import { resolvePlaceAmbience } from '../../scene/place-ambience.js';
 
 // 世界观 → 推荐的对话框皮肤，第一个是该世界观的默认皮肤。主界面选世界观页按这张表出小样与预选；
 // 不在表里的皮肤仍可在「其他皮肤」里选，存进角色卡后照样生效。现代排在第一的是默认皮肤，老用户不选也不变样。
@@ -58,4 +60,13 @@ export function pickWorldviewDialogSkin(worldview, { cardSkin, globalSkin, horro
 export function effectiveDialogSkin(globalSkin, sceneAssets) {
     const own = sceneAssets && typeof sceneAssets === 'object' && typeof sceneAssets.dialogSkin === 'string' ? sceneAssets.dialogSkin : '';
     return normalizeDialogSkin(own || globalSkin);
+}
+
+// 场景在水下（地点词同水下氛围，见 place-ambience）时，这一页的对话框自动换成深海人鱼；离开水下就回到原皮肤。
+// 只改每页渲染快照里的拷贝，不写回设置；readerSettings.underwaterSkin 关掉则不换。
+export function sceneDialogSkin(readerSettings, location) {
+    if (!readerSettings || readerSettings.underwaterSkin === false) return readerSettings;
+    const place = resolvePlaceAmbience(location, { worldview: readerSettings._worldview });
+    if (place && place.kind === 'underwater') readerSettings.dialogSkin = DIALOG_SKIN_MERMAID;
+    return readerSettings;
 }

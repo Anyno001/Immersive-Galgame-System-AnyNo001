@@ -16,6 +16,8 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { createIndexedDbAssetThumbStore } from '../../media/asset-thumb-store.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
+import { isPromptEntryKey } from '../../scene/prompt-entries.js';
+import { getLastPromptReport } from '../../scene/prompt-triggers.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, applyMoodReclassification, buildMoodClassificationRequest, buildMoodReclassifyRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { SETTINGS_NOTICE_MS } from './settings-notice.js';
@@ -29,11 +31,13 @@ import { normalizeTypewriterSettings } from './typewriter-runtime.js';
 import { resolveTypewriterVoice, scheduleTypewriterAudio } from './typewriter-audio.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
 import { FX_SETTINGS_NORMALIZERS, FX_WORD_LIST_PATHS } from './fx-settings.js';
+import { isFeedPlatformId, normalizeFeedFxSettings } from './feed-settings.js';
 import { ROMANCE_ACTIONS_MAX, normalizeRomanceFxSettings } from './romance-settings.js';
 import { META_GLOBAL_SCOPE, META_LINE_KINDS, META_LINES_MAX, normalizeMetaFxSettings } from './meta-settings.js';
 import { applyPerformancePreset, capturePerformancePreset, detectPerformancePreset, performancePresetLabel, restorePerformancePreset } from './performance-presets.js';
 import { applyPerformanceProfile, hasPerformanceProfile, profileDiff, profileFromReader } from './performance-profile.js';
 import { WORLDVIEWS, applyWorldview, resolveWorldview } from '../../scene/worldview.js';
+import { canCarryPhone } from '../../scene/fx-era.js';
 import { normalizeHorrorGore, normalizeHorrorStyle } from '../../scene/horror.js';
 import { BGM_ACTION_RE, handleBgmSettingsAction } from './bgm-settings-actions.js';
 import { deleteTavernFont, loadCustomFonts, pickFontFile, saveCustomFonts, uploadFontFile } from '../../media/custom-fonts.js';
@@ -718,6 +722,9 @@ const RISKY_ACTIONS = [
     ['romance-action-remove:', () => '删除这条亲密动作？'],
     ['meta-line-remove:', () => '删除这条台词？'],
     ['meta-scope-remove:', () => '删除这条生效范围？'],
+    ['feed-prompt-reset:', () => '这个平台的写法恢复默认？当前修改过的内容将被覆盖。'],
+    ['prompt-entry-reset:', () => '这块的触发设置恢复默认？关键词、次要词、排除词等都会还原。'],
+    ['feed-storm-prompt-reset', () => '舆论风暴的写法恢复默认？当前修改过的内容将被覆盖。'],
     ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
     ['image-log-clear', () => '清空生图日志？'],
     ['purge-asset-cache', () => '清除素材缓存？浏览器里缓存的图片与设置页缩略图都会清空；酒馆上的原图还在，下次查看会重新读取。'],
@@ -947,7 +954,7 @@ export async function handleSettingsAction(action, ctx) {
     }
 
     if (normalizedAction === 'copy-page-diagnostic') {
-        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)) });
+        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)), promptReport: getLastPromptReport() });
         if (!text) {
             if (typeof dialogs.view === 'function') await dialogs.view('请先打开阅读器并翻到出现问题的页面，再从工具栏的「设置」进入并复制。');
             return rerenderSettings();
@@ -1993,12 +2000,64 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 随身带着现代手机：跟着角色卡存；卡上还没有自己的世界观时先把当前世界观钉到卡上，否则字段不会随卡保存。
+    const carryPhoneAction = normalizedAction.match(/^carry-phone(-prompt)?:([\s\S]*)$/);
+    if (carryPhoneAction) {
+        settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = draftAssetLibrary(settingsState, editTarget);
+        if (!canCarryPhone(resolveWorldview(draftEffectiveAssets(settingsState, editTarget)))) return rerenderSettings();
+        if (!Object.prototype.hasOwnProperty.call(sceneAssets, 'worldview')) applyWorldview(sceneAssets, resolveWorldview(draftEffectiveAssets(settingsState, editTarget)));
+        if (carryPhoneAction[1]) {
+            let text = '';
+            try { text = decodeURIComponent(carryPhoneAction[2]); } catch { text = carryPhoneAction[2]; }
+            sceneAssets.carryPhonePrompt = text.slice(0, 600);
+        } else sceneAssets.carryPhone = carryPhoneAction[2] === 'on';
+        return rerenderSettings();
+    }
+
     const horrorAction = normalizedAction.match(/^horror-(style|gore):([a-z0-9]+)$/);
     if (horrorAction) {
         settingsState.draft.bridge = settingsState.draft.bridge || {};
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         if (horrorAction[1] === 'style') sceneAssets.horrorStyle = normalizeHorrorStyle(horrorAction[2]);
         else sceneAssets.horrorGore = normalizeHorrorGore(horrorAction[2]);
+        return rerenderSettings();
+    }
+
+    // 按需块条目恢复默认：删掉这块的设置即回到默认行为。
+    const entryReset = normalizedAction.match(/^prompt-entry-reset:([a-z]+)$/);
+    if (entryReset) {
+        if (!isPromptEntryKey(entryReset[1])) return rerenderSettings();
+        const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const sceneAssets = bridge.sceneAssets = { ...(bridge.sceneAssets || {}) };
+        const entries = { ...(sceneAssets.promptEntries || {}) };
+        delete entries[entryReset[1]];
+        sceneAssets.promptEntries = entries;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    // 手机社区：某个平台的写法恢复默认（自定义留空即用默认）。
+    const feedReset = normalizedAction.match(/^feed-prompt-reset:([a-z]+)$/);
+    if (feedReset) {
+        if (!isFeedPlatformId(feedReset[1])) return rerenderSettings();
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeFeedFxSettings(readerDraft.feedFx);
+        current.platforms[feedReset[1]].prompt = '';
+        readerDraft.feedFx = current;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'feed-storm-prompt-reset') {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeFeedFxSettings(readerDraft.feedFx);
+        current.storm.prompt = '';
+        readerDraft.feedFx = current;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 

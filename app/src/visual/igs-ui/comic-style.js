@@ -25,6 +25,7 @@ ${C} #igs-dialog.igs-hidden .igs-comic-group,${C} #igs-dialog.igs-hidden .igs-co
 #igs-overlay .igs-comic-svg{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;}
 #igs-overlay .igs-comic-ink{fill:var(--igs-comic-ink);stroke:var(--igs-comic-ink);stroke-width:calc(var(--igs-comic-line,2px) * 2);stroke-linejoin:round;}
 #igs-overlay .igs-comic-paper{fill:var(--igs-comic-paper);}
+#igs-overlay .igs-comic-group:is([data-shape="oval"],[data-shape="thought"],[data-shape="cute"],[data-shape="fear"]) .igs-comic-paper{transform:translate(calc(var(--igs-comic-line,2px) * -.3),calc(var(--igs-comic-line,2px) * -.38));}
 #igs-overlay .igs-comic-shade{fill:rgba(0,0,0,.22);transform:translate(0,4px);}
 #igs-overlay .igs-comic-group[data-shape="shout"] .igs-comic-ink{stroke-width:calc(var(--igs-comic-line,2px) * 3.2);stroke-linejoin:miter;stroke-miterlimit:10;}
 #igs-overlay .igs-comic-group[data-tone="whisper"] .igs-comic-ink{fill:none;stroke-dasharray:calc(var(--igs-comic-line,2px) * 4) calc(var(--igs-comic-line,2px) * 3.4);stroke-width:calc(var(--igs-comic-line,2px) * 1.6);}
@@ -62,7 +63,8 @@ ${MONO} .igs-grade-layer{filter:grayscale(1);}
 ${MONO} .igs-fx-cutin-face{filter:grayscale(1) contrast(1.15);}
 ${MONO} .igs-fx-symbol{--igs-fx-c:#161616;--igs-fx-pop:#161616;--igs-fx-ink:#161616;--igs-fx-paper:#fff;}
 ${MONO}{--igs-tfx-accent:#000;--igs-tfx-glow:#fff;}
-#igs-comic-screen{position:absolute;inset:0;z-index:2;pointer-events:none;background-image:radial-gradient(circle,rgba(0,0,0,.5) .85px,transparent 1.2px);background-size:4px 4px;opacity:.3;}
+#igs-comic-screen{position:absolute;inset:0;z-index:2;pointer-events:none;background-image:radial-gradient(circle,rgba(0,0,0,.5) .85px,transparent 1.2px),radial-gradient(circle,rgba(0,0,0,.5) .85px,transparent 1.2px);background-size:5px 5px;background-position:0 0,2.5px 2.5px;opacity:.3;}
+${C}:not([data-igs-comic="mono"]) #igs-comic-screen{z-index:1;opacity:.2;}
 #igs-overlay[data-igs-quality="low"] #igs-comic-screen{display:none;}
 #igs-comic-frame{position:absolute;inset:0;z-index:4;pointer-events:none;--igs-comic-gut:7px;box-shadow:inset 0 0 0 var(--igs-comic-gut) var(--igs-comic-gutter,#fff),inset 0 0 0 calc(var(--igs-comic-gut) + 3px) var(--igs-comic-ink,#141414);}
 @media (max-width:640px){#igs-comic-frame{--igs-comic-gut:4px;}}

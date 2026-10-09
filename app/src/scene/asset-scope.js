@@ -42,7 +42,7 @@ function ownedWorldview(card) {
     if (hasAncient) patch.ancient = card.ancient === true;
     else if (hasWorldview) patch.ancient = card.worldview === 'ancient';
     // 恐怖世界观的风格与血腥尺度跟着角色卡走。
-    for (const key of ['horrorStyle', 'horrorGore']) {
+    for (const key of ['horrorStyle', 'horrorGore', 'carryPhone', 'carryPhonePrompt']) {
         if (Object.prototype.hasOwnProperty.call(card, key)) patch[key] = card[key];
     }
     return patch;
@@ -80,9 +80,15 @@ export function relocateLegacyCard(sceneAssets, key, legacyKey) {
     return true;
 }
 
+// 读路径不改入参（存储里的配置是共享只读的）：旧头像名分卡只在视图里挪，真正迁移由设置草稿 / 写路径完成。
 export function sceneAssetsForContext(sceneAssets, ctx) {
     const scope = resolveAssetScope(ctx);
-    relocateLegacyCard(sceneAssets, scope.key, scope.legacyKey);
+    const cards = sceneAssets && plain(sceneAssets.cards);
+    if (cards && scope.legacyKey && cards[scope.legacyKey] && scope.key && scope.key !== scope.legacyKey && !libraryHasContent(cards[scope.key])) {
+        const view = { ...sceneAssets, cards: { ...cards } };
+        relocateLegacyCard(view, scope.key, scope.legacyKey);
+        return effectiveSceneAssets(view, scope.key);
+    }
     return effectiveSceneAssets(sceneAssets, scope.key);
 }
 

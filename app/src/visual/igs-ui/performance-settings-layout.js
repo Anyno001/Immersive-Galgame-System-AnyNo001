@@ -3,7 +3,9 @@ import { collapsible, perfItem, renderFxFeatureFields } from './fx-settings-fiel
 import { renderStageDirectionFields } from './stage-direction-fields.js';
 import { renderRomanceFxFields } from './romance-fields.js';
 import { renderDanmakuFields } from './danmaku-settings-fields.js';
+import { renderMyPhoneFields } from './my-phone-fields.js';
 import { renderMetaFxFields } from './meta-fields.js';
+import { renderFeedFields } from './feed-settings-fields.js';
 import { PERFORMANCE_FEATURES, PERFORMANCE_PRESETS, detectPerformancePreset, isPerformanceFeatureOn } from './performance-presets.js';
 import { PROFILE_PATH, hasPerformanceProfile, profileDiff } from './performance-profile.js';
 import { renderQualityRow } from './render-quality-fields.js';
@@ -66,7 +68,7 @@ const GROUP_BRIEFS = Object.freeze({
     text: '打字机 · 字效 · 双语',
     stage: '镜头 · 天气 · 立绘',
     story: '情绪 · 提示 · 事件',
-    special: '日常 · 直播 · 亲密',
+    special: '日常 · 直播 · 社区 · 亲密',
     sound: '音效 · 语气 · 配乐',
 });
 
@@ -114,7 +116,7 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
         ],
         special: [
             section('日常与冒险', [stage.daily, fx.battleFx, fx.flash]),
-            section('线上与直播', [host('chat-show', extras.chatShow, '聊天页演出'), danmaku.live, danmaku.audience, danmaku.inner]),
+            section('线上与直播', [renderMyPhoneFields(src, more), host('chat-show', extras.chatShow, '聊天页演出'), danmaku.live, renderFeedFields(src, more), danmaku.audience, danmaku.inner, fx.notifyCenter]),
             section('亲密', [renderRomanceFxFields(src, more), host('nsfw-sprite', extras.nsfwSprite), host('nsfw-veil', extras.nsfwVeil), host('nsfw-cg-portrait', extras.nsfwCgPortrait)]),
         ],
         sound: [stage.master, fx.sound, host('tts', extras.tts, '朗读台词与旁白'), host('voice-bark', extras.voiceBark, '台词开头的语气声'), stage.ambient, stage.ui, stage.bgm],

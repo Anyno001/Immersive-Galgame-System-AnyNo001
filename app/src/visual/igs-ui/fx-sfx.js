@@ -22,7 +22,14 @@ const handsetClick = [
     p('sine', 180, 90, 0, 0.07, 0.5, { attack: 0.001, sweep: 1 }),
 ];
 
+// 警笛到场（紧急求助）：约 2.8 秒。警车双音交替，救护车快速双音，消防车长鸣升降。
+const sirenTwoTone = (hi, lo, step, count) => Array.from({ length: count }, (_, i) => p('triangle', i % 2 ? lo : hi, i % 2 ? lo : hi, i * step, step, i === 0 ? 0.26 : 0.3, { attack: 0.01 }));
+const sirenWail = (low, high, cycle, count) => Array.from({ length: count }, (_, i) => p('triangle', i % 2 ? high : low, i % 2 ? low : high, i * cycle, cycle, 0.3, { attack: 0.02, sweep: 1 }));
+
 export const FX_SFX_PARTIALS = Object.freeze({
+    'siren-police': Object.freeze(sirenTwoTone(960, 720, 0.7, 4)),
+    'siren-ambulance': Object.freeze(sirenTwoTone(1000, 760, 0.4, 7)),
+    'siren-fire': Object.freeze(sirenWail(560, 1100, 1.4, 2)),
     // 外卖 / 快递送到：门铃「叮—咚」，高低两声各带一个泛音，尾音拖长。
     doorbell: Object.freeze([
         p('sine', 659, 659, 0, 0.9, 0.7, { attack: 0.004 }),

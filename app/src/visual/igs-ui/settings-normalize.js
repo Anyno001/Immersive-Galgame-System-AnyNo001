@@ -1,3 +1,6 @@
+import { normalizePhoneWallpaper } from './my-phone.js';
+import { normalizePromptEntry } from '../../scene/prompt-entries.js';
+import { defaultPromptKeywords } from '../../scene/prompt-triggers.js';
 import { LEGACY_READER_MODES, resolveLegacyReaderMode } from '../../storage/legacy-igs.js';
 import { buildNarrativeSegments } from '../../scene/image-slots.js';
 import { SETTINGS_TAB_ALIASES, SETTINGS_TAB_DEFS } from './settings-tabs.js';
@@ -45,12 +48,14 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
         if (/^readerSettings\.chatShow\.(dim|sound\.volume)$/.test(path)) return Number(value);
-        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye)$/.test(path)) {
+        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye|emergency|spam)$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
         if (/^readerSettings\.(sceneTransition|timeTint|spriteMotion|spriteActions|camera|stageCast|textFx|bilingual|clickWaitMark|bgm|ambientSound|uiSound)\.(enabled|moodTag|night|alignHeads|romanceDuo|castReact|castStage|breathing|castBreathing|castLean|speakBounce|enterExit|emotionFade|kenBurns|parallax|closeUp|aiShots|birds|rain|wind|insects|waves|crowd|thunder|stream|fire|snow|cicadas|frogs|chimes|bell|clock|drip|train|tavern|ship|traffic|car|carriage|bath|underwater|space)$/.test(path)
             || /^readerSettings\.dailyFx\.[a-zA-Z]+$/.test(path)
-            || /^readerSettings\.(liveFx|audienceFx|innerFx)\.(enabled|muteOnNsfw|ambient|useThought)$/.test(path)
+            || /^readerSettings\.(liveFx|audienceFx|innerFx|feedFx)\.(enabled|muteOnNsfw|ambient|useThought|interact|followTheme)$/.test(path)
+            || /^readerSettings\.feedFx\.platforms\.[a-z]+\.enabled$/.test(path)
+            || path === 'readerSettings.feedFx.storm.enabled'
             || path === 'readerSettings.typewriter.punctuationPause'
             || path === 'readerSettings.typewriter.prosody') {
             return value === true || value === 'true' || value === 1 || value === '1';
@@ -62,12 +67,17 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.cgEntrance\.styles\.[a-z]+$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.metaFx\.(enabled|poke|hover|reading|clock|festivals|digest)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.comicMode\.(enabled|frame|keepPrev|tail)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
-        if (/^readerSettings\.(mangaBack\.enabled|crowdFx\.(enabled|react))$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.(mangaBack\.enabled|crowdFx\.(enabled|react)|notifyCenter\.enabled)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (path === 'readerSettings.comicMode.palette') return value === 'color' ? 'color' : 'mono';
         if (path === 'readerSettings.comicMode.line') return ['thin', 'medium', 'bold'].includes(value) ? value : 'medium';
         if (path === 'readerSettings.comicMode.inputStyle') return value === 'plain' ? 'plain' : 'comic';
         if (path === 'readerSettings.comicMode.gap') return ['near', 'medium', 'far'].includes(value) ? value : 'medium';
         if (path === 'readerSettings.comicMode.inkMode') return value === 'custom' ? 'custom' : 'auto';
+        if (path === 'readerSettings.myPhone.caseColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : '#111215';
+        if (path === 'readerSettings.myPhone.wallpaper') return normalizePhoneWallpaper(value);
+        if (path === 'readerSettings.myPhone.model') return ['full', 'notch', 'fold', 'tablet'].includes(value) ? value : 'full';
+        if (path === 'readerSettings.myPhone.size') return value === 'fit' ? 'fit' : 'large';
+        if (path === 'readerSettings.myPhone.ringtone') return ['classic', 'soft', 'none'].includes(value) ? value : 'classic';
         if (path === 'readerSettings.comicMode.inkColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#141414';
         if (path === 'readerSettings.metaFx.cooldownSec') return Number(value);
         if (path === 'readerSettings.metaFx.birthday') return String(value || '').trim();
@@ -100,10 +110,16 @@ export function normalizeSettingsValue(path, value) {
     if (path === 'bridge.sceneAssets.spriteEnhance.strength') return [5, 10, 15, 20, 30, 40, 50].includes(Number(value)) ? Number(value) : 20;
     if (path === 'bridge.sceneAssets.spriteEnhance.size') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
     if (path === 'bridge.sceneAssets.promptPlacement') return value === 'depth0' ? 'depth0' : 'system';
+    // 按需块条目：关键词与默认一致时存空（留空即用默认），其余字段按条目规范化。
+    const promptEntry = path.match(/^bridge.sceneAssets.promptEntries.([a-z]+).(mode|keys|secondary|exclude|scan|sticky|cooldown)$/);
+    if (promptEntry) {
+        if (promptEntry[2] === 'keys' && String(value || '').trim() === defaultPromptKeywords(promptEntry[1])) return '';
+        return normalizePromptEntry({ [promptEntry[2]]: value })[promptEntry[2]];
+    }
     if (path === 'bridge.sceneAssets.promptAdaptive') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (path === 'bridge.sceneAssets.wardrobeAutoFlow') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (path === 'bridge.sceneAssets.promptRuleEnabled') return !(value === false || value === 'false' || value === 0 || value === '0');
-    if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|assets\.(spriteEnabled|backgroundEnabled|strictMatch))$/.test(path)) {
+    if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|backfillOldFloors|assets\.(spriteEnabled|backgroundEnabled|strictMatch))$/.test(path)) {
         return value === true || value === 'true' || value === 1 || value === '1';
     }
     if (/^bridge\.autoIllustration\.assets\.(spriteSize|backgroundSize|templates\.(background|backgroundNegative|sprite|spriteNegative|nsfwExtra))$/.test(path)) {

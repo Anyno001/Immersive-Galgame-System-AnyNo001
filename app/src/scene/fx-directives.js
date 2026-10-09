@@ -1,4 +1,5 @@
 import { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX, dailyFxOf, parseDailyFxBody } from './daily-fx-directives.js';
+import { FEED_VIEW_MAX, foldFeedDirectives, foldStormDirectives, parseFeedBody } from './feed-platforms.js';
 import { normalizeBgmCue } from './bgm-moods.js';
 import { DLC_FX_ARG_MAX, DLC_FX_PAGE_MAX, getDlcFx, isDlcFxKind } from './fx-registry.js';
 
@@ -141,6 +142,9 @@ function parseDanmakuBody(kind, isEnd, parts) {
 
 // 返回 { kind, end, args } 或 null；end 表示区间结束标签（call-end 等）。
 export function parseFxBody(body) {
+    // 社区标签内容栏比通用 60 字长，先于通用切分处理。
+    const feed = parseFeedBody(body);
+    if (feed !== undefined) return feed;
     const parts = String(body || '').split('|').map(field);
     const head = parts[0].toLowerCase();
     const isEnd = head.endsWith('-end');
@@ -318,7 +322,7 @@ function applyStageDirective(result, d, current) {
 
 export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
     const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
-    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null };
+    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null, storm: null };
     // 感官调度：区间状态，作用到下一条 sense / sense-end。
     result.sense = '';
     // 独处：区间状态 { target }；外面的动静：只归标签所在页。
@@ -422,6 +426,11 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         seen.add(instant.kind);
         result.instants.push(instant);
     }
+    // 手机社区：区间内取最近几条帖子，本页新出现的标 fresh。
+    const feed = foldFeedDirectives(directives, at);
+    result.feed = feed ? { platform: feed.platform, owner: feed.owner, posts: feed.posts.slice(-FEED_VIEW_MAX).map((post) => ({ ...post, fresh: post.offset > from })) } : null;
+    // 舆论风暴：区间内累积到当前页的 @ 评论，本页新出现的标 fresh。
+    result.storm = foldStormDirectives(directives, at, from);
     return result;
 }
 

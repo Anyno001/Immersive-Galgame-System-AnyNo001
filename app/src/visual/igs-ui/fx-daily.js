@@ -168,7 +168,7 @@ function nowClock() {
 }
 
 // 结果类日常演出的停留时长（未并入导出的 DAILY_FX_LIFETIME_MS，避免改变其既有结构）。
-const DAILY_RESULT_LIFE_MS = Object.freeze({ say: 2600, rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400, brake: 1500, depart: 2600, arrive: 3600, ticket: 3400, steam: 3400, shower: 2600, splash: 2400, hairdry: 2600, dive: 2400, bubble: 2200, vacuum: 3200 });
+const DAILY_RESULT_LIFE_MS = Object.freeze({ say: 2600, rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400, brake: 1500, depart: 2600, arrive: 3600, ticket: 3400, steam: 3400, shower: 2600, splash: 2400, hairdry: 2600, dive: 2400, bubble: 2200, vacuum: 3200, surface: 2000 });
 // 敲门：每下间隔，末下之后再停留一会儿。
 const KNOCK_MS = Object.freeze({ gap: 420, tail: 1300 });
 // 吼叫信：抖动 900ms 后炸开，逐字吼出，吼完再停留。
@@ -590,6 +590,11 @@ const BUILDERS = {
         const node = make(env.doc, 'igs-dfx igs-dfx-bubble', `<div class="igs-dfx-bubble-rise" style="left:${x}%">${beads}</div>`);
         return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.bubble * env.hold), sounds: ['blub'], node };
     },
+    // 出水：不是标签，换地点离开水下时自动播（见 syncWaterCrossing）：蓝色往下退去、水面一亮。
+    surface(item, env) {
+        const node = make(env.doc, 'igs-dfx igs-dfx-surface', '<i class="igs-dfx-surface-veil"></i><i class="igs-dfx-dive-flash"></i>');
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.surface * env.hold), sounds: ['splash'], node };
+    },
     vacuum(item, env) {
         const rush = [18, 30, 42, 54, 66, 78].map((y, i) => `<i style="top:${y}%;animation-delay:${(i % 3) * 60}ms"></i>`).join('');
         const node = make(env.doc, 'igs-dfx igs-dfx-vacuum', `<div class="igs-dfx-vacuum-rush">${rush}</div><i class="igs-dfx-vacuum-hush"></i>`);
@@ -608,6 +613,22 @@ const AMBIENCE_HTML = Object.freeze({
     space: '<i class="igs-dfx-amb-void"></i><i class="igs-dfx-amb-dust"></i>',
 });
 const AMBIENCE_FADE_MS = 900;
+
+// 换地点时自动入水 / 出水：上一个正文页在岸上、这一页到了水下就播一次入水，反过来播出水。
+// 跟「车窗光影、浴室水汽」同一个开关；刚打开阅读器的第一页、聊天/卡片页、NSFW 页、本页已有入水标签时都不播。
+function syncWaterCrossing(state, env, settings, content, played) {
+    if (!settings.ambience || pageKindOf(content) !== 'text') return '';
+    const under = Boolean(env.place && env.place.kind === 'underwater');
+    const was = state.underwater;
+    state.underwater = under;
+    if (was === undefined || was === under || content.sceneNsfw === true) return '';
+    if (under && played.includes('dive')) return '';
+    const built = BUILDERS[under ? 'dive' : 'surface']({}, env);
+    if (env.reduced && built.node.classList) built.node.classList.add('is-reduced');
+    spawn(state, env.layers.stage, built.node, built.life);
+    for (const kind of built.sounds) env.play(kind);
+    return under ? 'dive' : 'surface';
+}
 
 // 聊天页、卡片页不挂；NSFW 页只留浴室水汽、水下与太空这类环境本身（车里的光带会扫过 CG）。
 function resolveAmbience(settings, content, place) {
@@ -803,5 +824,7 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
     syncPetals(state, env, petalKind);
     const ambience = resolveAmbience(settings, content, env.place);
     syncAmbience(state, env, ambience);
+    const crossing = syncWaterCrossing(state, env, settings, content, played);
+    if (crossing) played.push(crossing);
     return { played, petals: petalKind, ambience: ambience ? ambience.kind : '' };
 }

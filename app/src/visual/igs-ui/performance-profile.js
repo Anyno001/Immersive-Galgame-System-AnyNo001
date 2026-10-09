@@ -19,7 +19,7 @@ export const TYPE_FEATURES = Object.freeze({
     school: Object.freeze(['dailyFx', 'chatShow']),
     battle: Object.freeze(['battleFx', 'flashFx']),
     fantasy: Object.freeze(['battleFx', 'dailyFx']),
-    online: Object.freeze(['chatShow', 'liveFx', 'audienceFx']),
+    online: Object.freeze(['chatShow', 'liveFx', 'feedFx', 'audienceFx']),
     mystery: Object.freeze(['flashFx', 'innerFx']),
     horror: Object.freeze(['flashFx', 'innerFx', 'dailyFx']),
 });

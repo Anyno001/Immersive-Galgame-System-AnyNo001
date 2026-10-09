@@ -10,6 +10,7 @@ import { getDlcSkin } from './dlc-skin-registry.js';
 
 export { buildSlicedDialogSkinCss };
 import { DIALOG_SKIN_QINGLV, QINGLV_DIALOG_STYLE } from './dialog-theme-guofeng.js';
+import { DIALOG_SKIN_MERMAID, MERMAID_DIALOG_STYLE } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_DIALOG_STYLE } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_DIALOG_STYLE, PSYCH_DIALOG_STYLE } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_DIALOG_STYLE } from './dialog-theme-scifi.js';
@@ -31,7 +32,7 @@ const SLICED_DIALOG_SKINS = Object.freeze([
 ]);
 
 // 「插画式」= 固定高度、自带排版默认值的主题，含三片素材主题与纯 CSS 还原主题。
-export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, DIALOG_SKIN_SCIFI_HOLO, DIALOG_SKIN_WASTELAND_RUST]);
+export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, DIALOG_SKIN_SCIFI_HOLO, DIALOG_SKIN_WASTELAND_RUST, DIALOG_SKIN_MERMAID]);
 
 // 「对话框高度自适应」开放给全部插画式主题与西式古典：字少压矮、字多不超原高度。
 // 三片素材只横向切、纵向拉伸；伪元素装饰按上下边定位的主题压矮后跟着框走。
@@ -138,6 +139,7 @@ export const ILLUSTRATED_DIALOG_STYLE_BY_SKIN = Object.freeze({
     ...Object.fromEntries(SLICED_DIALOG_SKINS.map((skin) => [skin, slicedSkinCss(skin)])),
     ...CSS_DIALOG_STYLE_BY_SKIN,
     [DIALOG_SKIN_QINGLV]: QINGLV_DIALOG_STYLE,
+    [DIALOG_SKIN_MERMAID]: MERMAID_DIALOG_STYLE,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_DIALOG_STYLE,
     [DIALOG_SKIN_HORROR_GORE]: GORE_DIALOG_STYLE,
     [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_DIALOG_STYLE,

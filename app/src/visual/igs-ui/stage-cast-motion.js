@@ -45,14 +45,25 @@ export function posYForFeet(stageH, sprite) {
     const h = stageH * (Number(sprite && sprite.scale) || 100) / 100;
     const room = stageH - h;
     if (!(h > 0) || Math.abs(room) < 1) return Number(sprite && sprite.posY);
-    const posY = ((stageH - h * feetFraction(sprite)) / room) * 100;
-    return Math.max(-200, Math.min(300, posY));
+    // 不设上下限：图高接近舞台高（默认 100% 附近）时要的百分比很大，截断了脚就贴不到底。
+    return ((stageH - h * feetFraction(sprite)) / room) * 100;
+}
+
+// 图高正好等于舞台高时 background-position 挪不动它；脚下有透明边就缩 1% 腾出余地再贴底，不然参照本人会悬空、和别人脚底对不齐。
+const FEET_ROOM_SCALE = 0.99;
+
+export function plantFeet(stageH, sprite) {
+    const scale = Number(sprite && sprite.scale) || 100;
+    const h = stageH * scale / 100;
+    const stuck = h > 0 && Math.abs(stageH - h) < 1 && feetFraction(sprite) < 1;
+    const next = stuck ? { ...sprite, scale: scale * FEET_ROOM_SCALE } : sprite;
+    return { scale: next.scale, posY: posYForFeet(stageH, next) };
 }
 
 // 把 member 缩放到与 reference 头宽一致（限制倍数），再把腿贴到舞台底。头顶不再拉齐。
 // baseHeight 是两人各自的设定高度：头宽按两人之比放大，对齐只抹平原图构图的差别，不抹平设定的高矮。缺 baseHeight 时按同高。
 export function alignToReference({ stageW, stageH, reference, member }) {
-    const keep = { scale: member.scale, posY: posYForFeet(stageH, member) };
+    const keep = plantFeet(stageH, member);
     const ref = spriteDrawRect(stageW, stageH, reference);
     const own = spriteDrawRect(stageW, stageH, member);
     if (!ref || !own || !reference.head || !member.head) return keep;
@@ -65,7 +76,7 @@ export function alignToReference({ stageW, stageH, reference, member }) {
     const planted = { ...member, scale };
     const rect = spriteDrawRect(stageW, stageH, planted);
     if (!rect) return keep;
-    return { scale, posY: posYForFeet(stageH, planted) };
+    return plantFeet(stageH, planted);
 }
 
 // 参照物默认是本场景最早开口（order 最小）的在场者；传 refKey 时用这个人（还没探测好就不对齐）。
@@ -79,7 +90,7 @@ export function alignCastLayouts({ stageW, stageH, entries = [], refKey = null }
     for (const e of ready) {
         if (e === ref) {
             const source = e.locked ? e.autoGeometry : e.geometry;
-            if (source) out.set(e.id, { scale: source.scale, posY: posYForFeet(stageH, source) });
+            if (source) out.set(e.id, plantFeet(stageH, source));
             continue;
         }
         const member = e.locked ? e.autoGeometry : e.geometry;
@@ -104,7 +115,19 @@ function alignMemoSig(stageW, stageH, e, geometry) {
     return [stageW, stageH, e.url, geometry && geometry.scale, geometry && geometry.posY, e.baseHeight].join('|');
 }
 
-// speaker / members 条目：{ url, order, posX, posY, scale, head(手动标定或 null), baseHeight?, auto?, locked?, ... }，其余字段原样带出。
+// background-position 的百分比是「图上该比例点对齐舞台该比例点」：图越宽槽位越往中间挤，和舞台一样宽（竖屏手机）时全员叠在正中，比舞台宽时左右对调。
+// 换算成让图的中心落在舞台 centerX% 处的 posX；读不到图宽或图宽恰好等于舞台宽时返回 null，调用方沿用原 posX。
+export function posXForCenter(stageW, stageH, sprite, centerX) {
+    const rect = spriteDrawRect(stageW, stageH, { ...sprite, posX: 0 });
+    const c = Number(centerX);
+    if (!rect || !Number.isFinite(c)) return null;
+    const room = stageW - rect.w;
+    if (Math.abs(room) < 1) return null;
+    return Math.round((stageW * c / 100 - rect.w / 2) / room * 10000) / 100;
+}
+
+// speaker / members 条目：{ url, order, posX, posY, scale, head(手动标定或 null), baseHeight?, centerX?, auto?, locked?, ... }，其余字段原样带出。
+// centerX 是自动槽位的中心（舞台宽度百分比）：图探测好后按实际宽度换算 posX，锁定条目只换算 auto。
 // 说话人条目带 character 时按人锁参照，否则当作同一个「说话人」。
 // auto 换成对齐后的样子：「还原自动」预览的就是保存后画面上会出现的样子。
 // pending 为还没有探测数据、需要先 probeSpriteHead 的地址。
@@ -115,10 +138,11 @@ export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker
     ];
     const aligned = new Map();
     const pending = [];
+    const sized = all.length > 1 && stageW > 0 && stageH > 0;
     if (!align) {
         lock.ref = null;
         lock.memo.clear();
-    } else if (all.length > 1 && stageW > 0 && stageH > 0) {
+    } else if (sized) {
         const entries = [];
         for (const e of all) {
             const probed = e.url ? peek(e.url) : null;
@@ -157,11 +181,25 @@ export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker
             if (memo && memo.sig === sig) aligned.set(e.id, memo.value);
         }
     }
+    // 不开对齐时也要图宽来摆槽位：没探测过的照样交给调用方探测后重排。
+    if (!align && sized) {
+        for (const e of all) {
+            if (e.url && Number.isFinite(Number(e.centerX)) && !peek(e.url) && !pending.includes(e.url)) pending.push(e.url);
+        }
+    }
+    const centered = (sprite, centerX, probed) => {
+        if (!sized || !probed) return sprite;
+        const posX = posXForCenter(stageW, stageH, { ...sprite, naturalW: probed.naturalW, naturalH: probed.naturalH }, centerX);
+        return posX == null ? sprite : { ...sprite, posX };
+    };
     const finish = ({ id, key, ...e }) => {
         const value = aligned.get(id);
-        if (!value) return e;
-        const next = e.locked ? { ...e } : { ...e, ...value };
-        if (e.auto) next.auto = { ...e.auto, ...value };
+        const next = value && !e.locked ? { ...e, ...value } : { ...e };
+        if (e.auto) next.auto = value ? { ...e.auto, ...value } : { ...e.auto };
+        if (!Number.isFinite(Number(e.centerX))) return next;
+        const probed = e.url ? peek(e.url) : null;
+        if (!e.locked) Object.assign(next, centered(next, e.centerX, probed));
+        if (next.auto) next.auto = centered(next.auto, e.centerX, probed);
         return next;
     };
     return {

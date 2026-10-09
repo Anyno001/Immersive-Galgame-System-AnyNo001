@@ -72,3 +72,17 @@ test('comic: 泡贴在说话人头旁、不挡脸；同一种子画出同样的�
     const a = bodyPath('shout', { cx: 0, cy: 0, a: 50, b: 80 }, makeRand(7));
     assert.equal(a, bodyPath('shout', { cx: 0, cy: 0, a: 50, b: 80 }, makeRand(7)));
 });
+
+test('comic: 单字后缀不离开前文，上下排列的泡留缝待连线', () => {
+    const parts = cols('从第一次在图书馆遇见你开始，我就没办法不去注意你了。', { maxLen: 12 });
+    assert.ok(!parts.some((part) => part.startsWith('馆')), parts.join('|'));
+    const sizes = [{ ax: 50, by: 100 }, { ax: 50, by: 100 }];
+    assert.equal(arrangeChain(sizes, 800).mode, 'row');
+    const column = arrangeChain(sizes, 800, 'column', [false, true]);
+    assert.equal(column.mode, 'column');
+    assert.ok(column.centers[1][1] - column.centers[0][1] > 200);
+    const row = arrangeChain(sizes, 800, 'auto', [false, true]);
+    assert.ok(row.centers[0][0] - row.centers[1][0] > 100);
+    const bitten = arrangeChain(sizes, 800, 'column');
+    assert.ok(bitten.centers[1][1] - bitten.centers[0][1] < 200);
+});

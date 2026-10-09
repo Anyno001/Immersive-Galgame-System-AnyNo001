@@ -62,6 +62,7 @@ export function normalizeAutoIllustrationSettings(value) {
         interludeEnabled: bool(src.interludeEnabled),
         interludeProbability: clampInt(src.interludeProbability, 0, 100, 30),
         interludeMaxCount: clampInt(src.interludeMaxCount, 1, 16, 1),
+        backfillOldFloors: bool(src.backfillOldFloors),
         assets: {
             spriteEnabled: bool(assets.spriteEnabled),
             backgroundEnabled: bool(assets.backgroundEnabled),

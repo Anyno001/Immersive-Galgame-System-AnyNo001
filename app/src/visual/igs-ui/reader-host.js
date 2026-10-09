@@ -19,6 +19,8 @@ import { extractFxDirectives, resolveFxAtPage } from '../../scene/fx-directives.
 import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
 import { parseTables } from '../../shujuku-panel/panel-model.js';
 import { applyDiceToHits } from '../../scene/battle-context.js';
+import { liveFallbackOf, withLiveFallback } from '../../scene/live-context.js';
+import { withStormCarry } from '../../scene/storm-context.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
 import { createReadingProgress, resolvePositionFloor, resolvePositionPage, segmentText, textHash, textHead, READING_METADATA_KEY } from './reading-progress.js';
@@ -204,6 +206,7 @@ import {
 import { clearReaderModeRuntime, exitDocumentFullscreen } from './reader-runtime.js';
 import { enterSpriteEditMode } from './sprite-edit.js';
 import { enterCgPortraitEdit } from './cg-portrait.js';
+import { enterLivePortraitEdit } from './danmaku-live.js';
 import { enterCastSlotEdit } from './cast-slot-edit.js';
 import { createDbPanelController } from '../../shujuku-panel/panel-controller.js';
 import { createMapPanelController } from './map-panel.js';
@@ -216,7 +219,7 @@ import { createOnboardingController } from './onboarding-guide-controller.js';
 import { applyPerformanceProfile, applyProfileDetails } from './performance-profile.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { applyWorldview, resolveWorldview } from '../../scene/worldview.js';
-import { effectiveDialogSkin } from './worldview-skins.js';
+import { effectiveDialogSkin, sceneDialogSkin } from './worldview-skins.js';
 import {
     applyTitleSkin,
     buildTitleScreenModel,
@@ -277,6 +280,9 @@ const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna',
 export function createIgsReaderHost(options = {}) {
     let statusHudClient = null;
     let statusHudCallback = null;
+    // 翻旧楼补插图：每楼每次刷新页面只试一次，同一时间只画一楼。
+    const backfillTried = new Set();
+    let backfillBusy = false;
     const state = {
         activeReader: null,
         activeSettings: null,
@@ -794,6 +800,7 @@ export function createIgsReaderHost(options = {}) {
             onDailyPhoto: saveDailyPhoto,
             onRomanceMemory: saveRomanceMemory,
             onCgPortraitMove: (statusHud) => saveReaderSettingsPatch({ statusHud }),
+            onLivePortraitMove: (liveFx) => saveReaderSettingsPatch({ liveFx }),
         });
     }
 
@@ -1720,7 +1727,7 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'sprite-edit') {
             const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
-            if (overlay && !enterCgPortraitEdit(overlay, buildSpriteEditContext()) && !enterCastSlotEdit(overlay, state.activeReader, buildSpriteEditContext())) enterSpriteEditMode(overlay, state.activeReader, buildSpriteEditContext());
+            if (overlay && !enterLivePortraitEdit(overlay, buildSpriteEditContext()) && !enterCgPortraitEdit(overlay, buildSpriteEditContext()) && !enterCastSlotEdit(overlay, state.activeReader, buildSpriteEditContext())) enterSpriteEditMode(overlay, state.activeReader, buildSpriteEditContext());
             return { ok: true };
         }
         if (normalizedAction === 'db-panel') {
@@ -2010,8 +2017,10 @@ export function createIgsReaderHost(options = {}) {
         turnIndexPanel = createTurnIndexPanel(overlay.ownerDocument, {
             progress: readingProgress,
             tab,
+            userName: String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''),
             listTurns: listTurnsSafe,
             snippetOf: (turn) => (turn && (turn.visibleText || getMessagePrimaryText(turn.raw || turn))) || '',
+            rawOf: (turn) => getMessagePrimaryText(turn && (turn.raw || turn)) || '',
             currentId: () => (state.activeReader ? currentTurnMessageId(state.activeReader) : null),
             onJump: (target) => (state.activeReader ? jumpToPosition(target) : null),
             onUnread: () => {
@@ -2714,9 +2723,8 @@ export function createIgsReaderHost(options = {}) {
         const save = typeof options.saveUnifiedSettings === 'function' ? options.saveUnifiedSettings : null;
         if (!save) return { ok: false, reason: 'missing-save-handler' };
         const unified = resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' });
-        unified.bridge.sceneAssets.moodGroups = nextGroups;
         const result = save({
-            bridge: unified.bridge,
+            bridge: { ...unified.bridge, sceneAssets: { ...(unified.bridge.sceneAssets || {}), moodGroups: nextGroups } },
             readerMode: unified.readerMode,
             readerSettings: unified.readerSettings,
         });
@@ -2987,6 +2995,7 @@ export function createIgsReaderHost(options = {}) {
             characterAliases: sceneAssets && sceneAssets.characterAliases,
             theme: resolveChatTheme(readerSettings.dialogSkin),
             systemRole: readerSettings.systemRole,
+            pagesAfter: segments.length - 1 - normalizedIndex,
             avatarFor: (key) => concreteReaderAssetUrl(resolveStatusAvatar(sceneAssets && sceneAssets.statusAvatars, key)),
         }) : null;
         const hideChatSprite = chatPage && chatSettings.hideSprites;
@@ -3069,7 +3078,18 @@ export function createIgsReaderHost(options = {}) {
                 return Boolean(pageState && pageState.nsfw);
             }), normalizedIndex, Boolean(payload.inheritedSceneState && payload.inheritedSceneState.nsfw))
             : null;
-        const fxDirectives = extractFxDirectives(sceneSourceForOffset);
+        // 直播兜底：直播间开着时，继承上一楼未下播的直播；本楼没写 live 标签时按开播 / 下播词补指令（主播默认是玩家本人）。
+        const liveFallback = readerSettings && readerSettings.liveFx && readerSettings.liveFx.enabled === true
+            ? liveFallbackOf((getSillyTavernContext(options.global || globalThis) || {}).name1)
+            : null;
+        const fxDirectivesLive = liveFallback
+            ? withLiveFallback(extractFxDirectives(sceneSourceForOffset), sceneSourceForOffset, payload.liveContext, liveFallback)
+            : extractFxDirectives(sceneSourceForOffset);
+        // 舆论风暴：继承上一楼未平息的风暴（评论不重放），作为楼首的 storm 指令。
+        const fxDirectives = payload.stormContext && readerSettings && readerSettings.feedFx && readerSettings.feedFx.enabled === true
+            && !(readerSettings.feedFx.storm && readerSettings.feedFx.storm.enabled === false)
+            ? withStormCarry(fxDirectivesLive, payload.stormContext)
+            : fxDirectivesLive;
         // 对白页正文带「[名字]：」前缀、心里话页另包 *…*，原文里是「名字|表情|对白」：原样定位不到时去掉前缀再定位，否则紧挨对白的演出标签整页失效。
         const locateFxSegment = (segment) => {
             const exact = locateTextOffsetInSource(sceneSourceForOffset, segment);
@@ -3526,7 +3546,7 @@ export function createIgsReaderHost(options = {}) {
                 statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw), { character: spriteCharacter, outfit: spriteOutfit }),
             },
             // _sceneAssets 是整份有效素材库，只读不改；跟着整份深拷贝会让翻页随素材库变大而变慢。
-            readerSettings: cloneReaderSettingsShallowAssets(readerSettings),
+            readerSettings: sceneDialogSkin(cloneReaderSettingsShallowAssets(readerSettings), statusSceneInfo.location),
             input: {
                 placeholder: '输入内容后按 Enter 发送',
                 enterSends: true,
@@ -3947,12 +3967,38 @@ export function createIgsReaderHost(options = {}) {
         return message && message.element ? message.element : null;
     }
 
+    // 翻到旧楼时补插图（设置里默认关；开关由插图服务判断）。最新楼归自动出图管。
+    // 每楼每次刷新页面只试一次，失败也不反复重试；同一时间只画一楼，不和工具栏手动出图抢。
+    function backfillOldFloor(current) {
+        if (!current || !current.progressArmed || current.titleGate || backfillBusy || current.illustrationPending) return;
+        const service = options.illustrations;
+        if (!service || typeof service.processMessage !== 'function') return;
+        const target = readManualFloor(current);
+        if (!target.floor || target.floor.isLatest) return;
+        const key = `${target.floor.chatId}:${target.messageId}:${target.floor.swipeId}`;
+        if (backfillTried.has(key)) return;
+        backfillTried.add(key);
+        backfillBusy = true;
+        current.illustrationPending = true;
+        Promise.resolve(service.processMessage(Number(target.messageId), { backfill: true }))
+            .then((result) => {
+                if (result && result.ok && result.count) imageNotice('success', `第 ${target.messageId} 楼已补全 ${result.count} 张插图`);
+                else if (result && !result.ok) imageNotice('error', `第 ${target.messageId} 楼插图补全失败：${result.error || '未返回具体原因'}`);
+            })
+            .catch(() => {})
+            .finally(() => {
+                backfillBusy = false;
+                current.illustrationPending = false;
+            });
+    }
+
     function updateMountedReader(snapshot) {
         const current = state.activeReader;
         if (!current) return;
         warmActiveFloorImages(snapshot);
         current.autoPlayer?.setSpeed(snapshot.readerSettings?.typewriter?.speed);
         noteReadingProgress(current, snapshot);
+        backfillOldFloor(current);
         if (!current.dom || !current.dom.root) return;
         generationStripRemount = true;
         const refs = hydrateReaderMount(current.dom.root, snapshot);
@@ -3989,6 +4035,7 @@ export function createIgsReaderHost(options = {}) {
             onDailyPhoto: saveDailyPhoto,
             onRomanceMemory: saveRomanceMemory,
             onCgPortraitMove: (statusHud) => saveReaderSettingsPatch({ statusHud }),
+            onLivePortraitMove: (liveFx) => saveReaderSettingsPatch({ liveFx }),
         });
         if (current.dom.progress) {
             const progressText = formatReaderProgress(snapshot);
@@ -4236,7 +4283,8 @@ export function createIgsReaderHost(options = {}) {
         }
         let result = null;
         const saved = saveBridgePatch((bridge) => {
-            const root = bridge.sceneAssets = bridge.sceneAssets || {};
+            // 存储里的配置只读：mutator 会原地改素材库，先拷一份再改（只在这类低频的入库操作上发生）。
+            const root = cloneData(bridge.sceneAssets || {});
             const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis));
             relocateLegacyCard(root, scope.key, scope.legacyKey);
             const owner = scope.key ? (character ? assetOwnerKey(root, scope.key, CHARACTER_COLLECTIONS, character) : scope.key) : '';
@@ -4374,9 +4422,11 @@ export function createIgsReaderHost(options = {}) {
             : null;
         const worldview = resolveWorldview(sceneAssets);
         readerSettings.dialogSkin = effectiveDialogSkin(readerSettings.dialogSkin, sceneAssets);
-        Object.assign(readerSettings, applyFxWorldview(readerSettings, worldview));
+        Object.assign(readerSettings, applyFxWorldview(readerSettings, worldview, { carryPhone: Boolean(sceneAssets && sceneAssets.carryPhone === true) }));
         // 演出与聊天层据此换皮：_ancientEra 保留给既有古风分支，_worldview 供西幻 / 科幻 / 末日换皮。
         readerSettings._ancientEra = worldview === 'ancient';
+        // 随身手机：线上聊天换回手机样式（chat-layer 读这个标记）。
+        readerSettings._carryPhone = Boolean(readerSettings.feedFx && readerSettings.feedFx.carryPhone === true);
         readerSettings._worldview = worldview;
         readerSettings._sceneAssets = sceneAssets;
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);

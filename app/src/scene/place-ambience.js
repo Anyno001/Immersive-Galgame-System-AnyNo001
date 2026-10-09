@@ -14,13 +14,18 @@ const BATH_WORDS = Object.freeze([
     ...SHOWER_WORDS, ...ONSEN_WORDS, '浴室', '浴缸', '浴池', '浴场', '澡堂', '钱汤', '浴桶', '浴房', '浴间', '风吕', '桑拿', '汗蒸',
 ]);
 // 水下与太空不分世界观（人鱼哪个时代都有）。
-const UNDERWATER_WORDS = Object.freeze(['水下', '水底', '水中', '海底', '深海', '湖底', '河底', '潭底', '海沟', '龙宫', '水晶宫', '珊瑚礁']);
+const UNDERWATER_WORDS = Object.freeze([
+    '水下', '水底', '水中', '海中', '湖中', '海底', '深海', '湖底', '河底', '潭底', '海沟', '海渊', '龙宫', '水晶宫', '珊瑚礁',
+    '海藻林', '海草林', '海带林', '人鱼王国', '人鱼宫', '人鱼族', '亚特兰蒂斯', '海神殿', '沉船',
+]);
+// 阳光照不到的深处：不挂光柱，换成幽幽发光的浮游。
+const ABYSS_WORDS = Object.freeze(['深海', '海沟', '海渊', '海底深处', '海洋深处', '深渊']);
 const SPACE_WORDS = Object.freeze(['太空', '外太空', '宇宙空间', '星际空间', '真空', '月面', '月球表面', '小行星带']);
 // 太空站、飞船里有空气；但「舱外」「太空站外」是真空，要在剥掉假朋友之前先认。
 const SPACE_OUTSIDE_WORDS = Object.freeze(['舱外', '太空漫步', '太空站外', '空间站外', '飞船外']);
-// 「温泉街」「海水浴场」不是在洗澡，「船坞」不在船上，「海底捞」「海底隧道」里有空气，太空站、太空舱里不是真空；
+// 「温泉街」「海水浴场」不是在洗澡，「船坞」不在船上，「海底捞」「海底隧道」「深海潜艇」「海底世界水族馆」里有空气，太空站、太空舱里不是真空；
 // 「停车场」「车站」「浴衣」本身就不在词表里。
-const FALSE_FRIENDS = /温泉(?:街|镇|乡|村)|海水浴场|日光浴场|船坞|船厂|海底捞|海底(?:隧道|餐厅)|太空(?:站|舱|船|港|电梯|中心|馆)/g;
+const FALSE_FRIENDS = /温泉(?:街|镇|乡|村)|海水浴场|日光浴场|船坞|船厂|海底捞|海底(?:隧道|餐厅)|[^\s，,（）()]*(?:潜水?艇|水族馆)[^\s，,（）()]*|太空(?:站|舱|船|港|电梯|中心|馆)/g;
 
 function rawOf(value) {
     return String(value == null ? '' : value).trim().toLowerCase();
@@ -41,7 +46,7 @@ export function isHorseDrawnWorld(worldview) {
 }
 
 // 返回 { kind: 'underwater'|'space'|'bath'|'carriage'|'train'|'car'|'ship', variant } 或 null。
-// variant：train 的 subway（地下隧道）、bath 的 shower / onsen；其余为空串。
+// variant：train 的 subway（地下隧道）、bath 的 shower / onsen、underwater 的 abyss（深海）；其余为空串。
 // 水下、真空最先（「沉船的甲板」在水底）；再洗浴后载具：「游轮上的浴场」在浴场里；马车先于汽车：「马车车厢」不算列车。
 export function resolvePlaceAmbience(location, { worldview = '' } = {}) {
     const horseDrawn = isHorseDrawnWorld(worldview);
@@ -49,7 +54,7 @@ export function resolvePlaceAmbience(location, { worldview = '' } = {}) {
     if (!raw) return null;
     if (includesAny(raw, SPACE_OUTSIDE_WORDS)) return { kind: 'space', variant: '' };
     const text = raw.replace(FALSE_FRIENDS, '');
-    if (includesAny(text, UNDERWATER_WORDS)) return { kind: 'underwater', variant: '' };
+    if (includesAny(text, UNDERWATER_WORDS)) return { kind: 'underwater', variant: includesAny(text, ABYSS_WORDS) ? 'abyss' : '' };
     if (includesAny(text, SPACE_WORDS)) return { kind: 'space', variant: '' };
     if (includesAny(text, BATH_WORDS)) {
         const variant = includesAny(text, SHOWER_WORDS) ? 'shower' : includesAny(text, ONSEN_WORDS) ? 'onsen' : '';

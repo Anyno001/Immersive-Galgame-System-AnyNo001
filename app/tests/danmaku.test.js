@@ -465,8 +465,69 @@ test('gate:danmaku:presets-era-and-adaptive-grammar', () => {
     const rs = { liveFx: { enabled: true }, audienceFx: { enabled: true } };
     const idle = buildTagGrammar({ readerSettings: rs });
     assert.match(idle.system, /观众弹幕/);
-    assert.match(idle.system, /直播 igs-fx:live\/live-end\/dm/);
+    assert.match(idle.system, /【按需】.*直播/);
     assert.doesNotMatch(idle.depth0, /直播间/);
     const hot = buildTagGrammar({ readerSettings: rs, expand: new Set(['live']) });
     assert.match(hot.depth0, /【直播间】/);
+});
+
+test('gate:danmaku:live-interact-switch-view-and-digest', async () => {
+    const { buildLiveDigestRule, summarizeLiveEvents } = await import('../src/visual/igs-ui/danmaku-interact.js');
+    const { clearMetaDigest, pendingMetaEvents } = await import('../src/visual/igs-ui/meta-digest.js');
+    clearMetaDigest();
+    const { root, motion } = makeRoot();
+    const c = clock();
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: seq([0.9, 0.1, 0.5]), reducedMotion: false, userName: '小明' };
+    const fx = { live: { name: '爱丽丝', title: '深夜杂谈', view: 'watch' } };
+    applyDanmakuToDom(root, snapshot({ fx }, { liveFx: { enabled: true } }), opts);
+    const ctl = motion.querySelector('.igs-live-ctl');
+    assert.ok(ctl, 'interact shell on front layer');
+    const gift = ctl.querySelectorAll('.igs-live-ctl-gift')[0];
+    for (const fn of ctl.listeners.click) fn({ target: { closest: () => gift }, stopPropagation() {} });
+    for (const fn of ctl.listeners.click) fn({ target: { closest: () => gift }, stopPropagation() {} });
+    const like = ctl.querySelector('.igs-live-ctl-btn');
+    assert.ok(like);
+    c.run(2000);
+    const list = motion.querySelector('.igs-live-list');
+    assert.ok(list.children.some((n) => n.getAttribute('data-type') === 'gift'), 'my gift shows in the phone');
+    const digest = summarizeLiveEvents(pendingMetaEvents());
+    assert.match(digest, /爱丽丝/);
+    assert.match(digest, /小心心×2/);
+    assert.match(buildLiveDigestRule(digest), /^\[igs直播间\]/);
+    // 视角切换：点「主播」换成主播后台。
+    const sw = motion.querySelector('.igs-live-switch');
+    const hostBtn = sw.children.find((b) => b.getAttribute('data-view') === 'host');
+    for (const fn of sw.listeners.click) fn({ target: { closest: () => hostBtn }, stopPropagation() {} });
+    c.run(600);
+    assert.equal(motion.querySelector('.igs-live-phone').getAttribute('data-view'), 'host');
+    assert.equal(motion.querySelector('.igs-live-ctl').getAttribute('data-view'), 'host');
+    // 翻页后保持所选视角。
+    applyDanmakuToDom(root, snapshot({ currentIndex: 1, fx }, { liveFx: { enabled: true } }), opts);
+    assert.equal(motion.querySelector('.igs-live-phone').getAttribute('data-view'), 'host');
+    clearMetaDigest();
+    cancelDanmaku(root);
+    assert.equal(motion.querySelector('.igs-live-ctl'), null);
+});
+
+test('gate:danmaku:live-portrait-edit-saves-frame', async () => {
+    const { enterLivePortraitEdit } = await import('../src/visual/igs-ui/danmaku-live.js');
+    const { root, motion, doc } = makeRoot();
+    doc.createElement = (tag) => new FakeNode(doc, tag);
+    root.ownerDocument = doc;
+    const c = clock();
+    const saved = [];
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: seq([0.9]), reducedMotion: false, sprite: { url: 'a.png' }, onLivePortraitMove: (liveFx) => saved.push(liveFx) };
+    const settings = { liveFx: { enabled: true, portrait: { x: 10, y: -5, zoom: 120 } } };
+    applyDanmakuToDom(root, snapshot({ fx: { live: { name: '爱丽丝', title: 't', view: 'watch' } } }, settings), opts);
+    const portrait = motion.querySelector('.igs-live-portrait');
+    assert.equal(portrait.style.get('--igs-lp-x'), '10%');
+    assert.equal(portrait.style.get('--igs-lp-z'), '1.2');
+    assert.equal(enterLivePortraitEdit(root), true);
+    const bar = root.children.find((n) => n.id === 'igs-sprite-edit-bar');
+    assert.ok(bar);
+    const save = { dataset: { se: 'save' } };
+    for (const fn of bar.listeners.click) fn({ target: { closest: () => save }, stopPropagation() {} });
+    assert.deepEqual(saved[0].portrait, { x: 10, y: -5, zoom: 120 });
+    assert.equal(saved[0].enabled, true);
+    cancelDanmaku(root);
 });

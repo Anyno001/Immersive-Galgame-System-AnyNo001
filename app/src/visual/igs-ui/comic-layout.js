@@ -14,35 +14,38 @@ export function resolveHeadBox(stageW, stageH, sprite) {
 }
 
 // 几个泡连成一串：竖排读序从右往左，后一个泡在前一个左侧、略低，彼此咬合一点。
-// 放不下（窄屏）时改成上下排列。sizes 为各泡外接半宽半高 { ax, by }。返回相对坐标的泡心与整串外框。
-export function arrangeChain(sizes, maxWidth, mode = 'auto') {
+// 放不下（窄屏）时改成上下排列；links[i] 为真时第 i 个泡与上一个之间留一道缝，由细连线接起来，否则彼此咬合。
+// sizes 为各泡外接半宽半高 { ax, by }。返回相对坐标的泡心、整串外框与实际排法 mode。
+export function arrangeChain(sizes, maxWidth, mode = 'auto', links = []) {
+    let used = 'row';
     const centers = [];
     let x = 0;
     let y = 0;
     sizes.forEach((s, i) => {
         if (i > 0) {
             const prev = sizes[i - 1];
-            x -= (prev.ax + s.ax) * 0.9;
+            x -= (prev.ax + s.ax) * (links[i] ? 1.07 : 0.9);
             y += Math.min(prev.by, s.by) * 0.42;
         }
         centers.push([x, y]);
     });
     let box = bounds(centers, sizes);
     if (sizes.length > 1 && (mode === 'column' || (mode === 'auto' && box.w > maxWidth))) {
+        used = 'column';
         centers.length = 0;
         x = 0;
         y = 0;
         sizes.forEach((s, i) => {
             if (i > 0) {
                 const prev = sizes[i - 1];
-                y += (prev.by + s.by) * 0.9;
+                y += (prev.by + s.by) * (links[i] ? 1.05 : 0.9);
                 x -= Math.min(prev.ax, s.ax) * 0.3;
             }
             centers.push([x, y]);
         });
         box = bounds(centers, sizes);
     }
-    return { centers: centers.map(([cx, cy]) => [cx - box.x, cy - box.y]), w: box.w, h: box.h };
+    return { centers: centers.map(([cx, cy]) => [cx - box.x, cy - box.y]), w: box.w, h: box.h, mode: used };
 }
 
 function bounds(centers, sizes) {

@@ -1,3 +1,4 @@
+import { normalizeMyPhone } from './my-phone.js';
 import { normalizeEmotionList } from './stage-shake-runtime.js';
 import { FX_TAG_KINDS } from '../../scene/fx-directives.js';
 import { normalizeItemFxSettings } from './fx-item-model.js';
@@ -17,6 +18,8 @@ import { normalizeResultFxSettings } from './fx-result-model.js';
 import { COMIC_WORD_LIST_PATHS, normalizeComicModeSettings } from './comic-settings.js';
 import { MANGA_BACK_WORD_LIST_PATHS, normalizeMangaBackSettings } from './manga-back.js';
 import { normalizeCrowdFxSettings } from './crowd-fx.js';
+import { normalizeFeedFxSettings } from './feed-settings.js';
+import { normalizeNotifyCenterSettings } from './notify-center.js';
 
 // 情绪命中按此顺序取第一个符号：同一个词出现在多个词表里时，排在前面的符号优先。
 export const MANGA_SYMBOL_KINDS = Object.freeze([
@@ -128,6 +131,10 @@ export function normalizeFxTagsSettings(value) {
     const src = plain(value);
     const out = { enabled: src.enabled === true };
     for (const kind of FX_TAG_KINDS) out[kind] = FX_TAG_OPT_IN.has(kind) ? src[kind] === true : src[kind] !== false;
+    // 紧急求助（110 / 120 / 119 来电样式与警笛到场）：不是提示词标签，不进 FX_TAG_KINDS，默认开。
+    out.emergency = src.emergency !== false;
+    // 垃圾广告短信样式：同样不是提示词标签，默认开。
+    out.spam = src.spam !== false;
     out.callSprite = FX_CALL_SPRITE_MODES.includes(src.callSprite) ? src.callSprite : 'split';
     return out;
 }
@@ -170,6 +177,10 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     romanceFx: normalizeRomanceFxSettings,
     // Meta 互动独立渲染（meta-runtime），不参与一键档位。
     metaFx: normalizeMetaFxSettings,
+    // 手机社区独立渲染（feed-runtime），不进入 FX_FEATURE_KEYS。
+    feedFx: normalizeFeedFxSettings,
+    // 手机通知中心独立渲染（notify-center），不进入 FX_FEATURE_KEYS。
+    notifyCenter: normalizeNotifyCenterSettings,
     // 舞台调度、场景声音与文字演出各自独立运行，同样不进入 FX_FEATURE_KEYS。
     ...STAGE_DIRECTION_NORMALIZERS,
     bgm: normalizeBgmSettings,
@@ -187,6 +198,8 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     // 漫画背景与特效、人群剪影独立渲染（manga-back / crowd-fx），不进入 FX_FEATURE_KEYS。
     mangaBack: normalizeMangaBackSettings,
     crowdFx: normalizeCrowdFxSettings,
+    // 我的手机：直播 / 社区 / 风暴 / 聊天共用的手机外观；旧的机型与大小从 liveFx 迁来（见 normalizeFxReaderSettings）。
+    myPhone: (value) => normalizeMyPhone(value),
 });
 
 export const FX_FEATURE_KEYS = Object.freeze(['titleCard', 'mangaFx', 'heartbeatFx', 'flashFx', 'favorToast', 'fxTags']);
@@ -195,6 +208,7 @@ export function normalizeFxReaderSettings(reader) {
     const src = plain(reader);
     const out = {};
     for (const [key, normalize] of Object.entries(FX_SETTINGS_NORMALIZERS)) out[key] = normalize(src[key]);
+    out.myPhone = normalizeMyPhone(src.myPhone, src.liveFx);
     return out;
 }
 

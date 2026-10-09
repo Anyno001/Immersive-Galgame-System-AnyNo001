@@ -32,6 +32,7 @@ const FEATURE_ALIASES = Object.freeze({
     战斗: ['打架', '战斗', '血条'],
     线上交流: ['聊天', '手机', '短信', '微信'],
     直播间: ['直播'],
+    手机社区: ['社区', '微博', '朋友圈', '表白墙', '小红书', '贴吧', '论坛', '刷手机', '平台写法'],
     观众弹幕: ['弹幕', '观众'],
     亲密演出: ['亲密', '暧昧', '恋爱', 'nsfw'],
     演出音效: ['音效', '声音'],
@@ -43,6 +44,7 @@ const FEATURE_ALIASES = Object.freeze({
 // 演出档位之外、藏在折叠区里的细项：label 是界面上的原文，aliases 是用户可能输入的说法。
 // target 不写时在「阅读器 › 演出」；写了就按 target 跳到别的分页。
 const EXTRA_ENTRIES = Object.freeze([
+    { id: 'my-phone', label: '我的手机', group: 'special', open: ['perf-my-phone'], aliases: ['手机壳', '机型', '壁纸', '铃声', '手机外观', '壳色', '折叠屏', '刘海屏', '平板'] },
     { id: 'comic-mode', label: '漫画演出模式', group: 'text', open: ['perf-comic-mode'], aliases: ['漫画', '对话泡', '气泡', '竖排', '黑白', '漫画模式', '吹き出し'] },
     { id: 'cinema-bars', label: '电影黑边', group: 'stage', open: [], aliases: ['黑边', '宽银幕', '上下黑条'] },
     { id: 'cg-hold', label: '日常CG停留', group: 'rhythm', open: [], aliases: ['cg', '插图', '停留', '几页'] },

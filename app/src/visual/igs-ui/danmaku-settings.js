@@ -27,6 +27,11 @@ export const INNER_DANMAKU_STYLE_LABELS = Object.freeze({ burst: '爆发', fly: 
 export const LIVE_LAYOUTS = Object.freeze(['phone', 'full']);
 // 直播弹幕：roll 左下角列表向上翻滚（默认）；fly 沿轨道横飞穿过画面；both 两者同时。
 export const LIVE_CHAT_MODES = Object.freeze(['roll', 'fly', 'both']);
+// 手机机型：只换外观与屏幕比例。全面屏 9:18.5（原样式）、刘海屏 9:17、折叠屏展开 6:7、平板 3:4。
+export const LIVE_PHONE_MODELS = Object.freeze(['full', 'notch', 'fold', 'tablet']);
+export const LIVE_PHONE_MODEL_LABELS = Object.freeze({ full: '全面屏', notch: '刘海屏', fold: '折叠屏', tablet: '平板' });
+// 手机大小：large 放大（默认，下半截可伸到对话框后面，底栏与弹幕抬到对话框之上）；fit 整台手机避开对话框。
+export const LIVE_PHONE_SIZES = Object.freeze(['large', 'fit']);
 
 const freezeList = (list) => Object.freeze(list.slice());
 
@@ -48,6 +53,16 @@ function pick(list, value, fallback) {
     return list.includes(value) ? value : fallback;
 }
 
+function clampNumber(value, min, max, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
+}
+
+export function normalizeLivePortrait(value) {
+    const src = plain(value);
+    return { x: clampNumber(src.x, -100, 100, 0), y: clampNumber(src.y, -100, 100, 0), zoom: clampNumber(src.zoom, 30, 400, 100) };
+}
+
 export function normalizeLiveFxSettings(value) {
     const src = plain(value);
     return {
@@ -57,6 +72,12 @@ export function normalizeLiveFxSettings(value) {
         chat: pick(LIVE_CHAT_MODES, src.chat, 'roll'),
         // 跟随对话框主题：沿用线上交流的主题色板（默认关，保持 B 站深色）。
         followTheme: src.followTheme === true,
+        model: pick(LIVE_PHONE_MODELS, src.model, 'full'),
+        size: pick(LIVE_PHONE_SIZES, src.size, 'large'),
+        // 直播互动：观众视角发弹幕 / 送礼 / 醒目留言 / 上舰 / 点赞，主播视角对观众说话；发送时告诉 AI（默认开）。
+        interact: src.interact !== false,
+        // 手机里立绘的取景（「调整立绘」编辑）：x / y 为屏幕宽高的百分比偏移，zoom 为百分比缩放。
+        portrait: normalizeLivePortrait(src.portrait),
     };
 }
 

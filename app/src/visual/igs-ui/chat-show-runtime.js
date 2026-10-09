@@ -32,6 +32,8 @@ const MESSAGE_TYPE_ALIASES = Object.freeze({
     image: ['image', 'img', 'photo', '图片', '照片'],
     voice: ['voice', 'audio', '语音'],
     recall: ['recall', 'revoke', '撤回'],
+    typing: ['typing', '输入中', '正在输入'],
+    read: ['read', 'seen', '已读', '已读不回'],
     sticker: ['sticker', 'emoji', '表情', '表情包'],
 });
 
@@ -48,7 +50,7 @@ export const CHAT_SHOW_PROMPT_RULE = `[igs线上聊天标签]
 1. 每条标签独立成行；一段聊天以[igs-chat]开始、以[igs-chat-end]结束
 2. 会话标题填写群名或对方名字
 3. 每条消息使用一个[igs-msg]；发送者填写完整角色名，{{user}}发送的消息发送者填写{{user}}
-4. 普通文字消息只写两栏；特殊消息在第三栏填写类型：图片（内容写画面描述）、语音（内容写语音说的话）、表情包（内容写表情描述）、撤回（内容可留空）
+4. 普通文字消息只写两栏；特殊消息在第三栏填写类型：图片（内容写画面描述）、语音（内容写语音说的话）、表情包（内容写表情描述）、撤回（内容写被撤回的话，可留空）、输入中（内容留空，表示对方打字又放弃）、已读（{{user}}的消息被看了没回）
 5. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:昨天 22:14]；系统通知、入群提示等非角色消息的发送者填写「系统」
 6. 消息内容不得换行，不得含 | 或 ]
 7. 仅用于线上消息；当面对话仍使用[igs-char]`;
@@ -66,6 +68,7 @@ export const CHAT_SHOW_ANCIENT_PROMPT_RULE = `[igs书信往来标签]
 [igs-chat:书信标题]
 [igs-chat-time:时间]
 [igs-msg:写信人|信的内容]
+[igs-msg:写信人||输入中]
 [igs-chat-end]
 
 语法要求：
@@ -74,16 +77,17 @@ export const CHAT_SHOW_ANCIENT_PROMPT_RULE = `[igs书信往来标签]
 3. 每封信或回信使用一个[igs-msg]；写信人填写完整角色名，{{user}}写的信填写{{user}}
 4. 信的内容用书面语，每封不超过80字，不得换行，不得含 | 或 ]
 5. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:三日后]
-6. 仅用于书信；当面对话仍使用[igs-char]`;
+6. 第三栏可写类型：输入中（内容留空，提笔又放下）、撤回（信被抽回）、已读（对方已阅未回）
+7. 仅用于书信；当面对话仍使用[igs-char]`;
 
 // 用户自定义的提示词优先，两个时代都不覆盖。
 export function resolveChatShowPromptRule(settings, { ancient = false } = {}) {
     return normalizeChatShowSettings(settings).promptRule || (ancient ? CHAT_SHOW_ANCIENT_PROMPT_RULE : CHAT_SHOW_PROMPT_RULE);
 }
 
-const CHAT_SHOW_GRAMMAR = `【线上聊天】角色通过手机、网络发消息时，整段聊天用 [igs-chat:会话标题] 开始、[igs-chat-end] 结束；会话标题写群名或对方名字；每条消息一行 [igs-msg:发送者|内容]，发送者写完整角色名，{{user}}发的写{{user}}，系统通知写「系统」；特殊消息加第3栏类型：图片（内容写画面）、语音（内容写说的话）、表情包、撤回（内容可空）；时间间隔单独一行 [igs-chat-time:昨天 22:14]。当面对话仍用 igs-char`;
+const CHAT_SHOW_GRAMMAR = `【线上聊天】手机、网络消息用 [igs-chat:群名或对方名] 开始、[igs-chat-end] 结束；每条一行 [igs-msg:发送者|内容]，发送者写角色全名，{{user}}发的写{{user}}，系统通知写「系统」；第3栏类型：图片（写画面）、语音（写说的话）、表情包、撤回（写被撤回的话）、输入中（内容空，打字又停）、已读（{{user}}消息已读未回）；时间单独一行 [igs-chat-time:昨天 22:14]。当面对话仍用 igs-char`;
 
-const CHAT_SHOW_ANCIENT_GRAMMAR = `【书信往来】角色以书信往来时，用 [igs-chat:书信标题] 开始、[igs-chat-end] 结束；标题写「致某某」「某某家书」；每封信一行 [igs-msg:写信人|信的内容]，写信人写完整角色名，{{user}}写的写{{user}}，内容用书面语，不超过80字；时间间隔单独一行 [igs-chat-time:三日后]。当面对话仍用 igs-char`;
+const CHAT_SHOW_ANCIENT_GRAMMAR = `【书信往来】角色以书信往来时，用 [igs-chat:书信标题] 开始、[igs-chat-end] 结束；标题写「致某某」「某某家书」；每封信一行 [igs-msg:写信人|信的内容]，写信人写完整角色名，{{user}}写的写{{user}}，内容用书面语，不超过80字；第3栏可写 输入中（内容空，提笔又放下）、撤回、已读；时间间隔单独一行 [igs-chat-time:三日后]。当面对话仍用 igs-char`;
 
 // 自定义提示词原样使用；精简写法只替换内置默认。
 export function resolveChatShowGrammar(settings, { ancient = false } = {}) {
@@ -247,23 +251,32 @@ export function buildChatPageModel(chat, settings, ctx = {}) {
         if (isSystemRole(item.sender, ctx.systemRole)) return { kind: 'system', text: item.text };
         const sender = resolveChatSender(item.sender, normalized, ctx);
         const type = normalizeChatMessageType(item.type);
-        if (type === 'recall') {
-            return { kind: 'recall', key: sender.key, text: `${sender.self ? '你' : sender.displayName}撤回了一条消息` };
-        }
-        const message = { kind: 'msg', type, text: item.text, ...sender };
-        if (type === 'voice') message.seconds = chatVoiceSeconds(item.text);
-        if (normalized.showAvatars) {
+        const withAvatar = (message) => {
+            if (!normalized.showAvatars) return message;
             message.avatar = avatarFor(sender.key) || '';
             message.initial = Array.from(sender.displayName || '?')[0] || '?';
             message.avatarColor = CHAT_SHOW_AVATAR_PALETTE[hashIndex(sender.key, CHAT_SHOW_AVATAR_PALETTE.length)];
+            return message;
+        };
+        // 输入中：只留一个瞬时提示，不进消息流；前端不编造文字。
+        if (type === 'typing') return withAvatar({ kind: 'typing', ...sender });
+        if (type === 'recall') {
+            // 撤回带内容：先显示原话，再变成灰字；内容留空则直接是灰字。
+            const note = { kind: 'recall', ...sender, text: `${sender.self ? '你' : sender.displayName}撤回了一条消息` };
+            if (item.text) note.original = item.text;
+            return withAvatar(note);
         }
-        return message;
+        const message = { kind: 'msg', type: type === 'read' ? 'text' : type, text: item.text, ...sender };
+        if (type === 'read' && sender.self) message.read = true;
+        if (type === 'voice') message.seconds = chatVoiceSeconds(item.text);
+        return withAvatar(message);
     });
     const msgs = messages.filter((m) => m.kind === 'msg');
     const leftKeys = [...new Set(msgs.filter((m) => m.side === 'left').map((m) => m.key))];
     const senderKeys = [...new Set(msgs.map((m) => m.key))];
     const group = senderKeys.length > 2;
-    for (const m of msgs) {
+    for (const m of messages) {
+        if (m.kind !== 'msg' && m.kind !== 'typing' && !(m.kind === 'recall' && m.original)) continue;
         if (!m.color) {
             m.color = m.side === 'right'
                 ? defaults.right
@@ -271,6 +284,12 @@ export function buildChatPageModel(chat, settings, ctx = {}) {
         }
         m.textColor = readableTextColor(m.color);
         m.showName = group && m.side === 'left';
+    }
+    // 已读不回：最后一条已读的我方消息之后没有对方回复，则在末尾补一句时间流逝（数字按本条后剩余页数推算）。
+    const lastReadAt = messages.map((m) => m.read === true).lastIndexOf(true);
+    if (lastReadAt >= 0 && !messages.slice(lastReadAt + 1).some((m) => m.kind === 'msg' && m.side === 'left')) {
+        const minutes = Math.min(120, 10 * (1 + Math.max(0, Math.floor(Number(ctx.pagesAfter) || 0))));
+        messages.push({ kind: 'lapse', text: minutes >= 60 ? `${Math.floor(minutes / 60)}小时后` : `${minutes}分钟后`, ancientText: '三日后' });
     }
     const others = senderKeys.filter((k) => !msgs.some((m) => m.key === k && m.self));
     const title = normalizeName(chat && chat.title) || (others.length === 1 ? others[0] : '');

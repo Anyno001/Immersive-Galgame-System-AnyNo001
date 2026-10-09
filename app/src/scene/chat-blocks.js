@@ -92,5 +92,6 @@ export function extractChatBlocks(raw) {
 
 export function formatChatBlockAsText(chat) {
     const messages = chat && Array.isArray(chat.messages) ? chat.messages : [];
-    return messages.map((m) => (m.kind === 'msg' ? `${m.sender}：${m.text}` : m.text)).join('\n');
+    // 输入中是瞬时提示，纯文字回放时略去。
+    return messages.filter((m) => !(m.kind === 'msg' && !m.text && /^(?:typing|输入中|正在输入)$/i.test(m.type || ''))).map((m) => (m.kind === 'msg' ? `${m.sender}：${m.text}` : m.text)).join('\n');
 }

@@ -336,12 +336,12 @@ export function createAutoIllustrationService(deps) {
             return { ok: false, reason: 'stale' };
         }
         await ensureRegexesOnce();
-        let writtenText = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.manual });
+        let writtenText = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.anyFloor });
         // 读和写之间又被插件改了一次：按最新正文重搬，最多再试两次。
         for (let retry = 0; retry < 2 && writtenText && writtenText.reason === 'stale'; retry += 1) {
             merged = mergeIntoLatest(messageId, floor, expected, markedText);
             if (!merged) break;
-            writtenText = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.manual });
+            writtenText = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.anyFloor });
         }
         const keptSlots = merged && merged.slots ? slots.filter((item) => merged.slots.includes(item.slot)) : slots;
         if (!writtenText || !writtenText.ok) {
@@ -402,13 +402,14 @@ export function createAutoIllustrationService(deps) {
     // 规划期间正文被其他插件改了：只在末尾追加时原样接上；别处改过就把标记按前后文搬到新正文，对不上的那张丢掉。
     // 「最新楼」只看后面有没有用户发言，插件在后面另起的楼不影响写回。
     // 返回 { text, latest, slots }，slots 为 null 表示全部保留；一张都放不下返回 null。
-    function withManual(floor, manual) {
-        return floor && manual ? { ...floor, manual: true } : floor;
+    // anyFloor：允许画不是最新的楼（工具栏手动出图、翻旧楼补 CG），写回时也不要求还是最新楼。
+    function withAnyFloor(floor, anyFloor) {
+        return floor && anyFloor ? { ...floor, anyFloor: true } : floor;
     }
 
     function mergeIntoLatest(messageId, floor, expected, markedText) {
         const latest = messageHost.readFloor(messageId);
-        if (!latest || !latest.isAi || !(latest.isLatest || floor.manual) || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId) return null;
+        if (!latest || !latest.isAi || !(latest.isLatest || floor.anyFloor) || latest.chatId !== floor.chatId || latest.swipeId !== floor.swipeId) return null;
         const tail = appendedTail(expected.text, latest.text);
         if (tail != null) {
             if (tail) report('info', `第 ${messageId} 楼末尾被其他插件追加了内容，插图照常插在原文里`);
@@ -441,7 +442,7 @@ export function createAutoIllustrationService(deps) {
         if (typeof nai.waitSourceFloorPrompts === 'function' && ['baibai', 'chatu8'].includes(backendReady().via)) {
             progress(floor, { phase: 'write' });
             await nai.waitSourceFloorPrompts(messageId);
-            floor = withManual(messageHost.readFloor(messageId), floor.manual) || floor;
+            floor = withAnyFloor(messageHost.readFloor(messageId), floor.anyFloor) || floor;
         }
         // 标记还在但记录丢了（换设备、清缓存）时先去掉旧标记再规划，避免重复插入；写回时仍按原文校验。
         const expected = floor;
@@ -524,11 +525,11 @@ export function createAutoIllustrationService(deps) {
             return { ok: false, reason: 'stale' };
         }
         await ensureRegexesOnce();
-        let written = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.manual });
+        let written = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.anyFloor });
         for (let retry = 0; retry < 2 && written && written.reason === 'stale'; retry += 1) {
             merged = mergeIntoLatest(messageId, floor, expected, markedText);
             if (!merged) break;
-            written = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.manual });
+            written = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.anyFloor });
         }
         if (merged && merged.slots) plan.slots = plan.slots.filter((slot) => merged.slots.includes(Number(slot.slot)));
         if (!written || !written.ok) {
@@ -602,12 +603,14 @@ export function createAutoIllustrationService(deps) {
         return { all, retry: all.filter((slot) => slot.status !== 'done') };
     }
 
-    async function processMessage(messageId, { manual = false } = {}) {
+    // backfill：翻到旧楼时补 CG。和自动出图一样掷过场概率、看字数、跳过已经判定过的楼，只是放开最新楼的限制。
+    async function processMessage(messageId, { manual = false, backfill = false } = {}) {
         const s = settings();
         if (!s.nsfwEnabled && !s.interludeEnabled) return { ok: true, reason: 'disabled' };
+        if (backfill && !s.backfillOldFloors) return { ok: true, reason: 'disabled' };
         // 手动（工具栏）可画旧楼：续读停在哪一楼就画哪一楼；自动出图仍只认最新楼。
-        const floor = withManual(messageHost.readFloor(messageId), manual);
-        if (!floor || !floor.isAi || !(floor.isLatest || floor.manual) || !floor.chatId || !floor.text.trim()) {
+        const floor = withAnyFloor(messageHost.readFloor(messageId), manual || backfill);
+        if (!floor || !floor.isAi || !(floor.isLatest || floor.anyFloor) || !floor.chatId || !floor.text.trim()) {
             return { ok: true, reason: 'not-eligible' };
         }
         const key = floorKeyOf(floor);
@@ -736,7 +739,7 @@ export function createAutoIllustrationService(deps) {
     async function rerollSlot(query = {}) {
         const identity = identityOf(query, query.slot);
         if (!identity) return { ok: false, reason: 'invalid-identity' };
-        const floorInfo = withManual(messageHost.readFloor(identity.floor.messageId), true);
+        const floorInfo = withAnyFloor(messageHost.readFloor(identity.floor.messageId), true);
         if (!floorInfo || !floorInfo.isAi || floorInfo.chatId !== identity.floor.chatId || floorInfo.swipeId !== identity.floor.swipeId) {
             return { ok: true, reason: 'not-eligible' };
         }
@@ -762,7 +765,7 @@ export function createAutoIllustrationService(deps) {
     async function rerollFloor(messageId) {
         const s = settings();
         if (!s.nsfwEnabled && !s.interludeEnabled) return { ok: true, reason: 'disabled' };
-        const floor = withManual(messageHost.readFloor(messageId), true);
+        const floor = withAnyFloor(messageHost.readFloor(messageId), true);
         if (!floor || !floor.isAi || !floor.chatId || !floor.text.trim()) return { ok: true, reason: 'not-eligible' };
         const key = floorKeyOf(floor);
         if (locks.has(key)) return locks.get(key);
@@ -772,7 +775,7 @@ export function createAutoIllustrationService(deps) {
             const slots = await store.getSlots(key);
             await dropSlots(floor, key, slots);
             if (!slots.length) emit(floor, 1);
-            const latest = withManual(messageHost.readFloor(messageId), true) || { ...floor, text: stripIllustrationMarkers(floor.text) };
+            const latest = withAnyFloor(messageHost.readFloor(messageId), true) || { ...floor, text: stripIllustrationMarkers(floor.text) };
             return run(Number(messageId), latest, key, s, true);
         })().finally(() => { if (locks.get(key) === job) locks.delete(key); });
         locks.set(key, job);

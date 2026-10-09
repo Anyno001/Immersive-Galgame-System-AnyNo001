@@ -2,6 +2,7 @@ import { stroke } from './dialog-skin-frame.js';
 import { getBattleTheme } from './fx-battle-themes.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
+import { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, mermaidPearl } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiHolo } from './dialog-theme-scifi.js';
@@ -34,6 +35,10 @@ const TITLE_EXTRAS = Object.freeze({
     // 魔法星夜：地点两侧各一颗四芒星。
     [DIALOG_SKIN_MAGIC_ACADEMY]: (s) => [
         `${s} .igs-fx-title-main::before,${s} .igs-fx-title-main::after{${mark(13, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK)}filter:drop-shadow(0 0 4px ${magicTint(MAGIC_METAL_HI, 80)});}`,
+    ],
+    // 深海人鱼：地点两侧各一颗珍珠。
+    [DIALOG_SKIN_MERMAID]: (s) => [
+        `${s} .igs-fx-title-main::before,${s} .igs-fx-title-main::after{content:"";display:inline-block;width:10px;height:10px;margin:0 .6em;vertical-align:.1em;border-radius:50%;background:${MERMAID_PEARL_DOT};box-shadow:0 0 6px ${mermaidPearl(0.8)};}`,
     ],
     // 青绿山水：一幅横向绢卷，上下石青细线，右下角一方朱砂小印。
     [DIALOG_SKIN_QINGLV]: (s) => [

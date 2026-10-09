@@ -9,10 +9,18 @@ import {
     pickInnerMood,
 } from './danmaku-settings.js';
 import { AUDIENCE_AMBIENT_LINES, INNER_PHRASES, classifyAudienceMood, randomItem, thoughtFragments } from './danmaku-pools.js';
-import { fitLivePhone, pushLiveMessages, stopLivePhone, syncLivePhone } from './danmaku-live.js';
+import { myPhoneOf, phoneWallUrl } from './my-phone.js';
+import { fitLivePhone, likeLive, phoneGeometry, pushLiveMessages, stopLivePhone, syncLivePhone, syncLiveSwitch } from './danmaku-live.js';
+import { fitLiveControls, liveActionMessage, recordLiveAction, stopLiveControls, syncLiveControls } from './danmaku-interact.js';
 import { isAudienceEntryShown, placeAudienceEntry, stopAudience, syncAudience } from './danmaku-audience.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 import { resolveChatTheme } from './chat-themes.js';
+import { fitFeedPhone, stopFeedPhone, syncFeedPhone } from './feed-phone.js';
+import { fitStorm, stopStorm, syncStorm } from './storm-phone.js';
+import { normalizeFeedFxSettings } from './feed-settings.js';
+import { isFeedEntryShown, placeFeedEntry, stopFeedReview, syncFeedReview } from './feed-review.js';
+import { phoneStatusFor } from './phone-sense.js';
+import { collectNotices, isNotifyEntryShown, noticeStoreFor, normalizeNotifyCenterSettings, placeNotifyEntry, recordNotices, stopNotify, syncNotify } from './notify-center.js';
 
 // 弹幕运行时：直播间（掏出手机看直播）、观众弹幕（HUD 下方小手机入口，点开看）、内心弹幕（立绘周围爆发）。
 // 性能约束：全关零开销；运动只用 transform/opacity 的 CSS 动画，没有逐帧 JS；
@@ -97,7 +105,8 @@ export function planDanmakuPage(snapshot, memory, settings, rng = Math.random) {
 function getState(root, options) {
     let state = states.get(root);
     if (!state) {
-        state = { memory: createDanmakuMemory(), timers: new Set(), pageKey: '' };
+        // feedSeen：社区帖子首见楼层（数字跨楼增长用）；feedRecall：刚刚刷到的那次区间，供回看入口；都只存内存。
+        state = { memory: createDanmakuMemory(), timers: new Set(), pageKey: '', liveViews: new Map(), liveStage: null, feedSeen: new Map(), feedRecall: null };
         states.set(root, state);
     }
     state.schedule = typeof options.schedule === 'function' ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -120,6 +129,40 @@ function node(doc, className, content) {
     el.className = className;
     if (content != null) el.textContent = content;
     return el;
+}
+
+// 玩家点「主播 / 观众」切换视角：同一场直播（主播 + 标题）记住所选视角，跨页保持；换一台手机重新抬起。
+function liveViewKey(live) {
+    return `${live.name}|${live.title}`;
+}
+
+function pickLiveView(ctx, auto, view) {
+    const { state, host, front } = ctx;
+    if (states.get(ctx.root) !== state || !auto) return;
+    state.liveViews.set(liveViewKey(auto), view);
+    const phone = syncLive(ctx, auto, { ...auto, view });
+    if (phone && state.liveStage) fitLiveControls(front, fitLivePhone(host, state.liveStage));
+}
+
+// 玩家的直播互动：手机里立刻出效果，同时记进待送出事件。
+function onLiveAction(ctx, live, action) {
+    if (states.get(ctx.root) !== ctx.state || !live) return;
+    const msg = liveActionMessage(action, live, text(ctx.options.userName));
+    if (msg) pushLiveMessages(ctx.host, [msg]);
+    else likeLive(ctx.host);
+    recordLiveAction(action, live);
+}
+
+// 手机（舞台层）、视角切换与互动壳（前层）一起同步；回忆、梦境里手机收起时，前层的按钮也一并移除。
+function syncLive(ctx, auto, live) {
+    const { state, host, front, settings } = ctx;
+    const phone = syncLivePhone(host, live, live ? liveContext(ctx, live) : { schedule: state.schedule, reduced: ctx.reduced });
+    const shown = phone && ctx.plan.liveVisible ? live : null;
+    syncLiveSwitch(front, shown, { doc: ctx.doc, layout: settings.live.layout, onPick: (view) => pickLiveView(ctx, auto, view) });
+    syncLiveControls(front, shown && settings.live.interact ? shown : null, {
+        doc: ctx.doc, layout: settings.live.layout, onAction: (action) => onLiveAction(ctx, shown, action),
+    });
+    return phone;
 }
 
 // 舞台层（不可点）放直播间与内心弹幕；前层（对话层之上）放可点的观众弹幕入口与展开的手机。
@@ -252,9 +295,18 @@ function liveContext(ctx, live) {
         doc, reduced, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng,
         visible: ctx.plan.liveVisible,
         layout: ctx.settings.live.layout,
+        look: ctx.look,
+        interact: ctx.settings.live.interact,
+        portrait: ctx.settings.live.portrait,
+        onPortraitMove: typeof options.onLivePortraitMove === 'function'
+            ? (frame) => options.onLivePortraitMove({ ...((snapshot.readerSettings && snapshot.readerSettings.liveFx) || {}), portrait: frame })
+            : null,
         chat: ctx.settings.live.chat,
         theme: ctx.settings.live.followTheme ? resolveChatTheme(snapshot.readerSettings && snapshot.readerSettings.dialogSkin) : null,
         coverUrl: resolve(content.backgroundImage),
+        status: ctx.status,
+        // 本页背景就是 CG（插图 / 事件 CG）时，手机里改按 CG 展示。
+        cg: content.cgActive === true,
         portraitUrl,
         avatarUrl: resolveAvatar(live.name, snapshot, options),
     };
@@ -289,7 +341,17 @@ function audienceInfo(ctx) {
 export function applyDanmakuToDom(root, snapshot, options = {}) {
     if (!root || !snapshot) return { live: false, audience: 0, inner: false };
     const settings = normalizeDanmakuSettings(snapshot.readerSettings);
-    if (!isDanmakuActive(settings) || options.suspended === true) {
+    const feedFx = normalizeFeedFxSettings(snapshot.readerSettings && snapshot.readerSettings.feedFx);
+    // 通知中心：本页有可记的消息或仓库里已有通知才继续，否则零开销。
+    let notices = null;
+    if (options.suspended !== true && normalizeNotifyCenterSettings(snapshot.readerSettings && snapshot.readerSettings.notifyCenter).enabled) {
+        const store = noticeStoreFor(root, options.chatId);
+        recordNotices(store, collectNotices(snapshot, {
+            userName: text(options.userName), feedOn: feedFx.enabled, stormOn: feedFx.enabled && feedFx.storm && feedFx.storm.enabled !== false,
+        }));
+        if (store.items.length) notices = store;
+    }
+    if (!(isDanmakuActive(settings) || feedFx.enabled || notices) || options.suspended === true) {
         if (states.has(root)) cancelDanmaku(root);
         return { live: false, audience: 0, inner: false };
     }
@@ -302,13 +364,56 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     state.pageKey = plan.pageKey;
     const reduced = options.reducedMotion === true || (options.reducedMotion !== false && prefersReducedMotion());
     const ctx = {
-        state, layers, doc: layers.doc, root, host, snapshot, options, reduced, plan, pageKey: plan.pageKey,
+        state, layers, doc: layers.doc, root, host, front, snapshot, options, reduced, plan, pageKey: plan.pageKey,
         settings,
+        look: myPhoneOf(snapshot.readerSettings),
+        status: phoneStatusFor(snapshot, state.now),
     };
+    // 社区手机：开关开、本页在区间内、非 NSFW 静音、非回忆 / 梦境 / 聊天页才亮出；亮出时直播手机与观众入口让位。
+    const content = snapshot.content || {};
+    const fx = content.fx || {};
+    const feedAllowed = feedFx.enabled && !(feedFx.muteOnNsfw && content.sceneNsfw === true)
+        && content.chatPage !== true && content.htmlCardPage !== true && fx.flashback !== true && fx.dream !== true;
+    // 舆论风暴优先：风暴期间社区与直播手机都让位。
+    const storm = feedAllowed && feedFx.storm && feedFx.storm.enabled !== false && fx.storm ? fx.storm : null;
+    const feed = feedAllowed && !storm && fx.feed ? fx.feed : null;
+    const coverUrl = content.backgroundImage && typeof options.resolveAssetUrl === 'function' ? options.resolveAssetUrl(content.backgroundImage) || '' : content.backgroundImage || '';
+    // 手机里的人认得卡内角色：能拿到头像就算熟人。
+    const feedCtx = {
+        doc: ctx.doc, reduced, schedule: state.schedule, now: state.now,
+        look: ctx.look,
+        coverUrl,
+        // 锁屏壁纸：合照在渲染侧拿不到地址（存相册是异步的）；默认用当前场景背景，可在「我的手机」换。
+        wallpaperUrl: phoneWallUrl(ctx.look, coverUrl),
+        status: ctx.status,
+        messageId: snapshot.messageId,
+        userName: text(options.userName),
+        firstSeen: state.feedSeen,
+        avatarOf: (name) => resolveAvatar(name, snapshot, options),
+        getStage: () => state.liveStage,
+    };
+    const feedPhone = syncFeedPhone(host, feed, feedCtx);
+    if (feedPhone) {
+        // 回看攒下同一平台这次刷到的全部帖子（解析每页只给最近 3 条），最多 9 条。
+        const prev = state.feedRecall && state.feedRecall.platform === feed.platform && state.feedRecall.owner === (feed.owner || '') ? state.feedRecall.posts : [];
+        const keyOf = (p) => `${p.author}|${p.text}|${p.extra}`;
+        const merged = [...prev.filter((p) => !(feed.posts || []).some((q) => q && keyOf(q) === keyOf(p))), ...(feed.posts || []).filter(Boolean)];
+        state.feedRecall = { platform: feed.platform, owner: feed.owner || '', posts: merged.slice(-9) };
+    }
+    const stormPhone = syncStorm(host, storm, {
+        doc: ctx.doc, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng, reduced,
+        worldview: (snapshot.readerSettings && snapshot.readerSettings._worldview) || 'modern',
+        look: ctx.look, coverUrl: phoneWallUrl(ctx.look, coverUrl),
+    });
+    if (feedPhone || stormPhone) {
+        plan.liveVisible = false;
+        plan.audienceVisible = false;
+    }
     // 主播名就是用户角色名时自动切主播视角，不依赖 AI 写视角栏。
     const userName = text(options.userName);
-    const live = plan.live && userName && text(plan.live.name) === userName ? { ...plan.live, view: 'host' } : plan.live;
-    const phone = syncLivePhone(host, live, live ? liveContext(ctx, live) : { schedule: state.schedule, reduced });
+    const auto = plan.live && userName && text(plan.live.name) === userName ? { ...plan.live, view: 'host' } : plan.live;
+    const live = auto ? { ...auto, view: state.liveViews.get(liveViewKey(auto)) || auto.view } : null;
+    const phone = syncLive(ctx, auto, live);
     if (phone && plan.dms.length) pushLiveMessages(host, plan.dms);
     if (phone && plan.hostSay) pushLiveMessages(host, [{ user: live.name, text: plan.hostSay, type: 'host', extra: '' }]);
     if (settings.audience.enabled) {
@@ -319,16 +424,34 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     } else {
         stopAudience(front);
     }
+    // 回看入口：社区手机收起后留在观众入口旁（弹幕关着时在原位），点开是同一个 App 页面。
     const entryShown = isAudienceEntryShown(front);
-    if (plan.inner || entryShown || (phone && plan.liveVisible)) {
+    if (feedFx.enabled) {
+        syncFeedReview(front, {
+            feed: state.feedRecall, visible: feedAllowed && !feedPhone && !stormPhone, beside: entryShown, size: settings.audience.entrySize,
+        }, feedCtx);
+    } else {
+        state.feedRecall = null;
+        stopFeedReview(front);
+    }
+    const reviewShown = isFeedEntryShown(front);
+    if (notices) syncNotify(front, { store: notices, size: settings.audience.entrySize }, { doc: ctx.doc });
+    else stopNotify(front);
+    const notifyShown = isNotifyEntryShown(front);
+    if (plan.inner || entryShown || reviewShown || notifyShown || feedPhone || stormPhone || (phone && plan.liveVisible)) {
         // 本次渲染唯一一次几何读取：推迟到下一帧，全部读完才写。
         nextFrame(ctx.doc, () => {
             if (states.get(root) !== state || state.pageKey !== plan.pageKey) return;
             const stage = measureStage(layers.motion);
             if (!stage) return;
-            const top = entryShown ? entryTop(root, layers.motion, stage.stageH) : 0;
-            if (phone) fitLivePhone(host, stage);
+            const top = entryShown || reviewShown || notifyShown ? entryTop(root, layers.motion, stage.stageH) : 0;
+            state.liveStage = stage;
+            if (phone) fitLiveControls(front, fitLivePhone(host, stage));
+            if (feedPhone) fitFeedPhone(host, stage);
+            if (stormPhone) fitStorm(host, stage, phoneGeometry(stage, ctx.look.model, ctx.look.size));
             if (entryShown) placeAudienceEntry(front, top);
+            if (reviewShown) placeFeedEntry(front, top);
+            if (notifyShown) placeNotifyEntry(front, top, (entryShown ? 1 : 0) + (reviewShown ? 1 : 0));
             if (plan.inner) playInner(ctx, plan.inner, stage);
         });
     }
@@ -346,10 +469,15 @@ export function cancelDanmaku(root) {
     }
     if (host) {
         stopLivePhone(host);
+        stopFeedPhone(host);
+        stopStorm(host);
         host.remove();
     }
     if (front) {
+        stopLiveControls(front);
         stopAudience(front);
+        stopFeedReview(front);
+        stopNotify(front);
         front.remove();
     }
     return Boolean(state);

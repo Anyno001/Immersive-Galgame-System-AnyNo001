@@ -7,6 +7,8 @@ import { normalizeChatShowSettings, resolveChatShowGrammar } from './chat-show-r
 import { enabledFxTagKinds } from './fx-settings.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
 import { danmakuGrammarBlocks } from './danmaku-prompt.js';
+import { feedGrammarBlocks } from './feed-prompt.js';
+import { isPromptEntryKey, normalizePromptEntries } from '../../scene/prompt-entries.js';
 
 export const PROMPT_PLACEMENTS = Object.freeze(['system', 'depth0']);
 export const DEPTH0_REMINDER = '本轮按系统说明中的igs标签语法输出标签。';
@@ -26,8 +28,10 @@ function plain(value) {
 }
 
 // 每块给出完整写法与降级后的索引写法；块顺序即预算填充优先级。
-export function collectGrammarBlocks(readerSettings, { ancient = false } = {}) {
+export function collectGrammarBlocks(readerSettings, { ancient: era = false } = {}) {
     const rs = plain(readerSettings);
+    // 随身带着现代手机：聊天与来电等手机演出按现代写法，其余仍按古代。
+    const ancient = era && !(rs.feedFx && rs.feedFx.carryPhone === true);
     const blocks = [];
     if (normalizeBilingualSettings(rs.bilingual).enabled) {
         blocks.push({ key: 'bilingual', full: bilingualGrammarBlock(rs.bilingual), index: '双语台词 原文〖译文〗' });
@@ -75,6 +79,7 @@ export function collectGrammarBlocks(readerSettings, { ancient = false } = {}) {
         blocks.push({ key: 'camera', adaptive: true, full: fxBlock('镜头', cameraLines), index: '镜头 igs-fx:cam' });
     }
     blocks.push(...danmakuGrammarBlocks(rs, fxBlock));
+    blocks.push(...feedGrammarBlocks(rs, fxBlock));
     return blocks;
 }
 
@@ -91,9 +96,22 @@ function buildExample({ sceneRule, moodWord, fxKinds, itemOn }) {
     return lines.length >= 2 ? `示例：\n${lines.join('\n')}` : '';
 }
 
+// 索引只留短名（索引写长了 AI 不看），完整写法靠触发时另附。
 function indexLine(blocks) {
     if (!blocks.length) return '';
-    return `【按需】以下类型的完整写法只在需要时另附；未附时如剧情确实需要，也可按通用规则输出：${blocks.map((b) => b.index).join('；')}`;
+    return `【按需】以下演出的完整写法在剧情需要时另附：${blocks.map((b) => b.index.split(' ')[0]).join('、')}`;
+}
+
+// 按设置里的条目改写块：关闭的整块去掉（索引里也不列），常驻的当作固定块每轮都发。
+function applyPromptEntries(blocks, entries) {
+    if (!entries) return blocks;
+    const normalized = normalizePromptEntries(entries);
+    return blocks.flatMap((block) => {
+        if (!isPromptEntryKey(block.key)) return [block];
+        const mode = normalized[block.key].mode;
+        if (mode === 'off') return [];
+        return mode === 'always' ? [{ ...block, adaptive: false }] : [block];
+    });
 }
 
 // 返回 { system, depth0 }：system 放稳定部分（通用规则、场景、始终展开的块、按需索引），
@@ -106,9 +124,10 @@ export function buildTagGrammar({
     tailRules = [],
     dynamicRules = [],
     moodWord = '',
+    entries = null,
 } = {}) {
-    const blocks = collectGrammarBlocks(readerSettings, { ancient });
-    if (!sceneRule && !blocks.length) return { system: '', depth0: '', expanded: [], indexed: [] };
+    const blocks = applyPromptEntries(collectGrammarBlocks(readerSettings, { ancient }), entries);
+    if (!sceneRule && !blocks.length) return { system: '', depth0: '', expanded: [], indexed: [], sizes: {} };
     const rs = plain(readerSettings);
     const example = buildExample({ sceneRule, moodWord, fxKinds: enabledFxTagKinds(rs.fxTags), itemOn: plain(rs.itemFx).enabled === true });
     const staticParts = [];
@@ -130,7 +149,9 @@ export function buildTagGrammar({
     const system = [GRAMMAR_HEADER, sceneRule, ...staticParts, indexLine([...indexed, ...allAdaptive]), example, ...tailRules]
         .filter(Boolean).join('\n\n');
     const depth0 = [...dynamicParts, ...dynamicRules].filter(Boolean).join('\n\n');
-    return { system, depth0, expanded: allAdaptive.filter((b) => !adaptiveIndexed.includes(b)).map((b) => b.key), indexed: [...indexed, ...adaptiveIndexed].map((b) => b.key) };
+    // 每块完整写法的字数，供诊断显示「花了多少字」。
+    const sizes = Object.fromEntries(blocks.map((b) => [b.key, Array.from(String(b.full || '')).length]));
+    return { system, depth0, expanded: allAdaptive.filter((b) => !adaptiveIndexed.includes(b)).map((b) => b.key), indexed: [...indexed, ...adaptiveIndexed].map((b) => b.key), sizes };
 }
 
 export function normalizePromptPlacement(value) {

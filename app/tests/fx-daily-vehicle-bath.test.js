@@ -183,3 +183,32 @@ test('gate:fx-daily-underwater-space ambience shows on nsfw pages and one-shots 
     assert.deepEqual(render({ fx: { daily: [{ type: 'vacuum' }] } }, { readerSettings: { _ancientEra: true } }).sounds, ['vacuum']);
     for (const kind of ['dive', 'bubble', 'vacuum']) assert.equal(normalizeDailyFxSettings({ enabled: true })[kind], false, kind);
 });
+
+test('gate:fx-daily-underwater-space mermaid places, abyss variant and submarines', () => {
+    for (const place of ['人鱼王国', '海藻林', '亚特兰蒂斯遗迹', '湖中']) assert.equal(resolvePlaceAmbience(place).kind, 'underwater', place);
+    assert.equal(resolvePlaceAmbience('海底').variant, '');
+    assert.equal(resolvePlaceAmbience('海沟底部').variant, 'abyss');
+    for (const place of ['海底潜艇内', '深海潜水艇', '海底世界水族馆']) assert.equal(resolvePlaceAmbience(place), null, place);
+    assert.match(ambienceOf(render({ sceneLocation: '深海' }).root).className, /is-abyss/);
+    assert.match(DAILY_FX_STYLE_TEXT, /\.is-abyss \.igs-dfx-amb-rays\{[^}]*animation:igs-amb-drift/);
+    // 立绘漂浮只换呼吸的关键帧，仍受呼吸开关、低画质与减少动态约束，亲密呼吸优先。
+    assert.match(DAILY_FX_STYLE_TEXT, /@media \(prefers-reduced-motion: no-preference\)\{\n#igs-overlay\[data-igs-underwater\]\[data-igs-sd-breathe\]:not\(\[data-igs-quality="low"\]\) #igs-stage-motion:not\(\[data-igs-rm-breathe\]\) #igs-sprite/);
+    assert.match(DAILY_FX_STYLE_TEXT, /@keyframes igs-uw-float\{[^}]*transform:/);
+});
+
+test('gate:fx-daily-underwater-space changing place into or out of the water plays dive / surface once', () => {
+    const root = makeStage({ waapi: true });
+    const timers = makeTimers();
+    const page = (index, content, readerSettings) => render({ currentIndex: index, ...content }, { root, timers, readerSettings });
+    assert.deepEqual(page(0, { sceneLocation: '海底' }).result.played, [], 'first page after opening stays quiet');
+    assert.deepEqual(page(1, { sceneLocation: '海滩' }).sounds, ['splash']);
+    const dive = page(2, { sceneLocation: '珊瑚礁' });
+    assert.deepEqual(dive.result.played, ['dive']);
+    assert.deepEqual(dive.sounds, ['dive']);
+    assert.deepEqual(page(2, { sceneLocation: '珊瑚礁' }).result.played, [], 'same page re-render');
+    assert.deepEqual(page(3, { sceneLocation: '深海' }).result.played, [], 'still underwater');
+    assert.deepEqual(page(4, { sceneLocation: '海滩', sceneNsfw: true }).result.played, [], 'nsfw pages stay quiet');
+    assert.deepEqual(page(5, { sceneLocation: '海底', fx: { daily: [{ type: 'dive' }] } }).result.played, ['dive'], 'tag and crossing do not double up');
+    assert.deepEqual(page(6, { sceneLocation: '海滩' }, { dailyFx: { enabled: true, ambience: false } }).result.played, [], 'follows the ambience switch');
+    assert.match(DAILY_FX_STYLE_TEXT, /\.igs-dfx-surface-veil\{/);
+});

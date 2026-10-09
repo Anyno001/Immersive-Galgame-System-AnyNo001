@@ -1027,3 +1027,18 @@ test('gate:illustration:transplant-markers-follows-context', async () => {
     assert.equal(moved.text, '【平行事件】别处。\n甲段落一句。\n[igs-img:1]\n乙段落二句改过。\n丙三。\n[igs-img:2]\n<状态栏>');
     assert.deepEqual(transplantMarkers('甲。\n[igs-img:1]\n乙。', '完全不同的内容').slots, []);
 });
+
+test('gate:illustration:backfill-old-floor-only-when-enabled-and-not-yet-decided', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const off = makeFakes({ text: NSFW_TEXT, isLatest: false, settings: { nsfwEnabled: true } });
+    assert.equal((await createAutoIllustrationService({ ...off, store: createMemoryIllustrationStore() }).processMessage(5, { backfill: true })).reason, 'disabled', '开关默认关');
+    assert.equal(off.calls.llm + off.calls.nai, 0);
+    const fake = makeFakes({ text: NSFW_TEXT, isLatest: false, settings: { nsfwEnabled: true, nsfwCount: 1, backfillOldFloors: true } });
+    const service = createAutoIllustrationService({ ...fake, store: createMemoryIllustrationStore() });
+    assert.equal((await service.processMessage(5)).reason, 'not-eligible', '自动出图仍只认最新楼');
+    assert.equal((await service.processMessage(5, { backfill: true })).reason, 'done');
+    assert.ok(fake.calls.writes[0].includes('[igs-img:1]'));
+    assert.equal((await service.processMessage(5, { backfill: true })).reason, 'already-decided', '补过的楼不再画');
+    assert.equal(fake.calls.nai, 1);
+});

@@ -1,6 +1,7 @@
 import { esc } from './reader-value-utils.js';
 import { field } from './settings-fields.js';
 import { WORLDVIEWS, resolveWorldview } from '../../scene/worldview.js';
+import { canCarryPhone } from '../../scene/fx-era.js';
 import { HORROR_GORE_LEVELS, HORROR_STYLES, normalizeHorrorGore, normalizeHorrorStyle } from '../../scene/horror.js';
 
 // 「适配世界」下拉：挂在一键档位条（extraRows），首页与「阅读器 › 演出」共用。
@@ -8,6 +9,19 @@ import { HORROR_GORE_LEVELS, HORROR_STYLES, normalizeHorrorGore, normalizeHorror
 export const WORLDVIEW_SELECT_ATTR = 'data-worldview-select';
 // 恐怖世界观的两个子选项同样不带 data-path，转成 horror-style:<id> / horror-gore:<n> 动作写进同一份素材库。
 export const HORROR_SELECT_ATTR = 'data-horror-select';
+// 「随身带着现代手机」开关与提示词：同样不带 data-path，转成 carry-phone:<on|off> / carry-phone-prompt:<文字> 动作。
+export const CARRY_PHONE_ATTR = 'data-carry-phone';
+export const CARRY_PHONE_PROMPT_ATTR = 'data-carry-phone-prompt';
+
+function carryPhoneBlock(source) {
+    const on = source.carryPhone === true;
+    const prompt = typeof source.carryPhonePrompt === 'string' ? source.carryPhonePrompt : '';
+    const toggle = `<label class="igs-settings-field igs-carry-phone"><span>随身带着现代手机</span><input type="checkbox" ${CARRY_PHONE_ATTR}${on ? ' checked' : ''} aria-label="随身带着现代手机"></label>`;
+    const detail = on
+        ? `<details class="igs-carry-phone-prompt"${prompt ? ' open' : ''}><summary>提示词</summary><textarea ${CARRY_PHONE_PROMPT_ATTR} rows="3" placeholder="留空用默认" aria-label="随身手机提示词">${esc(prompt)}</textarea></details>`
+        : '';
+    return toggle + detail;
+}
 
 function horrorSelect(kind, label, items, current) {
     const options = items.map(({ id, label: text }) => `<option value="${esc(String(id))}"${String(current) === String(id) ? ' selected' : ''}>${esc(text)}</option>`).join('');
@@ -27,5 +41,6 @@ export function renderWorldviewRow(sceneAssets) {
         ? horrorSelect('style', '恐怖风格', HORROR_STYLES, style)
             + (style === 'psych' ? '' : horrorSelect('gore', '血腥尺度', HORROR_GORE_LEVELS, normalizeHorrorGore(source.horrorGore)))
         : '';
-    return `<div class="igs-perf-worldview">${field('', '适配世界', select)}${horror}</div>`;
+    const phone = canCarryPhone(current) ? carryPhoneBlock(source) : '';
+    return `<div class="igs-perf-worldview">${field('', '适配世界', select)}${horror}${phone}</div>`;
 }

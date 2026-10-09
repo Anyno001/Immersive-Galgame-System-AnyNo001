@@ -56,7 +56,7 @@ test('gate:prompt-rule:off-drops-scene-block-and-keeps-other-grammar', () => {
         const value = off.extensionPrompts[MAIN].value;
         assert.doesNotMatch(value, /【场景与台词】|igs-char:角色名/);
         assert.match(value, /\[igs标签语法\]/);
-        assert.match(value, /线上聊天 igs-chat/);
+        assert.match(value, /【按需】.*线上聊天/);
     } finally {
         on.vn.destroy();
         off.vn.destroy();

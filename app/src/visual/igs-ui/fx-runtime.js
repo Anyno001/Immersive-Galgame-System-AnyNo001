@@ -21,6 +21,9 @@ import { ANCIENT_SYMBOL_PLACEMENT, ANCIENT_SYMBOL_SVG, MANGA_SYMBOL_SVG, pickFxA
 import { FALLBACK_HEAD, HEAD_ASPECT, measureStage, peekSpriteHead, probeSpriteHead, resolveSymbolPlacement, waitSpriteHead } from './fx-anchor.js';
 import { planEatBeats } from './fx-eat-model.js';
 import { normalizeDailyFxSettings } from './fx-daily-model.js';
+import { emergencyOf, sirenOf } from '../../scene/emergency.js';
+import { spamAllowed } from '../../scene/spam-sms.js';
+import { applySpamCard } from './spam-sms-style.js';
 
 export const FX_LIFETIME_MS = Object.freeze({
     symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 800,
@@ -56,6 +59,7 @@ const EAT_MOTION_ATTR = 'data-igs-fx-eat';
 const EAT_MOTION_MS = Object.freeze({ bite: 400, chew: 1100, hop: 520, shake: 480, dip: 760, sway: 1300 });
 const CALL_PERSISTENT = '.igs-fx-call-badge, .igs-fx-eye-hold, .igs-fx-call-pip, .igs-fx-video, .igs-fx-call-split';
 const VIDEO_CLOSE_MS = 520;
+const SIREN_MS = 3200;
 const PIP_OUT_MS = 320;
 const SPLIT_OUT_MS = 420;
 const CALL_LOG_LIMIT = 64;
@@ -375,7 +379,22 @@ function callOutcome(plan) {
     return end && (end.reason === 'missed' || end.reason === 'reject') ? end.reason : 'answer';
 }
 
-function renderCallScreen(doc, call, avatar, outcome) {
+// 紧急求助图标：盾形加十字。
+const EMERGENCY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.1 8-7.5 9.5-4.4-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M12 8.5v6M9 11.5h6"/></svg>';
+
+// 只改样式与少量节点：深红底、顶部「紧急呼叫」、大号号码与机构名，其余时序与普通来电屏一致。
+function renderEmergencyBits(doc, screen, emergency) {
+    screen.classList.add('is-emergency');
+    screen.setAttribute('data-emergency', emergency.kind);
+    screen.insertBefore(node(doc, 'igs-fx-emergency-head', '紧急呼叫'), screen.children[0] || null);
+    const ring = screen.querySelector('.igs-fx-call-ring');
+    ring.innerHTML = EMERGENCY_ICON;
+    const name = screen.querySelector('.igs-fx-call-name');
+    screen.insertBefore(node(doc, 'igs-fx-emergency-num', emergency.number), name);
+    name.textContent = emergency.label;
+}
+
+function renderCallScreen(doc, call, avatar, outcome, emergency = null) {
     const dir = callDir(call);
     const mode = callMode(call);
     const screen = node(doc, 'igs-fx-call-screen');
@@ -386,6 +405,7 @@ function renderCallScreen(doc, call, avatar, outcome) {
     screen.appendChild(ring);
     screen.appendChild(node(doc, 'igs-fx-call-name', call.name));
     screen.appendChild(node(doc, 'igs-fx-call-state', CALL_SCREEN_STATE[`${dir}:${mode}`]));
+    if (emergency) renderEmergencyBits(doc, screen, emergency);
     if (outcome === 'answer') {
         screen.appendChild(node(doc, 'igs-fx-call-hint', dir === 'out' ? '点击跳过' : '点击接听'));
         return screen;
@@ -405,8 +425,9 @@ function formatDuration(ms) {
     return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
 }
 
-function callEndText(effect, durationMs) {
+function callEndText(effect, durationMs, emergency = null) {
     const reason = Object.hasOwn(CALL_END_TEXT, effect.reason) ? effect.reason : 'end';
+    if (emergency && (reason === 'end' || reason === 'cut') && durationMs >= 1000) return `${emergency.label} · 已接通 ${formatDuration(durationMs)}`;
     const base = CALL_END_TEXT[reason][callDir(effect)];
     const text = (reason === 'end' || reason === 'cut') && durationMs >= 1000 ? `${base} ${formatDuration(durationMs)}` : base;
     return effect.name ? `${effect.name} · ${text}` : text;
@@ -594,6 +615,8 @@ function playEffect(effect, ctx) {
         if (ctx.ancient) el.appendChild(node(doc, 'igs-fx-notify-seal', '禀'));
         if (effect.sender) el.appendChild(node(doc, 'igs-fx-notify-sender', effect.sender));
         el.appendChild(node(doc, 'igs-fx-notify-text', effect.text));
+        // 广告只会发到手机上：古代带着随身手机也套广告样式。
+        if ((!ctx.ancient || ctx.snapshot.readerSettings._carryPhone === true) && spamAllowed(ctx.snapshot.readerSettings)) applySpamCard(doc, el, effect);
         spawn(state, layers.front, el, life);
         sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'delivery') {
@@ -682,7 +705,7 @@ function playEffect(effect, ctx) {
         sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'call') {
         const outcome = callOutcome(plan);
-        const screen = spawn(state, layers.front, renderCallScreen(doc, effect, resolveAvatar(effect.name, snapshot, options), outcome), CALL_SCREEN_MS[outcome]);
+        const screen = spawn(state, layers.front, renderCallScreen(doc, effect, resolveAvatar(effect.name, snapshot, options), outcome, ctx.emergencyOn ? emergencyOf(effect.name) : null), CALL_SCREEN_MS[outcome]);
         screen.addEventListener('click', (event) => {
             event.stopPropagation();
             screen.remove();
@@ -713,11 +736,12 @@ function sameCharacter(snapshot, a, b) {
 }
 
 // 计时由 CSS 计数器动画走表：只在徽章重新出现或换了一通电话时写一次起点，之后不再每秒改 DOM。
-function syncCallBadge(state, front, doc, call, key, now) {
+function syncCallBadge(state, front, doc, call, key, now, emergency = null) {
     const badge = persistent(front, doc, 'igs-fx-call-badge');
     const label = persistent(badge, doc, 'igs-fx-call-label');
     const timer = persistent(badge, doc, 'igs-fx-call-timer');
-    const labelText = call ? `${callMode(call) === 'video' ? '视频通话' : '通话中'} · ${call.name}` : '';
+    const labelText = call ? (emergency ? `紧急呼叫 · ${emergency.label}` : `${callMode(call) === 'video' ? '视频通话' : '通话中'} · ${call.name}`) : '';
+    setFlag(badge, 'data-emergency', Boolean(emergency), emergency ? emergency.kind : '1');
     if (label.textContent !== labelText) label.textContent = labelText;
     if (call && (badge.hidden || state.timerKey !== key)) {
         if (timer.style && typeof timer.style.setProperty === 'function') {
@@ -827,7 +851,8 @@ function syncCallLog(ctx) {
         if (state.callLog.size > CALL_LOG_LIMIT) state.callLog.delete(state.callLog.keys().next().value);
         state.callStart = null;
     }
-    const el = node(doc, 'igs-fx-call-end', callEndText(end, state.callLog.get(key)));
+    const emergency = ctx.emergencyOn ? emergencyOf(end.name) : null;
+    const el = node(doc, emergency ? 'igs-fx-call-end is-emergency' : 'igs-fx-call-end', callEndText(end, state.callLog.get(key), emergency));
     el.setAttribute('data-reason', Object.hasOwn(CALL_END_TEXT, end.reason) ? end.reason : 'end');
     layers.front.appendChild(el);
 }
@@ -902,7 +927,7 @@ function syncCall(ctx, callSprite) {
             state.callStart = { key, messageId: snapshot.messageId, start: now + (ringing ? CALL_SCREEN_MS.answer : 0) };
         }
     }
-    syncCallBadge(state, layers.front, doc, call, key, now);
+    syncCallBadge(state, layers.front, doc, call, key, now, call && ctx.emergencyOn ? emergencyOf(call.name) : null);
     const avatar = call ? resolveAvatar(call.name, snapshot, options) : '';
     syncCallPip(state, layers.stage, doc, call && mode === 'voice' && callSprite === 'avatar' ? call : null, avatar, remote, reduced);
     const split = call && mode === 'voice' && callSprite === 'split' ? call : null;
@@ -910,6 +935,31 @@ function syncCall(ctx, callSprite) {
     syncCallSplit(state, layers.stage, doc, split, key, avatar, options.sprite, remote, reduced);
     syncVideoWindow(state, layers.stage, doc, call && mode === 'video' ? call : null, key, avatar, remote ? options.sprite : null);
     return remote;
+}
+
+// 警笛到场：本页正文写到警笛 / 警车 / 救护车等词时，在舞台两侧播一次警灯光带，同一楼只播一次。
+// 本楼有紧急来电时，泛指的鸣笛声按来电机构（救护 / 消防）取色；古代、西幻等世界观由 sirenOf 过滤。
+function playSiren(ctx) {
+    const { state, layers, doc, snapshot, plan, worldview, ancient, reduced } = ctx;
+    const content = snapshot.content || {};
+    const id = String(snapshot.messageId);
+    if (!state.sirenSeen) state.sirenSeen = new Set();
+    if (state.sirenSeen.has(id)) return;
+    const named = (plan.ranges.call && plan.ranges.call.name) || (plan.callEnd && plan.callEnd.name) || '';
+    const hit = emergencyOf(named);
+    const kind = sirenOf({ text: content.displayText, worldview, ancient, hint: hit ? hit.kind : '' });
+    if (!kind) return;
+    state.sirenSeen.add(id);
+    if (state.sirenSeen.size > SEEN_LIMIT) state.sirenSeen.delete(state.sirenSeen.values().next().value);
+    const el = node(doc, reduced ? 'igs-fx-siren is-reduced' : 'igs-fx-siren');
+    el.setAttribute('data-kind', kind);
+    for (const [side, tone] of [['l', 'a'], ['l', 'b'], ['r', 'a'], ['r', 'b']]) {
+        const bar = doc.createElement('i');
+        bar.className = `is-${side} is-${tone}`;
+        el.appendChild(bar);
+    }
+    spawn(state, layers.stage, el, SIREN_MS);
+    sound(state, `siren-${kind}`, plan.sound, ctx.options);
 }
 
 export function applyFxToDom(root, snapshot, options = {}) {
@@ -973,12 +1023,14 @@ export function applyFxToDom(root, snapshot, options = {}) {
     syncBusy(state);
     // 常驻节点只在内容变化时写入，避免每次渲染都产生无意义的 DOM 变更（外部 MutationObserver 也会被惊动）。
     const now = typeof options.now === 'function' ? options.now() : Date.now();
-    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root, now, ancient, worldview, notifySound, worldSkin };
+    const emergencyOn = settings.fxTags.enabled && settings.fxTags.emergency !== false;
+    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root, now, ancient, worldview, notifySound, worldSkin, emergencyOn };
     const remote = syncCall(ctx, settings.fxTags.callSprite);
     const eyeHold = persistent(stage, doc, 'igs-fx-eye-hold');
     if (eyeHold.hidden !== !plan.eyeHold) eyeHold.hidden = !plan.eyeHold;
     state.pageKey = plan.pageKey;
     for (const effect of plan.effects) playEffect(effect, ctx);
+    if (emergencyOn) playSiren(ctx);
     // 陪衬反应的漫画符号（stageCast.castReact）：每页只播一次；目标不在台上或没有图时丢弃。
     const castPlayed = [];
     if (castMarks.length && state.castMarkKey !== plan.pageKey) {

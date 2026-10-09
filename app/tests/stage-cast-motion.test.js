@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
-import { alignToReference, castSideOf, createCastAlignLock, planCastLayouts, playSpeakerCastMotion, resolveCastHandoff } from '../src/visual/igs-ui/stage-cast-motion.js';
+import { alignToReference, castSideOf, createCastAlignLock, planCastLayouts, plantFeet, playSpeakerCastMotion, posXForCenter, resolveCastHandoff } from '../src/visual/igs-ui/stage-cast-motion.js';
 import { applyCastToDom } from '../src/visual/igs-ui/stage-cast-render.js';
 
 function fakeCastRoot() {
@@ -225,4 +225,56 @@ test('gate: head alignment never lifts a sprite off the stage floor', () => {
     const floating = { ...member, scale: 60, posY: 50 };
     const lifted = alignToReference({ ...stage, reference, member: floating });
     assert.ok(bottomOf(lifted) >= bottomOf(floating) - 0.5, '悬空的不会悬得更高');
+});
+
+test('gate: cast slots center by real sprite width so stage-wide phone sprites do not stack', () => {
+    // 竖屏手机：390×700，立绘 1:2、高 100% → 宽 350，几乎和舞台一样宽。旧写法 18/82 两人只差 26px。
+    const W = 390;
+    const H = 700;
+    const probed = { naturalW: 500, naturalH: 1000, head: null, feet: 1 };
+    const centerOf = (s) => { const r = spriteDrawRect(W, H, { ...probed, ...s }); return (r.left + r.w / 2) / W * 100; };
+    assert.ok(Math.abs(centerOf({ posX: 18, posY: 100, scale: 100 }) - centerOf({ posX: 82, posY: 100, scale: 100 })) < 7);
+    const plan = planCastLayouts({
+        stageW: W, stageH: H, align: false,
+        speaker: { character: 'A', url: 'a', order: 0, posX: 18, centerX: 27, posY: 100, scale: 100 },
+        members: [{ character: 'B', url: 'b', order: 1, posX: 82, centerX: 73, posY: 100, scale: 100 }],
+        peek: () => probed,
+    });
+    assert.equal(Math.round(centerOf(plan.speaker)), 27);
+    assert.equal(Math.round(centerOf(plan.members[0])), 73);
+    assert.deepEqual(plan.pending, []);
+    // 桌面图宽约 28% 时与旧槽位基本一致；比舞台还宽时不再左右对调。
+    assert.ok(Math.abs(posXForCenter(1280, 720, { scale: 100, naturalW: 358, naturalH: 720 }, 27) - 18) < 1);
+    const wide = { scale: 100, naturalW: 800, naturalH: 1000 };
+    assert.equal(Math.round(centerOf({ ...wide, posX: posXForCenter(390, 700, wide, 27), posY: 100 })), 27);
+    // 没探测过图：照旧用原 posX，并交给调用方探测后重排；用户存过的槽位不动，只换算「还原自动」。
+    const waiting = planCastLayouts({
+        stageW: W, stageH: H, align: false,
+        speaker: { character: 'A', url: 'a', order: 0, posX: 18, centerX: 27, posY: 100, scale: 100 },
+        members: [{ character: 'B', url: 'b', order: 1, posX: 40, centerX: 73, posY: 100, scale: 100, locked: true, auto: { posX: 82, posY: 100, scale: 100 } }],
+        peek: () => null,
+    });
+    assert.equal(waiting.speaker.posX, 18);
+    assert.deepEqual(waiting.pending.sort(), ['a', 'b']);
+    const saved = planCastLayouts({
+        stageW: W, stageH: H, align: false,
+        speaker: { character: 'A', url: 'a', order: 0, posX: 18, centerX: 27, posY: 100, scale: 100 },
+        members: [{ character: 'B', url: 'b', order: 1, posX: 40, centerX: 73, posY: 100, scale: 100, locked: true, auto: { posX: 82, posY: 100, scale: 100 } }],
+        peek: () => probed,
+    });
+    assert.equal(saved.members[0].posX, 40);
+    assert.equal(Math.round(centerOf(saved.members[0].auto)), 73);
+});
+
+test('gate: feet plant at default 100% height and near it instead of floating', () => {
+    const H = 700;
+    const footOf = (s) => { const r = spriteDrawRect(1280, H, s); return (r.top + r.h * s.feet) / H; };
+    for (const scale of [100, 99, 98, 95, 90, 120]) {
+        const s = { posX: 50, posY: 100, scale, naturalW: 500, naturalH: 1000, feet: 0.9 };
+        const planted = plantFeet(H, s);
+        assert.ok(Math.abs(footOf({ ...s, ...planted }) - 1) < 1e-6, `scale ${scale}`);
+        if (scale !== 100) assert.equal(planted.scale, scale);
+    }
+    // 腿本来就到图底：不缩。
+    assert.equal(plantFeet(H, { posY: 100, scale: 100, feet: 1 }).scale, 100);
 });
