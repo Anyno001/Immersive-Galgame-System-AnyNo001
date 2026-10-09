@@ -110,7 +110,7 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
         story: [
             section('情绪', [fx.manga, fx.mangaBack, fx.heartbeat]),
             section('剧情提示', [fx.title, fx.favor, fx.itemFx, fx.resultFx]),
-            section('事件演出', [fx.tags]),
+            section('事件演出', [fx.tags, fx.dlc].filter(Boolean)),
         ],
         special: [
             section('日常与冒险', [stage.daily, fx.battleFx, fx.flash]),

@@ -2,6 +2,7 @@ import { worldSkinOf } from '../../scene/worldview.js';
 
 import { prefersReducedMotion } from './reduced-motion.js';
 import { filterFxByKinds } from '../../scene/fx-directives.js';
+import { cancelDlcFx, hasDlcFx, syncDlcFx } from './dlc-fx-runtime.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import {
@@ -915,7 +916,9 @@ export function applyFxToDom(root, snapshot, options = {}) {
     if (!root || !snapshot) return { played: [] };
     const settings = normalizeFxReaderSettings(snapshot.readerSettings);
     const castMarks = Array.isArray(options.castMarks) ? options.castMarks : [];
-    if (!FX_FEATURE_KEYS.some((key) => settings[key].enabled) && !castMarks.length) {
+    // DLC 演出只跟随它自己的开关：内置演出全关时照样要挂演出层播放。
+    const dlcPending = hasDlcFx(snapshot);
+    if (!FX_FEATURE_KEYS.some((key) => settings[key].enabled) && !castMarks.length && !dlcPending) {
         // 全关时只在曾经挂过演出层的舞台上清理一次，避免每次渲染都查 DOM。
         if (states.has(root) || layeredRoots.has(root)) {
             cancelFxEffects(root);
@@ -988,11 +991,19 @@ export function applyFxToDom(root, snapshot, options = {}) {
         }
     }
     state.castMarkKey = plan.pageKey;
+    const dlcPlayed = syncDlcFx(root, snapshot, layers, {
+        pageKey: plan.pageKey,
+        reduced,
+        skin: String((snapshot.readerSettings && snapshot.readerSettings.dialogSkin) || ''),
+        worldview,
+        accent: accent || pickFxAccent(options.theme) || '',
+    });
     const { flashback, dream, letterbox } = plan.ranges;
-    return { played: [...plan.effects.map((effect) => effect.type), ...castPlayed], phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox) } };
+    return { played: [...plan.effects.map((effect) => effect.type), ...castPlayed, ...dlcPlayed], phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox) } };
 }
 
 export function cancelFxEffects(root) {
+    cancelDlcFx(root);
     const state = root && states.get(root);
     if (state) {
         for (const timer of state.timers) state.clear(timer);

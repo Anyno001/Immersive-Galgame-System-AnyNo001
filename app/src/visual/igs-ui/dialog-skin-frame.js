@@ -64,3 +64,21 @@ export function threeSliceCss(image, [sliceLeft, sliceRight], left, right, facto
     const w = (value) => (factor ? `calc(${value}px * ${factor})` : `${value}px`);
     return `background:none;border:0 solid transparent;border-image:url("${image}") 0 ${sliceRight} 0 ${sliceLeft} fill / 0 ${w(right)} 0 ${w(left)} / 0 stretch;`;
 }
+
+function px(value) {
+    return `${value}px`;
+}
+
+export function buildSlicedDialogSkinCss(skin, spec, assets, { mobilePlate } = {}) {
+    const { dialog, text, plate } = spec;
+    return buildDialogFrameCss(skin, {
+        height: dialog.height,
+        text,
+        rise: plate.rise,
+        frameCss: `${threeSliceCss(assets.dialog, dialog.slice, dialog.left, dialog.right, 'var(--igs-slice-k,1)')}border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
+        speakerCss: `left:${px(plate.x)};top:${px(-plate.rise)};width:max-content;min-width:${px(plate.minWidth)};max-width:calc(100% - ${px(plate.x * 2)});height:${px(plate.height)};line-height:${px(plate.lineHeight)};margin:0;padding:${plate.padding};${threeSliceCss(assets.name, plate.slice, plate.left, plate.right)}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${spec.nameCss || ''}`,
+        textCss: spec.textCss || '',
+        autoHeight: true,
+        mobilePlate,
+    });
+}

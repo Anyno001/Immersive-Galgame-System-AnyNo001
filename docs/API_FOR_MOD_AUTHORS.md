@@ -44,7 +44,8 @@ IGS.api.components.register(component);
 IGS.api.choiceComponents.register(component);
 IGS.api.sceneRules.register(rule);
 IGS.api.themePresets.register(preset);
-IGS.api.uiSkins.register(preset);
+IGS.api.uiSkins.register(skin);   // 对话框皮肤，见 DLC_接入指南.md
+IGS.api.stageFx.register(fx);     // [igs-fx:dlc-*] 演出标签，见 DLC_接入指南.md
 IGS.api.backgroundPacks.register(pack);
 IGS.api.characterPacks.register(pack);
 IGS.api.promptPresets.register(preset);

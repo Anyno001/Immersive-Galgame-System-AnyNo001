@@ -95,6 +95,8 @@ import {
     VN_THEME_PRESETS,
 } from './reader-host-constants.js';
 import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
+import { onDlcSkinsChange } from './dlc-skin-registry.js';
+import { onDlcFxChange } from '../../scene/fx-registry.js';
 import {
     cloneData,
     esc,
@@ -422,6 +424,21 @@ export function createIgsReaderHost(options = {}) {
             else rerenderSettings();
         })
         : () => {};
+    // DLC 中途登记 / 注销：重绘当前阅读器与设置页（皮肤样式、下拉、演出开关），同一轮里多次登记只重绘一次。
+    let dlcRerenderQueued = false;
+    const onDlcChange = () => {
+        if (dlcRerenderQueued) return;
+        dlcRerenderQueued = true;
+        Promise.resolve().then(() => {
+            dlcRerenderQueued = false;
+            try {
+                if (state.activeReader) rerenderActiveReader();
+                if (state.activeSettings) rerenderSettings();
+            } catch (error) { /* 重绘失败不影响登记，下一次翻页照常生效 */ }
+        });
+    };
+    const offDlcSkins = onDlcSkinsChange(onDlcChange);
+    const offDlcFx = onDlcFxChange(onDlcChange);
     const offIllustrationUpdated = typeof options.onIllustrationUpdated === 'function'
         ? options.onIllustrationUpdated((payload) => {
             const current = state.activeReader;
@@ -946,6 +963,8 @@ export function createIgsReaderHost(options = {}) {
         const closed = closeSettings();
         if (closed.ok === false) return closed;
         offIllustrationUpdated();
+        offDlcSkins();
+        offDlcFx();
         offIllustrationProgress();
         offImageActivity();
         generationStrip.dispose();

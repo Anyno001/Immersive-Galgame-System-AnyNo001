@@ -4,6 +4,11 @@ import { getDialogThemeHudStyleText, getDialogThemeItemFxStyleText, getDialogThe
 import { getDialogThemeItemFrameStyleText } from './dialog-theme-item-frames.js';
 import { ILLUSTRATED_DIALOG_STYLE_BY_SKIN } from './dialog-theme-skins.js';
 import { getDialogThemeBattleFxStyleText } from './fx-battle-themes.js';
+import { dlcBorrowSkin, dlcSkinVersion, getDlcSkin, isDlcSkinId } from './dlc-skin-registry.js';
+import { rescopeSkinRules } from './dlc-css-guard.js';
+import { CLICK_WAIT_MARK_STYLE_TEXT } from './click-wait-mark.js';
+import { TEXT_FX_STYLE_TEXT } from './text-fx.js';
+import { FX_STYLE_TEXT } from './fx-style.js';
 import { getDialogThemeTitleCardStyleText } from './fx-title-themes.js';
 
 export const DIALOG_SKIN_STYLE_ID = 'igs-dialog-skin-style';
@@ -49,8 +54,32 @@ export function resolveSkinAssetUrls(css, base = SKIN_ASSET_BASE) {
     return String(css || '').replace(SKIN_ASSET_TOKEN_RE, (_match, theme, file) => new URL(`${theme}/${file}`, base).href);
 }
 
+// DLC 皮肤：作者的骨架与 CSS，加上借来那套内置皮肤的选项、状态栏、物品、提示、战斗、标题卡样式，
+// 作用域从借来的 id 换成 DLC 自己的 id。框本体不借，避免两套几何叠在一起。
+function dlcSkinStyleText(skin, base) {
+    const def = getDlcSkin(skin);
+    if (!def) return '';
+    const borrow = dlcBorrowSkin(skin);
+    const borrowed = borrow && borrow !== 'default' ? [
+        DIALOG_THEME_CHOICE_STYLE_BY_SKIN[borrow],
+        getDialogThemeHudStyleText(borrow),
+        getDialogThemeItemFxStyleText(borrow),
+        getDialogThemeItemFrameStyleText(borrow),
+        getDialogThemeToastStyleText(borrow),
+        getDialogThemeBattleFxStyleText(borrow),
+        getDialogThemeTitleCardStyleText(borrow),
+    ].filter(Boolean).join('\n').split(`data-igs-dialog-skin="${borrow}"`).join(`data-igs-dialog-skin="${skin}"`) : '';
+    // 写死在各演出模块里、按皮肤区分的静态规则（点击等待标记、文字特效主色、演出符号配色）也照借一份。
+    const adaptive = borrow && borrow !== 'default'
+        ? [CLICK_WAIT_MARK_STYLE_TEXT, TEXT_FX_STYLE_TEXT, FX_STYLE_TEXT].map((text) => rescopeSkinRules(text, borrow, skin)).filter(Boolean).join('\n')
+        : '';
+    // 作者的 CSS 放最后，盖得过借来的样式。
+    return [resolveSkinAssetUrls(borrowed, base), adaptive, def.cssText].filter(Boolean).join('\n');
+}
+
 export function getDialogSkinStyleText(value, { base } = {}) {
     const skin = normalizeDialogSkin(value);
+    if (isDlcSkinId(skin)) return dlcSkinStyleText(skin, base);
     const parts = [
         ILLUSTRATED_DIALOG_STYLE_BY_SKIN[skin],
         skin === DIALOG_SKIN_WESTERN_CLASSIC ? CLASSIC_DIALOG_STYLE_TEXT : '',
@@ -89,10 +118,12 @@ export function applyDialogSkinStyle(doc, value, options = {}) {
             doc.head.appendChild(style);
         }
     }
-    if (style.getAttribute && style.getAttribute('data-igs-skin') === skin) return style.textContent || '';
+    // DLC 皮肤带上登记序号：同一个 id 重新登记或中途才加载时也会重算。
+    const key = isDlcSkinId(skin) ? `${skin}@${dlcSkinVersion()}` : skin;
+    if (style.getAttribute && style.getAttribute('data-igs-skin') === key) return style.textContent || '';
     const text = getDialogSkinStyleText(skin, options);
     style.textContent = text;
-    if (style.setAttribute) style.setAttribute('data-igs-skin', skin);
+    if (style.setAttribute) style.setAttribute('data-igs-skin', key);
     return text;
 }
 
@@ -109,13 +140,13 @@ export function watchDialogSkinAssets(root, value, styleText, env = {}) {
     if (!root) return null;
     const skin = normalizeDialogSkin(value);
     const current = watchers.get(root);
-    if (current && current.skin === skin) return current;
+    if (current && current.skin === skin && current.styleText === styleText) return current;
     if (current) current.cancel();
     setFallback(root, false);
     const view = env.window || (root.ownerDocument && root.ownerDocument.defaultView) || globalThis;
     const ImageCtor = env.Image || (view && view.Image);
     const urls = listDialogSkinAssetUrls(styleText).filter((url) => /^(https?:|blob:|\/|\.)/.test(url));
-    const state = { skin, pending: urls.length, failed: false, cancelled: false, timer: null, cancel() {} };
+    const state = { skin, styleText, pending: urls.length, failed: false, cancelled: false, timer: null, cancel() {} };
     watchers.set(root, state);
     if (!urls.length || typeof ImageCtor !== 'function') return state;
     const setTimer = env.setTimeout || (view && view.setTimeout && view.setTimeout.bind(view)) || setTimeout;

@@ -1,3 +1,4 @@
+import { isDlcFxEnabled, listDlcFx, normalizeDlcFxSettings } from '../../scene/fx-registry.js';
 import { enabledFxTagKinds } from './fx-settings.js';
 
 const FX_PROMPT_LINES = Object.freeze({
@@ -191,4 +192,25 @@ export function stageCastGrammarLines(stageCast) {
     const s = stageCast && typeof stageCast === 'object' ? stageCast : {};
     if (s.enabled !== true) return [];
     return [s.castReact === true ? STAGE_CAST_REACT_GRAMMAR_LINE : '', s.castStage === true ? STAGE_CAST_STAGE_GRAMMAR_LINE : ''].filter(Boolean);
+}
+
+// DLC 演出：已登记、没被关掉、作者写了说明的才告诉模型。语法提示由 IGS 按模式补上，作者只写什么时候用。
+export function dlcFxGrammarLines(dlcFxSettings) {
+    const settings = normalizeDlcFxSettings(dlcFxSettings);
+    return listDlcFx()
+        .filter((def) => def.prompt && isDlcFxEnabled(def.kind, settings))
+        .map((def) => (def.mode === 'range'
+            ? `${def.kind} … ${def.kind}-end（区间，包住整段）：${def.prompt}`
+            : `${def.kind}|参数（瞬时，参数可省）：${def.prompt}`));
+}
+
+export function resolveDlcFxPromptRule(dlcFxSettings) {
+    const lines = dlcFxGrammarLines(dlcFxSettings);
+    if (!lines.length) return '';
+    return `[igs扩展演出标签]
+以下是扩展包提供的演出标签，写法同 igs 演出标签：[igs-fx:类型|参数]，区间型用 [igs-fx:类型-end] 结束：
+
+${lines.map((line, index) => `${index + 1}. ${line}`).join('\n')}
+
+只在确实合适的时刻使用，每层回复最多用 2 个；不要发明未列出的类型。`;
 }

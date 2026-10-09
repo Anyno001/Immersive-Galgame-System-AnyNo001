@@ -1,3 +1,4 @@
+import { normalizeDlcFxSettings } from '../../scene/fx-registry.js';
 // 设置快照的规范化（bridge 配置与阅读器设置）：纯函数，阅读器和设置器共用。
 import { normalizeEventCgs } from '../../scene/event-cg.js';
 import { normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
@@ -261,6 +262,8 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     const normalized = { ...base, ...src, _v: currentVersion };
     delete normalized.emptyBackgroundColor;
     normalized.dialogSkin = normalizeDialogSkin(normalized.dialogSkin);
+    // DLC 演出开关只记关掉的；对应 DLC 这次没加载也保留，下次加载照旧关着。
+    normalized.dlcFx = normalizeDlcFxSettings(normalized.dlcFx);
     normalized.gradientVeil = normalizeGradientVeil(normalized.gradientVeil);
     normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
     normalized.skinDialogScale = normalizeSkinDialogScale(normalized.skinDialogScale);

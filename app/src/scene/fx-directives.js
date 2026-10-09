@@ -1,5 +1,6 @@
 import { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX, dailyFxOf, parseDailyFxBody } from './daily-fx-directives.js';
 import { normalizeBgmCue } from './bgm-moods.js';
+import { DLC_FX_ARG_MAX, DLC_FX_PAGE_MAX, getDlcFx, isDlcFxKind } from './fx-registry.js';
 
 export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'delivery', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
 export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox', 'whisper', 'movie', 'light', 'umbrella']);
@@ -209,6 +210,13 @@ export function parseFxBody(body) {
         const args = isEnd ? null : parseDailyFxBody(kind, parts.slice(1));
         return args ? { kind: 'daily', end: false, args } : null;
     }
+    // DLC 演出：只认已登记的 kind；区间型才有 -end。参数原样带给作者的 play，最多 DLC_FX_ARG_MAX 栏。
+    if (isDlcFxKind(kind)) {
+        const def = getDlcFx(kind);
+        if (!def) return null;
+        if (isEnd) return def.mode === 'range' ? { kind, end: true, args: [], dlc: true } : null;
+        return { kind, end: false, args: parts.slice(1, 1 + DLC_FX_ARG_MAX), dlc: true };
+    }
     if (!FX_TAG_KINDS.includes(kind)) return null;
     if (isEnd) return FX_RANGE_KINDS.includes(kind) ? { kind, end: true, args: [] } : null;
     const args = parts.slice(1);
@@ -316,6 +324,9 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
     // 独处：区间状态 { target }；外面的动静：只归标签所在页。
     result.solo = null;
     result.noise = '';
+    // DLC 演出：dlc 收本页的瞬时标签 [{ kind, args }]；dlcRanges 收到此为止仍开着的区间 { kind: args }。
+    result.dlc = [];
+    result.dlcRanges = {};
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
@@ -347,6 +358,16 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         else if (d.kind === 'solo') result.solo = d.end ? null : { target: d.args[0] || (result.solo && result.solo.target) || '' };
         if (d.kind === 'stage') {
             applyStageDirective(result, d, d.offset > from);
+            continue;
+        }
+        if (d.dlc) {
+            const def = getDlcFx(d.kind);
+            if (def && def.mode === 'range') {
+                if (d.end) delete result.dlcRanges[d.kind];
+                else result.dlcRanges[d.kind] = d.args;
+            } else if (def && d.offset > from && result.dlc.length < DLC_FX_PAGE_MAX && !result.dlc.some((item) => item.kind === d.kind)) {
+                result.dlc.push({ kind: d.kind, args: d.args });
+            }
             continue;
         }
         if (d.offset <= from || d.kind === 'romance' || d.kind === 'sense' || d.kind === 'solo') continue;

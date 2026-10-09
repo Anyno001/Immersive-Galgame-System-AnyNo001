@@ -1,5 +1,6 @@
 import { CLASSIC_DIALOG_ASSETS } from './classic-dialog-assets.js';
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
+import { isDlcSkinId } from './dlc-skin-registry.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -65,6 +66,8 @@ export function normalizeDialogSkin(value) {
     if (value === DIALOG_SKIN_WESTERN_CLASSIC) return DIALOG_SKIN_WESTERN_CLASSIC;
     if (value === DIALOG_SKIN_GRADIENT_VEIL) return DIALOG_SKIN_GRADIENT_VEIL;
     if (isIllustratedDialogSkin(value)) return value;
+    // 存档里的 DLC 皮肤原样保留，DLC 晚加载或这次没装都不会把用户的选择改回默认。
+    if (isDlcSkinId(value)) return value;
     return DIALOG_SKIN_DEFAULT;
 }
 
@@ -90,7 +93,8 @@ export function isMaterialDialogSkin(readerSettings) {
 export function applyDialogSkinAssets(dialog, readerSettings) {
     if (!dialog) return;
     const skin = normalizeDialogSkin(readerSettings && readerSettings.dialogSkin);
-    if (skin !== DIALOG_SKIN_WESTERN_CLASSIC && skin !== DIALOG_SKIN_GRADIENT_VEIL && !isIllustratedDialogSkin(skin)) {
+    // DLC 皮肤无论这次加载没加载都挂上 id：没加载时没有 CSS 命中，自然是磨砂玻璃；中途登记后立即生效。
+    if (skin !== DIALOG_SKIN_WESTERN_CLASSIC && skin !== DIALOG_SKIN_GRADIENT_VEIL && !isIllustratedDialogSkin(skin) && !isDlcSkinId(skin)) {
         if (typeof dialog.removeAttribute === 'function') dialog.removeAttribute('data-igs-dialog-skin');
         else if (typeof dialog.setAttribute === 'function') dialog.setAttribute('data-igs-dialog-skin', '');
         return;

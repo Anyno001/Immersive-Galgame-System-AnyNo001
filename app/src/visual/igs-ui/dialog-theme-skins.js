@@ -5,7 +5,10 @@ import {
     DIALOG_SKIN_ELEGANT_EUROPEAN,
     DIALOG_SKIN_WARM_PICTUREBOOK,
 } from './dialog-theme-css-skins.js';
-import { buildDialogFrameCss, halo, stroke, threeSliceCss } from './dialog-skin-frame.js';
+import { buildSlicedDialogSkinCss, halo, stroke } from './dialog-skin-frame.js';
+import { getDlcSkin } from './dlc-skin-registry.js';
+
+export { buildSlicedDialogSkinCss };
 import { DIALOG_SKIN_QINGLV, QINGLV_DIALOG_STYLE } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_DIALOG_STYLE } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_DIALOG_STYLE, PSYCH_DIALOG_STYLE } from './dialog-theme-horror.js';
@@ -34,12 +37,17 @@ export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, .
 // 三片素材只横向切、纵向拉伸；伪元素装饰按上下边定位的主题压矮后跟着框走。
 export function supportsDialogAutoHeight(value) {
     const skin = typeof value === 'string' ? value : value && value.dialogSkin;
-    return skin === 'western-classic' || ILLUSTRATED_DIALOG_SKINS.includes(skin);
+    if (skin === 'western-classic' || ILLUSTRATED_DIALOG_SKINS.includes(skin)) return true;
+    // DLC 皮肤只有用 frame 生成骨架的才带自适应规则。
+    const dlc = getDlcSkin(skin);
+    return Boolean(dlc && dlc.hasFrame);
 }
 
 export function isIllustratedDialogSkin(value) {
     const skin = typeof value === 'string' ? value : value && value.dialogSkin;
-    return ILLUSTRATED_DIALOG_SKINS.includes(skin);
+    if (ILLUSTRATED_DIALOG_SKINS.includes(skin)) return true;
+    const dlc = getDlcSkin(skin);
+    return Boolean(dlc && dlc.base === 'illustrated');
 }
 
 // 构建脚本按字面占位符把素材外置到 dist/skins/，这里必须保留完整字面量。
@@ -116,24 +124,6 @@ export const ILLUSTRATED_DIALOG_SPECS = Object.freeze({
         textCss: `letter-spacing:.05em;${halo('#e6dccb')}`,
     }),
 });
-
-function px(value) {
-    return `${value}px`;
-}
-
-export function buildSlicedDialogSkinCss(skin, spec, assets, { mobilePlate } = {}) {
-    const { dialog, text, plate } = spec;
-    return buildDialogFrameCss(skin, {
-        height: dialog.height,
-        text,
-        rise: plate.rise,
-        frameCss: `${threeSliceCss(assets.dialog, dialog.slice, dialog.left, dialog.right, 'var(--igs-slice-k,1)')}border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
-        speakerCss: `left:${px(plate.x)};top:${px(-plate.rise)};width:max-content;min-width:${px(plate.minWidth)};max-width:calc(100% - ${px(plate.x * 2)});height:${px(plate.height)};line-height:${px(plate.lineHeight)};margin:0;padding:${plate.padding};${threeSliceCss(assets.name, plate.slice, plate.left, plate.right)}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${spec.nameCss || ''}`,
-        textCss: spec.textCss || '',
-        autoHeight: true,
-        mobilePlate,
-    });
-}
 
 function slicedSkinCss(skin) {
     const spec = ILLUSTRATED_DIALOG_SPECS[skin];

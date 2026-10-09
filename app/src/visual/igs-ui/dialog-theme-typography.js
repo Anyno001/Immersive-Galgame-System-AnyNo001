@@ -1,3 +1,4 @@
+import { dlcBorrowSkin, getDlcSkin } from './dlc-skin-registry.js';
 export const DIALOG_FONT_SERIF = '"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif';
 export const DIALOG_FONT_ROUNDED = '"IGS Rounded","Microsoft YaHei",sans-serif';
 export const DIALOG_FONT_CHILL_ROUND = '"ChillRoundF","IGS Rounded","Microsoft YaHei",sans-serif';
@@ -210,7 +211,12 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
 });
 
 export function getReferenceDialogTypography(dialogSkin) {
-    return REFERENCE_DIALOG_TYPOGRAPHY[dialogSkin] || null;
+    if (Object.hasOwn(REFERENCE_DIALOG_TYPOGRAPHY, dialogSkin)) return REFERENCE_DIALOG_TYPOGRAPHY[dialogSkin];
+    // DLC 皮肤：作者给的排版盖在借来那套的排版上；什么都没给就跟借的那套一样。
+    const dlc = getDlcSkin(dialogSkin);
+    if (!dlc) return null;
+    const borrowed = REFERENCE_DIALOG_TYPOGRAPHY[dlcBorrowSkin(dialogSkin)] || null;
+    return borrowed || Object.keys(dlc.typography).length ? Object.freeze({ ...(borrowed || {}), ...dlc.typography }) : null;
 }
 
 // 同一字号下各字体的字面大小与字形疏密差异明显：手写/楷体字面偏小、笔画密，需略放大并加行距，

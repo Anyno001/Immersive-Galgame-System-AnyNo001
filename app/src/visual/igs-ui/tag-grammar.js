@@ -1,4 +1,4 @@
-import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
+import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, dlcFxGrammarLines, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
 import { dailyGrammarLines } from './fx-daily-prompt.js';
 import { BATTLE_GRAMMAR_LINES } from './fx-battle-model.js';
 import { textFxGrammarBlock } from './text-fx.js';
@@ -38,6 +38,10 @@ export function collectGrammarBlocks(readerSettings, { ancient = false } = {}) {
     const fxKinds = enabledFxTagKinds(rs.fxTags);
     if (fxKinds.length) {
         blocks.push({ key: 'fx', full: fxBlock('演出', fxGrammarLines(rs.fxTags, { ancient })), index: `演出 igs-fx:${fxKinds.join('/')}` });
+    }
+    const dlcLines = dlcFxGrammarLines(rs.dlcFx);
+    if (dlcLines.length) {
+        blocks.push({ key: 'dlc', full: fxBlock('扩展演出', dlcLines), index: `扩展演出 igs-fx:${dlcLines.map((line) => line.split(/[|\s（]/)[0]).join('/')}` });
     }
     if (plain(rs.itemFx).enabled === true) {
         blocks.push({ key: 'item', full: fxBlock('物品', [ITEM_FX_GRAMMAR_LINE]), index: '物品 igs-fx:item' });

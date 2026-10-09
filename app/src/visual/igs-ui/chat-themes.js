@@ -1,4 +1,5 @@
 import { DIALOG_FONT_SANS, getReferenceDialogTypography } from './dialog-theme-typography.js';
+import { dlcBorrowSkin } from './dlc-skin-registry.js';
 
 // 跟随对话框主题时，手机框、标题栏与未单独设色的气泡取主题配色；联系人自设颜色仍优先。
 const palette = (shell, head, headInk, frame, sub, left, right, border = 'transparent') => Object.freeze({ shell, head, headInk, frame, sub, left, right, border });
@@ -25,7 +26,8 @@ export const CHAT_THEME_PALETTES = Object.freeze({
 });
 
 export function resolveChatTheme(dialogSkin) {
-    const key = Object.hasOwn(CHAT_THEME_PALETTES, dialogSkin) ? dialogSkin : 'default';
-    const typography = getReferenceDialogTypography(key) || {};
+    const borrow = dlcBorrowSkin(dialogSkin);
+    const key = Object.hasOwn(CHAT_THEME_PALETTES, borrow) ? borrow : 'default';
+    const typography = getReferenceDialogTypography(dialogSkin) || getReferenceDialogTypography(key) || {};
     return { key, ...CHAT_THEME_PALETTES[key], font: typography.textFont || DIALOG_FONT_SANS };
 }

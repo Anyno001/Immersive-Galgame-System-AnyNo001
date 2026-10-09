@@ -18,6 +18,7 @@ import { DIALOG_SKIN_FAIRY_TALE } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST } from './dialog-theme-wasteland.js';
+import { getDlcSkin, isDlcSkinId, listDlcSkins } from './dlc-skin-registry.js';
 
 // 对话框皮肤的显示名，顺序即设置页「对话框风格」下拉的顺序；主界面选世界观页的皮肤名也从这里取。
 export const DIALOG_SKIN_CHOICES = Object.freeze([
@@ -41,8 +42,20 @@ export const DIALOG_SKIN_CHOICES = Object.freeze([
     [DIALOG_SKIN_HORROR_PSYCH, '褪色病历'],
 ].map((pair) => Object.freeze(pair)));
 
+// 内置皮肤 + 已登记的 DLC 皮肤（排在最后）。current 是存档里的 DLC 皮肤但这次没加载时，补一项「未加载」，
+// 下拉框才不会把用户的选择显示成别的皮肤。
+export function getDialogSkinChoices(current) {
+    const dlc = listDlcSkins().map((def) => [def.id, `${def.label} · DLC`]);
+    const missing = isDlcSkinId(current) && !getDlcSkin(current) ? [[current, `${current}（DLC 未加载）`]] : [];
+    return dlc.length || missing.length ? [...DIALOG_SKIN_CHOICES, ...dlc, ...missing] : DIALOG_SKIN_CHOICES;
+}
+
 export function dialogSkinLabel(id) {
     const skin = normalizeDialogSkin(id);
+    if (isDlcSkinId(skin)) {
+        const def = getDlcSkin(skin);
+        return def ? def.label : `${skin}（DLC 未加载）`;
+    }
     const hit = DIALOG_SKIN_CHOICES.find(([key]) => key === skin);
     return hit ? hit[1] : DIALOG_SKIN_CHOICES[0][1];
 }

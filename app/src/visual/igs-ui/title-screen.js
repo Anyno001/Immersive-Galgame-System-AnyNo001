@@ -8,7 +8,8 @@ import { applySceneAudio } from './scene-audio.js';
 import { applyDialogSkinAssets, normalizeDialogSkin } from './classic-dialog-skin.js';
 import { syncDialogSkinStyle } from './dialog-skin-style.js';
 import { getBattleTheme } from './fx-battle-themes.js';
-import { DIALOG_SKIN_CHOICES, dialogSkinLabel } from './dialog-skin-catalog.js';
+import { DIALOG_SKIN_CHOICES, dialogSkinLabel, getDialogSkinChoices } from './dialog-skin-catalog.js';
+import { dlcBorrowSkin, dlcSkinVersion, getDlcSkin, listDlcSkins } from './dlc-skin-registry.js';
 import { pickWorldviewDialogSkin, worldviewDialogSkins } from './worldview-skins.js';
 import { getReferenceDialogTypography } from './dialog-theme-typography.js';
 
@@ -184,7 +185,7 @@ function previewDialogHtml(skin, name) {
 function worldviewHtml(model) {
     const name = model.title === '序章' ? '旁白' : model.title;
     const recommended = worldviewDialogSkins(model.pick.worldview);
-    const others = DIALOG_SKIN_CHOICES.filter(([skin]) => !recommended.includes(skin));
+    const others = getDialogSkinChoices(model.pick.skin).filter(([skin]) => !recommended.includes(skin));
     const otherOn = !recommended.includes(model.pick.skin);
     const skinButtons = recommended.map((skin) => {
         const on = skin === model.pick.skin;
@@ -242,7 +243,7 @@ function ensureLayer(overlay) {
 
 export function renderTitleScreen(overlay, model, handlers = {}) {
     if (!overlay || !model) return null;
-    ensureStyleTag(overlay.ownerDocument, STYLE_ID, TITLE_SCREEN_STYLE_TEXT);
+    ensureStyleTag(overlay.ownerDocument, STYLE_ID, getTitleScreenStyleText());
     const layer = ensureLayer(overlay);
     handlersByLayer.set(layer, handlers);
     const view = model.view === 'worldview' ? 'worldview' : 'menu';
@@ -308,7 +309,10 @@ const FALLBACK_THEME = Object.freeze({
 });
 
 function themeRules(skin) {
-    const theme = getBattleTheme(skin) || FALLBACK_THEME;
+    // DLC 皮肤借内置那套的字体与纱色，主色用作者给的 accent。
+    const dlc = getDlcSkin(skin);
+    const borrowed = getBattleTheme(skin) || (dlc && getBattleTheme(dlcBorrowSkin(skin))) || FALLBACK_THEME;
+    const theme = dlc && dlc.accent ? { ...borrowed, accent: dlc.accent } : borrowed;
     const v = theme.vars || {};
     const scope = `[${TITLE_SKIN_ATTR}="${skin}"]`;
     const veil = v.veil || v.wipe || FALLBACK_THEME.vars.veil;
@@ -415,3 +419,14 @@ const BASE_STYLE = `
 `;
 
 export const TITLE_SCREEN_STYLE_TEXT = [BASE_STYLE.trim(), ...DIALOG_SKIN_CHOICES.map(([skin]) => themeRules(skin))].join('\n');
+
+// 含已登记 DLC 皮肤的主界面样式；登记表没变就复用上次的结果。
+let titleStyleCache = { version: -1, text: TITLE_SCREEN_STYLE_TEXT };
+export function getTitleScreenStyleText() {
+    const version = dlcSkinVersion();
+    if (titleStyleCache.version !== version) {
+        const extra = listDlcSkins().map((def) => themeRules(def.id));
+        titleStyleCache = { version, text: extra.length ? [TITLE_SCREEN_STYLE_TEXT, ...extra].join('\n') : TITLE_SCREEN_STYLE_TEXT };
+    }
+    return titleStyleCache.text;
+}
