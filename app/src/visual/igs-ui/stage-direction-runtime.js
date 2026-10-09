@@ -110,10 +110,24 @@ function animate(el, frames, options) {
     }
 }
 
+// 按当前情绪优先挑出场：只在勾选的效果里挑，对不上情绪或对上的都没勾就全池随机。
+const CG_MOOD_STYLES = [
+    [/开心|高兴|快乐|兴奋|笑|得意|期待|活泼/, ['photo', 'panels', 'flash', 'puzzle']],
+    [/悲|哭|难过|伤心|寂寞|失落|怀念|回忆|思念|忧/, ['ink', 'film', 'blinds']],
+    [/怒|生气|愤|震惊|惊讶|吃惊|激动|决意|认真/, ['flash', 'tear', 'cinema']],
+    [/害羞|羞|心动|温柔|爱|甜|喜欢|脸红|撒娇|感动/, ['ripple', 'focus', 'ink']],
+    [/紧张|恐惧|害怕|不安|惊恐|阴沉|绝望|冷/, ['tear', 'cinema', 'focus', 'blinds']],
+    [/平静|安静|淡然|困|疲|思考|沉思/, ['cinema', 'film', 'blinds']],
+];
+
 function pickInterludeStyle(entrance, lowQuality, random = Math.random) {
     let pool = CG_INTERLUDE_STYLES.filter((id) => entrance.styles && entrance.styles[id]);
     if (lowQuality) pool = pool.filter((id) => CG_CHEAP_STYLES.has(id));
-    return pool.length ? pool[Math.floor(random() * pool.length)] : '';
+    const mood = String(entrance.mood || '');
+    const hit = mood && CG_MOOD_STYLES.find(([re]) => re.test(mood));
+    const preferred = hit ? pool.filter((id) => hit[1].includes(id)) : [];
+    const from = preferred.length ? preferred : pool;
+    return from.length ? from[Math.floor(random() * from.length)] : '';
 }
 
 // 碎片带延迟入场，没有 fill 的话开播前会先整块露出来闪一下。
@@ -699,7 +713,7 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
         flushGhosts(state.spriteGhosts);
         playCgFocus(state, bg, bgUrl, reduced, text(ctx.bgKey), {
             nsfw: content.sceneNsfw === true || content.cgNsfw === true, speed: s.cgEntrance.nsfw,
-            styles: s.cgEntrance.styles, doc, root,
+            styles: s.cgEntrance.styles, mood: content.statusEmotion, doc, root,
             lowQuality: typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low' });
     } else {
         state.cgFocusUrl = '';
