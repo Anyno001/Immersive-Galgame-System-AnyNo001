@@ -12,8 +12,8 @@ import { DIALOG_SKIN_CHOICES, dialogSkinLabel } from './dialog-skin-catalog.js';
 import { pickWorldviewDialogSkin, worldviewDialogSkins } from './worldview-skins.js';
 import { getReferenceDialogTypography } from './dialog-theme-typography.js';
 
-// 第 0 层的主界面：阅读器停在开场白第一页时先盖一层标题画面（开始 / 继续 / 世界观 / 设置），
-// 新聊天点开始先进世界观页，确认后写进角色卡、过一张开场标题卡再演出第 0 层。
+// 第 0 层的主界面：阅读器停在开场白第一页时先盖一层标题画面（开始 / 继续 / 世界风格 / 设置 / 生成主角立绘），
+// 点开始直接过开场标题卡再演出第 0 层；世界风格页只负责保存选择。
 // 画面只读快照与传入的回调，不碰存档；外观按皮肤取过场标题卡同一份主题（字体、墨色、底纱、卡片底）。
 export const TITLE_SCREEN_ID = 'igs-title-screen';
 export const TITLE_SKIN_ATTR = 'data-igs-title-skin';
@@ -59,7 +59,7 @@ export function reduceTitleAction(gate, model, act, value) {
     const pickFor = (id) => pickWorldviewDialogSkin(id, { cardSkin: model.cardSkin, globalSkin: model.globalSkin, horrorStyle: model.horrorStyle });
     switch (act) {
         case 'start':
-            return model.newChat ? { gate: { ...base, view: 'worldview', pick: null } } : { gate: base, effect: 'start' };
+            return { gate: base, effect: 'start' };
         case 'continue':
         case 'settings':
         case 'close':
@@ -76,7 +76,7 @@ export function reduceTitleAction(gate, model, act, value) {
         case 'skin':
             return { gate: { ...base, pick: { worldview: model.pick.worldview, skin: normalizeDialogSkin(value) } } };
         case 'confirm':
-            return { gate: base, effect: model.newChat ? 'save-start' : 'save', pick: { ...model.pick } };
+            return { gate: base, effect: 'save', pick: { ...model.pick } };
         default:
             return { gate: base };
     }
@@ -96,7 +96,7 @@ export function playTitleBgm(overlay, snapshot) {
 }
 
 // 主界面要画的东西全在这里算好；renderTitleScreen 只拼 HTML。
-// userName：酒馆当前用户名。有名字时世界观页多一个「生成主角立绘」，开局前就能按用户设定画好主角。
+// userName：酒馆当前用户名。有名字时主菜单「设置」下多一个「生成主角立绘」，开局前就能按用户设定画好主角。
 export function buildTitleScreenModel({ snapshot, gate, card = {}, globalSkin, resolveUrl, userName = '' } = {}) {
     const readerSettings = plain(snapshot && snapshot.readerSettings);
     const content = plain(snapshot && snapshot.content);
@@ -157,8 +157,9 @@ function menuHtml(model) {
     const items = [
         ['start', start],
         model.hasLater ? ['continue', '继续'] : null,
-        ['worldview', '世界观'],
+        ['worldview', '世界风格'],
         ['settings', '设置'],
+        model.userName ? ['user-char', '生成主角立绘'] : null,
     ].filter(Boolean).map(([act, label]) => `<button type="button" class="igs-ts-btn" data-ts-act="${act}"${model.busy ? ' disabled' : ''}>${esc(label)}</button>`).join('');
     return `${backdropHtml(model)}
 <button type="button" class="igs-ts-close" data-ts-act="close" aria-label="关闭阅读器">×</button>
@@ -199,11 +200,10 @@ function worldviewHtml(model) {
     // 没有立绘时右侧空着：铺一行很淡的英文描边大字，随所选世界观换。
     const mark = model.sprite ? '' : '<div class="igs-ts-mark" aria-hidden="true">' + esc(WORLD_EN[model.pick.worldview] || '') + '</div>';
     return backdropHtml(model) + mark + '\n' + previewDialogHtml(model.pick.skin, name)
-        + '\n<div class="igs-ts-pick" role="dialog" aria-label="选择世界观"><ul class="igs-ts-worlds">' + worlds + '</ul></div>'
+        + '\n<div class="igs-ts-pick" role="dialog" aria-label="选择世界风格"><ul class="igs-ts-worlds">' + worlds + '</ul></div>'
         + '\n<div class="igs-ts-actions">'
-        + (model.userName ? '<button type="button" class="igs-ts-link" data-ts-act="user-char" title="读酒馆的用户设定，给「' + esc(model.userName) + '」画一张立绘"' + disabled + '>生成主角立绘</button>' : '')
         + '<button type="button" class="igs-ts-link" data-ts-act="back"' + disabled + '>返回</button>'
-        + '<button type="button" class="igs-ts-link is-primary" data-ts-act="confirm"' + disabled + '>' + (model.newChat ? '开始' : '保存') + '<span aria-hidden="true">›</span></button></div>';
+        + '<button type="button" class="igs-ts-link is-primary" data-ts-act="confirm"' + disabled + '>保存<span aria-hidden="true">›</span></button></div>';
 }
 
 function dispatch(layer, act, value) {

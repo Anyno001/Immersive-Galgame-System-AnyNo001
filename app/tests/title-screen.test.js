@@ -69,9 +69,9 @@ test('title-screen:gates-only-the-first-page-of-floor-zero', () => {
 test('title-screen:new-chat-picks-a-worldview-first-replay-starts-directly', () => {
     const fresh = buildTitleScreenModel({ snapshot: snapshotOf(), gate: { ...createTitleGate(), hasLater: false } });
     assert.equal(fresh.newChat, true);
-    let step = reduceTitleAction({ ...createTitleGate(), hasLater: false }, fresh, 'start');
-    assert.equal(step.gate.view, 'worldview', '新聊天点开始先进世界观页');
-    assert.equal(step.effect, undefined);
+    assert.equal(reduceTitleAction({ ...createTitleGate(), hasLater: false }, fresh, 'start').effect, 'start', '新聊天点开始也直接开始，不再选一次世界风格');
+    let step = reduceTitleAction({ ...createTitleGate(), hasLater: false }, fresh, 'worldview');
+    assert.equal(step.gate.view, 'worldview');
 
     const replay = buildTitleScreenModel({ snapshot: snapshotOf(), gate: { ...createTitleGate(), hasLater: true } });
     assert.equal(replay.newChat, false);
@@ -88,7 +88,7 @@ test('title-screen:new-chat-picks-a-worldview-first-replay-starts-directly', () 
     assert.deepEqual(step.gate.pick, { worldview: 'ancient', skin: 'retro-japanese' }, '推荐之外的皮肤也能选');
     const chosen = buildTitleScreenModel({ snapshot: snapshotOf(), gate: { ...step.gate, hasLater: false } });
     const confirm = reduceTitleAction(step.gate, chosen, 'confirm');
-    assert.equal(confirm.effect, 'save-start');
+    assert.equal(confirm.effect, 'save', '世界风格页只保存、回菜单');
     assert.deepEqual(confirm.pick, { worldview: 'ancient', skin: 'retro-japanese' });
     const saveOnly = buildTitleScreenModel({ snapshot: snapshotOf(), gate: { ...step.gate, hasLater: true } });
     assert.equal(reduceTitleAction(step.gate, saveOnly, 'confirm').effect, 'save', '已有后续楼层时只保存、回菜单');
@@ -142,12 +142,12 @@ test('title-screen:menu-and-worldview-page-render-and-dispatch-clicks', () => {
     assert.equal(layer.getAttribute(TITLE_SKIN_ATTR), 'horror-psych', '世界观页按正在选的皮肤着色');
     assert.equal((layer.innerHTML.match(/data-ts-act="world:/g) || []).length, 8, '8 个世界观各一张卡');
     assert.match(layer.innerHTML, /data-ts-act="skin:horror-gore"/);
-    assert.match(layer.innerHTML, /data-ts-act="confirm"[^>]*>开始/);
+    assert.match(layer.innerHTML, /data-ts-act="confirm"[^>]*>保存/);
     assert.doesNotMatch(layer.innerHTML, /data-ts-act="user-char"/, '读不到用户名时不出「生成主角立绘」');
-    const withUser = buildTitleScreenModel({ snapshot: snapshotOf(), userName: '林舟', gate: { ...createTitleGate(), hasLater: false, view: 'worldview' } });
+    const withUser = buildTitleScreenModel({ snapshot: snapshotOf(), userName: '林舟', gate: { ...createTitleGate(), hasLater: false } });
     assert.equal(withUser.userName, '林舟');
     renderTitleScreen(overlay, withUser, handlers);
-    assert.match(layer.innerHTML, /data-ts-act="user-char"[^>]*>生成主角立绘/, '世界观页能按酒馆用户设定生成主角立绘');
+    assert.match(layer.innerHTML, /data-ts-act="user-char"[^>]*>生成主角立绘/, '主菜单设置下能按酒馆用户设定生成主角立绘');
     assert.equal(reduceTitleAction(createTitleGate(), withUser, 'user-char').effect, 'user-char');
     renderTitleScreen(overlay, page, handlers);
 

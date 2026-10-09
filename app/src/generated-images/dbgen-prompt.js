@@ -256,10 +256,12 @@ export function nsfwClothingBoostLine(kind = 'clothes') {
 }
 
 // 待确认服装：只写这一套衣服的生图标签，不写出图。
-export function buildWardrobeClothingDescription(_character, outfitName, { nsfwBoost = false } = {}) {
+export function buildWardrobeClothingDescription(_character, outfitName, { nsfwBoost = false, note = '' } = {}) {
     const outfit = String(outfitName || '').trim();
+    const request = String(note || '').trim();
     return [
         `为服装「${outfit}」写一份生图用的服装提示词。`,
+        request ? `用户对这套服装的具体要求（必须照办）：${request}` : '',
         '一定要注意：生成的是一套衣服，而不是角色，没有角色。',
         '这是一整套穿着，从上到下写完整：头上、上身、下身、腿和脚，以及配套的饰品。不要只写其中一件。',
         '每件都写清款式、颜色和材质。',

@@ -338,7 +338,7 @@ test('gate:expression-set:new-outfit-can-paint-one-default-first', async () => {
     };
     const action = 'outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%B3%B3%E8%A3%85';
     assert.equal((await handleSettingsAction(action, ctx)).ok, true);
-    assert.deepEqual(choose[0].values, ['1', '8', '12', '16', '20']);
+    assert.deepEqual(choose[0].values, ['1', '8', '12', '16', '20', 'pick']);
     assert.equal(choose[0].current, '1', '新衣服默认选「1 张」');
     assert.deepEqual(seen[0], ['平和']);
     assert.match(asks[0], /给「冬月」的服装「泳装」画 1 张「平和」/);
@@ -350,7 +350,7 @@ test('gate:expression-set:new-outfit-can-paint-one-default-first', async () => {
     pick = '8';
     promptIds.length = 0;
     assert.equal((await handleSettingsAction(action, ctx)).ok, true);
-    assert.deepEqual(choose[1].values, ['8', '12', '16', '20']);
+    assert.deepEqual(choose[1].values, ['8', '12', '16', '20', 'pick']);
     assert.equal(promptIds[0], 'new-平和');
     assert.deepEqual(seen[1], moodTierLabels(8).filter((mood) => mood !== '平和'));
 });

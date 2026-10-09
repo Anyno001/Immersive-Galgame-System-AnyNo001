@@ -121,6 +121,25 @@ function retargetWardrobe(characterOutfits, from, to) {
     }
 }
 
+// 参考图画好后问一句：给哪个已登记角色画这套衣服的差分。选了就给该角色建同名服装（自动对上这条衣柜词），转去「表情差分」。
+async function offerOutfitSprites(ctx, wardrobeName, dialogs) {
+    const { settingsState, persistSettingsDraft, rerenderSettings } = ctx;
+    if (typeof ctx.rerun !== 'function' || !dialogs || typeof dialogs.choose !== 'function') return null;
+    const names = Object.keys(plain(draftEffectiveAssets(settingsState).characters) || {}).filter((key) => !BLOCKED_KEYS.has(key));
+    if (!names.length) return null;
+    const picked = await dialogs.choose(`要给哪个角色画「${wardrobeName}」的差分立绘？`, names.map((key) => ({ value: key, label: key })), '', { cancelLabel: '暂不生成' });
+    if (!picked || !names.includes(picked)) return rerenderSettings();
+    const library = draftAssetLibrary(settingsState, { collections: CHARACTER_FIELDS, name: picked });
+    const outfits = outfitMapOf(library, picked);
+    if (!outfitEntry(outfits, wardrobeName)) {
+        if (!createOutfit(ctx, picked, outfits, wardrobeName)) return rerenderSettings();
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+    }
+    selectTab(settingsState, picked, wardrobeName);
+    return ctx.rerun(`outfit-expression-set:${encodeURIComponent(picked)}:${encodeURIComponent(wardrobeName)}`);
+}
+
 async function handleWardrobe(command, segs, ctx) {
     const { settingsState, options, persistSettingsDraft, rerenderSettings } = ctx;
     const globalObj = options.global || globalThis;
@@ -157,7 +176,23 @@ async function handleWardrobe(command, segs, ctx) {
         if (isBuiltinNudeOutfit(next)) { warn(ctx, `「${next}」是内置项，不会加入服装库。`); return rerenderSettings(); }
         if (!isValidOutfitName(next)) { warn(ctx, `「${next}」不能用作服装名`); return rerenderSettings(); }
         if (hasOwn(wardrobe, next)) { warn(ctx, `衣柜里已有「${next}」`); return rerenderSettings(); }
-        wardrobe[next] = { prompt: '' };
+        // 名字和具体要求分开问；自动流程（默认开）接着写提示词、出参考图，关掉就停在这里等手动点。
+        const auto = settingsState.draft.bridge.sceneAssets.wardrobeAutoFlow !== false;
+        const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
+        const note = typeof dialogs.edit === 'function'
+            ? await dialogs.edit(`「${next}」的具体要求（款式、颜色、材质、配饰等，可留空）`, '', { okLabel: auto ? '开始生成' : '保存', cancelLabel: '取消' })
+            : '';
+        if (note == null) return rerenderSettings();
+        wardrobe[next] = String(note).trim() ? { prompt: '', note: String(note).trim() } : { prompt: '' };
+        const added = persistSettingsDraft();
+        if (added.ok === false) return added;
+        if (!auto) return rerenderSettings();
+        const seg = [encodeURIComponent(next)];
+        const chained = { ...ctx, auto: true };
+        await handleWardrobe('wardrobe-generate-prompt', seg, chained);
+        const written = normalizeWardrobe(draftEffectiveAssets(settingsState).wardrobe)[next];
+        if (!written || !written.prompt) return rerenderSettings();
+        return handleWardrobe('wardrobe-reference', seg, chained);
     } else if (command === 'wardrobe-rename') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         const next = await ask(ctx, `把「${name}」改名为：`, name);
@@ -191,10 +226,18 @@ async function handleWardrobe(command, segs, ctx) {
             const subject = { character: '', outfit: name, nsfwBoost: wardrobe[name].nsfwBoost === true };
             const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
             const existing = String((wardrobe[name] && wardrobe[name].prompt) || '').trim();
-            const confirmed = typeof dialogs.confirm === 'function'
-                ? await dialogs.confirm(existing ? `重新生成「${name}」的提示词并覆盖现有内容？` : `为「${name}」生成服装提示词？`)
-                : true;
-            if (!confirmed) return rerenderSettings();
+            // 手动点时先给看具体要求，可改；自动流程直接用新建时填的。
+            let note = String((wardrobe[name] && wardrobe[name].note) || '');
+            if (!ctx.auto) {
+                const edited = typeof dialogs.edit === 'function'
+                    ? await dialogs.edit(`${existing ? `重新生成「${name}」的提示词并覆盖现有内容` : `为「${name}」生成服装提示词`}。具体要求（可留空）：`, note, { okLabel: '生成提示词', cancelLabel: '取消' })
+                    : note;
+                if (edited == null) return rerenderSettings();
+                note = String(edited).trim();
+                wardrobe[name] = { ...wardrobe[name], note };
+                if (!note) delete wardrobe[name].note;
+            }
+            subject.note = note;
             const service = options.generatedAssets;
             if (!service || typeof service.writeWardrobePrompt !== 'function') {
                 warn(ctx, '当前无法编写服装提示词。');
@@ -246,9 +289,8 @@ async function handleWardrobe(command, segs, ctx) {
         const prompt = String((wardrobe[name] && wardrobe[name].prompt) || '').trim();
         if (!prompt) { warn(ctx, '请先填写这套服装的提示词。'); return rerenderSettings(); }
         const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
-        const confirmed = typeof dialogs.confirm === 'function'
-            ? await dialogs.confirm(`用「${name}」的提示词生成一张参考图？`)
-            : true;
+        const confirmed = ctx.auto || typeof dialogs.confirm !== 'function'
+            || await dialogs.confirm(`用「${name}」的提示词生成一张参考图？`);
         if (!confirmed) return rerenderSettings();
         const service = options.generatedAssets;
         if (!service || typeof service.paintWardrobeReference !== 'function') {
@@ -289,7 +331,7 @@ async function handleWardrobe(command, segs, ctx) {
         }
         const renderedRef = await rerenderSettings();
         wardrobeDone(globalObj, `「${name}」的参考图画好了。`);
-        return renderedRef;
+        return (await offerOutfitSprites(ctx, name, dialogs)) || renderedRef;
     } else if (command === 'wardrobe-remove') {
         if (!hasOwn(wardrobe, name)) return rerenderSettings();
         delete wardrobe[name];

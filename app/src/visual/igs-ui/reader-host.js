@@ -3944,7 +3944,7 @@ export function createIgsReaderHost(options = {}) {
         if (next.effect === 'save' || next.effect === 'save-start') {
             const saved = saveTitlePick(next.pick);
             if (!saved || saved.ok === false) {
-                writeToast('世界观没有保存成功，请稍后再试。');
+                writeToast('世界风格没有保存成功，请稍后再试。');
                 renderTitleGate(current);
                 return saved;
             }
@@ -3958,7 +3958,7 @@ export function createIgsReaderHost(options = {}) {
         return null;
     }
 
-    // 世界观页「生成主角立绘」：打开设置的角色页，走和「＋ › 用酒馆用户设定生成主角」同一个动作，进度和结果都在那里看；关掉设置回到世界观页。
+    // 主菜单「生成主角立绘」：打开设置的角色页，走和「＋ › 用酒馆用户设定生成主角」同一个动作，进度和结果都在那里看；关掉设置回到主菜单。
     async function generateUserCharFromTitle(current) {
         openSettings({ tab: 'scene', mode: current.mode });
         const settings = state.activeSettings;

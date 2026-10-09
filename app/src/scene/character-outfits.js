@@ -92,6 +92,9 @@ export function normalizeWardrobe(raw) {
         out[name] = { prompt };
         if (reference.startsWith('igs-gen:')) out[name].reference = reference;
         if (source.nsfwBoost === true) out[name].nsfwBoost = true;
+        // 新建时填的具体要求，写提示词时带上；不进生图词。
+        const note = typeof source.note === 'string' ? source.note.replace(/\r\n?/g, '\n').trim() : '';
+        if (note) out[name].note = note;
     }
     return out;
 }
