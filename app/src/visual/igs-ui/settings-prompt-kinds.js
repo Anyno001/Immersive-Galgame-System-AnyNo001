@@ -71,7 +71,7 @@ export function renderPromptKindsPanel({ nai, field, textarea, checkbox, advance
     };
     const group = (title, body) => `<div class="igs-source-filter"><div class="igs-source-filter-title">${esc(title)}</div>${body}</div>`;
     return group('通用', checkbox(`${base}.enabled`, conf.enabled, '分区画师串（打开后每类用自己的画师串替换全局）')
-        + '<div class="igs-source-filter-note">外来提示词里的 artist: 标签会先摘掉；没写 artist: 前缀的画师名分不出来，不会被摘。</div>'
+        + '<div class="igs-source-filter-note">内置 NAI 把这一类拼到提示词前面。数据库生图把这一对交给插件。智绘姬、柏宝绘不改画师串。</div>'
         + (slots.common || ''))
         + GROUPS.map(([title, ids, slot]) => group(title, (slot && slots[slot] || '') + ids.map((id) => card(id, ids.length === 1)).join('')
             + (slot === 'character' ? fold('prompt-kind-form', '变身 · IGS 自带', builtinBlock(FORM_VIEW), advancedOpen) : ''))).join('');

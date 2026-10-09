@@ -283,7 +283,7 @@ export function createAssetGenerationService(deps) {
         return ready;
     }
 
-    function matchContext(s, knownCharacters = []) {
+    function matchContext(s) {
         return {
             sceneAssets: s.sceneAssets,
             generatedAssets: s.sceneAssets.generated,
@@ -291,7 +291,6 @@ export function createAssetGenerationService(deps) {
             tempBackground,
             tempSceneTime,
             tempSprite,
-            knownCharacters,
         };
     }
 
@@ -580,10 +579,7 @@ export function createAssetGenerationService(deps) {
         }
         await loadTempRecords(floor.chatId);
         const numbered = numberParagraphs(floor.text);
-        const match = matchContext(
-            s,
-            messageHost.getCharacterNames ? messageHost.getCharacterNames() : [],
-        );
+        const match = matchContext(s);
         // 命中的 igs-gen 图先记下，查一遍图片本体还在不在；丢了的按缺图重算，否则一直「已有素材」却显示不出来。
         const probed = new Set();
         const lost = new Set();

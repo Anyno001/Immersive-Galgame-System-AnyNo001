@@ -393,14 +393,13 @@ test('gate:assets:registered-characters-and-scenes-are-not-generated', async () 
     const { collectAssetNeeds } = await import('../src/scene/asset-match.js');
     const ctx = {
         sceneAssets: { scenes: { 学校天台: { url: '', times: {} } }, characters: { 雪之下雪乃: {} }, characterAliases: {} },
-        knownCharacters: ['比企谷八幡'],
         userName: '我',
     };
     const needs = collectAssetNeeds({
         scenes: [{ scene: '天台', time: '夜晚' }, { scene: '废弃工厂', time: '' }],
         characters: ['雪乃', '八幡', '比企谷八幡', '路人少女'],
     }, ctx, { background: true, sprite: true });
-    assert.deepEqual(needs.map((n) => n.name), ['废弃工厂', '路人少女']);
+    assert.deepEqual(needs.map((n) => n.name), ['废弃工厂', '八幡', '比企谷八幡', '路人少女']);
 });
 
 test('gate:assets:nai-500-retries-and-reports-server-detail', async () => {

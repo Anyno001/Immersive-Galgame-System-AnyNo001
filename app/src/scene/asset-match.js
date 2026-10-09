@@ -383,7 +383,7 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     }
     const temp = typeof ctx.tempSprite === 'function' ? ctx.tempSprite(name) : '';
     if (temp && !lostImage(temp, ctx)) return { url: temp, slot: '默认', character: name, source: 'temp', needsGeneration: false };
-    return { url: '', slot: '', character: name, source: 'none', needsGeneration: !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets, ctx.knownCharacters) };
+    return { url: '', slot: '', character: name, source: 'none', needsGeneration: !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets) };
 }
 
 // NSFW 挂 CG 时的对话框头像：只在衣柜引用「裸体」的那几套里找（当条表情 → 裸体底图 → 这一套的「平和」），
@@ -404,14 +404,13 @@ export function resolveNudeSpriteAsset(character, mood, ctx = {}) {
     return { url: '', character: found.key || name };
 }
 
-// 正文常用简称/全名互指（「雪乃」↔「雪之下雪乃」）：至少两个字且互为子串即视为同一已登记角色。
-function isKnownCharacterName(name, userAssets, knownCharacters) {
+// 素材里已登记角色的简称/全名互指（「雪乃」↔「雪之下雪乃」）：至少两个字且互为子串即视为同一人。角色卡名不在此列。
+function isKnownCharacterName(name, userAssets) {
     if (Array.from(name).length < 2) return false;
     const aliases = userAssets.characterAliases && typeof userAssets.characterAliases === 'object' ? userAssets.characterAliases : {};
     const candidates = [
         ...Object.keys(userAssets.characters || {}),
         ...Object.values(aliases).flat(),
-        ...(Array.isArray(knownCharacters) ? knownCharacters : []),
     ].map((c) => String(c || '').trim()).filter((c) => Array.from(c).length >= 2);
     return candidates.some((c) => c === name || c.includes(name) || name.includes(c));
 }

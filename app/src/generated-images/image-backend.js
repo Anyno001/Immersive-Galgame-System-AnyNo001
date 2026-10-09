@@ -1,7 +1,7 @@
 import { normalizeAutoIllustrationSettings } from './illustration/auto-illustration-settings.js';
 import { resolveNaiNativeEndpoint } from './request-builders/nai-v4-builder.js';
 import { applyUserPromptsToCaption } from './dbgen-prompt.js';
-import { PROMPT_KINDS, kindArtist, promptKindOf, replaceArtist, stripArtistTags } from './prompt-artists.js';
+import { PROMPT_KINDS, kindArtist, promptKindOf } from './prompt-artists.js';
 import { formatStoredPrompt, promptFromCaption, promptFromText } from './generation-prompt.js';
 import { findChatu8Host, requestChatu8Image } from './chatu8-client.js';
 import { findBaibaiApi, requestBaibaiImage } from './baibai-client.js';
@@ -283,13 +283,18 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             return { ok: false, error: `${DBGEN_LABEL}返回的不是生图提示词，已停止出图`, prompt: promptFromCaption(caption) };
         }
         const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
-        const merged = withKindArtist(userPrompts ? applyUserPromptsToCaption(caption, userPrompts) : caption, meta);
+        const merged = userPrompts ? applyUserPromptsToCaption(caption, userPrompts) : caption;
+        const artist = artistFor(meta);
         const positive = userPrompts ? String(userPrompts.positive || '').trim() : '';
         const negative = userPrompts ? String(userPrompts.negative || '').trim() : '';
         reportLong(report, '拼之前', captionLogText(caption));
         reportLong(report, '要拼的模板', positive || negative
             ? `正向：${positive || '（空）'}\n负面：${negative || '（空）'}`
             : '（这次没带模板）');
+        if (artist && typeof report === 'function') {
+            const label = (PROMPT_KINDS.find(([id]) => id === promptKindOf(meta)) || [])[1] || '';
+            report('info', `分区画师串（${label}）：作为画师串对象交给数据库生图`);
+        }
         reportLong(report, '发出去', captionLogText(merged));
         const size = parseSize(meta.size);
         // 立绘走数据库生图时默认打开透明底。模型默认用插件自己的运行配置；填了分类型模型才传 model。
@@ -302,7 +307,12 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         };
         let result;
         try {
-            result = await withTimeout(api.generate({ caption: merged, replaceCharacterKeywords: true, ...(Object.keys(params).length && { params }) }), timeouts.paint);
+            result = await withTimeout(api.generate({
+                caption: merged,
+                replaceCharacterKeywords: true,
+                ...(artist && { artist: { positivePrompt: artist.positive, negativePrompt: artist.negative } }),
+                ...(Object.keys(params).length && { params }),
+            }), timeouts.paint);
         } catch (error) {
             return { ok: false, error: `${DBGEN_LABEL}出图失败：${(error && error.message) || error}`, prompt: promptFromCaption(merged) };
         }
@@ -353,12 +363,13 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
     }
 
     // 智绘姬出图；未安装、失败或图片取不到时，填了 NAI Key 就退回内置 NAI。
-    async function naiFallback(slot, naiSettings, reason) {
+    async function naiFallback(slot, naiSettings, reason, meta = {}) {
         const settings = naiSettings && typeof naiSettings === 'object'
             ? naiSettings
             : normalizeAutoIllustrationSettings(readBridge().autoIllustration).nai;
         if (!String(settings.apiKey || '').trim()) return { ok: false, error: reason };
-        const result = await nai.generate(slot, settings);
+        const painted = withSlotArtist(slot, settings, meta);
+        const result = await nai.generate(painted.slot, painted.naiSettings);
         return result && result.ok
             ? { ...result, via: 'nai' }
             : { ok: false, error: `${reason}；内置 NAI 兜底也失败：${(result && result.error) || '未知错误'}` };
@@ -375,21 +386,21 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                 ? `第 ${meta.messageId} 楼第 ${meta.slot} 张用${label}写的词`
                 : `第 ${meta.messageId} 楼第 ${meta.slot} 张没有${label}写的词，改用 IGS 的词`);
         }
-        return withFloorArtist(tag, meta);
+        return tag;
     }
 
     async function viaBaibai(slot, naiSettings, meta = {}) {
         const api = findBaibaiApi(globalObject);
-        if (!api) return naiFallback(slot, naiSettings, `未检测到${BAIBAI_LABEL}`);
+        if (!api) return naiFallback(slot, naiSettings, `未检测到${BAIBAI_LABEL}`, meta);
         const size = naiSettings && naiSettings.size;
         const floorTag = await pluginFloorTag('baibai', BAIBAI_LABEL, meta);
         const result = await requestBaibaiImage(api, slot, { size, seed: naiSettings && naiSettings.seed, floorTag });
-        if (!result.ok) return naiFallback(slot, naiSettings, result.error);
+        if (!result.ok) return naiFallback(slot, naiSettings, result.error, meta);
         return { ok: true, via: 'baibai', dataUrl: result.dataUrl, prompt: promptFromText(result.prompt, '') };
     }
 
     async function viaChatu8(slot, naiSettings, meta = {}) {
-        const fallback = (reason) => naiFallback(slot, naiSettings, reason);
+        const fallback = (reason) => naiFallback(slot, naiSettings, reason, meta);
         const host = findChatu8();
         if (!host) return fallback(`未检测到${CHATU8_LABEL}`);
         const floorTag = await pluginFloorTag('chatu8', CHATU8_LABEL, meta);
@@ -410,55 +421,29 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         return source ? waitFloorPromptTags(globalObject, source, messageId, floorPromptWait) : [];
     }
 
-    // 分区画师串：开关打开且这一类填了，就摘掉原有 artist: 标签换成这一类的；否则照旧。
+    // 分区画师串：开关打开且这一类填了才用。数据库生图把正负面作为 artist 对象传入；内置 NAI 拼到提示词前面。智绘姬、柏宝绘不改。
     function artistFor(meta) {
         const auto = readBridge().autoIllustration;
         return kindArtist(auto && auto.nai && auto.nai.artistByKind, meta);
     }
 
-    function reportArtist(meta, removed) {
-        if (typeof report !== 'function') return;
-        const label = (PROMPT_KINDS.find(([id]) => id === promptKindOf(meta)) || [])[1] || '';
-        report('info', `分区画师串（${label}）：${removed.length ? `摘掉 ${removed.join(', ')}` : '没有要摘的 artist: 标签'}`);
+    function prependPrompt(head, tail) {
+        return [head, tail].map((part) => String(part || '').trim()).filter(Boolean).join(', ');
     }
 
-    function withKindArtist(caption, meta) {
-        const artist = artistFor(meta);
-        if (!artist || !caption || typeof caption !== 'object') return caption;
-        const pos = (caption.v4_prompt && caption.v4_prompt.caption) || {};
-        const neg = (caption.v4_negative_prompt && caption.v4_negative_prompt.caption) || {};
-        const removed = [];
-        const strip = (text) => { const r = stripArtistTags(text); removed.push(...r.removed); return r.text; };
-        const base = artist.positive ? replaceArtist(pos.base_caption, artist.positive) : { text: String(pos.base_caption || ''), removed: [] };
-        removed.push(...base.removed);
-        const chars = Array.isArray(pos.char_captions) ? pos.char_captions.map((c) => (artist.positive ? { ...c, char_caption: strip(c && c.char_caption) } : c)) : pos.char_captions;
-        if (artist.positive) reportArtist(meta, removed);
-        return {
-            ...caption,
-            v4_prompt: { ...(caption.v4_prompt || {}), caption: { ...pos, base_caption: base.text, ...(chars && { char_captions: chars }) } },
-            v4_negative_prompt: { ...(caption.v4_negative_prompt || {}), caption: { ...neg, base_caption: [artist.negative, neg.base_caption].map((t) => String(t || '').trim()).filter(Boolean).join(', ') } },
-        };
-    }
-
-    function withFloorArtist(tag, meta) {
-        const artist = artistFor(meta);
-        if (!tag || !artist || !artist.positive) return tag;
-        const next = replaceArtist(tag.tag, artist.positive);
-        reportArtist(meta, next.removed);
-        return { ...tag, tag: next.text };
-    }
-
-    // 画师串放进 slot，内置 NAI 的全局串让位（智绘姬 / 柏宝绘失败退回 NAI 时也不会叠两份）。
+    // 内置 NAI 的提示词由 IGS 自己写，画师串直接拼到前面，全局串让位，避免叠两份。
     function withSlotArtist(slot, naiSettings, meta) {
         const artist = artistFor(meta);
         if (!artist) return { slot, naiSettings };
-        const scene = artist.positive ? replaceArtist(slot && slot.scene, artist.positive) : null;
-        if (scene) reportArtist(meta, scene.removed);
+        if (typeof report === 'function') {
+            const label = (PROMPT_KINDS.find(([id]) => id === promptKindOf(meta)) || [])[1] || '';
+            report('info', `分区画师串（${label}）：拼到提示词前面`);
+        }
         return {
             slot: {
                 ...slot,
-                ...(scene && { scene: scene.text }),
-                ...(artist.negative && { sceneUc: [artist.negative, slot && slot.sceneUc].map((t) => String(t || '').trim()).filter(Boolean).join(', ') }),
+                ...(artist.positive && { scene: prependPrompt(artist.positive, slot && slot.scene) }),
+                ...(artist.negative && { sceneUc: prependPrompt(artist.negative, slot && slot.sceneUc) }),
             },
             naiSettings: naiSettings && typeof naiSettings === 'object' ? {
                 ...naiSettings,
@@ -473,10 +458,10 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         const mode = describe().mode;
         const model = kindModel(meta);
         if (model && naiSettings && typeof naiSettings === 'object') naiSettings = { ...naiSettings, model };
-        if (mode !== 'dbgen') ({ slot, naiSettings } = withSlotArtist(slot, naiSettings, meta));
         if (mode === 'dbgen') return viaDbgen(meta);
         if (mode === 'extension') return viaChatu8(slot, naiSettings, meta);
         if (mode === 'baibai') return viaBaibai(slot, naiSettings, meta);
+        ({ slot, naiSettings } = withSlotArtist(slot, naiSettings, meta));
         return nai.generate(slot, naiSettings);
     }
 
