@@ -10,7 +10,7 @@ import { createSettingsHost } from './settings-host.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
 import { extractSceneDirectives, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers } from '../../scene/scene-directives.js';
 import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
-import { recordOutfitReview, dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
+import { recordOutfitReview, dropConfirmedOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
 import { draftAssetLibrary, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 
@@ -51,7 +51,7 @@ import { normalizeStageCastSettings } from './stage-direction-settings.js';
 import { resolveRomanceRivalTarget } from './romance-settings.js';
 import { clearCastDom } from './stage-cast-render.js';
 import { resolveCharacterDna } from '../../scene/character-dna.js';
-import { createOutfitResolver, resolveSpriteOutfit } from '../../scene/character-outfits.js';
+import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, resolveSpriteOutfit } from '../../scene/character-outfits.js';
 import { resolveEventCgForPage } from '../../scene/event-cg.js';
 import { collectOutfitClues } from '../../data/shujuku/outfit-clues.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
@@ -521,6 +521,8 @@ export function createIgsReaderHost(options = {}) {
 
     // 翻页配置缓存（见 resolveRenderConfig）；闭包变量必须写在 return 之前。
     let renderConfigCache = null;
+    // 正文出现衣柜没有的新衣服：排队到本楼最后一页，和新素材入库同一个面板里问。
+    const pendingOutfitAsks = [];
     return host;
 
     function openReader(payload = {}, openOptions = {}) {
@@ -1432,7 +1434,10 @@ export function createIgsReaderHost(options = {}) {
         const doc = container.ownerDocument || getRootDocument(options.global);
         const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
         const items = readOptionItems(createShujukuClient(api));
-        if (!items.length) {
+        const floatOverlay = container.closest && container.closest('#igs-overlay');
+        const floatInput = Boolean(floatOverlay && floatOverlay.getAttribute('data-igs-input') === 'float');
+        // 悬浮输入框没有选项时也只给一条「采取其他行动」，点了才出框。
+        if (!items.length && !floatInput) {
             hideOptionBubbles(container);
             if (!optionsForShow.silent) writeToastSafe('未找到选项表（选项 / 选项表 / 行动选项 / 检定建议表）或表为空');
             return;
@@ -1463,7 +1468,7 @@ export function createIgsReaderHost(options = {}) {
             const free = doc.createElement('button');
             free.type = 'button';
             free.className = 'igs-option-bubble igs-bubble igs-free-input-bubble';
-            free.textContent = '自由输入…';
+            free.textContent = '采取其他行动';
             free.addEventListener('click', (event) => {
                 if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
                 playReaderUiSfx('confirm');
@@ -2838,16 +2843,20 @@ export function createIgsReaderHost(options = {}) {
             if (recordOutfitReview(storage, { character, word: d.unknownOutfit })) fresh.push({ character, word: d.unknownOutfit });
         }
         if (!fresh.length) return;
-        // 自动衣柜开着（默认）时打开素材页，问第一件：归入已有 / 用衣柜 / 生成新衣服；其余留在「待确认」。
-        if (sceneAssets.wardrobeAutoFlow !== false && !state.activeSettings) {
-            openSettings({ tab: 'scene', mode: state.activeReader ? state.activeReader.mode : 'pc' });
-            const settings = state.activeSettings;
-            if (settings && settings.controller && typeof settings.controller.invoke === 'function') {
-                const [first] = fresh;
-                settings.controller.invoke(`outfit-review-auto:${encodeURIComponent(first.character)}:${encodeURIComponent(first.word)}`);
-                if (fresh.length > 1) writeToast(`还有新服装待确认：${fresh.slice(1).map((f) => `「${f.character}」的「${f.word}」`).join('、')}。`, 4200);
-                return;
+        // 自动衣柜开着（默认）时不打断阅读：排到本楼最后一页的入库面板里，用下拉菜单选归入已有 / 用衣柜 / 生成新衣服。
+        if (sceneAssets.wardrobeAutoFlow !== false) {
+            const wardrobe = normalizeWardrobe(sceneAssets.wardrobe);
+            for (const { character, word } of fresh) {
+                if (pendingOutfitAsks.some((a) => a.character === character && a.word === word)) continue;
+                const fuzzy = Object.prototype.hasOwnProperty.call(wardrobe, word) ? word : fuzzyOutfitName(wardrobe, word);
+                const outfits = (sceneAssets.characterOutfits && sceneAssets.characterOutfits[character]) || {};
+                pendingOutfitAsks.push({ character, word, choices: [
+                    ...(fuzzy ? [{ value: `w:${fuzzy}`, label: `用衣柜里的「${fuzzy}」` }] : []),
+                    ...Object.keys(outfits).map((name) => ({ value: `o:${name}`, label: `归入「${name}」（加别名）` })),
+                    { value: 'new', label: `生成新衣服「${word}」` },
+                ] });
             }
+            return;
         }
         writeToast(`有新服装待确认：${fresh.map((f) => `「${f.character}」的「${f.word}」`).join('、')}。到「素材 → 待确认」里归入已有服装或新建。`, 4200);
     }
@@ -4150,10 +4159,12 @@ export function createIgsReaderHost(options = {}) {
         if (!overlay || !overlay.querySelector || !service || typeof service.listReview !== 'function') return;
         let container = overlay.querySelector('#igs-asset-review');
         const floorKey = currentFloorKey(current);
-        const items = floorKey && isReaderLastPage(snapshot)
+        const lastPage = isReaderLastPage(snapshot);
+        const items = floorKey && lastPage
             ? service.listReview(floorKey)
             : [];
-        if (!items.length) {
+        const outfitAsks = lastPage ? pendingOutfitAsks : [];
+        if (!items.length && !outfitAsks.length) {
             if (container) container.setAttribute('hidden', '');
             return;
         }
@@ -4168,7 +4179,36 @@ export function createIgsReaderHost(options = {}) {
             previewUrl: typeof service.resolveUrl === 'function' ? service.resolveUrl(item.url) : item.url,
         })), {
             onResolve: (item, status, name) => { void resolveGeneratedReview(item, status, name); },
+            outfitAsks,
+            onOutfit: (ask, picked) => resolveOutfitAsk(ask, picked),
         });
+    }
+
+    // 段末新衣服面板的确认：加别名原地完成；用衣柜 / 生成新衣服要出图，交给素材页的自动衣柜流程（带上已选项，不再二次询问）。
+    function resolveOutfitAsk(ask, picked) {
+        const at = pendingOutfitAsks.indexOf(ask);
+        if (at >= 0) pendingOutfitAsks.splice(at, 1);
+        if (picked && picked.startsWith('o:')) {
+            const name = picked.slice(2);
+            const added = mutateSceneLibrary((assets) => {
+                const entry = assets.characterOutfits && assets.characterOutfits[ask.character] && assets.characterOutfits[ask.character][name];
+                if (!entry || typeof entry !== 'object') return { ok: false };
+                entry.words = Array.isArray(entry.words) ? entry.words : [];
+                if (!entry.words.includes(ask.word)) entry.words.push(ask.word);
+                return { ok: true };
+            });
+            if (added && added.ok !== false) {
+                removeOutfitReview((options.global || globalThis).localStorage, ask.character, ask.word);
+                writeToastSafe(`已把「${ask.word}」归入「${ask.character}」的「${name}」`);
+            } else writeToastSafe('归入失败，可到「素材 → 待确认」里处理');
+        } else if (picked) {
+            if (!state.activeSettings) openSettings({ tab: 'scene', mode: state.activeReader ? state.activeReader.mode : 'pc' });
+            const settings = state.activeSettings;
+            if (settings && settings.controller && typeof settings.controller.invoke === 'function') {
+                settings.controller.invoke(`outfit-review-auto:${encodeURIComponent(ask.character)}:${encodeURIComponent(ask.word)}:${encodeURIComponent(picked)}`);
+            }
+        }
+        if (state.activeReader) rerenderActiveReader();
     }
 
     function mutateSceneLibrary(mutator) {
@@ -4267,6 +4307,10 @@ export function createIgsReaderHost(options = {}) {
         }
         // 每次渲染都收起旧气泡；最后一页需由随后一次未被页内演出消费的推进显式打开。
         hideOptionBubbles(container);
+        // 悬浮输入框 + 选项气泡：框先藏着，等选项里点「采取其他行动」才出现；翻离最后一页就收回。
+        if (cfg.enabled) overlay.setAttribute('data-igs-options-on', '1');
+        else overlay.removeAttribute('data-igs-options-on');
+        if (!isReaderLastPage(snapshot) && overlay.classList) overlay.classList.remove('igs-free-input');
         // 把对话框实际高度/宽度写入 CSS 变量，供气泡定位在对话框正上方、宽度跟随对话框。
         const dialog = overlay.querySelector('#igs-dialog');
         if (dialog && typeof dialog.getBoundingClientRect === 'function') {

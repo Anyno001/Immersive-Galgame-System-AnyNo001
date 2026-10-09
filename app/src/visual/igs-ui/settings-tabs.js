@@ -308,15 +308,24 @@ export const SCENE_RULES_TEMPLATE = `
     <div class="igs-source-filter-note">生成服装立绘时使用的服装描述；未指定时使用同名的那一条。</div>
     {{wardrobeSection}}
   </div>
-  <div class="igs-source-filter" data-event-cg-section>
-    <div class="igs-source-filter-title">CG 库<span class="igs-outfit-muted">作者预置</span><button class="igs-btn-mgr-icon igs-title-add" data-action="event-cg-add" type="button" title="添加一张预置 CG" aria-label="添加一张预置 CG">+</button></div>
-    <div class="igs-source-filter-note">正文出现触发词，或 AI 写 [igs-cg:名字] 时显示这张图，停留页数同 CG；命中的楼不再生成过场图。可上传或填网址，随角色卡包和素材预设导出。</div>
-    {{eventCgSection}}
+  <div class="igs-source-filter igs-perf-group" data-mood-section>
+    <details data-advanced="rules-mood"{{moodSectionOpen}}>
+      <summary><b>情绪组</b><span class="igs-perf-brief">聊天与生图共用</span></summary>
+      <div class="igs-perf-group-body">
+        <div class="igs-source-filter-note">情绪词按组匹配立绘，缺图时依次回退到相近档位和默认立绘。</div>
+        {{moodSection}}
+      </div>
+    </details>
   </div>
-  <div class="igs-source-filter" data-mood-section>
-    <div class="igs-source-filter-title">情绪组<span class="igs-outfit-muted">聊天与生图共用</span></div>
-    <div class="igs-source-filter-note">情绪词按组匹配立绘，缺图时依次回退到相近档位和默认立绘。</div>
-    {{moodSection}}
+  <div class="igs-source-filter igs-perf-group" data-event-cg-section>
+    <details data-advanced="rules-event-cg"{{eventCgSectionOpen}}>
+      <summary><b>CG 库</b><span class="igs-perf-brief">作者预置</span></summary>
+      <div class="igs-perf-group-body">
+        <div class="igs-source-filter-title">正文触发的预置 CG<button class="igs-btn-mgr-icon igs-title-add" data-action="event-cg-add" type="button" title="添加一张预置 CG" aria-label="添加一张预置 CG">+</button></div>
+        <div class="igs-source-filter-note">正文出现触发词，或 AI 写 [igs-cg:名字] 时显示这张图，停留页数同 CG；命中的楼不再生成过场图。可上传或填网址，随角色卡包和素材预设导出。</div>
+        {{eventCgSection}}
+      </div>
+    </details>
   </div>
 </div>
 `.trim();

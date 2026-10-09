@@ -562,6 +562,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + '<div class="igs-source-filter-note">仅在需要时附上完整说明。</div></details>',
                 wardrobeSection: checkbox('bridge.sceneAssets.wardrobeAutoFlow', sceneAssets.wardrobeAutoFlow !== false, '自动流程（新建后自动写提示词、生成参考图）')
                     + renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
+                moodSectionOpen: asyncState.advancedOpen && asyncState.advancedOpen['rules-mood'] ? ' open' : '',
+                eventCgSectionOpen: asyncState.advancedOpen && asyncState.advancedOpen['rules-event-cg'] ? ' open' : '',
                 eventCgSection: renderEventCgList(scopedEntries('eventCgs'), { resolveUrl: resolveGenerated, scopeTag }),
                 moodSection: checkbox('bridge.sceneAssets.moodAutoClassify', sceneAssets.moodAutoClassify === true, '自动归类（用副API）')
                     + (asyncState.moodAutoStatus ? `<div class="igs-source-filter-note" data-mood-auto-status>${esc(asyncState.moodAutoStatus)}</div>` : '')
@@ -645,7 +647,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             glassOpacityField: field('readerSettings.glassOpacity', '玻璃浓度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`]))),
             inputScaleField: field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
             toolbarScaleField: field('readerSettings.toolbarScale', '工具栏大小', selectInput('readerSettings.toolbarScale', reader.toolbarScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
-            inputPlacementField: field('readerSettings.inputPlacement', '输入框位置', selectInput('readerSettings.inputPlacement', reader.inputPlacement === 'float' ? 'float' : 'dialog', [['dialog', '放在对话框里'], ['float', '悬浮在对话框上方（有选项时点「自由输入」才出现）']])),
+            inputPlacementField: field('readerSettings.inputPlacement', '输入框位置', selectInput('readerSettings.inputPlacement', reader.inputPlacement === 'float' ? 'float' : 'dialog', [['dialog', '放在对话框里'], ['float', '悬浮在对话框上方（有选项时点「采取其他行动」才出现）']])),
             toolbarDockField: field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'top', [['float', '紧贴对话框'], ['top', '顶部固定']])),
             toolbarSplitField: field('readerSettings.toolbarSplit', '按钮分布', selectInput('readerSettings.toolbarSplit', reader.toolbarSplit || 'split', [['split', '分两截（翻页读档在对话框下）'], ['top', '只用顶栏'], ['dialog', '全放对话框下']])),
             dialogBarAlignField: reader.toolbarSplit === 'top' ? '' : field('readerSettings.dialogBarAlign', '对话框下按钮位置', selectInput('readerSettings.dialogBarAlign', reader.dialogBarAlign || 'auto', [['auto', '自动（手机居中、电脑靠左）'], ['left', '靠左'], ['center', '居中'], ['right', '靠右']])),

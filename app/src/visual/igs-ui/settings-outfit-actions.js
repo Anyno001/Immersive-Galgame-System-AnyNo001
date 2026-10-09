@@ -369,8 +369,10 @@ async function handleOutfitReviewAuto(segs, ctx) {
         ...Object.keys(outfits).map((name) => ({ value: `o:${name}`, label: `归入「${name}」（加别名）` })),
         { value: 'new', label: `生成新衣服「${word}」` },
     ];
+    // 段末面板已在下拉菜单里选好时直接用，不再弹询问。
+    const preset = decodeSeg(segs[2] || '');
     const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
-    const picked = typeof dialogs.choose === 'function'
+    const picked = preset ? preset : typeof dialogs.choose === 'function'
         ? await dialogs.choose(`「${charName}」穿了衣柜里没有的「${word}」：`, choices, choices[0].value, { cancelLabel: '稍后' })
         : choices[0].value;
     if (!picked || !choices.some((c) => c.value === picked)) return rerenderSettings();

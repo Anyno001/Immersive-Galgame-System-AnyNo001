@@ -339,8 +339,7 @@ ${TOAST_THEME_STYLE_TEXT}
 #igs-overlay #igs-send-status{background:color-mix(in srgb,var(--igs-bar-ink,#fff) 7%,transparent);}
 #igs-overlay[data-igs-input="float"]>.igs-controls{position:absolute;z-index:7;left:50%;transform:translateX(-50%);bottom:calc(24px + var(--igs-dialog-h,160px) + 10px);width:min(620px,calc(100% - 32px));box-sizing:border-box;padding:6px;border-radius:14px;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 72%,transparent);}
 #igs-overlay[data-igs-input="float"]:not(.igs-toolbar-top)>.igs-controls{bottom:calc(24px + var(--igs-dialog-h,160px) + 50px);}
-#igs-overlay[data-igs-input="float"].igs-options-visible:not(.igs-free-input)>.igs-controls{display:none!important;}
-#igs-overlay .igs-option-bubble.igs-free-input-bubble{opacity:.72;}
+#igs-overlay[data-igs-input="float"][data-igs-options-on]:not(.igs-free-input)>.igs-controls{display:none!important;}
 /* 工具栏统一：干净的半透明小底板，淡淡跟随皮肤（--igs-bar-plate 对话框底色、--igs-bar-ink 正文色，由渲染层写入）；单行、等大、等距，不用毛玻璃和阴影。 */
 #igs-overlay #igs-ctrl-bar{display:flex;flex-wrap:nowrap;align-items:center;gap:0;padding:2px 3px;border:0;border-radius:10px;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 5%,transparent);color:var(--igs-bar-ink,#fff);}
 #igs-overlay:not(.igs-toolbar-top):not(.igs-mode-embedded) #igs-ctrl-bar{top:auto;bottom:calc(100% + 8px);}
