@@ -1103,7 +1103,7 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
         assert.equal(bytes.readUInt32BE(20), height);
     }
     assert.match(CLASSIC_SKIN_CSS, /data-igs-dialog-skin="western-classic"/);
-    assert.match(CLASSIC_SKIN_CSS, /border-image:url\("__IGS_ASSET__western-classic\/dialog\.png__"\) 0 110 0 110 fill \/ 0 110px 0 110px \/ 0 stretch/);
+    assert.match(CLASSIC_SKIN_CSS, /border-image:url\("__IGS_ASSET__western-classic\/dialog\.png__"\) 0 110 0 110 fill \/ 0 calc\(110px \* var\(--igs-slice-k,1\)\) 0 calc\(110px \* var\(--igs-slice-k,1\)\) \/ 0 stretch/);
     assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*left:60px;top:-22px;width:max-content;min-width:150px;max-width:calc\(100% - 120px\);height:52px;line-height:44px/);
     assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*border-image:url\("__IGS_ASSET__western-classic\/name\.png__"\) 0 65 0 65 fill \/ 0 50px 0 50px \/ 0 stretch/);
     assert.match(CLASSIC_SKIN_CSS, /\.igs-speaker\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px;font-weight:600/);
@@ -1155,15 +1155,15 @@ test('gate:igs-ui:classic-dialog-assets-and-style', () => {
 test('gate:igs-ui:illustrated-dialog-style-uses-three-slice-assets', () => {
     assert.match(ILLUSTRATED_SKIN_CSS, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_PLANT_COFFEE}"`));
     assert.match(ILLUSTRATED_SKIN_CSS, /height:177px;min-height:177px;max-height:177px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__plant-coffee\/dialog\.png__"\) 0 130 0 130 fill \/ 0 130px 0 130px \/ 0 stretch/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__plant-coffee\/dialog\.png__"\) 0 130 0 130 fill \/ 0 calc\(130px \* var\(--igs-slice-k,1\)\) 0 calc\(130px \* var\(--igs-slice-k,1\)\) \/ 0 stretch/);
     assert.match(ILLUSTRATED_SKIN_CSS, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_BLACK_WHITE_MANGA}"`));
     assert.match(ILLUSTRATED_SKIN_CSS, /height:191px;min-height:191px;max-height:191px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__black-white-manga\/dialog\.png__"\) 0 89 0 90 fill \/ 0 89px 0 90px \/ 0 stretch/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__black-white-manga\/dialog\.png__"\) 0 89 0 90 fill \/ 0 calc\(89px \* var\(--igs-slice-k,1\)\) 0 calc\(90px \* var\(--igs-slice-k,1\)\) \/ 0 stretch/);
     assert.match(ILLUSTRATED_SKIN_CSS, new RegExp(`data-igs-dialog-skin="${DIALOG_SKIN_CUTE_PINK}"`));
     assert.match(ILLUSTRATED_SKIN_CSS, /height:215px;min-height:215px;max-height:215px/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__cute-pink\/dialog\.png__"\) 0 145 0 120 fill \/ 0 145px 0 120px \/ 0 stretch/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /border-image:url\("__IGS_ASSET__cute-pink\/dialog\.png__"\) 0 145 0 120 fill \/ 0 calc\(145px \* var\(--igs-slice-k,1\)\) 0 calc\(120px \* var\(--igs-slice-k,1\)\) \/ 0 stretch/);
     assert.match(ILLUSTRATED_SKIN_CSS, /plant-coffee"\] \.igs-speaker\{[^}]*0 35 0 35 fill \/ 0 31px 0 31px \/ 0 stretch/);
-    assert.match(ILLUSTRATED_SKIN_CSS, /black-white-manga"\] \.igs-speaker\{[^}]*0 68 0 68 fill \/ 0 56px 0 56px \/ 0 stretch/);
+    assert.match(ILLUSTRATED_SKIN_CSS, /black-white-manga"\] \.igs-speaker\{[^}]*0 68 0 68 fill \/ 0 66px 0 66px \/ 0 stretch/);
     assert.match(ILLUSTRATED_SKIN_CSS, /cute-pink"\] \.igs-speaker\{[^}]*0 100 0 40 fill \/ 0 85px 0 34px \/ 0 stretch/);
     for (const skin of [DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK]) {
         const speakerRule = ILLUSTRATED_SKIN_CSS.split('\n').find((line) => line.includes(`"${skin}"] .igs-speaker{`));

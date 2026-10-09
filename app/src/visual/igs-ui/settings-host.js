@@ -249,6 +249,10 @@ export function createSettingsHost(deps) {
         if (value === true && (path === 'readerSettings.tts.enabled' || path === 'readerSettings.voiceBark.enabled')) {
             setPath(draft, path === 'readerSettings.tts.enabled' ? 'readerSettings.voiceBark.enabled' : 'readerSettings.tts.enabled', false);
         }
+        // 主界面选的皮肤记在角色卡上、会盖过全局；用户在这里亲手换风格时以此为准，清掉卡上那份。
+        if (path === 'readerSettings.dialogSkin' && state.activeSettings.asyncState && state.activeSettings.asyncState.assetScopeKey) {
+            delete draftAssetLibrary(state.activeSettings).dialogSkin;
+        }
         const themeKey = path.startsWith('readerSettings.classicVnTheme.') ? 'classicVnTheme' : 'vnTheme';
         const themeRoot = `readerSettings.${themeKey}`;
         if (path === `${themeRoot}.preset` && value === 'custom') {

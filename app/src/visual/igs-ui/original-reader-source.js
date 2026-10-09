@@ -59,10 +59,11 @@ export const ORIGINAL_READER_ICONS = Object.freeze({
     replay: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
     stop: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
     assets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="9" cy="7" r="3.2"/><path d="M3.5 20v-1.5A4.5 4.5 0 0 1 8 14h2"/><path d="M13 20l3.2-4.2 2 2.5 1.3-1.6L22 20z"/><path d="M18 4v5M15.5 6.5h5"/></svg>',
-    regen: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M4 16l4.5-4.5a1.5 1.5 0 0 1 2.1 0L16 17"/><path d="M14 15l1.5-1.5a1.5 1.5 0 0 1 2.1 0L20 16"/><path d="M18.5 2.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor"/></svg>',
+    // 绘制 / 重画系列：同一圆角画框与线宽。整楼 = 两层叠框 + 星芒，单张 = 单框 + 循环箭头；小尺寸只靠框内大符号区分。
+    regen: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M8 3h11a2 2 0 0 1 2 2v11"/><rect x="3" y="7" width="14" height="14" rx="2"/><path d="M10 9.6l1.1 2.6 2.6 1.1-2.6 1.1-1.1 2.6-1.1-2.6-2.6-1.1 2.6-1.1z" fill="currentColor"/></svg>',
     clearCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 10v6M14 10v6"/></svg>',
     clearFloorCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 10v6M14 10v6"/><path d="M4 3h16"/></svg>',
-    rerollCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M20 11V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5"/><path d="M15 8h.01"/><path d="M4 16l4-4a1.5 1.5 0 0 1 2.1 0l2.4 2.4"/><path d="M21 17.5a3.5 3.5 0 1 1-1.03-2.47"/><path d="M21 13v2.5h-2.5"/></svg>',
+    rerollCg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M16.5 12a4.5 4.5 0 1 1-1.32-3.18"/><path d="M16.5 6.5v3h-3"/></svg>',
     rescan: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>',
     save: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
     settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 5 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 5a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.4.6.8 1 1 .3.2.7.3 1.1.3H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>',
@@ -341,7 +342,7 @@ ${TOAST_THEME_STYLE_TEXT}
 #igs-overlay[data-igs-input="float"].igs-options-visible:not(.igs-free-input)>.igs-controls{display:none!important;}
 #igs-overlay .igs-option-bubble.igs-free-input-bubble{opacity:.72;}
 /* 工具栏统一：干净的半透明小底板，淡淡跟随皮肤（--igs-bar-plate 对话框底色、--igs-bar-ink 正文色，由渲染层写入）；单行、等大、等距，不用毛玻璃和阴影。 */
-#igs-overlay #igs-ctrl-bar{display:flex;flex-wrap:nowrap;align-items:center;gap:0;padding:2px 3px;border:0;border-radius:10px;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 40%,transparent);color:var(--igs-bar-ink,#fff);}
+#igs-overlay #igs-ctrl-bar{display:flex;flex-wrap:nowrap;align-items:center;gap:0;padding:2px 3px;border:0;border-radius:10px;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 5%,transparent);color:var(--igs-bar-ink,#fff);}
 #igs-overlay:not(.igs-toolbar-top):not(.igs-mode-embedded) #igs-ctrl-bar{top:auto;bottom:calc(100% + 8px);}
 #igs-overlay #igs-ctrl-bar{align-items:flex-start;}
 #igs-overlay #igs-bar-btns,#igs-overlay #igs-bar-pinned{gap:0!important;align-items:center;align-content:flex-start;height:auto;min-height:28px;}
@@ -351,8 +352,10 @@ ${TOAST_THEME_STYLE_TEXT}
 #igs-overlay.igs-toolbar-top #igs-bar-btns,#igs-overlay.igs-toolbar-top #igs-bar-btns.igs-bar-overflow{max-width:calc(100vw - 120px);flex-wrap:wrap;justify-content:flex-end;}
 #igs-overlay #igs-bar-btns::-webkit-scrollbar{display:none;}
 #igs-overlay #igs-ctrl-bar .igs-icon-btn{flex:0 0 auto;width:28px;height:28px;min-width:28px;padding:0;margin:0;border:0;border-radius:7px;background:transparent;box-shadow:none;color:inherit;opacity:.5;transition:opacity .15s,background-color .15s;}
-#igs-overlay #igs-ctrl-bar .igs-icon-btn:hover,#igs-overlay #igs-ctrl-bar .igs-icon-btn:focus-visible{opacity:.95;background:color-mix(in srgb,currentColor 12%,transparent);}
-#igs-overlay #igs-ctrl-bar .igs-icon-btn[aria-pressed="true"]{opacity:.85;}
+#igs-overlay #igs-ctrl-bar .igs-icon-btn:hover,#igs-overlay #igs-ctrl-bar .igs-icon-btn:focus-visible{opacity:.95;background:transparent;}
+#igs-overlay #igs-ctrl-bar .igs-icon-btn[aria-pressed="true"]{position:relative;opacity:.85;}
+/* 开着的按钮下方一个小圆点（图标同色，随皮肤正文色）；::after 留给触屏放大点击区。 */
+#igs-overlay #igs-ctrl-bar .igs-icon-btn[aria-pressed="true"]::before{content:"";position:absolute;left:50%;bottom:2px;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;background:currentColor;pointer-events:none;}
 #igs-overlay #igs-ctrl-bar .igs-icon-btn:disabled{opacity:.2;}
 #igs-overlay #igs-ctrl-bar .igs-icon-btn svg{width:13px;height:13px;transform:none;}
 /* 分组、固定区、折叠钮与普通按钮同间距，第一排和折叠钮在同一条线上。 */
@@ -360,6 +363,11 @@ ${TOAST_THEME_STYLE_TEXT}
 #igs-overlay #igs-ctrl-bar>.igs-icon-btn{align-self:flex-start;}
 #igs-overlay #igs-ctrl-bar>[data-act="toggle-bar"] svg{transition:transform .2s ease;}
 #igs-overlay.igs-toolbar-expanded #igs-ctrl-bar>[data-act="toggle-bar"] svg{transform:rotate(180deg);}
+/* 未展开时没有底板也没有描边；展开后是一层羽化的轻毛玻璃（5% 皮肤对话框底色、四边渐隐），底色与模糊程度都跟随对话框，不描边。 */
+#igs-overlay #igs-ctrl-bar{background:transparent;isolation:isolate;}
+#igs-overlay.igs-toolbar-expanded.igs-toolbar-top #igs-ctrl-bar,#igs-overlay.igs-toolbar-expanded.igs-mode-embedded #igs-ctrl-bar{position:relative;}
+#igs-overlay.igs-toolbar-expanded #igs-ctrl-bar::before{content:"";position:absolute;inset:-6px -8px;z-index:-1;pointer-events:none;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 5%,transparent);-webkit-backdrop-filter:var(--igs-bar-blur,blur(6px));backdrop-filter:var(--igs-bar-blur,blur(6px));-webkit-mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent),linear-gradient(180deg,transparent,#000 8px,#000 calc(100% - 8px),transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent),linear-gradient(180deg,transparent,#000 8px,#000 calc(100% - 8px),transparent);mask-composite:intersect;animation:igs-bar-plate-in .2s ease both;}
+@keyframes igs-bar-plate-in{from{opacity:0;}to{opacity:1;}}
 .igs-mode-embedded .igs-ctrl-bar,.igs-mode-embedded #igs-bar-btns,#igs-overlay.igs-default-reader-chrome:not(.igs-toolbar-top) .igs-ctrl-bar,#igs-overlay.igs-default-reader-chrome:not(.igs-toolbar-top) #igs-bar-btns{justify-content:flex-end;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-pos]{top:calc(14px + var(--igs-toolbar-h,32px) + 8px);bottom:calc(14px + var(--igs-dialog-h,220px) + 10px);max-height:none;overflow-y:auto;overscroll-behavior:contain;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}

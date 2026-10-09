@@ -56,7 +56,7 @@ import { applyBgmNoteToDom } from './bgm-note.js';
 import { isConfessionLine } from './bgm-library.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
-import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
+import { getReferenceDialogTypography, preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { clearSpriteOutfitSwap, isFormOutfit, isOutfitSwap, playSpriteFormShift, spriteLookOf } from './sprite-outfit-swap.js';
 import { spriteEnhanceFilter } from './sprite-enhance.js';
@@ -642,6 +642,31 @@ function resolveFrozenDialogHeight(current, snapshot, requestedHeight, win, over
     return px;
 }
 
+// 高度自适应压矮时，三片素材两端按「实际高 ÷ 原高」等比缩小（--igs-slice-k），不被纵向压扁；没开自适应恒为 1。
+// 改两端宽度不影响布局高度，观察回调不会自激。
+const sliceScaleWatchers = new WeakMap();
+function watchSliceScale(dialog, win) {
+    if (!dialog || !dialog.style || typeof dialog.style.getPropertyValue !== 'function' || typeof dialog.hasAttribute !== 'function') return;
+    const update = () => {
+        let k = 1;
+        if (dialog.hasAttribute('data-igs-auto-h') && win && typeof win.getComputedStyle === 'function') {
+            const full = parseFloat(win.getComputedStyle(dialog).maxHeight);
+            const now = dialog.offsetHeight;
+            if (full > 0 && now > 0) k = Math.max(0.3, Math.min(1, now / full));
+        }
+        const value = k === 1 ? '' : k.toFixed(3);
+        if (dialog.style.getPropertyValue('--igs-slice-k') === value) return;
+        if (value) dialog.style.setProperty('--igs-slice-k', value);
+        else dialog.style.removeProperty('--igs-slice-k');
+    };
+    if (!sliceScaleWatchers.has(dialog) && win && typeof win.ResizeObserver === 'function') {
+        const observer = new win.ResizeObserver(update);
+        observer.observe(dialog);
+        sliceScaleWatchers.set(dialog, observer);
+    }
+    update();
+}
+
 function clearFrozenDialogHeight(current) {
     if (current) current.dialogHeightFreeze = null;
 }
@@ -692,6 +717,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
             dialog.style.maxHeight = '';
             if (readerSettings.dialogAutoHeight === true && supportsDialogAutoHeight(readerSettings)) dialog.setAttribute('data-igs-auto-h', '');
             else dialog.removeAttribute('data-igs-auto-h');
+            watchSliceScale(dialog, win);
         } else {
             const viewportHeight = Number(win && win.visualViewport && win.visualViewport.height)
                 || Number(win && win.innerHeight)
@@ -1604,6 +1630,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const plate = plateAlpha >= 0.15 ? `rgb(${plateParts.slice(0, 3).join(',')})` : (lightInk ? 'rgb(18,18,20)' : 'rgb(246,244,240)');
             if (ink) root.style.setProperty('--igs-bar-ink', ink);
             root.style.setProperty('--igs-bar-plate', plate);
+            // 展开工具栏的羽化底板也跟对话框的毛玻璃走：有就照搬（封顶 10px 保持轻量），没有用 6px。
+            const dialogBlur = dialog ? Number((String(view.getComputedStyle(dialog).backdropFilter || '').match(/blur\(([\d.]+)px\)/) || [])[1]) : 0;
+            root.style.setProperty('--igs-bar-blur', `blur(${dialogBlur > 0 ? Math.min(dialogBlur, 10) : 6}px)`);
         }
         // 字体、字号定下后再量：放不下一行的注音改成译文单独成行，打字机随后按改好的排版测量。
         if (bilingualDisplay === 'ruby') fitBilingualRuby(textEl);
@@ -1738,14 +1767,17 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         if (sceneAssetsEnabled && snapshot.content.speaker) {
             speakerEl.textContent = snapshot.content.speaker;
             speakerEl.style.display = 'block';
-            applyAlignStyle(speakerEl, theme.nameAlign);
-            speakerEl.style.fontFamily = theme.nameFont && theme.nameFont !== 'inherit' ? theme.nameFont : '';
-            if (String(theme.nameFont || '').includes('IGSUserFont-')) {
+            // 素材 / 插画皮肤的姓名牌是成套设计：字体、字重、颜色、对齐只认皮肤自带排版，不跟用户在主题页自选的文字。
+            const plate = materialDialog ? (getReferenceDialogTypography(dialogSettings.dialogSkin) || {}) : null;
+            const nameTheme = plate ? { nameAlign: plate.nameAlign, nameFont: plate.nameFont, nameColor: plate.nameColor } : theme;
+            applyAlignStyle(speakerEl, nameTheme.nameAlign);
+            speakerEl.style.fontFamily = nameTheme.nameFont && nameTheme.nameFont !== 'inherit' ? nameTheme.nameFont : '';
+            if (String(nameTheme.nameFont || '').includes('IGSUserFont-')) {
                 const hostDoc = speakerEl.ownerDocument;
                 registerCustomFonts(hostDoc, loadCustomFonts((hostDoc && hostDoc.defaultView) || globalThis));
             }
-            speakerEl.style.fontWeight = snapshot.readerSettings.dialogFontWeight == null ? '' : String(snapshot.readerSettings.dialogFontWeight);
-            speakerEl.style.color = theme.nameColor || '';
+            speakerEl.style.fontWeight = plate || snapshot.readerSettings.dialogFontWeight == null ? '' : String(snapshot.readerSettings.dialogFontWeight);
+            speakerEl.style.color = nameTheme.nameColor || '';
         } else {
             speakerEl.style.display = 'none';
             speakerEl.style.fontWeight = '';

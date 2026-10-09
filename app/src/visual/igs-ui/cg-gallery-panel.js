@@ -19,7 +19,7 @@ function findAction(target) {
     return null;
 }
 
-// options: service（createCgLibrary 的返回值）, storage（记排序偏好）, getChatId(), confirm(message) → Promise<boolean>|boolean, onJump(entry)
+// options: service（createCgLibrary 的返回值）, storage（记排序偏好）, getChatId(), confirm(message) → Promise<boolean>|boolean, onJump(entry), onReroll(entry) → Promise<{ok, reason, error}>
 export function createCgGalleryPanel(doc, options = {}) {
     const { service } = options;
     let root = null;
@@ -35,6 +35,10 @@ export function createCgGalleryPanel(doc, options = {}) {
     const query = (selector) => (root && typeof root.querySelector === 'function' ? root.querySelector(selector) : null);
     const attrValue = (value) => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, ''));
     const labelOf = (entry) => (entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼 · ${entry.slot}`);
+    // 重画按原提示词重出同一格，只认当前聊天的楼层 CG（照片没有提示词）。
+    const canReroll = (entry) => entry.kind !== 'photo' && entry.chatId === chatId() && typeof options.onReroll === 'function';
+    const rerolling = new Set();
+    const rerollButton = (entry, cls = '') => (canReroll(entry) ? `<button type="button"${cls ? ` class="${cls}"` : ''} data-cg-act="reroll" data-cg-key="${escapeHtml(entry.key)}"${rerolling.has(entry.key) ? ' disabled' : ''}>${rerolling.has(entry.key) ? '重画中…' : '重画'}</button>` : '');
 
     function thumbHtml(entry) {
         const tile = view.tileOf(entry.key);
@@ -53,6 +57,7 @@ export function createCgGalleryPanel(doc, options = {}) {
             + `<button type="button" data-cg-act="favorite" data-cg-key="${escapeHtml(entry.key)}" aria-pressed="${entry.favorite}">${entry.favorite ? '取消收藏' : '收藏'}</button>`
             + `<button type="button" data-cg-act="hide" data-cg-key="${escapeHtml(entry.key)}" aria-pressed="${entry.hidden}">${entry.hidden ? '取消隐藏' : '隐藏'}</button>`
             + (canJump ? `<button type="button" data-cg-act="jump" data-cg-key="${escapeHtml(entry.key)}">跳到楼层</button>` : '')
+            + rerollButton(entry)
             + `<button type="button" class="is-danger" data-cg-act="delete" data-cg-key="${escapeHtml(entry.key)}">删除</button>`
             + `</div></li>`;
     }
@@ -105,6 +110,8 @@ export function createCgGalleryPanel(doc, options = {}) {
     // 大图层挂在面板外的容器上铺满阅读区：面板是滚动容器，放在里面会随网格滚走。点任意处或 Esc 关闭。
     function onViewerClick(event) {
         event?.stopPropagation?.();
+        const hit = findAction(event && event.target);
+        if (hit && hit.act === 'reroll') { queueAct('reroll', hit.key); return; }
         closeViewer();
     }
 
@@ -122,6 +129,7 @@ export function createCgGalleryPanel(doc, options = {}) {
         const alt = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼 CG`;
         return (src ? `<img src="${escapeHtml(src)}" alt="${alt}">` : '')
             + (note ? `<p class="igs-cg-viewer-note">${escapeHtml(note)}</p>` : '')
+            + rerollButton(entry, 'igs-cg-viewer-reroll')
             + '<button type="button" class="igs-cg-viewer-close" aria-label="关闭大图">×</button>';
     }
 
@@ -177,6 +185,25 @@ export function createCgGalleryPanel(doc, options = {}) {
             else view.setNotice(`没保存上：${cgReasonText(result && result.reason)}`);
             return;
         }
+        if (act === 'reroll') {
+            if (!canReroll(entry) || rerolling.has(entry.key)) return;
+            const ask = typeof options.confirm === 'function' ? options.confirm : () => false;
+            if (!(await ask('只重画这一张？提示词不变，楼层里的图会一起换掉。'))) return;
+            rerolling.add(entry.key);
+            refreshReroll(entry);
+            view.setNotice('正在重画…');
+            let result = null;
+            try { result = await options.onReroll(entry); } catch (error) { result = { ok: false, error: (error && error.message) || String(error) }; }
+            rerolling.delete(entry.key);
+            if (!view) return;
+            if (result && result.ok !== false && result.reason !== 'not-eligible') {
+                view.setNotice('这一张已重画');
+                view.retry(entry.key);
+                if (viewing === entry.key) { openViewer(entry); return; }
+            } else view.setNotice(result && result.reason === 'not-eligible' ? '这一楼现在不能重画（楼层已改动或换了分支）' : `重画失败：${(result && result.error) || cgReasonText(result && result.reason)}`);
+            refreshReroll(entry);
+            return;
+        }
         if (act === 'delete') {
             const ask = typeof options.confirm === 'function' ? options.confirm : () => false;
             const ok = await ask(entry.kind === 'photo' ? '删除这张照片？无法恢复。' : `删除第 ${entry.messageId} 楼的这张 CG？楼层里的这张图也会一起消失，无法恢复。`);
@@ -188,6 +215,21 @@ export function createCgGalleryPanel(doc, options = {}) {
                 view.setNotice('已删除');
             } else view.setNotice('删除失败，CG 仍保留');
         }
+    }
+
+    // 网格与大图里的重画钮跟着进度换字，不整块重画。
+    function refreshReroll(entry) {
+        const scopes = [query(`[data-cg-tile="${attrValue(entry.key)}"]`), viewing === entry.key ? viewerEl : null];
+        for (const scope of scopes) {
+            const button = scope && typeof scope.querySelector === 'function' ? scope.querySelector('[data-cg-act="reroll"]') : null;
+            if (!button || typeof button.insertAdjacentHTML !== 'function') continue;
+            button.insertAdjacentHTML('afterend', rerollButton(entry, button.className || ''));
+            button.remove();
+        }
+    }
+
+    function queueAct(act, key) {
+        acting = acting.then(() => handle(act, key)).catch(() => { view?.setNotice('操作失败'); });
     }
 
     function onClick(event) {
@@ -204,7 +246,7 @@ export function createCgGalleryPanel(doc, options = {}) {
         if (act === 'order') { view.setFilters({ oldestFirst: !view.state.filters.oldestFirst }); return; }
         if (act === 'retry') { view.retry(key); return; }
         if (act === 'view') { const entry = view.find(key); if (entry) openViewer(entry); return; }
-        acting = acting.then(() => handle(act, key)).catch(() => { view?.setNotice('操作失败'); });
+        queueAct(act, key);
     }
 
     // 焦点在面板内时，空格/回车/方向键不冒泡到阅读器的全局翻页处理器。
@@ -300,6 +342,8 @@ export const CG_GALLERY_STYLE_TEXT = `
 #igs-cg-viewer{position:absolute;inset:0;z-index:31;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.92);cursor:zoom-out;outline:none;}
 #igs-cg-viewer img{max-width:96%;max-height:92%;object-fit:contain;display:block;}
 #igs-cg-viewer .igs-cg-viewer-note{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);margin:0;padding:6px 12px;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;font-size:13px;}
+#igs-cg-viewer .igs-cg-viewer-reroll{position:absolute;top:12px;right:64px;min-height:44px;padding:0 14px;border:none;border-radius:8px;background:rgba(255,255,255,.14);color:#fff;font-size:14px;cursor:pointer;}
+#igs-cg-viewer .igs-cg-viewer-reroll:disabled{opacity:.55;cursor:default;}
 #igs-cg-viewer .igs-cg-viewer-close{position:absolute;top:12px;right:12px;min-width:44px;min-height:44px;border:none;border-radius:8px;background:rgba(255,255,255,.14);color:#fff;font-size:20px;line-height:1;cursor:pointer;}
 @media (max-width:420px){#igs-cg-gallery .igs-cg-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
 `;

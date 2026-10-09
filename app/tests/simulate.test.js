@@ -2269,17 +2269,19 @@ test('gate:illustration:image-settings-render-and-persist-roundtrip', () => {
         assert.doesNotMatch(initial.html, /data-switch="bridge\.autoIllustration\.nsfwEnabled"/);
         const content = opened.controller.switchImageSubTab('auto').snapshot;
         assert.equal(content.imageSubTab, 'auto');
-        assert.match(content.html, /data-image-feature="nsfw" hidden/);
-        assert.match(content.html, /data-image-feature="interlude" hidden/);
-        assert.doesNotMatch(content.html, /data-image-feature="llm"[\s>]/, '副 LLM 单独成页，不在生图内容里');
+        assert.match(content.html, /data-image-feature="nsfw" hidden/, '分类页只露 NSFW 开关，张数在开启后才显示');
+        assert.match(content.html, /data-switch="bridge.autoIllustration.nsfwEnabled"/);
+        assert.match(content.html, /data-switch="bridge.autoIllustration.interludeEnabled"/);
+        assert.doesNotMatch(content.html, /data-image-feature="llm"[\s>]/, '副 LLM 单独成页，不在分类里');
         assert.match(content.html, /data-image-feature="llm-warn" hidden/, '沿用酒馆 API 时不提醒');
+        // 分类页自带分区画师串面板，旧「提示词」子页已并入。
+        assert.match(content.html, /data-switch="bridge.autoIllustration.nai.artistByKind.enabled"/);
         const llmPane = opened.controller.switchImageSubTab('llm').snapshot;
         assert.equal(llmPane.imageSubTab, 'llm');
         assert.match(llmPane.html, /data-image-feature="llm"(?![^>]*\shidden)/);
         assert.match(llmPane.html, /data-path="bridge\.autoIllustration\.llm\.endpoint"[^>]*disabled/);
-        const promptsPane = opened.controller.switchImageSubTab('prompts').snapshot;
-        assert.match(promptsPane.html, /data-switch="bridge.autoIllustration.nai.artistByKind.enabled"/);
-        const rendered = initial.html + content.html + llmPane.html + promptsPane.html;
+        assert.equal(opened.controller.switchImageSubTab('prompts').snapshot.imageSubTab, 'auto', '旧的「提示词」子页并入分类');
+        const rendered = initial.html + content.html + llmPane.html;
         for (const path of initial.activeContract.requiredPaths.filter((item) => item.startsWith('bridge.autoIllustration.'))) {
             assert.ok(rendered.includes(`data-path="${path}"`) || rendered.includes(`data-switch="${path}"`), `Missing image field: ${path}`);
         }
@@ -3468,6 +3470,7 @@ test('gate:simulation:classic-dialog-settings-roundtrip-keeps-default', async ()
     const storage = createMemoryStorage();
     storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
         _v: '0.5.4',
+        dialogSkin: 'default',
         dialogHeight: 300,
         glassOpacity: 0.74,
         toolbarScale: 80,
@@ -4344,7 +4347,7 @@ test('gate:simulation:reader-sub-tab-switches-functional-pages', async () => {
     const classicDialogView = settings.switchReaderSubTab('dialog');
     assert.equal((classicDialogView.snapshot.html.match(/对话框风格/g) || []).length, 1);
     assert.ok(classicDialogView.snapshot.html.indexOf('对话框宽度') < classicDialogView.snapshot.html.indexOf('电脑端宽度'));
-    assert.ok(classicDialogView.snapshot.html.indexOf('电脑端宽度') < classicDialogView.snapshot.html.indexOf('对话框高度'));
+    assert.ok(classicDialogView.snapshot.html.indexOf('电脑端宽度') < classicDialogView.snapshot.html.indexOf('readerSettings.skinDialogScale'));
     assert.doesNotMatch(classicDialogView.snapshot.html, /西欧古典请在「主题」页按比例调整|当前风格使用固定 184px|按阅读器可用宽度自动计算|不影响素材对话框，仍作用于工具栏、选项和数据库。|当前编辑西欧古典风格的文字外观；默认风格配置会保留。|姓名牌风格不显示额外分隔线。/);
 
     settings.setValue('readerSettings.dialogFontWeight', '700');
@@ -9087,14 +9090,14 @@ test('gate:simulation:illustrated-dialog-skins-roundtrip-through-reader', async 
     assert.equal(text.style.paintOrder, '');
     settings.setValue('readerSettings.dialogFontWeight', '700');
     commit();
-    assert.equal(name.style.fontWeight, '700');
+    assert.equal(name.style.fontWeight, '', 'skin nameplate keeps its own weight');
     assert.equal(text.style.fontWeight, '700');
     assert.equal(dialog.style.fontWeight || '', '');
     assert.equal(overlay.querySelector('#igs-input').style.fontWeight || '', '');
     assert.equal(overlay.querySelector('#igs-ctrl-bar').style.fontWeight || '', '');
     settings.setValue('readerSettings.vnTheme.nameFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
     commit();
-    assert.match(name.style.fontFamily, /IGS Rounded/);
+    assert.doesNotMatch(name.style.fontFamily, /IGS Rounded/, 'skin nameplate keeps its own font');
     settings.setValue('readerSettings.vnTheme.textFont', '"IGS Rounded","Microsoft YaHei",sans-serif');
     commit();
     assert.match(text.style.fontFamily, /IGS Rounded/);
@@ -9407,6 +9410,8 @@ test('gate:settings:advanced-fields-collapse-and-remember-open-state', () => {
         controller.switchImageSubTab('auto');
         html = controller.getSnapshot().html;
         assert.match(html, /data-image-feature="asset-options" hidden/, '素材开关都关着时不显示数量与尺寸');
+        assert.match(html, /data-path="bridge\.imageApi\.cgModel"/, '剧情 CG 模型跟着 CG 卡片');
+        assert.match(html, /data-path="bridge\.imageApi\.itemModel"/, '物品模型跟着场景与物品卡片');
         controller.toggle('bridge.autoIllustration.assets.backgroundEnabled');
         html = controller.getSnapshot().html;
         assert.doesNotMatch(html, /data-image-feature="asset-options" hidden/);

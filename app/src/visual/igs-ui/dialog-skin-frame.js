@@ -31,7 +31,7 @@ export function stroke(color) {
 
 // 素材/CSS 主题共用的对话框骨架：固定高度、正文安全区与悬浮姓名牌；外观由 frameCss/speakerCss 注入。
 // flush 主题是横贯画面的通栏，全部阅读模式都贴合阅读器左右与底边，不按卡片留边距。
-export function buildDialogFrameCss(skin, { height, text, rise, frameCss, speakerCss, textCss = '', flush = false, autoHeight = false }) {
+export function buildDialogFrameCss(skin, { height, text, rise, frameCss, speakerCss, textCss = '', flush = false, autoHeight = true, mobilePlate = 0.82 }) {
     const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${skin}"]`;
     const embeddedMax = flush ? '100%' : 'calc(100% - 28px)';
     const padding = (top) => `padding:${sp(top)} ${sp(text.right)} ${sp(text.bottom)} ${sp(text.left)};`;
@@ -41,11 +41,14 @@ export function buildDialogFrameCss(skin, { height, text, rise, frameCss, speake
         `${scope} .igs-progress,${scope} .igs-speaker,${scope} .igs-divider,${scope} .igs-controls{flex-shrink:0;}`,
         `${scope} .igs-divider{display:none;}`,
         `${scope} .igs-text{min-height:0;margin:0;overflow-y:auto;flex:1 1 auto;text-shadow:none;${textCss}}`,
-        `${scope} .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;${scalePx(speakerCss)}}`,
+        // 姓名牌字体多是只有一个字重的展示字体：禁止浏览器硬描粗/硬斜，没有粗体就用原字重，避免笔画糊成一团。
+        `${scope} .igs-speaker{position:absolute;z-index:2;box-sizing:border-box;font-synthesis:none;${scalePx(speakerCss)}}`,
         `#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{height:min(${sp(height)},${embeddedMax});min-height:min(${sp(height)},${embeddedMax});max-height:${embeddedMax};}`,
         `#igs-overlay[data-igs-dialog-skin="${skin}"]{--igs-skin-plate-rise:${sp(rise)};}`,
-        // 高度自适应（开关在设置里，只开放给边框只拉伸左右的主题）：字少压矮到六成，字多不超过原高度、超出照旧滚动。
+        // 高度自适应（开关在设置里，全部主题共用）：字少压矮到六成，字多不超过原高度、超出照旧滚动。
         ...(autoHeight ? [`${scope}[data-igs-auto-h]{height:auto;min-height:min(${sp(Math.round(height * 0.6))},${embeddedMax});max-height:min(${sp(height)},${embeddedMax});}`] : []),
+        // 手机窄屏姓名牌整体缩小（zoom 连同位置偏移一起缩，贴边关系不变）；自带窄屏几何的主题传 1。
+        ...(mobilePlate !== 1 ? [`@media (max-width:640px){${scope} .igs-speaker{zoom:${mobilePlate};}}`] : []),
         ...(flush ? [
             `${scope},#igs-overlay.igs-floating .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-floating-mobile .igs-dialog[data-igs-dialog-skin="${skin}"],#igs-overlay.igs-mode-embedded .igs-dialog[data-igs-dialog-skin="${skin}"]{left:0;right:0;bottom:0;width:auto;margin:0;transform:none;}`,
             `${scope}.igs-hidden{transform:translateY(20px);}`,
@@ -56,6 +59,8 @@ export function buildDialogFrameCss(skin, { height, text, rise, frameCss, speake
 // 三片素材预先横向拼成一张图，用 border-image 一次绘制：分三层背景时各层独立取整，缩放后接缝会漏缝或叠出亮线。
 // slice 是素材原始像素中的两端宽度，left/right 是渲染宽度；高度随框拉伸，框被压矮时不会裁掉底边。
 // border 简写会重置 border-image，调用方不得在其后再写 border。
-export function threeSliceCss(image, [sliceLeft, sliceRight], left, right) {
-    return `background:none;border:0 solid transparent;border-image:url("${image}") 0 ${sliceRight} 0 ${sliceLeft} fill / 0 ${right}px 0 ${left}px / 0 stretch;`;
+// factor：两端宽度再乘的系数（CSS 值）。对话框本体传 var(--igs-slice-k,1)，高度自适应压矮时两端按实际高度等比缩小，不被纵向压扁。
+export function threeSliceCss(image, [sliceLeft, sliceRight], left, right, factor = '') {
+    const w = (value) => (factor ? `calc(${value}px * ${factor})` : `${value}px`);
+    return `background:none;border:0 solid transparent;border-image:url("${image}") 0 ${sliceRight} 0 ${sliceLeft} fill / 0 ${w(right)} 0 ${w(left)} / 0 stretch;`;
 }

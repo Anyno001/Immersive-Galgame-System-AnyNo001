@@ -4679,8 +4679,9 @@ test('gate:scene:dna-candidate-accept-does-not-overwrite-and-dismiss-clears', as
 
 
 test('gate:igs-ui:image-settings-open-character-dna-jumps-without-copying-data', async () => {
-    const tabsSource = fs.readFileSync(new URL('../src/visual/igs-ui/settings-tabs.js', import.meta.url), 'utf8');
-    assert.ok(tabsSource.includes('data-action="open-character-dna"'));
+    // 「角色 DNA」按钮和角色卡片一起由 render 层拼（分类页的 slots 里），不在模板文件里。
+    const renderSource = fs.readFileSync(new URL('../src/visual/igs-ui/settings-host-render.js', import.meta.url), 'utf8');
+    assert.ok(renderSource.includes('data-action="open-character-dna"'));
     const dna = { '爱丽丝': { identity: 'silver hair' } };
     const draft = { bridge: { sceneAssets: { enabled: true, characters: {}, characterAliases: {}, characterDna: dna } }, readerSettings: {} };
     const settingsState = { tab: 'image', draft, readerMode: 'pc', asyncState: { sceneSubTab: 'scenes' } };

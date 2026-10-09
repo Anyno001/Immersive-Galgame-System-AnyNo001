@@ -30,10 +30,11 @@ const SLICED_DIALOG_SKINS = Object.freeze([
 // 「插画式」= 固定高度、自带排版默认值的主题，含三片素材主题与纯 CSS 还原主题。
 export const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, DIALOG_SKIN_SCIFI_HOLO, DIALOG_SKIN_WASTELAND_RUST]);
 
-// 可开「对话框高度自适应」的主题：三片素材只横向切、纵向拉伸，压矮不会裁边；伪元素装饰按固定高度摆的主题不开放。
+// 「对话框高度自适应」开放给全部插画式主题与西式古典：字少压矮、字多不超原高度。
+// 三片素材只横向切、纵向拉伸；伪元素装饰按上下边定位的主题压矮后跟着框走。
 export function supportsDialogAutoHeight(value) {
     const skin = typeof value === 'string' ? value : value && value.dialogSkin;
-    return SLICED_DIALOG_SKINS.includes(skin);
+    return skin === 'western-classic' || ILLUSTRATED_DIALOG_SKINS.includes(skin);
 }
 
 export function isIllustratedDialogSkin(value) {
@@ -79,8 +80,9 @@ export const ILLUSTRATED_DIALOG_SPECS = Object.freeze({
     [DIALOG_SKIN_BLACK_WHITE_MANGA]: Object.freeze({
         dialog: { height: 191, left: 90, right: 89, slice: [90, 89] },
         text: { top: 26, speakerTop: 36, right: 58, bottom: 24, left: 58 },
-        plate: { height: 56, left: 56, right: 56, slice: [68, 68], x: 24, rise: 30, lineHeight: 54, padding: '0 58px 0 36px', minWidth: 168 },
-        nameCss: `font-size:19px;font-weight:700;letter-spacing:.24em;text-shadow:${stroke('#fbf8f1')},2px 2px 0 rgba(23,20,18,.28);`,
+        // 姓名牌走漫画标题的路子：撕边纸条放大，得意黑加大收紧字距，白描边外再压一道实黑错位影。
+        plate: { height: 66, left: 66, right: 66, slice: [68, 68], x: 20, rise: 38, lineHeight: 64, padding: '0 66px 0 40px', minWidth: 190 },
+        nameCss: `font-size:27px;font-weight:700;letter-spacing:.04em;text-shadow:${stroke('#fbf8f1')},3px 3px 0 #171412,4px 4px 0 #fbf8f1;transform:rotate(-2.5deg);transform-origin:0 100%;`,
         textCss: `letter-spacing:.04em;${halo('#efe9dd', 2)}`,
     }),
     [DIALOG_SKIN_CUTE_PINK]: Object.freeze({
@@ -119,24 +121,27 @@ function px(value) {
     return `${value}px`;
 }
 
-export function buildSlicedDialogSkinCss(skin, spec, assets) {
+export function buildSlicedDialogSkinCss(skin, spec, assets, { mobilePlate } = {}) {
     const { dialog, text, plate } = spec;
     return buildDialogFrameCss(skin, {
         height: dialog.height,
         text,
         rise: plate.rise,
-        frameCss: `${threeSliceCss(assets.dialog, dialog.slice, dialog.left, dialog.right)}border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
+        frameCss: `${threeSliceCss(assets.dialog, dialog.slice, dialog.left, dialog.right, 'var(--igs-slice-k,1)')}border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;`,
         speakerCss: `left:${px(plate.x)};top:${px(-plate.rise)};width:max-content;min-width:${px(plate.minWidth)};max-width:calc(100% - ${px(plate.x * 2)});height:${px(plate.height)};line-height:${px(plate.lineHeight)};margin:0;padding:${plate.padding};${threeSliceCss(assets.name, plate.slice, plate.left, plate.right)}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${spec.nameCss || ''}`,
         textCss: spec.textCss || '',
         autoHeight: true,
+        mobilePlate,
     });
 }
 
 function slicedSkinCss(skin) {
     const spec = ILLUSTRATED_DIALOG_SPECS[skin];
-    const css = buildSlicedDialogSkinCss(skin, spec, DIALOG_THEME_ASSETS[skin]);
+    // 自带窄屏几何（compact）的主题已经把姓名牌缩好，不再叠加手机端缩放。
+    const own = spec.compact ? { mobilePlate: 1 } : {};
+    const css = buildSlicedDialogSkinCss(skin, spec, DIALOG_THEME_ASSETS[skin], own);
     if (!spec.compact) return css;
-    return `${css}\n@media (max-width:640px){\n${buildSlicedDialogSkinCss(skin, spec.compact, DIALOG_THEME_ASSETS[skin])}\n}`;
+    return `${css}\n@media (max-width:640px){\n${buildSlicedDialogSkinCss(skin, spec.compact, DIALOG_THEME_ASSETS[skin], own)}\n}`;
 }
 
 export const ILLUSTRATED_DIALOG_STYLE_BY_SKIN = Object.freeze({

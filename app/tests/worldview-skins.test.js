@@ -17,7 +17,7 @@ test('gate:dialog-skin-catalog:lists-every-skin-once-with-a-label', () => {
         assert.equal(normalizeDialogSkin(id), id, id);
         assert.ok(label && dialogSkinLabel(id) === label, id);
     }
-    assert.equal(dialogSkinLabel('bogus'), '默认');
+    assert.equal(dialogSkinLabel('bogus'), '磨砂玻璃');
 });
 
 test('gate:worldview-skins:every-worldview-has-valid-recommended-skins', () => {

@@ -21,7 +21,8 @@ import { DIALOG_SKIN_WASTELAND_RUST } from './dialog-theme-wasteland.js';
 
 // 对话框皮肤的显示名，顺序即设置页「对话框风格」下拉的顺序；主界面选世界观页的皮肤名也从这里取。
 export const DIALOG_SKIN_CHOICES = Object.freeze([
-    [DIALOG_SKIN_DEFAULT, '默认'],
+    [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕'],
+    [DIALOG_SKIN_DEFAULT, '磨砂玻璃'],
     [DIALOG_SKIN_WESTERN_CLASSIC, '西欧古典'],
     [DIALOG_SKIN_ELEGANT_EUROPEAN, '优雅欧式'],
     [DIALOG_SKIN_MAGIC_ACADEMY, '魔法星夜'],
@@ -36,7 +37,6 @@ export const DIALOG_SKIN_CHOICES = Object.freeze([
     [DIALOG_SKIN_CUTE_PINK, '超可爱粉'],
     [DIALOG_SKIN_SCIFI_HOLO, '全息投影'],
     [DIALOG_SKIN_WASTELAND_RUST, '废土锈铁'],
-    [DIALOG_SKIN_GRADIENT_VEIL, '渐变黑幕'],
     [DIALOG_SKIN_HORROR_GORE, '血色噩梦'],
     [DIALOG_SKIN_HORROR_PSYCH, '褪色病历'],
 ].map((pair) => Object.freeze(pair)));

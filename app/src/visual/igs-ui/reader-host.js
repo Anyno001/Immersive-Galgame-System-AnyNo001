@@ -2132,6 +2132,11 @@ export function createIgsReaderHost(options = {}) {
             storage: (options.global || globalThis).localStorage,
             getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
             confirm: (message) => pageModal.confirm(message),
+            onReroll: (entry) => {
+                const service = options.illustrations;
+                if (!service || typeof service.rerollSlot !== 'function') return Promise.resolve({ ok: false, error: '当前未接入单张重画' });
+                return service.rerollSlot({ chatId: entry.chatId, messageId: entry.messageId, swipeId: entry.swipeId, slot: entry.slot });
+            },
             onJump: (entry) => {
                 panel.close();
                 if (typeof options.jumpToMessage === 'function') {
@@ -2342,7 +2347,7 @@ export function createIgsReaderHost(options = {}) {
                 ? await service.rerollFloor(Number(target.messageId))
                 : await service.processMessage(Number(target.messageId), { manual: true });
             const skipped = {
-                disabled: '请在设置「生图 → 生图内容」开启 NSFW 或过场插图并保存',
+                disabled: '请在设置「生图 → 分类」开启 NSFW 或过场插图并保存',
                 'not-eligible': '当前楼层不是最新的非空 AI 回复',
                 'nothing-missing': '本楼插图都已生成',
                 'not-selected': (result && result.why) || '本楼不需要插图',
@@ -3989,6 +3994,8 @@ export function createIgsReaderHost(options = {}) {
         const model = titleModelOf(current);
         // 世界观页底部是所选皮肤的真对话框：先按正在选的皮肤挂样式，确认前不写设置。
         applyTitleSkin(overlay, model.view === 'worldview' ? { ...snapshot.readerSettings, dialogSkin: model.pick.skin } : snapshot.readerSettings);
+        // 主界面盖着时不走正文渲染，原地切到内嵌的 overlay 拿不到内嵌类名，钉框会直接跳过。
+        if (isEmbeddedReaderMode(snapshot.mode) && overlay.classList) overlay.classList.add('igs-mode-embedded');
         pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
         renderTitleScreen(overlay, model, {
             onAction: (act, value) => { void handleTitleAction(current, act, value); },

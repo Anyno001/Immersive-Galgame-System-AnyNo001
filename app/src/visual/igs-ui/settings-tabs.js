@@ -97,11 +97,6 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-source="dbgen"{{sourceDbgenHidden}}>
       {{dbgenSpriteTransparentField}}
     </div>
-    <details class="igs-settings-sub igs-settings-advanced" data-advanced="kind-models"{{advancedKindModelsOpen}}>
-      <summary>按类型单独指定模型（可选）</summary>
-      <div class="igs-source-filter-note">剧情 CG、立绘、背景、物品可以各用一个模型，留空跟随上面的模型。对内置 NAI 和数据库生图插件生效；智绘姬、柏宝绘用插件自己的模型。</div>
-      <div class="igs-source-filter-grid">{{kindModelFields}}</div>
-    </details>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>插件设置</button></div>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
@@ -184,36 +179,12 @@ const IMAGE_CG_TEMPLATE = `
 </div>
 `.trim();
 
+// 生图内容按类别分卡片（角色 / 表情差分 / Q 版 / 场景与物品 / CG / NSFW），开关、模型、画师串都在卡片里，见 settings-prompt-kinds.js。
 const IMAGE_AUTO_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="auto">
   <div class="igs-source-filter-note">{{imageContentNote}}</div>
   <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
-  <div class="igs-source-filter">
-    <div class="igs-source-filter-title">剧情 CG</div>
-    {{autoNsfwField}}
-    <div class="igs-settings-sub" data-image-feature="nsfw"{{autoNsfwHidden}}>
-      <div class="igs-source-filter-grid">{{autoNsfwCountField}}</div>
-    </div>
-    {{autoInterludeField}}
-    <div class="igs-settings-sub" data-image-feature="interlude"{{autoInterludeHidden}}>
-      <div class="igs-source-filter-grid">{{autoInterludeProbabilityField}}{{autoInterludeMaxField}}</div>
-    </div>
-  </div>
-  <div class="igs-source-filter" data-image-feature="assets">
-    <div class="igs-source-filter-title">素材补全<span class="igs-outfit-muted">未登记的人物与场景</span></div>
-    <div class="igs-source-filter-note"{{assetSceneWarnHidden}}>需先在「素材」页开启场景素材模式。</div>
-    <div class="igs-source-filter-grid">{{autoAssetSpriteField}}<button type="button" class="igs-settings-action" data-action="open-character-dna" title="在素材 → 角色立绘中编辑角色 DNA">角色 DNA</button>{{autoAssetBackgroundField}}</div>
-    <div class="igs-settings-sub" data-image-feature="asset-options"{{autoAssetOptionsHidden}}>
-      <div class="igs-source-filter-grid">
-        {{autoAssetMaxField}}
-        {{autoAssetSpriteSizeField}}{{autoAssetBackgroundSizeField}}
-      </div>
-    </div>
-  </div>
-  <div class="igs-source-filter" data-image-feature="item-images">
-    <div class="igs-source-filter-title">物品图<span class="igs-outfit-muted">背包与获得物品</span></div>
-    <div class="igs-source-filter-grid">{{itemImageFields}}</div>
-  </div>
+  {{promptKindsPanel}}
 </div>
 `.trim();
 
@@ -363,8 +334,7 @@ const SCENE_SUBTAB_ALIASES = Object.freeze({ wardrobe: 'rules', generated: 'revi
 export const IMAGE_SUBTAB_DEFS = Object.freeze([
     ['source', '图像来源'],
     ['llm', '副LLM'],
-    ['auto', '生图内容'],
-    ['prompts', '提示词'],
+    ['auto', '分类'],
     ['logs', '日志'],
     ['cg', 'CG库'],
 ]);
@@ -423,6 +393,7 @@ export function getReaderSubTabTemplate(subTab) {
 
 export function normalizeImageSubTab(subTab) {
     if (subTab === 'other') return 'source';
+    if (subTab === 'prompts' || subTab === 'content') return 'auto';
     return IMAGE_SUBTAB_DEFS.some(([id]) => id === subTab) ? subTab : 'source';
 }
 
@@ -432,7 +403,6 @@ export function getImageSubTabTemplate(subTab) {
     if (id === 'llm') return IMAGE_LLM_TEMPLATE;
     if (id === 'logs') return IMAGE_LOGS_TEMPLATE;
     if (id === 'cg') return IMAGE_CG_TEMPLATE;
-    if (id === 'prompts') return '<div class="igs-settings-grid" data-image-pane="prompts">{{promptKindsPanel}}</div>';
     return IMAGE_AUTO_TEMPLATE;
 }
 

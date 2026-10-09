@@ -59,10 +59,10 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'camera-parallax', label: '鼠标视差', group: 'stage', open: ['perf-camera'], aliases: ['视差', '镜头'] },
     { id: 'camera-closeup', label: '情绪特写', group: 'stage', open: ['perf-camera'], aliases: ['特写', '放大', '镜头'] },
     { id: 'camera-impact', label: '情绪冲击推近', group: 'stage', open: ['perf-camera'], aliases: ['冲击', '推近', '镜头', '音效'] },
-    { id: 'kind-models', label: '按类型单独指定模型', aliases: ['模型', 'CG模型', '剧情CG', '立绘模型', '背景模型', '物品模型', '不同模型', '分类型模型'], location: '生图 › 图像来源', target: { tab: 'image', imageSubTab: 'source', open: ['kind-models'] } },
+    { id: 'kind-models', label: '按类型单独指定模型', aliases: ['模型', 'CG模型', '剧情CG', '立绘模型', '背景模型', '物品模型', '不同模型', '分类型模型'], location: '生图 › 分类', target: { tab: 'image', imageSubTab: 'auto', open: [] } },
     { id: 'dbgen-sprite-transparent', label: '立绘透明底', aliases: ['透明底', '透明背景', 'v4.5', '数据库生图', '白底', '白色背景'], location: '生图 › 图像来源', target: { tab: 'image', imageSubTab: 'source', open: [] } },
     { id: 'purge-asset-cache', label: '清除素材缓存', aliases: ['清缓存', '缓存', '缩略图', '图片不更新', '占空间', '清空'], location: '生图 › CG 库', target: { tab: 'image', imageSubTab: 'cg', open: [] } },
-    { id: 'generate-assets', label: '生成立绘 / 背景 / 物品开关', aliases: ['不生成立绘', '不生成背景', '不生成物品', '关闭物品图', '素材补全', '生成立绘', '生成背景', '生成物品图'], location: '生图 › 内容', target: { tab: 'image', imageSubTab: 'content', open: [] } },
+    { id: 'generate-assets', label: '生成立绘 / 背景 / 物品开关', aliases: ['不生成立绘', '不生成背景', '不生成物品', '关闭物品图', '素材补全', '生成立绘', '生成背景', '生成物品图'], location: '生图 › 分类', target: { tab: 'image', imageSubTab: 'auto', open: [] } },
     { id: 'prompt-rule-inject', label: '自动注入格式规则', aliases: ['格式规则', '规则提示词', '提示词', '注入', '关闭注入', '酒馆预设', '复制提示词', '复制到预设'], location: '素材 › 规则', target: { tab: 'scene', sceneSubTab: 'rules', open: [] } },
 ]);
 

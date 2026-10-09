@@ -251,10 +251,6 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭，关闭后改为白色背景）'),
-                // 分类型模型收在「图像来源 › 模型」下的折叠项里，默认收起；生成开关只在「生图 › 内容」一处。
-                kindModelFields: field('bridge.imageApi.cgModel', '剧情 CG 模型', kindModelPicker('bridge.imageApi.cgModel', imageApi.cgModel, pulledImageModels))
-                    + ['sprite', 'background', 'item'].map((kind) => field(`bridge.imageApi.${kind}Model`, { sprite: '立绘模型', background: '背景模型', item: '物品模型' }[kind], kindModelPicker(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], pulledImageModels))).join(''),
-                advancedKindModelsOpen: advancedOpen('kind-models'),
                 advancedNaiOpen: advancedOpen('nai'),
                 advancedExtensionOpen: advancedOpen('extension'),
                 advancedNsfwOpen: advancedOpen('nsfw'),
@@ -318,12 +314,34 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoNaiArtistField: field('bridge.autoIllustration.nai.artistPrefix', '画师串 / 固定前缀', autoTextarea('bridge.autoIllustration.nai.artistPrefix', auto.nai.artistPrefix, '可选，拼在每张图的正向提示词最前面')),
                 autoNaiNegativeField: field('bridge.autoIllustration.nai.negativePrompt', '负面提示词', autoTextarea('bridge.autoIllustration.nai.negativePrompt', auto.nai.negativePrompt, '')),
             };
+            const grid = (...items) => {
+                const body = items.filter(Boolean).join('');
+                return body ? `<div class="igs-source-filter-grid">${body}</div>` : '';
+            };
+            // 分类型模型只对内置 NAI 和数据库生图插件生效；智绘姬、柏宝绘用插件自己的模型，不显示。留空跟随「图像来源」的模型。
+            const kindModel = (kind, label) => (sourceMode === 'nai' || sourceMode === 'dbgen'
+                ? field(`bridge.imageApi.${kind}Model`, label, kindModelPicker(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], pulledImageModels)) : '');
             imageFields.promptKindsPanel = renderPromptKindsPanel({
                 nai: auto.nai, field, textarea: autoTextarea, checkbox, advancedOpen,
                 templateFields: {
                     sprite: [imageFields.autoAssetSpriteTemplateField, imageFields.autoAssetSpriteNegativeTemplateField],
                     background: [imageFields.autoAssetBackgroundTemplateField, imageFields.autoAssetBackgroundNegativeTemplateField],
                     nsfwCg: [imageFields.autoAssetNsfwExtraField],
+                },
+                slots: {
+                    common: `<div class="igs-source-filter-note"${imageFields.assetSceneWarnHidden}>需先在「素材」页开启场景素材模式。</div>`
+                        + `<div class="igs-settings-sub" data-image-feature="asset-options"${imageFields.autoAssetOptionsHidden}>${grid(imageFields.autoAssetMaxField)}</div>`,
+                    character: grid(imageFields.autoAssetSpriteField, '<button type="button" class="igs-settings-action" data-action="open-character-dna" title="在素材 → 角色立绘中编辑角色 DNA">角色 DNA</button>')
+                        + `<div class="igs-settings-sub" data-image-feature="sprite-options"${hiddenAttr(!auto.assets.spriteEnabled)}>${grid(imageFields.autoAssetSpriteSizeField, kindModel('sprite', '立绘模型'))}</div>`,
+                    scene: grid(imageFields.autoAssetBackgroundField)
+                        + `<div class="igs-settings-sub" data-image-feature="background-options"${hiddenAttr(!auto.assets.backgroundEnabled)}>${grid(imageFields.autoAssetBackgroundSizeField, kindModel('background', '背景模型'))}</div>`
+                        + grid(imageFields.itemImageFields)
+                        + grid(kindModel('item', '物品模型')),
+                    cg: imageFields.autoInterludeField
+                        + `<div class="igs-settings-sub" data-image-feature="interlude"${imageFields.autoInterludeHidden}>${grid(imageFields.autoInterludeProbabilityField, imageFields.autoInterludeMaxField)}</div>`
+                        + grid(kindModel('cg', '剧情 CG 模型')),
+                    nsfw: imageFields.autoNsfwField
+                        + `<div class="igs-settings-sub" data-image-feature="nsfw"${imageFields.autoNsfwHidden}>${grid(imageFields.autoNsfwCountField)}</div>`,
                 },
             });
             return renderTemplate(getSettingsTabTemplate('image'), {

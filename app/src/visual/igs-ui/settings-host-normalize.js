@@ -205,7 +205,8 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         : {};
     const base = {
         _v: currentVersion,
-        dialogSkin: 'default',
+        // 新装默认用渐变黑幕；已存过的皮肤（含原来的「磨砂玻璃」= default）照旧。
+        dialogSkin: 'gradient-veil',
         gradientVeil: normalizeGradientVeil(null),
         classicDialogWidthPercent: CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT,
         skinDialogScale: SKIN_DIALOG_SCALE_DEFAULT,
