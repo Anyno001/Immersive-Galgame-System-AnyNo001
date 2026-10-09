@@ -71,3 +71,58 @@ export function applyMoodAssignments(groups, results) {
     }
     return next;
 }
+
+// 整理整个情绪库：已有的词全部重新归组，动作、神态描写、括号里的舞台说明等不是情绪的词剔除。
+export const MOOD_RECLASSIFY_SYSTEM = [
+    '你负责整理一份情绪词库。给出的每个组名是一种情绪，组里的词是归到这种情绪下的词。',
+    '把所有词重新检查一遍：是情绪（心情、感受、情绪状态）的，放进最合适的一个已有组；',
+    '不是情绪的剔除，例如动作或姿势（点头、挥手、叹气、抱臂）、神态或身体描写（脸红、流泪、皱眉）、括号里的舞台说明、物品、地点、人名。',
+    '拿不准时保留在原组。不新建组，不改组名，不改词的写法，每个词只出现一次。',
+    '只返回 JSON：{"assignments":[{"word":"原词","group":"已有组名"}],"removed":["原词"]}。',
+].join('');
+
+export function buildMoodReclassifyRequest(groups) {
+    const payload = {
+        groups: (Array.isArray(groups) ? groups : []).map((group) => ({
+            label: group && group.label,
+            words: Array.isArray(group && group.words) ? group.words : [],
+        })),
+    };
+    return { system: MOOD_RECLASSIFY_SYSTEM, user: JSON.stringify(payload) };
+}
+
+// 词多时模型常漏几个：漏掉的留在原组，不认识的词、不存在的组一律忽略；组名本身不剔除。
+// 返回 { groups, moved, removed }；moved 为换了组的词数。
+export function applyMoodReclassification(groups, raw) {
+    const parsed = readClassificationJson(raw);
+    const source = (Array.isArray(groups) ? groups : []).map((group) => ({
+        ...group,
+        words: Array.isArray(group && group.words) ? group.words.slice() : [],
+    }));
+    const labels = new Set(source.map((group) => group.label));
+    const home = new Map();
+    for (const group of source) for (const word of group.words) if (!home.has(word)) home.set(word, group.label);
+    if (!parsed || (!Array.isArray(parsed.assignments) && !Array.isArray(parsed.removed))) throw new Error('invalid-reclassification');
+    const target = new Map();
+    for (const entry of Array.isArray(parsed.assignments) ? parsed.assignments : []) {
+        const word = entry && entry.word;
+        const group = entry && entry.group;
+        if (home.has(word) && labels.has(group) && !target.has(word)) target.set(word, group);
+    }
+    const removed = [];
+    for (const word of Array.isArray(parsed.removed) ? parsed.removed : []) {
+        if (!home.has(word) || target.has(word) || labels.has(word) || removed.includes(word)) continue;
+        removed.push(word);
+    }
+    const drop = new Set(removed);
+    let moved = 0;
+    const next = source.map((group) => ({ ...group, words: [] }));
+    const byLabel = new Map(next.map((group) => [group.label, group]));
+    for (const [word, label] of home) {
+        if (drop.has(word)) continue;
+        const to = target.get(word) || label;
+        if (to !== label) moved += 1;
+        byLabel.get(to).words.push(word);
+    }
+    return { groups: next, moved, removed };
+}

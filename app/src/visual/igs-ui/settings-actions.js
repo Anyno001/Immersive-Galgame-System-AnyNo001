@@ -17,7 +17,7 @@ import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { createIndexedDbAssetThumbStore } from '../../media/asset-thumb-store.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
-import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
+import { applyMoodAssignments, applyMoodReclassification, buildMoodClassificationRequest, buildMoodReclassifyRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { SETTINGS_NOTICE_MS } from './settings-notice.js';
 import { STATUS_HUD_POSITION_DEVICES, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
@@ -3514,6 +3514,52 @@ export async function handleSettingsAction(action, ctx) {
             if (persisted.ok === false) return persisted;
         }
         return rerenderSettings();
+    }
+
+    // 整理整个情绪库：一次请求，已有词重新归组并剔除不是情绪的词；先确认，结束后列出剔除了哪些。
+    if (normalizedAction === 'mood-ai-reclassify') {
+        const globalObj = options.global || globalThis;
+        const groups = ensureMoodGroups(settingsState);
+        const total = groups.reduce((sum, group) => sum + (Array.isArray(group.words) ? group.words.length : 0), 0);
+        if (settingsState.asyncState.moodReclassifying) return { ok: false, reason: 'mood-reclassify-busy' };
+        if (!total) return rerenderSettings();
+        if (typeof options.requestMoodClassification !== 'function') return generationFailure(globalObj, dialogs, '当前无法调用 AI 分类。', 'mood-classification-unavailable');
+        if (!await dialogs.confirm(`用副API整理全部 ${groups.length} 组、${total} 个情绪词：重新归组，并剔除动作、神态等不是情绪的词。继续？`)) return rerenderSettings();
+        const originalAssets = settingsState.draft.bridge.sceneAssets;
+        const originalGroups = cloneData(groups);
+        settingsState.asyncState.moodReclassifying = true;
+        settingsState.asyncState.moodAutoStatus = '正在整理情绪词库…';
+        rerenderSettings();
+        let failure = '';
+        let outcome = null;
+        try {
+            const llm = resolveSecondaryLlm(settingsState.draft.bridge.autoIllustration);
+            const raw = await options.requestMoodClassification(buildMoodReclassifyRequest(groups), llm);
+            if (state.activeSettings !== settingsState) return { ok: false, reason: 'settings-closed' };
+            if (JSON.stringify(ensureMoodGroups(settingsState)) !== JSON.stringify(originalGroups)) throw new Error('classification-input-changed');
+            outcome = applyMoodReclassification(originalGroups, raw);
+            settingsState.draft.bridge.sceneAssets.moodGroups = outcome.groups;
+            const saved = persistSettingsDraft();
+            if (saved.ok === false) {
+                originalAssets.moodGroups = originalGroups;
+                settingsState.draft.bridge.sceneAssets.moodGroups = originalGroups;
+                return saved;
+            }
+        } catch (error) {
+            originalAssets.moodGroups = originalGroups;
+            settingsState.draft.bridge.sceneAssets.moodGroups = originalGroups;
+            failure = 'AI 整理失败：请检查模型连接或返回格式，情绪词未改动。';
+        } finally {
+            settingsState.asyncState.moodReclassifying = false;
+            settingsState.asyncState.moodAutoStatus = failure ? '' : outcome
+                ? `已整理：${outcome.moved} 个词换了组，剔除 ${outcome.removed.length} 个不是情绪的词。` : '';
+            if (state.activeSettings === settingsState) rerenderSettings();
+        }
+        if (failure) return generationFailure(globalObj, dialogs, failure, 'mood-reclassify-failed');
+        if (outcome.removed.length && typeof dialogs.view === 'function') {
+            await dialogs.view(`剔除了 ${outcome.removed.length} 个不是情绪的词：${outcome.removed.join('、')}`);
+        }
+        return { ok: true, moved: outcome.moved, removed: outcome.removed };
     }
 
     if (normalizedAction === 'mood-review-ai-classify') {

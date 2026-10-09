@@ -56,7 +56,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.35.7';
+const IGS_VERSION = '0.35.8';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -114,17 +114,19 @@ export function bootstrapIGS(options = {}) {
     const illustrationMessageHost = options.illustrationMessageHost || createIllustrationMessageHost(globalObject);
     const secondaryLlm = options.secondaryLlm || createSecondaryLlm(globalObject, { fetch: options.fetch });
     const naiOfficialClient = options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch || (typeof globalObject.fetch === 'function' ? globalObject.fetch.bind(globalObject) : undefined) });
+    // 只读一两个字段的地方用浅合并，不为一个开关整份深拷贝配置（素材库大时每条生图日志、每次取阅读模式都很贵）。
+    const peekBridge = () => ({ ...(state.legacyIgs && state.legacyIgs.bridge || {}), ...(state.config || {}) });
     const readImageBridge = () => {
         const bridge = (getUnifiedSettingsSnapshot() || {}).bridge || {};
         return { ...bridge, autoIllustration: mergeLegacyNaiSettings(bridge.autoIllustration, bridge.imageApi) };
     };
     const imageJobLog = options.imageJobLog || createImageJobLog({
         storage: storageLike,
-        getSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).imageJobLog,
+        getSettings: () => cloneData(peekBridge().imageJobLog),
     });
     const reportImageJob = options.reportImageJob || createImageJobReporter(
         globalObject,
-        () => (getUnifiedSettingsSnapshot() || {}).bridge || {},
+        () => ({ showToasts: peekBridge().showToasts }),
         imageJobLog,
         () => (app.igsUi && typeof app.igsUi.showImageNotice === 'function' ? app.igsUi.showImageNotice.bind(app.igsUi) : null),
     );
@@ -142,8 +144,8 @@ export function bootstrapIGS(options = {}) {
     const cgIndexStore = options.cgIndexStore || createIndexedDbCgIndexStore(globalObject);
     const illustrationStore = options.illustrationStore || withCgIndexSync(withTavernIllustrationFiles(createIndexedDbIllustrationStore(globalObject), globalObject), cgIndexStore);
     const readerModeNow = () => {
-        const snapshot = getUnifiedSettingsSnapshot() || {};
-        return String(snapshot.readerMode || (snapshot.bridge && snapshot.bridge.openMode) || 'pc');
+        const bridge = peekBridge();
+        return String(resolveLegacyReaderMode(undefined, state.legacyIgs && state.legacyIgs.displayMode, bridge) || bridge.openMode || 'pc');
     };
     const illustrationService = options.illustrationService || createAutoIllustrationService({
         messageHost: illustrationMessageHost,
@@ -259,6 +261,8 @@ export function bootstrapIGS(options = {}) {
         getCurrentChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
         imageJobLog,
         getUnifiedSettings: getUnifiedSettingsSnapshot,
+        // 配置每次写入（保存、从酒馆文件恢复）都加一；阅读器翻页据此复用上次整理好的配置。
+        getSettingsRevision: () => state.settingsRevision || 0,
         saveUnifiedSettings,
         typeAndSend,
         setInputText(text) {
@@ -372,6 +376,7 @@ export function bootstrapIGS(options = {}) {
                 if (state.destroyed) return;
                 state.legacyIgs = readLegacyIgsSettings(storageLike);
                 state.config = mergeInitialConfig(options.config, state.legacyIgs);
+                state.settingsRevision = (state.settingsRevision || 0) + 1;
                 if (typeof presetRegistry.hydrate === 'function') presetRegistry.hydrate();
                 events.emit('igs:legacy-settings-updated', cloneData(state.legacyIgs));
                 if (options.autoAttachMagicWand !== false) applyEntryConfig(resolveEntryConfig());
@@ -570,6 +575,7 @@ export function bootstrapIGS(options = {}) {
             ...(state.config || {}),
             ...nextBridge,
         });
+        state.settingsRevision = (state.settingsRevision || 0) + 1;
         events.emit('igs:legacy-settings-updated', cloneData(state.legacyIgs));
         // 用户改了日志保留天数 / 条数后立即按新规则清理。
         if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();

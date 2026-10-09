@@ -292,7 +292,7 @@ export function createIgsReaderHost(options = {}) {
     });
     // 目录、提示弹窗、续读弹窗跟设置器同一个配色。
     function readSettingsTheme() {
-        try { return resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.settingsTheme || ''; } catch (_) { return ''; }
+        try { return resolveRenderConfig(state.activeReader ? state.activeReader.mode : 'default').bridge.settingsTheme || ''; } catch (_) { return ''; }
     }
     // 阅读进度：上次位置 / 最远 / 已读 / 存档位，按聊天存本机；真正关闭阅读器或存档时同步进聊天元数据。
     const readingProgress = createReadingProgress({
@@ -500,6 +500,8 @@ export function createIgsReaderHost(options = {}) {
         },
     };
 
+    // 翻页配置缓存（见 resolveRenderConfig）；闭包变量必须写在 return 之前。
+    let renderConfigCache = null;
     return host;
 
     function openReader(payload = {}, openOptions = {}) {
@@ -1339,12 +1341,20 @@ export function createIgsReaderHost(options = {}) {
         };
     }
 
-    function getOptionBubbleConfig() {
-        const mode = state.activeReader && state.activeReader.mode ? state.activeReader.mode : undefined;
-        const unified = resolveBridgeConfigSnapshot({ mode });
-        const bridge = unified.bridge;
-        const ob = bridge.optionBubble && typeof bridge.optionBubble === 'object' ? bridge.optionBubble : {};
-        const reader = normalizeReaderSettings(unified.readerSettings, bridge.vnTheme);
+    // 翻页时传入本页快照的 readerSettings（已带 _optionBubble），不再为两个字段重新克隆、整理整份配置。
+    function getOptionBubbleConfig(rendered) {
+        let ob;
+        let reader;
+        if (rendered && Object.prototype.hasOwnProperty.call(rendered, '_optionBubble')) {
+            ob = rendered._optionBubble;
+            reader = rendered;
+        } else {
+            const mode = state.activeReader && state.activeReader.mode ? state.activeReader.mode : undefined;
+            const unified = resolveRenderConfig(mode);
+            const bridge = unified.bridge;
+            ob = bridge.optionBubble && typeof bridge.optionBubble === 'object' ? bridge.optionBubble : {};
+            reader = normalizeReaderSettings(unified.readerSettings, bridge.vnTheme);
+        }
         const position = (ob.position === 'top-center' || ob.position === 'top-right') ? ob.position : 'top-left';
         return {
             enabled: ob.enabled === true,
@@ -1730,14 +1740,15 @@ export function createIgsReaderHost(options = {}) {
         // 普通设置保存必须保留当前 reader mode；只有 openMode 设置本身变化时才同步切换。
         // 确保 readerSettings 与立绘位置始终来自同一个 mode，避免 spriteLayouts 取错 key。
         const syncModeFromSettings = optionsForRender.syncModeFromSettings === true;
-        const baseSnapshot = resolveBridgeConfigSnapshot({ mode: state.activeReader.mode });
+        const baseSnapshot = resolveRenderConfig(state.activeReader.mode);
         const nextMode = syncModeFromSettings
             ? normalizeReaderMode(
                 firstDefined(baseSnapshot.bridge.openMode, state.activeReader.mode),
                 baseSnapshot.bridge,
             )
             : normalizeReaderMode(state.activeReader.mode, baseSnapshot.bridge);
-        const unified = resolveBridgeConfigSnapshot({ mode: nextMode });
+        // 模式没变时第二次读取结果完全相同；整份配置克隆 + 整理随素材库变大，翻页时省掉这一遍。
+        const unified = nextMode === state.activeReader.mode ? baseSnapshot : resolveRenderConfig(nextMode);
         const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, unified.bridge);
         const snapshot = buildReaderSnapshot(state.activeReader.payload, nextMode, readerSettings, state.activeReader.index);
@@ -3412,7 +3423,8 @@ export function createIgsReaderHost(options = {}) {
                 illustrationUrl,
                 statusHud: buildStatusHudForSnapshot(readerSettings, sceneStateForBg && sceneStateForBg.nsfw ? '' : resolvedSpeaker, sceneStateForBg && sceneStateForBg.nsfw ? '' : bubbleMood, statusSceneInfo, textType === 'narration' || textType === 'thought' || textType === 'chat' || textType === 'system' || Boolean(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw), { character: spriteCharacter, outfit: spriteOutfit }),
             },
-            readerSettings: cloneData(readerSettings),
+            // _sceneAssets 是整份有效素材库，只读不改；跟着整份深拷贝会让翻页随素材库变大而变慢。
+            readerSettings: cloneReaderSettingsShallowAssets(readerSettings),
             input: {
                 placeholder: '输入内容后按 Enter 发送',
                 enterSends: true,
@@ -3637,10 +3649,10 @@ export function createIgsReaderHost(options = {}) {
         };
         const recordController = createRecordPanelController(doc, options.global, fillRecordDraft, {
             // 背包格位图标是用户选择：生图 / SVG；物品图只读本聊天本地缓存。
-            getItemIconMode: () => normalizeItemImageSettings(resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.itemImages).inventoryIcon,
+            getItemIconMode: () => normalizeItemImageSettings(resolveRenderConfig(state.activeReader ? state.activeReader.mode : 'default').bridge.itemImages).inventoryIcon,
             resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
             subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
-            getTheme: () => resolveBridgeConfigSnapshot({ mode: state.activeReader ? state.activeReader.mode : 'default' }).bridge.settingsTheme,
+            getTheme: () => resolveRenderConfig(state.activeReader ? state.activeReader.mode : 'default').bridge.settingsTheme,
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
         const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
@@ -4165,7 +4177,7 @@ export function createIgsReaderHost(options = {}) {
         if (!overlay || !overlay.querySelector) return;
         const container = overlay.querySelector('#igs-option-bubbles');
         if (!container) return;
-        const cfg = getOptionBubbleConfig();
+        const cfg = getOptionBubbleConfig(snapshot && snapshot.readerSettings);
         if (container.style && typeof container.style.setProperty === 'function') {
             container.style.setProperty('--igs-option-font-size', `${cfg.fontSize}px`);
         }
@@ -4226,12 +4238,30 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._worldview = worldview;
         readerSettings._sceneAssets = sceneAssets;
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
+        readerSettings._optionBubble = bridge.optionBubble && typeof bridge.optionBubble === 'object' ? bridge.optionBubble : {};
         const bilingualOverride = state.bilingualDisplay;
         readerSettings._bilingualDisplay = bilingualOverride && bilingualOverride.base === normalizeBilingualSettings(readerSettings.bilingual).display ? bilingualOverride.value : '';
         readerSettings._vnTheme = readerSettings.vnTheme || null;
         readerSettings._strictBackgroundMatch = isStrictBackgroundMatch(bridge.autoIllustration);
         readerSettings._cgBackgroundSize = normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.backgroundSize;
         return readerSettings;
+    }
+
+    // 翻页重绘只读配置：设置修订号没变就复用上次整理的结果，不再每页深拷贝、整理整份素材库（素材越多翻页越顿）。
+    // 宿主不提供修订号时照旧每次重读。
+    function cloneReaderSettingsShallowAssets(readerSettings) {
+        if (!readerSettings || !readerSettings._sceneAssets) return cloneData(readerSettings);
+        const { _sceneAssets: assets, ...rest } = readerSettings;
+        return { ...cloneData(rest), _sceneAssets: assets };
+    }
+
+    function resolveRenderConfig(mode) {
+        const revision = typeof options.getSettingsRevision === 'function' ? options.getSettingsRevision() : null;
+        if (revision == null) return resolveBridgeConfigSnapshot({ mode });
+        if (renderConfigCache && renderConfigCache.revision === revision && renderConfigCache.mode === mode) return renderConfigCache.value;
+        const value = resolveBridgeConfigSnapshot({ mode });
+        renderConfigCache = { revision, mode, value };
+        return value;
     }
 
     function resolveBridgeConfigSnapshot(optionsForSnapshot = {}) {
@@ -4259,7 +4289,7 @@ export function createIgsReaderHost(options = {}) {
     function writeToast(message, durationMs) {
         const current = state.activeReader;
         if (!current) return;
-        const bridge = resolveBridgeConfigSnapshot({ mode: current.mode }).bridge;
+        const bridge = resolveRenderConfig(current.mode).bridge;
         applyToastToReader(current, bridge.showToasts !== false, message, normalizeSettingsTheme(bridge.settingsTheme), durationMs);
     }
 
@@ -4267,7 +4297,7 @@ export function createIgsReaderHost(options = {}) {
     function imageNotice(level, message) {
         const current = state.activeReader;
         if (!current || !message) return;
-        if (level !== 'error' && resolveBridgeConfigSnapshot({ mode: current.mode }).bridge.showToasts === false) return;
+        if (level !== 'error' && resolveRenderConfig(current.mode).bridge.showToasts === false) return;
         generationStrip.notice(level, message);
     }
 

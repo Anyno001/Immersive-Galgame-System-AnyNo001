@@ -537,7 +537,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 moodSection: checkbox('bridge.sceneAssets.moodAutoClassify', sceneAssets.moodAutoClassify === true, '自动归类（用副API）')
                     + (asyncState.moodAutoStatus ? `<div class="igs-source-filter-note" data-mood-auto-status>${esc(asyncState.moodAutoStatus)}</div>` : '')
                     + renderMoodGroupList(sceneAssets.moodGroups, { isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]) })
-                    + '<div class="igs-settings-row"><button class="igs-settings-action" data-action="mood-apply-preset" type="button">套用预设</button><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认</button></div>',
+                    + '<div class="igs-settings-row"><button class="igs-settings-action" data-action="mood-apply-preset" type="button">套用预设</button><button class="igs-settings-action" data-action="reset-mood-groups" type="button">恢复默认</button>'
+                    + `<button class="igs-settings-action" data-action="mood-ai-reclassify" type="button" title="用副API把已有的词重新归组，并剔除动作、神态等不是情绪的词"${asyncState.moodReclassifying ? ' disabled' : ''}>${asyncState.moodReclassifying ? '整理中…' : 'AI整理词库'}</button></div>`,
             };
             const sceneSubTabs = SCENE_SUBTAB_DEFS.map(([id, label]) => {
                 const count = id === 'review' && waitingCount ? `<span class="igs-scene-subtab-count">${waitingCount}</span>` : '';

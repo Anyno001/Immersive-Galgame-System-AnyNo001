@@ -134,7 +134,8 @@ export function createSettingsHost(deps) {
         return {
             ok: true,
             tab: state.activeSettings.tab,
-            snapshot: cloneData(snapshot),
+            // draft 已是本次归一化出的新副本，不再整份深拷贝第二遍（每次点按钮、改字段都会走到这里）。
+            snapshot: { ...cloneData({ ...snapshot, draft: null }), draft: snapshot.draft },
             domMounted: Boolean(state.activeSettings.dom),
             controller: state.activeSettings.controller,
         };
