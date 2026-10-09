@@ -39,7 +39,8 @@ function spriteLine(c) {
     if (c.chatPage || c.htmlCardPage) return '本页是聊天 / 卡片页，不显示立绘';
     if (c.cgActive) return '挂着 CG，立绘让位';
     if (!m) return c.speaker ? `说话人「${c.speaker}」未进入立绘匹配（场景素材关闭或旁白 / 系统角色）` : '无说话人';
-    const want = `角色「${m.character}」表情「${m.mood || '无'}」服装「${m.outfit || '无'}」`;
+    const why = m.outfitOffset == null ? '' : `（来源 ${m.outfitSource || '无'}${m.outfitReason ? `/${m.outfitReason}` : ''} @${m.outfitOffset}）`;
+    const want = `角色「${m.character}」表情「${m.mood || '无'}」服装「${m.outfit || '无'}」${why}`;
     if (c.spriteImage) return `${want} → ${label(m.source)}，槽位「${m.slot || '默认'}」${m.quality ? `，匹配度 ${m.quality}` : ''}`;
     if (c.sceneNsfw) return `${want} → NSFW 场景隐藏立绘`;
     return `${want} → 未命中（${label(m.source)}${m.quality ? `，匹配度 ${m.quality}` : ''}）`;

@@ -143,6 +143,32 @@ export function suggestSettings(query, index = SETTINGS_SEARCH_INDEX, limit = 3)
     return scored.slice(0, limit).map(({ entry }) => entry);
 }
 
+// 跳转后在已渲染的设置页里按界面原文找到这一项：先找文字完全相同的节点，再找包含它的最短节点；
+// 「画质 / 省电模式」这类合写的名称拆开逐个找。找不到时退回最后展开的折叠区按钮。
+export function findSettingNode(body, entry) {
+    if (!body || !entry || typeof body.querySelectorAll !== 'function') return null;
+    const names = [entry.label, ...String(entry.label || '').split(/\s*\/\s*/)].map(normalize).filter(Boolean);
+    const nodes = [...body.querySelectorAll('label, b, strong, span, small, summary, h3, h4, button, .igs-perf-item-head')];
+    const texts = nodes.map((node) => normalize(node.textContent));
+    for (const name of names) {
+        let best = -1;
+        for (let i = 0; i < nodes.length; i += 1) {
+            if (!texts[i].includes(name)) continue;
+            if (best < 0 || (texts[i] === name && texts[best] !== name) || (texts[best] !== name && texts[i].length < texts[best].length)) best = i;
+        }
+        if (best >= 0) {
+            const node = nodes[best];
+            return (typeof node.closest === 'function' && node.closest('.igs-perf-item, .igs-field, label')) || node;
+        }
+    }
+    const open = entry.target && entry.target.open;
+    for (let i = (open ? open.length : 0) - 1; i >= 0; i -= 1) {
+        const fold = body.querySelector(`[data-action="ui-toggle-open:${encodeURIComponent(open[i])}"]`);
+        if (fold) return fold;
+    }
+    return null;
+}
+
 function escapeHtml(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }

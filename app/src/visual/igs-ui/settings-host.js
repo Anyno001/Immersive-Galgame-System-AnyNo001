@@ -23,7 +23,7 @@ import { SETTINGS_NOTICE_MS, describeSettingsFailure, markSettingsButtonBusy, re
 import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS } from './classic-dialog-skin.js';
-import { SETTINGS_SEARCH_INDEX, renderSettingsSearchResults } from './settings-search.js';
+import { SETTINGS_SEARCH_INDEX, findSettingNode, renderSettingsSearchResults } from './settings-search.js';
 import { canMorph, morphChildren } from './settings-dom-morph.js';
 import { buildFallbackSettingsOverlay } from './reader-dom-render.js';
 import { createSettingsRenderer } from './settings-host-render.js';
@@ -200,7 +200,9 @@ export function createSettingsHost(deps) {
                 for (const key of entry.target.open) asyncState.advancedOpen[key] = true;
                 asyncState.settingsSearch = '';
                 rememberSettingsPage(state.activeSettings);
-                return rerenderSettings();
+                const result = rerenderSettings();
+                revealSetting(entry);
+                return result;
             },
             switchSceneSubTab(subTab) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
@@ -814,6 +816,22 @@ export function createSettingsHost(deps) {
             },
         };
         return domState;
+    }
+
+    // 重绘会沿用上一页的滚动位置，跳到别的分页后停在随机位置：这里改为滚到目标项并闪一下，找不到就回顶部。
+    function revealSetting(entry) {
+        const root = state.activeSettings && state.activeSettings.dom && state.activeSettings.dom.root;
+        const body = root && root.querySelector('.igs-settings-body');
+        if (!body) return;
+        const node = findSettingNode(body, entry);
+        if (!node || typeof node.getBoundingClientRect !== 'function' || typeof body.getBoundingClientRect !== 'function') {
+            body.scrollTop = 0;
+            return;
+        }
+        body.scrollTop = Math.max(0, body.scrollTop + node.getBoundingClientRect().top - body.getBoundingClientRect().top - 48);
+        if (!node.classList) return;
+        node.classList.add('igs-settings-search-flash');
+        (options.global || globalThis).setTimeout(() => node.classList.remove('igs-settings-search-flash'), 1600);
     }
 
     function updateMountedSettings(snapshot) {

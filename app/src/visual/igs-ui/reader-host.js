@@ -3330,23 +3330,31 @@ export function createIgsReaderHost(options = {}) {
                 // 服装按当前页在原文中的位置取该角色最近一次服装栏，本楼没写时取跨楼继承，再按表格 / 装备 / DNA 兜底；指令与偏移同源于原文。
                 const outfitMap = sceneAssets.characterOutfits;
                 // 对白页正文带「[名字]：」前缀，原文里是「名字|表情|服装|对白」，去掉前缀再定位，避免取到整楼最后一条服装。
-                const outfitOffset = currentOffset >= 0 ? currentOffset
-                    : locateTextOffsetInSource(sceneSourceForOffset, String(currentText || '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, ''));
+                // 仍定位不到（旁白被正则改写、楼首旁白前面没有可借的页）时按页码取最近一条台词；再不行记 -1，只认跨楼继承，
+                // 不能传 NaN——那会扫整楼，取到该角色本楼最后一次换的衣服。
+                const outfitOffset = resolveCastOffset({
+                    offset: currentOffset >= 0 ? currentOffset
+                        : locateTextOffsetInSource(sceneSourceForOffset, String(currentText || '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, '')),
+                    directives: sceneDirectives,
+                    segmentIndex: normalizedIndex,
+                    locate: (t) => locateTextOffsetInSource(sceneSourceForOffset, t),
+                });
                 const outfitDirectives = extractSceneDirectives(sceneSourceForOffset, { outfitResolver: createOutfitResolver(sceneAssets) }).directives;
                 noteUnlistedOutfits(outfitDirectives, sceneAssets);
                 const sceneRaw = String((sceneStateForBg && sceneStateForBg.scene) || '').trim();
                 setActiveFormGenders([]);
+                let outfitTrace = null;
                 const outfitFor = (character) => withFormGender(character, outfitMap && Object.keys(outfitMap).length
-                    ? resolveSpriteOutfit({
+                    ? (outfitTrace = resolveSpriteOutfit({
                         directives: outfitDirectives,
                         character,
-                        offset: outfitOffset >= 0 ? outfitOffset : Number.NaN,
+                        offset: outfitOffset,
                         inheritedOutfits: payload.inheritedOutfits,
                         sceneAssets,
                         scene: [classifySceneKey(sceneAssets.scenes, sceneRaw).key || '', sceneRaw],
                         readClues: (names) => collectOutfitClues(readStatusHudTables(), names),
                         resolveDna: (name) => { const hit = resolveCharacterDna(sceneAssets.characterDna, name); return hit ? hit.dna : null; },
-                    }).outfit
+                    })).outfit
                     : '');
                 // 变身形态：记下这一页在场角色的形态性别，供高度 / 语气音 / 朗读读取。
                 const withFormGender = (character, outfit) => {
@@ -3357,8 +3365,9 @@ export function createIgsReaderHost(options = {}) {
                     return outfit;
                 };
                 const wantedOutfit = outfitFor(spriteChar);
+                const outfitWhy = { outfitSource: (outfitTrace && outfitTrace.source) || '', outfitReason: (outfitTrace && outfitTrace.reason) || '', outfitOffset };
                 const spriteHit = resolveSpriteAsset(spriteChar, spriteMood, assetMatchCtx, wantedOutfit);
-                spriteMatch = { character: spriteChar, mood: spriteMood || '', outfit: wantedOutfit || '', source: spriteHit.source, quality: spriteHit.quality || '', slot: spriteHit.slot || '' };
+                spriteMatch = { character: spriteChar, mood: spriteMood || '', outfit: wantedOutfit || '', source: spriteHit.source, quality: spriteHit.quality || '', slot: spriteHit.slot || '', ...outfitWhy };
                 noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
                 spriteImage = resolveGenerated(spriteHit.url) || null;
                 if (spriteImage) {
@@ -3378,7 +3387,7 @@ export function createIgsReaderHost(options = {}) {
                     const cast = resolveStageCast({
                         directives: outfitDirectives,
                         // 定位失败时按页码取最近一条台词重新定位，避免名单整体清空。
-                        offset: resolveCastOffset({ offset: outfitOffset, directives: sceneDirectives, segmentIndex: normalizedIndex, locate: (t) => locateTextOffsetInSource(sceneSourceForOffset, t) }),
+                        offset: outfitOffset,
                         keyOf: castKeyOf,
                         isEligible: (name) => !isNonSpriteSpeaker(name) && !isSystemRole(name, readerSettings.systemRole),
                         limit: STAGE_CAST_SCAN_LIMIT,
