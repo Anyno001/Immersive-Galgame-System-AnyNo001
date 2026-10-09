@@ -47856,6 +47856,8 @@ const ADD = 'add';
 
 const states = new WeakMap();
 const decoded = new Set();
+const cgRevealToken = new WeakMap();
+const cgRevealPending = new WeakMap();
 
 function text(value) {
     return String(value == null ? '' : value).trim();
@@ -48183,6 +48185,56 @@ function decodeSpriteImage(doc, url, { schedule = (fn, delay) => setTimeout(fn, 
             finish();
         }
     });
+}
+
+function cgFocusEntrance(root, snapshot) {
+    const s = normalizeStageDirectionSettings(snapshot && snapshot.readerSettings);
+    const content = (snapshot && snapshot.content) || {};
+    return {
+        nsfw: content.sceneNsfw === true || content.cgNsfw === true,
+        speed: s.cgEntrance.nsfw,
+        styles: s.cgEntrance.styles,
+        mood: content.statusEmotion,
+        doc: root && root.ownerDocument,
+        root,
+        lowQuality: typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low',
+    };
+}
+
+// 换 CG：新图像素还没解码时先留着旧图。解码完直接换上，不先糊、不先空。
+function cancelCgReveal(bg) {
+    if (!bg) return;
+    cgRevealToken.delete(bg);
+    cgRevealPending.delete(bg);
+}
+function revealCgImage(root, snapshot, bg, url, identity, write) {
+    if (!bg || typeof write !== 'function') return false;
+    const paintUrl = text(url);
+    const paintKey = text(identity);
+    const pendingNow = cgRevealPending.get(bg);
+    if (pendingNow && pendingNow.url === paintUrl && pendingNow.key === paintKey) return true;
+    const token = {};
+    cgRevealToken.set(bg, token);
+    cgRevealPending.set(bg, { url: paintUrl, key: paintKey });
+    const settings = normalizeStageDirectionSettings(snapshot && snapshot.readerSettings);
+    const focus = isStageDirectionActive(settings);
+    const apply = () => {
+        if (cgRevealToken.get(bg) !== token) return;
+        cgRevealToken.delete(bg);
+        cgRevealPending.delete(bg);
+        write();
+        if (focus && root) {
+            const state = getState(root);
+            playCgFocus(state, bg, paintUrl, prefersReducedMotion(), paintKey, cgFocusEntrance(root, snapshot));
+        }
+    };
+    const pending = decodeSpriteImage(root && root.ownerDocument, paintUrl);
+    if (!pending) {
+        apply();
+        return false;
+    }
+    pending.then(apply);
+    return true;
 }
 
 function whenDecoded(doc, url, state) {
@@ -48544,10 +48596,8 @@ function applyStageDirection(root, snapshot, ctx = {}) {
     if (cg) {
         flushGhosts(state.bgGhosts);
         flushGhosts(state.spriteGhosts);
-        playCgFocus(state, bg, bgUrl, reduced, text(ctx.bgKey), {
-            nsfw: content.sceneNsfw === true || content.cgNsfw === true, speed: s.cgEntrance.nsfw,
-            styles: s.cgEntrance.styles, mood: content.statusEmotion, doc, root,
-            lowQuality: typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low' });
+        // 图还没画上时不要先糊旧图。等解码完由 revealCgImage 在换图的同一刻开始对焦。
+        if (ctx.deferCgFocus !== true) playCgFocus(state, bg, bgUrl, reduced, text(ctx.bgKey), cgFocusEntrance(root, snapshot));
     } else {
         state.cgFocusUrl = '';
         state.cgFocusing = false;
@@ -48621,6 +48671,8 @@ function applyStageDirection(root, snapshot, ctx = {}) {
 __igsDefine(exports, "normalizeStageDirectionSettings", () => normalizeStageDirectionSettings);
 __igsDefine(exports, "isStageDirectionActive", () => isStageDirectionActive);
 __igsDefine(exports, "decodeSpriteImage", () => decodeSpriteImage);
+__igsDefine(exports, "cancelCgReveal", () => cancelCgReveal);
+__igsDefine(exports, "revealCgImage", () => revealCgImage);
 __igsDefine(exports, "cancelStageDirection", () => cancelStageDirection);
 __igsDefine(exports, "resolveCameraShot", () => resolveCameraShot);
 __igsDefine(exports, "applyStageDirection", () => applyStageDirection);
@@ -49119,7 +49171,7 @@ const { renderDailyFx } = require("src/visual/igs-ui/fx-daily.js");
 const { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } = require("src/visual/igs-ui/fx-anchor.js");
 const { applyWeatherFx, resolveWeatherFxTime } = require("src/visual/igs-ui/weather-fx-runtime.js");
 const { applySceneGrade } = require("src/visual/igs-ui/scene-grade.js");
-const { applyStageDirection } = require("src/visual/igs-ui/stage-direction-runtime.js");
+const { applyStageDirection, cancelCgReveal, revealCgImage } = require("src/visual/igs-ui/stage-direction-runtime.js");
 const { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances } = require("src/visual/igs-ui/stage-cast-render.js");
 const { applySavedCastSlot } = require("src/visual/igs-ui/cast-slot-edit.js");
 const { spriteIdentity } = require("src/scene/character-outfits.js");
@@ -50295,14 +50347,39 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
 
+    let deferCgFocus = false;
     if (bg && backgroundAssetUrl) {
-        writeBackgroundImage(bg, backgroundAssetUrl, backgroundSource);
-        bg.setAttribute('data-igs-has-image', '1');
-        removeImageLoadingSpinner(bg);
-        removeImageEmptyPlaceholder(bg);
+        const cgImageChanged = cgActive && backgroundImageSources.get(bg) !== backgroundSource;
+        if (cgImageChanged) {
+            const url = backgroundAssetUrl;
+            const source = backgroundSource;
+            const deferred = revealCgImage(root, snapshot, bg, url, source, () => {
+                writeBackgroundImage(bg, url, source);
+                bg.setAttribute('data-igs-has-image', '1');
+                removeImageLoadingSpinner(bg);
+                removeImageEmptyPlaceholder(bg);
+            });
+            if (deferred) {
+                deferCgFocus = true;
+                if (backgroundImageKeys.get(bg)) {
+                    bg.setAttribute('data-igs-has-image', '1');
+                    removeImageLoadingSpinner(bg);
+                    removeImageEmptyPlaceholder(bg);
+                }
+            }
+        } else {
+            cancelCgReveal(bg);
+            writeBackgroundImage(bg, backgroundAssetUrl, backgroundSource);
+            bg.setAttribute('data-igs-has-image', '1');
+            removeImageLoadingSpinner(bg);
+            removeImageEmptyPlaceholder(bg);
+        }
     } else if (bg && backgroundSource && backgroundImageSources.get(bg) === backgroundSource && backgroundImageKeys.get(bg)) {
         // 同一张还没解码出来：留着已经画上的这张。换了素材（比如场景背景换成 CG）就不能留。
+    } else if (bg && cgActive && backgroundImageKeys.get(bg)) {
+        // 下一张 CG 还没有可画的地址：留着当前这张，不要先清成空白再补上。
     } else if (bg) {
+        cancelCgReveal(bg);
         writeBackgroundImage(bg, '', backgroundSource);
         bg.removeAttribute('data-igs-has-image');
         const expectsImage = snapshot.content.imageExpectedCount > 0
@@ -50717,6 +50794,7 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const stageDirection = applyStageDirection(root, snapshot, {
         bgUrl: backgroundAssetUrl,
         bgKey: backgroundSource,
+        deferCgFocus,
         spriteUrl: stageSprite ? stageSprite.url : '',
         spriteKey: stageSprite ? stageSprite.key : '',
         spritePosX: stageSprite ? stageSprite.posX : 50,
@@ -52998,6 +53076,8 @@ const STAGE_DIRECTION_STYLE_TEXT = `
 #igs-overlay #igs-sprite:not(.igs-sprite-editing){scale:min(1.3,calc(var(--igs-sd-closeup-scale,1) * var(--igs-rm-scale,1)));translate:calc(var(--igs-sd-tx,0px) + var(--igs-rm-dx,0%)) var(--igs-sd-ty,0px);}
 #igs-overlay #igs-bg{transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1);}
 #igs-overlay[data-igs-cg] #igs-bg,#igs-stage-motion[data-igs-cg] #igs-bg{animation:none!important;scale:1;}
+/* CG 对焦时 filter 过渡一开一停，浏览器会把 #igs-bg 拆成独立图层又并回去，每次整张 CG 重新栅格化，没画完的那一帧就是一闪。CG 页上让它一直是独立图层。 */
+#igs-stage-motion[data-igs-cg] #igs-bg{will-change:filter;}
 #igs-overlay[data-igs-cg] #igs-bg-blur,#igs-stage-motion[data-igs-cg] #igs-bg-blur{display:none!important;opacity:0!important;}
 /* 播 CG 时底图在对焦或运镜。对话框若还挂着毛玻璃，或还留着透明度 / 位移过渡，就会跟着底图每一帧重绘，看起来只有对话框在闪。 */
 #igs-stage-motion[data-igs-cg] .igs-dialog{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;transition:none!important;}

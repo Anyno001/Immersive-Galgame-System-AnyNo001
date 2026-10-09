@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     applyStageDirection,
+    cancelCgReveal,
     cancelStageDirection,
+    revealCgImage,
     normalizeStageDirectionSettings,
     resolveCameraShot,
 } from '../src/visual/igs-ui/stage-direction-runtime.js';
@@ -158,6 +160,54 @@ test('gate: interlude CG uses its own entrance, NSFW blur speed can be turned of
     const n = makeReader();
     applyStageDirection(n.root, snapshot(settings, { cgActive: true, sceneNsfw: true, backgroundImage: 'b.png' }), { bgUrl: 'b.png', bgKey: 'b.png', reducedMotion: false, ...n.clock });
     assert.equal(n.bg.style.getPropertyValue('filter'), 'none');
+});
+
+test('gate: a new CG stays on the old picture until decoded, then swaps without blurring', async () => {
+    const r = makeReader();
+    const settings = { sceneTransition: { enabled: true } };
+    const releases = new Map();
+    r.doc.defaultView = {
+        Image: class {
+            set src(value) { this._src = value; }
+            decode() { return new Promise((resolve) => { releases.set(this._src, resolve); }); }
+        },
+    };
+    applyStageDirection(r.root, snapshot(settings, { cgActive: true, sceneNsfw: true, backgroundImage: 'old' }), {
+        bgUrl: 'blob:old', bgKey: 'old', reducedMotion: false, ...r.clock,
+    });
+    r.bg.style.backgroundImage = 'url("blob:old")';
+    const paint = (url) => { r.bg.style.backgroundImage = `url("${url}")`; };
+    const page = snapshot(settings, { cgActive: true, sceneNsfw: true });
+    const held = revealCgImage(r.root, page, r.bg, 'blob:new', 'new', () => paint('blob:new'));
+    assert.equal(held, true);
+    assert.equal(r.bg.style.backgroundImage, 'url("blob:old")');
+    assert.equal(revealCgImage(r.root, page, r.bg, 'blob:new', 'new', () => paint('blob:again')), true);
+    releases.get('blob:new')();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(r.bg.style.backgroundImage, 'url("blob:new")');
+    assert.equal(r.bg.style.getPropertyValue('filter'), 'blur(28px)');
+    const dropped = [];
+    const replaced = revealCgImage(r.root, page, r.bg, 'blob:late', 'late', () => dropped.push('late'));
+    assert.equal(replaced, true);
+    cancelCgReveal(r.bg);
+    revealCgImage(r.root, page, r.bg, 'blob:final', 'final', () => dropped.push('final'));
+    releases.get('blob:late')();
+    releases.get('blob:final')();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(dropped, ['final']);
+});
+
+test('gate: CG focus does not start while the new picture is still decoding', () => {
+    const r = makeReader();
+    const settings = { sceneTransition: { enabled: true } };
+    applyStageDirection(r.root, snapshot(settings, { cgActive: true, sceneNsfw: true, backgroundImage: 'old' }), {
+        bgUrl: 'blob:old', bgKey: 'old', reducedMotion: false, ...r.clock,
+    });
+    r.bg.style.setProperty('filter', 'none');
+    applyStageDirection(r.root, snapshot(settings, { cgActive: true, sceneNsfw: true, backgroundImage: 'new' }, 1), {
+        bgUrl: 'blob:new', bgKey: 'new', deferCgFocus: true, reducedMotion: false, ...r.clock,
+    });
+    assert.equal(r.bg.style.getPropertyValue('filter'), 'none');
 });
 
 test('gate: same-location background change always fades and re-render does not replay', () => {

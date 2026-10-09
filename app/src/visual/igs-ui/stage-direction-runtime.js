@@ -20,6 +20,8 @@ const ADD = 'add';
 
 const states = new WeakMap();
 const decoded = new Set();
+const cgRevealToken = new WeakMap();
+const cgRevealPending = new WeakMap();
 
 function text(value) {
     return String(value == null ? '' : value).trim();
@@ -349,6 +351,57 @@ export function decodeSpriteImage(doc, url, { schedule = (fn, delay) => setTimeo
             finish();
         }
     });
+}
+
+function cgFocusEntrance(root, snapshot) {
+    const s = normalizeStageDirectionSettings(snapshot && snapshot.readerSettings);
+    const content = (snapshot && snapshot.content) || {};
+    return {
+        nsfw: content.sceneNsfw === true || content.cgNsfw === true,
+        speed: s.cgEntrance.nsfw,
+        styles: s.cgEntrance.styles,
+        mood: content.statusEmotion,
+        doc: root && root.ownerDocument,
+        root,
+        lowQuality: typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low',
+    };
+}
+
+// 换 CG：新图像素还没解码时先留着旧图。解码完直接换上，不先糊、不先空。
+export function cancelCgReveal(bg) {
+    if (!bg) return;
+    cgRevealToken.delete(bg);
+    cgRevealPending.delete(bg);
+}
+
+export function revealCgImage(root, snapshot, bg, url, identity, write) {
+    if (!bg || typeof write !== 'function') return false;
+    const paintUrl = text(url);
+    const paintKey = text(identity);
+    const pendingNow = cgRevealPending.get(bg);
+    if (pendingNow && pendingNow.url === paintUrl && pendingNow.key === paintKey) return true;
+    const token = {};
+    cgRevealToken.set(bg, token);
+    cgRevealPending.set(bg, { url: paintUrl, key: paintKey });
+    const settings = normalizeStageDirectionSettings(snapshot && snapshot.readerSettings);
+    const focus = isStageDirectionActive(settings);
+    const apply = () => {
+        if (cgRevealToken.get(bg) !== token) return;
+        cgRevealToken.delete(bg);
+        cgRevealPending.delete(bg);
+        write();
+        if (focus && root) {
+            const state = getState(root);
+            playCgFocus(state, bg, paintUrl, prefersReducedMotion(), paintKey, cgFocusEntrance(root, snapshot));
+        }
+    };
+    const pending = decodeSpriteImage(root && root.ownerDocument, paintUrl);
+    if (!pending) {
+        apply();
+        return false;
+    }
+    pending.then(apply);
+    return true;
 }
 
 function whenDecoded(doc, url, state) {
@@ -711,10 +764,8 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     if (cg) {
         flushGhosts(state.bgGhosts);
         flushGhosts(state.spriteGhosts);
-        playCgFocus(state, bg, bgUrl, reduced, text(ctx.bgKey), {
-            nsfw: content.sceneNsfw === true || content.cgNsfw === true, speed: s.cgEntrance.nsfw,
-            styles: s.cgEntrance.styles, mood: content.statusEmotion, doc, root,
-            lowQuality: typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low' });
+        // 图还没画上时不要先糊旧图。等解码完由 revealCgImage 在换图的同一刻开始对焦。
+        if (ctx.deferCgFocus !== true) playCgFocus(state, bg, bgUrl, reduced, text(ctx.bgKey), cgFocusEntrance(root, snapshot));
     } else {
         state.cgFocusUrl = '';
         state.cgFocusing = false;
