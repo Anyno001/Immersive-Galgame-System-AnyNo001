@@ -76,8 +76,8 @@ test('gate:carry-phone:ui-only-for-non-modern-worldviews', () => {
     assert.doesNotMatch(off, /留空用默认/, '开关关时不显示提示词框');
     const on = renderWorldviewRow({ worldview: 'ancient', ancient: true, carryPhone: true });
     assert.match(on, /留空用默认/);
-    assert.match(on, /<summary>提示词<\/summary>/);
-    assert.match(on, /data-carry-phone[^-]/);
+    assert.match(on, /随身手机提示词/);
+    assert.match(on, /class="igs-switch is-on" data-action="carry-phone:off"/);
 });
 
 test('gate:carry-phone:stored-per-card', () => {

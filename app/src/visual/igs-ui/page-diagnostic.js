@@ -55,6 +55,18 @@ function backgroundLine(c) {
     return `${place} → ${label(m.source)}${m.quality ? `，匹配度 ${m.quality}` : ''}${c.backgroundTimed ? '，按时段' : ''}，${summarizeImageRef(c.backgroundImage)}`;
 }
 
+// 直播手机为什么出 / 不出：开关、本页是否识别到直播、NSFW 收起、回忆梦境或卡片页收起。
+function liveLine(c, rs) {
+    const live = rs.liveFx && typeof rs.liveFx === 'object' ? rs.liveFx : {};
+    if (live.enabled !== true) return '没生效：直播间开关关着，或世界观不是现代又没开「随身带着现代手机」';
+    const fx = c.fx || {};
+    if (!fx.live) return '本页没有识别到直播（没写 live 标签，前文也没有开播词）';
+    if (c.sceneNsfw === true && live.muteOnNsfw !== false) return '识别到了，但场景是 NSFW，被「NSFW场景收起」藏起';
+    if (c.chatPage || c.htmlCardPage || fx.flashback === true || fx.dream === true) return '识别到了，本页是聊天/卡片/回忆/梦境，暂时收起';
+    if (rs.feedFx && rs.feedFx.enabled === true && (fx.storm || fx.feed)) return '识别到了，让位给社区/舆论风暴手机';
+    return '显示中';
+}
+
 // 最近一次注入的按需块：每块展开/收起、原因（命中词、黏性、上楼标签…）与字数。
 function promptLines(report) {
     const blocks = report && report.blocks ? Object.entries(report.blocks) : [];
@@ -84,6 +96,7 @@ export function buildPageDiagnostic(snapshot, { version = '', worldview = '', pr
         `演出 ${summarizeFx(c.fx).join('、') || '无'}`,
     ];
     if (notes.length) lines.push(`提示 ${notes.join('、')}`);
+    lines.push(`直播 ${liveLine(c, rs)}`);
     lines.push(...promptLines(promptReport));
     return lines.join('\n');
 }

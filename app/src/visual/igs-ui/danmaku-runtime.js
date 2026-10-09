@@ -21,6 +21,7 @@ import { normalizeFeedFxSettings } from './feed-settings.js';
 import { isFeedEntryShown, placeFeedEntry, stopFeedReview, syncFeedReview } from './feed-review.js';
 import { phoneStatusFor } from './phone-sense.js';
 import { collectNotices, isNotifyEntryShown, noticeStoreFor, normalizeNotifyCenterSettings, placeNotifyEntry, recordNotices, stopNotify, syncNotify } from './notify-center.js';
+import { setStageCovered } from './stage-pause.js';
 
 // 弹幕运行时：直播间（掏出手机看直播）、观众弹幕（HUD 下方小手机入口，点开看）、内心弹幕（立绘周围爆发）。
 // 性能约束：全关零开销；运动只用 transform/opacity 的 CSS 动画，没有逐帧 JS；
@@ -414,6 +415,8 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     const auto = plan.live && userName && text(plan.live.name) === userName ? { ...plan.live, view: 'host' } : plan.live;
     const live = auto ? { ...auto, view: state.liveViews.get(liveViewKey(auto)) || auto.view } : null;
     const phone = syncLive(ctx, auto, live);
+    // 手机形态的直播亮着时，舞台上的立绘收起：手机里已经有主播画面，后面再露一个人会和手机粘在一起。
+    setLivePhoneFlag(root, Boolean(phone && plan.liveVisible && settings.live.layout !== 'full'));
     if (phone && plan.dms.length) pushLiveMessages(host, plan.dms);
     if (phone && plan.hostSay) pushLiveMessages(host, [{ user: live.name, text: plan.hostSay, type: 'host', extra: '' }]);
     if (settings.audience.enabled) {
@@ -458,7 +461,12 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     return { live: Boolean(phone), audience: plan.audience.length, inner: Boolean(plan.inner) };
 }
 
+function setLivePhoneFlag(root, on) {
+    setStageCovered(root, on);
+}
+
 export function cancelDanmaku(root) {
+    setLivePhoneFlag(root, false);
     const state = root && states.get(root);
     const layers = root ? findFxLayers(root) : null;
     const host = layers && layers.stage ? layers.stage.querySelector('.igs-dm-root') : null;

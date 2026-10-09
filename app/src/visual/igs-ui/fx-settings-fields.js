@@ -1,6 +1,7 @@
 import { listDlcFx, normalizeDlcFxSettings } from '../../scene/fx-registry.js';
 import { esc } from './reader-value-utils.js';
-import { checkbox, colorInput, rangeInput, field, segmentedInput } from './settings-fields.js';
+import { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput } from './settings-fields.js';
+import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
 import { FX_TAG_KINDS } from '../../scene/fx-directives.js';
 import { FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS, normalizeFxReaderSettings } from './fx-settings.js';
 import { COMIC_TONE_KINDS, COMIC_TONE_LABELS } from './comic-settings.js';
@@ -41,7 +42,7 @@ export const perfSubhead = (label) => `<div class="igs-perf-item-subhead">${esc(
 const grid = (body) => `<div class="igs-source-filter-grid">${body}</div>`;
 
 // 漫画演出各项的设置片段，由「演出」页按分类重新编排；持久化路径不变。
-export function renderFxFeatureFields(reader, more = collapsible) {
+export function renderFxFeatureFields(reader, more = collapsible, fontOptions = DIALOG_FONT_OPTIONS) {
     const s = normalizeFxReaderSettings(reader);
     const p = 'readerSettings';
     const style = perfItem(more, 'fx-style', field(`${p}.fxStyle.motion`, '演出风格', segmentedInput(`${p}.fxStyle.motion`, s.fxStyle.motion, [['smooth', '渐变演出'], ['snappy', '灵动演出']], '演出风格')))
@@ -62,15 +63,16 @@ export function renderFxFeatureFields(reader, more = collapsible) {
     const tags = featureRow(more, 'fx-tags', `${p}.fxTags.enabled`, s.fxTags.enabled, '来电、通知、回忆等演出', '', grid(FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('') + checkbox(`${p}.fxTags.emergency`, s.fxTags.emergency, '紧急求助') + checkbox(`${p}.fxTags.spam`, s.fxTags.spam, '垃圾短信样式'))
         + (s.fxTags.call ? field(`${p}.fxTags.callSprite`, '语音通话画面', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['split', '分屏'], ['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话画面')) : ''));
     const toneWords = (kinds) => kinds.map((kind) => renderWordListField(`comicMode.tones.${kind}`, COMIC_TONE_LABELS[kind], s.comicMode.tones[kind])).join('');
-    const comic = featureRow(more, 'comic-mode', `${p}.comicMode.enabled`, s.comicMode.enabled, '漫画演出模式', '台词变成竖排对话泡', field(`${p}.comicMode.palette`, '画面', segmentedInput(`${p}.comicMode.palette`, s.comicMode.palette, [['mono', '黑白漫画'], ['color', '彩色（跟随对话框皮肤）']], '画面'))
+    const comic = featureRow(more, 'comic-mode', `${p}.comicMode.enabled`, s.comicMode.enabled, '漫画演出模式', '台词变成竖排对话泡', field(`${p}.comicMode.palette`, '画面', segmentedInput(`${p}.comicMode.palette`, s.comicMode.palette, [['mono', '黑白'], ['color', '彩色']], '画面'), s.comicMode.palette === 'color' ? '配色跟随对话框皮肤' : '')
         + checkbox(`${p}.comicMode.frame`, s.comicMode.frame, '画格边框')
         + checkbox(`${p}.comicMode.keepPrev`, s.comicMode.keepPrev, '保留上一句（淡化）')
+        + field(`${p}.comicMode.font`, '泡内字体', selectInput(`${p}.comicMode.font`, s.comicMode.font || 'inherit', fontOptions.map(([value, label]) => (value === 'inherit' ? [value, '跟随皮肤'] : [value, label]))))
         + field(`${p}.comicMode.line`, '泡的线条', segmentedInput(`${p}.comicMode.line`, s.comicMode.line, [['thin', '细'], ['medium', '中'], ['bold', '粗']], '泡的线条'))
         + field(`${p}.comicMode.inkMode`, '描边颜色', segmentedInput(`${p}.comicMode.inkMode`, s.comicMode.inkMode, [['auto', '自动'], ['custom', '自选']], '描边颜色'))
         + (s.comicMode.inkMode === 'custom' ? field(`${p}.comicMode.inkColor`, '自选描边色', colorInput(`${p}.comicMode.inkColor`, s.comicMode.inkColor)) : '')
         + field(`${p}.comicMode.gap`, '离头部', segmentedInput(`${p}.comicMode.gap`, s.comicMode.gap, [['near', '近'], ['medium', '中'], ['far', '远']], '离头部'))
         + checkbox(`${p}.comicMode.tail`, s.comicMode.tail, '对话泡尾巴')
-        + field(`${p}.comicMode.inputStyle`, '输入框', segmentedInput(`${p}.comicMode.inputStyle`, s.comicMode.inputStyle, [['comic', '漫画框'], ['plain', '对话框样式']], '输入框'))
+        + field(`${p}.comicMode.inputStyle`, '输入框', segmentedInput(`${p}.comicMode.inputStyle`, s.comicMode.inputStyle, [['comic', '漫画框'], ['plain', '对话框']], '输入框'))
         + perfSubhead('泡的外形 · 触发情绪')
         + toneWords(COMIC_TONE_KINDS));
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));

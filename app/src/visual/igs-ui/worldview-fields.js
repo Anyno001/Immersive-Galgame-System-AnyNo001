@@ -16,9 +16,10 @@ export const CARRY_PHONE_PROMPT_ATTR = 'data-carry-phone-prompt';
 function carryPhoneBlock(source) {
     const on = source.carryPhone === true;
     const prompt = typeof source.carryPhonePrompt === 'string' ? source.carryPhonePrompt : '';
-    const toggle = `<label class="igs-settings-field igs-carry-phone"><span>随身带着现代手机</span><input type="checkbox" ${CARRY_PHONE_ATTR}${on ? ' checked' : ''} aria-label="随身带着现代手机"></label>`;
+    // 开关用设置页统一的 igs-switch 外观，点击走 data-action（不写 data-switch，避免被当成路径开关）。
+    const toggle = `<button type="button" class="igs-switch${on ? ' is-on' : ''}" data-action="carry-phone:${on ? 'off' : 'on'}" aria-pressed="${on ? 'true' : 'false'}"><i></i><span>随身带着现代手机</span></button>`;
     const detail = on
-        ? `<details class="igs-carry-phone-prompt"${prompt ? ' open' : ''}><summary>提示词</summary><textarea ${CARRY_PHONE_PROMPT_ATTR} rows="3" placeholder="留空用默认" aria-label="随身手机提示词">${esc(prompt)}</textarea></details>`
+        ? field('', '随身手机提示词', `<textarea ${CARRY_PHONE_PROMPT_ATTR} rows="3" placeholder="留空用默认" aria-label="随身手机提示词">${esc(prompt)}</textarea>`)
         : '';
     return toggle + detail;
 }

@@ -10,7 +10,13 @@ const states = new WeakMap();
 const STAGE_LAYERS = '#igs-bg-blur,#igs-bg,#igs-sprite,#igs-cast,#igs-effect-layer,#igs-effect-front-layer,#igs-fx-stage,#igs-fx-front,.igs-dfx-sky,.igs-grade-layer,.igs-rm-back,.igs-sd-ghost,.igs-sd-curtain';
 const PAUSED = `#${OVERLAY_ID}[${STAGE_PAUSED_ATTR}] :is(${STAGE_LAYERS})`;
 
-export const STAGE_PAUSE_STYLE_TEXT = `${[PAUSED, `${PAUSED}::before`, `${PAUSED}::after`, `${PAUSED} *`, `${PAUSED} *::before`, `${PAUSED} *::after`].join(',')}{animation-play-state:paused!important;}`;
+// 背景被整块盖住（如直播手机亮着）：只停手机背后的背景、立绘、天气与时段层，演出层（直播手机本身）与自动翻页照常。
+export const STAGE_COVERED_ATTR = 'data-igs-stage-covered';
+const BACKDROP_LAYERS = '#igs-bg-blur,#igs-bg,#igs-sprite,#igs-cast,#igs-effect-layer,.igs-dfx-sky,.igs-grade-layer,.igs-rm-back,.igs-sd-ghost';
+const COVERED = `#${OVERLAY_ID}[${STAGE_COVERED_ATTR}] :is(${BACKDROP_LAYERS})`;
+
+export const STAGE_PAUSE_STYLE_TEXT = `${[PAUSED, `${PAUSED}::before`, `${PAUSED}::after`, `${PAUSED} *`, `${PAUSED} *::before`, `${PAUSED} *::after`].join(',')}{animation-play-state:paused!important;}`
+    + `${[COVERED, `${COVERED}::before`, `${COVERED}::after`, `${COVERED} *`, `${COVERED} *::before`, `${COVERED} *::after`].join(',')}{animation-play-state:paused!important;}`;
 
 function overlayOf(target) {
     if (!target) return null;
@@ -22,7 +28,7 @@ function overlayOf(target) {
 function stateOf(overlay) {
     let state = states.get(overlay);
     if (!state) {
-        state = { reasons: new Set(), resumers: new Set() };
+        state = { reasons: new Set(), resumers: new Set(), covered: false };
         states.set(overlay, state);
     }
     return state;
@@ -41,7 +47,7 @@ export function setStagePauseReason(target, reason, on) {
         return true;
     }
     if (typeof overlay.removeAttribute === 'function') overlay.removeAttribute(STAGE_PAUSED_ATTR);
-    if (was) {
+    if (was && !state.covered) {
         for (const resume of Array.from(state.resumers)) {
             try {
                 resume();
@@ -57,6 +63,35 @@ export function isStagePaused(target) {
     const overlay = overlayOf(target);
     const state = overlay && states.get(overlay);
     return Boolean(state && state.reasons.size);
+}
+
+// 背景层的逐帧循环（天气 / 日常粒子、时段闪光）用这个判断：暂停或被盖住都不排帧。
+export function isStageIdle(target) {
+    const overlay = overlayOf(target);
+    const state = overlay && states.get(overlay);
+    return Boolean(state && (state.reasons.size || state.covered));
+}
+
+export function setStageCovered(target, on) {
+    const overlay = overlayOf(target);
+    if (!overlay) return;
+    const state = stateOf(overlay);
+    const next = Boolean(on);
+    if (state.covered === next) return;
+    state.covered = next;
+    if (next) {
+        if (typeof overlay.setAttribute === 'function') overlay.setAttribute(STAGE_COVERED_ATTR, '1');
+        return;
+    }
+    if (typeof overlay.removeAttribute === 'function') overlay.removeAttribute(STAGE_COVERED_ATTR);
+    if (state.reasons.size) return;
+    for (const resume of Array.from(state.resumers)) {
+        try {
+            resume();
+        } catch {
+            // 单个订阅方出错不影响其他循环恢复。
+        }
+    }
 }
 
 export function onStageResume(target, callback) {

@@ -1,5 +1,5 @@
 import { prefersReducedMotion } from './reduced-motion.js';
-import { isStagePaused } from './stage-pause.js';
+import { isStageIdle } from './stage-pause.js';
 import { WEATHER_FLASH_EVENT, normalizeWeatherFxSettings, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { normalizeTimeTintSettings } from './stage-direction-settings.js';
 
@@ -339,7 +339,7 @@ function paintLayers(state, plan) {
 // 闪电时背景与立绘一起被照亮，再回落到当前调色；回忆、梦境与减弱动效时不闪。
 function onFlash(state, root) {
     // 设置、记录等面板盖住舞台时不闪：闪屏本身已暂停，照亮渐变只会让面板毛玻璃跟着每帧重算。
-    if (!state.flashOn || isStagePaused(root)) return;
+    if (!state.flashOn || isStageIdle(root)) return;
     const target = state.target || neutralTarget();
     const lit = (value) => ({ ...value, b: value.b * FLASH_BOOST });
     state.current = { bg: lit(target.bg), sprite: { ...lit(target.sprite), tint: target.sprite.tint.slice() } };

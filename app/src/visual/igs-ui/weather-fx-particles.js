@@ -2,7 +2,7 @@
 // 能耗约束：锁 30fps（低画质档 20fps、粒子减半）、画布按 CSS 像素（不乘 devicePixelRatio）、同透明度档合批绘制、
 // 图层隐藏（尺寸为 0）时停止请求帧、图层脱离文档时自行退出。
 import { getQualityFactor } from './render-quality.js';
-import { isStagePaused, onStageResume } from './stage-pause.js';
+import { isStageIdle, onStageResume } from './stage-pause.js';
 
 const FPS = 30;
 const MAX_DT = 0.05;
@@ -326,7 +326,7 @@ export function startWeatherParticles(options = {}) {
 
     // 页面隐藏或舞台暂停时不排帧，可见 / 恢复后由 onVisibility 重新拉起（同 fx-daily-particles）。
     function request() {
-        if (!rafId && !stopped && !doc.hidden && !isStagePaused(back)) rafId = view.requestAnimationFrame(frame);
+        if (!rafId && !stopped && !doc.hidden && !isStageIdle(back)) rafId = view.requestAnimationFrame(frame);
     }
     function onVisibility() {
         if (doc.hidden) return;

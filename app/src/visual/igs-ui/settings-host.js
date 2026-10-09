@@ -4,6 +4,7 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { placeRowMenu } from './settings-outfit-fields.js';
 import { cgReasonText } from '../../media/cg-library.js';
 import { setStagePauseReason } from './stage-pause.js';
+import { scheduleFontGuard } from './font-guard.js';
 import { fileGeneratedHoldings, normalizeGeneratedLibrary, collectGeneratedImageIds } from '../../scene/asset-match.js';
 import { CHARACTER_DNA_FIELDS, resolveCharacterDna } from '../../scene/character-dna.js';
 import { loadMatteEditor } from './sprite-matte-editor.js';
@@ -431,6 +432,7 @@ export function createSettingsHost(deps) {
         // 独立层叠上下文，设置面板挂在 body 内时整体被压在 overlay 之下（z-index 翻不出 body），
         // 且 100vw/100dvh 取到受限的 body 尺寸而非视口。
         (doc.documentElement || doc.body).appendChild(root);
+        scheduleFontGuard(root);
         root.addEventListener('click', async (event) => {
             const tab = event.target.closest('[data-tab]');
             if (tab) {

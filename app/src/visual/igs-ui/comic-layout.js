@@ -93,7 +93,7 @@ function placeChain({ stageW, stageH, safe, head, kind, chain, avoid = [], offSi
     const candidates = [];
     if (kind === 'narration' || kind === 'system') {
         // 旁白框靠画格上角：竖排读序从右起，先试右上，再试左上、正上。离画格边留一点白，不贴线。
-        const inset = clamp(minSide * 0.025, 8, 22);
+        const inset = clamp(minSide * 0.012, 4, 10);
         candidates.push({ ...fit(safe.right - inset - W, safe.top + inset), pref: 0 });
         candidates.push({ ...fit(safe.left + inset, safe.top + inset), pref: 0.6 });
         candidates.push({ ...fit((stageW - W) / 2, safe.top + inset), pref: 0.9 });

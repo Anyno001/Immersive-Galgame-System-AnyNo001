@@ -8,6 +8,8 @@ import { normalizeDialogSkin } from './classic-dialog-skin.js';
 import { pickFxAccent } from './fx-symbols.js';
 import { peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import { prefersReducedMotion } from './reduced-motion.js';
+import { preloadDialogFonts } from './dialog-theme-typography.js';
+import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 
 // 漫画演出模式运行时：把本页台词排成竖排对话泡，贴在说话人旁、尾巴指向嘴边；黑白模式给整个画面叠网点、加画格。
 // #igs-text 保持原样（隐藏），打字机、文字特效的源头不变；泡里的文字是它的排版副本。
@@ -67,7 +69,7 @@ function applyPalette(root, readerSettings, comic, theme, state) {
     const palette = comic.palette;
     const skin = normalizeDialogSkin(readerSettings && readerSettings.dialogSkin);
     const ink = comic.inkMode === 'custom' ? comic.inkColor : '';
-    const key = `${palette}:${skin}:${ink}`;
+    const key = `${palette}:${skin}:${ink}:${comic.font}`;
     if (state.paletteKey === key) return;
     state.paletteKey = key;
     const style = root.style;
@@ -76,6 +78,13 @@ function applyPalette(root, readerSettings, comic, theme, state) {
     if (palette === 'color') applyColorPalette(style, skin, theme);
     // 自选描边色只换泡的墨线，字色仍跟随配色。
     if (ink) style.setProperty('--igs-comic-ink', ink);
+    if (comic.font) {
+        style.setProperty('--igs-comic-family', comic.font);
+        // 选了上传字体才读字体表注册；网络字体照对话框的做法预载。
+        const doc = root.ownerDocument;
+        if (comic.font.includes('IGSUserFont-')) registerCustomFonts(doc, loadCustomFonts((doc && doc.defaultView) || globalThis));
+        preloadDialogFonts(doc, [comic.font]);
+    }
 }
 
 function applyColorPalette(style, skin, theme) {
@@ -392,7 +401,9 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
     const line = Math.max(1, font * 0.12 * (COMIC_LINE_LEVELS[comic.line] || 1));
     const sizes = shapes.map((s) => ({ ax: s.a * reach + line, by: s.b * reach + line }));
 
-    const margin = 14;
+    // 离画面边留白：画格边框（窄屏 4+3px、宽屏 7+3px）之外再空一截，泡的墨线和弹出放大都不压边。
+    const frameGut = comic.frame ? (stageW <= 640 ? 7 : 10) : 0;
+    const margin = frameGut + Math.min(22, Math.max(12, Math.min(stageW, stageH) * 0.03));
     const avoid = [];
     const toolbar = root.querySelector('#igs-ctrl-bar');
     const hud = root.querySelector('#igs-status-hud');

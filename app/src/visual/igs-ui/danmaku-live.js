@@ -604,9 +604,9 @@ function setFlyGeometry(state, w, top, bottom, fontSize) {
 // 手机形态的宽高：放大时占舞台九成高，压在对话框后面的部分记为 under；适应时整台手机停在对话框上沿。社区手机共用。
 export function phoneGeometry(stage, model, size) {
     const floor = Math.min(stage.dialogTop, stage.stageH) - 10;
-    const top = Math.round(stage.stageH * 0.03);
+    const top = Math.round(Math.max(stage.stageH * 0.03, (stage.topInset || 0) + 6));
     const room = floor - top;
-    const height = Math.round(Math.min(LIVE_PHONE_MAX_H, size === 'fit'
+    const height = Math.round(Math.min(LIVE_PHONE_MAX_H, stage.stageH - top - 4, size === 'fit'
         ? Math.max(stage.stageH * 0.45, Math.min(stage.stageH * 0.9, room))
         : stage.stageH * 0.9));
     const maxW = stage.stageW * 0.92;
@@ -631,13 +631,14 @@ export function fitLivePhone(host, stage) {
     }
     // 底栏、弹幕与点赞整体抬到对话框之上（under）。
     const { top, height, width, under } = phoneGeometry(stage, state.model, state.size);
-    setFlyGeometry(state, width, 120, height - under - 70, 14);
+    setFlyGeometry(state, width, 120, height - under - 70, 16);
     const fit = { layout: 'phone', top, height, width, under };
     const prev = state.fit;
-    if (prev && Math.abs(prev.height - height) < 4 && Math.abs(prev.width - width) < 4 && Math.abs(prev.under - under) < 4) return prev;
+    if (prev && Math.abs(prev.top - top) < 4 && Math.abs(prev.height - height) < 4 && Math.abs(prev.width - width) < 4 && Math.abs(prev.under - under) < 4) return prev;
     state.fit = fit;
     const { phone } = state.els;
     phone.style.setProperty('--igs-live-h', `${height}px`);
+    phone.style.setProperty('--igs-live-top', `${top}px`);
     phone.style.setProperty('--igs-live-w', `${width}px`);
     phone.style.setProperty('--igs-live-under', `${under}px`);
     return fit;

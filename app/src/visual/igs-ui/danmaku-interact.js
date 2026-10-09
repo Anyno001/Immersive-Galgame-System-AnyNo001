@@ -213,6 +213,7 @@ export function fitLiveControls(front, fit) {
         return;
     }
     style.setProperty('--igs-live-h', `${fit.height}px`);
+    style.setProperty('--igs-live-top', `${fit.top}px`);
     style.setProperty('--igs-live-w', `${fit.width}px`);
     style.setProperty('--igs-live-under', `${fit.under}px`);
 }

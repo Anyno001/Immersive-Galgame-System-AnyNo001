@@ -3,7 +3,7 @@
 import { prefersReducedMotion } from './reduced-motion.js';
 import { resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { getQualityFactor } from './render-quality.js';
-import { isStagePaused, onStageResume } from './stage-pause.js';
+import { isStageIdle, onStageResume } from './stage-pause.js';
 
 const FPS = 30;
 const MAX_DT = 0.05;
@@ -780,7 +780,7 @@ export function startPetals(layer, options = {}) {
     };
 
     function request() {
-        if (!rafId && !stopped && kind && !doc.hidden && !isStagePaused(layer)) rafId = env.raf(frame);
+        if (!rafId && !stopped && kind && !doc.hidden && !isStageIdle(layer)) rafId = env.raf(frame);
     }
     function step(config, dt) {
         const { w, h } = surface;

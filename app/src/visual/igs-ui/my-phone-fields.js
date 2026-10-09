@@ -10,7 +10,7 @@ import {
     myPhoneOf,
 } from './my-phone.js';
 
-const swatch = (path, hex, name, active) => `<button type="button" class="igs-phone-swatch${active ? ' is-active' : ''}" data-segment-path="${esc(path)}" data-segment-value="${esc(hex)}" role="radio" aria-checked="${active ? 'true' : 'false'}" aria-label="${esc(name)}" title="${esc(name)}" style="width:26px;height:26px;margin:2px 4px 2px 0;padding:0;border-radius:50%;background:${esc(hex)};border:2px solid ${active ? '#fff' : 'rgba(128,128,128,.45)'};box-shadow:${active ? '0 0 0 2px #4a90e2' : 'none'};cursor:pointer"></button>`;
+const swatch = (path, hex, name, active) => `<button type="button" class="igs-phone-swatch${active ? ' is-active' : ''}" data-segment-path="${esc(path)}" data-segment-value="${esc(hex)}" role="radio" aria-checked="${active ? 'true' : 'false'}" aria-label="${esc(name)}" title="${esc(name)}" style="width:26px;height:26px;margin:2px 4px 2px 0;padding:0;border-radius:50%;background:${esc(hex)};border:2px solid ${active ? '#fff' : 'rgba(128,128,128,.45)'};box-shadow:${active ? '0 0 0 2px var(--igs-settings-accent)' : 'none'};cursor:pointer"></button>`;
 
 // 「线上与直播」最前面的一行：一台手机的外观，直播、社区、风暴与聊天共用。
 export function renderMyPhoneFields(reader, more = collapsible) {
@@ -27,5 +27,5 @@ export function renderMyPhoneFields(reader, more = collapsible) {
         + field(`${p}.wallpaper`, '壁纸', segmentedInput(`${p}.wallpaper`, wallMode, [['scene', '当前场景'], ['none', '纯色'], ['custom', '自定义']], '手机壁纸'))
         + (wallMode === 'custom' ? field(`${p}.wallpaper`, '图片地址', textInput(`${p}.wallpaper`, s.wallpaper === 'custom' ? '' : s.wallpaper, 'https://…')) : '')
         + field(`${p}.ringtone`, '铃声', segmentedInput(`${p}.ringtone`, s.ringtone, PHONE_RINGTONES.map((key) => [key, PHONE_RINGTONE_LABELS[key]]), '铃声风格'));
-    return perfItem(more, 'my-phone', '<span>我的手机</span>', { on: true, hint: known ? '' : '自定义壳色', detail });
+    return perfItem(more, 'my-phone', '<span class="igs-perf-item-label">我的手机</span>', { on: true, hint: known ? '' : '自定义壳色', detail });
 }

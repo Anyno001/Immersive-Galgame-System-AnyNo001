@@ -11,10 +11,10 @@ import {
 } from './danmaku-settings.js';
 
 // 弹幕三件套的设置片段，由「演出」页编进「题材专属」分组。
-export function renderDanmakuFields(reader, more = collapsible) {
+export function renderDanmakuFields(reader, more = collapsible, { liveBlocked = false } = {}) {
     const s = normalizeDanmakuSettings(reader);
     const p = 'readerSettings';
-    const live = featureRow(more, 'live-fx', `${p}.liveFx.enabled`, s.live.enabled, '直播间', '', field(`${p}.liveFx.layout`, '形态', segmentedInput(`${p}.liveFx.layout`, s.live.layout, [['phone', '手机'], ['full', '全屏']], '直播间形态'))
+    const live = featureRow(more, 'live-fx', `${p}.liveFx.enabled`, s.live.enabled, '直播间', liveBlocked ? '此世界观需开随身手机' : '', field(`${p}.liveFx.layout`, '形态', segmentedInput(`${p}.liveFx.layout`, s.live.layout, [['phone', '手机'], ['full', '全屏']], '直播间形态'))
         + field(`${p}.liveFx.chat`, '弹幕', segmentedInput(`${p}.liveFx.chat`, s.live.chat, [['roll', '翻滚'], ['fly', '横飞'], ['both', '同时']], '直播弹幕'))
         + checkbox(`${p}.liveFx.interact`, s.live.interact, '直播互动（发弹幕、打赏）')
         + checkbox(`${p}.liveFx.followTheme`, s.live.followTheme, '跟随对话框主题')

@@ -353,6 +353,7 @@ export function fitStorm(host, stage, geometry) {
     state.fit = { ...geometry };
     const { phone } = state.els;
     phone.style.setProperty('--igs-live-h', `${geometry.height}px`);
+    phone.style.setProperty('--igs-live-top', `${geometry.top}px`);
     phone.style.setProperty('--igs-live-w', `${geometry.width}px`);
     phone.style.setProperty('--igs-live-under', `${geometry.under || 0}px`);
     return state.fit;

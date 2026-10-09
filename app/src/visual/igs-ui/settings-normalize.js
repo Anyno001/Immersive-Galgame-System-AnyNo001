@@ -73,6 +73,7 @@ export function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.comicMode.inputStyle') return value === 'plain' ? 'plain' : 'comic';
         if (path === 'readerSettings.comicMode.gap') return ['near', 'medium', 'far'].includes(value) ? value : 'medium';
         if (path === 'readerSettings.comicMode.inkMode') return value === 'custom' ? 'custom' : 'auto';
+        if (path === 'readerSettings.comicMode.font') return typeof value === 'string' && value !== 'inherit' ? value.slice(0, 300) : '';
         if (path === 'readerSettings.myPhone.caseColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : '#111215';
         if (path === 'readerSettings.myPhone.wallpaper') return normalizePhoneWallpaper(value);
         if (path === 'readerSettings.myPhone.model') return ['full', 'notch', 'fold', 'tablet'].includes(value) ? value : 'full';

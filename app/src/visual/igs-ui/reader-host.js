@@ -1,3 +1,4 @@
+import { narrationKeepsSprite } from '../../scene/narration-sprite.js';
 import {
     buildIgsTextPayload,
     getMessagePrimaryText,
@@ -42,6 +43,7 @@ import { cancelSceneAudio, skipBgmTrack } from './scene-audio.js';
 import { applyBgmNoteToDom, toggleBgmNote } from './bgm-note.js';
 import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
 import { isStagePaused, watchStagePause } from './stage-pause.js';
+import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
 import { isTtsSpeaking, replayTts, setTtsErrorHandler, stopTts } from './tts.js';
 import { playUiSfx } from './ui-sfx.js';
@@ -632,6 +634,7 @@ export function createIgsReaderHost(options = {}) {
         if (!progressRuntime.navigating) void offerResume(current);
         if (domState && domState.overlay) {
             state.activeReader.stopStagePause = watchStagePause(domState.overlay, { offscreen: isEmbeddedReaderMode(nextMode), root: domState.root });
+            scheduleFontGuard(domState.overlay);
         }
         syncSettingsStagePause();
         syncStatusHudSubscription();
@@ -3312,12 +3315,14 @@ export function createIgsReaderHost(options = {}) {
             // Narration pages carry no char/thought tag of their own. Walk backwards
             // through prior segments and inherit the nearest one that classifies as a
             // char/thought bubble, so the sprite stays consistent across narration runs.
+            let inheritFrom = -1;
             if (!spriteChar) {
                 for (let i = normalizedIndex - 1; i >= 0; i--) {
                     const prev = classifySegment(segments[i]);
                     if (prev && prev.speaker) {
                         spriteChar = prev.speaker;
                         spriteMood = prev.mood;
+                        inheritFrom = i;
                         break;
                     }
                 }
@@ -3331,11 +3336,28 @@ export function createIgsReaderHost(options = {}) {
                     if (d) {
                         spriteChar = d.character;
                         spriteMood = d.mood || '';
+                        if (i < normalizedIndex) inheritFrom = i;
                   break;
                     }
                 }
             }
-            if (!spriteChar && sceneStateForBg && sceneStateForBg.character) {
+            // 旁白页沿用的立绘：写到这个人离开就清掉；离台词超过 2 页且旁白不再写这个人也收起（见 narration-sprite）。
+            let narrationDropped = false;
+            if (spriteChar && inheritFrom >= 0) {
+                const assetsForKey = sceneAssets || {};
+                const keyOf = (name) => resolveCharacterKey(assetsForKey.characters, assetsForKey.characterAliases, name) || name;
+                const key = keyOf(spriteChar);
+                const aliasMap = assetsForKey.characterAliases && typeof assetsForKey.characterAliases === 'object' ? assetsForKey.characterAliases : {};
+                const userName = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
+                const pov = (userName && keyOf(userName) === key)
+                    || sceneDirectives.some((d) => d && d.type === 'thought' && d.character && keyOf(d.character) === key);
+                if (!narrationKeepsSprite({ name: spriteChar, aliases: [key, ...(Array.isArray(aliasMap[key]) ? aliasMap[key] : [])], pov, pages: segments.slice(inheritFrom + 1, normalizedIndex + 1) })) {
+                    spriteChar = '';
+                    spriteMood = '';
+                    narrationDropped = true;
+                }
+            }
+            if (!spriteChar && !narrationDropped && sceneStateForBg && sceneStateForBg.character) {
                 // Fallback for untransformed/legacy paths where the bubble text still
                 // carries the raw tag (no reformatted "[名字]：" line to parse).
                 spriteChar = sceneStateForBg.character;

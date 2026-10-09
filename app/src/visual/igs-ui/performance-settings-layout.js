@@ -100,9 +100,9 @@ export function renderPerformanceSettings(reader, extras = {}, isOpen = () => fa
         return head ? perfItem(more, key, head, { hint, detail }) : '';
     };
     const current = detectPerformancePreset(src);
-    const fx = renderFxFeatureFields(src, more);
+    const fx = renderFxFeatureFields(src, more, extras.fontOptions);
     const stage = renderStageDirectionFields(src, more, { worldview: extras.worldviewId });
-    const danmaku = renderDanmakuFields(src, more);
+    const danmaku = renderDanmakuFields(src, more, { liveBlocked: extras.liveBlocked === true });
     const bodies = {
         text: [fx.comic, host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.clickWaitMark, stage.textFx, stage.bilingual, host('sentence-paging', extras.sentencePaging)],
         stage: [

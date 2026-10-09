@@ -50,6 +50,8 @@ export function normalizeComicModeSettings(value) {
         gap: Object.hasOwn(COMIC_GAP_LEVELS, src.gap) ? src.gap : 'medium',
         // 输入框：comic 漫画框，plain 普通对话框样式。
         inputStyle: src.inputStyle === 'plain' ? 'plain' : 'comic',
+        // 泡内字体：空串 = 跟随皮肤（黑白模式用默认黑体）；否则是字体下拉里的 font-family 串。
+        font: typeof src.font === 'string' && src.font !== 'inherit' ? src.font.slice(0, 300) : '',
         tones,
     };
 }

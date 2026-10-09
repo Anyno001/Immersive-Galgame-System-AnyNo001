@@ -20,6 +20,19 @@ test('live-context: 否定词与单纯提到直播不触发', () => {
     assert.deepEqual(liveCueDirectives('他今天没开播，只是在看别人的直播。', fallback), []);
 });
 
+test('live-context: 「按下关播键」「切断直播流」算下播', () => {
+    for (const text of ['你按下了关播键。', '他切断了直播流。', '她停播了。']) {
+        const list = liveCueDirectives(text, fallback);
+        assert.equal(list.length, 1, text);
+        assert.equal(list[0].end, true, text);
+    }
+});
+
+test('live-context: 玩家输入「调用直播演出」也算开播', () => {
+    assert.equal(liveCueDirectives('调用直播演出', fallback).length, 1);
+    assert.deepEqual(resolveLiveContextFromHistory([{ isUser: true, text: '调用直播演出，她开始唱歌' }], fallback), { name: '小明', title: '小明的直播间', view: 'host' });
+});
+
 test('live-context: 本楼写了 live 标签就不再按词兜底', () => {
     const source = '[igs-fx:live|阿梓|唱歌|观看]阿梓开播了。';
     const directives = withLiveFallback(extractFxDirectives(source), source, null, fallback);

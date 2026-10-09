@@ -692,6 +692,7 @@ export function fitFeedPhone(host, stage) {
     state.fit = fit;
     const { phone } = state.els;
     phone.style.setProperty('--igs-live-h', `${geo.height}px`);
+    phone.style.setProperty('--igs-live-top', `${geo.top}px`);
     phone.style.setProperty('--igs-live-w', `${geo.width}px`);
     return fit;
 }
