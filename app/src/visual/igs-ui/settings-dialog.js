@@ -20,6 +20,7 @@ export const SETTINGS_DIALOG_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-dialog.is-pick .igs-settings-dialog-choice{min-height:40px;font-size:13px}
 #igs-unified-settings .igs-settings-dialog.is-pick .igs-settings-dialog-choice.is-current{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
 #igs-unified-settings .igs-settings-dialog-actions [data-settings-dialog="all"]{margin-right:auto}
+#igs-unified-settings .igs-settings-dialog-select{display:block;width:100%;margin:10px 0 4px;padding:6px 8px;font-size:14px}
 #igs-unified-settings .igs-settings-dialog-choice:focus-visible{outline:2px solid var(--igs-settings-accent);outline-offset:2px}
 `;
 
@@ -106,7 +107,21 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             el.appendChild(wrap);
         }
         let current = null;
-        if (entry.kind === 'choose') {
+        // 下拉式选择：一个下拉框加确定 / 取消，选项少而说明短时比一排大按钮清爽。
+        if (entry.kind === 'choose' && entry.dropdown) {
+            const select = doc.createElement('select');
+            select.className = 'igs-asset-move igs-settings-dialog-select';
+            for (const choice of entry.choices) {
+                const opt = doc.createElement('option');
+                opt.value = choice.value;
+                opt.textContent = choice.note ? `${choice.label} · ${choice.note}` : choice.label;
+                if (choice.value === entry.value) opt.selected = true;
+                select.appendChild(opt);
+            }
+            select.addEventListener('change', () => { entry.value = select.value; });
+            el.appendChild(select);
+            current = select;
+        } else if (entry.kind === 'choose') {
             const list = doc.createElement('div');
             list.className = 'igs-settings-dialog-choices';
             for (const choice of entry.choices) {
@@ -150,7 +165,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         const actions = doc.createElement('div');
         actions.className = 'igs-settings-dialog-actions';
         const buttons = entry.kind === 'view' || entry.kind === 'alert' ? [['ok', entry.okLabel]]
-            : entry.kind === 'choose' ? [['cancel', entry.cancelLabel]]
+            : entry.kind === 'choose' && !entry.dropdown ? [['cancel', entry.cancelLabel]]
             : entry.kind === 'pick' ? [['all', '全选/清空'], ['cancel', entry.cancelLabel], ['ok', entry.okLabel]]
                 : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
         for (const [role, label] of buttons) {
@@ -237,6 +252,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 multiline: kind === 'edit',
                 choices,
                 selected: new Set(selected),
+                dropdown: kind === 'choose' && labels.dropdown === true,
                 resolve,
                 el: null,
             };

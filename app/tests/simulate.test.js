@@ -816,6 +816,7 @@ test('gate:assets:reader-manual-retries-settled-floor', async () => {
     } finally { host.destroy(); }
 });
 
+// 旧楼（isLatest:false）不再拒绝：续读停在哪一楼，工具栏就按哪一楼出图。
 test('gate:assets:reader-manual-rejects-ineligible-or-changed-floor', async () => {
     const document = createFakeDocument();
     const raw = '最新回复。';
@@ -830,7 +831,6 @@ test('gate:assets:reader-manual-rejects-ineligible-or-changed-floor', async () =
     try {
         const opened = host.openReader({ messageId: 39, message: { id: 39, text: raw }, raw }, { mode: 'pc' });
         for (const [change, reason] of [
-            [{ isLatest: false }, 'not-eligible'],
             [{ isAi: false }, 'not-eligible'],
             [{ chatId: 'chat-2' }, 'stale-floor'],
             [{ swipeId: 1 }, 'stale-floor'],

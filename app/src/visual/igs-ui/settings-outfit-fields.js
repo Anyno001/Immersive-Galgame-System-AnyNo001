@@ -181,18 +181,21 @@ function wardrobeChoices(charName, outfitName, entry, wardrobe) {
     const names = Object.keys(plain(wardrobe)).filter((item) => !isBuiltinNudeOutfit(item));
     const selected = typeof entry.wardrobe === 'string' ? entry.wardrobe.trim() : '';
     const nude = isBuiltinNudeOutfit(selected);
-    const choice = (value, label) => menuItem(
-        `scene-set-outfit-wardrobe-url:${encSeg(charName)}:${encSeg(outfitName)}:${encSeg(value)}`,
-        label,
-        (value ? value === selected : !selected) ? ' is-current' : '',
-    );
+    const choice = (value, label) => `<option value="${esc(value)}"${(value ? value === selected : !selected) ? ' selected' : ''}>${esc(label)}</option>`;
     const options = [choice('', '同名服装'), choice(BUILTIN_NUDE_OUTFIT, BUILTIN_NUDE_OUTFIT)]
         .concat(names.map((item) => choice(item, item)));
     if (selected && !nude && !names.includes(selected)) options.push(choice(selected, selected));
-    const current = nude ? BUILTIN_NUDE_OUTFIT : (selected || '同名服装');
     const edit = nude ? '' : `<button type="button" class="igs-settings-action igs-outfit-wardrobe-edit" data-action="wardrobe-for-outfit:${encSeg(charName)}:${encSeg(outfitName)}">${names.includes(selected || outfitName) ? '编辑提示词' : '写提示词'}</button>`;
-    return `<details class="igs-add-menu igs-wardrobe-pick"><summary class="igs-asset-move" aria-label="使用衣柜">${esc(current)}</summary>`
-        + `<div class="igs-add-menu-list" role="listbox">${options.join('')}</div></details>${edit}`;
+    return `<select class="igs-asset-move igs-wardrobe-pick" aria-label="使用衣柜" data-outfit-wardrobe-char="${esc(charName)}" data-outfit-wardrobe="${esc(outfitName)}">${options.join('')}</select>${edit}`;
+}
+
+// 变身形态（性转 / 成长）：这套的生图词替换 DNA 的身份与外观，性别盖过 DNA；切入切出时播变身转场。
+const FORM_CHOICES = [['', '不是变身'], ['keep', '变身·性别不变'], ['female', '变身·女'], ['male', '变身·男']];
+function formChoices(charName, outfitName, entry) {
+    const form = plain(entry.form);
+    const selected = form ? (form.gender || 'keep') : '';
+    const options = FORM_CHOICES.map(([value, label]) => `<option value="${esc(value)}"${value === selected ? ' selected' : ''}>${esc(label)}</option>`);
+    return `<select class="igs-asset-move igs-wardrobe-pick" aria-label="变身形态" data-outfit-form-char="${esc(charName)}" data-outfit-form="${esc(outfitName)}">${options.join('')}</select>`;
 }
 
 function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen) {
@@ -207,6 +210,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
     const metaKey = `outfit-meta:${charName}\u0001${name}`;
     const metaOpen = isOpen(metaKey);
     const meta = !metaOpen ? '' : `<div class="igs-outfit-meta-body"><div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">衣柜</span>${wardrobeChoices(charName, name, entry, sceneAssets.wardrobe)}</div>`
+        + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">变身形态</span>${formChoices(charName, name, entry)}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">说明</span><input class="igs-scene-url-input" data-scene-outfit-note-char="${esc(charName)}" data-scene-outfit-note="${esc(name)}" value="${esc(note)}" placeholder="什么情形穿这套"></div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">别名</span>${chipList(words, `scene-remove-outfit-word:${c}:${o}`, `scene-add-outfit-word:${c}:${o}`, '', '添加别名：正文或表格里出现这个词，就按这套服装显示')}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">适用场景</span>${chipList(scenes, `scene-remove-outfit-scene:${c}:${o}`, `scene-add-outfit-scene:${c}:${o}`, '不限', '添加适用场景（换到其他场景时，继承来的这套服装自动失效）')}</div>`

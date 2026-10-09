@@ -58,7 +58,7 @@ import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
 import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
-import { clearSpriteOutfitSwap, spriteLookOf } from './sprite-outfit-swap.js';
+import { clearSpriteOutfitSwap, isFormOutfit, isOutfitSwap, playSpriteFormShift, spriteLookOf } from './sprite-outfit-swap.js';
 import { spriteEnhanceFilter } from './sprite-enhance.js';
 import { cgSizeForMode, EMBEDDED_PHONE_MAX_WIDTH, isPortraitTouchWindow } from '../../generated-images/illustration/auto-illustration-service.js';
 import { applyClickWaitMark } from './click-wait-mark.js';
@@ -1362,7 +1362,11 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const spriteNarration = ['narration', 'chat', 'system'].includes(snapshot.content.textType) && spriteSettings.dimSpriteOnNarration !== false;
         // 旁白压暗由 .igs-sprite-narration 写入 --igs-sprite-dim，与环境滤镜在样式表里合成。
         spriteEl.classList.toggle('igs-sprite-narration', spriteNarration);
-        current.spriteLook = spriteLookOf(snapshot.content, spriteAssetUrl);
+        const nextLook = spriteLookOf(snapshot.content, spriteAssetUrl);
+        const formAssets = snapshot.readerSettings && snapshot.readerSettings._sceneAssets;
+        if (!current.spriteEditMode && isOutfitSwap(current.spriteLook, nextLook)
+            && (isFormOutfit(formAssets, nextLook.character, current.spriteLook.outfit) || isFormOutfit(formAssets, nextLook.character, nextLook.outfit))) playSpriteFormShift(spriteEl);
+        current.spriteLook = nextLook;
         writeBackgroundImage(spriteEl, spriteAssetUrl);
         spriteEl.style.display = 'block';
         spriteEl.style.position = 'absolute';
@@ -1593,7 +1597,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         cast: castFxTargets,
         resolveAssetUrl,
     });
-    renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto });
+    renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
     // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
     applyDanmakuToDom(root, snapshot, { sprite: fxSprite, resolveAssetUrl, userName: ctx.userName });

@@ -414,7 +414,17 @@ export function expressionLookTags(basePrompt, outfit) {
 // 换了衣服的那一套，DNA 的默认外观里是原装的衣服，硬合会和新衣服打架。
 export function expressionPaintDna(dna, outfit) {
     if (!dna || typeof dna !== 'object' || !outfit || typeof outfit !== 'object') return dna;
+    if (outfit.form) return formPaintDna(dna, outfit.form);
     return { ...dna, defaultAppearance: '' };
+}
+
+// 变身形态：身份、外观整段让给这一套的生图词；触发词里的性别 / 年龄标签摘掉，再按 form.gender 补一个。
+const FORM_BODY_TAG_RE = /^(?:\d+\s*(?:boy|girl)s?|male|female|boy|girl|man|woman|loli|shota|child|kid|teen(?:ager)?|adult|mature(?: \w+)?|old(?: \w+)?|young(?: \w+)?|elderly|milf|petite|aged (?:up|down)|male focus|female focus)$/i;
+const FORM_GENDER_TAG = Object.freeze({ male: '1boy', female: '1girl' });
+function formPaintDna(dna, form) {
+    const triggers = String(dna.triggerWords || '').split(/[,，]/).map((t) => t.trim()).filter((t) => t && !FORM_BODY_TAG_RE.test(t));
+    const gender = FORM_GENDER_TAG[form && form.gender];
+    return { ...dna, identity: '', defaultAppearance: '', triggerWords: [gender, ...triggers].filter(Boolean).join(', ') };
 }
 
 export function applyLookToCaption(caption, tags) {

@@ -9,6 +9,7 @@ import { esc } from './reader-value-utils.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 import { FX_HOLD_SCALE, normalizeFxSoundSettings, normalizeFxStyleSettings } from './fx-settings.js';
 import { normalizeDailyFxSettings, planDailyFx } from './fx-daily-model.js';
+import { headTopAnchor } from './meta-runtime.js';
 import { playDailySfx } from './fx-daily-sfx.js';
 import { resolvePetalKind, startFireworks, startLanterns, startPetals } from './fx-daily-particles.js';
 import { playSpriteSpec } from './sprite-actions.js';
@@ -167,7 +168,7 @@ function nowClock() {
 }
 
 // 结果类日常演出的停留时长（未并入导出的 DAILY_FX_LIFETIME_MS，避免改变其既有结构）。
-const DAILY_RESULT_LIFE_MS = Object.freeze({ rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400, brake: 1500, depart: 2600, arrive: 3600, ticket: 3400, steam: 3400, shower: 2600, splash: 2400, hairdry: 2600, dive: 2400, bubble: 2200, vacuum: 3200 });
+const DAILY_RESULT_LIFE_MS = Object.freeze({ say: 2600, rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400, brake: 1500, depart: 2600, arrive: 3600, ticket: 3400, steam: 3400, shower: 2600, splash: 2400, hairdry: 2600, dive: 2400, bubble: 2200, vacuum: 3200 });
 // 敲门：每下间隔，末下之后再停留一会儿。
 const KNOCK_MS = Object.freeze({ gap: 420, tail: 1300 });
 // 吼叫信：抖动 900ms 后炸开，逐字吼出，吼完再停留。
@@ -490,6 +491,21 @@ const BUILDERS = {
         return { layer: 'front', life: count * KNOCK_MS.gap + KNOCK_MS.tail, sounds: [`knock${count}`], node };
     },
     // 耳边低语：一句模糊的字从画面一侧逐字浮现、发虚、散掉，左右随句子而定。
+    // 头顶小字：落在指名角色（说话人或在台陪衬）头顶，沿用 Meta 气泡样式；角色不在台上时放舞台上方正中。
+    say(item, env) {
+        if (!item.text) return null;
+        const who = String(item.who || '').trim();
+        const target = !who || who === env.speaker ? env.sprite : env.cast.find((m) => m && m.character === who);
+        const anchor = target ? headTopAnchor(env.root, target) : null;
+        const node = env.doc.createElement('div');
+        node.className = 'igs-dfx igs-meta-bubble igs-dfx-say';
+        node.textContent = item.text;
+        node.style.left = anchor ? `${Math.round(anchor.x)}px` : '50%';
+        node.style.top = anchor ? `${Math.round(anchor.y)}px` : '22%';
+        const life = Math.round(DAILY_RESULT_LIFE_MS.say * env.hold);
+        node.style.animationDuration = `${life}ms`;
+        return { layer: 'front', life, sounds: [], node };
+    },
     murmur(item, env) {
         const side = chars(item.text).length % 2 ? 'is-left' : 'is-right';
         const node = make(env.doc, `igs-dfx igs-dfx-murmur ${side}`, `<div class="igs-dfx-murmur-text">${charSpans(item.text, 110, 250)}</div>`);
@@ -753,6 +769,9 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
         ancient: readerSettings._ancientEra === true,
         worldview: String(readerSettings._worldview || ''),
         onPhoto: settings.photoAlbum ? ctx.onPhoto : null,
+        sprite: ctx.sprite || null,
+        cast: Array.isArray(ctx.cast) ? ctx.cast : [],
+        speaker: String(content.spriteCharacter || content.speaker || '').trim(),
     };
     env.place = resolvePlaceAmbience(content.sceneLocation, { worldview: env.ancient ? 'ancient' : env.worldview });
     // 西幻 / 科幻 / 末日：在现代节点上追加 is-<id> 换皮，结构、时长与音效不变；古代沿用自身分支。

@@ -5,6 +5,7 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
+import { canonicalName, noteFormGender, setActiveFormGenders } from './voice-bark.js';
 import { createSettingsHost } from './settings-host.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
 import { extractSceneDirectives, resolveSceneStateAtIndex, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers } from '../../scene/scene-directives.js';
@@ -2270,8 +2271,9 @@ export function createIgsReaderHost(options = {}) {
         const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
         const floor = messageId != null && typeof options.getIllustrationSource === 'function'
             ? options.getIllustrationSource(messageId) : null;
-        if (!floor || !floor.isAi || !floor.isLatest || !floor.chatId || !String(floor.text || '').trim()) {
-            return { messageId, reason: 'not-eligible', message: '请打开当前聊天最新的非空 AI 楼层' };
+        // 工具栏按阅读器当前楼层出图：续读停在旧楼就画旧楼，不再要求最新楼。
+        if (!floor || !floor.isAi || !floor.chatId || !String(floor.text || '').trim()) {
+            return { messageId, reason: 'not-eligible', message: '当前楼层不是非空的 AI 回复' };
         }
         const identity = current.illustrationIdentity;
         if (!identity || floor.chatId !== identity.chatId || floor.swipeId !== identity.swipeId
@@ -3254,7 +3256,8 @@ export function createIgsReaderHost(options = {}) {
                 const outfitDirectives = extractSceneDirectives(sceneSourceForOffset, { outfitResolver: createOutfitResolver(sceneAssets) }).directives;
                 noteUnlistedOutfits(outfitDirectives, sceneAssets);
                 const sceneRaw = String((sceneStateForBg && sceneStateForBg.scene) || '').trim();
-                const outfitFor = (character) => (outfitMap && Object.keys(outfitMap).length
+                setActiveFormGenders([]);
+                const outfitFor = (character) => withFormGender(character, outfitMap && Object.keys(outfitMap).length
                     ? resolveSpriteOutfit({
                         directives: outfitDirectives,
                         character,
@@ -3266,6 +3269,14 @@ export function createIgsReaderHost(options = {}) {
                         resolveDna: (name) => { const hit = resolveCharacterDna(sceneAssets.characterDna, name); return hit ? hit.dna : null; },
                     }).outfit
                     : '');
+                // 变身形态：记下这一页在场角色的形态性别，供高度 / 语气音 / 朗读读取。
+                const withFormGender = (character, outfit) => {
+                    const name = canonicalName(sceneAssets, character);
+                    const own = name && outfitMap && Object.hasOwn(outfitMap, name) ? outfitMap[name] : null;
+                    const entry = own && outfit && Object.hasOwn(own, outfit) ? own[outfit] : null;
+                    noteFormGender(name, entry && entry.form ? entry.form.gender : '');
+                    return outfit;
+                };
                 const wantedOutfit = outfitFor(spriteChar);
                 const spriteHit = resolveSpriteAsset(spriteChar, spriteMood, assetMatchCtx, wantedOutfit);
                 spriteMatch = { character: spriteChar, mood: spriteMood || '', outfit: wantedOutfit || '', source: spriteHit.source, quality: spriteHit.quality || '', slot: spriteHit.slot || '' };

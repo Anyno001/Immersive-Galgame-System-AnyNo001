@@ -711,7 +711,8 @@ export function createAssetGenerationService(deps) {
         if (!s.auto.assets.spriteEnabled && !s.auto.assets.backgroundEnabled) return { ok: true, reason: 'disabled' };
         if (!s.sceneAssets.enabled) return { ok: true, reason: 'scene-assets-disabled' };
         const floor = messageHost.readFloor(messageId);
-        if (!floor || !floor.isAi || !floor.isLatest || !floor.chatId || !floor.text.trim()) {
+        // 手动可补旧楼的素材（续读停在旧楼时）；自动仍只认最新楼。
+        if (!floor || !floor.isAi || !(floor.isLatest || manual) || !floor.chatId || !floor.text.trim()) {
             return { ok: true, reason: 'not-eligible' };
         }
         const key = floorKeyOf(floor);

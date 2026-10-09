@@ -143,6 +143,15 @@ function spriteGeometry(state, root, sprite, rerun) {
     return { ...sprite, ...dims, head: sprite.flip === true ? { ...head, x: 1 - Number(head.x) } : head };
 }
 
+// 剧情头顶小字 [igs-fx:say] 的落点：不依赖 Meta 开关；头位还没探测到时返回 null，由调用方退回默认位置。
+export function headTopAnchor(root, sprite) {
+    const layers = ensureFxLayers(root);
+    const geo = layers && layers.motion ? measureStage(layers.motion) : null;
+    if (!geo || !sprite || !sprite.url) return null;
+    const anchor = headAnchor(geo, spriteGeometry({}, root, sprite, () => {}));
+    return anchor ? { x: Math.max(70, Math.min(geo.stageW - 70, anchor.cx)), y: Math.max(28, anchor.top - 6) } : null;
+}
+
 // 头部圆形热区（舞台像素）：{ cx, cy, d, top }。
 function headAnchor(geo, sized) {
     if (!geo || !sized) return null;

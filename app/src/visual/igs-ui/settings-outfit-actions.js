@@ -378,7 +378,7 @@ function handleOutfitReview(command, segs, ctx) {
     return rerenderSettings();
 }
 
-const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-note|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit|prompt))(?::(.*))?$/;
+const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-(?:note|form)|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit|prompt))(?::(.*))?$/;
 
 // 服装区 action：返回 null 表示不归本模块处理。位置 / 头部标定 key 随改名迁移、随删除清理。
 export function handleOutfitAction(normalizedAction, ctx) {
@@ -421,6 +421,13 @@ async function runOutfitAction(match, ctx) {
     if (command === 'scene-set-outfit-note') {
         if (entry) entry.note = segs.slice(2).join(':');
         return { ok: true };
+    }
+    if (command === 'scene-set-outfit-form') {
+        if (!entry) return rerenderSettings();
+        const picked = decodeSeg(segs[2] || '');
+        if (!picked) delete entry.form;
+        else entry.form = { gender: picked === 'female' || picked === 'male' ? picked : '' };
+        return done();
     }
     if (command === 'scene-set-outfit-wardrobe-url') {
         if (!entry) return rerenderSettings();

@@ -116,7 +116,7 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
         isOpen: () => true,
     });
     assert.match(tabs, /igs-wardrobe-pick/);
-    assert.match(tabs, /scene-set-outfit-wardrobe-url:[^"]*%E8%A3%B8%E4%BD%93/);
+    assert.match(tabs, /data-outfit-wardrobe-char="[^"]*"[^>]*>[\s\S]*?<option value="裸体"/);
     assert.match(tabs, /outfit-expression-set:/);
     assert.doesNotMatch(tabs, /生成立绘|outfit-generate-nude:|char-generate-sprite:/);
     assert.equal(tabs.includes('scene-outfit-tab:%E5%86%AC%E6%9C%88:%E8%A3%B8%E4%BD%93'), false);

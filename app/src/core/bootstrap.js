@@ -16,6 +16,7 @@ import {
 } from '../storage/legacy-igs.js';
 import { createPresetStore } from '../storage/preset-store.js';
 import { createTavernSettingsSync } from '../storage/tavern-settings-file.js';
+import { createExpressionNotesFile, fillExpressionNotes } from '../storage/expression-notes-file.js';
 import { createLayerController } from '../visual/layer-controller.js';
 import { createStageRenderer } from '../visual/stage-renderer.js';
 import { resolveVisualMode } from '../visual/visual-mode.js';
@@ -56,7 +57,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { detectPromptTriggers } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.35.9';
+const IGS_VERSION = '0.35.10';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -380,11 +381,34 @@ export function bootstrapIGS(options = {}) {
                 if (typeof presetRegistry.hydrate === 'function') presetRegistry.hydrate();
                 events.emit('igs:legacy-settings-updated', cloneData(state.legacyIgs));
                 if (options.autoAttachMagicWand !== false) applyEntryConfig(resolveEntryConfig());
+                applyFileExpressionNotes();
                 applyImageCacheLimit(state.config);
                 syncSceneAssetsInjectionWithRetry(1);
             },
         });
         void state.settingsSync.start();
+    }
+    // 立绘提示词单独落酒馆文件（localStorage 不存这段）：读回后补进运行时配置。
+    if (!options.storage && storageLike && options.tavernSettingsSync !== false) {
+        state.notesFile = createExpressionNotesFile(globalObject);
+        void state.notesFile.load().then((notes) => {
+            if (state.destroyed || !notes) return;
+            state.fileExpressionNotes = notes;
+            if (applyFileExpressionNotes()) events.emit('igs:legacy-settings-updated', cloneData(state.legacyIgs));
+        });
+    }
+    function applyFileExpressionNotes() {
+        const notes = state.fileExpressionNotes;
+        if (!notes) return false;
+        let changed = false;
+        for (const bridge of [state.config, state.legacyIgs && state.legacyIgs.bridge]) {
+            const sa = bridge && bridge.sceneAssets;
+            if (!sa || typeof sa !== 'object') continue;
+            sa.generated = sa.generated && typeof sa.generated === 'object' ? sa.generated : {};
+            sa.generated.expressionNotes = sa.generated.expressionNotes && typeof sa.generated.expressionNotes === 'object' ? sa.generated.expressionNotes : {};
+            if (fillExpressionNotes(sa.generated.expressionNotes, notes)) changed = true;
+        }
+        return changed;
     }
     function applyImageCacheLimit(bridge) {
         const cache = localImageCacheFor(globalObject);
@@ -570,6 +594,10 @@ export function bootstrapIGS(options = {}) {
             ? writeLegacyIgsSettings(storageLike, nextLegacy)
             : { ok: true, legacy: nextLegacy, persisted: false };
         if (writeResult.ok === false) return writeResult;
+        const savedNotes = nextBridge.sceneAssets && nextBridge.sceneAssets.generated && nextBridge.sceneAssets.generated.expressionNotes;
+        if (state.notesFile) state.notesFile.save(savedNotes);
+        // 文件里那份跟着用户的删改走，之后的补缺不把删掉的提示词补回来。
+        if (savedNotes && typeof savedNotes === 'object') state.fileExpressionNotes = cloneData(savedNotes);
         state.legacyIgs = cloneData(writeResult.legacy);
         state.config = cloneData({
             ...(state.config || {}),
@@ -798,6 +826,7 @@ export function bootstrapIGS(options = {}) {
         clearSceneAssetsInjectionTimer();
         detachChatChangedReinjection();
         if (state.settingsSync) state.settingsSync.stop();
+        if (state.notesFile) state.notesFile.flush();
         if (typeof state.metaDigestCleanup === 'function') state.metaDigestCleanup();
         state.metaDigestCleanup = null;
         promptInjector.clear();

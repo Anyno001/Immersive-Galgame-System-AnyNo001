@@ -408,7 +408,7 @@ async function chooseMoodTier(dialogs, saved, name, { firstDefault = false } = {
     ];
     let raw;
     if (dialogs && typeof dialogs.choose === 'function') {
-        raw = await dialogs.choose(title, choices, String(current));
+        raw = await dialogs.choose(title, choices, String(current), { dropdown: true, okLabel: '开始' });
     } else if (dialogs && typeof dialogs.prompt === 'function') {
         raw = await dialogs.prompt(`${title}\n${choices.map((item) => `${item.label} ${item.note}`).join('\n')}`, String(current));
     } else return current;
@@ -1567,7 +1567,7 @@ export async function handleSettingsAction(action, ctx) {
         const dna = characterExpressionDna(sceneAssets, name);
         const nude = outfitMode && isBuiltinNudeOutfit(outfitEntry.wardrobe);
         const clothes = outfitMode && !nude ? resolveWardrobePrompt(draftEffectiveAssets(settingsState).wardrobe || {}, outfitEntry, outfitName) : null;
-        const outfit = outfitMode ? { name: outfitName, words: nude ? [] : outfitEntry.words, ownImage: Boolean(ownUrl), prompt: nude ? '' : (clothes ? clothes.prompt : ''), nude, nsfwBoost: Boolean(!nude && clothes && clothes.nsfwBoost) } : null;
+        const outfit = outfitMode ? { name: outfitName, words: nude ? [] : outfitEntry.words, ownImage: Boolean(ownUrl), prompt: nude ? '' : (clothes ? clothes.prompt : ''), nude, nsfwBoost: Boolean(!nude && clothes && clothes.nsfwBoost), form: outfitEntry.form || null } : null;
         if (retry && !mood) {
             endProgress();
             return rerenderSettings();

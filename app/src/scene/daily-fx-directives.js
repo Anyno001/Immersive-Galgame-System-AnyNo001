@@ -9,6 +9,7 @@ export const DAILY_FX_KINDS = Object.freeze([
     'brake', 'depart', 'arrive', 'ticket',
     'steam', 'shower', 'splash', 'hairdry',
     'dive', 'bubble', 'vacuum',
+    'say',
 ]);
 export const DAILY_OMIKUJI_RESULTS = Object.freeze(['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶']);
 // 同页日常演出上限：都是全屏或大卡片，连发只会互相遮挡。
@@ -102,6 +103,10 @@ export function parseDailyFxBody(type, fields) {
         return ['knock', String(count >= 1 && count <= 6 ? count : 3)];
     }
     case 'murmur': return a ? ['murmur', a] : null;
+    // 头顶小字：[igs-fx:say|角色|文字]，只写一栏时是说话人；文字截到 20 字。
+    case 'say':
+        if (!a) return null;
+        return b ? ['say', a, b.slice(0, 20)] : ['say', '', a.slice(0, 20)];
     // 载具：目的地、站名均可省；车票只写一栏时视为终点。
     case 'brake': return ['brake'];
     case 'depart': return ['depart', a];
@@ -163,6 +168,7 @@ export function dailyFxOf(args) {
     case 'blackout': return { type, text: a };
     case 'knock': return { type, count: Number(a) || 3 };
     case 'murmur': return { type, text: a };
+    case 'say': return { type, who: a, text: b };
     case 'brake': return { type };
     case 'depart': return { type, to: a };
     case 'arrive': return { type, station: a };

@@ -227,9 +227,10 @@ test('gate:outfits:binding-lists-merged-wardrobe-and-jumps-to-rules', () => {
         sceneAssets: { wardrobe, characters: { 小林: { 默认: '' } }, characterOutfits: { 小林: { 校服: outfit } } },
     });
     const html = render({ 校服: { prompt: 'card' }, 晚礼服: { prompt: 'gown' } }, { moods: {}, wardrobe: '晚礼服' });
-    assert.match(html, /aria-label="使用衣柜">晚礼服</);
-    assert.match(html, /is-current" data-action="scene-set-outfit-wardrobe-url:%E5%B0%8F%E6%9E%97:%E6%A0%A1%E6%9C%8D:%E6%99%9A%E7%A4%BC%E6%9C%8D"/);
-    assert.equal(html.match(/scene-set-outfit-wardrobe-url:%E5%B0%8F%E6%9E%97:%E6%A0%A1%E6%9C%8D:%E6%A0%A1%E6%9C%8D"/g).length, 1);
+    // 衣柜改为原生下拉：当前引用的那项 selected，同名服装只列一次。
+    assert.match(html, /aria-label="使用衣柜" data-outfit-wardrobe-char="小林" data-outfit-wardrobe="校服">/);
+    assert.match(html, /<option value="晚礼服" selected>晚礼服<\/option>/);
+    assert.equal(html.match(/<option value="校服"/g).length, 1);
     assert.match(html, /data-action="wardrobe-for-outfit:%E5%B0%8F%E6%9E%97:%E6%A0%A1%E6%9C%8D">编辑提示词</);
     const missing = render({}, { moods: {} });
     assert.match(missing, /data-action="wardrobe-for-outfit:%E5%B0%8F%E6%9E%97:%E6%A0%A1%E6%9C%8D">写提示词</);

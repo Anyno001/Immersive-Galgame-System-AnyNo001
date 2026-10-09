@@ -135,7 +135,20 @@ export function detectVoiceGender(text) {
 }
 
 // 按主名查 DNA 判断性别（声线和立绘默认高度共用）；没有 DNA 或看不出时返回 ''。
+// 变身形态的当前性别：阅读器每页按在场角色的服装写入，盖过 DNA 推断（高度、语气音、朗读一起跟着变）。
+const activeFormGenders = new Map();
+export function setActiveFormGenders(entries) {
+    activeFormGenders.clear();
+    for (const [name, gender] of entries || []) noteFormGender(name, gender);
+}
+export function noteFormGender(name, gender) {
+    if (!name) return;
+    if (gender) activeFormGenders.set(name, gender);
+    else activeFormGenders.delete(name);
+}
+
 export function characterDnaGender(sceneAssets, name) {
+    if (name && activeFormGenders.has(name)) return activeFormGenders.get(name);
     const dnaMap = plainObject(sceneAssets && sceneAssets.characterDna) || {};
     const dna = name && hasOwn(dnaMap, name) ? plainObject(dnaMap[name]) : null;
     return dna ? detectVoiceGender(`${dna.triggerWords || ''}\n${dna.identity || ''}\n${dna.defaultAppearance || ''}`) : '';

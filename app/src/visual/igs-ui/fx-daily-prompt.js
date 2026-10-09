@@ -49,6 +49,7 @@ const DAILY_PROMPT_LINES = Object.freeze({
     dive: '[igs-fx:dive]：跳进水里、潜入水下的那一刻',
     bubble: '[igs-fx:bubble]：在水下说话或叹气，吐出一串气泡',
     vacuum: '[igs-fx:vacuum]：舱门打开、空气泄光，四周陷入真空的寂静',
+    say: '[igs-fx:say|角色|小字]：角色头顶冒出一句小字（嘀咕、吐槽、心声），不超过12字；角色省略时是当前说话人',
 });
 
 export function resolveDailyFxPromptRule(settings) {
@@ -115,6 +116,7 @@ export const DAILY_GRAMMAR_LINES = Object.freeze({
     dive: 'dive：潜入水下',
     bubble: 'bubble：水下吐出气泡',
     vacuum: 'vacuum：泄压陷入真空',
+    say: 'say|角色|小字：头顶冒小字，不超过12字，角色可省',
 });
 
 export function dailyGrammarLines(settings) {

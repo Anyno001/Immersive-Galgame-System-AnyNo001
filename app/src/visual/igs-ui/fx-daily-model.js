@@ -11,9 +11,10 @@ export const DAILY_FX_LABELS = Object.freeze({
     brake: '急刹车', depart: '发车出发', arrive: '到站', ticket: '车票',
     steam: '一团水汽', shower: '淋浴', splash: '泼水', hairdry: '吹头发',
     dive: '潜入水中', bubble: '吐气泡', vacuum: '真空泄压',
+    say: '头顶小字',
 });
 // 后加的日常类型需显式勾选：旧存档里日常演出已开启的用户不会突然收到新语法。
-const DAILY_FX_OPT_IN = new Set(['rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur', 'brake', 'depart', 'arrive', 'ticket', 'steam', 'shower', 'splash', 'hairdry', 'dive', 'bubble', 'vacuum']);
+const DAILY_FX_OPT_IN = new Set(['say', 'rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur', 'brake', 'depart', 'arrive', 'ticket', 'steam', 'shower', 'splash', 'hairdry', 'dive', 'bubble', 'vacuum']);
 
 export function normalizeDailyFxSettings(value) {
     const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};

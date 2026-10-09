@@ -74,6 +74,9 @@ export function normalizeCharacterOutfits(value) {
             if (note) outfits[name].note = note;
             const base = typeof entry.base === 'string' ? entry.base.trim() : '';
             if (base) outfits[name].base = base;
+            // 变身形态（性转 / 成长 / 返老还童）：这一套的生图词替换 DNA 的身份与外观，gender 覆盖 DNA 推断的性别。
+            const form = plain(entry.form);
+            if (form) outfits[name].form = { gender: ['male', 'female', 'other'].includes(form.gender) ? form.gender : '' };
         }
         out[character] = outfits;
     }

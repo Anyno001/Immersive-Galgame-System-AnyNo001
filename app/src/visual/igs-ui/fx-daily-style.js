@@ -2,6 +2,7 @@
 const RED = '#c8392b';
 export const DAILY_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx{position:absolute;inset:0;pointer-events:none;--igs-dfx-life:3000ms;}
+#igs-overlay .igs-dfx.igs-dfx-say{inset:auto;}
 #igs-overlay .igs-dfx-sky{position:absolute;inset:0;pointer-events:none;overflow:hidden;}
 #igs-overlay .igs-dfx-sky canvas,#igs-overlay .igs-dfx-petals canvas{position:absolute;inset:0;width:100%;height:100%;}
 #igs-overlay .igs-dfx-petals{position:absolute;inset:0;pointer-events:none;overflow:hidden;}

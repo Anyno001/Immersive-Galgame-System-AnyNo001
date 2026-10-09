@@ -57,6 +57,7 @@ export const DAILY_TRIGGER_WORDS = Object.freeze({
     dive: ['潜入水', '跳进水', '潜水', '入水'],
     bubble: ['气泡', '吐泡泡'],
     vacuum: ['真空', '气闸', '泄压'],
+    say: ['嘀咕', '小声', '吐槽', '心想', '暗想', '咕哝'],
 });
 
 const BLOCK_TRIGGERS = Object.freeze({
