@@ -1,4 +1,4 @@
-import { BUILTIN_NUDE_OUTFIT, isBuiltinNudeOutfit, isValidOutfitName, isValidOutfitWord, normalizeWardrobe, OUTFIT_RESET } from '../../scene/character-outfits.js';
+import { BUILTIN_NUDE_OUTFIT, fuzzyOutfitName, isBuiltinNudeOutfit, isValidOutfitName, isValidOutfitWord, normalizeWardrobe, OUTFIT_RESET } from '../../scene/character-outfits.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { classifySceneKey } from '../../scene/scene-directives.js';
 import { clearOutfitReview, loadOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
@@ -127,7 +127,8 @@ async function offerOutfitSprites(ctx, wardrobeName, dialogs) {
     if (typeof ctx.rerun !== 'function' || !dialogs || typeof dialogs.choose !== 'function') return null;
     const names = Object.keys(plain(draftEffectiveAssets(settingsState).characters) || {}).filter((key) => !BLOCKED_KEYS.has(key));
     if (!names.length) return null;
-    const picked = await dialogs.choose(`要给哪个角色画「${wardrobeName}」的差分立绘？`, names.map((key) => ({ value: key, label: key })), '', { cancelLabel: '暂不生成' });
+    // 正文新衣服的自动衣柜已知是谁穿的，不再问。
+    const picked = names.includes(ctx.outfitFor) ? ctx.outfitFor : await dialogs.choose(`要给哪个角色画「${wardrobeName}」的差分立绘？`, names.map((key) => ({ value: key, label: key })), '', { cancelLabel: '暂不生成' });
     if (!picked || !names.includes(picked)) return rerenderSettings();
     const library = draftAssetLibrary(settingsState, { collections: CHARACTER_FIELDS, name: picked });
     const outfits = outfitMapOf(library, picked);
@@ -349,6 +350,62 @@ function selectTab(settingsState, charName, outfitName) {
     settingsState.asyncState.advancedOpen = { ...(settingsState.asyncState.advancedOpen || {}), [`char-open:${charName}`]: true };
 }
 
+// 正文出现新衣服：先在衣柜里模糊找，找到就给角色建服装对上衣柜、记下正文写法，直接转表情差分；
+// 没有就新建衣柜条目 → 写提示词 → 出参考图 → 给这个角色画差分（同衣柜「＋」的自动流程）。
+async function handleOutfitReviewAuto(segs, ctx) {
+    const { settingsState, options, persistSettingsDraft, rerenderSettings } = ctx;
+    const globalObj = options.global || globalThis;
+    const charName = decodeSeg(segs[0] || '');
+    const word = decodeSeg(segs[1] || '');
+    rememberAssetScope(settingsState, getSillyTavernContext(globalObj));
+    const effective = draftEffectiveAssets(settingsState);
+    if (!charName || BLOCKED_KEYS.has(charName) || !isValidOutfitName(word) || !hasOwn(plain(effective.characters) || {}, charName)) return rerenderSettings();
+    const wardrobe = normalizeWardrobe(effective.wardrobe);
+    const fuzzy = hasOwn(wardrobe, word) ? word : fuzzyOutfitName(wardrobe, word);
+    const outfits = outfitMapOf(draftAssetLibrary(settingsState, { collections: CHARACTER_FIELDS, name: charName }), charName);
+    // 让用户选：衣柜模糊命中 / 归入角色已有服装（正文写法记成别名）/ 生成新衣服。
+    const choices = [
+        ...(fuzzy ? [{ value: `w:${fuzzy}`, label: `用衣柜里的「${fuzzy}」` }] : []),
+        ...Object.keys(outfits).map((name) => ({ value: `o:${name}`, label: `归入「${name}」（加别名）` })),
+        { value: 'new', label: `生成新衣服「${word}」` },
+    ];
+    const dialogs = ctx.dialogs || createSettingsDialogs({ global: globalObj });
+    const picked = typeof dialogs.choose === 'function'
+        ? await dialogs.choose(`「${charName}」穿了衣柜里没有的「${word}」：`, choices, choices[0].value, { cancelLabel: '稍后' })
+        : choices[0].value;
+    if (!picked || !choices.some((c) => c.value === picked)) return rerenderSettings();
+    const hit = picked === 'new' ? '' : picked.slice(2);
+    if (hit) {
+        if (!outfitEntry(outfits, hit) && !createOutfit(ctx, charName, outfits, hit)) return rerenderSettings();
+        if (word !== hit) addOutfitWord(ctx, outfits, outfitEntry(outfits, hit), word);
+        if (picked.startsWith('o:')) {
+            removeOutfitReview(globalObj.localStorage, charName, word);
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+            selectTab(settingsState, charName, hit);
+            return rerenderSettings();
+        }
+        removeOutfitReview(globalObj.localStorage, charName, word);
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        selectTab(settingsState, charName, hit);
+        return ctx.rerun(`outfit-expression-set:${encodeURIComponent(charName)}:${encodeURIComponent(hit)}`);
+    }
+    const library = draftAssetLibrary(settingsState, null);
+    library.wardrobe = { ...normalizeWardrobe(library.wardrobe), [word]: { prompt: '' } };
+    removeOutfitReview(globalObj.localStorage, charName, word);
+    const added = persistSettingsDraft();
+    if (added.ok === false) return added;
+    settingsState.asyncState.sceneSubTab = 'rules';
+    settingsState.asyncState.wardrobeFocus = word;
+    const seg = [encodeURIComponent(word)];
+    const chained = { ...ctx, auto: true, outfitFor: charName };
+    await handleWardrobe('wardrobe-generate-prompt', seg, chained);
+    const written = normalizeWardrobe(draftEffectiveAssets(settingsState).wardrobe)[word];
+    if (!written || !written.prompt) return rerenderSettings();
+    return handleWardrobe('wardrobe-reference', seg, chained);
+}
+
 // 待确认服装词：归入已有服装、新建为服装、忽略、清空。存储独立于设置，处理成功后从列表移除。
 function handleOutfitReview(command, segs, ctx) {
     const { settingsState, options, persistSettingsDraft, rerenderSettings } = ctx;
@@ -378,7 +435,7 @@ function handleOutfitReview(command, segs, ctx) {
     return rerenderSettings();
 }
 
-const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-(?:note|form)|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit|prompt))(?::(.*))?$/;
+const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-(?:note|form)|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots)|outfit-review-(?:assign|create|dismiss|clear|auto)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit|prompt))(?::(.*))?$/;
 
 // 服装区 action：返回 null 表示不归本模块处理。位置 / 头部标定 key 随改名迁移、随删除清理。
 export function handleOutfitAction(normalizedAction, ctx) {
@@ -389,6 +446,7 @@ export function handleOutfitAction(normalizedAction, ctx) {
 async function runOutfitAction(match, ctx) {
     const [, command, rest = ''] = match;
     const segs = rest.split(':');
+    if (command === 'outfit-review-auto') return handleOutfitReviewAuto(segs, ctx);
     if (command.startsWith('outfit-review-')) return handleOutfitReview(command, segs, ctx);
     const { settingsState, options, persistSettingsDraft, rerenderSettings } = ctx;
     if (command.startsWith('wardrobe-')) return handleWardrobe(command, segs, ctx);

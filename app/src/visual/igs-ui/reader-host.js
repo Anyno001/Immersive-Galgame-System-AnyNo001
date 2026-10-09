@@ -2788,9 +2788,21 @@ export function createIgsReaderHost(options = {}) {
         for (const d of directives) {
             if (!d || !d.unknownOutfit || !d.character) continue;
             const character = resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, d.character) || d.character;
-            if (recordOutfitReview(storage, { character, word: d.unknownOutfit })) fresh.push(`「${character}」的「${d.unknownOutfit}」`);
+            if (recordOutfitReview(storage, { character, word: d.unknownOutfit })) fresh.push({ character, word: d.unknownOutfit });
         }
-        if (fresh.length) writeToast(`有新服装待确认：${fresh.join('、')}。到「素材 → 待确认」里归入已有服装或新建。`, 4200);
+        if (!fresh.length) return;
+        // 自动衣柜开着（默认）时打开素材页，问第一件：归入已有 / 用衣柜 / 生成新衣服；其余留在「待确认」。
+        if (sceneAssets.wardrobeAutoFlow !== false && !state.activeSettings) {
+            openSettings({ tab: 'scene', mode: state.activeReader ? state.activeReader.mode : 'pc' });
+            const settings = state.activeSettings;
+            if (settings && settings.controller && typeof settings.controller.invoke === 'function') {
+                const [first] = fresh;
+                settings.controller.invoke(`outfit-review-auto:${encodeURIComponent(first.character)}:${encodeURIComponent(first.word)}`);
+                if (fresh.length > 1) writeToast(`还有新服装待确认：${fresh.slice(1).map((f) => `「${f.character}」的「${f.word}」`).join('、')}。`, 4200);
+                return;
+            }
+        }
+        writeToast(`有新服装待确认：${fresh.map((f) => `「${f.character}」的「${f.word}」`).join('、')}。到「素材 → 待确认」里归入已有服装或新建。`, 4200);
     }
 
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {

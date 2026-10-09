@@ -133,7 +133,36 @@ export function resolveOutfitToken(outfits, token) {
     for (const [name, entry] of Object.entries(map)) {
         if (Array.isArray(entry && entry.words) && entry.words.includes(text)) return name;
     }
-    return '';
+    return fuzzyOutfitName(map, text);
+}
+
+// 模糊兜底：正文写「绿裙」也能认「墨绿色长裙」。去掉虚字后一方按顺序包含另一方、且末字（裙 / 服 / 衣等中心词）相同；
+// 取重合比例最高者，同分冲突时放弃。
+const OUTFIT_FILLER_RE = /[色的款件套条身之\s·・]/g;
+const outfitCore = (word) => Array.from(String(word || '').replace(OUTFIT_FILLER_RE, '').toLowerCase());
+function isSubsequence(short, long) {
+    let at = 0;
+    for (const ch of long) if (ch === short[at]) at += 1;
+    return at === short.length;
+}
+export function fuzzyOutfitName(outfits, token) {
+    const want = outfitCore(token);
+    if (want.length < 2) return '';
+    let best = '';
+    let bestScore = 0;
+    let tie = false;
+    for (const [name, entry] of Object.entries(plain(outfits) || {})) {
+        let score = 0;
+        for (const candidate of [name, ...(Array.isArray(entry && entry.words) ? entry.words : [])]) {
+            const have = outfitCore(candidate);
+            if (have.length < 2 || have[have.length - 1] !== want[want.length - 1]) continue;
+            const [short, long] = have.length <= want.length ? [have, want] : [want, have];
+            if (isSubsequence(short, long)) score = Math.max(score, short.length / long.length);
+        }
+        if (!score) continue;
+        if (score > bestScore) { best = name; bestScore = score; tie = false; } else if (score === bestScore) tie = true;
+    }
+    return tie ? '' : best;
 }
 
 export function createOutfitResolver(sceneAssets) {

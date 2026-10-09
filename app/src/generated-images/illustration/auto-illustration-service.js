@@ -253,6 +253,15 @@ export function createAutoIllustrationService(deps) {
         return null;
     }
 
+    function inheritedNsfw(messageId) {
+        const texts = typeof messageHost.readPreviousAiTexts === 'function' ? messageHost.readPreviousAiTexts(messageId, 5) : [];
+        for (let i = texts.length - 1; i >= 0; i -= 1) {
+            const { scenes } = numberParagraphs(texts[i]);
+            if (scenes.length) return scenes[scenes.length - 1].nsfw;
+        }
+        return false;
+    }
+
     async function ensureRegexesOnce() {
         if (regexesEnsured) return;
         try { regexesEnsured = (await messageHost.ensureMarkerRegexes()).ok === true; } catch (error) { regexesEnsured = false; }
@@ -437,6 +446,8 @@ export function createAutoIllustrationService(deps) {
         const expected = floor;
         if (/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/i.test(floor.text)) floor = { ...floor, text: stripIllustrationMarkers(floor.text) };
         const numbered = numberParagraphs(floor.text);
+        // 本楼没写场景标签 = 场景延续：继承最近一个带场景标签的楼的 NSFW，不让 NSFW 掉进过场概率。
+        if (!numbered.scenes.length) numbered.isNsfw = inheritedNsfw(messageId);
         const decision = numbered.paragraphs.length ? decide(s, numbered.isNsfw, manual) : null;
         if (!decision) {
             await store.putFloor(key, { kind: 'none', status: 'done', updatedAt: now() });
