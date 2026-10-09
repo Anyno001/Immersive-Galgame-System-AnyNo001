@@ -119,6 +119,15 @@ test('gate: speaker motion enters, moves and brightens on promotion', () => {
     assert.deepEqual(playSpeakerCastMotion(sprite, prev, { key: 'A', posX: 18, posY: 100 }, {}), []);
 });
 
+test('gate: promotion brighten keeps the scene grade filter', () => {
+    const { make } = fakeCastRoot();
+    const sprite = make('div');
+    sprite.ownerDocument = { defaultView: { getComputedStyle: () => ({ filter: 'url("#igs-grade-tint-1") brightness(0.8)' }) } };
+    const prev = { speaker: 'A', speakerX: 50, members: ['B'], memberX: { B: 50 } };
+    assert.deepEqual(playSpeakerCastMotion(sprite, prev, { key: 'B', posX: 50, posY: 100 }, { promoted: 'B' }), ['promote']);
+    assert.ok(sprite.animations[0].frames.every(({ filter }) => filter.startsWith('url("#igs-grade-tint-1") brightness(0.8) ')));
+});
+
 test('gate: locked cast entries keep their saved slot layout', () => {
     const base = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 } };
     const small = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.1, w: 0.16 } };

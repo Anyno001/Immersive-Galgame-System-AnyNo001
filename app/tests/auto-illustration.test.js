@@ -255,6 +255,13 @@ test('gate:illustration:parse-tolerates-garbage', async () => {
     assert.equal(new Set(result.slots.map(({ at }) => at)).size, result.slots.length);
 });
 
+test('gate:illustration:parse-crowded-tail-keeps-count', async () => {
+    const { parseIllustrationPlan } = await import('../src/generated-images/illustration/planner-parser.js');
+    const result = parseIllustrationPlan('slot: 1\nat: 10\nscene: a\nslot: 2\nat: 10\nscene: b\nslot: 3\nat: 10\nscene: c', { maxSlots: 3, paragraphCount: 10 });
+    assert.equal(result.slots.length, 3);
+    assert.deepEqual(result.slots.map(({ at }) => at), [8, 9, 10]);
+});
+
 test('gate:illustration:parse-empty-fails', async () => {
     const { parseIllustrationPlan } = await import('../src/generated-images/illustration/planner-parser.js');
     assert.equal(parseIllustrationPlan('抱歉我不能').ok, false);

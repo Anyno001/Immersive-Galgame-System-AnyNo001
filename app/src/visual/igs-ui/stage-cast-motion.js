@@ -199,7 +199,11 @@ export function playSpeakerCastMotion(spriteEl, prevStage, speaker, handoff = {}
     }
     if (playSpeakerMove(spriteEl, fromX, speaker.posX, speaker.posY)) played.push('move');
     if (handoff.promoted === speaker.key) {
-        spriteEl.animate([{ filter: CAST_DIM_FRAME }, { filter: CAST_LIT_FRAME }], { duration: CAST_HANDOFF_MS, easing: 'ease-out', fill: 'backwards' });
+        // 接在样式表算好的环境调色后面播；只写压暗/提亮会把调色整段顶掉，说话人每次接过台词都闪一下原色。
+        const view = spriteEl.ownerDocument && spriteEl.ownerDocument.defaultView;
+        const graded = view && typeof view.getComputedStyle === 'function' ? view.getComputedStyle(spriteEl).filter : '';
+        const base = graded && graded !== 'none' ? `${graded} ` : '';
+        spriteEl.animate([{ filter: `${base}${CAST_DIM_FRAME}` }, { filter: `${base}${CAST_LIT_FRAME}` }], { duration: CAST_HANDOFF_MS, easing: 'ease-out', fill: 'backwards' });
         played.push('promote');
     }
     return played;

@@ -58,7 +58,11 @@ export function parseIllustrationPlan(text, { maxSlots = 1, paragraphCount = 1 }
     const used = new Set();
     usable.forEach((s, i) => {
         let at = Number.isInteger(s.at) && s.at >= 1 && s.at <= count ? s.at : Math.max(1, Math.round(((i + 1) * count) / (usable.length + 1)));
-        while (used.has(at) && at < count) at += 1;
+        // 撞位先往后挪，挪到末段还撞再往前找空段；只往后挪时挤在末尾的几张会被下面去重删掉，张数就少于设定。
+        let free = at;
+        while (used.has(free) && free < count) free += 1;
+        if (used.has(free)) for (free = at; used.has(free) && free > 1;) free -= 1;
+        at = free;
         s.at = at;
         used.add(at);
     });
