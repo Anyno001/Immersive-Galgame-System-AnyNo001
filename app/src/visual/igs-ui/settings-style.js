@@ -274,6 +274,12 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-btn-mgr-handle:hover{color:var(--igs-settings-ink)}
 .igs-btn-mgr-handle:active{color:var(--igs-settings-accent)}
 .igs-btn-mgr-label{flex:1;font-size:12px;color:var(--igs-settings-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.igs-shortcut-row{height:auto;min-height:36px;flex-wrap:wrap}
+.igs-shortcut-row .igs-shortcut-keys{min-width:9em;padding:3px 6px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);color:var(--igs-settings-ink-2);font:11px ui-monospace,Consolas,monospace;text-align:center}
+.igs-shortcut-row .igs-settings-action{flex:0 0 auto;padding:0 7px;height:28px;font-size:11px}
+.igs-shortcut-row.is-conflict .igs-shortcut-keys{outline:1px solid #d9534f;color:#d9534f}
+.igs-shortcut-conflict{flex:1 0 100%;padding:0 0 4px;color:#d9534f;font-size:11px}
+.igs-shortcut-conflict-summary{margin:4px 0;padding:6px 8px;border-radius:var(--igs-settings-radius-small);background:rgba(217,83,79,.12);color:#d9534f;font-size:12px}
 .igs-btn-mgr-icon{border:0;background:transparent;color:var(--igs-settings-ink-4);cursor:pointer;padding:4px;border-radius:var(--igs-settings-radius-small);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .14s ease,background-color .14s ease}
 .igs-btn-mgr-icon:hover,.igs-btn-mgr-icon:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-btn-mgr-icon.is-on{color:var(--igs-settings-accent)}

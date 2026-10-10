@@ -26,7 +26,7 @@ import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../med
 import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OFF_HINT, PROMPT_RULE_OUTFIT_HINT, PROMPT_RULE_PRESET_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel } from '../../schemas/reader-mode.js';
 import { esc, toHex } from './reader-value-utils.js';
-import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderCustomFontManager, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
+import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderShortcutSettings, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderCustomFontManager, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
 import { normalizeSettingsTab, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale } from './settings-normalize.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { listStatusHudTables, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
@@ -636,6 +636,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const fontOptions = fontOptionsWith(DIALOG_FONT_OPTIONS, customFonts);
         const readerValues = {
             customFontManager: renderCustomFontManager(customFonts, asyncState.customFontMessage || ''),
+            shortcutsField: renderShortcutSettings(reader.shortcuts, hostGlobal, asyncState),
             ...sectionResetPlaceholders(),
             fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
             dialogFontWeightField: field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])),

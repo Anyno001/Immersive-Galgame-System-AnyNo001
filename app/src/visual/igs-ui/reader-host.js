@@ -98,6 +98,7 @@ import {
     TOOLBAR_ACTIONS,
     VN_THEME_PRESETS,
 } from './reader-host-constants.js';
+import { eventToShortcut, findShortcutAction, resolveShortcuts } from './reader-shortcuts.js';
 import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
 import { onDlcSkinsChange } from './dlc-skin-registry.js';
 import { onDlcFxChange } from '../../scene/fx-registry.js';
@@ -3699,6 +3700,7 @@ export function createIgsReaderHost(options = {}) {
         const keydownHandler = (event) => {
             if (onboarding.keydown(event)) return;
             if (!state.activeReader) return;
+            if (state.activeSettings?.asyncState?.shortcutRecording) return;
             if (pageModal.isOpen()) {
                 if (event.key === 'Escape') {
                     event.preventDefault();
@@ -3734,35 +3736,19 @@ export function createIgsReaderHost(options = {}) {
                 controller.close();
                 return;
             }
-            if (event.key === 'ArrowRight' || event.key === ' ') {
-                event.preventDefault();
-                controller.invokeAction('next');
-                return;
-            }
-            if (event.key === 'ArrowLeft') {
-                event.preventDefault();
-                controller.invokeAction('prev');
-                return;
-            }
-            // Home 回第一楼，End 到最新楼。
-            if (event.key === 'Home' || event.key === 'End') {
-                event.preventDefault();
-                controller.invokeAction(event.key === 'Home' ? 'turn-first' : 'turn-latest');
-                return;
-            }
-            if (event.key === 'h' || event.key === 'H') {
-                event.preventDefault();
-                controller.invokeAction('hide');
-                return;
-            }
-            if ((event.key === 't' || event.key === 'T') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            const reader = state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+            const action = findShortcutAction(resolveShortcuts(reader && reader.shortcuts), eventToShortcut(event));
+            if (!action) return;
+            event.preventDefault();
+            if (action === 'bilingual-toggle') {
                 const reader = state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
                 const display = reader ? resolveBilingualDisplay(reader.bilingual, reader._bilingualDisplay) : '';
                 if (!display) return;
-                event.preventDefault();
                 state.bilingualDisplay = { base: normalizeBilingualSettings(reader.bilingual).display, value: nextBilingualDisplay(display) };
                 rerenderActiveReader();
+                return;
             }
+            controller.invokeAction(action);
         };
         // 内嵌模式：点挂载楼层的小铅笔（.mes_edit）时先关闭阅读器并恢复原文；
         // 捕获阶段执行且不拦截事件，酒馆随后在冒泡阶段照常打开编辑框（编辑框渲染在 .mes_text 内）。
