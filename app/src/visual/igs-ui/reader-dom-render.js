@@ -85,6 +85,13 @@ import {
 import { syncDialogSkinStyle } from './dialog-skin-style.js';
 import { gradientVeilColorToRgba, normalizeGradientVeil } from './gradient-veil-dialog-skin.js';
 
+// 直播全屏（layout=full）时点在舞台左半边。
+export function isLiveFullLeftTap(root, clientX) {
+    if (!root || typeof root.getAttribute !== 'function' || !root.getAttribute('data-igs-live-full') || !Number.isFinite(clientX)) return false;
+    const rect = typeof root.getBoundingClientRect === 'function' ? root.getBoundingClientRect() : null;
+    return Boolean(rect && rect.width > 0 && clientX < rect.left + rect.width / 2);
+}
+
 export function createReaderButton(doc, id, title, html) {
     const button = doc.createElement('button');
     button.id = `igs-btn-${id}`;
@@ -1935,7 +1942,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     if (clickLayer && !(clickLayer.dataset && clickLayer.dataset.igsBound)) {
         if (clickLayer.dataset) clickLayer.dataset.igsBound = '1';
-        const blankTap = () => {
+        const blankTap = (clientX) => {
             if (root && root.getAttribute && root.getAttribute('data-igs-cg-only') === '1') return;
             if (current.hidden) {
                 current.controller.toggleHidden();
@@ -1953,10 +1960,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction('next');
                 return;
             }
-            // 单击对话框以外的画面（左右都算）推进到下一页；打字机没放完时 next 会先放完。
-            if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction('next');
+            // 单击对话框以外的画面推进到下一页；打字机没放完时 next 会先放完。
+            // 全屏直播的对话框只是一条字幕、整个屏幕就是画面：点左半屏回上一页，右半屏仍是下一页。
+            if (typeof ctx.handleReaderAction === 'function') ctx.handleReaderAction(isLiveFullLeftTap(root, clientX) ? 'prev' : 'next');
         };
-        clickLayer.addEventListener('click', () => {
+        clickLayer.addEventListener('click', (event) => {
+            const tapX = Number(event && event.clientX);
             if (current.dragSuppressClick || (current.runtime && current.runtime.dragSuppressClick)) {
                 current.dragSuppressClick = false;
                 if (current.runtime) current.runtime.dragSuppressClick = false;
@@ -1965,7 +1974,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const live = current.snapshot || snapshot;
             const tripleOn = current.lastPointerType === 'touch' && live && live.readerSettings && live.readerSettings.dblclickCgOnly === true;
             if (!tripleOn) {
-                blankTap();
+                blankTap(tapX);
                 return;
             }
             // 手机三击隐藏：开关打开时单击稍等一下排除连击；关掉时单击立即生效。
@@ -1979,7 +1988,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             current.blankTapTimer = setTimeout(() => {
                 const taps = current.blankTapCount;
                 current.blankTapCount = 0;
-                for (let i = 0; i < taps; i++) blankTap();
+                for (let i = 0; i < taps; i++) blankTap(tapX);
             }, 320);
         });
     }

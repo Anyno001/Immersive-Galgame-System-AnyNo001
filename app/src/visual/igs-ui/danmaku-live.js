@@ -1057,6 +1057,8 @@ export function syncLiveSwitch(front, live, opts = {}) {
         }
         front.appendChild(sw);
     }
+    if (opts.sub) sw.setAttribute('data-sub', '1');
+    else sw.removeAttribute('data-sub');
     switchPicks.set(sw, opts.onPick);
     const btn = sw.children[0];
     if (btn) {

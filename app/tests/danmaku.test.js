@@ -664,10 +664,10 @@ test('gate:danmaku:live-list-limits-and-entry-placement-avoid-phone', async () =
     assert.equal(liveListLimit('phone', 'watch'), 5);
     assert.equal(liveListLimit('phone', 'host'), 7);
     assert.equal(liveListLimit('full', 'host'), 5);
-    // 手机形态：入口收进手机顶栏，不在手机外另找位置；全屏：名牌右边 8px、与名牌同一行垂直居中；量不到名牌退回工具栏下方。
+    // 手机形态：入口收进手机顶栏，不在手机外另找位置；全屏：挪到右侧人气榜名次卡正上方，右边缘对齐、间距 8px；量不到名次卡按右内边距 16 估算。
     assert.deepEqual(entryPlacement({ stageW: 390 }, { layout: 'phone', width: 350, top: 48 }, 14), { left: 14, top: 14 });
-    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, { right: 200, cy: 60 }), { left: 208, top: 41 });
-    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, null), { left: 240, top: 46 });
+    assert.deepEqual(entryPlacement({ stageW: 1280, stageH: 720 }, { layout: 'full', floor: 100 }, 20, { right: 1264, top: 500 }, 38), { left: 1226, top: 454, step: 46, full: true });
+    assert.deepEqual(entryPlacement({ stageW: 1280, stageH: 720 }, { layout: 'full', floor: 100 }, 20, null, 30), { left: 1234, top: 434, step: 38, full: true });
     assert.deepEqual(entryPlacement({ stageW: 1280 }, null, 14), { left: 14, top: 14 });
 });
 
@@ -686,6 +686,17 @@ test('gate:danmaku:live-full-click-turns-page-and-entry-docks-into-phone-top-bar
     cancelDanmaku(root);
     // 没有观众弹幕入口时停靠是空操作。
     assert.doesNotThrow(() => dockAudienceEntry({}, null, null));
+});
+
+test('gate:danmaku:live-full-blank-tap-left-half-goes-prev-right-half-next', async () => {
+    const { isLiveFullLeftTap } = await import('../src/visual/igs-ui/reader-dom-render.js');
+    const mk = (attr) => ({ getAttribute: (n) => (n === 'data-igs-live-full' ? attr : null), getBoundingClientRect: () => ({ left: 100, width: 800 }) });
+    assert.equal(isLiveFullLeftTap(mk('subtitle'), 300), true, 'full live: left half = previous page');
+    assert.equal(isLiveFullLeftTap(mk('subtitle'), 600), false, 'full live: right half = next page');
+    assert.equal(isLiveFullLeftTap(mk('dialog'), 300), true);
+    assert.equal(isLiveFullLeftTap(mk(null), 300), false, 'not full live: unchanged');
+    assert.equal(isLiveFullLeftTap(mk('subtitle'), NaN), false);
+    assert.equal(isLiveFullLeftTap(null, 300), false);
 });
 
 test('gate:danmaku:live-warning-card-cooldown-and-ban-persist-until-new-live', async () => {
@@ -822,6 +833,11 @@ test('gate: live fly font size and density settings normalize and drive the styl
     const style = fs.readFileSync(path.resolve('src/visual/igs-ui/danmaku-style.js'), 'utf8');
     assert.ok(style.includes('font-size:calc(11.5px * var(--igs-live-fs,1))'));
     assert.ok(!style.includes('[data-layout="full"] .igs-live-rankcard,'), 'ranking card no longer hidden in full screen');
+    // 全屏右组（人数胶囊 + 切换钮）与左边名牌行同一水平中心：胶囊让出 30px 按钮 + 6px 间距，按钮贴 16px 内边距。
+    assert.ok(style.includes('.igs-live-switch{position:absolute;right:16px;top:29px;transform:translateY(-50%)'));
+    assert.ok(style.includes('.igs-live-switch[data-sub]{top:calc(var(--igs-live-view-top,56px) + 12px);}'));
+    assert.ok(style.includes('[data-layout="full"] .igs-live-chips{top:29px;right:52px;transform:translateY(-50%);}'));
+    assert.ok(style.includes('[data-sub] .igs-live-chips{top:calc(var(--igs-live-name-top,14px) + 12px);}'));
 });
 
 test('gate:perf:live-tick-sleeps-while-page-hidden-and-resumes-on-visible', async () => {
