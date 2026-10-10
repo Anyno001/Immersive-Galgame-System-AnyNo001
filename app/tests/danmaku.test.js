@@ -293,7 +293,7 @@ test('gate:danmaku:live-full-screen-layout-and-fly-chat', () => {
     assert.equal(stage.getAttribute('data-chat'), 'fly');
     const phone = stage.querySelector('.igs-live-phone');
     assert.equal(phone.querySelector('.igs-phone-status'), null, 'no phone status bar in full screen');
-    assert.equal(phone.querySelectorAll('.igs-live-rank').length, 3, 'top-3 ranking avatars');
+    assert.equal(phone.querySelectorAll('.igs-live-rank').length, 0, 'header trimmed: no top-3 ranking avatars');
     assert.ok(phone.querySelector('.igs-live-chips'), 'hot / popularity chips');
     assert.ok(phone.querySelector('.igs-live-rankcard'), 'ranking card bottom right');
     c.run(1000);

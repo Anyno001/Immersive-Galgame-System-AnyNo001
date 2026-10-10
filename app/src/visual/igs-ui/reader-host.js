@@ -3112,8 +3112,15 @@ export function createIgsReaderHost(options = {}) {
         // 战斗演出开启时 payload 才带 battleContext：跨楼继承未结束的战斗，并把上一条用户消息的检定等级套到主角第一招。
         const battleContext = payload.battleContext || null;
         const battleUserName = battleContext ? String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '') : '';
+        // 开播 / 下播词落在本页中间时算本页生效（标签一般写在句前，词在句中，不挪会慢一页）。
+        const fxNextOffset = fxOffset >= 0 && fxDirectives.some((d) => d.cue && d.kind === 'live' && d.offset > fxOffset)
+            ? (normalizedIndex + 1 < segments.length ? locateFxSegment(segments[normalizedIndex + 1]) : Infinity) : -1;
+        const fxDirectivesPaged = fxNextOffset > fxOffset
+            ? fxDirectives.map((d) => (d.cue && d.kind === 'live' && d.offset > fxOffset && d.offset < fxNextOffset ? { ...d, offset: fxOffset } : d))
+                .sort((a, b) => a.offset - b.offset)
+            : fxDirectives;
         const pageFx = resolveFxAtPage(
-            battleContext ? applyDiceToHits(fxDirectives, battleContext.dice, battleUserName) : fxDirectives,
+            battleContext ? applyDiceToHits(fxDirectivesPaged, battleContext.dice, battleUserName) : fxDirectivesPaged,
             fxOffset, fxPrevOffset, battleContext,
         );
         if (battleContext) pageFx.userName = battleUserName;

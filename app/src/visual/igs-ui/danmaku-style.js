@@ -157,7 +157,7 @@ export const DANMAKU_STYLE_TEXT = `
 .igs-live-tools{flex:none;display:flex;align-items:center;gap:6px;}
 .igs-live-viewers{display:flex;align-items:center;gap:3px;padding:3px 8px;border-radius:999px;background:rgba(0,0,0,.26);font-size:10px;font-variant-numeric:tabular-nums;}
 .igs-live-viewers .igs-live-icon{width:12px;height:12px;}
-.igs-live-close{width:15px;height:15px;opacity:.7;}
+.igs-live-close{width:15px;height:15px;opacity:.7;pointer-events:auto;cursor:pointer;padding:6px;margin:-6px;}
 .igs-live-title{position:absolute;top:76px;left:12px;right:12px;display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap;font-size:10.5px;}
 .igs-live-badge{flex:none;padding:1px 5px;border-radius:3px;background:#fb7299;font-size:9px;font-weight:700;letter-spacing:.06em;}
 .igs-live-phone[data-view="host"] .igs-live-badge{background:#ff3b30;}

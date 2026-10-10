@@ -111,21 +111,15 @@ function buildPhone(doc, live, now, layout) {
     viewers.appendChild(icon(doc, 'viewers'));
     const viewersText = el(doc, 'span', '', '0');
     viewers.appendChild(viewersText);
-    tools.append(viewers, icon(doc, 'close', 'igs-live-icon igs-live-close'));
+    const close = icon(doc, 'close', 'igs-live-icon igs-live-close');
+    tools.append(viewers, close);
     top.append(anchor, tools);
     // 全屏形态对齐 B 站竖屏直播间：前三名榜单、热门/人气榜胶囊、「N 人正在看」与右下角榜单名次卡。
     let watchingText = null;
     let extras = [];
     if (layout === 'full') {
-        const ranks = el(doc, 'div', 'igs-live-ranks');
-        for (let i = 1; i <= 3; i += 1) {
-            const rank = el(doc, 'span', 'igs-live-rank', String(i));
-            rank.setAttribute('data-rank', String(i));
-            ranks.appendChild(rank);
-        }
-        tools.insertBefore(ranks, viewers);
+        // 头部只留「N 人正在看」，前三名榜单与热门 / 人气榜胶囊太挤，去掉。
         const chips = el(doc, 'div', 'igs-live-chips');
-        chips.append(el(doc, 'span', 'igs-live-chip', '热门榜'), el(doc, 'span', 'igs-live-chip', '人气榜'));
         const watching = el(doc, 'span', 'igs-live-chip igs-live-watching');
         watchingText = el(doc, 'span', '', '0');
         watching.append(watchingText, el(doc, 'span', '', ' 人正在看'));
@@ -167,7 +161,7 @@ function buildPhone(doc, live, now, layout) {
     if (status) phone.append(screen, status);
     else phone.append(screen);
     phone.append(top, ...extras, title, sc, gifts, guard, list, fly, hearts, bar);
-    return { root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, clockEl, sc, gifts, guard, list, fly, hearts };
+    return { root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, clockEl, sc, gifts, guard, list, fly, hearts };
 }
 
 function later(state, fn, ms) {
@@ -411,6 +405,14 @@ export function syncLivePhone(host, live, ctx) {
         host.appendChild(els.root);
         lives.set(host, state);
         arm(state, 400);
+        // 右上角关闭：本场直播先收起手机回舞台，换一场直播（主播 / 标题 / 视角变了）再弹出。
+        const own = state;
+        els.close.addEventListener('click', (event) => {
+            event.stopPropagation();
+            own.dismissed = true;
+            own.visible = false;
+            own.els.root.hidden = true;
+        });
     }
     state.schedule = ctx.schedule;
     state.clear = ctx.clear;
@@ -429,7 +431,7 @@ export function syncLivePhone(host, live, ctx) {
     state.els.root.setAttribute('data-interact', ctx.interact ? '1' : '0');
     // 状态栏跟剧情：时间、低电量、无服务（全屏形态没有状态栏）。
     if (state.els.status && ctx.status) setPhoneStatus(state.els.status, ctx.status);
-    state.visible = ctx.visible !== false;
+    state.visible = ctx.visible !== false && !state.dismissed;
     if (state.els.root.hidden !== !state.visible) state.els.root.hidden = !state.visible;
     setImage(state, 'coverUrl', ctx.coverUrl || '');
     setImage(state, 'cgUrl', ctx.cg ? ctx.coverUrl || '' : '');
