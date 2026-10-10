@@ -562,7 +562,7 @@ test('gate:danmaku:live-portrait-edit-saves-frame', async () => {
     assert.ok(bar);
     const save = { dataset: { se: 'save' } };
     for (const fn of bar.listeners.click) fn({ target: { closest: () => save }, stopPropagation() {} });
-    assert.deepEqual(saved[0].portrait, { x: 10, y: -5, zoom: 120 });
+    assert.deepEqual(saved[0].portrait, { x: 10, y: -5, zoom: 120, face: null });
     assert.equal(saved[0].enabled, true);
     cancelDanmaku(root);
 });
@@ -629,4 +629,44 @@ test('gate:danmaku:live-phone-layout-never-marks-full', () => {
     applyDanmakuToDom(root, snapshot({ currentIndex: 0, fx }, { liveFx: { enabled: true, layout: 'phone' } }), opts);
     assert.equal(root.getAttribute('data-igs-live-full'), null);
     cancelDanmaku(root);
+});
+
+test('gate:danmaku:live-phone-form-lays-out-above-dialog-and-never-uses-full-rules', async () => {
+    const { fitLivePhone, syncLivePhone, phoneGeometry } = await import('../src/visual/igs-ui/danmaku-live.js');
+    const { root, motion, doc } = makeRoot();
+    root.id = 'igs-overlay';
+    const host = doc.createElement('div');
+    motion.appendChild(host);
+    const c = clock();
+    const live = { name: '爱丽丝', title: '夜聊', view: 'watch' };
+    syncLivePhone(host, live, { doc, schedule: c.schedule, clear: c.clear, now: c.now, rng: () => 0.5, reduced: true, layout: 'phone', visible: true, look: { model: 'full', size: 'fit' } });
+    const stage = { stageW: 390, stageH: 760, dialogTop: 470, topInset: 40 };
+    const fit = fitLivePhone(host, stage);
+    const geo = phoneGeometry(stage, 'full', 'fit');
+    const phone = host.querySelector('.igs-live-phone');
+    assert.equal(fit.layout, 'phone');
+    // 沉入量不超过 38%，底栏与评论抬到对话框之上，按可见区（高减沉入）摆放。
+    assert.ok(geo.under <= geo.height * 0.38 + 1);
+    assert.equal(phone.style.get('--igs-live-under'), `${geo.under}px`);
+    assert.equal(phone.style.get('--igs-live-vis'), `${geo.height - geo.under}px`);
+    assert.ok(geo.top + geo.height - geo.under <= stage.dialogTop + 1, 'visible area ends at the dialog top');
+    // 手机形态不带任何全屏标记 / 名牌变量。
+    assert.equal(root.getAttribute('data-igs-live-full'), null);
+    assert.equal(phone.style.get('--igs-live-name-top'), undefined);
+    assert.equal(phone.getAttribute('data-sub'), null);
+    // 横飞范围在手机可见区之内。
+    assert.ok(geo.height - geo.under - 70 > 120);
+});
+
+test('gate:danmaku:live-list-limits-and-entry-placement-avoid-phone', async () => {
+    const { liveListLimit } = await import('../src/visual/igs-ui/danmaku-live.js');
+    const { entryPlacement } = await import('../src/visual/igs-ui/danmaku-runtime.js');
+    assert.equal(liveListLimit('phone', 'watch'), 5);
+    assert.equal(liveListLimit('phone', 'host'), 7);
+    assert.equal(liveListLimit('full', 'host'), 5);
+    // 手机左侧放得下：入口留在原位；放不下：收进手机内标题行下方；全屏：挪到名牌右边。
+    assert.deepEqual(entryPlacement({ stageW: 1280 }, { layout: 'phone', width: 315, top: 22 }, 14), { left: 14, top: 14 });
+    assert.deepEqual(entryPlacement({ stageW: 390 }, { layout: 'phone', width: 350, top: 48 }, 14), { left: 30, top: 152 });
+    assert.deepEqual(entryPlacement({ stageW: 1280 }, { layout: 'full', floor: 100 }, 20), { left: 164, top: 20 });
+    assert.deepEqual(entryPlacement({ stageW: 1280 }, null, 14), { left: 14, top: 14 });
 });

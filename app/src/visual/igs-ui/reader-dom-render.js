@@ -1662,6 +1662,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         } else {
             textEl.style.fontFamily = '';
         }
+        // 手机演出（社区 / 风暴 / 直播）的文字跟随旁白字体：自选了就写变量，没选就移除，样式里回落到阅读器默认字体。
+        const narrationFont = themeEnabled && theme.narrationFont && theme.narrationFont !== 'inherit' ? theme.narrationFont : '';
+        if (root.style) {
+            if (narrationFont) root.style.setProperty('--igs-narration-font', narrationFont);
+            else root.style.removeProperty('--igs-narration-font');
+        }
         applyDialogFontMetrics(textEl, themeEnabled ? segFont : '');
         if (themeEnabled && segColor) {
             textEl.style.color = segColor;

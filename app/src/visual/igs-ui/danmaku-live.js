@@ -3,6 +3,8 @@ import { LIVE_ICONS, buildPhoneStatus, setPhoneStatus } from './danmaku-icons.js
 import { isStagePaused } from './stage-pause.js';
 import { DANMAKU_SPEED_SECONDS, normalizeLivePortrait } from './danmaku-settings.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
+import { faceVars, liveFaceBox, moveFaceBox, resizeFaceBox } from './live-face.js';
+import { peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import {
     LIVE_AMBIENT_GIFTS,
     LIVE_AMBIENT_LINES,
@@ -15,7 +17,11 @@ import {
 
 // 「掏出手机」看 B 站竖屏直播：舞台压暗、手机从下方抬起停在画面正中，直播结束时收回。整台手机只有一个驱动计时器：每拍吐一条弹幕（AI 弹幕优先，其余由本地词池补），
 // 顺带推人气、走时钟、飘点赞；隐藏、页面不可见、舞台暂停（面板打开等）时空转不写 DOM。文字一律 textContent，图标只用静态 SVG。
-export const LIVE_LIST_LIMIT = 20;
+// 滚动评论保留条数：手机观众视角与全屏 5 条，主播视角 7 条（LIVE_LIST_LIMIT 是上限）。
+export const LIVE_LIST_LIMIT = 7;
+export function liveListLimit(layout, view) {
+    return layout !== 'full' && view === 'host' ? 7 : 5;
+}
 const HEART_LIMIT = 6;
 const LIVE_FLY_CAP = 14;
 const HEART_COLORS = Object.freeze(['#ff5f8f', '#ff8a5c', '#ffb3c7', '#ff4d6d', '#f78fb3']);
@@ -76,6 +82,10 @@ function buildPhone(doc, live, now, layout) {
     root.setAttribute('data-layout', layout);
     root.appendChild(el(doc, 'div', 'igs-live-dim'));
     const phone = el(doc, 'div', 'igs-live-phone');
+    // 「调整立绘」里才出现的防挡脸区域（虚线椭圆 + 角上缩放手柄）。
+    const faceEdit = el(doc, 'div', 'igs-live-faceguard');
+    faceEdit.hidden = true;
+    faceEdit.appendChild(el(doc, 'i', 'igs-live-faceguard-handle'));
     root.appendChild(phone);
     phone.setAttribute('data-view', live.view);
     const screen = el(doc, 'div', 'igs-live-screen');
@@ -162,8 +172,8 @@ function buildPhone(doc, live, now, layout) {
     const status = layout === 'phone' ? buildPhoneStatus(doc, now) : null;
     if (status) phone.append(screen, status);
     else phone.append(screen);
-    phone.append(top, ...extras, title, sc, gifts, guard, list, fly, hearts, bar);
-    return { root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, viewBtn, clockEl, sc, gifts, guard, list, fly, hearts };
+    phone.append(top, ...extras, title, sc, gifts, guard, list, fly, hearts, bar, faceEdit);
+    return { faceEdit, root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, viewBtn, clockEl, sc, gifts, guard, list, fly, hearts };
 }
 
 function later(state, fn, ms) {
@@ -192,7 +202,8 @@ function appendLine(state, line) {
     if (state.chat === 'fly') return;
     const { list } = state.els;
     list.appendChild(line);
-    while (list.children.length > LIVE_LIST_LIMIT) list.children[0].remove();
+    const limit = liveListLimit(state.layout, state.view);
+    while (list.children.length > limit) list.children[0].remove();
 }
 
 function chatLine(state, msg, extraClass = '') {
@@ -220,9 +231,11 @@ function spawnFlyer(state, msg, extraClass = '') {
     const duration = DANMAKU_SPEED_SECONDS.medium * 1000;
     const width = estimateTextWidth(msg.text, geo.fontSize);
     let lane = pickScrollTrack(state.tracks, geo.lanes, now, width, geo.w, duration);
+    // 没有空轨道：路人弹幕丢弃，AI 弹幕排队稍后再试（最多 8 次），不再硬挤进已占用的轨道叠在一起。
     if (lane < 0) {
-        if (!msg.ai) return;
-        lane = Math.floor(state.rng() * geo.lanes);
+        const tries = Number(msg.tries) || 0;
+        if (msg.ai && tries < 8) later(state, () => spawnFlyer(state, { ...msg, tries: tries + 1 }, extraClass), 500);
+        return;
     }
     occupyTrack(state.tracks, lane, now, width, geo.w, duration);
     const node = el(state.doc, 'div', `igs-live-flyer${extraClass}`, msg.text);
@@ -348,7 +361,7 @@ function tick(state) {
 function arm(state, delay) {
     if (state.timer) state.clear(state.timer);
     const wait = delay != null ? delay
-        : state.queue.length ? 450 + state.rng() * 450
+        : state.queue.length ? 250 + state.rng() * 150
             : (1100 + state.rng() * 1300) * (state.reduced ? 1.6 : 1);
     state.timer = state.schedule(() => tick(state), wait);
 }
@@ -374,6 +387,7 @@ function setImage(state, key, url) {
         if (url) portrait.src = url;
         portrait.hidden = !url;
         initial.hidden = Boolean(url);
+        state.faceKey = '';
     } else if (key === 'avatarUrl') {
         avatar.style.backgroundImage = url ? `url("${String(url).replace(/"/g, '%22')}")` : '';
         avatar.setAttribute('data-img', url ? '1' : '0');
@@ -404,7 +418,7 @@ export function syncLivePhone(host, live, ctx) {
             medal: fanMedalName(live.name),
             popularity: 800 + (stableHash(live.name) % 48000),
             startedAt: now() - (stableHash(`${live.name}${live.title}`) % 1800) * 1000,
-            visible: true, reduced: false, coverUrl: '', cgUrl: '', portraitUrl: '', avatarUrl: '', fit: null, model: '', size: '',
+            visible: true, faceGuard: true, faceBox: null, faceKey: '', faceDims: null, faceStage: null, faceProbing: new Set(), reduced: false, coverUrl: '', cgUrl: '', portraitUrl: '', avatarUrl: '', fit: null, model: '', size: '',
         };
         els.popText.textContent = formatPopularity(state.popularity);
         host.appendChild(els.root);
@@ -429,6 +443,7 @@ export function syncLivePhone(host, live, ctx) {
     }
     state.schedule = ctx.schedule;
     state.clear = ctx.clear;
+    state.faceGuard = ctx.faceGuard !== false;
     state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
     state.onPickView = typeof ctx.onPickView === 'function' ? ctx.onPickView : null;
     state.reduced = ctx.reduced === true;
@@ -462,6 +477,7 @@ export function syncLivePhone(host, live, ctx) {
     state.onPortraitMove = typeof ctx.onPortraitMove === 'function' ? ctx.onPortraitMove : null;
     // 编辑中重渲染：保留未保存的取景。
     if (!state.editing) setPortraitFrame(state, normalizeLivePortrait(ctx.portrait));
+    refreshFace(state);
     return state;
 }
 
@@ -473,11 +489,106 @@ function writePortraitVars(state, x, y, zoom) {
     style.setProperty('--igs-lp-z', String(zoom / 100));
 }
 
+const faceSig = (face) => (face ? `${face.cx},${face.cy},${face.rx},${face.ry}` : '');
+
 function setPortraitFrame(state, frame) {
     const prev = state.frame;
-    if (prev && prev.x === frame.x && prev.y === frame.y && prev.zoom === frame.zoom) return;
+    if (prev && prev.x === frame.x && prev.y === frame.y && prev.zoom === frame.zoom && faceSig(prev.face) === faceSig(frame.face)) return;
     state.frame = { ...frame };
     writePortraitVars(state, frame.x, frame.y, frame.zoom);
+    refreshFace(state);
+}
+
+// 防挡脸：算出脸的椭圆写进横飞层的 CSS 变量（取景、尺寸、立绘换图、视角、开关变化时才算，不逐帧）。
+// 手机形态按手机里的立绘；CG / 封面算不出脸时用默认位置；全屏按舞台上的立绘（fitLiveFace 传入）。手调值优先。
+function refreshFace(state) {
+    const { fly } = state.els;
+    const on = state.faceGuard !== false;
+    if (on) fly.setAttribute('data-face-guard', '1');
+    else fly.removeAttribute('data-face-guard');
+    if (!on && !state.editing) return;
+    const manual = state.frame && state.frame.face;
+    let box;
+    if (state.layout === 'full') {
+        const stage = state.faceStage;
+        box = liveFaceBox({ w: stage && stage.w, h: stage && stage.h, manual, source: 'stage', rect: stage && stage.rect, head: stage && stage.head });
+    } else {
+        const dims = state.faceDims;
+        const url = state.portraitUrl && !state.cgUrl ? state.portraitUrl : '';
+        const probed = url ? peekSpriteHead(url) : null;
+        if (url && !probed && !state.faceProbing.has(url)) {
+            state.faceProbing.add(url);
+            probeSpriteHead(url, state.doc).then(() => { if (state.els.root.isConnected) refreshFace(state); });
+        }
+        box = liveFaceBox({
+            w: dims && dims.w, h: dims && dims.h, manual, source: 'portrait', portrait: state.frame,
+            natural: probed ? { w: probed.naturalW, h: probed.naturalH } : null, head: probed ? probed.head : null,
+        });
+    }
+    state.faceBox = box;
+    const key = `${box.cx},${box.cy},${box.rx},${box.ry}`;
+    if (state.faceKey === key) return;
+    state.faceKey = key;
+    for (const [name, value] of Object.entries(faceVars(box))) fly.style.setProperty(name, value);
+    if (state.editing) placeFaceEdit(state, box);
+}
+
+function placeFaceEdit(state, box) {
+    const { style } = state.els.faceEdit;
+    style.left = `${box.cx - box.rx}%`;
+    style.top = `${box.cy - box.ry}%`;
+    style.width = `${box.rx * 2}%`;
+    style.height = `${box.ry * 2}%`;
+}
+
+// 全屏形态由调用方（读过舞台和立绘）传入脸的绘制信息：{ w, h, rect, head }。
+export function fitLiveFace(host, info) {
+    const state = host && lives.get(host);
+    if (!state || state.layout !== 'full') return;
+    state.faceStage = info || null;
+    refreshFace(state);
+}
+
+// 防挡脸区域的手调：整体拖动、角上手柄缩放；预览只写变量，松手才存进取景。
+function bindFaceEdit(state) {
+    const { faceEdit, phone, fly } = state.els;
+    const handle = faceEdit.firstChild;
+    let drag = null;
+    const preview = (box) => {
+        state.faceBox = box;
+        state.faceKey = `${box.cx},${box.cy},${box.rx},${box.ry}`;
+        for (const [name, value] of Object.entries(faceVars(box))) fly.style.setProperty(name, value);
+        placeFaceEdit(state, box);
+    };
+    faceEdit.addEventListener('pointerdown', (event) => {
+        if (!state.editing || event.button > 0) return;
+        event.stopPropagation();
+        event.preventDefault();
+        drag = {
+            mode: event.target === handle ? 'resize' : 'move', rect: phone.getBoundingClientRect(),
+            x: event.clientX, y: event.clientY, box: { ...state.faceBox }, pointerId: event.pointerId,
+        };
+        if (typeof faceEdit.setPointerCapture === 'function') faceEdit.setPointerCapture(event.pointerId);
+    });
+    faceEdit.addEventListener('pointermove', (event) => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        const w = drag.rect.width || 1;
+        const h = drag.rect.height || 1;
+        const next = drag.mode === 'move'
+            ? moveFaceBox(drag.box, (event.clientX - drag.x) / w * 100, (event.clientY - drag.y) / h * 100)
+            : resizeFaceBox(drag.box, (event.clientX - drag.rect.left) / w * 100, (event.clientY - drag.rect.top) / h * 100);
+        if (next) preview(next);
+    });
+    const end = (event) => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        drag = null;
+        const frame = state.frame || normalizeLivePortrait(null);
+        const { cx, cy, rx, ry } = state.faceBox;
+        state.frame = { ...frame, face: { cx, cy, rx, ry } };
+    };
+    faceEdit.addEventListener('pointerup', end);
+    faceEdit.addEventListener('pointercancel', end);
+    for (const type of ['click', 'mousedown', 'touchstart', 'contextmenu']) faceEdit.addEventListener(type, (event) => { if (state.editing) event.stopPropagation(); });
 }
 
 // 和「调整立绘」一样：拖动平移、滚轮 / 双指缩放，手势中整张图跟手预览，松手折算成百分比。
@@ -489,7 +600,7 @@ function bindPortraitDrag(state) {
     const framed = (dx, dy, scale) => {
         const { w, h } = size();
         const f = state.frame;
-        return { x: f.x + dx / w * 100, y: f.y + dy / h * 100, zoom: f.zoom * scale };
+        return { x: f.x + dx / w * 100, y: f.y + dy / h * 100, zoom: f.zoom * scale, face: f.face };
     };
     const commit = (dx, dy, scale) => {
         const next = normalizeLivePortrait(framed(dx, dy, scale));
@@ -567,10 +678,14 @@ export function enterLivePortraitEdit(overlay, ctx = {}) {
         bindPortraitDrag(state);
         state.dragBound = true;
     }
+    if (!state.faceBound) {
+        bindFaceEdit(state);
+        state.faceBound = true;
+    }
     const orig = { ...state.frame };
     const bar = overlay.ownerDocument.createElement('div');
     bar.id = 'igs-sprite-edit-bar';
-    bar.innerHTML = '<span class="igs-se-hint">拖动调整手机里的立绘，滚轮/双指缩放</span>'
+    bar.innerHTML = '<span class="igs-se-hint">拖动调整手机里的立绘，滚轮/双指缩放；虚线椭圆是弹幕防挡脸区域，可拖动、拖角缩放</span>'
         + '<button data-se="reset" type="button">还原</button>'
         + '<button data-se="cancel" type="button">取消</button>'
         + '<button data-se="save" class="igs-se-save" type="button">保存</button>';
@@ -578,9 +693,14 @@ export function enterLivePortraitEdit(overlay, ctx = {}) {
     if (clickLayer) clickLayer.style.pointerEvents = 'none';
     state.editing = true;
     state.els.root.setAttribute('data-editing', '1');
+    state.els.faceEdit.hidden = false;
+    state.faceKey = '';
+    refreshFace(state);
+    if (state.faceBox) placeFaceEdit(state, state.faceBox);
     overlay.appendChild(bar);
     const done = (keep) => {
         state.editing = false;
+        state.els.faceEdit.hidden = true;
         state.els.root.removeAttribute('data-editing');
         bar.remove();
         if (clickLayer) clickLayer.style.pointerEvents = '';
@@ -620,7 +740,7 @@ function applyLiveTheme(state, theme) {
 
 function setFlyGeometry(state, w, top, bottom, fontSize) {
     const lineH = Math.round(fontSize * 1.4);
-    state.flyGeo = { w: Math.round(w), top: Math.round(top), lineH, fontSize, lanes: Math.max(2, Math.floor((bottom - top) / lineH)) };
+    state.flyGeo = { w: Math.round(w), top: Math.round(top), lineH, fontSize, lanes: Math.max(1, Math.floor((bottom - top) / lineH)) };
     state.els.fly.style.setProperty('--igs-live-fly-font', `${fontSize}px`);
 }
 
@@ -672,8 +792,13 @@ export function fitLivePhone(host, stage) {
     }
     // 底栏、弹幕与点赞整体抬到对话框之上（under）。
     const { top, height, width, under } = phoneGeometry(stage, state.model, state.size);
-    setFlyGeometry(state, width, 120, height - under - 70, 16);
+    // 横飞只走头部下方、滚动评论上方：评论占可见区底部那一截（横飞模式下评论不显示，可用到底栏上方）。
+    const vis = height - under;
+    const listH = state.chat === 'fly' ? 0 : Math.min(vis * (state.view === 'host' ? 0.4 : 0.3), vis - 58 - 104) + 6;
+    setFlyGeometry(state, width, 120, Math.max(120 + 22, vis - 58 - listH), 16);
     const fit = { layout: 'phone', top, height, width, under };
+    state.faceDims = { w: width, h: height };
+    refreshFace(state);
     const prev = state.fit;
     if (prev && Math.abs(prev.top - top) < 4 && Math.abs(prev.height - height) < 4 && Math.abs(prev.width - width) < 4 && Math.abs(prev.under - under) < 4) return prev;
     state.fit = fit;
@@ -682,6 +807,9 @@ export function fitLivePhone(host, stage) {
     phone.style.setProperty('--igs-live-top', `${top}px`);
     phone.style.setProperty('--igs-live-w', `${width}px`);
     phone.style.setProperty('--igs-live-under', `${under}px`);
+    // 手机里按百分比摆的元素（礼物、上舰、评论、爱心）以可见区（手机高减沉入）为准，沉进对话框后不挤在一起。
+    phone.style.setProperty('--igs-live-vis', `${Math.max(0, height - under)}px`);
+    setPhoneSink(phone, under);
     return fit;
 }
 

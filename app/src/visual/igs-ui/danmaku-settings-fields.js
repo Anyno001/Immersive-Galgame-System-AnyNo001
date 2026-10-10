@@ -17,6 +17,7 @@ export function renderDanmakuFields(reader, more = collapsible, { liveBlocked = 
     const live = featureRow(more, 'live-fx', `${p}.liveFx.enabled`, s.live.enabled, '直播间', liveBlocked ? '此世界观需开随身手机' : '', field(`${p}.liveFx.layout`, '形态', segmentedInput(`${p}.liveFx.layout`, s.live.layout, [['phone', '手机'], ['full', '全屏']], '直播间形态'))
         + field(`${p}.liveFx.fullText`, '全屏台词', segmentedInput(`${p}.liveFx.fullText`, s.live.fullText, [['subtitle', '字幕'], ['dialog', '对话框']], '全屏直播台词'))
         + field(`${p}.liveFx.narrationPos`, '旁白位置', segmentedInput(`${p}.liveFx.narrationPos`, s.live.narrationPos, [['above', '字幕上方'], ['name', '名牌下方'], ['dialog', '对话框']], '全屏直播旁白位置'))
+        + checkbox(`${p}.liveFx.faceGuard`, s.live.faceGuard, '弹幕防挡脸')
         + field(`${p}.liveFx.chat`, '弹幕', segmentedInput(`${p}.liveFx.chat`, s.live.chat, [['roll', '翻滚'], ['fly', '横飞'], ['both', '同时']], '直播弹幕'))
         + checkbox(`${p}.liveFx.interact`, s.live.interact, '直播互动（发弹幕、打赏）')
         + checkbox(`${p}.liveFx.followTheme`, s.live.followTheme, '跟随对话框主题')

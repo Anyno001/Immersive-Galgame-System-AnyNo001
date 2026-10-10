@@ -1,4 +1,5 @@
 import { normalizeEmotionList } from './stage-shake-runtime.js';
+import { normalizeFaceBox } from './live-face.js';
 
 // 弹幕三件套，各自一个顶层开关以便挂进演出档位：
 // liveFx 直播间（掏出手机看 B 站直播）、audienceFx 观众弹幕（HUD 下方小手机，点开看）、innerFx 内心弹幕（情绪触发的纯演出）。
@@ -63,7 +64,8 @@ function clampNumber(value, min, max, fallback) {
 
 export function normalizeLivePortrait(value) {
     const src = plain(value);
-    return { x: clampNumber(src.x, -100, 100, 0), y: clampNumber(src.y, -100, 100, 0), zoom: clampNumber(src.zoom, 30, 400, 100) };
+    // face：手调的「防挡脸区域」（相对弹幕层的百分比椭圆），没调过为 null；和取景存在同一处。
+    return { x: clampNumber(src.x, -100, 100, 0), y: clampNumber(src.y, -100, 100, 0), zoom: clampNumber(src.zoom, 30, 400, 100), face: normalizeFaceBox(src.face) };
 }
 
 export function normalizeLiveFxSettings(value) {
@@ -74,6 +76,8 @@ export function normalizeLiveFxSettings(value) {
         layout: pick(LIVE_LAYOUTS, src.layout, 'phone'),
         fullText: pick(LIVE_FULL_TEXTS, src.fullText, 'subtitle'),
         narrationPos: pick(LIVE_NARRATION_POSITIONS, src.narrationPos, 'above'),
+        // 弹幕防挡脸：横飞弹幕层在主播脸部挖一个柔边洞（默认开）。
+        faceGuard: src.faceGuard !== false,
         chat: pick(LIVE_CHAT_MODES, src.chat, 'roll'),
         // 跟随对话框主题：沿用线上交流的主题色板（默认关，保持 B 站深色）。
         followTheme: src.followTheme === true,
