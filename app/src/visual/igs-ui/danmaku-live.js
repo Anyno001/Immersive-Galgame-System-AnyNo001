@@ -1,7 +1,7 @@
 import { applyPhoneLook } from './my-phone.js';
 import { LIVE_ICONS, buildPhoneStatus, setPhoneStatus } from './danmaku-icons.js';
 import { isStagePaused } from './stage-pause.js';
-import { DANMAKU_SPEED_SECONDS, normalizeLivePortrait } from './danmaku-settings.js';
+import { DANMAKU_SPEED_SECONDS, LIVE_DENSITY, LIVE_FONT_SCALE, normalizeLivePortrait } from './danmaku-settings.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 import { faceVars, liveFaceBox, moveFaceBox, resizeFaceBox } from './live-face.js';
 import { LIVE_BAN_SUB, LIVE_BAN_TITLE, LIVE_WARN_CARD_MS, LIVE_WARN_FLY_PAUSE_MS, LIVE_WARN_MEME_DELAY_MS, LIVE_WARN_TITLE, warningCardText, warningCooldownOk } from './live-warning.js';
@@ -30,7 +30,6 @@ export function liveListLimit(layout, view) {
     return layout !== 'full' && view === 'host' ? 7 : 5;
 }
 const HEART_LIMIT = 6;
-const LIVE_FLY_CAP = 14;
 const HEART_COLORS = Object.freeze(['#ff5f8f', '#ff8a5c', '#ffb3c7', '#ff4d6d', '#f78fb3']);
 const SC_TIERS = Object.freeze([[2000, '#ab1a32'], [1000, '#e54d4d'], [500, '#e09443'], [100, '#e2b52b'], [50, '#427d9e'], [30, '#2a60b2']]);
 const GUARD_LEVELS = Object.freeze({ 舰长: '#4f8cff', 提督: '#b367ff', 总督: '#ff6a3d' });
@@ -143,16 +142,18 @@ function buildPhone(doc, live, now, layout) {
         watchingText = el(doc, 'span', '', '0');
         watching.append(watchingText, el(doc, 'span', '', ' 人正在看'));
         chips.appendChild(watching);
-        const seed = stableHash(`${live.name}|${live.title}`);
-        const card = el(doc, 'div', 'igs-live-rankcard');
-        card.append(
-            el(doc, 'b', 'igs-live-rankcard-title', '人气榜'),
-            el(doc, 'span', 'igs-live-rankcard-sub', live.title || `${live.name}的直播间`),
-            el(doc, 'span', 'igs-live-rankcard-place', `第 ${1 + (seed % 30)} 名`),
-            el(doc, 'span', 'igs-live-rankcard-gap', `距上一名 ${50 + (seed % 900)}`),
-        );
-        extras = [chips, card];
+        extras = [chips];
     }
+    // 右侧人气榜名次卡（小广告）：全屏在输入行上方、手机在底栏上方右侧，两种形态都显示。
+    const seed = stableHash(`${live.name}|${live.title}`);
+    const card = el(doc, 'div', 'igs-live-rankcard');
+    card.append(
+        el(doc, 'b', 'igs-live-rankcard-title', '人气榜'),
+        el(doc, 'span', 'igs-live-rankcard-sub', live.title || `${live.name}的直播间`),
+        el(doc, 'span', 'igs-live-rankcard-place', `第 ${1 + (seed % 30)} 名`),
+        el(doc, 'span', 'igs-live-rankcard-gap', `距上一名 ${50 + (seed % 900)}`),
+    );
+    extras.push(card);
 
     // 头部只留头像、网名、热度、关注、人数、视角图标、收起：不再画「直播中 / LIVE」徽标与标题行。
     // 开播时长（主播视角的计时）仍由 clockEl 记录，但不显示。
@@ -253,7 +254,7 @@ export function flyClip(value) {
 function spawnFlyer(state, msg, extraClass = '') {
     const geo = state.flyGeo;
     const { fly } = state.els;
-    if (!geo || !msg.text || fly.children.length >= LIVE_FLY_CAP + (msg.ai ? 4 : 0)) return;
+    if (!geo || !msg.text || fly.children.length >= (LIVE_DENSITY[state.density] || LIVE_DENSITY.medium).cap + (msg.ai ? 4 : 0)) return;
     const now = state.now();
     if (now < state.flyPausedUntil) return;
     // 全局最小发射间隔：避免同一刻多条同时起飞挤成一团。
@@ -458,7 +459,7 @@ function arm(state, delay) {
     const density = state.tier ? liveEconomy(state.tier).densityMul : 1;
     const wait = delay != null ? delay
         : state.queue.length ? 250 + state.rng() * 150
-            : (1100 + state.rng() * 1300) * (state.reduced ? 1.6 : 1) / density;
+            : (1100 + state.rng() * 1300) * (state.reduced ? 1.6 : 1) / density * (LIVE_DENSITY[state.density] || LIVE_DENSITY.medium).wait;
     state.timer = state.schedule(() => tick(state), wait);
 }
 
@@ -548,6 +549,12 @@ export function syncLivePhone(host, live, ctx) {
     syncChatterContext(state, ctx.chatter, false);
     state.faceGuard = ctx.faceGuard !== false;
     state.speed = ctx.speed || 'medium';
+    state.density = ctx.density || 'medium';
+    const fontScale = LIVE_FONT_SCALE[ctx.fontSize] || 1;
+    if (state.fontScale !== fontScale) {
+        state.fontScale = fontScale;
+        state.els.root.style.setProperty('--igs-live-fs', String(fontScale));
+    }
     state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
     state.onPickView = typeof ctx.onPickView === 'function' ? ctx.onPickView : null;
     state.reduced = ctx.reduced === true;
@@ -876,6 +883,7 @@ function applyLiveTheme(state, theme) {
 }
 
 function setFlyGeometry(state, w, top, bottom, fontSize) {
+    fontSize = Math.round(fontSize * (state.fontScale || 1));
     const lineH = Math.round(fontSize * 1.6);
     state.flyGeo = { w: Math.round(w), top: Math.round(top), lineH, fontSize, lanes: Math.max(1, Math.floor((bottom - top) / lineH)) };
     state.els.fly.style.setProperty('--igs-live-fly-font', `${fontSize}px`);
@@ -937,11 +945,13 @@ export function fitLivePhone(host, stage) {
     // 横飞只走头部下方、滚动评论上方：评论占可见区底部那一截（横飞模式下评论不显示，可用到底栏上方）。
     const vis = height - under;
     const listH = state.chat === 'fly' ? 0 : Math.min(vis * (state.view === 'host' ? 0.4 : 0.3), vis - 58 - LIVE_HEAD_H - 6) + 6;
-    const flyTop = LIVE_HEAD_H + 8;
-    setFlyGeometry(state, width, flyTop, Math.max(flyTop + 22, vis - 58 - listH), 16);
-    const fit = { layout: 'phone', top, height, width, under };
     state.faceDims = { w: width, h: height };
     refreshFace(state);
+    // 手机里有立绘却量不到脸（探测中 / 失败，默认位置不挂遮罩）：横飞退到胸口以下的安全带，不横穿脸。
+    const blind = state.faceGuard !== false && state.faceBox && state.faceBox.source === 'default' && state.portraitUrl && !state.cgUrl;
+    const flyTop = blind ? Math.max(LIVE_HEAD_H + 8, Math.round(vis * 0.46)) : LIVE_HEAD_H + 8;
+    setFlyGeometry(state, width, flyTop, Math.max(flyTop + 22, vis - 58 - listH), 16);
+    const fit = { layout: 'phone', top, height, width, under };
     const prev = state.fit;
     if (prev && Math.abs(prev.top - top) < 4 && Math.abs(prev.height - height) < 4 && Math.abs(prev.width - width) < 4 && Math.abs(prev.under - under) < 4) return prev;
     state.fit = fit;

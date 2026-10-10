@@ -32,6 +32,10 @@ export const LIVE_FULL_TEXTS = Object.freeze(['subtitle', 'dialog']);
 export const LIVE_NARRATION_POSITIONS = Object.freeze(['above', 'name', 'dialog']);
 // 直播弹幕：roll 左下角列表向上翻滚（默认）；fly 沿轨道横飞穿过画面；both 两者同时。
 export const LIVE_CHAT_MODES = Object.freeze(['roll', 'fly', 'both']);
+// 直播弹幕字号（小/中/大≈14/16/19px，倍率相对中档）与密度（路人节奏、横飞在飞上限）。
+export const LIVE_FONT_SIZES = Object.freeze(['small', 'medium', 'large']);
+export const LIVE_FONT_SCALE = Object.freeze({ small: 0.875, medium: 1, large: 1.19 });
+export const LIVE_DENSITY = Object.freeze({ sparse: { wait: 1.5, cap: 10 }, medium: { wait: 1, cap: 14 }, dense: { wait: 0.75, cap: 18 } });
 // 手机机型：只换外观与屏幕比例。全面屏 9:18.5（原样式）、刘海屏 9:17、折叠屏展开 6:7、平板 3:4。
 export const LIVE_PHONE_MODELS = Object.freeze(['full', 'notch', 'fold', 'tablet']);
 export const LIVE_PHONE_MODEL_LABELS = Object.freeze({ full: '全面屏', notch: '刘海屏', fold: '折叠屏', tablet: '平板' });
@@ -86,6 +90,8 @@ export function normalizeLiveFxSettings(value) {
         customLines: normalizeLiveCustomLines(src.customLines),
         fanMedals: normalizeFanMedalMap(src.fanMedals),
         chat: pick(LIVE_CHAT_MODES, src.chat, 'roll'),
+        fontSize: pick(LIVE_FONT_SIZES, src.fontSize, 'medium'),
+        density: pick(DANMAKU_DENSITIES, src.density, 'medium'),
         // 跟随对话框主题：沿用线上交流的主题色板（默认关，保持 B 站深色）。
         followTheme: src.followTheme === true,
         model: pick(LIVE_PHONE_MODELS, src.model, 'full'),

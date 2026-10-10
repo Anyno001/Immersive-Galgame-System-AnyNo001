@@ -373,6 +373,8 @@ function liveContext(ctx, live) {
             ? (frame) => options.onLivePortraitMove({ ...((snapshot.readerSettings && snapshot.readerSettings.liveFx) || {}), portrait: frame })
             : null,
         chat: ctx.settings.live.chat,
+        fontSize: ctx.settings.live.fontSize,
+        density: ctx.settings.live.density,
         speed: ctx.settings.audience && ctx.settings.audience.speed,
         theme: ctx.settings.live.followTheme ? resolveChatTheme(snapshot.readerSettings && snapshot.readerSettings.dialogSkin) : null,
         coverUrl: resolve(content.backgroundImage),

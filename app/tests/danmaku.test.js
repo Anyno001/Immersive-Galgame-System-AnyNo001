@@ -256,7 +256,7 @@ test('gate:danmaku:live-phone-raises-plays-ai-first-and-caps-list', () => {
     const stage = motion.querySelector('.igs-live-stage');
     const phone = stage.querySelector('.igs-live-phone');
     assert.equal(phone.getAttribute('data-view'), 'watch');
-    assert.equal(phone.querySelector('.igs-live-rankcard'), null, 'phone layout unchanged');
+    assert.ok(phone.querySelector('.igs-live-rankcard'), 'phone layout also shows the right-side ranking card');
     assert.equal(phone.style.get('--igs-live-h'), '648px', 'capped at 90% of the stage');
     c.run(4 * 950);
     const list = phone.querySelector('.igs-live-list');
@@ -807,4 +807,19 @@ test('gate:danmaku:lanes-random-start-wider-estimate-and-fly-clip', async () => 
     const long = '常规操作谈能说那个下赌注的家伙确实是个混球不过愿赌服输';
     const clipped = flyClip(long);
     assert.ok(clipped.endsWith('…') && Array.from(clipped).length === 15, clipped);
+});
+
+test('gate: live fly font size and density settings normalize and drive the style', async () => {
+    const { normalizeLiveFxSettings, LIVE_DENSITY, LIVE_FONT_SCALE } = await import('../src/visual/igs-ui/danmaku-settings.js');
+    const def = normalizeLiveFxSettings({});
+    assert.equal(def.fontSize, 'medium');
+    assert.equal(def.density, 'medium');
+    assert.equal(normalizeLiveFxSettings({ fontSize: 'huge', density: 'x' }).fontSize, 'medium');
+    assert.equal(normalizeLiveFxSettings({ fontSize: 'large', density: 'dense' }).density, 'dense');
+    assert.equal(LIVE_FONT_SCALE.medium, 1);
+    assert.equal(LIVE_DENSITY.medium.cap, 14, 'default cap unchanged');
+    assert.ok(LIVE_DENSITY.dense.cap <= 18 && LIVE_DENSITY.sparse.cap < LIVE_DENSITY.medium.cap);
+    const style = fs.readFileSync(path.resolve('src/visual/igs-ui/danmaku-style.js'), 'utf8');
+    assert.ok(style.includes('font-size:calc(11.5px * var(--igs-live-fs,1))'));
+    assert.ok(!style.includes('[data-layout="full"] .igs-live-rankcard,'), 'ranking card no longer hidden in full screen');
 });

@@ -38,6 +38,8 @@ export function renderDanmakuFields(reader, more = collapsible, { liveBlocked = 
         + field(`${p}.liveFx.fanMedals`, '粉丝牌名', textareaInput(`${p}.liveFx.fanMedals`, Object.entries(s.live.fanMedals).map(([name, medal]) => `${name}=${medal}`).join('\n'), '一行一个：主播=牌名；留空按剧情或自动取名'))
         + collapsible('live-custom-lines', '自定义路人弹幕', LIVE_CUSTOM_GROUPS.map(([key, label]) => field(`${p}.liveFx.customLines.${key}`, label, textareaInput(`${p}.liveFx.customLines.${key}`, (s.live.customLines[key] || []).join('\n'), '一行一条，与内置词合并'))).join(''))
         + field(`${p}.liveFx.chat`, '弹幕', segmentedInput(`${p}.liveFx.chat`, s.live.chat, [['roll', '翻滚'], ['fly', '横飞'], ['both', '同时']], '直播弹幕'))
+        + field(`${p}.liveFx.fontSize`, '弹幕字号', segmentedInput(`${p}.liveFx.fontSize`, s.live.fontSize, [['small', '小'], ['medium', '中'], ['large', '大']], '直播弹幕字号'))
+        + field(`${p}.liveFx.density`, '弹幕密度', segmentedInput(`${p}.liveFx.density`, s.live.density, [['sparse', '稀'], ['medium', '中'], ['dense', '密']], '直播弹幕密度'))
         + checkbox(`${p}.liveFx.interact`, s.live.interact, '直播互动（发弹幕、打赏）')
         + checkbox(`${p}.liveFx.followTheme`, s.live.followTheme, '跟随对话框主题')
         + checkbox(`${p}.liveFx.muteOnNsfw`, s.live.muteOnNsfw, 'NSFW场景收起直播间'));
