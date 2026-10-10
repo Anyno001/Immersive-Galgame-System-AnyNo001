@@ -3140,9 +3140,18 @@ export function createIgsReaderHost(options = {}) {
             ? fxDirectives.map((d) => (d.cue && d.kind === 'live' && d.offset > fxOffset && d.offset < fxNextOffset ? { ...d, offset: fxOffset } : d))
                 .sort((a, b) => a.offset - b.offset)
             : fxDirectives;
+        // 手机社区：区间内没写叙述时没有页起点落进去，用下一个能定位的页起点把整块挂到前一页。
+        let fxFeedNextOffset = -1;
+        if (fxOffset >= 0 && fxDirectives.some((d) => d.kind === 'app' && !d.end && d.offset > fxOffset)) {
+            fxFeedNextOffset = Infinity;
+            for (let i = normalizedIndex + 1; i < segments.length; i += 1) {
+                const next = locateFxSegment(segments[i]);
+                if (next > fxOffset) { fxFeedNextOffset = next; break; }
+            }
+        }
         const pageFx = resolveFxAtPage(
             battleContext ? applyDiceToHits(fxDirectivesPaged, battleContext.dice, battleUserName) : fxDirectivesPaged,
-            fxOffset, fxPrevOffset, battleContext,
+            fxOffset, fxPrevOffset, battleContext, fxFeedNextOffset,
         );
         if (battleContext) pageFx.userName = battleUserName;
         decorateItemFx(pageFx, payload, segments, normalizedIndex, fxDirectives, readerSettings);

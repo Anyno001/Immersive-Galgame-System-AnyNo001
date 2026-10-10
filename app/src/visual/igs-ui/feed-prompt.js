@@ -26,7 +26,7 @@ function feedLines(s, platforms, mentioned = null) {
 function feedTagLines() {
     return [
         'app|平台|主人 … app-end：看社交媒体、刷手机、告示等就主动包住；平台只写列出的名字，泛指时挑最贴的；主人省略即自己的，偷看角色的写其名',
-        'post|作者|内容|附加：一条帖子，放在被看到的正文前；每次2~4条，内容≤80字，附加按平台写，可省',
+        'post|作者|内容|附加：一条帖子，写在 app 与 app-end 之间；帖子之间夹一两句看手机的叙述，别整块只有标签；每次2~4条，内容≤80字，附加按平台写，可省',
         'reply|作者|内容：上一条帖子的评论，每帖0~3条',
     ];
 }
@@ -182,6 +182,8 @@ const SAMPLE_POSTS = {
 function renderSamplePosts(rows) {
     const lines = [];
     for (const [author, text, extra, replies] of rows) {
+        // 帖子之间夹一句叙述：区间内没有正文时，演出没有页可挂。
+        if (lines.length) lines.push('他往下划了划。');
         lines.push(`[igs-fx:post|${author}|${text}|${extra}]`);
         for (const [who, say] of replies || []) lines.push(`[igs-fx:reply|${who}|${say}]`);
     }

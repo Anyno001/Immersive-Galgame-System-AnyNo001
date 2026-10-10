@@ -175,9 +175,11 @@ export function foldStormDirectives(directives, offset = Infinity, from = -1) {
 
 // 按指令顺序累积：app 开区间时清空，post 进当前平台，reply 挂到上一条帖子。
 // 返回 { platform, owner, posts }（owner 为空是玩家自己的手机；posts 为该区间到 offset 为止的全部帖子），区间外返回 null。
-export function foldFeedDirectives(directives, offset = Infinity) {
+// nextOffset 为下一页起点：offset 处没有开着的区间时，若有整块 app 区间落在本页与下一页之间（区间内没写叙述，没有任何页起点落进去），把它挂到本页。
+export function foldFeedDirectives(directives, offset = Infinity, nextOffset = offset) {
     let feed = null;
-    for (const d of Array.isArray(directives) ? directives : []) {
+    const list = Array.isArray(directives) ? directives : [];
+    for (const d of list) {
         if (d.offset > offset) break;
         if (d.kind === 'app') feed = d.end ? null : { platform: d.args[0], owner: d.args[1] || '', posts: [] };
         else if (d.kind === 'post' && feed) feed.posts.push({ author: d.args[0], text: d.args[1], extra: d.args[2], replies: [], offset: d.offset });
@@ -186,7 +188,20 @@ export function foldFeedDirectives(directives, offset = Infinity) {
             if (last.replies.length < FEED_REPLY_MAX) last.replies.push({ author: d.args[0], text: d.args[1] });
         }
     }
-    return feed;
+    if (feed || !(nextOffset > offset)) return feed;
+    const open = list.find((d) => d.kind === 'app' && !d.end && d.offset > offset && d.offset < nextOffset);
+    if (!open) return null;
+    feed = { platform: open.args[0], owner: open.args[1] || '', posts: [] };
+    for (const d of list) {
+        if (d.offset <= open.offset) continue;
+        if (d.offset >= nextOffset || d.kind === 'app') break;
+        if (d.kind === 'post') feed.posts.push({ author: d.args[0], text: d.args[1], extra: d.args[2], replies: [], offset: d.offset });
+        else if (d.kind === 'reply' && feed.posts.length) {
+            const last = feed.posts[feed.posts.length - 1];
+            if (last.replies.length < FEED_REPLY_MAX) last.replies.push({ author: d.args[0], text: d.args[1] });
+        }
+    }
+    return feed.posts.length ? feed : null;
 }
 
 const FEED_TAG_RE = /\[igs-fx:([^\]\n]*)(?:\]|$)/gm;

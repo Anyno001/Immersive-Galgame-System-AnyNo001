@@ -45,6 +45,24 @@ test('resolveFxAtPage feed: at most 3 posts, fresh flag, null outside range', ()
     assert.equal(resolveFxAtPage(directives, 1, -1).feed, null, 'before app');
 });
 
+test('区间内没写叙述：整块挂到前一页，已闭合的块不挂到后一页', () => {
+    const { text, directives } = docOf(['她拿出手机。', '[igs-fx:app|新闻]', '[igs-fx:post|甲|内容一|]', '[igs-fx:reply|乙|评论]', '[igs-fx:app-end]她关掉页面。', '[igs-fx:app|微博]', '[igs-fx:post|丙|内容二|]', '[igs-fx:app-end]她抬起头。']);
+    const p1 = 0;
+    const p2 = text.indexOf('她关掉页面');
+    const p3 = text.indexOf('她抬起头');
+    const first = resolveFxAtPage(directives, p1, -1, null, p2);
+    assert.equal(first.feed.platform, 'news');
+    assert.equal(first.feed.posts.length, 1);
+    assert.equal(first.feed.posts[0].replies[0].text, '评论');
+    // 第二页后面的微博块也没有页起点落进去，挂在第二页；第二页自己不带已闭合的新闻
+    const second = resolveFxAtPage(directives, p2, p1, null, p3);
+    assert.equal(second.feed.platform, 'weibo');
+    assert.equal(second.feed.posts[0].author, '丙');
+    assert.equal(resolveFxAtPage(directives, p3, p2, null, Infinity).feed, null, '块已闭合且后面没有新块');
+    // 下一页起点在块之前：不挂
+    assert.equal(resolveFxAtPage(directives, p1, -1, null, 3).feed, null);
+});
+
 test('feed tags are stripped from the displayed text', () => {
     const out = stripMarkerDirectives('前[igs-fx:app|微博]\n[igs-fx:post|甲|内容|]\n[igs-fx:app-end]后');
     assert.doesNotMatch(out, /igs-fx/);
@@ -84,7 +102,7 @@ test('buildTagGrammar folds feed into adaptive index and expands on demand', () 
     assert.match(hot.depth0, /微博/);
     const weibo = buildTagGrammar({ readerSettings: { feedFx: { enabled: true, worldview: 'modern', mentioned: ['weibo'] } }, expand: new Set(['feed']) });
     assert.match(weibo.depth0, /【手机社区】角色看微博的那一段使用。写作 \[igs-fx:app\|平台\|主人\] 开始、\[igs-fx:app-end\] 结束：/);
-    assert.match(weibo.depth0, /示例：\n他掏出手机看微博。\n\[igs-fx:app\|微博\]\n\[igs-fx:post\|校园墙\|今天校门口停了辆黑车，有人看见\{\{user\}\}从车上下来。\|#校门口那辆车\]\n\[igs-fx:reply\|路过的\|我在现场，车窗还摇着\]\n\[igs-fx:reply\|不想惹事\|没看清脸就别@\{\{user\}\}\]\n\[igs-fx:post\|食堂阿姨\|糖醋排骨卖完了，明天早点来。\|#食堂日常\]\n\[igs-fx:post\|林小雨\|那辆车跟我没关系，别再传了。\|#校门口那辆车\]\n\[igs-fx:reply\|热心网友\|解释没用，截图都在传\]\n\[igs-fx:app-end\]\n他看完那几条，把手机扣在桌上。/);
+    assert.match(weibo.depth0, /示例：\n他掏出手机看微博。\n\[igs-fx:app\|微博\]\n\[igs-fx:post\|校园墙\|今天校门口停了辆黑车，有人看见\{\{user\}\}从车上下来。\|#校门口那辆车\]\n\[igs-fx:reply\|路过的\|我在现场，车窗还摇着\]\n\[igs-fx:reply\|不想惹事\|没看清脸就别@\{\{user\}\}\]\n他往下划了划。\n\[igs-fx:post\|食堂阿姨\|糖醋排骨卖完了，明天早点来。\|#食堂日常\]\n他往下划了划。\n\[igs-fx:post\|林小雨\|那辆车跟我没关系，别再传了。\|#校门口那辆车\]\n\[igs-fx:reply\|热心网友\|解释没用，截图都在传\]\n\[igs-fx:app-end\]\n他看完那几条，把手机扣在桌上。/);
 });
 
 test('prompt triggers recognise feed words and unclosed app', () => {

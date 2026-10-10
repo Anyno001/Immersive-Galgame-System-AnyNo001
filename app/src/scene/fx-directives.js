@@ -323,7 +323,7 @@ function applyStageDirective(result, d, current) {
     result.links.push({ a, b, kind: action });
 }
 
-export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
+export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null, nextOffset = -1) {
     const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
     const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, movieMode: '', lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null, storm: null };
     // 感官调度：区间状态，作用到下一条 sense / sense-end。
@@ -430,7 +430,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         result.instants.push(instant);
     }
     // 手机社区：区间内取最近几条帖子，本页新出现的标 fresh。
-    const feed = foldFeedDirectives(directives, at);
+    const feed = foldFeedDirectives(directives, at, Number(nextOffset));
     result.feed = feed ? { platform: feed.platform, owner: feed.owner, posts: feed.posts.slice(-FEED_VIEW_MAX).map((post) => ({ ...post, fresh: post.offset > from })) } : null;
     // 舆论风暴：区间内累积到当前页的 @ 评论，本页新出现的标 fresh。
     result.storm = foldStormDirectives(directives, at, from);
