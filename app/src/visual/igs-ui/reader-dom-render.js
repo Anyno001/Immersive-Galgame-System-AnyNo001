@@ -1115,6 +1115,13 @@ function applyAlignStyleImpl(element, align) {
 const backgroundImageKeys = new WeakMap();
 const backgroundImageSources = new WeakMap();
 
+// 内嵌框比图再高一截：楼层里读起来更舒展，背景按 cover 铺满，只多裁左右一点。
+export const EMBEDDED_FRAME_TALLER = 1.15;
+
+function embeddedAspectRatio(width, height) {
+    return `${width} / ${Math.round(Number(height) * EMBEDDED_FRAME_TALLER)}`;
+}
+
 // 内嵌框只跟横竖尺寸走。横屏钉背景尺寸，竖屏钉对调后的尺寸。图的像素不参与。
 export function syncEmbeddedHostFrame(root, sizeText) {
     if (!root || !String(root.className || '').includes('igs-mode-embedded')) return;
@@ -1126,7 +1133,7 @@ export function syncEmbeddedHostFrame(root, sizeText) {
         if (typeof host.removeAttribute === 'function') host.removeAttribute('data-igs-frame');
         return;
     }
-    host.style.aspectRatio = `${match[1]} / ${match[2]}`;
+    host.style.aspectRatio = embeddedAspectRatio(match[1], match[2]);
     if (typeof host.setAttribute === 'function') host.setAttribute('data-igs-frame', 'size');
 }
 
@@ -1176,7 +1183,7 @@ export function watchEmbeddedFrameResize(overlay, frameState) {
         const sizeText = cgSizeForMode(frameState.backgroundSize, frameState.mode, { width, height: 0, portrait: phone });
         const match = String(sizeText || '').match(/^(\d+)\s*[xX×]\s*(\d+)$/);
         if (!match) return;
-        if (host.style && host.style.aspectRatio === `${match[1]} / ${match[2]}`) return;
+        if (host.style && host.style.aspectRatio === embeddedAspectRatio(match[1], match[2])) return;
         syncEmbeddedHostFrame(overlay, sizeText);
     });
     observer.observe(host);

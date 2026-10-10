@@ -94,3 +94,9 @@ test('prompt-entries:page-diagnostic-lists-reasons-and-chars', () => {
     assert.match(text, /社区 展开 命中「热搜」（AI上1楼） · 412 字/);
     assert.match(text, /直播 已关闭/);
 });
+
+test('prompt-entries: 泛指社交媒体也点亮手机社区', () => {
+    for (const userText of ['我拿起手机看看社交媒体', '上网看看大家怎么说', '刷到一条知乎回答']) {
+        assert.ok(resolve({ userText }).hits.has('feed'), userText);
+    }
+});

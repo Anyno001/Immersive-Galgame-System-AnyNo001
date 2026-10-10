@@ -231,11 +231,11 @@ test('gate:igs-ui:embedded-frame-locks-configured-size', () => {
     });
     const landscape = host();
     syncEmbeddedHostFrame({ className: 'igs-mode-embedded', closest: () => landscape }, '1216x832');
-    assert.equal(landscape.style.aspectRatio, '1216 / 832');
+    assert.equal(landscape.style.aspectRatio, '1216 / 957');
     assert.equal(landscape.getAttribute('data-igs-frame'), 'size');
     const portrait = host();
     syncEmbeddedHostFrame({ className: 'igs-mode-embedded', closest: () => portrait }, '832x1216');
-    assert.equal(portrait.style.aspectRatio, '832 / 1216');
+    assert.equal(portrait.style.aspectRatio, '832 / 1398');
 });
 
 test('gate:igs-ui:embedded-frame-keeps-pinned-ratio-when-host-unmeasured', () => {
@@ -252,18 +252,18 @@ test('gate:igs-ui:embedded-frame-keeps-pinned-ratio-when-host-unmeasured', () =>
     const win = { innerWidth: 390, innerHeight: 844 };
     const root = { className: 'igs-mode-embedded', closest: () => host, ownerDocument: { defaultView: win } };
     pinEmbeddedHostFrame(root, '1216x832', 'embedded');
-    assert.equal(host.style.aspectRatio, '832 / 1216');
+    assert.equal(host.style.aspectRatio, '832 / 1398');
     width = 0;
     pinEmbeddedHostFrame(root, '1216x832', 'embedded');
-    assert.equal(host.style.aspectRatio, '832 / 1216');
+    assert.equal(host.style.aspectRatio, '832 / 1398');
     width = 900;
     pinEmbeddedHostFrame(root, '1216x832', 'embedded');
-    assert.equal(host.style.aspectRatio, '1216 / 832');
+    assert.equal(host.style.aspectRatio, '1216 / 957');
 
     // 第一次就量不到：按窗口宽度判断，手机钉竖屏。
     const fresh = { ...host, style: {}, attrs: {}, getBoundingClientRect: () => ({ width: 0, height: 0 }) };
     pinEmbeddedHostFrame({ ...root, closest: () => fresh }, '1216x832', 'embedded');
-    assert.equal(fresh.style.aspectRatio, '832 / 1216');
+    assert.equal(fresh.style.aspectRatio, '832 / 1398');
 });
 
 test('gate:igs-ui:embedded-frame-relocks-on-orientation-crossing', () => {
@@ -294,22 +294,22 @@ test('gate:igs-ui:embedded-frame-relocks-on-orientation-crossing', () => {
         },
     };
     syncEmbeddedHostFrame(overlay, '1216x832');
-    assert.equal(host.style.aspectRatio, '1216 / 832');
+    assert.equal(host.style.aspectRatio, '1216 / 957');
     const unwatch = watchEmbeddedFrameResize(overlay, { backgroundSize: '1216x832', mode: 'embedded' });
     assert.equal(typeof unwatch, 'function');
     width = 390;
     observerCallback();
-    assert.equal(host.style.aspectRatio, '832 / 1216');
+    assert.equal(host.style.aspectRatio, '832 / 1398');
     width = 844;
     observerCallback();
-    assert.equal(host.style.aspectRatio, '1216 / 832');
+    assert.equal(host.style.aspectRatio, '1216 / 957');
     observerCallback();
-    assert.equal(host.style.aspectRatio, '1216 / 832');
+    assert.equal(host.style.aspectRatio, '1216 / 957');
     host.isConnected = false;
     width = 390;
     observerCallback();
     assert.equal(disconnected, 1);
-    assert.equal(host.style.aspectRatio, '1216 / 832');
+    assert.equal(host.style.aspectRatio, '1216 / 957');
 });
 
 test('gate:igs-ui:embedded-frame-watch-unobserve-stops-relock', () => {
@@ -337,7 +337,7 @@ test('gate:igs-ui:embedded-frame-watch-unobserve-stops-relock', () => {
         },
     };
     syncEmbeddedHostFrame(overlay, '832x1216');
-    assert.equal(host.style.aspectRatio, '832 / 1216');
+    assert.equal(host.style.aspectRatio, '832 / 1398');
     const unwatch = watchEmbeddedFrameResize(overlay, { backgroundSize: '1216x832', mode: 'embedded' });
     unwatch();
     assert.equal(disconnected, 1);

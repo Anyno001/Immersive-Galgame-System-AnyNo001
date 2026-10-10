@@ -2,13 +2,13 @@
 // 宿主读取由 api/igs-compat.js 负责，这里只处理文本与指令。
 import { extractFxDirectives } from './fx-directives.js';
 
-// 向前最多看 20 条消息（含用户楼层，玩家常在输入里写「开直播」）；连续 3 个 AI 楼层不提直播即视为已下播，限制漏写 live-end 时手机多挂的层数。
+// 向前最多看 20 条消息（含用户楼层，玩家常在输入里写「开直播」）；上一个 AI 楼层不提直播即视为已下播，漏写 live-end 时手机不再多挂。
 export const LIVE_CHAIN_MAX_MESSAGES = 20;
-export const LIVE_QUIET_MAX_FLOORS = 3;
+export const LIVE_QUIET_MAX_FLOORS = 1;
 
 // 只认开播 / 下播这类动作词；「没开播」「不直播」之类的否定不算。
-const LIVE_START_RE = /(?<![没未不别])(?:开播|开(?:了|启|始)?直播|打开(?:了)?直播间?|直播开始了?|上播|(?:调用|触发|启动)直播(?:演出|间)?)/g;
-const LIVE_END_RE = /(?<![没未不别])(?:下播|关播|断播|停播|关(?:了|掉|闭)?直播间?|结束(?:了)?直播|直播结束|切断(?:了)?直播|退出(?:了)?直播间?)/g;
+const LIVE_START_RE = /(?<![没未不别离])(?:开播|开(?:了|启|始)?直播|打开(?:了)?直播间?|直播开始了?|上播|(?:调用|触发|启动)直播(?:演出|间)?)/g;
+const LIVE_END_RE = /(?<![没未不别])(?:下播|关播|断播|停播|关(?:了|掉|闭)?直播间?|结束(?:了)?直播|直播结束|切断(?:了)?直播|退出(?:了)?直播间?|离开(?:了)?直播间|(?:收起|放下|锁上|锁了|关掉|关上)(?:了)?手机|直播间?(?:关了|关闭了?|没了))/g;
 const LIVE_MENTION_RE = /直播|弹幕|观众|礼物|打赏|主播|\[igs-fx:(?:live|dm)[|\]]/;
 
 // 兜底开播的主播默认是玩家本人：主播后台视角，标题「X的直播间」。
@@ -71,11 +71,11 @@ export function resolveLiveContextFromHistory(history, fallback) {
     return scanner.result();
 }
 
-// 本楼指令补上直播兜底：继承的直播挂在楼首；本楼没写 live 标签时，再把开播 / 下播词转成指令。返回新数组，不改原指令。
+// 本楼指令补上直播兜底：继承的直播挂在楼首（本楼完全不提直播就不继承，免得手机多挂一楼）；本楼没写 live 标签时，再把开播 / 下播词转成指令。返回新数组，不改原指令。
 export function withLiveFallback(directives, source, carried, fallback) {
     const list = Array.isArray(directives) ? directives : [];
     const extra = [];
-    if (carried && carried.name) extra.push({ kind: 'live', end: false, args: liveArgs(carried), offset: 0, cue: true });
+    if (carried && carried.name && LIVE_MENTION_RE.test(String(source || ''))) extra.push({ kind: 'live', end: false, args: liveArgs(carried), offset: 0, cue: true });
     if (fallback && !list.some((d) => d.kind === 'live')) extra.push(...liveCueDirectives(source, fallback));
     if (!extra.length) return list;
     return [...extra, ...list].sort((a, b) => a.offset - b.offset);

@@ -58,3 +58,14 @@ test('live-context: 用户输入里的开直播也算，连续多楼不提直播
     assert.equal(resolveLiveContextFromHistory([...quiet, { isUser: false, text: '小明开播了。' }], fallback), null);
     assert.equal(readLiveCarry('[igs-fx:live-end]', fallback).live, null);
 });
+
+test('live-context: 上一楼不提直播即下播，本楼不提直播不继承，离开直播间/收起手机算下播', () => {
+    assert.equal(resolveLiveContextFromHistory([{ isUser: false, text: '他们去吃饭了。' }, { isUser: false, text: '小明开播了。' }], fallback), null);
+    const carried = { name: '小明', title: '小明的直播间', view: 'host' };
+    const quiet = '两人并肩走在街上。';
+    assert.equal(withLiveFallback([], quiet, carried, fallback).length, 0);
+    for (const text of ['弹幕还在刷，她离开了直播间。', '弹幕还在刷，他收起手机。', '弹幕停了，直播间关了。']) {
+        const directives = withLiveFallback(extractFxDirectives(text), text, carried, fallback);
+        assert.equal(resolveFxAtPage(directives, text.length - 1).live, null, text);
+    }
+});
