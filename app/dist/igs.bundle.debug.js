@@ -84,6 +84,7 @@ const { mentionedFeedPlatforms } = require("src/scene/feed-platforms.js");
 const { resolveTextFxPromptRule } = require("src/visual/igs-ui/text-fx.js");
 const { resolveBilingualPromptRule } = require("src/visual/igs-ui/bilingual-text.js");
 const { resolveDailyFxPromptRule } = require("src/visual/igs-ui/fx-daily-prompt.js");
+const { normalizeFxPromptsSettings } = require("src/visual/igs-ui/fx-settings.js");
 const { beginMetaDigestSend, clearMetaDigest, finishMetaDigestSend, onMetaDigestChange, resolveMetaDigestRule } = require("src/visual/igs-ui/meta-digest.js");
 const { resolveLiveDigestRule } = require("src/visual/igs-ui/danmaku-interact.js");
 const { applyFxWorldview, resolveCarryPhonePrompt, resolveWorldviewPromptRule } = require("src/scene/fx-era.js");
@@ -756,8 +757,12 @@ function bootstrapIGS(options = {}) {
         // 随身手机：聊天与来电等手机演出按现代写法。
         const phoneAncient = ancient && !(readerSettings && readerSettings.feedFx && readerSettings.feedFx.carryPhone === true);
         if (normalizeChatShowSettings(chatShow).enabled) rules.push(resolveChatShowPromptRule(chatShow, { ancient: phoneAncient }));
-        const fxRule = resolveFxPromptRule(readerSettings && readerSettings.fxTags, { ancient: phoneAncient });
-        if (fxRule) rules.push(fxRule);
+        // 演出提示词入口：inject 关掉就不发「演出 / 日常演出」两段，覆盖文本非空时用用户自己写的。
+        const fxPrompts = normalizeFxPromptsSettings(readerSettings && readerSettings.fxPrompts);
+        if (fxPrompts.inject) {
+            const fxRule = fxPrompts.fx.trim() || resolveFxPromptRule(readerSettings && readerSettings.fxTags, { ancient: phoneAncient });
+            if (fxRule) rules.push(fxRule);
+        }
         const dlcFxRule = resolveDlcFxPromptRule(readerSettings && readerSettings.dlcFx);
         if (dlcFxRule) rules.push(dlcFxRule);
         const itemFxRule = resolveItemFxPromptRule(Boolean(readerSettings && readerSettings.itemFx && readerSettings.itemFx.enabled));
@@ -766,8 +771,10 @@ function bootstrapIGS(options = {}) {
         if (textFxRule) rules.push(textFxRule);
         const bilingualRule = resolveBilingualPromptRule(readerSettings && readerSettings.bilingual);
         if (bilingualRule) rules.push(bilingualRule);
-        const dailyFxRule = resolveDailyFxPromptRule(readerSettings && readerSettings.dailyFx);
-        if (dailyFxRule) rules.push(dailyFxRule);
+        if (fxPrompts.inject) {
+            const dailyFxRule = fxPrompts.daily.trim() || resolveDailyFxPromptRule(readerSettings && readerSettings.dailyFx);
+            if (dailyFxRule) rules.push(dailyFxRule);
+        }
         const battleFxRule = resolveBattleFxPromptRule(Boolean(readerSettings && readerSettings.battleFx && readerSettings.battleFx.enabled));
         if (battleFxRule) rules.push(battleFxRule);
         const romanceFxRule = resolveRomanceFxPromptRule(readerSettings && readerSettings.romanceFx);
@@ -11948,6 +11955,8 @@ const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.spriteGenderScale.female',
     'readerSettings.spriteGenderScale.male',
     'readerSettings.spriteGenderScale.other',
+    'readerSettings.spriteGenderScale.elderShorter',
+    'readerSettings.spriteGenderScale.childShorter',
     'readerSettings.spriteDisplayScale',
     'readerSettings.spriteHeads',
     'readerSettings.vnTheme.preset',
@@ -16813,6 +16822,10 @@ function createIgsReaderHost(options = {}) {
         readerSettings._carryPhone = Boolean(readerSettings.feedFx && readerSettings.feedFx.carryPhone === true);
         readerSettings._worldview = worldview;
         readerSettings._sceneAssets = sceneAssets;
+        // 还没入库的生成立绘的 tag：立绘默认高度据此判断没有 DNA 的角色性别与老人 / 儿童。
+        const spriteTagService = options.generatedAssets;
+        readerSettings._tempSpriteTags = spriteTagService && typeof spriteTagService.tempSpriteTags === 'function'
+            ? spriteTagService.tempSpriteTags() : {};
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
         readerSettings._optionBubble = bridge.optionBubble && typeof bridge.optionBubble === 'object' ? bridge.optionBubble : {};
         const bilingualOverride = state.bilingualDisplay;
@@ -17228,9 +17241,15 @@ function noteFormGender(name, gender) {
 }
 function characterDnaGender(sceneAssets, name) {
     if (name && activeFormGenders.has(name)) return activeFormGenders.get(name);
+    return detectVoiceGender(characterDnaText(sceneAssets, name));
+}
+
+// 主名 DNA 里描述角色本身的文字（触发词、固定身份、默认外观；不含负面词）；没有 DNA 时为 ''。
+// 立绘默认高度在没有 DNA 时改看生成立绘的 tag，故把取文本和判性别拆开，两处共用。
+function characterDnaText(sceneAssets, name) {
     const dnaMap = plainObject(sceneAssets && sceneAssets.characterDna) || {};
     const dna = name && hasOwn(dnaMap, name) ? plainObject(dnaMap[name]) : null;
-    return dna ? detectVoiceGender(`${dna.triggerWords || ''}\n${dna.identity || ''}\n${dna.defaultAppearance || ''}`) : '';
+    return dna ? `${dna.triggerWords || ''}\n${dna.identity || ''}\n${dna.defaultAppearance || ''}` : '';
 }
 
 function hashName(name) {
@@ -17544,6 +17563,7 @@ __igsDefine(exports, "detectVoiceGender", () => detectVoiceGender);
 __igsDefine(exports, "setActiveFormGenders", () => setActiveFormGenders);
 __igsDefine(exports, "noteFormGender", () => noteFormGender);
 __igsDefine(exports, "characterDnaGender", () => characterDnaGender);
+__igsDefine(exports, "characterDnaText", () => characterDnaText);
 __igsDefine(exports, "resolveCharacterVoice", () => resolveCharacterVoice);
 __igsDefine(exports, "resolveBarkMood", () => resolveBarkMood);
 __igsDefine(exports, "pickBarkClip", () => pickBarkClip);
@@ -26304,6 +26324,22 @@ function matteSolidBackground(imageData) {
     }
     return imageData;
 }
+
+// 出图方不一定照计划给纯色底：智绘姬 / 柏宝绘接 NAI V5 时常直接回透明底，调用方的 alreadyTransparent 只是预期。
+// 四边大半已经透明就当已抠好、只裁边；否则洪泛会把透明像素的 RGB（多为黑色）当底色，连深色描线和黑发一起抠掉。
+function hasTransparentBorder(imageData, alphaThreshold = 8) {
+    const { data, width, height } = imageData;
+    const step = Math.max(1, Math.floor(Math.min(width, height) / 32));
+    let total = 0;
+    let clear = 0;
+    const check = (x, y) => {
+        total += 1;
+        if (data[(y * width + x) * 4 + 3] <= alphaThreshold) clear += 1;
+    };
+    for (let x = 0; x < width; x += step) { check(x, 0); check(x, height - 1); }
+    for (let y = 0; y < height; y += step) { check(0, y); check(width - 1, y); }
+    return total > 0 && clear * 2 >= total;
+}
 function findOpaqueBounds(imageData, alphaThreshold = 8) {
     const { data, width, height } = imageData;
     let top = height; let left = width; let right = -1; let bottom = -1;
@@ -26449,7 +26485,8 @@ function createAlphaMatte(globalObject = globalThis) {
             if (!ctx || !canvas.width || !canvas.height) return passthrough(dataUrl, 'no-context');
             ctx.drawImage(img, 0, 0);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            if (!alreadyTransparent) {
+            const detectedTransparent = !alreadyTransparent && hasTransparentBorder(imageData);
+            if (!alreadyTransparent && !detectedTransparent) {
                 matteSolidBackground(imageData);
                 ctx.putImageData(imageData, 0, 0);
             }
@@ -26463,7 +26500,7 @@ function createAlphaMatte(globalObject = globalThis) {
             return {
                 dataUrl: preservePngTextChunks(dataUrl, out.toDataURL('image/png'), globalObject),
                 alphaMaskDataUrl: buildAlphaMaskDataUrl(doc, outCtx, bounds.width, bounds.height),
-                diagnostics: { sourceWidth: canvas.width, sourceHeight: canvas.height, crop: bounds, alreadyTransparent },
+                diagnostics: { sourceWidth: canvas.width, sourceHeight: canvas.height, crop: bounds, alreadyTransparent, detectedTransparent },
             };
         } catch (error) {
             return passthrough(dataUrl, 'error');
@@ -26476,6 +26513,7 @@ function createAlphaMatte(globalObject = globalThis) {
 }
 
 __igsDefine(exports, "matteSolidBackground", () => matteSolidBackground);
+__igsDefine(exports, "hasTransparentBorder", () => hasTransparentBorder);
 __igsDefine(exports, "findOpaqueBounds", () => findOpaqueBounds);
 __igsDefine(exports, "extractPngTextChunks", () => extractPngTextChunks);
 __igsDefine(exports, "injectPngChunks", () => injectPngChunks);
@@ -29884,6 +29922,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 details.igs-settings-sub>summary{cursor:pointer;font-size:12px;color:var(--igs-settings-ink);opacity:.78;user-select:none}
 details.igs-settings-sub[open]>summary{margin-bottom:4px}
 details[data-image-feature="llm-prompts"] textarea{min-height:220px}
+details.igs-fx-prompts-fold textarea{min-height:140px;font-size:12px;line-height:1.5}
 /* 「高级」折叠区自带底色框：不再继承 .igs-settings-sub 的左竖线、左外边距与 flex 间距（会叠成双竖线和标题下的大空白）。 */
 details.igs-settings-advanced{display:block;margin-top:4px;margin-left:0;padding:0;border-left:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field)}
 details.igs-settings-advanced[open]{padding-bottom:12px}
@@ -31335,13 +31374,15 @@ function renderCharacterVoiceRow(charName, { sceneAssets, tts }) {
 }
 
 const SPRITE_HEIGHT_SOURCE_LABELS = { female: '女性', male: '男性', other: '其他', base: '基准高度' };
+const SPRITE_HEIGHT_AGE_LABELS = { elder: '老人', child: '儿童' };
 
 // 角色立绘高度（角色展开后放在立绘列表最上面）：留空跟随性别默认 / 基准高度；填了就固定这个角色的高度，「调整立绘」调过的表情仍按调整结果。
 function renderCharacterSpriteHeightRow(charName, { sceneAssets, reader }) {
     const assets = sceneAssets && typeof sceneAssets === 'object' ? sceneAssets : {};
     const manual = resolveSpriteBaseScale(assets, reader, charName);
     const auto = manual.source === 'manual' ? resolveSpriteBaseScale({ ...assets, characterSpriteScales: {} }, reader, charName) : manual;
-    const autoText = `${SPRITE_HEIGHT_SOURCE_LABELS[auto.source]} ${auto.defaultScale}%`;
+    const ageLabel = SPRITE_HEIGHT_AGE_LABELS[auto.age] ? ` · ${SPRITE_HEIGHT_AGE_LABELS[auto.age]}` : '';
+    const autoText = `${SPRITE_HEIGHT_SOURCE_LABELS[auto.source]}${ageLabel} ${auto.defaultScale}%`;
     const placed = hasCharacterSpriteLayout(reader && reader.spriteLayouts, charName);
     const note = placed ? ' title="在「调整立绘」里单独调过的表情，按调整结果显示"' : '';
     return `<div class="igs-char-info-row igs-char-height-row"><span class="igs-char-info-label">立绘高度 %</span>`
@@ -33351,11 +33392,29 @@ __igsDefine(exports, "TEXT_FX_GRAMMAR", () => TEXT_FX_GRAMMAR);
 __igsDefine(exports, "TEXT_FX_STYLE_TEXT", () => TEXT_FX_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/sprite-height.js", function(module, exports, require) {
-// 立绘默认高度：没被「调整立绘」单独调过的立绘，先看角色自定义高度，再看性别默认高度（开关打开时按 DNA 判断），最后是立绘基准高度。
+// 立绘默认高度：没被「调整立绘」单独调过的立绘，先看角色自定义高度，再看性别默认高度（开关打开时按 DNA 判断，
+// 没有 DNA 时看生成立绘的 tag；老人、儿童在此基础上再矮一点），最后是立绘基准高度。
 const { normalizeSpriteDefaultScale, normalizeSpriteGenderScale, normalizeSpriteHeight } = require("src/visual/igs-ui/settings-normalize.js");
-const { canonicalName, characterDnaGender } = require("src/visual/igs-ui/voice-bark.js");
+const { canonicalName, characterDnaGender, characterDnaText, detectVoiceGender } = require("src/visual/igs-ui/voice-bark.js");
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : null);
+
+// 年龄只分老人、儿童两档。先认明写的岁数（60 岁以上 / 12 岁以下，写了成年岁数就不再看称呼），再认称呼与 tag；
+// 刻意不认单字「老」（老师、老板）、elder（elder sister）和爷爷奶奶这类亲属称呼，childhood friend 也不会误中 child。
+const AGE_NUMBER_RE = /(\d{1,3})\s*(?:岁|周岁|歳|years?\s*old)/i;
+const ELDER_RE = /\b(?:old (?:man|woman|lady)|elderly|grandpa|grandma)\b|老人|老者|老头|老太|老妇|老翁|老妪|老爷爷|老奶奶|老婆婆|老爷子|年迈|年老|垂暮|花甲|古稀|耄耋|白发苍苍/i;
+const CHILD_RE = /\b(?:child|kid|toddler|loli|shota|little (?:girl|boy))\b|儿童|小孩|孩童|幼童|幼女|幼儿|女童|男童|小女孩|小男孩|萝莉|正太|小学生/i;
+function detectSpriteAge(text) {
+    const value = String(text || '');
+    const number = value.match(AGE_NUMBER_RE);
+    if (number) {
+        const years = Number(number[1]);
+        return years >= 60 ? 'elder' : years <= 12 ? 'child' : '';
+    }
+    const elder = ELDER_RE.test(value);
+    const child = CHILD_RE.test(value);
+    return elder === child ? '' : elder ? 'elder' : 'child';
+}
 
 // 角色自定义高度和声线一样按主名记在根素材库：{ 角色名: 高度 }，留空的角色不进表。
 function normalizeCharacterSpriteScales(value) {
@@ -33368,8 +33427,8 @@ function normalizeCharacterSpriteScales(value) {
     return out;
 }
 
-// 返回 { characterScale, defaultScale, source }：characterScale 只在角色自定义时有值，交给 resolveSpriteLayout 压过模式整体缩放；
-// source 为 manual / female / male / other / base，设置页据此显示「自动」用的是哪一档。
+// 返回 { characterScale, defaultScale, source, age? }：characterScale 只在角色自定义时有值，交给 resolveSpriteLayout 压过模式整体缩放；
+// source 为 manual / female / male / other / base，按性别取高度时另给 age（elder / child / ''），设置页据此显示「自动」用的是哪一档。
 function resolveSpriteBaseScale(sceneAssets, readerSettings, character) {
     const assets = plain(sceneAssets) || {};
     const reader = plain(readerSettings) || {};
@@ -33381,10 +33440,18 @@ function resolveSpriteBaseScale(sceneAssets, readerSettings, character) {
     if (manual != null) return { characterScale: manual, defaultScale: base, source: 'manual' };
     const genders = normalizeSpriteGenderScale(reader.spriteGenderScale);
     if (!genders.enabled) return { characterScale: null, defaultScale: base, source: 'base' };
-    const gender = characterDnaGender(assets, name) || 'other';
-    return { characterScale: null, defaultScale: genders[gender], source: gender };
+    // 变身形态优先（characterDnaGender 自带覆盖）；其次 DNA，再次待确认 / 仅本聊天立绘的生成 tag。
+    const dnaText = characterDnaText(assets, name);
+    const tempTags = plain(reader._tempSpriteTags) || {};
+    const tagText = Object.hasOwn(tempTags, name) ? tempTags[name] : '';
+    const gender = characterDnaGender(assets, name) || detectVoiceGender(tagText) || 'other';
+    const age = detectSpriteAge(dnaText) || detectSpriteAge(tagText);
+    const shorter = age === 'elder' ? genders.elderShorter : age === 'child' ? genders.childShorter : 0;
+    // 矮一截后给个 10% 下限，免得性别默认本来就低时减成 0 或负数。
+    return { characterScale: null, defaultScale: Math.max(10, genders[gender] - shorter), source: gender, age };
 }
 
+__igsDefine(exports, "detectSpriteAge", () => detectSpriteAge);
 __igsDefine(exports, "normalizeCharacterSpriteScales", () => normalizeCharacterSpriteScales);
 __igsDefine(exports, "resolveSpriteBaseScale", () => resolveSpriteBaseScale);
 });
@@ -33437,6 +33504,10 @@ function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye|emergency|spam)$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
+        if (path === 'readerSettings.fxPrompts.inject') return value === true || value === 'true' || value === 1 || value === '1';
+        if (path === 'readerSettings.fxPrompts.fx' || path === 'readerSettings.fxPrompts.daily') {
+            return (typeof value === 'string' ? value : '').slice(0, 4000);
+        }
         if (/^readerSettings\.(sceneTransition|timeTint|spriteMotion|spriteActions|camera|stageCast|textFx|bilingual|clickWaitMark|bgm|ambientSound|uiSound)\.(enabled|moodTag|night|alignHeads|romanceDuo|castReact|castStage|breathing|castBreathing|castLean|speakBounce|enterExit|emotionFade|kenBurns|parallax|closeUp|aiShots|birds|rain|wind|insects|waves|crowd|thunder|stream|fire|snow|cicadas|frogs|chimes|bell|clock|drip|train|tavern|ship|traffic|car|carriage|bath|underwater|space)$/.test(path)
             || /^readerSettings\.dailyFx\.[a-zA-Z]+$/.test(path)
             || /^readerSettings\.(liveFx|audienceFx|innerFx|feedFx)\.(enabled|muteOnNsfw|ambient|useThought|interact|followTheme)$/.test(path)
@@ -33477,6 +33548,8 @@ function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.spriteGenderScale.enabled') return value === true || value === 'true' || value === 1 || value === '1';
         const genderHeight = path.match(/^readerSettings\.spriteGenderScale\.(female|male|other)$/);
         if (genderHeight) return normalizeSpriteHeight(value, SPRITE_GENDER_SCALE_DEFAULTS[genderHeight[1]]);
+        const ageShorter = path.match(/^readerSettings\.spriteGenderScale\.(elderShorter|childShorter)$/);
+        if (ageShorter) return normalizeSpriteShorter(value, SPRITE_GENDER_SCALE_DEFAULTS[ageShorter[1]]);
         if (path === 'readerSettings.spriteDisplayScale') return normalizeSpriteDisplayScale(value);
         if (path === 'readerSettings.dialogTextEffectStrength') return Math.max(5, Math.min(50, Number(value) || 20));
         if (path === 'readerSettings.dialogTextEffectSize') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
@@ -33635,7 +33708,9 @@ function normalizeSpriteDefaultScale(value) {
 }
 
 // 立绘高度（基准高度、性别默认、角色自定义），单位是舞台高度百分比。不设上下限。
-const SPRITE_GENDER_SCALE_DEFAULTS = Object.freeze({ enabled: false, female: 90, male: 100, other: 95 });
+// elderShorter / childShorter：老人、儿童比同性别默认高度矮多少（百分点），0–60。
+const SPRITE_GENDER_SCALE_DEFAULTS = Object.freeze({ enabled: false, female: 90, male: 100, other: 95, elderShorter: 5, childShorter: 20 });
+const SPRITE_SHORTER_RANGE = Object.freeze([0, 60]);
 
 // 留空、不是数字或为 0 时用 fallback；其余取整，正负都可以。
 function normalizeSpriteHeight(value, fallback = null) {
@@ -33643,6 +33718,14 @@ function normalizeSpriteHeight(value, fallback = null) {
     const n = Number(value);
     if (!Number.isFinite(n) || n === 0) return fallback;
     return Math.round(n);
+}
+
+// 矮多少：留空或非数字用 fallback，其余夹到 0–60 取整（不接受负数，免得老人反而更高）。
+function normalizeSpriteShorter(value, fallback = 0) {
+    if (value == null || String(value).trim() === '') return fallback;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.round(Math.max(SPRITE_SHORTER_RANGE[0], Math.min(SPRITE_SHORTER_RANGE[1], n)));
 }
 function normalizeSpriteGenderScale(value) {
     const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -33652,6 +33735,8 @@ function normalizeSpriteGenderScale(value) {
         female: normalizeSpriteHeight(src.female, defaults.female),
         male: normalizeSpriteHeight(src.male, defaults.male),
         other: normalizeSpriteHeight(src.other, defaults.other),
+        elderShorter: normalizeSpriteShorter(src.elderShorter, defaults.elderShorter),
+        childShorter: normalizeSpriteShorter(src.childShorter, defaults.childShorter),
     };
 }
 
@@ -33793,6 +33878,7 @@ __igsDefine(exports, "normalizeSpriteLayouts", () => normalizeSpriteLayouts);
 __igsDefine(exports, "normalizeCastSlotLayouts", () => normalizeCastSlotLayouts);
 __igsDefine(exports, "normalizeSpriteDefaultScale", () => normalizeSpriteDefaultScale);
 __igsDefine(exports, "normalizeSpriteHeight", () => normalizeSpriteHeight);
+__igsDefine(exports, "normalizeSpriteShorter", () => normalizeSpriteShorter);
 __igsDefine(exports, "normalizeSpriteGenderScale", () => normalizeSpriteGenderScale);
 __igsDefine(exports, "normalizeSpriteDisplayScale", () => normalizeSpriteDisplayScale);
 __igsDefine(exports, "applySpriteDisplayScale", () => applySpriteDisplayScale);
@@ -33801,6 +33887,7 @@ __igsDefine(exports, "spriteHeightLayoutKey", () => spriteHeightLayoutKey);
 __igsDefine(exports, "resolveSpriteLayout", () => resolveSpriteLayout);
 __igsDefine(exports, "resolveActiveTheme", () => resolveActiveTheme);
 __igsDefine(exports, "renderDialogueHtml", () => renderDialogueHtml);
+__igsDefine(exports, "SPRITE_SHORTER_RANGE", () => SPRITE_SHORTER_RANGE);
 });
 __igsRegister("src/visual/igs-ui/my-phone.js", function(module, exports, require) {
 const { LIVE_PHONE_MODELS, LIVE_PHONE_MODEL_LABELS, LIVE_PHONE_SIZES } = require("src/visual/igs-ui/danmaku-settings.js");
@@ -41652,7 +41739,7 @@ const { BATTLE_GRAMMAR_LINES } = require("src/visual/igs-ui/fx-battle-model.js")
 const { textFxGrammarBlock } = require("src/visual/igs-ui/text-fx.js");
 const { bilingualGrammarBlock, normalizeBilingualSettings } = require("src/visual/igs-ui/bilingual-text.js");
 const { normalizeChatShowSettings, resolveChatShowGrammar } = require("src/visual/igs-ui/chat-show-runtime.js");
-const { enabledFxTagKinds } = require("src/visual/igs-ui/fx-settings.js");
+const { enabledFxTagKinds, normalizeFxPromptsSettings } = require("src/visual/igs-ui/fx-settings.js");
 const { enabledDailyFxKinds } = require("src/visual/igs-ui/fx-daily-model.js");
 const { danmakuGrammarBlocks } = require("src/visual/igs-ui/danmaku-prompt.js");
 const { feedGrammarBlocks } = require("src/visual/igs-ui/feed-prompt.js");
@@ -41761,6 +41848,19 @@ function applyPromptEntries(blocks, entries) {
     });
 }
 
+// 演出提示词入口：inject 关掉就把「演出 / 日常演出」两块整个拿掉（索引里也不列）；
+// 覆盖文本非空时替换该块完整写法（用户自己写的每轮都发，不再折叠成索引）。物品 / 配乐 / 亲密各有自己的开关，不受此影响。
+function applyFxPromptSettings(blocks, readerSettings) {
+    const fp = normalizeFxPromptsSettings(plain(readerSettings).fxPrompts);
+    const override = { fx: fp.fx.trim(), daily: fp.daily.trim() };
+    return blocks.flatMap((block) => {
+        if (block.key !== 'fx' && block.key !== 'daily') return [block];
+        if (!fp.inject) return [];
+        const custom = override[block.key];
+        return custom ? [{ ...block, full: custom, adaptive: false }] : [block];
+    });
+}
+
 // 返回 { system, depth0 }：system 放稳定部分（通用规则、场景、始终展开的块、按需索引），
 // depth0 放本轮按需展开的块和逐轮变化的内容（交互摘要）。placement 为 depth0 时由调用方把两段合并注入。
 function buildTagGrammar({
@@ -41773,7 +41873,7 @@ function buildTagGrammar({
     moodWord = '',
     entries = null,
 } = {}) {
-    const blocks = applyPromptEntries(collectGrammarBlocks(readerSettings, { ancient }), entries);
+    const blocks = applyFxPromptSettings(applyPromptEntries(collectGrammarBlocks(readerSettings, { ancient }), entries), readerSettings);
     if (!sceneRule && !blocks.length) return { system: '', depth0: '', expanded: [], indexed: [], sizes: {} };
     const rs = plain(readerSettings);
     const example = buildExample({ sceneRule, moodWord, fxKinds: enabledFxTagKinds(rs.fxTags), itemOn: plain(rs.itemFx).enabled === true });
@@ -42170,6 +42270,15 @@ function normalizeFxTagsSettings(value) {
     out.callSprite = FX_CALL_SPRITE_MODES.includes(src.callSprite) ? src.callSprite : 'split';
     return out;
 }
+
+// 演出提示词入口：inject 决定「演出 / 日常演出」两段标签用法说明要不要发给 AI（默认发）；
+// fx / daily 为用户覆盖文本，留空即用内置动态拼装。只管这两段标准标签，物品 / 配乐 / 亲密各有自己的开关。
+const FX_PROMPT_OVERRIDE_MAX = 4000;
+function normalizeFxPromptsSettings(value) {
+    const src = plain(value);
+    const text = (v) => (typeof v === 'string' ? v.slice(0, FX_PROMPT_OVERRIDE_MAX) : '');
+    return { inject: src.inject !== false, fx: text(src.fx), daily: text(src.daily) };
+}
 const FX_MOTION_STYLES = Object.freeze(['smooth', 'snappy']);
 const FX_HOLD_LEVELS = Object.freeze(['short', 'medium', 'long']);
 const FX_HOLD_SCALE = Object.freeze({ short: 0.65, medium: 1, long: 1.6 });
@@ -42193,6 +42302,8 @@ const FX_SETTINGS_NORMALIZERS = Object.freeze({
     flashFx: normalizeFlashFxSettings,
     favorToast: normalizeFavorToastSettings,
     fxTags: normalizeFxTagsSettings,
+    // 演出提示词入口（可读可改可关），不参与一键档位、独立于 FX_FEATURE_KEYS。
+    fxPrompts: normalizeFxPromptsSettings,
     fxSound: normalizeFxSoundSettings,
     fxStyle: normalizeFxStyleSettings,
     // 弹幕三件套独立渲染（danmaku-runtime），不进入 FX_FEATURE_KEYS。
@@ -42296,6 +42407,7 @@ __igsDefine(exports, "normalizeHeartbeatFxSettings", () => normalizeHeartbeatFxS
 __igsDefine(exports, "normalizeFlashFxSettings", () => normalizeFlashFxSettings);
 __igsDefine(exports, "normalizeFavorToastSettings", () => normalizeFavorToastSettings);
 __igsDefine(exports, "normalizeFxTagsSettings", () => normalizeFxTagsSettings);
+__igsDefine(exports, "normalizeFxPromptsSettings", () => normalizeFxPromptsSettings);
 __igsDefine(exports, "normalizeFxStyleSettings", () => normalizeFxStyleSettings);
 __igsDefine(exports, "normalizeFxSoundSettings", () => normalizeFxSoundSettings);
 __igsDefine(exports, "normalizeFxReaderSettings", () => normalizeFxReaderSettings);
@@ -42318,6 +42430,7 @@ __igsDefine(exports, "HEARTBEAT_FX_DEFAULT_LOVE", () => HEARTBEAT_FX_DEFAULT_LOV
 __igsDefine(exports, "HEARTBEAT_FX_DEFAULT_TENSE", () => HEARTBEAT_FX_DEFAULT_TENSE);
 __igsDefine(exports, "FLASH_FX_DEFAULT_EMOTIONS", () => FLASH_FX_DEFAULT_EMOTIONS);
 __igsDefine(exports, "TITLE_CARD_SPEEDS", () => TITLE_CARD_SPEEDS);
+__igsDefine(exports, "FX_PROMPT_OVERRIDE_MAX", () => FX_PROMPT_OVERRIDE_MAX);
 __igsDefine(exports, "FX_MOTION_STYLES", () => FX_MOTION_STYLES);
 __igsDefine(exports, "FX_HOLD_LEVELS", () => FX_HOLD_LEVELS);
 __igsDefine(exports, "FX_HOLD_SCALE", () => FX_HOLD_SCALE);
@@ -50608,7 +50721,7 @@ __igsDefine(exports, "SETTINGS_SEARCH_INDEX", () => SETTINGS_SEARCH_INDEX);
 });
 __igsRegister("src/visual/igs-ui/performance-settings-layout.js", function(module, exports, require) {
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
-const { collapsible, perfItem, renderFxFeatureFields } = require("src/visual/igs-ui/fx-settings-fields.js");
+const { collapsible, perfItem, renderFxFeatureFields, renderFxPromptsFields } = require("src/visual/igs-ui/fx-settings-fields.js");
 const { renderStageDirectionFields } = require("src/visual/igs-ui/stage-direction-fields.js");
 const { renderRomanceFxFields } = require("src/visual/igs-ui/romance-fields.js");
 const { renderDanmakuFields } = require("src/visual/igs-ui/danmaku-settings-fields.js");
@@ -50720,7 +50833,7 @@ function renderPerformanceSettings(reader, extras = {}, isOpen = () => false) {
         story: [
             section('情绪', [fx.manga, fx.mangaBack, fx.heartbeat]),
             section('剧情提示', [fx.title, fx.favor, fx.itemFx, fx.resultFx]),
-            section('事件演出', [fx.tags, fx.dlc].filter(Boolean)),
+            section('事件演出', [fx.tags, fx.dlc, renderFxPromptsFields(src, more.isOpen('fx-prompts'))].filter(Boolean)),
         ],
         special: [
             section('日常与冒险', [stage.daily, fx.battleFx, fx.flash]),
@@ -50743,10 +50856,11 @@ __igsDefine(exports, "PERFORMANCE_GROUPS", () => PERFORMANCE_GROUPS);
 __igsRegister("src/visual/igs-ui/fx-settings-fields.js", function(module, exports, require) {
 const { listDlcFx, normalizeDlcFxSettings } = require("src/scene/fx-registry.js");
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
-const { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput } = require("src/visual/igs-ui/settings-fields.js");
+const { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput, textareaInput } = require("src/visual/igs-ui/settings-fields.js");
 const { DIALOG_FONT_OPTIONS } = require("src/visual/igs-ui/reader-host-constants.js");
 const { FX_TAG_KINDS } = require("src/scene/fx-directives.js");
-const { FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS, normalizeFxReaderSettings } = require("src/visual/igs-ui/fx-settings.js");
+const { FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS, normalizeFxPromptsSettings, normalizeFxReaderSettings } = require("src/visual/igs-ui/fx-settings.js");
+const { collectGrammarBlocks } = require("src/visual/igs-ui/tag-grammar.js");
 const { COMIC_TONE_KINDS, COMIC_TONE_LABELS } = require("src/visual/igs-ui/comic-settings.js");
 const { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } = require("src/visual/igs-ui/manga-back.js");
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
@@ -50778,6 +50892,29 @@ function featureRow(more, key, path, on, label, hint = '', detail = '') {
 
 // 细项里的分段小标题（代替原来的二级折叠）。
 const perfSubhead = (label) => `<div class="igs-perf-item-subhead">${esc(label)}</div>`;
+
+// 演出提示词入口：发给 AI 的「演出 / 日常演出」标签用法说明，可读、可改、可整段关掉。
+// 文本框预填当前内置写法（随已开启的演出类型自动拼装），直接改即覆盖，清空即回落内置。平时折在深处。
+function fxBuiltinPromptText(reader, key) {
+    const worldview = reader && reader.feedFx && reader.feedFx.worldview;
+    const ancient = worldview === 'ancient';
+    const block = collectGrammarBlocks(reader, { ancient }).find((b) => b.key === key);
+    return block ? String(block.full || '') : '';
+}
+function renderFxPromptsFields(reader, open = false) {
+    const src = reader && typeof reader === 'object' ? reader : {};
+    const fp = normalizeFxPromptsSettings(src.fxPrompts);
+    const base = 'readerSettings.fxPrompts';
+    const fxText = fp.fx || fxBuiltinPromptText(src, 'fx');
+    const dailyText = fp.daily || fxBuiltinPromptText(src, 'daily');
+    const note = '<div class="igs-source-filter-note">这两段告诉 AI 演出标签怎么用。直接改即覆盖，清空即回落内置（会随开启的演出类型自动变）；关掉开关则整段不发，可自行在酒馆预设里写。</div>';
+    const body = note
+        + `<div class="igs-settings-field">${checkbox(`${base}.inject`, fp.inject, '把演出标签用法发给 AI')}</div>`
+        + (fxText ? field(`${base}.fx`, '演出标签', textareaInput(`${base}.fx`, fxText, '清空即恢复内置')) : '')
+        + (dailyText ? field(`${base}.daily`, '日常演出标签', textareaInput(`${base}.daily`, dailyText, '清空即恢复内置')) : '');
+    // 自建折叠：复用 igs-settings-advanced 的折叠外观，但不带 igs-perf-more（那是词表二级折叠专用标记）。
+    return `<details class="igs-settings-advanced igs-fx-prompts-fold" data-advanced="perf-fx-prompts"${open ? ' open' : ''}><summary>演出提示词</summary>${body}</details>`;
+}
 
 const grid = (body) => `<div class="igs-source-filter-grid">${body}</div>`;
 
@@ -50832,6 +50969,7 @@ __igsDefine(exports, "renderWordListField", () => renderWordListField);
 __igsDefine(exports, "collapsible", () => collapsible);
 __igsDefine(exports, "perfItem", () => perfItem);
 __igsDefine(exports, "featureRow", () => featureRow);
+__igsDefine(exports, "renderFxPromptsFields", () => renderFxPromptsFields);
 __igsDefine(exports, "renderFxFeatureFields", () => renderFxFeatureFields);
 __igsDefine(exports, "perfSubhead", () => perfSubhead);
 });
@@ -80289,14 +80427,16 @@ function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSet
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强（手机较耗电）')}
         ${checkbox('readerSettings.spriteGenderScale.enabled', spriteGenderScale.enabled, '按性别区分默认高度')}
-        <div class="igs-source-filter-note">根据 DNA 判断性别；已调整过的立绘和单独设置了高度的角色不受影响。</div>
+        <div class="igs-source-filter-note">按 DNA（没有时看生成 tag）判断性别和老人、儿童；已调整过的立绘和单独设置了高度的角色不受影响。</div>
         <div class="igs-source-filter-grid">
           ${field('readerSettings.spriteDisplayScale', '立绘全局缩放 %', numberInput('readerSettings.spriteDisplayScale', normalizeSpriteDisplayScale(reader.spriteDisplayScale)))}
           ${field('readerSettings.spriteDefaultScale', '立绘基准高度 %', numberInput('readerSettings.spriteDefaultScale', normalizeSpriteDefaultScale(reader.spriteDefaultScale)))}
           ${spriteGenderScale.enabled ? `
           ${field('readerSettings.spriteGenderScale.female', '女性默认高度 %', numberInput('readerSettings.spriteGenderScale.female', spriteGenderScale.female))}
           ${field('readerSettings.spriteGenderScale.male', '男性默认高度 %', numberInput('readerSettings.spriteGenderScale.male', spriteGenderScale.male))}
-          ${field('readerSettings.spriteGenderScale.other', '其他默认高度 %', numberInput('readerSettings.spriteGenderScale.other', spriteGenderScale.other))}` : ''}
+          ${field('readerSettings.spriteGenderScale.other', '其他默认高度 %', numberInput('readerSettings.spriteGenderScale.other', spriteGenderScale.other))}
+          ${field('readerSettings.spriteGenderScale.elderShorter', '老人比同性别矮', numberInput('readerSettings.spriteGenderScale.elderShorter', spriteGenderScale.elderShorter))}
+          ${field('readerSettings.spriteGenderScale.childShorter', '儿童比同性别矮', numberInput('readerSettings.spriteGenderScale.childShorter', spriteGenderScale.childShorter))}` : ''}
           ${spriteEnhance.enabled === true ? `
           ${field('bridge.sceneAssets.spriteEnhance.mode', '效果', selectInput('bridge.sceneAssets.spriteEnhance.mode', spriteEnhance.mode || 'outline', [['outline', '硬描边'], ['shadow', '投影式']]))}
           ${field('bridge.sceneAssets.spriteEnhance.color', '增强颜色', colorInput('bridge.sceneAssets.spriteEnhance.color', spriteEnhance.color || '#000000'))}
@@ -93465,6 +93605,16 @@ function createAssetGenerationService(deps) {
         return tempUrl(currentTempRecords().get(tempAssetKeyOf(tempChatId, { type: 'sprite', name })));
     }
 
+    // 待确认 / 仅本聊天使用的立绘生成时写的 tag（第一个通常是 1girl / 1boy）：{ 角色名: tags }。
+    // 这些角色往往没有 DNA，立绘默认高度据此判断性别与老人 / 儿童。
+    function tempSpriteTags() {
+        const out = {};
+        for (const record of currentTempRecords().values()) {
+            if (record.type === 'sprite' && record.name && record.tags && tempUrl(record)) out[record.name] = String(record.tags);
+        }
+        return out;
+    }
+
     // 同步取图：命中内存直接返回；否则异步从 IndexedDB 补并在补完后通知重渲染。
     function resolveUrl(url) {
         if (!isGeneratedAssetUrl(url)) return String(url || '');
@@ -94462,7 +94612,7 @@ function createAssetGenerationService(deps) {
     }
 
     return {
-        processMessage, resolveUrl, resolveThumbUrl, thumbSourceId, tempBackground, tempSceneTime, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
+        processMessage, resolveUrl, resolveThumbUrl, thumbSourceId, tempBackground, tempSceneTime, tempSprite, tempSpriteTags, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
         generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateSceneVariants, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,
