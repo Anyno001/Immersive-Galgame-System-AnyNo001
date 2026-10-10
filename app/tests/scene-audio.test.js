@@ -112,12 +112,18 @@ test('gate: scene audio exports ambient kinds with Chinese labels', () => {
     assert.deepEqual(AMBIENT_KINDS, [
         'birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow',
         'cicadas', 'frogs', 'chimes', 'bell', 'clock', 'drip', 'train', 'tavern', 'ship', 'traffic',
-        'car', 'carriage', 'bath', 'underwater', 'space',
+        'car', 'carriage', 'plane', 'bath', 'underwater', 'space', 'bike', 'sky',
+        'printer', 'keyboard', 'aircon', 'serverhum', 'deskphone',
+        'cafe', 'cinema', 'aquarium', 'nightview', 'palace', 'console',
+        'classroom', 'library', 'playground',
     ]);
     assert.deepEqual(AMBIENT_KINDS.map((kind) => AMBIENT_LABELS[kind]), [
         '鸟鸣', '雨声', '风声', '虫鸣', '海浪', '人声', '雷声', '溪流', '篝火', '雪夜',
         '蝉鸣', '蛙鸣', '风铃', '钟声', '钟表', '滴水', '列车', '酒馆', '船只', '车流',
-        '车内', '马车', '浴室水声', '水下', '太空真空',
+        '车内', '马车', '机舱', '浴室水声', '水下', '太空真空', '骑行', '高空风声',
+        '打印机', '键盘鼠标', '空调', '机房嗡鸣', '座机铃声',
+        '咖啡馆', '影院', '水族馆', '夜景高处', '深宫静夜', '电视游戏机',
+        '教室', '图书馆', '操场',
     ]);
 });
 
@@ -157,7 +163,10 @@ test('gate: ambient settings default on per kind and honor explicit false', () =
         enabled: false, volume: 0.4, birds: true, rain: true, wind: true, insects: true, waves: true, crowd: true,
         thunder: true, stream: true, fire: true, snow: true,
         cicadas: true, frogs: true, chimes: true, bell: true, clock: true, drip: true, train: true, tavern: true, ship: true, traffic: true,
-        car: true, carriage: true, bath: true, underwater: true, space: true,
+        car: true, carriage: true, plane: true, bath: true, underwater: true, space: true, bike: true, sky: true,
+        printer: true, keyboard: true, aircon: true, serverhum: true, deskphone: true,
+        cafe: true, cinema: true, aquarium: true, nightview: true, palace: true, console: true,
+        classroom: true, library: true, playground: true,
     });
     // 旧存档没有新增音色字段，按默认开启处理。
     const legacy = normalizeAmbientSoundSettings({ enabled: true, birds: true, rain: false });
@@ -203,7 +212,7 @@ test('gate: ambient plan handles rain outdoors and indoors', () => {
     const indoor = resolveAmbientPlan({ location: '卧室', time: '夜晚', weather: '中雨' }, ON);
     assert.deepEqual(indoor, [{ kind: 'rain', level: 'medium', muffled: true }]);
     const classroom = resolveAmbientPlan({ location: '教室', weather: '雷阵雨伴大风' }, ON);
-    assert.deepEqual(classroom.map((l) => [l.kind, l.muffled]), [['thunder', true], ['rain', true], ['wind', true], ['crowd', false]]);
+    assert.deepEqual(classroom.map((l) => [l.kind, l.muffled]), [['thunder', true], ['rain', true], ['wind', true], ['classroom', false]]);
 });
 
 test('gate: ambient plan filters toggles, disabled settings and caps layers', () => {
@@ -657,7 +666,7 @@ test('gate:perf:hidden-page-parks-ambient-loops-instead-of-queueing-blips', () =
 test('gate: new ambient kinds resolve from common scene words', () => {
     const plan = (context, settings = ON) => resolveAmbientPlan(context, settings);
     const cicadas = plan({ location: '教室', time: '夏日午后' });
-    assert.deepEqual(cicadas.map((l) => [l.kind, l.muffled, l.variant]), [['crowd', false, undefined], ['cicadas', true, undefined]], '夏日教室隔窗蝉鸣');
+    assert.deepEqual(cicadas.map((l) => [l.kind, l.muffled, l.variant]), [['cicadas', true, undefined], ['classroom', false, undefined]], '夏日教室隔窗蝉鸣，教室自带人声底噪不再叠街市人声');
     assert.deepEqual(plan({ location: '神社参道', time: '夏天傍晚' }).map((l) => [l.kind, l.variant]), [['bell', 'temple'], ['cicadas', 'higurashi'], ['insects', undefined]]);
     assert.deepEqual(kinds(plan({ location: '稻田边', time: '夜晚' })), ['frogs', 'insects']);
     assert.equal(plan({ location: '池塘', time: '夜晚', weather: '小雨' })[1].level, 'heavy', '雨夜蛙声更密');
@@ -675,12 +684,30 @@ test('gate: new ambient kinds resolve from common scene words', () => {
     assert.deepEqual(kinds(plan({ location: '森林', time: '夜晚' }, { enabled: true, birds: false })), ['insects']);
 });
 
+test('gate: office ambient layers resolve from office scene words', () => {
+    const plan = (context, settings = ON) => resolveAmbientPlan(context, settings);
+    assert.deepEqual(kinds(plan({ location: '公司办公室', time: '下午' })), ['aircon', 'keyboard', 'deskphone'], '办公室默认带空调、键盘与座机，不再单独加钟表');
+    assert.deepEqual(kinds(plan({ location: '复印室' })), ['printer']);
+    assert.deepEqual(kinds(plan({ location: '前台' })), ['deskphone']);
+    assert.deepEqual(kinds(plan({ location: '服务器机房' })), ['aircon', 'keyboard', 'serverhum']);
+    assert.deepEqual(kinds(plan({ location: '日光灯下的走廊' })), ['serverhum']);
+    assert.deepEqual(kinds(plan({ location: '会议室' })), ['aircon']);
+    assert.ok(!kinds(plan({ location: '家里的电脑前' })).includes('keyboard'), '电脑单词不触发键盘声');
+    assert.ok(!kinds(plan({ location: '工位' })).includes('keyboard'), '工位单词不触发键盘声');
+    assert.ok(kinds(plan({ location: '房间里传来敲键盘的声音' })).includes('keyboard'));
+    assert.ok(plan({ location: '办公室' }).every((l) => l.muffled === false && l.level === 'light'), '办公室机器声轻且不走闷声低通');
+    assert.deepEqual(kinds(plan({ location: '办公室', weather: '暴雨' })).slice(0, 2), ['rain', 'aircon'], '天气排在办公室机器声之前');
+    assert.deepEqual(kinds(plan({ location: '办公室' }, { enabled: true, keyboard: false, deskphone: false })), ['aircon']);
+});
+
 test('gate: every new ambient voice synthesizes, keeps looping and disposes all nodes', () => {
     const scenes = [
         { location: '操场', time: '夏日正午' }, { location: '操场', time: '夏天傍晚' }, { location: '荷塘', time: '夜晚' },
         { location: '檐下', weather: '大风' }, { location: '寺庙' }, { location: '教堂' }, { location: '书房' }, { location: '山洞' },
         { location: '地铁' }, { location: '客栈' }, { location: '船舱' }, { location: '马路' }, { location: '树林', time: '夜晚', weather: '晴' },
         { location: '食堂' }, { location: '街道' },
+        { location: '办公室' }, { location: '复印室' }, { location: '服务器机房' }, { location: '前台' },
+        { location: '咖啡馆' }, { location: '电影院' }, { location: '水族馆' }, { location: '观景台' }, { location: '海边' },
     ];
     for (const context of scenes) {
         const label = JSON.stringify(context);

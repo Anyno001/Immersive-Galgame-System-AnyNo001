@@ -8,7 +8,7 @@ import {
     normalizeDanmakuSettings,
     pickInnerMood,
 } from './danmaku-settings.js';
-import { AUDIENCE_AMBIENT_LINES, INNER_PHRASES, classifyAudienceMood, randomItem, thoughtFragments } from './danmaku-pools.js';
+import { AUDIENCE_AMBIENT_LINES, INNER_PHRASES, classifyAudienceMood, mixInnerPhrases, parentheticalThoughts, randomItem, thoughtFragments } from './danmaku-pools.js';
 import { myPhoneOf, phoneWallUrl } from './my-phone.js';
 import { fitLivePhone, likeLive, phoneGeometry, pushLiveMessages, stopLivePhone, syncLivePhone, syncLiveSwitch } from './danmaku-live.js';
 import { fitLiveControls, liveActionMessage, recordLiveAction, stopLiveControls, syncLiveControls } from './danmaku-interact.js';
@@ -97,8 +97,12 @@ export function planDanmakuPage(snapshot, memory, settings, rng = Math.random) {
     const speaking = content.textType === 'dialogue' || content.textType === 'thought';
     const innerMood = speaking && !special ? pickInnerMood(content.statusEmotion, settings.inner) : '';
     if (innerMood && once(`inner:${pageKey}:${content.statusEmotion}:${content.displayText || ''}`)) {
-        const fromThought = settings.inner.useThought && content.textType === 'thought' ? thoughtFragments(content.text) : [];
-        plan.inner = { mood: innerMood, phrases: fromThought.length ? fromThought : INNER_PHRASES[innerMood] };
+        let real = [];
+        if (settings.inner.useThought) {
+            real = content.textType === 'thought' ? thoughtFragments(content.text) : parentheticalThoughts(content.text);
+        }
+        const mixed = mixInnerPhrases(real, INNER_PHRASES[innerMood], INNER_WORD_CAP, rng);
+        plan.inner = { mood: innerMood, phrases: mixed.phrases, real: mixed.real };
     }
     return plan;
 }
@@ -258,10 +262,12 @@ function playInner(ctx, inner, stage) {
     group.setAttribute('data-style', fly ? 'fly' : 'burst');
     group.style.setProperty('--igs-dm-inner-size', `${size}px`);
     group.style.setProperty('--igs-dm-burst', `${INNER_BURST_AT}ms`);
+    const realSet = new Set(inner.real || []);
     let life = INNER_LIFE;
     if (fly) {
         for (const word of layoutInnerFlight(anchor, inner.phrases, INNER_WORD_CAP, size, state.rng)) {
             const el = node(doc, 'igs-dm-word', word.text);
+            if (realSet.has(word.text)) el.setAttribute('data-real', '1');
             el.style.left = `${anchor.stageW}px`;
             el.style.top = `${word.y}px`;
             el.style.setProperty('--igs-dm-d', `${word.delay}ms`);
@@ -274,6 +280,7 @@ function playInner(ctx, inner, stage) {
         const words = layoutInnerWords(anchor, inner.phrases, reduced ? 5 : INNER_WORD_CAP, state.rng);
         for (const word of words) {
             const el = node(doc, 'igs-dm-word', word.text);
+            if (realSet.has(word.text)) el.setAttribute('data-real', '1');
             el.style.left = `${word.x}px`;
             el.style.top = `${word.y}px`;
             el.style.setProperty('--igs-dm-d', `${reduced ? 0 : word.delay}ms`);

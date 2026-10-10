@@ -172,6 +172,7 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.hiddenBtns',
     'readerSettings.btnOrder',
     'readerSettings.toolbarSplit',
+    'readerSettings.toolbarPlate',
     'readerSettings.dialogBarAlign',
     'readerSettings.dialogBarBtns',
     'readerSettings.spriteLayouts',
@@ -339,6 +340,8 @@ export const TOOLBAR_ACTIONS = Object.freeze([
 export const DEFAULT_PINNED_TOOLBAR_BUTTONS = Object.freeze([]);
 // 工具栏分两截：翻页和读档类默认放对话框底部的快捷栏，顶栏只留生图、素材、画面和系统。
 export const TOOLBAR_SPLIT_MODES = Object.freeze(['split', 'top', 'dialog']);
+// 工具栏底板：off 完全无底板（默认）、blur 展开时羽化毛玻璃、solid 实色不糊。
+export const TOOLBAR_PLATE_MODES = Object.freeze(['blur', 'solid', 'off']);
 // 对话框下快捷栏的对齐：auto 为手机居中、电脑靠左。
 export const DIALOG_BAR_ALIGNS = Object.freeze(['auto', 'left', 'center', 'right']);
 export const DEFAULT_DIALOG_BAR_BUTTONS = Object.freeze(['first-turn', 'prev-turn', 'prev', 'auto-play', 'next', 'next-turn', 'quick-save', 'quick-load']);

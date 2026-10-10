@@ -1,4 +1,5 @@
-import { DAILY_FX_KINDS } from './daily-fx-directives.js';
+import { CAMPUS_FX_KINDS, COURTESY_FX_KINDS, DAILY_FX_KINDS, PLAY_FX_KINDS, WARDROBE_FX_KINDS } from './daily-fx-directives.js';
+import { CAMPUS_TRIGGER_WORDS } from './campus-fx.js';
 import { compileKeywordMatcher, joinPromptKeywords, normalizePromptEntries, parsePromptKeywords } from './prompt-entries.js';
 
 // 按需展开的提示词块：最近几层出现过对应标签、用户输入或最近 AI 正文命中触发词、或对应成对标签未闭合时才发完整写法。
@@ -47,18 +48,51 @@ export const DAILY_TRIGGER_WORDS = Object.freeze({
     blackout: ['停电', '断电'],
     knock: ['敲门', '敲窗', '叩门'],
     murmur: ['低语', '耳语', '耳边'],
-    brake: ['急刹车', '急刹', '踩刹车', '猛地停住'],
-    depart: ['发车', '起步', '启程', '开动了'],
-    arrive: ['到站', '靠岸', '下一站', '终点站'],
+    brake: ['急刹车', '急刹', '踩刹车', '猛地停住', '颠簸', '遇到气流'],
+    depart: ['发车', '起步', '启程', '开动了', '起飞', '启航', '御剑', '腾空', '腾云'],
+    arrive: ['到站', '靠岸', '下一站', '终点站', '降落', '着陆', '落地'],
     ticket: ['车票', '船票', '机票', '登机牌'],
     steam: ['水汽', '蒸汽', '雾气氤氲'],
     shower: ['淋浴', '花洒', '冲澡'],
     splash: ['泼水', '打水仗', '水花'],
     hairdry: ['吹头发', '吹风机'],
+    sleep: ['睡着', '入睡', '就寝', '睡下', '安睡', '沉沉睡去', '躺下休息'],
+    wake: ['起床', '睡醒', '一觉醒来', '早上醒来', '清晨醒来'],
+    dressup: ['换上', '换了身', '换好衣', '焕然一新', '换上新', '穿上新', '换好装', '变身'],
+    drape: ['披上', '披外套', '披在', '系领带', '围围巾', '整理衣领', '理了理衣', '替他整理', '替她整理', '搭在肩'],
+    fitting: ['试衣镜', '照镜子', '对着镜子', '镜子前', '试衣间', '站在镜'],
     dive: ['潜入水', '跳进水', '潜水', '入水'],
     bubble: ['气泡', '吐泡泡'],
     vacuum: ['真空', '气闸', '泄压'],
     say: ['嘀咕', '小声', '吐槽', '心想', '暗想', '咕哝'],
+    sing: ['唱歌', '唱起', '歌声', '哼唱', 'KTV', '卡拉OK', '麦克风', '献唱', '一首歌', '唱了一首'],
+    dance: ['跳舞', '舞蹈', '共舞', '起舞', '华尔兹', '圆舞', '旋转', '舞步', '舞池', '伴舞'],
+    fish: ['钓鱼', '垂钓', '鱼竿', '鱼饵', '上钩', '鱼漂', '抛竿', '钓到'],
+    draw: ['画画', '写生', '素描', '涂鸦', '作画', '画笔', '画了', '速写', '油画'],
+    music: ['弹钢琴', '弹吉他', '弹奏', '演奏', '钢琴', '吉他', '小提琴', '乐器', '琴键', '拨弦'],
+    ride: ['摩天轮', '过山车', '游乐园', '游乐场', '旋转木马', '海盗船', '咖啡杯', '碰碰车', '游乐设施'],
+    clean: ['打扫', '扫地', '拖地', '收拾', '擦桌', '大扫除', '清扫', '整理房间', '做家务'],
+    shopping: ['逛街', '购物', '血拼', '逛商场', '试衣', '试穿', '逛店', '买买买', '橱窗'],
+    stroll: ['散步', '漫步', '并肩走', '信步', '遛弯', '散散步', '闲逛', '压马路'],
+    yujian: ['御剑', '飞剑', '剑诀', '御剑飞行'],
+    liandan: ['炼丹', '丹炉', '开炉', '丹成'],
+    biguan: ['闭关', '吐纳', '打坐', '入定'],
+    dianxue: ['点穴', '封穴', '解穴'],
+    qinggong: ['轻功', '纵身', '飞檐走壁', '踏雪无痕'],
+    yungong: ['运功', '疗伤', '调息', '真气'],
+    opendoor: ['开车门', '拉开车门', '拉开椅子', '拉开椅', '替她开门', '替他开门', '推开门让'],
+    shield: ['护在身前', '挡在身前', '护住', '走在马路外侧', '揽到内侧', '拦下'],
+    tend: ['系鞋带', '蹲下系', '擦嘴角', '理了理鬓发', '拂去', '替她戴好', '替他戴好'],
+    carry: ['公主抱', '横抱', '抱起', '背起', '背在身上', '背着'],
+    candle: ['点蜡烛', '点燃蜡烛', '烛光', '烛火', '点灯', '掌灯', '上香', '焚香', '宫灯'],
+    pass: ['递给', '递过', '双手奉上', '接过', '呈上', '奉上', '递上'],
+    console: ['打开游戏机', '插上手柄', '玩switch', '玩Switch', '玩PS', '打游戏', '玩游戏', '游戏机', '手柄', '联机', '通关', '游戏画面'],
+    versus: ['对战', '格斗游戏', '双人对战', '联机对战', '街霸', '拳皇', '1P', '2P', '血条'],
+    combo: ['连击', '狂按', '连打', '搓招', '连招', '手速'],
+    snatch: ['抢手柄', '抢过手柄', '耍赖', '不许玩', '再来一局', '再来一把'],
+    stance: ['跪拜','跪下', '叩首', '侍立', '垂手', '上座', '请安', '伺候', '依偎', '靠在肩'],
+    // 校园类（黑板、传纸条、抽屉、点名、考试、文化祭、毕业、纽扣）的触发词在 scene/campus-fx.js，点亮 campus 块。
+    ...CAMPUS_TRIGGER_WORDS,
 });
 
 // 每块：tag 最近几层出现即展开；words 为默认关键词（设置页可改）；open/close 为成对标签，未闭合时保持展开。
@@ -70,8 +104,9 @@ const BLOCK_TRIGGERS = Object.freeze({
         close: /\[igs-chat-end\]/g,
     },
     daily: {
-        tag: new RegExp(`\\[igs-fx:(?:${DAILY_FX_KINDS.join('|')})[|\\]]`),
-        words: [...new Set(Object.values(DAILY_TRIGGER_WORDS).flat())],
+        // 衣橱类（换装登场等）、玩乐类（唱歌、游乐…）从日常块里剔除，另走 wardrobe / play 块。
+        tag: new RegExp(`\\[igs-fx:(?:${DAILY_FX_KINDS.filter((k) => !WARDROBE_FX_KINDS.includes(k) && !PLAY_FX_KINDS.includes(k) && !COURTESY_FX_KINDS.includes(k) && !CAMPUS_FX_KINDS.includes(k)).join('|')})[|\\]]`),
+        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => !WARDROBE_FX_KINDS.includes(k) && !PLAY_FX_KINDS.includes(k) && !COURTESY_FX_KINDS.includes(k) && !CAMPUS_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
     },
     battle: {
         tag: /\[igs-fx:(?:battle|battle-end|hit)[|\]]/,
@@ -101,6 +136,27 @@ const BLOCK_TRIGGERS = Object.freeze({
     camera: {
         tag: /\[igs-fx:cam[|\]]/,
         words: ['镜头', '特写', '拉远', '推近', '虚化', '摇镜', '运镜'],
+    },
+    // 衣橱：换装登场等，只在正文 / 用户提到换衣、换装、变身时才补完整写法。
+    wardrobe: {
+        tag: new RegExp(`\\[igs-fx:(?:${WARDROBE_FX_KINDS.join('|')})[|\\]]`),
+        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => WARDROBE_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
+    },
+    // 玩乐：唱歌、跳舞、钓鱼、画画、演奏、游乐设施、打扫、逛街、散步，只在正文 / 用户提到对应活动时才补完整写法。
+    play: {
+        tag: new RegExp(`\\[igs-fx:(?:${PLAY_FX_KINDS.join('|')})[|\\]]`),
+        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => PLAY_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
+    },
+    // 体贴与礼仪：开门礼让、护身、照料、公主抱，及点灯烛火 / 递接 / 站位身段三块积木（约会与后宫共用）。
+    // 亲密场景标签在场也展开：写法要在约会、情事段里用得上。
+    courtesy: {
+        tag: new RegExp(`\\[igs-fx:(?:${COURTESY_FX_KINDS.join('|')})[|\\]]|\\[igs-scene:[^\\]\\n]*\\|\\s*nsfw\\s*\\]`, 'i'),
+        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => COURTESY_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
+    },
+    // 校园：黑板写字、传纸条、抽屉里的发现、点名、考试发卷、文化祭、毕业典礼、第二颗纽扣，只在正文 / 用户提到校园场面时才补完整写法。
+    campus: {
+        tag: new RegExp(`\\[igs-fx:(?:${CAMPUS_FX_KINDS.join('|')})[|\\]]`),
+        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => CAMPUS_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
     },
 });
 

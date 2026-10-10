@@ -172,6 +172,18 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#2f5d7c',
         narrationColor: '#56625d',
     }),
+    // 仙侠水墨：明朝体托住宣纸气质，内心独白换楷书；墨色取焦墨，心里话转淡青，旁白淡一层。
+    'xianxia-ink': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_HUIWEN,
+        textFont: DIALOG_FONT_HUIWEN,
+        thoughtFont: DIALOG_FONT_WENKAI,
+        narrationFont: DIALOG_FONT_HUIWEN,
+        nameColor: '#1a201e',
+        textColor: '#1f2523',
+        thoughtColor: '#5f7f86',
+        narrationColor: '#545d5a',
+    }),
     // 血色噩梦（波普血浆）：名字是红块上的骨白得意黑，正文用干脆的新晰黑；心里话亮红，旁白褪成灰。
     'horror-gore': Object.freeze({
         nameAlign: 'left',

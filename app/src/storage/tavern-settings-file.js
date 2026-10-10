@@ -1,6 +1,6 @@
 // 全局配置同步到酒馆本地 user/files/igs-settings.json（/api/files/upload），换设备、清浏览器缓存后配置还在。
 // 浏览器 localStorage 仍是运行时读写的地方，这里只做镜像：启动时文件比本机新就写回本机，本机改了就防抖上传。
-// 只同步全局配置；聊天内的状态、日志、待审队列、引导进度等仍留在本机。
+// 跟着同步的还有待确认情绪/服装词、物品账本、恋爱回忆去重——这些清缓存就丢、重建又烦。日志、引导进度仍留在本机。
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 
 export const SETTINGS_FILE_NAME = 'igs-settings.json';
@@ -20,8 +20,14 @@ const GLOBAL_KEYS = new Set([
     'igs_record_diary_prefs',
     'igs-map-basemap-source',
     'igs-map-gen-palette',
+    'igs:mood-review:v1',
+    'igs:outfit-review:v1',
+    'igs:item-ledger:v1',
+    'igs-romance-memory-keys',
 ]);
-const GLOBAL_PREFIXES = ['igs-reader-settings-v9-'];
+// 自定义底图按「聊天:表:层」分键，图本体已挪进 user/images，键里只剩路径时才同步（见 collectGlobalSettings）。
+const MAP_CUSTOM_PREFIX = 'igs-map-custom:';
+const GLOBAL_PREFIXES = ['igs-reader-settings-v9-', MAP_CUSTOM_PREFIX];
 
 export function isGlobalSettingKey(key) {
     const k = String(key || '');
@@ -34,7 +40,10 @@ export function collectGlobalSettings(storage) {
         const key = storage.key(i);
         if (!isGlobalSettingKey(key)) continue;
         const value = storage.getItem(key);
-        if (value != null) out[key] = value;
+        if (value == null) continue;
+        // 旧版底图还是整张 data URL / 超大图：不塞进配置文件，免得把 igs-settings.json 撑成几 MB。
+        if (key.startsWith(MAP_CUSTOM_PREFIX) && /^data:/i.test(value)) continue;
+        out[key] = value;
     }
     return out;
 }
@@ -164,7 +173,6 @@ export function createTavernSettingsSync(globalObject, { storage, onRestored, de
 
     async function start() {
         if (!headers() || typeof globalObject.fetch !== 'function') return { ok: false, reason: 'no-tavern' };
-        unhook = hook();
         if (globalObject.addEventListener) {
             for (const type of ['pagehide', 'visibilitychange']) {
                 const target = type === 'visibilitychange' && globalObject.document ? globalObject.document : globalObject;
@@ -172,9 +180,12 @@ export function createTavernSettingsSync(globalObject, { storage, onRestored, de
                 listeners.push(() => target.removeEventListener(type, onHide));
             }
         }
+        // 先拉文件再挂写钩子：拉取期间启动流程写进来的默认配置不该被记成「本机未上传改动」，
+        // 否则 changedAt 会盖过云端文件时间，把该 restore 的首启判成 upload，用默认值覆盖掉云端 DNA 等配置。
         const file = await fetchFile();
         if (stopped) return { ok: false, reason: 'stopped' };
         const meta = readMeta(storage);
+        unhook = hook();
         const action = resolveSyncAction(file, meta, Object.keys(collectGlobalSettings(storage)).length > 0);
         if (action === 'restore') {
             applying = true;

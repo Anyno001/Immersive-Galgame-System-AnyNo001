@@ -54,24 +54,49 @@ const FX_PROMPT_LABELS = Object.freeze({
     feed: '手机社区标签', text: '文字演出', bilingual: '双语台词', dlc: '扩展演出标签',
 });
 
+// 每框的实际文本：用户改过的用其覆盖，否则用内置写法。供渲染与「复制全部」共用，保证复制的即发给 AI 的那份。
+export function fxPromptTexts(reader) {
+    const src = reader && typeof reader === 'object' ? reader : {};
+    const fp = normalizeFxPromptsSettings(src.fxPrompts);
+    const builtin = fxBuiltinPromptTexts(src);
+    return FX_PROMPT_KEYS.map((key) => fp[key] || builtin[key] || '').filter(Boolean);
+}
+
+// 「复制全部」：按当前详细/精简拼成一份发给 AI 的整文。
+export function fxPromptsCopyText(reader) {
+    return fxPromptTexts(reader).join('\n\n');
+}
+
 export function renderFxPromptsFields(reader, open = false) {
     const src = reader && typeof reader === 'object' ? reader : {};
     const fp = normalizeFxPromptsSettings(src.fxPrompts);
     const base = 'readerSettings.fxPrompts';
-    const note = '<div class="igs-source-filter-note">这里是发给 AI 的全部演出标签用法，只列已开启的功能，开关其他演出时自动增减。详细约束：完整写法和约束每轮都发，AI 更会主动用，费 token；精简：缩写写法，日常、战斗、亲密、镜头、聊天、直播、社区只在提到相关词时才发完整写法。文本框直接改即覆盖（改过的不再随开关变），清空即回落内置；关掉开关则这些都不发，可自行在酒馆预设里写。</div>';
+    const note = '<div class="igs-source-filter-note">以下为发给 AI 的全部演出标签用法，仅列出已开启的功能，随开关自动增减。详细：完整写法与示例，仍按场合触发，更耗 token；精简：缩写写法，日常、战斗、亲密、镜头、聊天、直播、社区在提及相关内容时才补完整写法。改动即覆盖该框（不再随开关变化），清空即恢复内置；关闭开关则一律不发，可自行写入酒馆预设。</div>';
     const builtin = fxBuiltinPromptTexts(src);
+    const charsOf = (text) => Array.from(String(text || '')).length;
+    let total = 0;
     const boxes = FX_PROMPT_KEYS.map((key) => [key, FX_PROMPT_LABELS[key]])
         .map(([key, label]) => {
             const text = fp[key] || builtin[key] || '';
-            return text ? field(`${base}.${key}`, label, textareaInput(`${base}.${key}`, text, '清空即恢复内置')) : '';
+            if (!text) return '';
+            total += charsOf(text);
+            // 每栏标签后缀字数，让用户一眼看出这段多大。
+            return field(`${base}.${key}`, `${label}（${charsOf(text)} 字）`, textareaInput(`${base}.${key}`, text, '清空即恢复内置'));
         })
         .join('');
+    const copyBtn = '<button type="button" class="igs-btn-mgr-icon igs-fx-prompts-copy" data-action="fx-prompts-copy-all" title="复制全部" aria-label="复制全部">⧉</button>';
+    // 合计：全部写法加起来多少字。开着「全量常驻」时≈每轮都发这么多；默认关时按场合块平时只发索引，实际更少。
+    const totalNote = fp.inject
+        ? `<div class="igs-source-filter-note">全部写法合计 ${total} 字${fp.resident ? '，已开「全量常驻」，大致每轮都注入这么多' : '；默认按场合注入，平时比这少（关掉的块只在提及时才补完整写法）'}。</div>`
+        : '';
     const body = note
         + `<div class="igs-settings-field">${checkbox(`${base}.inject`, fp.inject, '把演出标签用法发给 AI')}</div>`
-        + field(`${base}.style`, '写法', segmentedInput(`${base}.style`, fp.style, [['detailed', '详细约束'], ['compact', '精简']], '写法'))
+        + field(`${base}.style`, '写法', segmentedInput(`${base}.style`, fp.style, [['detailed', '详细'], ['compact', '精简']], '写法'))
+        + `<div class="igs-settings-field">${checkbox(`${base}.resident`, fp.resident, '全量常驻（关闭更省 token，开启 AI 更常调用；默认关）')}</div>`
+        + totalNote
         + boxes;
-    // 自建折叠：复用 igs-settings-advanced 的折叠外观，但不带 igs-perf-more（那是词表二级折叠专用标记）。
-    return `<details class="igs-settings-advanced igs-fx-prompts-fold" data-advanced="perf-fx-prompts"${open ? ' open' : ''}><summary>演出提示词</summary>${body}</details>`;
+    // 自建折叠：复用 igs-settings-advanced 的折叠外观，但不带 igs-perf-more（那是词表二级折叠专用标记）。标题行右侧放「复制全部」。
+    return `<details class="igs-settings-advanced igs-fx-prompts-fold" data-advanced="perf-fx-prompts"${open ? ' open' : ''}><summary>演出提示词${copyBtn}</summary>${body}</details>`;
 }
 
 const grid = (body) => `<div class="igs-source-filter-grid">${body}</div>`;

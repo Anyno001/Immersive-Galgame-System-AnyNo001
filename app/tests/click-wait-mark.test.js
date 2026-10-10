@@ -34,7 +34,7 @@ test('gate: click wait settings normalize to disabled auto', () => {
 });
 
 test('gate: click wait glyph list has labels for every choice', () => {
-    assert.deepEqual([...CLICK_WAIT_MARK_GLYPHS], ['auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush', 'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye', 'reticle', 'hazard', 'bubbles']);
+    assert.deepEqual([...CLICK_WAIT_MARK_GLYPHS], ['auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush', 'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye', 'reticle', 'hazard', 'bubbles', 'sword']);
     // 每个皮肤的专属符号都能在选择器里单独选到，且皮肤之间不重复。
     const skinShapes = Object.values(CLICK_WAIT_MARK_SKINS).map(mark => mark.shape);
     for (const shape of skinShapes) assert.ok(CLICK_WAIT_MARK_GLYPHS.includes(shape), shape);

@@ -8,8 +8,8 @@ import { cancelDailyFx, renderDailyFx } from '../src/visual/igs-ui/fx-daily.js';
 import { applyFxEra, FX_ERA_ANCIENT_ONLY } from '../src/scene/fx-era.js';
 import { makeStage, makeTimers } from './helpers/fake-dom.js';
 
-const KINDS = ['guqin', 'go', 'poem', 'edict', 'tea', 'bow'];
-const ALL_ON = { enabled: true, petals: false, guqin: true, go: true, poem: true, edict: true, tea: true, bow: true };
+const KINDS = ['guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'yujian', 'liandan', 'biguan', 'dianxue', 'qinggong', 'yungong'];
+const ALL_ON = { enabled: true, petals: false, guqin: true, go: true, poem: true, edict: true, tea: true, bow: true, yujian: true, liandan: true, biguan: true, dianxue: true, qinggong: true, yungong: true };
 
 test('gate:fx-daily-ancient parse: poem/edict need text, go result optional', () => {
     assert.equal(parseDailyFxBody('poem', []), null);

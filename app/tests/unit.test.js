@@ -4605,6 +4605,11 @@ test('gate:generated-images:cg-planner-binds-character-dna-safely', async () => 
     assert.equal(single.warnings.length, 1);
     assert.equal(slots[0].chars[0].tags, 'smile, Silver Hair');
 
+    // 柏宝绘 / 智绘姬回退：只拼身份，DNA 负面词不并进 uc。
+    const idOnly = bindCharacterDnaToSlots([slots[0]], sceneAssets, ['爱丽'], { identityOnly: true });
+    assert.equal(idOnly.slots[0].chars[0].tags, 'alice_v2, silver hair, blue eyes, smile');
+    assert.equal(idOnly.slots[0].chars[0].uc, 'frown');
+
     // 上下文多人时无名单人角色不猜人。
     const multi = bindCharacterDnaToSlots([slots[1]], sceneAssets, ['爱丽', '白墨']);
     assert.equal(multi.slots[0].chars[0].tags, 'sitting');

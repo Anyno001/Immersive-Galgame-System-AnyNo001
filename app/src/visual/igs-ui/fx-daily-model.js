@@ -1,4 +1,5 @@
 import { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX } from '../../scene/daily-fx-directives.js';
+import { CAMPUS_FX_KINDS, CAMPUS_FX_LABELS } from '../../scene/campus-fx.js';
 
 export const DAILY_FX_LABELS = Object.freeze({
     timeskip: '时间跳跃', photo: '拍照', letter: '信件', note: '便签', bell: '校园铃声', broadcast: '广播',
@@ -10,11 +11,19 @@ export const DAILY_FX_LABELS = Object.freeze({
     blackout: '停电', knock: '敲门', murmur: '耳边低语',
     brake: '急刹车', depart: '发车出发', arrive: '到站', ticket: '车票',
     steam: '一团水汽', shower: '淋浴', splash: '泼水', hairdry: '吹头发',
+    sleep: '入睡', wake: '起床',
+    dressup: '换装登场', drape: '披衣整理', fitting: '试衣镜',
     dive: '潜入水中', bubble: '吐气泡', vacuum: '真空泄压',
+    sing: '唱歌', dance: '跳舞', fish: '钓鱼', draw: '画画', music: '演奏乐器', ride: '游乐设施',
+    clean: '打扫', shopping: '逛街购物', stroll: '散步',
+    yujian: '御剑飞行', liandan: '炼丹', biguan: '闭关吐纳', dianxue: '点穴', qinggong: '轻功', yungong: '运功疗伤',
+    opendoor: '开门礼让', shield: '护在身前', tend: '贴心照料', carry: '公主抱', candle: '点灯烛火', pass: '递接', stance: '站位身段',
     say: '头顶小字',
+    ...CAMPUS_FX_LABELS,
+    console: '游戏机开机', versus: '双人对战', combo: '连击狂按', snatch: '抢手柄耍赖',
 });
 // 后加的日常类型需显式勾选：旧存档里日常演出已开启的用户不会突然收到新语法。
-const DAILY_FX_OPT_IN = new Set(['say', 'rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur', 'brake', 'depart', 'arrive', 'ticket', 'steam', 'shower', 'splash', 'hairdry', 'dive', 'bubble', 'vacuum']);
+const DAILY_FX_OPT_IN = new Set([...CAMPUS_FX_KINDS, 'console', 'versus', 'combo', 'snatch', 'say', 'rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur', 'brake', 'depart', 'arrive', 'ticket', 'steam', 'shower', 'splash', 'hairdry', 'sleep', 'wake', 'dressup', 'drape', 'fitting', 'dive', 'bubble', 'vacuum', 'sing', 'dance', 'fish', 'draw', 'music', 'ride', 'clean', 'shopping', 'stroll', 'yujian', 'liandan', 'biguan', 'dianxue', 'qinggong', 'yungong', 'opendoor', 'shield', 'tend', 'carry', 'candle', 'pass', 'stance']);
 
 export function normalizeDailyFxSettings(value) {
     const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};

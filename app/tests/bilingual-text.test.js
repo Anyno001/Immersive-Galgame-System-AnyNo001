@@ -89,7 +89,7 @@ test('gate: T cycles ruby, source, translation and the override wins only when e
 test('gate: bilingual prompt rule follows the switch and targets tag dialogue fields', () => {
     assert.equal(resolveBilingualPromptRule({ enabled: false }), '');
     const rule = resolveBilingualPromptRule({ enabled: true, foreign: 'en', target: 'zh-Hant' });
-    assert.match(rule, /^\[igs双语台词\]/);
+    assert.match(rule, /^【双语台词】/);
     assert.match(rule, /英语原文/);
     assert.match(rule, /〖繁体中文译文〗/);
     assert.match(rule, /\[igs-char\] 的对白栏/);

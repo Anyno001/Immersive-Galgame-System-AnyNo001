@@ -14,6 +14,7 @@ import {
 } from './classic-dialog-skin.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV } from './dialog-theme-guofeng.js';
+import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_MERMAID } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
@@ -31,6 +32,7 @@ export const DIALOG_SKIN_CHOICES = Object.freeze([
     [DIALOG_SKIN_MERMAID, '深海人鱼'],
     [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'],
     [DIALOG_SKIN_QINGLV, '青绿山水'],
+    [DIALOG_SKIN_XIANXIA_INK, '仙侠水墨'],
     [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'],
     [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'],
     [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'],

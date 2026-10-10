@@ -3,13 +3,16 @@
 // 古代也有、只是画面还偏现代的演出（时间流逝、字条、书信、烟花、求签…）保留，古风皮另做。
 // 实现方式是在注入提示词前、生成阅读器快照前把对应开关拨成关，不改各演出模块自己的判断。
 import { buildHorrorPromptRule } from './horror.js';
+import { GAME_FX_KINDS } from './game-console.js';
+import { CAMPUS_FX_KINDS } from './campus-fx.js';
 
 export const FX_ERA_MODERN_ONLY = Object.freeze({
     // notify 在古代模式下换成「家仆通报」（提示词与画面都按时代切换），不在此列。
     // 外卖 / 快递是近代以后才有的服务，古代与西幻一律拨掉。
     fxTags: Object.freeze(['call', 'delivery', 'voicemail', 'contact', 'movie']),
     // 车票、淋浴、吹风机都是近代以后的东西；古代与西幻坐车按马车演，洗浴只留水汽与泼水。
-    dailyFx: Object.freeze(['photo', 'bell', 'broadcast', 'alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'shower', 'hairdry']),
+    // ride（摩天轮/过山车等游乐设施）是近代以后的东西，古代与西幻一律拨掉。
+    dailyFx: Object.freeze(['photo', 'bell', 'broadcast', 'alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'shower', 'hairdry', 'ride', ...GAME_FX_KINDS, ...CAMPUS_FX_KINDS]),
 });
 // 整块现代专属的功能（enabled 拨成关）。线上聊天在古代模式下换成「书信往来」，不在此列。
 export const FX_ERA_MODERN_FEATURES = Object.freeze(['liveFx']);
@@ -19,7 +22,7 @@ export const ANCIENT_ERA_PROMPT_RULE = `[igs时代背景]
 
 // 古代专属演出：现代模式下拨成关（不写提示词、不播放）；无需过滤时原样返回原对象。
 export const FX_ERA_ANCIENT_ONLY = Object.freeze({
-    dailyFx: Object.freeze(['guqin', 'go', 'poem', 'edict', 'tea', 'bow']),
+    dailyFx: Object.freeze(['guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'yujian', 'liandan', 'biguan', 'dianxue', 'qinggong', 'yungong']),
 });
 // 魔法世界专属演出：施咒、魔药、猫头鹰送信、骑扫帚、吼叫信，其他世界观一律拨成关。
 export const FX_MAGIC_ONLY = Object.freeze({
@@ -80,24 +83,24 @@ export const FX_WORLDVIEW_OFF = Object.freeze({
     // 末日：通讯（对讲机、广播）仍在，末日前才有的日常服务与直播拨掉。
     apocalypse: Object.freeze({
         fxTags: Object.freeze(['movie']),
-        dailyFx: Object.freeze(['receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'hairdry']),
+        dailyFx: Object.freeze(['receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'hairdry', 'ride', ...GAME_FX_KINDS]),
         features: Object.freeze(['liveFx']),
     }),
     // 大正：有座机、电报、照相与活动写真，没有手机社交、电视、扭蛋与电子游戏。
     taisho: Object.freeze({
         fxTags: Object.freeze(['voicemail', 'contact']),
-        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry']),
+        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry', ...GAME_FX_KINDS]),
         features: Object.freeze(['liveFx']),
     }),
     // 魔法世界没有麻瓜电子设备，传讯靠猫头鹰与魔法；照片会动、城堡有钟声、魔法扩音可作广播，这三项保留。
     magic: Object.freeze({
         fxTags: FX_ERA_MODERN_ONLY.fxTags,
-        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry']),
+        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry', 'ride', ...GAME_FX_KINDS]),
         features: FX_ERA_MODERN_FEATURES,
     }),
     // 恐怖：现代日常照常（手机、直播都可以是恐惧来源），只拨掉与氛围相冲的轻快演出。
     horror: Object.freeze({
-        dailyFx: Object.freeze(['fireworks', 'gacha', 'game', 'score']),
+        dailyFx: Object.freeze(['fireworks', 'gacha', 'game', 'score', ...GAME_FX_KINDS]),
         features: Object.freeze([]),
     }),
 });

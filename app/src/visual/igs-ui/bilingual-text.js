@@ -164,7 +164,7 @@ export function bilingualGrammarBlock(settings) {
     const unit = clause
         ? '- 每个分句或短句后紧跟一个〖〗，不要整段只在末尾标一次；〖〗内只写译文，不嵌套、不换行'
         : '- 一段连续的台词或心里话只在末尾跟一个〖〗，写这一整段的完整译文，不要一句一个；被旁白、动作或换行隔开的各段各跟一个〖〗\n- 〖〗内只写译文，不嵌套、不换行';
-    return `【双语台词】所有角色（包括主角）的对白和心里话用${lang}原文书写，并${clause ? '按分句' : ''}在原文后紧跟〖${target}译文〗，前端会把译文以小字显示在原文上方：
+    return `【双语台词】所有角色（包括主角）的对白和心里话都要双语书写。写作 ${lang}原文后${clause ? '按分句' : ''}紧跟〖${target}译文〗：
 - 写在 [igs-char] 的对白栏和 [igs-thought] 的心里话栏里；不用这些标签时，写在正文的台词和心里话里。如 ${example}
 ${unit}
 - 旁白照常用${target}书写，不加〖〗；角色名、表情、服装、选项和其他标签字段也不写〖〗
@@ -173,7 +173,7 @@ ${unit}
 
 export function resolveBilingualPromptRule(settings) {
     if (!normalizeBilingualSettings(settings).enabled) return '';
-    return `[igs双语台词]\n${bilingualGrammarBlock(settings)}`;
+    return bilingualGrammarBlock(settings);
 }
 
 // 注音页加大行高并留出顶部空间：首行译文不被滚动区裁掉，经典打字机测量也不越界。

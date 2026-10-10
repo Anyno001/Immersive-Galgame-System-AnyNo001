@@ -1,6 +1,7 @@
 import { DIALOG_SKIN_GRADIENT_VEIL } from './gradient-veil-dialog-skin.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, QINGLV_HUD_THEME } from './dialog-theme-guofeng.js';
+import { DIALOG_SKIN_XIANXIA_INK, XIANXIA_HUD_THEME } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_MERMAID, MERMAID_HUD_THEME } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_HUD_THEME } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_HUD_THEME, PSYCH_HUD_THEME } from './dialog-theme-horror.js';
@@ -156,6 +157,7 @@ const HUD_THEMES = Object.freeze({
         value: 'font-weight:400;',
     },
     [DIALOG_SKIN_QINGLV]: QINGLV_HUD_THEME,
+    [DIALOG_SKIN_XIANXIA_INK]: XIANXIA_HUD_THEME,
     [DIALOG_SKIN_MERMAID]: MERMAID_HUD_THEME,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_HUD_THEME,
     [DIALOG_SKIN_HORROR_GORE]: GORE_HUD_THEME,

@@ -208,7 +208,7 @@ test('gate: chat themes cover every dialog skin and fall back to default', () =>
         for (const color of [theme.shell, theme.head, theme.left, theme.right]) assert.match(color, /^#[0-9a-f]{6}$/);
     }
     assert.equal(resolveChatTheme('nope').key, 'default');
-    assert.equal(Object.keys(CHAT_THEME_PALETTES).length, 19);
+    assert.equal(Object.keys(CHAT_THEME_PALETTES).length, 20);
 });
 
 test('gate: chat prompt rule stores empty for default and resolves custom text', () => {

@@ -27,7 +27,7 @@ test('gate: 每个对话框皮肤都有物品卡片框，且带点亮物品名�
         assert.match(css, /\.igs-fx-item-card/);
         assert.ok(ITEM_FRAME_SKINS.includes(skin));
     }
-    assert.equal(ITEM_FRAME_SKINS.length, 19);
+    assert.equal(ITEM_FRAME_SKINS.length, 20);
 });
 
 test('gate: 未知皮肤返回空，皮肤样式总入口带上框', () => {

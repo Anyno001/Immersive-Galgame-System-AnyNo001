@@ -219,7 +219,13 @@ test('gate:danmaku:plan-inner-once-audience-ambient-and-nsfw-mute', () => {
     assert.deepEqual(nsfw.audience, []);
     assert.equal(nsfw.audienceVisible, false);
     const thought = planDanmakuPage(snapshot({ currentIndex: 3, textType: 'thought', statusEmotion: '慌张', text: '怎么会这样，他居然全都听见了！' }), memory, settings, () => 0.9);
-    assert.deepEqual(thought.inner.phrases, ['怎么会这样', '他居然全都听见了']);
+    assert.deepEqual(thought.inner.real, ['怎么会这样', '他居然全都听见了']);
+    const realHits = thought.inner.phrases.filter((p) => thought.inner.real.includes(p)).length;
+    assert.ok(realHits / thought.inner.phrases.length >= 0.55 && realHits < thought.inner.phrases.length, 'real thoughts take the majority, pool fills the rest');
+    const paren = planDanmakuPage(snapshot({ currentIndex: 7, textType: 'dialogue', statusEmotion: '慌张', text: '没事。（糟了，被发现了）' }), memory, settings, () => 0.5);
+    assert.ok(paren.inner.real.includes('被发现了'));
+    const plain = planDanmakuPage(snapshot({ currentIndex: 8, textType: 'dialogue', statusEmotion: '慌张', text: '没事。' }), memory, settings, () => 0.5);
+    assert.deepEqual(plain.inner.real, []);
     const live = planDanmakuPage(snapshot({ currentIndex: 4, fx: { ...fx, live: { name: '甲', title: '', view: 'watch' } } }), memory, settings, () => 0.9);
     assert.equal(live.dms.length, 1);
     assert.equal(live.audienceVisible, false, 'audience entry yields to the live phone');
@@ -240,7 +246,8 @@ test('gate:danmaku:all-off-costs-nothing', () => {
 test('gate:danmaku:live-phone-raises-plays-ai-first-and-caps-list', () => {
     const { root, motion } = makeRoot();
     const c = clock();
-    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: seq([0.9, 0.1, 0.5]), reducedMotion: false };
+    // rng 固定高值（≥0.55）：本测验只验证 AI 弹幕按序播放 + 特殊弹幕渲染，不让本地弹幕插播（交错混播另有专测）。
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: () => 0.9, reducedMotion: false };
     const live = { name: '爱丽丝', title: '深夜杂谈', view: 'watch' };
     const dm = (text, type = 'text', extra = '') => ({ user: '甲', text, type, extra });
     const fx = { dms: [dm('第一条'), dm('冲', 'sc', '520'), dm('辣条', 'gift', '×10'), dm('', 'guard', '总督')], live };
@@ -265,6 +272,30 @@ test('gate:danmaku:live-phone-raises-plays-ai-first-and-caps-list', () => {
     assert.equal(stage.parentNode, null);
     assert.equal(cancelDanmaku(root), true);
     assert.equal(motion.querySelector('.igs-dm-root'), null);
+});
+
+test('gate:danmaku:live-phone-interleaves-local-danmaku-while-ai-queued', () => {
+    const { root, motion } = makeRoot();
+    const c = clock();
+    // rng 可调：先锁 0.5（＜0.55，队列有 AI 时也插本地），再抬到 0.9 让 AI 排出。
+    let r = 0.5;
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: () => r, reducedMotion: false };
+    const live = { name: '爱丽丝', title: '深夜杂谈', view: 'watch' };
+    const fx = { dms: [{ user: '甲', text: '第一条', type: 'text', extra: '' }, { user: '甲', text: '第二条', type: 'text', extra: '' }], live };
+    applyDanmakuToDom(root, snapshot({ fx }, { liveFx: { enabled: true } }), opts);
+    const phone = motion.querySelector('.igs-live-phone');
+    const list = phone.querySelector('.igs-live-list');
+    c.run(3000);
+    // AI 弹幕还排着队，本地闲聊已经先冒出来——不是先把 AI 一股脑排空。
+    assert.ok(list.children.length > 0, '本地弹幕已插播');
+    assert.equal(list.children.filter((n) => n.getAttribute('data-ai') === '1').length, 0, 'AI 弹幕没有抢在本地前面');
+    assert.equal(list.children.some((n) => n.textContent.includes('第一条')), false);
+    r = 0.9;
+    c.run(5000);
+    // 抬高 rng 后 AI 两条都排出，按原顺序。
+    const aiTexts = list.children.filter((n) => n.getAttribute('data-ai') === '1').map((n) => n.textContent);
+    assert.ok(aiTexts.some((t) => t.includes('第一条')) && aiTexts.some((t) => t.includes('第二条')), 'AI 弹幕最终都播出');
+    assert.ok(aiTexts.findIndex((t) => t.includes('第一条')) < aiTexts.findIndex((t) => t.includes('第二条')), 'AI 弹幕保持原顺序');
 });
 
 test('gate:danmaku:live-helpers', () => {

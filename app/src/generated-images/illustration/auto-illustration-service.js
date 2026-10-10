@@ -130,7 +130,8 @@ export function summarizeCharacterDna(characters, sceneAssets) {
 
 // CG 顺序：triggerWords → identity → 规划得到的当前外观/动作；defaultAppearance 只交给 planner，不在这里追加。
 // 具名 char 直接绑定；旧格式无名 char 只在「本张单人且上下文只有一个角色」时绑定，否则不注入并给出 warning。
-export function bindCharacterDnaToSlots(slots, sceneAssets, contextCharacters = []) {
+// identityOnly：柏宝绘 / 智绘姬回退时只拼身份，DNA 负面词交给插件自己的角色库与负面预设，不再并进 uc。
+export function bindCharacterDnaToSlots(slots, sceneAssets, contextCharacters = [], { identityOnly = false } = {}) {
     const resolver = createDnaResolver(sceneAssets);
     const warnings = [];
     if (!resolver || !Array.isArray(slots)) return { slots, warnings };
@@ -152,7 +153,7 @@ export function bindCharacterDnaToSlots(slots, sceneAssets, contextCharacters = 
             return {
                 ...char,
                 tags: parts.positive ? mergePromptTags(parts.positive, char.tags) : char.tags,
-                uc: parts.negative ? mergePromptTags(parts.negative, char.uc) : char.uc,
+                uc: parts.negative && !identityOnly ? mergePromptTags(parts.negative, char.uc) : char.uc,
             };
         });
         if (ambiguous) warnings.push(`第 ${slot.slot || '?'} 张插图有角色未写名字且无法唯一确定，未注入角色 DNA`);
@@ -511,7 +512,7 @@ export function createAutoIllustrationService(deps) {
             return { ok: false, reason: 'plan-failed', error: plan.error };
         }
         {
-            const bound = bindCharacterDnaToSlots(plan.slots, readSceneAssets(), numbered.characters);
+            const bound = bindCharacterDnaToSlots(plan.slots, readSceneAssets(), numbered.characters, { identityOnly: backend.via === 'baibai' || backend.via === 'chatu8' });
             plan.slots = bound.slots;
             for (const warning of bound.warnings) report('info', `第 ${messageId} 楼${warning}`);
         }

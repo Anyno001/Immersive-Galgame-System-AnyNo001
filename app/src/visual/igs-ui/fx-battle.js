@@ -18,7 +18,8 @@ const EVENT_CLASSES = '.igs-fx-battle-encounter, .igs-fx-battle-hit, .igs-fx-bat
 // 古代背景（readerSettings._ancientEra）：时间轴与音效不变，节点加 is-ancient，换成水墨剑光、书法招式名与朱砂印。
 const ANCIENT_HIT_LABELS = Object.freeze({ hit: '命中', crit: '暴击', miss: '闪避', guard: '格挡', ko: '击倒', heal: '疗伤' });
 const ANCIENT_RESULT_GLYPHS = Object.freeze({ win: '胜', lose: '败', escape: '遁' });
-const eraClass = (className, ancient) => (ancient ? `${className} is-ancient` : className);
+// ancient 取值：false | true（水墨）| 'xianxia'（仙侠水墨皮肤：水墨基础上再加 is-xianxia，换成青白剑气、冷白闪光、紫白雷劫）。
+const eraClass = (className, ancient) => (ancient ? `${className} is-ancient${ancient === 'xianxia' ? ' is-xianxia' : ''}` : className);
 // 换皮世界观（worldSkinOf）：在现代节点上追加 is-<id> 换皮，时间轴、文案与音效不变。
 const SHIELD_SVG = '<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true"><polygon points="50,4 90,27 90,73 50,96 10,73 10,27" fill="none" stroke="currentColor" stroke-width="4"/><polygon points="50,18 78,34 78,66 50,82 22,66 22,34" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="2" stroke-opacity=".7"/></svg>';
 
@@ -281,7 +282,7 @@ function syncPlate(state, layers, plan, ancient, worldSkin = '') {
     const vignetteClass = eraClass('igs-fx-battle-vignette', ancient) + skin;
     if (state.vignette.className !== vignetteClass) state.vignette.className = vignetteClass;
     const label = [plate.foe || '战斗中', plate.title].filter(Boolean).join(' · ');
-    const era = ancient ? 'ancient' : (worldSkin || 'modern');
+    const era = ancient === 'xianxia' ? 'xianxia' : ancient ? 'ancient' : (worldSkin || 'modern');
     if (state.plate.getAttribute('data-igs-battle-label') !== label || state.plate.getAttribute('data-igs-battle-era') !== era) {
         state.plate.setAttribute('data-igs-battle-label', label);
         state.plate.setAttribute('data-igs-battle-era', era);
@@ -325,7 +326,7 @@ export function applyBattleFxToDom(root, plan, options = {}) {
     if (options.accent) setVar(layers.motion, '--igs-battle-accent', options.accent);
     if (options.motion === 'snappy') layers.motion.setAttribute(MOTION_ATTR, 'snappy');
     else layers.motion.removeAttribute(MOTION_ATTR);
-    const ancient = options.ancient === true;
+    const ancient = options.ancient === true ? (options.xianxia === true ? 'xianxia' : true) : false;
     const worldSkin = ancient ? '' : worldSkinOf(options.worldview);
     syncPlate(state, layers, plan, ancient, worldSkin);
     const key = plan.identity ? battleFxIdentity(plan.identity) : '';
@@ -578,6 +579,28 @@ export const BATTLE_FX_STYLE_TEXT = `
 .igs-fx-battle-result.is-ancient[data-igs-battle-result="lose"] .igs-fx-battle-ribbon-text{background:#2b1d12;box-shadow:inset 0 0 0 2px #2b1d12,inset 0 0 0 3.5px rgba(246,236,212,.6);}
 .igs-fx-battle-result.is-ancient[data-igs-battle-result="escape"] .igs-fx-battle-ribbon-title{color:rgba(43,29,18,.72);text-shadow:0 0 1px rgba(43,29,18,.6),6px 0 8px rgba(43,29,18,.2);}
 .igs-fx-battle-result.is-ancient[data-igs-battle-result="escape"] .igs-fx-battle-ribbon-text{background:#4f5d63;box-shadow:inset 0 0 0 2px #4f5d63,inset 0 0 0 3.5px rgba(246,236,212,.6);}
+/* 仙侠水墨皮肤（在水墨基础上追加）：剑气换青白细长、闪光冷白、暴击 / 击倒偏紫白雷劫；朱砂印与竖排招式名保留。每个节点（plate / vignette / encounter / hit / result）都要带 is-xianxia。 */
+.igs-fx-battle-vignette.is-ancient.is-xianxia{background:radial-gradient(ellipse at center,transparent 52%,rgba(31,37,35,.36) 100%);}
+.igs-fx-battle-plate.is-ancient.is-xianxia{border-color:rgba(31,37,35,.7);background:#f4f1ea;color:#1f2523;}
+.igs-fx-battle-plate.is-ancient.is-xianxia .igs-fx-battle-plate-mark{background:#b23a2a;color:#f4f1ea;}
+.igs-fx-battle-encounter.is-ancient.is-xianxia .igs-fx-battle-wipe{background:radial-gradient(ellipse at 28% 40%,rgba(95,127,134,.16),transparent 55%),radial-gradient(ellipse at 76% 70%,rgba(95,127,134,.12),transparent 55%),rgba(244,241,234,.86);}
+.igs-fx-battle-encounter.is-ancient.is-xianxia .igs-fx-battle-vs,.igs-fx-battle-encounter.is-ancient.is-xianxia .igs-fx-battle-vs-foe{color:#1f2523;}
+.igs-fx-battle-encounter.is-ancient.is-xianxia .igs-fx-battle-vs-cap{color:#b23a2a;}
+.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-skill,.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-skill-name{color:#1f2523;}
+.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-skill-who{color:#b23a2a;}
+.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-slash{height:12px;margin-top:-6px;filter:drop-shadow(0 0 6px rgba(190,236,244,.9));}
+.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-slash::before{background:linear-gradient(90deg,rgba(95,127,134,0),rgba(150,200,210,.8) 24%,#dff2f4 62%,rgba(190,230,238,.7) 90%,rgba(95,127,134,0));-webkit-mask:none;mask:none;clip-path:polygon(0 52%,30% 30%,70% 0,100% 50%,70% 100%,30% 70%);}
+.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-slash::after{left:6%;right:4%;top:40%;height:20%;background:linear-gradient(90deg,transparent,#fff 28%,#fff 76%,transparent);box-shadow:0 0 12px 3px rgba(190,236,244,.85);}
+.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-slash.is-cross{--igs-slash-rot:-20deg;}
+.igs-fx-battle-hit.is-ancient.is-xianxia[data-igs-battle-result="crit"] .igs-fx-battle-slash,.igs-fx-battle-hit.is-ancient.is-xianxia[data-igs-battle-result="ko"] .igs-fx-battle-slash{height:18px;margin-top:-9px;filter:drop-shadow(0 0 10px rgba(200,180,255,.95));}
+.igs-fx-battle-hit.is-ancient.is-xianxia[data-igs-battle-result="crit"] .igs-fx-battle-slash.is-cross::before,.igs-fx-battle-hit.is-ancient.is-xianxia[data-igs-battle-result="ko"] .igs-fx-battle-slash::before{background:linear-gradient(90deg,rgba(120,100,200,0),rgba(170,150,240,.85) 24%,#f0eaff 60%,rgba(190,170,250,.7) 90%,rgba(120,100,200,0));}
+.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-flash{background:radial-gradient(circle at 50% 40%,rgba(240,250,255,.92),rgba(190,226,236,.45) 45%,transparent 75%);}
+.igs-fx-battle-hit.is-ancient.is-xianxia[data-igs-battle-result="crit"] .igs-fx-battle-flash,.igs-fx-battle-hit.is-ancient.is-xianxia[data-igs-battle-result="ko"] .igs-fx-battle-flash{background:radial-gradient(circle at 50% 40%,rgba(246,240,255,.95),rgba(176,150,240,.5) 50%,rgba(31,37,35,.4) 100%);}
+.igs-fx-battle-hit.is-ancient.is-xianxia[data-igs-battle-result="crit"] .igs-fx-battle-hurt,.igs-fx-battle-hit.is-ancient.is-xianxia[data-igs-battle-result="ko"] .igs-fx-battle-hurt{box-shadow:inset 0 0 12vmin 3vmin rgba(120,96,208,.62);}
+.igs-fx-battle-hit.is-ancient.is-xianxia .igs-fx-battle-spark{background:radial-gradient(circle,#f4fcff,#a8dcea 45%,transparent 70%);}
+.igs-fx-battle-result.is-ancient.is-xianxia .igs-fx-battle-result-veil{background:rgba(31,37,35,.34);}
+.igs-fx-battle-result.is-ancient.is-xianxia .igs-fx-battle-ribbon-title{color:#1f2523;}
+.igs-fx-battle-result.is-ancient.is-xianxia .igs-fx-battle-ribbon-text{background:#b23a2a;}
 #igs-stage-motion[data-igs-fx-battle-motion="snappy"] .igs-fx-battle-vs,#igs-stage-motion[data-igs-fx-battle-motion="snappy"] .igs-fx-battle-skill,#igs-stage-motion[data-igs-fx-battle-motion="snappy"] .igs-fx-battle-pop,#igs-stage-motion[data-igs-fx-battle-motion="snappy"] .igs-fx-battle-ribbon,#igs-stage-motion[data-igs-fx-battle-motion="snappy"] .igs-fx-battle-plate{animation-timing-function:steps(4,end);}
 #igs-stage-motion[data-igs-fx-battle-motion="snappy"] .igs-fx-battle-wipe{animation-timing-function:steps(6,end);}
 #igs-stage-motion[data-igs-fx-battle-motion="snappy"][data-igs-fx-battle-shake]{animation-timing-function:steps(3,end);}

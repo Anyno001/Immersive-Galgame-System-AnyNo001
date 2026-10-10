@@ -4,7 +4,7 @@ import { defaultPromptKeywords } from '../../scene/prompt-triggers.js';
 import { LEGACY_READER_MODES, resolveLegacyReaderMode } from '../../storage/legacy-igs.js';
 import { buildNarrativeSegments } from '../../scene/image-slots.js';
 import { SETTINGS_TAB_ALIASES, SETTINGS_TAB_DEFS } from './settings-tabs.js';
-import { DEFAULT_DIALOG_BAR_BUTTONS, DIALOG_BAR_ALIGNS, TOOLBAR_ACTIONS, TOOLBAR_SPLIT_MODES, VN_THEME_PRESETS } from './reader-host-constants.js';
+import { DEFAULT_DIALOG_BAR_BUTTONS, DIALOG_BAR_ALIGNS, TOOLBAR_ACTIONS, TOOLBAR_PLATE_MODES, TOOLBAR_SPLIT_MODES, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { esc, normalizeFiniteNumber } from './reader-value-utils.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS, isClassicDialogSkin, normalizeDialogSkin } from './classic-dialog-skin.js';
 import { getReferenceDialogTypography } from './dialog-theme-typography.js';
@@ -197,6 +197,10 @@ export function normalizeHiddenButtons(value) {
 
 export function normalizeToolbarSplit(value) {
     return TOOLBAR_SPLIT_MODES.includes(value) ? value : 'split';
+}
+
+export function normalizeToolbarPlate(value) {
+    return TOOLBAR_PLATE_MODES.includes(value) ? value : 'off';
 }
 
 export function normalizeDialogBarAlign(value) {

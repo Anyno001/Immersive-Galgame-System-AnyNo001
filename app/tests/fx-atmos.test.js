@@ -50,10 +50,32 @@ function plan(fxTags, needle) {
 
 test('gate:fx-atmos plan exposes atmos without changing ranges; light plays once when enabled', () => {
     const on = plan({ enabled: true, movie: true, light: true, umbrella: true }, 'B');
-    assert.deepEqual(on.atmos, { movie: false, lightsOff: true, umbrella: false });
+    assert.deepEqual(on.atmos, { movie: false, movieMode: '', lightsOff: true, umbrella: false });
     assert.deepEqual(Object.keys(on.ranges).sort(), ['call', 'dream', 'flashback', 'letterbox']);
     assert.ok(on.effects.some((e) => e.type === 'light'));
     const off = plan({ enabled: true, movie: true }, 'B');
     assert.equal(off.atmos.lightsOff, false);
     assert.equal(off.effects.some((e) => e.type === 'light'), false);
+});
+
+test('gate:fx-atmos movie screen-glow variant: optional first field, plain movie unchanged', () => {
+    assert.deepEqual(parseFxBody('movie'), { kind: 'movie', end: false, args: [''] });
+    assert.deepEqual(parseFxBody('movie|屏光'), { kind: 'movie', end: false, args: ['screen'] });
+    assert.deepEqual(parseFxBody('movie|别的'), { kind: 'movie', end: false, args: [''] });
+    assert.equal(parseFxBody('movie-end').end, true);
+    const text = ['[igs-fx:movie|屏光]', 'A', '[igs-fx:movie-end]', 'B', '[igs-fx:movie]', 'C'].join('\n');
+    const d = extractFxDirectives(text);
+    const a = resolveFxAtPage(d, text.indexOf('A'));
+    assert.equal(a.movie, true);
+    assert.equal(a.movieMode, 'screen');
+    const b = resolveFxAtPage(d, text.indexOf('B'));
+    assert.equal(b.movie, false);
+    assert.equal(b.movieMode, '');
+    const c = resolveFxAtPage(d, text.indexOf('C'));
+    assert.equal(c.movie, true);
+    assert.equal(c.movieMode, '');
+    const planOf = (fxTags, needle) => planPageFx({ messageId: 9, readerSettings: { fxTags }, content: { currentIndex: 0, fx: resolveFxAtPage(d, text.indexOf(needle)) } }, createFxMemory());
+    assert.equal(planOf({ enabled: true, movie: true }, 'A').atmos.movieMode, 'screen');
+    assert.equal(planOf({ enabled: true, movie: true }, 'C').atmos.movieMode, '');
+    assert.equal(planOf({ enabled: true }, 'A').atmos.movieMode, '');
 });

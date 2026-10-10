@@ -92,6 +92,15 @@ const FRAMES = {
         icon: 'background:rgba(79,143,127,.12);border-radius:0;box-shadow:inset 0 0 0 1px rgba(47,93,124,.35);color:#2f5d7c;',
         desc: 'color:#4f605a;opacity:1;',
     },
+    'xianxia-ink': {
+        mention: '#5f7f86',
+        ink: '#1f2523',
+        card: 'background:rgba(244,241,234,.95);border:0;border-radius:2px;box-shadow:inset 0 1px 0 rgba(95,127,134,.45),inset 0 -1px 0 rgba(95,127,134,.45),0 2px 10px rgba(31,37,35,.14);padding-left:16px;',
+        before: 'left:5px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,transparent,var(--igs-item-mark) 25%,var(--igs-item-mark) 75%,transparent);',
+        after: 'right:6px;bottom:5px;width:7px;height:7px;background:#b23a2a;border-radius:1px;',
+        icon: 'background:rgba(31,37,35,.08);border-radius:0;box-shadow:inset 0 0 0 1px rgba(95,127,134,.35);color:#5f7f86;',
+        desc: 'color:#4a524f;opacity:1;',
+    },
     'horror-gore': {
         mention: '#ff5a52',
         ink: '#f3ece4',

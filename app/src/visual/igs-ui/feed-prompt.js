@@ -221,15 +221,15 @@ function feedSample(platforms, mentioned) {
 function feedPromptText(s, platforms, mentioned) {
     const sample = feedSample(platforms, mentioned);
     const rules = feedLines(s, platforms, mentioned).map((line) => `- ${line}`).join('\n');
-    return `【手机社区】你应该使用以下格式写正文中${sample.where}，规则如下：\n${rules}\n示例：\n${sample.text}`;
+    return `【手机社区】${sample.where}使用。写作 [igs-fx:app|平台|主人] 开始、[igs-fx:app-end] 结束：\n${rules}\n示例：\n${sample.text}`;
 }
 
-// detailed：演出提示词选「详细」时每轮都发、全部平台写法展开，AI 不等关键词也能主动发帖。
+// 社区始终按场合展开（出现刷手机、看社区等关键词时）。detailed 时展开全部平台写法，compact 时只展开最近提到的平台。
 export function feedGrammarBlocks(readerSettings, { detailed = false } = {}) {
     const { s, platforms, mentioned } = feedState(readerSettings);
     if (!platforms.length) return [];
     const full = detailed ? feedPromptText(s, platforms, null) : feedPromptText(s, platforms, mentioned || []);
-    return [{ key: 'feed', adaptive: !detailed, full, index: '社区 igs-fx:app/app-end/post/reply/storm' }];
+    return [{ key: 'feed', adaptive: true, full, index: '社区 igs-fx:app/app-end/post/reply/storm' }];
 }
 
 // 关闭按需注入时的旧路径：平台写法全部展开，开头、规则、示例与按需展开的是同一份。

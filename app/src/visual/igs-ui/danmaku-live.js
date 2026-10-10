@@ -305,9 +305,9 @@ export function renderLiveMessage(state, raw) {
 
 function ambientMessage(state) {
     const roll = state.rng();
-    if (roll < 0.28) return null;
-    if (roll < 0.4) return { type: 'enter' };
-    if (roll < 0.47) return { type: 'gift', text: randomItem(LIVE_AMBIENT_GIFTS, state.rng), extra: String(1 + Math.floor(state.rng() * 9)) };
+    if (roll < 0.15) return null;
+    if (roll < 0.25) return { type: 'enter' };
+    if (roll < 0.32) return { type: 'gift', text: randomItem(LIVE_AMBIENT_GIFTS, state.rng), extra: String(1 + Math.floor(state.rng() * 9)) };
     const pool = state.view === 'host' && state.rng() < 0.35 ? LIVE_HOST_AMBIENT_LINES : LIVE_AMBIENT_LINES;
     return { type: 'text', text: randomItem(pool, state.rng) };
 }
@@ -328,7 +328,10 @@ function tick(state) {
         return;
     }
     if (state.visible && state.doc.hidden !== true && !isStagePaused(state.els.root)) {
-        const msg = state.queue.shift() || ambientMessage(state);
+        // AI 弹幕与本地氛围弹幕混播：队列里有 AI 弹幕时也随机插一条本地的，不先把 AI 一股脑排空。
+        const msg = state.queue.length
+            ? (state.rng() < 0.55 ? (ambientMessage(state) || state.queue.shift()) : state.queue.shift())
+            : ambientMessage(state);
         if (msg) renderLiveMessage(state, msg);
         state.beat += 1;
         bump(state, Math.round((state.rng() - 0.35) * 40));

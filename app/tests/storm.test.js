@@ -100,7 +100,7 @@ test('storm:prompt:follows-switches-and-custom-text', () => {
     assert.match(custom.full, /舆论风暴：只写骂的/);
     assert.ok(!custom.full.includes(STORM_DEFAULT_PROMPT));
     const legacy = resolveFeedPromptRule({ feedFx: { enabled: true } });
-    assert.match(legacy, /你应该使用以下格式写正文中/);
+    assert.match(legacy, /【手机社区】/);
     assert.match(legacy, /storm\|平台\|红或黑\|热搜词 … storm-end/);
     assert.match(legacy, /mention\|网友\|内容/);
     assert.match(legacy, /示例：/);

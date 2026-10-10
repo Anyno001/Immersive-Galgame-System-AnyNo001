@@ -57,11 +57,11 @@ import { createItemAndCgServices } from './item-cg-services.js';
 import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-store.js';
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from '../scene/prompt-rule-content.js';
-import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
+import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.36.12';
+const IGS_VERSION = '0.36.15';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -697,11 +697,16 @@ export function bootstrapIGS(options = {}) {
     // 关闭按需注入时的旧行为：各块完整拼接；未自定义的场景规则用改版前的长版原文。
     function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule }) {
         const rules = [];
+        // 场景规则自带 [igs标签语法] 头部（含通用机制）；没有它时，若后面有演出规则就补一次兜底，
+        // 因为各演出块已把通用机制抽到头部、自身不再复述。
+        let hasHeader = false;
         if (sceneAssets && sceneAssets.enabled && scenePromptRuleEnabled(sceneAssets) && sceneAssets.promptRule) {
             const promptRule = sceneAssets.promptRule === DEFAULT_SCENE_PROMPT_RULE ? LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 : sceneAssets.promptRule;
             rules.push(resolvePromptRuleContent({ ...sceneAssets, promptRule }));
+            hasHeader = true;
         }
         const rs = readerSettings || {};
+        const fxStart = rules.length;
         const chatShow = rs.chatShow;
         // 随身手机：聊天与来电等手机演出按现代写法。
         const phoneAncient = ancient && !(rs.feedFx && rs.feedFx.carryPhone === true);
@@ -727,6 +732,8 @@ export function bootstrapIGS(options = {}) {
             : { live: false, audience: false });
         if (danmakuRule) rules.push(danmakuRule);
         pushFx('feed', resolveFeedPromptRule(readerSettings));
+        // 没有场景头部、但确实注入了演出规则时，在演出规则前补一次通用机制说明。
+        if (!hasHeader && rules.length > fxStart) rules.splice(fxStart, 0, GRAMMAR_HEADER);
         const split = placement === 'system';
         if (metaDigestRule && !split) rules.push(metaDigestRule);
         if (rules.length && eraRule) rules.push(eraRule);

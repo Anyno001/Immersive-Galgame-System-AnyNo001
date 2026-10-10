@@ -10,6 +10,8 @@ export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'lett
 export const FX_DELIVERY_STAGES = Object.freeze(['order', 'arrive']);
 // 关灯区间：light|off 开始、light|on 或 light-end 结束；其余写法整条丢弃。
 const FX_LIGHT_MODES = Object.freeze({ off: 'off', 关: 'off', 关灯: 'off', 吹灯: 'off', on: 'on', 开: 'on', 开灯: 'on', 点灯: 'on' });
+// 看电影区间可选第 1 栏写「屏光」等词：改走屏幕冷光染脸（办公屏幕、手机、电视的光打在立绘上）；不写或写别的词按普通看电影处理。
+const FX_MOVIE_MODES = Object.freeze({ 屏光: 'screen', 屏幕: 'screen', 冷光: 'screen', 电脑: 'screen', 手机: 'screen', 加班: 'screen', screen: 'screen', glow: 'screen' });
 export const FX_EYE_MODES = Object.freeze(['open', 'close']);
 // 物品事件 [igs-fx:item|获得|名称|描述|重要]：独立于 FX_TAG_KINDS（不进入标签演出开关），由物品演出开关控制。
 export const FX_ITEM_ACTIONS = Object.freeze({ 获得: 'gain', 得到: 'gain', gain: 'gain', 失去: 'lose', lose: 'lose', 使用: 'use', use: 'use' });
@@ -236,6 +238,7 @@ export function parseFxBody(body) {
         if (mode === 'on') return { kind, end: true, args: [] };
         return null;
     }
+    if (kind === 'movie') return { kind, end: false, args: [lookup(FX_MOVIE_MODES, args[0], '')] };
     if (kind === 'sfx' && !args[0]) return null;
     // 外卖 / 快递：物品栏必填；配送方可省；阶段词只认 order / arrive，写别的按 arrive（默认送到）。
     if (kind === 'delivery') {
@@ -322,7 +325,7 @@ function applyStageDirective(result, d, current) {
 
 export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
     const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
-    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null, storm: null };
+    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, movieMode: '', lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null, storm: null };
     // 感官调度：区间状态，作用到下一条 sense / sense-end。
     result.sense = '';
     // 独处：区间状态 { target }；外面的动静：只归标签所在页。
@@ -343,7 +346,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         else if (d.kind === 'dream') result.dream = !d.end;
         else if (d.kind === 'letterbox') result.letterbox = !d.end;
         else if (d.kind === 'whisper') result.whisper = !d.end;
-        else if (d.kind === 'movie') result.movie = !d.end;
+        else if (d.kind === 'movie') { result.movie = !d.end; result.movieMode = d.end ? '' : (d.args[0] || ''); }
         else if (d.kind === 'light') result.lightsOff = !d.end;
         else if (d.kind === 'umbrella') result.umbrella = !d.end;
         else if (d.kind === 'battle') result.battle = d.end ? null : { foe: d.args[0], title: d.args[1] };

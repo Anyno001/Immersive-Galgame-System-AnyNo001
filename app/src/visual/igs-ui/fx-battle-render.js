@@ -90,6 +90,7 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
         cast,
         motion: style.motion,
         ancient: readerSettings._ancientEra === true,
+        xianxia: readerSettings.dialogSkin === 'xianxia-ink',
         worldview: String(readerSettings._worldview || ''),
         onEvent: (event) => play(battleSfxKind(event, String(readerSettings._worldview || ''))),
     });

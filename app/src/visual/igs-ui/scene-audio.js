@@ -1,13 +1,19 @@
 import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, resumeAudioBus, setAudioBusSpace, setAudioMasterVolume, watchPageAway } from './audio-bus.js';
 import { WEATHER_FLASH_EVENT, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime, resolveWeatherFxKind } from './weather-fx-runtime.js';
 import { resolvePlaceAmbience } from '../../scene/place-ambience.js';
+import { resolveDateAmbience } from '../../scene/date-ambience.js';
+import { CAMPUS_AUDIO_KIND, resolveCampusAmbience } from '../../scene/campus-fx.js';
+import { createCampusVoices } from './scene-audio-campus.js';
 import { bgmPackOfWorldview, inferBgmMood, normalizeBgmTags, resolveBgmMood, resolveBgmSilence, resolveBgmTransition, selectBgmTrack } from './bgm-library.js';
 
 // 场景音频：BGM 用 HTMLAudio 按情绪 / 关键词选曲并交叉淡入淡出，能跨域读取的曲目接进混音总线；环境音全部 WebAudio 实时合成，不依赖音频文件。
 export const AMBIENT_KINDS = Object.freeze([
     'birds', 'rain', 'wind', 'insects', 'waves', 'crowd', 'thunder', 'stream', 'fire', 'snow',
     'cicadas', 'frogs', 'chimes', 'bell', 'clock', 'drip', 'train', 'tavern', 'ship', 'traffic',
-    'car', 'carriage', 'bath', 'underwater', 'space',
+    'car', 'carriage', 'plane', 'bath', 'underwater', 'space', 'bike', 'sky',
+    'printer', 'keyboard', 'aircon', 'serverhum', 'deskphone',
+    'cafe', 'cinema', 'aquarium', 'nightview', 'palace', 'console',
+    'classroom', 'library', 'playground',
 ]);
 export const AMBIENT_LABELS = Object.freeze({
     birds: '鸟鸣',
@@ -32,9 +38,26 @@ export const AMBIENT_LABELS = Object.freeze({
     traffic: '车流',
     car: '车内',
     carriage: '马车',
+    plane: '机舱',
+    sky: '高空风声',
     bath: '浴室水声',
     underwater: '水下',
     space: '太空真空',
+    bike: '骑行',
+    printer: '打印机',
+    keyboard: '键盘鼠标',
+    aircon: '空调',
+    serverhum: '机房嗡鸣',
+    deskphone: '座机铃声',
+    cafe: '咖啡馆',
+    cinema: '影院',
+    aquarium: '水族馆',
+    nightview: '夜景高处',
+    palace: '深宫静夜',
+    console: '电视游戏机',
+    classroom: '教室',
+    library: '图书馆',
+    playground: '操场',
 });
 // moodTag：让 AI 在情绪转折时写 [igs-fx:bgm|情绪]，按情绪池选曲；关掉后只按演出与时段推断。
 export const BGM_DEFAULTS = Object.freeze({ enabled: false, volume: 0.5, moodTag: true, tracks: Object.freeze([]) });
@@ -98,11 +121,22 @@ const TRAIN_WORDS = Object.freeze(['电车', '列车', '火车', '地铁', '车�
 export const TAVERN_WORDS = Object.freeze(['酒馆', '旅店', '客栈', '酒楼', '茶馆', '茶楼', '酒肆', '酒家', '公会']);
 const SHIP_WORDS = Object.freeze(['船', '甲板', '舰', '帆']);
 const TRAFFIC_WORDS = Object.freeze(['马路', '公路', '路口', '高架', '停车场', '斑马线', '公交站', '车道', '路边']);
+// 办公 / 室内机器类：都是室内才有的声音，按地点词命中；办公室、会议室默认带空调，不必写「空调」。
+const PRINTER_WORDS = Object.freeze(['打印', '复印', '打印机', '复印机', '文印', '印刷室']);
+// 「电脑」「工位」「键盘」单词太宽（家里的电脑、钢琴键盘都会误触发）：只认办公场所词，或明确在敲键盘 / 打字。
+const KEYBOARD_WORDS = Object.freeze(['办公室', '办公区', '网吧', '电竞', '机房', '写字楼', '格子间', '敲键盘', '键盘声', '打字']);
+const AIRCON_WORDS = Object.freeze(['空调', '冷气', '办公室', '办公区', '会议室', '写字楼', '格子间', '机房', '服务器']);
+const SERVERHUM_WORDS = Object.freeze(['机房', '服务器', '日光灯', '数据中心', '配电室']);
+const DESKPHONE_WORDS = Object.freeze(['办公室', '前台', '接待', '值班室', '总机']);
 // thunder 只挂调度器、不常驻，不计入 MAX_LAYERS；顺序即 3 层名额的优先级。
 const LAYER_ORDER = Object.freeze([
-    'thunder', 'bath', 'rain', 'wind', 'snow', 'train', 'car', 'carriage', 'ship', 'waves', 'stream', 'drip', 'fire', 'tavern', 'crowd', 'traffic',
+    'thunder', 'bath', 'rain', 'wind', 'snow', 'train', 'car', 'carriage', 'plane', 'sky', 'bike', 'ship', 'waves', 'stream', 'drip', 'fire', 'tavern', 'crowd', 'traffic',
     'bell', 'cicadas', 'frogs', 'birds', 'insects', 'chimes', 'clock',
+    'aircon', 'keyboard', 'printer', 'serverhum', 'deskphone',
+    'cafe', 'cinema', 'aquarium', 'nightview', 'palace', 'console',
+    'classroom', 'library', 'playground',
 ]);
+const MACHINE_KINDS = Object.freeze(['aircon', 'keyboard', 'printer', 'serverhum', 'deskphone']);
 const LEVEL_GAIN = Object.freeze({ light: 0.55, medium: 0.8, heavy: 1 });
 const THUNDER_GAP_MS = Object.freeze({ heavy: Object.freeze([4500, 9000]), other: Object.freeze([7000, 14000]) });
 // 演出色调：环境音总线上的高低通、混响湿声与增益，1.2s 内平滑过渡；多个同时生效时取优先级最高者。
@@ -309,7 +343,19 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     // 车里、船上、浴室与日常演出的氛围层共用 place-ambience 的词表；古代与西幻的「车里」按马车出声。
     if (place && place.kind === 'ship') add('ship', rain === 'heavy' || weather?.wind ? 'heavy' : 'medium', false);
     else if (place && place.kind === 'bath') add('bath', 'medium', false, place.variant);
+    // 机舱分变体出声：飞艇 / 热气球（airship）没有喷气引擎的送风噪。
+    else if (place && place.kind === 'plane') add('plane', night ? 'light' : 'medium', false, place.variant);
+    // 自行车 / 摩托是开放式骑行：传 variant 让 voiceBike 分辨链条声还是引擎声。
+    else if (place && place.kind === 'bike') add('bike', night ? 'light' : 'medium', false, place.variant);
     else if (place) add(place.kind, night ? 'light' : 'medium', false);
+    else {
+        // 约会 / 深宫场所：place-ambience 没认出来时，再按约会词表兜底；海边直接借用海浪层。
+        // 校园（教室 / 图书馆 / 操场 / 学校天台）比约会词表更具体，先判；校门不另出声。
+        const campus = resolveCampusAmbience(ctx.location, { worldview: ctx.worldview });
+        const date = campus ? null : resolveDateAmbience(ctx.location, { worldview: ctx.worldview });
+        const dateKind = campus ? CAMPUS_AUDIO_KIND[campus.kind] : date && (date.kind === 'beach' ? 'waves' : date.kind);
+        if (dateKind && AMBIENT_KINDS.includes(dateKind)) add(dateKind, night ? 'light' : 'medium', false);
+    }
     if (!indoor) {
         const nature = includesAny(location, NATURE_WORDS);
         if ((time === 'dawn' || time === 'day' || !time) && nature && rain !== 'heavy') {
@@ -332,19 +378,28 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     if (includesAny(location, FIRE_WORDS)) add('fire', 'medium', false);
     const tavern = includesAny(location, TAVERN_WORDS);
     if (tavern) add('tavern', 'medium', false);
-    else if (includesAny(location, CROWD_WORDS)) add('crowd', indoor ? 'medium' : 'light', false);
+    else if (includesAny(location, CROWD_WORDS) && !candidates.has('classroom')) add('crowd', indoor ? 'medium' : 'light', false);
     if (includesAny(location, TRAFFIC_WORDS)) add('traffic', night ? 'light' : 'medium', indoor);
     if (includesAny(location, BELL_WORDS)) add('bell', 'medium', false, includesAny(location, CHURCH_WORDS) ? 'church' : 'temple');
     if (includesAny(location, CHIME_WORDS) && rain !== 'heavy') add('chimes', weather?.wind || weather?.kind === 'wind' ? 'heavy' : 'medium', false);
+    // 办公 / 室内机器：机器就在屋里，不走闷声低通；排在 LAYER_ORDER 末尾，天气与人声占满名额时让位。
+    // 写在钟表之前：办公室里有机器声就不再单独加钟表（钟表只在安静时出声）。
+    if (includesAny(location, AIRCON_WORDS)) add('aircon', 'light', false);
+    if (includesAny(location, KEYBOARD_WORDS)) add('keyboard', 'light', false);
+    if (includesAny(location, PRINTER_WORDS)) add('printer', 'light', false);
+    if (includesAny(location, SERVERHUM_WORDS)) add('serverhum', 'light', false);
+    if (includesAny(location, DESKPHONE_WORDS)) add('deskphone', 'light', false);
     // 钟表只在安静的室内听得见：有雨、风、人声时不加。
     if (includesAny(location, CLOCK_WORDS) && !candidates.size) add('clock', 'light', false);
     const plan = [];
     let steady = 0;
+    // 室内机器类（空调、键盘等）保留 1 个名额：天气与人声占满时也不被挤掉。
+    const hasMachine = MACHINE_KINDS.some((kind) => candidates.has(kind) && settings[kind]);
     for (const kind of LAYER_ORDER) {
         const layer = candidates.get(kind);
         if (!layer || !settings[kind]) continue;
         if (kind !== 'thunder') {
-            if (steady >= MAX_LAYERS) continue;
+            if (steady >= (hasMachine && !MACHINE_KINDS.includes(kind) ? MAX_LAYERS - 1 : MAX_LAYERS)) continue;
             steady += 1;
         }
         plan.push(layer);
@@ -1752,6 +1807,92 @@ function voiceCarriage(layer) {
     layerLater(layer, sway, rand(1500, 4000));
 }
 
+// 自行车：开放式骑行——迎面风掠过（低通白噪随车速缓慢起伏）+ 链条辐条细碎的「唰唰」转动声，偶尔清脆一声车铃。
+// moto 变体（摩托 / 电动车）：换成一层突突作响的小排量引擎低鸣，不要链条声。
+function voiceBike(layer) {
+    const moto = layer.variant === 'moto';
+    const light = layer.level === 'light';
+    // 迎面风：低通白噪，缓慢起伏模拟车速。
+    const wind = makeGain(layer, light ? 0.09 : 0.13);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', moto ? 300 : 420), wind, layer.out);
+    makeLfo(layer, rand(0.12, 0.22), 0.04, wind.gain);
+    if (moto) {
+        // 小排量引擎：低频锯齿 + 快速 AM 调制出「突突突」的点火感。
+        const eng = own(layer, layer.ctx.createOscillator());
+        eng.type = 'sawtooth';
+        eng.frequency.value = rand(58, 70);
+        const egain = makeGain(layer, light ? 0.06 : 0.09);
+        chain(eng, makeFilter(layer, 'lowpass', 240, 0.7), egain, layer.out);
+        // LFO 深度取基准增益的 0.6 倍，避免相位翻转。
+        makeLfo(layer, rand(11, 15), light ? 0.035 : 0.05, egain.gain);
+        eng.start();
+    } else {
+        // 链条辐条：高频短促的「唰」踩着飞快的节拍转，车速越快节拍越密。
+        const whir = makeGain(layer, 0.07);
+        chain(makeNoise(layer), makeFilter(layer, 'bandpass', 2600, 0.9), whir, layer.out);
+        makeLfo(layer, rand(6, 9), 0.05, whir.gain);
+        const ring = () => {
+            const at = layer.ctx.currentTime + 0.05;
+            // 车铃：基频 + 非谐泛音，用 blip 发声，播完自动断开。
+            for (const [mul, peak] of [[1, 0.08], [1.5, 0.05], [2.76, 0.03]]) {
+                const freq = 2093 * mul * rand(0.99, 1.01);
+                blip(layer, at, 0.9, (osc, amp) => {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, at);
+                    amp.gain.setValueAtTime(FLOOR, at);
+                    amp.gain.exponentialRampToValueAtTime(peak, at + 0.004);
+                    amp.gain.exponentialRampToValueAtTime(FLOOR, at + 0.9 / mul);
+                });
+            }
+            layerLater(layer, ring, rand(9000, 20000));
+        };
+        layerLater(layer, ring, rand(3000, 8000));
+    }
+}
+
+// 机舱：巡航时持续的涡扇低鸣 + 一层高频的空调送风白噪，偶尔机身轻微颠簸一下。
+// 飞艇 / 热气球（airship 变体）没有喷气引擎：只留很轻的气流，不要送风噪、不颠簸。
+function voicePlane(layer) {
+    const airship = layer.variant === 'airship';
+    const scale = layer.level === 'light' ? 0.7 : 1;
+    const rumble = makeGain(layer, (airship ? 0.14 : 0.26) * scale);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', airship ? 150 : 190), rumble, layer.out);
+    makeLfo(layer, rand(0.05, 0.1), 0.05 * scale, rumble.gain);
+    if (!airship) {
+        // 空调送风：中高频的持续「嘶——」，是机舱最标志性的底噪。
+        chain(makeNoise(layer), makeFilter(layer, 'highpass', 1800), makeFilter(layer, 'lowpass', 6000), makeGain(layer, 0.06 * scale), layer.out);
+        const hum = own(layer, layer.ctx.createOscillator());
+        hum.type = 'sine';
+        hum.frequency.value = rand(96, 112);
+        chain(hum, makeGain(layer, 0.03 * scale), layer.out);
+        hum.start();
+        const jolt = () => {
+            const at = layer.ctx.currentTime + 0.05;
+            noiseBurst(layer, at, 0.2, { type: 'lowpass', frequency: 150, peak: rand(0.08, 0.14) * scale, attack: 0.01 });
+            layerLater(layer, jolt, rand(9000, 22000));
+        };
+        layerLater(layer, jolt, rand(3000, 8000));
+    }
+}
+
+// 露天飞行：迎面的风一直在耳边呼呼作响，一层低沉的风压托底，隔一阵扑来一股乱风。比天气的风声更近、更满。
+function voiceSky(layer) {
+    const band = makeFilter(layer, 'bandpass', 900, 0.8);
+    const rush = makeGain(layer, layer.level === 'light' ? 0.2 : 0.3);
+    chain(makeNoise(layer), band, rush, layer.out);
+    makeLfo(layer, rand(0.1, 0.18), 420, band.frequency);
+    makeLfo(layer, rand(0.06, 0.12), 0.08, rush.gain);
+    const low = makeGain(layer, 0.14);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 160), low, layer.out);
+    makeLfo(layer, rand(0.04, 0.08), 0.05, low.gain);
+    const gust = () => {
+        const at = layer.ctx.currentTime + 0.05;
+        noiseBurst(layer, at, rand(0.6, 1.1), { type: 'bandpass', frequency: rand(700, 1600), q: 0.8, peak: rand(0.08, 0.14), attack: 0.15, pan: rand(-0.6, 0.6) });
+        layerLater(layer, gust, rand(6000, 14000));
+    };
+    layerLater(layer, gust, rand(2500, 6000));
+}
+
 // 浴室：淋浴是持续的细密水声；温泉是汩汩的泉水；浴缸只有很轻的水波声。都夹着从天花板滴下来的「叮咚」。
 function bathDrop(layer, at, freq, peak, pan) {
     blip(layer, at, 0.14, (osc, amp) => {
@@ -1838,6 +1979,289 @@ function voiceVacuum(layer) {
     layerLater(layer, breath, rand(800, 2000));
 }
 
+// 打印机 / 复印机：待机时几乎无声，隔一阵来一单活——马达升速的「嗡」+ 逐页走纸的「沙、沙」，收尾一声轻响。
+function voicePrinter(layer) {
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 120), makeGain(layer, 0.025), layer.out);
+    const job = () => {
+        const at = layer.ctx.currentTime + 0.05;
+        const pan = rand(-0.5, 0.5);
+        const pages = 2 + Math.floor(Math.random() * 5);
+        const gap = rand(0.7, 1.0);
+        const total = 0.6 + pages * gap;
+        const base = rand(150, 190);
+        blip(layer, at, total, (osc, amp) => {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(base * 0.7, at);
+            osc.frequency.linearRampToValueAtTime(base, at + 0.4);
+            amp.gain.setValueAtTime(FLOOR, at);
+            amp.gain.exponentialRampToValueAtTime(0.02, at + 0.4);
+            amp.gain.setValueAtTime(0.02, at + total - 0.3);
+            amp.gain.exponentialRampToValueAtTime(FLOOR, at + total);
+        }, pan, { filter: { type: 'lowpass', frequency: 420, q: 0.8 } });
+        noiseBurst(layer, at, total, { type: 'bandpass', frequency: 700, q: 0.7, peak: 0.03, attack: 0.4, pan });
+        for (let i = 0; i < pages; i++) {
+            const t = at + 0.5 + i * gap;
+            noiseBurst(layer, t, 0.35, { type: 'bandpass', frequency: rand(2600, 3600), q: 0.9, peak: rand(0.05, 0.08), attack: 0.04, pan });
+        }
+        noiseBurst(layer, at + total, 0.08, { type: 'lowpass', frequency: 500, peak: 0.07, attack: 0.003, pan });
+        layerLater(layer, job, rand(14000, 32000));
+    };
+    layerLater(layer, job, rand(3000, 9000));
+}
+
+// 键盘敲击 + 鼠标点击：一阵阵「嗒嗒嗒」的机械键，夹着空格的闷响与偶尔的鼠标咔哒；两阵之间留出安静的间隙。
+function voiceKeyboard(layer) {
+    const burst = () => {
+        const pan = rand(-0.6, 0.6);
+        let at = layer.ctx.currentTime + 0.05;
+        const keys = 4 + Math.floor(Math.random() * 14);
+        for (let i = 0; i < keys; i++) {
+            noiseBurst(layer, at, 0.025, { type: 'bandpass', frequency: rand(2400, 4200), q: 1.4, peak: rand(0.12, 0.2), attack: 0.001, pan });
+            noiseBurst(layer, at + 0.004, 0.04, { type: 'lowpass', frequency: rand(500, 800), peak: rand(0.08, 0.14), attack: 0.002, pan });
+            at += rand(0.07, 0.2) * (Math.random() < 0.15 ? 2.5 : 1);
+        }
+        if (Math.random() < 0.5) noiseBurst(layer, at + 0.05, 0.07, { type: 'lowpass', frequency: 300, peak: 0.14, attack: 0.002, pan });
+        if (Math.random() < 0.4) {
+            // 鼠标：一下清脆的「咔」，偶尔双击。
+            const clicks = Math.random() < 0.3 ? 2 : 1;
+            for (let c = 0; c < clicks; c++) {
+                noiseBurst(layer, at + 0.3 + c * 0.12, 0.018, { type: 'bandpass', frequency: rand(4200, 5200), q: 2, peak: rand(0.12, 0.2), attack: 0.001, pan: pan * 0.5 });
+            }
+        }
+        layerLater(layer, burst, rand(2500, 9000));
+    };
+    layerLater(layer, burst, rand(800, 2500));
+}
+
+// 空调：持续的低沉送风 + 一点高频气流，缓慢起伏；很轻，是办公室的底色。
+function voiceAircon(layer) {
+    const hum = makeGain(layer, 0.1);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 260), hum, layer.out);
+    makeLfo(layer, rand(0.05, 0.1), 0.025, hum.gain);
+    const vent = makeFilter(layer, 'bandpass', 2400, 0.6);
+    chain(makeNoise(layer), vent, makeGain(layer, 0.03), layer.out);
+    makeLfo(layer, rand(0.04, 0.08), 500, vent.frequency);
+    const tone = own(layer, layer.ctx.createOscillator());
+    tone.type = 'sine';
+    tone.frequency.value = rand(98, 118);
+    chain(tone, makeGain(layer, 0.012), layer.out);
+    tone.start();
+}
+
+// 机房 / 日光灯：电源的 100Hz 嗡鸣与倍频，风扇的宽带气流，镇流器细细的高频，偶尔一声硬盘 / 继电器的轻「嗒」。
+function voiceServerHum(layer) {
+    for (const [freq, peak] of [[100, 0.03], [200, 0.012], [300, 0.006]]) {
+        const osc = own(layer, layer.ctx.createOscillator());
+        osc.type = 'sine';
+        osc.frequency.value = freq * rand(0.995, 1.005);
+        chain(osc, makeGain(layer, peak), layer.out);
+        osc.start();
+    }
+    const fan = makeGain(layer, 0.07);
+    chain(makeNoise(layer), makeFilter(layer, 'bandpass', 700, 0.5), fan, layer.out);
+    makeLfo(layer, rand(0.08, 0.15), 0.015, fan.gain);
+    chain(makeNoise(layer), makeFilter(layer, 'bandpass', 5200, 8), makeGain(layer, 0.015), layer.out);
+    const tick = () => {
+        noiseBurst(layer, layer.ctx.currentTime + 0.03, 0.012, { type: 'bandpass', frequency: rand(1800, 3000), q: 2, peak: rand(0.12, 0.2), attack: 0.001, pan: rand(-0.7, 0.7) });
+        layerLater(layer, tick, rand(2500, 9000));
+    };
+    layerLater(layer, tick, rand(1500, 5000));
+}
+
+// 座机电话铃：低频点缀，隔很久才响一阵——「铃铃—铃铃—」两串电子双音颤铃，然后归于安静。
+function voiceDeskPhone(layer) {
+    const ring = () => {
+        const pan = rand(-0.4, 0.4);
+        const start = layer.ctx.currentTime + 0.05;
+        const rounds = 1 + Math.floor(Math.random() * 3);
+        for (let r = 0; r < rounds; r++) {
+            const at = start + r * 2.2;
+            // 每串铃 0.8s：1300 / 1500Hz 两个正弦各自以 ~20Hz 轮流起伏，听起来是经典的颤音。
+            [1300, 1500].forEach((freq, side) => {
+                blip(layer, at, 0.82, (osc, amp) => {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq * rand(0.995, 1.005), at);
+                    amp.gain.setValueAtTime(FLOOR, at);
+                    amp.gain.exponentialRampToValueAtTime(0.03, at + 0.01);
+                    for (let t = 0.05; t < 0.78; t += 0.05) {
+                        amp.gain.setValueAtTime(Math.round(t / 0.05) % 2 === side ? 0.03 : 0.008, at + t);
+                    }
+                    amp.gain.setValueAtTime(0.03, at + 0.78);
+                    amp.gain.exponentialRampToValueAtTime(FLOOR, at + 0.82);
+                }, pan);
+            });
+        }
+        layerLater(layer, ring, rand(30000, 75000));
+    };
+    layerLater(layer, ring, rand(9000, 25000));
+}
+
+// 咖啡馆：远处低低的人声嗡嗡（带缓慢起伏）+ 偶尔一声杯碟轻碰的清脆叮响。
+function voiceCafe(layer) {
+    const murmur = makeGain(layer, 0.05);
+    chain(makeNoise(layer), makeFilter(layer, 'bandpass', 380, 0.6), murmur, layer.out);
+    makeLfo(layer, rand(0.15, 0.3), 0.02, murmur.gain);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 180), makeGain(layer, 0.03), layer.out);
+    const clink = () => {
+        const at = layer.ctx.currentTime + 0.03;
+        const pan = rand(-0.7, 0.7);
+        const base = rand(2600, 4200);
+        for (const [mul, peak, dur] of [[1, 0.03, 0.14], [1.5, 0.018, 0.1]]) {
+            blip(layer, at, dur, (osc, amp) => {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(base * mul, at);
+                amp.gain.setValueAtTime(FLOOR, at);
+                amp.gain.exponentialRampToValueAtTime(peak, at + 0.003);
+                amp.gain.exponentialRampToValueAtTime(FLOOR, at + dur);
+            }, pan);
+        }
+        layerLater(layer, clink, rand(5000, 15000));
+    };
+    layerLater(layer, clink, rand(2500, 7000));
+}
+
+// 影院：空旷座席的低鸣 + 极低的闷响，偶尔远处一记低频的「咚」。
+function voiceCinema(layer) {
+    const rumble = makeGain(layer, 0.06);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 90), rumble, layer.out);
+    makeLfo(layer, rand(0.05, 0.1), 0.02, rumble.gain);
+    const tone = own(layer, layer.ctx.createOscillator());
+    tone.type = 'sine';
+    tone.frequency.value = rand(48, 56);
+    chain(tone, makeGain(layer, 0.02), layer.out);
+    tone.start();
+    chain(makeNoise(layer), makeFilter(layer, 'bandpass', 600, 0.5), makeGain(layer, 0.008), layer.out);
+    const thump = () => {
+        noiseBurst(layer, layer.ctx.currentTime + 0.05, 0.6, { type: 'lowpass', frequency: rand(70, 110), peak: rand(0.05, 0.09), attack: 0.02, pan: rand(-0.4, 0.4) });
+        layerLater(layer, thump, rand(9000, 22000));
+    };
+    layerLater(layer, thump, rand(4000, 10000));
+}
+
+// 水族馆：缓缓的水流 + 一串串咕噜上浮的水泡。
+function voiceAquarium(layer) {
+    const flow = makeGain(layer, 0.06);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 420), flow, layer.out);
+    makeLfo(layer, rand(0.1, 0.2), 0.02, flow.gain);
+    chain(makeNoise(layer), makeFilter(layer, 'bandpass', 1400, 0.8), makeGain(layer, 0.008), layer.out);
+    const bubbles = () => {
+        const pan = rand(-0.6, 0.6);
+        const count = 2 + Math.floor(Math.random() * 5);
+        let at = layer.ctx.currentTime + 0.03;
+        for (let i = 0; i < count; i++) {
+            const f0 = rand(350, 700);
+            const t = at;
+            blip(layer, t, 0.12, (osc, amp) => {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(f0, t);
+                osc.frequency.exponentialRampToValueAtTime(f0 * 2.2, t + 0.08);
+                amp.gain.setValueAtTime(FLOOR, t);
+                amp.gain.exponentialRampToValueAtTime(rand(0.025, 0.05), t + 0.01);
+                amp.gain.exponentialRampToValueAtTime(FLOOR, t + 0.12);
+            }, pan);
+            at += rand(0.08, 0.3);
+        }
+        layerLater(layer, bubbles, rand(3500, 9000));
+    };
+    layerLater(layer, bubbles, rand(1200, 3500));
+}
+
+// 夜景高处：高楼 / 观景台上的风声，缓慢起伏，偶尔一阵稍强的风。
+function voiceNightview(layer) {
+    const wind = makeGain(layer, 0.07);
+    const band = makeFilter(layer, 'bandpass', 420, 0.5);
+    chain(makeNoise(layer), band, wind, layer.out);
+    makeLfo(layer, rand(0.06, 0.12), 0.035, wind.gain);
+    makeLfo(layer, rand(0.04, 0.09), 140, band.frequency);
+    chain(makeNoise(layer), makeFilter(layer, 'highpass', 2200), makeGain(layer, 0.006), layer.out);
+    const gust = () => {
+        noiseBurst(layer, layer.ctx.currentTime + 0.05, 3.2, { type: 'bandpass', frequency: rand(500, 800), q: 0.6, peak: rand(0.05, 0.08), attack: 1.2, pan: rand(-0.5, 0.5) });
+        layerLater(layer, gust, rand(9000, 20000));
+    };
+    layerLater(layer, gust, rand(3000, 9000));
+}
+
+// 深宫静夜：极轻的低风，偶尔灯芯「噼」一声轻响，偶尔一缕稍长的风穿过回廊。
+function voicePalace(layer) {
+    const wind = makeGain(layer, 0.03);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 160), wind, layer.out);
+    makeLfo(layer, rand(0.04, 0.08), 0.012, wind.gain);
+    const crackle = () => {
+        const at = layer.ctx.currentTime + 0.03;
+        const pan = rand(-0.5, 0.5);
+        const n = 1 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < n; i++) {
+            noiseBurst(layer, at + i * rand(0.04, 0.12), 0.03, { type: 'bandpass', frequency: rand(2200, 3800), q: 1.6, peak: rand(0.02, 0.045), attack: 0.001, pan });
+        }
+        layerLater(layer, crackle, rand(6000, 18000));
+    };
+    layerLater(layer, crackle, rand(2500, 8000));
+    const draft = () => {
+        noiseBurst(layer, layer.ctx.currentTime + 0.05, 3.6, { type: 'bandpass', frequency: rand(260, 420), q: 0.7, peak: rand(0.02, 0.035), attack: 1.4 });
+        layerLater(layer, draft, rand(14000, 30000));
+    };
+    layerLater(layer, draft, rand(6000, 14000));
+}
+
+// 电视 / 游戏机：隔着屏幕传来的低音量芯片 BGM（方波主旋律过低通 + 三角波低音，一小段一小段，段间留白），
+// 夹着手柄按键的咔嗒（短促的噪声点击 + 一记低沉的键帽闷响，偶尔一阵狂按），底下一层极轻的显像管 / 风扇低嗡。
+const CONSOLE_SCALE = Object.freeze([220, 261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25]);
+
+function voiceConsole(layer) {
+    const hum = makeGain(layer, 0.012);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 170), hum, layer.out);
+    makeLfo(layer, rand(0.05, 0.1), 0.004, hum.gain);
+    const phrase = () => {
+        const base = layer.ctx.currentTime + 0.05;
+        const step = rand(0.15, 0.22);
+        const detune = rand(0.994, 1.006);
+        const steps = 8 + Math.floor(Math.random() * 9);
+        let idx = Math.floor(Math.random() * CONSOLE_SCALE.length);
+        for (let i = 0; i < steps; i++) {
+            const at = base + i * step;
+            if (Math.random() < 0.18) continue;
+            idx = Math.max(0, Math.min(CONSOLE_SCALE.length - 1, idx + Math.floor(Math.random() * 5) - 2));
+            const freq = CONSOLE_SCALE[idx] * detune;
+            const peak = rand(0.012, 0.022);
+            const dur = step * rand(0.7, 1.1);
+            blip(layer, at, dur, (osc, amp) => {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(freq, at);
+                amp.gain.setValueAtTime(FLOOR, at);
+                amp.gain.exponentialRampToValueAtTime(peak, at + 0.004);
+                amp.gain.exponentialRampToValueAtTime(peak * 0.5, at + dur * 0.5);
+                amp.gain.exponentialRampToValueAtTime(FLOOR, at + dur);
+            }, rand(-0.15, 0.15), { filter: { type: 'lowpass', frequency: rand(2200, 2900), q: 0.8 } });
+            if (i % 4 === 0) {
+                const bass = freq / 2;
+                const bpeak = rand(0.016, 0.026);
+                blip(layer, at, step * 1.8, (osc, amp) => {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(bass, at);
+                    amp.gain.setValueAtTime(FLOOR, at);
+                    amp.gain.exponentialRampToValueAtTime(bpeak, at + 0.006);
+                    amp.gain.exponentialRampToValueAtTime(FLOOR, at + step * 1.8);
+                }, 0);
+            }
+        }
+        layerLater(layer, phrase, steps * step * 1000 + rand(1800, 6000));
+    };
+    layerLater(layer, phrase, rand(600, 2200));
+    const press = () => {
+        const pan = rand(-0.3, 0.3);
+        const mash = Math.random() < 0.25;
+        const count = mash ? 4 + Math.floor(Math.random() * 6) : 1 + Math.floor(Math.random() * 2);
+        let at = layer.ctx.currentTime + 0.05;
+        for (let i = 0; i < count; i++) {
+            noiseBurst(layer, at, 0.02, { type: 'bandpass', frequency: rand(2800, 3800), q: 1.6, peak: rand(0.05, 0.09), attack: 0.001, pan });
+            noiseBurst(layer, at + 0.003, 0.05, { type: 'lowpass', frequency: rand(360, 520), peak: rand(0.04, 0.07), attack: 0.002, pan });
+            at += mash ? rand(0.055, 0.1) : rand(0.12, 0.3);
+        }
+        layerLater(layer, press, rand(1400, 5200));
+    };
+    layerLater(layer, press, rand(900, 2600));
+}
+
 const VOICES = Object.freeze({
     rain: voiceRain,
     wind: voiceWind,
@@ -1862,9 +2286,25 @@ const VOICES = Object.freeze({
     traffic: voiceTraffic,
     car: voiceCar,
     carriage: voiceCarriage,
+    plane: voicePlane,
+    sky: voiceSky,
     bath: voiceBath,
     underwater: voiceUnderwater,
     space: voiceVacuum,
+    bike: voiceBike,
+    printer: voicePrinter,
+    keyboard: voiceKeyboard,
+    aircon: voiceAircon,
+    serverhum: voiceServerHum,
+    deskphone: voiceDeskPhone,
+    cafe: voiceCafe,
+    cinema: voiceCinema,
+    aquarium: voiceAquarium,
+    nightview: voiceNightview,
+    palace: voicePalace,
+    console: voiceConsole,
+    // 校园：教室 / 图书馆 / 操场，合成在 scene-audio-campus.js，原语由这里传入。
+    ...createCampusVoices({ rand, chain, makeNoise, makeFilter, makeGain, makeLfo, layerLater, noiseBurst, blip, footsteps, FLOOR }),
 });
 
 function disposeLayer(state, layer) {

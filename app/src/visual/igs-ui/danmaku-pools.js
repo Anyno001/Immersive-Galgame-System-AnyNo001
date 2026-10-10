@@ -8,6 +8,9 @@ export const LIVE_AMBIENT_LINES = f([
     'awsl', '好耶', '草', '笑死', '这是可以说的吗', '妈妈我恋爱了', '声音好好听', '主播今天好漂亮',
     '关注了关注了', '上次直播也在', '刚来，发生了什么', '别停下来', '让我康康', '好家伙', '绷不住了',
     '有点东西', '学到了', '已截图', '录屏了', '6666', '可爱捏', '主播别害羞', '8888', '签到',
+    '谁懂啊', 'DNA动了', '典', '蚌埠住了', '笑不活了', '狠狠心动了', '前方高能', '退退退', '确实',
+    '什么神仙颜值', '泪目', '破防了', '芜湖', '我可以', '太强了', '栓Q', '我就说吧', '尊嘟假嘟',
+    '一整个爱住', '绝了', '哈人', '麻了', '我酸了', '可', '就是玩儿', '好会啊', '这谁顶得住',
 ]);
 export const LIVE_HOST_AMBIENT_LINES = f([
     '主播看我', '主播能念一下我的弹幕吗', '主播几点下播', '明天还播吗', '主播喝口水', '主播好认真',
@@ -43,11 +46,67 @@ export const AUDIENCE_AMBIENT_LINES = Object.freeze({
 });
 
 export const INNER_PHRASES = Object.freeze({
-    love: f(['好喜欢', '心跳好快', '不行了', '在看我', '好近', '脸好烫', '冷静', '是不是喜欢我', '好帅', '想抱']),
-    panic: f(['怎么办', '冷静冷静', '完蛋了', '怎么办怎么办', '先别慌', '啊啊啊', '跑吗', '要死了']),
-    anger: f(['可恶', '笨蛋', '笨蛋笨蛋', '气死了', '哼', '不理你了', '过分']),
-    guilty: f(['没发现吧', '千万别问', '镇定', '看不出来', '装傻', '别看我', '糟了']),
+    love: f([
+        '好喜欢', '心跳好快', '不行了', '在看我', '好近', '脸好烫', '冷静', '是不是喜欢我', '好帅', '想抱',
+        '再近一点', '别走', '想靠过去', '他在笑', '好温柔', '心要跳出来了', '不敢看', '手好暖', '就这样吧',
+        '好想牵手', '偷偷看一眼', '耳朵红了吗', '怎么办好开心', '想一直在一起', '被发现了吗', '只想看着你',
+    ]),
+    panic: f([
+        '怎么办', '冷静冷静', '完蛋了', '怎么办怎么办', '先别慌', '啊啊啊', '跑吗', '要死了',
+        '要来了', '手在抖', '腿软了', '不要啊', '别过来', '快想办法', '脑子一片空白', '来不及了',
+        '不会吧', '现在怎么办', '喘不过气', '救命', '该说什么', '千万别出事',
+    ]),
+    anger: f([
+        '可恶', '笨蛋', '笨蛋笨蛋', '气死了', '哼', '不理你了', '过分',
+        '太过分了', '忍不了了', '凭什么', '给我等着', '真的生气了', '大笨蛋', '别惹我', '火大',
+        '不想说话', '到底想怎样', '混蛋', '算我看错你', '气得发抖',
+    ]),
+    guilty: f([
+        '没发现吧', '千万别问', '镇定', '看不出来', '装傻', '别看我', '糟了',
+        '被看穿了吗', '不能说', '假装没事', '别追问', '心虚', '说漏嘴了', '千万别露馅', '低头低头',
+        '千万别脸红', '先糊弄过去', '怎么解释', '装作没听见', '他起疑了吗',
+    ]),
 });
+
+// 真实想法（心声原文、括号里的内心独白）与词池混播：有真实想法时占大头，词池补密度；没有就是纯词池。
+export const INNER_REAL_SHARE = 0.65;
+export function mixInnerPhrases(real, pool, count, rng = Math.random) {
+    const realList = Array.from(new Set((real || []).filter(Boolean)));
+    const poolList = (pool || []).filter(Boolean);
+    if (!realList.length) return { phrases: poolList.slice(), real: [] };
+    const realCount = Math.min(Math.round(count * INNER_REAL_SHARE), realList.length * 5);
+    const size = Math.min(count, Math.ceil(realCount / INNER_REAL_SHARE));
+    const out = [];
+    for (let i = 0; i < realCount; i += 1) out.push(realList[i % realList.length]);
+    // 词池补足到 count，随机起点避免每次同一批。
+    const start = poolList.length ? Math.floor(rng() * poolList.length) : 0;
+    for (let i = 0; out.length < size && poolList.length; i += 1) out.push(poolList[(start + i) % poolList.length]);
+    // 把真实想法均匀穿插进词池里，而不是挤成一团。
+    const mixed = [];
+    const fills = out.slice(realCount);
+    const reals = out.slice(0, realCount);
+    const total = reals.length + fills.length;
+    let ri = 0;
+    let fi = 0;
+    for (let i = 0; i < total; i += 1) {
+        const takeReal = ri < reals.length && (fi >= fills.length || (ri + 0.5) / reals.length <= (i + 0.5) / total);
+        mixed.push(takeReal ? reals[ri++] : fills[fi++]);
+    }
+    return { phrases: mixed, real: realList };
+}
+
+// 正文里括号包着的内心独白（全角/半角括号），截成短句。
+export function parentheticalThoughts(text, limit = 4) {
+    const out = [];
+    const re = /[（(]([^（）()]{2,40})[）)]/g;
+    const src = stripBilingualTranslation(text);
+    let m = re.exec(src);
+    while (m && out.length < limit) {
+        out.push(...thoughtFragments(m[1], limit));
+        m = re.exec(src);
+    }
+    return Array.from(new Set(out)).slice(0, limit);
+}
 
 export function randomItem(list, rng = Math.random) {
     return list.length ? list[Math.floor(rng() * list.length) % list.length] : '';

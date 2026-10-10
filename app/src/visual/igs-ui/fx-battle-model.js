@@ -136,18 +136,16 @@ export function resolveImpactPoint(geo, sprite) {
 
 export function resolveBattleFxPromptRule(enabled) {
     if (enabled !== true) return '';
-    return `[igs战斗标签]
-正文出现战斗时，用以下标签驱动战斗演出（只有画面效果，不显示任何数值）：
+    return `【战斗】正文出现战斗时使用，只有画面效果、不显示任何数值：
 
 1. [igs-fx:battle|对手名|对手称号] … [igs-fx:battle-end|结果]：包住整场战斗；称号可省略；结果只写 胜利／败北／撤退，战斗未分胜负就结束时可不写结果
 2. [igs-fx:hit|出手者|目标|招式名|效果]：一次攻击、技能或治疗；效果只写 命中／暴击／闪避／格挡／击倒／治疗，省略按命中处理，如[igs-fx:hit|爱丽丝|史莱姆|冰霜新星|暴击]；主角出手或被攻击时，出手者或目标写「我」
 
 语法要求：
-1. 标签独立成行，放在描写该动作的正文之前
-2. 字段不得换行，不得含 | 或 ]，不要写伤害数字或血量
-3. 每层回复中 hit 不超过3个，只标关键的出招；非战斗场景不要使用
-4. battle 与 battle-end 必须成对；战斗跨越多层回复时，只在开战那层写 battle，battle-end 写在分出结果的那一层
-5. 上一条用户消息带有检定结果时，出招效果应与之相符：大成功写暴击，大失败写闪避`;
+1. 不要写伤害数字或血量
+2. 每层回复中 hit 不超过3个，只标关键的出招；非战斗场景不要使用
+3. 战斗跨越多层回复时，只在开战那层写 battle，battle-end 写在分出结果的那一层
+4. 上一条用户消息带有检定结果时，出招效果应与之相符：大成功写暴击，大失败写闪避`;
 }
 
 export const BATTLE_GRAMMAR_LINES = Object.freeze([

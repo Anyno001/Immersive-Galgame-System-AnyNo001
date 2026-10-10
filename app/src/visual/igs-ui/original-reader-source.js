@@ -371,6 +371,9 @@ ${TOAST_THEME_STYLE_TEXT}
 #igs-overlay.igs-toolbar-expanded.igs-toolbar-top #igs-ctrl-bar,#igs-overlay.igs-toolbar-expanded.igs-mode-embedded #igs-ctrl-bar{position:relative;}
 #igs-overlay.igs-toolbar-expanded #igs-ctrl-bar::before{content:"";position:absolute;inset:-6px -8px;z-index:-1;pointer-events:none;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 5%,transparent);-webkit-backdrop-filter:var(--igs-bar-blur,blur(6px));backdrop-filter:var(--igs-bar-blur,blur(6px));-webkit-mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent),linear-gradient(180deg,transparent,#000 8px,#000 calc(100% - 8px),transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent),linear-gradient(180deg,transparent,#000 8px,#000 calc(100% - 8px),transparent);mask-composite:intersect;animation:igs-bar-plate-in .2s ease both;}
 @keyframes igs-bar-plate-in{from{opacity:0;}to{opacity:1;}}
+/* 底板三态：默认 blur 走上面的羽化毛玻璃；solid 实色不糊；off 完全无底板。 */
+#igs-overlay[data-igs-bar-plate="solid"].igs-toolbar-expanded #igs-ctrl-bar::before{background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 88%,transparent);-webkit-backdrop-filter:none;backdrop-filter:none;}
+#igs-overlay[data-igs-bar-plate="off"].igs-toolbar-expanded #igs-ctrl-bar::before{display:none;}
 .igs-mode-embedded .igs-ctrl-bar,.igs-mode-embedded #igs-bar-btns,#igs-overlay.igs-default-reader-chrome:not(.igs-toolbar-top) .igs-ctrl-bar,#igs-overlay.igs-default-reader-chrome:not(.igs-toolbar-top) #igs-bar-btns{justify-content:flex-end;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-pos]{top:calc(14px + var(--igs-toolbar-h,32px) + 8px);bottom:calc(14px + var(--igs-dialog-h,220px) + 10px);max-height:none;overflow-y:auto;overscroll-behavior:contain;}
 .igs-mode-embedded #igs-option-bubbles[data-igs-width="dialog"]{max-width:calc(100% - 24px);}

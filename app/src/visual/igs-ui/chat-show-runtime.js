@@ -37,8 +37,7 @@ const MESSAGE_TYPE_ALIASES = Object.freeze({
     sticker: ['sticker', 'emoji', '表情', '表情包'],
 });
 
-export const CHAT_SHOW_PROMPT_RULE = `[igs线上聊天标签]
-角色之间通过手机、网络等线上方式发送消息时，用以下标签输出聊天记录（属于允许使用的igs标签）：
+export const CHAT_SHOW_PROMPT_RULE = `【线上聊天】角色之间通过手机、网络等线上方式发送消息时使用，当面对话仍使用[igs-char]：
 
 [igs-chat:会话标题]
 [igs-chat-time:时间]
@@ -47,13 +46,10 @@ export const CHAT_SHOW_PROMPT_RULE = `[igs线上聊天标签]
 [igs-chat-end]
 
 语法要求：
-1. 每条标签独立成行；一段聊天以[igs-chat]开始、以[igs-chat-end]结束
-2. 会话标题填写群名或对方名字
-3. 每条消息使用一个[igs-msg]；发送者填写完整角色名，{{user}}发送的消息发送者填写{{user}}
-4. 普通文字消息只写两栏；特殊消息在第三栏填写类型：图片（内容写画面描述）、语音（内容写语音说的话）、表情包（内容写表情描述）、撤回（内容写被撤回的话，可留空）、输入中（内容留空，表示对方打字又放弃）、已读（{{user}}的消息被看了没回）
-5. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:昨天 22:14]；系统通知、入群提示等非角色消息的发送者填写「系统」
-6. 消息内容不得换行，不得含 | 或 ]
-7. 仅用于线上消息；当面对话仍使用[igs-char]`;
+1. 一段聊天以[igs-chat]开始、以[igs-chat-end]结束；会话标题填写群名或对方名字
+2. 每条消息使用一个[igs-msg]；发送者填写完整角色名，{{user}}发送的消息发送者填写{{user}}
+3. 普通文字消息只写两栏；特殊消息在第三栏填写类型：图片（内容写画面描述）、语音（内容写语音说的话）、表情包（内容写表情描述）、撤回（内容写被撤回的话，可留空）、输入中（内容留空，表示对方打字又放弃）、已读（{{user}}的消息被看了没回）
+4. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:昨天 22:14]；系统通知、入群提示等非角色消息的发送者填写「系统」`;
 
 // 空串代表内置默认：与默认一致的保存值也归为空，默认规则升级时未改过的用户自动跟随。
 export function normalizeChatPromptRule(value) {
@@ -62,8 +58,7 @@ export function normalizeChatPromptRule(value) {
 }
 
 // 古代背景：线上聊天换成书信往来，标签不变，只换说法；不提图片、语音等现代消息类型。
-export const CHAT_SHOW_ANCIENT_PROMPT_RULE = `[igs书信往来标签]
-角色之间以书信往来时，用以下标签输出往来的信件（属于允许使用的igs标签）：
+export const CHAT_SHOW_ANCIENT_PROMPT_RULE = `【书信往来】角色之间以书信往来时使用，当面对话仍使用[igs-char]：
 
 [igs-chat:书信标题]
 [igs-chat-time:时间]
@@ -72,22 +67,20 @@ export const CHAT_SHOW_ANCIENT_PROMPT_RULE = `[igs书信往来标签]
 [igs-chat-end]
 
 语法要求：
-1. 每条标签独立成行；一段书信往来以[igs-chat]开始、以[igs-chat-end]结束
-2. 书信标题写「致某某」「某某家书」这类说法
-3. 每封信或回信使用一个[igs-msg]；写信人填写完整角色名，{{user}}写的信填写{{user}}
-4. 信的内容用书面语，每封不超过80字，不得换行，不得含 | 或 ]
-5. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:三日后]
-6. 第三栏可写类型：输入中（内容留空，提笔又放下）、撤回（信被抽回）、已读（对方已阅未回）
-7. 仅用于书信；当面对话仍使用[igs-char]`;
+1. 一段书信往来以[igs-chat]开始、以[igs-chat-end]结束；书信标题写「致某某」「某某家书」这类说法
+2. 每封信或回信使用一个[igs-msg]；写信人填写完整角色名，{{user}}写的信填写{{user}}
+3. 信的内容用书面语，每封不超过80字
+4. 需要标出时间间隔时单独输出一行[igs-chat-time]，如[igs-chat-time:三日后]
+5. 第三栏可写类型：输入中（内容留空，提笔又放下）、撤回（信被抽回）、已读（对方已阅未回）`;
 
 // 用户自定义的提示词优先，两个时代都不覆盖。
 export function resolveChatShowPromptRule(settings, { ancient = false } = {}) {
     return normalizeChatShowSettings(settings).promptRule || (ancient ? CHAT_SHOW_ANCIENT_PROMPT_RULE : CHAT_SHOW_PROMPT_RULE);
 }
 
-const CHAT_SHOW_GRAMMAR = `【线上聊天】手机、网络消息用 [igs-chat:群名或对方名] 开始、[igs-chat-end] 结束；每条一行 [igs-msg:发送者|内容]，发送者写角色全名，{{user}}发的写{{user}}，系统通知写「系统」；第3栏类型：图片（写画面）、语音（写说的话）、表情包、撤回（写被撤回的话）、输入中（内容空，打字又停）、已读（{{user}}消息已读未回）；时间单独一行 [igs-chat-time:昨天 22:14]。当面对话仍用 igs-char`;
+const CHAT_SHOW_GRAMMAR = `【线上聊天】角色通过手机、网络发消息时使用，当面对话仍用 igs-char。写作 [igs-chat:群名或对方名] 开始、[igs-chat-end] 结束：每条一行 [igs-msg:发送者|内容]，发送者写角色全名，{{user}}发的写{{user}}，系统通知写「系统」；第3栏类型：图片（写画面）、语音（写说的话）、表情包、撤回（写被撤回的话）、输入中（内容空，打字又停）、已读（{{user}}消息已读未回）；时间单独一行 [igs-chat-time:昨天 22:14]`;
 
-const CHAT_SHOW_ANCIENT_GRAMMAR = `【书信往来】角色以书信往来时，用 [igs-chat:书信标题] 开始、[igs-chat-end] 结束；标题写「致某某」「某某家书」；每封信一行 [igs-msg:写信人|信的内容]，写信人写完整角色名，{{user}}写的写{{user}}，内容用书面语，不超过80字；第3栏可写 输入中（内容空，提笔又放下）、撤回、已读；时间间隔单独一行 [igs-chat-time:三日后]。当面对话仍用 igs-char`;
+const CHAT_SHOW_ANCIENT_GRAMMAR = `【书信往来】角色以书信往来时使用，当面对话仍用 igs-char。写作 [igs-chat:书信标题] 开始、[igs-chat-end] 结束：标题写「致某某」「某某家书」；每封信一行 [igs-msg:写信人|信的内容]，写信人写完整角色名，{{user}}写的写{{user}}，内容用书面语，不超过80字；第3栏可写 输入中（内容空，提笔又放下）、撤回、已读；时间间隔单独一行 [igs-chat-time:三日后]`;
 
 // 自定义提示词原样使用；精简写法只替换内置默认。
 export function resolveChatShowGrammar(settings, { ancient = false } = {}) {

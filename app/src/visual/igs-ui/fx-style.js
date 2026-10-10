@@ -23,8 +23,12 @@ export const FX_STYLE_TEXT = `
 /* 区间氛围：只改展示层。关灯压暗挂在 #igs-fx-stage 自身背景上（立绘之上、对话层之下），压过时段调色；看电影用 ::before 屏幕光；撑伞用 ::after 伞面剪影。 */
 #igs-stage-motion[data-igs-fx-lightsoff] #igs-fx-stage{background:linear-gradient(180deg,rgba(6,12,34,.62),rgba(4,8,22,.78));}
 #igs-stage-motion[data-igs-fx-movie] #igs-fx-stage::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,rgba(150,190,255,.28),rgba(0,0,0,.62) 70%);animation:igs-fx-movie-flicker 2.6s ease-in-out infinite;}
+/* 屏光染脸（[igs-fx:movie|屏光]）：立绘静态偏冷（sepia+hue-rotate 推向蓝，不逐帧改滤镜），再叠一层只闪 opacity 的屏幕光：自下而上的冷白光晕打在脸与肩上，房间其余处轻压暗。 */
+#igs-stage-motion[data-igs-fx-movie="screen"] #igs-sprite:not(.igs-sprite-editing),#igs-stage-motion[data-igs-fx-movie="screen"] #igs-cast{filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,) var(--igs-sprite-enhance,) brightness(.9) sepia(.35) hue-rotate(172deg) saturate(1.25);-webkit-filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,) var(--igs-sprite-enhance,) brightness(.9) sepia(.35) hue-rotate(172deg) saturate(1.25);}
+#igs-stage-motion[data-igs-fx-movie="screen"] #igs-fx-stage::before{background:radial-gradient(ellipse 70% 55% at 50% 100%,rgba(170,210,255,.34),rgba(120,170,255,.12) 55%,rgba(0,0,0,0) 78%),linear-gradient(180deg,rgba(4,10,26,.38),rgba(4,10,26,.12) 60%,rgba(4,10,26,.2));animation:igs-fx-screen-glow 3.4s ease-in-out infinite;}
 #igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{content:'';position:absolute;left:8%;right:8%;top:-34%;height:62%;border-radius:50%;background:radial-gradient(ellipse at 50% 100%,rgba(38,54,86,.78) 60%,rgba(24,34,56,.92));box-shadow:0 10px 24px rgba(0,0,0,.35);transform-origin:50% 0;animation:igs-fx-umbrella-open .5s ease-out both;}
 @keyframes igs-fx-movie-flicker{0%,100%{opacity:1;}35%{opacity:.82;}55%{opacity:.95;}72%{opacity:.76;}}
+@keyframes igs-fx-screen-glow{0%{opacity:1;}9%{opacity:.84;}17%{opacity:.96;}31%{opacity:.78;}38%{opacity:.92;}52%{opacity:1;}64%{opacity:.82;}73%{opacity:.94;}88%{opacity:.8;}}
 @keyframes igs-fx-umbrella-open{from{transform:scaleX(.2);opacity:0;}}
 @media (prefers-reduced-motion: reduce){#igs-stage-motion[data-igs-fx-movie] #igs-fx-stage::before,#igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{animation:none!important;}}
 /* 古代背景关灯为「吹灯」：烛火一晃熄灭，随后升起一缕青烟；区间压暗仍由 data-igs-fx-lightsoff 驱动。 */
@@ -219,6 +223,11 @@ export const FX_STYLE_TEXT = `
 .igs-fx-title-card.is-ancient::after{width:22px;height:22px;align-self:flex-end;border-radius:3px;background:#b8452f;box-shadow:inset 0 0 0 2px #f6ecd4,inset 0 0 0 3px #b8452f;}
 .igs-fx-title-card.is-ancient .igs-fx-title-main{font-size:clamp(28px,6vmin,48px);font-weight:400;letter-spacing:.3em;padding:0;}
 .igs-fx-title-card.is-ancient .igs-fx-title-sub{font-size:clamp(14px,2.2vmin,18px);color:#7a2a1a;opacity:1;letter-spacing:.3em;padding-top:1.2em;}
+/* 仙侠水墨过场卡：去宣纸框，墨字落在一团实色淡墨上，保留竖排与朱印；只换静态外观，入场节奏不变。 */
+.igs-fx-title-card.is-ancient.is-xianxia{border:0;border-radius:0;background:#f4f1ea;box-shadow:0 10px 30px rgba(31,37,35,.4);color:#1f2523;}
+.igs-fx-title-card.is-ancient.is-xianxia::before{content:"";display:block;position:absolute;z-index:-1;left:-14%;right:-14%;top:-8%;bottom:-8%;background:radial-gradient(ellipse 54% 60% at 42% 44%,rgba(31,37,35,.16),rgba(31,37,35,.08) 48%,transparent 72%);}
+.igs-fx-title-card.is-ancient.is-xianxia::after{background:#b23a2a;box-shadow:inset 0 0 0 2px #f4f1ea,inset 0 0 0 3px #b23a2a;}
+.igs-fx-title-card.is-ancient.is-xianxia .igs-fx-title-sub{color:#5f7f86;}
 .igs-fx-favor-stack{position:absolute;top:56px;right:14px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
 .igs-fx-favor{padding:4px 12px;border-radius:999px;font-size:13px;color:#fff;background:rgba(20,20,28,.62);border:1px solid rgba(255,255,255,.18);animation:igs-fx-rise var(--igs-fx-life,2.4s) ease both;}
 .igs-fx-favor[data-dir="up"]{border-color:rgba(255,140,180,.7);}

@@ -198,6 +198,7 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline, normalize
     const rawFx = content.fx || EMPTY_FX;
     const atmos = {
         movie: tagKinds.includes('movie') && Boolean(rawFx.movie),
+        movieMode: tagKinds.includes('movie') && rawFx.movie && rawFx.movieMode === 'screen' ? 'screen' : '',
         lightsOff: tagKinds.includes('light') && Boolean(rawFx.lightsOff),
         umbrella: tagKinds.includes('umbrella') && Boolean(rawFx.umbrella),
     };
@@ -598,7 +599,7 @@ function playEffect(effect, ctx) {
         sound(state, 'tinnitus', plan.sound, options);
     } else if (effect.type === 'title') {
         // 古代背景是一条宣纸竖幅：地点、时间竖排，末尾朱印；竖排里不要「——」引线。
-        const el = node(doc, (ctx.ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card') + (ctx.worldSkin || ''));
+        const el = node(doc, (ctx.ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card') + (ctx.worldSkin || '') + (ctx.xianxiaInk || ''));
         const sub = ctx.ancient && effect.sub ? effect.sub.replace(/^——\s*/, '') : effect.sub;
         if (effect.main) el.appendChild(node(doc, 'igs-fx-title-main', effect.main));
         if (sub) el.appendChild(node(doc, 'igs-fx-title-sub', sub));
@@ -1012,11 +1013,13 @@ export function applyFxToDom(root, snapshot, options = {}) {
         : worldSkinOf(worldview) ? `notify-${worldview}` : 'notify';
     // 换皮类名：西幻 / 科幻 / 末日追加 is-<id>，古代与现代为空（古代沿用 is-ancient 分支）。
     const worldSkin = worldSkinOf(worldview) ? ` is-${worldview}` : '';
+    // 仙侠水墨皮肤：古代背景里再追加 is-xianxia，过场卡等换成泼墨静态外观。
+    const xianxiaInk = ancient && String((snapshot.readerSettings && snapshot.readerSettings.dialogSkin) || '') === 'xianxia-ink' ? ' is-xianxia' : '';
     setFlag(motion, 'data-igs-fx-flashback', plan.ranges.flashback);
     setFlag(motion, 'data-igs-fx-dream', plan.ranges.dream);
     setFlag(motion, 'data-igs-fx-letterbox', plan.ranges.letterbox);
     setFlag(motion, 'data-igs-fx-whisper', plan.whisper);
-    setFlag(motion, 'data-igs-fx-movie', plan.atmos.movie);
+    setFlag(motion, 'data-igs-fx-movie', plan.atmos.movie, plan.atmos.movieMode || '1');
     setFlag(motion, 'data-igs-fx-lightsoff', plan.atmos.lightsOff);
     setFlag(motion, 'data-igs-fx-umbrella', plan.atmos.umbrella);
     state.rangeBusy = Boolean(plan.ranges.flashback || plan.ranges.dream);
@@ -1024,7 +1027,7 @@ export function applyFxToDom(root, snapshot, options = {}) {
     // 常驻节点只在内容变化时写入，避免每次渲染都产生无意义的 DOM 变更（外部 MutationObserver 也会被惊动）。
     const now = typeof options.now === 'function' ? options.now() : Date.now();
     const emergencyOn = settings.fxTags.enabled && settings.fxTags.emergency !== false;
-    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root, now, ancient, worldview, notifySound, worldSkin, emergencyOn };
+    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root, now, ancient, worldview, notifySound, worldSkin, xianxiaInk, emergencyOn };
     const remote = syncCall(ctx, settings.fxTags.callSprite);
     const eyeHold = persistent(stage, doc, 'igs-fx-eye-hold');
     if (eyeHold.hidden !== !plan.eyeHold) eyeHold.hidden = !plan.eyeHold;

@@ -1,11 +1,15 @@
 // 按需提示词块的世界书式条目：每块 常驻/关键词/关闭，可改关键词、次要词、排除词、扫描范围、黏性、冷却。
 // 默认值等于改版前的行为：关键词触发、扫用户输入 + AI 上 1 楼、无次要词与排除词、不黏、不冷却。
 
-export const PROMPT_ENTRY_KEYS = Object.freeze(['chat', 'daily', 'battle', 'romance', 'live', 'feed', 'camera']);
+export const PROMPT_ENTRY_KEYS = Object.freeze(['chat', 'daily', 'wardrobe', 'play', 'courtesy', 'campus', 'battle', 'romance', 'live', 'feed', 'camera']);
 
 export const PROMPT_ENTRY_LABELS = Object.freeze({
     chat: '线上聊天',
     daily: '日常',
+    wardrobe: '换装登场',
+    play: '玩乐',
+    courtesy: '体贴礼仪',
+    campus: '校园',
     battle: '战斗',
     romance: '亲密',
     live: '直播',

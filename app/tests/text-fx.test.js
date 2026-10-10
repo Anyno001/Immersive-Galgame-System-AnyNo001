@@ -93,7 +93,7 @@ test('gate: text fx prompt rule only when enabled', () => {
     assert.equal(resolveTextFxPromptRule(false), '');
     assert.equal(resolveTextFxPromptRule('true'), '');
     const rule = resolveTextFxPromptRule(true);
-    assert.match(rule, /^\[igs文字演出\]/);
+    assert.match(rule, /^【文字演出】/);
     for (const kind of Object.keys(TEXT_FX_KINDS)) assert.ok(rule.includes(`{${kind}:`), kind);
     assert.match(rule, /最多使用2处/);
     assert.match(rule, /不得嵌套/);

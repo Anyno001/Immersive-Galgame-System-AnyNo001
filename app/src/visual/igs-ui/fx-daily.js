@@ -1,5 +1,6 @@
 import { worldSkinOf } from '../../scene/worldview.js';
 import { STILL_PLACE_KINDS, VEHICLE_KINDS, isHorseDrawnWorld, resolvePlaceAmbience } from '../../scene/place-ambience.js';
+import { DATE_AMBIENCE_HTML, DATE_STILL_KINDS, resolveDateAmbience } from '../../scene/date-ambience.js';
 
 // 日常演出运行时：reader-dom-render 每次渲染调用一次 renderDailyFx。
 // 卡片类演出挂在 #igs-fx-front（对话层之上），触碰与飘花挂在 #igs-fx-stage（立绘之上、对话层之下），
@@ -11,6 +12,9 @@ import { FX_HOLD_SCALE, normalizeFxSoundSettings, normalizeFxStyleSettings } fro
 import { normalizeDailyFxSettings, planDailyFx } from './fx-daily-model.js';
 import { headTopAnchor } from './meta-runtime.js';
 import { playDailySfx } from './fx-daily-sfx.js';
+import { GAME_BUILDERS } from './fx-daily-game.js';
+import { CAMPUS_BUILDERS } from './fx-daily-campus.js';
+import { CAMPUS_AMBIENCE_HTML, CAMPUS_STILL_KINDS, resolveCampusAmbience } from '../../scene/campus-fx.js';
 import { resolvePetalKind, startFireworks, startLanterns, startPetals } from './fx-daily-particles.js';
 import { playSpriteSpec } from './sprite-actions.js';
 import { resolveWeatherFxTime } from './weather-fx-runtime.js';
@@ -168,7 +172,7 @@ function nowClock() {
 }
 
 // 结果类日常演出的停留时长（未并入导出的 DAILY_FX_LIFETIME_MS，避免改变其既有结构）。
-const DAILY_RESULT_LIFE_MS = Object.freeze({ say: 2600, rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400, brake: 1500, depart: 2600, arrive: 3600, ticket: 3400, steam: 3400, shower: 2600, splash: 2400, hairdry: 2600, dive: 2400, bubble: 2200, vacuum: 3200, surface: 2000 });
+const DAILY_RESULT_LIFE_MS = Object.freeze({ say: 2600, rps: 2600, gacha: 3000, game: 2200, score: 2800, pat: 2000, poke: 900, fever: 2800, cheers: 2000, cook: 3000, cat: 2200, guqin: 3200, go: 2600, poem: 4200, edict: 4200, tea: 2600, bow: 900, spell: 2400, potion: 3200, owl: 3400, broom: 2200, blackout: 3600, murmur: 3400, brake: 1500, depart: 2600, arrive: 3600, ticket: 3400, steam: 3400, shower: 2600, splash: 2400, hairdry: 2600, dive: 2400, bubble: 2200, vacuum: 3200, surface: 2000, sleep: 3200, wake: 2800, dressup: 2600, drape: 2200, fitting: 3000, sing: 3000, dance: 3000, fish: 3400, draw: 3200, music: 3000, ride: 3600, clean: 2800, shopping: 3000, stroll: 2800, yujian: 2200, liandan: 3600, biguan: 4200, dianxue: 2200, qinggong: 2000, yungong: 3400, opendoor: 2000, shield: 1800, tend: 2200, carry: 2600, candle: 3000, pass: 2400, stance: 3000 });
 // 敲门：每下间隔，末下之后再停留一会儿。
 const KNOCK_MS = Object.freeze({ gap: 420, tail: 1300 });
 // 吼叫信：抖动 900ms 后炸开，逐字吼出，吼完再停留。
@@ -200,23 +204,57 @@ export function spellHue(words) {
 const BRAKE_SPEC = Object.freeze({ duration: 560, easing: 'cubic-bezier(.2,.8,.3,1)', frames: ['translate(0,0) scale(1)', 'translate(0,1.2%) scale(1.045)', 'translate(0,.3%) scale(1.01)', 'translate(0,0) scale(1)'] });
 const BRAKE_BG_SPEC = Object.freeze({ duration: 480, easing: 'ease-out', frames: ['translate(0,0)', 'translate(-1%,0)', 'translate(.3%,0)', 'translate(0,0)'] });
 const DEPART_SPEC = Object.freeze({ duration: 900, easing: 'ease-in-out', frames: ['translate(0,0) scale(1)', 'translate(0,.6%) scale(.98)', 'translate(0,0) scale(1)'] });
-// 刹车、起步、到站的声音与字样跟着所在的载具换；地点认不出时按世界观猜（古代、西幻是马车，其余是汽车）。
-const VEHICLE_SOUNDS = Object.freeze({
-    brake: Object.freeze({ train: 'screech', car: 'screech', carriage: 'rein', ship: 'door' }),
-    depart: Object.freeze({ train: 'train-depart', car: 'engine', carriage: 'giddyup', ship: 'horn' }),
-    arrive: Object.freeze({ train: 'arrive-chime', car: 'door', carriage: 'rein', ship: 'horn' }),
+// 换装登场：立绘先微微一沉、再轻轻一挺（像站定亮相），只动 transform，结束自动还原。
+const DRESSUP_SPEC = Object.freeze({ duration: 900, easing: 'cubic-bezier(.3,.8,.3,1)', frames: ['translate(0,0) scale(1)', 'translate(0,.8%) scale(.99)', 'translate(0,-.5%) scale(1.012)', 'translate(0,0) scale(1)'] });
+// 站位身段：立绘位移 + 缩放 + 微倾来表现尊卑与亲近。中间几帧保持姿态、首尾回到原位；composite 为 add 叠加，结束自动还原，不改立绘本身的位置设定。
+// 跪拜：整个人沉下去收小；侍立：退到一侧收小、微垂；上座：抬高放大压场；并肩 / 依偎：向对方靠拢并微倾；俯身：向前低头。
+const STANCE_POSE = Object.freeze({
+    kneel: 'translate(0,5.5%) scale(.9)',
+    attend: 'translate(-4.5%,1.2%) scale(.95) rotate(1.2deg)',
+    throne: 'translate(0,-2.4%) scale(1.08)',
+    side: 'translate(3.2%,0) scale(1)',
+    lean: 'translate(2.4%,.4%) rotate(-3.2deg)',
+    stoop: 'translate(0,2.6%) rotate(2.6deg) scale(.98)',
 });
-const DEPART_WORDS = Object.freeze({ train: '开往', car: '前往', carriage: '启程', ship: '驶向' });
-const ARRIVE_WORDS = Object.freeze({ train: '到站', car: '到了', carriage: '到了', ship: '靠岸' });
+const STANCE_LABEL = Object.freeze({ kneel: '跪拜', attend: '侍立', throne: '上座', side: '并肩', lean: '依偎', stoop: '俯身' });
+const stanceSpec = (pose) => ({ duration: 2800, easing: 'cubic-bezier(.3,.7,.3,1)', frames: ['translate(0,0)', STANCE_POSE[pose], STANCE_POSE[pose], STANCE_POSE[pose], 'translate(0,0)'] });
+// 点穴：被点中的人一顿僵住；轻功：身形一掠而过；公主抱：立绘被轻轻托起；护身：立绘向前一顿。
+const FREEZE_SPEC = Object.freeze({ duration: 620, easing: 'ease-out', frames: ['translate(0,0)', 'translate(.5%,0)', 'translate(-.4%,0)', 'translate(.2%,0)', 'translate(0,0)'] });
+const DASH_SPEC = Object.freeze({ duration: 760, easing: 'cubic-bezier(.2,.8,.3,1)', frames: ['translate(0,0)', 'translate(5%,-3%) scale(.97)', 'translate(-1.5%,-1%)', 'translate(0,0)'] });
+const LIFT_SPEC = Object.freeze({ duration: 1500, easing: 'ease-in-out', frames: ['translate(0,0)', 'translate(0,-3.4%) scale(1.02)', 'translate(0,-3.6%) scale(1.02)', 'translate(0,0)'] });
+const GUARD_SPEC = Object.freeze({ duration: 620, easing: 'cubic-bezier(.2,.9,.3,1)', frames: ['translate(0,0) scale(1)', 'translate(-2%,0) scale(1.05)', 'translate(-1.4%,0) scale(1.03)', 'translate(0,0) scale(1)'] });
+// 找到指名角色的立绘节点：省略或就是说话人时是 #igs-sprite，否则在同屏陪衬里按角色名找；找不到退回说话人。
+function spriteElOf(env, who) {
+    const name = String(who || '').trim();
+    if (name && name !== env.speaker) {
+        const hit = Array.from(env.root.querySelectorAll('.igs-cast-sprite')).find((el) => el.getAttribute('data-igs-cast-char') === name);
+        if (hit) return hit;
+    }
+    return env.root.querySelector('#igs-sprite');
+}
+// 刹车、起步、到站的声音与字样跟着所在的载具换；地点认不出时按世界观猜（古代、西幻是马车，其余是汽车）。
+// 飞艇 / 热气球 / 飞毯（plane 的 airship 变体）没有喷气引擎：起飞是螺旋桨与风，颠簸是船身吱呀，靠港鸣笛。
+// 露天飞行（sky：御剑、骑龙、乘云）：腾空是一道上扬的风声，颠簸是一阵乱风，落地是风声收住、轻轻一踏。
+// 自行车 / 摩托（bike）：起步是一下蹬踏 / 拧油门，刹停是刹皮一捏、车铃一响，到了也是一声车铃。
+const VEHICLE_SOUNDS = Object.freeze({
+    brake: Object.freeze({ train: 'screech', car: 'screech', carriage: 'rein', ship: 'door', plane: 'touchdown', airship: 'creak', sky: 'gust', bike: 'bike-skid' }),
+    depart: Object.freeze({ train: 'train-depart', car: 'engine', carriage: 'giddyup', ship: 'horn', plane: 'jet', airship: 'propeller', sky: 'soar', bike: 'bike-ride' }),
+    arrive: Object.freeze({ train: 'arrive-chime', car: 'door', carriage: 'rein', ship: 'horn', plane: 'arrive-chime', airship: 'horn', sky: 'alight', bike: 'bike-bell' }),
+});
+const DEPART_WORDS = Object.freeze({ train: '开往', car: '前往', carriage: '启程', ship: '驶向', plane: '飞往', airship: '启航', sky: '飞向', bike: '骑往' });
+const ARRIVE_WORDS = Object.freeze({ train: '到站', car: '到了', carriage: '到了', ship: '靠岸', plane: '降落', airship: '抵达', sky: '落地', bike: '到了' });
+const BRAKE_WORDS = Object.freeze({ carriage: '吁——', ship: '晃——', plane: '咚——', airship: '晃——', sky: '呼——', bike: '叮铃——' });
 
 function vehicleOf(env) {
+    if (env.place && env.place.kind === 'plane' && env.place.variant === 'airship') return 'airship';
     if (env.place && VEHICLE_KINDS.includes(env.place.kind)) return env.place.kind;
     return env.ancient || isHorseDrawnWorld(env.worldview) ? 'carriage' : 'car';
 }
 
 function ticketLabel(item, vehicle) {
-    if (/航班|登机|机场|飞机|航站/.test(`${item.from}${item.to}${item.note}`)) return '登机牌';
-    return vehicle === 'ship' ? '船票' : '车票';
+    if (vehicle === 'airship' || vehicle === 'ship') return '船票';
+    if (vehicle === 'plane' || /航班|登机|机场|飞机|航站/.test(`${item.from}${item.to}${item.note}`)) return '登机牌';
+    return '车票';
 }
 
 const HOURGLASS_HTML = '<div class="igs-dfx-hourglass"><i class="igs-dfx-hg-cap"></i><div class="igs-dfx-hg-glass"><i class="igs-dfx-hg-sand is-top"></i><i class="igs-dfx-hg-stream"></i><i class="igs-dfx-hg-sand is-bottom"></i></div><i class="igs-dfx-hg-cap"></i></div>';
@@ -370,7 +408,7 @@ const BUILDERS = {
     game(item, env) {
         const word = { win: 'WIN', lose: 'LOSE', draw: 'DRAW' }[item.result] || 'DRAW';
         const node = make(env.doc, `igs-dfx igs-dfx-game is-${item.result || 'draw'}`, `<div class="igs-dfx-game-word">${word}</div>`);
-        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.game * env.hold), sounds: ['bell'], node };
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.game * env.hold), sounds: [{ win: 'game-win', lose: 'game-lose' }[item.result] || 'game-draw'], node };
     },
     score(item, env) {
         const stamp = item.fail ? '<div class="igs-dfx-score-stamp">不及格</div>' : '';
@@ -440,6 +478,107 @@ const BUILDERS = {
         if (!visible || env.reduced) return null;
         if (!playSpriteSpec(sprite, BOW_SPEC)) return null;
         return { layer: 'stage', life: DAILY_RESULT_LIFE_MS.bow, sounds: [], node: make(env.doc, 'igs-dfx igs-dfx-bow') };
+    },
+    // ── 修仙武侠（古代专属，fx-era 在其他世界观拨掉）──
+    // 御剑飞行：一道青白剑光自左下斜掠向右上，拖淡墨尾，剑尖一点亮芯；立绘轻轻一提。
+    yujian(item, env) {
+        if (!env.reduced) playSpriteSpec(env.root.querySelector('#igs-sprite'), LIFT_SPEC);
+        const node = make(env.doc, 'igs-dfx igs-dfx-yujian', '<i class="igs-dfx-yujian-trail"></i><i class="igs-dfx-yujian-blade"></i><i class="igs-dfx-yujian-glint"></i>');
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.yujian * env.hold), sounds: ['soar', 'sword-ring'], node };
+    },
+    // 炼丹：丹炉烟气盘旋而上；成丹一点金光跃出，炼废则冒一缕黑烟。成败由标签定，不写不显示字样。
+    liandan(item, env) {
+        const fail = item.result === 'lose';
+        const smoke = [0, 1, 2, 3].map((i) => `<i style="animation-delay:${i * 340}ms;left:${38 + i * 8}%"></i>`).join('');
+        const tail = fail ? '<i class="igs-dfx-liandan-fume"></i>' : '<i class="igs-dfx-liandan-pill"></i><i class="igs-dfx-liandan-aura"></i>';
+        const word = fail ? '丹毁' : item.result === 'win' ? '丹成' : '';
+        const label = word ? `<div class="igs-dfx-liandan-label">${word}</div>` : '';
+        const node = make(env.doc, `igs-dfx igs-dfx-liandan${fail ? ' is-fail' : ''}`, `<div class="igs-dfx-liandan-stage"><i class="igs-dfx-liandan-fire"></i><i class="igs-dfx-liandan-cauldron"></i><div class="igs-dfx-liandan-smoke">${smoke}</div>${tail}</div>${label}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.liandan * env.hold), sounds: ['pill'], node };
+    },
+    // 闭关吐纳：四周压暗留白，气旋一圈圈随呼吸涨落；境界落在下方（可省）。
+    biguan(item, env) {
+        const rings = [0, 1, 2].map((i) => `<i style="animation-delay:${i * 900}ms"></i>`).join('');
+        const text = item.text ? `<div class="igs-dfx-biguan-text">${esc(item.text)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-biguan', `<i class="igs-dfx-biguan-veil"></i><div class="igs-dfx-biguan-qi">${rings}</div>${text}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.biguan * env.hold), sounds: ['qi'], node };
+    },
+    // 点穴：指尖一点，涟漪一圈圈自立绘胸前荡开，被点中的人一顿僵住。
+    dianxue(item, env) {
+        if (!env.reduced) playSpriteSpec(env.root.querySelector('#igs-sprite'), FREEZE_SPEC);
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const node = make(env.doc, 'igs-dfx igs-dfx-dianxue', `<div class="igs-dfx-dianxue-stage" style="left:${x}%"><i class="igs-dfx-dianxue-dot"></i><i class="igs-dfx-dianxue-ring"></i><i class="igs-dfx-dianxue-ring is-2"></i></div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.dianxue * env.hold), sounds: ['tap'], node };
+    },
+    // 轻功：身形一掠，身后两道横向残影，几片落叶被风带起。
+    qinggong(item, env) {
+        if (!env.reduced) playSpriteSpec(env.root.querySelector('#igs-sprite'), DASH_SPEC);
+        const leaves = [14, 32, 50, 70, 86].map((y, i) => `<i style="top:${y}%;animation-delay:${i * 150}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-qinggong', `<i class="igs-dfx-qinggong-ghost"></i><i class="igs-dfx-qinggong-ghost is-2"></i><div class="igs-dfx-qinggong-leaves">${leaves}</div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.qinggong * env.hold), sounds: ['soar'], node };
+    },
+    // 运功疗伤：掌心泛起青光，几缕细线沿身游走；成败可省，败时青光转灰。
+    yungong(item, env) {
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const lines = [0, 1, 2, 3].map((i) => `<i style="animation-delay:${i * 420}ms;left:${30 + i * 13}%"></i>`).join('');
+        const node = make(env.doc, `igs-dfx igs-dfx-yungong${item.result === 'lose' ? ' is-fail' : ''}`, `<div class="igs-dfx-yungong-stage" style="left:${x}%"><i class="igs-dfx-yungong-palm"></i><div class="igs-dfx-yungong-lines">${lines}</div></div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.yungong * env.hold), sounds: ['qi'], node };
+    },
+    // ── 体贴动作（约会向）：光效 + 角落动作字样，机制同 drape ──
+    // 开门礼让：门 / 椅方向一道弧形光扫开。
+    opendoor(item, env) {
+        const label = item.act ? `<div class="igs-dfx-courtesy-label">${esc(item.act)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-opendoor', `<div class="igs-dfx-opendoor-stage"><i class="igs-dfx-opendoor-arc"></i><i class="igs-dfx-opendoor-gap"></i></div>${label}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.opendoor * env.hold), sounds: ['door'], node };
+    },
+    // 护在身前：立绘前方一道护光横展，立绘向前一顿。
+    shield(item, env) {
+        if (!env.reduced) playSpriteSpec(spriteElOf(env, item.who), GUARD_SPEC);
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const label = item.act ? `<div class="igs-dfx-courtesy-label">${esc(item.act)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-shield', `<div class="igs-dfx-shield-stage" style="left:${x}%"><i class="igs-dfx-shield-wall"></i><i class="igs-dfx-shield-edge"></i></div>${label}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.shield * env.hold), sounds: ['tap'], node };
+    },
+    // 贴心照料：低头处（脚边、脸侧）一点柔光晕缓缓亮起、散开。
+    tend(item, env) {
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const label = item.act ? `<div class="igs-dfx-courtesy-label">${esc(item.act)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-tend', `<div class="igs-dfx-tend-stage" style="left:${x}%"><i class="igs-dfx-tend-halo"></i><i class="igs-dfx-tend-spark"></i><i class="igs-dfx-tend-spark is-2"></i></div>${label}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.tend * env.hold), sounds: ['rustle'], node };
+    },
+    // 公主抱 / 背起：自立绘位置升起一片暖光托举感，立绘被轻轻托起。
+    carry(item, env) {
+        if (!env.reduced) playSpriteSpec(spriteElOf(env, item.who), LIFT_SPEC);
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const label = item.act ? `<div class="igs-dfx-courtesy-label">${esc(item.act)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-carry', `<div class="igs-dfx-carry-stage" style="left:${x}%"><i class="igs-dfx-carry-lift"></i><i class="igs-dfx-carry-glow"></i></div>${label}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.carry * env.hold), sounds: ['rustle'], node };
+    },
+    // ── 积木（约会与后宫共用）──
+    // 点灯烛火：一点火光擦亮、烛焰由小变大并跳动；灯 = 宫灯红罩，香 = 一缕青烟。落在立绘身侧。
+    candle(item, env) {
+        const style = item.style === 'lamp' || item.style === 'incense' ? item.style : 'candle';
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const body = style === 'incense'
+            ? '<i class="igs-dfx-candle-stick"></i><i class="igs-dfx-candle-ember"></i><i class="igs-dfx-candle-smoke"></i><i class="igs-dfx-candle-smoke is-2"></i>'
+            : '<i class="igs-dfx-candle-body"></i><i class="igs-dfx-candle-flame"></i><i class="igs-dfx-candle-halo"></i><i class="igs-dfx-candle-glow"></i>';
+        const node = make(env.doc, `igs-dfx igs-dfx-candle is-${style}`, `<div class="igs-dfx-candle-stage" style="left:${x}%">${body}</div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.candle * env.hold), sounds: ['candle'], node };
+    },
+    // 递接：物品名浮起，沿一道弧线从递出一侧飘向接物一侧，落点一圈微光；物品名必填。
+    pass(item, env) {
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const node = make(env.doc, 'igs-dfx igs-dfx-pass', `<div class="igs-dfx-pass-stage" style="left:${x}%"><i class="igs-dfx-pass-trail"></i><div class="igs-dfx-pass-item">${esc(item.item)}</div><i class="igs-dfx-pass-ring"></i></div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.pass * env.hold), sounds: ['rustle'], node };
+    },
+    // 站位身段：用立绘位移、缩放、微倾表现尊卑与亲近（跪拜 / 侍立 / 上座 / 并肩 / 依偎 / 俯身），角落落姿态字样。
+    // 指名陪衬角色时动陪衬，否则动说话人；上座另有一道自下而上的升座光。
+    stance(item, env) {
+        const pose = STANCE_POSE[item.pose] ? item.pose : 'attend';
+        if (!env.reduced) playSpriteSpec(spriteElOf(env, item.who), stanceSpec(pose));
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const node = make(env.doc, `igs-dfx igs-dfx-stance is-${pose}`, `<div class="igs-dfx-stance-stage" style="left:${x}%"><i class="igs-dfx-stance-dais"></i><i class="igs-dfx-stance-beam"></i></div><div class="igs-dfx-courtesy-label">${STANCE_LABEL[pose]}</div>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.stance * env.hold), sounds: ['rustle'], node };
     },
     // 魔法世界独有：只在魔法世界观可用（fx-era 在其他世界观拨掉）。
     spell(item, env) {
@@ -521,7 +660,7 @@ const BUILDERS = {
             playSpriteSpec(env.root.querySelector('#igs-bg'), BRAKE_BG_SPEC);
         }
         const lines = [22, 36, 48, 63, 76].map((y, i) => `<i style="top:${y}%;animation-delay:${i * 40}ms"></i>`).join('');
-        const word = vehicle === 'carriage' ? '吁——' : vehicle === 'ship' ? '晃——' : '吱——';
+        const word = BRAKE_WORDS[vehicle] || '吱——';
         const node = make(env.doc, 'igs-dfx igs-dfx-brake', `<div class="igs-dfx-brake-lines">${lines}</div><div class="igs-dfx-brake-word">${word}</div>`);
         return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.brake * env.hold), sounds: [VEHICLE_SOUNDS.brake[vehicle]], node };
     },
@@ -576,6 +715,50 @@ const BUILDERS = {
         const node = make(env.doc, 'igs-dfx igs-dfx-hairdry', `<div class="igs-dfx-hairdry-wind" style="left:${x}%">${gusts}</div>`);
         return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.hairdry * env.hold), sounds: ['dryer'], node };
     },
+    // 居家：入睡时画面渐暗成夜色，几个「Z」轻飘上去；起床时晨光自上而下铺开。旁白可省。
+    sleep(item, env) {
+        const text = item.text ? `<div class="igs-dfx-rest-text">${esc(item.text)}</div>` : '';
+        const zzz = [0, 1, 2].map((i) => `<i style="animation-delay:${600 + i * 520}ms">Z</i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-sleep', `<i class="igs-dfx-rest-veil"></i><div class="igs-dfx-sleep-z">${zzz}</div>${text}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.sleep * env.hold), sounds: ['sleep'], node };
+    },
+    // 场景时间是深夜、夜里时（半夜惊醒、夜里醒来）不铺晨光，换一层清冷的月色。
+    wake(item, env) {
+        const text = item.text ? `<div class="igs-dfx-rest-text">${esc(item.text)}</div>` : '';
+        const time = resolveWeatherFxTime(env.sceneTime);
+        const night = time === 'night' || time === 'midnight' ? ' is-night' : '';
+        const node = make(env.doc, `igs-dfx igs-dfx-wake${night}`, `<i class="igs-dfx-wake-glow"></i><i class="igs-dfx-wake-sheen"></i>${text}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.wake * env.hold), sounds: ['wake'], node };
+    },
+    // 居家 · 换装登场：换上新装亮相的那一刻——柔光聚拢、一圈光点环绕扫过，服装名落章，立绘轻轻一挺。
+    // 魔法世界观换皮成旋转魔法阵 / 光环（is-magic），结构、时长、音效不变。服装名可省（省了只有光效）。
+    dressup(item, env) {
+        if (!env.reduced) {
+            playSpriteSpec(env.root.querySelector('#igs-sprite'), DRESSUP_SPEC);
+            playSpriteSpec(env.root.querySelector('#igs-cast'), DRESSUP_SPEC);
+        }
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const sparks = [0, 45, 90, 135, 180, 225, 270, 315]
+            .map((a, i) => `<i style="--igs-du-a:${a}deg;animation-delay:${300 + i * 55}ms"></i>`).join('');
+        const label = item.outfit ? `<div class="igs-dfx-dressup-label">${esc(item.outfit)}</div>` : '';
+        const skin = env.worldview === 'magic' ? ' is-magic' : env.ancient ? ' is-ancient' : '';
+        const node = make(env.doc, `igs-dfx igs-dfx-dressup${skin}`, `<div class="igs-dfx-dressup-stage" style="left:${x}%"><i class="igs-dfx-dressup-beam"></i><i class="igs-dfx-dressup-ring"></i><div class="igs-dfx-dressup-sparks">${sparks}</div></div>${label}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.dressup * env.hold), sounds: ['dressup'], node };
+    },
+    // 衣 · 披衣 / 整理着装：肩头落一层暖光、顺着布料滑一道柔光，角落浮出动作字样（披上外套 / 系好领带……）。
+    drape(item, env) {
+        const x = spritePosX(readStageBackground(env.root).sprite);
+        const label = item.act ? `<div class="igs-dfx-drape-label">${esc(item.act)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-drape', `<div class="igs-dfx-drape-stage" style="left:${x}%"><i class="igs-dfx-drape-glow"></i><i class="igs-dfx-drape-sheen"></i></div>${label}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.drape * env.hold), sounds: ['rustle'], node };
+    },
+    // 衣 · 试衣镜：中央立起一面试衣镜，镜面一道微光扫过，照出换上的新装，镜框下方落新装名。古风换成铜镜木框。
+    fitting(item, env) {
+        const label = item.outfit ? `<div class="igs-dfx-fitting-name">${esc(item.outfit)}</div>` : '';
+        const skin = env.ancient || env.worldview === 'ancient' ? ' is-ancient' : '';
+        const node = make(env.doc, `igs-dfx igs-dfx-fitting${skin}`, `<div class="igs-dfx-fitting-mirror"><i class="igs-dfx-fitting-glass"></i><i class="igs-dfx-fitting-sheen"></i><i class="igs-dfx-fitting-stand"></i></div>${label}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.fitting * env.hold), sounds: ['dressup'], node };
+    },
     // 水下与真空：入水时水面一闪、蓝色从上往下漫过、气泡往上涌；说话吐出一串气泡；泄压时空气往一侧冲走，四周暗下来。
     dive(item, env) {
         const bubbles = [14, 27, 41, 55, 68, 82, 34, 74]
@@ -600,13 +783,90 @@ const BUILDERS = {
         const node = make(env.doc, 'igs-dfx igs-dfx-vacuum', `<div class="igs-dfx-vacuum-rush">${rush}</div><i class="igs-dfx-vacuum-hush"></i>`);
         return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.vacuum * env.hold), sounds: ['vacuum'], node };
     },
+    // 玩乐：唱歌——话筒旁泛起一圈圈声波，音符随旋律往上飘；歌名落在下方。
+    sing(item, env) {
+        const notes = [16, 32, 50, 66, 82].map((x, i) => `<i style="left:${x}%;animation-delay:${i * 220}ms">${['♪', '♫', '♩', '♬', '♪'][i]}</i>`).join('');
+        const rings = [0, 1, 2].map((i) => `<i style="animation-delay:${i * 420}ms"></i>`).join('');
+        const label = item.song ? `<div class="igs-dfx-sing-label">${esc(item.song)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-sing', `<div class="igs-dfx-sing-waves">${rings}</div><div class="igs-dfx-sing-notes">${notes}</div>${label}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.sing * env.hold), sounds: ['sing'], node };
+    },
+    // 跳舞：一对剪影随旋律旋转，脚边荡开光圈，几点亮片飞散；舞种落在下方。
+    dance(item, env) {
+        const sparks = [0, 60, 120, 180, 240, 300].map((a, i) => `<i style="--igs-dc-a:${a}deg;animation-delay:${200 + i * 90}ms"></i>`).join('');
+        const label = item.style ? `<div class="igs-dfx-dance-label">${esc(item.style)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-dance', `<div class="igs-dfx-dance-pair"><i class="igs-dfx-dance-figure is-a"></i><i class="igs-dfx-dance-figure is-b"></i><i class="igs-dfx-dance-ring"></i></div><div class="igs-dfx-dance-sparks">${sparks}</div>${label}`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.dance * env.hold), sounds: ['dance'], node };
+    },
+    // 钓鱼：水面漾开一圈圈涟漪，浮漂一沉，鱼线一绷拉起一尾鱼影；钓到的鱼落在下方。
+    fish(item, env) {
+        const ripples = [0, 1, 2].map((i) => `<i style="animation-delay:${i * 500}ms"></i>`).join('');
+        const label = item.catch ? `<div class="igs-dfx-fish-catch">${esc(item.catch)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-fish', `<div class="igs-dfx-fish-water">${ripples}</div><i class="igs-dfx-fish-line"></i><i class="igs-dfx-fish-float"></i><i class="igs-dfx-fish-silhouette"></i>${label}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.fish * env.hold), sounds: ['fish'], node };
+    },
+    // 画画：画布上笔触一道道落下、渐渐成形，画笔在角上游走；画的内容落在下方。
+    draw(item, env) {
+        const strokes = [0, 1, 2, 3].map((i) => `<i class="igs-dfx-draw-stroke" style="animation-delay:${300 + i * 360}ms"></i>`).join('');
+        const label = item.subject ? `<div class="igs-dfx-draw-label">${esc(item.subject)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-draw', `<div class="igs-dfx-draw-canvas">${strokes}<i class="igs-dfx-draw-pencil"></i></div>${label}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.draw * env.hold), sounds: ['draw'], node };
+    },
+    // 演奏乐器：一道五线谱浮起，音符顺着谱线依次亮起、跳动；乐器名落在下方。古琴另走 guqin。
+    music(item, env) {
+        const notes = [12, 28, 44, 60, 76, 90].map((x, i) => `<i style="left:${x}%;top:${[30, 55, 20, 60, 35, 48][i]}%;animation-delay:${i * 200}ms">${['♪', '♫', '♩', '♬', '♪', '♫'][i]}</i>`).join('');
+        const staff = [0, 1, 2, 3, 4].map((i) => `<i style="top:${12 + i * 18}%"></i>`).join('');
+        const label = item.instrument ? `<div class="igs-dfx-music-label">${esc(item.instrument)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-music', `<div class="igs-dfx-music-staff">${staff}</div><div class="igs-dfx-music-notes">${notes}</div>${label}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.music * env.hold), sounds: ['music'], node };
+    },
+    // 游乐设施：一座摩天轮缓缓转起，彩灯一圈点亮，座舱随之起伏；设施名落在下方。仅现代类世界观（见 fx-era）。
+    ride(item, env) {
+        const cabins = [0, 45, 90, 135, 180, 225, 270, 315].map((a, i) => `<i style="--igs-rd-a:${a}deg;animation-delay:${i * 70}ms"></i>`).join('');
+        const label = item.name ? `<div class="igs-dfx-ride-label">${esc(item.name)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-ride', `<div class="igs-dfx-ride-wheel"><i class="igs-dfx-ride-hub"></i><div class="igs-dfx-ride-cabins">${cabins}</div></div>${label}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.ride * env.hold), sounds: ['ride'], node };
+    },
+    // 打扫：扫帚扫过一道光痕，几点尘埃扬起又落下，角上冒出几颗「窗明几净」的亮晶。都不带字段。
+    clean(item, env) {
+        const sparks = [[22, 34], [48, 24], [68, 40], [80, 28], [36, 52]]
+            .map(([x, y], i) => `<i style="left:${x}%;top:${y}%;animation-delay:${300 + i * 180}ms">✦</i>`).join('');
+        const dust = [20, 40, 60, 78].map((x, i) => `<i style="left:${x}%;animation-delay:${i * 150}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-clean', `<i class="igs-dfx-clean-sweep"></i><div class="igs-dfx-clean-dust">${dust}</div><div class="igs-dfx-clean-sparks">${sparks}</div>`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.clean * env.hold), sounds: ['sweep'], node };
+    },
+    // 逛街购物：一两只购物袋晃进来，袋口蹦出几点亮晶；买到的东西落在下方。
+    shopping(item, env) {
+        const sparks = [30, 50, 70].map((x, i) => `<i style="left:${x}%;animation-delay:${400 + i * 160}ms">✧</i>`).join('');
+        const label = item.item ? `<div class="igs-dfx-shopping-label">${esc(item.item)}</div>` : '';
+        const node = make(env.doc, 'igs-dfx igs-dfx-shopping', `<div class="igs-dfx-shopping-bags"><i class="igs-dfx-shopping-bag is-a"></i><i class="igs-dfx-shopping-bag is-b"></i></div><div class="igs-dfx-shopping-sparks">${sparks}</div>${label}`);
+        return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.shopping * env.hold), sounds: ['shopping'], node };
+    },
+    // 散步：画面底部漾过一道暖光，两串脚印一前一后印出来，一片叶子轻轻飘落——并肩同行的闲适。都不带字段。
+    stroll(item, env) {
+        const steps = [0, 1, 2, 3, 4].map((i) => `<i class="igs-dfx-stroll-step ${i % 2 ? 'is-r' : 'is-l'}" style="left:${18 + i * 14}%;animation-delay:${i * 300}ms"></i>`).join('');
+        const node = make(env.doc, 'igs-dfx igs-dfx-stroll', `<i class="igs-dfx-stroll-warm"></i><div class="igs-dfx-stroll-steps">${steps}</div><i class="igs-dfx-stroll-leaf"></i>`);
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.stroll * env.hold), sounds: ['stroll'], node };
+    },
 };
+// 在家玩游戏机：开机 / 对战 / 连击 / 抢手柄，构建器在 fx-daily-game.js。
+Object.assign(BUILDERS, GAME_BUILDERS);
+// 校园演出：黑板 / 传纸条 / 抽屉 / 点名 / 考试 / 文化祭 / 毕业 / 纽扣，构建器在 fx-daily-campus.js。
+Object.assign(BUILDERS, CAMPUS_BUILDERS);
 
 // 常驻氛围层：人在车里、船上、浴室时一直挂着，换地点淡出。每种只有一两个动画元素，样式见 fx-daily-style。
 const AMBIENCE_HTML = Object.freeze({
     train: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i>',
     car: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i>',
     carriage: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i>',
+    // 修仙武侠古风地点（只在古代世界观生效）：客栈暖灯晕 + 飘尘、洞府暗角 + 水滴光点、云海流云 + 薄雾。
+    inn: '<i class="igs-dfx-amb-innglow"></i><i class="igs-dfx-amb-innmote"></i>',
+    cave: '<i class="igs-dfx-amb-cavedark"></i><i class="igs-dfx-amb-cavedrip"></i>',
+    cloudsea: '<i class="igs-dfx-amb-clouds"></i><i class="igs-dfx-amb-seamist"></i>',
+    plane: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i>',
+    sky: '<i class="igs-dfx-amb-clouds"></i><i class="igs-dfx-amb-gust"></i>',
+    // 自行车 / 摩托：开放式骑行，不是封闭车厢——用迎面掠过的风线，不挂车窗光带。
+    bike: '<i class="igs-dfx-amb-rush"></i>',
     ship: '<i class="igs-dfx-amb-water"></i>',
     bath: '<i class="igs-dfx-amb-fog"></i><i class="igs-dfx-amb-steam"></i>',
     underwater: '<i class="igs-dfx-amb-deep"></i><i class="igs-dfx-amb-rays"></i><i class="igs-dfx-amb-bubbles"></i>',
@@ -633,7 +893,7 @@ function syncWaterCrossing(state, env, settings, content, played) {
 // 聊天页、卡片页不挂；NSFW 页只留浴室水汽、水下与太空这类环境本身（车里的光带会扫过 CG）。
 function resolveAmbience(settings, content, place) {
     if (!settings.ambience || !place || pageKindOf(content) !== 'text') return null;
-    if (content.sceneNsfw === true && !STILL_PLACE_KINDS.includes(place.kind)) return null;
+    if (content.sceneNsfw === true && !STILL_PLACE_KINDS.includes(place.kind) && !DATE_STILL_KINDS.includes(place.kind) && !CAMPUS_STILL_KINDS.includes(place.kind)) return null;
     const time = resolveWeatherFxTime(content.sceneTime);
     return { ...place, night: time === 'night' || time === 'midnight' || time === 'dusk' };
 }
@@ -654,7 +914,7 @@ function syncAmbience(state, env, spec) {
     state.ambienceKey = key;
     if (!spec) return;
     const classes = ['igs-dfx-amb', `is-${spec.kind}`, spec.variant && `is-${spec.variant}`, spec.night && 'is-night', env.reduced && 'is-reduced'].filter(Boolean).join(' ');
-    const node = make(env.doc, classes, AMBIENCE_HTML[spec.kind]);
+    const node = make(env.doc, classes, AMBIENCE_HTML[spec.kind] || DATE_AMBIENCE_HTML[spec.kind] || CAMPUS_AMBIENCE_HTML[spec.kind]);
     const stage = env.layers.stage;
     stage.insertBefore(node, stage.firstChild || null);
     state.ambience = node;
@@ -793,8 +1053,11 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
         sprite: ctx.sprite || null,
         cast: Array.isArray(ctx.cast) ? ctx.cast : [],
         speaker: String(content.spriteCharacter || content.speaker || '').trim(),
+        sceneTime: content.sceneTime,
     };
-    env.place = resolvePlaceAmbience(content.sceneLocation, { worldview: env.ancient ? 'ancient' : env.worldview });
+    env.place = resolvePlaceAmbience(content.sceneLocation, { worldview: env.ancient ? 'ancient' : env.worldview })
+        || resolveCampusAmbience(content.sceneLocation, { worldview: env.ancient ? 'ancient' : env.worldview })
+        || resolveDateAmbience(content.sceneLocation, { worldview: env.ancient ? 'ancient' : env.worldview });
     // 西幻 / 科幻 / 末日：在现代节点上追加 is-<id> 换皮，结构、时长与音效不变；古代沿用自身分支。
     const worldSkin = !env.ancient && worldSkinOf(env.worldview) ? `is-${env.worldview}` : '';
     const played = [];

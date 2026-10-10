@@ -152,6 +152,8 @@ export function normalizeFxPromptsSettings(value) {
     return {
         inject: src.inject !== false,
         style: FX_PROMPT_STYLES.includes(src.style) ? src.style : 'compact',
+        // 全量常驻：开启后所有按场合块也每轮都发（不再折叠成索引）；默认关，省 token。
+        resident: src.resident === true,
         ...Object.fromEntries(FX_PROMPT_KEYS.map((key) => [key, text(src[key])])),
     };
 }

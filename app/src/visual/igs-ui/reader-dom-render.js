@@ -781,6 +781,10 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         root.classList.toggle('igs-toolbar-top', toolbarDock === 'top');
         root.classList.toggle('igs-cinema-bars', readerSettings.cinemaBars === true);
     }
+    if (root && typeof root.setAttribute === 'function') {
+        const plateMode = ['blur', 'solid', 'off'].includes(readerSettings.toolbarPlate) ? readerSettings.toolbarPlate : 'off';
+        root.setAttribute('data-igs-bar-plate', plateMode);
+    }
     if (toolbar) {
         toolbar.setAttribute('data-igs-toolbar-dock', toolbarDock);
         // 顶部固定栏铺满整条，不做缩放（缩放是悬浮小条用的，全宽栏缩放会从角落缩成异形）。

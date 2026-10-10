@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { DAILY_SFX, DAILY_SFX_KINDS, dailySfxDuration, playDailySfx } from '../src/visual/igs-ui/fx-daily-sfx.js';
 
 const EXPECTED = ['shutter', 'bell', 'broadcast', 'firework', 'firework-pop', 'alarm', 'vibrate', 'omikuji', 'receipt', 'paper', 'sticky', 'tv-on', 'clock', 'drum', 'lantern', 'touch', 'spell', 'potion', 'owl', 'broom', 'hourglass', 'howler', 'blackout', 'knock1', 'knock2', 'knock3', 'knock4', 'knock5', 'knock6', 'murmur',
-    'screech', 'rein', 'engine', 'giddyup', 'train-depart', 'arrive-chime', 'horn', 'door', 'punch', 'hiss', 'shower', 'splash', 'dryer', 'dive', 'blub', 'vacuum'];
+    'screech', 'rein', 'engine', 'giddyup', 'train-depart', 'arrive-chime', 'horn', 'door', 'jet', 'touchdown', 'soar', 'gust', 'alight', 'propeller', 'creak', 'sleep', 'wake', 'dressup', 'rustle', 'punch', 'hiss', 'shower', 'splash', 'dryer', 'dive', 'blub', 'vacuum',
+    'sing', 'dance', 'fish', 'draw', 'music', 'ride', 'sweep', 'shopping', 'stroll', 'bike-bell', 'bike-ride', 'bike-skid',
+    'sword-ring', 'talisman', 'guqin', 'candle', 'pill', 'qi', 'tap',
+    'game-boot', 'game-win', 'game-lose', 'game-draw', 'game-versus', 'game-ko', 'game-combo', 'game-snatch',
+    'campus-chalk', 'campus-pass', 'campus-drawer', 'campus-rollcall', 'campus-exam', 'campus-festival', 'campus-graduate', 'campus-button'];
 
 function fakeParam(log) {
     return {

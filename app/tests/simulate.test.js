@@ -6771,6 +6771,73 @@ test('gate:simulation:map-viewport-generates-a-per-chat-city-and-lights-it-by-ti
     assert.equal(panel.isOpen(), false);
 });
 
+test('gate:simulation:map-custom-basemap-accepts-url-and-rejects-bad-input', async () => {
+    const document = createFakeDocument();
+    const loaded = [];
+    document.defaultView.Image = class {
+        naturalWidth = 800; naturalHeight = 600;
+        set src(value) { loaded.push(value); this.onload?.(); }
+    };
+    const overlay = document.createElement('div');
+    document.body.appendChild(overlay);
+    const rows = [['street', '', '临河街道', '.5', '.5', '沿河主路', '', '1', '']];
+    const api = { exportTableAsJson: () => ({ sheet_map: { uid: 'sheet_map', name: '城市地图', content: [
+        ['地点ID', '上级地点ID', '名称', 'x', 'y', '说明', '角色', '排序', '地图底图'], ...rows,
+    ] } }) };
+    const store = new Map();
+    const localStorage = {
+        getItem: key => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, String(value)),
+        removeItem: key => store.delete(key),
+    };
+    const panel = createMapPanelController(document, { AutoCardUpdaterAPI: api, localStorage }, async () => ({ ok: true }), { getChatId: () => 'chat-a' });
+    const html = () => document.getElementById('igs-map-panel').innerHTML;
+    const basemap = () => html().match(/<img class="igs-map-basemap" src="([^"]+)"/)?.[1];
+    const status = () => html().match(/class="igs-map-status"[^>]*>([^<]*)</)?.[1] || '';
+    const act = async (action, id = '') => {
+        const target = document.createElement('button');
+        target.setAttribute('data-map-act', action);
+        target.setAttribute('data-map-id', id);
+        const root = document.getElementById('igs-map-panel');
+        root.appendChild(target);
+        await root.dispatchEvent({ type: 'click', target });
+        target.remove();
+    };
+
+    panel.open(overlay, {}, '临河街道', '白天');
+    assert.match(html(), /data-map-act="basemap-source" data-map-id="custom"/, 'the custom source tab is offered');
+    await act('basemap-source', 'custom');
+    assert.equal(panel.getState().basemapSource, 'custom');
+    assert.match(html(), /data-map-act="custom-upload"/, 'custom source offers an upload button');
+    assert.match(html(), /data-map-act="custom-url"/, 'custom source offers a url button');
+    assert.match(html(), /未设置/, 'nothing is set yet');
+    assert.doesNotMatch(html(), /data-map-act="custom-clear"/, 'no clear button before anything is set');
+
+    document.defaultView.prompt = () => 'https://example.com/my-map.webp';
+    await act('custom-url');
+    assert.equal(basemap(), 'https://example.com/my-map.webp', 'a filled url becomes the basemap');
+    assert.match(html(), /已设网址/);
+    assert.match(html(), /data-map-act="custom-clear"/, 'a clear button appears once set');
+    assert.ok(store.has('igs-map-custom:chat-a:sheet_map:-'), 'the custom url is remembered per chat/table/layer');
+
+    document.defaultView.prompt = () => 'javascript:alert(1)';
+    await act('custom-url');
+    assert.match(status(), /网址无效/, 'script urls are rejected');
+    assert.equal(basemap(), 'https://example.com/my-map.webp', 'the rejected url does not replace the good one');
+
+    await act('custom-clear');
+    assert.ok(!store.has('igs-map-custom:chat-a:sheet_map:-'), 'clearing removes the stored url');
+    assert.match(status(), /已清除自定义底图/);
+    assert.ok(basemap().endsWith('/map-demo-day.png'), 'cleared custom falls back to the bundled map');
+
+    document.defaultView.prompt = null;
+    await act('custom-url');
+    assert.match(status(), /当前环境不支持输入网址/, 'without prompt the user is pointed at upload');
+
+    panel.dispose();
+    assert.equal(panel.isOpen(), false);
+});
+
 
 test('gate:simulation:map-panel-navigates-read-only-sheets-refreshes-and-cleans-up', async () => {
     const document = createFakeDocument({ innerWidth: 320, innerHeight: 600 });
@@ -9278,9 +9345,9 @@ test('gate:simulation:ancient-era-filters-modern-fx-from-prompt-and-reader', asy
         assert.doesNotMatch(ancientPrompt, /igs-fx:photo\|/);
         assert.doesNotMatch(ancientPrompt, /igs-fx:tv\|/);
         // 聊天换成书信往来、通知换成家仆通报：标签不变，只换说法。
-        assert.match(ancientPrompt, /\[igs书信往来标签\]/);
+        assert.match(ancientPrompt, /【书信往来】/);
         assert.match(ancientPrompt, /\[igs-msg:写信人\|信的内容\]/);
-        assert.doesNotMatch(ancientPrompt, /\[igs线上聊天标签\]/);
+        assert.doesNotMatch(ancientPrompt, /【线上聊天】/);
         assert.doesNotMatch(ancientPrompt, /表情包/);
         assert.match(ancientPrompt, /igs-fx:notify\|来人\|/);
         assert.doesNotMatch(ancientPrompt, /手机弹出/);

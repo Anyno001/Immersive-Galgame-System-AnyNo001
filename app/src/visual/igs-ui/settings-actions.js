@@ -16,6 +16,7 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { createIndexedDbAssetThumbStore } from '../../media/asset-thumb-store.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
+import { fxPromptsCopyText } from './fx-settings-fields.js';
 import { isPromptEntryKey } from '../../scene/prompt-entries.js';
 import { getLastPromptReport } from '../../scene/prompt-triggers.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
@@ -935,6 +936,20 @@ export async function handleSettingsAction(action, ctx) {
             ? await Promise.resolve(nav.clipboard.writeText(text)).then(() => true, () => false)
             : false;
         if (typeof dialogs.edit === 'function') await dialogs.edit(copied ? '已复制到剪贴板，不含台词正文。' : '复制失败，请手动全选下方内容后复制。', text, { okLabel: '关闭' });
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'fx-prompts-copy-all') {
+        const text = fxPromptsCopyText((settingsState.draft && settingsState.draft.readerSettings) || {});
+        if (!text) {
+            if (typeof dialogs.view === 'function') await dialogs.view('当前没有要发给 AI 的演出提示词（可能演出功能都关着，或演出提示词开关已关闭）。');
+            return rerenderSettings();
+        }
+        const nav = (options.global || globalThis).navigator;
+        const copied = nav && nav.clipboard && typeof nav.clipboard.writeText === 'function'
+            ? await Promise.resolve(nav.clipboard.writeText(text)).then(() => true, () => false)
+            : false;
+        if (typeof dialogs.edit === 'function') await dialogs.edit(copied ? '已复制全部演出提示词到剪贴板，可粘贴到酒馆预设。' : '复制失败，请手动全选下方内容后复制。', text, { okLabel: '关闭' });
         return rerenderSettings();
     }
 

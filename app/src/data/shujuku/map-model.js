@@ -142,11 +142,13 @@ function basemapColumnIndex(columns) {
     return -1;
 }
 
-// 仅允许 http(s) 或 data:image/png|jpeg|webp；拒绝脚本协议、HTML 与用户 SVG。
+// 仅允许 http(s)、酒馆 user/images/igs-* 路径或 data:image/png|jpeg|webp；拒绝脚本协议、HTML 与用户 SVG。
 export function sanitizeMapBasemapUrl(raw) {
     const text = String(raw ?? '').trim();
     if (!text) return '';
     if (/^https?:\/\//i.test(text)) return text;
+    // 上传后的自定义底图：图本体在 user/images，这里存的是可直接当 img.src 的相对路径。
+    if (/^\/?user\/images\/igs-[^?#"'<>\s]+\.(?:png|jpe?g|webp)$/i.test(text)) return text.startsWith('/') ? text : `/${text}`;
     if (/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(text)) {
         return text.length <= DATA_URL_MAX_CHARS ? text : '';
     }

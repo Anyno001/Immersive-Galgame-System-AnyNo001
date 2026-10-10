@@ -138,6 +138,83 @@ test('gate: daily-fx renders cards once per page visit, escapes text and clears 
     assert.deepEqual(result.played, [], 'returning to a seen page does not replay without fxStyle.replay');
 });
 
+test('gate: sleep/wake are opt-in scene-level cards (distinct from the eye POV effect)', () => {
+    sounds.length = 0;
+    // 默认关：旧存档开了日常演出也不会突然冒出入睡/起床。
+    assert.equal(normalizeDailyFxSettings({ enabled: true }).sleep, false);
+    assert.equal(normalizeDailyFxSettings({ enabled: true }).wake, false);
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('sleep', [])), { type: 'sleep', text: '' });
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('wake', ['窗外已经亮了'])), { type: 'wake', text: '窗外已经亮了' });
+    const r = makeReader();
+    const fx = fxOf('[igs-fx:sleep|沉沉睡去]\n[igs-fx:wake]');
+    const result = renderDailyFx(r.root, snap(fx, {}, 0, { enabled: true, sleep: true, wake: true }), r.ctx);
+    assert.deepEqual(result.played, ['sleep', 'wake']);
+    assert.deepEqual(sounds, ['sleep', 'wake']);
+    const front = r.root.querySelector('#igs-fx-front');
+    assert.ok(front.children.some((n) => String(n.className).includes('igs-dfx-sleep')));
+    assert.ok(front.children.some((n) => String(n.className).includes('igs-dfx-wake')));
+});
+
+test('gate: wake at night skips the morning glow; prompt sends faints and naps to eye', () => {
+    const wakeClass = (sceneTime) => {
+        const r = makeReader();
+        renderDailyFx(r.root, snap(fxOf('[igs-fx:wake]'), { sceneTime }, 0, { enabled: true, wake: true }), r.ctx);
+        return r.root.querySelector('#igs-fx-front').children.find((n) => String(n.className).includes('igs-dfx-wake')).className;
+    };
+    assert.match(wakeClass('深夜'), /is-night/);
+    assert.doesNotMatch(wakeClass('清晨'), /is-night/);
+    assert.doesNotMatch(wakeClass(''), /is-night/);
+    const lines = resolveDailyFxPromptRule({ enabled: true, sleep: true, wake: true });
+    assert.match(lines, /sleep[^\n]*eye\|close/);
+    assert.match(lines, /wake[^\n]*eye\|open/);
+});
+
+test('gate: dressup is an opt-in scene card that reskins for magic worldview', () => {
+    sounds.length = 0;
+    assert.equal(normalizeDailyFxSettings({ enabled: true }).dressup, false);
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('dressup', [])), { type: 'dressup', outfit: '', who: '' });
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('dressup', ['泳装', '林小雨'])), { type: 'dressup', outfit: '泳装', who: '林小雨' });
+    const r = makeReader();
+    const result = renderDailyFx(r.root, snap(fxOf('[igs-fx:dressup|和服]'), {}, 0, { enabled: true, dressup: true }), r.ctx);
+    assert.deepEqual(result.played, ['dressup']);
+    assert.deepEqual(sounds, ['dressup']);
+    const stage = r.root.querySelector('#igs-fx-stage');
+    const card = stage.children.find((n) => String(n.className).includes('igs-dfx-dressup'));
+    assert.ok(card);
+    assert.match(card.innerHTML, /和服/);
+    assert.doesNotMatch(card.className, /is-magic/);
+    // 魔法世界观换皮：_worldview 在 readerSettings 顶层，手搓快照。
+    const magic = makeReader();
+    renderDailyFx(magic.root, {
+        messageId: 'm1',
+        readerSettings: { dailyFx: { enabled: true, dressup: true }, _worldview: 'magic' },
+        content: { currentIndex: 0, textType: 'dialogue', fx: fxOf('[igs-fx:dressup|战斗装]') },
+    }, magic.ctx);
+    const mcard = magic.root.querySelector('#igs-fx-stage').children.find((n) => String(n.className).includes('igs-dfx-dressup'));
+    assert.match(mcard.className, /is-magic/);
+});
+
+test('gate: drape and fitting are opt-in wardrobe cards (drape needs an action, fitting shows a mirror)', () => {
+    sounds.length = 0;
+    assert.equal(normalizeDailyFxSettings({ enabled: true }).drape, false);
+    assert.equal(normalizeDailyFxSettings({ enabled: true }).fitting, false);
+    // drape 动作必填，缺了整条忽略。
+    assert.equal(parseDailyFxBody('drape', []), null);
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('drape', ['披上外套', '林小雨'])), { type: 'drape', act: '披上外套', who: '林小雨' });
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('fitting', [])), { type: 'fitting', outfit: '' });
+    assert.deepEqual(dailyFxOf(parseDailyFxBody('fitting', ['晚礼服'])), { type: 'fitting', outfit: '晚礼服' });
+    const r = makeReader();
+    const result = renderDailyFx(r.root, snap(fxOf('[igs-fx:drape|披上外套]\n[igs-fx:fitting|晚礼服]'), {}, 0, { enabled: true, drape: true, fitting: true }), r.ctx);
+    assert.deepEqual(result.played, ['drape', 'fitting']);
+    assert.deepEqual(sounds, ['rustle', 'dressup']);
+    const nodes = [...r.root.querySelector('#igs-fx-stage').children, ...r.root.querySelector('#igs-fx-front').children];
+    assert.ok(nodes.some((n) => String(n.className).includes('igs-dfx-drape')));
+    const mirror = nodes.find((n) => String(n.className).includes('igs-dfx-fitting'));
+    assert.ok(mirror);
+    assert.match(mirror.innerHTML, /晚礼服/);
+    assert.match(mirror.innerHTML, /igs-dfx-fitting-mirror/);
+});
+
 test('gate: daily photo copies the stage into a polaroid and reports to the album hook', () => {
     const r = makeReader();
     const bg = r.root.querySelector('#igs-bg');
