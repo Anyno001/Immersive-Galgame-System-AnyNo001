@@ -193,7 +193,7 @@ details.igs-settings-advanced>summary::after{content:"";flex-shrink:0;width:6px;
 details.igs-settings-advanced[open]>summary::after{transform:rotate(45deg)}
 details.igs-settings-advanced>:not(summary){margin-left:12px;margin-right:12px}
 details.igs-settings-advanced>:not(summary){margin-top:8px}
-details.igs-settings-advanced>.igs-switch,details.igs-settings-advanced>.igs-settings-field{width:100%;box-sizing:border-box}
+details.igs-settings-advanced>.igs-switch,details.igs-settings-advanced>.igs-settings-field{width:calc(100% - 24px);box-sizing:border-box}
 details.igs-settings-advanced>.igs-settings-inline-action{display:block;width:auto;min-width:96px}
 .igs-perf-preset-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;padding:3px;background:var(--igs-settings-field);border-radius:var(--igs-settings-radius-control)}
 .igs-perf-preset{height:34px;min-width:0;border:0;border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink-3);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease}
