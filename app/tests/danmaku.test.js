@@ -687,3 +687,101 @@ test('gate:danmaku:live-full-click-turns-page-and-entry-docks-into-phone-top-bar
     // 没有观众弹幕入口时停靠是空操作。
     assert.doesNotThrow(() => dockAudienceEntry({}, null, null));
 });
+
+test('gate:danmaku:live-warning-card-cooldown-and-ban-persist-until-new-live', async () => {
+    const { syncLivePhone, triggerLiveWarning } = await import('../src/visual/igs-ui/danmaku-live.js');
+    const { root, motion, doc } = makeRoot();
+    const host = doc.createElement('div');
+    motion.appendChild(host);
+    const c = clock();
+    const ctx = { doc, schedule: c.schedule, clear: c.clear, now: c.now, rng: () => 0.5, reduced: false, layout: 'phone', visible: true, look: { model: 'full', size: 'large' } };
+    const live = { name: '爱丽丝', title: '夜聊', view: 'watch' };
+    syncLivePhone(host, live, ctx);
+    assert.equal(triggerLiveWarning(host, { level: 'warn', reason: '' }), 'warn');
+    assert.ok(host.querySelector('.igs-live-warn'), 'warning card is shown');
+    assert.equal(triggerLiveWarning(host, { level: 'warn', reason: '' }), 'cooldown', 'no repeat within 60s');
+    c.run(4800);
+    assert.equal(host.querySelector('.igs-live-warn'), null, 'card fades after 4.5s');
+    // 封禁：关停画面一直停着，再来警告也不动；同一场直播翻页后仍然是封禁。
+    assert.equal(triggerLiveWarning(host, { level: 'ban', reason: '' }), 'ban');
+    assert.equal(host.querySelector('.igs-live-phone').getAttribute('data-banned'), '1');
+    assert.equal(triggerLiveWarning(host, { level: 'warn', reason: '' }), null);
+    syncLivePhone(host, live, ctx);
+    assert.equal(host.querySelector('.igs-live-phone').getAttribute('data-banned'), '1');
+    // 换一场直播（视角变了）恢复正常。
+    syncLivePhone(host, { ...live, view: 'host' }, ctx);
+    const phones = host.querySelectorAll('.igs-live-phone');
+    assert.equal(phones[phones.length - 1].getAttribute('data-banned'), null);
+});
+
+// ---- 路人弹幕接进直播：刷屏潮、规模、粉丝牌 ----
+function lcg(seed) {
+    let s = seed >>> 0;
+    return () => {
+        s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+        return s / 4294967296;
+    };
+}
+
+async function runChatterLive({ tier, seed, custom = {}, fan = '', seconds = 90 }) {
+    const { syncLivePhone } = await import('../src/visual/igs-ui/danmaku-live.js');
+    const { root, motion, doc } = makeRoot();
+    void root;
+    const host = doc.createElement('div');
+    motion.appendChild(host);
+    const c = clock();
+    const rng = lcg(seed);
+    const chatter = {
+        sig: 'p1|10', pageKey: 'p1', title: '深夜杂谈', text: '她拿着麦克风对着镜头聊天。', aiLines: [], hostSaid: '', userName: '小明', hostName: '爱丽丝', hostGender: null,
+        tone: 'modern', mood: '', hour: 23, ending: false, emoji: true, custom: {}, customMap: custom, tier, fan,
+    };
+    const ctx = { doc, schedule: c.schedule, clear: c.clear, now: c.now, rng, reduced: false, layout: 'phone', visible: true, chat: 'roll', look: { model: 'full', size: 'large' }, chatter };
+    const state = syncLivePhone(host, { name: '爱丽丝', title: '深夜杂谈', view: 'watch' }, ctx);
+    let scCount = 0;
+    const sc = host.querySelector('.igs-live-sc');
+    const rawAppend = sc.appendChild.bind(sc);
+    sc.appendChild = (node) => { scCount += 1; return rawAppend(node); };
+    const seen = [];
+    const list = host.querySelector('.igs-live-list');
+    const rawList = list.appendChild.bind(list);
+    list.appendChild = (node) => {
+        seen.push({ user: (node.querySelector('.igs-live-name') || { textContent: '' }).textContent, text: (node.querySelector('.igs-live-text') || { textContent: '' }).textContent, medal: (node.querySelector('.igs-live-medal') || null) });
+        return rawList(node);
+    };
+    c.run(seconds * 1000);
+    return { state, scCount, seen };
+}
+
+test('gate:danmaku:live-chatter-bursts-use-different-names-over-a-live', async () => {
+    const { seen } = await runChatterLive({ tier: null, seed: 7, seconds: 240 });
+    assert.ok(seen.length > 20, 'chatter keeps coming');
+    const byText = new Map();
+    for (const line of seen) {
+        const set = byText.get(line.text) || new Set();
+        set.add(line.user);
+        byText.set(line.text, set);
+    }
+    assert.ok(Array.from(byText.values()).some((names) => names.size >= 3), 'one short line repeated by 3+ different names (a spam wave)');
+});
+
+test('gate:danmaku:live-huge-scale-gets-more-superchats-than-tiny', async () => {
+    const huge = await runChatterLive({ tier: 'huge', seed: 11 });
+    const tiny = await runChatterLive({ tier: 'tiny', seed: 11 });
+    assert.ok(huge.scCount > tiny.scCount, `huge ${huge.scCount} vs tiny ${tiny.scCount}`);
+    assert.ok(huge.state.popularity > tiny.state.popularity);
+    // 没有规模信息：保持旧行为（不出本地 SC）。
+    const none = await runChatterLive({ tier: null, seed: 11 });
+    assert.equal(none.scCount, 0);
+});
+
+test('gate:danmaku:live-fan-medal-priority-custom-then-text-then-auto', async () => {
+    const { resolveFanMedal } = await import('../src/visual/igs-ui/live-chatter.js');
+    const auto = resolveFanMedal({ streamer: '爱丽丝' });
+    assert.ok(auto);
+    assert.equal(resolveFanMedal({ streamer: '爱丽丝', fromText: '茶会' }), '茶会');
+    assert.equal(resolveFanMedal({ streamer: '爱丽丝', fromText: '茶会', customMap: { 爱丽丝: '兔子洞' } }), '兔子洞');
+    const live = await runChatterLive({ tier: null, seed: 3, custom: { 爱丽丝: '兔子洞' }, fan: '茶会' });
+    assert.equal(live.state.medal, '兔子洞');
+    const fromText = await runChatterLive({ tier: null, seed: 3, fan: '茶会' });
+    assert.equal(fromText.state.medal, '茶会');
+});

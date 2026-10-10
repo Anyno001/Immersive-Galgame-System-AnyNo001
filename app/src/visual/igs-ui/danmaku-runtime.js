@@ -10,13 +10,15 @@ import {
 } from './danmaku-settings.js';
 import { AUDIENCE_AMBIENT_LINES, INNER_PHRASES, classifyAudienceMood, mixInnerPhrases, parentheticalThoughts, randomItem, thoughtFragments } from './danmaku-pools.js';
 import { myPhoneOf, phoneWallUrl } from './my-phone.js';
-import { fitLiveFace, fitLivePhone, fitLiveSwitch, likeLive, phoneGeometry, pushLiveMessages, stopLivePhone, syncLivePhone, syncLiveSwitch } from './danmaku-live.js';
+import { fitLiveFace, fitLivePhone, fitLiveSwitch, likeLive, phoneGeometry, pushLiveMessages, stopLivePhone, syncLivePhone, syncLiveSwitch, triggerLiveWarning } from './danmaku-live.js';
 import { fitLiveControls, liveActionMessage, recordLiveAction, stopLiveControls, syncLiveControls } from './danmaku-interact.js';
 import { dockAudienceEntry, isAudienceEntryShown, placeAudienceEntry, stopAudience, syncAudience } from './danmaku-audience.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 import { resolveChatTheme } from './chat-themes.js';
 import { fitFeedPhone, stopFeedPhone, syncFeedPhone } from './feed-phone.js';
 import { fitStorm, stopStorm, syncStorm } from './storm-phone.js';
+import { detectLiveWarning } from './live-warning.js';
+import { detectLiveScale, fanNameFromText, liveTier, mergeLiveScale } from './live-chatter.js';
 import { applyLiveFull, classifySubtitle, clearLiveFull, refreshLiveFullOverflow } from './live-full.js';
 import { enterFocus, exitFocus, focusOn, holdFocusText, isNewAppearance, phoneIdentity, setFocusHooks } from './phone-focus.js';
 import { normalizeFeedFxSettings } from './feed-settings.js';
@@ -63,7 +65,7 @@ export function planDanmakuPage(snapshot, memory, settings, rng = Math.random) {
     const fx = content.fx || {};
     const special = content.chatPage === true || content.htmlCardPage === true;
     const nsfw = content.sceneNsfw === true;
-    const plan = { pageKey, live: null, liveVisible: false, dms: [], audience: [], audienceVisible: false, inner: null, hostSay: '' };
+    const plan = { pageKey, live: null, liveVisible: false, warning: null, dms: [], audience: [], audienceVisible: false, inner: null, hostSay: '' };
 
     if (settings.live.enabled && !(settings.live.muteOnNsfw && nsfw) && fx.live) {
         plan.live = fx.live;
@@ -72,6 +74,11 @@ export function planDanmakuPage(snapshot, memory, settings, rng = Math.random) {
         (fx.dms || []).forEach((item, index) => {
             if (once(`dm:${pageKey}:${index}:${item.user}:${item.text}`)) plan.dms.push({ user: item.user, text: item.text, type: item.type, extra: item.extra });
         });
+        // 超管警告：正文关键词或 dm 里的房管 / 系统消息；每页只触发一次，同一场直播的 60 秒冷却在直播手机里判。
+        if (settings.live.adminWarn) {
+            const warning = detectLiveWarning(text(content.displayText), plan);
+            if (warning && once(`warn:${pageKey}`)) plan.warning = warning;
+        }
         // 主播本人的台词上屏：以「主播」标识进弹幕区，观众弹幕随后接着刷。
         const say = text(content.displayText);
         const who = text(content.speaker || content.spriteCharacter);
@@ -114,7 +121,7 @@ function getState(root, options) {
     let state = states.get(root);
     if (!state) {
         // feedSeen：社区帖子首见楼层（数字跨楼增长用）；feedRecall：刚刚刷到的那次区间，供回看入口；都只存内存。
-        state = { memory: createDanmakuMemory(), timers: new Set(), pageKey: '', liveViews: new Map(), liveStage: null, stageWatch: null, feedSeen: new Map(), feedRecall: null };
+        state = { memory: createDanmakuMemory(), timers: new Set(), pageKey: '', liveViews: new Map(), liveStage: null, stageWatch: null, scaleSig: '', liveScales: new Map(), liveFans: new Map(), feedSeen: new Map(), feedRecall: null };
         states.set(root, state);
     }
     state.schedule = typeof options.schedule === 'function' ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -296,6 +303,55 @@ function playInner(ctx, inner, stage) {
     track(state, () => group.remove(), life);
 }
 
+// 世界观到路人弹幕语气：魔法 / 西幻 -> fantasy，古风 / 修仙 -> ancient，星际 / 科幻 -> scifi，其余 modern。
+const LIVE_TONE_OF_WORLDVIEW = Object.freeze({ magic: 'fantasy', fantasy: 'fantasy', ancient: 'ancient', xianxia: 'ancient', scifi: 'scifi', starship: 'scifi', cyberpunk: 'scifi' });
+const LIVE_ENDING_RE = /下播|关播|直播结束|今天的直播就到这|直播就到这里|下次直播再见/;
+export function liveToneOf(worldview) {
+    return LIVE_TONE_OF_WORLDVIEW[worldview] || 'modern';
+}
+
+function capMap(map, limit = 24) {
+    while (map.size > limit) map.delete(map.keys().next().value);
+}
+
+// 本页的路人弹幕上下文：规模（粉丝 / 在线人数）与粉丝牌名跨楼记在内存里；每页只检测一次。
+function chatterContext(ctx, live) {
+    const { snapshot, options, state, plan, settings } = ctx;
+    const content = snapshot.content || {};
+    const pageText = text(content.displayText);
+    const sig = `${ctx.pageKey}|${live.name}`;
+    if (state.scaleSig !== sig) {
+        state.scaleSig = sig;
+        state.liveScales.set(live.name, mergeLiveScale(state.liveScales.get(live.name), detectLiveScale(pageText, live.name)));
+        capMap(state.liveScales);
+        const fan = fanNameFromText(pageText, live.name);
+        if (fan) state.liveFans.set(live.name, fan);
+        capMap(state.liveFans);
+    }
+    const scale = state.liveScales.get(live.name);
+    const hour = Number.parseInt(String((ctx.status && ctx.status.time) || ''), 10);
+    return {
+        sig: `${ctx.pageKey}|${pageText.length}`,
+        pageKey: ctx.pageKey,
+        title: text(live.title),
+        text: pageText,
+        aiLines: (plan.dms || []).filter((dm) => dm && dm.type !== 'admin' && dm.text).map((dm) => String(dm.text)),
+        hostSaid: plan.hostSay || '',
+        userName: text(options.userName),
+        hostName: live.name,
+        hostGender: null,
+        tone: liveToneOf(snapshot.readerSettings && snapshot.readerSettings._worldview),
+        mood: classifyAudienceMood(content.statusEmotion),
+        hour: Number.isFinite(hour) ? hour : undefined,
+        ending: LIVE_ENDING_RE.test(pageText),
+        emoji: settings.live.emoji,
+        custom: settings.live.customLines,
+        customMap: settings.live.fanMedals,
+        tier: scale ? liveTier(scale) : null,
+        fan: state.liveFans.get(live.name) || '',
+    };
+}
+
 function liveContext(ctx, live) {
     const { snapshot, options, state, doc, reduced } = ctx;
     const content = snapshot.content || {};
@@ -305,6 +361,7 @@ function liveContext(ctx, live) {
     return {
         doc, reduced, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng,
         visible: ctx.plan.liveVisible,
+        chatter: chatterContext(ctx, live),
         onDismiss: () => applyDanmakuToDom(ctx.root, snapshot, options),
         layout: ctx.settings.live.layout,
         faceGuard: ctx.settings.live.faceGuard,
@@ -477,6 +534,7 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
             textEl: root.querySelector('#igs-text'),
         });
     } else clearLiveFull(root, root.querySelector('#igs-text'));
+    if (phone && plan.warning && phone.visible && plan.liveVisible) triggerLiveWarning(host, plan.warning);
     if (phone && plan.dms.length) pushLiveMessages(host, plan.dms);
     // 全屏直播里主播的话已经是字幕，不再重复推进评论。
     if (phone && plan.hostSay && settings.live.layout !== 'full') pushLiveMessages(host, [{ user: live.name, text: plan.hostSay, type: 'host', extra: '' }]);

@@ -1,4 +1,5 @@
-import { checkbox, field, segmentedInput, textInput } from './settings-fields.js';
+import { checkbox, field, segmentedInput, textInput, textareaInput } from './settings-fields.js';
+import { LIVE_ROLE_LINES } from './danmaku-pools.js';
 import { collapsible, featureRow, perfSubhead, renderWordListField } from './fx-settings-fields.js';
 import {
     DANMAKU_PERSONAS,
@@ -10,6 +11,20 @@ import {
     normalizeDanmakuSettings,
 } from './danmaku-settings.js';
 
+// 自定义路人弹幕的分组：通用、主播回应、各场合、各身份（身份取词池里有的）。
+const LIVE_SCENE_LABELS = Object.freeze([
+    ['ambient', '通用'], ['host', '主播回应'], ['opening', '开播'], ['chat', '闲聊'], ['emotion', '情感电台'], ['sing', '唱歌才艺'], ['game', '游戏'],
+    ['shop', '带货'], ['eat', '吃播'], ['study', '学习陪伴'], ['looks', '颜值换装'], ['outdoor', '户外旅行'], ['late', '深夜'], ['accident', '翻车'], ['ending', '下播'],
+]);
+const LIVE_ROLE_LABELS = Object.freeze({
+    newcomer: '新人', regular: '老粉', fresh: '路人', asker: '提问', hurry: '催更', hater: '黑子', roaster: '吐槽', defender: '护主播',
+    patron: '大哥', lurker: '潜水', leaving: '要走的人', pseudo: '伪专家', keeper: '房管', silly: '憨憨', selfish: '自说自话',
+});
+const LIVE_CUSTOM_GROUPS = Object.freeze([
+    ...LIVE_SCENE_LABELS,
+    ...Object.keys(LIVE_ROLE_LINES).map((key) => [key, `身份：${LIVE_ROLE_LABELS[key] || key}`]),
+]);
+
 // 弹幕三件套的设置片段，由「演出」页编进「题材专属」分组。
 export function renderDanmakuFields(reader, more = collapsible, { liveBlocked = false } = {}) {
     const s = normalizeDanmakuSettings(reader);
@@ -18,6 +33,10 @@ export function renderDanmakuFields(reader, more = collapsible, { liveBlocked = 
         + field(`${p}.liveFx.fullText`, '全屏台词', segmentedInput(`${p}.liveFx.fullText`, s.live.fullText, [['subtitle', '字幕'], ['dialog', '对话框']], '全屏直播台词'))
         + field(`${p}.liveFx.narrationPos`, '旁白位置', segmentedInput(`${p}.liveFx.narrationPos`, s.live.narrationPos, [['above', '字幕上方'], ['name', '名牌下方'], ['dialog', '对话框']], '全屏直播旁白位置'))
         + checkbox(`${p}.liveFx.faceGuard`, s.live.faceGuard, '弹幕防挡脸')
+        + checkbox(`${p}.liveFx.adminWarn`, s.live.adminWarn, '超管警告演出')
+        + checkbox(`${p}.liveFx.emoji`, s.live.emoji, '路人弹幕带表情')
+        + field(`${p}.liveFx.fanMedals`, '粉丝牌名', textareaInput(`${p}.liveFx.fanMedals`, Object.entries(s.live.fanMedals).map(([name, medal]) => `${name}=${medal}`).join('\n'), '一行一个：主播=牌名；留空按剧情或自动取名'))
+        + collapsible('live-custom-lines', '自定义路人弹幕', LIVE_CUSTOM_GROUPS.map(([key, label]) => field(`${p}.liveFx.customLines.${key}`, label, textareaInput(`${p}.liveFx.customLines.${key}`, (s.live.customLines[key] || []).join('\n'), '一行一条，与内置词合并'))).join(''))
         + field(`${p}.liveFx.chat`, '弹幕', segmentedInput(`${p}.liveFx.chat`, s.live.chat, [['roll', '翻滚'], ['fly', '横飞'], ['both', '同时']], '直播弹幕'))
         + checkbox(`${p}.liveFx.interact`, s.live.interact, '直播互动（发弹幕、打赏）')
         + checkbox(`${p}.liveFx.followTheme`, s.live.followTheme, '跟随对话框主题')

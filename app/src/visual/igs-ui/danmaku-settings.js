@@ -1,5 +1,6 @@
 import { normalizeEmotionList } from './stage-shake-runtime.js';
 import { normalizeFaceBox } from './live-face.js';
+import { normalizeFanMedalMap, normalizeLiveCustomLines } from './live-chatter.js';
 
 // 弹幕三件套，各自一个顶层开关以便挂进演出档位：
 // liveFx 直播间（掏出手机看 B 站直播）、audienceFx 观众弹幕（HUD 下方小手机，点开看）、innerFx 内心弹幕（情绪触发的纯演出）。
@@ -78,6 +79,12 @@ export function normalizeLiveFxSettings(value) {
         narrationPos: pick(LIVE_NARRATION_POSITIONS, src.narrationPos, 'above'),
         // 弹幕防挡脸：横飞弹幕层在主播脸部挖一个柔边洞（默认开）。
         faceGuard: src.faceGuard !== false,
+        // 超管警告演出：直播里出现超管警告 / 封禁时的卡片与关停画面（默认开）。
+        adminWarn: src.adminWarn !== false,
+        // 路人弹幕带表情（默认开）；自定义路人弹幕按场合 / 身份分组、一行一条；粉丝牌名按主播存（主播=牌名）。
+        emoji: src.emoji !== false,
+        customLines: normalizeLiveCustomLines(src.customLines),
+        fanMedals: normalizeFanMedalMap(src.fanMedals),
         chat: pick(LIVE_CHAT_MODES, src.chat, 'roll'),
         // 跟随对话框主题：沿用线上交流的主题色板（默认关，保持 B 站深色）。
         followTheme: src.followTheme === true,

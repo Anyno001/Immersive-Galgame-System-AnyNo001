@@ -163,6 +163,24 @@ export const DANMAKU_STYLE_TEXT = `
 .igs-live-screen::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45) 0,transparent 24%,transparent 48%,rgba(0,0,0,.6) 100%);}
 .igs-live-icon{display:inline-flex;flex:none;width:18px;height:18px;}
 .igs-live-icon svg{width:100%;height:100%;display:block;}
+.igs-live-warn{position:absolute;z-index:9;top:calc(var(--igs-live-head,76px) + 6px);left:12px;right:12px;display:flex;align-items:flex-start;gap:9px;padding:10px 12px;box-sizing:border-box;border-radius:12px;color:#fff;background:linear-gradient(135deg,#d23a3a,#a51f2b);box-shadow:0 10px 24px -10px rgba(120,10,20,.7),inset 0 0 0 1px rgba(255,255,255,.16);animation:igs-live-warn 4.5s ease both;pointer-events:none;}
+.igs-live-warn-icon{width:26px;height:26px;margin-top:1px;}
+.igs-live-warn-title{font-size:14px;font-weight:800;letter-spacing:.08em;}
+.igs-live-warn-text{margin-top:2px;font-size:11.5px;line-height:1.45;opacity:.95;}
+.igs-live-stage[data-layout="full"] .igs-live-warn{top:calc(var(--igs-live-name-top,14px) + 60px);left:0;right:0;margin-inline:auto;width:min(520px,calc(100% - 24px));}
+@keyframes igs-live-warn{0%{opacity:0;transform:translateY(-14px);}8%{opacity:1;transform:none;}90%{opacity:1;}100%{opacity:0;}}
+/* 抖动只作用在内容层：直接给手机根元素加动画会让入场的抬起动画重播。 */
+.igs-live-phone[data-warn-shake] :is(.igs-live-screen,.igs-live-top,.igs-live-list){animation:igs-live-warn-shake .5s ease-in-out;}
+@keyframes igs-live-warn-shake{0%,100%{transform:none;}20%{transform:translateX(-4px);}40%{transform:translateX(4px);}60%{transform:translateX(-3px);}80%{transform:translateX(2px);}}
+.igs-live-line.is-warn{color:#ffd7d7;background:rgba(165,31,43,.7);font-weight:700;}
+.igs-live-ban{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:#000;color:#9a9a9a;text-align:center;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .35s ease .4s,visibility 0s linear .4s;}
+.igs-live-ban-icon{width:44px;height:44px;color:#777;}
+.igs-live-ban-title{font-size:17px;font-weight:700;letter-spacing:.06em;}
+.igs-live-ban-sub{max-width:80%;font-size:11px;line-height:1.5;color:#777;}
+.igs-live-phone[data-banned] .igs-live-ban,.igs-live-stage[data-banned] .igs-live-ban{opacity:1;visibility:visible;}
+.igs-live-stage[data-banned] .igs-live-screen,.igs-live-phone[data-banned] .igs-live-screen{filter:grayscale(1) blur(7px);transition:filter .4s ease;}
+.igs-live-phone[data-banned] :is(.igs-live-list,.igs-live-fly,.igs-live-hearts,.igs-live-gifts,.igs-live-guard,.igs-live-sc,.igs-live-bar,.igs-live-chips,.igs-live-rankcard){display:none;}
+.igs-live-phone[data-banned] .igs-live-top{z-index:7;}
 .igs-live-top{position:absolute;top:38px;left:0;right:0;display:flex;justify-content:space-between;align-items:center;gap:6px;padding:0 12px;}
 .igs-live-anchor{display:flex;align-items:center;gap:7px;min-width:0;}
 .igs-live-avatar{flex:none;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;background:#fb7299 center/cover no-repeat;box-shadow:0 0 0 1.5px rgba(255,255,255,.85),0 1px 4px rgba(0,0,0,.4);}

@@ -4,16 +4,21 @@ import { isStagePaused } from './stage-pause.js';
 import { DANMAKU_SPEED_SECONDS, normalizeLivePortrait } from './danmaku-settings.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 import { faceVars, liveFaceBox, moveFaceBox, resizeFaceBox } from './live-face.js';
+import { LIVE_BAN_SUB, LIVE_BAN_TITLE, LIVE_WARN_CARD_MS, LIVE_WARN_FLY_PAUSE_MS, LIVE_WARN_MEME_DELAY_MS, LIVE_WARN_TITLE, warningCardText, warningCooldownOk } from './live-warning.js';
 import { peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import {
     LIVE_AMBIENT_GIFTS,
     LIVE_AMBIENT_LINES,
+    LIVE_GUARD_LINES,
     LIVE_HOST_AMBIENT_LINES,
+    LIVE_SC_LINES,
+    LIVE_TONE_WARN,
+    LIVE_WARN_MEME_LINES,
     fanMedalName,
     randomItem,
-    randomLiveName,
     stableHash,
 } from './danmaku-pools.js';
+import { liveEconomy, liveUserName, medalLevelBias, planLiveChatter, resolveFanMedal } from './live-chatter.js';
 
 // 「掏出手机」看 B 站竖屏直播：舞台压暗、手机从下方抬起停在画面正中，直播结束时收回。整台手机只有一个驱动计时器：每拍吐一条弹幕（AI 弹幕优先，其余由本地词池补），
 // 顺带推人气、走时钟、飘点赞；隐藏、页面不可见、舞台暂停（面板打开等）时空转不写 DOM。文字一律 textContent，图标只用静态 SVG。
@@ -172,8 +177,12 @@ function buildPhone(doc, live, now, layout) {
     const status = layout === 'phone' ? buildPhoneStatus(doc, now) : null;
     if (status) phone.append(screen, status);
     else phone.append(screen);
-    phone.append(top, ...extras, sc, gifts, guard, list, fly, hearts, bar, faceEdit);
-    return { tools, faceEdit, root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, viewBtn, clockEl, sc, gifts, guard, list, fly, hearts };
+    // 关停画面：被封后先把主播画面打上马赛克加灰度，再整屏黑底。
+    const ban = el(doc, 'div', 'igs-live-ban');
+    ban.appendChild(icon(doc, 'ban', 'igs-live-icon igs-live-ban-icon'));
+    ban.append(el(doc, 'div', 'igs-live-ban-title', LIVE_BAN_TITLE), el(doc, 'div', 'igs-live-ban-sub', LIVE_BAN_SUB));
+    phone.append(top, ...extras, sc, gifts, guard, list, fly, hearts, bar, faceEdit, ban);
+    return { ban, tools, faceEdit, root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, viewBtn, clockEl, sc, gifts, guard, list, fly, hearts };
 }
 
 function later(state, fn, ms) {
@@ -190,7 +199,12 @@ function transient(state, parent, node, life) {
 }
 
 function medal(state, user) {
-    const level = (stableHash(user) % 20) + 1;
+    const hash = stableHash(user);
+    let level = (hash % 20) + 1;
+    if (state.tier) {
+        const bias = medalLevelBias(state.tier);
+        level = bias.min + Math.floor((bias.max - bias.min + 1) * (((hash % 1000) / 1000) ** bias.skew) * 0.999999);
+    }
     const node = el(state.doc, 'span', 'igs-live-medal');
     node.setAttribute('data-tier', String(Math.min(5, Math.ceil(level / 4))));
     node.appendChild(el(state.doc, 'span', '', state.medal));
@@ -228,6 +242,7 @@ function spawnFlyer(state, msg, extraClass = '') {
     const { fly } = state.els;
     if (!geo || !msg.text || fly.children.length >= LIVE_FLY_CAP + (msg.ai ? 4 : 0)) return;
     const now = state.now();
+    if (now < state.flyPausedUntil) return;
     const duration = DANMAKU_SPEED_SECONDS.medium * 1000;
     const width = estimateTextWidth(msg.text, geo.fontSize);
     let lane = pickScrollTrack(state.tracks, geo.lanes, now, width, geo.w, duration);
@@ -253,7 +268,7 @@ function bump(state, amount) {
 
 export function renderLiveMessage(state, raw) {
     const { doc, els } = state;
-    const msg = { ...raw, user: raw.user || randomLiveName(state.rng) };
+    const msg = { ...raw, user: raw.user || liveUserName(state.rng, { tone: state.tone, tier: state.tier, emoji: state.emoji !== false, host: state.hostName }) };
     if (msg.type === 'enter') {
         const line = el(doc, 'div', 'igs-live-line is-note');
         line.setAttribute('data-type', 'enter');
@@ -318,13 +333,70 @@ export function renderLiveMessage(state, raw) {
     if (state.chat !== 'fly') appendLine(state, chatLine(state, { ...msg, medal: msg.type !== 'admin' && (msg.ai || state.rng() < 0.5) }));
 }
 
+// 这些来源的弹幕靠 delay 在批次内错开发出（刷屏潮、复读、房管与回应）；其余的放进缓冲区，每个 tick 取一条。
+const TIMED_CHATTER = /^(wave|repeat|keeper|keeperRebut|admin|banReact|defend|answer)/;
+const GUARD_NAME = Object.freeze({ captain: '舰长', admiral: '提督', governor: '总督' });
+
+function rememberName(state, user) {
+    if (!user) return;
+    state.recentNames.push(user);
+    if (state.recentNames.length > 20) state.recentNames.shift();
+}
+
+function emitChatter(state, entry) {
+    rememberName(state, entry.user);
+    renderLiveMessage(state, { type: entry.type === 'admin' ? 'admin' : 'text', user: entry.user, text: entry.text });
+}
+
+// 缓冲区空了就按本页场合规划一批；需要定时的补发走调度器，其余按 tick 一条一条取。
+function planChatterBatch(state) {
+    const ch = state.chatCtx;
+    const fresh = state.chatFresh;
+    state.chatFresh = false;
+    const batch = planLiveChatter({
+        title: ch.title, text: ch.text, pageInLive: state.pageInLive, ending: ch.ending, hour: ch.hour, mood: ch.mood,
+        aiLines: fresh ? ch.aiLines : [], hostSaid: fresh ? ch.hostSaid : '', userName: ch.userName, hostName: ch.hostName, hostGender: ch.hostGender,
+        tone: ch.tone, tier: ch.tier, emoji: ch.emoji, custom: ch.custom, recentNames: state.recentNames,
+    }, state.rng);
+    const gen = state.chatGen;
+    for (const entry of batch) {
+        if (TIMED_CHATTER.test(entry.src) || entry.type === 'admin') {
+            later(state, () => {
+                if (gen === state.chatGen && state.visible && !state.banned) emitChatter(state, entry);
+            }, Math.max(0, entry.delay));
+        } else state.chatBuf.push(entry);
+    }
+}
+
+function nextChatter(state) {
+    if (!state.chatCtx) {
+        const pool = state.view === 'host' && state.rng() < 0.35 ? LIVE_HOST_AMBIENT_LINES : LIVE_AMBIENT_LINES;
+        return { type: 'text', text: randomItem(pool, state.rng) };
+    }
+    if (!state.chatBuf.length) planChatterBatch(state);
+    const entry = state.chatBuf.shift();
+    if (!entry) return null;
+    rememberName(state, entry.user);
+    return { type: 'text', user: entry.user, text: entry.text };
+}
+
 function ambientMessage(state) {
+    const eco = state.tier ? liveEconomy(state.tier) : null;
+    // 有规模信息时本地也会出醒目留言和上舰（AI 写的 SC 照常优先，在队列里）。
+    if (eco) {
+        if (state.rng() < eco.scRate) return { type: 'sc', text: randomItem(LIVE_SC_LINES, state.rng), extra: String(randomItem(eco.scAmounts, state.rng)) };
+        const levels = Object.entries(eco.guardLevels);
+        if (levels.length && state.rng() < eco.guardRate) {
+            let pick = state.rng() * levels.reduce((sum, [, weight]) => sum + weight, 0);
+            const [key] = levels.find(([, weight]) => (pick -= weight) <= 0) || levels[0];
+            return { type: 'guard', text: randomItem(LIVE_GUARD_LINES, state.rng), extra: GUARD_NAME[key] || '舰长' };
+        }
+    }
     const roll = state.rng();
     if (roll < 0.15) return null;
     if (roll < 0.25) return { type: 'enter' };
-    if (roll < 0.32) return { type: 'gift', text: randomItem(LIVE_AMBIENT_GIFTS, state.rng), extra: String(1 + Math.floor(state.rng() * 9)) };
-    const pool = state.view === 'host' && state.rng() < 0.35 ? LIVE_HOST_AMBIENT_LINES : LIVE_AMBIENT_LINES;
-    return { type: 'text', text: randomItem(pool, state.rng) };
+    if (roll < 0.25 + (eco ? eco.giftRate : 0.07)) return { type: 'gift', text: randomItem(LIVE_AMBIENT_GIFTS, state.rng), extra: String(1 + Math.floor(state.rng() * 9)) };
+    return nextChatter(state);
 }
 
 function spawnHeart(state) {
@@ -338,7 +410,7 @@ function spawnHeart(state) {
 
 function tick(state) {
     state.timer = null;
-    if (!state.els.root.isConnected) {
+    if (!state.els.root.isConnected || state.banned) {
         stopState(state);
         return;
     }
@@ -350,6 +422,8 @@ function tick(state) {
         if (msg) renderLiveMessage(state, msg);
         state.beat += 1;
         bump(state, Math.round((state.rng() - 0.35) * 40));
+        // 规模变了：人气平滑过渡到新基数。
+        if (state.popTarget != null) bump(state, Math.round((state.popTarget - state.popularity) * 0.08));
         state.els.viewersText.textContent = formatPopularity(Math.round(state.popularity / 9));
         if (state.els.watchingText) state.els.watchingText.textContent = formatPopularity(Math.round(state.popularity / 40));
         if (state.view === 'host') state.els.clockEl.textContent = clock(state.now() - state.startedAt);
@@ -360,9 +434,10 @@ function tick(state) {
 
 function arm(state, delay) {
     if (state.timer) state.clear(state.timer);
+    const density = state.tier ? liveEconomy(state.tier).densityMul : 1;
     const wait = delay != null ? delay
         : state.queue.length ? 250 + state.rng() * 150
-            : (1100 + state.rng() * 1300) * (state.reduced ? 1.6 : 1);
+            : (1100 + state.rng() * 1300) * (state.reduced ? 1.6 : 1) / density;
     state.timer = state.schedule(() => tick(state), wait);
 }
 
@@ -417,9 +492,12 @@ export function syncLivePhone(host, live, ctx) {
             schedule: ctx.schedule, clear: ctx.clear, rng: ctx.rng || Math.random, now,
             medal: fanMedalName(live.name),
             popularity: 800 + (stableHash(live.name) % 48000),
+            hostName: live.name, tone: 'modern', tier: null, emoji: true, popTarget: null,
+            pageInLive: -1, chatPage: '', chatSig: '', chatBuf: [], chatGen: 0, chatFresh: false, chatCtx: null, recentNames: [],
             startedAt: now() - (stableHash(`${live.name}${live.title}`) % 1800) * 1000,
-            visible: true, faceGuard: true, faceBox: null, faceKey: '', faceDims: null, faceStage: null, faceProbing: new Set(), reduced: false, coverUrl: '', cgUrl: '', portraitUrl: '', avatarUrl: '', fit: null, model: '', size: '',
+            visible: true, banned: false, warnAt: 0, flyPausedUntil: 0, faceGuard: true, faceBox: null, faceKey: '', faceDims: null, faceStage: null, faceProbing: new Set(), reduced: false, coverUrl: '', cgUrl: '', portraitUrl: '', avatarUrl: '', fit: null, model: '', size: '',
         };
+        syncChatterContext(state, ctx.chatter, true);
         els.popText.textContent = formatPopularity(state.popularity);
         host.appendChild(els.root);
         lives.set(host, state);
@@ -443,6 +521,7 @@ export function syncLivePhone(host, live, ctx) {
     }
     state.schedule = ctx.schedule;
     state.clear = ctx.clear;
+    syncChatterContext(state, ctx.chatter, false);
     state.faceGuard = ctx.faceGuard !== false;
     state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
     state.onPickView = typeof ctx.onPickView === 'function' ? ctx.onPickView : null;
@@ -479,6 +558,35 @@ export function syncLivePhone(host, live, ctx) {
     if (!state.editing) setPortraitFrame(state, normalizeLivePortrait(ctx.portrait));
     refreshFace(state);
     return state;
+}
+
+// 每次同步带来的路人弹幕上下文：页数在同一场直播里计数；正文变化时清空缓冲区，让新一页的场合马上生效。
+// 规模（tier）决定人气基数、节奏、醒目留言和上舰；没有规模信息时一切保持旧行为。
+function syncChatterContext(state, ch, creating) {
+    if (!ch) return;
+    state.chatCtx = ch;
+    state.tone = ch.tone || 'modern';
+    state.emoji = ch.emoji !== false;
+    state.hostName = ch.hostName || state.hostName;
+    if (state.chatPage !== ch.pageKey) {
+        state.chatPage = ch.pageKey;
+        state.pageInLive += 1;
+    }
+    if (state.chatSig !== ch.sig) {
+        state.chatSig = ch.sig;
+        state.chatBuf.length = 0;
+        state.chatGen += 1;
+        state.chatFresh = true;
+    }
+    state.medal = resolveFanMedal({ streamer: state.hostName, fromText: ch.fan, customMap: ch.customMap });
+    if (ch.tier && ch.tier !== state.tier) {
+        const eco = liveEconomy(ch.tier);
+        state.tier = ch.tier;
+        if (creating) {
+            state.popularity = Math.round(eco.basePopularity * (0.85 + (stableHash(state.hostName) % 30) / 100));
+            state.popTarget = null;
+        } else state.popTarget = eco.basePopularity;
+    }
 }
 
 // 手机里立绘的取景：偏移按屏幕宽高的百分比，缩放以立绘底边中点为原点。
@@ -897,9 +1005,60 @@ export function fitLiveSwitch(front, stage) {
     sw.style.setProperty('--igs-live-view-top', `${Math.round((Number(stage.topInset) || 0) + 8)}px`);
 }
 
+// 超管警告演出：warn 弹红卡并刷系统消息；ban 进入关停画面（同一场直播内一直停着，换一场直播才恢复）。
+// 返回 'warn' | 'ban' | 'cooldown' | null。
+export function triggerLiveWarning(host, warning) {
+    const state = host && lives.get(host);
+    if (!state || !warning || state.banned || state.dismissed) return null;
+    if (warning.level === 'ban') {
+        state.banned = true;
+        const { root, popText, viewersText, watchingText } = state.els;
+        root.setAttribute('data-banned', '1');
+        state.els.phone.setAttribute('data-banned', '1');
+        state.popularity = 0;
+        popText.textContent = '0';
+        viewersText.textContent = '0';
+        if (watchingText) watchingText.textContent = '0';
+        state.queue.length = 0;
+        stopState(state);
+        return 'ban';
+    }
+    const now = state.now();
+    if (!warningCooldownOk(state.warnAt, now)) return 'cooldown';
+    state.warnAt = now;
+    const { phone } = state.els;
+    const card = el(state.doc, 'div', 'igs-live-warn');
+    const mark = icon(state.doc, 'shield', 'igs-live-icon igs-live-warn-icon');
+    const body = el(state.doc, 'div', 'igs-live-warn-body');
+    body.append(el(state.doc, 'div', 'igs-live-warn-title', LIVE_WARN_TITLE), el(state.doc, 'div', 'igs-live-warn-text', warningCardText(warning.reason)));
+    card.append(mark, body);
+    transient(state, phone, card, LIVE_WARN_CARD_MS);
+    // 系统消息：滚动评论里一条醒目的红色超管消息；横飞暂停约 2 秒；减少动态效果时不抖。
+    if (state.chat !== 'fly') {
+        const line = chatLine(state, { type: 'admin', user: '超管', text: '直播内容涉嫌违规，请立即整改' }, ' is-warn');
+        appendLine(state, line);
+    }
+    state.flyPausedUntil = now + LIVE_WARN_FLY_PAUSE_MS;
+    if (!state.reduced) {
+        phone.setAttribute('data-warn-shake', '1');
+        later(state, () => phone.removeAttribute('data-warn-shake'), 520);
+    }
+    // 弹完约 1.5 秒后刷一波反应。
+    const memePool = (state.tone !== 'modern' && LIVE_TONE_WARN[state.tone]) || LIVE_WARN_MEME_LINES;
+    const memes = [];
+    for (let guard = 0; memes.length < 5 && guard < 20; guard += 1) {
+        const line = randomItem(memePool, state.rng);
+        if (!memes.includes(line)) memes.push(line);
+    }
+    memes.forEach((line, index) => {
+        later(state, () => { if (!state.banned && state.visible) renderLiveMessage(state, { type: 'text', text: line }); }, LIVE_WARN_MEME_DELAY_MS + index * 260);
+    });
+    return 'warn';
+}
+
 export function pushLiveMessages(host, messages) {
     const state = lives.get(host);
-    if (!state || !messages.length) return;
+    if (!state || !messages.length || state.banned) return;
     const wasIdle = !state.queue.length;
     state.queue.push(...messages.map((msg) => ({ ...msg, ai: true })));
     if (wasIdle) arm(state, 280);
