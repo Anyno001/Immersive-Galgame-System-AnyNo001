@@ -4298,7 +4298,7 @@ export function createIgsReaderHost(options = {}) {
         if (state.activeReader) rerenderActiveReader();
     }
 
-    // character：改的是哪个角色。借自别的卡的角色要写回那张卡，不然本卡会冒出一个只有这一处改动的同名角色，把原来那份盖住。
+    // character：改的是哪个角色。写回本卡或全局里已有的那一份，不改别的卡。
     function mutateSceneLibrary(mutator, { character = '' } = {}) {
         const target = character ? { collections: CHARACTER_COLLECTIONS, name: character } : undefined;
         if (state.activeSettings) {

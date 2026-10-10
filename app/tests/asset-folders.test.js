@@ -110,33 +110,15 @@ test('asset-folder-view: touch menu leaves the folder selector clickable', () =>
     assert.doesNotMatch(css, /\.igs-add-menu-item::after\{content:/);
 });
 
-test('asset-folders: 角色文件夹所有卡共用一套，场景文件夹仍按卡分', () => {
+test('asset-folders: 角色文件夹和场景文件夹都按卡分', () => {
     const storage = createMemoryStorage();
     let a = loadAssetFolders(storage, 'card:A');
     a = moveAssetToFolder(addAssetFolder(a, 'characters', '咒术'), 'characters', '五条悟', '咒术');
     a = moveAssetToFolder(addAssetFolder(a, 'scenes', '高专'), 'scenes', '教室', '高专');
     saveAssetFolders(storage, 'card:A', a);
     const b = loadAssetFolders(storage, 'card:B');
-    assert.equal(b.characters.assign.五条悟, '咒术', 'B 卡看到同一套角色文件夹');
-    assert.deepEqual(b.scenes.folders, [], '场景文件夹不跨卡');
-    saveAssetFolders(storage, 'card:B', removeAssetFolder(b, 'characters', '咒术'));
-    assert.deepEqual(loadAssetFolders(storage, 'card:A').characters.folders, [], '在 B 卡删掉，A 卡也没了');
+    assert.equal(b.characters.assign.五条悟, undefined);
+    assert.deepEqual(b.scenes.folders, []);
+    assert.deepEqual(loadAssetFolders(storage, 'card:A').characters.folders, ['咒术']);
     assert.deepEqual(loadAssetFolders(storage, 'card:A').scenes.folders, ['高专']);
-});
-
-test('asset-folders: 以前各卡分开建的角色文件夹并成一套，不丢分类，删掉的不会再冒出来', () => {
-    const storage = createMemoryStorage();
-    storage.setItem('igs-asset-folders-v1', JSON.stringify({ scopes: {
-        '': { characters: { folders: ['主角'], assign: { 我: '主角' } } },
-        'card:A': { characters: { folders: ['咒术'], assign: { 五条悟: '咒术', 我: '咒术' } }, scenes: { folders: ['高专'], assign: {} } },
-        'card:B': { characters: { folders: ['魔法'], assign: { 莉莉: '魔法' } } },
-        '现代': { characters: { folders: ['预设里的'], assign: {} } },
-    } }));
-    const b = loadAssetFolders(storage, 'card:B');
-    assert.deepEqual(b.characters.folders, ['主角', '咒术', '魔法']);
-    assert.deepEqual({ ...b.characters.assign }, { 我: '主角', 五条悟: '咒术', 莉莉: '魔法' }, '全局已有的分配不改');
-    assert.deepEqual(loadAssetFolders(storage, 'card:A').scenes.folders, ['高专']);
-    assert.deepEqual(loadAssetFolders(storage, '现代').characters.folders, ['预设里的'], '预设快照不并');
-    saveAssetFolders(storage, 'card:B', removeAssetFolder(b, 'characters', '咒术'));
-    assert.ok(!loadAssetFolders(storage, 'card:A').characters.folders.includes('咒术'));
 });

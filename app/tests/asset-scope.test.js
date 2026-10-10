@@ -46,7 +46,7 @@ test('角色卡同名资料盖住全局，卡里没有的名字仍用全局', ()
     assert.equal(assets.scenes.教室.url, 'global-room');
 });
 
-test('把角色从全局收进角色卡后，素材跟着进卡，别的卡仍能借用', () => {
+test('把角色从全局收进角色卡后，素材跟着进卡，别的卡看不到', () => {
     const assets = {
         characters: { 小雪: { 默认: 'snow' } },
         characterAliases: { 小雪: ['雪'] },
@@ -58,7 +58,7 @@ test('把角色从全局收进角色卡后，素材跟着进卡，别的卡仍�
     assert.equal(assets.cards['card:小雪'].characters.小雪.默认, 'snow');
     assert.deepEqual(assets.cards['card:小雪'].characterAliases.小雪, ['雪']);
     const other = effectiveSceneAssets(assets, 'card:林');
-    assert.equal(other.characters.小雪.默认, 'snow', '角色跟人走，别的卡直接用');
+    assert.equal(other.characters.小雪, undefined);
     const mine = effectiveSceneAssets(assets, 'card:小雪');
     assert.equal(mine.characters.小雪.默认, 'snow');
     assert.equal(mine.wardrobe.校服.prompt, 'uniform');
@@ -93,7 +93,7 @@ test('旧的头像文件名资料会挪到角色卡名字下', () => {
     assert.equal(assets.cards['card:小雪'].characters.小雪.默认, 'snow');
 });
 
-test('在 A 卡建的角色和衣柜，B 卡直接能用；场景和事件 CG 不跨卡', () => {
+test('在 A 卡建的角色、衣柜、场景和事件 CG，B 卡都看不到', () => {
     const assets = {
         cards: {
             'card:A': {
@@ -109,17 +109,18 @@ test('在 A 卡建的角色和衣柜，B 卡直接能用；场景和事件 CG �
         },
     };
     const b = effectiveSceneAssets(assets, 'card:B');
-    assert.equal(b.characters.五条悟.默认, 'gojo');
-    assert.deepEqual(b.characterAliases.五条悟, ['悟']);
-    assert.equal(b.characterDna.五条悟.identity, '1boy');
-    assert.ok(b.characterOutfits.五条悟.制服);
-    assert.equal(b.wardrobe.眼罩.prompt, 'blindfold');
-    assert.equal(b.generated.expressionNotes.五条悟, '轻佻');
-    assert.equal(b.scenes.教室, undefined, '场景属于那张卡的世界');
+    assert.equal(b.characters.五条悟, undefined);
+    assert.equal(b.characterAliases.五条悟, undefined);
+    assert.equal(b.characterDna.五条悟, undefined);
+    assert.equal(b.characterOutfits.五条悟, undefined);
+    assert.equal(b.wardrobe.眼罩, undefined);
+    assert.equal(b.generated.expressionNotes.五条悟, undefined);
+    assert.equal(b.scenes.教室, undefined);
     assert.equal(b.eventCgs.初遇, undefined);
+    assert.equal(effectiveSceneAssets(assets, 'card:A').characters.五条悟.默认, 'gojo');
 });
 
-test('同名角色：本卡优先，其次全局，最后才借别的卡（后建的卡为准）', () => {
+test('同名角色只看本卡和全局，不借别的卡', () => {
     const assets = {
         characters: { 莉莉: { 默认: 'global-lily' } },
         cards: {
@@ -130,19 +131,19 @@ test('同名角色：本卡优先，其次全局，最后才借别的卡（后�
     };
     const mine = effectiveSceneAssets(assets, 'card:我');
     assert.equal(mine.characters.莉莉.默认, 'mine');
-    assert.equal(mine.characters.五条悟.默认, 'new');
+    assert.equal(mine.characters.五条悟, undefined);
     assert.equal(effectiveSceneAssets(assets, 'card:空').characters.莉莉.默认, 'global-lily');
+    assert.equal(effectiveSceneAssets(assets, 'card:空').characters.五条悟, undefined);
     assert.equal(effectiveSceneAssets(assets, '').characters.五条悟, undefined, '没开卡时只看全局');
 });
 
-test('改借来的角色写回原来那张卡，不在本卡另起一份', () => {
+test('别的卡的角色不写到本卡，也不改那张卡', () => {
     const root = { cards: { 'card:A': { characters: { 五条悟: { 默认: 'gojo' } } } } };
-    assert.equal(assetOwnerKey(root, 'card:B', ['characters'], '五条悟'), 'card:A');
-    assert.equal(assetOwnerKey(root, 'card:B', ['scenes'], '五条悟'), 'card:B', '场景不借，新建进本卡');
+    assert.equal(assetOwnerKey(root, 'card:B', ['characters'], '五条悟'), 'card:B');
     assert.equal(assetOwnerKey(root, 'card:B', ['characters'], '夏油'), 'card:B');
     const settingsState = { draft: { bridge: { sceneAssets: root } }, asyncState: { assetScopeKey: 'card:B' } };
     const lib = draftAssetLibrary(settingsState, { collections: ['characters'], name: '五条悟' });
-    lib.characters.五条悟.开心 = 'smile';
-    assert.equal(root.cards['card:A'].characters.五条悟.开心, 'smile');
-    assert.equal(root.cards['card:B'], undefined);
+    lib.characters.五条悟 = { 默认: 'gojo', 开心: 'smile' };
+    assert.equal(root.cards['card:A'].characters.五条悟.开心, undefined);
+    assert.equal(root.cards['card:B'].characters.五条悟.开心, 'smile');
 });

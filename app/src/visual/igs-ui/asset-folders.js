@@ -1,5 +1,4 @@
-// 素材页文件夹：只是界面归类（与折叠状态同类），存本地；不写入素材或导入导出数据。
-// 场景按全局或当前角色卡分别存；角色所有卡共用，角色文件夹也只有一套，记在全局那份里。
+// 素材页文件夹：只是界面归类（与折叠状态同类），按全局或当前角色卡分别存本地；不写入素材或导入导出数据。
 const STORAGE_KEY = 'igs-asset-folders-v1';
 export const ASSET_FOLDER_KINDS = Object.freeze(['scenes', 'characters']);
 const VIEWS = ['list', 'grid'];
@@ -36,46 +35,11 @@ function readScopes(storage) {
     return Object.assign(Object.create(null), all && typeof all.scopes === 'object' ? all.scopes : null);
 }
 
-const isCardScope = (key) => /^(?:card|group):/.test(key);
-const hasKindData = (kind) => Boolean(kind && ((Array.isArray(kind.folders) && kind.folders.length) || (kind.assign && Object.keys(kind.assign).length)));
-
-// 早先每张卡各有一套角色文件夹。并进全局那套（全局已有的分配不改），卡上的清掉，之后就只读写全局那套。
-// 并过的卡上不再有角色文件夹，再跑一遍什么也不做；预设存的文件夹快照不是卡，不动。
-function shareCharacterFolders(scopes) {
-    let changed = false;
-    const shared = normalizeAssetFolders(scopes['']);
-    for (const key of Object.keys(scopes)) {
-        if (!isCardScope(key) || !scopes[key] || !hasKindData(scopes[key].characters)) continue;
-        const source = normalizeAssetFolders(scopes[key]).characters;
-        for (const folder of source.folders) if (!shared.characters.folders.includes(folder)) shared.characters.folders.push(folder);
-        for (const [item, folder] of Object.entries(source.assign)) if (!own(shared.characters.assign, item)) shared.characters.assign[item] = folder;
-        scopes[key] = { ...scopes[key], characters: null };
-        changed = true;
-    }
-    if (changed) scopes[''] = { ...(scopes[''] || {}), characters: shared.characters };
-    return changed;
-}
-
-function readSharedScopes(storage) {
-    const scopes = readScopes(storage);
-    if (shareCharacterFolders(scopes) && storage && typeof storage.setItem === 'function') {
-        try { storage.setItem(STORAGE_KEY, JSON.stringify({ scopes })); } catch (error) { /* 存不下就下次再并 */ }
-    }
-    return scopes;
-}
-
-// 卡上的场景文件夹 + 全局那套角色文件夹。
-function scopedState(scopes, key, fallbackToGlobal) {
-    const own_ = own(scopes, key) ? scopes[key] : (fallbackToGlobal ? scopes[''] : null);
-    const state = normalizeAssetFolders(own_);
-    if (isCardScope(key)) state.characters = normalizeAssetFolders(scopes['']).characters;
-    return state;
-}
-
 export function loadAssetFolders(storage, scope = '') {
     try {
+        const scopes = readScopes(storage);
         const key = String(scope || '');
-        return scopedState(readSharedScopes(storage), key, false);
+        return normalizeAssetFolders(own(scopes, key) ? scopes[key] : null);
     } catch (error) {
         console.warn('[IGS] 素材文件夹读取失败，按未分类显示', error);
         return normalizeAssetFolders(null);
@@ -87,15 +51,7 @@ export function saveAssetFolders(storage, scope, state) {
         if (!storage || typeof storage.setItem !== 'function') return false;
         let scopes;
         try { scopes = readScopes(storage); } catch { scopes = Object.create(null); }
-        shareCharacterFolders(scopes);
-        const key = String(scope || '');
-        const next = normalizeAssetFolders(state);
-        if (isCardScope(key)) {
-            scopes[''] = { ...normalizeAssetFolders(scopes['']), characters: next.characters };
-            scopes[key] = { ...next, characters: null };
-        } else {
-            scopes[key] = next;
-        }
+        scopes[String(scope || '')] = normalizeAssetFolders(state);
         storage.setItem(STORAGE_KEY, JSON.stringify({ scopes }));
         return true;
     } catch (error) {
@@ -104,11 +60,12 @@ export function saveAssetFolders(storage, scope, state) {
     }
 }
 
-// 打开角色卡时，这张卡还没建过场景文件夹就先沿用全局的分类，免得全局素材的文件夹一下子全没了。
+// 打开角色卡时，这张卡还没建过文件夹就先沿用全局的分类，免得全局素材的文件夹一下子全没了。
 export function loadAssetFoldersFor(storage, scope = '') {
     try {
+        const scopes = readScopes(storage);
         const key = String(scope || '');
-        return scopedState(readSharedScopes(storage), key, true);
+        return normalizeAssetFolders(own(scopes, key) ? scopes[key] : scopes['']);
     } catch (error) {
         return loadAssetFolders(storage, scope);
     }
@@ -122,7 +79,7 @@ export function mergeAssetFolderScope(storage, fromScope, toScope) {
         const to = String(toScope || '');
         if (!own(scopes, from) || from === to) return false;
         const source = normalizeAssetFolders(scopes[from]);
-        const target = loadAssetFoldersFor(storage, to);
+        const target = normalizeAssetFolders(own(scopes, to) ? scopes[to] : scopes['']);
         for (const kind of ASSET_FOLDER_KINDS) {
             for (const folder of source[kind].folders) if (!target[kind].folders.includes(folder)) target[kind].folders.push(folder);
             for (const [item, folder] of Object.entries(source[kind].assign)) if (!own(target[kind].assign, item)) target[kind].assign[item] = folder;

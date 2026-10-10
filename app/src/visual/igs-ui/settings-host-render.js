@@ -2,7 +2,7 @@
 import { DIALOG_SKIN_MERMAID, MERMAID_TONES, normalizeMermaidAccent, normalizeMermaidTone } from './dialog-theme-mermaid.js';
 import { buildIgsTextPayload, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
 import { dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
-import { assetOwnerKey, assetShadowsGlobal, draftEffectiveAssets, effectiveSceneAssets, hasSharedCopy, isSharedCollection, rememberAssetScope } from '../../scene/asset-scope.js';
+import { assetOwnerKey, assetShadowsGlobal, draftEffectiveAssets, effectiveSceneAssets, rememberAssetScope } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { menuItem, renderOutfitReviewList, renderRowMenu, renderWardrobe } from './settings-outfit-fields.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
@@ -365,14 +365,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const storage = (options.global || globalThis).localStorage;
             const scopeTag = (collection, name) => {
                 if (!cardKey) return '';
-                const owner = assetOwnerKey(assetRoot, cardKey, [collection], name);
-                // 角色、衣柜所有卡共用，没有本卡 / 全局可选；只在这张卡有自己的同名版本时标出来。
-                if (isSharedCollection(collection)) {
-                    return owner === cardKey && hasSharedCopy(assetRoot, cardKey, collection, name)
-                        ? '<span class="igs-asset-scope-note" title="本卡使用专属版本。删除后将恢复使用共用版本。">本卡专属</span>'
-                        : '';
-                }
-                const inCard = Boolean(owner);
+                const inCard = Boolean(assetOwnerKey(assetRoot, cardKey, [collection], name));
                 // 两格切换：亮的那格是现在放的地方，点另一格就迁过去。
                 const move = `asset-move:${collection}:${encodeURIComponent(String(name))}`;
                 const seg = (here, label, title) => (here
@@ -381,9 +374,6 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 return `<span class="igs-asset-scope-switch" role="group" aria-label="放在本卡还是全局">${seg(inCard, '本卡', '收进本卡：只有这张角色卡用')}${seg(!inCard, '全局', '放到全局：所有角色卡共用')}</span>`
                     + (inCard && assetShadowsGlobal(assetRoot, cardKey, collection, name) ? '<span class="igs-asset-scope-note" title="全局另有一份同名的，这张卡用本卡这份">覆盖全局</span>' : '');
             };
-            const scopeMenu = (collection, name) => (cardKey && isSharedCollection(collection) && assetOwnerKey(assetRoot, cardKey, [collection], name) !== cardKey
-                ? menuItem(`asset-own:${collection}:${encodeURIComponent(String(name))}`, '创建本卡专属版本')
-                : '');
             const presetMap = loadLegacyPresets(storage);
             const presetNames = Object.entries(presetMap).filter(([, preset]) => legacyPresetHasContent(preset) || presetCardLayers(preset).length).map(([name]) => name);
             // 预设是存档 / 模板：存这张卡实际在用的一套，套用时整层换成预设。旧版存的预设也在这里。
@@ -434,7 +424,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             };
             const scopeFilters = asyncState.assetScopeFilter && typeof asyncState.assetScopeFilter === 'object' ? asyncState.assetScopeFilter : {};
             const ownedBy = (collection, name) => (assetOwnerKey(assetRoot, cardKey, [collection], name) ? 'card' : 'global');
-            const filterOf = (collection) => (cardKey && !isSharedCollection(collection) && (scopeFilters[collection] === 'card' || scopeFilters[collection] === 'global') ? scopeFilters[collection] : 'all');
+            const filterOf = (collection) => (cardKey && (scopeFilters[collection] === 'card' || scopeFilters[collection] === 'global') ? scopeFilters[collection] : 'all');
             const scopedEntries = (collection) => {
                 const all = sceneAssets[collection] || {};
                 const filter = filterOf(collection);
@@ -443,7 +433,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             };
             // 只在打开了角色卡时出现。切到「本卡」可以一键全放到全局，切到「全局」可以一键全收进本卡。
             const scopeFilterBar = (collection) => {
-                if (!cardKey || isSharedCollection(collection)) return '';
+                if (!cardKey) return '';
                 const names = Object.keys(sceneAssets[collection] || {});
                 const cardCount = names.filter((name) => ownedBy(collection, name) === 'card').length;
                 const counts = { all: names.length, card: cardCount, global: names.length - cardCount };
@@ -482,7 +472,6 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 expressionNotes: normalizeGeneratedLibrary(sceneAssets.generated).expressionNotes,
                 folderSelect: (name, opts) => renderAssetFolderSelect('characters', name, assetFolders.characters, opts),
                 scopeTag,
-                scopeMenu,
                 isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]),
             };
             const charsHtml = renderAssetFolderView('characters', scopedEntries('characters'), {
@@ -580,7 +569,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + (sceneAssets.promptAdaptive !== false ? renderPromptEntryFields(sceneAssets, { report: getLastPromptReport(), isOpen: (key) => Boolean(asyncState.advancedOpen && asyncState.advancedOpen[key]) }) : '')
                     + '</details>',
                 wardrobeSection: checkbox('bridge.sceneAssets.wardrobeAutoFlow', sceneAssets.wardrobeAutoFlow !== false, '自动流程（新建后自动写提示词、生成参考图）')
-                    + renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, scopeMenu, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
+                    + renderWardrobe(scopedEntries('wardrobe'), { resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') }),
                 moodSectionOpen: asyncState.advancedOpen && asyncState.advancedOpen['rules-mood'] ? ' open' : '',
                 eventCgSectionOpen: asyncState.advancedOpen && asyncState.advancedOpen['rules-event-cg'] ? ' open' : '',
                 eventCgSection: renderEventCgList(scopedEntries('eventCgs'), { resolveUrl: resolveGenerated, scopeTag }),

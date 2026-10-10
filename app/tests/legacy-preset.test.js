@@ -417,26 +417,24 @@ test('preset: 导出把引用的生成图一起打进压缩包，清了本机再
     }
 });
 
-test('asset scope: 角色所有卡共用，「这张卡单独一版」复制一份，改它不动原来那份', async () => {
-    const { ctx, draft } = makeCtx({ sceneAssets: { cards: { 'card:A': { characters: { 莉莉: { 默认: 'a-lily' } }, characterAliases: { 莉莉: ['莉'] } } } } });
+test('asset scope: 角色可以在本卡和全局之间挪，别的卡的角色不动', async () => {
+    const { ctx, draft } = makeCtx({ sceneAssets: { characters: { 莉莉: { 默认: 'global-lily' } }, characterAliases: { 莉莉: ['莉'] }, cards: { 'card:A': { characters: { 悟: { 默认: 'a' } } } } } });
     await handleSettingsAction('asset-move:characters:%E8%8E%89%E8%8E%89', ctx);
     const root = draft.bridge.sceneAssets;
-    assert.equal(root.cards['card:小雪'], undefined, '角色不再有本卡 / 全局可挪');
-    await handleSettingsAction('asset-own:characters:%E8%8E%89%E8%8E%89', ctx);
-    assert.equal(root.cards['card:小雪'].characters.莉莉.默认, 'a-lily');
+    assert.equal(root.characters.莉莉, undefined);
+    assert.equal(root.cards['card:小雪'].characters.莉莉.默认, 'global-lily');
     assert.deepEqual(root.cards['card:小雪'].characterAliases.莉莉, ['莉']);
-    root.cards['card:小雪'].characters.莉莉.默认 = 'mine';
-    assert.equal(root.cards['card:A'].characters.莉莉.默认, 'a-lily', '复制的不是同一个对象');
+    assert.equal(root.cards['card:A'].characters.悟.默认, 'a');
 });
 
-test('asset scope: 删共用的角色先说清楚所有卡都没了；删本卡专用版说改用共用的', async () => {
+test('asset scope: 删除角色只问这一份，不提所有卡共用', async () => {
     const asked = [];
-    const { ctx, draft } = makeCtx({ sceneAssets: { characters: { 莉莉: { 默认: 'g' } }, cards: { 'card:A': { characters: { 悟: { 默认: 'a' } } } } } });
+    const { ctx, draft } = makeCtx({ sceneAssets: { cards: { 'card:小雪': { characters: { 莉莉: { 默认: 'mine' } } }, 'card:A': { characters: { 悟: { 默认: 'a' } } } } } });
     ctx.dialogs.confirm = async (text) => { asked.push(text); return false; };
-    await handleSettingsAction('scene-remove-char:%E6%82%9F', ctx);
-    assert.match(asked.pop(), /其他角色卡也将无法使用/);
-    assert.equal(draft.bridge.sceneAssets.cards['card:A'].characters.悟.默认, 'a', '取消不删');
-    draft.bridge.sceneAssets.cards['card:小雪'] = { characters: { 莉莉: { 默认: 'mine' } } };
     await handleSettingsAction('scene-remove-char:%E8%8E%89%E8%8E%89', ctx);
-    assert.match(asked.pop(), /「莉莉」的本卡专属版本/);
+    const text = asked.pop();
+    assert.match(text, /删除角色「莉莉」/);
+    assert.doesNotMatch(text, /其他角色卡也将无法使用/);
+    assert.equal(draft.bridge.sceneAssets.cards['card:小雪'].characters.莉莉.默认, 'mine');
+    assert.equal(draft.bridge.sceneAssets.cards['card:A'].characters.悟.默认, 'a');
 });
