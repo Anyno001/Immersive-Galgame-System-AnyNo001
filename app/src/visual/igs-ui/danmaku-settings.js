@@ -25,6 +25,9 @@ export const INNER_DANMAKU_STYLES = Object.freeze(['burst', 'fly']);
 export const INNER_DANMAKU_STYLE_LABELS = Object.freeze({ burst: '爆发', fly: '横飞' });
 // 直播间形态：phone 掏出手机看竖屏直播（原样式，默认）；full 直接铺满舞台的全屏直播。
 export const LIVE_LAYOUTS = Object.freeze(['phone', 'full']);
+// 全屏直播的台词：subtitle 底部直播字幕（默认）；dialog 沿用对话框。旁白位置：above 字幕上方（默认）；name 左上名牌下方；dialog 退回极简对话框。
+export const LIVE_FULL_TEXTS = Object.freeze(['subtitle', 'dialog']);
+export const LIVE_NARRATION_POSITIONS = Object.freeze(['above', 'name', 'dialog']);
 // 直播弹幕：roll 左下角列表向上翻滚（默认）；fly 沿轨道横飞穿过画面；both 两者同时。
 export const LIVE_CHAT_MODES = Object.freeze(['roll', 'fly', 'both']);
 // 手机机型：只换外观与屏幕比例。全面屏 9:18.5（原样式）、刘海屏 9:17、折叠屏展开 6:7、平板 3:4。
@@ -69,6 +72,8 @@ export function normalizeLiveFxSettings(value) {
         enabled: src.enabled === true,
         muteOnNsfw: src.muteOnNsfw !== false,
         layout: pick(LIVE_LAYOUTS, src.layout, 'phone'),
+        fullText: pick(LIVE_FULL_TEXTS, src.fullText, 'subtitle'),
+        narrationPos: pick(LIVE_NARRATION_POSITIONS, src.narrationPos, 'above'),
         chat: pick(LIVE_CHAT_MODES, src.chat, 'roll'),
         // 跟随对话框主题：沿用线上交流的主题色板（默认关，保持 B 站深色）。
         followTheme: src.followTheme === true,

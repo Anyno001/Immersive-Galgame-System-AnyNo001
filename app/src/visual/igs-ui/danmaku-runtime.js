@@ -17,6 +17,7 @@ import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes
 import { resolveChatTheme } from './chat-themes.js';
 import { fitFeedPhone, stopFeedPhone, syncFeedPhone } from './feed-phone.js';
 import { fitStorm, stopStorm, syncStorm } from './storm-phone.js';
+import { applyLiveFull, classifySubtitle, clearLiveFull, refreshLiveFullOverflow } from './live-full.js';
 import { enterFocus, exitFocus, focusOn, holdFocusText, isNewAppearance, phoneIdentity, setFocusHooks } from './phone-focus.js';
 import { normalizeFeedFxSettings } from './feed-settings.js';
 import { isFeedEntryShown, placeFeedEntry, stopFeedReview, syncFeedReview } from './feed-review.js';
@@ -305,6 +306,7 @@ function liveContext(ctx, live) {
         visible: ctx.plan.liveVisible,
         onDismiss: () => applyDanmakuToDom(ctx.root, snapshot, options),
         layout: ctx.settings.live.layout,
+        fullText: ctx.settings.live.fullText,
         look: ctx.look,
         interact: ctx.settings.live.interact,
         portrait: ctx.settings.live.portrait,
@@ -428,9 +430,11 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     const phone = syncLive(ctx, auto, live);
     // 手机焦点：量一次舞台后三种手机各自重排（对话框淡出 / 淡回时几何随之变）。
     const refit = () => {
+        refreshLiveFullOverflow(root, root.querySelector('#igs-text'));
         const next = measureStage(layers.motion);
         if (!next) return;
         state.liveStage = next;
+        placeLiveFullName(root, next);
         if (phone) fitLiveControls(front, fitLivePhone(host, next));
         fitLiveSwitch(front, next);
         if (feedPhone) fitFeedPhone(host, next);
@@ -459,8 +463,20 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     state.phoneKey = identity;
     // 手机形态的直播亮着时，舞台上的立绘收起：手机里已经有主播画面，后面再露一个人会和手机粘在一起。
     setLivePhoneFlag(root, liveShown, live && live.name);
+    // 直播全屏：对话框换成直播字幕的样子，状态栏隐藏；收起 / 下播 / 切到手机形态时标记清掉。
+    const liveFullOn = Boolean(phone && phone.visible && plan.liveVisible && settings.live.layout === 'full');
+    if (liveFullOn) {
+        applyLiveFull(root, {
+            fullText: settings.live.fullText,
+            narrationPos: settings.live.narrationPos,
+            kind: classifySubtitle({ speaker: content.speaker, textType: content.textType, hostName: live.name, userName }),
+            speaker: content.speaker,
+            textEl: root.querySelector('#igs-text'),
+        });
+    } else clearLiveFull(root, root.querySelector('#igs-text'));
     if (phone && plan.dms.length) pushLiveMessages(host, plan.dms);
-    if (phone && plan.hostSay) pushLiveMessages(host, [{ user: live.name, text: plan.hostSay, type: 'host', extra: '' }]);
+    // 全屏直播里主播的话已经是字幕，不再重复推进评论。
+    if (phone && plan.hostSay && settings.live.layout !== 'full') pushLiveMessages(host, [{ user: live.name, text: plan.hostSay, type: 'host', extra: '' }]);
     if (settings.audience.enabled) {
         syncAudience(front, audienceInfo(ctx), {
             doc: ctx.doc, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng,
@@ -489,10 +505,12 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         nextFrame(ctx.doc, () => {
             if (states.get(root) !== state || state.pageKey !== plan.pageKey) return;
             holdFocusText(state);
+            refreshLiveFullOverflow(root, root.querySelector('#igs-text'));
             const stage = measureStage(layers.motion);
             if (!stage) return;
             const top = entryShown || reviewShown || notifyShown ? entryTop(root, layers.motion, stage.stageH) : 0;
             state.liveStage = stage;
+            placeLiveFullName(root, stage);
             if (phone) fitLiveControls(front, fitLivePhone(host, stage));
             fitLiveSwitch(front, stage);
             if (feedPhone) fitFeedPhone(host, stage);
@@ -505,6 +523,12 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         });
     }
     return { live: Boolean(phone), audience: plan.audience.length, inner: Boolean(plan.inner) };
+}
+
+// 全屏字幕「名牌下方」的旁白位置：工具栏下沿 + 8px 再让出名牌的高度。
+function placeLiveFullName(root, stage) {
+    if (!root || !root.style || !stage) return;
+    root.style.setProperty('--igs-lf-name-top', `${Math.round((Number(stage.topInset) || 0) + 8 + 52)}px`);
 }
 
 // 手机形态的直播亮着：舞台立绘收起；同时记下主播名，头顶小字和漫画泡据此不再压在手机画面上。
@@ -550,6 +574,7 @@ export function cancelDanmaku(root) {
     const state = root && states.get(root);
     unwatchPhoneStage(state);
     if (state) exitFocus(state, root);
+    if (root) clearLiveFull(root, root.querySelector && root.querySelector('#igs-text'));
     const layers = root ? findFxLayers(root) : null;
     const host = layers && layers.stage ? layers.stage.querySelector('.igs-dm-root') : null;
     const front = layers && layers.front ? layers.front.querySelector('.igs-dm-front') : null;

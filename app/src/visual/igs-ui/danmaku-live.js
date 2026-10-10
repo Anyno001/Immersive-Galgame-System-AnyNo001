@@ -443,6 +443,12 @@ export function syncLivePhone(host, live, ctx) {
     state.model = model;
     applyPhoneLook(state.els.root, { ...look, model });
     state.size = look.size === 'fit' ? 'fit' : 'large';
+    const sub = layout === 'full' && ctx.fullText === 'subtitle';
+    if (state.sub !== sub) {
+        state.sub = sub;
+        if (sub) state.els.root.setAttribute('data-sub', '1');
+        else state.els.root.removeAttribute('data-sub');
+    }
     state.els.root.setAttribute('data-interact', ctx.interact ? '1' : '0');
     // 状态栏跟剧情：时间、低电量、无服务（全屏形态没有状态栏）。
     if (state.els.status && ctx.status) setPhoneStatus(state.els.status, ctx.status);
@@ -654,7 +660,14 @@ export function fitLivePhone(host, stage) {
             state.inset = inset;
             state.els.phone.style.setProperty('--igs-live-floor', `${inset}px`);
         }
-        setFlyGeometry(state, stage.stageW, stage.stageH * 0.16, floor - 8, Math.round(Math.max(16, Math.min(26, stage.stageH * 0.034))));
+        // 全屏字幕：横飞只走舞台高 15% 到 60%，不进字幕区；名牌贴在工具栏下沿 + 8px。
+        const sub = state.sub === true;
+        setFlyGeometry(state, stage.stageW, stage.stageH * (sub ? 0.15 : 0.16), sub ? stage.stageH * 0.6 : floor - 8, Math.round(Math.max(16, Math.min(26, stage.stageH * 0.034))));
+        const nameTop = Math.round((Number(stage.topInset) || 0) + 8);
+        if (state.nameTop !== nameTop) {
+            state.nameTop = nameTop;
+            state.els.phone.style.setProperty('--igs-live-name-top', `${nameTop}px`);
+        }
         return { layout: 'full', floor: inset };
     }
     // 底栏、弹幕与点赞整体抬到对话框之上（under）。

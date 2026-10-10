@@ -599,3 +599,34 @@ test('gate:stage-pause:host-bubbles-hidden-only-while-host-sprite-is-covered', a
     root.removeAttribute('data-igs-stage-covered');
     assert.equal(isLiveHostCovered(root, '爱丽丝'), false, 'full layout or dismissed phone shows them again');
 });
+
+test('gate:danmaku:live-full-marks-stage-and-clears-on-dismiss', () => {
+    const { root, motion } = makeRoot();
+    root.id = 'igs-overlay';
+    const c = clock();
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: seq([0.9, 0.1, 0.5]), reducedMotion: false, userName: '小明' };
+    const fx = { live: { name: '爱丽丝', title: '深夜杂谈', view: 'watch' } };
+    const rs = { liveFx: { enabled: true, layout: 'full' } };
+    applyDanmakuToDom(root, snapshot({ currentIndex: 0, fx, speaker: '爱丽丝' }, rs), opts);
+    assert.equal(root.getAttribute('data-igs-live-full'), 'subtitle');
+    assert.equal(root.getAttribute('data-igs-live-sub'), 'host');
+    applyDanmakuToDom(root, snapshot({ currentIndex: 1, fx, speaker: '鲍勃' }, rs), opts);
+    assert.equal(root.getAttribute('data-igs-live-sub'), 'other');
+    // 直播收起：标记立刻清掉，对话框和状态栏恢复。
+    const close = motion.querySelector('.igs-live-close');
+    for (const fn of close.listeners.click) fn({ stopPropagation() {} });
+    assert.equal(root.getAttribute('data-igs-live-full'), null);
+    cancelDanmaku(root);
+    assert.equal(root.getAttribute('data-igs-live-full'), null);
+});
+
+test('gate:danmaku:live-phone-layout-never-marks-full', () => {
+    const { root } = makeRoot();
+    root.id = 'igs-overlay';
+    const c = clock();
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: seq([0.9, 0.1, 0.5]), reducedMotion: false, userName: '小明' };
+    const fx = { live: { name: '爱丽丝', title: '深夜杂谈', view: 'watch' } };
+    applyDanmakuToDom(root, snapshot({ currentIndex: 0, fx }, { liveFx: { enabled: true, layout: 'phone' } }), opts);
+    assert.equal(root.getAttribute('data-igs-live-full'), null);
+    cancelDanmaku(root);
+});
