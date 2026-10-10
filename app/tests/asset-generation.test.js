@@ -906,7 +906,8 @@ test('gate:assets:dbgen-sprites-write-once-then-paint-and-split-past-eight', asy
     const result = await service.processMessage(3, { manual: true });
     assert.equal(result.ok, true);
     assert.equal(result.count, 3);
-    assert.deepEqual(order, ['write:3', 'paint:甲', 'paint:乙', 'paint:丙']);
+    const framed = (name) => `paint:${name}, cowboy shot, standing, facing viewer, straight-on`;
+    assert.deepEqual(order, ['write:3', framed('甲'), framed('乙'), framed('丙')]);
 
     const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
     const manyFloor = {
@@ -939,8 +940,8 @@ test('gate:assets:dbgen-sprites-write-once-then-paint-and-split-past-eight', asy
     const splitResult = await split.processMessage(4, { manual: true });
     assert.equal(splitResult.count, 10);
     const secondWrite = splitOrder.lastIndexOf('write:5');
-    assert.equal(splitOrder.indexOf('paint:e') < secondWrite, true);
-    assert.equal(splitOrder.indexOf('paint:f') > secondWrite, true);
+    assert.equal(splitOrder.indexOf(framed('e')) < secondWrite, true);
+    assert.equal(splitOrder.indexOf(framed('f')) > secondWrite, true);
     assert.deepEqual(splitOrder.filter((item) => item.startsWith('write')), ['write:5', 'write:5']);
 });
 
@@ -1224,7 +1225,7 @@ test('gate:assets:bind-generated-sprite-to-character-default', () => {
 });
 
 test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async () => {
-    const { DEFAULT_MOOD_GROUPS, moodTierLabels, moodPresetTags } = await import('../src/scene/mood-groups.js');
+    const { DEFAULT_MOOD_GROUPS, moodTierLabels } = await import('../src/scene/mood-groups.js');
     const { renderCharacterAssetList, renderGeneratedAssetPane } = await import('../src/visual/igs-ui/settings-fields.js');
     const { buildExpressionDiffDescription, uprightSpriteCaption } = await import('../src/generated-images/dbgen-prompt.js');
     const labels = moodTierLabels(8);
@@ -1316,7 +1317,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.equal(dna.identity, '银发，说话很冲');
     assert.equal(promptCalls, 1);
     assert.equal(maxActive, 1);
-    assert.deepEqual(painted, labels.map((label) => `fuyuko, ${moodPresetTags(label)}, silver hair, expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
+    assert.deepEqual(painted, labels.map((label) => `expr ${label}, cowboy shot, standing, facing viewer, straight-on`));
     assert.equal(new Set(seeds).size, 1, 'one seed for the whole set');
     assert.ok(Number.isInteger(seeds[0]) && seeds[0] >= 0);
     const angryIndex = labels.indexOf('愤怒');
@@ -1326,7 +1327,7 @@ test('gate:assets:expression-set-writes-once-then-paints-eight-in-order', async 
     assert.equal(result.items[0].imageId, 'expr-1');
     assert.equal(result.items[angryIndex].ok, false);
     assert.equal(result.items[angryIndex].mood, '愤怒');
-    assert.equal(result.items[angryIndex].caption.v4_prompt.caption.base_caption, `fuyuko, ${moodPresetTags('愤怒')}, silver hair, expr 愤怒, cowboy shot, standing, facing viewer, straight-on`);
+    assert.equal(result.items[angryIndex].caption.v4_prompt.caption.base_caption, 'expr 愤怒, cowboy shot, standing, facing viewer, straight-on');
     assert.equal(progress[0].phase, 'write');
     assert.equal(progress[0].done, 0);
     assert.equal(progress[0].total, 8);
@@ -1775,7 +1776,7 @@ test('gate:assets:expression-look-keeps-clothes-from-one-source', async () => {
         v4_negative_prompt: { caption: { base_caption: '', char_captions: [] } },
     } };
     assert.equal(expressionLookTags(base, null), '1girl, black hair, red hoodie, shorts');
-    assert.equal(expressionLookTags(base, { name: '泳装', prompt: 'white bikini, 白色泳衣, sun hat', ownImage: false }), 'white bikini, sun hat');
+    assert.equal(expressionLookTags(base, { name: '泳装', prompt: 'white bikini, 白色泳衣, sun hat', ownImage: false }), '');
     assert.equal(expressionLookTags(base, { name: '泳装', prompt: '', ownImage: false }), '', 'old clothes must not leak into a new outfit');
     assert.equal(expressionLookTags(base, { name: '泳装', prompt: '', ownImage: true }), '1girl, black hair, red hoodie, shorts');
     assert.equal(expressionLookTags({ positive: '1girl, maid outfit, smile' }, null), '1girl, maid outfit');
@@ -1809,9 +1810,9 @@ test('gate:assets:reroll-paints-the-slot-prompt-with-a-fresh-seed-and-no-rewrite
     await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: old, basePrompt });
     assert.equal(writes.length, 0, 'reroll paints straight away, no slow prompt writing');
     const text = paints[0].caption.v4_prompt.caption.base_caption;
-    assert.match(text, /^laughing, open mouth/);
-    assert.match(text, /red hoodie/);
-    assert.doesNotMatch(text, /expressionless|closed mouth/);
+    assert.match(text, /^old pose, expressionless, closed mouth/);
+    assert.match(text, /cowboy shot, standing, facing viewer, straight-on/);
+    assert.doesNotMatch(text, /laughing, open mouth/);
     assert.ok(Number.isInteger(paints[0].seed) && Number.isInteger(paints[1].seed));
     assert.notEqual(paints[0].seed, paints[1].seed, 'each reroll gets a new seed');
     await service.generateExpressionSet({ name: '冬月', basePrompt, moods: ['喜悦', '愤怒'] });

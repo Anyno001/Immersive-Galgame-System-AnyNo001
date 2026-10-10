@@ -61,6 +61,7 @@ test('gate:outfits:wardrobe-prompt-is-shared-and-named-link-wins', () => {
     assert.deepEqual(resolveWardrobePrompt(wardrobe, { wardrobe: '泳装' }, '校服'), { name: '泳装', prompt: 'swimsuit' });
     assert.deepEqual(resolveWardrobePrompt(wardrobe, {}, '校服'), { name: '校服', prompt: 'school uniform, pleated skirt' });
     assert.equal(resolveWardrobePrompt(wardrobe, { wardrobe: '没有' }, '便服'), null);
+    assert.equal(resolveWardrobePrompt(wardrobe, { wardrobe: '没有' }, '校服'), null);
     assert.deepEqual(normalizeWardrobe({ 校服: { prompt: 'a', reference: 'igs-gen:ref' } }).校服, { prompt: 'a', reference: 'igs-gen:ref' });
     assert.equal(normalizeWardrobe({ 校服: { prompt: 'a', reference: 'https://x' } }).校服.reference, undefined);
     assert.equal(Object.prototype.hasOwnProperty.call(normalizeWardrobe({ 裸体: { prompt: 'nude' }, 校服: { prompt: 'a' } }), '裸体'), false);

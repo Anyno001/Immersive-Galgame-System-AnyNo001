@@ -59,7 +59,8 @@ test('gate:expression-prompt:edited-prompt-is-kept-and-redrawn-as-is', async () 
     assert.equal(paints[0].caption.v4_prompt.caption.base_caption, 'my own words, silver hair');
     const next = await service.getImagePrompt(exact.items[0].imageId);
     assert.equal(next.edited, true);
-    // 没改过的词照旧硬合。
+    // 没改过的词：v0.36.13 起情绪只交给写词，不再硬合进最终出图词，只补构图约束。
     await service.generateExpressionImage({ name: '冬月', mood: '大笑', caption: cap('plain'), basePrompt });
-    assert.match(paints[1].caption.v4_prompt.caption.base_caption, /^laughing/);
+    assert.match(paints[1].caption.v4_prompt.caption.base_caption, /^plain, cowboy shot/);
+    assert.doesNotMatch(paints[1].caption.v4_prompt.caption.base_caption, /laughing/);
 });

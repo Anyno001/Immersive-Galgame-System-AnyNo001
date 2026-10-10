@@ -94,7 +94,7 @@ export function normalizeCharacterOutfits(value) {
     return out;
 }
 
-// 衣柜：服装名 → 手写生图提示词。角色的某一套服装可点名引用，没点名时按同名服装取。
+// 衣柜：服装名 → 手写生图提示词。下拉选「同名服装」时按这套衣服的名字取；选了别的就只用那一条，没有就是空。
 export function normalizeWardrobe(raw) {
     const out = {};
     for (const [key, value] of Object.entries(plain(raw) || {})) {
@@ -116,8 +116,8 @@ export function normalizeWardrobe(raw) {
 export function resolveWardrobePrompt(wardrobe, outfitEntry, outfitName) {
     const map = plain(wardrobe) || {};
     const linked = outfitEntry && typeof outfitEntry.wardrobe === 'string' ? outfitEntry.wardrobe.trim() : '';
-    const key = linked && hasOwn(map, linked) ? linked : (hasOwn(map, outfitName) ? outfitName : '');
-    if (!key) return null;
+    const key = linked || String(outfitName || '').trim();
+    if (!key || !hasOwn(map, key)) return null;
     const entry = map[key] || {};
     const resolved = { name: key, prompt: String(entry.prompt || '').trim() };
     if (entry.nsfwBoost === true) resolved.nsfwBoost = true;
