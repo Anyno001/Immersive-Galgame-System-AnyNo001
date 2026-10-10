@@ -61,7 +61,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, normalizePromptPlacement } from '../v
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.36.11';
+const IGS_VERSION = '0.36.12';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -701,40 +701,32 @@ export function bootstrapIGS(options = {}) {
             const promptRule = sceneAssets.promptRule === DEFAULT_SCENE_PROMPT_RULE ? LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 : sceneAssets.promptRule;
             rules.push(resolvePromptRuleContent({ ...sceneAssets, promptRule }));
         }
-        const chatShow = readerSettings && readerSettings.chatShow;
+        const rs = readerSettings || {};
+        const chatShow = rs.chatShow;
         // 随身手机：聊天与来电等手机演出按现代写法。
-        const phoneAncient = ancient && !(readerSettings && readerSettings.feedFx && readerSettings.feedFx.carryPhone === true);
-        if (normalizeChatShowSettings(chatShow).enabled) rules.push(resolveChatShowPromptRule(chatShow, { ancient: phoneAncient }));
-        // 演出提示词入口：inject 关掉就不发「演出 / 日常演出」两段，覆盖文本非空时用用户自己写的。
-        const fxPrompts = normalizeFxPromptsSettings(readerSettings && readerSettings.fxPrompts);
-        if (fxPrompts.inject) {
-            const fxRule = fxPrompts.fx.trim() || resolveFxPromptRule(readerSettings && readerSettings.fxTags, { ancient: phoneAncient });
-            if (fxRule) rules.push(fxRule);
-        }
-        const dlcFxRule = resolveDlcFxPromptRule(readerSettings && readerSettings.dlcFx);
-        if (dlcFxRule) rules.push(dlcFxRule);
-        const itemFxRule = resolveItemFxPromptRule(Boolean(readerSettings && readerSettings.itemFx && readerSettings.itemFx.enabled));
-        if (itemFxRule) rules.push(itemFxRule);
-        const textFxRule = resolveTextFxPromptRule(Boolean(readerSettings && readerSettings.textFx && readerSettings.textFx.enabled));
-        if (textFxRule) rules.push(textFxRule);
-        const bilingualRule = resolveBilingualPromptRule(readerSettings && readerSettings.bilingual);
-        if (bilingualRule) rules.push(bilingualRule);
-        if (fxPrompts.inject) {
-            const dailyFxRule = fxPrompts.daily.trim() || resolveDailyFxPromptRule(readerSettings && readerSettings.dailyFx);
-            if (dailyFxRule) rules.push(dailyFxRule);
-        }
-        const battleFxRule = resolveBattleFxPromptRule(Boolean(readerSettings && readerSettings.battleFx && readerSettings.battleFx.enabled));
-        if (battleFxRule) rules.push(battleFxRule);
-        const romanceFxRule = resolveRomanceFxPromptRule(readerSettings && readerSettings.romanceFx);
-        if (romanceFxRule) rules.push(romanceFxRule);
-        const bgmRule = resolveBgmPromptRule(readerSettings && readerSettings.bgm);
-        if (bgmRule) rules.push(bgmRule);
-        const stageCastFxRule = resolveStageCastFxPromptRule(readerSettings && readerSettings.stageCast);
-        if (stageCastFxRule) rules.push(stageCastFxRule);
-        const danmakuRule = resolveDanmakuPromptRule(readerSettings);
+        const phoneAncient = ancient && !(rs.feedFx && rs.feedFx.carryPhone === true);
+        // 演出提示词入口：inject 关掉就不发任何演出标签用法；某块覆盖文本非空时用用户自己写的（功能本身关着则不发）。
+        const fxPrompts = normalizeFxPromptsSettings(rs.fxPrompts);
+        const pushFx = (key, builtin) => {
+            if (!fxPrompts.inject || !builtin) return;
+            rules.push(fxPrompts[key].trim() || builtin);
+        };
+        if (normalizeChatShowSettings(chatShow).enabled) pushFx('chat', resolveChatShowPromptRule(chatShow, { ancient: phoneAncient }));
+        pushFx('fx', resolveFxPromptRule(rs.fxTags, { ancient: phoneAncient }));
+        pushFx('dlc', resolveDlcFxPromptRule(rs.dlcFx));
+        pushFx('item', resolveItemFxPromptRule(Boolean(rs.itemFx && rs.itemFx.enabled)));
+        pushFx('text', resolveTextFxPromptRule(Boolean(rs.textFx && rs.textFx.enabled)));
+        pushFx('bilingual', resolveBilingualPromptRule(rs.bilingual));
+        pushFx('daily', resolveDailyFxPromptRule(rs.dailyFx));
+        pushFx('battle', resolveBattleFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled)));
+        pushFx('romance', resolveRomanceFxPromptRule(rs.romanceFx));
+        pushFx('bgm', resolveBgmPromptRule(rs.bgm));
+        pushFx('cast', resolveStageCastFxPromptRule(rs.stageCast));
+        const danmakuRule = resolveDanmakuPromptRule(readerSettings, fxPrompts.inject
+            ? { live: fxPrompts.live, audience: fxPrompts.audience }
+            : { live: false, audience: false });
         if (danmakuRule) rules.push(danmakuRule);
-        const feedRule = resolveFeedPromptRule(readerSettings);
-        if (feedRule) rules.push(feedRule);
+        pushFx('feed', resolveFeedPromptRule(readerSettings));
         const split = placement === 'system';
         if (metaDigestRule && !split) rules.push(metaDigestRule);
         if (rules.length && eraRule) rules.push(eraRule);

@@ -139,14 +139,21 @@ export function normalizeFxTagsSettings(value) {
     return out;
 }
 
-// 演出提示词入口：inject 决定「演出 / 日常演出」两段标签用法说明要不要发给 AI（默认发）；
-// fx / daily 为用户覆盖文本，留空即用内置动态拼装。只管这两段标准标签，物品 / 配乐 / 亲密各有自己的开关。
-export const FX_PROMPT_OVERRIDE_MAX = 4000;
+// 演出提示词入口：inject 决定各演出标签用法（演出、日常、物品、配乐、亲密、战斗、镜头、同屏、聊天、直播、弹幕、社区、文字演出、双语、扩展）要不要发给 AI（默认发）；
+// 各 key 为用户覆盖文本，留空即用内置动态拼装（随对应功能开关变）。
+// style：compact 精简（缩写写法、部分块按需展开）；detailed 详细约束（完整方括号写法+约束，每块每轮都发）。
+export const FX_PROMPT_OVERRIDE_MAX = 6000;
+export const FX_PROMPT_KEYS = Object.freeze(['fx', 'daily', 'item', 'bgm', 'romance', 'battle', 'camera', 'cast', 'chat', 'live', 'audience', 'feed', 'text', 'bilingual', 'dlc']);
+export const FX_PROMPT_STYLES = Object.freeze(['compact', 'detailed']);
 
 export function normalizeFxPromptsSettings(value) {
     const src = plain(value);
     const text = (v) => (typeof v === 'string' ? v.slice(0, FX_PROMPT_OVERRIDE_MAX) : '');
-    return { inject: src.inject !== false, fx: text(src.fx), daily: text(src.daily) };
+    return {
+        inject: src.inject !== false,
+        style: FX_PROMPT_STYLES.includes(src.style) ? src.style : 'compact',
+        ...Object.fromEntries(FX_PROMPT_KEYS.map((key) => [key, text(src[key])])),
+    };
 }
 
 export const FX_MOTION_STYLES = Object.freeze(['smooth', 'snappy']);

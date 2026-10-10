@@ -249,6 +249,28 @@ test('gate:prompt-budget:adaptive-off-sends-the-old-full-concatenation', () => {
     }
 });
 
+test('gate:prompt-budget:adaptive-off-honours-fx-prompt-overrides-and-inject', () => {
+    const base = { chatShow: { enabled: true }, fxTags: ALL_ON.fxTags, itemFx: { enabled: true } };
+    const custom = mountWithHost({ sceneAssets: { promptAdaptive: false, promptPlacement: 'depth0' }, readerSettings: { ...base, fxPrompts: { item: '我写的物品规则' } } });
+    try {
+        custom.emit('generation_started', 'impersonate', {}, false);
+        const value = custom.extensionPrompts[MAIN].value;
+        assert.match(value, /我写的物品规则/);
+        assert.doesNotMatch(value, /\[igs物品标签\]/);
+        assert.ok(value.includes(resolveFxPromptRule(ALL_ON.fxTags)));
+    } finally {
+        custom.vn.destroy();
+    }
+    const off = mountWithHost({ sceneAssets: { promptAdaptive: false, promptPlacement: 'depth0' }, readerSettings: { ...base, fxPrompts: { inject: false } } });
+    try {
+        off.emit('generation_started', 'impersonate', {}, false);
+        const value = off.extensionPrompts[MAIN].value;
+        assert.doesNotMatch(value, /\[igs演出标签\]|\[igs物品标签\]|igs-chat:/);
+    } finally {
+        off.vn.destroy();
+    }
+});
+
 test('gate:prompt-budget:ancient-era-applies-to-adaptive-grammar', () => {
     const { vn, extensionPrompts, emit } = mountWithHost({ sceneAssets: { ancient: true }, readerSettings: { fxTags: ALL_ON.fxTags, chatShow: { enabled: true }, dailyFx: ALL_ON.dailyFx } });
     try {

@@ -224,10 +224,12 @@ function feedPromptText(s, platforms, mentioned) {
     return `【手机社区】你应该使用以下格式写正文中${sample.where}，规则如下：\n${rules}\n示例：\n${sample.text}`;
 }
 
-export function feedGrammarBlocks(readerSettings) {
+// detailed：演出提示词选「详细」时每轮都发、全部平台写法展开，AI 不等关键词也能主动发帖。
+export function feedGrammarBlocks(readerSettings, { detailed = false } = {}) {
     const { s, platforms, mentioned } = feedState(readerSettings);
     if (!platforms.length) return [];
-    return [{ key: 'feed', adaptive: true, full: feedPromptText(s, platforms, mentioned || []), index: '社区 igs-fx:app/app-end/post/reply/storm' }];
+    const full = detailed ? feedPromptText(s, platforms, null) : feedPromptText(s, platforms, mentioned || []);
+    return [{ key: 'feed', adaptive: !detailed, full, index: '社区 igs-fx:app/app-end/post/reply/storm' }];
 }
 
 // 关闭按需注入时的旧路径：平台写法全部展开，开头、规则、示例与按需展开的是同一份。

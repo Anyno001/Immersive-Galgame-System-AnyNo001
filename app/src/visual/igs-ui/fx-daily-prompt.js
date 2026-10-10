@@ -67,6 +67,28 @@ ${lines.join('\n')}
 3. 只在剧情里确实发生对应事件时使用，每层回复最多2个，不要每层都用`;
 }
 
+// 详细约束版（演出提示词选「详细」时用，每轮都发）。
+const DAILY_DETAILED_EXAMPLES = Object.freeze([
+    ['eat', ['[igs-fx:eat|章鱼烧|烫]', '[igs-char:林小雨|慌张|便服|好烫好烫！]']],
+    ['timeskip', ['[igs-fx:timeskip|第二天清晨]', '闹钟还没响，窗外已经亮了。']],
+    ['photo', ['[igs-fx:photo|摩天轮前的合影]', '快门按下的那一刻，她悄悄往这边靠了半步。']],
+    ['tea', ['[igs-fx:tea]', '她双手捧着茶盏递过来。']],
+    ['spell', ['[igs-fx:spell|荧光闪烁]', '杖尖亮起一点白光。']],
+]);
+
+export function dailyDetailedBlock(settings) {
+    const kinds = enabledDailyFxKinds(settings);
+    if (!kinds.length) return '';
+    const examples = DAILY_DETAILED_EXAMPLES.filter(([kind]) => kinds.includes(kind)).slice(0, 2).map(([, rows]) => rows.join('\n'));
+    return `【日常演出】以下日常演出标签用于点缀日常场景，完整写法照抄方括号格式：
+${kinds.map((kind, index) => `${index + 1}. ${DAILY_PROMPT_LINES[kind]}`).join('\n')}
+使用约束：
+1. 标签单独占一行，写在描写该事件的正文之前，不要夹在句子或台词中间
+2. 字段内不换行、不含 | 或 ]
+3. 剧情里确实发生对应事件时就主动用，不必等用户要求；每层回复最多2个，不要每层都用
+4. 只用上面列出的类型，不发明新类型；正文仍要把事情完整写出来${examples.length ? `\n示例：\n${examples.join('\n\n')}` : ''}`;
+}
+
 export const DAILY_GRAMMAR_LINES = Object.freeze({
     timeskip: 'timeskip|三小时后：剧情时间明显跳跃时报幕',
     photo: 'photo|题字：拍照或合影的瞬间',

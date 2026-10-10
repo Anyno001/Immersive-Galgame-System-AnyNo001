@@ -25,15 +25,37 @@ export function danmakuGrammarBlocks(readerSettings, fxBlock) {
     return blocks;
 }
 
-// 关闭按需注入时的旧行为：完整规则整段拼接。
-export function resolveDanmakuPromptRule(readerSettings) {
+// 详细约束版（演出提示词选「详细」时用，每轮都发）：完整方括号写法 + 约束 + 示例。
+export function liveDetailedBlock(readerSettings) {
     const s = normalizeDanmakuSettings(readerSettings);
+    if (!s.live.enabled) return '';
+    const lines = LIVE_GRAMMAR_LINES.map((line, i) => `${i + 1}. [igs-fx:${line.replace(' … ', '] … [igs-fx:').replace('：', ']：')}`);
+    return `【直播间】角色开直播、或{{user}}在手机上看角色直播时，用以下标签写这一段，完整写法照抄方括号格式：
+${lines.join('\n')}
+使用约束：
+1. 标签单独占一行；live 写在直播开始的正文之前，直播结束、离开直播间或收起手机时写 live-end
+2. 字段内不换行、不含 | 或 ]
+3. ${LIVE_INTRO.slice(1)}
+4. 剧情里有人开播、看直播时就主动用，不必等用户要求
+示例：
+[igs-fx:live|林小雨|深夜学习陪伴|观看]
+[igs-char:林小雨|开心|睡衣|大家晚上好，今天也一起写作业吧。]
+[igs-fx:dm|夜猫子|来了来了]
+[igs-fx:dm|学霸本霸|小雨今天好可爱|醒目留言|30]
+[igs-fx:live-end]`;
+}
+
+// 关闭按需注入时的旧行为：完整规则整段拼接。
+// live / audience：演出提示词入口传入——false 不发该段，非空字符串替换该段。
+export function resolveDanmakuPromptRule(readerSettings, { live = null, audience = null } = {}) {
+    const s = normalizeDanmakuSettings(readerSettings);
+    const pick = (override, builtin) => (override === false ? '' : (typeof override === 'string' && override.trim()) || builtin());
     const rules = [];
     if (s.live.enabled) {
-        rules.push(`[igs直播间标签]\n角色开直播、或{{user}}在手机上看角色直播时使用以下标签（属于允许使用的igs标签，每条独立成行，字段不换行、不含 | 或 ]）${LIVE_INTRO}：\n${LIVE_GRAMMAR_LINES.map((line, i) => `${i + 1}. [igs-fx:${line.replace(' … ', '] … [igs-fx:').replace('：', ']：')}`).join('\n')}`);
+        rules.push(pick(live, () => `[igs直播间标签]\n角色开直播、或{{user}}在手机上看角色直播时使用以下标签（属于允许使用的igs标签，每条独立成行，字段不换行、不含 | 或 ]）${LIVE_INTRO}：\n${LIVE_GRAMMAR_LINES.map((line, i) => `${i + 1}. [igs-fx:${line.replace(' … ', '] … [igs-fx:').replace('：', ']：')}`).join('\n')}`));
     }
     if (s.audience.enabled) {
-        rules.push(`[igs观众弹幕]\n想象这段故事正被屏幕外的观众观看，用以下标签写他们的弹幕（属于允许使用的igs标签，独立成行，字段不换行、不含 | 或 ]）：\n[igs-fx:${audienceLine(s.audience).replace('：', ']：')}`);
+        rules.push(pick(audience, () => `[igs观众弹幕]\n想象这段故事正被屏幕外的观众观看，用以下标签写他们的弹幕（属于允许使用的igs标签，独立成行，字段不换行、不含 | 或 ]）：\n[igs-fx:${audienceLine(s.audience).replace('：', ']：')}`));
     }
-    return rules.join('\n\n');
+    return rules.filter(Boolean).join('\n\n');
 }

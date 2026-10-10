@@ -44,6 +44,34 @@ ${lines.join('\n')}
 4. 成对标签必须闭合；不要发明未列出的类型`;
 }
 
+// 详细约束版（演出提示词选「详细」时用，每轮都发）：完整方括号写法 + 使用约束 + 按已开启类型挑的示例。
+const FX_DETAILED_EXAMPLES = Object.freeze([
+    ['call', ['[igs-fx:call|林小雨]', '[igs-char:林小雨|开心|校服|喂？你现在有空吗？]', '[igs-fx:call-end]']],
+    ['sfx', ['[igs-fx:sfx|砰]', '门被风猛地甩上，玻璃跟着一震。']],
+    ['flashback', ['[igs-fx:flashback]', '那年夏天，她也是这样站在樱花树下。', '[igs-fx:flashback-end]']],
+    ['notify', ['[igs-fx:notify|林小雨|到楼下了，快出来]']],
+    ['letterbox', ['[igs-fx:letterbox]', '[igs-char:林小雨|认真|校服|我一直都喜欢你。]', '[igs-fx:letterbox-end]']],
+]);
+
+export function fxDetailedBlock(settings, { ancient = false } = {}) {
+    const kinds = enabledFxTagKinds(settings);
+    const lines = kinds
+        .map((kind) => (ancient && ANCIENT_FX_PROMPT_LINES[kind]) || FX_PROMPT_LINES[kind] || (FX_GRAMMAR_LINES[kind] ? `[igs-fx:${FX_GRAMMAR_LINES[kind]}` : ''))
+        .filter(Boolean);
+    if (!lines.length) return '';
+    const examples = FX_DETAILED_EXAMPLES.filter(([kind]) => kinds.includes(kind) && !(ancient && kind === 'call')).slice(0, 2).map(([, rows]) => rows.join('\n'));
+    return `【演出】以下演出标签可以直接写进正文，前端会据此播放演出。完整写法照抄方括号格式：
+${lines.map((line, index) => `${index + 1}. ${line}`).join('\n')}
+使用约束：
+1. 标签单独占一行，写在它作用的那段正文之前，不要夹在句子或台词中间
+2. 带 -end 的成对标签必须在同一层回复里闭合，区间里的正文和台词照常写
+3. 字段内不换行、不含 | 或 ]；角色名与 [igs-char] 里写的一致
+4. 剧情里真的发生对应事件时就主动用，不必等用户要求；平淡段落不用
+5. call、dial、notify、delivery、sfx、eye 这类瞬时标签每层合计不超过2个，不要每层都用
+6. 只用上面列出的类型，不发明新类型，不改参数顺序
+7. 标签只是给前端的演出提示，正文仍要把事情完整写出来${examples.length ? `\n示例：\n${examples.join('\n\n')}` : ''}`;
+}
+
 // 物品事件标签独立于演出标签开关：只在物品演出开启时注入。
 export const ITEM_FX_PROMPT_LINE = '[igs-fx:item|获得|物品名|一句话描述]：角色获得、失去或使用一件具体物品时使用，动作只写 获得／失去／使用，描述可省略，如[igs-fx:item|获得|黄铜钥匙|刻着校徽的旧钥匙]；剧情关键物品获得时可在末尾加第5段「重要」，如[igs-fx:item|获得|星之坠饰|母亲留下的遗物|重要]';
 
@@ -182,6 +210,19 @@ export const STAGE_CAST_STAGE_GRAMMAR_LINE = 'stage|动作|角色|角色：同�
 
 // AI 镜头指令：镜头语言与其「AI 镜头指令」子开关同时开启时注入。
 export const CAMERA_GRAMMAR_LINE = 'cam|镜头|角色或方向：关键时刻改变镜头，镜头只写 特写（推到说话人脸上，可写角色名）／拉远（人物退远、显得孤单或渺小）／虚化（背景糊掉、只看人物）／摇镜（横扫环境，第3段写 左 或 右）／倾斜（不安、眩晕、失衡）；只作用于标签所在那一页，平常不要用，每层最多2个';
+
+// 详细约束版的镜头写法（镜头没有旧路径的长版）。
+export function resolveCameraPromptRule(camera) {
+    if (!cameraGrammarLines(camera).length) return '';
+    return `[igs镜头标签]
+关键时刻可以用以下标签改变镜头（属于允许使用的igs标签）：
+[igs-fx:cam|镜头|角色或方向]：镜头只写 特写（推到说话人脸上，第3段可写角色名）／拉远（人物退远、显得孤单或渺小）／虚化（背景糊掉、只看人物）／摇镜（横扫环境，第3段写 左 或 右）／倾斜（不安、眩晕、失衡），如[igs-fx:cam|特写|林小雨]、[igs-fx:cam|摇镜|左]
+
+语法要求：
+1. 标签独立成行，放在要改变镜头的那段正文之前，只作用于标签所在那一页
+2. 字段不得换行，不得含 | 或 ]
+3. 只在告白、震惊、孤独、环境登场这类关键时刻用，平常不用，每层回复最多2个`;
+}
 
 export function cameraGrammarLines(camera) {
     const s = camera && typeof camera === 'object' ? camera : {};

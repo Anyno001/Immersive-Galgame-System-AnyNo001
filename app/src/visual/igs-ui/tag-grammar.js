@@ -1,12 +1,12 @@
-import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, dlcFxGrammarLines, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
-import { dailyGrammarLines } from './fx-daily-prompt.js';
-import { BATTLE_GRAMMAR_LINES } from './fx-battle-model.js';
-import { textFxGrammarBlock } from './text-fx.js';
+import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, dlcFxGrammarLines, fxDetailedBlock, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, resolveBgmPromptRule, resolveCameraPromptRule, resolveDlcFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
+import { dailyDetailedBlock, dailyGrammarLines } from './fx-daily-prompt.js';
+import { BATTLE_GRAMMAR_LINES, resolveBattleFxPromptRule } from './fx-battle-model.js';
+import { resolveTextFxPromptRule, textFxGrammarBlock } from './text-fx.js';
 import { bilingualGrammarBlock, normalizeBilingualSettings } from './bilingual-text.js';
-import { normalizeChatShowSettings, resolveChatShowGrammar } from './chat-show-runtime.js';
-import { enabledFxTagKinds, normalizeFxPromptsSettings } from './fx-settings.js';
+import { normalizeChatShowSettings, resolveChatShowGrammar, resolveChatShowPromptRule } from './chat-show-runtime.js';
+import { enabledFxTagKinds, FX_PROMPT_KEYS, normalizeFxPromptsSettings } from './fx-settings.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
-import { danmakuGrammarBlocks } from './danmaku-prompt.js';
+import { danmakuGrammarBlocks, liveDetailedBlock, resolveDanmakuPromptRule } from './danmaku-prompt.js';
 import { feedGrammarBlocks } from './feed-prompt.js';
 import { isPromptEntryKey, normalizePromptEntries } from '../../scene/prompt-entries.js';
 
@@ -30,6 +30,7 @@ function plain(value) {
 // 每块给出完整写法与降级后的索引写法；块顺序即预算填充优先级。
 export function collectGrammarBlocks(readerSettings, { ancient: era = false } = {}) {
     const rs = plain(readerSettings);
+    const detailed = normalizeFxPromptsSettings(rs.fxPrompts).style === 'detailed';
     // 随身带着现代手机：聊天与来电等手机演出按现代写法，其余仍按古代。
     const ancient = era && !(rs.feedFx && rs.feedFx.carryPhone === true);
     const blocks = [];
@@ -79,8 +80,31 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
         blocks.push({ key: 'camera', adaptive: true, full: fxBlock('镜头', cameraLines), index: '镜头 igs-fx:cam' });
     }
     blocks.push(...danmakuGrammarBlocks(rs, fxBlock));
-    blocks.push(...feedGrammarBlocks(rs, fxBlock));
-    return blocks;
+    blocks.push(...feedGrammarBlocks(rs, { detailed }));
+    return detailed ? blocks.map((block) => applyDetailedStyle(block, rs, ancient)) : blocks;
+}
+
+// 演出提示词选「详细」：每块换成完整方括号写法+语法要求（多数复用关闭按需注入时的长版），并且不再按需折叠（每轮都发）。
+// 双语与社区本来就是完整写法，社区已在 feedGrammarBlocks 里按 detailed 展开全部平台。
+const DETAILED_BUILDERS = Object.freeze({
+    text: () => resolveTextFxPromptRule(true),
+    fx: (rs, ancient) => fxDetailedBlock(rs.fxTags, { ancient }),
+    dlc: (rs) => resolveDlcFxPromptRule(rs.dlcFx),
+    item: () => resolveItemFxPromptRule(true),
+    bgm: (rs) => resolveBgmPromptRule(rs.bgm),
+    chat: (rs, ancient) => resolveChatShowPromptRule(rs.chatShow, { ancient }),
+    daily: (rs) => dailyDetailedBlock(rs.dailyFx),
+    battle: () => resolveBattleFxPromptRule(true),
+    romance: (rs) => resolveRomanceFxPromptRule(rs.romanceFx),
+    cast: (rs) => resolveStageCastFxPromptRule(rs.stageCast),
+    camera: (rs) => resolveCameraPromptRule(rs.camera),
+    live: (rs) => liveDetailedBlock(rs),
+    audience: (rs) => resolveDanmakuPromptRule(rs, { live: false }),
+});
+
+function applyDetailedStyle(block, rs, ancient) {
+    const build = DETAILED_BUILDERS[block.key];
+    return { ...block, adaptive: false, full: (build && build(rs, ancient)) || block.full };
 }
 
 function buildExample({ sceneRule, moodWord, fxKinds, itemOn }) {
@@ -114,15 +138,14 @@ function applyPromptEntries(blocks, entries) {
     });
 }
 
-// 演出提示词入口：inject 关掉就把「演出 / 日常演出」两块整个拿掉（索引里也不列）；
+// 演出提示词入口：inject 关掉就把「演出 / 日常演出 / 直播间 / 手机社区」整块拿掉（索引里也不列）；
 // 覆盖文本非空时替换该块完整写法（用户自己写的每轮都发，不再折叠成索引）。物品 / 配乐 / 亲密各有自己的开关，不受此影响。
 function applyFxPromptSettings(blocks, readerSettings) {
     const fp = normalizeFxPromptsSettings(plain(readerSettings).fxPrompts);
-    const override = { fx: fp.fx.trim(), daily: fp.daily.trim() };
     return blocks.flatMap((block) => {
-        if (block.key !== 'fx' && block.key !== 'daily') return [block];
+        if (!FX_PROMPT_KEYS.includes(block.key)) return [block];
         if (!fp.inject) return [];
-        const custom = override[block.key];
+        const custom = fp[block.key].trim();
         return custom ? [{ ...block, full: custom, adaptive: false }] : [block];
     });
 }
