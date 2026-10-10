@@ -12,7 +12,7 @@ import { AUDIENCE_AMBIENT_LINES, INNER_PHRASES, classifyAudienceMood, mixInnerPh
 import { myPhoneOf, phoneWallUrl } from './my-phone.js';
 import { fitLiveFace, fitLivePhone, fitLiveSwitch, likeLive, phoneGeometry, pushLiveMessages, stopLivePhone, syncLivePhone, syncLiveSwitch } from './danmaku-live.js';
 import { fitLiveControls, liveActionMessage, recordLiveAction, stopLiveControls, syncLiveControls } from './danmaku-interact.js';
-import { isAudienceEntryShown, placeAudienceEntry, stopAudience, syncAudience } from './danmaku-audience.js';
+import { dockAudienceEntry, isAudienceEntryShown, placeAudienceEntry, stopAudience, syncAudience } from './danmaku-audience.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 import { resolveChatTheme } from './chat-themes.js';
 import { fitFeedPhone, stopFeedPhone, syncFeedPhone } from './feed-phone.js';
@@ -498,6 +498,8 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         state.feedRecall = null;
         stopFeedReview(front);
     }
+    // 直播手机在场：观众入口收进手机顶栏；全屏或没有直播时留在前层。
+    dockAudienceEntry(front, phone && phone.visible && plan.liveVisible && settings.live.layout !== 'full' ? phone.els.tools : null, phone ? phone.els.viewBtn : null);
     const reviewShown = isFeedEntryShown(front);
     if (notices) syncNotify(front, { store: notices, size: settings.audience.entrySize }, { doc: ctx.doc });
     else stopNotify(front);
@@ -518,7 +520,7 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
             if (phone) fitLiveControls(front, liveFit);
             if (phone) fitFaceFor(host, stage, options.sprite, ctx.doc, refit);
             // 入口浮钮避开直播手机：手机左侧放得下就留在外面，放不下就收进手机内、标题行下方。
-            const place = entryPlacement(stage, liveFit, top);
+            const place = entryPlacement(stage, liveFit, top, liveAnchorRect(host, layers.motion, stage));
             front.style.setProperty('--igs-entry-left', `${place.left}px`);
             top = place.top;
             fitLiveSwitch(front, stage);
@@ -552,14 +554,26 @@ function fitFaceFor(host, stage, sprite, doc, refit) {
 }
 
 // 观众 / 社区 / 通知入口的落点：手机形态直播的手机在场时避开它的 rect。
-export function entryPlacement(stage, fit, top) {
+export function entryPlacement(stage, fit, top, anchor) {
     const base = { left: ENTRY_LEFT, top };
-    // 全屏直播：左上角是主播名牌，入口挪到名牌右边。
-    if (stage && fit && fit.layout === 'full') return { left: ENTRY_LEFT + 150, top };
-    if (!stage || !fit || fit.layout !== 'phone') return base;
-    const phoneLeft = (stage.stageW - fit.width) / 2;
-    if (phoneLeft >= ENTRY_LEFT + ENTRY_SIZE + 8) return base;
-    return { left: Math.round(phoneLeft + 10), top: Math.round(fit.top + 104) };
+    // 全屏直播：入口放在主播名牌右边、与名牌同一行垂直居中；量不到名牌就退回左上角工具栏下方。
+    if (stage && fit && fit.layout === 'full') {
+        if (anchor) return { left: Math.round(anchor.right + 8), top: Math.round(anchor.cy - ENTRY_SIZE / 2) };
+        return { left: ENTRY_LEFT, top: Math.round((Number(stage.topInset) || 0) + 8) };
+    }
+    // 手机形态：入口已收进手机顶栏，不再在手机外出现；这里只管没有手机时的原位。
+    return base;
+}
+
+// 名牌（头像 + 网名 + 热度）在舞台里的右边缘与垂直中心。
+function liveAnchorRect(host, motion, stage) {
+    const node = host && host.querySelector ? host.querySelector('.igs-live-anchor') : null;
+    if (!node || typeof node.getBoundingClientRect !== 'function' || typeof motion.getBoundingClientRect !== 'function') return null;
+    const r = node.getBoundingClientRect();
+    const m = motion.getBoundingClientRect();
+    if (!(r.width > 0) || !(m.height > 0)) return null;
+    const k = stage.stageH / m.height;
+    return { right: (r.right - m.left) * k, cy: ((r.top + r.bottom) / 2 - m.top) * k };
 }
 
 // 全屏字幕「名牌下方」的旁白位置：工具栏下沿 + 8px 再让出名牌的高度。

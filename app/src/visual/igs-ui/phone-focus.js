@@ -38,8 +38,9 @@ export function pointInPhone(rect, sink, x, y) {
 }
 
 // 一次 click 怎么处理：pass 原样放行；swallow 拦下不翻页；enter / exit 进出焦点并拦下；exitPass 退出焦点但放行（点到工具栏之类）。
-export function decideClick({ focus, inPhone, motion, phoneControl, otherControl, editing }) {
-    if (editing || phoneControl) return 'pass';
+export function decideClick({ focus, inPhone, motion, phoneControl, otherControl, editing, fullLayout }) {
+    // 直播全屏没有手机壳，点哪里都是翻页：不进焦点、不拦点击。
+    if (fullLayout || editing || phoneControl) return 'pass';
     if (focus) {
         if (motion !== 'tap') return 'swallow';
         return otherControl ? 'exitPass' : 'exit';
@@ -58,6 +59,7 @@ function closest(target, selector) {
 function visiblePhone(host) {
     if (!host || typeof host.querySelectorAll !== 'function') return null;
     for (const phone of host.querySelectorAll('.igs-live-phone')) {
+        if (closest(phone, '.igs-live-stage[data-layout="full"]')) continue;
         if (!closest(phone, '[hidden]')) return phone;
     }
     return null;

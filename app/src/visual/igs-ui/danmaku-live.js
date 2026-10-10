@@ -19,6 +19,8 @@ import {
 // 顺带推人气、走时钟、飘点赞；隐藏、页面不可见、舞台暂停（面板打开等）时空转不写 DOM。文字一律 textContent，图标只用静态 SVG。
 // 滚动评论保留条数：手机观众视角与全屏 5 条，主播视角 7 条（LIVE_LIST_LIMIT 是上限）。
 export const LIVE_LIST_LIMIT = 7;
+// 头部（头像 / 网名 / 热度 / 人数 / 图标）底边到手机顶的高度：评论区与横飞区的上限都从它往下算（样式里同名变量 --igs-live-head）。
+export const LIVE_HEAD_H = 76;
 export function liveListLimit(layout, view) {
     return layout !== 'full' && view === 'host' ? 7 : 5;
 }
@@ -147,12 +149,10 @@ function buildPhone(doc, live, now, layout) {
         extras = [chips, card];
     }
 
-    const title = el(doc, 'div', 'igs-live-title');
-    title.appendChild(el(doc, 'span', 'igs-live-badge', host ? '直播中' : 'LIVE'));
-    title.appendChild(el(doc, 'span', 'igs-live-title-text', live.title || `${live.name}的直播间`));
+    // 头部只留头像、网名、热度、关注、人数、视角图标、收起：不再画「直播中 / LIVE」徽标与标题行。
+    // 开播时长（主播视角的计时）仍由 clockEl 记录，但不显示。
     const clockEl = el(doc, 'span', 'igs-live-clock', '');
-    clockEl.hidden = !host;
-    title.appendChild(clockEl);
+    clockEl.hidden = true;
 
     const sc = el(doc, 'div', 'igs-live-sc');
     const gifts = el(doc, 'div', 'igs-live-gifts');
@@ -172,8 +172,8 @@ function buildPhone(doc, live, now, layout) {
     const status = layout === 'phone' ? buildPhoneStatus(doc, now) : null;
     if (status) phone.append(screen, status);
     else phone.append(screen);
-    phone.append(top, ...extras, title, sc, gifts, guard, list, fly, hearts, bar, faceEdit);
-    return { faceEdit, root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, viewBtn, clockEl, sc, gifts, guard, list, fly, hearts };
+    phone.append(top, ...extras, sc, gifts, guard, list, fly, hearts, bar, faceEdit);
+    return { tools, faceEdit, root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, viewBtn, clockEl, sc, gifts, guard, list, fly, hearts };
 }
 
 function later(state, fn, ms) {
@@ -782,7 +782,7 @@ export function fitLivePhone(host, stage) {
         }
         // 全屏字幕：横飞只走舞台高 15% 到 60%，不进字幕区；名牌贴在工具栏下沿 + 8px。
         const sub = state.sub === true;
-        setFlyGeometry(state, stage.stageW, stage.stageH * (sub ? 0.15 : 0.16), sub ? stage.stageH * 0.6 : floor - 8, Math.round(Math.max(16, Math.min(26, stage.stageH * 0.034))));
+        setFlyGeometry(state, stage.stageW, stage.stageH * (sub ? 0.15 : 0.16), sub ? stage.stageH * 0.6 : floor - 8, Math.round(Math.max(16, Math.min(22, stage.stageW * 0.022))));
         const nameTop = Math.round((Number(stage.topInset) || 0) + 8);
         if (state.nameTop !== nameTop) {
             state.nameTop = nameTop;
@@ -794,8 +794,9 @@ export function fitLivePhone(host, stage) {
     const { top, height, width, under } = phoneGeometry(stage, state.model, state.size);
     // 横飞只走头部下方、滚动评论上方：评论占可见区底部那一截（横飞模式下评论不显示，可用到底栏上方）。
     const vis = height - under;
-    const listH = state.chat === 'fly' ? 0 : Math.min(vis * (state.view === 'host' ? 0.4 : 0.3), vis - 58 - 104) + 6;
-    setFlyGeometry(state, width, 120, Math.max(120 + 22, vis - 58 - listH), 16);
+    const listH = state.chat === 'fly' ? 0 : Math.min(vis * (state.view === 'host' ? 0.4 : 0.3), vis - 58 - LIVE_HEAD_H - 6) + 6;
+    const flyTop = LIVE_HEAD_H + 8;
+    setFlyGeometry(state, width, flyTop, Math.max(flyTop + 22, vis - 58 - listH), 16);
     const fit = { layout: 'phone', top, height, width, under };
     state.faceDims = { w: width, h: height };
     refreshFace(state);

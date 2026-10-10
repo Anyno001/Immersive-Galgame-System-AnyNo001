@@ -664,9 +664,26 @@ test('gate:danmaku:live-list-limits-and-entry-placement-avoid-phone', async () =
     assert.equal(liveListLimit('phone', 'watch'), 5);
     assert.equal(liveListLimit('phone', 'host'), 7);
     assert.equal(liveListLimit('full', 'host'), 5);
-    // 手机左侧放得下：入口留在原位；放不下：收进手机内标题行下方；全屏：挪到名牌右边。
-    assert.deepEqual(entryPlacement({ stageW: 1280 }, { layout: 'phone', width: 315, top: 22 }, 14), { left: 14, top: 14 });
-    assert.deepEqual(entryPlacement({ stageW: 390 }, { layout: 'phone', width: 350, top: 48 }, 14), { left: 30, top: 152 });
-    assert.deepEqual(entryPlacement({ stageW: 1280 }, { layout: 'full', floor: 100 }, 20), { left: 164, top: 20 });
+    // 手机形态：入口收进手机顶栏，不在手机外另找位置；全屏：名牌右边 8px、与名牌同一行垂直居中；量不到名牌退回工具栏下方。
+    assert.deepEqual(entryPlacement({ stageW: 390 }, { layout: 'phone', width: 350, top: 48 }, 14), { left: 14, top: 14 });
+    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, { right: 200, cy: 60 }), { left: 208, top: 41 });
+    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, null), { left: 14, top: 48 });
     assert.deepEqual(entryPlacement({ stageW: 1280 }, null, 14), { left: 14, top: 14 });
+});
+
+test('gate:danmaku:live-full-click-turns-page-and-entry-docks-into-phone-top-bar', async () => {
+    const { dockAudienceEntry } = await import('../src/visual/igs-ui/danmaku-audience.js');
+    const { root, motion } = makeRoot();
+    root.id = 'igs-overlay';
+    const c = clock();
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: seq([0.9, 0.1, 0.5]), reducedMotion: false, userName: '小明' };
+    const fx = { live: { name: '爱丽丝', title: '深夜杂谈', view: 'watch' } };
+    // 全屏：根节点上没有拦点击的焦点类；头部没有「直播中 / LIVE」徽标与标题行。
+    applyDanmakuToDom(root, snapshot({ currentIndex: 0, fx }, { liveFx: { enabled: true, layout: 'full' } }), opts);
+    assert.equal(root.classList.contains('igs-phone-focus'), false);
+    assert.equal(motion.querySelector('.igs-live-title'), null);
+    assert.equal(motion.querySelector('.igs-live-badge'), null);
+    cancelDanmaku(root);
+    // 没有观众弹幕入口时停靠是空操作。
+    assert.doesNotThrow(() => dockAudienceEntry({}, null, null));
 });

@@ -58,3 +58,11 @@ test('gate:phone-focus:geometry-reaches-full-height-when-dialog-fades', () => {
     assert.equal(focus.under, 0);
     assert.ok(focus.height >= sunk.height);
 });
+
+test('gate:phone-focus:full-layout-clicks-always-pass-so-pages-turn', () => {
+    const base = { focus: false, inPhone: true, motion: 'tap', phoneControl: false, otherControl: false, editing: false };
+    // 直播全屏的「手机」铺满舞台：点哪里都不进焦点、不拦截，交给翻页处理器。
+    assert.equal(decideClick({ ...base, fullLayout: true }), 'pass');
+    assert.equal(decideClick({ ...base, fullLayout: true, motion: 'swipe' }), 'pass');
+    assert.equal(decideClick({ ...base, fullLayout: true, focus: true }), 'pass');
+});

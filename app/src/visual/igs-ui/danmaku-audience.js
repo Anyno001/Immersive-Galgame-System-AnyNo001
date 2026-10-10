@@ -324,6 +324,23 @@ export function placeAudienceEntry(front, top) {
     state.els.entry.style.setProperty('--igs-aud-top', value);
 }
 
+// 直播手机（手机形态）在场时，入口收成手机顶栏里的小图标（放在视角钮左边）；手机离场或换形态时放回前层。
+export function dockAudienceEntry(front, parent, before) {
+    const state = audiences.get(front);
+    if (!state) return;
+    const { entry } = state.els;
+    if (parent) {
+        const next = before && before.parentNode === parent ? before : null;
+        if (entry.parentNode !== parent || entry.nextSibling !== next) parent.insertBefore(entry, next);
+        entry.setAttribute('data-docked', '1');
+        return;
+    }
+    if (entry.getAttribute('data-docked') === '1') {
+        entry.removeAttribute('data-docked');
+        front.appendChild(entry);
+    }
+}
+
 export function isAudienceEntryShown(front) {
     const state = audiences.get(front);
     return Boolean(state && !state.els.entry.hidden);

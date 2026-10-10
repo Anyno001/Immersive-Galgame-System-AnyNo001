@@ -15,7 +15,7 @@ export const FEED_STYLE_TEXT = `
 .igs-feed-stage[data-skin="phone"] .igs-feed-list::-webkit-scrollbar{display:none;}
 .igs-feed-head{flex:none;display:flex;align-items:center;gap:8px;padding:38px 12px 8px;background:var(--fp-bar);border-bottom:2px solid var(--fp-head-line);color:var(--fp-head-ink);}
 .igs-feed-app{flex:1;min-width:0;text-align:center;font-size:15px;font-weight:800;letter-spacing:.06em;color:var(--fp-app);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.igs-feed-close{flex:none;display:inline-flex;width:20px;height:20px;padding:0;margin:0;border:0;background:none;color:inherit;opacity:.7;cursor:pointer;pointer-events:auto;}
+.igs-feed-close{flex:none;display:inline-flex;order:99;width:18px;height:18px;padding:0;margin:0 0 0 2px;border:0;background:none;color:var(--fp-head-ink,inherit);opacity:.75;cursor:pointer;pointer-events:auto;}
 .igs-feed-close svg{display:block;width:100%;height:100%;}
 .igs-feed-follow{flex:none;padding:2px 10px;border-radius:999px;background:var(--fp-accent);color:#fff;font-size:11px;font-weight:700;}
 .igs-feed-icon{display:inline-flex;flex:none;width:16px;height:16px;}
