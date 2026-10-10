@@ -11,8 +11,6 @@ import {
     resolveIllustrationForPage,
 } from '../src/scene/scene-directives.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
-import { bindCharacterDnaToCaption } from '../src/generated-images/illustration/auto-illustration-service.js';
-
 test('gate:illustration:marker-does-not-shift-scene-directives', () => {
     const plain = '[igs-scene:卧室|夜晚|晴]\n[igs-char:小雪|开心|你好]\n一\n二';
     const withMarker = plain.replace('一\n', '一\n[igs-img:1]\n');
@@ -1063,19 +1061,46 @@ test('gate:illustration:nsfw-cg-keeps-floor-wide-behaviour', () => {
     assert.deepEqual(cgSlots(src.replace(/^.*\n/, ''), segments, { inheritedNsfw: true }), [1, 1, 1, 1, 1, 1, 1]);
 });
 
-test('数据库生图 CG：单人且上下文唯一角色时 DNA 并进 char caption，多人不注入', () => {
-    const assets = { characters: { 小雪: {} }, characterAliases: {}, characterDna: { 小雪: { triggerWords: 'xiaoxue', identity: '1girl, white hair', negative: 'short hair' } } };
-    const caption = (n) => ({
-        v4_prompt: { caption: { base_caption: 'room', char_captions: Array.from({ length: n }, () => ({ char_caption: 'smile', centers: [{ x: 0.5, y: 0.5 }] })) } },
+test('gate:illustration:dbgen-cg-does-not-splice-character-dna', async () => {
+    const { createAutoIllustrationService } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const text = '[igs-scene:卧室|夜晚|晴|NSFW]\n[igs-char:小雪|开心|一段。]\n二段。\n三段。';
+    let current = text;
+    const caption = {
+        v4_prompt: { caption: { base_caption: 'room', char_captions: [{ char_caption: 'smile', centers: [{ x: 0.5, y: 0.5 }] }] } },
         v4_negative_prompt: { caption: { base_caption: 'bad', char_captions: [] } },
+    };
+    const paint = [];
+    const service = createAutoIllustrationService({
+        messageHost: {
+            getChatId: () => 'c1',
+            readFloor: () => ({ chatId: 'c1', messageId: 5, swipeId: 0, isAi: true, isLatest: true, text: current }),
+            readPreviousAiTexts: () => [],
+            writeFloor: async (_id, next) => { current = next; return { ok: true }; },
+            on: () => () => {}, attachPromptStrip: () => {},
+            ensureMarkerRegexes: async () => ({ ok: true }), destroy: () => {},
+        },
+        llm: { request: async () => '' },
+        nai: {
+            describe: () => ({ via: 'dbgen', ownPrompts: true, ready: { ok: true } }),
+            generate: async () => ({ ok: true }),
+            writeDbgenFloorPrompts: async () => ({ ok: true, captions: [{ slotId: 1, caption, anchorSentence: '二段。' }] }),
+            generateDbgenCaption: async (req) => { paint.push(req); return { ok: true, dataUrl: 'data:image/png;base64,Q0c=' }; },
+        },
+        events: { emit() {} },
+        store: createMemoryIllustrationStore(),
+        getSettings: () => ({ nsfwEnabled: true, nsfwCount: 1 }),
+        getSceneAssets: () => ({
+            characters: { 小雪: {} },
+            characterAliases: {},
+            characterDna: { 小雪: { triggerWords: 'xiaoxue', identity: '1girl, white hair', negative: 'short hair' } },
+        }),
+        minBodyChars: 0,
     });
-    const single = bindCharacterDnaToCaption(caption(1), assets, ['小雪'], 1);
-    assert.equal(single.caption.v4_prompt.caption.char_captions[0].char_caption, 'xiaoxue, 1girl, white hair, smile');
-    assert.equal(single.caption.v4_negative_prompt.caption.char_captions[0].char_caption, 'short hair');
-    assert.deepEqual(single.caption.v4_negative_prompt.caption.char_captions[0].centers, [{ x: 0.5, y: 0.5 }]);
-    const pair = bindCharacterDnaToCaption(caption(2), assets, ['小雪'], 2);
-    assert.equal(pair.caption.v4_prompt.caption.char_captions[0].char_caption, 'smile');
-    assert.equal(pair.warnings.length, 1);
+    assert.equal((await service.processMessage(5)).reason, 'done');
+    assert.equal(paint.length, 1);
+    assert.equal(paint[0].caption.v4_prompt.caption.char_captions[0].char_caption, 'smile');
+    assert.equal(paint[0].caption.v4_negative_prompt.caption.char_captions.length, 0);
 });
 
 // 平行事件插件在 AI 楼后面另插一条（隐藏的系统消息或旁白楼）：这楼仍算最新楼，立绘、场景、CG 照常生成；用户发言后才不算。
