@@ -524,14 +524,16 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强（手机较耗电）')}
         ${checkbox('readerSettings.spriteGenderScale.enabled', spriteGenderScale.enabled, '按性别区分默认高度')}
-        <div class="igs-source-filter-note">根据 DNA 判断性别；已调整过的立绘和单独设置了高度的角色不受影响。</div>
+        <div class="igs-source-filter-note">按 DNA（没有时看生成 tag）判断性别和老人、儿童；已调整过的立绘和单独设置了高度的角色不受影响。</div>
         <div class="igs-source-filter-grid">
           ${field('readerSettings.spriteDisplayScale', '立绘全局缩放 %', numberInput('readerSettings.spriteDisplayScale', normalizeSpriteDisplayScale(reader.spriteDisplayScale)))}
           ${field('readerSettings.spriteDefaultScale', '立绘基准高度 %', numberInput('readerSettings.spriteDefaultScale', normalizeSpriteDefaultScale(reader.spriteDefaultScale)))}
           ${spriteGenderScale.enabled ? `
           ${field('readerSettings.spriteGenderScale.female', '女性默认高度 %', numberInput('readerSettings.spriteGenderScale.female', spriteGenderScale.female))}
           ${field('readerSettings.spriteGenderScale.male', '男性默认高度 %', numberInput('readerSettings.spriteGenderScale.male', spriteGenderScale.male))}
-          ${field('readerSettings.spriteGenderScale.other', '其他默认高度 %', numberInput('readerSettings.spriteGenderScale.other', spriteGenderScale.other))}` : ''}
+          ${field('readerSettings.spriteGenderScale.other', '其他默认高度 %', numberInput('readerSettings.spriteGenderScale.other', spriteGenderScale.other))}
+          ${field('readerSettings.spriteGenderScale.elderShorter', '老人比同性别矮', numberInput('readerSettings.spriteGenderScale.elderShorter', spriteGenderScale.elderShorter))}
+          ${field('readerSettings.spriteGenderScale.childShorter', '儿童比同性别矮', numberInput('readerSettings.spriteGenderScale.childShorter', spriteGenderScale.childShorter))}` : ''}
           ${spriteEnhance.enabled === true ? `
           ${field('bridge.sceneAssets.spriteEnhance.mode', '效果', selectInput('bridge.sceneAssets.spriteEnhance.mode', spriteEnhance.mode || 'outline', [['outline', '硬描边'], ['shadow', '投影式']]))}
           ${field('bridge.sceneAssets.spriteEnhance.color', '增强颜色', colorInput('bridge.sceneAssets.spriteEnhance.color', spriteEnhance.color || '#000000'))}

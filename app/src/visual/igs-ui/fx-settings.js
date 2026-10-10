@@ -139,6 +139,16 @@ export function normalizeFxTagsSettings(value) {
     return out;
 }
 
+// 演出提示词入口：inject 决定「演出 / 日常演出」两段标签用法说明要不要发给 AI（默认发）；
+// fx / daily 为用户覆盖文本，留空即用内置动态拼装。只管这两段标准标签，物品 / 配乐 / 亲密各有自己的开关。
+export const FX_PROMPT_OVERRIDE_MAX = 4000;
+
+export function normalizeFxPromptsSettings(value) {
+    const src = plain(value);
+    const text = (v) => (typeof v === 'string' ? v.slice(0, FX_PROMPT_OVERRIDE_MAX) : '');
+    return { inject: src.inject !== false, fx: text(src.fx), daily: text(src.daily) };
+}
+
 export const FX_MOTION_STYLES = Object.freeze(['smooth', 'snappy']);
 export const FX_HOLD_LEVELS = Object.freeze(['short', 'medium', 'long']);
 export const FX_HOLD_SCALE = Object.freeze({ short: 0.65, medium: 1, long: 1.6 });
@@ -165,6 +175,8 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     flashFx: normalizeFlashFxSettings,
     favorToast: normalizeFavorToastSettings,
     fxTags: normalizeFxTagsSettings,
+    // 演出提示词入口（可读可改可关），不参与一键档位、独立于 FX_FEATURE_KEYS。
+    fxPrompts: normalizeFxPromptsSettings,
     fxSound: normalizeFxSoundSettings,
     fxStyle: normalizeFxStyleSettings,
     // 弹幕三件套独立渲染（danmaku-runtime），不进入 FX_FEATURE_KEYS。

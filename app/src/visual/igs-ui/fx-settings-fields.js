@@ -1,9 +1,10 @@
 import { listDlcFx, normalizeDlcFxSettings } from '../../scene/fx-registry.js';
 import { esc } from './reader-value-utils.js';
-import { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput } from './settings-fields.js';
+import { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput, textareaInput } from './settings-fields.js';
 import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
 import { FX_TAG_KINDS } from '../../scene/fx-directives.js';
-import { FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS, normalizeFxReaderSettings } from './fx-settings.js';
+import { FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS, normalizeFxPromptsSettings, normalizeFxReaderSettings } from './fx-settings.js';
+import { collectGrammarBlocks } from './tag-grammar.js';
 import { COMIC_TONE_KINDS, COMIC_TONE_LABELS } from './comic-settings.js';
 import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 
@@ -38,6 +39,30 @@ export function featureRow(more, key, path, on, label, hint = '', detail = '') {
 
 // 细项里的分段小标题（代替原来的二级折叠）。
 export const perfSubhead = (label) => `<div class="igs-perf-item-subhead">${esc(label)}</div>`;
+
+// 演出提示词入口：发给 AI 的「演出 / 日常演出」标签用法说明，可读、可改、可整段关掉。
+// 文本框预填当前内置写法（随已开启的演出类型自动拼装），直接改即覆盖，清空即回落内置。平时折在深处。
+function fxBuiltinPromptText(reader, key) {
+    const worldview = reader && reader.feedFx && reader.feedFx.worldview;
+    const ancient = worldview === 'ancient';
+    const block = collectGrammarBlocks(reader, { ancient }).find((b) => b.key === key);
+    return block ? String(block.full || '') : '';
+}
+
+export function renderFxPromptsFields(reader, open = false) {
+    const src = reader && typeof reader === 'object' ? reader : {};
+    const fp = normalizeFxPromptsSettings(src.fxPrompts);
+    const base = 'readerSettings.fxPrompts';
+    const fxText = fp.fx || fxBuiltinPromptText(src, 'fx');
+    const dailyText = fp.daily || fxBuiltinPromptText(src, 'daily');
+    const note = '<div class="igs-source-filter-note">这两段告诉 AI 演出标签怎么用。直接改即覆盖，清空即回落内置（会随开启的演出类型自动变）；关掉开关则整段不发，可自行在酒馆预设里写。</div>';
+    const body = note
+        + `<div class="igs-settings-field">${checkbox(`${base}.inject`, fp.inject, '把演出标签用法发给 AI')}</div>`
+        + (fxText ? field(`${base}.fx`, '演出标签', textareaInput(`${base}.fx`, fxText, '清空即恢复内置')) : '')
+        + (dailyText ? field(`${base}.daily`, '日常演出标签', textareaInput(`${base}.daily`, dailyText, '清空即恢复内置')) : '');
+    // 自建折叠：复用 igs-settings-advanced 的折叠外观，但不带 igs-perf-more（那是词表二级折叠专用标记）。
+    return `<details class="igs-settings-advanced igs-fx-prompts-fold" data-advanced="perf-fx-prompts"${open ? ' open' : ''}><summary>演出提示词</summary>${body}</details>`;
+}
 
 const grid = (body) => `<div class="igs-source-filter-grid">${body}</div>`;
 

@@ -66,6 +66,22 @@ export function matteSolidBackground(imageData) {
     return imageData;
 }
 
+// 出图方不一定照计划给纯色底：智绘姬 / 柏宝绘接 NAI V5 时常直接回透明底，调用方的 alreadyTransparent 只是预期。
+// 四边大半已经透明就当已抠好、只裁边；否则洪泛会把透明像素的 RGB（多为黑色）当底色，连深色描线和黑发一起抠掉。
+export function hasTransparentBorder(imageData, alphaThreshold = 8) {
+    const { data, width, height } = imageData;
+    const step = Math.max(1, Math.floor(Math.min(width, height) / 32));
+    let total = 0;
+    let clear = 0;
+    const check = (x, y) => {
+        total += 1;
+        if (data[(y * width + x) * 4 + 3] <= alphaThreshold) clear += 1;
+    };
+    for (let x = 0; x < width; x += step) { check(x, 0); check(x, height - 1); }
+    for (let y = 0; y < height; y += step) { check(0, y); check(width - 1, y); }
+    return total > 0 && clear * 2 >= total;
+}
+
 export function findOpaqueBounds(imageData, alphaThreshold = 8) {
     const { data, width, height } = imageData;
     let top = height; let left = width; let right = -1; let bottom = -1;
@@ -213,7 +229,8 @@ export function createAlphaMatte(globalObject = globalThis) {
             if (!ctx || !canvas.width || !canvas.height) return passthrough(dataUrl, 'no-context');
             ctx.drawImage(img, 0, 0);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            if (!alreadyTransparent) {
+            const detectedTransparent = !alreadyTransparent && hasTransparentBorder(imageData);
+            if (!alreadyTransparent && !detectedTransparent) {
                 matteSolidBackground(imageData);
                 ctx.putImageData(imageData, 0, 0);
             }
@@ -227,7 +244,7 @@ export function createAlphaMatte(globalObject = globalThis) {
             return {
                 dataUrl: preservePngTextChunks(dataUrl, out.toDataURL('image/png'), globalObject),
                 alphaMaskDataUrl: buildAlphaMaskDataUrl(doc, outCtx, bounds.width, bounds.height),
-                diagnostics: { sourceWidth: canvas.width, sourceHeight: canvas.height, crop: bounds, alreadyTransparent },
+                diagnostics: { sourceWidth: canvas.width, sourceHeight: canvas.height, crop: bounds, alreadyTransparent, detectedTransparent },
             };
         } catch (error) {
             return passthrough(dataUrl, 'error');

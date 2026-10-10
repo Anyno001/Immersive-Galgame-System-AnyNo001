@@ -4458,6 +4458,10 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._carryPhone = Boolean(readerSettings.feedFx && readerSettings.feedFx.carryPhone === true);
         readerSettings._worldview = worldview;
         readerSettings._sceneAssets = sceneAssets;
+        // 还没入库的生成立绘的 tag：立绘默认高度据此判断没有 DNA 的角色性别与老人 / 儿童。
+        const spriteTagService = options.generatedAssets;
+        readerSettings._tempSpriteTags = spriteTagService && typeof spriteTagService.tempSpriteTags === 'function'
+            ? spriteTagService.tempSpriteTags() : {};
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
         readerSettings._optionBubble = bridge.optionBubble && typeof bridge.optionBubble === 'object' ? bridge.optionBubble : {};
         const bilingualOverride = state.bilingualDisplay;

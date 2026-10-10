@@ -4,7 +4,7 @@ import { BATTLE_GRAMMAR_LINES } from './fx-battle-model.js';
 import { textFxGrammarBlock } from './text-fx.js';
 import { bilingualGrammarBlock, normalizeBilingualSettings } from './bilingual-text.js';
 import { normalizeChatShowSettings, resolveChatShowGrammar } from './chat-show-runtime.js';
-import { enabledFxTagKinds } from './fx-settings.js';
+import { enabledFxTagKinds, normalizeFxPromptsSettings } from './fx-settings.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
 import { danmakuGrammarBlocks } from './danmaku-prompt.js';
 import { feedGrammarBlocks } from './feed-prompt.js';
@@ -114,6 +114,19 @@ function applyPromptEntries(blocks, entries) {
     });
 }
 
+// 演出提示词入口：inject 关掉就把「演出 / 日常演出」两块整个拿掉（索引里也不列）；
+// 覆盖文本非空时替换该块完整写法（用户自己写的每轮都发，不再折叠成索引）。物品 / 配乐 / 亲密各有自己的开关，不受此影响。
+function applyFxPromptSettings(blocks, readerSettings) {
+    const fp = normalizeFxPromptsSettings(plain(readerSettings).fxPrompts);
+    const override = { fx: fp.fx.trim(), daily: fp.daily.trim() };
+    return blocks.flatMap((block) => {
+        if (block.key !== 'fx' && block.key !== 'daily') return [block];
+        if (!fp.inject) return [];
+        const custom = override[block.key];
+        return custom ? [{ ...block, full: custom, adaptive: false }] : [block];
+    });
+}
+
 // 返回 { system, depth0 }：system 放稳定部分（通用规则、场景、始终展开的块、按需索引），
 // depth0 放本轮按需展开的块和逐轮变化的内容（交互摘要）。placement 为 depth0 时由调用方把两段合并注入。
 export function buildTagGrammar({
@@ -126,7 +139,7 @@ export function buildTagGrammar({
     moodWord = '',
     entries = null,
 } = {}) {
-    const blocks = applyPromptEntries(collectGrammarBlocks(readerSettings, { ancient }), entries);
+    const blocks = applyFxPromptSettings(applyPromptEntries(collectGrammarBlocks(readerSettings, { ancient }), entries), readerSettings);
     if (!sceneRule && !blocks.length) return { system: '', depth0: '', expanded: [], indexed: [], sizes: {} };
     const rs = plain(readerSettings);
     const example = buildExample({ sceneRule, moodWord, fxKinds: enabledFxTagKinds(rs.fxTags), itemOn: plain(rs.itemFx).enabled === true });

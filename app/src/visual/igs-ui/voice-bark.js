@@ -149,9 +149,15 @@ export function noteFormGender(name, gender) {
 
 export function characterDnaGender(sceneAssets, name) {
     if (name && activeFormGenders.has(name)) return activeFormGenders.get(name);
+    return detectVoiceGender(characterDnaText(sceneAssets, name));
+}
+
+// 主名 DNA 里描述角色本身的文字（触发词、固定身份、默认外观；不含负面词）；没有 DNA 时为 ''。
+// 立绘默认高度在没有 DNA 时改看生成立绘的 tag，故把取文本和判性别拆开，两处共用。
+export function characterDnaText(sceneAssets, name) {
     const dnaMap = plainObject(sceneAssets && sceneAssets.characterDna) || {};
     const dna = name && hasOwn(dnaMap, name) ? plainObject(dnaMap[name]) : null;
-    return dna ? detectVoiceGender(`${dna.triggerWords || ''}\n${dna.identity || ''}\n${dna.defaultAppearance || ''}`) : '';
+    return dna ? `${dna.triggerWords || ''}\n${dna.identity || ''}\n${dna.defaultAppearance || ''}` : '';
 }
 
 function hashName(name) {

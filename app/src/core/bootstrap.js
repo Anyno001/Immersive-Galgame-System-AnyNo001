@@ -30,6 +30,7 @@ import { mentionedFeedPlatforms } from '../scene/feed-platforms.js';
 import { resolveTextFxPromptRule } from '../visual/igs-ui/text-fx.js';
 import { resolveBilingualPromptRule } from '../visual/igs-ui/bilingual-text.js';
 import { resolveDailyFxPromptRule } from '../visual/igs-ui/fx-daily-prompt.js';
+import { normalizeFxPromptsSettings } from '../visual/igs-ui/fx-settings.js';
 import { beginMetaDigestSend, clearMetaDigest, finishMetaDigestSend, onMetaDigestChange, resolveMetaDigestRule } from '../visual/igs-ui/meta-digest.js';
 import { resolveLiveDigestRule } from '../visual/igs-ui/danmaku-interact.js';
 import { applyFxWorldview, resolveCarryPhonePrompt, resolveWorldviewPromptRule } from '../scene/fx-era.js';
@@ -704,8 +705,12 @@ export function bootstrapIGS(options = {}) {
         // 随身手机：聊天与来电等手机演出按现代写法。
         const phoneAncient = ancient && !(readerSettings && readerSettings.feedFx && readerSettings.feedFx.carryPhone === true);
         if (normalizeChatShowSettings(chatShow).enabled) rules.push(resolveChatShowPromptRule(chatShow, { ancient: phoneAncient }));
-        const fxRule = resolveFxPromptRule(readerSettings && readerSettings.fxTags, { ancient: phoneAncient });
-        if (fxRule) rules.push(fxRule);
+        // 演出提示词入口：inject 关掉就不发「演出 / 日常演出」两段，覆盖文本非空时用用户自己写的。
+        const fxPrompts = normalizeFxPromptsSettings(readerSettings && readerSettings.fxPrompts);
+        if (fxPrompts.inject) {
+            const fxRule = fxPrompts.fx.trim() || resolveFxPromptRule(readerSettings && readerSettings.fxTags, { ancient: phoneAncient });
+            if (fxRule) rules.push(fxRule);
+        }
         const dlcFxRule = resolveDlcFxPromptRule(readerSettings && readerSettings.dlcFx);
         if (dlcFxRule) rules.push(dlcFxRule);
         const itemFxRule = resolveItemFxPromptRule(Boolean(readerSettings && readerSettings.itemFx && readerSettings.itemFx.enabled));
@@ -714,8 +719,10 @@ export function bootstrapIGS(options = {}) {
         if (textFxRule) rules.push(textFxRule);
         const bilingualRule = resolveBilingualPromptRule(readerSettings && readerSettings.bilingual);
         if (bilingualRule) rules.push(bilingualRule);
-        const dailyFxRule = resolveDailyFxPromptRule(readerSettings && readerSettings.dailyFx);
-        if (dailyFxRule) rules.push(dailyFxRule);
+        if (fxPrompts.inject) {
+            const dailyFxRule = fxPrompts.daily.trim() || resolveDailyFxPromptRule(readerSettings && readerSettings.dailyFx);
+            if (dailyFxRule) rules.push(dailyFxRule);
+        }
         const battleFxRule = resolveBattleFxPromptRule(Boolean(readerSettings && readerSettings.battleFx && readerSettings.battleFx.enabled));
         if (battleFxRule) rules.push(battleFxRule);
         const romanceFxRule = resolveRomanceFxPromptRule(readerSettings && readerSettings.romanceFx);

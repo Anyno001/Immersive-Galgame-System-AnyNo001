@@ -180,6 +180,8 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.spriteGenderScale.female',
     'readerSettings.spriteGenderScale.male',
     'readerSettings.spriteGenderScale.other',
+    'readerSettings.spriteGenderScale.elderShorter',
+    'readerSettings.spriteGenderScale.childShorter',
     'readerSettings.spriteDisplayScale',
     'readerSettings.spriteHeads',
     'readerSettings.vnTheme.preset',

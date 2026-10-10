@@ -190,6 +190,16 @@ export function createAssetGenerationService(deps) {
         return tempUrl(currentTempRecords().get(tempAssetKeyOf(tempChatId, { type: 'sprite', name })));
     }
 
+    // 待确认 / 仅本聊天使用的立绘生成时写的 tag（第一个通常是 1girl / 1boy）：{ 角色名: tags }。
+    // 这些角色往往没有 DNA，立绘默认高度据此判断性别与老人 / 儿童。
+    function tempSpriteTags() {
+        const out = {};
+        for (const record of currentTempRecords().values()) {
+            if (record.type === 'sprite' && record.name && record.tags && tempUrl(record)) out[record.name] = String(record.tags);
+        }
+        return out;
+    }
+
     // 同步取图：命中内存直接返回；否则异步从 IndexedDB 补并在补完后通知重渲染。
     function resolveUrl(url) {
         if (!isGeneratedAssetUrl(url)) return String(url || '');
@@ -1187,7 +1197,7 @@ export function createAssetGenerationService(deps) {
     }
 
     return {
-        processMessage, resolveUrl, resolveThumbUrl, thumbSourceId, tempBackground, tempSceneTime, tempSprite, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
+        processMessage, resolveUrl, resolveThumbUrl, thumbSourceId, tempBackground, tempSceneTime, tempSprite, tempSpriteTags, listReview, listTemp, setStatus, deleteImages, getImageDataUrl, getImagePrompt, saveImagePrompt, readStoredImage, writeStoredImage, importAssetImage,
         generateExpressionSet, generateExpressionImage, paintExpressionCaptions, generateSceneVariants, generateCharacterSprite, generateCharacterAvatar, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit,
         getRecord: (key) => currentTempRecords().get(key) || null,

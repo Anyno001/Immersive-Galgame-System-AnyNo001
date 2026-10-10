@@ -182,6 +182,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 details.igs-settings-sub>summary{cursor:pointer;font-size:12px;color:var(--igs-settings-ink);opacity:.78;user-select:none}
 details.igs-settings-sub[open]>summary{margin-bottom:4px}
 details[data-image-feature="llm-prompts"] textarea{min-height:220px}
+details.igs-fx-prompts-fold textarea{min-height:140px;font-size:12px;line-height:1.5}
 /* 「高级」折叠区自带底色框：不再继承 .igs-settings-sub 的左竖线、左外边距与 flex 间距（会叠成双竖线和标题下的大空白）。 */
 details.igs-settings-advanced{display:block;margin-top:4px;margin-left:0;padding:0;border-left:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field)}
 details.igs-settings-advanced[open]{padding-bottom:12px}

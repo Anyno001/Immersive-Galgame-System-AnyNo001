@@ -623,13 +623,15 @@ function renderCharacterVoiceRow(charName, { sceneAssets, tts }) {
 }
 
 const SPRITE_HEIGHT_SOURCE_LABELS = { female: '女性', male: '男性', other: '其他', base: '基准高度' };
+const SPRITE_HEIGHT_AGE_LABELS = { elder: '老人', child: '儿童' };
 
 // 角色立绘高度（角色展开后放在立绘列表最上面）：留空跟随性别默认 / 基准高度；填了就固定这个角色的高度，「调整立绘」调过的表情仍按调整结果。
 function renderCharacterSpriteHeightRow(charName, { sceneAssets, reader }) {
     const assets = sceneAssets && typeof sceneAssets === 'object' ? sceneAssets : {};
     const manual = resolveSpriteBaseScale(assets, reader, charName);
     const auto = manual.source === 'manual' ? resolveSpriteBaseScale({ ...assets, characterSpriteScales: {} }, reader, charName) : manual;
-    const autoText = `${SPRITE_HEIGHT_SOURCE_LABELS[auto.source]} ${auto.defaultScale}%`;
+    const ageLabel = SPRITE_HEIGHT_AGE_LABELS[auto.age] ? ` · ${SPRITE_HEIGHT_AGE_LABELS[auto.age]}` : '';
+    const autoText = `${SPRITE_HEIGHT_SOURCE_LABELS[auto.source]}${ageLabel} ${auto.defaultScale}%`;
     const placed = hasCharacterSpriteLayout(reader && reader.spriteLayouts, charName);
     const note = placed ? ' title="在「调整立绘」里单独调过的表情，按调整结果显示"' : '';
     return `<div class="igs-char-info-row igs-char-height-row"><span class="igs-char-info-label">立绘高度 %</span>`

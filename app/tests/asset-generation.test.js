@@ -11,7 +11,7 @@ import { buildItemSlot } from '../src/generated-images/illustration/item-prompt.
 import { looksLikeRefusal, requestWithSoftRetry, applyTemplate } from '../src/generated-images/illustration/prompt-kit.js';
 import { buildNaiV4Request, supportsNaiTransparentBackground } from '../src/generated-images/request-builders/nai-v4-builder.js';
 import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from '../src/generated-images/illustration/auto-illustration-settings.js';
-import { matteSolidBackground, findOpaqueBounds } from '../src/media/alpha-matte.js';
+import { createAlphaMatte, hasTransparentBorder, matteSolidBackground, findOpaqueBounds } from '../src/media/alpha-matte.js';
 import { createMemoryGeneratedAssetStore } from '../src/media/generated-asset-store.js';
 import { createAssetGenerationService } from '../src/generated-images/illustration/asset-generation-service.js';
 
@@ -210,6 +210,91 @@ test('gate:assets:matte-removes-connected-grey-and-keeps-inner-white', () => {
     assert.equal(alpha(10, 10), 255);
     assert.equal(alpha(5, 10), 255);
     assert.deepEqual(findOpaqueBounds(img), { x: 5, y: 5, width: 10, height: 15 });
+});
+
+// 透明底上画一个人物：深色描线 + 近黑头发（上半）+ 浅色皮肤（下半），NAI V5 透明底立绘的简化版。
+function makeTransparentSprite() {
+    const width = 40;
+    const height = 40;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 10; y < 30; y += 1) {
+        for (let x = 10; x < 30; x += 1) {
+            const edge = x === 10 || x === 29 || y === 10 || y === 29;
+            const [r, g, b] = edge ? [8, 8, 10] : y < 18 ? [12, 10, 16] : [230, 200, 185];
+            const i = (y * width + x) * 4;
+            data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+        }
+    }
+    return { data, width, height };
+}
+
+// 最小假画布：像素按 dataUrl 记在表里，drawImage / getImageData / putImageData / toDataURL 只搬数据。
+function createPixelCanvasGlobal() {
+    const images = new Map();
+    let serial = 0;
+    const register = (pixels) => { const url = `data:image/png;base64,fake${serial += 1}`; images.set(url, pixels); return url; };
+    class FakeImage {
+        set src(url) {
+            const pixels = images.get(url);
+            this.width = this.naturalWidth = pixels.width;
+            this.height = this.naturalHeight = pixels.height;
+            this.pixels = pixels;
+            setTimeout(() => this.onload(), 0);
+        }
+    }
+    const createCanvas = () => {
+        const canvas = { width: 0, height: 0, buffer: null };
+        const ensure = () => { if (!canvas.buffer) canvas.buffer = new Uint8ClampedArray(canvas.width * canvas.height * 4); return canvas.buffer; };
+        const ctx = {
+            drawImage(src, sx = 0, sy = 0, sw, sh) {
+                const from = src.pixels || { data: src.buffer, width: src.width, height: src.height };
+                const w = sw || from.width;
+                const h = sh || from.height;
+                const to = ensure();
+                for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) for (let k = 0; k < 4; k += 1) {
+                    to[(y * canvas.width + x) * 4 + k] = from.data[((y + sy) * from.width + (x + sx)) * 4 + k];
+                }
+            },
+            getImageData: () => ({ data: new Uint8ClampedArray(ensure()), width: canvas.width, height: canvas.height }),
+            putImageData(imageData) { ensure().set(imageData.data); },
+            createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+        };
+        canvas.getContext = () => ctx;
+        canvas.toDataURL = () => register({ data: new Uint8ClampedArray(ensure()), width: canvas.width, height: canvas.height });
+        return canvas;
+    };
+    return { global: { Image: FakeImage, document: { createElement: createCanvas } }, register, images };
+}
+
+test('gate:assets:matte-keeps-dark-lineart-of-already-transparent-sprite', async () => {
+    // 不检测透明度直接洪泛：透明像素 RGB 为黑，近黑描线和头发被当成底色抠掉（这是修之前的表现）。
+    const raw = makeTransparentSprite();
+    matteSolidBackground(raw);
+    let removed = 0;
+    for (let i = 3; i < raw.data.length; i += 4) if (raw.data[i] === 0) removed += 1;
+    // 40×40 图里背景本来就有 1200 个透明像素，多出来的都是人物被抠掉的部分。
+    assert.ok(removed - 1200 > 150, `flood matting eats into the character (${removed - 1200} px)`);
+
+    const sprite = makeTransparentSprite();
+    assert.equal(hasTransparentBorder(sprite), true);
+    assert.equal(hasTransparentBorder(makeImage(20, 20, () => [200, 200, 200])), false, '纯色底不算透明');
+
+    // 调用方以为是纯色底（智绘姬 / 柏宝绘）：检测到四边已透明，只裁边，人物 400 像素一个不少。
+    const env = createPixelCanvasGlobal();
+    const matte = createAlphaMatte(env.global);
+    const result = await matte(env.register(sprite), { alreadyTransparent: false, detailed: true });
+    assert.equal(result.diagnostics.detectedTransparent, true);
+    assert.deepEqual(result.diagnostics.crop, { x: 10, y: 10, width: 20, height: 20 });
+    const out = env.images.get(result.dataUrl);
+    let opaque = 0;
+    for (let i = 3; i < out.data.length; i += 4) if (out.data[i] === 255) opaque += 1;
+    assert.equal(opaque, 400);
+
+    // 真正的纯色底照旧抠图。
+    const grey = makeImage(20, 20, (x, y) => (x >= 5 && x < 15 && y >= 5 && y < 20 ? [30, 30, 30] : [200, 200, 200]));
+    const greyResult = await matte(env.register(grey), { detailed: true });
+    assert.equal(greyResult.diagnostics.detectedTransparent, false);
+    assert.deepEqual(greyResult.diagnostics.crop, { x: 5, y: 5, width: 10, height: 15 });
 });
 
 function fakeHost(text, chatId = 'chat-1') {
