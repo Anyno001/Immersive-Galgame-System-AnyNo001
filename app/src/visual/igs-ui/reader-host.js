@@ -666,7 +666,7 @@ export function createIgsReaderHost(options = {}) {
             ok: true,
             mode: nextMode,
             readerMode: nextMode,
-            snapshot: cloneData(snapshot),
+            snapshot: cloneSnapshotKeepAssets(snapshot),
             domMounted: Boolean(domState),
             controller,
         };
@@ -702,7 +702,7 @@ export function createIgsReaderHost(options = {}) {
             ok: true,
             mode,
             readerMode: mode,
-            snapshot: cloneData(merged),
+            snapshot: cloneSnapshotKeepAssets(merged),
             domMounted: Boolean(current.dom),
             controller: current.controller,
             replaced: true,
@@ -982,11 +982,11 @@ export function createIgsReaderHost(options = {}) {
                 toastMessage: state.activeReader.toastMessage,
                 generationTip: generationStrip.getState().tip,
                 floatingState: cloneData(state.activeReader.floatingState),
-                snapshot: cloneData(state.activeReader.snapshot),
+                snapshot: cloneSnapshotKeepAssets(state.activeReader.snapshot),
             } : null,
             activeSettings: state.activeSettings ? {
                 tab: state.activeSettings.tab,
-                snapshot: cloneData(state.activeSettings.snapshot),
+                snapshot: cloneSnapshotKeepAssets(state.activeSettings.snapshot),
             } : null,
         };
     }
@@ -1289,7 +1289,7 @@ export function createIgsReaderHost(options = {}) {
     function createReaderController() {
         return {
             getSnapshot() {
-                return state.activeReader ? cloneData(state.activeReader.snapshot) : null;
+                return state.activeReader ? cloneSnapshotKeepAssets(state.activeReader.snapshot) : null;
             },
             setInputValue(value) {
                 if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
@@ -4484,6 +4484,16 @@ export function createIgsReaderHost(options = {}) {
     // 快照只会改顶层字段（如 sceneDialogSkin 换皮），浅拷贝就够；下层对象一律只读。
     function cloneReaderSettingsShallowAssets(readerSettings) {
         return readerSettings && typeof readerSettings === 'object' ? { ...readerSettings } : readerSettings;
+    }
+
+    // 对外返回的快照副本：深拷贝但 _sceneAssets（整份素材库，只读）按引用带过去，避免每次随素材库变大而变慢。
+    function cloneSnapshotKeepAssets(snapshot) {
+        const rs = snapshot && snapshot.readerSettings;
+        if (!rs || typeof rs !== 'object' || !('_sceneAssets' in rs)) return cloneData(snapshot);
+        const { _sceneAssets: assets, ...rest } = rs;
+        const copy = cloneData({ ...snapshot, readerSettings: rest });
+        copy.readerSettings._sceneAssets = assets;
+        return copy;
     }
 
     function resolveRenderConfig(mode) {

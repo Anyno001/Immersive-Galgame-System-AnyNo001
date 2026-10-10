@@ -118,7 +118,8 @@ export function createTavernSettingsSync(globalObject, { storage, onRestored, de
         const before = readMeta(storage);
         if (body === lastUploaded && !before.changedAt) return true;
         const savedAt = now();
-        const text = JSON.stringify({ version: 1, savedAt, settings });
+        // 复用上面已序列化的 body 拼出外层，不再对整份配置序列化第二遍（格式与 JSON.stringify 一致）。
+        const text = `{"version":1,"savedAt":${JSON.stringify(savedAt)},"settings":${body}}`;
         try {
             const res = await globalObject.fetch('/api/files/upload', {
                 method: 'POST', headers: h, body: JSON.stringify({ name: SETTINGS_FILE_NAME, data: utf8Base64(text) }),
