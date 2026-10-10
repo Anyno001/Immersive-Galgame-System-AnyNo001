@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
-import { alignToReference, castSideOf, createCastAlignLock, planCastLayouts, plantFeet, playSpeakerCastMotion, posXForCenter, resolveCastHandoff } from '../src/visual/igs-ui/stage-cast-motion.js';
+import { castSideOf, planCastLayouts, plantFeet, playSpeakerCastMotion, posXForCenter, resolveCastHandoff } from '../src/visual/igs-ui/stage-cast-motion.js';
 import { applyCastToDom } from '../src/visual/igs-ui/stage-cast-render.js';
 
 function fakeCastRoot() {
@@ -41,49 +41,45 @@ test('gate: cast side follows slot position', () => {
     assert.equal(castSideOf(94), 1);
 });
 
-test('gate: foot alignment matches head width and plants the legs on the stage bottom', () => {
-    const stage = { stageW: 1000, stageH: 600 };
-    const reference = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 }, feet: 1 };
-    const member = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.18 }, feet: 0.8 };
-    const out = alignToReference({ ...stage, reference, member });
-    const rect = spriteDrawRect(stage.stageW, stage.stageH, { ...member, ...out });
-    assert.ok(Math.abs(rect.w * member.head.w - 30) < 0.01);
-    assert.ok(Math.abs(rect.top + rect.h * member.feet - stage.stageH) < 0.01);
-    assert.ok(rect.top + rect.h > stage.stageH, '图的底边沉到舞台下面，腿留在底边上');
-    const refRect = spriteDrawRect(stage.stageW, stage.stageH, reference);
-    const refHead = refRect.top + refRect.h * reference.head.top;
-    const ownHead = rect.top + rect.h * member.head.top;
-    assert.ok(ownHead !== refHead);
-    const tiny = alignToReference({ ...stage, reference, member: { ...member, feet: 1, head: { x: 0.5, top: 0.05, w: 0.05 } } });
-    assert.equal(tiny.scale, 62.5);
-    assert.equal(tiny.posY, 100);
-    assert.deepEqual(alignToReference({ ...stage, reference, member: { ...member, head: null, feet: 1 } }), { scale: 50, posY: 100 });
-});
-
-test('gate: cast alignment uses the earliest speaker in scene as reference and waits for probes', () => {
-    const base = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 } };
-    const small = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.1, w: 0.16 } };
-    const heads = { 's.png': small, 'a.png': base, 'b.png': base };
-    const input = {
-        stageW: 1000, stageH: 600, align: true,
-        speaker: { url: 's.png', order: 2, posX: 94, posY: 100, scale: 50, head: null },
-        members: [
-            { character: '甲', url: 'a.png', order: 0, posX: 6, posY: 100, scale: 50, head: null },
-            { character: '乙', url: 'b.png', order: 1, posX: 50, posY: 100, scale: 50, head: null },
-        ],
+test('gate: feet alignment plants the legs and leaves each sprite height alone', () => {
+    const stageH = 600;
+    const wide = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.05 }, feet: 0.8 };
+    const narrow = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.3, w: 0.2 }, feet: 0.8 };
+    const heads = { 'a.png': wide, 'b.png': narrow, 'c.png': wide };
+    const footOf = (sprite, feet) => {
+        const rect = spriteDrawRect(1000, stageH, { ...sprite, naturalW: 1000, naturalH: 2000 });
+        return rect.top + rect.h * feet;
     };
-    const plan = planCastLayouts({ ...input, peek: (url) => heads[url] || null });
-    assert.deepEqual(plan.pending, []);
-    assert.equal(plan.members[0].character, '甲');
-    assert.equal(plan.members[0].scale, 50);
-    assert.equal(plan.members[1].scale, 50);
-    assert.equal(plan.speaker.scale, 62.5);
-    assert.equal(plan.speaker.posX, 94);
+    const input = {
+        stageW: 1000, stageH, align: true,
+        speaker: { character: '乙', url: 'b.png', order: 1, posX: 82, posY: 40, scale: 80 },
+        members: [{ character: '甲', url: 'a.png', order: 0, posX: 18, posY: 40, scale: 70 }],
+        peek: (url) => heads[url] || null,
+    };
+    const plan = planCastLayouts(input);
+    assert.equal(plan.speaker.scale, 80, '头宽不同也不改说话人高度');
+    assert.equal(plan.members[0].scale, 70, '头宽不同也不改陪衬高度');
+    assert.equal(plan.speaker.heightScale, 80);
+    assert.ok(Math.abs(footOf(plan.speaker, 0.8) - stageH) < 0.5, '说话人的脚贴底');
+    assert.ok(Math.abs(footOf(plan.members[0], 0.8) - stageH) < 0.5, '陪衬的脚贴底');
+    assert.notEqual(plan.speaker.posY, 40);
+    // 第三个人上下台，原来两个人的高度和贴底位置不变。
+    const three = planCastLayouts({
+        ...input,
+        members: [...input.members, { character: '丙', url: 'c.png', order: 2, posX: 50, posY: 10, scale: 90 }],
+    });
+    assert.equal(three.speaker.scale, 80);
+    assert.equal(three.members[0].scale, 70);
+    assert.equal(three.members[1].scale, 90);
+    assert.equal(three.speaker.posY, plan.speaker.posY);
+    assert.equal(three.members[0].posY, plan.members[0].posY);
     const waiting = planCastLayouts({ ...input, peek: () => null });
-    assert.deepEqual(waiting.pending, ['s.png', 'a.png', 'b.png']);
-    assert.equal(waiting.speaker.scale, 50);
-    const off = planCastLayouts({ ...input, align: false, peek: (url) => heads[url] });
-    assert.equal(off.speaker.scale, 50);
+    assert.deepEqual(waiting.pending, ['b.png', 'a.png']);
+    assert.equal(waiting.speaker.scale, 80);
+    assert.equal(waiting.speaker.posY, 40, '脚还没探测到时不先挪');
+    const off = planCastLayouts({ ...input, align: false });
+    assert.equal(off.speaker.scale, 80);
+    assert.equal(off.speaker.posY, 40);
     assert.deepEqual(off.pending, []);
 });
 
@@ -142,89 +138,35 @@ test('gate: locked cast entries keep their saved slot layout', () => {
     assert.equal(plan.speaker.slotKey, 'pc::2::1::乙');
 });
 
-// 「还原自动」预览的 auto 必须等于删掉槽位、保存后画面上的样子，否则保存后立绘会跳回对齐结果。
-test('gate: cast reset-auto previews the aligned layout, locked entries included', () => {
-    const base = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 } };
-    const small = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.1, w: 0.16 } };
-    const heads = { 's.png': small, 'a.png': base, 'b.png': small };
+// 「还原自动」预览的 auto 必须等于删掉槽位后画面上的样子：高度不变，脚贴底。
+test('gate: cast reset-auto keeps the sprite height and plants the feet', () => {
+    const probed = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.1, w: 0.16 }, feet: 1 };
     const plan = planCastLayouts({
         stageW: 1000, stageH: 600, align: true,
-        speaker: { url: 's.png', order: 2, posX: 94, posY: 90, scale: 40, head: null, locked: true, auto: { posX: 94, posY: 100, scale: 50 } },
+        speaker: { url: 's.png', order: 2, posX: 94, posY: 90, scale: 40, locked: true, auto: { posX: 94, posY: 100, scale: 50 } },
         members: [
-            { character: '甲', url: 'a.png', order: 0, posX: 6, posY: 100, scale: 50, head: null, auto: { posX: 6, posY: 100, scale: 50 } },
-            { character: '乙', url: 'b.png', order: 1, posX: 50, posY: 100, scale: 50, head: null, auto: { posX: 50, posY: 100, scale: 50 } },
+            { character: '甲', url: 'a.png', order: 0, posX: 6, posY: 100, scale: 50, auto: { posX: 6, posY: 100, scale: 50 } },
+            { character: '乙', url: 'b.png', order: 1, posX: 50, posY: 40, scale: 70, auto: { posX: 50, posY: 40, scale: 70 } },
         ],
-        peek: (url) => heads[url],
+        peek: () => probed,
     });
-    assert.equal(plan.speaker.scale, 40, '手调过的人仍按槽位画');
-    assert.equal(plan.speaker.auto.scale, 62.5, '它的「还原自动」拿到对齐后的大小');
+    assert.equal(plan.speaker.scale, 40, '手摆过的人保持当前高度');
+    assert.equal(plan.speaker.posY, 90, '手摆过的位置不被贴底改掉');
+    assert.equal(plan.speaker.auto.scale, 50, '还原后仍是这个人自己的高度');
     assert.equal(plan.speaker.auto.posX, 94);
-    assert.equal(plan.members[1].scale, 62.5);
-    assert.deepEqual(plan.members[1].auto, { posX: 50, posY: plan.members[1].posY, scale: 62.5 });
-    assert.deepEqual(plan.members[0].auto, { posX: 6, posY: 100, scale: 50 }, '参照物不改大小，脚已在底边时 posY 仍是 100');
+    assert.equal(plan.members[0].scale, 50);
+    assert.equal(plan.members[1].scale, 70);
+    assert.deepEqual(plan.members[0].auto, { posX: 6, posY: 100, scale: 50 }, '脚已经在图底、posY 已是 100 时不再挪');
+    assert.equal(plan.members[1].auto.scale, 70);
+    assert.notEqual(plan.members[1].posY, 40, '没手摆过的人把脚贴到底');
 });
 
-test('gate: head alignment keeps configured sprite heights apart', () => {
-    const stage = { stageW: 1000, stageH: 600 };
-    const head = { x: 0.5, top: 0.05, w: 0.2 };
-    const reference = { posX: 50, posY: 100, scale: 50, naturalW: 1000, naturalH: 2000, head, baseHeight: 100 };
-    const member = { posX: 50, posY: 100, scale: 70, naturalW: 1000, naturalH: 2000, head, baseHeight: 140 };
-    const out = alignToReference({ ...stage, reference, member });
-    assert.ok(Math.abs(out.scale - 70) < 1e-9, '构图相同、设定高 1.4 倍的人不被缩回去');
-    const lift = (sprite) => {
-        const rect = spriteDrawRect(stage.stageW, stage.stageH, sprite);
-        return stage.stageH - (rect.top + rect.h * head.top);
-    };
-    assert.ok(Math.abs(lift({ ...member, ...out }) - lift(reference) * 1.4) < 0.01, '头顶离底边也按 1.4 倍');
-    const framed = alignToReference({ ...stage, reference, member: { ...member, head: { ...head, w: 0.16 } } });
-    assert.ok(Math.abs(framed.scale - 87.5) < 1e-9, '构图差别照常抹平');
-    const same = alignToReference({ ...stage, reference: { ...reference, baseHeight: undefined }, member: { ...member, scale: 50, baseHeight: undefined, head: { ...head, w: 0.16 } } });
-    assert.equal(same.scale, 62.5, '没有设定高度时与原来一致');
-});
-
-// 参照一旦定下，只要还在台上就不换：开口更早的人回台、参照换表情都不会让台上原有的人跳。
-test('gate: cast alignment keeps its reference while that person stays on stage', () => {
-    const base = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.05, w: 0.2 } };
-    const small = { naturalW: 1000, naturalH: 2000, head: { x: 0.5, top: 0.1, w: 0.16 } };
-    const heads = { 'a.png': small, 'b.png': base, 'c.png': small };
-    const peek = (url) => heads[url] || null;
-    const lock = createCastAlignLock();
-    const stage = { stageW: 1000, stageH: 600, align: true, peek, lock };
-    const m = (character, url, order) => ({ character, url, order, posX: 50, posY: 100, scale: 50, head: null });
-    const first = planCastLayouts({ ...stage, speaker: { ...m('乙', 'b.png', 1) }, members: [m('丙', 'c.png', 2)] });
-    const bing = first.members[0];
-    assert.equal(lock.ref, '乙');
-    assert.equal(bing.scale, 62.5);
-    // 甲本场景开口更早，回台后也不抢参照。
-    const back = planCastLayouts({ ...stage, speaker: { ...m('乙', 'b.png', 1) }, members: [m('甲', 'a.png', 0), m('丙', 'c.png', 2)] });
-    assert.equal(lock.ref, '乙');
-    assert.deepEqual([back.members[1].scale, back.members[1].posY], [bing.scale, bing.posY]);
-    assert.equal(back.speaker.scale, 50, '参照物自己不对齐');
-    // 参照换了表情、新图还没探测好：其余人沿用上次结果，不先跳回原样。
-    const swap = planCastLayouts({ ...stage, speaker: { ...m('乙', 'b2.png', 1) }, members: [m('丙', 'c.png', 2)] });
-    assert.deepEqual(swap.pending, ['b2.png']);
-    assert.deepEqual([swap.members[0].scale, swap.members[0].posY], [bing.scale, bing.posY]);
-    // 参照下台才换人，换成在场者里最早开口的那个。
-    planCastLayouts({ ...stage, speaker: { ...m('丙', 'c.png', 2) }, members: [m('甲', 'a.png', 0)] });
-    assert.equal(lock.ref, '甲');
-    planCastLayouts({ ...stage, align: false, speaker: { ...m('丙', 'c.png', 2) }, members: [m('甲', 'a.png', 0)] });
-    assert.equal(lock.ref, null, '关掉对齐就放开参照');
-});
-
-// 底边钉死：头顶偏下的人放大后不会被抬离舞台底；原本就悬空的最多悬到原来的高度。
-test('gate: head alignment never lifts a sprite off the stage floor', () => {
-    const stage = { stageW: 1000, stageH: 600 };
-    const reference = { naturalW: 1000, naturalH: 2000, posX: 50, posY: 100, scale: 80, head: { x: 0.5, top: 0.02, w: 0.2 } };
-    const member = { naturalW: 1000, naturalH: 2000, posX: 50, posY: 100, scale: 80, head: { x: 0.5, top: 0.3, w: 0.2 } };
-    const bottomOf = (sprite) => {
-        const h = stage.stageH * sprite.scale / 100;
-        return (stage.stageH - h) * sprite.posY / 100 + h;
-    };
-    const out = alignToReference({ ...stage, reference, member });
-    assert.ok(bottomOf(out) >= stage.stageH - 0.5, `脚贴底：${bottomOf(out)}`);
-    const floating = { ...member, scale: 60, posY: 50 };
-    const lifted = alignToReference({ ...stage, reference, member: floating });
-    assert.ok(bottomOf(lifted) >= bottomOf(floating) - 0.5, '悬空的不会悬得更高');
+test('gate: feet alignment pulls a floating sprite down to the floor without changing its height', () => {
+    const stageH = 600;
+    const planted = plantFeet(stageH, { posX: 50, posY: 50, scale: 60, feet: 0.9 });
+    assert.equal(planted.scale, 60);
+    const rect = spriteDrawRect(1000, stageH, { ...planted, naturalW: 1000, naturalH: 2000 });
+    assert.ok(Math.abs(rect.top + rect.h * 0.9 - stageH) < 0.5);
 });
 
 test('gate: cast slots center by real sprite width so stage-wide phone sprites do not stack', () => {

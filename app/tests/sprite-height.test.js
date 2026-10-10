@@ -5,6 +5,7 @@ import {
     normalizeSpriteGenderScale,
     normalizeSpriteHeight,
     resolveSpriteLayout,
+    spriteHeightLayoutKey,
 } from '../src/visual/igs-ui/settings-normalize.js';
 import { normalizeCharacterSpriteScales, resolveSpriteBaseScale } from '../src/visual/igs-ui/sprite-height.js';
 import { hasCharacterSpriteLayout } from '../src/visual/igs-ui/sprite-key-migration.js';
@@ -231,5 +232,20 @@ test('gate:sprite-height:preset-strips-expressionNotes-from-generated', () => {
     assert.equal(preset.generated.characters.冬月.默认, 'igs-gen:a');
     // 非 generated 字段不受影响
     assert.deepEqual(preset.scenes, { 教室: { url: 'room.png' } });
+});
+
+test('gate:sprite-height:cast zoom writes the layout that is already on screen', () => {
+    const layouts = {
+        'pc::乙': { posX: 10, posY: 20, scale: 70 },
+        'pc::乙::smile': { posX: 11, posY: 21, scale: 75 },
+        'pc::甲|校服': { posX: 12, posY: 22, scale: 80 },
+    };
+    assert.equal(spriteHeightLayoutKey(layouts, 'pc', '乙', 'smile'), 'pc::乙::smile');
+    assert.equal(spriteHeightLayoutKey(layouts, 'pc', '乙', 'angry'), 'pc::乙');
+    assert.equal(spriteHeightLayoutKey(layouts, 'pc', '甲', '', '校服'), 'pc::甲|校服');
+    assert.equal(spriteHeightLayoutKey(layouts, 'pc', '甲', 'smile', '校服'), 'pc::甲|校服');
+    assert.equal(spriteHeightLayoutKey({}, 'pc', '丙', 'smile'), 'pc::丙');
+    assert.equal(spriteHeightLayoutKey({}, 'pc', '丙', 'smile', '校服'), 'pc::丙|校服');
+    assert.equal(spriteHeightLayoutKey(layouts, 'pc', ''), '');
 });
 

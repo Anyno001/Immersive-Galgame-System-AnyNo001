@@ -239,6 +239,21 @@ export function normalizeSpriteLayouts(value) {
     return out;
 }
 
+// 多人槽位只有站位。高度在这个人自己的立绘记录上，槽位对象里没有 scale。
+export function normalizeCastSlotLayouts(value) {
+    const def = { posX: 50, posY: 100 };
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const out = {};
+    for (const key of Object.keys(value)) {
+        const src = (typeof value[key] === 'object' && value[key]) ? value[key] : {};
+        out[key] = {
+            posX: normalizeFiniteNumber(src.posX, def.posX),
+            posY: normalizeFiniteNumber(src.posY, def.posY),
+        };
+    }
+    return out;
+}
+
 export function normalizeSpriteDefaultScale(value) {
     return normalizeSpriteHeight(value, 100);
 }
@@ -285,6 +300,23 @@ export function spriteStoredScale(displayScale, globalPercent) {
     const factor = normalizeSpriteDisplayScale(globalPercent) / 100;
     const n = Number(displayScale);
     return (Number.isFinite(n) ? n : 100) / factor;
+}
+
+// 多人同屏里改高度时，写到 resolveSpriteLayout 正在用的那条记录上，只改 scale。
+// 服装 / 表情有自己的记录就改那条；没有就改角色记录；都没有才新建「模式::身份」，不按槽位、不按人数拆。
+export function spriteHeightLayoutKey(layouts, mode, character, mood, outfit = '') {
+    const name = String(character || '');
+    if (!name) return '';
+    const identity = spriteIdentity(name, outfit);
+    const has = (key) => Boolean(layouts && Object.prototype.hasOwnProperty.call(layouts, key));
+    if (identity !== name) {
+        if (mood && has(`${mode}::${identity}::${mood}`)) return `${mode}::${identity}::${mood}`;
+        if (has(`${mode}::${identity}`)) return `${mode}::${identity}`;
+    } else if (mood && has(`${mode}::${name}::${mood}`)) {
+        return `${mode}::${name}::${mood}`;
+    }
+    if (has(`${mode}::${name}`)) return `${mode}::${name}`;
+    return `${mode}::${identity}`;
 }
 
 // defaultScale：没单独调过位置的立绘用的默认高度（舞台高度百分比），来自基准高度或性别默认高度，让位给模式整体缩放。

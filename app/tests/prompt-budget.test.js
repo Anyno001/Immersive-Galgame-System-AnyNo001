@@ -62,8 +62,8 @@ test('gate:prompt-budget:adaptive-blocks-stay-within-measured-budget', () => {
     const report = JSON.stringify(sizes);
     for (const [key, size] of Object.entries(sizes)) assert.ok(size <= (key === 'daily' ? DAILY_SUPERSET_MAX : 1150), `${key} 单块超预算 ${report}`);
     const all = buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set(ADAPTIVE_PROMPT_BLOCKS) });
-    // 10-10 加手机社区：社区块平台写法只展开最近提到的平台（全集未提到时 292 字），全展开实测 3053 字，上限随之 2800 → 3150。
-    assert.ok(len(all.depth0) <= 3150,`全展开 ${len(all.depth0)} 字 / ${estimatePromptTokens(all.depth0)} token ${report}`);
+    // 10-10 加手机社区后全展开 3053 字。社区示例改成三条帖的完整正文后，未点名平台时单块 655 字，全展开 3415 字。
+    assert.ok(len(all.depth0) <= 3600,`全展开 ${len(all.depth0)} 字 / ${estimatePromptTokens(all.depth0)} token ${report}`);
 });
 
 test('gate:prompt-budget:daily-block-per-worldview-stays-under-1150', () => {

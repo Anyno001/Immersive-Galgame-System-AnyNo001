@@ -1,5 +1,4 @@
 import { spriteDrawRect } from './fx-anchor.js';
-import { spriteGeometry } from './fx-runtime.js';
 
 export const CAST_ENTER_MS = 340;
 export const CAST_MOVE_MS = 420;
@@ -11,9 +10,6 @@ export const CAST_LIT_FRAME = 'brightness(1) saturate(1)';
 export const CAST_FOCUS_FRAME = 'brightness(0.95) saturate(0.95)';
 // 本页正文点到名字的陪衬：比普通陪衬亮一档，低于修罗场对象。
 export const CAST_CALLED_FRAME = 'brightness(0.86) saturate(0.9)';
-const ALIGN_RATIO_MIN = 0.8;
-const ALIGN_RATIO_MAX = 1.25;
-const SPEAKER_ID = '@speaker';
 const EASING = 'cubic-bezier(.2,.7,.3,1)';
 
 export function castSideOf(posX) {
@@ -49,7 +45,7 @@ export function posYForFeet(stageH, sprite) {
     return ((stageH - h * feetFraction(sprite)) / room) * 100;
 }
 
-// 图高正好等于舞台高时 background-position 挪不动它；脚下有透明边就缩 1% 腾出余地再贴底，不然参照本人会悬空、和别人脚底对不齐。
+// 图高正好等于舞台高时 background-position 挪不动它。脚下还有透明边就缩 1%，腾出一点空隙才能把脚贴到底。只发生在高度恰好顶满舞台时，不是改这个人的立绘高度。
 const FEET_ROOM_SCALE = 0.99;
 
 export function plantFeet(stageH, sprite) {
@@ -58,61 +54,6 @@ export function plantFeet(stageH, sprite) {
     const stuck = h > 0 && Math.abs(stageH - h) < 1 && feetFraction(sprite) < 1;
     const next = stuck ? { ...sprite, scale: scale * FEET_ROOM_SCALE } : sprite;
     return { scale: next.scale, posY: posYForFeet(stageH, next) };
-}
-
-// 把 member 缩放到与 reference 头宽一致（限制倍数），再把腿贴到舞台底。头顶不再拉齐。
-// baseHeight 是两人各自的设定高度：头宽按两人之比放大，对齐只抹平原图构图的差别，不抹平设定的高矮。缺 baseHeight 时按同高。
-export function alignToReference({ stageW, stageH, reference, member }) {
-    const keep = plantFeet(stageH, member);
-    const ref = spriteDrawRect(stageW, stageH, reference);
-    const own = spriteDrawRect(stageW, stageH, member);
-    if (!ref || !own || !reference.head || !member.head) return keep;
-    const refHeadW = ref.w * reference.head.w;
-    const ownHeadW = own.w * member.head.w;
-    if (!(refHeadW > 0) || !(ownHeadW > 0)) return keep;
-    const tall = reference.baseHeight > 0 && member.baseHeight > 0 ? member.baseHeight / reference.baseHeight : 1;
-    const ratio = Math.max(ALIGN_RATIO_MIN, Math.min(ALIGN_RATIO_MAX, refHeadW * tall / ownHeadW));
-    const scale = member.scale * ratio;
-    const planted = { ...member, scale };
-    const rect = spriteDrawRect(stageW, stageH, planted);
-    if (!rect) return keep;
-    return plantFeet(stageH, planted);
-}
-
-// 参照物默认是本场景最早开口（order 最小）的在场者；传 refKey 时用这个人（还没探测好就不对齐）。
-// locked 的条目（用户手调过）不被改，但可以当参照；locked 条目按 autoGeometry（删掉槽位后的样子）另算一份，只给「还原自动」用。
-export function alignCastLayouts({ stageW, stageH, entries = [], refKey = null }) {
-    const out = new Map();
-    const ready = entries.filter((e) => e && e.geometry && e.geometry.head);
-    if (ready.length < 2) return out;
-    const ref = refKey == null ? ready.reduce((a, b) => (b.order < a.order ? b : a)) : ready.find((e) => e.key === refKey);
-    if (!ref) return out;
-    for (const e of ready) {
-        if (e === ref) {
-            const source = e.locked ? e.autoGeometry : e.geometry;
-            if (source) out.set(e.id, plantFeet(stageH, source));
-            continue;
-        }
-        const member = e.locked ? e.autoGeometry : e.geometry;
-        if (member && member.head) out.set(e.id, alignToReference({ stageW, stageH, reference: ref.geometry, member }));
-    }
-    return out;
-}
-
-function withBaseHeight(geometry, baseHeight) {
-    return geometry && Number(baseHeight) > 0 ? { ...geometry, baseHeight: Number(baseHeight) } : geometry;
-}
-
-// 头部对齐的参照锁：参照一旦定下，只要还在台上就不换，进出场、换表情都不会让台上原有的人重新对齐。
-// memo 记每人上次的对齐结果：参照换了表情、图还没探测好时先沿用，避免先跳回原样再跳回来。
-export function createCastAlignLock() {
-    return { ref: null, memo: new Map() };
-}
-
-const sharedAlignLock = createCastAlignLock();
-
-function alignMemoSig(stageW, stageH, e, geometry) {
-    return [stageW, stageH, e.url, geometry && geometry.scale, geometry && geometry.posY, e.baseHeight].join('|');
 }
 
 // background-position 的百分比是「图上该比例点对齐舞台该比例点」：图越宽槽位越往中间挤，和舞台一样宽（竖屏手机）时全员叠在正中，比舞台宽时左右对调。
@@ -126,85 +67,50 @@ export function posXForCenter(stageW, stageH, sprite, centerX) {
     return Math.round((stageW * c / 100 - rect.w / 2) / room * 10000) / 100;
 }
 
-// speaker / members 条目：{ url, order, posX, posY, scale, head(手动标定或 null), baseHeight?, centerX?, auto?, locked?, ... }，其余字段原样带出。
+// speaker / members 条目：{ url, order, posX, posY, scale, centerX?, auto?, locked?, ... }，其余字段原样带出。
+// scale 是这个人自己的立绘高度（已经乘过全局缩放）。这里不改它：不看槽位、不看头宽、不看谁在台上。
+// heightScale 记下进来时的高度，供编辑保存时除掉「上前」这类只画在这一页的姿态。
+// align 为真时只把脚贴到舞台底（改 posY）。locked 的人保持手摆的位置；auto 是删掉槽位后的位置，高度仍是原来的。
 // centerX 是自动槽位的中心（舞台宽度百分比）：图探测好后按实际宽度换算 posX，锁定条目只换算 auto。
-// 说话人条目带 character 时按人锁参照，否则当作同一个「说话人」。
-// auto 换成对齐后的样子：「还原自动」预览的就是保存后画面上会出现的样子。
-// pending 为还没有探测数据、需要先 probeSpriteHead 的地址。
-export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker = null, members = [], peek = () => null, lock = sharedAlignLock } = {}) {
-    const all = [
-        ...(speaker ? [{ ...speaker, id: SPEAKER_ID, key: speaker.character || SPEAKER_ID }] : []),
-        ...members.map((m) => ({ ...m, id: `m:${m.character}`, key: m.character })),
-    ];
-    const aligned = new Map();
+// pending 为还没有探测数据、需要先 probeSpriteHead 的地址。没探测到脚之前不贴底。
+export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker = null, members = [], peek = () => null } = {}) {
+    const roster = [...(speaker ? [speaker] : []), ...(members || [])];
     const pending = [];
-    const sized = all.length > 1 && stageW > 0 && stageH > 0;
-    if (!align) {
-        lock.ref = null;
-        lock.memo.clear();
-    } else if (sized) {
-        const entries = [];
-        for (const e of all) {
-            const probed = e.url ? peek(e.url) : null;
-            if (!probed && e.url) pending.push(e.url);
-            const locked = e.locked === true;
-            entries.push({
-                id: e.id,
-                key: e.key,
-                url: e.url,
-                baseHeight: e.baseHeight,
-                order: Number.isFinite(e.order) ? e.order : Number.MAX_SAFE_INTEGER,
-                locked,
-                geometry: withBaseHeight(spriteGeometry(e, probed), e.baseHeight),
-                autoGeometry: locked && e.auto ? withBaseHeight(spriteGeometry({ ...e, ...e.auto }, probed), e.baseHeight) : null,
-            });
-        }
-        // 参照下台了才换人：换成在场者里本场景最早开口的那个（不管图探测好没有，免得探测完又换一次）。
-        if (!entries.some((e) => e.key === lock.ref)) {
-            lock.ref = entries.reduce((a, b) => (b.order < a.order ? b : a)).key;
-            lock.memo.clear();
-        }
-        const fresh = alignCastLayouts({ stageW, stageH, entries, refKey: lock.ref });
-        for (const e of entries) {
-            if (e.key === lock.ref) {
-                if (fresh.has(e.id)) aligned.set(e.id, fresh.get(e.id));
-                continue;
-            }
-            const sig = alignMemoSig(stageW, stageH, e, e.locked ? e.autoGeometry : e.geometry);
-            const value = fresh.get(e.id);
-            if (value) {
-                lock.memo.set(e.key, { sig, value });
-                aligned.set(e.id, value);
-                continue;
-            }
-            const memo = lock.memo.get(e.key);
-            if (memo && memo.sig === sig) aligned.set(e.id, memo.value);
-        }
-    }
-    // 不开对齐时也要图宽来摆槽位：没探测过的照样交给调用方探测后重排。
-    if (!align && sized) {
-        for (const e of all) {
-            if (e.url && Number.isFinite(Number(e.centerX)) && !peek(e.url) && !pending.includes(e.url)) pending.push(e.url);
-        }
-    }
+    const sized = roster.length > 1 && stageW > 0 && stageH > 0;
+    const remember = (url) => {
+        if (url && !pending.includes(url)) pending.push(url);
+    };
     const centered = (sprite, centerX, probed) => {
         if (!sized || !probed) return sprite;
         const posX = posXForCenter(stageW, stageH, { ...sprite, naturalW: probed.naturalW, naturalH: probed.naturalH }, centerX);
         return posX == null ? sprite : { ...sprite, posX };
     };
-    const finish = ({ id, key, ...e }) => {
-        const value = aligned.get(id);
-        const next = value && !e.locked ? { ...e, ...value } : { ...e };
-        if (e.auto) next.auto = value ? { ...e.auto, ...value } : { ...e.auto };
-        if (!Number.isFinite(Number(e.centerX))) return next;
-        const probed = e.url ? peek(e.url) : null;
-        if (!e.locked) Object.assign(next, centered(next, e.centerX, probed));
-        if (next.auto) next.auto = centered(next.auto, e.centerX, probed);
+    const plant = (sprite, probed) => {
+        const feet = probed && Number(probed.feet) > 0 ? Number(probed.feet) : undefined;
+        const planted = plantFeet(stageH, feet ? { ...sprite, feet } : sprite);
+        return { ...sprite, scale: planted.scale, posY: planted.posY };
+    };
+    const finish = (entry) => {
+        const e = entry || {};
+        const probed = sized && e.url ? peek(e.url) : null;
+        const centerX = Number(e.centerX);
+        const hasCenter = Number.isFinite(centerX);
+        if (sized && e.url && !probed && (align || hasCenter)) remember(e.url);
+        const heightScale = Number(e.scale) || 100;
+        let next = { ...e, heightScale };
+        if (sized && align && !e.locked && probed) next = plant(next, probed);
+        if (hasCenter && !e.locked) next = centered(next, centerX, probed);
+        if (e.auto) {
+            let auto = { ...e.auto };
+            if (sized && align && probed) auto = plant(auto, probed);
+            if (hasCenter) auto = centered(auto, centerX, probed);
+            next.auto = { posX: auto.posX, posY: auto.posY, scale: auto.scale };
+        }
         return next;
     };
     return {
-        speaker: speaker ? finish(all[0]) : null,
-        members: all.slice(speaker ? 1 : 0).map(finish),
+        speaker: speaker ? finish(speaker) : null,
+        members: (members || []).map(finish),
         pending,
     };
 }

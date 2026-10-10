@@ -100,8 +100,10 @@ test('storm:prompt:follows-switches-and-custom-text', () => {
     assert.match(custom.full, /舆论风暴：只写骂的/);
     assert.ok(!custom.full.includes(STORM_DEFAULT_PROMPT));
     const legacy = resolveFeedPromptRule({ feedFx: { enabled: true } });
-    assert.match(legacy, /\[igs-fx:storm\|平台\|红或黑\|热搜词\] … \[igs-fx:storm-end\]/);
-    assert.match(legacy, /\[igs-fx:mention\|网友\|内容\]/);
+    assert.match(legacy, /你应该使用以下格式写正文中/);
+    assert.match(legacy, /storm\|平台\|红或黑\|热搜词 … storm-end/);
+    assert.match(legacy, /mention\|网友\|内容/);
+    assert.match(legacy, /示例：/);
     assert.doesNotMatch(resolveFeedPromptRule({ feedFx: { enabled: true, storm: { enabled: false } } }), /storm/);
     assert.ok(detectPromptTriggers({ recentAiTexts: ['[igs-fx:mention|甲|x]'] }).has('feed'));
     assert.ok(detectPromptTriggers({ userText: '她塌房了' }).has('feed'));

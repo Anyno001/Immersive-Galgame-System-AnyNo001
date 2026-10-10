@@ -26,6 +26,7 @@ import {
     renderDialogueHtml,
     resolveActiveTheme,
     resolveSpriteLayout,
+    spriteHeightLayoutKey,
 } from './settings-normalize.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
@@ -1368,34 +1369,36 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const castSpeakerMood = snapshot.content.spriteMood || '';
     const castSpeakerOutfit = snapshot.content.spriteOutfit || '';
     const castSlotLayouts = snapshot.readerSettings.castSlotLayouts || {};
+    const spriteLayouts = snapshot.readerSettings.spriteLayouts;
     const presentSpriteLayout = (character, mood, outfit) => {
         const height = resolveSpriteBaseScale(snapshot.readerSettings._sceneAssets, snapshot.readerSettings, character);
         return applySpriteDisplayScale(
-            resolveSpriteLayout(snapshot.readerSettings.spriteLayouts, snapshot.mode, character, mood, outfit, height.defaultScale, height.characterScale),
+            resolveSpriteLayout(spriteLayouts, snapshot.mode, character, mood, outfit, height.defaultScale, height.characterScale),
             snapshot.readerSettings.spriteDisplayScale,
         );
     };
-    const castBaseHeight = (character) => {
-        const height = resolveSpriteBaseScale(snapshot.readerSettings._sceneAssets, snapshot.readerSettings, character);
-        return height.characterScale ?? height.defaultScale;
-    };
+    const heightMeta = (character, mood, outfit, layout) => ({
+        layoutKey: spriteHeightLayoutKey(spriteLayouts, snapshot.mode, character, mood, outfit),
+        heightPos: { posX: layout.posX, posY: layout.posY },
+    });
     const withCastSlot = (entry, character, outfit, slotIndex) => {
         const slotKey = slotIndex == null ? '' : castSlotKey(snapshot.mode, castLayout.count, slotIndex, spriteIdentity(character, outfit));
         const saved = slotKey ? castSlotLayouts[slotKey] : null;
-        return { ...applySavedCastSlot(entry, saved, snapshot.readerSettings.spriteDisplayScale), slotKey };
+        return { ...applySavedCastSlot(entry, saved), slotKey };
     };
+    const speakerLayout = presentSpriteLayout(castSpeakerKey, castSpeakerMood, castSpeakerOutfit);
     const castPlanInput = castLayout.multi && !current.spriteEditMode ? {
         stageW: stageMotion.clientWidth,
         stageH: stageMotion.clientHeight,
         align: isCastAlignEnabled(snapshot),
         speaker: spriteAssetUrl ? withCastSlot({
-            ...presentSpriteLayout(castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
+            ...speakerLayout,
             ...(speakerSlotX != null ? { posX: speakerSlotX, centerX: castLayout.speakerCenterX } : {}),
+            ...heightMeta(castSpeakerKey, castSpeakerMood, castSpeakerOutfit, speakerLayout),
             character: castSpeakerKey,
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
-            baseHeight: castBaseHeight(castSpeakerKey),
         }, castSpeakerKey, castSpeakerOutfit, castLayout.speakerSlot) : null,
         members: castLayout.members.map((m) => {
             const layout = presentSpriteLayout(m.character, m.mood, m.outfit);
@@ -1408,7 +1411,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 posY: layout.posY,
                 scale: layout.scale,
                 head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, m.character, m.mood, m.outfit),
-                baseHeight: castBaseHeight(m.character),
+                ...heightMeta(m.character, m.mood, m.outfit, layout),
             }, m.character, m.outfit, m.slotIndex);
         }).filter((m) => m.url),
         peek: peekSpriteHead,
@@ -1488,7 +1491,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 陪衬反应：点名提亮每次渲染都带上；动作只在进入新页时播一次，同页重绘不重播。
         const castReact = resolveCastReactPage(snapshot, castPlan.members);
         castReactMarks = castReact.marks;
-        // 头部对齐探测未就绪时，新上台的陪衬等下方对齐重排完成再滑入（applyCastToDom 内有超时兜底）。
+        // 贴底探测未就绪时，新上台的陪衬等下方重排完成再滑入（applyCastToDom 内有超时兜底）。
         let releaseCastAlign = () => {};
         const castAlignReady = castPlan.pending.length ? new Promise((resolve) => { releaseCastAlign = resolve; }) : null;
         applyCastToDom(root, markCalledCast(castPlan.members, castReact.called), { reduced: castReduced, handoff, focus: castFocus, lean: castLean, entrances: castStageEntrances(snapshot), ready: castAlignReady, spriteEnhance });
@@ -1506,8 +1509,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             members: castPlan.members.map((m) => m.character),
             memberX: Object.fromEntries(castPlan.members.map((m) => [m.character, m.posX])),
             entries: [
-                ...(castPlan.speaker && stageSprite ? [{ character: speakerKey, speaker: true, key: castPlan.speaker.slotKey, url: castPlan.speaker.url, posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale, auto: castPlan.speaker.auto }] : []),
-                ...castPlan.members.map((m) => ({ character: m.character, speaker: false, key: m.slotKey, url: m.url, posX: m.posX, posY: m.posY, scale: m.scale, auto: m.auto })),
+                ...(castPlan.speaker && stageSprite ? [{ character: speakerKey, speaker: true, key: castPlan.speaker.slotKey, layoutKey: castPlan.speaker.layoutKey, heightPos: castPlan.speaker.heightPos, heightScale: castPlan.speaker.heightScale, url: castPlan.speaker.url, posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale, auto: castPlan.speaker.auto }] : []),
+                ...castPlan.members.map((m) => ({ character: m.character, speaker: false, key: m.slotKey, layoutKey: m.layoutKey, heightPos: m.heightPos, heightScale: m.heightScale, url: m.url, posX: m.posX, posY: m.posY, scale: m.scale, auto: m.auto })),
             ],
         };
         if (castPlan.pending.length) {
@@ -1530,12 +1533,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 relayoutComic(root);
                 repositionFxSymbols(root, { speaker: fxSprite, cast: castFxTargets });
                 repositionBattleImpacts(root, { speaker: fxSprite, cast: castFxTargets });
-                // 对齐改了大小和高度，槽位编辑的起点要跟着更新，否则拖动从旧值开始。
+                // 贴底改了位置，槽位编辑的起点要跟着更新，否则拖动从旧值开始。高度不变。
                 if (current.castStage && Array.isArray(current.castStage.entries)) {
                     const byChar = new Map(again.members.map((m) => [m.character, m]));
                     current.castStage.entries = current.castStage.entries.map((e) => {
                         const next = e.speaker ? again.speaker : byChar.get(e.character);
-                        return next ? { ...e, posX: next.posX, posY: next.posY, scale: next.scale, auto: next.auto || e.auto } : e;
+                        return next ? { ...e, posX: next.posX, posY: next.posY, scale: next.scale, auto: next.auto || e.auto, heightScale: next.heightScale ?? e.heightScale } : e;
                     });
                 }
             }).finally(() => releaseCastAlign());

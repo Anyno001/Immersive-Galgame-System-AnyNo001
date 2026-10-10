@@ -4,6 +4,7 @@ import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveCa
 import { extractSceneDirectives } from '../src/scene/scene-directives.js';
 import { applyCastToDom, castSlotKey, isCastCollapsed, layoutCastSlots, resolveCastCapacity } from '../src/visual/igs-ui/stage-cast-render.js';
 import { applySavedCastSlot, buildCastSlotEditPatch } from '../src/visual/igs-ui/cast-slot-edit.js';
+import { normalizeCastSlotLayouts } from '../src/visual/igs-ui/settings-normalize.js';
 
 const castAt = (source, marker, extra = {}) => resolveStageCast({
     directives: extractSceneDirectives(source).directives,
@@ -256,28 +257,74 @@ test('gate: stage-cast offset falls back to nearest page directive when locate f
     assert.equal(resolveCastOffset({ offset: Number.NaN, directives, segmentIndex: -1, locate }), -1);
 });
 
-test('gate: cast-slot scale belongs to that person and reset does not write it back', () => {
-    const shown = applySavedCastSlot({ posX: 30, posY: 100, scale: 80 }, { posX: 40, posY: 90, scale: 180 }, 80);
-    assert.equal(shown.scale, 144);
+test('gate: cast slot stores position only and height stays on the character', () => {
+    const shown = applySavedCastSlot({ posX: 30, posY: 100, scale: 80 }, { posX: 40, posY: 90, scale: 180 });
+    assert.equal(shown.scale, 80, '槽位里旧的高度不再使用');
     assert.equal(shown.posX, 40);
+    assert.equal(shown.posY, 90);
     assert.equal(shown.locked, true);
     assert.deepEqual(shown.auto, { posX: 30, posY: 100, scale: 80 });
-    const automatic = applySavedCastSlot({ posX: 30, posY: 100, scale: 80 }, null, 80);
+    const automatic = applySavedCastSlot({ posX: 30, posY: 100, scale: 80 }, null);
     assert.equal(automatic.scale, 80);
     assert.equal(automatic.locked, undefined);
 
-    const kept = buildCastSlotEditPatch([
-        { key: 'pc::2::0::甲', dirty: true, cur: { posX: 12, posY: 80, scale: 144 } },
-        { key: 'pc::2::1::乙', dirty: false, cur: { posX: 70, posY: 100, scale: 80 } },
-    ], { castSlotLayouts: {}, globalScale: 100 });
-    assert.deepEqual(kept, { castSlotLayouts: { 'pc::2::0::甲': { posX: 12, posY: 80, scale: 144 } } });
-    assert.equal(kept.spriteLayouts, undefined);
+    assert.deepEqual(normalizeCastSlotLayouts({
+        'pc::2::0::甲': { posX: 12, posY: 80, scale: 180 },
+        'pc::2::1::乙': { posX: 70, posY: 90, scale: 40 },
+    }), {
+        'pc::2::0::甲': { posX: 12, posY: 80 },
+        'pc::2::1::乙': { posX: 70, posY: 90 },
+    });
+    const moved = buildCastSlotEditPatch([
+        { key: 'pc::2::0::甲', posDirty: true, cur: { posX: 12, posY: 80, scale: 144 } },
+        { key: 'pc::2::1::乙', posDirty: false, cur: { posX: 70, posY: 100, scale: 80 } },
+    ], { castSlotLayouts: { 'pc::2::0::甲': { posX: 1, posY: 2, scale: 180 }, 'pc::2::1::乙': { posX: 70, posY: 90, scale: 40 } }, globalScale: 100 });
+    assert.deepEqual(moved, { castSlotLayouts: { 'pc::2::0::甲': { posX: 12, posY: 80 }, 'pc::2::1::乙': { posX: 70, posY: 90 } } });
+    assert.equal(moved.spriteLayouts, undefined);
+
+    const grown = buildCastSlotEditPatch([
+        {
+            key: 'pc::2::1::乙',
+            layoutKey: 'pc::乙',
+            heightPos: { posX: 50, posY: 100 },
+            heightScale: 64,
+            orig: { posX: 70, posY: 100, scale: 64 },
+            scaleDirty: true,
+            cur: { posX: 70, posY: 100, scale: 128 },
+        },
+    ], { castSlotLayouts: {}, spriteLayouts: {}, globalScale: 80 });
+    assert.equal(grown.castSlotLayouts, undefined);
+    assert.deepEqual(grown.spriteLayouts['pc::乙'], { posX: 50, posY: 100, scale: 160 }, '画面高度除掉全局 80% 后写入这个人自己的记录');
+
+    const posed = buildCastSlotEditPatch([
+        {
+            layoutKey: 'pc::乙',
+            heightPos: { posX: 50, posY: 100 },
+            heightScale: 80,
+            orig: { scale: 84.8 },
+            scaleDirty: true,
+            cur: { scale: 93.28 },
+        },
+    ], { spriteLayouts: {}, globalScale: 100 });
+    assert.equal(posed.spriteLayouts['pc::乙'].scale, 88, '上前的 6% 不写进高度');
+
+    const keptPos = buildCastSlotEditPatch([
+        {
+            layoutKey: 'pc::乙::smile',
+            heightPos: { posX: 10, posY: 20 },
+            heightScale: 80,
+            orig: { scale: 80 },
+            scaleDirty: true,
+            cur: { scale: 80 },
+        },
+    ], { spriteLayouts: { 'pc::乙::smile': { posX: 33, posY: 44, scale: 90 } }, globalScale: 100 });
+    assert.deepEqual(keptPos.spriteLayouts['pc::乙::smile'], { posX: 33, posY: 44, scale: 80 }, '改高度不改这个人原有的单人位置');
 
     const restored = buildCastSlotEditPatch([
-        { key: 'pc::2::0::甲', reset: true, dirty: false, scaleDirty: true, cur: { posX: 30, posY: 100, scale: 80 } },
-        { key: 'pc::2::1::乙', reset: false, dirty: false, scaleDirty: true, cur: { posX: 70, posY: 100, scale: 160 } },
+        { key: 'pc::2::0::甲', reset: true, scaleDirty: true, layoutKey: 'pc::甲', cur: { scale: 80 } },
     ], {
         castSlotLayouts: { 'pc::2::0::甲': { posX: 12, posY: 80, scale: 144 } },
+        spriteLayouts: {},
         globalScale: 100,
     });
     assert.deepEqual(restored, { castSlotLayouts: {} });

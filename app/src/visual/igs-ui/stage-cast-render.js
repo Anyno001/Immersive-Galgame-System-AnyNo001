@@ -265,7 +265,7 @@ function playSlide(el, posX, reduced, entering, duration, fill, done) {
     return anim;
 }
 
-// 头部对齐等待上限，与立绘解码超时一致；超时后不再等对齐，直接滑入。
+// 贴底探测等待上限，与立绘解码超时一致；超时后不再等，直接滑入。
 export const CAST_ALIGN_WAIT_MS = 1500;
 
 function waitAlign(ready) {
@@ -288,7 +288,7 @@ export function applyCastToDom(root, members = [], motion = {}) {
     const handoff = motion.handoff || {};
     const lean = motion.lean || null;
     const entrances = motion.entrances && typeof motion.entrances === 'object' ? motion.entrances : {};
-    // ready：头部对齐重排完成的信号（探测未就绪时由渲染层传入）；只有新上台的陪衬等它，超时兜底后照常滑入。
+    // ready：贴底重排完成的信号（探测未就绪时由渲染层传入）；只有新上台的陪衬等它，超时兜底后照常滑入。
     const ready = motion.ready && typeof motion.ready.then === 'function' ? motion.ready : null;
     const existing = new Map();
     for (const el of Array.from(layer.children || [])) {
@@ -571,7 +571,7 @@ export function applySpeakerFlip(spriteEl, flip, posX, scale) {
     return on;
 }
 
-// 站位姿态（第四批，stageCast.castStage）：靠近 / 拉开每人移动 CAST_POSE_SHIFT（约为槽位间距的 25%），上前放大 6%。
+// 站位姿态（第四批，stageCast.castStage）：靠近 / 拉开每人移动 CAST_POSE_SHIFT（约为槽位间距的 25%）。上前放大 6% 只画在这一页，不写进立绘高度。
 export const CAST_POSE_SHIFT = 12;
 export const CAST_POSE_FRONT_SCALE = 1.06;
 

@@ -68,7 +68,9 @@ test('feedGrammarBlocks lists only active platforms with custom prompts', () => 
     const off = { feedFx: { enabled: true, worldview: 'ancient', platforms: { notice: { enabled: false }, teahouse: { enabled: false } } } };
     assert.deepEqual(feedGrammarBlocks(off, fxBlock), []);
     const rule = resolveFeedPromptRule(rs);
-    assert.match(rule, /\[igs-fx:app\|平台\|主人\] … \[igs-fx:app-end\]/);
+    assert.match(rule, /你应该使用以下格式写正文中/);
+    assert.match(rule, /规则如下：/);
+    assert.match(rule, /示例：\n他停下看告示。\n\[igs-fx:app\|告示\]/);
     assert.match(rule, /自定义茶馆写法/);
     assert.equal(resolveFeedPromptRule({}), '');
 });
@@ -80,6 +82,9 @@ test('buildTagGrammar folds feed into adaptive index and expands on demand', () 
     assert.doesNotMatch(idle.depth0, /手机社区/);
     const hot = buildTagGrammar({ readerSettings: rs, expand: new Set(['feed']) });
     assert.match(hot.depth0, /微博/);
+    const weibo = buildTagGrammar({ readerSettings: { feedFx: { enabled: true, worldview: 'modern', mentioned: ['weibo'] } }, expand: new Set(['feed']) });
+    assert.match(weibo.depth0, /你应该使用以下格式写正文中角色看微博的那一段，规则如下：/);
+    assert.match(weibo.depth0, /示例：\n他掏出手机看微博。\n\[igs-fx:app\|微博\]\n\[igs-fx:post\|校园墙\|今天校门口停了辆黑车，有人看见\{\{user\}\}从车上下来。\|#校门口那辆车\]\n\[igs-fx:reply\|路过的\|我在现场，车窗还摇着\]\n\[igs-fx:reply\|不想惹事\|没看清脸就别@\{\{user\}\}\]\n\[igs-fx:post\|食堂阿姨\|糖醋排骨卖完了，明天早点来。\|#食堂日常\]\n\[igs-fx:post\|林小雨\|那辆车跟我没关系，别再传了。\|#校门口那辆车\]\n\[igs-fx:reply\|热心网友\|解释没用，截图都在传\]\n\[igs-fx:app-end\]\n他看完那几条，把手机扣在桌上。/);
 });
 
 test('prompt triggers recognise feed words and unclosed app', () => {

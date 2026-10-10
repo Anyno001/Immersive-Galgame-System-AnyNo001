@@ -17,7 +17,7 @@ import { normalizeAutoIllustrationSettings } from '../../generated-images/illust
 import { normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_IMAGE_API, DIALOG_FONT_OPTIONS, DEFAULT_PINNED_TOOLBAR_BUTTONS, normalizeScenePromptRule, READER_SETTINGS_SCHEMA_VERSION, TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData, clampNumber, normalizeBoolean, normalizeFiniteNumber, normalizeNullableNumber, normalizeOpacity } from './reader-value-utils.js';
-import { normalizeBtnOrder, normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
+import { normalizeBtnOrder, normalizeCastSlotLayouts, normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, normalizeClassicDialogWidthPercent, normalizeDialogSkin } from './classic-dialog-skin.js';
@@ -344,7 +344,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.spriteGenderScale = normalizeSpriteGenderScale(normalized.spriteGenderScale);
     normalized.spriteDisplayScale = normalizeSpriteDisplayScale(normalized.spriteDisplayScale);
     normalized.spriteHeads = normalizeSpriteHeads(normalized.spriteHeads);
-    normalized.castSlotLayouts = normalizeSpriteLayouts(normalized.castSlotLayouts);
+    normalized.castSlotLayouts = normalizeCastSlotLayouts(normalized.castSlotLayouts);
     // 对话主题（vnTheme）按模式存进 readerSettings。独立于 _v 门控处理，避免 schema 版本
     // 不符时被清空。settings.vnTheme 缺失时回退到旧的全局 bridge.vnTheme（legacyTheme），
     // 实现从全局存储到按模式存储的平滑迁移。旧的全局 dialogFont 只在读取时迁移为

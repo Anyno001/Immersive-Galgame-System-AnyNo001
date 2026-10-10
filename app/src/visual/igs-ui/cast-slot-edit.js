@@ -1,4 +1,4 @@
-import { applySpriteDisplayScale, spriteStoredScale } from './settings-normalize.js';
+import { normalizeCastSlotLayouts, spriteStoredScale } from './settings-normalize.js';
 import { esc } from './reader-value-utils.js';
 import { peekSpriteHead, probeSpriteHead, spriteBackgroundSize } from './fx-anchor.js';
 import { enterSpriteEditMode, spriteDragPosition } from './sprite-edit.js';
@@ -14,7 +14,7 @@ function targetEl(overlay, entry) {
 
 function renderBar(work, selected) {
     const chips = work.map((w, i) => `<button data-cse="pick:${i}" type="button" aria-pressed="${i === selected ? 'true' : 'false'}"${i === selected ? ' class="is-on"' : ''}>${esc(w.character)}${w.speaker ? '（说话）' : ''}</button>`).join('');
-    return '<span class="igs-se-hint">选人后拖动调整，滚轮缩放</span>'
+    return '<span class="igs-se-hint">拖动改站位，滚轮改这个人的高度</span>'
         + chips
         + '<button data-cse="smaller" type="button">缩小</button>'
         + '<button data-cse="bigger" type="button">放大</button>'
@@ -30,36 +30,53 @@ function paint(el, value) {
     el.style.backgroundPosition = `${value.posX}% ${value.posY}%`;
 }
 
-// 手调过的槽位用自己的比例。没存过的人沿用自动布局。auto 留给「还原自动」，是套用槽位之前的大小；开了头部对齐时 planCastLayouts 再把它换成对齐后的样子。
-export function applySavedCastSlot(entry, saved, displayScale) {
+// 槽位是站位，只有 posX、posY。高度在这个人自己的立绘上。
+// auto 是套用槽位之前的布局，「还原自动」回到这条。
+export function applySavedCastSlot(entry, saved) {
     const auto = { posX: entry.posX, posY: entry.posY, scale: entry.scale };
     if (!saved) return { ...entry, auto };
-    const scale = applySpriteDisplayScale({ scale: saved.scale }, displayScale).scale;
-    return { ...entry, posX: saved.posX, posY: saved.posY, scale, auto, locked: true };
+    return { ...entry, posX: saved.posX, posY: saved.posY, auto, locked: true };
 }
 
-// 只改这个人的槽位。不写模式共用的 spriteLayouts，否则还原后再保存会把旧比例写回去。
-export function buildCastSlotEditPatch(work, { castSlotLayouts, globalScale } = {}) {
-    const layouts = { ...(castSlotLayouts || {}) };
-    let changed = false;
+// 拖动写入这个人的槽位。放大缩小写入这个人自己的 spriteLayouts，先除掉全局缩放，避免下次再乘一次。
+export function buildCastSlotEditPatch(work, { castSlotLayouts, spriteLayouts, globalScale } = {}) {
+    const slots = normalizeCastSlotLayouts(castSlotLayouts);
+    const heights = { ...(spriteLayouts || {}) };
+    let slotChanged = false;
+    let heightChanged = false;
     for (const w of work || []) {
-        if (!w || !w.key) continue;
-        if (w.reset) {
-            delete layouts[w.key];
-            changed = true;
-        } else if (w.dirty) {
-            layouts[w.key] = {
-                posX: w.cur.posX,
-                posY: w.cur.posY,
-                scale: spriteStoredScale(w.cur.scale, globalScale),
+        if (!w) continue;
+        if (w.reset && w.key) {
+            delete slots[w.key];
+            slotChanged = true;
+            continue;
+        }
+        if (w.posDirty && w.key) {
+            slots[w.key] = { posX: w.cur.posX, posY: w.cur.posY };
+            slotChanged = true;
+        }
+        if (w.scaleDirty && w.layoutKey) {
+            const prev = heights[w.layoutKey];
+            const anchor = w.heightPos || { posX: 50, posY: 100 };
+            const shown = Number(w.orig && w.orig.scale);
+            const base = Number(w.heightScale);
+            const pose = base > 0 && shown > 0 ? shown / base : 1;
+            const heightNow = pose ? Number(w.cur.scale) / pose : Number(w.cur.scale);
+            heights[w.layoutKey] = {
+                posX: prev ? prev.posX : anchor.posX,
+                posY: prev ? prev.posY : anchor.posY,
+                scale: spriteStoredScale(heightNow, globalScale),
             };
-            changed = true;
+            heightChanged = true;
         }
     }
-    return changed ? { castSlotLayouts: layouts } : {};
+    const patch = {};
+    if (slotChanged) patch.castSlotLayouts = slots;
+    if (heightChanged) patch.spriteLayouts = heights;
+    return patch;
 }
 
-// 多人同屏时的立绘编辑：每人按「模式::人数::槽位::身份」单独保存到 castSlotLayouts，不影响单人位置。
+// 多人同屏时的立绘编辑：站位按「模式::人数::槽位::身份」存，高度按这个人自己的立绘记录存。
 // 返回 false 表示当前不是多人同屏，调用方改走单人编辑。
 export function enterCastSlotEdit(overlay, current, ctx = {}) {
     if (!overlay || !current || current.spriteEditMode) return false;
@@ -73,7 +90,8 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         ...e,
         orig: { posX: e.posX, posY: e.posY, scale: e.scale },
         cur: { posX: e.posX, posY: e.posY, scale: e.scale },
-        dirty: false,
+        posDirty: false,
+        scaleDirty: false,
         reset: false,
     }));
     let selected = Math.max(0, work.findIndex((w) => w.speaker));
@@ -119,8 +137,8 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         });
         editBar.innerHTML = renderBar(work, selected);
     };
-    const touch = (w) => {
-        w.dirty = true;
+    const touchPos = (w) => {
+        w.posDirty = true;
         w.reset = false;
         paint(targetEl(overlay, w), w.cur);
     };
@@ -128,8 +146,11 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         const person = work[selected];
         if (!person) return;
         const next = person.cur.scale * factor;
-        if (Number.isFinite(next) && next !== 0) person.cur.scale = next;
-        touch(person);
+        if (!(Number.isFinite(next) && next !== 0)) return;
+        person.cur.scale = next;
+        person.scaleDirty = true;
+        person.reset = false;
+        paint(targetEl(overlay, person), person.cur);
     };
     mark();
 
@@ -148,7 +169,7 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         } else if (act === 'reset') {
             w.cur = { ...(w.auto || w.orig) };
             w.reset = true;
-            w.dirty = false;
+            w.posDirty = false;
             w.scaleDirty = false;
             paint(targetEl(overlay, w), w.cur);
         } else if (act === 'single') {
@@ -189,7 +210,7 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         });
         w.cur.posX = next.posX;
         w.cur.posY = next.posY;
-        touch(w);
+        touchPos(w);
     });
     const endDrag = () => { drag = null; };
     surface.addEventListener('pointerup', endDrag);
@@ -230,6 +251,7 @@ export function exitCastSlotEdit(overlay, current, save, ctx = {}) {
     const globalScale = current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.spriteDisplayScale;
     const patch = buildCastSlotEditPatch(em.work, {
         castSlotLayouts: unified.readerSettings && unified.readerSettings.castSlotLayouts,
+        spriteLayouts: unified.readerSettings && unified.readerSettings.spriteLayouts,
         globalScale,
     });
     if (Object.keys(patch).length && typeof ctx.saveReaderSettingsPatch === 'function') ctx.saveReaderSettingsPatch(patch);
