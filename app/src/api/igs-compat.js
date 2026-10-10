@@ -28,7 +28,7 @@ export function createIgsCompatApi(app) {
         },
 
         getConfig() {
-            return cloneData(app.getState().config || {});
+            return cloneData(readAppConfig(app));
         },
 
         getUnifiedSettings(options = {}) {
@@ -38,7 +38,7 @@ export function createIgsCompatApi(app) {
             }
 
             const legacy = getLegacySettings(app);
-            const bridge = cloneData(app.getState().config || {});
+            const bridge = cloneData(readAppConfig(app));
             const readerMode = resolveReaderMode(options, legacy, bridge);
             const readerSettingsByMode = legacy.readerSettingsByMode || {};
             // 全模式共用 default 桶；老用户 default 空时回退旧分桶。
@@ -61,7 +61,7 @@ export function createIgsCompatApi(app) {
         async openViewerFromMessage(messageId, mode, openOptions = {}) {
             const normalizedId = normalizeMessageId(messageId);
             const resolved = normalizeViewerRequest(mode, openOptions);
-            const readerMode = resolveReaderMode({ mode: resolved.mode }, getLegacySettings(app), app.getState().config || {});
+            const readerMode = resolveReaderMode({ mode: resolved.mode }, getLegacySettings(app), readAppConfig(app));
             if (normalizedId == null) {
                 return { ok: false, reason: 'invalid-message-id', messageId, mode: readerMode, options: cloneViewerOptions(resolved.options) };
             }
@@ -111,7 +111,7 @@ export function createIgsCompatApi(app) {
         },
 
         async openLatestAvailable(mode, options = {}) {
-            const readerMode = resolveReaderMode({ mode }, getLegacySettings(app), app.getState().config || {});
+            const readerMode = resolveReaderMode({ mode }, getLegacySettings(app), readAppConfig(app));
             if (!app.hostAdapter || typeof app.hostAdapter.getCurrentMessage !== 'function') {
                 return { ok: false, reason: 'missing-host-message-api', mode: readerMode, options: cloneData(options) };
             }
@@ -180,6 +180,12 @@ function normalizeMessageId(messageId) {
     const value = Number(messageId);
     if (!Number.isFinite(value) || value < 0) return null;
     return value;
+}
+
+// 只读配置走 getConfig()：getState() 会连整份阅读器快照和预设库一起深拷贝。
+function readAppConfig(app) {
+    const config = typeof app.getConfig === 'function' ? app.getConfig() : app.getState().config;
+    return config || {};
 }
 
 function cloneData(value) {
@@ -365,7 +371,7 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     const bridge = cloneData(
         unifiedSettings && unifiedSettings.bridge && typeof unifiedSettings.bridge === 'object'
             ? unifiedSettings.bridge
-            : app.getState().config || {},
+            : readAppConfig(app),
     );
     const visualNovelText = buildIgsTextPayload(message, {
         sourceFilter: bridge.sourceFilter,

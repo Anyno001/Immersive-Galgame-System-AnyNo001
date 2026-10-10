@@ -823,3 +823,33 @@ test('gate: live fly font size and density settings normalize and drive the styl
     assert.ok(style.includes('font-size:calc(11.5px * var(--igs-live-fs,1))'));
     assert.ok(!style.includes('[data-layout="full"] .igs-live-rankcard,'), 'ranking card no longer hidden in full screen');
 });
+
+test('gate:perf:live-tick-sleeps-while-page-hidden-and-resumes-on-visible', async () => {
+    const { syncLivePhone, stopLivePhone } = await import('../src/visual/igs-ui/danmaku-live.js');
+    const { root, motion, doc } = makeRoot();
+    root.id = 'igs-overlay';
+    const listeners = new Set();
+    doc.hidden = true;
+    doc.addEventListener = (type, fn) => { if (type === 'visibilitychange') listeners.add(fn); };
+    doc.removeEventListener = (type, fn) => { if (type === 'visibilitychange') listeners.delete(fn); };
+    const host = doc.createElement('div');
+    motion.appendChild(host);
+    const c = clock();
+    const ctx = { doc, schedule: c.schedule, clear: c.clear, now: c.now, rng: () => 0.5, reduced: true, layout: 'phone', visible: true, look: { model: 'full', size: 'fit' } };
+    syncLivePhone(host, { name: '爱丽丝', title: '夜聊', view: 'watch' }, ctx);
+    c.run(20000);
+    assert.equal(c.queue.length, 0, 'hidden page: no tick keeps re-arming');
+    assert.equal(listeners.size, 1, 'waits for visibilitychange');
+    doc.hidden = false;
+    for (const fn of Array.from(listeners)) fn();
+    assert.equal(listeners.size, 0, 'listener removed once resumed');
+    assert.equal(c.queue.length, 1, 'ticking again after becoming visible');
+    c.run(3000);
+    assert.ok(c.queue.length >= 1, 'keeps ticking while visible');
+    doc.hidden = true;
+    c.run(10000);
+    assert.equal(listeners.size, 1);
+    stopLivePhone(host);
+    assert.equal(listeners.size, 0, 'closing the live leaves no listener behind');
+    assert.equal(c.queue.length, 0);
+});

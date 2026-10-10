@@ -61,7 +61,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.36.26';
+const IGS_VERSION = '0.36.27';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 const SCENE_ASSETS_INJECTION_MAX_ATTEMPTS = 5;
@@ -232,6 +232,7 @@ export function bootstrapIGS(options = {}) {
         generateImage,
         collectMessageImages,
         getState,
+        getConfig,
         getPresetRegistry,
         getLegacyIgsSettings,
         getUnifiedSettingsSnapshot,
@@ -510,6 +511,11 @@ export function bootstrapIGS(options = {}) {
             providers: getImageProviders(),
             unifiedSettings: context.unifiedSettings || getUnifiedSettingsSnapshot({ mode: context.mode }),
         });
+    }
+
+    // 只读引用（共享只读，不要原地改）：只要配置时用它，免得 getState() 深拷整份阅读器快照和预设库。
+    function getConfig() {
+        return state.config;
     }
 
     function getState() {

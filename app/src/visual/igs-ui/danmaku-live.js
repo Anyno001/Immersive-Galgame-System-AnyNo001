@@ -436,7 +436,12 @@ function tick(state) {
         stopState(state);
         return;
     }
-    if (state.visible && state.doc.hidden !== true && !isStagePaused(state.els.root)) {
+    // 页面隐藏：不再排下一拍，改等 visibilitychange 回来续上（省掉后台空转唤醒）。
+    if (state.doc.hidden === true) {
+        if (!sleepUntilVisible(state)) arm(state);
+        return;
+    }
+    if (state.visible && !isStagePaused(state.els.root)) {
         // AI 弹幕与本地氛围弹幕混播：队列里有 AI 弹幕时也随机插一条本地的，不先把 AI 一股脑排空。
         const msg = state.queue.length
             ? (state.rng() < 0.55 ? (ambientMessage(state) || state.queue.shift()) : state.queue.shift())
@@ -454,6 +459,25 @@ function tick(state) {
     arm(state);
 }
 
+function sleepUntilVisible(state) {
+    const doc = state.doc;
+    if (!doc || typeof doc.addEventListener !== 'function') return false;
+    if (state.onVisible) return true;
+    state.onVisible = () => {
+        if (doc.hidden === true) return;
+        wakeFromSleep(state);
+        if (!state.timer && state.els.root.isConnected && !state.banned) arm(state, 400);
+    };
+    doc.addEventListener('visibilitychange', state.onVisible);
+    return true;
+}
+
+function wakeFromSleep(state) {
+    if (!state.onVisible) return;
+    if (typeof state.doc.removeEventListener === 'function') state.doc.removeEventListener('visibilitychange', state.onVisible);
+    state.onVisible = null;
+}
+
 function arm(state, delay) {
     if (state.timer) state.clear(state.timer);
     const density = state.tier ? liveEconomy(state.tier).densityMul : 1;
@@ -464,6 +488,7 @@ function arm(state, delay) {
 }
 
 function stopState(state) {
+    wakeFromSleep(state);
     if (state.timer) state.clear(state.timer);
     state.timer = null;
     for (const timer of state.timers) state.clear(timer);

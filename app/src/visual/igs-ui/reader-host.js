@@ -662,14 +662,14 @@ export function createIgsReaderHost(options = {}) {
         }
 
         if (domState && domState.overlay) onboarding.syncInvite(domState.overlay);
-        return {
+        return withLazySnapshot({
             ok: true,
             mode: nextMode,
             readerMode: nextMode,
-            snapshot: cloneSnapshotKeepAssets(snapshot),
+            snapshot: lazySnapshotCopy(snapshot),
             domMounted: Boolean(domState),
             controller,
-        };
+        });
     }
 
     // 已打开阅读器时原地替换阅读源：复用同一 reader root、controller 与事件绑定，
@@ -698,15 +698,15 @@ export function createIgsReaderHost(options = {}) {
         updateMountedReader(merged);
         exitEmbeddedLoading();
         if ((isEmbeddedReaderMode(mode) || followsHostReply(mode)) && current.turnOffset === 0) startReaderImagePolling(current);
-        return {
+        return withLazySnapshot({
             ok: true,
             mode,
             readerMode: mode,
-            snapshot: cloneSnapshotKeepAssets(merged),
+            snapshot: lazySnapshotCopy(merged),
             domMounted: Boolean(current.dom),
             controller: current.controller,
             replaced: true,
-        };
+        });
     }
 
     // 物品演出：账本补上物品表变动的获得 / 失去，标出初次获得，并给正文点亮备好已知物品名。
@@ -4503,6 +4503,27 @@ export function createIgsReaderHost(options = {}) {
         const copy = cloneData({ ...snapshot, readerSettings: rest });
         copy.readerSettings._sceneAssets = assets;
         return copy;
+    }
+
+    // 返回值里的 snapshot 改惰性：首次访问才深拷并缓存，没人读就零开销（外部拿到的仍是独立副本）。
+    function lazySnapshotCopy(snapshot) {
+        return { __lazySnapshot: snapshot };
+    }
+
+    function withLazySnapshot(result) {
+        const source = result.snapshot && result.snapshot.__lazySnapshot;
+        let copy;
+        let done = false;
+        Object.defineProperty(result, 'snapshot', {
+            enumerable: true,
+            configurable: true,
+            get() {
+                if (!done) { copy = cloneSnapshotKeepAssets(source); done = true; }
+                return copy;
+            },
+            set(value) { copy = value; done = true; },
+        });
+        return result;
     }
 
     function resolveRenderConfig(mode) {

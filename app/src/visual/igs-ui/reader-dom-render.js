@@ -1677,20 +1677,27 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 对话框底部快捷栏跟正文同色：颜色只写在正文上，按钮栏继承到的是对话框外层的浅色，浅色对话框上就看不见。
         const quickBar = dialog && dialog.querySelector('#igs-dialog-bar');
         const view = textEl.ownerDocument && textEl.ownerDocument.defaultView;
-        if (quickBar && view && typeof view.getComputedStyle === 'function') quickBar.style.color = view.getComputedStyle(textEl).color || '';
+        // 正文与对话框的计算样式各只取一次，先读后写（下面写样式不会再触发重算）。
+        const canComputed = Boolean(view && typeof view.getComputedStyle === 'function');
+        const textComputed = canComputed ? view.getComputedStyle(textEl) : null;
+        const dialogComputed = canComputed && dialog ? view.getComputedStyle(dialog) : null;
+        const inkNow = textComputed ? textComputed.color || '' : '';
+        const plateRaw = dialogComputed ? dialogComputed.backgroundColor : '';
+        const blurRaw = dialogComputed ? dialogComputed.backdropFilter : '';
+        if (quickBar && canComputed) quickBar.style.color = inkNow;
         // 顶部工具栏淡淡跟随皮肤：底板取对话框底色、图标取正文色；切图皮肤的对话框没有底色，按正文深浅配一块反差底。
         if (view && typeof view.getComputedStyle === 'function' && root.style && typeof root.style.setProperty === 'function') {
-            const ink = view.getComputedStyle(textEl).color || '';
+            const ink = inkNow;
             const rgba = (value) => (String(value).match(/[\d.]+/g) || []).map(Number);
             const [r = 255, g = 255, b = 255] = rgba(ink);
-            const plateParts = rgba(dialog ? view.getComputedStyle(dialog).backgroundColor : '');
+            const plateParts = rgba(plateRaw);
             const plateAlpha = plateParts.length > 3 ? plateParts[3] : (plateParts.length ? 1 : 0);
             const lightInk = (r * 299 + g * 587 + b * 114) / 1000 > 140;
             const plate = plateAlpha >= 0.15 ? `rgb(${plateParts.slice(0, 3).join(',')})` : (lightInk ? 'rgb(18,18,20)' : 'rgb(246,244,240)');
             if (ink) root.style.setProperty('--igs-bar-ink', ink);
             root.style.setProperty('--igs-bar-plate', plate);
             // 展开工具栏的羽化底板也跟对话框的毛玻璃走：有就照搬（封顶 10px 保持轻量），没有用 6px。
-            const dialogBlur = dialog ? Number((String(view.getComputedStyle(dialog).backdropFilter || '').match(/blur\(([\d.]+)px\)/) || [])[1]) : 0;
+            const dialogBlur = dialog ? Number((String(blurRaw || '').match(/blur\(([\d.]+)px\)/) || [])[1]) : 0;
             root.style.setProperty('--igs-bar-blur', `blur(${dialogBlur > 0 ? Math.min(dialogBlur, 10) : 6}px)`);
         }
         // 字体、字号定下后再量：放不下一行的注音改成译文单独成行，打字机随后按改好的排版测量。
