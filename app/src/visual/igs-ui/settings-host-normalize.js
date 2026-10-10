@@ -16,6 +16,7 @@ import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_IMAGE_API, DIALOG_FONT_OPTIONS, DEFAULT_PINNED_TOOLBAR_BUTTONS, normalizeScenePromptRule, READER_SETTINGS_SCHEMA_VERSION, TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
+import { normalizeShortcutOverrides } from './reader-shortcuts.js';
 import { cloneData, clampNumber, normalizeBoolean, normalizeFiniteNumber, normalizeNullableNumber, normalizeOpacity } from './reader-value-utils.js';
 import { normalizeBtnOrder, normalizeCastSlotLayouts, normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
@@ -261,6 +262,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         weatherFx: normalizeWeatherFxSettings(null),
         ...normalizeFxReaderSettings(null),
         imageCountOverride: null,
+        shortcuts: {},
         pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
         hiddenBtns: [],
         btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
@@ -333,6 +335,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     for (const [key, normalize] of Object.entries(FX_SETTINGS_NORMALIZERS)) normalized[key] = normalize(normalized[key]);
     normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
     normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
+    normalized.shortcuts = normalizeShortcutOverrides(normalized.shortcuts);
     normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);
     normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
     normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);

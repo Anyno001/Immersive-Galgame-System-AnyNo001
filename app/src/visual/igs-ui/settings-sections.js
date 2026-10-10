@@ -32,6 +32,7 @@ export const SETTINGS_SECTIONS = Object.freeze({
     },
     'reader-interface-option-bubble': { label: '选项气泡', paths: () => ['bridge.optionBubble', 'readerSettings.optionFontSize'] },
     'reader-interface-toolbar': { label: '工具栏', paths: () => reader('toolbarScale', 'toolbarDock', 'inputPlacement', 'toolbarSplit', 'dialogBarAlign', 'pinnedBtns', 'hiddenBtns', 'btnOrder', 'dialogBarBtns') },
+    'reader-interface-shortcuts': { label: '快捷键', paths: () => reader('shortcuts') },
 });
 
 export function settingsSectionPaths(sectionId, draft) {

@@ -1,6 +1,7 @@
 import { esc } from './reader-value-utils.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { TOOLBAR_ACTIONS } from './reader-host-constants.js';
+import { SHORTCUT_ACTIONS, findShortcutConflicts, resolveShortcuts, shortcutLabel } from './reader-shortcuts.js';
 import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
 import { CHAT_SHOW_BUBBLE_RADIUS_LEVELS, CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } from './chat-show-runtime.js';
 import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
@@ -829,6 +830,26 @@ export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue, dialog
 }
 
 
+export function renderShortcutSettings(value, globalObject = globalThis, asyncState = {}) {
+    let isPc = false;
+    try { isPc = Boolean(globalObject && globalObject.matchMedia && globalObject.matchMedia('(hover: hover) and (pointer: fine)').matches); } catch { isPc = false; }
+    if (!isPc) return '';
+    const resolved = resolveShortcuts(value);
+    const recording = String(asyncState.shortcutRecording || '');
+    const conflicts = findShortcutConflicts(resolved);
+    const labelOf = new Map(SHORTCUT_ACTIONS);
+    const rows = SHORTCUT_ACTIONS.map(([id, label]) => {
+        const keys = resolved[id] || [];
+        const shown = keys.length ? keys.map(shortcutLabel).join(' / ') : '未设置';
+        const active = recording === id;
+        const clash = conflicts[id] || [];
+        const clashNote = clash.length ? `<span class="igs-shortcut-conflict" role="alert">与「${clash.map((other) => esc(labelOf.get(other) || other)).join('」「')}」冲突</span>` : '';
+        return `<div class="igs-btn-mgr-row igs-shortcut-row${clash.length ? ' is-conflict' : ''}" data-shortcut-id="${esc(id)}"><span class="igs-btn-mgr-label">${esc(label)}</span><kbd class="igs-shortcut-keys">${active ? '请按下新按键，Esc取消' : esc(shown)}</kbd><button type="button" class="igs-settings-action" data-action="shortcut-record:${esc(id)}">${active ? '录制中' : '修改'}</button><button type="button" class="igs-settings-action" data-action="shortcut-clear:${esc(id)}">清除</button><button type="button" class="igs-settings-action" data-action="shortcut-reset:${esc(id)}">默认</button>${clashNote}</div>`;
+    }).join('');
+    const conflictCount = Object.keys(conflicts).length;
+    const summary = conflictCount ? `<div class="igs-shortcut-conflict-summary" role="status">有 ${conflictCount} 个动作的快捷键冲突，冲突时只会触发列表中靠前的动作。</div>` : '';
+    return `<div class="igs-source-filter"><div class="igs-source-filter-title">快捷键<button type="button" class="igs-settings-section-reset" data-action="settings-reset-section:reader-interface-shortcuts" title="把快捷键恢复为默认值">重置本区</button></div><div class="igs-shortcuts-field"><div class="igs-source-filter-note">仅电脑端生效。</div>${summary}${rows}</div></div>`;
+}
 function heldGeneratedIds(value) {
     const ids = [];
     const walk = (node) => {

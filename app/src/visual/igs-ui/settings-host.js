@@ -25,6 +25,7 @@ import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS } from './classic-dialog-skin.js';
 import { SETTINGS_SEARCH_INDEX, findSettingNode, renderSettingsSearchResults } from './settings-search.js';
+import { eventToShortcut } from './reader-shortcuts.js';
 import { canMorph, morphChildren } from './settings-dom-morph.js';
 import { buildFallbackSettingsOverlay } from './reader-dom-render.js';
 import { createSettingsRenderer } from './settings-host-render.js';
@@ -809,6 +810,19 @@ export function createSettingsHost(deps) {
         }, true);
         root.addEventListener('keydown', (event) => {
             if (onboarding.keydown(event, doc)) return;
+            const recording = state.activeSettings && state.activeSettings.asyncState && state.activeSettings.asyncState.shortcutRecording;
+            if (recording) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.key === 'Escape') {
+                    state.activeSettings.asyncState.shortcutRecording = '';
+                    rerenderSettings();
+                    return;
+                }
+                const combo = eventToShortcut(event);
+                if (combo) controller.invoke(`shortcut-set:${recording}:${combo}`);
+                return;
+            }
             if (event.key === 'Escape') {
                 event.preventDefault();
                 controller.close();

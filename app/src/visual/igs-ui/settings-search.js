@@ -51,6 +51,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'render-quality', label: '画质 / 省电模式', aliases: ['卡', '卡顿', '发热', '耗电', '低画质', '省电', '掉帧'], location: '基础 › 一键档位', target: { tab: 'basic', open: [] } },
     { id: 'image-count', label: '检测图像数量', aliases: ['图片数量', '图不对', '少图', '多图'], location: '基础 › 标签解析', target: { tab: 'basic', open: ['source-filter'] } },
     { id: 'body-format', label: '正文格式化', aliases: ['正则', '格式', '分页不对', '乱码'], location: '基础 › 正文格式化', target: { tab: 'basic', open: ['body-format'] } },
+    { id: 'shortcuts', label: '快捷键', aliases: ['键盘', '热键', '按键', '改键'], location: '阅读器 › 界面 › 快捷键', target: { tab: 'reader', readerSubTab: 'interface', open: [] } },
     { id: 'toolbar-dock', label: '工具栏位置', aliases: ['工具栏', '按钮', '顶部', '紧贴对话框'], location: '阅读器 › 界面 › 工具栏', target: { tab: 'reader', readerSubTab: 'interface', open: [] } },
     { id: 'status-hud-position', label: '状态栏位置', aliases: ['状态栏', 'hud', '头像', '左上角', '挡住', '挪位置'], location: '阅读器 › 界面 › 状态栏', target: { tab: 'reader', readerSubTab: 'interface', open: [] } },
     { id: 'sprite-scale', label: '立绘缩放与高度', aliases: ['立绘太大', '立绘太小', '缩放', '高度', '人物大小'], location: '素材 › 角色 › 立绘设置', target: { tab: 'scene', sceneSubTab: 'characters', open: ['sprite-display'] } },

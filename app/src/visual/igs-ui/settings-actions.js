@@ -55,6 +55,7 @@ import { handleOutfitAction } from './settings-outfit-actions.js';
 import { handleEventCgAction } from './settings-event-cg.js';
 import { beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
+import { SHORTCUT_ACTIONS, DEFAULT_SHORTCUTS, normalizeShortcutCombo } from './reader-shortcuts.js';
 import { SETTINGS_SECTIONS, buildSettingsExport, parseSettingsImport, resetSettingsSection, settingsExportFileName } from './settings-sections.js';
 import { isBuiltinNudeOutfit, normalizeCharacterOutfits, normalizeWardrobe, renameOutfitScene, resolveWardrobePrompt } from '../../scene/character-outfits.js';
 
@@ -2699,6 +2700,42 @@ export async function handleSettingsAction(action, ctx) {
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
+
+    if (normalizedAction.startsWith('shortcut-record:')) {
+        const id = normalizedAction.slice('shortcut-record:'.length);
+        if (!SHORTCUT_ACTIONS.some(([actionId]) => actionId === id)) return { ok: false, reason: 'unknown-shortcut', id };
+        settingsState.asyncState.shortcutRecording = id;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('shortcut-set:')) {
+        const rest = normalizedAction.slice('shortcut-set:'.length);
+        const split = rest.indexOf(':');
+        const id = split >= 0 ? rest.slice(0, split) : '';
+        const combo = normalizeShortcutCombo(split >= 0 ? rest.slice(split + 1) : '');
+        if (!SHORTCUT_ACTIONS.some(([actionId]) => actionId === id) || !combo) return { ok: false, reason: 'invalid-shortcut' };
+        settingsState.draft.readerSettings.shortcuts = { ...(settingsState.draft.readerSettings.shortcuts || {}), [id]: [combo] };
+        settingsState.asyncState.shortcutRecording = '';
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('shortcut-clear:') || normalizedAction.startsWith('shortcut-reset:')) {
+        const isReset = normalizedAction.startsWith('shortcut-reset:');
+        const prefix = isReset ? 'shortcut-reset:' : 'shortcut-clear:';
+        const id = normalizedAction.slice(prefix.length);
+        if (!SHORTCUT_ACTIONS.some(([actionId]) => actionId === id)) return { ok: false, reason: 'unknown-shortcut', id };
+        const shortcuts = { ...(settingsState.draft.readerSettings.shortcuts || {}) };
+        if (isReset) delete shortcuts[id];
+        else shortcuts[id] = [];
+        settingsState.draft.readerSettings.shortcuts = shortcuts;
+        settingsState.asyncState.shortcutRecording = '';
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
 
     if (normalizedAction.startsWith('toolbar-move-up:')) {
         const id = normalizedAction.slice('toolbar-move-up:'.length);
