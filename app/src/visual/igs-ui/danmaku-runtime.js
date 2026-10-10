@@ -373,6 +373,7 @@ function liveContext(ctx, live) {
             ? (frame) => options.onLivePortraitMove({ ...((snapshot.readerSettings && snapshot.readerSettings.liveFx) || {}), portrait: frame })
             : null,
         chat: ctx.settings.live.chat,
+        speed: ctx.settings.audience && ctx.settings.audience.speed,
         theme: ctx.settings.live.followTheme ? resolveChatTheme(snapshot.readerSettings && snapshot.readerSettings.dialogSkin) : null,
         coverUrl: resolve(content.backgroundImage),
         status: ctx.status,
@@ -615,10 +616,11 @@ function fitFaceFor(host, stage, sprite, doc, refit) {
 // 观众 / 社区 / 通知入口的落点：手机形态直播的手机在场时避开它的 rect。
 export function entryPlacement(stage, fit, top, anchor) {
     const base = { left: ENTRY_LEFT, top };
-    // 全屏直播：入口固定在主播名牌正下方。
+    // 全屏直播：入口放在名牌那一行、名牌（含「+关注」）右边缘之外 8px，垂直对齐名牌行中心；不压关注、醒目留言与右上人数。
     if (stage && fit && fit.layout === 'full') {
-        // 固定在名牌正下方（不随名牌宽度 / 头部高度变），不压关注按钮。
-        return { left: ENTRY_LEFT, top: Math.round((Number(stage.topInset) || 0) + 8 + 34) };
+        const cy = anchor && Number.isFinite(anchor.cy) ? anchor.cy : (Number(stage.topInset) || 0) + 8 + 17;
+        const left = anchor && Number.isFinite(anchor.right) ? anchor.right + ENTRY_GAP : 240;
+        return { left: Math.round(Math.min(left, (Number(stage.stageW) || 0) * 0.6 || left)), top: Math.round(cy - ENTRY_SIZE / 2) };
     }
     // 手机形态：入口已收进手机顶栏，不再在手机外出现；这里只管没有手机时的原位。
     return base;

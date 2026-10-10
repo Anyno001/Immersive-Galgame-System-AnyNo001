@@ -216,7 +216,7 @@ function appendLine(state, line) {
     if (state.chat === 'fly') return;
     const { list } = state.els;
     list.appendChild(line);
-    const limit = liveListLimit(state.layout, state.view);
+    const limit = state.listLimit || liveListLimit(state.layout, state.view);
     while (list.children.length > limit) list.children[0].remove();
 }
 
@@ -236,6 +236,19 @@ function chatLine(state, msg, extraClass = '') {
     return line;
 }
 
+const FLY_MIN_GAP_MS = 250;
+const FLY_TEXT_MAX = 14;
+// 横飞只飞前 14 个全角字（半角按半个字算），超出加省略号；评论列表保留全文。
+export function flyClip(value) {
+    const chars = Array.from(String(value || ''));
+    let units = 0;
+    for (let i = 0; i < chars.length; i += 1) {
+        units += chars[i].charCodeAt(0) > 0xff ? 1 : 0.55;
+        if (units > FLY_TEXT_MAX) return `${chars.slice(0, i).join('')}…`;
+    }
+    return chars.join('');
+}
+
 // 横飞模式：聊天弹幕沿轨道从右往左穿过画面；满轨时路人弹幕丢弃，AI 弹幕随机挤进一条轨道。
 function spawnFlyer(state, msg, extraClass = '') {
     const geo = state.flyGeo;
@@ -243,8 +256,15 @@ function spawnFlyer(state, msg, extraClass = '') {
     if (!geo || !msg.text || fly.children.length >= LIVE_FLY_CAP + (msg.ai ? 4 : 0)) return;
     const now = state.now();
     if (now < state.flyPausedUntil) return;
-    const duration = DANMAKU_SPEED_SECONDS.medium * 1000;
-    const width = estimateTextWidth(msg.text, geo.fontSize);
+    // 全局最小发射间隔：避免同一刻多条同时起飞挤成一团。
+    if (now - (state.lastFlyAt || 0) < FLY_MIN_GAP_MS) {
+        const tries = Number(msg.tries) || 0;
+        if (tries < (msg.ai ? 8 : 3)) later(state, () => spawnFlyer(state, { ...msg, tries: tries + 1 }, extraClass), FLY_MIN_GAP_MS + Math.floor(state.rng() * 120));
+        return;
+    }
+    const duration = (DANMAKU_SPEED_SECONDS[state.speed] || DANMAKU_SPEED_SECONDS.medium) * 1000;
+    const flyText = flyClip(msg.text);
+    const width = estimateTextWidth(flyText, geo.fontSize);
     let lane = pickScrollTrack(state.tracks, geo.lanes, now, width, geo.w, duration);
     // 没有空轨道：路人弹幕丢弃，AI 弹幕排队稍后再试（最多 8 次），不再硬挤进已占用的轨道叠在一起。
     if (lane < 0) {
@@ -253,7 +273,8 @@ function spawnFlyer(state, msg, extraClass = '') {
         return;
     }
     occupyTrack(state.tracks, lane, now, width, geo.w, duration);
-    const node = el(state.doc, 'div', `igs-live-flyer${extraClass}`, msg.text);
+    state.lastFlyAt = now;
+    const node = el(state.doc, 'div', `igs-live-flyer${extraClass}`, flyText);
     if (msg.ai) node.setAttribute('data-ai', '1');
     node.style.top = `${geo.top + lane * geo.lineH}px`;
     node.style.setProperty('--igs-dm-run', `${-(geo.w + width)}px`);
@@ -362,7 +383,7 @@ function planChatterBatch(state) {
     for (const entry of batch) {
         if (TIMED_CHATTER.test(entry.src) || entry.type === 'admin') {
             later(state, () => {
-                if (gen === state.chatGen && state.visible && !state.banned) emitChatter(state, entry);
+                if (gen === state.chatGen && state.visible && !state.banned && state.doc.hidden !== true && !isStagePaused(state.els.root)) emitChatter(state, entry);
             }, Math.max(0, entry.delay));
         } else state.chatBuf.push(entry);
     }
@@ -477,7 +498,10 @@ export function syncLivePhone(host, live, ctx) {
     let state = lives.get(host);
     const layout = ctx && ctx.layout === 'full' ? 'full' : 'phone';
     const key = live ? `${live.name}|${live.title}|${live.view}|${layout}` : '';
+    let carried = null;
     if (state && state.key !== key) {
+        // 只是切视角 / 版式（同一主播同一标题）：未播完的 AI 弹幕带给新状态，不丢。
+        if (live && state.baseKey === `${live.name}|${live.title}`) carried = state.queue;
         retire(state, ctx && !ctx.reduced ? ctx.schedule : null);
         lives.delete(host);
         state = null;
@@ -487,8 +511,8 @@ export function syncLivePhone(host, live, ctx) {
         const now = ctx.now || Date.now;
         const els = buildPhone(ctx.doc, live, now, layout);
         state = {
-            key, view: live.view, layout, chat: '', tracks: [], flyGeo: null, inset: -1,
-            doc: ctx.doc, els, queue: [], timers: new Set(), timer: null, beat: 0,
+            key, baseKey: `${live.name}|${live.title}`, view: live.view, layout, chat: '', tracks: [], flyGeo: null, inset: -1, speed: 'medium', lastFlyAt: 0, listLimit: 0,
+            doc: ctx.doc, els, queue: carried || [], timers: new Set(), timer: null, beat: 0,
             schedule: ctx.schedule, clear: ctx.clear, rng: ctx.rng || Math.random, now,
             medal: fanMedalName(live.name),
             popularity: 800 + (stableHash(live.name) % 48000),
@@ -523,6 +547,7 @@ export function syncLivePhone(host, live, ctx) {
     state.clear = ctx.clear;
     syncChatterContext(state, ctx.chatter, false);
     state.faceGuard = ctx.faceGuard !== false;
+    state.speed = ctx.speed || 'medium';
     state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
     state.onPickView = typeof ctx.onPickView === 'function' ? ctx.onPickView : null;
     state.reduced = ctx.reduced === true;
@@ -571,6 +596,8 @@ function syncChatterContext(state, ch, creating) {
     if (state.chatPage !== ch.pageKey) {
         state.chatPage = ch.pageKey;
         state.pageInLive += 1;
+        // 换页：还没播的旧页 AI 弹幕作废（带页标记的才丢）。
+        if (state.queue.length) state.queue = state.queue.filter((msg) => !msg.pageKey || msg.pageKey === ch.pageKey);
     }
     if (state.chatSig !== ch.sig) {
         state.chatSig = ch.sig;
@@ -634,6 +661,8 @@ function refreshFace(state) {
         });
     }
     state.faceBox = box;
+    // 探测不到脸（用了默认位置）时不挂遮罩，免得在画面中间白白挖一个洞；手调编辑时保留。
+    if (box.source === 'default' && !state.editing) fly.removeAttribute('data-face-guard');
     const key = `${box.cx},${box.cy},${box.rx},${box.ry}`;
     if (state.faceKey === key) return;
     state.faceKey = key;
@@ -847,7 +876,7 @@ function applyLiveTheme(state, theme) {
 }
 
 function setFlyGeometry(state, w, top, bottom, fontSize) {
-    const lineH = Math.round(fontSize * 1.4);
+    const lineH = Math.round(fontSize * 1.6);
     state.flyGeo = { w: Math.round(w), top: Math.round(top), lineH, fontSize, lanes: Math.max(1, Math.floor((bottom - top) / lineH)) };
     state.els.fly.style.setProperty('--igs-live-fly-font', `${fontSize}px`);
 }
@@ -890,7 +919,12 @@ export function fitLivePhone(host, stage) {
         }
         // 全屏字幕：横飞只走舞台高 15% 到 60%，不进字幕区；名牌贴在工具栏下沿 + 8px。
         const sub = state.sub === true;
-        setFlyGeometry(state, stage.stageW, stage.stageH * (sub ? 0.15 : 0.16), sub ? stage.stageH * 0.6 : floor - 8, Math.round(Math.max(16, Math.min(22, stage.stageW * 0.022))));
+        // 评论列表占 22% 舞台高（互动开着再抬 56px）：横飞下沿扣到列表顶边之上；列表条数按实际高度 / 行高（约 32px）算。
+        const listH = stage.stageH * 0.22;
+        const listTop = floor - (state.els.root.getAttribute('data-interact') === '1' ? 56 : 0) - listH;
+        const flyBase = sub ? stage.stageH * 0.6 : floor - 8;
+        state.listLimit = Math.max(2, Math.min(5, Math.floor(listH / 32)));
+        setFlyGeometry(state, stage.stageW, stage.stageH * (sub ? 0.15 : 0.16), state.chat === 'fly' ? flyBase : Math.min(flyBase, listTop - 6), Math.round(Math.max(16, Math.min(22, stage.stageW * 0.022))));
         const nameTop = Math.round((Number(stage.topInset) || 0) + 8);
         if (state.nameTop !== nameTop) {
             state.nameTop = nameTop;
@@ -1060,7 +1094,7 @@ export function pushLiveMessages(host, messages) {
     const state = lives.get(host);
     if (!state || !messages.length || state.banned) return;
     const wasIdle = !state.queue.length;
-    state.queue.push(...messages.map((msg) => ({ ...msg, ai: true })));
+    state.queue.push(...messages.map((msg) => ({ ...msg, ai: true, pageKey: state.chatPage })));
     if (wasIdle) arm(state, 280);
 }
 

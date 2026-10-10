@@ -40,19 +40,51 @@ test('gate:live-full:subtitle-kinds-host-other-narration', () => {
     assert.equal(classifySubtitle({ ...base, speaker: '爱丽丝', textType: 'thought' }), 'host');
 });
 
-test('gate:live-full:more-than-three-lines-falls-back', () => {
-    assert.equal(exceedsSubtitleLines(90, 30), false);
-    assert.equal(exceedsSubtitleLines(120, 30), true);
+test('gate:live-full:long-text-never-falls-back-to-dialog', () => {
+    assert.equal(exceedsSubtitleLines(150, 30), false);
+    assert.equal(exceedsSubtitleLines(180, 30), true);
     assert.equal(exceedsSubtitleLines(0, 30), false);
     assert.equal(exceedsSubtitleLines(100, NaN), false);
-    assert.equal(resolveLiveFullMode({ fullText: 'subtitle', narrationPos: 'above', kind: 'host', overflow: true }), 'minimal');
-    assert.equal(resolveLiveFullMode({ fullText: 'subtitle', narrationPos: 'above', kind: 'host', overflow: false }), 'subtitle');
-    assert.equal(resolveLiveFullMode({ fullText: 'dialog', narrationPos: 'above', kind: 'host', overflow: true }), 'dialog');
-    assert.equal(resolveLiveFullMode({ fullText: 'subtitle', narrationPos: 'dialog', kind: 'narration', overflow: false }), 'minimal');
-    assert.equal(resolveLiveFullMode({ fullText: 'subtitle', narrationPos: 'dialog', kind: 'other', overflow: false }), 'subtitle');
+    // 只有设置里明确选了对话框、或旁白位置选了对话框才出对话框；长文本永远是字幕。
+    assert.equal(resolveLiveFullMode({ fullText: 'subtitle', narrationPos: 'above', kind: 'host', overflow: true }), 'subtitle');
+    assert.equal(resolveLiveFullMode({ fullText: 'subtitle', narrationPos: 'above', kind: 'other' }), 'subtitle');
+    assert.equal(resolveLiveFullMode({ fullText: 'dialog', narrationPos: 'above', kind: 'host' }), 'dialog');
+    assert.equal(resolveLiveFullMode({ fullText: 'subtitle', narrationPos: 'dialog', kind: 'narration' }), 'minimal');
+    assert.equal(resolveLiveFullMode({ fullText: 'subtitle', narrationPos: 'dialog', kind: 'other' }), 'subtitle');
 });
 
-test('gate:live-full:marks-and-overflow-and-clear', () => {
+// 高度随字号缩放的假文字节点：lines 是每级缩放后的行数，验证逐级缩小与最终滚动。
+function scalingText(root, lines) {
+    const node = fakeNode();
+    node.getBoundingClientRect = () => ({ height: lines[Number(root.getAttribute('data-igs-live-fit') || 0)] * 30 });
+    return node;
+}
+
+test('gate:live-full:subtitle-shrinks-then-scrolls-and-resets-per-page', () => {
+    const root = fakeNode();
+    applyLiveFull(root, { fullText: 'subtitle', narrationPos: 'above', kind: 'other', speaker: '李哪吒', textEl: fakeNode(60) });
+    assert.equal(refreshLiveFullOverflow(root, scalingText(root, [4, 4, 4, 4])), false);
+    assert.equal(root.getAttribute('data-igs-live-fit'), null);
+    assert.equal(refreshLiveFullOverflow(root, scalingText(root, [6, 5, 5, 5])), true);
+    assert.equal(root.getAttribute('data-igs-live-fit'), '1');
+    assert.equal(root.getAttribute('data-igs-live-full'), 'subtitle');
+    // 一直放不下：缩到下限后内部滚动，仍是字幕。
+    assert.equal(refreshLiveFullOverflow(root, scalingText(root, [9, 8, 7, 7])), true);
+    assert.equal(root.getAttribute('data-igs-live-fit'), '3');
+    assert.equal(root.getAttribute('data-igs-live-full'), 'subtitle');
+    // 翻页重新挂标记后从原始字号重量。
+    applyLiveFull(root, { fullText: 'subtitle', narrationPos: 'above', kind: 'host', speaker: '爱丽丝', textEl: fakeNode(60) });
+    assert.equal(refreshLiveFullOverflow(root, scalingText(root, [2, 2, 2, 2])), false);
+    assert.equal(root.getAttribute('data-igs-live-fit'), null);
+    // 对话框形态不量。
+    applyLiveFull(root, { fullText: 'dialog', narrationPos: 'above', kind: 'host', textEl: fakeNode(60) });
+    assert.equal(refreshLiveFullOverflow(root, scalingText(root, [9, 9, 9, 9])), false);
+    clearLiveFull(root, fakeNode());
+    assert.equal(root.getAttribute('data-igs-live-fit'), null);
+    assert.equal(root.getAttribute('data-igs-live-full'), null);
+});
+
+test('gate:live-full:marks-and-clear', () => {
     const root = fakeNode();
     const text = fakeNode(130);
     applyLiveFull(root, { fullText: 'subtitle', narrationPos: 'name', kind: 'other', speaker: '鲍勃', textEl: text });
@@ -60,12 +92,9 @@ test('gate:live-full:marks-and-overflow-and-clear', () => {
     assert.equal(root.getAttribute('data-igs-live-sub'), 'other');
     assert.equal(root.getAttribute('data-igs-live-npos'), 'name');
     assert.equal(text.getAttribute('data-igs-sub-name'), '鲍勃');
-    assert.equal(refreshLiveFullOverflow(root, text), true);
-    assert.equal(root.getAttribute('data-igs-live-full'), 'minimal');
-    // 翻页重新挂标记，恢复字幕；不超行则保持。
-    applyLiveFull(root, { fullText: 'subtitle', narrationPos: 'above', kind: 'host', speaker: '爱丽丝', textEl: fakeNode(60) });
+    // 130 / 30 约 4 行，不超 5 行，保持字幕。
+    assert.equal(refreshLiveFullOverflow(root, text), false);
     assert.equal(root.getAttribute('data-igs-live-full'), 'subtitle');
-    assert.equal(refreshLiveFullOverflow(root, fakeNode(60)), false);
     clearLiveFull(root, text);
     assert.equal(root.getAttribute('data-igs-live-full'), null);
     assert.equal(root.getAttribute('data-igs-live-sub'), null);

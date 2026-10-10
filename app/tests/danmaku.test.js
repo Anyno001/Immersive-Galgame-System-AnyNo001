@@ -666,8 +666,8 @@ test('gate:danmaku:live-list-limits-and-entry-placement-avoid-phone', async () =
     assert.equal(liveListLimit('full', 'host'), 5);
     // 手机形态：入口收进手机顶栏，不在手机外另找位置；全屏：名牌右边 8px、与名牌同一行垂直居中；量不到名牌退回工具栏下方。
     assert.deepEqual(entryPlacement({ stageW: 390 }, { layout: 'phone', width: 350, top: 48 }, 14), { left: 14, top: 14 });
-    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, { right: 200, cy: 60 }), { left: 14, top: 82 });
-    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, null), { left: 14, top: 82 });
+    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, { right: 200, cy: 60 }), { left: 208, top: 41 });
+    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, null), { left: 240, top: 46 });
     assert.deepEqual(entryPlacement({ stageW: 1280 }, null, 14), { left: 14, top: 14 });
 });
 
@@ -784,4 +784,27 @@ test('gate:danmaku:live-fan-medal-priority-custom-then-text-then-auto', async ()
     assert.equal(live.state.medal, '兔子洞');
     const fromText = await runChatterLive({ tier: null, seed: 3, fan: '茶会' });
     assert.equal(fromText.state.medal, '茶会');
+});
+
+test('gate:danmaku:lanes-random-start-wider-estimate-and-fly-clip', async () => {
+    const { estimateTextWidth, pickScrollTrack, LANE_GAP } = await import('../src/visual/igs-ui/danmaku-lanes.js');
+    const { flyClip } = await import('../src/visual/igs-ui/danmaku-live.js');
+    assert.equal(LANE_GAP, 24);
+    assert.equal(estimateTextWidth('ab', 10), Math.ceil(2 * 0.62 * 10) + 12);
+    assert.equal(estimateTextWidth('你好', 10), 20 + 12);
+    // 选轨不再总从第 0 条扫：四条全空时多次随机取，能取到不止一条；占满时返回 -1。
+    const picked = new Set();
+    for (let i = 0; i < 80; i += 1) picked.add(pickScrollTrack([null, null, null, null], 4, 0, 100, 400, 8000));
+    assert.ok(picked.size > 1 && [...picked].every((lane) => lane >= 0 && lane < 4));
+    assert.equal(pickScrollTrack([{ freeAt: 99999, exitAt: 99999 }, { freeAt: 99999, exitAt: 99999 }], 2, 0, 100, 400, 8000), -1);
+    // 只有 lane 2 空：无论随机起点在哪都选到它。
+    for (let i = 0; i < 30; i += 1) {
+        const busy = { freeAt: 99999, exitAt: 99999 };
+        assert.equal(pickScrollTrack([busy, busy, null, busy], 4, 0, 100, 400, 8000), 2);
+    }
+    // 横飞超约 14 个全角字截断加省略号，短句原样。
+    assert.equal(flyClip('这是一句很短的话'), '这是一句很短的话');
+    const long = '常规操作谈能说那个下赌注的家伙确实是个混球不过愿赌服输';
+    const clipped = flyClip(long);
+    assert.ok(clipped.endsWith('…') && Array.from(clipped).length === 15, clipped);
 });

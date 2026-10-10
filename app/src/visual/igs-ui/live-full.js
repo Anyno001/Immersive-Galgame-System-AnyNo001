@@ -5,7 +5,8 @@ export const LIVE_FULL_ATTR = 'data-igs-live-full';
 export const LIVE_SUB_ATTR = 'data-igs-live-sub';
 export const LIVE_NPOS_ATTR = 'data-igs-live-npos';
 export const SUB_NAME_ATTR = 'data-igs-sub-name';
-export const LIVE_SUBTITLE_MAX_LINES = 3;
+export const LIVE_SUBTITLE_MAX_LINES = 5;
+export const LIVE_FIT_ATTR = 'data-igs-live-fit';
 
 // 直播全屏状态：full 形态、手机还在（没被收起 / 不在回忆梦境里）。
 export function isLiveFullActive({ layout, visible }) {
@@ -21,7 +22,7 @@ export function classifySubtitle({ speaker, textType, hostName, userName }) {
     return 'other';
 }
 
-// 字幕最多 3 行：高度除以行高四舍五入后超过就算超。
+// 字幕最多 5 行（底边固定、向上增高）：高度除以行高四舍五入后超过就算超。
 export function exceedsSubtitleLines(height, lineHeight, max = LIVE_SUBTITLE_MAX_LINES) {
     const h = Number(height);
     const lh = Number(lineHeight);
@@ -29,22 +30,17 @@ export function exceedsSubtitleLines(height, lineHeight, max = LIVE_SUBTITLE_MAX
     return Math.round(h / lh) > max;
 }
 
-// 当前页用哪种样子：subtitle 字幕；minimal 极简对话框（半透明暗底条）；dialog 原样对话框。
-export function resolveLiveFullMode({ fullText, narrationPos, kind, overflow }) {
+// 当前页用哪种样子：subtitle 字幕；minimal 极简对话框（只有旁白位置选了「对话框」时）；dialog 原样对话框（设置里选了对话框时）。
+// 长文本不再退回对话框：字幕自己增高、缩字、最后内部滚动（见 refreshLiveFullOverflow）。
+export function resolveLiveFullMode({ fullText, narrationPos, kind }) {
     if (fullText === 'dialog') return 'dialog';
     if (kind === 'narration' && narrationPos === 'dialog') return 'minimal';
-    return overflow ? 'minimal' : 'subtitle';
+    return 'subtitle';
 }
-
-// 同一页量出过超 3 行就记下页标识：同页重复渲染不再先回字幕、下一帧又跳极简，对话框不闪。
-const overflowPages = new WeakMap();
-const currentPages = new WeakMap();
 
 export function applyLiveFull(root, { fullText, narrationPos, kind, speaker, textEl, pageKey }) {
     if (!root || typeof root.setAttribute !== 'function') return;
-    currentPages.set(root, pageKey);
-    const keep = pageKey !== undefined && overflowPages.get(root) === pageKey;
-    const mode = resolveLiveFullMode({ fullText, narrationPos, kind, overflow: keep });
+    const mode = resolveLiveFullMode({ fullText, narrationPos, kind });
     root.setAttribute(LIVE_FULL_ATTR, mode);
     root.setAttribute(LIVE_SUB_ATTR, kind);
     root.setAttribute(LIVE_NPOS_ATTR, narrationPos === 'name' ? 'name' : 'above');
@@ -54,28 +50,33 @@ export function applyLiveFull(root, { fullText, narrationPos, kind, speaker, tex
 }
 
 export function clearLiveFull(root, textEl) {
-    if (root && typeof root === 'object') {
-        overflowPages.delete(root);
-        currentPages.delete(root);
-    }
     if (root && typeof root.removeAttribute === 'function') {
         root.removeAttribute(LIVE_FULL_ATTR);
         root.removeAttribute(LIVE_SUB_ATTR);
         root.removeAttribute(LIVE_NPOS_ATTR);
+        root.removeAttribute(LIVE_FIT_ATTR);
     }
     if (textEl && typeof textEl.removeAttribute === 'function') textEl.removeAttribute(SUB_NAME_ATTR);
 }
 
-// 字幕样式下量一次文字高度，超过 3 行这一页退回极简对话框；翻页重新挂标记后恢复字幕。
+// 字幕样式下量文字高度：超过 5 行先逐级缩小字号（0.92 倍、0.85 倍），再不行字幕框内部滚动（level 3）；返回是否做了调整。
+// 每次从原始字号重新量，翻页或重排都不会把上一页的缩放带过来；同一个同步任务内完成，不会闪。
 export function refreshLiveFullOverflow(root, textEl) {
-    if (!root || typeof root.getAttribute !== 'function' || root.getAttribute(LIVE_FULL_ATTR) !== 'subtitle') return false;
+    if (!root || typeof root.getAttribute !== 'function') return false;
+    if (root.getAttribute(LIVE_FULL_ATTR) !== 'subtitle') {
+        if (typeof root.removeAttribute === 'function') root.removeAttribute(LIVE_FIT_ATTR);
+        return false;
+    }
     if (!textEl || typeof textEl.getBoundingClientRect !== 'function') return false;
     const view = textEl.ownerDocument && textEl.ownerDocument.defaultView;
-    const style = view && typeof view.getComputedStyle === 'function' ? view.getComputedStyle(textEl) : null;
-    const fontSize = style ? parseFloat(style.fontSize) : NaN;
-    const lineHeight = style ? parseFloat(style.lineHeight) || fontSize * 1.45 : NaN;
-    if (!exceedsSubtitleLines(textEl.getBoundingClientRect().height, lineHeight)) return false;
-    root.setAttribute(LIVE_FULL_ATTR, 'minimal');
-    if (currentPages.get(root) !== undefined) overflowPages.set(root, currentPages.get(root));
+    for (let level = 0; level < 3; level += 1) {
+        if (level) root.setAttribute(LIVE_FIT_ATTR, String(level));
+        else root.removeAttribute(LIVE_FIT_ATTR);
+        const style = view && typeof view.getComputedStyle === 'function' ? view.getComputedStyle(textEl) : null;
+        const fontSize = style ? parseFloat(style.fontSize) : NaN;
+        const lineHeight = style ? parseFloat(style.lineHeight) || fontSize * 1.45 : NaN;
+        if (!exceedsSubtitleLines(textEl.getBoundingClientRect().height, lineHeight)) return level > 0;
+    }
+    root.setAttribute(LIVE_FIT_ATTR, '3');
     return true;
 }

@@ -1,6 +1,6 @@
 // 直播路人弹幕生成器：纯函数、零 token，由 rng 注入；按场合、身份、情绪与世界观口吻混播，并带刷屏潮、复读、接话与吵架。
 import {
-    LIVE_AMBIENT_LINES, LIVE_BDXJ_CHARS, LIVE_BDXJ_LINES, LIVE_CLASSIC_CLICK_LINES, LIVE_CLASSIC_LINES,
+    thoughtFragments, LIVE_AMBIENT_LINES, LIVE_BDXJ_CHARS, LIVE_BDXJ_LINES, LIVE_CLASSIC_CLICK_LINES, LIVE_CLASSIC_LINES,
     LIVE_HOST_REPLY_LINES, LIVE_MEME_LINES, LIVE_NAME_HEADS, LIVE_NAME_TAILS, LIVE_ROLE_LINES, LIVE_SCENE_ANSWERS,
     LIVE_SCENE_LINES, LIVE_SILLY_REPLY_LINES, LIVE_TONE_CLASSIC, LIVE_TONE_POOLS, LIVE_TRASH_MEME_LINES,
     AUDIENCE_AMBIENT_LINES, LIVE_FANDOM_LINES, LIVE_SCALE_TIERS, LIVE_TINY_LINES, LIVE_TONE_FANDOM, LIVE_TONE_WARN,
@@ -28,16 +28,89 @@ export const LIVE_EMOJI_BY_MOOD = Object.freeze({
 });
 
 const SCENE_KEYWORDS = Object.freeze([
-    ['accident', /翻车|尴尬|出错|失误|事故|社死|摔|打翻|口误|忘词|断网|卡住/],
+    ['accident', /翻车|尴尬|出错|失误|事故|社死|摔倒|摔跤|打翻|口误|忘词|断网|卡住/],
     ['emotion', /情感|连麦|咨询|树洞|倾诉|失恋|分手|恋爱|表白|感情|电台|开导/],
-    ['sing', /唱歌|歌|唱|演唱|点歌|麦|旋律|弹琴|吉他|钢琴|琴/],
-    ['game', /游戏|打游戏|关卡|副本|通关|对战|开黑|boss|比赛|电竞|操作|队友/i],
+    ['sing', /唱歌|演唱|点歌|旋律|弹琴|吉他|钢琴|麦克风|歌词|歌声/],
+    ['game', /游戏|关卡|副本|通关|对战|开黑|boss|比赛|电竞|队友/i],
     ['shop', /带货|链接|上架|秒杀|福利款|下单|购物车|橱窗|福袋|直播卖/],
-    ['eat', /吃|美食|火锅|夜宵|外卖|做饭|烹饪|奶茶|烧烤|尝|零食|泡面|餐/],
-    ['study', /学习|自习|作业|复习|考试|写论文|办公|工作|加班|看书|备考|读书|番茄钟/],
-    ['looks', /换装|穿搭|舞蹈|跳舞|化妆|试穿|裙|造型|走秀|妆|美颜/],
+    ['eat', /美食|火锅|夜宵|外卖|做饭|烹饪|奶茶|烧烤|零食|泡面|吃饭|吃东西|聚餐|午餐|晚餐|早餐/],
+    ['study', /学习|自习|作业|复习|考试|写论文|办公|加班|看书|备考|读书|番茄钟/],
+    ['looks', /换装|穿搭|舞蹈|跳舞|化妆|试穿|造型|走秀|美颜/],
     ['outdoor', /户外|散步|街头|旅行|旅游|逛街|公园|海边|爬山|景点|外出|路上/],
 ]);
+// 场合至少命中 2 个关键词才算数，否则回落 chat；标题只在开场几页计分（之后看本页正文）。
+const SCENE_MIN_HITS = 2;
+const TITLE_SCORED_PAGES = 2;
+// 剧情话题：本页正文命中就按话题出带梗句（占约 30%），只用于现代口吻；句子都是轻微起哄，不涉脏话、外貌、性别与地域。
+export const LIVE_TOPIC_BUCKETS = Object.freeze([
+    ['scam', /被骗|骗子|诈骗|骗人|上当|套路|坑人|忽悠|欺骗|骗/, f([
+        '被骗了吧，我就说', '这套路我都看腻了', '防骗指南建议全文背诵', '谁懂啊，骗局都这么敷衍', '该上防诈课了',
+        '骗人的先别笑，下一个就是你', '这波是被当韭菜割了', '反诈中心在线待命', '只怪自己心太软，这话是真的扎', '信了就是输',
+        '太单纯了，该吃一堑', '这剧本我提前三章就看穿了', '骗子：谢谢配合', '我不信，除非他先转账 🤡', '听着耳熟，像我上个月被坑那次',
+        '这就叫交学费', '建议存证，别吃哑巴亏', '防骗意识拉满，从我做起', '诈骗界的敬业模范',
+    ])],
+    ['gamble', /赌|愿赌服输|押注|下注|筹码|赌局|赌约|骰子/, f([
+        '愿赌服输，懂不懂规矩', '十赌九输，劝你别上头', '赌狗不得好死（指资金）', '押上去的才是真的', '这把我也想下注',
+        '开了开了，买定离手', '庄家笑而不语 😏', '输了别哭，赌桌上没有后悔药', '赌注太大了吧，手别抖', '我赌他下一句就翻脸',
+        '梭哈是一种信仰', '这局明显有诈，我不押了', '赌徒的尽头是借条', '谁赢了记得请客', '赌约一出，今晚不太平',
+        '筹码都押上了，还能说什么', '愿赌服输这四个字念出来容易', '下注前先看看自己的钱包',
+    ])],
+    ['conflict', /吵架|争吵|混球|混蛋|滚出去|闹翻|翻脸|冲突|对骂|撕破脸|申冤|讨说法|找茬|小爷/, f([
+        '吵起来了吵起来了，搬好小板凳', '前排吃瓜，这场我不走', '这嘴上功夫，可以出道', '来来来，继续输出，我录屏了', '骂人要骂到点子上，这位还欠点火候',
+        '小爷？好大的口气，笑死', '谁先动手谁就输了', '这是在申冤还是在找茬', '劝架的先站出来，我给你点赞', '火药味隔着屏幕都闻到了 🍉',
+        '气氛突然就不对了', '都冷静一点，别把话说绝', '这个场面我可以看一整晚', '互怼名场面，建议收藏', '话赶话赶出来的修罗场',
+        '嘴硬的那位其实心里慌了', '弹幕裁判：这回合平手', '再吵下去房管要来了', '大战三百回合，开始计时',
+    ])],
+    ['service', /服务员|端盘子|打工|跑堂|店小二|伙计|跑腿/, f([
+        '端盘子的怎么了，靠劳动吃饭光荣', '服务员：我只是路过打工', '打工人的苦你们不懂', '端盘子的也有脾气好吗', '这个服务员有故事',
+        '今日份打工人：连台词都是被点的', '小二，上酒，上瓜子', '服务行业：太难了', '这份工能不能涨点薪', '上菜速度比剧情还慢',
+        '服务员视角的剧情我也想看', '谁懂啊，端盘子的反而最清醒', '给端盘子的加个鸡腿', '给打工人一点尊重', '临时演员也有主角命',
+        '端盘子的是真的在场，别人都在演', '这服务员不简单，肯定是隐藏大佬',
+    ])],
+    ['romance', /告白|表白|暧昧|心动|脸红|牵手|拥抱|亲吻|吻了|约会|喜欢你|喜欢上/, f([
+        '啊啊啊来了来了，这个氛围 😍', '这就是传说中的心动瞬间', '脸红了！我看到了！', '快亲快亲，别磨蹭', '暧昧期最上头，我直接嗑上',
+        '这糖我吃了，别说没糖', '推拉得我心痒痒', '再不告白我替你说了', '这波是双向奔赴吧', '我宣布这对已经锁了',
+        '心跳声隔着屏幕都听见了', '别再装了，我们都看出来了', '甜得我牙疼，但我爱看', '这氛围，单身狗路过都得挨一刀', '下一步是不是牵手了？',
+        '别问，问就是嗑到了', '这一幕我要截图', '纯爱战士今晚表示满意 🥹',
+    ])],
+    ['fight', /受伤|流血|打架|动手|一拳|拳头|拔刀|拔剑|挥剑|挥刀|战斗|厮杀|伤口|挨打|打斗/, f([
+        '打起来了打起来了！', '这一拳，我隔着屏幕都疼', '谁先倒下谁就丢人', '快叫救护车，不对，先看完', '热血上头，来一发',
+        '下手别太狠，留口气', '这动作戏我给满分', '我赌打赢的人会说“我还能再来”', '战斗场面最怕剧情杀', '看得我手心全是汗',
+        '药师呢，快来个药师', '开打吧，别光放狠话', '这架打得有点东西', '受伤了还逞强，典型的主角', '这一刀拔得我心惊肉跳 😱',
+        '别打脸，别打脸，留点面子', '打完记得和好，不然下集尴尬', '倒下的人千万别是主线角色',
+    ])],
+]);
+export function classifyLiveTopic(text) {
+    const body = clean(text);
+    if (!body) return null;
+    let best = null;
+    let bestScore = 0;
+    for (const [name, re, lines] of LIVE_TOPIC_BUCKETS) {
+        const score = (body.match(new RegExp(re.source, 'g')) || []).length;
+        if (score > bestScore) {
+            best = { name, lines };
+            bestScore = score;
+        }
+    }
+    return best;
+}
+const QUOTE_TEMPLATES = Object.freeze(['{x}？', '“{x}”？', '{x}我记下了', '“{x}”这句绝了', '{x}是几个意思', '就冲“{x}”我留下了']);
+const QUOTE_SAFE_TEMPLATES = 2;
+const QUOTE_MAX_CHARS = 6;
+const TOPIC_SHARE = 0.3;
+const QUOTE_SHARE = 0.15;
+// 台词摘词：从本页正文截 2-6 字短语，套模板成一句本地弹幕；截不出时返回空数组。
+export function liveQuoteFragments(text, exclude = []) {
+    const skip = new Set(exclude.map(clean).filter(Boolean));
+    return thoughtFragments(clean(text), 24).filter((part) => {
+        const len = Array.from(part).length;
+        return len >= 2 && len <= QUOTE_MAX_CHARS && !skip.has(part) && !/^[\w\s]+$/.test(part);
+    });
+}
+export function liveQuoteLine(fragment, tone, rng) {
+    const pool = tone === 'modern' ? QUOTE_TEMPLATES : QUOTE_TEMPLATES.slice(0, QUOTE_SAFE_TEMPLATES);
+    return pick(pool, rng).replace('{x}', () => fragment);
+}
 const LATE_FROM = 23;
 const LATE_TO = 5;
 const LATE_SHARE = 0.35;
@@ -124,7 +197,8 @@ export function classifyLiveScene({ title = '', text = '', pageInLive, ending = 
     const late = Number.isFinite(hour) && (hour >= LATE_FROM || hour <= LATE_TO);
     if (ending) return { scene: 'ending', late };
     if (Number.isFinite(pageInLive) && pageInLive <= 1) return { scene: 'opening', late };
-    const haystack = `${clean(title)}\n${clean(text)}`;
+    const scoreTitle = !Number.isFinite(pageInLive) || pageInLive <= TITLE_SCORED_PAGES;
+    const haystack = `${scoreTitle ? clean(title) : ''}\n${clean(text)}`;
     let best = 'chat';
     let bestScore = 0;
     for (const [scene, re] of SCENE_KEYWORDS) {
@@ -135,7 +209,7 @@ export function classifyLiveScene({ title = '', text = '', pageInLive, ending = 
             bestScore = score;
         }
     }
-    return { scene: best, late };
+    return { scene: bestScore >= SCENE_MIN_HITS ? best : 'chat', late };
 }
 
 export function normalizeLiveCustomLines(raw) {
@@ -275,6 +349,8 @@ export function planLiveChatter(opts = {}, rng = Math.random) {
     const out = [];
     const nameOpts = { tone: pools.tone, tier, emoji, host: hostName, recent: opts.recentNames };
     const used = nameMaker(rng, new Set(), nameOpts, true);
+    const topic = pools.tone === 'modern' ? classifyLiveTopic(text) : null;
+    const quotes = liveQuoteFragments(text, [hostName, userName]);
     const wavesOf = () => nameMaker(rng, new Set(), nameOpts);
     const push = (user, line, delay, src, type = 'text') => out.push({ user, text: line, type, delay: Math.round(delay), src });
     let askSeen = false;
@@ -287,7 +363,14 @@ export function planLiveChatter(opts = {}, rng = Math.random) {
         const roll = rng();
         let line = '';
         let src = 'ambient';
-        if (roll < SCENE_SHARE) {
+        const plot = rng();
+        if (topic && plot < TOPIC_SHARE) {
+            line = pick(topic.lines, rng);
+            src = `topic:${topic.name}`;
+        } else if (quotes.length && plot < (topic ? TOPIC_SHARE : 0) + QUOTE_SHARE) {
+            line = liveQuoteLine(pick(quotes, rng), pools.tone, rng);
+            src = 'quote';
+        } else if (roll < SCENE_SHARE) {
             const useLate = late && scene !== 'late' && rng() < LATE_SHARE;
             if (scene === 'looks' && !late && rng() < FANDOM_LOOKS_SHARE) {
                 line = pick(fandomLines(pools, hostGender), rng);

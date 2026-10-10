@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    classifyLiveScene, decorateLiveEmoji, detectLiveScale, fanNameFromText, liveEconomy, liveTier, medalLevelBias, mergeLiveScale,
+    classifyLiveScene, classifyLiveTopic, liveQuoteFragments, liveQuoteLine, LIVE_TOPIC_BUCKETS, decorateLiveEmoji, detectLiveScale, fanNameFromText, liveEconomy, liveTier, medalLevelBias, mergeLiveScale,
     normalizeFanMedalMap, normalizeLiveCustomLines, liveUserName, LIVE_NAME_STYLES, LIVE_EMOJI_BY_MOOD, LIVE_EMOJI_SPAM, parseCnNumber, pickMedalLevel, planLiveChatter, resolveFanMedal,
 } from '../src/visual/igs-ui/live-chatter.js';
 import * as pools from '../src/visual/igs-ui/danmaku-pools.js';
@@ -18,7 +18,7 @@ const runMany = (opts, runs = 200, seed = 1) => {
     return Array.from({ length: runs }, () => planLiveChatter(opts, rng));
 };
 const flat = (plans) => plans.flat();
-const BASE = /^(scene|role|mood|ambient|meme|classic|trash|bdxj|drama|anime|newage|tiny)/;
+const BASE = /^(topic|quote|scene|role|mood|ambient|meme|classic|trash|bdxj|drama|anime|newage|tiny)/;
 
 test('gate: classifyLiveScene 各场合关键词', () => {
     const cases = {
@@ -33,14 +33,19 @@ test('gate: classifyLiveScene 各场合关键词', () => {
         chat: '随便聊聊天气',
     };
     for (const [scene, text] of Object.entries(cases)) assert.equal(classifyLiveScene({ text, pageInLive: 5, hour: 12 }).scene, scene, scene);
-    assert.equal(classifyLiveScene({ title: '唱歌', text: '', pageInLive: 3 }).scene, 'sing');
+    // 标题只在开场前几页计分，之后场合看本页正文；命中不足 2 回落 chat；单字不再触发。
+    assert.equal(classifyLiveScene({ title: '唱歌点歌', text: '', pageInLive: 2 }).scene, 'sing');
+    assert.equal(classifyLiveScene({ title: '情感电台', text: '他们吵了起来，下赌注的家伙是个混球', pageInLive: 39 }).scene, 'chat');
+    assert.equal(classifyLiveScene({ title: '情感电台', text: '', pageInLive: 39 }).scene, 'chat');
+    assert.equal(classifyLiveScene({ text: '她端着盘子走过来，尝了一口，操作很熟练，今晚的工作结束了', pageInLive: 9 }).scene, 'chat');
+    assert.equal(classifyLiveScene({ text: '主播在唱歌，旋律很好听', pageInLive: 9 }).scene, 'sing');
 });
 
 test('gate: classifyLiveScene opening/ending/late 边界', () => {
-    assert.equal(classifyLiveScene({ text: '打游戏', pageInLive: 1 }).scene, 'opening');
-    assert.equal(classifyLiveScene({ text: '打游戏', pageInLive: 0 }).scene, 'opening');
-    assert.equal(classifyLiveScene({ text: '打游戏', pageInLive: 2 }).scene, 'game');
-    assert.equal(classifyLiveScene({ text: '打游戏', pageInLive: 1, ending: true }).scene, 'ending');
+    assert.equal(classifyLiveScene({ text: '打游戏通关副本', pageInLive: 1 }).scene, 'opening');
+    assert.equal(classifyLiveScene({ text: '打游戏通关副本', pageInLive: 0 }).scene, 'opening');
+    assert.equal(classifyLiveScene({ text: '打游戏通关副本', pageInLive: 2 }).scene, 'game');
+    assert.equal(classifyLiveScene({ text: '打游戏通关副本', pageInLive: 1, ending: true }).scene, 'ending');
     assert.equal(classifyLiveScene({ text: '', pageInLive: 9, hour: 23 }).late, true);
     assert.equal(classifyLiveScene({ text: '', pageInLive: 9, hour: 5 }).late, true);
     assert.equal(classifyLiveScene({ text: '', pageInLive: 9, hour: 0 }).late, true);
@@ -80,7 +85,7 @@ test('gate: 池条数达标且场合夸赞占比不超过三成', () => {
 
 test('gate: 混播比例落在合理区间', () => {
     const sceneSet = new Set(pools.LIVE_SCENE_LINES.game);
-    const entries = flat(runMany({ text: '打游戏', pageInLive: 5, hour: 12, mood: 'funny', count: 10, emoji: false }, 300));
+    const entries = flat(runMany({ text: '打游戏通关副本', pageInLive: 5, hour: 12, mood: 'funny', count: 10, emoji: false }, 300));
     const base = entries.filter((e) => BASE.test(e.src) || e.src === 'warn' || e.src === 'fandom');
     const share = (prefix) => base.filter((e) => e.src.startsWith(prefix)).length / base.length;
     assert.ok(share('scene:') > 0.4 && share('scene:') < 0.6, `scene ${share('scene:')}`);
@@ -160,7 +165,7 @@ test('gate: 复读 AI 弹幕', () => {
 });
 
 test('gate: newcomer 提问后有人用当前场合答句接话', () => {
-    const plans = runMany({ text: '主播正在吃火锅', pageInLive: 5, count: 14, emoji: false }, 300);
+    const plans = runMany({ text: '主播正在吃火锅夜宵', pageInLive: 5, count: 14, emoji: false }, 300);
     let asked = 0;
     let answered = 0;
     for (const plan of plans) {
@@ -288,7 +293,7 @@ test('gate: 动漫梗按情绪与场合挂钩', () => {
     };
     const love = pick({ mood: 'love' }, ['romance']);
     const fight = pick({ mood: 'tense' }, ['chuuni', 'hot']);
-    const game = pick({ text: '打游戏', mood: 'funny' }, ['chuuni', 'hot']);
+    const game = pick({ text: '打游戏通关副本', mood: 'funny' }, ['chuuni', 'hot']);
     assert.ok(love.n > 30 && love.hit > 0.6, JSON.stringify(love));
     assert.ok(fight.hit > 0.6 && game.hit > 0.6, JSON.stringify([fight, game]));
     assert.ok(pick({ text: '换装跳舞', mood: 'funny' }, ['romance']).hit > 0.6);
@@ -365,7 +370,7 @@ test('gate: tone 切换取到对应池', () => {
 
 test('gate: custom 与内置池合并', () => {
     const custom = { game: ['自定义游戏句'], newcomer: ['自定义新人句'], ambient: ['自定义通用句'] };
-    const all = flat(runMany({ text: '打游戏', pageInLive: 5, count: 12, custom, emoji: false }, 300)).map((e) => e.text);
+    const all = flat(runMany({ text: '打游戏通关副本', pageInLive: 5, count: 12, custom, emoji: false }, 300)).map((e) => e.text);
     assert.ok(all.includes('自定义游戏句'));
     assert.ok(all.includes('自定义新人句'));
     assert.ok(all.includes('自定义通用句'));
@@ -407,10 +412,10 @@ test('gate: emoji 关闭时没有 emoji', () => {
 
 test('gate: 深夜与场合混入 late 句', () => {
     const lateLines = new Set(pools.LIVE_SCENE_LINES.late);
-    const entries = flat(runMany({ text: '打游戏', pageInLive: 5, hour: 2, count: 12, emoji: false }, 200)).filter((e) => e.src === 'scene:late');
+    const entries = flat(runMany({ text: '打游戏通关副本', pageInLive: 5, hour: 2, count: 12, emoji: false }, 200)).filter((e) => e.src === 'scene:late');
     assert.ok(entries.length > 100);
     assert.ok(entries.every((e) => lateLines.has(e.text)));
-    assert.equal(flat(runMany({ text: '打游戏', pageInLive: 5, hour: 14, count: 12 }, 100)).some((e) => e.src === 'scene:late'), false);
+    assert.equal(flat(runMany({ text: '打游戏通关副本', pageInLive: 5, hour: 14, count: 12 }, 100)).some((e) => e.src === 'scene:late'), false);
 });
 
 test('gate: 池内容不含脏话与群体攻击词', () => {
@@ -748,4 +753,23 @@ test('gate: 世界观口吻的 keeper 与房管变体', () => {
     }
     assert.equal(pools.LIVE_TONE_ORDER.ancient.admin.includes('执事弟子：禁止喧哗'), true);
     assert.equal(pools.LIVE_TONE_ORDER.scifi.admin.includes('星网管理员：请保持频道整洁'), true);
+});
+
+test('gate: 剧情话题桶与台词摘词（本地、命中本页正文）', () => {
+    const text = '常规操作谈能说那个下赌注的家伙确实是个混球。不过愿赌服输，被骗了只能怪你自己眼瞎心软。怎么，端盘子的，你今晚是特地来找小爷给你申冤的？';
+    const topic = classifyLiveTopic(text);
+    assert.ok(topic && ['scam', 'gamble', 'conflict', 'service'].includes(topic.name), String(topic && topic.name));
+    assert.ok(topic.lines.length >= 15 && topic.lines.length <= 20);
+    assert.equal(classifyLiveTopic('今天天气不错'), null);
+    for (const [, , lines] of LIVE_TOPIC_BUCKETS) assert.ok(lines.length >= 15 && lines.length <= 20);
+    const frags = liveQuoteFragments(text, ['端盘子的']);
+    assert.ok(frags.length > 0 && frags.every((x) => Array.from(x).length >= 2 && Array.from(x).length <= 6));
+    assert.ok(!frags.includes('端盘子的'));
+    assert.ok(liveQuoteLine('愿赌服输', 'modern', () => 0.99).includes('愿赌服输'));
+    const entries = flat(runMany({ text, pageInLive: 9, hour: 12, count: 10, emoji: false }, 200));
+    const topicShare = entries.filter((e) => e.src.startsWith('topic:')).length / entries.filter((e) => BASE.test(e.src)).length;
+    assert.ok(topicShare > 0.15 && topicShare < 0.45, 'topic ' + topicShare);
+    assert.ok(entries.some((e) => e.src === 'quote'));
+    // 话题句只用于现代口吻。
+    assert.ok(!flat(runMany({ text, pageInLive: 9, tone: 'ancient', count: 10 }, 50)).some((e) => e.src.startsWith('topic:')));
 });
