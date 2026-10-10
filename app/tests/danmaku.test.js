@@ -526,9 +526,13 @@ test('gate:danmaku:live-interact-switch-view-and-digest', async () => {
     assert.match(digest, /小心心×2/);
     assert.match(buildLiveDigestRule(digest), /^\[igs直播间\]/);
     // 视角切换：点「主播」换成主播后台。
-    const sw = motion.querySelector('.igs-live-switch');
-    const hostBtn = sw.children.find((b) => b.getAttribute('data-view') === 'host');
-    for (const fn of sw.listeners.click) fn({ target: { closest: () => hostBtn }, stopPropagation() {} });
+    assert.equal(motion.querySelector('.igs-live-switch'), null, 'phone layout has no loose switch on the front layer');
+    const viewBtn = motion.querySelector('.igs-live-view');
+    assert.ok(viewBtn, 'view switch is an icon in the phone top bar');
+    assert.equal(viewBtn.getAttribute('data-view'), 'host');
+    assert.equal(viewBtn.title, '切换到主播视角');
+    assert.equal(viewBtn.textContent, '');
+    for (const fn of viewBtn.listeners.click) fn({ stopPropagation() {} });
     c.run(600);
     assert.equal(motion.querySelector('.igs-live-phone').getAttribute('data-view'), 'host');
     assert.equal(motion.querySelector('.igs-live-ctl').getAttribute('data-view'), 'host');
@@ -561,4 +565,37 @@ test('gate:danmaku:live-portrait-edit-saves-frame', async () => {
     assert.deepEqual(saved[0].portrait, { x: 10, y: -5, zoom: 120 });
     assert.equal(saved[0].enabled, true);
     cancelDanmaku(root);
+});
+
+test('gate:danmaku:live-close-restores-stage-sprite-and-removes-front-buttons', () => {
+    const { root, motion } = makeRoot();
+    root.id = 'igs-overlay';
+    const c = clock();
+    const opts = { schedule: c.schedule, clear: c.clear, now: c.now, rng: seq([0.9, 0.1, 0.5]), reducedMotion: false, userName: '小明' };
+    const fx = { live: { name: '爱丽丝', title: '深夜杂谈', view: 'watch' } };
+    applyDanmakuToDom(root, snapshot({ currentIndex: 0, fx }, { liveFx: { enabled: true, interact: true } }), opts);
+    assert.equal(root.getAttribute('data-igs-stage-covered'), '1');
+    assert.equal(root.getAttribute('data-igs-live-host'), '爱丽丝');
+    const close = motion.querySelector('.igs-live-close');
+    assert.ok(close);
+    for (const fn of close.listeners.click) fn({ stopPropagation() {} });
+    assert.equal(root.getAttribute('data-igs-stage-covered'), null, 'sprite comes back right away');
+    assert.equal(root.getAttribute('data-igs-live-host'), null);
+    assert.equal(motion.querySelector('.igs-live-ctl'), null, 'front buttons are gone too');
+    // 同一场直播翻页后仍然收着。
+    applyDanmakuToDom(root, snapshot({ currentIndex: 1, fx }, { liveFx: { enabled: true, interact: true } }), opts);
+    assert.equal(root.getAttribute('data-igs-stage-covered'), null);
+    cancelDanmaku(root);
+});
+
+test('gate:stage-pause:host-bubbles-hidden-only-while-host-sprite-is-covered', async () => {
+    const { isLiveHostCovered } = await import('../src/visual/igs-ui/stage-pause.js');
+    const { root } = makeRoot();
+    assert.equal(isLiveHostCovered(root, '爱丽丝'), false);
+    root.setAttribute('data-igs-stage-covered', '1');
+    root.setAttribute('data-igs-live-host', '爱丽丝');
+    assert.equal(isLiveHostCovered(root, '爱丽丝'), true);
+    assert.equal(isLiveHostCovered(root, '鲍勃'), false, 'other characters keep their bubbles');
+    root.removeAttribute('data-igs-stage-covered');
+    assert.equal(isLiveHostCovered(root, '爱丽丝'), false, 'full layout or dismissed phone shows them again');
 });

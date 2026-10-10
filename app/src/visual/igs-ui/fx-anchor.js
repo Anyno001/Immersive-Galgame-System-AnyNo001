@@ -145,7 +145,9 @@ export function measureStage(motion) {
     const dialog = motion.querySelector('#igs-dialog-layer .igs-dialog');
     // 漫画模式的对话框铺满舞台、只是透明的点击面，不算遮挡。
     const comicHost = dialog && dialog.getAttribute && dialog.getAttribute('data-igs-comic-host') === '1';
-    if (dialog && !comicHost && typeof dialog.getBoundingClientRect === 'function' && typeof motion.getBoundingClientRect === 'function') {
+    // 手机焦点：对话框用 class 淡出（不 display:none），几何上当作隐藏。
+    const focused = typeof motion.closest === 'function' && Boolean(motion.closest('.igs-phone-focus'));
+    if (dialog && !comicHost && !focused && typeof dialog.getBoundingClientRect === 'function' && typeof motion.getBoundingClientRect === 'function') {
         const d = dialog.getBoundingClientRect();
         const m = motion.getBoundingClientRect();
         // 舞台可能被外层 transform 缩放：矩形差值换回舞台自身的 CSS 像素。

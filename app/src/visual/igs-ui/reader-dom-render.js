@@ -1723,7 +1723,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
     // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
-    applyDanmakuToDom(root, snapshot, { sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove });
+    applyDanmakuToDom(root, snapshot, { autoPlay: Boolean(current && current.autoPlay && current.autoPlay.enabled), sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');

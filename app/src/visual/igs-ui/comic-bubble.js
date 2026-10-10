@@ -8,6 +8,7 @@ import { normalizeDialogSkin } from './classic-dialog-skin.js';
 import { pickFxAccent } from './fx-symbols.js';
 import { peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import { prefersReducedMotion } from './reduced-motion.js';
+import { isLiveHostCovered } from './stage-pause.js';
 import { preloadDialogFonts } from './dialog-theme-typography.js';
 import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 
@@ -325,7 +326,9 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
     const plain = textEl ? readPlainText(textEl) : '';
     const pageKey = String(opts.renderKey || '');
     const sceneKey = String(content.sceneLocation || '');
-    if (!(stageW > 0) || !(stageH > 0) || !plain.trim() || !pageKey) {
+    // 手机形态直播盖住舞台、说话的正是主播：立绘收起了，泡不再压在手机画面上。
+    const hostCovered = isLiveHostCovered(root, content.spriteCharacter || content.speaker);
+    if (!(stageW > 0) || !(stageH > 0) || !plain.trim() || !pageKey || hostCovered) {
         demoteToGhost(state, false);
         removeNode(state.ghost);
         state.ghost = null;

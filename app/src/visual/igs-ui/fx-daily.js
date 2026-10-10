@@ -11,6 +11,7 @@ import { prefersReducedMotion } from './reduced-motion.js';
 import { FX_HOLD_SCALE, normalizeFxSoundSettings, normalizeFxStyleSettings } from './fx-settings.js';
 import { normalizeDailyFxSettings, planDailyFx } from './fx-daily-model.js';
 import { headTopAnchor } from './meta-runtime.js';
+import { isLiveHostCovered } from './stage-pause.js';
 import { playDailySfx } from './fx-daily-sfx.js';
 import { GAME_BUILDERS } from './fx-daily-game.js';
 import { CAMPUS_BUILDERS } from './fx-daily-campus.js';
@@ -635,6 +636,7 @@ const BUILDERS = {
         if (!item.text) return null;
         const who = String(item.who || '').trim();
         const target = !who || who === env.speaker ? env.sprite : env.cast.find((m) => m && m.character === who);
+        if (target && isLiveHostCovered(env.root, who || env.speaker)) return null;
         const anchor = target ? headTopAnchor(env.root, target) : null;
         const node = env.doc.createElement('div');
         node.className = 'igs-dfx igs-meta-bubble igs-dfx-say';

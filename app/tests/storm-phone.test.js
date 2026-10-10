@@ -63,6 +63,7 @@ class FakeNode {
         return out;
     }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+    addEventListener(name, fn) { (this.listeners = this.listeners || {})[name] = [...((this.listeners || {})[name] || []), fn]; }
 }
 
 function makeHost() {
@@ -271,4 +272,21 @@ test('storm:format-and-fit-and-style', () => {
     assert.equal(phone.style.get('--igs-live-h'), '500px');
     assert.equal(phone.style.get('--igs-live-w'), '250px');
     assert.ok(!/backdrop-filter|filter:/.test(STORM_STYLE_TEXT));
+});
+
+test('storm:close-button-dismisses-until-new-storm', () => {
+    const { doc, host } = makeHost();
+    const c = clock();
+    let dismissed = 0;
+    const storm = { platform: 'weibo', tone: 'red', topic: 'a', mentions: [men('甲', 'a')] };
+    const first = syncStorm(host, storm, mk(c, doc, { onDismiss: () => { dismissed += 1; } }));
+    const close = host.querySelector('.igs-storm-close');
+    assert.ok(close);
+    close.listeners.click[0]({ stopPropagation() {} });
+    assert.equal(dismissed, 1);
+    assert.equal(host.querySelector('.igs-storm-stage').hidden, true);
+    // 同一场风暴重绘：不再弹出；换一场再弹出。
+    assert.equal(syncStorm(host, storm, mk(c, doc)), null);
+    const next = syncStorm(host, { ...storm, topic: 'b' }, mk(c, doc));
+    assert.ok(next && next !== first);
 });

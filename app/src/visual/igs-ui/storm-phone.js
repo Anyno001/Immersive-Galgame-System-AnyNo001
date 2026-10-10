@@ -1,5 +1,6 @@
 import { applyPhoneLook } from './my-phone.js';
-import { buildPhoneStatus } from './danmaku-icons.js';
+import { LIVE_ICONS, buildPhoneStatus } from './danmaku-icons.js';
+import { setPhoneSink } from './danmaku-live.js';
 import { isStagePaused } from './stage-pause.js';
 import { feedPlatformById, feedStableCount, FEED_WORLDVIEW_PLATFORMS } from '../../scene/feed-platforms.js';
 
@@ -98,6 +99,13 @@ function buildRoot(doc, state, platform, model) {
     const hot = el(doc, 'div', 'igs-storm-hot');
     hot.append(icon(doc, 'flame', 'igs-storm-flame'), el(doc, 'span', 'igs-storm-hot-label', '热搜'), el(doc, 'span', 'igs-storm-topic', topic));
     hot.appendChild(el(doc, 'span', 'igs-storm-tag', tone === 'red' ? '爆' : '沸'));
+    // 与直播右上角同款的收起按钮。
+    const close = el(doc, 'button', 'igs-storm-close');
+    close.type = 'button';
+    close.setAttribute('aria-label', '收起');
+    close.title = '收起';
+    close.innerHTML = LIVE_ICONS.close;
+    hot.appendChild(close);
     if (tone === 'black') {
         const crack = el(doc, 'span', 'igs-storm-crack');
         crack.innerHTML = CRACK_SVG;
@@ -124,7 +132,7 @@ function buildRoot(doc, state, platform, model) {
     }
     phone.appendChild(buildPhoneStatus(doc, state.now, null));
     root.appendChild(phone);
-    return { root, phone, screen, notes, hearts, vignette, badgeNum, nums: { badge: badgeNum, repost: repost.value, comment: comment.value, fans: fans.value } };
+    return { root, phone, screen, notes, hearts, vignette, close, badgeNum, nums: { badge: badgeNum, repost: repost.value, comment: comment.value, fans: fans.value } };
 }
 
 function paintNums(state) {
@@ -298,6 +306,7 @@ export function syncStorm(host, storm, ctx) {
     const look = ctx.look || { model: ctx.model, size: ctx.size };
     const model = PHONE_MODELS.includes(look.model) ? look.model : 'full';
     const platform = resolvePlatform(storm.platform, ctx.worldview);
+    if (state) state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
     if (!state) {
         const seed = `${platform.id}\n${topic}`;
         state = {
@@ -322,12 +331,21 @@ export function syncStorm(host, storm, ctx) {
         }
         host.appendChild(state.els.root);
         storms.set(host, state);
+        // 收起：本场风暴的手机先退回舞台，tone 或 topic 变了（新风暴）再弹出。
+        const own = state;
+        state.els.close.addEventListener('click', (event) => {
+            event.stopPropagation();
+            own.dismissed = true;
+            own.els.root.hidden = true;
+            if (typeof own.onDismiss === 'function') own.onDismiss();
+        });
         paintNums(state);
         if (state.els.vignette) later(state, () => state.els.vignette.setAttribute('data-on', '1'), 30);
         addMentions(state, storm.mentions || []);
         if (active(state)) step(state);
         state.growTimer = state.schedule(() => growTick(state), GROW_MS);
         arm(state);
+        state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
         return state;
     }
     state.size = look.size === 'fit' ? 'fit' : 'large';
@@ -341,7 +359,7 @@ export function syncStorm(host, storm, ctx) {
     }
     // 跨页：只追加新 mention，有新的先播
     if (addMentions(state, storm.mentions || []) && active(state)) arm(state, 300);
-    return state;
+    return state.dismissed ? null : state;
 }
 
 // 几何由主控读取后传入（phoneGeometry 的结果），这里只写 CSS 变量。
@@ -356,6 +374,7 @@ export function fitStorm(host, stage, geometry) {
     phone.style.setProperty('--igs-live-top', `${geometry.top}px`);
     phone.style.setProperty('--igs-live-w', `${geometry.width}px`);
     phone.style.setProperty('--igs-live-under', `${geometry.under || 0}px`);
+    setPhoneSink(phone, geometry.under);
     return state.fit;
 }
 

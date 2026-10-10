@@ -13,6 +13,7 @@ export const LIVE_ICONS = Object.freeze({
     viewers: svg('<circle cx="12" cy="8.3" r="3.3"/><path d="M5.6 19.6c.7-3.4 3.3-5.3 6.4-5.3s5.7 1.9 6.4 5.3"/>'),
     more: svg('<circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.2" fill="currentColor" stroke="none"/>'),
     plus: svg('<path d="M12 7v10M7 12h10"/>'),
+    swap: svg('<path d="M4.5 8h14M14.5 4l4 4-4 4"/><path d="M19.5 16h-14M9.5 12l-4 4 4 4"/>'),
 });
 
 const SIGNAL_ICON = '<svg viewBox="0 0 17 11" aria-hidden="true"><rect x="0" y="7" width="3" height="4" rx=".8"/><rect x="4.5" y="5" width="3" height="6" rx=".8"/><rect x="9" y="2.5" width="3" height="8.5" rx=".8"/><rect x="13.5" y="0" width="3" height="11" rx=".8"/></svg>';

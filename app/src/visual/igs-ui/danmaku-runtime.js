@@ -10,18 +10,19 @@ import {
 } from './danmaku-settings.js';
 import { AUDIENCE_AMBIENT_LINES, INNER_PHRASES, classifyAudienceMood, mixInnerPhrases, parentheticalThoughts, randomItem, thoughtFragments } from './danmaku-pools.js';
 import { myPhoneOf, phoneWallUrl } from './my-phone.js';
-import { fitLivePhone, likeLive, phoneGeometry, pushLiveMessages, stopLivePhone, syncLivePhone, syncLiveSwitch } from './danmaku-live.js';
+import { fitLivePhone, fitLiveSwitch, likeLive, phoneGeometry, pushLiveMessages, stopLivePhone, syncLivePhone, syncLiveSwitch } from './danmaku-live.js';
 import { fitLiveControls, liveActionMessage, recordLiveAction, stopLiveControls, syncLiveControls } from './danmaku-interact.js';
 import { isAudienceEntryShown, placeAudienceEntry, stopAudience, syncAudience } from './danmaku-audience.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 import { resolveChatTheme } from './chat-themes.js';
 import { fitFeedPhone, stopFeedPhone, syncFeedPhone } from './feed-phone.js';
 import { fitStorm, stopStorm, syncStorm } from './storm-phone.js';
+import { enterFocus, exitFocus, focusOn, holdFocusText, isNewAppearance, phoneIdentity, setFocusHooks } from './phone-focus.js';
 import { normalizeFeedFxSettings } from './feed-settings.js';
 import { isFeedEntryShown, placeFeedEntry, stopFeedReview, syncFeedReview } from './feed-review.js';
 import { phoneStatusFor } from './phone-sense.js';
 import { collectNotices, isNotifyEntryShown, noticeStoreFor, normalizeNotifyCenterSettings, placeNotifyEntry, recordNotices, stopNotify, syncNotify } from './notify-center.js';
-import { setStageCovered } from './stage-pause.js';
+import { LIVE_HOST_ATTR, setStageCovered } from './stage-pause.js';
 
 // 弹幕运行时：直播间（掏出手机看直播）、观众弹幕（HUD 下方小手机入口，点开看）、内心弹幕（立绘周围爆发）。
 // 性能约束：全关零开销；运动只用 transform/opacity 的 CSS 动画，没有逐帧 JS；
@@ -111,7 +112,7 @@ function getState(root, options) {
     let state = states.get(root);
     if (!state) {
         // feedSeen：社区帖子首见楼层（数字跨楼增长用）；feedRecall：刚刚刷到的那次区间，供回看入口；都只存内存。
-        state = { memory: createDanmakuMemory(), timers: new Set(), pageKey: '', liveViews: new Map(), liveStage: null, feedSeen: new Map(), feedRecall: null };
+        state = { memory: createDanmakuMemory(), timers: new Set(), pageKey: '', liveViews: new Map(), liveStage: null, stageWatch: null, feedSeen: new Map(), feedRecall: null };
         states.set(root, state);
     }
     state.schedule = typeof options.schedule === 'function' ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -161,8 +162,8 @@ function onLiveAction(ctx, live, action) {
 // 手机（舞台层）、视角切换与互动壳（前层）一起同步；回忆、梦境里手机收起时，前层的按钮也一并移除。
 function syncLive(ctx, auto, live) {
     const { state, host, front, settings } = ctx;
-    const phone = syncLivePhone(host, live, live ? liveContext(ctx, live) : { schedule: state.schedule, reduced: ctx.reduced });
-    const shown = phone && ctx.plan.liveVisible ? live : null;
+    const phone = syncLivePhone(host, live, live ? { ...liveContext(ctx, live), onPickView: (view) => pickLiveView(ctx, auto, view) } : { schedule: state.schedule, reduced: ctx.reduced });
+    const shown = phone && phone.visible && ctx.plan.liveVisible ? live : null;
     syncLiveSwitch(front, shown, { doc: ctx.doc, layout: settings.live.layout, onPick: (view) => pickLiveView(ctx, auto, view) });
     syncLiveControls(front, shown && settings.live.interact ? shown : null, {
         doc: ctx.doc, layout: settings.live.layout, onAction: (action) => onLiveAction(ctx, shown, action),
@@ -302,6 +303,7 @@ function liveContext(ctx, live) {
     return {
         doc, reduced, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng,
         visible: ctx.plan.liveVisible,
+        onDismiss: () => applyDanmakuToDom(ctx.root, snapshot, options),
         layout: ctx.settings.live.layout,
         look: ctx.look,
         interact: ctx.settings.live.interact,
@@ -399,6 +401,7 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         firstSeen: state.feedSeen,
         avatarOf: (name) => resolveAvatar(name, snapshot, options),
         getStage: () => state.liveStage,
+        onDismiss: () => applyDanmakuToDom(root, snapshot, options),
     };
     const feedPhone = syncFeedPhone(host, feed, feedCtx);
     if (feedPhone) {
@@ -412,6 +415,7 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         doc: ctx.doc, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng, reduced,
         worldview: (snapshot.readerSettings && snapshot.readerSettings._worldview) || 'modern',
         look: ctx.look, coverUrl: phoneWallUrl(ctx.look, coverUrl),
+        onDismiss: () => applyDanmakuToDom(root, snapshot, options),
     });
     if (feedPhone || stormPhone) {
         plan.liveVisible = false;
@@ -422,8 +426,39 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     const auto = plan.live && userName && text(plan.live.name) === userName ? { ...plan.live, view: 'host' } : plan.live;
     const live = auto ? { ...auto, view: state.liveViews.get(liveViewKey(auto)) || auto.view } : null;
     const phone = syncLive(ctx, auto, live);
+    // 手机焦点：量一次舞台后三种手机各自重排（对话框淡出 / 淡回时几何随之变）。
+    const refit = () => {
+        const next = measureStage(layers.motion);
+        if (!next) return;
+        state.liveStage = next;
+        if (phone) fitLiveControls(front, fitLivePhone(host, next));
+        fitLiveSwitch(front, next);
+        if (feedPhone) fitFeedPhone(host, next);
+        if (stormPhone) fitStorm(host, next, phoneGeometry(next, ctx.look.model, ctx.look.size));
+    };
+    const liveShown = Boolean(phone && phone.visible && plan.liveVisible && settings.live.layout !== 'full');
+    const identity = phoneIdentity({
+        storm: stormPhone ? storm : null,
+        feed: feedPhone && feedPhone.els.phone ? feed : null,
+        live,
+        liveShown,
+    });
+    setFocusHooks(state, root, {
+        host,
+        textEl: () => root.querySelector('#igs-text'),
+        refit,
+        autoPlay: options.autoPlay === true,
+        schedule: state.schedule,
+        clear: state.clear,
+        editing: () => Boolean(phone && phone.editing),
+    });
+    // 切页 / 切楼：焦点不跨页。手机离场也强制退出，对话框绝不留在隐藏状态。
+    if (focusOn(state) && (state.focus.pageKey !== plan.pageKey || !identity)) exitFocus(state, root);
+    // 首次亮相：一台手机从不在场变成在场（换平台 / 换风暴 / 换一场直播都算），自动进焦点；连续几页同一台不算。
+    if (isNewAppearance(state.phoneKey, identity) && options.skipping !== true) enterFocus(state, root, { auto: true });
+    state.phoneKey = identity;
     // 手机形态的直播亮着时，舞台上的立绘收起：手机里已经有主播画面，后面再露一个人会和手机粘在一起。
-    setLivePhoneFlag(root, Boolean(phone && plan.liveVisible && settings.live.layout !== 'full'));
+    setLivePhoneFlag(root, liveShown, live && live.name);
     if (phone && plan.dms.length) pushLiveMessages(host, plan.dms);
     if (phone && plan.hostSay) pushLiveMessages(host, [{ user: live.name, text: plan.hostSay, type: 'host', extra: '' }]);
     if (settings.audience.enabled) {
@@ -448,17 +483,21 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     if (notices) syncNotify(front, { store: notices, size: settings.audience.entrySize }, { doc: ctx.doc });
     else stopNotify(front);
     const notifyShown = isNotifyEntryShown(front);
+    if (!(phone || feedPhone || stormPhone)) unwatchPhoneStage(state);
     if (plan.inner || entryShown || reviewShown || notifyShown || feedPhone || stormPhone || (phone && plan.liveVisible)) {
         // 本次渲染唯一一次几何读取：推迟到下一帧，全部读完才写。
         nextFrame(ctx.doc, () => {
             if (states.get(root) !== state || state.pageKey !== plan.pageKey) return;
+            holdFocusText(state);
             const stage = measureStage(layers.motion);
             if (!stage) return;
             const top = entryShown || reviewShown || notifyShown ? entryTop(root, layers.motion, stage.stageH) : 0;
             state.liveStage = stage;
             if (phone) fitLiveControls(front, fitLivePhone(host, stage));
+            fitLiveSwitch(front, stage);
             if (feedPhone) fitFeedPhone(host, stage);
             if (stormPhone) fitStorm(host, stage, phoneGeometry(stage, ctx.look.model, ctx.look.size));
+            watchPhoneStage(state, ctx, layers.motion, refit, Boolean(phone || feedPhone || stormPhone));
             if (entryShown) placeAudienceEntry(front, top);
             if (reviewShown) placeFeedEntry(front, top);
             if (notifyShown) placeNotifyEntry(front, top, (entryShown ? 1 : 0) + (reviewShown ? 1 : 0));
@@ -468,13 +507,49 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     return { live: Boolean(phone), audience: plan.audience.length, inner: Boolean(plan.inner) };
 }
 
-function setLivePhoneFlag(root, on) {
+// 手机形态的直播亮着：舞台立绘收起；同时记下主播名，头顶小字和漫画泡据此不再压在手机画面上。
+function setLivePhoneFlag(root, on, hostName = '') {
     setStageCovered(root, on);
+    if (!root) return;
+    if (on && hostName && typeof root.setAttribute === 'function') root.setAttribute(LIVE_HOST_ATTR, String(hostName));
+    else if (typeof root.removeAttribute === 'function') root.removeAttribute(LIVE_HOST_ATTR);
+}
+
+// 手机在场时观察舞台和对话框（对话框高度自适应、显隐都会让可见区变化），变化合并到下一帧重算一次；手机离场即断开。
+function unwatchPhoneStage(state) {
+    const watch = state && state.stageWatch;
+    if (!watch) return;
+    state.stageWatch = null;
+    try { watch.observer.disconnect(); } catch (error) { /* best-effort */ }
+}
+
+function watchPhoneStage(state, ctx, motion, refit, active) {
+    if (!active) { unwatchPhoneStage(state); return; }
+    const view = ctx.doc && ctx.doc.defaultView;
+    if (!view || typeof view.ResizeObserver !== 'function') return;
+    const dialog = motion.querySelector('#igs-dialog-layer .igs-dialog');
+    const prev = state.stageWatch;
+    if (prev && prev.motion === motion && prev.dialog === dialog) { prev.refit = refit; return; }
+    unwatchPhoneStage(state);
+    const watch = { motion, dialog, refit, pending: false, observer: null };
+    watch.observer = new view.ResizeObserver(() => {
+        if (watch.pending || state.stageWatch !== watch) return;
+        watch.pending = true;
+        nextFrame(ctx.doc, () => {
+            watch.pending = false;
+            if (state.stageWatch === watch) watch.refit();
+        });
+    });
+    watch.observer.observe(motion);
+    if (dialog) watch.observer.observe(dialog);
+    state.stageWatch = watch;
 }
 
 export function cancelDanmaku(root) {
     setLivePhoneFlag(root, false);
     const state = root && states.get(root);
+    unwatchPhoneStage(state);
+    if (state) exitFocus(state, root);
     const layers = root ? findFxLayers(root) : null;
     const host = layers && layers.stage ? layers.stage.querySelector('.igs-dm-root') : null;
     const front = layers && layers.front ? layers.front.querySelector('.igs-dm-front') : null;

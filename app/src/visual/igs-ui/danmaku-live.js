@@ -112,7 +112,9 @@ function buildPhone(doc, live, now, layout) {
     const viewersText = el(doc, 'span', '', '0');
     viewers.appendChild(viewersText);
     const close = icon(doc, 'close', 'igs-live-icon igs-live-close');
-    tools.append(viewers, close);
+    const viewBtn = layout === 'phone' ? viewSwitchButton(doc, live.view, 'igs-live-icon igs-live-view') : null;
+    if (viewBtn) tools.append(viewers, viewBtn, close);
+    else tools.append(viewers, close);
     top.append(anchor, tools);
     // 全屏形态对齐 B 站竖屏直播间：前三名榜单、热门/人气榜胶囊、「N 人正在看」与右下角榜单名次卡。
     let watchingText = null;
@@ -161,7 +163,7 @@ function buildPhone(doc, live, now, layout) {
     if (status) phone.append(screen, status);
     else phone.append(screen);
     phone.append(top, ...extras, title, sc, gifts, guard, list, fly, hearts, bar);
-    return { root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, clockEl, sc, gifts, guard, list, fly, hearts };
+    return { root, phone, status, cover, portrait, initial, cg, avatar, popText, viewersText, watchingText, close, viewBtn, clockEl, sc, gifts, guard, list, fly, hearts };
 }
 
 function later(state, fn, ms) {
@@ -410,15 +412,25 @@ export function syncLivePhone(host, live, ctx) {
         arm(state, 400);
         // 右上角关闭：本场直播先收起手机回舞台，换一场直播（主播 / 标题 / 视角变了）再弹出。
         const own = state;
+        if (els.viewBtn) {
+            els.viewBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                if (typeof own.onPickView === 'function') own.onPickView(otherLiveView(own.view));
+            });
+        }
         els.close.addEventListener('click', (event) => {
             event.stopPropagation();
             own.dismissed = true;
             own.visible = false;
             own.els.root.hidden = true;
+            // 立刻重算：舞台立绘回来、互动壳与视角切换一并收掉。
+            if (typeof own.onDismiss === 'function') own.onDismiss();
         });
     }
     state.schedule = ctx.schedule;
     state.clear = ctx.clear;
+    state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
+    state.onPickView = typeof ctx.onPickView === 'function' ? ctx.onPickView : null;
     state.reduced = ctx.reduced === true;
     // 减少动态效果时横飞退回翻滚列表；both 时左下翻滚与横飞并存。
     const chat = state.reduced ? 'roll' : (ctx.chat === 'fly' || ctx.chat === 'both' ? ctx.chat : 'roll');
@@ -606,18 +618,29 @@ function setFlyGeometry(state, w, top, bottom, fontSize) {
     state.els.fly.style.setProperty('--igs-live-fly-font', `${fontSize}px`);
 }
 
-// 手机形态的宽高：放大时占舞台九成高，压在对话框后面的部分记为 under；适应时整台手机停在对话框上沿。社区手机共用。
+// 手机形态的宽高：先保证宽度（占舞台宽 88%），最多允许 38% 的机身沉进对话框；沉进去的部分记为 sink（也叫 under），
+// 样式里用 --igs-phone-sink 把机身淡进对话框暗底、内容区留出同高底边。直播、社区、舆论风暴三种手机共用。
 export function phoneGeometry(stage, model, size) {
-    const floor = Math.min(stage.dialogTop, stage.stageH) - 10;
-    const top = Math.round(Math.max(stage.stageH * 0.03, (stage.topInset || 0) + 6));
-    const room = floor - top;
-    const height = Math.round(Math.min(LIVE_PHONE_MAX_H, stage.stageH - top - 4, size === 'fit'
-        ? Math.max(stage.stageH * 0.45, Math.min(stage.stageH * 0.9, room))
-        : stage.stageH * 0.9));
+    const ratio = LIVE_MODEL_RATIO[model] || LIVE_MODEL_RATIO.full;
+    const top = stage.topInset > 0 ? Math.round(stage.topInset + 8) : Math.round(Math.max(stage.stageH * 0.03, 6));
+    const dialogTop = Math.min(stage.dialogTop, stage.stageH);
+    const visibleH = Math.max(0, dialogTop - top - 8);
+    // 机型 / 大小设置给出的高度上限（适应与放大现在同一个上限，高度由对话框上方的可见区决定）。
+    const cap = Math.min(LIVE_PHONE_MAX_H, stage.stageH - top - 4, stage.stageH * 0.9);
+    const widthDriven = stage.stageW * 0.88 / ratio;
+    const height = Math.round(Math.max(1, Math.min(cap, Math.max(visibleH, Math.min(widthDriven, visibleH / 0.62)))));
     const maxW = stage.stageW * 0.92;
-    const width = Math.round(Math.min(maxW, Math.max(height * (LIVE_MODEL_RATIO[model] || LIVE_MODEL_RATIO.full), Math.min(maxW, LIVE_PHONE_MIN_W))));
-    const under = Math.round(Math.max(0, Math.min(height * 0.5, top + height - floor)));
+    const width = Math.round(Math.min(maxW, Math.max(height * ratio, Math.min(maxW, LIVE_PHONE_MIN_W))));
+    const under = Math.round(Math.max(0, Math.min(height * 0.5, top + height - dialogTop)));
     return { top, height, width, under };
+}
+
+// 沉进对话框的高度写成 --igs-phone-sink；有沉入时才打 data-igs-sunk，样式据此给机身加渐隐遮罩。
+export function setPhoneSink(phone, sink) {
+    const value = Math.max(0, Math.round(sink || 0));
+    phone.style.setProperty('--igs-phone-sink', `${value}px`);
+    if (value > 0) phone.setAttribute('data-igs-sunk', '1');
+    else phone.removeAttribute('data-igs-sunk');
 }
 
 // 手机高度、全屏弹幕区下沿都跟随对话框顶边，保证弹幕不被对话框挡住；由调用方在每页唯一一次几何读取后传入。
@@ -672,22 +695,37 @@ function retire(state, schedule) {
 
 // 视角切换（挂在前层才点得到）：手机顶端灵动岛位置的「主播 / 观众」分段按钮；live 为 null 时移除。
 const switchPicks = new WeakMap();
-const LIVE_SWITCH_VIEWS = Object.freeze([['host', '主播'], ['watch', '观众']]);
 
+// 视角切换按钮：双箭头小图标，没有文字；点一下换到另一个视角（主播 <-> 观众）。
+export function otherLiveView(view) {
+    return view === 'host' ? 'watch' : 'host';
+}
+
+function viewSwitchLabel(view) {
+    return otherLiveView(view) === 'host' ? '切换到主播视角' : '切换到观众视角';
+}
+
+function viewSwitchButton(doc, view, className) {
+    const btn = el(doc, 'button', className);
+    btn.type = 'button';
+    btn.innerHTML = LIVE_ICONS.swap || '';
+    btn.setAttribute('data-view', otherLiveView(view));
+    btn.setAttribute('aria-label', viewSwitchLabel(view));
+    btn.title = viewSwitchLabel(view);
+    return btn;
+}
+
+// 全屏形态没有手机壳：视角切换缩成右上角工具栏下方的一个小图标（手机形态的在顶栏里，见 buildPhone）。
 export function syncLiveSwitch(front, live, opts = {}) {
     let sw = front ? front.querySelector('.igs-live-switch') : null;
-    if (!live) {
+    if (!live || opts.layout !== 'full') {
         if (sw) sw.remove();
         return null;
     }
     if (!sw) {
         sw = el(opts.doc, 'div', 'igs-live-switch');
-        for (const [view, label] of LIVE_SWITCH_VIEWS) {
-            const btn = el(opts.doc, 'button', 'igs-live-switch-btn', label);
-            btn.type = 'button';
-            btn.setAttribute('data-view', view);
-            sw.appendChild(btn);
-        }
+        sw.setAttribute('data-layout', 'full');
+        sw.appendChild(viewSwitchButton(opts.doc, live.view, 'igs-live-switch-btn'));
         // 点按钮不翻页：按下、点击都不冒泡到阅读器。
         for (const type of ['pointerdown', 'mousedown', 'touchstart', 'click']) {
             sw.addEventListener(type, (event) => {
@@ -701,9 +739,20 @@ export function syncLiveSwitch(front, live, opts = {}) {
         front.appendChild(sw);
     }
     switchPicks.set(sw, opts.onPick);
-    sw.setAttribute('data-layout', opts.layout === 'full' ? 'full' : 'phone');
-    for (const btn of Array.from(sw.children)) btn.setAttribute('aria-pressed', btn.getAttribute('data-view') === live.view ? 'true' : 'false');
+    const btn = sw.children[0];
+    if (btn) {
+        btn.setAttribute('data-view', otherLiveView(live.view));
+        btn.setAttribute('aria-label', viewSwitchLabel(live.view));
+        btn.title = viewSwitchLabel(live.view);
+    }
     return sw;
+}
+
+// 小图标贴在工具栏下沿 + 8px（舞台量出的 topInset）。
+export function fitLiveSwitch(front, stage) {
+    const sw = front ? front.querySelector('.igs-live-switch') : null;
+    if (!sw || !stage) return;
+    sw.style.setProperty('--igs-live-view-top', `${Math.round((Number(stage.topInset) || 0) + 8)}px`);
 }
 
 export function pushLiveMessages(host, messages) {

@@ -1,7 +1,7 @@
 import { applyPhoneLook } from './my-phone.js';
-import { buildPhoneStatus, setPhoneStatus } from './danmaku-icons.js';
+import { LIVE_ICONS, buildPhoneStatus, setPhoneStatus } from './danmaku-icons.js';
 import { grownCount } from './phone-sense.js';
-import { formatPopularity, phoneGeometry } from './danmaku-live.js';
+import { formatPopularity, phoneGeometry, setPhoneSink } from './danmaku-live.js';
 import { feedPlatformById, feedStableCount, isOwnPhone, FEED_REPLY_MAX, FEED_VIEW_MAX } from '../../scene/feed-platforms.js';
 import { applyPeekWall, buildPeekOverlay, buildPeekPin, PEEK_BUILDERS, PEEK_DOT_STEP_MS, PEEK_LOCK_MS, peekLookOf } from './peek-phone.js';
 
@@ -19,6 +19,7 @@ const COUNT_CAP = 99999;
 const SEEN_CAP = 240;
 const REVIEW_MAX = 9;
 const AVATAR_COLORS = Object.freeze(['#f2a65a', '#6fb7a8', '#8aa4e0', '#e08aa4', '#a58ae0', '#7fb069', '#d9a441', '#6c9bbf']);
+const LIST_STOP_EVENTS = Object.freeze(['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click', 'dblclick', 'wheel', 'contextmenu']);
 const PHONE_MODELS = Object.freeze(['full', 'notch', 'fold', 'tablet']);
 const RICH_RE = /(#[^#\n]{1,24}#|@[^\s@:：,，]{1,16})/;
 const CONFESS_TAG_RE = /^[#＃]?(捞人|表白|吐槽|树洞|求助|寻物|告白)/;
@@ -527,6 +528,8 @@ function buildRoot(doc, platform, ctx, model, first, peek) {
     root.style.setProperty('--fp-accent', platform.accent);
     root.appendChild(el(doc, 'div', 'igs-live-dim'));
     const list = el(doc, 'div', 'igs-feed-list');
+    // 舞台里的手机挂在 pointer-events:none 的弹幕层下，列表要自己开回 auto 才滑得动；事件不再冒泡，手指在手机上滑不会触到阅读器。
+    if (!paper) for (const name of LIST_STOP_EVENTS) list.addEventListener(name, (event) => event.stopPropagation());
     if (paper) {
         const card = el(doc, 'div', 'igs-feed-paper');
         const head = el(doc, 'div', 'igs-feed-paper-head');
@@ -546,6 +549,16 @@ function buildRoot(doc, platform, ctx, model, first, peek) {
     head.append(icon(doc, 'back'), app);
     if (platform.id === 'tieba') head.appendChild(el(doc, 'span', 'igs-feed-follow', '关注'));
     else head.appendChild(icon(doc, 'more'));
+    // 与直播右上角同款的收起按钮（回看里已有自己的关闭，不再放）。
+    let close = null;
+    if (ctx.review !== true) {
+        close = el(doc, 'button', 'igs-feed-close');
+        close.type = 'button';
+        close.setAttribute('aria-label', '收起');
+        close.title = '收起';
+        close.innerHTML = LIVE_ICONS.close;
+        head.appendChild(close);
+    }
     screen.appendChild(head);
     const subBuild = SUB_BUILDERS[platform.id];
     const sub = subBuild ? subBuild(doc) : null;
@@ -571,7 +584,7 @@ function buildRoot(doc, platform, ctx, model, first, peek) {
     root.appendChild(phone);
     const fromExtra = TITLE_FROM_EXTRA.includes(platform.id);
     return {
-        root, list, phone,
+        root, list, phone, close,
         update(posts, ctx) {
             if (ctx.status) {
                 setPhoneStatus(statusBar, ctx.status);
@@ -620,7 +633,18 @@ export function syncFeedPhone(host, feed, ctx) {
         state = { key, platform, owner, els, posts: new Map(), model, size: 'large', fit: null, max: -1, doc };
         host.appendChild(els.root);
         feeds.set(host, state);
+        // 收起：本平台区间的手机先退回回看入口，换平台（或换主人）再弹出；同一区间重绘不会重新弹出。
+        if (els.close) {
+            const own = state;
+            els.close.addEventListener('click', (event) => {
+                event.stopPropagation();
+                own.dismissed = true;
+                own.els.root.hidden = true;
+                if (typeof own.onDismiss === 'function') own.onDismiss();
+            });
+        }
     }
+    state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
     state.size = look.size === 'fit' ? 'fit' : 'large';
     state.model = model;
     if (state.els.phone) applyPhoneLook(state.els.root, { ...look, model });
@@ -669,7 +693,7 @@ export function syncFeedPhone(host, feed, ctx) {
     } finally {
         know = null;
     }
-    return state;
+    return state.dismissed ? null : state;
 }
 
 // 由调用方在每页唯一一次几何读取后传入；手机宽高沿用直播手机，纸面只限制最大高度（停在对话框上方）。
@@ -694,6 +718,7 @@ export function fitFeedPhone(host, stage) {
     phone.style.setProperty('--igs-live-h', `${geo.height}px`);
     phone.style.setProperty('--igs-live-top', `${geo.top}px`);
     phone.style.setProperty('--igs-live-w', `${geo.width}px`);
+    setPhoneSink(phone, geo.under);
     return fit;
 }
 

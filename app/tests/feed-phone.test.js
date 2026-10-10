@@ -523,3 +523,38 @@ test('gate:feed:review-keeps-every-post-of-the-run-and-storm-takes-over', () => 
     cancelDanmaku(root);
     assert.equal(motion.querySelector('.igs-storm-stage'), null);
 });
+
+test('gate:feed:phone-geometry-sinks-at-most-38-percent-and-keeps-width', () => {
+    // 对话框占下半截：宽度优先，机身最多沉进 38%。
+    const a = phoneGeometry({ stageW: 390, stageH: 760, dialogTop: 470, topInset: 40 }, 'full', 'fit');
+    assert.equal(a.top, 48);
+    assert.ok(a.width >= 390 * 0.88 * 0.9 || a.height <= 760 * 0.9);
+    assert.ok(a.under <= a.height * 0.38 + 1);
+    assert.equal(a.under, Math.round(Math.max(0, a.top + a.height - 470)));
+    assert.ok(a.height >= 470 - 48 - 8);
+    // 对话框隐藏（dialogTop = 舞台底边）：不下沉。
+    const b = phoneGeometry({ stageW: 390, stageH: 760, dialogTop: 760, topInset: 0 }, 'full', 'fit');
+    assert.equal(b.under, 0);
+    // 横屏宽舞台：被 820 / 九成高上限卡住，不会撑爆。
+    const c = phoneGeometry({ stageW: 1920, stageH: 900, dialogTop: 700, topInset: 0 }, 'full', 'fit');
+    assert.ok(c.height <= 810 && c.height <= 900 - c.top - 4);
+});
+
+test('gate:feed:close-button-dismisses-phone-until-platform-changes', async () => {
+    const { syncFeedPhone } = await import('../src/visual/igs-ui/feed-phone.js');
+    const { root, motion } = makeRoot();
+    void motion;
+    const host = root.ownerDocument.createElement('div');
+    root.appendChild(host);
+    const doc = root.ownerDocument;
+    const ctx = { doc, reduced: true, schedule: () => 1, now: () => 0, look: {}, status: null, messageId: 1, userName: '', firstSeen: new Map(), avatarOf: () => '' };
+    const feed = { platform: 'weibo', owner: '', posts: [{ author: '甲', text: '一二三', extra: '' }] };
+    let dismissed = 0;
+    const state = syncFeedPhone(host, feed, { ...ctx, onDismiss: () => { dismissed += 1; } });
+    assert.ok(state && state.els.close);
+    state.els.close.listeners.click[0]({ stopPropagation() {} });
+    assert.equal(dismissed, 1);
+    assert.equal(syncFeedPhone(host, feed, ctx), null);
+    const other = syncFeedPhone(host, { ...feed, platform: 'tieba' }, ctx);
+    assert.ok(other && other !== state);
+});

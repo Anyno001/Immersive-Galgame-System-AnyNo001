@@ -12,11 +12,19 @@ const PAUSED = `#${OVERLAY_ID}[${STAGE_PAUSED_ATTR}] :is(${STAGE_LAYERS})`;
 
 // 背景被整块盖住（如直播手机亮着）：只停手机背后的背景、立绘、天气与时段层，演出层（直播手机本身）与自动翻页照常。
 export const STAGE_COVERED_ATTR = 'data-igs-stage-covered';
+export const LIVE_HOST_ATTR = 'data-igs-live-host';
 const BACKDROP_LAYERS = '#igs-bg-blur,#igs-bg,#igs-sprite,#igs-cast,#igs-effect-layer,.igs-dfx-sky,.igs-grade-layer,.igs-rm-back,.igs-sd-ghost';
 const COVERED = `#${OVERLAY_ID}[${STAGE_COVERED_ATTR}] :is(${BACKDROP_LAYERS})`;
 
 export const STAGE_PAUSE_STYLE_TEXT = `${[PAUSED, `${PAUSED}::before`, `${PAUSED}::after`, `${PAUSED} *`, `${PAUSED} *::before`, `${PAUSED} *::after`].join(',')}{animation-play-state:paused!important;}`
     + `${[COVERED, `${COVERED}::before`, `${COVERED}::after`, `${COVERED} *`, `${COVERED} *::before`, `${COVERED} *::after`].join(',')}{animation-play-state:paused!important;}`;
+
+// 直播手机盖住舞台、且这个角色就是主播时：立绘已收起，他的头顶小字和漫画泡不再画（台词已在手机评论里）。
+export function isLiveHostCovered(target, character) {
+    const overlay = overlayOf(target) || target;
+    if (!overlay || typeof overlay.getAttribute !== 'function' || !character) return false;
+    return overlay.getAttribute(STAGE_COVERED_ATTR) === '1' && overlay.getAttribute(LIVE_HOST_ATTR) === String(character);
+}
 
 function overlayOf(target) {
     if (!target) return null;

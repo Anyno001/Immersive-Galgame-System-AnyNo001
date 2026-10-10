@@ -136,6 +136,22 @@ export function cancelTypewriter(target, { finish = true } = {}) {
     return true;
 }
 
+// 手机焦点期间文字被对话框遮住：暂停揭示和打字音，退出后接着放（打字音只停不补）。
+export function pauseTypewriter(target) {
+    const job = target && activeJobs.get(target);
+    if (!job || !job.animation || typeof job.animation.pause !== 'function') return false;
+    job.animation.pause();
+    job.audio?.stop?.();
+    return true;
+}
+
+export function resumeTypewriter(target) {
+    const job = target && activeJobs.get(target);
+    if (!job || !job.animation || typeof job.animation.play !== 'function') return false;
+    job.animation.play();
+    return true;
+}
+
 function settleVisualJob(target, job) {
     if (activeJobs.get(target) !== job) return;
     activeJobs.delete(target);
