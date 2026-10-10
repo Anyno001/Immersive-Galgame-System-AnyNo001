@@ -1,7 +1,8 @@
 import { floorHasEventCg } from '../../scene/event-cg.js';
 import { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex, appendedTail, reattachTail, transplantMarkers } from './marker-placer.js';
 import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
-import { buildPlannerUserPrompt } from './planner-prompt.js';
+import { buildPlannerUserPrompt, formatTodayOutfitBlock } from './planner-prompt.js';
+import { summarizeFloorOutfits } from './floor-outfit-reference.js';
 import { requestWithSoftRetry, DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
 import { parseIllustrationPlan } from './planner-parser.js';
 import { normalizeAutoIllustrationSettings } from './auto-illustration-settings.js';
@@ -128,7 +129,8 @@ export function summarizeCharacterDna(characters, sceneAssets) {
     return out;
 }
 
-// CG 顺序：triggerWords → identity → 规划得到的当前外观/动作；defaultAppearance 只交给 planner，不在这里追加。
+// CG 顺序：triggerWords → identity → 规划得到的当前外观/动作。
+// defaultAppearance 和今天的穿着都只交给写词那一步作参考，不在这里追加，避免正文已经换了衣服还被钉死。
 // 具名 char 直接绑定；旧格式无名 char 只在「本张单人且上下文只有一个角色」时绑定，否则不注入并给出 warning。
 export function bindCharacterDnaToSlots(slots, sceneAssets, contextCharacters = []) {
     const resolver = createDnaResolver(sceneAssets);
@@ -268,8 +270,14 @@ export function createAutoIllustrationService(deps) {
         try { regexesEnsured = (await messageHost.ensureMarkerRegexes()).ok === true; } catch (error) { regexesEnsured = false; }
     }
 
+    function todayOutfits(messageId, floorText, characters) {
+        const previousTexts = typeof messageHost.readPreviousAiTexts === 'function'
+            ? messageHost.readPreviousAiTexts(messageId, 3) : [];
+        return summarizeFloorOutfits(characters, readSceneAssets(), { floorText, previousTexts });
+    }
+
     // 数据库生图：只调插件的写词接口和出图接口。生成点按本插件的插图标记写回正文。
-    async function planDbgenCg(messageId, floor, key, s, expected, decision, base, characters = []) {
+    async function planDbgenCg(messageId, floor, key, s, expected, decision, base, characters = [], outfits = []) {
         report('info', `第 ${messageId} 楼向数据库生图插件要 ${decision.want} 张 CG…`);
         progress(floor, { phase: 'write' });
         await store.putFloor(key, { ...base, status: 'planning', updatedAt: now() });
@@ -287,6 +295,7 @@ export function createAutoIllustrationService(deps) {
                 description: [
                     `为本楼生成${decision.want}张CG，CG点自行选择。slotid从1开始数。挂载点只从剧情正文里逐字摘原句，提示词、出图指导、标签和正文以外的内容不要拿来当挂载点，也不要画进CG。`,
                     cgFramePrompt(cgSize(s)),
+                    formatTodayOutfitBlock(outfits),
                 ].filter(Boolean).join('\n'),
             });
         } catch (error) {
@@ -470,7 +479,8 @@ export function createAutoIllustrationService(deps) {
             report('error', `第 ${messageId} 楼插图未开始：${backend.ready.error}`);
             return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
         }
-        if (backend.via === 'dbgen') return planDbgenCg(messageId, floor, key, s, expected, decision, base, numbered.characters);
+        const outfits = todayOutfits(messageId, floor.text, numbered.characters);
+        if (backend.via === 'dbgen') return planDbgenCg(messageId, floor, key, s, expected, decision, base, numbered.characters, outfits);
         report('info', `第 ${messageId} 楼开始规划插图（${decision.kind === 'nsfw' ? 'NSFW' : '过场'}），正在请求副 LLM…`);
         progress(floor, { phase: 'write' });
         await store.putFloor(key, { ...base, status: 'planning', updatedAt: now() });
@@ -483,6 +493,7 @@ export function createAutoIllustrationService(deps) {
                 scenes: numbered.scenes, characters: numbered.characters,
                 previousText, want: decision.want, exact: decision.exact, isNsfw: numbered.isNsfw,
                 characterDna: summarizeCharacterDna(numbered.characters, readSceneAssets()),
+                outfits,
                 frame: cgFramePrompt(cgSize(s)),
             });
             plan = await requestWithSoftRetry(llm, {

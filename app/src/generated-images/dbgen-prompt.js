@@ -387,8 +387,8 @@ export function applyMoodToCaption(caption, mood, { nsfw = false } = {}) {
     return prependCharTags(caption, tags, (tag) => !NEUTRAL_FACE_TAGS.has(tagKey(tag)));
 }
 
-// 衣服跟着同一份来源走，不靠写词插件每份重写：换装有服装词就用服装词；
-// 原装或这套有自己的立绘时，用那张立绘的提示词去掉表情、姿势后剩下的长相和衣服。
+// 服装提示词只发给写词，不拼进最终出图词。
+// 原装或这套有自己的立绘、又没有服装提示词时，用那张立绘的提示词去掉表情、姿势后剩下的长相和衣服。
 const LOOK_SKIP_TAGS = new Set(['solo', 'cowboy shot', 'facing viewer', 'straight-on', 'centered', 'transparent background', 'simple background', 'grey background', 'light grey background', 'flat color background', 'no background'].map(tagKey));
 
 function storedCharTags(prompt) {
@@ -404,8 +404,7 @@ function storedCharTags(prompt) {
 export function expressionLookTags(basePrompt, outfit) {
     const clothes = outfit && typeof outfit === 'object' ? outfit : null;
     const clothesPrompt = clothes ? String(clothes.prompt || '').trim() : '';
-    if (clothesPrompt) return dnaEnglishTags(clothesPrompt).join(', ');
-    if (clothes && !clothes.ownImage) return '';
+    if (clothesPrompt || (clothes && !clothes.ownImage)) return '';
     return splitTags(storedCharTags(basePrompt))
         .filter((tag) => !isExpressionPoseTag(tag) && !LOOK_SKIP_TAGS.has(tagKey(tag)))
         .join(', ');

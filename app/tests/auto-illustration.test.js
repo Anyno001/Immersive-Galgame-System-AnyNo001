@@ -274,6 +274,90 @@ test('gate:illustration:planner-prompt-count-wording', async () => {
     assert.ok(buildPlannerUserPrompt({ want: 3, exact: false }).includes('1 到 3 张'));
 });
 
+test('gate:illustration:cg-planner-includes-today-outfit-as-reference', async () => {
+    const { summarizeFloorOutfits } = await import('../src/generated-images/illustration/floor-outfit-reference.js');
+    const { buildPlannerUserPrompt } = await import('../src/generated-images/illustration/planner-prompt.js');
+    const { bindCharacterDnaToSlots } = await import('../src/generated-images/illustration/auto-illustration-service.js');
+    const sceneAssets = {
+        characters: { 爱丽丝: {} },
+        characterAliases: { 爱丽丝: ['爱丽'] },
+        characterOutfits: {
+            爱丽丝: {
+                校服: { words: [], moods: {}, wardrobe: '夏日校服' },
+                睡衣: { words: [], moods: {} },
+            },
+        },
+        wardrobe: {
+            夏日校服: { prompt: 'white shirt, blue pleated skirt' },
+            睡衣: { prompt: 'nightgown' },
+        },
+    };
+    const worn = summarizeFloorOutfits(['爱丽'], sceneAssets, {
+        floorText: '[igs-scene:教室|白天|晴]\n[igs-char:爱丽|微笑|校服|早啊]\n她走进教室。',
+        previousTexts: ['[igs-char:爱丽|平静|睡衣|昨晚]'],
+    });
+    assert.equal(worn.length, 1);
+    assert.equal(worn[0].name, '爱丽丝');
+    assert.equal(worn[0].segments.length, 1);
+    assert.equal(worn[0].segments[0].outfit, '校服');
+    assert.equal(worn[0].segments[0].prompt, 'white shirt, blue pleated skirt');
+
+    const prompt = buildPlannerUserPrompt({
+        numberedText: '1. 早啊', scenes: [], characters: ['爱丽'], want: 1, exact: false,
+        characterDna: [{ name: '爱丽丝', identity: 'silver hair', defaultAppearance: 'school uniform' }],
+        outfits: worn,
+    });
+    assert.ok(prompt.includes('【今天的穿着】'));
+    assert.ok(prompt.includes('不是必须画成这样'));
+    assert.ok(prompt.includes('今天穿着「校服」'));
+    assert.ok(prompt.includes('提示词：white shirt, blue pleated skirt'));
+    assert.ok(prompt.includes('写了【今天的穿着】的角色按那一套'));
+    assert.ok(prompt.includes('正文写了变化都按正文'));
+
+    const inherited = summarizeFloorOutfits(['爱丽'], sceneAssets, {
+        floorText: '[igs-char:爱丽|微笑|早啊]',
+        previousTexts: ['[igs-char:爱丽|平静|睡衣|昨晚]'],
+    });
+    assert.equal(inherited[0].segments[0].outfit, '睡衣');
+    assert.equal(inherited[0].segments[0].prompt, 'nightgown');
+
+    const changed = summarizeFloorOutfits(['爱丽'], sceneAssets, {
+        floorText: '[igs-char:爱丽|微笑|校服|早]\n她走着。\n[igs-char:爱丽|害羞|睡衣|换好了]',
+        previousTexts: [],
+    });
+    assert.deepEqual(changed[0].segments.map((segment) => segment.outfit), ['校服', '睡衣']);
+    assert.ok(changed[0].segments[1].from > 1);
+    const changedPrompt = buildPlannerUserPrompt({ numberedText: '1. 早', want: 1, exact: false, outfits: changed });
+    assert.ok(changedPrompt.includes('从第'));
+    assert.ok(changedPrompt.includes('换成「睡衣」'));
+    assert.ok(changedPrompt.includes('nightgown'));
+
+    const bound = bindCharacterDnaToSlots(
+        [{ slot: 1, chars: [{ name: '爱丽', tags: 'smile', uc: '' }] }],
+        { ...sceneAssets, characterDna: { 爱丽丝: { identity: 'silver hair', defaultAppearance: 'school uniform' } } },
+        ['爱丽'],
+    );
+    assert.equal(bound.slots[0].chars[0].tags.includes('white shirt'), false);
+    assert.equal(bound.slots[0].chars[0].tags.includes('school uniform'), false);
+
+    const beachOnly = {
+        ...sceneAssets,
+        characterOutfits: { 爱丽丝: { 泳衣: { words: [], moods: {}, scenes: ['海边'] } } },
+        wardrobe: { 泳衣: { prompt: 'swimsuit' } },
+    };
+    const dropped = summarizeFloorOutfits(['爱丽'], beachOnly, {
+        floorText: '[igs-scene:教室|白天|晴]\n[igs-char:爱丽|微笑|早啊]',
+        previousTexts: ['[igs-char:爱丽|开心|泳衣|海边见]'],
+    });
+    assert.equal(dropped.length, 0);
+    const kept = summarizeFloorOutfits(['爱丽'], beachOnly, {
+        floorText: '[igs-scene:教室|白天|晴]\n[igs-char:爱丽|微笑|泳衣|就穿这个]',
+        previousTexts: [],
+    });
+    assert.equal(kept[0].segments[0].outfit, '泳衣');
+    assert.equal(kept[0].segments[0].prompt, 'swimsuit');
+});
+
 test('gate:illustration:memory-store-roundtrip', async () => {
     const { floorKeyOf, slotKeyOf, createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
     const store = createMemoryIllustrationStore();

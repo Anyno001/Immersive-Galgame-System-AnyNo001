@@ -8,7 +8,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
-import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, nsfwClothingBoostLine, applyCharacterDnaToCaption, applyLookToCaption, applyMoodToCaption, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
+import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, nsfwClothingBoostLine, applyCharacterDnaToCaption, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { normalizeStoredPrompt, promptFromCaption } from '../generation-prompt.js';
 import { promptTimeBucket, sceneVariantCaption, sceneVariantTags } from '../scene-variant-tags.js';
 import { sceneTimeBucket } from '../../scene/time-bucket.js';
@@ -560,7 +560,7 @@ export function createAssetGenerationService(deps) {
                 } else {
                     try {
                         result = await nai.generateDbgenCaption({
-                            caption: applyCharacterDnaToCaption(caption, item.need && item.need.dna),
+                            caption: uprightSpriteCaption(caption) || caption,
                             size: s.auto.assets.spriteSize,
                             imageKind: 'sprite',
                             messageId: floor.messageId,
@@ -829,9 +829,10 @@ export function createAssetGenerationService(deps) {
         };
     }
 
-    // 标签顺序：DNA → 表情 → 衣服与长相 → 写词结果。exact：用户改过的词原样出图，不硬合，新图继续记为「改过」。
-    async function paintExpressionCaption(name, mood, caption, dna, { look = '', seed, nsfw = false, exact = false } = {}) {
-        const upright = exact ? caption : (uprightSpriteCaption(applyCharacterDnaToCaption(applyMoodToCaption(applyLookToCaption(caption, look), mood, { nsfw }), dna)) || caption);
+    // 出图前只补约束：大腿以上、正面、直立。情绪、DNA、服装提示词只发给写词。
+    // exact：用户改过的词原样出图，约束也不再盖上去。新图继续记为「改过」。
+    async function paintExpressionCaption(name, mood, caption, _dna, { seed, exact = false } = {}) {
+        const upright = exact ? caption : (uprightSpriteCaption(caption) || caption);
         const meta = { ...expressionPaintMeta(), promptKind: mood === '默认' ? 'sprite' : 'expression' };
         let painted;
         try {
@@ -873,12 +874,7 @@ export function createAssetGenerationService(deps) {
         if (!nai || typeof nai.writeDbgenPrompt !== 'function' || typeof nai.generateDbgenCaption !== 'function') {
             return { ok: false, error: '当前图像来源不能写表情差分' };
         }
-        const paint = {
-            look: expressionLookTags(basePrompt, outfit),
-            seed: randomSeed(),
-            nsfw: nsfw === true,
-        };
-        const paintDna = expressionPaintDna(dna, outfit);
+        const paint = { seed: randomSeed() };
         const stopped = () => Boolean(signal && signal.aborted);
         const items = [];
         let painted = 0;
@@ -897,7 +893,7 @@ export function createAssetGenerationService(deps) {
                 let written;
                 try {
                     written = await nai.writeDbgenPrompt({
-                        description: buildExpressionDiffDescription(name, basePrompt, pending, dna, outfit, { note, nsfw: paint.nsfw, transparent: readSettings().dbgenSpriteTransparent !== false }),
+                        description: buildExpressionDiffDescription(name, basePrompt, pending, dna, outfit, { note, nsfw: nsfw === true, transparent: readSettings().dbgenSpriteTransparent !== false }),
                     });
                 } catch (error) {
                     const message = (error && error.message) || '写提示词失败';
@@ -935,7 +931,7 @@ export function createAssetGenerationService(deps) {
                     // 漏写的那份第二轮补画才算一张，不然补写后 done 会超过 total（14/9）。
                     painted += 1;
                     reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: pending[i] });
-                    const result = await paintExpressionCaption(name, pending[i], caption, paintDna, paint);
+                    const result = await paintExpressionCaption(name, pending[i], caption, dna, paint);
                     items.push(result);
                 }
                 pending = round === 0 ? missing : [];
@@ -949,8 +945,7 @@ export function createAssetGenerationService(deps) {
         const list = (Array.isArray(items) ? items : []).filter((item) => item && item.mood && item.caption);
         if (!list.length) return { ok: false, error: '没有写好词、还没出图的表情' };
         if (!nai || typeof nai.generateDbgenCaption !== 'function') return { ok: false, error: '当前图像来源不能出图' };
-        const paint = { look: expressionLookTags(basePrompt, outfit), seed: randomSeed(), nsfw: nsfw === true };
-        const paintDna = expressionPaintDna(dna, outfit);
+        const paint = { seed: randomSeed() };
         const stopped = () => Boolean(signal && signal.aborted);
         const results = [];
         for (let i = 0; i < list.length; i += 1) {
@@ -960,7 +955,7 @@ export function createAssetGenerationService(deps) {
                 continue;
             }
             reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: list.length, mood });
-            results.push(await paintExpressionCaption(name, mood, caption, paintDna, paint));
+            results.push(await paintExpressionCaption(name, mood, caption, dna, paint));
         }
         return { ok: true, items: results, stopped: stopped() };
     }
@@ -972,8 +967,7 @@ export function createAssetGenerationService(deps) {
         if (!label) return { ok: false, error: '没有表情' };
         if (caption) {
             reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: label });
-            const look = expressionLookTags(basePrompt, outfit);
-            const item = await paintExpressionCaption(name, label, caption, expressionPaintDna(dna, outfit), { look, seed: randomSeed(), nsfw: nsfw === true, exact: exact === true });
+            const item = await paintExpressionCaption(name, label, caption, dna, { seed: randomSeed(), exact: exact === true });
             return { ok: true, items: [item] };
         }
         return generateExpressionSet({ name, basePrompt, moods: [label], dna, outfit, note, nsfw, onProgress });
