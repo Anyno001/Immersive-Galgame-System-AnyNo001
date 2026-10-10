@@ -48,9 +48,10 @@ export const SCIFI_DIALOG_STYLE = [
     }),
     // ::before 是投影基座：一道干净的亮线；::after 是光束里的十字定位点、扫描线与一条缓慢上扫的亮带。
     scalePx(`${scope}::before{content:"";position:absolute;left:6%;right:6%;bottom:0;height:2px;border-radius:1px;background:${SCIFI_EMITTER()};box-shadow:0 0 12px ${holo('.55')};pointer-events:none;}`),
-    scalePx(`${scope}::after{content:"";position:absolute;left:10%;right:10%;top:0;bottom:2px;z-index:-1;background:linear-gradient(0deg,${holo(0)},${holo('.16')} 48%,${holo(0)} 52%) 0 120%/100% 260% no-repeat,${PLUS_GRID},${PLUS_GRID.replace('center bottom', 'center calc(100% - 44px)')},${SCAN};-webkit-mask:radial-gradient(ellipse 62% 125% at 50% 100%,#000 25%,transparent 78%);mask:radial-gradient(ellipse 62% 125% at 50% 100%,#000 25%,transparent 78%);pointer-events:none;animation:igs-holo-sweep 6.5s linear infinite;}`),
+    scalePx(`${scope}::after{content:"";position:absolute;left:10%;right:10%;top:0;bottom:2px;z-index:-1;background:linear-gradient(0deg,${holo(0)},${holo('.16')} 48%,${holo(0)} 52%) 0 120%/100% 260% no-repeat,${PLUS_GRID},${PLUS_GRID.replace('center bottom', 'center calc(100% - 44px)')},${SCAN};-webkit-mask:radial-gradient(ellipse 62% 125% at 50% 100%,#000 25%,transparent 78%);mask:radial-gradient(ellipse 62% 125% at 50% 100%,#000 25%,transparent 78%);pointer-events:none;animation:igs-holo-sweep 6.5s steps(130,end) infinite;}`),
     `${scope} .igs-text{animation:igs-holo-flicker 9s steps(1,end) infinite;}`,
     `${scope} .igs-speaker::after{content:"";position:absolute;left:2px;top:50%;width:12px;height:12px;margin-top:-7px;background:${holo(1)};-webkit-mask:${SCIFI_RETICLE_MASK} center/contain no-repeat;mask:${SCIFI_RETICLE_MASK} center/contain no-repeat;filter:drop-shadow(0 0 3px ${holo('.8')});}`,
+    // 亮带在遮罩里靠背景位移上扫，每变一次都要重绘整层；分 130 步约每秒 20 次，带子又淡又软看不出跳，重绘少三分之二。
     '@keyframes igs-holo-sweep{0%{background-position:0 120%,center bottom,center calc(100% - 44px),0 0;}100%{background-position:0 -160%,center bottom,center calc(100% - 44px),0 0;}}',
     // 很少出现的一下失真：正文微微横移、色散拉开，随即复原。
     `@keyframes igs-holo-flicker{0%,93%,100%{opacity:1;transform:none;}94%{opacity:.72;transform:translateX(1.5px);text-shadow:-1.6px 0 0 rgba(255,96,170,.45),1.6px 0 0 ${holo('.6')},0 0 8px ${holo('.45')};}95%{opacity:1;transform:translateX(-1px);}}`,

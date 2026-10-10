@@ -80,6 +80,9 @@ export function createItemLedger({ storage, now = () => Date.now() } = {}) {
     function sync(chatId, catalog, floor) {
         if (!chatId || !floor || !Number.isInteger(floor.messageId)) return { changed: false };
         const chat = chatOf(chatId, true);
+        // 账本键在设置文件同步名单里：每写一次都会整份设置重新序列化上传，内容没变就不写。
+        const { updatedAt: _u, ...beforeChat } = chat;
+        const before0 = JSON.stringify(beforeChat);
         const list = (Array.isArray(catalog) ? catalog : []).filter((item) => item && normalizeItemName(item.name));
         const current = Array.from(new Set(list.map((item) => normalizeItemName(item.name))));
         const byKey = new Map(list.map((item) => [normalizeItemName(item.name), item]));
@@ -115,7 +118,8 @@ export function createItemLedger({ storage, now = () => Date.now() } = {}) {
         const keys = Object.keys(chat.events);
         if (keys.length > FLOOR_EVENT_MAX) for (const key of keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10)).slice(0, keys.length - FLOOR_EVENT_MAX)) delete chat.events[key];
         chat.present = current;
-        save();
+        const { updatedAt: _u2, ...afterChat } = chat;
+        if (JSON.stringify(afterChat) !== before0) save();
         return { changed: JSON.stringify(events) !== previous, events };
     }
 

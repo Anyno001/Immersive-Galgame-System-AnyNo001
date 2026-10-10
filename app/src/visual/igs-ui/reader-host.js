@@ -280,9 +280,21 @@ import {
 
 const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 
+// 翻页时设置没变就复用上次整理好的阅读器设置：每次整份深拷贝再跑几十项整理，是翻页最大的一块 JS 开销。
+// 存储配置是共享只读的，改设置会换新引用，按引用判断即可。返回浅拷贝：调用方只改顶层字段，下层对象只读。
+let normalizedReaderMemo = null;
+function normalizeReaderSettingsCached(settings, legacyTheme) {
+    const memo = normalizedReaderMemo;
+    if (memo && settings && memo.settings === settings && memo.legacyTheme === legacyTheme) return { ...memo.value };
+    const value = normalizeReaderSettings(settings, legacyTheme);
+    normalizedReaderMemo = settings && typeof settings === 'object' ? { settings, legacyTheme, value } : null;
+    return { ...value };
+}
+
 export function createIgsReaderHost(options = {}) {
     let statusHudClient = null;
     let statusHudCallback = null;
+    let statusHudTimer = 0;
     // 翻旧楼补插图：每楼每次刷新页面只试一次，同一时间只画一楼。
     const backfillTried = new Set();
     let backfillBusy = false;
@@ -364,7 +376,8 @@ export function createIgsReaderHost(options = {}) {
     });
     // 物品图到达后重绘阅读器：演出占位与背包格位据此替换为生图。
     const offItemImageUpdatedRaw = typeof options.onItemImageUpdated === 'function'
-        ? options.onItemImageUpdated(() => { if (state.activeReader) rerenderActiveReader(); })
+        // 物品图可能一批连着到，和生图一样按窗口合并成一次重绘。
+        ? options.onItemImageUpdated(() => { if (state.activeReader) scheduleImageRefresh({ reader: true }); })
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
     // 下面几项被 return host 之后的函数引用，必须声明在 return 之前，否则压缩时会被当作死代码删掉。
@@ -549,7 +562,7 @@ export function createIgsReaderHost(options = {}) {
             resolveBridgeConfigSnapshot({ mode: openOptions.mode }).bridge,
         );
         const unified = resolveBridgeConfigSnapshot({ mode: nextMode });
-        const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
+        const readerSettings = normalizeReaderSettingsCached(unified.readerSettings, unified.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, unified.bridge);
         const snapshot = buildReaderSnapshot(
             payload,
@@ -730,7 +743,7 @@ export function createIgsReaderHost(options = {}) {
     // 由当前 payload 重新构建 snapshot：正文解析走 source 缓存，普通换源不会重复整楼解析。
     function applyReaderPayloadToState(current, mode, optionsForRender = {}) {
         const unified = resolveBridgeConfigSnapshot({ mode });
-        const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
+        const readerSettings = normalizeReaderSettingsCached(unified.readerSettings, unified.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, unified.bridge);
         return buildReaderSnapshot(optionsForRender.payload || current.payload, mode, readerSettings,
             optionsForRender.index ?? current.index);
@@ -756,9 +769,15 @@ export function createIgsReaderHost(options = {}) {
         if (statusHudClient && statusHudCallback) return;
         const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
         statusHudClient = createShujukuClient(api);
+        // 数据库插件后台填表时会连发回调：合并成 250ms 一次，内容没变就不整页重绘。
         statusHudCallback = () => {
-            if (!state.activeReader) return;
-            refreshStatusHudInActiveReader();
+            if (!state.activeReader || statusHudTimer) return;
+            const g = options.global || globalThis;
+            const schedule = typeof g.setTimeout === 'function' ? g.setTimeout.bind(g) : setTimeout;
+            statusHudTimer = schedule(() => {
+                statusHudTimer = 0;
+                if (state.activeReader) refreshStatusHudInActiveReader();
+            }, 250);
         };
         statusHudClient.registerCallback(statusHudCallback);
     }
@@ -792,6 +811,7 @@ export function createIgsReaderHost(options = {}) {
             outfitFor: { character: content && content.spriteCharacter, outfit: content && content.spriteOutfit },
 
         }));
+        if (JSON.stringify(current.snapshot.content.statusHud) === JSON.stringify(next)) return;
         current.snapshot.content.statusHud = next;
         applyReaderSnapshotToDom(current.dom.overlay, current.snapshot, current, {
             hasActiveSettings: () => Boolean(state.activeSettings),
@@ -1389,7 +1409,7 @@ export function createIgsReaderHost(options = {}) {
             const unified = resolveRenderConfig(mode);
             const bridge = unified.bridge;
             ob = bridge.optionBubble && typeof bridge.optionBubble === 'object' ? bridge.optionBubble : {};
-            reader = normalizeReaderSettings(unified.readerSettings, bridge.vnTheme);
+            reader = normalizeReaderSettingsCached(unified.readerSettings, bridge.vnTheme);
         }
         const position = (ob.position === 'top-center' || ob.position === 'top-right') ? ob.position : 'top-left';
         return {
@@ -1810,7 +1830,7 @@ export function createIgsReaderHost(options = {}) {
             : normalizeReaderMode(state.activeReader.mode, baseSnapshot.bridge);
         // 模式没变时第二次读取结果完全相同；整份配置克隆 + 整理随素材库变大，翻页时省掉这一遍。
         const unified = nextMode === state.activeReader.mode ? baseSnapshot : resolveRenderConfig(nextMode);
-        const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
+        const readerSettings = normalizeReaderSettingsCached(unified.readerSettings, unified.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, unified.bridge);
         const snapshot = buildReaderSnapshot(state.activeReader.payload, nextMode, readerSettings, state.activeReader.index);
         if (!snapshot.content.segments.length) {
@@ -3916,7 +3936,8 @@ export function createIgsReaderHost(options = {}) {
         embeddedStoryObserver = new Ctor((records) => {
             const external = Array.isArray(records) && records.some((record) => {
                 const target = record && record.target;
-                if (target && target.closest && target.closest('[data-igs-internal-reader="1"]')) return false;
+                // 挪出去的插件面板（状态栏、动画小部件）自己刷新不碰正文，不算外部改动，免得每次都重跑一遍藏正文。
+                if (target && target.closest && target.closest('[data-igs-internal-reader="1"], [data-igs-parallel-blocks="1"]')) return false;
                 return true;
             });
             if (external) scheduleEmbeddedStoryHide();
@@ -4460,10 +4481,9 @@ export function createIgsReaderHost(options = {}) {
 
     // 翻页重绘只读配置：设置修订号没变就复用上次整理的结果，不再每页深拷贝、整理整份素材库（素材越多翻页越顿）。
     // 宿主不提供修订号时照旧每次重读。
+    // 快照只会改顶层字段（如 sceneDialogSkin 换皮），浅拷贝就够；下层对象一律只读。
     function cloneReaderSettingsShallowAssets(readerSettings) {
-        if (!readerSettings || !readerSettings._sceneAssets) return cloneData(readerSettings);
-        const { _sceneAssets: assets, ...rest } = readerSettings;
-        return { ...cloneData(rest), _sceneAssets: assets };
+        return readerSettings && typeof readerSettings === 'object' ? { ...readerSettings } : readerSettings;
     }
 
     function resolveRenderConfig(mode) {
@@ -4486,7 +4506,7 @@ export function createIgsReaderHost(options = {}) {
     function normalizeUnifiedSettings(snapshot, preferredMode) {
         const bridge = normalizeBridgeConfig(snapshot.bridge);
         const readerMode = normalizeReaderMode(firstDefined(snapshot.readerMode, preferredMode, bridge.openMode), bridge);
-        const readerSettings = normalizeReaderSettings(snapshot.readerSettings, bridge.vnTheme);
+        const readerSettings = normalizeReaderSettingsCached(snapshot.readerSettings, bridge.vnTheme);
 
         return {
             version: snapshot.version || options.version || '0.5.4',
@@ -4535,7 +4555,7 @@ export function createIgsReaderHost(options = {}) {
         const result = save({ bridge: unified.bridge, readerMode: unified.readerMode, readerSettings: { ...unified.readerSettings, ...patch } });
         if (!result || result.ok === false) return result || { ok: false, reason: 'save-failed' };
         const refreshed = resolveBridgeConfigSnapshot({ mode });
-        const readerSettings = normalizeReaderSettings(refreshed.readerSettings, refreshed.bridge.vnTheme);
+        const readerSettings = normalizeReaderSettingsCached(refreshed.readerSettings, refreshed.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, refreshed.bridge);
         state.activeReader.snapshot = buildReaderSnapshot(state.activeReader.payload, mode, readerSettings, state.activeReader.index);
         updateMountedReader(state.activeReader.snapshot);

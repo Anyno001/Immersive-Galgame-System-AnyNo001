@@ -43,6 +43,7 @@ const SUNLIT_TIMES = Object.freeze(['', 'day', 'dawn']);
 const NIGHT_TIMES = Object.freeze(['night', 'midnight']);
 
 const states = new WeakMap();
+const GRADE_FRAME_MS = 33;
 let filterSeq = 0;
 
 // 触屏设备一律用普通叠色：mix-blend-mode 会把整个 #igs-stage-motion 变成离屏合成面，
@@ -252,8 +253,16 @@ function tweenTo(state, root, target, instant, duration = GRADE_FADE_MS) {
     }
     const from = state.current;
     const start = state.now();
+    let lastWrite = -Infinity;
+    // 渐变限到约 30 帧：每次写入都要让背景、模糊背景、立绘三层滤镜重算，满帧写手机明显发烫；末帧一定落地。
     const step = () => {
-        const t = Math.min(1, (state.now() - start) / duration);
+        const now = state.now();
+        const t = Math.min(1, (now - start) / duration);
+        if (t < 1 && now - lastWrite < GRADE_FRAME_MS) {
+            state.frame = state.requestFrame(step);
+            return;
+        }
+        lastWrite = now;
         const eased = t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2;
         state.current = lerpTarget(from, target, eased);
         writeFrame(state, root, state.current);

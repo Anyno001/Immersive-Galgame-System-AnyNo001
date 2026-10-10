@@ -312,7 +312,7 @@ const DECO = LEVELS.map((variant) => [true, false].map((animated) => (variant ==
     decoSvg('top', '0 0 80 32', variant, animated),
 ])));
 const decoImages = (variant, animated = true) => `background-image:${DECO[variant][animated ? 0 : 1].join(',')};`;
-const decoLayer = (variant) => `${decoImages(variant)}background-repeat:no-repeat;${variant === 3 ? `background-repeat:repeat-y;inset:0 0 0 auto;width:${PACK[0]}px;background-position:0 0;background-size:${PACK[0]}px ${PACK[1]}px;-webkit-mask:radial-gradient(ellipse 100% 120% at 100% 100%,#000 40%,transparent 95%);mask:radial-gradient(ellipse 100% 120% at 100% 100%,#000 40%,transparent 95%);animation:igs-hp-rise 30s linear infinite;` : 'background-position:right 14px bottom 8px,right 26px top 10px;background-size:150px 92px,80px 32px;'}`;
+const decoLayer = (variant) => `${decoImages(variant)}background-repeat:no-repeat;${variant === 3 ? `background-repeat:repeat-y;inset:0 0 0 auto;width:${PACK[0]}px;background-position:0 0;background-size:${PACK[0]}px ${PACK[1]}px;-webkit-mask:radial-gradient(ellipse 100% 120% at 100% 100%,#000 40%,transparent 95%);mask:radial-gradient(ellipse 100% 120% at 100% 100%,#000 40%,transparent 95%);animation:igs-hp-rise 30s steps(${PACK[1]},end) infinite;` : 'background-position:right 14px bottom 8px,right 26px top 10px;background-size:150px 92px,80px 32px;'}`;
 const POLKA = (color) => `radial-gradient(circle,${color} 0 1.6px,transparent 2.1px) 0 0/18px 18px`;
 const HEART_ICON = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-11 -10 22 19"><path d="${HEART}" fill="#fff"/></svg>`);
 const EYE_ICON = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -8 24 16"><path d="M-11 0Q0-11 11 0Q0 11-11 0Z" fill="#fff"/><circle r="4" fill="#3a2e30"/></svg>`);
@@ -358,6 +358,7 @@ export const PSYCH_DIALOG_STYLE = [
     // 描边只留顶边，两侧自上而下渐隐，底边不描。
     scalePx(`${psych(3)}::after{inset:-3px;opacity:1;border:2px solid ${BLOOD};border-bottom:0;-webkit-mask:linear-gradient(#000 20%,transparent 85%);mask:linear-gradient(#000 20%,transparent 85%);}`),
     scalePx(`${psych(3)}{padding-right:240px;}`),
+    // 侧边纹样上浮按 1px 一步走（约每秒 14 次重绘），不再满帧重绘。
     `@keyframes igs-hp-rise{to{background-position:0 -${PACK[1]}px;}}`,
     '@keyframes igs-hp-slip{0%,93%{transform:none;text-shadow:none;}93.4%{transform:translateX(3px);text-shadow:-2px 0 rgba(200,30,40,.55),2px 0 rgba(30,140,170,.45);}94.4%{transform:translateX(-2px) skewX(-4deg);}95.2%,100%{transform:none;text-shadow:none;}}',
     '@keyframes igs-hp-slip-hard{0%{transform:translateX(-6px);text-shadow:none;}70%{transform:translate(4px,1px) skewX(-6deg);text-shadow:-3px 0 rgba(220,20,30,.8),3px 0 rgba(20,160,190,.6);}76%{transform:translateX(-10px);}82%,100%{transform:translateX(-6px);text-shadow:none;}}',

@@ -255,6 +255,9 @@ function scheduleBeat(state, plan, beat) {
 function pump(state) {
     const plan = state.plan;
     if (!plan) return;
+    // 切到后台不排节拍：回到前台时超过 1 秒的空档会从新一拍重起。
+    const doc = state.front && state.front.ownerDocument;
+    if (doc && doc.hidden) return;
     const t = schedNow(state);
     if (t < state.hold) return;
     const horizon = t + LOOKAHEAD_S;

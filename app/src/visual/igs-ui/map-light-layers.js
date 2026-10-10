@@ -18,14 +18,18 @@ export const MAP_LIGHT_LAYER_STYLE_TEXT = `
 #igs-map-panel .igs-map-light-dust{mix-blend-mode:multiply;}
 #igs-map-panel .igs-map-light-snow{background:rgba(236,242,252,1);mix-blend-mode:screen;}
 #igs-map-panel .igs-map-light-lamps{display:block;mix-blend-mode:screen;object-fit:fill;}
-#igs-map-panel .igs-map-light-clouds{background-image:${CLOUD_IMAGE};background-size:800px 450px;mix-blend-mode:multiply;animation:igs-map-drift 180s linear infinite;}
-#igs-map-panel .igs-map-light-fog{background-image:${FOG_IMAGE};background-size:800px 450px;animation:igs-map-drift 260s linear infinite reverse;}
+#igs-map-panel .igs-map-light-clouds,#igs-map-panel .igs-map-light-fog{overflow:hidden;}
+#igs-map-panel .igs-map-light-clouds::before,#igs-map-panel .igs-map-light-fog::before{content:"";position:absolute;left:-800px;top:-225px;right:0;bottom:0;background-size:800px 450px;animation:igs-map-drift 180s linear infinite;}
+#igs-map-panel .igs-map-light-clouds{mix-blend-mode:multiply;}
+#igs-map-panel .igs-map-light-clouds::before{background-image:${CLOUD_IMAGE};}
+#igs-map-panel .igs-map-light-fog::before{background-image:${FOG_IMAGE};animation-duration:260s;animation-direction:reverse;}
 #igs-map-panel .igs-map-world.is-lit::before{background:rgba(10,12,16,.04);}
 #igs-map-panel .igs-map-weather{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;transition:background-color .12s ease-out;}
 #igs-map-panel .igs-map-weather .igs-fx-canvas{position:absolute;left:0;top:0;width:100%;height:100%;}
 #igs-map-panel .igs-map-weather.igs-fx-lightning-active{background-color:rgba(236,240,255,.28);}
-@keyframes igs-map-drift{from{background-position:0 0;}to{background-position:800px 225px;}}
-@media (prefers-reduced-motion:reduce){#igs-map-panel .igs-map-light-clouds,#igs-map-panel .igs-map-light-fog{animation:none;}}
+/* 云雾漂移走 transform：动 background-position 会让整张地图每帧重绘噪声图。 */
+@keyframes igs-map-drift{to{transform:translate3d(800px,225px,0);}}
+@media (prefers-reduced-motion:reduce){#igs-map-panel .igs-map-light-clouds::before,#igs-map-panel .igs-map-light-fog::before{animation:none;}}
 `;
 
 const attr = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);

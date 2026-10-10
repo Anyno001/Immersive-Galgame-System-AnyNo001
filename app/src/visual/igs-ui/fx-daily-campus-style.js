@@ -1,11 +1,13 @@
 // 校园日常演出与常驻氛围层的样式（并入 DAILY_FX_STYLE_TEXT）。全部用实色渐变与 opacity / transform 动画，不用 filter:blur；
-// 光柱、粉笔灰、花瓣用渐变平铺 + 背景位移，循环动画在减少动态效果（is-reduced）与低画质时关掉。
+// 光柱、粉笔灰、花瓣用渐变平铺；粉尘与花瓣每层拆进伪元素走 transform 平移（不动 background-position，免得整屏每帧重绘），循环动画在减少动态效果（is-reduced）与低画质时关掉。
 // 单次演出的进出场用百分比关键帧跟随 --igs-dfx-life 伸缩。
 export const CAMPUS_FX_STYLE_TEXT = `
 /* ── 教室：午后斜阳穿过窗格打在课桌上，粉笔灰在光里慢慢浮；社团活动室换成暖色灯晕 ── */
 #igs-overlay .igs-dfx-amb-sunbeam{left:-4%;top:-14%;width:30%;height:132%;background:linear-gradient(90deg,transparent,rgba(255,226,160,.15) 28%,rgba(255,238,196,.24) 50%,rgba(255,226,160,.15) 72%,transparent);-webkit-mask-image:repeating-linear-gradient(180deg,#000 0 74px,transparent 74px 82px);mask-image:repeating-linear-gradient(180deg,#000 0 74px,transparent 74px 82px);transform:rotate(-24deg);transform-origin:50% 0;animation:igs-campus-beam 10s ease-in-out infinite;}
 #igs-overlay .igs-dfx-amb-sunbeam.is-b{left:24%;width:20%;opacity:.8;animation-duration:13s;animation-delay:-5s;}
-#igs-overlay .igs-dfx-amb-chalkdust{inset:0;background-image:radial-gradient(circle,rgba(255,255,248,.55) 0 1.2px,transparent 2.2px),radial-gradient(circle,rgba(255,255,248,.4) 0 1px,transparent 2px);background-size:140px 170px,92px 120px;background-position:20px 30px,60px 80px;-webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 58%,transparent);mask-image:linear-gradient(90deg,transparent,#000 14%,#000 58%,transparent);opacity:.7;animation:igs-campus-motes 38s linear infinite;}
+#igs-overlay .igs-dfx-amb-chalkdust{inset:0;-webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 58%,transparent);mask-image:linear-gradient(90deg,transparent,#000 14%,#000 58%,transparent);opacity:.7;}
+#igs-overlay .igs-dfx-amb-chalkdust::before,#igs-overlay .igs-dfx-amb-chalkdust::after{content:"";position:absolute;left:0;right:0;top:0;bottom:-170px;background-image:radial-gradient(circle,rgba(255,255,248,.55) 0 1.2px,transparent 2.2px);background-size:140px 170px;background-position:20px 30px;animation:igs-campus-motes 38s linear infinite;}
+#igs-overlay .igs-dfx-amb-chalkdust::after{bottom:-120px;background-image:radial-gradient(circle,rgba(255,255,248,.4) 0 1px,transparent 2px);background-size:92px 120px;background-position:60px 80px;animation-name:igs-campus-motes-b;}
 #igs-overlay .igs-dfx-amb-clubglow{display:none;inset:0;background:radial-gradient(ellipse 72% 60% at 50% 16%,rgba(255,198,124,.26),transparent 72%),linear-gradient(0deg,rgba(255,170,96,.08),transparent 40%);}
 #igs-overlay .igs-dfx-amb.is-classroom.is-club .igs-dfx-amb-clubglow{display:block;}
 #igs-overlay .igs-dfx-amb.is-classroom.is-club .igs-dfx-amb-sunbeam.is-b{display:none;}
@@ -13,14 +15,18 @@ export const CAMPUS_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-amb.is-classroom.is-night::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(36,52,110,.24),transparent 62%);}
 #igs-overlay .igs-dfx-amb.is-classroom.is-night .igs-dfx-amb-chalkdust{opacity:.35;}
 @keyframes igs-campus-beam{0%,100%{opacity:.72;transform:rotate(-24deg) translate3d(0,0,0)}50%{opacity:1;transform:rotate(-24deg) translate3d(18px,0,0)}}
-@keyframes igs-campus-motes{from{background-position:20px 30px,60px 80px}to{background-position:20px -140px,60px -40px}}
+@keyframes igs-campus-motes{to{transform:translate3d(0,-170px,0)}}
+@keyframes igs-campus-motes-b{to{transform:translate3d(0,-120px,0)}}
 /* ── 图书馆：书架投下的暗角，窗外一束静静的光，细小的尘埃在光里升起 ── */
 #igs-overlay .igs-dfx-amb-libshade{inset:0;background:radial-gradient(ellipse 92% 86% at 50% 50%,transparent 44%,rgba(48,30,12,.4) 100%),linear-gradient(180deg,rgba(70,46,18,.14),rgba(70,46,18,.04));}
 #igs-overlay .igs-dfx-amb-libwindow{right:6%;top:-8%;width:28%;height:92%;background:linear-gradient(180deg,rgba(255,238,200,.3),transparent 88%);clip-path:polygon(22% 0,100% 0,72% 100%,0 100%);animation:igs-campus-libpulse 11s ease-in-out infinite;}
-#igs-overlay .igs-dfx-amb-libmote{right:4%;top:0;width:36%;height:100%;background-image:radial-gradient(circle,rgba(255,244,214,.6) 0 1.1px,transparent 2px),radial-gradient(circle,rgba(255,244,214,.4) 0 1px,transparent 2px);background-size:84px 110px,56px 74px;background-position:10px 20px,40px 50px;animation:igs-campus-libmote 52s linear infinite;}
+#igs-overlay .igs-dfx-amb-libmote{right:4%;top:0;width:36%;height:100%;}
+#igs-overlay .igs-dfx-amb-libmote::before,#igs-overlay .igs-dfx-amb-libmote::after{content:"";position:absolute;left:0;right:0;top:0;bottom:-110px;background-image:radial-gradient(circle,rgba(255,244,214,.6) 0 1.1px,transparent 2px);background-size:84px 110px;background-position:10px 20px;animation:igs-campus-libmote 52s linear infinite;}
+#igs-overlay .igs-dfx-amb-libmote::after{bottom:-74px;background-image:radial-gradient(circle,rgba(255,244,214,.4) 0 1px,transparent 2px);background-size:56px 74px;background-position:40px 50px;animation-name:igs-campus-libmote-b;}
 #igs-overlay .igs-dfx-amb.is-library.is-night .igs-dfx-amb-libwindow{background:linear-gradient(180deg,rgba(150,176,255,.18),transparent 88%);}
 @keyframes igs-campus-libpulse{0%,100%{opacity:.7}50%{opacity:1}}
-@keyframes igs-campus-libmote{from{background-position:10px 20px,40px 50px}to{background-position:10px -90px,40px -24px}}
+@keyframes igs-campus-libmote{to{transform:translate3d(0,-110px,0)}}
+@keyframes igs-campus-libmote-b{to{transform:translate3d(0,-74px,0)}}
 /* ── 操场：晴空的暖光，地面蒸腾的热气，云影缓缓掠过 ── */
 #igs-overlay .igs-dfx-amb-fieldsun{inset:0;background:radial-gradient(ellipse 80% 52% at 82% 0%,rgba(255,246,196,.32),transparent 70%);animation:igs-campus-libpulse 14s ease-in-out infinite;}
 #igs-overlay .igs-dfx-amb-fieldhaze{left:0;right:0;bottom:0;height:24%;background:linear-gradient(0deg,rgba(255,250,226,.18),transparent);animation:igs-campus-haze 5.5s ease-in-out infinite;}
@@ -37,10 +43,17 @@ export const CAMPUS_FX_STYLE_TEXT = `
 @keyframes igs-campus-roofgust{from{transform:translate3d(-60%,0,0)}to{transform:translate3d(260%,0,0)}}
 /* ── 樱花校门：粉色的晨光薄雾，花瓣斜斜飘落 ── */
 #igs-overlay .igs-dfx-amb-gatehaze{inset:0;background:linear-gradient(180deg,rgba(255,214,228,.22),transparent 46%),radial-gradient(ellipse 62% 40% at 50% 0%,rgba(255,238,242,.28),transparent 70%);}
-#igs-overlay .igs-dfx-amb-gatepetals{inset:0;background-image:radial-gradient(ellipse 5px 3.5px at 30% 20%,rgba(255,196,214,.85) 0 70%,transparent 74%),radial-gradient(ellipse 4px 3px at 70% 60%,rgba(255,214,226,.8) 0 70%,transparent 74%);background-size:150px 180px,110px 140px;animation:igs-campus-petalfall 26s linear infinite;}
-#igs-overlay .igs-dfx-amb-gatepetals.is-b{background-size:210px 250px,170px 200px;opacity:.7;animation-duration:38s;animation-direction:reverse;}
+#igs-overlay .igs-dfx-amb-gatepetals{inset:0;}
+#igs-overlay .igs-dfx-amb-gatepetals::before,#igs-overlay .igs-dfx-amb-gatepetals::after{content:"";position:absolute;left:0;bottom:0;top:-180px;right:-150px;background-image:radial-gradient(ellipse 5px 3.5px at 30% 20%,rgba(255,196,214,.85) 0 70%,transparent 74%);background-size:150px 180px;animation:igs-campus-petalfall 26s linear infinite;}
+#igs-overlay .igs-dfx-amb-gatepetals::after{top:-140px;right:-110px;background-image:radial-gradient(ellipse 4px 3px at 70% 60%,rgba(255,214,226,.8) 0 70%,transparent 74%);background-size:110px 140px;animation-name:igs-campus-petalfall-2;}
+#igs-overlay .igs-dfx-amb-gatepetals.is-b{opacity:.7;}
+#igs-overlay .igs-dfx-amb-gatepetals.is-b::before{top:-250px;right:-210px;background-size:210px 250px;animation-name:igs-campus-petalfall-b;animation-duration:38s;animation-direction:reverse;}
+#igs-overlay .igs-dfx-amb-gatepetals.is-b::after{top:-200px;right:-170px;background-size:170px 200px;animation-name:igs-campus-petalfall-b2;animation-duration:38s;animation-direction:reverse;}
 #igs-overlay .igs-dfx-amb.is-campusgate.is-night .igs-dfx-amb-gatehaze{background:linear-gradient(180deg,rgba(120,100,180,.2),transparent 50%);}
-@keyframes igs-campus-petalfall{from{background-position:0 0,0 0}to{background-position:-150px 180px,-110px 140px}}
+@keyframes igs-campus-petalfall{to{transform:translate3d(-150px,180px,0)}}
+@keyframes igs-campus-petalfall-2{to{transform:translate3d(-110px,140px,0)}}
+@keyframes igs-campus-petalfall-b{to{transform:translate3d(-210px,250px,0)}}
+@keyframes igs-campus-petalfall-b2{to{transform:translate3d(-170px,200px,0)}}
 #igs-overlay .igs-dfx-amb.is-reduced.is-classroom i,#igs-overlay .igs-dfx-amb.is-reduced.is-library i,#igs-overlay .igs-dfx-amb.is-reduced.is-playground i,#igs-overlay .igs-dfx-amb.is-reduced.is-rooftop i,#igs-overlay .igs-dfx-amb.is-reduced.is-campusgate i,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb-chalkdust,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb-libmote,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb-fieldcloud,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb-roofwind,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb-gatepetals{animation:none;}
 #igs-overlay .igs-dfx-amb.is-reduced.is-rooftop .igs-dfx-amb-roofwind,#igs-overlay[data-igs-quality="low"] .igs-dfx-amb-roofwind{display:none;}
 /* ── 黑板写字：墨绿黑板落下，粉笔沿一行字划过，字迹随笔尖逐字浮现 ── */

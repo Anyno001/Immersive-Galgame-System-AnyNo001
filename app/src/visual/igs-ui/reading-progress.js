@@ -45,6 +45,8 @@ export function encodeIdSet(ids) {
 export function decodeIdSet(text) {
     const set = new Set();
     for (const part of String(text || '').split(',')) {
+        // 空串 Number('') 是 0：没有已读记录时不能把第 0 楼当成读过。
+        if (!part.trim()) continue;
         const [a, b] = part.split('-').map((n) => Number(n));
         if (!Number.isInteger(a)) continue;
         const end = Number.isInteger(b) && b >= a && b - a < 100000 ? b : a;
@@ -153,10 +155,31 @@ export function createReadingProgress(options = {}) {
     const storage = () => { try { return options.storage?.() || null; } catch (_) { return null; } };
     const now = () => (typeof options.now === 'function' ? options.now() : Date.now());
     let cache = { chatId: '', data: emptyData(), readSet: new Set() };
+    // 翻页记进度合并写盘：每页都排序已读楼、同步写 localStorage，长聊天在手机上一直在烧。
+    // 1.2 秒内只写最后一次；换聊天、切后台、离开页面时立刻补写。
+    const SAVE_DELAY_MS = 1200;
+    let saveTimer = null;
+    function flushSave() {
+        if (saveTimer == null) return;
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        save();
+    }
+    function saveSoon() {
+        if (saveTimer != null) return;
+        saveTimer = setTimeout(() => { saveTimer = null; save(); }, SAVE_DELAY_MS);
+    }
+    try {
+        const g = globalThis;
+        if (g && typeof g.addEventListener === 'function') g.addEventListener('pagehide', flushSave);
+        const d = g && g.document;
+        if (d && typeof d.addEventListener === 'function') d.addEventListener('visibilitychange', () => { if (d.hidden) flushSave(); });
+    } catch (_) { /* 没有页面事件时只靠定时写 */ }
 
     function load() {
         const chatId = getChatId();
         if (cache.chatId === chatId && chatId) return cache;
+        flushSave();
         let data = emptyData();
         const store = storage();
         if (chatId && store) {
@@ -177,6 +200,7 @@ export function createReadingProgress(options = {}) {
     }
 
     function save() {
+        if (saveTimer != null) { clearTimeout(saveTimer); saveTimer = null; }
         const store = storage();
         if (!cache.chatId || !store) return;
         cache.data.read = encodeIdSet(cache.readSet);
@@ -195,6 +219,8 @@ export function createReadingProgress(options = {}) {
         c.data.last = pos;
         const far = c.data.far;
         if (!far || id > far.id || (id === far.id && page > far.page)) c.data.far = pos;
+        // 一楼刚读完立刻落盘（每楼一次）；同一楼里翻页的位置合并写。
+        const finished = page >= total - 1 && !c.readSet.has(id);
         if (page >= total - 1) {
             c.readSet.add(id);
             delete c.data.partial[id];
@@ -207,7 +233,8 @@ export function createReadingProgress(options = {}) {
             const keys = Object.keys(c.data.chapters).map(Number).sort((a, b) => a - b);
             for (const k of keys.slice(0, Math.max(0, keys.length - CHAPTER_LIMIT))) delete c.data.chapters[k];
         }
-        save();
+        if (finished) save();
+        else saveSoon();
         return pos;
     }
 
@@ -305,6 +332,6 @@ export function createReadingProgress(options = {}) {
         quickSave,
         exportData,
         importData,
-        reset() { cache = { chatId: '', data: emptyData(), readSet: new Set() }; },
+        reset() { flushSave(); cache = { chatId: '', data: emptyData(), readSet: new Set() }; },
     };
 }
