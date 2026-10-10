@@ -43,7 +43,7 @@ import { renderDailyFx } from './fx-daily.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
 import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
-import { applyStageDirection, cancelCgReveal, revealCgImage } from './stage-direction-runtime.js';
+import { applyStageDirection, cancelCgReveal, decodeSpriteImage, revealCgImage } from './stage-direction-runtime.js';
 import { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances } from './stage-cast-render.js';
 import { applySavedCastSlot } from './cast-slot-edit.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
@@ -1199,6 +1199,33 @@ function writeBackgroundImage(element, url, source = url) {
     element.style.backgroundImage = value;
 }
 
+// 立绘出现：新图还没解码时不要先把全屏立绘层亮出来。
+// 这一轮渲染后面会读布局，浏览器会把当时那一帧画出来。图没好就是空的，带滤镜的空层是一闪黑。
+// 和换 CG 一样：等解码完再换上，回调里不再读布局。
+const spriteRevealToken = new WeakMap();
+
+function cancelSpriteReveal(element) {
+    if (element) spriteRevealToken.delete(element);
+}
+
+function revealSpriteImage(element, url, paint) {
+    if (!element || typeof paint !== 'function') return false;
+    const token = {};
+    spriteRevealToken.set(element, token);
+    const pending = decodeSpriteImage(element.ownerDocument, String(url || ''));
+    const apply = () => {
+        if (spriteRevealToken.get(element) !== token) return;
+        spriteRevealToken.delete(element);
+        paint();
+    };
+    if (!pending) {
+        apply();
+        return false;
+    }
+    pending.then(apply);
+    return true;
+}
+
 const ROOT_TOGGLED_CLASSES = new Set(['igs-default-reader-chrome', 'igs-gradient-veil-active', 'igs-scene-nsfw']);
 
 export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
@@ -1431,19 +1458,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         if (!current.spriteEditMode && isOutfitSwap(current.spriteLook, nextLook)
             && (isFormOutfit(formAssets, nextLook.character, current.spriteLook.outfit) || isFormOutfit(formAssets, nextLook.character, nextLook.outfit))) playSpriteFormShift(spriteEl);
         current.spriteLook = nextLook;
-        writeBackgroundImage(spriteEl, spriteAssetUrl);
-        spriteEl.style.display = 'block';
-        spriteEl.style.position = 'absolute';
-        spriteEl.style.inset = '0';
-        spriteEl.style.width = '100%';
-        spriteEl.style.height = '100%';
-        spriteEl.style.transform = 'none';
-        // 立绘编辑时显示基础站位：先清翻转，非编辑时在下方按姿态重新写入。
-        applySpeakerFlip(spriteEl, false);
-        spriteEl.style.bottom = 'auto';
-        spriteEl.style.left = 'auto';
-        spriteEl.style.filter = '';
-        spriteEl.style.setProperty('-webkit-filter', '');
+        // 尺寸在换图之前读完。换上还没解码的图再读布局，会把空的全屏立绘层画出来，就是一闪黑。
+        const stageW = stageMotion.clientWidth || castView.innerWidth;
+        const stageH = stageMotion.clientHeight || castView.innerHeight;
+        let spritePose = null;
         if (!current.spriteEditMode) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
             const spriteMood = snapshot.content.spriteMood || '';
@@ -1451,24 +1469,42 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const layout = { ...presentSpriteLayout(spriteKey, spriteMood, spriteOutfit) };
             if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
             else if (speakerSlotX != null) layout.posX = speakerSlotX;
-            spriteEl.style.backgroundSize = spriteBackgroundSize(layout.scale);
-            spriteEl.style.backgroundPosition = `${layout.posX}% ${layout.posY}%`;
             stageSprite = { url: spriteAssetUrl, key: spriteKey, posX: Number(layout.posX) };
             fxSprite = { url: spriteAssetUrl, posX: Number(layout.posX), posY: Number(layout.posY), scale: Number(layout.scale), head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, spriteKey, spriteMood, spriteOutfit), multi: Boolean(castPlan && castPlan.members.length), flip: Boolean(castPlan && castPlan.speaker && castPlan.speaker.flip) };
             const probed = peekSpriteHead(spriteAssetUrl);
-            applySpeakerFlip(spriteEl, fxSprite.flip, layout.posX, spriteWidthPercent(stageMotion.clientWidth, stageMotion.clientHeight, { ...layout, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH }));
-            igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spriteKey, mood: spriteMood, outfit: spriteOutfit, index: snapshot.content.currentIndex, layout: { ...layout } });
+            spritePose = { layout, flip: fxSprite.flip, widthPct: spriteWidthPercent(stageW, stageH, { ...layout, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH }), spriteKey, spriteMood, spriteOutfit };
         }
+        revealSpriteImage(spriteEl, spriteAssetUrl, () => {
+            writeBackgroundImage(spriteEl, spriteAssetUrl);
+            spriteEl.style.display = 'block';
+            spriteEl.style.position = 'absolute';
+            spriteEl.style.inset = '0';
+            spriteEl.style.width = '100%';
+            spriteEl.style.height = '100%';
+            spriteEl.style.transform = 'none';
+            // 立绘编辑时显示基础站位：先清翻转，非编辑时在下方按姿态重新写入。
+            applySpeakerFlip(spriteEl, false);
+            spriteEl.style.bottom = 'auto';
+            spriteEl.style.left = 'auto';
+            spriteEl.style.filter = '';
+            spriteEl.style.setProperty('-webkit-filter', '');
+            if (!spritePose) return;
+            spriteEl.style.backgroundSize = spriteBackgroundSize(spritePose.layout.scale);
+            spriteEl.style.backgroundPosition = `${spritePose.layout.posX}% ${spritePose.layout.posY}%`;
+            applySpeakerFlip(spriteEl, spritePose.flip, spritePose.layout.posX, spritePose.widthPct);
+            igsDebug('[DEBUG-sprite] apply-layout', { mode: snapshot.mode, speaker: spritePose.spriteKey, mood: spritePose.spriteMood, outfit: spritePose.spriteOutfit, index: snapshot.content.currentIndex, layout: { ...spritePose.layout } });
+        });
     } else if (spriteEl) {
+        cancelSpriteReveal(spriteEl);
         spriteEl.style.removeProperty('--igs-sprite-enhance');
         current.spriteLook = null;
         clearSpriteOutfitSwap(spriteEl);
         applySpeakerFlip(spriteEl, false);
         spriteEl.classList.remove('igs-sprite-narration');
         applySpeakerFlip(spriteEl, false);
-
-        writeBackgroundImage(spriteEl, '');
+        // 先藏再清图。清掉图时层还亮着，下一回读布局会把空层画成一闪黑。
         spriteEl.style.display = 'none';
+        writeBackgroundImage(spriteEl, '');
         spriteEl.style.filter = '';
         spriteEl.style.setProperty('-webkit-filter', '');
     }

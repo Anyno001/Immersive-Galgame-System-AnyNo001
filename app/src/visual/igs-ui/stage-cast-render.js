@@ -334,6 +334,8 @@ export function applyCastToDom(root, members = [], motion = {}) {
         const flipped = m.flip === true;
         const host = el.parentNode;
         const probed = peekSpriteHead(m.url);
+        // 图还没换上时先藏起来再读尺寸。空着的全屏层带滤镜，这一读会把黑帧画出来。
+        if (el.style.backgroundImage !== image) el.style.visibility = 'hidden';
         const widthPct = spriteWidthPercent(host && host.clientWidth, host && host.clientHeight, { posX: m.posX, posY: m.posY, scale: m.scale, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH });
         setStyleProp(el, '--igs-cast-origin-x', `${flipped ? castFlipOriginX(m.posX, widthPct) : m.posX}%`);
         setStyleProp(el, 'scale', flipped ? '-1 1' : '');
@@ -346,6 +348,7 @@ export function applyCastToDom(root, members = [], motion = {}) {
         applyLean(el, lean, m.posX);
         const show = () => {
             swapImage(layer, el, image, true);
+            el.style.visibility = '';
             if (!entering) return;
             stopAnim(el);
             el._igsCastAnim = demotedIn

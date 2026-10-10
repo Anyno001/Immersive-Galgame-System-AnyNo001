@@ -190,10 +190,12 @@ test('gate: cast dom waits for decode and cuts same-character swaps', async () =
     applyCastToDom(root, member('decode-a.png'));
     const el = layer.children[0];
     assert.ok(!el.style.backgroundImage);
+    assert.equal(el.style.visibility, 'hidden');
     assert.deepEqual(decodes.map((d) => d.src), ['decode-a.png']);
     decodes.shift().resolve();
     await flush();
     assert.equal(el.style.backgroundImage, 'url("decode-a.png")');
+    assert.equal(el.style.visibility, '');
     applyCastToDom(root, member('decode-a2.png'));
     assert.equal(el.style.backgroundImage, 'url("decode-a.png")');
     applyCastToDom(root, member('decode-a2.png'));
