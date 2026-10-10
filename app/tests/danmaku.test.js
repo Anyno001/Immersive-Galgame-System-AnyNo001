@@ -666,8 +666,8 @@ test('gate:danmaku:live-list-limits-and-entry-placement-avoid-phone', async () =
     assert.equal(liveListLimit('full', 'host'), 5);
     // 手机形态：入口收进手机顶栏，不在手机外另找位置；全屏：名牌右边 8px、与名牌同一行垂直居中；量不到名牌退回工具栏下方。
     assert.deepEqual(entryPlacement({ stageW: 390 }, { layout: 'phone', width: 350, top: 48 }, 14), { left: 14, top: 14 });
-    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, { right: 200, cy: 60 }), { left: 208, top: 41 });
-    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, null), { left: 14, top: 48 });
+    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, { right: 200, cy: 60 }), { left: 14, top: 82 });
+    assert.deepEqual(entryPlacement({ stageW: 1280, topInset: 40 }, { layout: 'full', floor: 100 }, 20, null), { left: 14, top: 82 });
     assert.deepEqual(entryPlacement({ stageW: 1280 }, null, 14), { left: 14, top: 14 });
 });
 

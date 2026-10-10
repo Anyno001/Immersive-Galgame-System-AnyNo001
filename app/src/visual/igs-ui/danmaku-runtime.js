@@ -532,6 +532,7 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
             kind: classifySubtitle({ speaker: content.speaker, textType: content.textType, hostName: live.name, userName }),
             speaker: content.speaker,
             textEl: root.querySelector('#igs-text'),
+            pageKey: plan.pageKey,
         });
     } else clearLiveFull(root, root.querySelector('#igs-text'));
     if (phone && plan.warning && phone.visible && plan.liveVisible) triggerLiveWarning(host, plan.warning);
@@ -614,10 +615,10 @@ function fitFaceFor(host, stage, sprite, doc, refit) {
 // 观众 / 社区 / 通知入口的落点：手机形态直播的手机在场时避开它的 rect。
 export function entryPlacement(stage, fit, top, anchor) {
     const base = { left: ENTRY_LEFT, top };
-    // 全屏直播：入口放在主播名牌右边、与名牌同一行垂直居中；量不到名牌就退回左上角工具栏下方。
+    // 全屏直播：入口固定在主播名牌正下方。
     if (stage && fit && fit.layout === 'full') {
-        if (anchor) return { left: Math.round(anchor.right + 8), top: Math.round(anchor.cy - ENTRY_SIZE / 2) };
-        return { left: ENTRY_LEFT, top: Math.round((Number(stage.topInset) || 0) + 8) };
+        // 固定在名牌正下方（不随名牌宽度 / 头部高度变），不压关注按钮。
+        return { left: ENTRY_LEFT, top: Math.round((Number(stage.topInset) || 0) + 8 + 34) };
     }
     // 手机形态：入口已收进手机顶栏，不再在手机外出现；这里只管没有手机时的原位。
     return base;

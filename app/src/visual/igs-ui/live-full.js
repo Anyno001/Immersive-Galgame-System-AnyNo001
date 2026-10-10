@@ -36,9 +36,15 @@ export function resolveLiveFullMode({ fullText, narrationPos, kind, overflow }) 
     return overflow ? 'minimal' : 'subtitle';
 }
 
-export function applyLiveFull(root, { fullText, narrationPos, kind, speaker, textEl }) {
+// 同一页量出过超 3 行就记下页标识：同页重复渲染不再先回字幕、下一帧又跳极简，对话框不闪。
+const overflowPages = new WeakMap();
+const currentPages = new WeakMap();
+
+export function applyLiveFull(root, { fullText, narrationPos, kind, speaker, textEl, pageKey }) {
     if (!root || typeof root.setAttribute !== 'function') return;
-    const mode = resolveLiveFullMode({ fullText, narrationPos, kind, overflow: false });
+    currentPages.set(root, pageKey);
+    const keep = pageKey !== undefined && overflowPages.get(root) === pageKey;
+    const mode = resolveLiveFullMode({ fullText, narrationPos, kind, overflow: keep });
     root.setAttribute(LIVE_FULL_ATTR, mode);
     root.setAttribute(LIVE_SUB_ATTR, kind);
     root.setAttribute(LIVE_NPOS_ATTR, narrationPos === 'name' ? 'name' : 'above');
@@ -48,6 +54,10 @@ export function applyLiveFull(root, { fullText, narrationPos, kind, speaker, tex
 }
 
 export function clearLiveFull(root, textEl) {
+    if (root && typeof root === 'object') {
+        overflowPages.delete(root);
+        currentPages.delete(root);
+    }
     if (root && typeof root.removeAttribute === 'function') {
         root.removeAttribute(LIVE_FULL_ATTR);
         root.removeAttribute(LIVE_SUB_ATTR);
@@ -66,5 +76,6 @@ export function refreshLiveFullOverflow(root, textEl) {
     const lineHeight = style ? parseFloat(style.lineHeight) || fontSize * 1.45 : NaN;
     if (!exceedsSubtitleLines(textEl.getBoundingClientRect().height, lineHeight)) return false;
     root.setAttribute(LIVE_FULL_ATTR, 'minimal');
+    if (currentPages.get(root) !== undefined) overflowPages.set(root, currentPages.get(root));
     return true;
 }
