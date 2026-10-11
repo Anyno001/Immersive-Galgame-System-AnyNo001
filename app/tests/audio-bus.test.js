@@ -184,9 +184,14 @@ test('gate: blocked resume arms a one-shot pointerdown retry', async () => {
     try {
         const ctx = fakeContext({ state: 'suspended', resumeTo: 'suspended' });
         resetAudioBusForTest(counted(ctx));
+        getAudioBus();
+        // 总线创建时已挂上「第一次手势解锁」的监听，重试监听要在它之外另数。
+        const base = doc.listeners.filter((l) => l.type === 'pointerdown').length;
         await resumeAudioBus();
-        const retries = () => doc.listeners.filter((l) => l.type === 'pointerdown');
+        const retries = () => doc.listeners.filter((l) => l.type === 'pointerdown').slice(base);
         assert.equal(retries().length, 1);
+        assert.equal(doc.listeners.some((l) => l.type === 'click'), true, 'click also retries');
+        assert.equal(doc.listeners.some((l) => l.type === 'touchend'), true, 'touchend also retries');
         await resumeAudioBus();
         assert.equal(retries().length, 1, 'retry is not armed twice');
         retries()[0].fn();

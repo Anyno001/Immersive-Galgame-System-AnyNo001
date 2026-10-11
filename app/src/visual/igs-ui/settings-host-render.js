@@ -44,7 +44,7 @@ import { CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_W
 import { dialogSkinLabel, getDialogSkinChoices } from './dialog-skin-catalog.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
-import { TTS_BILINGUAL_MODES, TTS_PROVIDERS, TTS_RATES, TTS_TRANSPORTS, normalizeTtsSettings, systemVoiceOptions, ttsApiVoiceList } from './tts.js';
+import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, findSystemVoice, listSystemVoices, normalizeTtsSettings, systemVoiceOptions, ttsApiVoiceList, ttsMixedContentRisk } from './tts.js';
 import { normalizeBilingualSettings } from './bilingual-text.js';
 import { HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
@@ -703,7 +703,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 `<div class="igs-source-filter-note">声线可在「素材 › 角色 › 角色设定」中选择；未选择时按 DNA 中的性别分配。</div>`,
             ].join('') : '',
             ttsToggle: checkbox('readerSettings.tts.enabled', tts.enabled, '台词朗读（TTS）'),
-            ttsControls: tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled }) : '',
+            ttsControls: tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '' }) : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             systemRoleFields: renderSystemRoleSettings(systemRole, {
@@ -919,7 +919,40 @@ function renderVoiceRowConfig(reader, sceneAssets) {
 }
 
 // 台词朗读的设置：来源、旁白、音量语速，系统语音选女声 / 男声 / 旁白，接口填地址与声音名。
-function renderTtsControls(tts, { bilingual = false } = {}) {
+const TTS_FORMAT_HINTS = Object.freeze({
+    openai: {
+        endpoint: 'https://api.openai.com/v1 或 http://127.0.0.1:9880/v1',
+        model: '如 tts-1、FunAudioLLM/CosyVoice2-0.5B',
+        voice: '接口里的声音名，如 alloy',
+        note: '兼容 OpenAI 的 /audio/speech 接口。SiliconFlow 的声音填 FunAudioLLM/CosyVoice2-0.5B:alex，或自己上传音色后得到的 speech:xxx。',
+    },
+    'gpt-sovits': {
+        endpoint: 'http://127.0.0.1:9880',
+        model: '',
+        voice: '参考音频路径|参考文本|参考语言',
+        note: '本地 GPT-SoVITS 的 api_v2 接口（地址填根地址，会请求 /tts）。声音按「参考音频路径|参考文本|参考语言」填写，后两段可省略，例：D:/GPT-SoVITS/ref/alice.wav|今天天气真好|zh。路径是 GPT-SoVITS 所在电脑上的路径。',
+    },
+    fish: {
+        endpoint: '留空用 https://api.fish.audio',
+        model: '留空用 s2.1-pro',
+        voice: 'Fish Audio 的音色 ID（reference_id）',
+        note: 'Fish Audio 官方接口，声音填音色库里的音色 ID，API Key 必填。模型名通过请求头 model 发送。',
+    },
+    minimax: {
+        endpoint: '留空用 https://api.minimaxi.com',
+        model: '留空用 speech-2.8-hd',
+        voice: 'MiniMax 的 voice_id',
+        note: 'MiniMax 同步语音合成（t2a_v2），API Key 必填。声音填 voice_id，可用下方按钮获取账号下的音色。',
+    },
+    custom: {
+        endpoint: '',
+        model: '会替换请求里的 {{model}}',
+        voice: '会替换请求里的 {{voice}}',
+        note: '自定义请求：请求地址、请求头、请求体里可以写 {{text}} {{voice}} {{speed}} {{lang}} {{model}}（也可用 {{key}} 代入 API Key）。占位符写在引号里，文字会自动转义；{{speed}} 是数字。',
+    },
+});
+
+function renderTtsControls(tts, { bilingual = false, voicesMessage = '' } = {}) {
     const base = 'readerSettings.tts';
     const rates = TTS_RATES.map((v) => [v, v === 1 ? '正常' : `${v}×`]);
     const parts = [
@@ -934,28 +967,58 @@ function renderTtsControls(tts, { bilingual = false } = {}) {
     ];
     const roles = [['female', '女声'], ['male', '男声'], ['narrator', '旁白']];
     if (tts.provider === 'system') {
-        const options = systemVoiceOptions();
+        const installed = listSystemVoices();
+        const options = systemVoiceOptions(installed, { all: tts.allVoices });
+        parts.push(checkbox(`${base}.allVoices`, tts.allVoices, '列出全部语言的系统声音（默认只列中文、日文）'));
         for (const [key, label] of roles) {
             const value = tts.system[key];
             const items = [['', '自动']].concat(options);
-            if (value && !options.some(([id]) => id === value)) items.push([value, `${value}（本机没有）`]);
+            if (value && !options.some(([id]) => id === value)) items.push([value, findSystemVoice(installed, value) ? value : `${value}（本机没有）`]);
             parts.push(field(`${base}.system.${key}`, label, selectInput(`${base}.system.${key}`, value, items)));
         }
-        parts.push(`<div class="igs-source-filter-note">${options.length ? '' : '没读到本机的中文声音。'}Windows 推荐用 Edge 浏览器打开酒馆：有晓晓、云希等自然声；Chrome 只有慧慧、康康等本地声音。系统语音不支持声像和听筒音色。</div>`);
+        parts.push(`<div class="igs-source-filter-note">${options.length ? '' : '没读到本机的声音（浏览器可能还在加载，稍等会自动刷新）。'}Windows 推荐用 Edge 浏览器打开酒馆：有晓晓、云希等自然声；Chrome 只有慧慧、康康等本地声音。系统语音不支持声像和听筒音色。</div>`);
     } else {
         const api = tts.api;
+        const format = api.format;
+        const hint = TTS_FORMAT_HINTS[format] || TTS_FORMAT_HINTS.openai;
+        const apiPath = (key) => `${base}.api.${key}`;
         parts.push(
-            field(`${base}.api.transport`, '传输方式', selectInput(`${base}.api.transport`, api.transport, TTS_TRANSPORTS)),
-            field(`${base}.api.endpoint`, '接口地址', textInput(`${base}.api.endpoint`, api.endpoint, 'https://api.openai.com/v1 或 http://127.0.0.1:9880/v1')),
-            field(`${base}.api.apiKey`, 'API Key', secretInput(`${base}.api.apiKey`, api.apiKey, '本地服务可留空')),
-            field(`${base}.api.model`, '模型', textInput(`${base}.api.model`, api.model, '如 tts-1、FunAudioLLM/CosyVoice2-0.5B')),
+            field(apiPath('format'), '接口格式', selectInput(apiPath('format'), format, TTS_API_FORMATS)),
+            field(apiPath('transport'), '传输方式', selectInput(apiPath('transport'), api.transport, TTS_TRANSPORTS)),
         );
-        for (const [key, label] of roles) parts.push(field(`${base}.api.${key}`, `${label}声音`, textInput(`${base}.api.${key}`, api[key], key === 'narrator' ? '留空用女声' : '接口里的声音名')));
+        if (format !== 'custom') parts.push(field(apiPath('endpoint'), '接口地址', textInput(apiPath('endpoint'), api.endpoint, hint.endpoint)));
+        if (format !== 'gpt-sovits') parts.push(field(apiPath('apiKey'), 'API Key', secretInput(apiPath('apiKey'), api.apiKey, format === 'openai' ? '本地服务可留空' : '')));
+        if (format !== 'gpt-sovits') parts.push(field(apiPath('model'), '模型', textInput(apiPath('model'), api.model, hint.model)));
+        if (format === 'openai') {
+            parts.push(
+                field(apiPath('responseFormat'), '音频格式', selectInput(apiPath('responseFormat'), api.responseFormat, TTS_RESPONSE_FORMATS)),
+                checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速（接口不认 speed 时关掉）'),
+            );
+        }
+        if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速'));
+        if (format === 'custom') {
+            parts.push(
+                field(apiPath('customMethod'), '请求方法', selectInput(apiPath('customMethod'), api.customMethod, TTS_CUSTOM_METHODS)),
+                field(apiPath('customUrl'), '请求地址', textInput(apiPath('customUrl'), api.customUrl, 'https://example.com/tts?text={{text}}')),
+                field(apiPath('customHeaders'), '请求头（JSON）', textareaInput(apiPath('customHeaders'), api.customHeaders, '{"Authorization": "Bearer {{key}}"}')),
+                field(apiPath('customBody'), '请求体（JSON）', textareaInput(apiPath('customBody'), api.customBody, '{"text": "{{text}}", "voice": "{{voice}}", "speed": {{speed}}}')),
+                field(apiPath('customResponse'), '响应类型', selectInput(apiPath('customResponse'), api.customResponse, TTS_CUSTOM_RESPONSES)),
+            );
+            if (api.customResponse !== 'audio') parts.push(field(apiPath('customPath'), '音频字段路径', textInput(apiPath('customPath'), api.customPath, '如 data.audio')));
+        }
+        // 页面是 https、接口是 http 的非本机地址：浏览器会直接拦掉请求。
+        if (ttsMixedContentRisk(api)) parts.push('<div class="igs-source-filter-note igs-tts-warning">当前页面是 https，浏览器会拦截 http 开头的接口地址。请改用「酒馆 CORS 代理」传输方式，或把接口换成 https。</div>');
+        for (const [key, label] of roles) parts.push(field(apiPath(key), `${label}声音`, textInput(apiPath(key), api[key], key === 'narrator' ? '留空用女声' : hint.voice)));
+        parts.push(field(apiPath('voices'), '可选声音', textInput(apiPath('voices'), api.voices, '逗号分隔，给角色单独指定时用；可写「声音名#标题」')));
+        if (format === 'openai' || format === 'fish' || format === 'minimax') {
+            parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-fetch-voices">获取音色列表</button>');
+            if (voicesMessage) parts.push(`<div class="igs-source-filter-note">${esc(voicesMessage)}</div>`);
+        }
         parts.push(
-            field(`${base}.api.voices`, '可选声音', textInput(`${base}.api.voices`, api.voices, '逗号分隔，给角色单独指定时用')),
-            checkbox(`${base}.api.prefetch`, api.prefetch, '提前生成下一页（在一页停留 1.5 秒后才生成，快速点过的页不生成）'),
+            checkbox(apiPath('prefetch'), api.prefetch, '提前生成下一页（在一页停留 1.5 秒后才生成，快速点过的页不生成）'),
+            checkbox(apiPath('chunk'), api.chunk, '长句分段先播（超过 60 字按句切开，第一段先念）'),
             '<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-clear-cache">清除朗读缓存</button>',
-            '<div class="igs-source-filter-note">兼容 OpenAI 的 /audio/speech 接口。浏览器直连被跨域拦住时，改用「酒馆 CORS 代理」（需在酒馆 config.yaml 打开 enableCorsProxy）。</div>',
+            `<div class="igs-source-filter-note">${esc(hint.note)}浏览器直连被跨域拦住时，改用「酒馆 CORS 代理」（需在酒馆 config.yaml 打开 enableCorsProxy）。</div>`,
         );
     }
     parts.push(field(`${base}.lexicon`, '读音替换', textareaInput(`${base}.lexicon`, tts.lexicon, '每行一条：原词=读法\n例：雫=shizuku\n例：Λ=兰姆达')));

@@ -30,6 +30,7 @@ import { canMorph, morphChildren } from './settings-dom-morph.js';
 import { buildFallbackSettingsOverlay } from './reader-dom-render.js';
 import { createSettingsRenderer } from './settings-host-render.js';
 import { previewStatusHudPosition } from './status-hud-position-fields.js';
+import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
 const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
@@ -115,6 +116,16 @@ export function createSettingsHost(deps) {
         };
         state.activeSettings = settingsState;
         settingsState.dom = mountSettingsDom(controller);
+        // 浏览器的系统声音是异步加载的：打开时还是空的就等 voiceschanged，到了就刷新设置页，设置关闭时取消。
+        if (!listSystemVoices().length) {
+            const stop = onSystemVoicesChanged(() => {
+                if (state.activeSettings !== settingsState || !listSystemVoices().length) return;
+                stop();
+                settingsState.stopVoicesWatch = null;
+                rerenderSettings();
+            });
+            settingsState.stopVoicesWatch = stop;
+        }
         syncSettingsStagePause();
         playReaderUiSfx('open');
         rememberSettingsPage(settingsState);
@@ -152,6 +163,8 @@ export function createSettingsHost(deps) {
         });
         if (saved.ok === false) return saved;
         settingsDialogs.cancel();
+        if (current.stopVoicesWatch) current.stopVoicesWatch();
+        current.stopVoicesWatch = null;
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
         }
